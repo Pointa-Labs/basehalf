@@ -13,6 +13,8 @@ import { generateUuid } from '../../../base/common/uuid.js';
 import { joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { listenStream, newWriteableStream, ReadableStream } from '../../../base/common/stream.js';
+import { VSBuffer } from '../../../base/common/buffer.js';
 import { IChecksumService } from '../../../platform/checksum/common/checksumService.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { INativeEnvironmentService } from '../../../platform/environment/common/environment.js';
@@ -22,7 +24,7 @@ import { ILogService } from '../../../platform/log/common/log.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
 import { EnablementState, IWorkbenchExtensionEnablementService, IWorkbenchExtensionManagementService } from '../../services/extensionManagement/common/extensionManagement.js';
-import { BASEHALF_CURATED_PLUGINS, IBaseHalfResolvedPlugin, resolveBaseHalfPluginAsset } from './basehalfPluginCatalog.js';
+import { IBaseHalfResolvedPlugin, resolveBaseHalfPluginAsset } from './basehalfPluginCatalog.js';
 import { IBaseHalfPluginCatalogService } from './basehalfPluginCatalogService.js';
 import { sha256HexToChecksumBase64 } from './basehalfPluginCatalogSecurity.js';
 import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from './basehalfPluginManagement.js';
@@ -65,7 +67,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 		]);
 		return Promise.all(snapshot.plugins.map(async plugin => {
 			const extension = installed.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
-			const bundledAvailable = await this.fileService.exists(pluginPayloadLocation(plugin));
+			const bundledAvailable = plugin.bundledPath ? await this.fileService.exists(pluginPayloadLocation(plugin)) : false;
 			const installedVersion = extension?.manifest.version;
 			const enabled = !!extension && this.enablementService.isEnabled(extension);
 			const operation = this.operations.get(plugin.extensionId);
@@ -118,6 +120,9 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 			if (plugin.remoteVersion) {
 				await this.installRemote(plugin);
 			} else {
+				if (!plugin.bundledPath) {
+					throw new Error('No compatible reviewed package is available for this plugin.');
+				}
 				const location = pluginPayloadLocation(plugin);
 				if (!await this.fileService.exists(location)) {
 					throw new Error('This official plugin is not included in the current build and no compatible remote version is available.');
@@ -158,7 +163,8 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 	}
 
 	async executePrimary(extensionId: string): Promise<void> {
-		const plugin = BASEHALF_CURATED_PLUGINS.find(candidate => candidate.extensionId === extensionId.toLowerCase());
+		const snapshot = await this.catalogService.getSnapshot();
+		const plugin = snapshot.plugins.find(candidate => candidate.extensionId === extensionId.toLowerCase());
 		if (!plugin?.primaryCommand) {
 			throw new Error('This plugin does not expose a primary action.');
 		}
@@ -250,10 +256,10 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 				throw new Error(`Plugin download returned ${context.res.statusCode}.`);
 			}
 			const contentLength = readHeader(context.res.headers, 'content-length');
-			if (contentLength !== undefined && Number(contentLength) !== version.size) {
+			if (contentLength !== undefined && (!/^\d+$/.test(contentLength) || Number(contentLength) !== version.size)) {
 				throw new Error(`Plugin download Content-Length mismatch: expected ${version.size}, received ${contentLength}.`);
 			}
-			await this.fileService.writeFile(partial, context.stream);
+			await this.fileService.writeFile(partial, limitBaseHalfPluginDownloadStream(context.stream, version.size, cancellation));
 			if (cancellation.token.isCancellationRequested) {
 				throw new CancellationError();
 			}
@@ -289,11 +295,52 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 	}
 }
 
+export function limitBaseHalfPluginDownloadStream(
+	stream: ReadableStream<VSBuffer>,
+	maximumBytes: number,
+	cancellation: CancellationTokenSource
+): ReadableStream<VSBuffer> {
+	const target = newWriteableStream<VSBuffer>(chunks => VSBuffer.concat(chunks));
+	let size = 0;
+	let settled = false;
+	listenStream(stream, {
+		onData: chunk => {
+			if (settled) {
+				return;
+			}
+			size += chunk.byteLength;
+			if (size > maximumBytes) {
+				settled = true;
+				cancellation.cancel();
+				target.error(new Error(`Plugin download exceeds the signed size of ${maximumBytes} bytes.`));
+				return;
+			}
+			target.write(chunk);
+		},
+		onError: error => {
+			if (!settled) {
+				settled = true;
+				target.error(error);
+			}
+		},
+		onEnd: () => {
+			if (!settled) {
+				settled = true;
+				target.end();
+			}
+		}
+	});
+	return target;
+}
+
 function isPluginWithdrawn(plugin: IBaseHalfResolvedPlugin): boolean {
 	return !!plugin.remote?.versions.length && plugin.remote.versions.every(version => version.status === 'withdrawn');
 }
 
 function pluginPayloadLocation(plugin: IBaseHalfResolvedPlugin): URI {
+	if (!plugin.bundledPath) {
+		throw new Error(`Plugin '${plugin.extensionId}' does not have a bundled payload.`);
+	}
 	return joinPath(FileAccess.asFileUri(''), ...plugin.bundledPath.split('/'));
 }
 

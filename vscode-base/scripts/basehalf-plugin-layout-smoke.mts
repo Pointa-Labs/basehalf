@@ -22,5 +22,6 @@ assert.equal(fs.existsSync(path.join(plugin, 'out', 'extension.js')), true, 'AI 
 assert.equal(fs.existsSync(systemExtension), false, 'AI Video was incorrectly packaged as a pre-scanned system extension.');
 const manifest = JSON.parse(fs.readFileSync(path.join(plugin, 'package.json'), 'utf8'));
 assert.equal(`${manifest.publisher}.${manifest.name}`.toLowerCase(), 'pointa.basehalf-ai-video');
-assert.deepStrictEqual(manifest.enabledApiProposals, ['basehalfDomainPlugins']);
+assert.equal(manifest.engines.basehalf, '^0.4.0');
+assert.equal(manifest.enabledApiProposals, undefined, 'Stable BaseHalf plugin APIs must not require a proposed API opt-in.');
 console.log(JSON.stringify({ ok: true, appRoot, plugin: 'plugins/basehalf-ai-video', systemExtensionAbsent: true }));

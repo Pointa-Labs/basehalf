@@ -228,6 +228,24 @@
 	color: var(--vscode-descriptionForeground);
 }
 
+.basehalf-plugin-library-release-notes {
+	margin: 18px 0;
+	padding-top: 16px;
+	border-top: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.basehalf-plugin-library-release-notes h3,
+.basehalf-plugin-library-release-notes p {
+	margin: 0;
+}
+
+.basehalf-plugin-library-release-notes p {
+	margin-top: 7px;
+	white-space: pre-wrap;
+	line-height: 1.5;
+	color: var(--vscode-descriptionForeground);
+}
+
 .basehalf-plugin-library-error {
 	margin: 12px 0;
 	padding: 10px 12px;

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import '../../browser/basehalfConfiguration.contribution.js';
 import { Extensions as ConfigurationExtensions, ConfigurationScope, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
@@ -23,13 +24,16 @@ import {
 } from '../../common/basehalfConfiguration.js';
 
 suite('BaseHalfConfiguration', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('registers the first product settings without BaseHalf Git or update detours', () => {
 		const keys = Object.values(BaseHalfSetting);
 		assert.deepStrictEqual(keys, [
 			'basehalf.editor.readingMode',
 			'basehalf.editor.attachmentsDirectory',
 			'basehalf.canvas.defaultZoom',
-			'basehalf.agent.defaultSession'
+			'basehalf.agent.defaultSession',
+			'basehalf.models.services'
 		]);
 
 		const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -48,6 +52,10 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].default, BASEHALF_CANVAS_DEFAULT_ZOOM);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].default, BASEHALF_AGENT_DEFAULT_SESSION);
+		assert.strictEqual(properties[BaseHalfSetting.ModelServices].scope, ConfigurationScope.APPLICATION);
+		assert.deepStrictEqual(properties[BaseHalfSetting.ModelServices].default, {});
+		assert.ok(properties[BaseHalfSetting.ModelServices].markdownDescription?.includes('command:basehalf.models.manage'));
+		assert.strictEqual(properties[BaseHalfSetting.ModelServices].markdownDescription?.includes('API keys are encrypted'), true);
 
 		for (const key of keys) {
 			assert.strictEqual(key.startsWith('basehalf.git.'), false);
@@ -62,12 +70,14 @@ suite('BaseHalfConfiguration', () => {
 		assert.deepStrictEqual(basehalf?.children?.map(child => child.id), [
 			'basehalf/editor',
 			'basehalf/canvas',
-			'basehalf/agentArea'
+			'basehalf/agentArea',
+			'basehalf/modelServices'
 		]);
 		assert.deepStrictEqual(basehalf?.children?.map(child => child.settings), [
 			['basehalf.editor.*'],
 			['basehalf.canvas.*'],
-			['basehalf.agent.*']
+			['basehalf.agent.*'],
+			['basehalf.models.*']
 		]);
 	});
 

@@ -8,11 +8,14 @@ import fs from 'fs';
 import path from 'path';
 import process from 'process';
 import { fileURLToPath, pathToFileURL } from 'url';
-import yauzl from 'yauzl';
+import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { createVSIX } from '@vscode/vsce';
-import { compare, valid } from 'semver';
+import { compare, valid, validRange } from 'semver';
 
 export const OFFICIAL_EXTENSION_ID = 'pointa.basehalf-ai-video';
+const FORBIDDEN_CONTRIBUTION_POINTS = ['viewsContainers', 'views', 'customEditors', 'notebooks', 'chatParticipants', 'languageModelTools', 'authentication'] as const;
+const MAX_VSIX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 1024 * 1024;
 
 export interface ReleaseMetadata {
 	extensionId: string;
@@ -21,6 +24,17 @@ export interface ReleaseMetadata {
 	sha256: string;
 	size: number;
 	vsixPath: string;
+	label?: string;
+	description?: string;
+	category?: string;
+	primaryCommand?: string;
+	primaryCommandLabel?: string;
+	publisher?: {
+		slug: string;
+		displayName: string;
+		trust: 'official' | 'reviewed';
+	};
+	releaseNotes?: string;
 }
 
 export async function packagePlugin(options: { root: string; outputDirectory: string }): Promise<ReleaseMetadata> {
@@ -54,7 +68,83 @@ export async function packagePlugin(options: { root: string; outputDirectory: st
 		assetPath: `${extensionId}/${manifest.version}/${sha256}.vsix`,
 		sha256,
 		size: bytes.byteLength,
-		vsixPath
+		vsixPath,
+		label: manifest.displayName,
+		description: manifest.description,
+		category: 'Domain',
+		publisher: { slug: manifest.publisher, displayName: 'BaseHalf', trust: 'official' },
+		primaryCommand: manifest.basehalf?.primaryCommand,
+		primaryCommandLabel: manifest.basehalf?.primaryCommandLabel
+	};
+}
+
+export async function metadataFromVsix(options: {
+	vsixPath: string;
+	expectedExtensionId?: string;
+	expectedVersion?: string;
+	label?: string;
+	description?: string;
+	category?: string;
+	primaryCommand?: string;
+	primaryCommandLabel?: string;
+	publisherSlug?: string;
+	publisherDisplayName?: string;
+	publisherTrust?: 'official' | 'reviewed';
+	releaseNotes?: string;
+}): Promise<ReleaseMetadata> {
+	if (options.publisherTrust && options.publisherTrust !== 'official' && options.publisherTrust !== 'reviewed') {
+		throw new Error('Publisher trust must be official or reviewed.');
+	}
+	const vsixPath = path.resolve(options.vsixPath);
+	const bytes = fs.readFileSync(vsixPath);
+	const inspection = await inspectVsixArchive(vsixPath);
+	const manifest = inspection.manifest;
+	const extensionId = manifestId(manifest);
+	if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]\.[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/.test(extensionId)) {
+		throw new Error(`VSIX id '${extensionId}' is not a valid BaseHalf plugin identity.`);
+	}
+	assertSemver(manifest.version, 'extension version');
+	if (options.expectedExtensionId && extensionId !== options.expectedExtensionId.toLowerCase()) {
+		throw new Error(`VSIX id must be ${options.expectedExtensionId}; got ${extensionId}.`);
+	}
+	if (options.expectedVersion && manifest.version !== options.expectedVersion) {
+		throw new Error(`VSIX version must be ${options.expectedVersion}; got ${manifest.version}.`);
+	}
+	validateReviewedVsixManifest(manifest, inspection.files, extensionId);
+	const sha256 = createHash('sha256').update(bytes).digest('hex');
+	const publisherSlug = options.publisherSlug ?? String(manifest.publisher ?? '').toLowerCase();
+	if (publisherSlug !== String(manifest.publisher ?? '').toLowerCase()) {
+		throw new Error(`Publisher '${publisherSlug}' does not own VSIX id '${extensionId}'.`);
+	}
+	const primaryCommand = options.primaryCommand ?? manifest.basehalf?.primaryCommand;
+	const primaryCommandLabel = options.primaryCommandLabel ?? manifest.basehalf?.primaryCommandLabel;
+	if (typeof primaryCommand !== 'string' || !primaryCommand.toLowerCase().startsWith(`${extensionId}.`)) {
+		throw new Error(`VSIX primary command must be owned by '${extensionId}'.`);
+	}
+	if (!Array.isArray(manifest.contributes?.commands) || !manifest.contributes.commands.some((candidate: any) => candidate?.command === primaryCommand)) {
+		throw new Error(`VSIX primary command '${primaryCommand}' is not declared in contributes.commands.`);
+	}
+	if (typeof primaryCommandLabel !== 'string' || !primaryCommandLabel.trim()) {
+		throw new Error('VSIX primary command label is missing.');
+	}
+	return {
+		extensionId,
+		version: manifest.version,
+		assetPath: `${extensionId}/${manifest.version}/${sha256}.vsix`,
+		sha256,
+		size: bytes.byteLength,
+		vsixPath,
+		label: options.label ?? manifest.displayName ?? manifest.name,
+		description: options.description ?? manifest.description ?? '',
+		category: options.category ?? 'Community',
+		primaryCommand,
+		primaryCommandLabel: primaryCommandLabel.trim(),
+		publisher: {
+			slug: publisherSlug,
+			displayName: options.publisherDisplayName ?? publisherSlug,
+			trust: options.publisherTrust ?? 'reviewed'
+		},
+		releaseNotes: options.releaseNotes
 	};
 }
 
@@ -94,7 +184,8 @@ export function createCatalog(options: {
 		sha256: options.metadata.sha256,
 		size: options.metadata.size,
 		publishedAt: options.generatedAt ?? new Date().toISOString(),
-		status: options.status
+		status: options.status,
+		...(options.metadata.releaseNotes ? { releaseNotes: options.metadata.releaseNotes } : {})
 	};
 	const nextVersions = [release, ...versions.filter((candidate: any) => candidate.version !== release.version)]
 		.sort((a: any, b: any) => compareSemverDescending(a.version, b.version));
@@ -105,9 +196,12 @@ export function createCatalog(options: {
 		generatedAt: options.generatedAt ?? new Date().toISOString(),
 		plugins: [{
 			extensionId: options.metadata.extensionId,
-			label: 'AI Video',
-			description: 'A node workflow canvas for scripts, characters, scenes, shots, and provider-neutral local generation.',
-			category: 'Domain',
+			label: options.metadata.label ?? previousPlugin?.label ?? options.metadata.extensionId,
+			description: options.metadata.description ?? previousPlugin?.description ?? '',
+			category: options.metadata.category ?? previousPlugin?.category ?? 'Community',
+			...(options.metadata.primaryCommand || previousPlugin?.primaryCommand ? { primaryCommand: options.metadata.primaryCommand ?? previousPlugin.primaryCommand } : {}),
+			...(options.metadata.primaryCommandLabel || previousPlugin?.primaryCommandLabel ? { primaryCommandLabel: options.metadata.primaryCommandLabel ?? previousPlugin.primaryCommandLabel } : {}),
+			...(options.metadata.publisher || previousPlugin?.publisher ? { publisher: options.metadata.publisher ?? previousPlugin.publisher } : {}),
 			versions: nextVersions
 		}, ...otherPlugins]
 	};
@@ -268,13 +362,21 @@ export async function verifyRelease(options: {
 }
 
 export async function readVsixManifest(vsixPath: string): Promise<any> {
+	return (await inspectVsixArchive(vsixPath)).manifest;
+}
+
+async function inspectVsixArchive(vsixPath: string): Promise<{ manifest: any; files: ReadonlySet<string> }> {
 	return new Promise((resolve, reject) => {
-		yauzl.open(vsixPath, { lazyEntries: true }, (openError, zip) => {
+		yauzl.open(vsixPath, { lazyEntries: true, validateEntrySizes: true }, (openError, zip) => {
 			if (openError || !zip) {
 				reject(openError ?? new Error('Could not open VSIX.'));
 				return;
 			}
 			let settled = false;
+			let totalUncompressed = 0;
+			let manifest: any;
+			const files = new Set<string>();
+			const canonicalFiles = new Set<string>();
 			const fail = (error: unknown) => {
 				if (!settled) {
 					settled = true;
@@ -283,37 +385,150 @@ export async function readVsixManifest(vsixPath: string): Promise<any> {
 				}
 			};
 			zip.on('error', fail);
-			zip.on('end', () => fail(new Error('VSIX does not contain extension/package.json.')));
+			zip.on('end', () => {
+				if (!manifest) {
+					fail(new Error('VSIX does not contain extension/package.json.'));
+					return;
+				}
+				if (!settled) {
+					settled = true;
+					resolve({ manifest, files });
+				}
+			});
 			zip.on('entry', entry => {
-				if (entry.fileName !== 'extension/package.json') {
+				if (!safeVsixEntryName(entry.fileName) || isVsixSymbolicLink(entry)) {
+					fail(new Error(`VSIX contains unsafe entry '${entry.fileName}'.`));
+					return;
+				}
+				const canonicalName = entry.fileName.toLowerCase();
+				if (canonicalFiles.has(canonicalName)) {
+					fail(new Error(`VSIX contains duplicate archive path '${entry.fileName}'.`));
+					return;
+				}
+				canonicalFiles.add(canonicalName);
+				files.add(entry.fileName);
+				totalUncompressed += entry.uncompressedSize;
+				if (totalUncompressed > MAX_VSIX_UNCOMPRESSED_BYTES) {
+					fail(new Error('VSIX expands beyond the allowed size.'));
+					return;
+				}
+				if (canonicalName !== 'extension/package.json') {
 					zip.readEntry();
 					return;
 				}
-				zip.openReadStream(entry, (streamError, stream) => {
-					if (streamError || !stream) {
-						fail(streamError ?? new Error('Could not read VSIX manifest.'));
-						return;
+				readVsixEntry(zip, entry, MAX_MANIFEST_BYTES).then(bytes => {
+					try {
+						manifest = JSON.parse(bytes.toString('utf8'));
+						zip.readEntry();
+					} catch (error) {
+						fail(error);
 					}
-					const chunks: Buffer[] = [];
-					stream.on('data', chunk => chunks.push(Buffer.from(chunk)));
-					stream.on('error', fail);
-					stream.on('end', () => {
-						if (settled) {
-							return;
-						}
-						settled = true;
-						zip.close();
-						try {
-							resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-						} catch (error) {
-							reject(error);
-						}
-					});
-				});
+				}, fail);
 			});
 			zip.readEntry();
 		});
 	});
+}
+
+export function validateReviewedVsixManifest(manifest: any, files: ReadonlySet<string>, extensionId: string): void {
+	if (manifest.enabledApiProposals !== undefined && (!Array.isArray(manifest.enabledApiProposals) || manifest.enabledApiProposals.length > 0)) {
+		throw new Error('Reviewed plugins cannot depend on proposed APIs.');
+	}
+	const contributes = manifest.contributes;
+	if (!contributes || typeof contributes !== 'object' || Array.isArray(contributes)) {
+		throw new Error('Reviewed plugin manifest must declare contributions.');
+	}
+	const forbidden = FORBIDDEN_CONTRIBUTION_POINTS.filter(point => Object.prototype.hasOwnProperty.call(contributes, point));
+	if (forbidden.length > 0) {
+		throw new Error(`Reviewed plugin changes the fixed application shell: ${forbidden.join(', ')}.`);
+	}
+	if (!validRange(manifest.engines?.vscode) || !validRange(manifest.engines?.basehalf)) {
+		throw new Error('Reviewed plugin compatibility ranges are invalid.');
+	}
+	const main = requiredManifestText(manifest.main, 'main');
+	const mainPath = packageRelativePath(main, 'main');
+	if (!hasVsixFile(files, `extension/${mainPath}`)) {
+		throw new Error(`Reviewed plugin entry point '${main}' is missing from the VSIX.`);
+	}
+	const projections = contributes.basehalfCardProjections;
+	if (!Array.isArray(projections) || projections.length === 0) {
+		throw new Error('Reviewed plugin must contribute at least one BaseHalf card projection.');
+	}
+	const projectionIds = new Set<string>();
+	for (const candidate of projections) {
+		if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+			throw new Error('Reviewed plugin card projection declaration is invalid.');
+		}
+		const projection = candidate as { id?: unknown; label?: unknown; extensions?: unknown };
+		const id = requiredManifestText(projection.id, 'basehalfCardProjections[].id').toLowerCase();
+		requiredManifestText(projection.label, 'basehalfCardProjections[].label');
+		if (!id.startsWith(`${extensionId}.`) || projectionIds.has(id)) {
+			throw new Error(`Reviewed plugin card projection '${id}' is not uniquely owned by '${extensionId}'.`);
+		}
+		projectionIds.add(id);
+		if (!Array.isArray(projection.extensions) || projection.extensions.length === 0 || projection.extensions.some((extension: unknown) => typeof extension !== 'string' || !/^\.[a-z0-9][a-z0-9.-]*$/i.test(extension))) {
+			throw new Error(`Reviewed plugin card projection '${id}' has invalid file extensions.`);
+		}
+	}
+	if (!hasVsixFile(files, 'extension/readme.md')) {
+		throw new Error('Reviewed plugin VSIX is missing README.md.');
+	}
+	const hasLicense = [...files].some(file => /^extension\/(license|license\.md|license\.txt)$/i.test(file));
+	if (!hasLicense && (typeof manifest.license !== 'string' || !manifest.license.trim())) {
+		throw new Error('Reviewed plugin VSIX is missing license information.');
+	}
+}
+
+function readVsixEntry(zip: ZipFile, entry: Entry, maximumBytes: number): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		zip.openReadStream(entry, (error, stream) => {
+			if (error || !stream) {
+				reject(error ?? new Error('Could not read VSIX entry.'));
+				return;
+			}
+			const chunks: Buffer[] = [];
+			let size = 0;
+			stream.on('data', chunk => {
+				size += chunk.length;
+				if (size > maximumBytes) {
+					stream.destroy(new Error('VSIX manifest is too large.'));
+					return;
+				}
+				chunks.push(Buffer.from(chunk));
+			});
+			stream.on('error', reject);
+			stream.on('end', () => resolve(Buffer.concat(chunks)));
+		});
+	});
+}
+
+function safeVsixEntryName(name: string): boolean {
+	return !!name && !name.includes('\\') && !name.includes('\0') && !name.startsWith('/')
+		&& name.split('/').every(segment => !!segment && segment !== '.' && segment !== '..');
+}
+
+function isVsixSymbolicLink(entry: Entry): boolean {
+	return ((entry.externalFileAttributes >>> 16) & 0xf000) === 0xa000;
+}
+
+function hasVsixFile(files: ReadonlySet<string>, wanted: string): boolean {
+	const lower = wanted.toLowerCase();
+	return [...files].some(file => file.toLowerCase() === lower);
+}
+
+function packageRelativePath(value: string, field: string): string {
+	const normalized = value.startsWith('./') ? value.slice(2) : value;
+	if (!normalized || normalized.startsWith('/') || normalized.startsWith('\\') || normalized.includes('\\') || normalized.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
+		throw new Error(`Reviewed plugin manifest ${field} path is invalid.`);
+	}
+	return normalized;
+}
+
+function requiredManifestText(value: unknown, field: string): string {
+	if (typeof value !== 'string' || !value.trim()) {
+		throw new Error(`Reviewed plugin manifest is missing ${field}.`);
+	}
+	return value.trim();
 }
 
 async function fetchBytes(url: string, timeoutMs = 10_000): Promise<Uint8Array> {
@@ -411,6 +626,26 @@ async function main(): Promise<void> {
 		console.log(JSON.stringify(metadata));
 		return;
 	}
+	if (command === 'metadata') {
+		const job = args['release-job'] ? readJson(path.resolve(args['release-job'])) : undefined;
+		const metadata = await metadataFromVsix({
+			vsixPath: required(args, 'vsix'),
+			expectedExtensionId: job?.extension_id ?? args['extension-id'],
+			expectedVersion: job?.version ?? args.version,
+			label: job?.label ?? args.label,
+			description: job?.description ?? args.description,
+			category: job?.category ?? args.category,
+			primaryCommand: job?.primary_command ?? args['primary-command'],
+			primaryCommandLabel: job?.primary_command_label ?? args['primary-command-label'],
+			publisherSlug: job?.publisher?.slug ?? args['publisher-slug'],
+			publisherDisplayName: job?.publisher?.display_name ?? args['publisher-display-name'],
+			publisherTrust: (job?.publisher?.trust ?? args['publisher-trust']) as 'official' | 'reviewed' | undefined,
+			releaseNotes: job?.release_notes ?? args['release-notes']
+		});
+		writeJsonExact(path.resolve(required(args, 'output')), metadata);
+		console.log(JSON.stringify(metadata));
+		return;
+	}
 	if (command === 'catalog') {
 		const metadata = readJson(path.resolve(required(args, 'metadata')));
 		const catalog = createCatalog({
@@ -476,7 +711,7 @@ async function main(): Promise<void> {
 		console.log(JSON.stringify(result));
 		return;
 	}
-	throw new Error('Usage: basehalf-plugin-release.mts package|catalog|status|control|signature|index|verify [--name value ...]');
+	throw new Error('Usage: basehalf-plugin-release.mts package|metadata|catalog|status|control|signature|index|verify [--name value ...]');
 }
 
 function required(args: Record<string, string>, name: string): string {

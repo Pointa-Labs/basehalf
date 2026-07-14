@@ -169,11 +169,6 @@
 			"https://plugins.basehalf.com/v1/extensions-control.json"
 		]
 	},
-	"extensionEnabledApiProposals": {
-		"pointa.basehalf-ai-video": [
-			"basehalfDomainPlugins"
-		]
-	},
 	"basehalfPlugins": {
 		"catalogIndexUrl": "https://plugins.basehalf.com/v1/catalog-index.json",
 		"assetBaseUrl": "https://plugins.basehalf.com/",

@@ -25,6 +25,8 @@ const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 export interface IBaseHalfCardProjectionSelector {
 	/** Lower-case extensions including the leading dot. Omit to match every file. */
 	readonly extensions?: readonly string[];
+	/** Lower-case extensions that must not use this projection. */
+	readonly excludedExtensions?: readonly string[];
 }
 
 /** Product chrome owned by BaseHalf for one center-area projection. */
@@ -67,6 +69,9 @@ export const BASEHALF_BUILTIN_CARD_PROJECTIONS: readonly IBaseHalfCardProjection
 		id: DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION,
 		label: 'Source',
 		icon: 'codicon-code',
+		// Direct-render content is binary user material, not meaningful source
+		// text. Keeping it out of Monaco also prevents accidental binary edits.
+		selector: { excludedExtensions: BASEHALF_RENDERABLE_CONTENT_EXTENSIONS },
 		order: 100,
 		defaultPriority: 0
 	}
@@ -141,9 +146,12 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 		this.validateDescriptor(descriptor);
 		const normalized: IBaseHalfCardProjectionDescriptor = {
 			...descriptor,
-			selector: descriptor.selector?.extensions
-				? { extensions: descriptor.selector.extensions.map(extension => extension.toLowerCase()) }
-				: descriptor.selector
+			selector: descriptor.selector
+				? {
+					extensions: descriptor.selector.extensions?.map(extension => extension.toLowerCase()),
+					excludedExtensions: descriptor.selector.excludedExtensions?.map(extension => extension.toLowerCase())
+				}
+				: undefined
 		};
 		this.projections.set(normalized.id, normalized);
 		return normalized;
@@ -164,12 +172,21 @@ export class BaseHalfCardProjectionRegistryService extends Disposable implements
 				throw new Error(`Invalid extension '${extension}' in BaseHalf card projection '${descriptor.id}'.`);
 			}
 		}
+		for (const extension of descriptor.selector?.excludedExtensions ?? []) {
+			if (!/^\.[a-z0-9]+$/i.test(extension)) {
+				throw new Error(`Invalid excluded extension '${extension}' in BaseHalf card projection '${descriptor.id}'.`);
+			}
+		}
 	}
 }
 
 export function baseHalfCardProjectionMatches(resource: URI, descriptor: IBaseHalfCardProjectionDescriptor): boolean {
+	const extension = extname(resource).toLowerCase();
+	if (descriptor.selector?.excludedExtensions?.includes(extension)) {
+		return false;
+	}
 	const extensions = descriptor.selector?.extensions;
-	return !extensions || extensions.length === 0 || extensions.includes(extname(resource).toLowerCase());
+	return !extensions || extensions.length === 0 || extensions.includes(extension);
 }
 
 function baseHalfCardProjectionsFor(resource: URI, descriptors: Iterable<IBaseHalfCardProjectionDescriptor>): IBaseHalfCardProjectionDescriptor[] {

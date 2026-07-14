@@ -34,13 +34,23 @@ export interface IBaseHalfRemotePluginVersion {
 	readonly size: number;
 	readonly publishedAt: string;
 	readonly status: BaseHalfRemotePluginVersionStatus;
+	readonly releaseNotes?: string;
+}
+
+export interface IBaseHalfPluginPublisher {
+	readonly slug: string;
+	readonly displayName: string;
+	readonly trust: 'official' | 'reviewed';
 }
 
 export interface IBaseHalfRemotePlugin {
 	readonly extensionId: string;
 	readonly label: string;
 	readonly description: string;
-	readonly category: 'Domain';
+	readonly category: string;
+	readonly publisher?: IBaseHalfPluginPublisher;
+	readonly primaryCommand?: string;
+	readonly primaryCommandLabel?: string;
 	readonly versions: readonly IBaseHalfRemotePluginVersion[];
 }
 
@@ -78,12 +88,13 @@ export interface IBaseHalfPluginCatalogPublicKey {
 export interface IBaseHalfCuratedPlugin {
 	readonly extensionId: string;
 	/** Stable product-owned gallery identity used by VS Code's native extension renderer. */
-	readonly galleryUuid: string;
+	readonly galleryUuid?: string;
 	readonly label: string;
 	readonly description: string;
-	readonly category: 'Domain';
+	readonly category: string;
+	readonly publisher: IBaseHalfPluginPublisher;
 	/** App-root-relative reviewed payload installed only when the user asks. */
-	readonly bundledPath: string;
+	readonly bundledPath?: string;
 	readonly primaryCommand?: string;
 	readonly primaryCommandLabel?: string;
 }
@@ -103,42 +114,58 @@ export const BASEHALF_CURATED_PLUGINS: readonly IBaseHalfCuratedPlugin[] = [{
 	label: 'AI Video',
 	description: 'A node workflow canvas for scripts, characters, scenes, shots, and provider-neutral local generation.',
 	category: 'Domain',
+	publisher: { slug: 'pointa', displayName: 'BaseHalf', trust: 'official' },
 	bundledPath: 'plugins/basehalf-ai-video',
-	primaryCommand: 'basehalf.aiVideo.createProject',
+	primaryCommand: 'pointa.basehalf-ai-video.createProject',
 	primaryCommandLabel: 'Create AI Video Project…'
 }];
 
-export function parseBaseHalfRemotePluginCatalog(value: unknown, allowedExtensionIds: readonly string[]): IBaseHalfRemotePluginCatalog {
+export function parseBaseHalfRemotePluginCatalog(value: unknown, officialExtensionIds: readonly string[]): IBaseHalfRemotePluginCatalog {
 	const root = record(value, 'catalog');
 	if (root.schemaVersion !== 1) {
 		throw new Error('Plugin catalog schemaVersion must be 1.');
 	}
-	const sequence = integer(root.sequence, 'catalog.sequence', 0);
+	const sequence = integer(root.sequence, 'catalog.sequence', 1);
 	const generatedAt = isoDate(root.generatedAt, 'catalog.generatedAt');
-	const allowed = new Set(allowedExtensionIds.map(id => id.toLowerCase()));
+	const official = new Set(officialExtensionIds.map(id => id.toLowerCase()));
 	const seen = new Set<string>();
 	const plugins: IBaseHalfRemotePlugin[] = [];
-	for (const [index, rawPlugin] of array(root.plugins, 'catalog.plugins').entries()) {
+	for (const [index, rawPlugin] of array(root.plugins, 'catalog.plugins', 200).entries()) {
 		const plugin = record(rawPlugin, `catalog.plugins[${index}]`);
 		const extensionId = string(plugin.extensionId, `catalog.plugins[${index}].extensionId`).toLowerCase();
-		if (!/^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/.test(extensionId)) {
+		if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]\.[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/.test(extensionId)) {
 			throw new Error(`Plugin catalog extension id '${extensionId}' is invalid.`);
 		}
 		if (seen.has(extensionId)) {
 			throw new Error(`Plugin catalog contains duplicate extension id '${extensionId}'.`);
 		}
 		seen.add(extensionId);
-		// A signed catalog may serve newer BaseHalf clients too. Older clients
-		// ignore entries that are not part of their product-owned admission list.
-		if (!allowed.has(extensionId)) {
-			continue;
-		}
 		const versions = parseVersions(plugin.versions, extensionId);
+		const publisher = plugin.publisher === undefined
+			? undefined
+			: parsePublisher(plugin.publisher, extensionId);
+		if (!official.has(extensionId) && !publisher) {
+			throw new Error(`Reviewed plugin '${extensionId}' must declare its Publisher.`);
+		}
+		if (!official.has(extensionId) && publisher?.trust !== 'reviewed') {
+			throw new Error(`Community plugin '${extensionId}' cannot claim official trust.`);
+		}
+		const primaryCommand = plugin.primaryCommand === undefined ? undefined : boundedString(plugin.primaryCommand, `${extensionId}.primaryCommand`, 200);
+		const primaryCommandLabel = plugin.primaryCommandLabel === undefined ? undefined : boundedString(plugin.primaryCommandLabel, `${extensionId}.primaryCommandLabel`, 100);
+		if (!official.has(extensionId) && (!primaryCommand || !primaryCommandLabel)) {
+			throw new Error(`Reviewed plugin '${extensionId}' must declare its primary action.`);
+		}
+		if (primaryCommand && !primaryCommand.toLowerCase().startsWith(`${extensionId}.`)) {
+			throw new Error(`Plugin '${extensionId}' does not own primary command '${primaryCommand}'.`);
+		}
 		plugins.push({
 			extensionId,
-			label: string(plugin.label, `${extensionId}.label`),
-			description: string(plugin.description, `${extensionId}.description`),
-			category: literal(plugin.category, 'Domain', `${extensionId}.category`),
+			label: boundedString(plugin.label, `${extensionId}.label`, 150),
+			description: boundedString(plugin.description, `${extensionId}.description`, 4_000),
+			category: boundedString(plugin.category, `${extensionId}.category`, 50),
+			publisher,
+			...(primaryCommand ? { primaryCommand } : {}),
+			...(primaryCommandLabel ? { primaryCommandLabel } : {}),
 			versions
 		});
 	}
@@ -182,7 +209,7 @@ export function resolveBaseHalfPluginCatalog(
 	versions: { readonly basehalf: string; readonly vscode: string; readonly targetPlatform: string }
 ): readonly IBaseHalfResolvedPlugin[] {
 	const remoteById = new Map(remote?.plugins.map(plugin => [plugin.extensionId, plugin]) ?? []);
-	return curated.map(plugin => {
+	const official = curated.map(plugin => {
 		const remotePlugin = remoteById.get(plugin.extensionId.toLowerCase());
 		return {
 			...plugin,
@@ -190,6 +217,21 @@ export function resolveBaseHalfPluginCatalog(
 			remoteVersion: remotePlugin ? selectBaseHalfRemotePluginVersion(remotePlugin, versions) : undefined
 		};
 	});
+	const curatedIds = new Set(curated.map(plugin => plugin.extensionId.toLowerCase()));
+	const reviewed = (remote?.plugins ?? [])
+		.filter(plugin => !curatedIds.has(plugin.extensionId))
+		.map(plugin => ({
+			extensionId: plugin.extensionId,
+			label: plugin.label,
+			description: plugin.description,
+			category: plugin.category,
+			publisher: plugin.publisher!,
+			...(plugin.primaryCommand ? { primaryCommand: plugin.primaryCommand } : {}),
+			...(plugin.primaryCommandLabel ? { primaryCommandLabel: plugin.primaryCommandLabel } : {}),
+			remote: plugin,
+			remoteVersion: selectBaseHalfRemotePluginVersion(plugin, versions)
+		}));
+	return [...official, ...reviewed];
 }
 
 export function selectBaseHalfRemotePluginVersion(
@@ -231,7 +273,7 @@ export function resolveBaseHalfPluginCatalogIndexResource(indexUrl: string, reso
 
 function parseVersions(value: unknown, extensionId: string): readonly IBaseHalfRemotePluginVersion[] {
 	const seen = new Set<string>();
-	const versions = array(value, `${extensionId}.versions`).map((rawVersion, index): IBaseHalfRemotePluginVersion => {
+	const versions = array(value, `${extensionId}.versions`, 50).map((rawVersion, index): IBaseHalfRemotePluginVersion => {
 		const version = record(rawVersion, `${extensionId}.versions[${index}]`);
 		const versionValue = string(version.version, `${extensionId}.versions[${index}].version`);
 		if (!valid(versionValue)) {
@@ -257,15 +299,29 @@ function parseVersions(value: unknown, extensionId: string): readonly IBaseHalfR
 			version: versionValue,
 			basehalfRange,
 			vscodeRange,
-			targetPlatform: string(version.targetPlatform, `${extensionId}@${versionValue}.targetPlatform`),
+			targetPlatform: boundedString(version.targetPlatform, `${extensionId}@${versionValue}.targetPlatform`, 64),
 			assetPath,
 			sha256,
-			size: integer(version.size, `${extensionId}@${versionValue}.size`, 1),
+			size: integer(version.size, `${extensionId}@${versionValue}.size`, 1, 100 * 1024 * 1024),
 			publishedAt: isoDate(version.publishedAt, `${extensionId}@${versionValue}.publishedAt`),
-			status: enumValue(version.status, ['active', 'withdrawn'] as const, `${extensionId}@${versionValue}.status`)
+			status: enumValue(version.status, ['active', 'withdrawn'] as const, `${extensionId}@${versionValue}.status`),
+			...(version.releaseNotes === undefined ? {} : { releaseNotes: boundedString(version.releaseNotes, `${extensionId}@${versionValue}.releaseNotes`, 100_000) })
 		};
 	});
 	return versions.sort((a, b) => rcompare(a.version, b.version));
+}
+
+function parsePublisher(value: unknown, extensionId: string): IBaseHalfPluginPublisher {
+	const publisher = record(value, `${extensionId}.publisher`);
+	const slug = boundedString(publisher.slug, `${extensionId}.publisher.slug`, 50).toLowerCase();
+	if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(slug) || !extensionId.startsWith(`${slug}.`)) {
+		throw new Error(`Plugin '${extensionId}' does not match Publisher '${slug}'.`);
+	}
+	return {
+		slug,
+		displayName: boundedString(publisher.displayName, `${extensionId}.publisher.displayName`, 100),
+		trust: enumValue(publisher.trust, ['official', 'reviewed'] as const, `${extensionId}.publisher.trust`)
+	};
 }
 
 function validateAssetPath(value: string, field: string): void {
@@ -293,9 +349,12 @@ function record(value: unknown, field: string): Record<string, unknown> {
 	return value as Record<string, unknown>;
 }
 
-function array(value: unknown, field: string): unknown[] {
+function array(value: unknown, field: string, maximumLength: number): unknown[] {
 	if (!Array.isArray(value)) {
 		throw new Error(`${field} must be an array.`);
+	}
+	if (value.length > maximumLength) {
+		throw new Error(`${field} must contain no more than ${maximumLength} entries.`);
 	}
 	return value;
 }
@@ -307,9 +366,17 @@ function string(value: unknown, field: string): string {
 	return value;
 }
 
-function integer(value: unknown, field: string, minimum: number): number {
-	if (!Number.isSafeInteger(value) || (value as number) < minimum) {
-		throw new Error(`${field} must be an integer greater than or equal to ${minimum}.`);
+function boundedString(value: unknown, field: string, maximumLength: number): string {
+	const parsed = string(value, field);
+	if (parsed.length > maximumLength) {
+		throw new Error(`${field} must be no longer than ${maximumLength} characters.`);
+	}
+	return parsed;
+}
+
+function integer(value: unknown, field: string, minimum: number, maximum = Number.MAX_SAFE_INTEGER): number {
+	if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+		throw new Error(`${field} must be an integer between ${minimum} and ${maximum}.`);
 	}
 	return value as number;
 }

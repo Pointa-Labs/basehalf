@@ -5,6 +5,9 @@
 
 import * as assert from 'assert';
 import { Event } from '../../../../base/common/event.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { consumeStream, newWriteableStream } from '../../../../base/common/stream.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { IChecksumService } from '../../../../platform/checksum/common/checksumService.js';
@@ -15,7 +18,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IRequestService } from '../../../../platform/request/common/request.js';
 import { EnablementState, IWorkbenchExtensionEnablementService, IWorkbenchExtensionManagementService } from '../../../services/extensionManagement/common/extensionManagement.js';
-import { BaseHalfPluginManagementService } from '../../common/basehalfPluginManagementService.js';
+import { BaseHalfPluginManagementService, limitBaseHalfPluginDownloadStream } from '../../common/basehalfPluginManagementService.js';
 import { BASEHALF_CURATED_PLUGINS, IBaseHalfResolvedPlugin } from '../../common/basehalfPluginCatalog.js';
 import { IBaseHalfPluginCatalogService } from '../../common/basehalfPluginCatalogService.js';
 
@@ -34,7 +37,7 @@ suite('BaseHalfPluginManagementService', () => {
 		assert.strictEqual((await service.getPlugins())[0].state, 'disabled');
 		await service.enable('pointa.basehalf-ai-video');
 		await service.executePrimary('pointa.basehalf-ai-video');
-		assert.deepStrictEqual(fixture.commands, ['basehalf.aiVideo.createProject']);
+		assert.deepStrictEqual(fixture.commands, ['pointa.basehalf-ai-video.createProject']);
 		await service.uninstall('pointa.basehalf-ai-video');
 		assert.strictEqual((await service.getPlugins())[0].state, 'available');
 	});
@@ -124,6 +127,19 @@ suite('BaseHalfPluginManagementService', () => {
 		const installedFixture = createFixture({ plugins: [withdrawn], initiallyInstalled: true });
 		const installedService = store.add(installedFixture.service);
 		assert.strictEqual((await installedService.getPlugins())[0].state, 'enabled');
+	});
+
+	test('cancels a chunked download as soon as it exceeds the signed size', async () => {
+		const source = newWriteableStream<VSBuffer>(chunks => VSBuffer.concat(chunks));
+		const cancellation = store.add(new CancellationTokenSource());
+		const limited = limitBaseHalfPluginDownloadStream(source, 5, cancellation);
+		const consumed = consumeStream(limited, chunks => VSBuffer.concat(chunks));
+
+		source.write(VSBuffer.fromString('123'));
+		source.write(VSBuffer.fromString('456'));
+
+		await assert.rejects(consumed, /exceeds the signed size/);
+		assert.strictEqual(cancellation.token.isCancellationRequested, true);
 	});
 });
 

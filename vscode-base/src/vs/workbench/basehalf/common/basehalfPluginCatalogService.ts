@@ -3,18 +3,19 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { streamToBuffer } from '../../../base/common/buffer.js';
+import { VSBuffer } from '../../../base/common/buffer.js';
 import { disposableTimeout } from '../../../base/common/async.js';
 import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { getErrorMessage } from '../../../base/common/errors.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { listenStream, ReadableStream } from '../../../base/common/stream.js';
 import { IExtensionManagementService } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
-import { IRequestService, isSuccess } from '../../../platform/request/common/request.js';
+import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { BASEHALF_CURATED_PLUGINS, IBaseHalfPluginCatalogSignature, IBaseHalfRemotePluginCatalog, IBaseHalfResolvedPlugin, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginCatalogSignature, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from './basehalfPluginCatalog.js';
 import { verifyBaseHalfPluginCatalogSignature } from './basehalfPluginCatalogSecurity.js';
@@ -24,6 +25,9 @@ const CACHE_SIGNATURE_KEY = 'basehalf.plugins.catalog.signature';
 const HIGHEST_SEQUENCE_KEY = 'basehalf.plugins.catalog.highestSequence';
 const HIGHEST_FINGERPRINT_KEY = 'basehalf.plugins.catalog.highestFingerprint';
 const REQUEST_TIMEOUT_MS = 10_000;
+const INDEX_MAX_BYTES = 64 * 1024;
+const SIGNATURE_MAX_BYTES = 16 * 1024;
+const CATALOG_MAX_BYTES = 5 * 1024 * 1024;
 
 export type BaseHalfPluginCatalogSource = 'bundled' | 'cache' | 'remote';
 
@@ -78,14 +82,14 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 			return this.snapshot();
 		}
 		try {
-			const indexBytes = await this.requestBytes(config.catalogIndexUrl, 'basehalfPluginCatalogService.index');
+			const indexBytes = await this.requestBytes(config.catalogIndexUrl, 'basehalfPluginCatalogService.index', INDEX_MAX_BYTES);
 			const rawIndex = decodeUtf8(indexBytes, 'plugin catalog index');
 			const index = parseBaseHalfPluginCatalogIndex(JSON.parse(rawIndex));
 			const catalogUrl = resolveBaseHalfPluginCatalogIndexResource(config.catalogIndexUrl, index.catalogPath);
 			const signatureUrl = resolveBaseHalfPluginCatalogIndexResource(config.catalogIndexUrl, index.signaturePath);
 			const [catalogBytes, signatureBytes] = await Promise.all([
-				this.requestBytes(catalogUrl.href, 'basehalfPluginCatalogService.catalog'),
-				this.requestBytes(signatureUrl.href, 'basehalfPluginCatalogService.signature')
+				this.requestBytes(catalogUrl.href, 'basehalfPluginCatalogService.catalog', CATALOG_MAX_BYTES),
+				this.requestBytes(signatureUrl.href, 'basehalfPluginCatalogService.signature', SIGNATURE_MAX_BYTES)
 			]);
 			const rawCatalog = decodeUtf8(catalogBytes, 'plugin catalog');
 			const rawSignature = decodeUtf8(signatureBytes, 'plugin catalog signature');
@@ -164,7 +168,7 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 		};
 	}
 
-	private async requestBytes(url: string, callSite: string): Promise<Uint8Array> {
+	private async requestBytes(url: string, callSite: string, maximumBytes: number): Promise<Uint8Array> {
 		const parsed = new URL(url);
 		if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback(parsed.hostname))) {
 			throw new Error('Plugin catalog endpoints must use HTTPS. HTTP is allowed only for loopback tests.');
@@ -176,12 +180,51 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 			if (!isSuccess(context)) {
 				throw new Error(`Plugin catalog server returned ${context.res.statusCode}.`);
 			}
-			return (await streamToBuffer(context.stream)).buffer;
+			const contentLength = readHeader(context.res.headers, 'content-length');
+			if (contentLength !== undefined && (!/^\d+$/.test(contentLength) || Number(contentLength) > maximumBytes)) {
+				throw new Error(`Plugin catalog response exceeds ${maximumBytes} bytes.`);
+			}
+			return (await readLimitedBuffer(context.stream, maximumBytes, cancellation)).buffer;
 		} finally {
 			timeout.dispose();
 			cancellation.dispose();
 		}
 	}
+}
+
+function readLimitedBuffer(stream: ReadableStream<VSBuffer>, maximumBytes: number, cancellation: CancellationTokenSource): Promise<VSBuffer> {
+	return new Promise((resolve, reject) => {
+		const chunks: VSBuffer[] = [];
+		let size = 0;
+		let settled = false;
+		listenStream(stream, {
+			onData: chunk => {
+				if (settled) {
+					return;
+				}
+				size += chunk.byteLength;
+				if (size > maximumBytes) {
+					settled = true;
+					cancellation.cancel();
+					reject(new Error(`Plugin catalog response exceeds ${maximumBytes} bytes.`));
+					return;
+				}
+				chunks.push(chunk);
+			},
+			onError: error => {
+				if (!settled) {
+					settled = true;
+					reject(error);
+				}
+			},
+			onEnd: () => {
+				if (!settled) {
+					settled = true;
+					resolve(VSBuffer.concat(chunks, size));
+				}
+			}
+		});
+	});
 }
 
 export function validateBaseHalfCatalogSequence(sequence: number, fingerprint: string, highestSequence: number, highestFingerprint: string | undefined): void {

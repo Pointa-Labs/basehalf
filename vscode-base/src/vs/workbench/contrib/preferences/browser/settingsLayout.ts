@@ -194,6 +194,11 @@ export const tocData: ITOCEntry<string> = {
 					id: 'basehalf/agentArea',
 					label: localize('basehalfAgentArea', "Agent Area"),
 					settings: ['basehalf.agent.*']
+				},
+				{
+					id: 'basehalf/modelServices',
+					label: localize('basehalfModelServices', "Model Services"),
+					settings: ['basehalf.models.*']
 				}
 			]
 		},

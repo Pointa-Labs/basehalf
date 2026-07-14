@@ -18,10 +18,10 @@ suite('BaseHalfPluginCatalog', () => {
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].galleryUuid, 'a7e47f42-807f-4ac0-93e7-65d03c42c7df');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].category, 'Domain');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].bundledPath, 'plugins/basehalf-ai-video');
-		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].primaryCommand, 'basehalf.aiVideo.createProject');
+		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].primaryCommand, 'pointa.basehalf-ai-video.createProject');
 	});
 
-	test('accepts only admitted remote plugins and selects the latest compatible version', () => {
+	test('admits reviewed signed-catalog plugins and selects compatible versions', () => {
 		const catalog = parseBaseHalfRemotePluginCatalog({
 			schemaVersion: 1,
 			sequence: 7,
@@ -36,21 +36,52 @@ suite('BaseHalfPluginCatalog', () => {
 					version('0.1.1')
 				]
 			}, {
-				extensionId: 'unknown.not-admitted',
-				label: 'Unknown',
-				description: 'Ignored by this client',
+				extensionId: 'community.storyboard',
+				label: 'Storyboard',
+				description: 'Reviewed community workflow',
 				category: 'Domain',
-				versions: [version('1.0.0')]
+				publisher: { slug: 'community', displayName: 'Community Studio', trust: 'reviewed' },
+				primaryCommand: 'community.storyboard.createProject',
+				primaryCommandLabel: 'Create Storyboard Project…',
+				versions: [version('1.0.0', { extensionId: 'community.storyboard' })]
 			}]
 		}, ['pointa.basehalf-ai-video']);
 
-		assert.strictEqual(catalog.plugins.length, 1);
-		const [resolved] = resolveBaseHalfPluginCatalog(BASEHALF_CURATED_PLUGINS, catalog, {
+		assert.strictEqual(catalog.plugins.length, 2);
+		const resolved = resolveBaseHalfPluginCatalog(BASEHALF_CURATED_PLUGINS, catalog, {
 			basehalf: '0.4.1',
 			vscode: '1.128.0',
 			targetPlatform: 'darwin-arm64'
 		});
-		assert.strictEqual(resolved.remoteVersion?.version, '0.1.1');
+		assert.strictEqual(resolved[0].remoteVersion?.version, '0.1.1');
+		assert.strictEqual(resolved[1].extensionId, 'community.storyboard');
+		assert.strictEqual(resolved[1].publisher.displayName, 'Community Studio');
+		assert.strictEqual(resolved[1].remoteVersion?.version, '1.0.0');
+		assert.strictEqual(resolved[1].primaryCommand, 'community.storyboard.createProject');
+	});
+
+	test('requires reviewed Publisher provenance for non-official catalog entries', () => {
+		const root = {
+			schemaVersion: 1,
+			sequence: 8,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'community.storyboard',
+				label: 'Storyboard',
+				description: 'Community workflow',
+				category: 'Domain',
+				versions: [version('1.0.0', { extensionId: 'community.storyboard' })]
+			}]
+		};
+		assert.throws(() => parseBaseHalfRemotePluginCatalog(root, ['pointa.basehalf-ai-video']), /must declare its Publisher/);
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			...root,
+			plugins: [{ ...root.plugins[0], publisher: { slug: 'community', displayName: 'Community', trust: 'official' } }]
+		}, ['pointa.basehalf-ai-video']), /cannot claim official trust/);
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			...root,
+			plugins: [{ ...root.plugins[0], publisher: { slug: 'community', displayName: 'Community', trust: 'reviewed' } }]
+		}, ['pointa.basehalf-ai-video']), /must declare its primary action/);
 	});
 
 	test('rejects unsafe catalog asset paths and digests', () => {
@@ -85,17 +116,21 @@ suite('BaseHalfPluginCatalog', () => {
 	});
 });
 
-function version(versionValue: string, overrides: Partial<Record<'basehalfRange' | 'vscodeRange' | 'targetPlatform' | 'assetPath' | 'sha256' | 'size' | 'publishedAt' | 'status', string | number>> = {}): Record<string, unknown> {
+
+function version(versionValue: string, overrides: Partial<Record<'extensionId' | 'basehalfRange' | 'vscodeRange' | 'targetPlatform' | 'assetPath' | 'sha256' | 'size' | 'publishedAt' | 'status' | 'releaseNotes', string | number>> = {}): Record<string, unknown> {
+	const extensionId = typeof overrides.extensionId === 'string' ? overrides.extensionId : 'pointa.basehalf-ai-video';
+	const releaseOverrides = { ...overrides };
+	delete releaseOverrides.extensionId;
 	return {
 		version: versionValue,
 		basehalfRange: '^0.4.0',
 		vscodeRange: '^1.128.0',
 		targetPlatform: 'universal',
-		assetPath: `pointa.basehalf-ai-video/${versionValue}/${'a'.repeat(64)}.vsix`,
+		assetPath: `${extensionId}/${versionValue}/${'a'.repeat(64)}.vsix`,
 		sha256: 'a'.repeat(64),
 		size: 1024,
 		publishedAt: '2026-07-13T00:00:00.000Z',
 		status: 'active',
-		...overrides
+		...releaseOverrides
 	};
 }

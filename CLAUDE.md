@@ -132,6 +132,7 @@ Current public decision index:
 - D27 — Plugin workflow output is local user-owned data.
 - D28 — AI Video is the first official domain plugin.
 - D29 — Official plugins use a signed static catalog and immutable VSIX distribution.
+- D30 — Community publishing uses the existing Basehalf account and a signer-separated curated pipeline.
 
 Current private decision index:
 
@@ -155,6 +156,7 @@ Current private decision index:
 - [extras-travel-with-folder.md](private-docs/decisions/extras-travel-with-folder.md) — extras travel with the folder under `.bh/`.
 - [fix-bh-gitignore-extras-policy.md](private-docs/decisions/fix-bh-gitignore-extras-policy.md) — `.bh/` gitignore policy fix.
 - [focus-mode-mirror-yaml-model.md](private-docs/decisions/focus-mode-mirror-yaml-model.md) — focus mode spec replaces older badge/inbound/CLI/proposals/focus.md model.
+- [global-model-services-are-host-capabilities.md](private-docs/decisions/global-model-services-are-host-capabilities.md) — model connections and encrypted credentials are global host capabilities shared by curated plugins.
 - [folders-are-badges-too.md](private-docs/decisions/folders-are-badges-too.md) — folders are first-class badges.
 - [ir-v2-13-scope-clarification.md](private-docs/decisions/ir-v2-13-scope-clarification.md) — scope clarification for user-file writes.
 - [ir-v2-replaces-v1.md](private-docs/decisions/ir-v2-replaces-v1.md) — IR v2 replaces v1.

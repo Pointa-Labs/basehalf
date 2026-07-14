@@ -10,7 +10,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createCatalog, createCatalogIndex, createSignatureFile, OFFICIAL_EXTENSION_ID, packagePlugin, updateCatalogStatus, updateExtensionControl, verifyRelease } from './basehalf-plugin-release.mts';
+import { createCatalog, createCatalogIndex, createSignatureFile, metadataFromVsix, OFFICIAL_EXTENSION_ID, packagePlugin, updateCatalogStatus, updateExtensionControl, validateReviewedVsixManifest, verifyRelease } from './basehalf-plugin-release.mts';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-plugin-fixture-'));
@@ -18,6 +18,33 @@ let server: http.Server | undefined;
 
 try {
 	const release = await packagePlugin({ root, outputDirectory: temporary });
+	const reviewedRelease = await metadataFromVsix({
+		vsixPath: release.vsixPath,
+		expectedExtensionId: release.extensionId,
+		expectedVersion: release.version,
+		label: 'Reviewed workflow',
+		publisherSlug: 'pointa',
+		publisherDisplayName: 'Community Studio',
+		publisherTrust: 'reviewed'
+	});
+	assert.equal(reviewedRelease.sha256, release.sha256);
+	assert.deepEqual(reviewedRelease.publisher, {
+		slug: 'pointa',
+		displayName: 'Community Studio',
+		trust: 'reviewed'
+	});
+	const reviewedFiles = new Set(['extension/package.json', 'extension/readme.md', 'extension/license.txt', 'extension/out/extension.js']);
+	const reviewedManifest = {
+		publisher: 'pointa',
+		name: 'basehalf-ai-video',
+		main: './out/extension.js',
+		engines: { vscode: '^1.128.0', basehalf: '^0.4.0' },
+		contributes: {
+			basehalfCardProjections: [{ id: 'pointa.basehalf-ai-video.project', label: 'AI Video', extensions: ['.aivideo'] }]
+		}
+	};
+	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, enabledApiProposals: ['unsafe'] }, reviewedFiles, OFFICIAL_EXTENSION_ID), /proposed APIs/);
+	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, contributes: { ...reviewedManifest.contributes, views: {} } }, reviewedFiles, OFFICIAL_EXTENSION_ID), /fixed application shell/);
 	const metadataPath = path.join(temporary, 'metadata.json');
 	fs.writeFileSync(metadataPath, JSON.stringify(release), 'utf8');
 	const catalogPath = path.join(temporary, 'catalog.json');
@@ -44,6 +71,7 @@ try {
 		generatedAt: '2026-07-13T00:01:00.000Z'
 	});
 	assert.equal(next.sequence, 42);
+	assert.equal((next.plugins as any[])[0].primaryCommand, 'pointa.basehalf-ai-video.createProject');
 	assert.throws(() => createCatalog({
 		metadata: release,
 		sequence: 40,

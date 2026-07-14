@@ -5,6 +5,10 @@
 
 export const BASEHALF_RELEASE_NOTES_COMMAND_ID = 'update.showCurrentReleaseNotes';
 
+export function shouldShowBaseHalfReleaseNotes(previousVersion: string | undefined, currentVersion: string): boolean {
+	return !!previousVersion && previousVersion !== currentVersion;
+}
+
 export function getBaseHalfReleaseNotesMarkdown(version: string): string {
 	return `# BaseHalf ${version}
 
@@ -15,14 +19,16 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - The workbench opens into a BaseHalf welcome surface instead of stock VS Code onboarding.
 - Settings live in VS Code's native Settings UI under the BaseHalf category.
 - Release Notes open as a system page in the main surface, without creating user files.
+- Model-service connections are configured once for BaseHalf and shared by reviewed plugins; API keys stay in encrypted application credential storage.
+- Curated plugin updates use VS Code's native extension runtime state, including Reload Window, Restart Extensions, and Restart to Update when required.
 - Visible editor tabs and VS Code breadcrumbs are hidden by default so BaseHalf navigation remains canvas-first.
 
 ## Current Product Shape
 
-BaseHalf keeps the left sidebar focused on Files, Git, and Search. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.
+BaseHalf keeps the left sidebar focused on Files, Git, Search, and the curated Plugins library. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.
 
 ## Settings
 
-Open Settings and search for BaseHalf to configure the editor reading aids, default canvas zoom, and default Agent Area session.
+Open Settings and search for BaseHalf to configure editor reading aids, default canvas zoom, the default Agent Area session, and global model-service connections.
 `;
 }

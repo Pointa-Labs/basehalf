@@ -10,6 +10,7 @@ import { Action, IAction } from '../../../base/common/actions.js';
 import { Codicon } from '../../../base/common/codicons.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { getErrorMessage, isCancellationError } from '../../../base/common/errors.js';
+import { StringSHA1 } from '../../../base/common/hash.js';
 import { DelayedPagedModel, PagedModel } from '../../../base/common/paging.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import Severity from '../../../base/common/severity.js';
@@ -39,13 +40,13 @@ import { ViewPaneContainer } from '../../browser/parts/views/viewPaneContainer.j
 import { Extensions as ViewContainerExtensions, IViewContainersRegistry, IViewDescriptorService, IViewsRegistry, ViewContainerLocation } from '../../common/views.js';
 import { EnablementState } from '../../services/extensionManagement/common/extensionManagement.js';
 import { IPreferencesService } from '../../services/preferences/common/preferences.js';
-import { ExtensionAction, DropDownExtensionAction } from '../../contrib/extensions/browser/extensionsActions.js';
+import { ExtensionAction, DropDownExtensionAction, ExtensionRuntimeStateAction } from '../../contrib/extensions/browser/extensionsActions.js';
 import { manageExtensionIcon } from '../../contrib/extensions/browser/extensionsIcons.js';
 import { Delegate, Renderer } from '../../contrib/extensions/browser/extensionsList.js';
 import { Extension } from '../../contrib/extensions/browser/extensionsWorkbenchService.js';
 import { ExtensionState, IExtension, IExtensionsViewState, IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from '../common/basehalfPluginCatalog.js';
-import { IBaseHalfManagedPlugin, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from '../common/basehalfPluginManagement.js';
+import { IBaseHalfManagedPlugin, IBaseHalfPluginManagementService } from '../common/basehalfPluginManagement.js';
 import { baseHalfPluginCatalogStatusLabel, baseHalfPluginStatusLabel } from './basehalfPluginLibrary.js';
 
 export const BASEHALF_PLUGIN_ITEM_CONTEXT_MENU = MenuId.for('BaseHalfPluginItemContext');
@@ -223,6 +224,7 @@ class BaseHalfPluginsViewPane extends ViewPane {
 			includeDefaultStatusAndHover: false,
 			actionFactory: () => [
 				new BaseHalfPluginPrimaryAction(pluginId => this.findPlugin(pluginId), this.commandService),
+				this.basehalfInstantiationService.createInstance(ExtensionRuntimeStateAction),
 				new BaseHalfPluginManageAction(pluginId => this.findPlugin(pluginId), plugin => this.createManageActionGroups(plugin), this.basehalfInstantiationService)
 			]
 		});
@@ -282,7 +284,7 @@ class BaseHalfPluginsViewPane extends ViewPane {
 		const extension = this.basehalfInstantiationService.createInstance(
 			Extension,
 			() => plugin.installedVersion ? ExtensionState.Installed : plugin.busy ? ExtensionState.Installing : ExtensionState.Uninstalled,
-			() => undefined,
+			() => local?.runtimeState,
 			local?.server,
 			local?.local,
 			gallery,
@@ -398,18 +400,18 @@ function toGalleryExtension(plugin: IBaseHalfManagedPlugin, uuid: string | undef
 	return {
 		type: 'gallery',
 		name,
-		identifier: { id: plugin.extensionId, uuid: uuid ?? plugin.galleryUuid },
+		identifier: { id: plugin.extensionId, uuid: uuid ?? plugin.galleryUuid ?? galleryUuidFor(plugin.extensionId) },
 		version: plugin.availableVersion ?? plugin.installedVersion ?? '0.0.0',
 		displayName: plugin.label,
-		publisherId: publisher,
-		publisher,
-		publisherDisplayName: 'Pointa Labs',
+		publisherId: plugin.publisher.slug || publisher,
+		publisher: plugin.publisher.slug || publisher,
+		publisherDisplayName: plugin.publisher.displayName,
 		description: plugin.description,
 		installCount: 0,
 		rating: 0,
 		ratingCount: 0,
 		categories: [plugin.category],
-		tags: ['basehalf', 'plugin'],
+		tags: ['basehalf', 'plugin', plugin.publisher.trust],
 		releaseDate: publishedAt,
 		lastUpdated: publishedAt,
 		preview: false,
@@ -436,6 +438,13 @@ function toGalleryExtension(plugin: IBaseHalfManagedPlugin, uuid: string | undef
 			executesCode: true
 		}
 	};
+}
+
+function galleryUuidFor(extensionId: string): string {
+	const sha1 = new StringSHA1();
+	sha1.update(`basehalf-plugin:${extensionId.toLowerCase()}`);
+	const digest = sha1.digest();
+	return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
 }
 
 const pluginsViewContainer = Registry.as<IViewContainersRegistry>(ViewContainerExtensions.ViewContainersRegistry).registerViewContainer({
@@ -542,12 +551,11 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 	const pluginManagementService = accessor.get(IBaseHalfPluginManagementService);
 	const notificationService = accessor.get(INotificationService);
 	try {
-		let result: IBaseHalfPluginOperationResult | undefined;
 		switch (operation) {
-			case 'install': result = await pluginManagementService.install(plugin.extensionId); break;
-			case 'update': result = await pluginManagementService.update(plugin.extensionId); break;
-			case 'enable': result = await pluginManagementService.enable(plugin.extensionId); break;
-			case 'disable': result = await pluginManagementService.disable(plugin.extensionId); break;
+			case 'install': await pluginManagementService.install(plugin.extensionId); break;
+			case 'update': await pluginManagementService.update(plugin.extensionId); break;
+			case 'enable': await pluginManagementService.enable(plugin.extensionId); break;
+			case 'disable': await pluginManagementService.disable(plugin.extensionId); break;
 			case 'open': await pluginManagementService.executePrimary(plugin.extensionId); break;
 			case 'cancel': pluginManagementService.cancel(plugin.extensionId); break;
 			case 'uninstall': {
@@ -557,13 +565,10 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 					primaryButton: localize('basehalf.plugins.uninstallButton', "Uninstall")
 				});
 				if (confirmation.confirmed) {
-					result = await pluginManagementService.uninstall(plugin.extensionId);
+					await pluginManagementService.uninstall(plugin.extensionId);
 				}
 				break;
 			}
-		}
-		if (result?.restartRequired) {
-			notificationService.info(localize('basehalf.plugins.restartRequired', "Reload BaseHalf to finish updating {0}.", plugin.label));
 		}
 	} catch (error) {
 		if (isCancellationError(error)) {

@@ -572,3 +572,27 @@ non-exportable AWS KMS key and never overwrites a VSIX. Rollback and withdrawal
 publish a higher catalog sequence.
 Open VSX, third-party publishing, payment, ratings, and the current EC2 stack
 remain outside this decision.
+
+## D30 — Curated community publishing uses one Basehalf account and a signer-separated pipeline (NEW, 2026-07-14)
+
+**Decision.** Community developers use their existing Basehalf account and one
+Publisher identity; there is no separate developer account. Publication is
+curated: the CLI uploads an immutable candidate to private quarantine, the
+server independently validates it, a human reviewer approves or rejects the
+exact artifact, and a separately authorized worker promotes approved jobs into
+the KMS-signed catalog. A reviewed Publisher identity in that catalog is a
+dynamic client trust grant; it cannot impersonate a compiled official ID.
+
+**Why.** Reusing the product account removes needless identity friction, while
+separating upload, review, and signing prevents a compromised web process or
+reviewer session from publishing arbitrary executable code. Dynamic signed
+admission lets the ecosystem grow without shipping a new desktop build for each
+reviewed plugin.
+
+**Consequences.** Publishers must accept the current CLA and publishing terms.
+CLI tokens are expiring, Publisher-scoped, revocable, and stored hashed on the
+server. Quarantine is private and is never a CDN origin. Structural VSIX checks,
+source disclosure, and human review are required, but executable plugins remain
+honestly described as trusted local software rather than sandboxed code. The
+generic Marketplace, arbitrary VSIX installation, instant self-publication,
+payments, ratings, and reviews are still not product surfaces.

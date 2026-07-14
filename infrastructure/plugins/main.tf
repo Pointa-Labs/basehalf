@@ -39,6 +39,74 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "plugins" {
   }
 }
 
+# Submission artifacts are untrusted until validation and review complete.
+# This bucket is intentionally not a CloudFront origin and has a short
+# retention policy. The web control plane can access only this bucket; it has
+# no access to the public distribution bucket or the catalog signing key.
+resource "aws_s3_bucket" "submissions" {
+  bucket = var.submission_bucket_name
+}
+
+resource "aws_s3_bucket_public_access_block" "submissions" {
+  bucket                  = aws_s3_bucket.submissions.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "submissions" {
+  bucket = aws_s3_bucket.submissions.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "submissions" {
+  bucket = aws_s3_bucket.submissions.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "submissions" {
+  bucket = aws_s3_bucket.submissions.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "submissions" {
+  bucket = aws_s3_bucket.submissions.id
+  rule {
+    id     = "expire-quarantined-artifacts"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = var.submission_retention_days
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = var.submission_retention_days
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+resource "aws_s3_bucket_cors_configuration" "submissions" {
+  bucket = aws_s3_bucket.submissions.id
+  cors_rule {
+    allowed_headers = ["content-type", "x-amz-content-sha256", "x-amz-meta-sha256", "x-amz-meta-submission"]
+    allowed_methods = ["PUT"]
+    allowed_origins = var.submission_allowed_origins
+    expose_headers  = ["ETag"]
+    max_age_seconds = 300
+  }
+}
+
 resource "aws_kms_key" "catalog" {
   description              = "BaseHalf plugin catalog signing"
   key_usage                = "SIGN_VERIFY"
@@ -221,6 +289,24 @@ data "aws_iam_policy_document" "publisher" {
 resource "aws_iam_role_policy" "publisher" {
   role   = aws_iam_role.publisher.id
   policy = data.aws_iam_policy_document.publisher.json
+}
+
+data "aws_iam_policy_document" "control_plane_submissions" {
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.submissions.arn}/*"]
+  }
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.submissions.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "control_plane_submissions" {
+  count  = var.control_plane_role_name == null ? 0 : 1
+  name   = "basehalf-plugin-submission-quarantine"
+  role   = var.control_plane_role_name
+  policy = data.aws_iam_policy_document.control_plane_submissions.json
 }
 
 resource "aws_route53_record" "plugins_a" {

@@ -21224,6 +21224,116 @@ declare module 'vscode' {
 		 */
 		readonly range?: [start: number, end: number];
 	}
+
+	/**
+	 * BaseHalf host capabilities for reviewed domain plugins. These APIs keep
+	 * project surfaces inside the fixed BaseHalf shell and keep provider
+	 * credentials in application-global secret storage.
+	 */
+	export namespace basehalf {
+		/** A model input or output family understood by the BaseHalf host. */
+		export type ModelCapability = 'text' | 'image' | 'video' | 'audio';
+
+		/** The credential transport used by a configured model service. */
+		export type ModelServiceAuthorization = 'bearer' | 'header' | 'none';
+
+		/** Public metadata for an application-global model connection. */
+		export interface ModelService {
+			/** Stable service identifier. */
+			readonly id: string;
+			/** User-facing service name. */
+			readonly label: string;
+			/** HTTPS endpoint configured by the user. */
+			readonly endpoint: string;
+			/** Model families exposed by this service. */
+			readonly capabilities: readonly ModelCapability[];
+			/** Credential transport required by the service. */
+			readonly authorization: ModelServiceAuthorization;
+			/** Custom credential header when {@link authorization} is `header`. */
+			readonly headerName?: string;
+			/** Whether the user has stored a credential when one is required. */
+			readonly configured: boolean;
+		}
+
+		/**
+		 * A short-lived connection snapshot. Never persist credentials into project data.
+		 */
+		export interface ModelServiceAccess extends Omit<ModelService, 'configured'> {
+			/** Credential retrieved from application secret storage, when required. */
+			readonly apiKey?: string;
+		}
+
+		/** An event that fires after the user's global model connections change. */
+		export const onDidChangeModelServices: Event<void>;
+
+		/**
+		 * Lists global model connections visible to the current reviewed plugin.
+		 *
+		 * @param capability Optional capability used to filter the result.
+		 * @returns Public connection metadata without credentials.
+		 */
+		export function getModelServices(capability?: ModelCapability): Thenable<readonly ModelService[]>;
+
+		/**
+		 * Resolves one model connection, including its short-lived credential snapshot.
+		 *
+		 * @param serviceId The stable service identifier returned by {@link getModelServices}.
+		 * @returns The connection snapshot, or `undefined` when it is unavailable.
+		 */
+		export function getModelServiceAccess(serviceId: string): Thenable<ModelServiceAccess | undefined>;
+
+		/** A BaseHalf-owned card-detail surface backed by a plugin webview. */
+		export interface CardProjectionView {
+			/** Webview owned by this card-detail projection. */
+			readonly webview: Webview;
+			/** Whether this projection is currently visible. */
+			readonly visible: boolean;
+			/** An event that fires when projection visibility changes. */
+			readonly onDidChangeVisibility: Event<void>;
+			/** An event that fires when the card-detail projection is disposed. */
+			readonly onDidDispose: Event<void>;
+			/**
+			 * Marks whether the projection has unsaved user edits. Dirty projections block
+			 * navigation until the plugin saves or discards those edits.
+			 *
+			 * @param dirty Whether the projection has unsaved user edits.
+			 */
+			setDirty(dirty: boolean): void;
+		}
+
+		/** Resolves a contributed card projection for one ordinary project resource. */
+		export interface CardProjectionProvider {
+			/**
+			 * Attaches the projection UI and resource lifecycle to a BaseHalf card detail.
+			 *
+			 * @param resource Ordinary local project resource opened by the user.
+			 * @param view Projection surface owned by the BaseHalf shell.
+			 * @param token Token cancelled when opening the projection is no longer needed.
+			 * @returns A value indicating completion of projection resolution.
+			 */
+			resolveCardProjection(resource: Uri, view: CardProjectionView, token: CancellationToken): ProviderResult<void>;
+		}
+
+		/** Options controlling a registered card projection provider. */
+		export interface CardProjectionProviderOptions {
+			/** Whether the webview stays alive while another projection is visible. */
+			readonly retainContextWhenHidden?: boolean;
+		}
+
+		/**
+		 * Registers a provider declared through `contributes.basehalfCardProjections`.
+		 *
+		 * @param projectionId Identifier declared by the plugin manifest.
+		 * @param provider Provider that resolves resources into card-detail projections.
+		 * @param options Optional webview lifecycle behavior.
+		 * @returns A disposable that unregisters the provider.
+		 */
+		export function registerCardProjectionProvider(
+			projectionId: string,
+			provider: CardProjectionProvider,
+			options?: CardProjectionProviderOptions
+		): Disposable;
+	}
 }
 
 /**

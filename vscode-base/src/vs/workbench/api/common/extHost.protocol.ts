@@ -1137,10 +1137,26 @@ export interface MainThreadCustomEditorsShape extends IDisposable {
 	$onContentChange(resource: UriComponents, viewType: string): void;
 }
 
+export interface IBaseHalfModelServiceDto {
+	readonly id: string;
+	readonly label: string;
+	readonly endpoint: string;
+	readonly capabilities: readonly ('text' | 'image' | 'video' | 'audio')[];
+	readonly authorization: 'bearer' | 'header' | 'none';
+	readonly headerName?: string;
+	readonly configured: boolean;
+}
+
+export interface IBaseHalfModelServiceAccessDto extends Omit<IBaseHalfModelServiceDto, 'configured'> {
+	readonly apiKey?: string;
+}
+
 export interface MainThreadBaseHalfShape extends IDisposable {
 	$registerCardProjectionProvider(extension: WebviewExtensionDescription, projectionId: string, options: { readonly retainContextWhenHidden?: boolean }, serializeBuffersForPostMessage: boolean): void;
 	$unregisterCardProjectionProvider(projectionId: string): void;
 	$setCardProjectionDirty(handle: WebviewHandle, dirty: boolean): void;
+	$getModelServices(extensionId: string, capability?: 'text' | 'image' | 'video' | 'audio'): Promise<readonly IBaseHalfModelServiceDto[]>;
+	$getModelServiceAccess(extensionId: string, serviceId: string): Promise<IBaseHalfModelServiceAccessDto | undefined>;
 }
 
 export interface MainThreadWebviewViewsShape extends IDisposable {
@@ -1236,6 +1252,7 @@ export interface ExtHostBaseHalfShape {
 	$resolveCardProjection(resource: UriComponents, handle: WebviewHandle, projectionId: string, contentOptions: IWebviewContentOptions, visible: boolean, cancellation: CancellationToken): Promise<void>;
 	$disposeCardProjection(handle: WebviewHandle): void;
 	$setCardProjectionVisible(handle: WebviewHandle, visible: boolean): void;
+	$onDidChangeModelServices(): void;
 }
 
 export interface ExtHostWebviewViewsShape {

@@ -57,6 +57,8 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 	private readonly proxy: extHostProtocol.MainThreadBaseHalfShape;
 	private readonly providers = new Map<string, IBaseHalfProviderEntry>();
 	private readonly views = new Map<extHostProtocol.WebviewHandle, ExtHostBaseHalfCardProjectionView>();
+	private readonly modelServicesChangeEmitter = new Emitter<void>();
+	readonly onDidChangeModelServices = this.modelServicesChangeEmitter.event;
 
 	constructor(
 		mainContext: extHostProtocol.IMainContext,
@@ -91,6 +93,14 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 				this.proxy.$unregisterCardProjectionProvider(projectionId);
 			}
 		});
+	}
+
+	getModelServices(extension: IExtensionDescription, capability?: vscode.basehalf.ModelCapability): Promise<readonly vscode.basehalf.ModelService[]> {
+		return this.proxy.$getModelServices(extension.identifier.value, capability);
+	}
+
+	getModelServiceAccess(extension: IExtensionDescription, serviceId: string): Promise<vscode.basehalf.ModelServiceAccess | undefined> {
+		return this.proxy.$getModelServiceAccess(extension.identifier.value, serviceId);
 	}
 
 	async $resolveCardProjection(
@@ -129,5 +139,9 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 
 	$setCardProjectionVisible(handle: extHostProtocol.WebviewHandle, visible: boolean): void {
 		this.views.get(handle)?.setVisible(visible);
+	}
+
+	$onDidChangeModelServices(): void {
+		this.modelServicesChangeEmitter.fire();
 	}
 }

@@ -11,6 +11,7 @@ import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../c
 import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/browser/cardDetail/basehalfExtensionCardProjection.js';
 import { IBaseHalfCardDetailState } from '../../basehalf/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/common/basehalfCardDetail.js';
+import { BaseHalfModelCapability, IBaseHalfModelServiceService } from '../../basehalf/common/basehalfModelServices.js';
 import { IExtHostContext } from '../../services/extensions/common/extHostCustomers.js';
 import * as extHostProtocol from '../common/extHost.protocol.js';
 import { MainThreadWebviews, reviveWebviewExtension } from './mainThreadWebviews.js';
@@ -113,10 +114,12 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		private readonly mainThreadWebviews: MainThreadWebviews,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IBaseHalfCardProjectionRegistryService private readonly projectionRegistryService: IBaseHalfCardProjectionRegistryService,
-		@IBaseHalfExtensionCardProjectionRuntimeService private readonly runtimeService: IBaseHalfExtensionCardProjectionRuntimeService
+		@IBaseHalfExtensionCardProjectionRuntimeService private readonly runtimeService: IBaseHalfExtensionCardProjectionRuntimeService,
+		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService
 	) {
 		super();
 		this.proxy = context.getProxy(extHostProtocol.ExtHostContext.ExtHostBaseHalf);
+		this._register(this.modelServiceService.onDidChange(() => this.proxy.$onDidChangeModelServices()));
 	}
 
 	$registerCardProjectionProvider(
@@ -159,6 +162,14 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 
 	$setCardProjectionDirty(handle: extHostProtocol.WebviewHandle, dirty: boolean): void {
 		this.sessions.get(handle)?.setDirty(dirty);
+	}
+
+	$getModelServices(extensionId: string, capability?: BaseHalfModelCapability): Promise<readonly extHostProtocol.IBaseHalfModelServiceDto[]> {
+		return this.modelServiceService.getServices(extensionId, capability);
+	}
+
+	$getModelServiceAccess(extensionId: string, serviceId: string): Promise<extHostProtocol.IBaseHalfModelServiceAccessDto | undefined> {
+		return this.modelServiceService.getAccess(extensionId, serviceId);
 	}
 
 	override dispose(): void {

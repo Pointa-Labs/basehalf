@@ -481,6 +481,7 @@ import './contrib/opener/browser/opener.contribution.js';
 
 // BaseHalf product profile
 import './basehalf/browser/basehalfConfiguration.contribution.js';
+import './basehalf/browser/basehalfModelServices.contribution.js';
 import './basehalf/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/browser/basehalfNavigation.contribution.js';

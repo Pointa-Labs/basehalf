@@ -30,6 +30,22 @@ pnpm --filter @basehalf/desktop dev   # run the desktop app; Open Folder to star
 Everything goes through `@basehalf/core`'s `run(command, args)` — the one door.
 There is no CLI binary; the desktop app (and your tests) call core directly.
 
+> The desktop product is being migrated module-by-module onto the real VS Code
+> substrate under `vscode-base/`; `@basehalf/core` is historical migration
+> material rather than the center for new desktop orchestration. Read
+> [`AGENTS.md`](AGENTS.md) before changing desktop architecture.
+
+## Build a BaseHalf plugin
+
+Plugin development is separate from contributing to the BaseHalf host. Use the
+stable `vscode.basehalf` API, `@basehalf/plugin-sdk`, and `bh-plugin` tooling.
+Community plugins use the same Basehalf account, publish to private quarantine,
+and enter the signed catalog only after validation and review.
+
+Start with [`docs/plugin-development.md`](docs/plugin-development.md). A plugin
+submission requires the current CLA and publishing terms, but it does not need
+a pull request or a separate developer account.
+
 ## Repo layout & the rules that must not break
 
 ```text

@@ -6,6 +6,34 @@ variable "bucket_name" {
   type = string
 }
 
+variable "submission_bucket_name" {
+  description = "Private quarantine bucket for community VSIX uploads. Must differ from bucket_name."
+  type        = string
+}
+
+variable "submission_retention_days" {
+  description = "Days to retain quarantined submission artifacts and non-current versions."
+  type        = number
+  default     = 30
+  validation {
+    condition     = var.submission_retention_days >= 7 && var.submission_retention_days <= 180
+    error_message = "submission_retention_days must be between 7 and 180."
+  }
+}
+
+variable "submission_allowed_origins" {
+  description = "Browser origins allowed to upload with Core API presigned PUT URLs."
+  type        = list(string)
+  default     = ["https://basehalf.com", "http://localhost:4000"]
+}
+
+variable "control_plane_role_name" {
+  description = "Optional existing EC2/ECS IAM role used by Core API. It receives quarantine-only S3 access."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "domain_name" {
   type    = string
   default = "plugins.basehalf.com"

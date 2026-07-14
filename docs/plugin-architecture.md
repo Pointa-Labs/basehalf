@@ -1,28 +1,28 @@
 # BaseHalf plugin architecture
 
-Status: implemented platform and local distribution path, 2026-07-13. This document defines the code
-boundary introduced by D25–D29. It is the implementation map for maintainers
-and plugin authors; the product decisions remain authoritative in
-[`decisions.md`](decisions.md).
+Status: implemented platform and curated publishing path, 2026-07-14. This is
+the implementation map for decisions D25–D30. Product decisions in
+[`decisions.md`](decisions.md) remain authoritative.
 
 ## Product contract
 
-BaseHalf has a fixed shell and an open center. A plugin can feel like a game
-mod—it may add a substantial project mode—but it runs inside BaseHalf's
-navigation, file, trust, and lifecycle contracts.
+BaseHalf has a fixed shell and an open center. A plugin may add a substantial
+project mode, but it stays inside BaseHalf's navigation, data, trust, and
+lifecycle contracts.
 
 | Concern | BaseHalf main program | Domain plugin |
 | --- | --- | --- |
-| Files, search, Git, dialogs, commands | Owns the VS Code-backed services | Consumes public extension APIs |
-| Left sidebar and right Agent Area | Owns Files/Git/Search/Plugins and keeps the shell fixed | Cannot add competing product areas or Activity Bar entries |
-| Canvas/card-detail navigation | Owns history, focus, fallback, projection picker | Contributes center/card projections |
-| File truth | Opens and observes ordinary workspace files | Defines a documented domain file format |
-| `.bh/mirror` | Owns derived BaseHalf context/focus state | Must not store domain truth there |
-| Workflow semantics | Does not plan or orchestrate domain work | Validates and executes explicit domain actions |
-| Agent/LLM decisions | Provides the container and user-selected Agents | May define its own disclosed AI strategy |
-| Provider credentials and billing | Does not proxy or resell them | Connector/provider owns its integration |
-| Extension admission | Owns curated catalog, allowlist, enablement, trust | Declares identity and contribution metadata |
-| Uninstall/disable | Falls back to ordinary file/source behavior | Must leave project and outputs readable |
+| Files, search, Git, dialogs, commands | Owns VS Code-backed services | Consumes public extension APIs |
+| Global product surfaces | Owns Files/Git/Search/Plugins and Agent Area | Cannot add competing Activity Bar or panel areas |
+| Center navigation | Owns Canvas, Card Detail, history, focus, and fallback | Contributes center/card projections |
+| File truth | Opens and observes ordinary workspace files | Defines a documented local domain format |
+| `.bh/mirror` | Owns derived context/focus state | Must not store domain truth there |
+| Workflow semantics | Does not plan domain work | Validates and executes explicit domain actions |
+| Agent decisions | Hosts user-selected Agents | May define a disclosed AI strategy |
+| Model credentials | Stores global connections and secrets | Requests reviewed capabilities at run time |
+| Billing and provider policy | Does not resell usage or decide policy | Makes the disclosed request with the user's account |
+| Admission | Owns official admission and signed Publisher grants | Declares owned identity, primary action, and compatibility |
+| Disable/uninstall | Falls back to ordinary file/source behavior | Leaves projects and outputs readable |
 
 The main program must not accumulate per-domain orchestration. A new domain
 belongs in a plugin unless it changes the fixed shell or a BaseHalf-wide file
@@ -30,155 +30,169 @@ contract.
 
 ## VS Code infrastructure reused
 
-BaseHalf deliberately reuses the parts of VS Code that already solve trusted
-desktop extension lifecycle:
+BaseHalf reuses the VS Code extension host, manifest discovery, activation,
+profiles, enablement, workspace trust, webview isolation, commands, quick input,
+dialogs, filesystem, watchers, secrets, terminals, authentication, progress,
+settings, and extension-management lifecycle.
 
-- manifest discovery and `contributes` extension points;
-- activation events and lazy extension-host startup;
-- extension identifiers, enablement, workspace trust, and product allowlists;
-- main-thread/extension-host RPC actors;
-- webview isolation, CSP, resource roots, message transport, and lifecycle;
-- commands, quick input, dialogs, workspace filesystem, file watchers, secrets,
-  terminals, authentication, and progress APIs;
-- packaged built-in extension compilation and distribution.
+The generic Extensions/Marketplace surface stays hidden. BaseHalf's Plugins
+entry is the fourth native Activity Bar view beside Files, Git, and Search. It
+reuses VS Code's extension-row renderer, paged list, ActionBar, manage menu,
+context menu, settings, enable/disable/uninstall, runtime-state actions, and
+**Restart to Update** behavior, but reads only BaseHalf's curated catalog.
+Individual plugins cannot add their own global sidebars.
 
-BaseHalf does not expose the generic Extensions/Marketplace product surface.
-Its BaseHalf-owned Plugins view reuses the native Activity Bar/view-container,
-the VS Code `Renderer`/`WorkbenchPagedList` extension-row UI, ActionBar/manage
-dropdown, hover/focus behavior, menus, settings, and extension-management
-infrastructure while reading only the product-owned curated catalog. BaseHalf
-supplies a narrow action factory so the reused row can install only admitted,
-signature-verified packages instead of calling Marketplace actions.
-`BaseHalf: Manage Plugins` opens the central details surface for that same
-catalog. Reviewed
-domain-plugin payloads ship outside the system-extension scan directory and are
-installed into the user's extension profile only on request. Executable plugins
-remain trusted local software; the manifest is not advertised as an OS
-permission sandbox.
+Executable plugins are trusted local software. The manifest is not represented
+as an operating-system permission sandbox.
 
 ## Runtime layers
 
 ```mermaid
 flowchart LR
-  M["Extension manifest\nbasehalfCardProjections"] --> E["BaseHalf extension point\nmetadata registry"]
-  E --> N["Canvas/card-detail navigation\nprojection selection"]
+  M["Manifest: projections and primary action"] --> E["BaseHalf metadata registry"]
+  E --> N["Canvas and Card Detail navigation"]
   N --> H["Lazy projection host"]
-  H --> A["VS Code activation event"]
-  A --> X["Extension host provider"]
+  H --> A["VS Code activation"]
+  A --> X["Extension Host provider"]
   X <--> R["Main-thread webview session"]
   R --> C["BaseHalf center surface"]
-  X --> F["User project files and outputs"]
+  X --> F["Ordinary project files and outputs"]
 ```
 
-The metadata and runtime registrations are intentionally separate. Manifest
-metadata lets BaseHalf select and label a projection without activating plugin
-code. Runtime registration occurs only after activation. Removing or disabling
-the extension disposes both registrations; the card falls back to `source`.
+Manifest metadata lets BaseHalf label/select a projection without activating
+plugin code. Runtime registration happens after activation. Disabling,
+uninstalling, or restarting the Extension Host disposes and reconnects
+registrations; an unavailable projection falls back to `source`.
 
 Relevant implementation:
 
 - metadata registry: `src/vs/workbench/basehalf/common/basehalfCardDetail.ts`
-- surface registry: `src/vs/workbench/basehalf/browser/cardDetail/basehalfCardDetailSurface.ts`
-- extension point: `src/vs/workbench/basehalf/browser/basehalfCardProjectionExtensionPoint.contribution.ts`
-- lazy/restart-safe host: `src/vs/workbench/basehalf/browser/cardDetail/basehalfExtensionCardProjection.ts`
+- projection host: `src/vs/workbench/basehalf/browser/cardDetail/basehalfExtensionCardProjection.ts`
 - RPC bridge: `src/vs/workbench/api/browser/mainThreadBaseHalf.ts` and
   `src/vs/workbench/api/common/extHostBaseHalf.ts`
-- proposed author API: `src/vscode-dts/vscode.proposed.basehalfDomainPlugins.d.ts`
-- curated catalog/manager: `src/vs/workbench/basehalf/common/basehalfPluginCatalog.ts`
+- stable API: `src/vscode-dts/vscode.d.ts` under `vscode.basehalf`
+- catalog: `src/vs/workbench/basehalf/common/basehalfPluginCatalog.ts`
+- lifecycle: `src/vs/workbench/basehalf/common/basehalfPluginManagementService.ts`
 
 ## Plugin Library and lifecycle
 
-Plugins is the fourth, BaseHalf-owned native Activity Bar view container beside
-Files, Git, and Search. It provides searchable Installed/Available sections,
-native VS Code extension rows and inline ActionBar lifecycle actions, native
-row context menus, and extension-scoped Settings when a plugin contributes
-configuration. Selecting a row opens one
-singleton center `EditorPane` for full details, after flushing the currently
-visible Card Detail projection; closing it returns to the unchanged Canvas/Card
-Detail state. The same command remains in Preferences and the command palette.
-This does not authorize individual plugins to add Activity Bar entries.
+Selecting a plugin row opens one singleton center `EditorPane` with details,
+Publisher/trust metadata, versions, release notes, and lifecycle actions. The
+current Card Detail projection is flushed first; unresolved dirty state blocks
+the switch. Closing the system page restores the unchanged Canvas/Card Detail
+state and never creates a workspace file or ordinary editor tab.
 
-`IBaseHalfPluginCatalogService` merges three sources without relaxing client
-admission: the built-in curated list, the last signature-verified cached
-catalog, and the current signature-verified remote catalog.
-`IBaseHalfPluginManagementService` is the only product-facing lifecycle path.
-It serializes operations per extension and delegates install, enable, disable,
-update, uninstall, profiles, scanning, and Extension Host changes to VS Code.
-The Library renders `available`, `installing`, `enabled`, `disabled`,
+`IBaseHalfPluginCatalogService` merges the built-in official catalog, the last
+verified cache, and the current verified remote catalog. The client trusts
+official IDs compiled into the product and reviewed Publisher namespaces
+granted by the signed catalog. A remote entry cannot impersonate an official ID
+or change Publisher ownership.
+
+`IBaseHalfPluginManagementService` is the only product lifecycle path. It
+serializes operations per extension and delegates profile install, scan,
+enable, disable, update, uninstall, and Extension Host changes to VS Code. The
+Library renders `available`, `installing`, `enabled`, `disabled`,
 `updateAvailable`, `updating`, `incompatible`, `withdrawn`, and `error` states.
-
-The generic Extensions view, Marketplace search, and arbitrary VSIX UI remain
-hidden. An uninstall confirmation explicitly states that local project and
-generated output files are not deleted.
+Updates are explicit and uninstall confirmation states that local files remain.
 
 ## Signed catalog wire contract
 
-Catalog v1 contains `schemaVersion`, a monotonically increasing `sequence`,
-`generatedAt`, and plugin/version entries. A version fixes the BaseHalf and VS
-Code compatibility ranges, target platform, relative immutable asset path,
-SHA-256, size, publication time, and active/withdrawn state. The detached
+Catalog v1 contains `schemaVersion`, monotonically increasing `sequence`,
+`generatedAt`, and plugin/version entries. A version fixes compatibility,
+platform, relative immutable asset path, SHA-256, byte size, publication time,
+status, Publisher trust, primary action, and release notes. The detached
 signature names a client-known key and uses `ECDSA_P256_SHA256_DER`.
 
-The client verification path is intentionally fail-closed:
+The client verification path is fail-closed:
 
-1. fetch one short-cache catalog index without blocking startup;
-2. require it to point to the catalog and detached signature under one immutable
-   `catalogs/<sequence>/` prefix on the same HTTPS origin;
-3. verify the signature over the exact UTF-8 catalog bytes and require the
-   catalog sequence to equal the index sequence;
-4. reject schema errors, sequence rollback, and same-sequence content changes;
-5. ignore extension IDs not admitted by this client build;
-6. select a compatible active version;
-7. resolve only a relative asset path under the configured HTTPS origin;
-8. download to a temporary file and verify length and SHA-256;
-9. verify the VSIX manifest ID and version;
-10. hand the VSIX to VS Code's profile installer and always clean the temporary file.
+1. fetch the short-cache index without blocking startup;
+2. require catalog and signature under one immutable
+   `catalogs/<sequence>/` prefix on the configured HTTPS origin;
+3. verify the signature over exact catalog bytes and index/sequence agreement;
+4. reject schema errors, rollback, or same-sequence content changes;
+5. admit only a compiled official ID or reviewed Publisher identity in the
+   signed catalog;
+6. select a compatible, active version;
+7. reject absolute URLs, traversal, invalid identities, and oversized data;
+8. download to a temporary file and verify size and SHA-256;
+9. verify VSIX manifest ID and version;
+10. hand the VSIX to VS Code's profile installer and clean the temporary file.
 
-Offline mode can display installed plugins and the last verified catalog. It
-never installs a package learned only from an unverified or failed response.
+Catalog responses, entry counts, version counts, strings, and assets have hard
+limits. Offline mode can show installed plugins and the last verified cache but
+never installs a package learned from a failed or unverified response.
 
-## Release and infrastructure
+## Publishing control plane
 
-`scripts/basehalf-plugin-release.mts` packages AI Video with the fixed
-`@vscode/vsce` version, creates/updates the catalog, handles withdrawal and
-rollback, and verifies a release from HTTP/CDN through its real VSIX manifest.
-`scripts/basehalf-plugin-fixture.mts` runs the same path against a local HTTP
-fixture and covers tampering, wrong identity/version, timeout, offline, and
-sequence rollback.
+Developers use their existing Basehalf web account. A user creates or joins one
+Publisher, accepts the current CLA and publishing terms, and owns plugin IDs in
+that Publisher namespace. There is no separate developer identity.
 
-`.github/workflows/publish-plugins.yml` uploads immutable digest-addressed VSIX
-objects, signs the catalog digest with AWS KMS P-256, publishes versioned and
-short-cache atomic catalog index, invalidates CloudFront, and downloads the
-immutable result again for staging verification. The index is the only mutable
-catalog object, so clients cannot pair a new signature with an old catalog.
-`infrastructure/plugins/` defines the
-private S3 bucket, CloudFront OAC/distribution, KMS key, DNS option, and
-least-privilege GitHub OIDC publisher role. It is isolated from the current
-EC2/Gateway/PostgreSQL/Redis web application stack.
+The `bh-plugin` CLI uses an OAuth-style device flow. Its opaque, expiring token
+is Publisher-scoped and stored in an owner-only local file. Publication is split
+from signing:
 
-Ordinary withdrawal is catalog-version scoped. A security withdrawal also
-publishes a small BaseHalf-owned `extensions-control.json`; VS Code's existing
-control-manifest parser and malicious-extension enforcement merges it with the
-Open VSX control list. Each endpoint is fetched independently: an Open VSX or
-Raw GitHub outage cannot suppress BaseHalf's emergency blocklist, and a
-BaseHalf endpoint outage cannot erase the upstream protection.
+1. the CLI validates, packages, hashes, and requests an upload grant;
+2. the VSIX goes directly to a private quarantine bucket;
+3. the server reads it back and checks hash/size, ZIP safety, identity/version,
+   engines, contribution boundaries, primary action, README, and license;
+4. a reviewer downloads the exact candidate and records approval or rejection;
+5. approval creates an immutable release job;
+6. a separately credentialed signer leases that job, repeats critical checks,
+   publishes by digest, advances the KMS-signed catalog, and verifies the CDN;
+7. the control plane records the result and desktop clients discover it.
 
-Production packaging requires the provisioned KMS public key through
+Quarantine is private and not a CloudFront origin. Reviewers cannot sign, the
+web service cannot use KMS, and the signer cannot approve. Review reduces
+supply-chain risk but does not turn executable code into sandboxed code.
+
+## Release infrastructure
+
+`scripts/basehalf-plugin-release.mts` handles arbitrary approved plugin jobs,
+immutable asset paths, catalog creation, withdrawal/rollback, and HTTP/CDN
+verification. Official AI Video uses the same generic release path as a
+reviewed community plugin.
+
+`.github/workflows/publish-plugins.yml` publishes official releases.
+`.github/workflows/promote-reviewed-plugin.yml` leases reviewed jobs. Both
+publish an immutable catalog/signature pair, atomically update the only mutable
+short-cache index, invalidate CloudFront, and verify the result. CI uses the
+fixed `@vscode/vsce` version and a non-exportable AWS KMS P-256 key.
+
+`infrastructure/plugins/` defines private distribution and quarantine buckets,
+CloudFront OAC/distribution, KMS, DNS options, and least-privilege GitHub OIDC
+and EC2 roles. Quarantine access is isolated from the public distribution
+origin. Published VSIX objects are never overwritten. Rollback and withdrawal
+always advance the catalog sequence.
+
+Normal withdrawal blocks new installs and shows a reason. Security withdrawal
+also publishes a BaseHalf extension-control document consumed by VS Code's
+existing malicious-extension enforcement.
+
+Production packaging requires a provisioned public key through
 `BASEHALF_PLUGIN_CATALOG_KEY_ID` and
-`BASEHALF_PLUGIN_CATALOG_PUBLIC_KEY_PATH`. The package task validates that the
-key is P-256 and stamps its PEM SPKI into `product.json`; it refuses to produce
-an application package with an empty keyring. Supported clients retain old
-public keys during rotation. Local source builds may keep the checked-in empty
-keyring and use bundled on-demand payloads.
+`BASEHALF_PLUGIN_CATALOG_PUBLIC_KEY_PATH`; it refuses an empty production
+keyring. Supported clients retain old public keys during rotation.
 
-## Manifest and API contract
-
-A domain plugin declares projections before registering providers:
+## Manifest and stable host API
 
 ```json
 {
-  "enabledApiProposals": ["basehalfDomainPlugins"],
+  "publisher": "publisher",
+  "name": "extension",
+  "engines": {
+    "vscode": "^1.100.0",
+    "basehalf": ">=0.1.0"
+  },
+  "basehalf": {
+    "primaryCommand": "publisher.extension.createProject",
+    "primaryCommandLabel": "Create Project…"
+  },
   "contributes": {
+    "commands": [{
+      "command": "publisher.extension.createProject",
+      "title": "Create Project…"
+    }],
     "basehalfCardProjections": [{
       "id": "publisher.extension.project",
       "label": "Project",
@@ -191,67 +205,37 @@ A domain plugin declares projections before registering providers:
 }
 ```
 
-The projection ID must be prefixed by the full extension ID. File selectors are
-explicit suffixes; no plugin can claim every file. A provider then calls
-`vscode.basehalf.registerCardProjectionProvider`. It receives the resource, a
-BaseHalf-owned view lifecycle, a VS Code webview, and cancellation. The API is
-proposed until more than one official plugin validates it; changes are allowed
-before it is promoted to a stable public API.
+Command and projection IDs must be prefixed by the full extension ID. Selectors
+use explicit suffixes; no plugin can claim every file. A provider calls
+`vscode.basehalf.registerCardProjectionProvider` and receives the resource,
+BaseHalf-owned view lifecycle, webview, dirty-state control, and cancellation.
+The contract is stable and mirrored by `@basehalf/plugin-sdk`.
 
-Dynamic registration/unregistration is supported. The host rejects duplicate
-IDs, validates manifest ownership, cancels work when the card closes, and
-reconnects the visible projection after an extension-host restart.
+Global model connections are another stable host capability. Reviewed plugins
+use `getModelServices(capability)` for discovery and request a connection
+snapshot only when an explicit run needs it. Keys remain in application-global
+encrypted secret storage and must never enter project data, logs, webview
+messages, or plugin persistence.
 
 ## Local data and workflow rules
 
-Plugin projects and workflow outputs are ordinary user files. An explicit UI
-or Agent action may write them. Background discovery, rendering, and indexing
-must not silently modify project content. Plugins should use portable relative
-paths for child artifacts and conflict-check before overwriting an externally
-changed project.
+Plugin projects and outputs are ordinary user files. Explicit user or Agent
+actions may write them; background discovery/rendering must not. Use portable
+relative paths and conflict-check before overwriting external changes.
+Extension-private storage is only for disposable caches and UI state.
 
-Plugin-private storage is appropriate only for disposable caches and UI state,
-never for the only copy of a project or generated artifact. Provider secrets
-belong in VS Code secret storage or the provider's own authenticated service;
-they never belong in the project file.
+The plugin workflow graph is domain data. BaseHalf reference edges remain
+explicit context-flow relations, and Markdown links remain navigation. A plugin
+must not infer either from workflow nodes or edges.
 
-The workflow graph is domain data. BaseHalf reference edges remain explicit
-context-flow relations and Markdown links remain navigation. A domain plugin
-must not infer either relationship from its workflow nodes or edges.
+## Developer entry point and evolution
 
-## AI Video reference plugin
+The supported path is [`plugin-development.md`](plugin-development.md):
+scaffold with `bh-plugin`, use the stable SDK, authenticate with the same
+Basehalf account, publish to quarantine, pass review, and receive updates
+through the signed catalog. Community plugins do not require client source
+changes.
 
-`extensions/basehalf-ai-video` proves the complete contract:
-
-- `.aivideo` is versioned, readable JSON containing script, characters,
-  scenes, shots, provider choices, status, and relative output paths;
-- the center projection edits the project without opening an editor tab;
-- Save and Run are explicit writes with disk-revision conflict checks;
-- unsaved plugin state participates in BaseHalf's navigation preflight, so a
-  card cannot close or switch until the plugin saves or discards it;
-- external Agent edits reload automatically when clean and surface a conflict
-  when the webview has unsaved work;
-- Run supports progress, cancellation, per-shot errors, and local outputs;
-- the built-in `prompt-package` provider produces a deterministic local request
-  package, not fake generated media;
-- video/voice services extend the plugin through provider registrations rather
-  than being hard-coded into BaseHalf core;
-- no timeline editor, compositor, or final-cut surface is included.
-
-## Admission and evolution
-
-The first product profile admits only BaseHalf's built-in source-control/Agent
-families and explicitly listed official domain plugins. Adding a plugin requires
-all of the following in one reviewed change:
-
-1. add its exact extension ID to `BASEHALF_ALLOWED_EXTENSION_FAMILIES`;
-2. add a curated catalog entry if it is user-facing;
-3. verify its manifest ID prefix and file selectors;
-4. document its durable local file format and disable/uninstall behavior;
-5. disclose network/provider behavior and credential storage;
-6. add compile, unit, and Electron smoke coverage.
-
-A public Marketplace, arbitrary Node plugin installation, paid distribution,
-ratings, and unattended cloud execution remain separate future product
-decisions. The architecture does not require them and does not falsely imply
-that they are already supported.
+This remains curated, not a generic Marketplace. Arbitrary Node/VSIX install,
+instant self-publication, payments, ratings, and unattended cloud execution are
+separate product decisions.

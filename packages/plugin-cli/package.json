@@ -1,0 +1,31 @@
+{
+  "name": "@basehalf/plugin-cli",
+  "version": "0.1.0",
+  "description": "Create, validate, authenticate, and publish BaseHalf plugins.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "bh-plugin": "./dist/main.js"
+  },
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --composite false",
+    "test": "vitest run",
+    "lint": "biome check src test"
+  },
+  "dependencies": {
+    "@basehalf/plugin-sdk": "workspace:*",
+    "@vscode/vsce": "3.6.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}

@@ -5,6 +5,7 @@
 
 import './media/basehalfPluginLibrary.css';
 import { addDisposableListener, append, $, clearNode, Dimension, EventType } from '../../../base/browser/dom.js';
+import { ActionBar } from '../../../base/browser/ui/actionbar/actionbar.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { getErrorMessage, isCancellationError } from '../../../base/common/errors.js';
 import { DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
@@ -17,12 +18,15 @@ import { INotificationService } from '../../../platform/notification/common/noti
 import { IStorageService } from '../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../platform/theme/common/themeService.js';
+import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { EditorPane } from '../../browser/parts/editor/editorPane.js';
 import { EditorInputCapabilities, IEditorOpenContext, IUntypedEditorInput } from '../../common/editor.js';
 import { EditorInput } from '../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../services/editor/common/editorGroupsService.js';
+import { ExtensionRuntimeStateAction } from '../../contrib/extensions/browser/extensionsActions.js';
+import { IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { BASEHALF_PLUGIN_LIBRARY_EDITOR_ID, BASEHALF_PLUGIN_LIBRARY_RESOURCE_SCHEME } from '../common/basehalfPluginCatalog.js';
-import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from '../common/basehalfPluginManagement.js';
+import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService } from '../common/basehalfPluginManagement.js';
 
 const pluginLibrarySelectionEmitter = new Emitter<string>();
 
@@ -67,7 +71,9 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 		@IStorageService storageService: IStorageService,
 		@IBaseHalfPluginManagementService private readonly pluginManagementService: IBaseHalfPluginManagementService,
 		@IDialogService private readonly dialogService: IDialogService,
-		@INotificationService private readonly notificationService: INotificationService
+		@INotificationService private readonly notificationService: INotificationService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService
 	) {
 		super(BaseHalfPluginLibraryPane.ID, group, telemetryService, themeService, storageService);
 		this._register(this.pluginManagementService.onDidChange(() => void this.reload()));
@@ -228,15 +234,24 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 		metaRow(meta, 'Installed', plugin.installedVersion ?? 'Not installed');
 		metaRow(meta, 'Available', plugin.availableVersion ?? (plugin.bundledAvailable ? 'Bundled with BaseHalf' : 'Unavailable'));
 		metaRow(meta, 'Category', plugin.category);
+		metaRow(meta, 'Publisher', plugin.publisher.displayName);
+		metaRow(meta, 'Trust', plugin.publisher.trust === 'official' ? 'Official' : 'Reviewed');
 
 		const trust = append(this.detail!, $('.basehalf-plugin-library-trust'));
 		const trustIcon = append(trust, $('span.codicon.codicon-shield'));
 		trustIcon.setAttribute('aria-hidden', 'true');
 		const trustCopy = append(trust, $('div'));
 		const trustTitle = append(trustCopy, $('strong'));
-		trustTitle.textContent = 'Reviewed local software';
+		trustTitle.textContent = plugin.publisher.trust === 'official' ? 'Official local software' : 'Reviewed community software';
 		const trustBody = append(trustCopy, $('p'));
-		trustBody.textContent = 'This executable plugin runs with trusted local extension privileges. BaseHalf reviews official plugins and requires explicit workflows for project writes, but this is a policy—not a runtime sandbox. Removing a plugin never removes project data.';
+		trustBody.textContent = `Published by ${plugin.publisher.displayName}. This executable plugin runs with trusted local extension privileges. BaseHalf review is a policy—not a runtime sandbox. Removing a plugin never removes project data.`;
+		if (plugin.remoteVersion?.releaseNotes) {
+			const releaseNotes = append(this.detail!, $('.basehalf-plugin-library-release-notes'));
+			const releaseNotesTitle = append(releaseNotes, $('h3'));
+			releaseNotesTitle.textContent = `Release notes · ${plugin.remoteVersion.version}`;
+			const releaseNotesBody = append(releaseNotes, $('p'));
+			releaseNotesBody.textContent = plugin.remoteVersion.releaseNotes;
+		}
 
 		if (plugin.error) {
 			const error = append(this.detail!, $('.basehalf-plugin-library-error'));
@@ -244,6 +259,13 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 		}
 
 		const actions = append(this.detail!, $('.basehalf-plugin-library-actions'));
+		const installedExtension = this.extensionsWorkbenchService.local.find(extension => extension.identifier.id.toLowerCase() === plugin.extensionId);
+		if (installedExtension) {
+			const runtimeAction = disposables.add(this.instantiationService.createInstance(ExtensionRuntimeStateAction));
+			runtimeAction.extension = installedExtension;
+			const actionBar = disposables.add(new ActionBar(actions));
+			actionBar.push(runtimeAction, { icon: true, label: true });
+		}
 		for (const action of pluginActions(plugin)) {
 			const actionButton = button(actions, action.label, action.icon, action.primary);
 			actionButton.dataset.pluginAction = action.id;
@@ -254,12 +276,11 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 
 	private async runAction(plugin: IBaseHalfManagedPlugin, action: PluginActionId): Promise<void> {
 		try {
-			let result: IBaseHalfPluginOperationResult | undefined;
 			switch (action) {
-				case 'install': result = await this.pluginManagementService.install(plugin.extensionId); break;
-				case 'update': result = await this.pluginManagementService.update(plugin.extensionId); break;
-				case 'enable': result = await this.pluginManagementService.enable(plugin.extensionId); break;
-				case 'disable': result = await this.pluginManagementService.disable(plugin.extensionId); break;
+				case 'install': await this.pluginManagementService.install(plugin.extensionId); break;
+				case 'update': await this.pluginManagementService.update(plugin.extensionId); break;
+				case 'enable': await this.pluginManagementService.enable(plugin.extensionId); break;
+				case 'disable': await this.pluginManagementService.disable(plugin.extensionId); break;
 				case 'open': await this.pluginManagementService.executePrimary(plugin.extensionId); break;
 				case 'cancel': this.pluginManagementService.cancel(plugin.extensionId); break;
 				case 'uninstall': {
@@ -269,13 +290,10 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 						primaryButton: 'Uninstall'
 					});
 					if (confirmation.confirmed) {
-						result = await this.pluginManagementService.uninstall(plugin.extensionId);
+						await this.pluginManagementService.uninstall(plugin.extensionId);
 					}
 					break;
 				}
-			}
-			if (result?.restartRequired) {
-				this.notificationService.info(`Reload BaseHalf to finish updating ${plugin.label}.`);
 			}
 		} catch (error) {
 			if (isCancellationError(error)) {

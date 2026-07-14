@@ -1953,8 +1953,16 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 		};
 
 		const basehalf: typeof vscode.basehalf = {
+			get onDidChangeModelServices() {
+				return extHostBaseHalf.onDidChangeModelServices;
+			},
+			getModelServices(capability) {
+				return extHostBaseHalf.getModelServices(extension, capability);
+			},
+			getModelServiceAccess(serviceId) {
+				return extHostBaseHalf.getModelServiceAccess(extension, serviceId);
+			},
 			registerCardProjectionProvider(projectionId, provider, options) {
-				checkProposedApiEnabled(extension, 'basehalfDomainPlugins');
 				return extHostBaseHalf.registerCardProjectionProvider(extension, projectionId, provider, options);
 			}
 		};

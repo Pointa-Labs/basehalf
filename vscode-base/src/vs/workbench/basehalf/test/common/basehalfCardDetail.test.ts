@@ -26,6 +26,17 @@ suite('BaseHalfCardDetail', () => {
 		assert.strictEqual(isBaseHalfMediaResource(URI.file('/workspace/edit.mov')), false);
 	});
 
+	test('does not expose binary media through the source projection', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		for (const name of ['textbook.pdf', 'concept.webp', 'voice.ogg', 'lesson.mp4']) {
+			const resource = URI.file(`/workspace/${name}`);
+			assert.deepStrictEqual(registry.getProjections(resource).map(projection => projection.id), ['media']);
+			assert.strictEqual(registry.normalizeProjection(resource, 'source'), 'media');
+		}
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/app.ts')).map(projection => projection.id), ['source']);
+		registry.dispose();
+	});
+
 	test('normalizes Markdown-only projections to Markdown resources only', () => {
 		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/README.md'), 'rich'), 'rich');
 		assert.strictEqual(normalizeBaseHalfCardDetailProjection(URI.file('/workspace/README.md'), 'preview'), 'preview');

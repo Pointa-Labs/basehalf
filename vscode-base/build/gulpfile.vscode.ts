@@ -30,8 +30,7 @@ import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, 
 import { copyCodiconsTask } from './lib/compilation.ts';
 import { ensureCopilotPlatformPackage, getCopilotExcludeFilter, getCopilotRuntimePrebuildFiles, getCopilotTgrepExcludeFilter, getRipgrepExcludeFilter, prepareBuiltInCopilotRipgrepShim } from './lib/copilot.ts';
 import { readAgentSdkResults } from './agent-sdk/common.ts';
-import { resolveBaseHalfPluginCatalogPublicKeys } from './basehalf/pluginCatalogKeys.ts';
-import type { IBaseHalfPluginCatalogPublicKey } from './basehalf/pluginCatalogKeys.ts';
+import { resolveBaseHalfPluginCatalogPublicKeys, type IBaseHalfPluginCatalogPublicKey } from './basehalf/pluginCatalogKeys.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
 import globCallback from 'glob';
