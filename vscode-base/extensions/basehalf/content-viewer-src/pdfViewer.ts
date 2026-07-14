@@ -16,6 +16,7 @@ import EmbedPDF, {
 	type PluginRegistry,
 	type ThemeColors
 } from '@embedpdf/snippet';
+import { FontCharset } from '@embedpdf/models';
 import type { BaseHalfPdfWebviewMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewStateMessage } from '../../../src/vs/workbench/basehalf/common/basehalfMediaViewState.js';
 
 interface VsCodeApi {
@@ -61,6 +62,8 @@ let fitWidth = root.dataset.fitWidth !== 'false';
 let ready = false;
 let viewer: EmbedPdfContainer | undefined;
 let pdfiumObjectUrl: string | undefined;
+let simplifiedChineseFontObjectUrl: string | undefined;
+let createBranchPending = false;
 
 initialization.timeout = window.setTimeout(() => {
 	if (!ready) {
@@ -76,6 +79,9 @@ void initializeViewer().catch(error => {
 window.addEventListener('unload', () => {
 	if (pdfiumObjectUrl) {
 		URL.revokeObjectURL(pdfiumObjectUrl);
+	}
+	if (simplifiedChineseFontObjectUrl) {
+		URL.revokeObjectURL(simplifiedChineseFontObjectUrl);
 	}
 }, { once: true });
 
@@ -93,13 +99,35 @@ async function initializeViewer(): Promise<void> {
 		throw new Error('The local PDF engine returned invalid data.');
 	}
 	pdfiumObjectUrl = URL.createObjectURL(new Blob([wasm], { type: 'application/wasm' }));
+	const simplifiedChineseFontUrl = root.dataset.fontSc;
+	if (simplifiedChineseFontUrl) {
+		try {
+			const fontResponse = await fetch(simplifiedChineseFontUrl, { credentials: 'same-origin' });
+			if (!fontResponse.ok) {
+				throw new Error(`HTTP ${fontResponse.status}`);
+			}
+			const font = await fontResponse.arrayBuffer();
+			if (font.byteLength < 4) {
+				throw new Error('empty font data');
+			}
+			simplifiedChineseFontObjectUrl = URL.createObjectURL(new Blob([font], { type: 'font/otf' }));
+		} catch (error) {
+			// A font package must never prevent an otherwise valid PDF from
+			// opening. Embedded document fonts continue to work without it.
+			console.warn('[BaseHalf] simplified Chinese PDF fallback font is unavailable', error);
+		}
+	}
 
 	viewer = EmbedPDF.init({
 		type: 'container',
 		target: root,
 		worker: true,
 		wasmUrl: pdfiumObjectUrl,
-		fontFallback: null,
+		fontFallback: simplifiedChineseFontObjectUrl ? {
+			fonts: {
+				[FontCharset.GB2312]: [{ url: simplifiedChineseFontObjectUrl, weight: 400 }]
+			}
+		} : null,
 		fonts: {
 			ui: { family: 'var(--vscode-font-family)', stylesheetUrl: null },
 			signature: null
@@ -236,18 +264,27 @@ function installBaseHalfSelectionCommand(registry: PluginRegistry): void {
 		icon: 'plus',
 		categories: ['basehalf'],
 		action: ({ documentId }) => {
+			if (createBranchPending) {
+				return;
+			}
+			createBranchPending = true;
 			const scope = selection.forDocument(documentId);
 			const pages = scope.getFormattedSelection().map(item => item.pageIndex + 1);
-			void scope.getSelectedText().toPromise().then(parts => {
-				const text = parts.join('\n\n').trim();
-				if (text && pages.length > 0) {
-					const selected: IBaseHalfPdfSelection = { text, pages };
-					vscode.postMessage({ type: 'basehalf.pdf.createBranch', selection: selected });
+			void (async () => {
+				try {
+					const parts = await scope.getSelectedText().toPromise();
+					const text = parts.join('\n\n').trim();
+					if (text && pages.length > 0) {
+						const selected: IBaseHalfPdfSelection = { text, pages };
+						vscode.postMessage({ type: 'basehalf.pdf.createBranch', selection: selected });
+					}
+				} catch (error) {
+					console.error('[BaseHalf] failed to read the PDF selection', error);
+				} finally {
+					scope.clear();
+					createBranchPending = false;
 				}
-				scope.clear();
-			}, error => {
-				console.error('[BaseHalf] failed to read the PDF selection', error);
-			});
+			})();
 		}
 	});
 

@@ -568,6 +568,14 @@ button {
 	transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.react-flow__node-media:hover {
+	z-index: 12 !important;
+}
+
+.react-flow__node-media:has(.workflow-connect-handle.connectingfrom) {
+	z-index: 24 !important;
+}
+
 .react-flow__node-media:has(.media-node.selected) {
 	width: 338px;
 }
@@ -815,41 +823,6 @@ button {
 	margin: 1em 0;
 	border: 0;
 	border-top: 1px solid var(--workflow-border);
-}
-
-.text-node-shell > .workflow-connect-handle {
-	top: 50%;
-	width: 38px;
-	height: 46px;
-	opacity: 0.76;
-}
-
-.text-node-shell > .workflow-connect-handle.react-flow__handle-left {
-	left: 9px;
-}
-
-.text-node-shell > .workflow-connect-handle.react-flow__handle-right {
-	right: 9px;
-}
-
-.text-node-shell > .workflow-connect-handle::before {
-	width: 18px;
-	height: 18px;
-	border-width: 1.5px;
-	background: var(--workflow-canvas);
-}
-
-.text-node-shell > .workflow-connect-handle::after {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	color: var(--vscode-descriptionForeground);
-	font-size: 17px;
-	font-weight: 350;
-	line-height: 1;
-	transform: translate(-50%, -51%);
-	pointer-events: none;
-	content: "+";
 }
 
 .text-node-format-toolbar {
@@ -1286,19 +1259,6 @@ button {
 .image-node-empty.generating > * {
 	position: relative;
 	z-index: 1;
-}
-
-.image-node-shell > .workflow-connect-handle {
-	top: 144px;
-}
-
-.react-flow__node-media.kind-image .workflow-connect-handle {
-	opacity: 0;
-}
-
-.react-flow__node-media.kind-image:hover .workflow-connect-handle,
-.image-node-shell.selected .workflow-connect-handle {
-	opacity: 1;
 }
 
 .image-node-workbench button {
@@ -2028,16 +1988,16 @@ button {
 
 .workflow-connect-handle {
 	--workflow-connect-scale: 1;
+	position: absolute;
 	z-index: 24;
 	width: 18px;
-	height: 28px;
+	height: 18px;
 	border: 0;
-	border-radius: 9px;
 	background: transparent;
-	opacity: 0.46;
-	pointer-events: auto;
+	opacity: 0;
+	pointer-events: none;
 	cursor: crosshair;
-	transition: opacity 100ms ease;
+	transition: opacity 80ms ease;
 }
 
 .workflow-connect-handle::before {
@@ -2045,28 +2005,28 @@ button {
 	top: 50%;
 	left: 50%;
 	box-sizing: border-box;
-	width: 9px;
-	height: 9px;
+	width: 11px;
+	height: 11px;
 	border: 2px solid color-mix(in srgb, var(--vscode-descriptionForeground) 80%, transparent);
 	border-radius: 50%;
 	background: var(--workflow-surface);
 	transform: translate(-50%, -50%) scale(var(--workflow-connect-scale));
 	pointer-events: inherit;
-	transition: transform 100ms ease, border-color 100ms ease, background-color 100ms ease;
+	transition: transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
 	content: "";
 }
 
 .react-flow__node-media:hover .workflow-connect-handle,
-.media-node.selected .workflow-connect-handle,
 .workflow-connect-handle.connectingfrom,
 .workflow-connect-handle.connectingto {
 	opacity: 1;
+	pointer-events: auto;
 }
 
 .workflow-connect-handle.connectingfrom,
 .workflow-connect-handle.connectingto,
 .workflow-connect-handle.valid {
-	--workflow-connect-scale: 1.25;
+	--workflow-connect-scale: 1.15;
 }
 
 .workflow-connect-handle.connectingfrom::before,
@@ -2080,47 +2040,71 @@ button {
 	border-color: var(--vscode-errorForeground);
 }
 
-.workflow-connect-handle.react-flow__handle-left {
-	left: -9px;
+.workflow-connect-handle.north {
+	top: 0;
+	left: 50%;
+	transform: translate(-50%, 0);
 }
 
-.workflow-connect-handle.react-flow__handle-right {
-	right: -9px;
+.workflow-connect-handle.north::before {
+	top: 0;
+	left: 50%;
+}
+
+.workflow-connect-handle.east {
+	top: 50%;
+	right: 0;
+	transform: translate(0, -50%);
+}
+
+.workflow-connect-handle.east::before {
+	top: 50%;
+	left: 100%;
+}
+
+.workflow-connect-handle.south {
+	bottom: 0;
+	left: 50%;
+	transform: translate(-50%, 0);
+}
+
+.workflow-connect-handle.south::before {
+	top: 100%;
+	left: 50%;
+}
+
+.workflow-connect-handle.west {
+	top: 50%;
+	left: 0;
+	transform: translate(0, -50%);
+}
+
+.workflow-connect-handle.west::before {
+	top: 50%;
+	left: 0;
 }
 
 .react-flow__edge-path,
-.react-flow__connection-path {
+.workflow-connection-line {
 	stroke: color-mix(in srgb, var(--vscode-descriptionForeground) 66%, var(--workflow-canvas));
-	stroke-width: 1.35;
+	stroke-width: 1.5;
 	transition: stroke 140ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.react-flow__connection-path {
+.workflow-connection-line {
 	stroke: var(--workflow-accent);
 	stroke-width: 2;
 }
 
-.react-flow__edge.edge-text .react-flow__edge-path {
-	stroke: color-mix(in srgb, var(--kind-text) 48%, var(--workflow-canvas));
-}
-
-.react-flow__edge.edge-image .react-flow__edge-path {
-	stroke: color-mix(in srgb, var(--kind-image) 48%, var(--workflow-canvas));
-}
-
-.react-flow__edge.edge-video .react-flow__edge-path {
-	stroke: color-mix(in srgb, var(--kind-video) 50%, var(--workflow-canvas));
-}
-
-.react-flow__edge.edge-audio .react-flow__edge-path {
-	stroke: color-mix(in srgb, var(--kind-audio) 48%, var(--workflow-canvas));
+.workflow-connection-line.invalid {
+	stroke: var(--vscode-errorForeground);
 }
 
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path,
 .react-flow__edge:focus-visible .react-flow__edge-path {
 	stroke: var(--workflow-accent);
-	stroke-width: 2.35;
+	stroke-width: 2;
 }
 
 .workflow-edge-add-object {
@@ -2930,21 +2914,6 @@ button {
 	padding: 22px 14px;
 }
 
-.generated-node-shell > .workflow-connect-handle {
-	top: 104px;
-	opacity: 0;
-}
-
-.generated-node-shell.kind-audio > .workflow-connect-handle {
-	top: 74px;
-}
-
-.react-flow__node-media.kind-video:hover .workflow-connect-handle,
-.react-flow__node-media.kind-audio:hover .workflow-connect-handle,
-.generated-node-shell.selected .workflow-connect-handle {
-	opacity: 1;
-}
-
 .node-workbench {
 	position: absolute;
 	left: 50%;
@@ -3140,7 +3109,8 @@ button {
 	.media-node,
 	.react-flow__handle,
 	.react-flow__edge-path,
-	.react-flow__connection-path {
+	.react-flow__connection-path,
+	.workflow-connection-line {
 		transition: none;
 	}
 }

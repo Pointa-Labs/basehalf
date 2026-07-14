@@ -120,13 +120,17 @@ export async function projectBaseHalfMarkdownSegment(
 	editor: IBaseHalfMarkdownEditorApi,
 	segment: IBaseHalfMarkdownSegment
 ): Promise<IBaseHalfMarkdownSegmentProjection> {
-	let parsed: unknown[] = [];
-	try {
-		parsed = await editor.tryParseMarkdownToBlocks(segment.source);
-	} catch {
-		parsed = [];
+	const parsed: unknown[] = [];
+	const paragraphParts = splitBaseHalfParagraphFileLinkLines(segment.source) ?? [segment.source];
+	for (const part of paragraphParts) {
+		let partBlocks: unknown[] = [];
+		try {
+			partBlocks = await editor.tryParseMarkdownToBlocks(part);
+		} catch {
+			partBlocks = [];
+		}
+		parsed.push(...projectBaseHalfStandaloneFileLink(part, partBlocks));
 	}
-	parsed = projectBaseHalfStandaloneFileLink(segment.source, parsed);
 
 	if (isDropped(parsed)) {
 		return { blocks: [passthroughBlock(segment)], entries: [] };
@@ -173,17 +177,8 @@ export function projectBaseHalfStandaloneFileLink(source: string, parsed: unknow
 	if (parsed.length !== 1) {
 		return parsed;
 	}
-	const tokens = lexer(source).filter(token => token.type !== 'space');
-	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
-		return parsed;
-	}
-	const paragraph = tokens[0] as Tokens.Paragraph;
-	const inline = paragraph.tokens.filter(token => token.type !== 'space');
-	if (inline.length !== 1 || inline[0].type !== 'link') {
-		return parsed;
-	}
-	const link = inline[0] as Tokens.Link;
-	if (paragraph.text.trim() !== link.raw.trim() || !isBaseHalfLocalFileHref(link.href)) {
+	const link = baseHalfStandaloneFileLink(source);
+	if (!link) {
 		return parsed;
 	}
 
@@ -201,6 +196,62 @@ export function projectBaseHalfStandaloneFileLink(source: string, parsed: unknow
 		content: undefined,
 		children: []
 	}];
+}
+
+/**
+ * BlockNote serializes adjacent rich blocks with one newline. CommonMark reads
+ * `paragraph\n[file](...)` back as one soft-wrapped paragraph, so a close/open
+ * cycle would erase the file-block projection. Split only a plain paragraph's
+ * lines that are independently complete local file links; fenced code, quotes,
+ * lists, and mixed inline content keep their original parsing.
+ */
+function splitBaseHalfParagraphFileLinkLines(source: string): string[] | undefined {
+	const tokens = lexer(source).filter(token => token.type !== 'space');
+	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
+		return undefined;
+	}
+
+	const lines = source.split(/\r?\n/);
+	if (lines.length < 2 || !lines.some(isBaseHalfStandaloneFileLinkLine)) {
+		return undefined;
+	}
+
+	const parts: string[] = [];
+	let paragraph: string[] = [];
+	const flushParagraph = () => {
+		if (paragraph.length > 0) {
+			parts.push(paragraph.join('\n'));
+			paragraph = [];
+		}
+	};
+	for (const line of lines) {
+		if (isBaseHalfStandaloneFileLinkLine(line)) {
+			flushParagraph();
+			parts.push(line);
+		} else {
+			paragraph.push(line);
+		}
+	}
+	flushParagraph();
+	return parts;
+}
+
+function isBaseHalfStandaloneFileLinkLine(line: string): boolean {
+	return line === line.trim() && !!baseHalfStandaloneFileLink(line);
+}
+
+function baseHalfStandaloneFileLink(source: string): Tokens.Link | undefined {
+	const tokens = lexer(source).filter(token => token.type !== 'space');
+	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
+		return undefined;
+	}
+	const paragraph = tokens[0] as Tokens.Paragraph;
+	const inline = paragraph.tokens.filter(token => token.type !== 'space');
+	if (inline.length !== 1 || inline[0].type !== 'link') {
+		return undefined;
+	}
+	const link = inline[0] as Tokens.Link;
+	return paragraph.text.trim() === link.raw.trim() && isBaseHalfLocalFileHref(link.href) ? link : undefined;
 }
 
 function isBaseHalfLocalFileHref(href: string): boolean {

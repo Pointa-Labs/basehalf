@@ -73,6 +73,22 @@ test('stores the current workflow as four media kinds plus structural groups and
 	assert.equal(JSON.parse(new TextDecoder().decode(serializeAIProject(project))).version, 4);
 });
 
+test('normalizes older connections to stable horizontal anchors', () => {
+	const value = JSON.parse(JSON.stringify(createCurrentWorkflowFixture()));
+	for (const edge of value.edges) {
+		delete edge.sourceAnchor;
+		delete edge.targetAnchor;
+	}
+	const project = parseAIProject(JSON.stringify(value));
+	assert.equal(project.edges.every(edge => edge.sourceAnchor === 'east' && edge.targetAnchor === 'west'), true);
+});
+
+test('rejects an explicitly invalid connection anchor', () => {
+	const value = JSON.parse(JSON.stringify(createCurrentWorkflowFixture()));
+	value.edges[0].sourceAnchor = 'diagonal';
+	assert.throws(() => parseAIProject(JSON.stringify(value)), /workflow anchor/);
+});
+
 test('accepts only the current project contract', () => {
 	assert.throws(() => parseAIProject(JSON.stringify({ version: 3, title: 'Old' })), /Expected version 4/);
 	assert.equal(parseAIProject(JSON.stringify(createCurrentWorkflowFixture())).version, 4);
@@ -130,7 +146,7 @@ test('validates typed, unique, acyclic workflow connections', () => {
 	const secondVideo = createMediaNode('video', { x: 1220, y: 100 }) as AIProjectVideoNode;
 	secondVideo.id = 'video-2';
 	project.nodes.push(secondVideo);
-	project.edges.push({ id: 'video-chain', source: 'video-1', target: 'video-2', media: 'video' });
+	project.edges.push({ id: 'video-chain', source: 'video-1', target: 'video-2', media: 'video', sourceAnchor: 'east', targetAnchor: 'west' });
 	assert.match(validateWorkflowConnection(project, 'video-2', 'video-1').reason ?? '', /cycle/);
 });
 
@@ -150,6 +166,9 @@ test('offers only node kinds that can sit between both connection endpoints', ()
 
 test('atomically replaces a connection when inserting a compatible node', () => {
 	const project = createCurrentWorkflowFixture();
+	const replaced = project.edges.find(edge => edge.id === 'edge-image-video')!;
+	replaced.sourceAnchor = 'south';
+	replaced.targetAnchor = 'north';
 	const inserted = createMediaNode('text', { x: 650, y: 190 }, 'shot-group-1');
 	inserted.id = 'inserted-direction';
 	inserted.title = 'Motion direction';
@@ -159,6 +178,10 @@ test('atomically replaces a connection when inserting a compatible node', () => 
 	assert.equal(project.edges.some(edge => edge.id === 'edge-image-video'), false);
 	assert.equal(project.edges.some(edge => edge.source === 'image-1' && edge.target === inserted.id && edge.media === 'image'), true);
 	assert.equal(project.edges.some(edge => edge.source === inserted.id && edge.target === 'video-1' && edge.media === 'text'), true);
+	assert.equal(project.edges.find(edge => edge.source === 'image-1' && edge.target === inserted.id)?.sourceAnchor, 'south');
+	assert.equal(project.edges.find(edge => edge.source === 'image-1' && edge.target === inserted.id)?.targetAnchor, 'north');
+	assert.equal(project.edges.find(edge => edge.source === inserted.id && edge.target === 'video-1')?.sourceAnchor, 'south');
+	assert.equal(project.edges.find(edge => edge.source === inserted.id && edge.target === 'video-1')?.targetAnchor, 'north');
 	assert.equal(project.groups[0].nodeIds.includes(inserted.id), true);
 	assert.equal(nodeById(project, inserted.id), inserted);
 });
@@ -180,13 +203,15 @@ test('creates a validated connection to a newly composed node in one model opera
 	const video = createMediaNode('video', { x: 1280, y: 320 });
 	video.id = 'video-from-image';
 	project.nodes.push(video);
-	const result = connectWorkflowNodes(project, 'image-1', video.id);
+	const result = connectWorkflowNodes(project, 'image-1', video.id, 'south', 'north');
 	assert.equal(result.valid, true);
 	assert.deepStrictEqual(project.edges.at(-1), {
 		id: project.edges.at(-1)?.id,
 		source: 'image-1',
 		target: video.id,
-		media: 'image'
+		media: 'image',
+		sourceAnchor: 'south',
+		targetAnchor: 'north'
 	});
 
 	const edgeCount = project.edges.length;

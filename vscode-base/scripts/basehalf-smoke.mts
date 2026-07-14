@@ -97,7 +97,9 @@ try {
 	page.on('pageerror', error => console.error(`[basehalf-smoke] pageerror: ${error.stack || error.message}`));
 	page.on('console', message => {
 		if (shouldLogConsoleMessage(message)) {
-			console.error(`[basehalf-smoke] console.${message.type()}: ${message.text()}`);
+			const location = message.location();
+			const source = location.url ? ` (${location.url}:${location.lineNumber + 1})` : '';
+			console.error(`[basehalf-smoke] console.${message.type()}: ${message.text()}${source}`);
 		}
 	});
 
@@ -107,11 +109,19 @@ try {
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
-	if (!opts.pluginOnly && !opts.contentOnly) {
+	if (!opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 	}
 
-		if (opts.pluginOnly) {
+		if (opts.settingsOnly) {
+			await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
+			await step('global-model-services-manager', () => assertGlobalModelServicesManager(page));
+			console.log(JSON.stringify({
+				ok: true,
+				workspace: workspacePath,
+				checks: ['settings-basehalf-category', 'global-model-services-manager']
+			}, null, 2));
+		} else if (opts.pluginOnly) {
 			await step('quick-open-ai-video-project', () => quickOpen(page, 'episode.aivideo'));
 			await step('ai-video-plugin-projection', () => assertAIVideoProject(page));
 			await step('ai-video-local-workflow-output', () => assertAIVideoLocalWorkflow(page));
@@ -132,6 +142,7 @@ try {
 		} else if (opts.contentOnly) {
 			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+			await step('card-detail-focus-document', () => assertCardDetailFocusDocument(page));
 			await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
 			await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 			await step('quick-open-media', () => quickOpen(page, 'concept.svg'));
@@ -139,15 +150,18 @@ try {
 			await step('quick-open-pdf', () => quickOpen(page, 'textbook.pdf'));
 			await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
 			await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
+			await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
 			console.log(JSON.stringify({
 				ok: true,
 				workspace: workspacePath,
 				checks: [
+					'card-detail-focus-document',
 					'readme-rich-file-attachment',
 					'readme-no-editor-tab',
 					'media-card-detail-projection',
 					'pdf-card-detail-projection',
-					'pdf-no-editor-tab'
+					'pdf-no-editor-tab',
+					'pdf-grow-three-branches'
 				]
 			}, null, 2));
 		} else if (opts.canvasOnly) {
@@ -212,6 +226,7 @@ try {
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-titlebar-breadcrumbs', () => assertBaseHalfTitlebarBreadcrumbs(page));
 	await step('readme-card-detail-compact-header', () => assertCardDetailCompactHeader(page));
+	await step('card-detail-focus-document', () => assertCardDetailFocusDocument(page));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-save-status-hidden', () => assertMarkdownRichSaveStatusHidden(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
@@ -252,6 +267,7 @@ try {
 	await step('quick-open-pdf', () => quickOpen(page, 'textbook.pdf'));
 	await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
 	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
+	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
 	await step('quick-open-ai-video-project', () => quickOpen(page, 'episode.aivideo'));
 	await step('ai-video-plugin-projection', () => assertAIVideoProject(page));
 	await step('ai-video-local-workflow-output', () => assertAIVideoLocalWorkflow(page));
@@ -383,6 +399,7 @@ function parseArgs(args) {
 		canvasOnly: false,
 		contentOnly: false,
 		pluginOnly: false,
+		settingsOnly: false,
 		output: undefined
 	};
 
@@ -403,6 +420,9 @@ function parseArgs(args) {
 				break;
 			case '--plugin-only':
 				parsed.pluginOnly = true;
+				break;
+			case '--settings-only':
+				parsed.settingsOnly = true;
 				break;
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
@@ -435,6 +455,7 @@ Options:
   --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
   --plugin-only       Run the curated plugin and AI Video integration slice.
+  --settings-only     Run BaseHalf Settings and global model-service management.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);
@@ -549,20 +570,21 @@ function createFixtureWorkspace(workspace) {
 		title: 'Episode',
 		nodes: [
 			{ id: 'intent', kind: 'text', role: 'brief', title: 'Creative brief', content: 'A short local-first scene.', position: { x: 80, y: 120 } },
-			{ id: 'storyboard-smoke', kind: 'text', role: 'storyboard', title: 'Storyboard', content: 'Mira crosses a rooftop at blue hour.', position: { x: 28, y: 74 }, groupId: 'group-smoke' },
-			{ id: 'image-prompt-smoke', kind: 'text', role: 'imagePrompt', title: 'Image prompt', content: 'Vertical cinematic rooftop frame at blue hour.', position: { x: 258, y: 74 }, groupId: 'group-smoke' },
-			{ id: 'image-smoke', kind: 'image', role: 'generate', title: 'Storyboard image', position: { x: 488, y: 74 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], aspectRatio: '9:16', count: 1 },
-			{ id: 'video-prompt-smoke', kind: 'text', role: 'videoPrompt', title: 'Video prompt', content: 'Slow push in as Mira looks over the city.', position: { x: 258, y: 204 }, groupId: 'group-smoke' },
-			{ id: 'video-smoke', kind: 'video', role: 'generate', title: 'Opening clip', position: { x: 808, y: 74 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], durationSeconds: 5, aspectRatio: '9:16', audioMode: 'none' }
+			{ id: 'storyboard-smoke', kind: 'text', role: 'storyboard', title: 'Storyboard', content: 'Mira crosses a rooftop at blue hour.', position: { x: 32, y: 82 }, groupId: 'group-smoke' },
+			{ id: 'image-prompt-smoke', kind: 'text', role: 'imagePrompt', title: 'Image prompt', content: 'Vertical cinematic rooftop frame at blue hour.', position: { x: 412, y: 82 }, groupId: 'group-smoke' },
+			{ id: 'image-smoke', kind: 'image', role: 'generate', title: 'Storyboard image', position: { x: 792, y: 82 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], aspectRatio: '9:16', count: 1 },
+			{ id: 'video-prompt-smoke', kind: 'text', role: 'videoPrompt', title: 'Video prompt', content: 'Slow push in as Mira looks over the city.', position: { x: 1070, y: 82 }, groupId: 'group-smoke' },
+			{ id: 'video-smoke', kind: 'video', role: 'generate', title: 'Opening clip', position: { x: 1450, y: 82 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], durationSeconds: 5, aspectRatio: '9:16', audioMode: 'none' },
+			{ id: 'audio-smoke', kind: 'audio', role: 'voice', title: 'Voiceover', position: { x: 1450, y: 330 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], durationSeconds: 5, voice: 'auto' }
 		],
 		edges: [
-			{ id: 'edge-storyboard-image-prompt', source: 'storyboard-smoke', target: 'image-prompt-smoke', media: 'text' },
-			{ id: 'edge-image-prompt-image', source: 'image-prompt-smoke', target: 'image-smoke', media: 'text' },
-			{ id: 'edge-storyboard-video-prompt', source: 'storyboard-smoke', target: 'video-prompt-smoke', media: 'text' },
-			{ id: 'edge-video-prompt-video', source: 'video-prompt-smoke', target: 'video-smoke', media: 'text' },
-			{ id: 'edge-image-video', source: 'image-smoke', target: 'video-smoke', media: 'image' }
+			{ id: 'edge-storyboard-image-prompt', source: 'storyboard-smoke', target: 'image-prompt-smoke', media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+			{ id: 'edge-image-prompt-image', source: 'image-prompt-smoke', target: 'image-smoke', media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+			{ id: 'edge-storyboard-video-prompt', source: 'storyboard-smoke', target: 'video-prompt-smoke', media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+			{ id: 'edge-video-prompt-video', source: 'video-prompt-smoke', target: 'video-smoke', media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+			{ id: 'edge-image-video', source: 'image-smoke', target: 'video-smoke', media: 'image', sourceAnchor: 'east', targetAnchor: 'west' }
 		],
-		groups: [{ id: 'group-smoke', title: 'Opening shot', description: 'One clip pipeline.', position: { x: 420, y: 100 }, width: 1120, height: 330, nodeIds: ['storyboard-smoke', 'image-prompt-smoke', 'image-smoke', 'video-prompt-smoke', 'video-smoke'] }],
+		groups: [{ id: 'group-smoke', title: 'Opening shot', description: 'One clip pipeline.', position: { x: 420, y: 100 }, width: 1780, height: 620, nodeIds: ['storyboard-smoke', 'image-prompt-smoke', 'image-smoke', 'video-prompt-smoke', 'video-smoke', 'audio-smoke'] }],
 		sequence: [{ id: 'sequence-smoke', videoNodeId: 'video-smoke' }],
 		outputs: []
 	}, null, 2) + '\n', 'utf8');
@@ -1361,8 +1383,21 @@ async function assertBaseHalfSettingsCategory(page) {
 		const text = (settingsEditor?.textContent ?? '').replace(/\s+/g, ' ');
 		return text.includes('BaseHalf')
 			&& text.includes('ADHD')
-			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'));
+			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'))
+			&& (text.includes('Model Services') || text.includes('basehalf.models.services'));
 	}, null, { timeout: 20_000 });
+}
+
+async function assertGlobalModelServicesManager(page) {
+	const manageLink = page.locator('.settings-editor a', { hasText: 'Manage Model Services' }).first();
+	await manageLink.waitFor({ state: 'visible', timeout: 15_000 });
+	await manageLink.click();
+	const widget = page.locator('.quick-input-widget:visible').last();
+	await widget.waitFor({ state: 'visible', timeout: 15_000 });
+	await widget.locator('.quick-input-title', { hasText: 'Model Services' }).waitFor({ state: 'visible', timeout: 15_000 });
+	await widget.locator('.quick-input-list .monaco-list-row', { hasText: 'Add Model Service' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Escape');
+	await widget.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 async function assertCuratedPluginManager(page) {
@@ -1528,9 +1563,11 @@ async function assertMediaCardDetail(page) {
 	const active = page.locator('.basehalf-card-detail-surface.active');
 	await active.locator('.basehalf-card-detail-media-webview').waitFor({ state: 'visible', timeout: 8_000 });
 	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="View"]');
-	await pressed.waitFor({ state: 'visible', timeout: 8_000 });
-	if (await pressed.getAttribute('aria-pressed') !== 'true') {
+	if (await pressed.count() > 0 && await pressed.getAttribute('aria-pressed') !== 'true') {
 		throw new Error('Supported media did not select the registered View projection by default');
+	}
+	if (await page.locator('.basehalf-card-detail-projection[aria-label="Source"]').count() > 0) {
+		throw new Error('Direct-render image media exposed the raw Source projection');
 	}
 
 	const started = Date.now();
@@ -1545,12 +1582,32 @@ async function assertMediaCardDetail(page) {
 	throw new Error('Media projection webview did not render the local SVG');
 }
 
-async function assertPdfCardDetail(page) {
-	await assertCardDetail(page, 'textbook.pdf');
+async function assertCardDetailFocusDocument(page) {
+	const action = page.locator('.basehalf-card-detail-focus');
+	const sideBar = page.locator('[id="workbench.parts.sidebar"]');
+	await action.waitFor({ state: 'visible', timeout: 8_000 });
+	const initiallyVisible = await sideBar.isVisible();
+
+	await action.click();
+	await sideBar.waitFor({ state: initiallyVisible ? 'hidden' : 'visible', timeout: 8_000 });
+	if (await action.getAttribute('aria-pressed') !== String(initiallyVisible)) {
+		throw new Error('The document focus action did not mirror sidebar visibility');
+	}
+
+	// The action is an explicit view toggle, so leave the disposable smoke
+	// profile in exactly the state in which the learner entered Card Detail.
+	await action.click();
+	await sideBar.waitFor({ state: initiallyVisible ? 'visible' : 'hidden', timeout: 8_000 });
+}
+
+async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {
+	await assertCardDetail(page, expectedName);
 	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="View"]');
-	await pressed.waitFor({ state: 'visible', timeout: 8_000 });
-	if (await pressed.getAttribute('aria-pressed') !== 'true') {
+	if (await pressed.count() > 0 && await pressed.getAttribute('aria-pressed') !== 'true') {
 		throw new Error('PDF did not select the registered View projection by default');
+	}
+	if (await page.locator('.basehalf-card-detail-projection[aria-label="Source"]').count() > 0) {
+		throw new Error('A binary PDF exposed the raw Source projection');
 	}
 
 	const started = Date.now();
@@ -1587,6 +1644,94 @@ async function assertPdfCardDetail(page) {
 	throw new Error(`PDF projection webview did not render the local fixture: ${diagnostic}`);
 }
 
+async function assertPdfGrowsThreeBranches(page) {
+	const sourcePath = path.join(workspacePath, 'docs', 'textbook.pdf');
+	const sourceBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'textbook.pdf', 'badge.yaml');
+	const branchNames = ['textbook-note.md', 'textbook-note-2.md', 'textbook-note-3.md'];
+
+	for (let index = 0; index < branchNames.length; index++) {
+		if (index > 0) {
+			await quickOpen(page, 'textbook.pdf');
+			await assertPdfCardDetail(page);
+		}
+
+		const action = await selectPdfFixtureText(page);
+		await action.click();
+		const name = branchNames[index];
+		await assertCardDetail(page, name);
+		const branchPath = path.join(workspacePath, 'docs', name);
+		await waitUntil(() => fs.existsSync(branchPath), `${name} to be created from the PDF selection`, 15_000);
+		const markdown = fs.readFileSync(branchPath, 'utf8');
+		if (!markdown.includes('> BaseHalf PDF') || !markdown.includes('Source: [textbook.pdf](./textbook.pdf), page 1')) {
+			throw new Error(`${name} did not preserve the selected passage and source page as ordinary Markdown`);
+		}
+
+		const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', name, 'badge.yaml');
+		await waitUntil(() => fs.existsSync(sourceBadgePath) && fs.existsSync(targetBadgePath), `${name} badge endpoints to be written`, 15_000);
+		const sourceBadge = fs.readFileSync(sourceBadgePath, 'utf8');
+		const targetBadge = fs.readFileSync(targetBadgePath, 'utf8');
+		if (!sourceBadge.includes(`docs/${name}`) || !targetBadge.includes('docs/textbook.pdf')) {
+			throw new Error(`${name} did not persist the two-sided PDF context-flow reference`);
+		}
+	}
+
+	if (!fs.existsSync(sourcePath)) {
+		throw new Error('Growing PDF branches unexpectedly moved or removed the source document');
+	}
+	await closeCardDetailIfOpen(page);
+	for (const name of branchNames) {
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="docs/${name}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	}
+}
+
+async function selectPdfFixtureText(page) {
+	let diagnostic = '';
+	for (const frame of page.frames()) {
+		const root = frame.locator('#basehalf-pdf-viewer[data-status="ready"]');
+		if (await root.count().catch(() => 0) === 0) {
+			continue;
+		}
+		const images = root.locator('embedpdf-container').locator('#document-content img');
+		const candidates = [];
+		for (let index = 0; index < await images.count(); index++) {
+			const box = await images.nth(index).boundingBox();
+			if (box) {
+				candidates.push({ box, area: box.width * box.height });
+			}
+		}
+		const pageImage = candidates.sort((a, b) => b.area - a.area)[0]?.box;
+		if (!pageImage) {
+			continue;
+		}
+
+		const action = frame.locator('button', { hasText: 'Grow branch' }).last();
+		// Both ends of an EmbedPDF text-selection drag must land on glyphs.
+		// The fixture line starts at x=40pt and has a 120pt baseline on a
+		// 300x200pt page, so keep the drag comfortably inside the rendered text
+		// instead of ending in the large blank area to its right.
+		for (const yRatio of [0.39, 0.36, 0.42]) {
+			await page.mouse.move(pageImage.x + pageImage.width * 0.15, pageImage.y + pageImage.height * yRatio);
+			await page.mouse.down();
+			await page.mouse.move(pageImage.x + pageImage.width * 0.66, pageImage.y + pageImage.height * yRatio, { steps: 24 });
+			await page.mouse.up();
+			if (await action.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)) {
+				return action;
+			}
+		}
+		diagnostic = await root.locator('embedpdf-container').evaluate(async element => {
+			const registry = await element.registry;
+			const interaction = registry.getPlugin('interaction-manager')?.provides();
+			const selection = registry.getPlugin('selection')?.provides();
+			return JSON.stringify({
+				plugins: registry.getAllPlugins().map(plugin => plugin.id),
+				mode: interaction?.forDocument('basehalf-document').getActiveMode(),
+				selection: selection?.getState('basehalf-document')
+			});
+		});
+	}
+	throw new Error(`The PDF selection menu did not expose Grow branch for the fixture text: ${diagnostic}`);
+}
+
 async function assertAIVideoProject(page) {
 	await assertCardDetail(page, 'episode.aivideo');
 	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="AI Video"]');
@@ -1596,23 +1741,53 @@ async function assertAIVideoProject(page) {
 	}
 	const frame = await findAIVideoFrame(page);
 	await frame.locator('.react-flow__node-media').first().waitFor({ state: 'visible', timeout: 10_000 });
-	if (await frame.locator('.media-node.kind-text').count() < 3 || await frame.locator('.media-node.kind-image').count() !== 1 || await frame.locator('.media-node.kind-video').count() !== 1) {
-		throw new Error('The AI Video workflow canvas did not render its Text, Image, and Video nodes');
+	await frame.locator('.generated-node-shell.kind-audio').waitFor({ state: 'visible', timeout: 10_000 });
+	if (await frame.locator('.text-node-shell').count() < 3 || await frame.locator('.image-node-shell').count() !== 1 || await frame.locator('.generated-node-shell.kind-video').count() !== 1 || await frame.locator('.generated-node-shell.kind-audio').count() !== 1) {
+		throw new Error('The AI Video workflow canvas did not render its Text, Image, Video, and Audio nodes');
 	}
-	if (!/0\s+blocked/.test((await frame.locator('.readiness-bar').innerText()).replace(/\s+/g, ' '))) {
-		throw new Error('Schedulable downstream media was incorrectly presented as blocked');
+	if (await frame.locator('.project-title, .readiness-bar, .canvas-history-controls').count() !== 0) {
+		throw new Error('The AI Video workflow canvas restored redundant title, statistics, or history chrome');
 	}
+	if (await frame.locator('.canvas-primary-actions, .button.agent-action, .run-panel').count() !== 0) {
+		throw new Error('The AI Video workflow canvas restored a duplicate Agent or workflow-level run surface');
+	}
+	if (await frame.locator('.sequence-toggle').getAttribute('aria-expanded') !== 'false' || await frame.locator('.sequence-main').count() !== 0) {
+		throw new Error('The AI Video clip sequence consumed canvas space before the user expanded it');
+	}
+	const initialImageNode = frame.locator('.react-flow__node-media', { has: frame.locator('.image-node-shell') }).first();
+	if (await initialImageNode.locator('.image-node-workbench').count() !== 0 || await initialImageNode.locator('.node-run-button').count() !== 0) {
+		throw new Error('The Image card exposed generation controls before the user selected it');
+	}
+	const compactImageBounds = await initialImageNode.boundingBox();
+	await initialImageNode.click();
+	const selectedImageBounds = await initialImageNode.boundingBox();
+	if (!compactImageBounds || !selectedImageBounds || Math.abs(compactImageBounds.width - selectedImageBounds.width) > 1 || Math.abs(compactImageBounds.height - selectedImageBounds.height) > 1) {
+		throw new Error('Selecting the Image card changed its canvas geometry instead of floating controls around it');
+	}
+	const imageRun = initialImageNode.locator('.node-run-button');
+	if (await frame.locator('.node-run-button').count() !== 1 || await imageRun.isDisabled()) {
+		throw new Error('The selected Image card did not expose its single readiness-aware Run action');
+	}
+	const initialVideoNode = frame.locator('.react-flow__node-media', { has: frame.locator('.generated-node-shell.kind-video') }).first();
+	await initialVideoNode.click();
+	if (!await initialVideoNode.locator('.node-run-button').isDisabled() || await frame.locator('.node-run-button').count() !== 1) {
+		throw new Error('The selected Video card did not expose one readiness-aware Run action');
+	}
+	await page.keyboard.press('Escape');
+	const initialAudioNode = frame.locator('.react-flow__node-media', { has: frame.locator('.generated-node-shell.kind-audio') }).first();
+	await initialAudioNode.click();
+	if (!await initialAudioNode.locator('.node-run-button').isDisabled() || await frame.locator('.node-run-button').count() !== 1) {
+		throw new Error('The selected Audio card did not expose one readiness-aware Run action');
+	}
+	await frame.locator('.sequence-toggle').click();
 	await frame.locator('.sequence-main').first().click();
-	if (await frame.locator('.inspector').count() !== 0) {
-		throw new Error('Sequence navigation opened node settings instead of only focusing the shot');
+	if (await frame.locator('.inspector, .workspace.has-inspector').count() !== 0) {
+		throw new Error('The AI Video workflow restored a permanent node inspector or narrowed canvas');
 	}
 	await frame.waitForFunction(() => document.querySelectorAll('.react-flow__edge').length >= 5, undefined, { timeout: 5_000 });
 	if (await frame.locator('.react-flow__edge').count() < 5) {
 		throw new Error('The AI Video workflow canvas did not render its dependency edges');
 	}
-	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
-	await page.waitForTimeout(150);
-
 	const viewport = frame.locator('.react-flow__viewport');
 	const transformBeforeScroll = await viewport.evaluate(element => getComputedStyle(element).transform);
 	const scaleBeforeScroll = await viewport.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).a);
@@ -1632,9 +1807,12 @@ async function assertAIVideoProject(page) {
 	if (await zoomLabel.textContent() === zoomBefore) {
 		throw new Error('AI Video canvas zoom control did not update the viewport');
 	}
+	const zoomAfterIncrease = await zoomLabel.textContent();
+	await frame.locator('.canvas-zoom-button[aria-label="Zoom out"]').click();
+	await frame.waitForFunction(previous => document.querySelector('.canvas-zoom-value')?.textContent !== previous, zoomAfterIncrease, { timeout: 5_000 });
 	await frame.locator('.canvas-zoom-button.reset').click();
-	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
-	await page.waitForTimeout(100);
+	await frame.locator('.sequence-main').first().click();
+	await page.waitForTimeout(150);
 
 	const pane = frame.locator('.react-flow__pane');
 	const paneBox = await pane.boundingBox();
@@ -1643,46 +1821,394 @@ async function assertAIVideoProject(page) {
 	}
 	await pane.click({ button: 'right', position: { x: 24, y: paneBox.height - 24 } });
 	await frame.locator('.add-menu.context').waitFor({ state: 'visible', timeout: 5_000 });
+	await frame.locator('.add-menu.context').getByText('Find node', { exact: true }).waitFor({ state: 'visible', timeout: 5_000 });
+	if (await frame.locator('.add-menu.context').getByText('Undo', { exact: true }).count() !== 1 || await frame.locator('.add-menu.context').getByText('Redo', { exact: true }).count() !== 1) {
+		throw new Error('The AI Video canvas right-click menu did not expose canvas-level history actions');
+	}
 	await page.keyboard.press('Escape');
 	await frame.locator('.add-menu.context').waitFor({ state: 'detached', timeout: 5_000 });
+	await frame.locator('.canvas-create-button').click();
+	await frame.locator('.add-menu.mode-quick').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await pane.dblclick({ position: { x: 44, y: paneBox.height - 54 } });
+	await frame.locator('.add-menu.mode-quick.context').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await frame.locator('.canvas-find-button').click();
+	const nodeSearch = frame.locator('.node-search-panel');
+	await nodeSearch.waitFor({ state: 'visible', timeout: 5_000 });
+	await nodeSearch.locator('.node-search-input').fill('Storyboard');
+	await nodeSearch.locator('.node-search-results button', { hasText: 'Storyboard' }).first().click();
+	await nodeSearch.waitFor({ state: 'detached', timeout: 5_000 });
+	await frame.locator('.sequence-main').first().click();
+	await page.waitForTimeout(150);
 
-	const firstTextNode = frame.locator('.react-flow__node-media', { has: frame.locator('.media-node.kind-text') }).first();
+	const firstTextNode = frame.locator('.react-flow__node-media[data-id="storyboard-smoke"]');
+	for (const kind of ['text', 'image', 'video', 'audio']) {
+		const node = kind === 'text' ? firstTextNode : kind === 'image' ? frame.locator('.react-flow__node-media', { has: frame.locator('.image-node-shell') }).first() : frame.locator('.react-flow__node-media', { has: frame.locator(`.generated-node-shell.kind-${kind}`) }).first();
+		const floatingControls = kind === 'text' ? '.text-node-ai-composer' : kind === 'image' ? '.image-node-workbench' : '.node-workbench';
+		const compactBounds = kind === 'text' ? await node.boundingBox() : undefined;
+		await page.keyboard.press('Escape');
+		await node.click();
+		if (!await node.getAttribute('class').then(value => value?.includes('selected'))) {
+			throw new Error(`Left-clicking the AI Video ${kind} node did not select it`);
+		}
+		if (await node.locator('.text-node-title-input, .image-node-title-input, .generated-node-title-input').count() !== 0) {
+			throw new Error(`Selecting the AI Video ${kind} node unexpectedly turned its title into a form field`);
+		}
+		if (kind === 'text') {
+			await node.locator('.text-node-ai-composer').waitFor({ state: 'visible', timeout: 5_000 });
+			await node.locator('.text-node-ai-input').waitFor({ state: 'visible', timeout: 5_000 });
+			if (await node.locator('.text-node-model-control, .text-node-configure-model').count() !== 1) {
+				throw new Error('The selected Text card did not expose exactly one global text-model control');
+			}
+			const textSubmit = node.locator('.text-node-ai-submit');
+			if (await node.locator('.text-node-configure-model').count() === 1 && !await textSubmit.isDisabled()) {
+				throw new Error('The selected Text card enabled generation before a global text-model connection was configured');
+			}
+			const selectedBounds = await node.boundingBox();
+			if (!compactBounds || !selectedBounds || Math.abs(compactBounds.width - selectedBounds.width) > 1 || Math.abs(compactBounds.height - selectedBounds.height) > 1) {
+				throw new Error('Selecting the Text card changed its canvas geometry instead of floating the editor around it');
+			}
+			if (await frame.locator('.node-action-bar:visible').count() !== 0) {
+				throw new Error('Selecting a Text node exposed an action bar with no meaningful Text action');
+			}
+		} else if (kind === 'image') {
+			await node.locator('.image-node-workbench').waitFor({ state: 'visible', timeout: 5_000 });
+			if (await node.locator('.image-node-quickbar').count() !== 0) {
+				throw new Error('Selecting the Image card restored a redundant toolbar above the node');
+			}
+		} else {
+			await node.locator('.node-workbench').waitFor({ state: 'visible', timeout: 5_000 });
+		}
+
+		await node.click({ button: 'right' });
+		const contextMenu = frame.locator('.node-context-menu[aria-label$="actions"]');
+		await contextMenu.waitFor({ state: 'visible', timeout: 5_000 });
+		await node.locator(floatingControls).waitFor({ state: 'detached', timeout: 5_000 })
+			.catch(() => { throw new Error(`Right-clicking the AI Video ${kind} node left its floating controls open behind the context menu`); });
+		const editLabel = kind === 'image' ? 'Edit prompt' : kind === 'text' ? 'Edit text' : 'Edit node';
+		await contextMenu.locator('button', { hasText: editLabel }).waitFor({ state: 'visible', timeout: 5_000 });
+		await contextMenu.locator('button', { hasText: 'Duplicate' }).waitFor({ state: 'visible', timeout: 5_000 });
+		await contextMenu.locator('button', { hasText: 'Delete node' }).waitFor({ state: 'visible', timeout: 5_000 });
+		const importLabel = kind === 'image' ? 'Import image' : 'Import media';
+		if ((await contextMenu.locator('button', { hasText: importLabel }).count() > 0) !== (kind !== 'text')) {
+			throw new Error(`The AI Video ${kind} node exposed the wrong right-click actions`);
+		}
+		await page.keyboard.press('Escape');
+		await contextMenu.waitFor({ state: 'detached', timeout: 5_000 });
+
+		if (await node.locator('.workflow-connect-handle').count() !== 4) {
+			throw new Error(`The AI Video ${kind} node did not expose exactly four connection ports`);
+		}
+		for (const side of ['top', 'right', 'bottom', 'left']) {
+			await node.hover();
+			const handle = node.locator(`.react-flow__handle-${side}`);
+			await handle.click();
+			if (await frame.locator('.react-flow__connection-path').count() !== 0) {
+				throw new Error(`A click without a drag on the AI Video ${kind} ${side} port started a connection`);
+			}
+			await handle.click({ button: 'right' });
+			await contextMenu.waitFor({ state: 'visible', timeout: 5_000 });
+			await page.keyboard.press('Escape');
+			await contextMenu.waitFor({ state: 'detached', timeout: 5_000 });
+		}
+		if (kind === 'text' && compactBounds) {
+			await node.click();
+			const resizeControl = node.locator('.text-node-resize-control');
+			const resizeBounds = await resizeControl.boundingBox();
+			if (!resizeBounds) {
+				throw new Error('The selected Text card did not expose its bottom-right resize control');
+			}
+			await page.mouse.move(resizeBounds.x + resizeBounds.width / 2, resizeBounds.y + resizeBounds.height / 2);
+			await page.mouse.down();
+			await page.mouse.move(resizeBounds.x + resizeBounds.width / 2 + 28, resizeBounds.y + resizeBounds.height / 2 + 20, { steps: 4 });
+			await page.mouse.up();
+			await frame.waitForFunction(({ id, width, height }) => {
+				const candidate = document.querySelector<HTMLElement>(`.react-flow__node-media[data-id="${id}"]`);
+				const bounds = candidate?.getBoundingClientRect();
+				return Boolean(bounds && bounds.width > width + 10 && bounds.height > height + 8);
+			}, { id: await node.getAttribute('data-id'), width: compactBounds.width, height: compactBounds.height }, { timeout: 5_000 });
+		}
+	}
+	await firstTextNode.locator('.text-node-title').dblclick();
+	await firstTextNode.locator('.text-node-title-input').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await firstTextNode.locator('.text-node-title-input').waitFor({ state: 'detached', timeout: 5_000 });
+	await firstTextNode.locator('.text-node-surface').dblclick();
+	await firstTextNode.locator('.text-node-content-editor').waitFor({ state: 'visible', timeout: 5_000 });
+	await firstTextNode.locator('.text-node-format-toolbar').waitFor({ state: 'visible', timeout: 5_000 });
+	await firstTextNode.locator('.text-node-ai-composer').waitFor({ state: 'detached', timeout: 5_000 });
+	await frame.waitForFunction(() => document.activeElement?.classList.contains('text-node-content-editor'), undefined, { timeout: 5_000 });
+	await frame.locator('.sequence-main').first().click();
+	await page.waitForTimeout(150);
+	const imageNode = frame.locator('.react-flow__node-media', { has: frame.locator('.image-node-shell') }).first();
+	await imageNode.click();
+	await frame.waitForFunction(() => document.querySelector('.react-flow__node-media .image-node-shell')?.closest('.react-flow__node-media')?.classList.contains('selected'), undefined, { timeout: 5_000 });
+	const imageWorkbenchBounds = await imageNode.locator('.image-node-workbench').boundingBox();
+	const imageCanvasBounds = await frame.locator('.canvas').boundingBox();
+	if (!imageWorkbenchBounds || !imageCanvasBounds || imageWorkbenchBounds.x < imageCanvasBounds.x - 1 || imageWorkbenchBounds.x + imageWorkbenchBounds.width > imageCanvasBounds.x + imageCanvasBounds.width + 1 || imageWorkbenchBounds.y < imageCanvasBounds.y - 1 || imageWorkbenchBounds.y + imageWorkbenchBounds.height > imageCanvasBounds.y + imageCanvasBounds.height + 1) {
+		throw new Error('The Image card composer was clipped outside the usable canvas instead of choosing a visible placement');
+	}
+	await imageNode.dblclick();
+	await frame.waitForFunction(() => document.activeElement?.classList.contains('image-node-prompt'), undefined, { timeout: 5_000 });
+	await frame.waitForFunction(() => {
+		const workbench = document.querySelector('.image-node-workbench');
+		const canvas = document.querySelector('.canvas');
+		if (!workbench || !canvas) {
+			return false;
+		}
+		const workbenchBounds = workbench.getBoundingClientRect();
+		const canvasBounds = canvas.getBoundingClientRect();
+		return workbenchBounds.left >= canvasBounds.left - 1 && workbenchBounds.right <= canvasBounds.right + 1 && workbenchBounds.top >= canvasBounds.top - 1 && workbenchBounds.bottom <= canvasBounds.bottom + 1;
+	}, undefined, { timeout: 5_000 });
+	const focusedImageWorkbenchBounds = await imageNode.locator('.image-node-workbench').boundingBox();
+	const focusedImageCanvasBounds = await frame.locator('.canvas').boundingBox();
+	if (!focusedImageWorkbenchBounds || !focusedImageCanvasBounds || focusedImageWorkbenchBounds.y < focusedImageCanvasBounds.y - 1 || focusedImageWorkbenchBounds.y + focusedImageWorkbenchBounds.height > focusedImageCanvasBounds.y + focusedImageCanvasBounds.height + 1) {
+		throw new Error('Refocusing the Image card left its composer behind the clip sequence');
+	}
+	await imageNode.locator('.image-node-output-settings').click();
+	await frame.locator('.image-node-workbench.detail-open').waitFor({ state: 'visible', timeout: 5_000 });
+	await frame.locator('.image-node-panel-heading button', { hasText: 'Prompt' }).click();
+	await frame.locator('.image-node-workbench:not(.detail-open)').waitFor({ state: 'visible', timeout: 5_000 });
+	await frame.locator('.sequence-main').first().click();
+	await firstTextNode.waitFor({ state: 'visible', timeout: 5_000 });
 	await firstTextNode.click();
-	await frame.locator('.react-flow__node-media', { has: frame.locator('.media-node.kind-image') }).first().click({ modifiers: ['Shift'] });
-	if (await frame.locator('.react-flow__node-media.selected').count() !== 2 || !/2 selected/.test(await frame.locator('.selection-count').innerText())) {
+	await imageNode.click({ modifiers: ['Shift'] });
+	if (await frame.locator('.react-flow__node-media.selected').count() !== 2) {
 		throw new Error('AI Video canvas Shift multi-selection did not preserve both nodes');
+	}
+	if (await frame.locator('.node-action-bar:visible, .text-node-ai-composer:visible, .image-node-workbench:visible').count() !== 0) {
+		throw new Error('AI Video canvas exposed ambiguous single-node actions for a multi-selection');
 	}
 	await frame.locator('.react-flow__pane').click({ position: { x: 24, y: 300 } });
 	await firstTextNode.click({ button: 'right' });
 	const nodeMenu = frame.locator('.node-context-menu[aria-label$="actions"]');
 	await nodeMenu.waitFor({ state: 'visible', timeout: 5_000 });
-	await nodeMenu.locator('button', { hasText: 'Edit details' }).click();
-	await frame.locator('.inspector').waitFor({ state: 'visible', timeout: 5_000 });
+	await nodeMenu.locator('button', { hasText: 'Duplicate' }).waitFor({ state: 'visible', timeout: 5_000 });
+	await nodeMenu.locator('button', { hasText: 'Edit text' }).click();
+	await firstTextNode.locator('.text-node-content-editor').waitFor({ state: 'visible', timeout: 5_000 });
+	if (await frame.locator('.inspector, .workspace.has-inspector').count() !== 0) {
+		throw new Error('Editing an AI Video node opened a permanent inspector instead of keeping work on the card');
+	}
+	await page.keyboard.press('Escape');
+	await firstTextNode.locator('.text-node-format-toolbar').waitFor({ state: 'detached', timeout: 5_000 });
+	await firstTextNode.locator('.text-node-ai-composer').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await frame.waitForFunction(() => document.querySelectorAll('.node-workbench, .text-node-ai-composer, .text-node-format-toolbar, .image-node-workbench').length === 0, undefined, { timeout: 5_000 });
+	const edgeHit = await frame.evaluate(() => {
+		const edges = [...document.querySelectorAll<SVGGElement>('.react-flow__edge')];
+		for (let index = 0; index < edges.length; index++) {
+			const edge = edges[index];
+			const path = edge.querySelector<SVGPathElement>('.react-flow__edge-interaction');
+			const matrix = path?.getScreenCTM();
+			if (!path || !matrix) {
+				continue;
+			}
+			const length = path.getTotalLength();
+			for (const ratio of [0.3, 0.7, 0.2, 0.8, 0.5]) {
+				const point = path.getPointAtLength(length * ratio).matrixTransform(matrix);
+				if (document.elementFromPoint(point.x, point.y)?.closest('.react-flow__edge') === edge) {
+					const rect = edge.getBoundingClientRect();
+					return { index, x: point.x, y: point.y, rectX: rect.x, rectY: rect.y };
+				}
+			}
+		}
+		return undefined;
+	});
+	if (!edgeHit) {
+		throw new Error('The AI Video workflow did not expose a physically clickable connection segment');
+	}
+	const firstEdge = frame.locator('.react-flow__edge').nth(edgeHit.index);
+	const edgeBounds = await firstEdge.boundingBox();
+	if (!edgeBounds) {
+		throw new Error('The physically clickable AI Video connection did not expose window geometry');
+	}
+	const edgeClickPoint = { x: edgeBounds.x + edgeHit.x - edgeHit.rectX, y: edgeBounds.y + edgeHit.y - edgeHit.rectY };
+	await page.mouse.click(edgeClickPoint.x, edgeClickPoint.y);
+	await frame.waitForFunction(index => document.querySelectorAll('.react-flow__edge')[index]?.classList.contains('selected'), edgeHit.index, { timeout: 5_000 });
+	const edgeInsert = firstEdge.locator('.workflow-edge-add');
+	const edgeInsertMenu = frame.locator('.add-menu.mode-insert');
+	await edgeInsert.waitFor({ state: 'visible', timeout: 5_000 });
+	if (!await edgeInsertMenu.isVisible()) {
+		await edgeInsert.click();
+	}
+	await edgeInsertMenu.waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await page.mouse.click(edgeClickPoint.x, edgeClickPoint.y, { button: 'right' });
+	const edgeMenu = frame.locator('.node-context-menu[aria-label="Connection actions"]');
+	await edgeMenu.waitFor({ state: 'visible', timeout: 5_000 });
+	await edgeMenu.locator('button', { hasText: 'Insert node' }).waitFor({ state: 'visible', timeout: 5_000 });
+	await edgeMenu.locator('button', { hasText: 'Remove connection' }).waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await edgeMenu.waitFor({ state: 'detached', timeout: 5_000 });
+	await frame.locator('.sequence-main').first().click();
+	await page.waitForTimeout(150);
+
+	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
+	const audioNode = frame.locator('.react-flow__node-media', { has: frame.locator('.generated-node-shell.kind-audio') }).first();
+	await audioNode.click();
+	await audioNode.locator('.node-workbench[aria-label="Voiceover controls"]').waitFor({ state: 'visible', timeout: 5_000 });
+	const audioDragSurface = audioNode.locator('.generated-node-title');
+	const audioBoundsBefore = await audioNode.boundingBox();
+	const audioDragBounds = await audioDragSurface.boundingBox();
+	const projectBeforeDrag = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
+	const audioPositionBefore = projectBeforeDrag.nodes.find(node => node.id === 'audio-smoke')?.position;
+	const audioGroupPosition = projectBeforeDrag.groups.find(group => group.id === 'group-smoke')?.position;
+	if (!audioBoundsBefore || !audioDragBounds || !audioPositionBefore || !audioGroupPosition) {
+		throw new Error('The AI Video Audio card did not expose stable drag geometry');
+	}
+	await page.mouse.move(audioDragBounds.x + audioDragBounds.width / 2, audioDragBounds.y + audioDragBounds.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(audioDragBounds.x + audioDragBounds.width / 2 - 57, audioDragBounds.y + audioDragBounds.height / 2 - 41, { steps: 12 });
+	await audioNode.locator('.node-workbench[aria-label="Voiceover controls"]').waitFor({ state: 'detached', timeout: 5_000 });
+	await audioNode.waitFor({ state: 'visible', timeout: 5_000 });
+	const audioBoundsDuring = await audioNode.boundingBox();
+	const audioClassDuring = await audioNode.getAttribute('class');
+	if (!audioBoundsDuring || audioBoundsBefore.x - audioBoundsDuring.x < 45 || audioBoundsBefore.y - audioBoundsDuring.y < 30 || !audioClassDuring?.includes('dragging')) {
+		throw new Error(`The AI Video card did not follow the pointer continuously while dragging (before: ${JSON.stringify(audioBoundsBefore)}; during: ${JSON.stringify(audioBoundsDuring)}; class: ${audioClassDuring ?? 'none'})`);
+	}
+	const diskPositionDuringDrag = JSON.parse(fs.readFileSync(projectPath, 'utf8')).nodes.find(node => node.id === 'audio-smoke')?.position;
+	if (diskPositionDuringDrag?.x !== audioPositionBefore.x || diskPositionDuringDrag?.y !== audioPositionBefore.y) {
+		throw new Error('The AI Video card persisted intermediate drag frames instead of waiting for pointer-up');
+	}
+	await page.mouse.up();
+	await page.waitForTimeout(50);
+	const audioPositionAfterDrop = await audioNode.evaluate(element => {
+		const transform = new DOMMatrix(getComputedStyle(element).transform);
+		return { x: transform.e, y: transform.f };
+	});
+	const expectedSavedPosition = { x: audioPositionAfterDrop.x - audioGroupPosition.x, y: audioPositionAfterDrop.y - audioGroupPosition.y };
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(projectPath, 'utf8')).nodes.find(node => node.id === 'audio-smoke')?.position;
+		return saved && Math.abs(saved.x - expectedSavedPosition.x) < 1 && Math.abs(saved.y - expectedSavedPosition.y) < 1;
+	}, 'AI Video card geometry to persist once after pointer-up', 10_000).catch(error => {
+		const saved = JSON.parse(fs.readFileSync(projectPath, 'utf8')).nodes.find(node => node.id === 'audio-smoke')?.position;
+		throw new Error(`${error.message} (expected: ${JSON.stringify(expectedSavedPosition)}; saved: ${JSON.stringify(saved)})`);
+	});
+	await frame.locator('.canvas-status').waitFor({ state: 'detached', timeout: 10_000 });
+	if (await audioNode.locator('.node-workbench[aria-label="Voiceover controls"]:visible').count() !== 0) {
+		throw new Error('Dropping the AI Video card reopened its floating controls without a new left-click');
+	}
 	await frame.locator('.react-flow__pane').click({ position: { x: 24, y: 300 } });
-	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
-	await page.waitForTimeout(100);
+	await initialVideoNode.hover();
+	const videoNorthHandle = initialVideoNode.locator('.workflow-connect-handle.north');
+	const videoNorthBounds = await videoNorthHandle.boundingBox();
+	if (!videoNorthBounds) {
+		throw new Error('The AI Video Video node did not expose its north connection port');
+	}
+	const videoNorthPoint = { x: videoNorthBounds.x + videoNorthBounds.width / 2, y: videoNorthBounds.y + videoNorthBounds.height / 2 };
+	const emptyConnectionPoint = { x: videoNorthPoint.x, y: Math.max(paneBox.y + 24, videoNorthPoint.y - 92) };
+	await videoNorthHandle.hover();
+	await page.mouse.down();
+	await page.mouse.move(videoNorthPoint.x, videoNorthPoint.y - 8, { steps: 2 });
+	await frame.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 5_000 });
+	await page.mouse.move(emptyConnectionPoint.x, emptyConnectionPoint.y, { steps: 16 });
+	await page.mouse.up();
+	const videoCreateMenu = frame.locator('.add-menu.mode-connect');
+	await videoCreateMenu.waitFor({ state: 'visible', timeout: 5_000 });
+	const videoTargetKinds = await videoCreateMenu.locator('button[role="menuitem"] strong').allTextContents();
+	if (JSON.stringify(videoTargetKinds) !== JSON.stringify(['Text', 'Video'])) {
+		throw new Error(`Pulling from a Video node offered incompatible next nodes: ${JSON.stringify(videoTargetKinds)}`);
+	}
+	await page.keyboard.press('Escape');
+	await videoCreateMenu.waitFor({ state: 'detached', timeout: 5_000 });
+
 	const edgeCount = await frame.locator('.react-flow__edge').count();
-	const textOutput = await frame.locator('.media-node.kind-text .react-flow__handle-right').first().boundingBox();
-	const imageInput = await frame.locator('.media-node.kind-image .react-flow__handle-left').first().boundingBox();
-	if (!textOutput || !imageInput) {
+	await firstTextNode.hover();
+	const textOutputHandle = firstTextNode.locator('.react-flow__handle-right');
+	const textOutput = await textOutputHandle.boundingBox();
+	const textOutputNodeId = await textOutputHandle.getAttribute('data-nodeid');
+	const audioInputHandle = frame.locator('.generated-node-shell.kind-audio .react-flow__handle-left').first();
+	const audioInput = await audioInputHandle.boundingBox();
+	const audioInputNodeId = await audioInputHandle.getAttribute('data-nodeid');
+	if (!textOutput || !audioInput) {
 		throw new Error('The AI Video workflow nodes did not expose connectable input and output ports');
 	}
-	await page.mouse.move(textOutput.x + textOutput.width / 2, textOutput.y + textOutput.height / 2);
+	const textOutputPoint = { x: textOutput.x + textOutput.width / 2, y: textOutput.y + textOutput.height / 2 };
+	await textOutputHandle.hover();
+	await page.waitForTimeout(100);
 	await page.mouse.down();
-	await page.mouse.move(imageInput.x + imageInput.width / 2, imageInput.y + imageInput.height / 2, { steps: 16 });
+	await page.mouse.move(textOutputPoint.x + 8, textOutputPoint.y, { steps: 2 });
+	await frame.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 5_000 });
+	await page.mouse.move(audioInput.x + audioInput.width / 2, audioInput.y + audioInput.height / 2, { steps: 24 });
+	await page.waitForTimeout(100);
+	const targetClass = await audioInputHandle.getAttribute('class');
+	if (!targetClass?.includes('connectingto') || !targetClass.includes('valid')) {
+		throw new Error(`The AI Video connection target did not expose a clear valid-drop state: ${targetClass ?? 'none'}`);
+	}
+	// Electron Playwright can route the physical mouseup to the outer webview
+	// element instead of the iframe document. Dispatch on the visible target so
+	// the same bubbling mouseup reaches React Flow's document listener.
+	await audioInputHandle.dispatchEvent('mouseup', { button: 0 });
 	await page.mouse.up();
-	await frame.locator('.react-flow__edge').nth(edgeCount).waitFor({ state: 'visible', timeout: 10_000 });
-	await frame.locator('.save-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await frame.locator('.save-status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.react-flow__edge').nth(edgeCount).waitFor({ state: 'visible', timeout: 10_000 }).catch(async error => {
+		const notice = await frame.locator('.canvas-notice').textContent().catch(() => undefined);
+		const renderedEdgeCount = await frame.locator('.react-flow__edge').count();
+		const savedEdgeCount = JSON.parse(fs.readFileSync(path.join(workspacePath, 'docs', 'episode.aivideo'), 'utf8')).edges?.length;
+		throw new Error(`AI Video connection target was not accepted (source: ${textOutputNodeId ?? 'none'}; target: ${audioInputNodeId ?? 'none'}; target class: ${targetClass ?? 'none'}; notice: ${notice ?? 'none'}; rendered edges: ${renderedEdgeCount}; saved edges: ${savedEdgeCount}): ${error.message}`);
+	});
+	await frame.locator('.canvas-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.canvas-status').waitFor({ state: 'detached', timeout: 10_000 });
+	const savedProject = JSON.parse(fs.readFileSync(path.join(workspacePath, 'docs', 'episode.aivideo'), 'utf8'));
+	const savedConnection = savedProject.edges?.find(edge => edge.source === textOutputNodeId && edge.target === audioInputNodeId);
+	if (savedConnection?.sourceAnchor !== 'east' || savedConnection?.targetAnchor !== 'west') {
+		throw new Error(`The AI Video workflow did not persist the chosen connection sides: ${JSON.stringify(savedConnection)}`);
+	}
+
+	const textOutputAfterConnect = await firstTextNode.locator('.react-flow__handle-right').boundingBox();
+	const audioInputAfterConnect = await audioInputHandle.boundingBox();
+	if (!textOutputAfterConnect || !audioInputAfterConnect) {
+		throw new Error('The AI Video workflow lost its ports after a successful connection');
+	}
+	const duplicateSourcePoint = { x: textOutputAfterConnect.x + textOutputAfterConnect.width / 2, y: textOutputAfterConnect.y + textOutputAfterConnect.height / 2 };
+	await firstTextNode.hover();
+	await textOutputHandle.hover();
+	await page.mouse.down();
+	await page.mouse.move(duplicateSourcePoint.x + 8, duplicateSourcePoint.y, { steps: 2 });
+	await frame.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 5_000 });
+	await page.mouse.move(audioInputAfterConnect.x + audioInputAfterConnect.width / 2, audioInputAfterConnect.y + audioInputAfterConnect.height / 2, { steps: 24 });
+	const duplicateTargetClass = await audioInputHandle.getAttribute('class');
+	if (!duplicateTargetClass?.includes('connectingto') || duplicateTargetClass.includes('valid')) {
+		throw new Error(`The AI Video connection target did not distinguish an invalid duplicate: ${duplicateTargetClass ?? 'none'}`);
+	}
+	await audioInputHandle.dispatchEvent('mouseup', { button: 0 });
+	await page.mouse.up();
+	await frame.locator('.canvas-notice', { hasText: 'already exists' }).waitFor({ state: 'visible', timeout: 5_000 });
+	if (await frame.locator('.react-flow__edge').count() !== edgeCount + 1) {
+		throw new Error('An invalid AI Video connection changed the workflow graph');
+	}
+	await frame.locator('.canvas-notice .icon-button').click();
 }
 
 async function assertAIVideoLocalWorkflow(page) {
 	const frame = await findAIVideoFrame(page);
-	await frame.locator('.topbar-actions .button.primary', { hasText: 'Run' }).click();
-	const panel = frame.locator('.run-panel');
-	await panel.waitFor({ state: 'visible', timeout: 10_000 });
-	await panel.locator('.button.primary', { hasText: 'Run 2 nodes' }).click();
 	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
+	const imageNode = frame.locator('.react-flow__node-media', { has: frame.locator('.image-node-shell') }).first();
+	await imageNode.click();
+	const imageRun = imageNode.locator('.node-run-button');
+	const videoNode = frame.locator('.react-flow__node-media', { has: frame.locator('.generated-node-shell.kind-video') }).first();
+	await imageRun.click();
+	await waitUntil(() => {
+		try {
+			const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
+			const image = project.nodes?.find(node => node.id === 'image-smoke');
+			const imageOutput = image?.runs?.[0]?.outputs?.find(output => output.endsWith('/storyboard.svg'));
+			return image?.status === 'prepared' && imageOutput && fs.existsSync(path.join(workspacePath, 'docs', imageOutput));
+		} catch {
+			return false;
+		}
+	}, 'AI Video Image node to persist its local run', 10_000);
+	await imageNode.locator('.image-node-preview').waitFor({ state: 'visible', timeout: 5_000 });
+	const imageHistory = imageNode.locator('.image-node-history');
+	await imageHistory.waitFor({ state: 'visible', timeout: 5_000 });
+	await imageHistory.click();
+	await imageNode.locator('.image-node-workbench.detail-open .run-record').waitFor({ state: 'visible', timeout: 5_000 });
+	await imageNode.locator('.image-node-panel-heading button', { hasText: 'Prompt' }).click();
+	await imageNode.locator('.image-node-workbench:not(.detail-open) .image-node-prompt').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await imageNode.locator('.image-node-workbench').waitFor({ state: 'detached', timeout: 5_000 });
+	await videoNode.click();
+	await videoNode.locator('.node-run-button').click({ timeout: 10_000 });
 	await waitUntil(() => {
 		let project;
 		try {
@@ -1710,10 +2236,13 @@ async function assertAIVideoLocalWorkflow(page) {
 async function assertAIVideoDirtyNavigationGuard(page) {
 	const frame = await findAIVideoFrame(page);
 	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
-	const title = frame.locator('.project-title');
-	await title.fill('Episode with unsaved UI edit');
-	await frame.locator('.save-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await frame.locator('.media-node.kind-video').first().waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.node-run-button.cancel').waitFor({ state: 'detached', timeout: 10_000 });
+	await frame.locator('.react-flow__node-media', { has: frame.locator('.text-node-title', { hasText: /^Storyboard$/ }) }).first().click();
+	await frame.locator('.react-flow__node-media[data-id="storyboard-smoke"] .text-node-surface').dblclick();
+	const content = frame.locator('.text-node-content-editor');
+	await content.waitFor({ state: 'visible', timeout: 5_000 });
+	await content.fill('Episode with unsaved UI edit');
+	await frame.locator('.canvas-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
 	// Let the webview dirty signal cross the extension-host boundary before
 	// attempting a BaseHalf navigation operation.
 	await page.waitForTimeout(250);
@@ -1721,7 +2250,7 @@ async function assertAIVideoDirtyNavigationGuard(page) {
 	await assertCardDetail(page, 'episode.aivideo');
 
 	await waitUntil(() => fs.readFileSync(projectPath, 'utf8').includes('Episode with unsaved UI edit'), 'AI Video autosave to reach disk');
-	await frame.locator('.save-status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.canvas-status').waitFor({ state: 'detached', timeout: 10_000 });
 	await openExplorerRow(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
 }
@@ -4138,7 +4667,7 @@ async function assertMarkdownRichFileLinkAutocomplete(page) {
 async function assertMarkdownRichFileAttachment(page) {
 	const readmePath = path.join(workspacePath, 'README.md');
 	const attachmentPath = path.join(workspacePath, 'attachments', 'handout.pdf');
-	const frame = await activeMarkdownRichFrame(page);
+	let frame = await activeMarkdownRichFrame(page);
 	const target = frame.locator('.bn-block-content').last();
 	await target.click();
 	await page.keyboard.press('End');
@@ -4156,7 +4685,7 @@ async function assertMarkdownRichFileAttachment(page) {
 	await input.setInputFiles({
 		name: 'handout.pdf',
 		mimeType: 'application/pdf',
-		buffer: Buffer.from('%PDF-1.4\n% BaseHalf attachment smoke\n', 'utf8')
+		buffer: createMinimalPdfFixture()
 	});
 
 	await waitUntil(() => fs.existsSync(attachmentPath), 'the inserted attachment to be written beside the document', 15_000);
@@ -4165,6 +4694,34 @@ async function assertMarkdownRichFileAttachment(page) {
 		'the inserted attachment to persist as a relative Markdown file link',
 		15_000
 	);
+
+	// Close the live YJS projection and rebuild it from Markdown truth. A
+	// standalone attachment link must come back as a first-class file block,
+	// not regress into an ordinary blue paragraph link.
+	await closeCardDetailIfOpen(page);
+	await quickOpen(page, 'README.md');
+	frame = await activeMarkdownRichFrame(page);
+	const attachment = frame.locator('.bn-file-name-with-icon', { hasText: 'handout.pdf' }).last();
+	await attachment.waitFor({ state: 'visible', timeout: 15_000 });
+	await attachment.click();
+	if (await frame.locator('[data-test="fileDownloadButton"]').count() > 0) {
+		throw new Error('The stock BlockNote download action leaked into BaseHalf file semantics');
+	}
+
+	// Opening an attachment stays in the canvas/card-detail flow. Direct-render
+	// binary media intentionally has no raw Source projection.
+	await attachment.dblclick();
+	await assertPdfCardDetail(page, 'handout.pdf');
+	if (await page.locator('.basehalf-card-detail-projection[aria-label="Source"]').count() > 0) {
+		throw new Error('A binary PDF exposed the raw Source projection');
+	}
+
+	// Return through the product's own history so this probe does not leave a
+	// duplicate README entry in the surrounding navigation stack.
+	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
+	await assertCardDetail(page, 'README.md');
+	frame = await activeMarkdownRichFrame(page);
+	await frame.locator('.bn-file-name-with-icon', { hasText: 'handout.pdf' }).last().waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 function createMinimalPdfFixture() {
@@ -4355,13 +4912,18 @@ function isTransparentCssColor(value) {
 
 async function waitUntil(predicate, description, timeoutMs = 10_000) {
 	const started = Date.now();
+	let lastError;
 	while (Date.now() - started < timeoutMs) {
-		if (predicate()) {
-			return;
+		try {
+			if (predicate()) {
+				return;
+			}
+		} catch (error) {
+			lastError = error;
 		}
 		await new Promise(resolve => setTimeout(resolve, 100));
 	}
-	throw new Error(`Timed out waiting for ${description}`);
+	throw new Error(`Timed out waiting for ${description}${lastError instanceof Error ? `; last observation failed: ${lastError.message}` : ''}`);
 }
 
 function readCanvasCardNumber(canvas, cardPath, field) {

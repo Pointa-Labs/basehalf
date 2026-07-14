@@ -9,8 +9,11 @@ import './editor.css';
 
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { SideMenuExtension } from '@blocknote/core/extensions';
+import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
 import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
+	FormattingToolbar,
+	FormattingToolbarController,
 	GenericPopover,
 	ReactAudioBlock,
 	ReactFileBlock,
@@ -18,6 +21,7 @@ import {
 	ReactVideoBlock,
 	SideMenu,
 	SuggestionMenuController,
+	getFormattingToolbarItems,
 	useBlockNoteEditor,
 	useCreateBlockNote,
 	useExtensionState,
@@ -92,6 +96,20 @@ const AUTOSAVE_MS = 250;
 const FOCUS_DEBOUNCE_MS = 180;
 const SIDE_MENU_GUTTER_GAP = 8;
 
+function baseHalfBlockNoteDictionary(): Dictionary {
+	const locale = document.documentElement.lang.toLowerCase();
+	return locale.startsWith('zh-tw') || locale.startsWith('zh-hk')
+		? zhTW
+		: locale.startsWith('zh') ? zh : en;
+}
+
+function baseHalfEditorLabel(english: string, simplifiedChinese: string, traditionalChinese = simplifiedChinese): string {
+	const locale = document.documentElement.lang.toLowerCase();
+	return locale.startsWith('zh-tw') || locale.startsWith('zh-hk')
+		? traditionalChinese
+		: locale.startsWith('zh') ? simplifiedChinese : english;
+}
+
 const baseHalfBlockNoteTheme: Theme = {
 	colors: {
 		editor: { text: 'var(--vscode-editor-foreground)', background: 'transparent' },
@@ -153,8 +171,12 @@ const rawPassthroughSpec = createBlockSpec(
 			const edit = document.createElement('button');
 			edit.type = 'button';
 			edit.className = 'basehalf-raw-passthrough-edit';
-			edit.textContent = 'Edit in source';
-			edit.title = 'This content can only be edited as raw Markdown';
+			edit.textContent = baseHalfEditorLabel('Edit in source', '在源码中编辑', '在原始碼中編輯');
+			edit.title = baseHalfEditorLabel(
+				'This content can only be edited as raw Markdown',
+				'这段内容只能作为原始 Markdown 编辑',
+				'這段內容只能作為原始 Markdown 編輯'
+			);
 			dom.appendChild(edit);
 			return { dom };
 		},
@@ -407,6 +429,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
+	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
 	const [version, setVersion] = useState(0);
 	const [colorScheme, setColorScheme] = useState<'light' | 'dark'>(workbenchColorScheme);
@@ -455,6 +478,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const editor = useCreateBlockNote({
 		schema,
+		dictionary: baseHalfBlockNoteDictionary(),
 		uploadFile,
 		resolveFileUrl,
 		extensions: [adhdExtension],
@@ -1378,7 +1402,7 @@ function MarkdownRichEditor(): JSX.Element {
 			if (clickedFileUrl) {
 				items.push({
 					id: 'open-file',
-					label: 'Open in Card Detail',
+					label: baseHalfEditorLabel('Open in Card Detail', '在卡片详情中打开', '在卡片詳情中開啟'),
 					run: () => vscode.postMessage({ type: 'basehalf.markdownRich.openResource', key: state.key, href: clickedFileUrl }),
 				});
 			}
@@ -1504,12 +1528,17 @@ function MarkdownRichEditor(): JSX.Element {
 
 		const onDoubleClick = (event: MouseEvent): void => {
 			const target = event.target as HTMLElement | null;
-			if (!target?.closest('.bn-file-name-with-icon, .bn-visual-media')) {
+			const mediaTarget = target?.closest('.bn-file-name-with-icon, .bn-visual-media');
+			if (!mediaTarget) {
 				return;
 			}
-			const blockId = target.closest('[data-id]')?.getAttribute('data-id');
+			const blockId = mediaTarget.closest('[data-id]')?.getAttribute('data-id');
 			const block = blockId ? editor.getBlock(blockId) : undefined;
-			if (!block || !('url' in block.props) || typeof block.props.url !== 'string' || !block.props.url) {
+			if (!block
+				|| (block.type !== 'file' && block.type !== 'image' && block.type !== 'audio' && block.type !== 'video')
+				|| !('url' in block.props)
+				|| typeof block.props.url !== 'string'
+				|| !block.props.url) {
 				return;
 			}
 			const state = session.current;
@@ -1633,18 +1662,40 @@ function MarkdownRichEditor(): JSX.Element {
 			return;
 		}
 		const close = () => setContextMenu(undefined);
+		let blurTimer: number | undefined;
+		const onMouseDown = (event: MouseEvent) => {
+			// The global listener is native while the menu handler below is a
+			// React synthetic event. Do not rely on their delegation order: an
+			// in-menu press must survive long enough to deliver its click.
+			if (event.target instanceof Node && contextMenuRef.current?.contains(event.target)) {
+				return;
+			}
+			close();
+		};
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') {
 				close();
 			}
 		};
-		window.addEventListener('mousedown', close);
+		const onBlur = () => {
+			// Embedded webviews can briefly blur while focus crosses the host/
+			// iframe boundary during a menu-button click. Give that click time to
+			// land, then close only if the rich document really stayed unfocused.
+			window.clearTimeout(blurTimer);
+			blurTimer = window.setTimeout(() => {
+				if (!document.hasFocus()) {
+					close();
+				}
+			}, 250);
+		};
+		window.addEventListener('mousedown', onMouseDown);
 		window.addEventListener('keydown', onKeyDown);
-		window.addEventListener('blur', close);
+		window.addEventListener('blur', onBlur);
 		return () => {
-			window.removeEventListener('mousedown', close);
+			window.clearTimeout(blurTimer);
+			window.removeEventListener('mousedown', onMouseDown);
 			window.removeEventListener('keydown', onKeyDown);
-			window.removeEventListener('blur', close);
+			window.removeEventListener('blur', onBlur);
 		};
 	}, [contextMenu]);
 
@@ -1805,6 +1856,7 @@ function MarkdownRichEditor(): JSX.Element {
 			)}
 			{contextMenu !== undefined && (
 				<div
+					ref={contextMenuRef}
 					className="basehalf-markdown-rich-context-menu"
 					style={{
 						left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 280)),
@@ -1834,8 +1886,10 @@ function MarkdownRichEditor(): JSX.Element {
 						editable={canEdit}
 						theme={baseHalfBlockNoteTheme}
 						sideMenu={false}
+						formattingToolbar={false}
 						portalElements={portalElements}
 					>
+						<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
 						<BaseHalfSideMenuController portalElement={portalElement} />
 						<BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />
 					</BlockNoteView>
@@ -1843,6 +1897,11 @@ function MarkdownRichEditor(): JSX.Element {
 			</div>
 		</div>
 	);
+}
+
+function BaseHalfFormattingToolbar(): JSX.Element {
+	const items = getFormattingToolbarItems().filter(item => item.key !== 'fileDownloadButton');
+	return <FormattingToolbar>{items}</FormattingToolbar>;
 }
 
 const root = document.getElementById('root');

@@ -11,6 +11,7 @@ import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
+import { language } from '../../../../base/common/platform.js';
 import { basename, dirname, isEqual, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -108,12 +109,12 @@ export function createBaseHalfMarkdownRichWebviewElement(webviewService: IWebvie
  * prewarmed shell: it loads and constructs the editor but stays inert until
  * the host assigns a document via the `adopt` message.
  */
-export function baseHalfMarkdownRichWebviewHtml(key: string): string {
+export function baseHalfMarkdownRichWebviewHtml(key: string, locale = language): string {
 	const nonce = generateUuid();
 	const script = asWebviewUri(markdownRichScript).toString(true);
 	const styles = asWebviewUri(markdownRichStyles).toString(true);
 	return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeAttribute(baseHalfMarkdownRichLocale(locale))}">
 <head>
 	<meta charset="UTF-8">
 	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; media-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
@@ -125,6 +126,18 @@ export function baseHalfMarkdownRichWebviewHtml(key: string): string {
 	<script nonce="${nonce}" type="module" src="${script}"></script>
 </body>
 </html>`;
+}
+
+export function baseHalfMarkdownRichLocale(value: string): string {
+	const normalized = value.trim().replaceAll('_', '-');
+	const lower = normalized.toLowerCase();
+	if (lower.startsWith('zh-tw') || lower.startsWith('zh-hk') || lower.startsWith('zh-hant')) {
+		return 'zh-TW';
+	}
+	if (lower.startsWith('zh')) {
+		return 'zh-CN';
+	}
+	return normalized || 'en';
 }
 
 export class BaseHalfMarkdownRichCardDetail extends Disposable {

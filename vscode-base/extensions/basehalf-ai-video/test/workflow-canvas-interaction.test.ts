@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import {
 	clampWorkflowCanvasOverlay,
 	snapWorkflowCanvasNodeChanges,
+	workflowCanvasConnectionPath,
 	workflowCanvasOverlayPlacement,
 	type WorkflowCanvasNodeFrame
 } from '../webview-src/workflowCanvasInteraction.ts';
@@ -75,4 +76,15 @@ test('places contextual editors on a visible side of the node', () => {
 	assert.equal(workflowCanvasOverlayPlacement({ x: 900, y: 200, width: 224, height: 160 }, canvas, overlay), 'left');
 	assert.equal(workflowCanvasOverlayPlacement({ x: 250, y: 80, width: 224, height: 160 }, { width: 700, height: 800 }, overlay), 'bottom');
 	assert.equal(workflowCanvasOverlayPlacement({ x: 250, y: 580, width: 224, height: 160 }, { width: 700, height: 800 }, overlay), 'top');
+});
+
+test('routes connections away from the chosen sides before curving to the target', () => {
+	assert.equal(
+		workflowCanvasConnectionPath({ x: 100, y: 80 }, 'north', { x: 340, y: 280 }, 'south'),
+		'M 100 80 C 100 -140 340 500 340 280'
+	);
+	assert.equal(
+		workflowCanvasConnectionPath({ x: 100, y: 80 }, 'east', { x: 340, y: 280 }, 'west'),
+		'M 100 80 C 320 80 120 280 340 280'
+	);
 });

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 export type AIProjectMediaKind = 'text' | 'image' | 'video' | 'audio';
+export type AIProjectWorkflowAnchor = 'north' | 'east' | 'south' | 'west';
 export type AIProjectNodeStatus = 'draft' | 'ready' | 'running' | 'prepared' | 'complete' | 'error' | 'stale';
 export type AIProjectTextRole = 'brief' | 'script' | 'storyboard' | 'imagePrompt' | 'videoPrompt' | 'dialogue' | 'note';
 export type AIProjectImageRole = 'generate' | 'reference' | 'frame';
@@ -88,6 +89,8 @@ export interface AIProjectWorkflowEdge {
 	source: string;
 	target: string;
 	media: AIProjectMediaKind;
+	sourceAnchor: AIProjectWorkflowAnchor;
+	targetAnchor: AIProjectWorkflowAnchor;
 }
 
 export interface AIProjectShotGroup {
@@ -300,14 +303,24 @@ export function validateWorkflowConnection(project: AIProject, source: string, t
 	return { valid: true, media: sourceNode.kind };
 }
 
-export function connectWorkflowNodes(project: AIProject, source: string, target: string): AIProjectWorkflowConnectionValidation {
+export function connectWorkflowNodes(
+	project: AIProject,
+	source: string,
+	target: string,
+	sourceAnchor: AIProjectWorkflowAnchor = 'east',
+	targetAnchor: AIProjectWorkflowAnchor = 'west'
+): AIProjectWorkflowConnectionValidation {
 	const validation = validateWorkflowConnection(project, source, target);
 	if (!validation.valid || !validation.media) {
 		return validation;
 	}
-	project.edges.push({ id: createWorkflowEdgeId(source, target), source, target, media: validation.media });
+	project.edges.push({ id: createWorkflowEdgeId(source, target), source, target, media: validation.media, sourceAnchor, targetAnchor });
 	invalidateDownstreamNodes(project, [target]);
 	return validation;
+}
+
+export function oppositeWorkflowAnchor(anchor: AIProjectWorkflowAnchor): AIProjectWorkflowAnchor {
+	return anchor === 'north' ? 'south' : anchor === 'east' ? 'west' : anchor === 'south' ? 'north' : 'east';
 }
 
 export function workflowTargetKindsForSource(source: AIProjectMediaKind): readonly AIProjectMediaKind[] {
@@ -354,8 +367,8 @@ export function insertWorkflowNodeOnEdge(project: AIProject, edgeId: string, nod
 	project.nodes.push(node);
 	project.edges = remainingEdges;
 	project.edges.push(
-		{ id: createWorkflowEdgeId(edge.source, node.id), source: edge.source, target: node.id, media: incoming.media },
-		{ id: createWorkflowEdgeId(node.id, edge.target), source: node.id, target: edge.target, media: outgoing.media }
+		{ id: createWorkflowEdgeId(edge.source, node.id), source: edge.source, target: node.id, media: incoming.media, sourceAnchor: edge.sourceAnchor, targetAnchor: oppositeWorkflowAnchor(edge.sourceAnchor) },
+		{ id: createWorkflowEdgeId(node.id, edge.target), source: node.id, target: edge.target, media: outgoing.media, sourceAnchor: oppositeWorkflowAnchor(edge.targetAnchor), targetAnchor: edge.targetAnchor }
 	);
 	if (node.groupId) {
 		project.groups.find(group => group.id === node.groupId)?.nodeIds.push(node.id);
@@ -501,8 +514,10 @@ function parseVersionFour(value: Record<string, unknown>): AIProject {
 		if (media !== validation.media) {
 			throw new Error(`Workflow edge '${id}' declares ${media} but its source outputs ${validation.media}.`);
 		}
+		const sourceAnchor = workflowAnchor(entry.sourceAnchor, 'east');
+		const targetAnchor = workflowAnchor(entry.targetAnchor, 'west');
 		edgeIds.add(id);
-		project.edges.push({ id, source, target, media });
+		project.edges.push({ id, source, target, media, sourceAnchor, targetAnchor });
 	}
 	topologicalWorkflowNodeIds(project);
 	const sequenceIds = new Set<string>();
@@ -608,6 +623,16 @@ function parseGroup(value: unknown): AIProjectShotGroup {
 
 function canFeed(source: AIProjectMediaKind, target: AIProjectMediaKind): boolean {
 	return workflowTargetKindsForSource(source).includes(target);
+}
+
+function workflowAnchor(value: unknown, fallback: AIProjectWorkflowAnchor): AIProjectWorkflowAnchor {
+	if (value === undefined) {
+		return fallback;
+	}
+	if (value === 'north' || value === 'east' || value === 'south' || value === 'west') {
+		return value;
+	}
+	throw new Error(`Invalid AI Video workflow anchor '${String(value)}'.`);
 }
 
 function wouldCreateWorkflowCycle(edges: readonly AIProjectWorkflowEdge[], source: string, target: string): boolean {

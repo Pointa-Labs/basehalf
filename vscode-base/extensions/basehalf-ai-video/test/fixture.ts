@@ -52,11 +52,11 @@ export function createCurrentWorkflowFixture(): AIProject {
 	project.groups.push(group);
 	project.nodes.push(storyboard, imagePrompt, image, videoPrompt, video);
 	project.edges.push(
-		{ id: 'edge-storyboard-image-prompt', source: storyboard.id, target: imagePrompt.id, media: 'text' },
-		{ id: 'edge-image-prompt-image', source: imagePrompt.id, target: image.id, media: 'text' },
-		{ id: 'edge-storyboard-video-prompt', source: storyboard.id, target: videoPrompt.id, media: 'text' },
-		{ id: 'edge-video-prompt-video', source: videoPrompt.id, target: video.id, media: 'text' },
-		{ id: 'edge-image-video', source: image.id, target: video.id, media: 'image' }
+		{ id: 'edge-storyboard-image-prompt', source: storyboard.id, target: imagePrompt.id, media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+		{ id: 'edge-image-prompt-image', source: imagePrompt.id, target: image.id, media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+		{ id: 'edge-storyboard-video-prompt', source: storyboard.id, target: videoPrompt.id, media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+		{ id: 'edge-video-prompt-video', source: videoPrompt.id, target: video.id, media: 'text', sourceAnchor: 'east', targetAnchor: 'west' },
+		{ id: 'edge-image-video', source: image.id, target: video.id, media: 'image', sourceAnchor: 'east', targetAnchor: 'west' }
 	);
 	project.sequence.push({ id: 'sequence-1', videoNodeId: video.id });
 	return project;

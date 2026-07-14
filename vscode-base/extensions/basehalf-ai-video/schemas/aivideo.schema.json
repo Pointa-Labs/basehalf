@@ -168,7 +168,9 @@
         "id": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1 },
         "target": { "type": "string", "minLength": 1 },
-        "media": { "enum": ["text", "image", "video", "audio"] }
+        "media": { "enum": ["text", "image", "video", "audio"] },
+        "sourceAnchor": { "enum": ["north", "east", "south", "west"] },
+        "targetAnchor": { "enum": ["north", "east", "south", "west"] }
       }
     },
     "group": {

@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import type { AIProjectWorkflowAnchor } from '../src/model';
+
 export const WORKFLOW_CANVAS_SNAP_SCREEN_THRESHOLD = 5;
 
 export type WorkflowCanvasOverlayPlacement = 'top' | 'right' | 'bottom' | 'left';
@@ -10,6 +12,35 @@ export type WorkflowCanvasOverlayPlacement = 'top' | 'right' | 'bottom' | 'left'
 export interface WorkflowCanvasPoint {
 	readonly x: number;
 	readonly y: number;
+}
+
+export function workflowCanvasConnectionPath(
+	from: WorkflowCanvasPoint,
+	fromAnchor: AIProjectWorkflowAnchor,
+	to: WorkflowCanvasPoint,
+	toAnchor: AIProjectWorkflowAnchor
+): string {
+	const distance = Math.min(220, Math.max(48, (Math.abs(to.x - from.x) + Math.abs(to.y - from.y)) / 2));
+	const fromControl = workflowCanvasControlPoint(from, fromAnchor, distance);
+	const toControl = workflowCanvasControlPoint(to, toAnchor, distance);
+	return `M ${formatWorkflowCanvasNumber(from.x)} ${formatWorkflowCanvasNumber(from.y)} C ${formatWorkflowCanvasNumber(fromControl.x)} ${formatWorkflowCanvasNumber(fromControl.y)} ${formatWorkflowCanvasNumber(toControl.x)} ${formatWorkflowCanvasNumber(toControl.y)} ${formatWorkflowCanvasNumber(to.x)} ${formatWorkflowCanvasNumber(to.y)}`;
+}
+
+function workflowCanvasControlPoint(point: WorkflowCanvasPoint, anchor: AIProjectWorkflowAnchor, distance: number): WorkflowCanvasPoint {
+	if (anchor === 'north') {
+		return { x: point.x, y: point.y - distance };
+	}
+	if (anchor === 'east') {
+		return { x: point.x + distance, y: point.y };
+	}
+	if (anchor === 'south') {
+		return { x: point.x, y: point.y + distance };
+	}
+	return { x: point.x - distance, y: point.y };
+}
+
+function formatWorkflowCanvasNumber(value: number): string {
+	return String(Number(value.toFixed(4)));
 }
 
 export interface WorkflowCanvasNodeFrame {
@@ -121,9 +152,8 @@ function snapAxis(axis: 'x' | 'y', active: CanvasRect, targets: readonly CanvasR
 }
 
 /**
- * Applies the same interaction principle as BaseHalf's main canvas: motion is
- * continuous, with a small screen-space alignment magnet near sibling edges
- * and centres. Project persistence remains a pointer-up concern.
+ * Keeps motion continuous while applying a small screen-space alignment magnet
+ * near sibling edges and centres. Project persistence remains a pointer-up concern.
  */
 export function snapWorkflowCanvasNodeChanges<TChange extends WorkflowCanvasPositionChange>(
 	nodes: readonly WorkflowCanvasNodeFrame[],

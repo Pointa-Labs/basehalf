@@ -29,5 +29,13 @@ run({
 		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'snippet', 'dist', 'pdfium.wasm'),
 		path.join(outputDirectory, 'pdfium.wasm')
 	);
+	await fs.copyFile(
+		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'fonts-sc', 'fonts', 'NotoSansHans-Regular.otf'),
+		path.join(outputDirectory, 'NotoSansHans-Regular.otf')
+	);
+	await fs.copyFile(
+		path.join(import.meta.dirname, '..', '..', 'node_modules', '@embedpdf', 'fonts-sc', 'LICENSE'),
+		path.join(outputDirectory, 'NotoSansHans-LICENSE.txt')
+	);
 	await fs.rm(path.join(outputDirectory, 'pdfWorker.js'), { force: true });
 });

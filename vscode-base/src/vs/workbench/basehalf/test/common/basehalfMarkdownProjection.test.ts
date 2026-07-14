@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
 	baseHalfMarkdownContentTokens,
@@ -19,6 +20,8 @@ import {
 } from '../../common/basehalfMarkdownProjection.js';
 
 suite('BaseHalfMarkdownProjection', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('frontmatter', () => {
 		test('splits and rejoins standard frontmatter verbatim', () => {
 			const content = '---\ntitle: Hi\ntags: [a, b]\n---\n\n# Body\n\ntext\n';
@@ -161,6 +164,49 @@ suite('BaseHalfMarkdownProjection', () => {
 			url: 'attachments/lecture%201.pdf',
 			caption: ''
 		});
+	});
+
+	test('rebuilds persisted attachment links as file blocks after the live editor closes', async () => {
+		const editor = new FakeMarkdownEditor();
+		// BlockNote writes adjacent paragraph/file blocks with one newline. In
+		// CommonMark that is one paragraph unless the projection restores the
+		// rich block boundary explicitly.
+		const source = 'Source note\n[handout.pdf](attachments/handout.pdf)\n';
+		const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
+		const file = projection.blocks[1] as { readonly type: string; readonly props: { readonly name: string; readonly url: string } };
+
+		assert.strictEqual((projection.blocks[0] as { readonly type: string }).type, 'paragraph');
+		assert.strictEqual(file.type, 'file');
+		assert.deepStrictEqual({ name: file.props.name, url: file.props.url }, {
+			name: 'handout.pdf',
+			url: 'attachments/handout.pdf'
+		});
+		assert.strictEqual(projection.byId.size, 2);
+		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
+	});
+
+	test('does not reinterpret file-looking lines inside fenced code', async () => {
+		const editor = new FakeMarkdownEditor();
+		const source = '```md\n[handout.pdf](attachments/handout.pdf)\n```\n';
+		const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
+
+		assert.strictEqual(projection.blocks.length, 1);
+		assert.notStrictEqual((projection.blocks[0] as { readonly type: string }).type, 'file');
+		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
+	});
+
+	test('does not reinterpret indented or hard-break file links inside a paragraph', async () => {
+		const editor = new FakeMarkdownEditor();
+		for (const source of [
+			'Context\n    [handout.pdf](attachments/handout.pdf)\n',
+			'Context  \n[handout.pdf](attachments/handout.pdf)  \n'
+		]) {
+			const projection = await buildBaseHalfMarkdownLoadProjection(editor, source);
+
+			assert.strictEqual(projection.blocks.length, 1);
+			assert.notStrictEqual((projection.blocks[0] as { readonly type: string }).type, 'file');
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
+		}
 	});
 
 	suite('content loss detection', () => {

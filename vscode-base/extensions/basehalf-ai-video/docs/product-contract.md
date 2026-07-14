@@ -84,8 +84,16 @@ surface. A single click selects the node and opens a temporary AI instruction
 composer below or above it; that composer generates or revises only the
 selected node through one configured global Text model. A double click enters
 direct editing inside the card and reveals a compact formatting toolbar. The
-card keeps left and right connection controls visible, and a selected card can
-be resized; its dimensions are ordinary project data.
+card exposes one connection port at the midpoint of every side on hover, and a
+selected card can be resized; its dimensions are ordinary project data.
+
+Every node owns north, east, south, and west ports. Any port can start or
+receive a connection, and the chosen sides are stored with the edge so the path
+survives reopening. Pulling a port onto empty canvas opens a type-aware menu:
+the source node's media kind decides which downstream node kinds are valid.
+The plugin implements this scene, path geometry, persistence, and validation in
+its own package. It does not import the host canvas implementation or share the
+host canvas state pipeline.
 
 Generated-media nodes reveal only actions whose object is unambiguous: Edit,
 Import, Runs, and (for an unordered Video result) Add to clips. Run remains in

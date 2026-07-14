@@ -99,9 +99,9 @@ These patterns map to the plugin as follows:
 | Text and image generation modes need different prompt information | Storyboard, image prompt, generated frame, video prompt, and generated clip remain separate nodes |
 | Partial execution reduces iteration cost | Each Image, Video, and Audio node owns one Run action and becomes available when its upstream results exist |
 | Frozen upstream output helps debugging | Every run remains selectable inside its producing node |
-| Ports and edge semantics reduce invalid graphs | Edges carry one of four media kinds and reject incompatible or cyclic connections |
+| Ports and edge semantics reduce invalid graphs | Four-sided ports retain spatial intent; edges carry one of four media kinds and reject incompatible or cyclic connections |
 | Natural-language builders still require review | The existing Agent edits the explicit local file contract in Agent Area; execution remains a separate node action |
-| Credentials should not enter the workflow definition | `.aivideo` stores provider ids only; connectors own authentication |
+| Credentials should not enter the workflow definition | `.aivideo` stores provider ids only; BaseHalf's global model-service settings own credentials |
 
 ## Design audit
 

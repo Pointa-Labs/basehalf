@@ -13,7 +13,6 @@ import {
 	ConnectionMode,
 	ConnectionLineType,
 	Handle,
-	getSmoothStepPath,
 	MarkerType,
 	MiniMap,
 	NodeResizeControl,
@@ -24,6 +23,7 @@ import {
 	useReactFlow,
 	ViewportPortal,
 	type Connection,
+	type ConnectionLineComponentProps,
 	type Edge,
 	type EdgeProps,
 	type EdgeTypes,
@@ -59,6 +59,7 @@ import {
 	nodeReadiness,
 	selectedOutputPaths,
 	selectedRun,
+	oppositeWorkflowAnchor,
 	validateWorkflowConnection,
 	workflowIntermediateKindsForConnection,
 	workflowTargetKindsForSource,
@@ -73,6 +74,7 @@ import {
 	type AIProjectTextNode,
 	type AITextModelServiceOption,
 	type AIProjectVideoNode,
+	type AIProjectWorkflowAnchor,
 	type AIProjectWorkflowPosition
 } from '../src/model';
 import './styles.css';
@@ -80,6 +82,7 @@ import {
 	clampWorkflowCanvasOverlay,
 	WORKFLOW_CANVAS_SNAP_SCREEN_THRESHOLD,
 	snapWorkflowCanvasNodeChanges,
+	workflowCanvasConnectionPath,
 	type WorkflowCanvasNodeFrame,
 	type WorkflowCanvasSnapGuide
 } from './workflowCanvasInteraction';
@@ -103,6 +106,7 @@ interface CanvasContextMenuState {
 	readonly flowPosition: AIProjectWorkflowPosition;
 	readonly mode: 'quick' | 'context' | 'connect' | 'insert';
 	readonly sourceNodeId?: string;
+	readonly sourceAnchor?: AIProjectWorkflowAnchor;
 	readonly targetNodeId?: string;
 	readonly edgeId?: string;
 }
@@ -187,6 +191,13 @@ const initialFocusedVideoId = persistedCanvasState?.focusedVideoId && initialSta
 	? persistedCanvasState.focusedVideoId
 	: initialState.project.sequence[0]?.videoNodeId;
 const mediaKinds: readonly AIProjectMediaKind[] = ['text', 'image', 'video', 'audio'];
+const workflowAnchors: readonly AIProjectWorkflowAnchor[] = ['north', 'east', 'south', 'west'];
+const workflowAnchorPositions: Readonly<Record<AIProjectWorkflowAnchor, Position>> = {
+	north: Position.Top,
+	east: Position.Right,
+	south: Position.Bottom,
+	west: Position.Left
+};
 const nodeTypes: NodeTypes = { media: MediaNodeCard, shotGroup: ShotGroupCard };
 const edgeTypes: EdgeTypes = { workflow: WorkflowEdge };
 
@@ -566,9 +577,11 @@ function WorkflowEditor(): JSX.Element {
 		id: edge.id,
 		source: edge.source,
 		target: edge.target,
+		sourceHandle: edge.sourceAnchor,
+		targetHandle: edge.targetAnchor,
 		type: 'workflow',
 		data: { onInsert: openEdgeInsertMenu, actionPosition: selectedEdgeAction?.edgeId === edge.id ? selectedEdgeAction.position : undefined },
-		className: `workflow-edge edge-${edge.media}`,
+		className: 'workflow-edge',
 		selected: selectedEdgeId === edge.id,
 		animated: edge.target === runningNodeId,
 		interactionWidth: 20,
@@ -617,7 +630,8 @@ function WorkflowEditor(): JSX.Element {
 				}
 			}
 			if (!menu?.edgeId && menu?.sourceNodeId) {
-				connectWorkflowNodes(next, menu.sourceNodeId, node.id);
+				const sourceAnchor = menu.sourceAnchor ?? 'east';
+				connectWorkflowNodes(next, menu.sourceNodeId, node.id, sourceAnchor, oppositeWorkflowAnchor(sourceAnchor));
 			}
 		});
 		setSelectedEdgeId(undefined);
@@ -645,7 +659,7 @@ function WorkflowEditor(): JSX.Element {
 			next.nodes.push(...nodes);
 			for (const [source, target] of [[storyboard.id, imagePrompt.id], [imagePrompt.id, image.id], [storyboard.id, videoPrompt.id], [videoPrompt.id, video.id], [image.id, video.id]]) {
 				const sourceNode = nodeById(next, source)!;
-				next.edges.push({ id: createWorkflowEdgeId(source, target), source, target, media: sourceNode.kind });
+				next.edges.push({ id: createWorkflowEdgeId(source, target), source, target, media: sourceNode.kind, sourceAnchor: 'east', targetAnchor: 'west' });
 			}
 			next.sequence.push({ id: createId('sequence'), videoNodeId: video.id });
 		});
@@ -708,7 +722,13 @@ function WorkflowEditor(): JSX.Element {
 			return;
 		}
 		editProject(next => {
-			connectWorkflowNodes(next, connection.source!, connection.target!);
+			connectWorkflowNodes(
+				next,
+				connection.source!,
+				connection.target!,
+				workflowAnchorFromHandle(connection.sourceHandle, 'east'),
+				workflowAnchorFromHandle(connection.targetHandle, 'west')
+			);
 		});
 		setNotice(undefined);
 	}, [editProject]);
@@ -884,7 +904,7 @@ function WorkflowEditor(): JSX.Element {
 		);
 		return { left: position.x, top: position.y };
 	}, []);
-	const openCanvasAddMenu = useCallback((clientX: number, clientY: number, mode: CanvasContextMenuState['mode'], sourceNodeId?: string): void => {
+	const openCanvasAddMenu = useCallback((clientX: number, clientY: number, mode: CanvasContextMenuState['mode'], sourceNodeId?: string, sourceAnchor?: AIProjectWorkflowAnchor): void => {
 		const menuHeight = mode === 'context' ? 338 : 270;
 		const menu = positionMenu(clientX, clientY, 250, menuHeight);
 		setSelectedNodeIds(sourceNodeId ? [sourceNodeId] : []);
@@ -899,6 +919,7 @@ function WorkflowEditor(): JSX.Element {
 			...menu,
 			mode,
 			...(sourceNodeId ? { sourceNodeId } : {}),
+			...(sourceAnchor ? { sourceAnchor } : {}),
 			flowPosition: reactFlow.screenToFlowPosition({ x: clientX, y: clientY })
 		});
 	}, [positionMenu, reactFlow]);
@@ -929,7 +950,13 @@ function WorkflowEditor(): JSX.Element {
 			}
 			suppressNextPaneClickRef.current = true;
 			window.setTimeout(() => { suppressNextPaneClickRef.current = false; }, 0);
-			openCanvasAddMenu(point.x, point.y, 'connect', connectionState.fromNode.id);
+			openCanvasAddMenu(
+				point.x,
+				point.y,
+				'connect',
+				connectionState.fromNode.id,
+				workflowAnchorFromHandle(connectionState.fromHandle?.id, 'east')
+			);
 			return;
 		}
 		if (connectionState.isValid === false) {
@@ -978,16 +1005,17 @@ function WorkflowEditor(): JSX.Element {
 						{addMenuOpen && <AddMenu mode="quick" onAdd={addMedia} onAddShot={addShot} />}
 					</div>
 					<ReactFlow<WorkflowFlowNode, WorkflowFlowEdge>
-							nodes={flowNodes}
-							edges={flowEdges}
-							nodeTypes={nodeTypes}
-							edgeTypes={edgeTypes}
-							onNodesChange={onNodesChange}
-							onInit={initializeViewport}
-							minZoom={0.2}
-							maxZoom={4}
+						nodes={flowNodes}
+						edges={flowEdges}
+						nodeTypes={nodeTypes}
+						edgeTypes={edgeTypes}
+						onNodesChange={onNodesChange}
+						onInit={initializeViewport}
+						minZoom={0.2}
+						maxZoom={4}
 						connectionMode={ConnectionMode.Loose}
-						connectionLineType={ConnectionLineType.SmoothStep}
+						connectionLineType={ConnectionLineType.Bezier}
+						connectionLineComponent={WorkflowConnectionLine}
 						isValidConnection={connection => Boolean(connection.source && connection.target && validateWorkflowConnection(projectRef.current, connection.source, connection.target).valid)}
 						connectOnClick={false}
 						connectionRadius={48}
@@ -1097,22 +1125,22 @@ function WorkflowEditor(): JSX.Element {
 						onEdgesDelete={edges => removeEdges(edges.map(edge => edge.id))}
 						onPaneScroll={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
 						onMoveStart={() => { cancelInitialViewport(); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); setActiveNodeDetail(undefined); setSnapGuides([]); }}
-							onConnectStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); setNotice(undefined); setSnapGuides([]); }}
-							onConnectEnd={finishConnection}
-							onNodeDragStart={(event, node) => {
-								suppressNextNodeClickRef.current = true;
-								setActiveNodeControlsId(undefined);
-								setEditingTextNodeId(undefined);
-								setContextNodeMenu(undefined);
-								setContextAddMenu(undefined);
-								setContextEdgeMenu(undefined);
-								setActiveNodeDetail(undefined);
-								setSnapGuides([]);
-								if (node.type === 'media') {
-									setSelectedNodeIds(current => current.includes(node.id) ? current : event.shiftKey ? [...current, node.id] : [node.id]);
-									setSelectedEdgeId(undefined);
-								}
-							}}
+						onConnectStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); setNotice(undefined); setSnapGuides([]); }}
+						onConnectEnd={finishConnection}
+						onNodeDragStart={(event, node) => {
+							suppressNextNodeClickRef.current = true;
+							setActiveNodeControlsId(undefined);
+							setEditingTextNodeId(undefined);
+							setContextNodeMenu(undefined);
+							setContextAddMenu(undefined);
+							setContextEdgeMenu(undefined);
+							setActiveNodeDetail(undefined);
+							setSnapGuides([]);
+							if (node.type === 'media') {
+								setSelectedNodeIds(current => current.includes(node.id) ? current : event.shiftKey ? [...current, node.id] : [node.id]);
+								setSelectedEdgeId(undefined);
+							}
+						}}
 						onSelectionStart={() => { setActiveNodeControlsId(undefined); setEditingTextNodeId(undefined); setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
 						onSelectionEnd={() => {
 							const nodeIds = reactFlow.getNodes().filter(node => node.type === 'media' && node.selected).map(node => node.id);
@@ -1331,6 +1359,19 @@ function MediaNodeCard({ data, selected }: NodeProps<MediaFlowNode>): JSX.Elemen
 	return <GeneratedMediaNodeCard data={data} node={node} selected={selected} />;
 }
 
+function WorkflowConnectionHandles({ kind }: { readonly kind: AIProjectMediaKind }): JSX.Element {
+	const targets = workflowTargetKindsForSource(kind).map(mediaKindLabel).join(', ');
+	return <>{workflowAnchors.map(anchor => <Handle
+		key={anchor}
+		id={anchor}
+		type="source"
+		position={workflowAnchorPositions[anchor]}
+		className={`workflow-connect-handle ${anchor}`}
+		aria-label={`${mediaKindLabel(kind)} connection, ${anchor} side`}
+		title={`${mediaKindLabel(kind)} can feed ${targets}`}
+	/>)}</>;
+}
+
 function EditableNodeTitle({ data, node, className }: { readonly data: MediaNodeData; readonly node: AIProjectNode; readonly className: string }): JSX.Element {
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(node.title);
@@ -1366,8 +1407,7 @@ function GeneratedMediaNodeCard({ data, node, selected }: { readonly data: Media
 			{data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <MediaEmptyState node={node} readiness={data.readiness} running={data.isRunning} />}
 		</div>
 		{showWorkbench && <NodeWorkbench data={data} placement={workbenchPlacement} />}
-		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label={`${mediaKindLabel(node.kind)} input`} title={`${mediaKindLabel(node.kind)} input`} />
-		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label={`${mediaKindLabel(node.kind)} output`} title={`${mediaKindLabel(node.kind)} output`} />
+		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 
@@ -1423,8 +1463,7 @@ function TextNodeCard({ data, node, selected }: { readonly data: MediaNodeData; 
 				value.height = Math.round(size.height);
 			}
 		}))}><svg aria-hidden="true" viewBox="0 0 12 12"><path d="m4.5 10 5.5-5.5M7.5 10l2.5-2.5" /></svg></NodeResizeControl>}
-		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label="Text input" title="Text input" />
-		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label="Text output" title="Text output" />
+		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 
@@ -1490,7 +1529,7 @@ function ImageNodeCard({ data, node, selected }: { readonly data: MediaNodeData;
 		? 'Generating'
 		: node.status === 'error'
 			? 'Failed'
-		: node.status === 'stale'
+			: node.status === 'stale'
 				? 'Outdated'
 				: undefined;
 	return <div ref={root} className={`image-node-shell${selected ? ' selected' : ''}${data.isRunning ? ' running' : ''}`} title={selected ? undefined : 'Click to select. Double-click to edit the prompt.'}>
@@ -1504,8 +1543,7 @@ function ImageNodeCard({ data, node, selected }: { readonly data: MediaNodeData;
 				: <ImageNodeEmptyState readiness={readiness.label} running={data.isRunning} />}
 		</div>
 		{showWorkbench && <ImageNodeWorkbench data={data} node={node} placement={workbenchPlacement} />}
-		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label="Image input" title="Image input" />
-		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label="Image output" title="Image output" />
+		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 
@@ -1623,7 +1661,14 @@ function GeneratedNodeSettings({ data, node, providers, onBack }: { readonly dat
 }
 
 function WorkflowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, selected, data }: EdgeProps<WorkflowFlowEdge>): JSX.Element {
-	const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+	const path = workflowCanvasConnectionPath(
+		{ x: sourceX, y: sourceY },
+		workflowAnchorFromPosition(sourcePosition),
+		{ x: targetX, y: targetY },
+		workflowAnchorFromPosition(targetPosition)
+	);
+	const labelX = (sourceX + targetX) / 2;
+	const labelY = (sourceY + targetY) / 2;
 	const actionX = data?.actionPosition?.x ?? labelX;
 	const actionY = data?.actionPosition?.y ?? labelY;
 	return <>
@@ -1632,6 +1677,16 @@ function WorkflowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, 
 			<button className="workflow-edge-add nodrag nopan" aria-label="Insert node on connection" title="Insert node" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); data?.onInsert(id, event.clientX, event.clientY); }}>+</button>
 		</foreignObject>
 	</>;
+}
+
+function WorkflowConnectionLine({ fromX, fromY, toX, toY, fromPosition, toPosition, connectionStatus }: ConnectionLineComponentProps<WorkflowFlowNode>): JSX.Element {
+	const path = workflowCanvasConnectionPath(
+		{ x: fromX, y: fromY },
+		workflowAnchorFromPosition(fromPosition),
+		{ x: toX, y: toY },
+		workflowAnchorFromPosition(toPosition)
+	);
+	return <path className={`react-flow__connection-path workflow-connection-line${connectionStatus ? ` ${connectionStatus}` : ''}`} d={path} fill="none" />;
 }
 
 function ShotGroupCard({ data }: NodeProps<GroupFlowNode>): JSX.Element {
@@ -2045,6 +2100,14 @@ function toggleSelectedId(current: readonly string[], id: string): readonly stri
 
 function creationKinds(source?: AIProjectMediaKind): readonly AIProjectMediaKind[] {
 	return source ? workflowTargetKindsForSource(source) : mediaKinds;
+}
+
+function workflowAnchorFromHandle(value: string | null | undefined, fallback: AIProjectWorkflowAnchor): AIProjectWorkflowAnchor {
+	return value === 'north' || value === 'east' || value === 'south' || value === 'west' ? value : fallback;
+}
+
+function workflowAnchorFromPosition(position: Position): AIProjectWorkflowAnchor {
+	return position === Position.Top ? 'north' : position === Position.Right ? 'east' : position === Position.Bottom ? 'south' : 'west';
 }
 
 function absoluteNodePosition(project: AIProject, node: AIProjectNode): AIProjectWorkflowPosition {

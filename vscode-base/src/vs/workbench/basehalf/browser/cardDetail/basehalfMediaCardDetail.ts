@@ -27,6 +27,7 @@ import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBase
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
 const pdfiumWasm = URI.joinPath(contentViewerMediaRoot, 'pdfium.wasm');
+const simplifiedChinesePdfFont = URI.joinPath(contentViewerMediaRoot, 'NotoSansHans-Regular.otf');
 const PDF_VIEW_STATE_STORAGE_PREFIX = 'basehalf.pdfViewState.';
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
@@ -43,6 +44,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private visible = false;
 	private renderVersion = 0;
 	private pdfViewState: IBaseHalfPdfViewState | undefined;
+	private pdfBranchPending = false;
 
 	constructor(
 		container: HTMLElement,
@@ -156,7 +158,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			resource,
 			pdfViewerScript,
 			pdfiumWasm,
-			this.pdfViewState
+			this.pdfViewState,
+			simplifiedChinesePdfFont
 		));
 	}
 
@@ -172,7 +175,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		}
 
 		const selection = baseHalfPdfSelectionFromMessage(message);
-		if (selection) {
+		if (selection && !this.pdfBranchPending) {
+			this.pdfBranchPending = true;
 			void this.createPdfBranch(resource, selection).catch(error => {
 				this.logService.error('[BaseHalf] failed to grow a branch from PDF selection', error);
 				this.notificationService.error(localize(
@@ -180,6 +184,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 					"Could not grow a note from the PDF selection: {0}",
 					getErrorMessage(error)
 				));
+			}).finally(() => {
+				this.pdfBranchPending = false;
 			});
 		}
 	}
@@ -211,7 +217,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	}
 }
 
-export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState): string {
+export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {
 	const nonce = generateUuid();
 	const source = escapeAttribute(asWebviewUri(resource).toString(true));
 	if (kind === 'pdf') {
@@ -219,6 +225,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 			source,
 			asWebviewUri(viewerScript).toString(true),
 			asWebviewUri(wasm).toString(true),
+			asWebviewUri(fontSc).toString(true),
 			nonce,
 			normalizeBaseHalfPdfViewState(pdfViewState),
 			basename(resource),
@@ -297,7 +304,7 @@ export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, re
 </html>`;
 }
 
-function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: string, nonce: string, viewState: IBaseHalfPdfViewState, name: string, locale: string, branchActionLabel: string): string {
+function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: string, fontSc: string, nonce: string, viewState: IBaseHalfPdfViewState, name: string, locale: string, branchActionLabel: string): string {
 	return `<!DOCTYPE html>
 <html lang="${escapeAttribute(locale)}">
 <head>
@@ -320,7 +327,7 @@ function baseHalfPdfWebviewHtml(source: string, viewerScript: string, wasm: stri
 	</style>
 </head>
 <body>
-	<div id="basehalf-pdf-viewer" data-source="${source}" data-wasm="${escapeAttribute(wasm)}" data-name="${escapeAttribute(name)}" data-locale="${escapeAttribute(locale)}" data-branch-action-label="${escapeAttribute(branchActionLabel)}" data-page="${viewState.page}" data-zoom="${viewState.zoom}" data-fit-width="${viewState.fitWidth}" data-status="loading"></div>
+	<div id="basehalf-pdf-viewer" data-source="${source}" data-wasm="${escapeAttribute(wasm)}" data-font-sc="${escapeAttribute(fontSc)}" data-name="${escapeAttribute(name)}" data-locale="${escapeAttribute(locale)}" data-branch-action-label="${escapeAttribute(branchActionLabel)}" data-page="${viewState.page}" data-zoom="${viewState.zoom}" data-fit-width="${viewState.fitWidth}" data-status="loading"></div>
 	<div class="status loading" id="basehalf-pdf-status" role="status" aria-live="polite">
 		<div class="status-content">
 			<div class="status-placeholder" aria-hidden="true"></div>

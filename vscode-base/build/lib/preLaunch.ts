@@ -26,6 +26,24 @@ async function exists(subdir: string) {
 	}
 }
 
+export function isExpectedWorkbenchEntrypoint(source: string): boolean {
+	// Require a real top-level side-effect import. A commented example should
+	// not be enough to suppress compilation and launch a stale/broken `out/`.
+	const executableSource = source.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, '');
+	const importsWorkbench = /^\s*import\s+['"]\.\/workbench\.common\.main\.js['"]\s*;?/m.test(executableSource);
+	const usesCommonJs = /\bObject\.defineProperty\(exports\b|\bexports\.|\bmodule\.exports\b|\brequire\(/.test(executableSource);
+	return importsWorkbench && !usesCommonJs;
+}
+
+async function hasExpectedWorkbenchEntrypoint(): Promise<boolean> {
+	try {
+		const source = await fs.readFile(path.join(rootDir, 'out', 'vs', 'workbench', 'workbench.desktop.main.js'), 'utf8');
+		return isExpectedWorkbenchEntrypoint(source);
+	} catch {
+		return false;
+	}
+}
+
 async function ensureNodeModules() {
 	if (!(await exists('node_modules'))) {
 		await runProcess(npm, ['ci']);
@@ -85,8 +103,13 @@ function getExpectedElectronExecutablePath(product: { readonly nameLong: string;
 }
 
 async function ensureCompiled() {
-	if (!(await exists('out'))) {
-		await runProcess(npm, ['run', 'compile']);
+	if (await exists('out') && await hasExpectedWorkbenchEntrypoint()) {
+		return;
+	}
+
+	await runProcess(npm, ['run', 'compile']);
+	if (!(await hasExpectedWorkbenchEntrypoint())) {
+		throw new Error('The desktop workbench was not emitted as an ES module. Refusing to launch a broken development window.');
 	}
 }
 
