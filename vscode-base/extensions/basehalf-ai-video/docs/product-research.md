@@ -97,10 +97,10 @@ These patterns map to the plugin as follows:
 | --- | --- |
 | Reusable references improve continuity | Reusable Text and Image nodes feed any number of clip pipelines |
 | Text and image generation modes need different prompt information | Storyboard, image prompt, generated frame, video prompt, and generated clip remain separate nodes |
-| Partial execution reduces iteration cost | Image, Video, and Audio nodes are independently executable; workflow run follows graph order |
+| Partial execution reduces iteration cost | Each Image, Video, and Audio node owns one Run action and becomes available when its upstream results exist |
 | Frozen upstream output helps debugging | Every run remains selectable inside its producing node |
 | Ports and edge semantics reduce invalid graphs | Edges carry one of four media kinds and reject incompatible or cyclic connections |
-| Natural-language builders still require review | Ask Agent saves and hands off an explicit file contract; execution remains a separate action |
+| Natural-language builders still require review | The existing Agent edits the explicit local file contract in Agent Area; execution remains a separate node action |
 | Credentials should not enter the workflow definition | `.aivideo` stores provider ids only; connectors own authentication |
 
 ## Design audit
@@ -108,8 +108,10 @@ These patterns map to the plugin as follows:
 Preserved:
 
 - React Flow as the live scene and VS Code theme tokens as the visual system.
-- A central canvas, an on-demand four-item node menu, and a selection inspector.
-- Autosave, explicit Agent handoff, reviewed workflow execution, cancel, and local output actions.
+- A central canvas, an on-demand four-item node menu, and contextual node
+  actions with an anchored editor.
+- Autosave, external Agent reconciliation, per-node execution and cancellation,
+  and local output actions.
 - A readable project file, external-change reconciliation, and local result
   paths.
 
@@ -120,8 +122,8 @@ Retired or corrected:
 - Workflow data dependencies and clip playback Sequence are separate structures.
 - The built-in local provider creates in-node storyboard results plus readable
   media and full-sequence previews.
-- Agent authoring is no longer an undocumented possibility. The plugin provides
-  a schema-bound, user-triggered handoff to the existing Agent Area.
+- Agent authoring uses BaseHalf's existing Agent Area and the schema-bound local
+  project file. The canvas does not add a competing Agent entry point.
 
 The canvas does not provide editing or final rendering. Its temporal contract is
 only an ordered list of independently generated Video-node results.

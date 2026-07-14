@@ -28,25 +28,34 @@ The schema is shipped at
 [`schemas/aivideo.schema.json`](schemas/aivideo.schema.json) and registered for
 source-mode and Agent editing.
 
-## Build with Agent
+## Agent-authored workflows
 
-**Ask Agent** explicitly saves the current project, copies a schema-bound
-workflow-authoring brief, and opens a BaseHalf Agent Area session. The Agent is
-asked to modify that same local `.aivideo` file, arrange one Shot Group per
-intended clip, fill storyboard and execution prompts, preserve run history, and
-place final Video nodes into playback order.
+The user talks to their existing Agent in BaseHalf's Agent Area. The Agent reads
+and modifies the same local `.aivideo` file, arranges Shot Groups, fills
+storyboards and execution prompts, preserves run history, and places final
+Video nodes into playback order. The canvas reloads valid external changes.
 
-BaseHalf does not insert a hidden model or store the Agent prompt. External
-Agent edits reload the canvas when there are no conflicting local UI edits.
+The workflow canvas does not duplicate Agent chat or add a separate “build with
+Agent” action. BaseHalf does not insert a hidden model or store Agent prompts.
+
+## Canvas interaction
+
+The canvas never gives up width to a permanent node inspector. A card always
+shows its media role, current content or selected result, blocking state, and
+next run action. Selecting one card reveals Edit, Import, Runs, and relevant
+clip-order actions directly above it. Edit and Runs use a temporary editor
+anchored to that card; clicking the canvas or changing selection closes it.
+Destructive actions stay in the right-click menu.
 
 ## Running and history
 
 Executable Image, Video, and Audio nodes use connected upstream results and Text
-content. A workflow run follows graph order, so an Image result can be produced
-before the Video node that consumes it. Each run appends an immutable local
-record containing the provider, model, prompt snapshot, input paths, time,
-status, and output paths. Selecting an older result marks only downstream work
-stale; it never deletes prior results.
+content. Each generated media node has one Run action. A dependent node remains
+disabled until its upstream media results exist, so the user can run an Image
+and then independently run the Video that consumes it. Each run appends an
+immutable local record containing the provider, model, prompt snapshot, input
+paths, time, status, and output paths. Selecting an older result marks only
+downstream work stale; it never deletes prior results.
 
 The built-in **Local previsualization** provider keeps the entire path usable
 without model credentials:

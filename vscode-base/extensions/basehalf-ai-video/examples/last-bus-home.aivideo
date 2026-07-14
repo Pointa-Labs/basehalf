@@ -98,7 +98,7 @@
       "title": "图片提示词",
       "content": "镜头贴近地面。一封米白色信封被风从长椅下吹出半截，雨水落在右下角的旧水渍上。远处一双穿深色运动鞋的脚停住。\n\n定格在动作最清晰、可作为视频起始帧的瞬间。",
       "position": {
-        "x": 258,
+        "x": 310,
         "y": 74
       },
       "groupId": "group-shot-envelope"
@@ -109,7 +109,7 @@
       "role": "generate",
       "title": "分镜图",
       "position": {
-        "x": 488,
+        "x": 592,
         "y": 74
       },
       "groupId": "group-shot-envelope",
@@ -131,8 +131,8 @@
       "title": "视频提示词",
       "content": "Low locked close shot at wet pavement level beneath an old bus-stop bench. A worn ivory envelope with a dark water stain slides halfway out in the wind. Rain strikes the paper and concrete. A young woman's dark sneakers enter from frame left and stop beside it. Cool rain shadows, one warm practical lamp, realistic live action, subtle film grain. Continuous seamless five-second shot.\n\n对白：无\n声音：稳定雨声，远处车辆压过积水的声音，纸张轻擦地面。",
       "position": {
-        "x": 258,
-        "y": 204
+        "x": 310,
+        "y": 244
       },
       "groupId": "group-shot-envelope"
     },
@@ -142,7 +142,7 @@
       "role": "generate",
       "title": "镜头片段",
       "position": {
-        "x": 808,
+        "x": 950,
         "y": 74
       },
       "groupId": "group-shot-envelope",
@@ -177,7 +177,7 @@
       "title": "图片提示词",
       "content": "林遥蹲下捡起信，用袖口轻轻擦掉表面雨水。她看到收件人姓名时停顿，背景道路上出现末班车的两束灯光。\n\n定格在动作最清晰、可作为视频起始帧的瞬间。",
       "position": {
-        "x": 258,
+        "x": 310,
         "y": 74
       },
       "groupId": "group-shot-pickup"
@@ -188,7 +188,7 @@
       "role": "generate",
       "title": "分镜图",
       "position": {
-        "x": 488,
+        "x": 592,
         "y": 74
       },
       "groupId": "group-shot-pickup",
@@ -210,8 +210,8 @@
       "title": "视频提示词",
       "content": "Medium close shot from a slightly low angle. Lin Yao, a young woman with short black hair, a dark red rain jacket and charcoal backpack, crouches once and picks up the wet ivory envelope. She gently wipes rain from it with her sleeve, reads the recipient name, then pauses. A pair of approaching bus headlights blooms softly in the rainy background. The camera makes one slow restrained push in. Natural performance, cool blue rain shadows, warm practical light, realistic skin and wet fabric. Continuous six-second shot.\n\n对白：林遥轻声念：沈岚。\n声音：雨声持续，衣料摩擦，远处公交发动机逐渐接近。",
       "position": {
-        "x": 258,
-        "y": 204
+        "x": 310,
+        "y": 244
       },
       "groupId": "group-shot-pickup"
     },
@@ -221,7 +221,7 @@
       "role": "generate",
       "title": "镜头片段",
       "position": {
-        "x": 808,
+        "x": 950,
         "y": 74
       },
       "groupId": "group-shot-pickup",
@@ -256,7 +256,7 @@
       "title": "图片提示词",
       "content": "林遥站在打开的车门前，一手护住信封。她先看信，再看车内，随后迈上车。车门边缘的暖光把她从蓝色雨幕中分离出来。\n\n定格在动作最清晰、可作为视频起始帧的瞬间。",
       "position": {
-        "x": 258,
+        "x": 310,
         "y": 74
       },
       "groupId": "group-shot-decision"
@@ -267,7 +267,7 @@
       "role": "generate",
       "title": "分镜图",
       "position": {
-        "x": 488,
+        "x": 592,
         "y": 74
       },
       "groupId": "group-shot-decision",
@@ -289,8 +289,8 @@
       "title": "视频提示词",
       "content": "Medium shot from behind and slightly to the side. The last city bus opens its door at frame right, spilling warm interior light into cool blue rain. Lin Yao in the same dark red rain jacket protects the worn ivory envelope with one hand, looks down at it once, looks into the bus, and steps aboard. A restrained handheld camera follows for two steps and stops outside the door. Realistic wet street, subtle 35mm grain, natural movement. Continuous five-second shot.\n\n对白：司机在车内说：最后一班了。\n声音：车门气动声，雨声，发动机怠速，车内提示音很轻。",
       "position": {
-        "x": 258,
-        "y": 204
+        "x": 310,
+        "y": 244
       },
       "groupId": "group-shot-decision"
     },
@@ -300,7 +300,7 @@
       "role": "generate",
       "title": "镜头片段",
       "position": {
-        "x": 808,
+        "x": 950,
         "y": 74
       },
       "groupId": "group-shot-decision",
@@ -335,7 +335,7 @@
       "title": "图片提示词",
       "content": "林遥沿过道走到最后一排。沈岚靠窗坐着，木柄雨伞立在膝边。林遥把信封递入画面，沈岚先看见姓名，再缓慢抬头。\n\n定格在动作最清晰、可作为视频起始帧的瞬间。",
       "position": {
-        "x": 258,
+        "x": 310,
         "y": 74
       },
       "groupId": "group-shot-recipient"
@@ -346,7 +346,7 @@
       "role": "generate",
       "title": "分镜图",
       "position": {
-        "x": 488,
+        "x": 592,
         "y": 74
       },
       "groupId": "group-shot-recipient",
@@ -368,8 +368,8 @@
       "title": "视频提示词",
       "content": "A steady aisle tracking shot inside an old night bus. Lin Yao, unchanged in her dark red rain jacket and charcoal backpack, walks toward the last row holding the same wet ivory envelope. Shen Lan, a sixty-year-old woman with short silver hair and a dark green wool coat, sits by the rain-streaked window with an old wooden-handle umbrella beside her knee. The camera stops in a balanced two-shot as Lin Yao offers the envelope. Shen Lan sees her name on it, then slowly raises her eyes. Warm bus light, cool moving reflections, restrained natural acting, realistic live action. Continuous seven-second shot.\n\n对白：林遥说：请问，您是沈岚吗？这封信在站台下面。\n声音：低沉发动机声，雨刷节奏，车厢轻微震动，人物说话保持克制。",
       "position": {
-        "x": 258,
-        "y": 204
+        "x": 310,
+        "y": 244
       },
       "groupId": "group-shot-recipient"
     },
@@ -379,7 +379,7 @@
       "role": "generate",
       "title": "镜头片段",
       "position": {
-        "x": 808,
+        "x": 950,
         "y": 74
       },
       "groupId": "group-shot-recipient",
@@ -414,7 +414,7 @@
       "title": "图片提示词",
       "content": "沈岚双手接过信，看见熟悉的字迹。她没有拆开，只把信轻轻贴在胸口，对林遥点头。车窗外的城市灯光继续向后流动。\n\n定格在动作最清晰、可作为视频起始帧的瞬间。",
       "position": {
-        "x": 258,
+        "x": 310,
         "y": 74
       },
       "groupId": "group-shot-handoff"
@@ -425,7 +425,7 @@
       "role": "generate",
       "title": "分镜图",
       "position": {
-        "x": 488,
+        "x": 592,
         "y": 74
       },
       "groupId": "group-shot-handoff",
@@ -447,8 +447,8 @@
       "title": "视频提示词",
       "content": "Begin on a close shot of two pairs of hands completing one careful handoff of the same wet ivory envelope. The camera slowly tilts up to Shen Lan in the same dark green wool coat. She recognizes the handwriting, holds the unopened letter softly against her chest, pauses for one second, and gives Lin Yao a small grateful nod. Rain-streaked bus windows behind her carry warm city lights drifting from right to left. Restrained emotion, realistic skin and hands, warm practical light against cool reflections, subtle film grain. Continuous seven-second shot.\n\n对白：沈岚轻声说：谢谢你。\n声音：雨刷规律摆动，发动机低鸣，短暂安静后一句很轻的谢谢。",
       "position": {
-        "x": 258,
-        "y": 204
+        "x": 310,
+        "y": 244
       },
       "groupId": "group-shot-handoff"
     },
@@ -458,7 +458,7 @@
       "role": "generate",
       "title": "镜头片段",
       "position": {
-        "x": 808,
+        "x": 950,
         "y": 74
       },
       "groupId": "group-shot-handoff",
@@ -894,8 +894,8 @@
         "x": 720,
         "y": 80
       },
-      "width": 1120,
-      "height": 330,
+      "width": 1240,
+      "height": 600,
       "nodeIds": [
         "shot-envelope-storyboard",
         "shot-envelope-image-prompt",
@@ -912,8 +912,8 @@
         "x": 1900,
         "y": 80
       },
-      "width": 1120,
-      "height": 330,
+      "width": 1240,
+      "height": 600,
       "nodeIds": [
         "shot-pickup-storyboard",
         "shot-pickup-image-prompt",
@@ -930,8 +930,8 @@
         "x": 720,
         "y": 470
       },
-      "width": 1120,
-      "height": 330,
+      "width": 1240,
+      "height": 600,
       "nodeIds": [
         "shot-decision-storyboard",
         "shot-decision-image-prompt",
@@ -948,8 +948,8 @@
         "x": 1900,
         "y": 470
       },
-      "width": 1120,
-      "height": 330,
+      "width": 1240,
+      "height": 600,
       "nodeIds": [
         "shot-recipient-storyboard",
         "shot-recipient-image-prompt",
@@ -966,8 +966,8 @@
         "x": 720,
         "y": 860
       },
-      "width": 1120,
-      "height": 330,
+      "width": 1240,
+      "height": 600,
       "nodeIds": [
         "shot-handoff-storyboard",
         "shot-handoff-image-prompt",

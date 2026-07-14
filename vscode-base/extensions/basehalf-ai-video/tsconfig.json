@@ -11,10 +11,9 @@
     ],
     "skipLibCheck": true
   },
-  "include": [
-    "src/**/*",
-    "../../src/vscode-dts/vscode.d.ts",
-    "../../src/vscode-dts/vscode.proposed.basehalfDomainPlugins.d.ts",
-    "../types/lib.textEncoder.d.ts"
+	"include": [
+		"src/**/*",
+		"../../src/vscode-dts/vscode.d.ts",
+		"../types/lib.textEncoder.d.ts"
   ]
 }

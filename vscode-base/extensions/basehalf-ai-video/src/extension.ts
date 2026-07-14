@@ -4,10 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from 'crypto';
+import { promises as nodeFs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { createAIVideoAgentBrief } from './agent';
-import { AIProject, createAIProject, createId, invalidateDownstreamNodes, isExecutableNode, nodeById, nodePrompt, nodeReadiness, parseAIProject, runnableNodeIdsInWorkflowOrder, serializeAIProject } from './model';
+import { AIProject, createAIProject, createId, invalidateDownstreamNodes, isExecutableNode, nodeById, nodePrompt, nodeReadiness, parseAIProject, serializeAIProject, upstreamWorkflowNodeIds } from './model';
 import { renderProjectTextPrevisualization } from './preview';
 import { aiProjectWebviewHtml } from './webview';
 import { AIMediaGenerationProvider, AIMediaGenerationProviderRegistry, createLocalPreviewProvider, resolveMediaInputPaths, resolveMediaWorkflowInputs } from './workflow';
@@ -22,7 +22,7 @@ export interface BaseHalfAIVideoApi {
 export function activate(context: vscode.ExtensionContext): BaseHalfAIVideoApi {
 	const providers = new AIMediaGenerationProviderRegistry();
 	context.subscriptions.push(providers, providers.register(createLocalPreviewProvider()));
-	context.subscriptions.push(vscode.commands.registerCommand('basehalf.aiVideo.createProject', () => createProject()));
+	context.subscriptions.push(vscode.commands.registerCommand('pointa.basehalf-ai-video.createProject', () => createProject()));
 	context.subscriptions.push(vscode.basehalf.registerCardProjectionProvider(PROJECTION_ID, {
 		async resolveCardProjection(resource, view, token) {
 			const controller = new AIProjectController(resource, view, providers, context.extensionUri, token);
@@ -80,15 +80,18 @@ class AIProjectController implements vscode.Disposable {
 		const state = await this.readProject();
 		this.project = state.project;
 		this.revision = state.revision;
+		const textModelServices = await this.textModelServices();
 		this.view.webview.options = { enableScripts: true, localResourceRoots: [parentUri(this.resource), this.extensionUri] };
 		this.view.webview.html = aiProjectWebviewHtml(this.view.webview, this.extensionUri, {
 			project: state.project,
 			revision: state.revision,
 			providers: this.providers.list(),
+			textModelServices,
 			mediaUris: this.mediaUris(state.project)
 		});
 		this.disposables.push(this.view.webview.onDidReceiveMessage(message => this.handleMessage(message)));
 		this.disposables.push(this.providers.onDidChangeProviders(() => { void this.postProviders(); }));
+		this.disposables.push(vscode.basehalf.onDidChangeModelServices(() => { void this.postTextModelServices(); }));
 		this.installWatcher();
 	}
 
@@ -120,14 +123,14 @@ class AIProjectController implements vscode.Disposable {
 				case 'reload':
 					await this.reload();
 					break;
-				case 'prepareAgent':
-					await this.prepareAgent(message);
-					break;
 				case 'runNode':
-					await this.runFromMessage(message, typeof message.nodeId === 'string' ? [message.nodeId] : []);
+					await this.runFromMessage(message, stringProperty(message, 'nodeId'));
 					break;
-				case 'runReady':
-					await this.runFromMessage(message);
+				case 'runTextNode':
+					await this.runTextFromMessage(message);
+					break;
+				case 'configureTextModel':
+					await vscode.commands.executeCommand('basehalf.models.manage');
 					break;
 				case 'cancel':
 					this.runCancellation.cancel();
@@ -150,36 +153,16 @@ class AIProjectController implements vscode.Disposable {
 
 	private async saveFromMessage(message: Record<string, unknown>): Promise<void> {
 		if (this.running) {
-			throw new Error('Wait for the active workflow run to finish or cancel it before saving.');
+			throw new Error('Wait for the active media node to finish or cancel it before saving.');
 		}
 		const project = projectFromMessage(message);
 		await this.writeProject(project, stringProperty(message, 'revision'));
 		await this.post({ type: 'saved', revision: this.revision, mediaUris: this.mediaUris(project) });
 	}
 
-	private async prepareAgent(message: Record<string, unknown>): Promise<void> {
-		if (this.running) {
-			throw new Error('Wait for the active workflow run to finish or cancel it before handing the project to an Agent.');
-		}
-		const project = projectFromMessage(message);
-		await this.writeProject(project, stringProperty(message, 'revision'));
-		await vscode.env.clipboard.writeText(createAIVideoAgentBrief(this.resource.fsPath, project));
-		let agentAreaOpened = true;
-		try {
-			await vscode.commands.executeCommand('basehalf.agentArea.newTab');
-		} catch {
-			agentAreaOpened = false;
-		}
-		await this.post({
-			type: 'agentReady',
-			revision: this.revision,
-			message: agentAreaOpened ? 'Workflow brief copied. Tell the Agent what you want to make.' : 'Workflow brief copied. Paste it into your Agent.'
-		});
-	}
-
 	private async importFiles(message: Record<string, unknown>): Promise<void> {
 		if (this.running) {
-			throw new Error('Wait for the active workflow run to finish or cancel it before importing files.');
+			throw new Error('Wait for the active media node to finish or cancel it before importing files.');
 		}
 		const project = projectFromMessage(message);
 		const nodeId = stringProperty(message, 'nodeId');
@@ -228,9 +211,9 @@ class AIProjectController implements vscode.Disposable {
 		await this.postProject();
 	}
 
-	private async runFromMessage(message: Record<string, unknown>, requestedNodeIds?: readonly string[]): Promise<void> {
+	private async runFromMessage(message: Record<string, unknown>, nodeId: string): Promise<void> {
 		if (this.running) {
-			throw new Error('A workflow is already running for this project.');
+			throw new Error('A media node is already running for this project.');
 		}
 		const project = projectFromMessage(message);
 		this.running = true;
@@ -238,15 +221,48 @@ class AIProjectController implements vscode.Disposable {
 			this.runCancellation.dispose();
 			this.runCancellation = new vscode.CancellationTokenSource();
 			await this.writeProject(project, stringProperty(message, 'revision'));
-			const nodeIds = requestedNodeIds ?? runnableNodeIdsInWorkflowOrder(project);
-			if (!nodeIds.length) {
-				throw new Error('No media nodes are ready to run. Review the highlighted requirements first.');
-			}
-			for (const nodeId of nodeIds) {
-				this.throwIfCancelled(true);
-				await this.runMediaNode(nodeId);
-			}
+			this.throwIfCancelled(true);
+			await this.runMediaNode(nodeId);
 			await this.writeSequencePreview();
+		} finally {
+			this.running = false;
+			await this.postProject();
+		}
+	}
+
+	private async runTextFromMessage(message: Record<string, unknown>): Promise<void> {
+		if (this.running) {
+			throw new Error('A node is already running for this project.');
+		}
+		const project = projectFromMessage(message);
+		const nodeId = stringProperty(message, 'nodeId');
+		const instruction = stringProperty(message, 'instruction').trim();
+		const serviceId = stringProperty(message, 'serviceId');
+		const node = nodeById(project, nodeId);
+		if (!node || node.kind !== 'text') {
+			throw new Error(`Text node '${nodeId}' no longer exists.`);
+		}
+		if (!instruction) {
+			throw new Error('Describe what this Text node should generate or change.');
+		}
+		if (instruction.length > 20_000) {
+			throw new Error('The Text instruction is too long. Use 20,000 characters or fewer.');
+		}
+		const access = await vscode.basehalf.getModelServiceAccess(serviceId);
+		if (!access || !access.capabilities.includes('text')) {
+			throw new Error('That text model connection is no longer available. Choose another connection or configure it in BaseHalf Settings.');
+		}
+		this.running = true;
+		try {
+			this.runCancellation.dispose();
+			this.runCancellation = new vscode.CancellationTokenSource();
+			await this.writeProject(project, stringProperty(message, 'revision'));
+			await this.post({ type: 'running', nodeId: node.id, label: `Writing ${node.title} with ${access.label}` });
+			const content = await generateTextNodeContent(access, project, node.id, instruction, this.runCancellation.token);
+			this.throwIfCancelled(true);
+			node.content = content;
+			invalidateDownstreamNodes(project, [node.id], false);
+			await this.writeProject(project, this.revision);
 		} finally {
 			this.running = false;
 			await this.postProject();
@@ -345,7 +361,7 @@ class AIProjectController implements vscode.Disposable {
 		if (expectedRevision !== currentRevision) {
 			throw new Error('The project changed on disk. Reload it before saving so external Agent edits are not overwritten.');
 		}
-		await vscode.workspace.fs.writeFile(this.resource, serializeAIProject(project));
+		await atomicWriteFile(this.resource, serializeAIProject(project));
 		this.project = project;
 		this.revision = await revisionOf(this.resource);
 		this.ownWriteRevision = this.revision;
@@ -415,11 +431,19 @@ class AIProjectController implements vscode.Disposable {
 
 	private async postProject(): Promise<void> {
 		const project = this.requireProject();
-		await this.post({ type: 'project', project, revision: this.revision, running: this.running, providers: this.providers.list(), mediaUris: this.mediaUris(project) });
+		await this.post({ type: 'project', project, revision: this.revision, running: this.running, providers: this.providers.list(), textModelServices: await this.textModelServices(), mediaUris: this.mediaUris(project) });
 	}
 
 	private async postProviders(): Promise<void> {
 		await this.post({ type: 'providers', providers: this.providers.list() });
+	}
+
+	private async postTextModelServices(): Promise<void> {
+		await this.post({ type: 'textModelServices', textModelServices: await this.textModelServices() });
+	}
+
+	private async textModelServices(): Promise<readonly { readonly id: string; readonly label: string; readonly configured: boolean }[]> {
+		return (await vscode.basehalf.getModelServices('text')).map(service => ({ id: service.id, label: service.label, configured: service.configured }));
 	}
 
 	private async post(message: unknown): Promise<void> {
@@ -442,6 +466,114 @@ class AIProjectController implements vscode.Disposable {
 	}
 }
 
+async function generateTextNodeContent(access: vscode.basehalf.ModelServiceAccess, project: AIProject, nodeId: string, instruction: string, token: vscode.CancellationToken): Promise<string> {
+	const node = nodeById(project, nodeId);
+	if (!node || node.kind !== 'text') {
+		throw new Error(`Text node '${nodeId}' no longer exists.`);
+	}
+	const upstream = upstreamWorkflowNodeIds(project, nodeId).flatMap(id => {
+		const candidate = nodeById(project, id);
+		return candidate?.kind === 'text' && candidate.content.trim()
+			? [`## ${candidate.title}\n${candidate.content.trim()}`]
+			: [];
+	}).join('\n\n').slice(0, 120_000);
+	const userPrompt = [
+		`Node title: ${node.title}`,
+		`Node purpose: ${node.role}`,
+		upstream ? `Connected upstream text:\n${upstream}` : '',
+		node.content.trim() ? `Current node content:\n${node.content.trim()}` : 'Current node content is empty.',
+		`Instruction:\n${instruction}`
+	].filter(Boolean).join('\n\n');
+	const requestUrl = textGenerationEndpoint(access.endpoint);
+	const requestHeaders: Record<string, string> = { 'content-type': 'application/json' };
+	if (access.authorization === 'bearer' && access.apiKey) {
+		requestHeaders.authorization = `Bearer ${access.apiKey}`;
+	} else if (access.authorization === 'header' && access.headerName && access.apiKey) {
+		requestHeaders[access.headerName] = access.apiKey;
+	}
+	const abortController = new AbortController();
+	const cancellation = token.onCancellationRequested(() => abortController.abort());
+	try {
+		const responsesProtocol = requestUrl.pathname.endsWith('/responses');
+		const response = await fetch(requestUrl, {
+			method: 'POST',
+			headers: requestHeaders,
+			body: JSON.stringify(responsesProtocol
+				? {
+					model: access.id,
+					instructions: 'Write only the requested Text-node content in Markdown. Do not add commentary, explanations, or a surrounding code fence.',
+					input: userPrompt
+				}
+				: {
+					model: access.id,
+					messages: [
+						{ role: 'system', content: 'Write only the requested Text-node content in Markdown. Do not add commentary, explanations, or a surrounding code fence.' },
+						{ role: 'user', content: userPrompt }
+					]
+				}),
+			signal: abortController.signal
+		});
+		const responseText = await response.text();
+		if (!response.ok) {
+			throw new Error(`${access.label} returned ${response.status}: ${responseText.slice(0, 500) || response.statusText}`);
+		}
+		let payload: unknown;
+		try {
+			payload = JSON.parse(responseText);
+		} catch {
+			throw new Error(`${access.label} returned a non-JSON text response.`);
+		}
+		const content = textGenerationContent(payload).trim();
+		if (!content) {
+			throw new Error(`${access.label} returned no text content.`);
+		}
+		return content;
+	} catch (error) {
+		if (token.isCancellationRequested) {
+			throw new vscode.CancellationError();
+		}
+		throw error;
+	} finally {
+		cancellation.dispose();
+	}
+}
+
+function textGenerationEndpoint(value: string): URL {
+	const endpoint = new URL(value);
+	const pathname = endpoint.pathname.replace(/\/+$/, '');
+	if (!pathname || pathname === '/') {
+		endpoint.pathname = '/v1/chat/completions';
+	} else if (pathname.endsWith('/v1')) {
+		endpoint.pathname = `${pathname}/chat/completions`;
+	}
+	return endpoint;
+}
+
+function textGenerationContent(value: unknown): string {
+	if (!isRecord(value)) {
+		return '';
+	}
+	if (typeof value.output_text === 'string') {
+		return value.output_text;
+	}
+	const choices = Array.isArray(value.choices) ? value.choices : [];
+	const choice = choices.find(isRecord);
+	if (choice && isRecord(choice.message)) {
+		return textContentValue(choice.message.content);
+	}
+	const outputs = Array.isArray(value.output) ? value.output : [];
+	return outputs.filter(isRecord).flatMap(output => Array.isArray(output.content) ? output.content : []).filter(isRecord).map(item => typeof item.text === 'string' ? item.text : '').filter(Boolean).join('\n');
+}
+
+function textContentValue(value: unknown): string {
+	if (typeof value === 'string') {
+		return value;
+	}
+	return Array.isArray(value)
+		? value.filter(isRecord).map(item => typeof item.text === 'string' ? item.text : '').filter(Boolean).join('\n')
+		: '';
+}
+
 function projectFromMessage(message: Record<string, unknown>): AIProject {
 	return parseAIProject(JSON.stringify(message.project));
 }
@@ -455,6 +587,28 @@ async function revisionOf(resource: vscode.Uri): Promise<string> {
 
 function parentUri(resource: vscode.Uri): vscode.Uri {
 	return resource.with({ path: path.posix.dirname(resource.path) });
+}
+
+async function atomicWriteFile(resource: vscode.Uri, content: Uint8Array): Promise<void> {
+	const temporary = resource.with({ path: path.posix.join(path.posix.dirname(resource.path), `.${path.posix.basename(resource.path)}.${createId('write')}.tmp`) });
+	if (resource.scheme !== 'file') {
+		// Extension file-system providers do not expose an atomic-write contract.
+		// BaseHalf projects are local by default; retain provider compatibility for
+		// explicitly opened non-file resources without claiming stronger semantics.
+		await vscode.workspace.fs.writeFile(resource, content);
+		return;
+	}
+	try {
+		await nodeFs.writeFile(temporary.fsPath, content, { flag: 'wx' });
+		await nodeFs.rename(temporary.fsPath, resource.fsPath);
+	} finally {
+		try {
+			await nodeFs.unlink(temporary.fsPath);
+		} catch {
+			// A successful rename consumes the temporary file. Failed writes are
+			// cleaned up without masking the original storage error.
+		}
+	}
 }
 
 function outputRoot(resource: vscode.Uri): vscode.Uri {

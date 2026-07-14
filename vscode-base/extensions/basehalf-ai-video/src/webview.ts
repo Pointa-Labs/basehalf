@@ -6,12 +6,13 @@
 /* eslint-disable local/code-no-unexternalized-strings -- HTML entity escaping is protocol data, not UI copy. */
 
 import * as vscode from 'vscode';
-import { AIMediaProviderOption, AIProject } from './model';
+import { AIMediaProviderOption, AIProject, AITextModelServiceOption } from './model';
 
 export interface AIProjectWebviewState {
 	readonly project: AIProject;
 	readonly revision: string;
 	readonly providers: readonly AIMediaProviderOption[];
+	readonly textModelServices: readonly AITextModelServiceOption[];
 	readonly mediaUris: Readonly<Record<string, string>>;
 }
 

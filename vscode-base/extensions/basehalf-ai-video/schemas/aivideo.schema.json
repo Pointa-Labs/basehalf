@@ -75,6 +75,8 @@
             "role": { "enum": ["brief", "script", "storyboard", "imagePrompt", "videoPrompt", "dialogue", "note"] },
             "title": { "type": "string" },
             "content": { "type": "string" },
+            "width": { "type": "number", "minimum": 260, "maximum": 720 },
+            "height": { "type": "number", "minimum": 180, "maximum": 900 },
             "position": { "$ref": "#/$defs/position" },
             "groupId": { "type": "string", "minLength": 1 }
           }

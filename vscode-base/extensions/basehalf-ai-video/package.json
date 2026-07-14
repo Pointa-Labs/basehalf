@@ -10,8 +10,9 @@
     "url": "https://github.com/Pointa-Labs/basehalf.git",
     "directory": "vscode-base/extensions/basehalf-ai-video"
   },
-  "engines": {
-    "vscode": "^1.128.0"
+	"engines": {
+		"vscode": "^1.128.0",
+		"basehalf": "^0.4.0"
   },
   "extensionKind": [
     "workspace"
@@ -20,9 +21,10 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "enabledApiProposals": [
-    "basehalfDomainPlugins"
-  ],
+  "basehalf": {
+    "primaryCommand": "pointa.basehalf-ai-video.createProject",
+    "primaryCommandLabel": "Create AI Video Project…"
+  },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
@@ -45,7 +47,7 @@
     ],
     "commands": [
       {
-        "command": "basehalf.aiVideo.createProject",
+        "command": "pointa.basehalf-ai-video.createProject",
         "title": "Create AI Video Project…",
         "category": "BaseHalf"
       }

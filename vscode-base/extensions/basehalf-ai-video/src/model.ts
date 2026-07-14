@@ -13,8 +13,6 @@ export type AIProjectMediaSource = 'generate' | 'local';
 export type AIProjectVideoAudioMode = 'auto' | 'generate' | 'none';
 export type AIProjectRunStatus = 'prepared' | 'complete';
 
-export const AI_VIDEO_INTENT_NODE_ID = 'intent';
-
 export interface AIProjectWorkflowPosition {
 	x: number;
 	y: number;
@@ -43,6 +41,8 @@ export interface AIProjectTextNode extends AIProjectNodeBase {
 	kind: 'text';
 	role: AIProjectTextRole;
 	content: string;
+	width?: number;
+	height?: number;
 }
 
 interface AIProjectExecutableNodeBase extends AIProjectNodeBase {
@@ -134,18 +134,24 @@ export interface AIMediaProviderOption {
 	readonly supportsNativeAudio: boolean;
 }
 
+export interface AITextModelServiceOption {
+	readonly id: string;
+	readonly label: string;
+	readonly configured: boolean;
+}
+
+export const AI_TEXT_NODE_DEFAULT_WIDTH = 340;
+export const AI_TEXT_NODE_DEFAULT_HEIGHT = 396;
+export const AI_TEXT_NODE_MIN_WIDTH = 260;
+export const AI_TEXT_NODE_MIN_HEIGHT = 180;
+export const AI_TEXT_NODE_MAX_WIDTH = 720;
+export const AI_TEXT_NODE_MAX_HEIGHT = 900;
+
 export function createAIProject(title = 'Untitled AI Video'): AIProject {
 	return {
 		version: 4,
 		title,
-		nodes: [{
-			id: AI_VIDEO_INTENT_NODE_ID,
-			kind: 'text',
-			role: 'brief',
-			title: 'Creative brief',
-			content: '',
-			position: { x: 120, y: 160 }
-		}],
+		nodes: [],
 		edges: [],
 		groups: [],
 		sequence: [],
@@ -163,7 +169,7 @@ export function createMediaNode(kind: AIProjectMediaKind, position: AIProjectWor
 	const base = { id, kind, title: mediaKindLabel(kind), position, ...(groupId ? { groupId } : {}) };
 	switch (kind) {
 		case 'text':
-			return { ...base, kind, role: 'note', content: '' };
+			return { ...base, kind, role: 'note', content: '', width: AI_TEXT_NODE_DEFAULT_WIDTH, height: AI_TEXT_NODE_DEFAULT_HEIGHT };
 		case 'image':
 			return { ...base, kind, role: 'generate', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], aspectRatio: '9:16', count: 1 };
 		case 'video':
@@ -179,8 +185,8 @@ export function createShotGroup(index: number, position: AIProjectWorkflowPositi
 		title: `Shot ${index}`,
 		description: '',
 		position,
-		width: 1120,
-		height: 330,
+		width: 1780,
+		height: 620,
 		nodeIds: []
 	};
 }
@@ -294,6 +300,70 @@ export function validateWorkflowConnection(project: AIProject, source: string, t
 	return { valid: true, media: sourceNode.kind };
 }
 
+export function connectWorkflowNodes(project: AIProject, source: string, target: string): AIProjectWorkflowConnectionValidation {
+	const validation = validateWorkflowConnection(project, source, target);
+	if (!validation.valid || !validation.media) {
+		return validation;
+	}
+	project.edges.push({ id: createWorkflowEdgeId(source, target), source, target, media: validation.media });
+	invalidateDownstreamNodes(project, [target]);
+	return validation;
+}
+
+export function workflowTargetKindsForSource(source: AIProjectMediaKind): readonly AIProjectMediaKind[] {
+	if (source === 'text') {
+		return ['text', 'image', 'video', 'audio'];
+	}
+	if (source === 'image') {
+		return ['text', 'image', 'video'];
+	}
+	if (source === 'video') {
+		return ['text', 'video'];
+	}
+	return ['text', 'video', 'audio'];
+}
+
+export function workflowIntermediateKindsForConnection(project: AIProject, source: string, target: string): readonly AIProjectMediaKind[] {
+	const sourceNode = nodeById(project, source);
+	const targetNode = nodeById(project, target);
+	if (!sourceNode || !targetNode) {
+		return [];
+	}
+	return (['text', 'image', 'video', 'audio'] as const).filter(kind => canFeed(sourceNode.kind, kind) && canFeed(kind, targetNode.kind));
+}
+
+export function insertWorkflowNodeOnEdge(project: AIProject, edgeId: string, node: AIProjectNode): AIProjectWorkflowConnectionValidation {
+	const edge = project.edges.find(candidate => candidate.id === edgeId);
+	if (!edge) {
+		return { valid: false, reason: 'The connection no longer exists.' };
+	}
+	if (nodeById(project, node.id)) {
+		return { valid: false, reason: 'The new node id is already in use.' };
+	}
+	const remainingEdges = project.edges.filter(candidate => candidate.id !== edgeId);
+	const candidate: AIProject = { ...project, nodes: [...project.nodes, node], edges: remainingEdges };
+	const incoming = validateWorkflowConnection(candidate, edge.source, node.id);
+	if (!incoming.valid || !incoming.media) {
+		return incoming;
+	}
+	const outgoing = validateWorkflowConnection(candidate, node.id, edge.target);
+	if (!outgoing.valid || !outgoing.media) {
+		return outgoing;
+	}
+
+	project.nodes.push(node);
+	project.edges = remainingEdges;
+	project.edges.push(
+		{ id: createWorkflowEdgeId(edge.source, node.id), source: edge.source, target: node.id, media: incoming.media },
+		{ id: createWorkflowEdgeId(node.id, edge.target), source: node.id, target: edge.target, media: outgoing.media }
+	);
+	if (node.groupId) {
+		project.groups.find(group => group.id === node.groupId)?.nodeIds.push(node.id);
+	}
+	invalidateDownstreamNodes(project, [node.id, edge.target]);
+	return { valid: true, media: incoming.media };
+}
+
 export function topologicalWorkflowNodeIds(project: AIProject): readonly string[] {
 	const ids = project.nodes.map(node => node.id);
 	const indegree = new Map(ids.map(id => [id, 0]));
@@ -339,33 +409,6 @@ export function upstreamWorkflowNodeIds(project: AIProject, targetId: string): r
 	};
 	visit(targetId);
 	return topologicalWorkflowNodeIds(project).filter(id => upstream.has(id));
-}
-
-export function runnableNodeIdsInWorkflowOrder(project: AIProject): readonly string[] {
-	const available = new Set(project.nodes.flatMap(node => isExecutableNode(node) && selectedOutputPaths(node).length ? [node.id] : []));
-	const runnable: string[] = [];
-	for (const id of topologicalWorkflowNodeIds(project)) {
-		const node = nodeById(project, id);
-		if (!node || !isExecutableNode(node)) {
-			continue;
-		}
-		if (node.source === 'local') {
-			if (node.inputFiles.length) {
-				available.add(node.id);
-			}
-			continue;
-		}
-		const dependenciesAvailable = directUpstreamNodeIds(project, node.id).every(sourceId => {
-			const source = nodeById(project, sourceId);
-			return !source || !isExecutableNode(source) || available.has(sourceId);
-		});
-		const needsRun = node.status !== 'running' && (node.status !== 'complete' && node.status !== 'prepared' || selectedOutputPaths(node).length === 0);
-		if (needsRun && node.provider && nodePrompt(project, node.id).trim() && dependenciesAvailable) {
-			runnable.push(node.id);
-			available.add(node.id);
-		}
-	}
-	return runnable;
 }
 
 export function invalidateDownstreamNodes(project: AIProject, sourceIds: readonly string[], includeSources = true): void {
@@ -497,7 +540,14 @@ function parseNode(value: unknown): AIProjectNode {
 		...(typeof value.groupId === 'string' && value.groupId ? { groupId: value.groupId } : {})
 	};
 	if (kind === 'text') {
-		return { ...base, kind, role: textRole(value.role), content: stringValue(value.content) };
+		return {
+			...base,
+			kind,
+			role: textRole(value.role),
+			content: stringValue(value.content),
+			width: boundedNumber(value.width, AI_TEXT_NODE_DEFAULT_WIDTH, AI_TEXT_NODE_MIN_WIDTH, AI_TEXT_NODE_MAX_WIDTH),
+			height: boundedNumber(value.height, AI_TEXT_NODE_DEFAULT_HEIGHT, AI_TEXT_NODE_MIN_HEIGHT, AI_TEXT_NODE_MAX_HEIGHT)
+		};
 	}
 	const executable = {
 		source: mediaSource(value.source),
@@ -550,23 +600,14 @@ function parseGroup(value: unknown): AIProjectShotGroup {
 		title: stringValue(value.title, 'Shot'),
 		description: stringValue(value.description),
 		position: parsePosition(value.position, `Shot Group '${id}'`),
-		width: boundedNumber(value.width, 1120, 480, 2400),
-		height: boundedNumber(value.height, 330, 220, 1600),
+		width: boundedNumber(value.width, 1780, 480, 2400),
+		height: boundedNumber(value.height, 620, 220, 1600),
 		nodeIds: stringArray(value.nodeIds)
 	};
 }
 
 function canFeed(source: AIProjectMediaKind, target: AIProjectMediaKind): boolean {
-	if (source === 'text') {
-		return true;
-	}
-	if (source === 'image') {
-		return target === 'text' || target === 'image' || target === 'video';
-	}
-	if (source === 'video') {
-		return target === 'text' || target === 'video';
-	}
-	return target === 'text' || target === 'audio' || target === 'video';
+	return workflowTargetKindsForSource(source).includes(target);
 }
 
 function wouldCreateWorkflowCycle(edges: readonly AIProjectWorkflowEdge[], source: string, target: string): boolean {

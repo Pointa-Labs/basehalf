@@ -21,7 +21,7 @@ deterministic runner, not the creative intelligence.
    transitions, mixes, or combines clips into a final edited movie.
 8. Opening a multi-shot project focuses the first Shot Group at a readable
    scale. Selecting an item in Sequence navigates to that shot without opening
-   node settings; **Show all** is the intentional production-overview action.
+   node settings.
 
 ## Four media blocks
 
@@ -52,6 +52,10 @@ the user can act on.
 ## Node and run contract
 
 - Results appear inside the node that produced them.
+- Every generated Image, Video, or Audio node owns exactly one Run action on
+  the node. There is no workflow-level Run action or duplicate inspector action.
+- A node can run only after its required upstream media results exist. While it
+  runs, its Run action becomes Cancel and unrelated editing is locked.
 - Every run records its provider, model, prompt snapshot, input paths, time,
   status, and ordinary local output paths.
 - Rerunning appends history and selects the new successful result. It never
@@ -62,13 +66,49 @@ the user can act on.
   their prior results visible.
 - Removing a node never deletes its output files.
 
+## Node surface contract
+
+The canvas keeps its full width at all times. Selecting a node must never open
+a permanent inspector or add another vertical product column.
+
+A node in its resting state answers four questions without interaction:
+
+1. What media and production role is this?
+2. What content or selected result does it currently hold?
+3. What is missing or stale?
+4. What is the next executable action?
+
+Text nodes use three deliberately separate states. At rest, the label sits
+outside the card and the body is a scrollable, Markdown-rendered reading
+surface. A single click selects the node and opens a temporary AI instruction
+composer below or above it; that composer generates or revises only the
+selected node through one configured global Text model. A double click enters
+direct editing inside the card and reveals a compact formatting toolbar. The
+card keeps left and right connection controls visible, and a selected card can
+be resized; its dimensions are ordinary project data.
+
+Generated-media nodes reveal only actions whose object is unambiguous: Edit,
+Import, Runs, and (for an unordered Video result) Add to clips. Run remains in
+the node footer because readiness and execution state belong to the producing
+node, not to selection.
+
+Edit and Runs open one temporary editor anchored to the selected node. It uses
+the side with enough visible canvas space and never reserves a layout column.
+The editor closes when the user clicks or moves the canvas, changes selection,
+navigates to a clip, or presses Escape. Prompt resolution, provider/model
+choices, generation parameters, and local paths are progressively disclosed
+inside that editor; they are not permanent canvas chrome. Delete remains in the
+node context menu so a destructive action is never a habitual primary control.
+
 ## Model-service boundary
 
 The project stores provider/model choices but never credentials. BaseHalf's
-main settings will own image, video, and audio model services and expose
+main settings own text, image, video, and audio model services and expose
 capabilities such as supported inputs, native audio, duration, resolution, and
-aspect ratio. Until that common service exists, the plugin consumes the same
-capability-shaped provider registry locally.
+aspect ratio. The Text-node composer consumes a reviewed global Text connection
+and receives a short-lived credential snapshot only when the user explicitly
+runs it. Media generation continues to consume the plugin's capability-shaped
+provider registry until every media connection uses the common host service.
 
 For Video nodes, audio mode is `auto`, `generate`, or `none`. `generate` is only
 available when the selected provider reports native-audio support.
@@ -76,7 +116,7 @@ available when the selected provider reports native-audio support.
 ## UI admission rule
 
 Every visible action must identify its object, consequence, result location,
-and recovery path. Project actions live in the header, graph actions on the
-canvas, node editing in the selection inspector, and run history inside the
-producing node. Empty permanent side panels and duplicate run/save actions are
-not part of the product.
+and recovery path. Agent interaction lives in Agent Area, graph actions live on
+the canvas, execution lives on the generated media node, and editing/history
+live in a temporary node-anchored surface. Empty permanent side panels and
+duplicate Agent, run, or save actions are not part of the product.

@@ -6,20 +6,63 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+	AI_TEXT_NODE_DEFAULT_HEIGHT,
+	AI_TEXT_NODE_DEFAULT_WIDTH,
+	AI_TEXT_NODE_MAX_HEIGHT,
+	AI_TEXT_NODE_MIN_WIDTH,
+	createAIProject,
+	connectWorkflowNodes,
 	createMediaNode,
 	invalidateDownstreamNodes,
+	insertWorkflowNodeOnEdge,
 	nodeById,
 	nodeReadiness,
 	orderedSequenceVideoNodes,
 	parseAIProject,
-	runnableNodeIdsInWorkflowOrder,
 	selectedOutputPaths,
 	serializeAIProject,
 	validateWorkflowConnection,
+	workflowIntermediateKindsForConnection,
+	workflowTargetKindsForSource,
 	type AIProjectImageNode,
 	type AIProjectVideoNode
 } from '../src/model.ts';
 import { addCompletedRun, createCurrentWorkflowFixture } from './fixture.ts';
+
+test('starts a new project as an empty canvas', () => {
+	const project = createAIProject();
+	assert.deepStrictEqual(project.nodes, []);
+	assert.deepStrictEqual(project.edges, []);
+	assert.deepStrictEqual(project.sequence, []);
+});
+
+test('keeps Text node dimensions in local project data with safe defaults and bounds', () => {
+	const project = createAIProject();
+	const text = createMediaNode('text', { x: 80, y: 120 });
+	assert.equal(text.width, AI_TEXT_NODE_DEFAULT_WIDTH);
+	assert.equal(text.height, AI_TEXT_NODE_DEFAULT_HEIGHT);
+	text.width = AI_TEXT_NODE_MIN_WIDTH - 100;
+	text.height = AI_TEXT_NODE_MAX_HEIGHT + 100;
+	project.nodes.push(text);
+
+	const parsed = parseAIProject(JSON.stringify(project));
+	const parsedText = nodeById(parsed, text.id);
+	assert.equal(parsedText?.kind, 'text');
+	if (parsedText?.kind === 'text') {
+		assert.equal(parsedText.width, AI_TEXT_NODE_MIN_WIDTH);
+		assert.equal(parsedText.height, AI_TEXT_NODE_MAX_HEIGHT);
+	}
+
+	const legacyShape = structuredClone(project);
+	const legacyText = legacyShape.nodes[0];
+	if (legacyText.kind === 'text') {
+		delete legacyText.width;
+		delete legacyText.height;
+	}
+	const defaulted = nodeById(parseAIProject(JSON.stringify(legacyShape)), text.id);
+	assert.equal(defaulted?.kind === 'text' ? defaulted.width : undefined, AI_TEXT_NODE_DEFAULT_WIDTH);
+	assert.equal(defaulted?.kind === 'text' ? defaulted.height : undefined, AI_TEXT_NODE_DEFAULT_HEIGHT);
+});
 
 test('stores the current workflow as four media kinds plus structural groups and sequence', () => {
 	const project = createCurrentWorkflowFixture();
@@ -51,9 +94,8 @@ test('rejects node and Shot Group id collisions that would corrupt the canvas', 
 	assert.throws(() => parseAIProject(JSON.stringify(project)), /share id/);
 });
 
-test('schedules an image before the video that consumes it', () => {
+test('requires an image result before its dependent video can run', () => {
 	const project = createCurrentWorkflowFixture();
-	assert.deepStrictEqual(runnableNodeIdsInWorkflowOrder(project), ['image-1', 'video-1']);
 	assert.equal(nodeReadiness(project, 'image-1').ready, true);
 	assert.equal(nodeReadiness(project, 'video-1').ready, false);
 	assert.match(nodeReadiness(project, 'video-1').reason ?? '', /Storyboard image/);
@@ -90,6 +132,66 @@ test('validates typed, unique, acyclic workflow connections', () => {
 	project.nodes.push(secondVideo);
 	project.edges.push({ id: 'video-chain', source: 'video-1', target: 'video-2', media: 'video' });
 	assert.match(validateWorkflowConnection(project, 'video-2', 'video-1').reason ?? '', /cycle/);
+});
+
+test('exposes the same typed connection targets to canvas composition', () => {
+	assert.deepStrictEqual(workflowTargetKindsForSource('text'), ['text', 'image', 'video', 'audio']);
+	assert.deepStrictEqual(workflowTargetKindsForSource('image'), ['text', 'image', 'video']);
+	assert.deepStrictEqual(workflowTargetKindsForSource('video'), ['text', 'video']);
+	assert.deepStrictEqual(workflowTargetKindsForSource('audio'), ['text', 'video', 'audio']);
+});
+
+test('offers only node kinds that can sit between both connection endpoints', () => {
+	const project = createCurrentWorkflowFixture();
+	assert.deepStrictEqual(workflowIntermediateKindsForConnection(project, 'image-prompt-1', 'image-1'), ['text', 'image']);
+	assert.deepStrictEqual(workflowIntermediateKindsForConnection(project, 'image-1', 'video-1'), ['text', 'image', 'video']);
+	assert.deepStrictEqual(workflowIntermediateKindsForConnection(project, 'missing', 'video-1'), []);
+});
+
+test('atomically replaces a connection when inserting a compatible node', () => {
+	const project = createCurrentWorkflowFixture();
+	const inserted = createMediaNode('text', { x: 650, y: 190 }, 'shot-group-1');
+	inserted.id = 'inserted-direction';
+	inserted.title = 'Motion direction';
+	const result = insertWorkflowNodeOnEdge(project, 'edge-image-video', inserted);
+
+	assert.equal(result.valid, true);
+	assert.equal(project.edges.some(edge => edge.id === 'edge-image-video'), false);
+	assert.equal(project.edges.some(edge => edge.source === 'image-1' && edge.target === inserted.id && edge.media === 'image'), true);
+	assert.equal(project.edges.some(edge => edge.source === inserted.id && edge.target === 'video-1' && edge.media === 'text'), true);
+	assert.equal(project.groups[0].nodeIds.includes(inserted.id), true);
+	assert.equal(nodeById(project, inserted.id), inserted);
+});
+
+test('leaves the workflow untouched when an inserted node is incompatible', () => {
+	const project = createCurrentWorkflowFixture();
+	const snapshot = structuredClone(project);
+	const inserted = createMediaNode('audio', { x: 500, y: 200 }, 'shot-group-1');
+	inserted.id = 'invalid-audio';
+	const result = insertWorkflowNodeOnEdge(project, 'edge-image-prompt-image', inserted);
+
+	assert.equal(result.valid, false);
+	assert.match(result.reason ?? '', /not accepted/);
+	assert.deepStrictEqual(project, snapshot);
+});
+
+test('creates a validated connection to a newly composed node in one model operation', () => {
+	const project = createCurrentWorkflowFixture();
+	const video = createMediaNode('video', { x: 1280, y: 320 });
+	video.id = 'video-from-image';
+	project.nodes.push(video);
+	const result = connectWorkflowNodes(project, 'image-1', video.id);
+	assert.equal(result.valid, true);
+	assert.deepStrictEqual(project.edges.at(-1), {
+		id: project.edges.at(-1)?.id,
+		source: 'image-1',
+		target: video.id,
+		media: 'image'
+	});
+
+	const edgeCount = project.edges.length;
+	assert.equal(connectWorkflowNodes(project, 'image-1', video.id).valid, false);
+	assert.equal(project.edges.length, edgeCount);
 });
 
 test('keeps playback order separate from workflow dependency order', () => {

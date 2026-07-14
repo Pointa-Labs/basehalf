@@ -15,8 +15,12 @@ import {
 
 export function createCurrentWorkflowFixture(): AIProject {
 	const project = createAIProject('Night Bus');
-	const brief = project.nodes[0] as AIProjectTextNode;
-	brief.content = 'A quiet vertical animation about returning a lost letter.';
+	const brief: AIProjectTextNode = {
+		id: 'intent', kind: 'text', role: 'brief', title: 'Creative brief',
+		content: 'A quiet vertical animation about returning a lost letter.',
+		position: { x: 120, y: 160 }
+	};
+	project.nodes.push(brief);
 
 	const group = createShotGroup(1, { x: 420, y: 120 });
 	group.id = 'shot-group-1';
@@ -25,22 +29,22 @@ export function createCurrentWorkflowFixture(): AIProject {
 	const storyboard: AIProjectTextNode = {
 		id: 'storyboard-1', kind: 'text', role: 'storyboard', title: 'Storyboard',
 		content: 'A rain-soaked bus stop. A letter slides under the bench.',
-		position: { x: 28, y: 74 }, groupId: group.id
+		position: { x: 32, y: 82 }, groupId: group.id
 	};
 	const imagePrompt: AIProjectTextNode = {
 		id: 'image-prompt-1', kind: 'text', role: 'imagePrompt', title: 'Image prompt',
 		content: 'Vertical cinematic frame, wet concrete, red raincoat, sodium lamp.',
-		position: { x: 258, y: 74 }, groupId: group.id
+		position: { x: 412, y: 82 }, groupId: group.id
 	};
-	const image = createMediaNode('image', { x: 488, y: 74 }, group.id) as AIProjectImageNode;
+	const image = createMediaNode('image', { x: 792, y: 82 }, group.id) as AIProjectImageNode;
 	image.id = 'image-1';
 	image.title = 'Storyboard image';
 	const videoPrompt: AIProjectTextNode = {
 		id: 'video-prompt-1', kind: 'text', role: 'videoPrompt', title: 'Video prompt',
 		content: 'Slow push in. Wind moves the letter, then a hand holds it still.',
-		position: { x: 258, y: 204 }, groupId: group.id
+		position: { x: 1070, y: 82 }, groupId: group.id
 	};
-	const video = createMediaNode('video', { x: 808, y: 74 }, group.id) as AIProjectVideoNode;
+	const video = createMediaNode('video', { x: 1450, y: 82 }, group.id) as AIProjectVideoNode;
 	video.id = 'video-1';
 	video.title = 'Generated clip';
 	group.nodeIds = [storyboard.id, imagePrompt.id, image.id, videoPrompt.id, video.id];

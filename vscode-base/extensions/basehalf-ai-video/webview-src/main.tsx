@@ -8,42 +8,60 @@
 import {
 	Background,
 	BackgroundVariant,
+	BaseEdge,
+	applyNodeChanges,
 	ConnectionMode,
 	ConnectionLineType,
 	Handle,
+	getSmoothStepPath,
 	MarkerType,
 	MiniMap,
+	NodeResizeControl,
 	Position,
 	ReactFlow,
 	ReactFlowProvider,
 	SelectionMode,
 	useReactFlow,
+	ViewportPortal,
 	type Connection,
 	type Edge,
+	type EdgeProps,
+	type EdgeTypes,
+	type FinalConnectionState,
 	type Node,
+	type NodeChange,
 	type NodeProps,
 	type NodeTypes,
 	type ReactFlowInstance,
 	type Viewport
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+	AI_TEXT_NODE_DEFAULT_HEIGHT,
+	AI_TEXT_NODE_DEFAULT_WIDTH,
+	AI_TEXT_NODE_MAX_HEIGHT,
+	AI_TEXT_NODE_MAX_WIDTH,
+	AI_TEXT_NODE_MIN_HEIGHT,
+	AI_TEXT_NODE_MIN_WIDTH,
 	createId,
 	createMediaNode,
 	createShotGroup,
 	createWorkflowEdgeId,
+	connectWorkflowNodes,
 	invalidateDownstreamNodes,
+	insertWorkflowNodeOnEdge,
 	isExecutableNode,
 	mediaKindLabel,
 	nodeById,
 	nodePrompt,
 	nodeReadiness,
-	runnableNodeIdsInWorkflowOrder,
 	selectedOutputPaths,
 	selectedRun,
 	validateWorkflowConnection,
+	workflowIntermediateKindsForConnection,
+	workflowTargetKindsForSource,
 	type AIProject,
 	type AIMediaProviderOption,
 	type AIProjectAudioNode,
@@ -53,15 +71,24 @@ import {
 	type AIProjectNode,
 	type AIProjectShotGroup,
 	type AIProjectTextNode,
+	type AITextModelServiceOption,
 	type AIProjectVideoNode,
 	type AIProjectWorkflowPosition
 } from '../src/model';
 import './styles.css';
+import {
+	clampWorkflowCanvasOverlay,
+	WORKFLOW_CANVAS_SNAP_SCREEN_THRESHOLD,
+	snapWorkflowCanvasNodeChanges,
+	type WorkflowCanvasNodeFrame,
+	type WorkflowCanvasSnapGuide
+} from './workflowCanvasInteraction';
 
 interface InitialState {
 	readonly project: AIProject;
 	readonly revision: string;
 	readonly providers: readonly AIMediaProviderOption[];
+	readonly textModelServices: readonly AITextModelServiceOption[];
 	readonly mediaUris: Readonly<Record<string, string>>;
 }
 
@@ -74,6 +101,10 @@ interface CanvasContextMenuState {
 	readonly left: number;
 	readonly top: number;
 	readonly flowPosition: AIProjectWorkflowPosition;
+	readonly mode: 'quick' | 'context' | 'connect' | 'insert';
+	readonly sourceNodeId?: string;
+	readonly targetNodeId?: string;
+	readonly edgeId?: string;
 }
 
 interface CanvasNodeContextMenuState {
@@ -89,23 +120,61 @@ interface CanvasEdgeContextMenuState {
 }
 
 interface MediaNodeData extends Record<string, unknown> {
+	readonly project: AIProject;
+	readonly providers: readonly AIMediaProviderOption[];
+	readonly textModelServices: readonly AITextModelServiceOption[];
 	readonly node: AIProjectNode;
 	readonly readiness: string;
 	readonly summary: string;
 	readonly previewUri?: string;
+	readonly previewUris?: readonly string[];
 	readonly previewKind?: AIProjectMediaKind;
+	readonly canRun: boolean;
+	readonly isRunning: boolean;
+	readonly locked: boolean;
+	readonly showActions: boolean;
+	readonly textEditing: boolean;
+	readonly detailView?: NodeDetailView;
+	readonly editProject: (mutation: ProjectMutation) => void;
+	readonly onShowComposer: (nodeId: string) => void;
+	readonly onShowDetail: (nodeId: string, view: NodeDetailView) => void;
+	readonly onImportFiles: (nodeId: string) => void;
+	readonly onAddToSequence: (nodeId: string) => void;
+	readonly onOpenOutput: (path: string) => void;
+	readonly onRun: (nodeId: string) => void;
+	readonly onRunText: (nodeId: string, instruction: string, serviceId: string) => void;
+	readonly onConfigureTextModel: () => void;
+	readonly onTextDraftChange: () => void;
+	readonly onFinishTextEditing: () => void;
+	readonly onCancel: () => void;
 }
 
 interface GroupNodeData extends Record<string, unknown> {
 	readonly group: AIProjectShotGroup;
 }
 
+interface WorkflowEdgeData extends Record<string, unknown> {
+	readonly onInsert: (edgeId: string, clientX: number, clientY: number) => void;
+	readonly actionPosition?: AIProjectWorkflowPosition;
+}
+
 type MediaFlowNode = Node<MediaNodeData, 'media'>;
 type GroupFlowNode = Node<GroupNodeData, 'shotGroup'>;
 type WorkflowFlowNode = MediaFlowNode | GroupFlowNode;
-type WorkflowFlowEdge = Edge;
+type WorkflowFlowEdge = Edge<WorkflowEdgeData, 'workflow'>;
 type ProjectMutation = (project: AIProject) => void;
 type StatusTone = 'normal' | 'running' | 'error';
+type NodeDetailView = 'settings' | 'runs';
+
+interface ActiveNodeDetail {
+	readonly nodeId: string;
+	readonly view: NodeDetailView;
+}
+
+interface SelectedEdgeAction {
+	readonly edgeId: string;
+	readonly position: AIProjectWorkflowPosition;
+}
 
 const vscode = acquireVsCodeApi<PersistedCanvasState>();
 const rootElement = document.getElementById('root');
@@ -117,7 +186,9 @@ const persistedCanvasState = vscode.getState();
 const initialFocusedVideoId = persistedCanvasState?.focusedVideoId && initialState.project.sequence.some(item => item.videoNodeId === persistedCanvasState.focusedVideoId)
 	? persistedCanvasState.focusedVideoId
 	: initialState.project.sequence[0]?.videoNodeId;
+const mediaKinds: readonly AIProjectMediaKind[] = ['text', 'image', 'video', 'audio'];
 const nodeTypes: NodeTypes = { media: MediaNodeCard, shotGroup: ShotGroupCard };
+const edgeTypes: EdgeTypes = { workflow: WorkflowEdge };
 
 function App(): JSX.Element {
 	return <ReactFlowProvider><WorkflowEditor /></ReactFlowProvider>;
@@ -127,21 +198,25 @@ function WorkflowEditor(): JSX.Element {
 	const [project, setProject] = useState<AIProject>(initialState.project);
 	const [revision, setRevision] = useState(initialState.revision);
 	const [providers, setProviders] = useState<readonly AIMediaProviderOption[]>(initialState.providers);
+	const [textModelServices, setTextModelServices] = useState<readonly AITextModelServiceOption[]>(initialState.textModelServices ?? []);
 	const [mediaUris, setMediaUris] = useState<Readonly<Record<string, string>>>(initialState.mediaUris);
 	const [dirty, setDirty] = useState(false);
 	const [runningNodeId, setRunningNodeId] = useState<string>();
-	const [agentPending, setAgentPending] = useState(false);
 	const [status, setStatus] = useState<{ label: string; tone: StatusTone }>({ label: 'Saved locally', tone: 'normal' });
 	const [banner, setBanner] = useState<{ message: string; action?: 'reload' }>();
 	const [notice, setNotice] = useState<string>();
 	const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
+	const [activeNodeControlsId, setActiveNodeControlsId] = useState<string>();
+	const [editingTextNodeId, setEditingTextNodeId] = useState<string>();
 	const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
+	const [selectedEdgeAction, setSelectedEdgeAction] = useState<SelectedEdgeAction>();
 	const [focusedVideoId, setFocusedVideoId] = useState<string | undefined>(initialFocusedVideoId);
 	const [addMenuOpen, setAddMenuOpen] = useState(false);
 	const [contextAddMenu, setContextAddMenu] = useState<CanvasContextMenuState>();
 	const [contextNodeMenu, setContextNodeMenu] = useState<CanvasNodeContextMenuState>();
 	const [contextEdgeMenu, setContextEdgeMenu] = useState<CanvasEdgeContextMenuState>();
-	const [runPanelOpen, setRunPanelOpen] = useState(false);
+	const [activeNodeDetail, setActiveNodeDetail] = useState<ActiveNodeDetail>();
+	const [nodeSearchOpen, setNodeSearchOpen] = useState(false);
 	const [sequencePreviewOpen, setSequencePreviewOpen] = useState(false);
 	const [canvasZoom, setCanvasZoom] = useState(validViewport(persistedCanvasState?.viewport)?.zoom ?? 1);
 	const [past, setPast] = useState<AIProject[]>([]);
@@ -152,10 +227,12 @@ function WorkflowEditor(): JSX.Element {
 	const dirtyRef = useRef(dirty);
 	const saveSnapshotRef = useRef('');
 	const initialViewportSetRef = useRef(false);
+	const initialViewportFrameRef = useRef<number | undefined>(undefined);
+	const suppressNextPaneClickRef = useRef(false);
+	const suppressNextNodeClickRef = useRef(false);
 	const reactFlow = useReactFlow<WorkflowFlowNode, WorkflowFlowEdge>();
 	const running = runningNodeId !== undefined;
-	const locked = running || agentPending;
-	const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : undefined;
+	const locked = running;
 	projectRef.current = project;
 	revisionRef.current = revision;
 	dirtyRef.current = dirty;
@@ -168,6 +245,9 @@ function WorkflowEditor(): JSX.Element {
 	}, []);
 
 	const editProject = useCallback((mutation: ProjectMutation): void => {
+		if (locked) {
+			return;
+		}
 		setProject(current => {
 			setPast(history => [...history.slice(-79), structuredClone(current)]);
 			setFuture([]);
@@ -178,7 +258,35 @@ function WorkflowEditor(): JSX.Element {
 		if (!dirtyRef.current) {
 			updateDirty(true);
 		}
+	}, [locked, updateDirty]);
+	const markTextDraftChanged = useCallback((): void => {
+		if (!dirtyRef.current) {
+			updateDirty(true);
+		}
 	}, [updateDirty]);
+
+	const showNodeDetail = useCallback((nodeId: string, view: NodeDetailView): void => {
+		setActiveNodeDetail(current => current?.nodeId === nodeId && current.view === view ? undefined : { nodeId, view });
+	}, []);
+	const showNodeComposer = useCallback((_nodeId: string): void => {
+		setActiveNodeDetail(undefined);
+	}, []);
+
+	const importFiles = useCallback((nodeId: string): void => {
+		vscode.postMessage({ type: 'importFiles', project: projectRef.current, revision: revisionRef.current, nodeId });
+	}, []);
+
+	const addToSequence = useCallback((nodeId: string): void => {
+		editProject(next => {
+			if (nodeById(next, nodeId)?.kind === 'video' && !next.sequence.some(item => item.videoNodeId === nodeId)) {
+				next.sequence.push({ id: createId('sequence'), videoNodeId: nodeId });
+			}
+		});
+	}, [editProject]);
+
+	const openOutput = useCallback((path: string): void => {
+		vscode.postMessage({ type: 'openOutput', path });
+	}, []);
 
 	const save = useCallback((): void => {
 		if (!dirtyRef.current || locked) {
@@ -190,12 +298,12 @@ function WorkflowEditor(): JSX.Element {
 	}, [locked]);
 
 	useEffect(() => {
-		if (!dirty || locked) {
+		if (!dirty || locked || editingTextNodeId !== undefined) {
 			return;
 		}
 		const handle = window.setTimeout(save, 700);
 		return () => window.clearTimeout(handle);
-	}, [dirty, locked, project, save]);
+	}, [dirty, editingTextNodeId, locked, project, save]);
 
 	const undo = useCallback((): void => {
 		setPast(history => {
@@ -223,6 +331,31 @@ function WorkflowEditor(): JSX.Element {
 		});
 	}, [updateDirty]);
 
+	const runNode = useCallback((nodeId: string): void => {
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+		setActiveNodeDetail(undefined);
+		setRunningNodeId(nodeId);
+		setStatus({ label: 'Starting run', tone: 'running' });
+		vscode.postMessage({ type: 'runNode', project: projectRef.current, revision: revisionRef.current, nodeId });
+	}, []);
+
+	const runTextNode = useCallback((nodeId: string, instruction: string, serviceId: string): void => {
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+		setRunningNodeId(nodeId);
+		setStatus({ label: 'Starting text generation', tone: 'running' });
+		vscode.postMessage({ type: 'runTextNode', project: projectRef.current, revision: revisionRef.current, nodeId, instruction, serviceId });
+	}, []);
+
+	const configureTextModel = useCallback((): void => {
+		vscode.postMessage({ type: 'configureTextModel' });
+	}, []);
+
+	const cancelRun = useCallback((): void => {
+		vscode.postMessage({ type: 'cancel' });
+	}, []);
+
 	useEffect(() => {
 		const listener = (event: MessageEvent): void => {
 			const message = event.data as Record<string, unknown>;
@@ -238,16 +371,6 @@ function WorkflowEditor(): JSX.Element {
 					}
 					break;
 				}
-				case 'agentReady':
-					setRevision(String(message.revision ?? ''));
-					setAgentPending(false);
-					if (JSON.stringify(projectRef.current) === saveSnapshotRef.current) {
-						updateDirty(false);
-					} else {
-						updateDirty(true);
-					}
-					setNotice(String(message.message ?? 'Workflow brief copied.'));
-					break;
 				case 'project': {
 					const incoming = message.project as AIProject;
 					setProject(incoming);
@@ -258,9 +381,13 @@ function WorkflowEditor(): JSX.Element {
 					});
 					setRevision(String(message.revision ?? ''));
 					setProviders((message.providers as readonly AIMediaProviderOption[] | undefined) ?? []);
+					setTextModelServices((message.textModelServices as readonly AITextModelServiceOption[] | undefined) ?? []);
 					setMediaUris((message.mediaUris as Readonly<Record<string, string>> | undefined) ?? {});
 					setSelectedNodeIds(current => current.filter(id => incoming.nodes.some(node => node.id === id)));
+					setActiveNodeControlsId(current => incoming.nodes.some(node => node.id === current) ? current : undefined);
+					setEditingTextNodeId(current => incoming.nodes.some(node => node.id === current && node.kind === 'text') ? current : undefined);
 					setSelectedEdgeId(current => incoming.edges.some(edge => edge.id === current) ? current : undefined);
+					setActiveNodeDetail(current => incoming.nodes.some(node => node.id === current?.nodeId) ? current : undefined);
 					setContextAddMenu(undefined);
 					setContextNodeMenu(undefined);
 					setContextEdgeMenu(undefined);
@@ -276,6 +403,9 @@ function WorkflowEditor(): JSX.Element {
 				case 'providers':
 					setProviders((message.providers as readonly AIMediaProviderOption[] | undefined) ?? []);
 					break;
+				case 'textModelServices':
+					setTextModelServices((message.textModelServices as readonly AITextModelServiceOption[] | undefined) ?? []);
+					break;
 				case 'running':
 					setRunningNodeId(String(message.nodeId ?? 'running'));
 					setStatus({ label: String(message.label ?? 'Running'), tone: 'running' });
@@ -285,7 +415,6 @@ function WorkflowEditor(): JSX.Element {
 					setStatus({ label: 'Run cancelled', tone: 'normal' });
 					break;
 				case 'error':
-					setAgentPending(false);
 					if (typeof message.revision === 'string') {
 						setRevision(message.revision);
 					}
@@ -309,58 +438,143 @@ function WorkflowEditor(): JSX.Element {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
 				event.preventDefault();
 				save();
+			} else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+				event.preventDefault();
+				setNodeSearchOpen(true);
 			} else if (!locked && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
 				event.preventDefault();
 				event.shiftKey ? redo() : undo();
 			} else if (event.key === 'Escape') {
+				setSelectedNodeIds([]);
+				setActiveNodeControlsId(undefined);
+				setEditingTextNodeId(undefined);
+				setSelectedEdgeId(undefined);
 				setAddMenuOpen(false);
 				setContextAddMenu(undefined);
 				setContextNodeMenu(undefined);
 				setContextEdgeMenu(undefined);
+				setActiveNodeDetail(undefined);
+				setNodeSearchOpen(false);
 			}
 		};
 		window.addEventListener('keydown', listener);
 		return () => window.removeEventListener('keydown', listener);
 	}, [locked, redo, save, undo]);
 
-	const flowNodes = useMemo<WorkflowFlowNode[]>(() => {
+	const projectedFlowNodes = useMemo<WorkflowFlowNode[]>(() => {
 		const groups: GroupFlowNode[] = project.groups.map(group => ({
 			id: group.id,
 			type: 'shotGroup',
 			position: group.position,
 			data: { group },
 			style: { width: group.width, height: group.height },
+			dragHandle: '.shot-group-drag-handle',
 			selectable: false,
 			zIndex: -1
 		}));
 		const nodes: MediaFlowNode[] = project.nodes.map(node => {
 			const outputs = isExecutableNode(node) ? selectedOutputPaths(node) : [];
-			const previewPath = outputs.find(path => isPreviewablePath(path, node.kind));
+			const previewPaths = outputs.filter(path => isPreviewablePath(path, node.kind));
+			const previewUris = previewPaths.map(path => mediaUris[path]).filter((uri): uri is string => Boolean(uri));
+			const readiness = nodeReadiness(project, node.id);
 			return {
 				id: node.id,
 				type: 'media',
+				className: `kind-${node.kind}`,
 				position: node.position,
 				...(node.groupId ? { parentId: node.groupId, extent: 'parent' as const } : {}),
+				...(node.kind === 'text' ? { style: { width: node.width ?? AI_TEXT_NODE_DEFAULT_WIDTH, height: node.height ?? AI_TEXT_NODE_DEFAULT_HEIGHT } } : {}),
 				selected: selectedNodeIds.includes(node.id),
-				data: { node, readiness: nodeReadiness(project, node.id).label, summary: node.kind === 'text' ? node.content : nodePrompt(project, node.id), previewUri: previewPath ? mediaUris[previewPath] : undefined, previewKind: previewPath ? node.kind : undefined },
-				zIndex: 2
+				data: {
+					project,
+					providers,
+					textModelServices,
+					node,
+					readiness: readiness.label,
+					summary: node.kind === 'text' ? node.content : nodePrompt(project, node.id),
+					previewUri: previewUris[0],
+					previewUris,
+					previewKind: previewUris.length ? node.kind : undefined,
+					canRun: isExecutableNode(node) && node.source === 'generate' && readiness.ready && !locked,
+					isRunning: runningNodeId === node.id,
+					locked,
+					showActions: selectedNodeIds.length === 1
+						&& selectedNodeIds[0] === node.id
+						&& activeNodeControlsId === node.id
+						&& contextAddMenu === undefined
+						&& contextNodeMenu === undefined
+						&& contextEdgeMenu === undefined,
+					textEditing: editingTextNodeId === node.id,
+					detailView: activeNodeDetail?.nodeId === node.id ? activeNodeDetail.view : undefined,
+					editProject,
+					onShowComposer: showNodeComposer,
+					onShowDetail: showNodeDetail,
+					onImportFiles: importFiles,
+					onAddToSequence: addToSequence,
+					onOpenOutput: openOutput,
+					onRun: runNode,
+					onRunText: runTextNode,
+					onConfigureTextModel: configureTextModel,
+					onTextDraftChange: markTextDraftChanged,
+					onFinishTextEditing: () => setEditingTextNodeId(undefined),
+					onCancel: cancelRun
+				},
+				zIndex: selectedNodeIds.includes(node.id) ? 20 : 2
 			};
 		});
 		return [...groups, ...nodes];
-	}, [mediaUris, project, selectedNodeIds]);
+	}, [activeNodeControlsId, activeNodeDetail, addToSequence, cancelRun, configureTextModel, contextAddMenu, contextEdgeMenu, contextNodeMenu, editProject, editingTextNodeId, importFiles, locked, markTextDraftChanged, mediaUris, openOutput, project, providers, runNode, runTextNode, runningNodeId, selectedNodeIds, showNodeComposer, showNodeDetail, textModelServices]);
+	const [flowNodes, setFlowNodes] = useState<WorkflowFlowNode[]>(projectedFlowNodes);
+	const flowNodesRef = useRef<WorkflowFlowNode[]>(projectedFlowNodes);
+	const [snapGuides, setSnapGuides] = useState<readonly WorkflowCanvasSnapGuide[]>([]);
+	useEffect(() => {
+		const next = reconcileWorkflowFlowNodes(flowNodesRef.current, projectedFlowNodes);
+		flowNodesRef.current = next;
+		setFlowNodes(next);
+	}, [projectedFlowNodes]);
+	const openEdgeInsertMenu = useCallback((edgeId: string, clientX: number, clientY: number): void => {
+		const edge = projectRef.current.edges.find(candidate => candidate.id === edgeId);
+		const bounds = canvasRef.current?.getBoundingClientRect();
+		if (!edge || !bounds) {
+			return;
+		}
+		const position = clampWorkflowCanvasOverlay(
+			{ x: clientX - bounds.left, y: clientY - bounds.top },
+			{ width: 250, height: 270 },
+			{ width: bounds.width, height: bounds.height }
+		);
+		setSelectedNodeIds([]);
+		setActiveNodeControlsId(undefined);
+		setSelectedEdgeId(edgeId);
+		setActiveNodeDetail(undefined);
+		setAddMenuOpen(false);
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+		setNotice(undefined);
+		setContextAddMenu({
+			left: position.x,
+			top: position.y,
+			flowPosition: reactFlow.screenToFlowPosition({ x: clientX, y: clientY }),
+			mode: 'insert',
+			sourceNodeId: edge.source,
+			targetNodeId: edge.target,
+			edgeId
+		});
+	}, [reactFlow]);
 
 	const flowEdges = useMemo<WorkflowFlowEdge[]>(() => project.edges.map(edge => ({
 		id: edge.id,
 		source: edge.source,
 		target: edge.target,
-		type: 'smoothstep',
+		type: 'workflow',
+		data: { onInsert: openEdgeInsertMenu, actionPosition: selectedEdgeAction?.edgeId === edge.id ? selectedEdgeAction.position : undefined },
 		className: `workflow-edge edge-${edge.media}`,
 		selected: selectedEdgeId === edge.id,
 		animated: edge.target === runningNodeId,
 		interactionWidth: 20,
 		markerEnd: { type: MarkerType.ArrowClosed },
 		ariaLabel: `${nodeById(project, edge.source)?.title ?? edge.source} provides ${edge.media} to ${nodeById(project, edge.target)?.title ?? edge.target}`
-	})), [project, runningNodeId, selectedEdgeId]);
+	})), [openEdgeInsertMenu, project, runningNodeId, selectedEdgeAction, selectedEdgeId]);
 
 	const viewportCenter = useCallback((): AIProjectWorkflowPosition => {
 		const bounds = canvasRef.current?.getBoundingClientRect();
@@ -368,10 +582,48 @@ function WorkflowEditor(): JSX.Element {
 	}, [reactFlow]);
 
 	const addMedia = useCallback((kind: AIProjectMediaKind): void => {
-		const node = createMediaNode(kind, contextAddMenu?.flowPosition ?? viewportCenter());
-		editProject(next => next.nodes.push(node));
+		const menu = contextAddMenu;
+		let position = menu?.flowPosition ?? viewportCenter();
+		let groupId: string | undefined;
+		if (menu?.edgeId) {
+			const edge = projectRef.current.edges.find(candidate => candidate.id === menu.edgeId);
+			const source = edge ? nodeById(projectRef.current, edge.source) : undefined;
+			const target = edge ? nodeById(projectRef.current, edge.target) : undefined;
+			if (source?.groupId && source.groupId === target?.groupId) {
+				const group = projectRef.current.groups.find(candidate => candidate.id === source.groupId);
+				if (group) {
+					groupId = group.id;
+					position = { x: position.x - group.position.x, y: position.y - group.position.y };
+				}
+			}
+		}
+		const node = createMediaNode(kind, position, groupId);
+		if (menu?.edgeId) {
+			const validationProject = structuredClone(projectRef.current);
+			const validation = insertWorkflowNodeOnEdge(validationProject, menu.edgeId, structuredClone(node));
+			if (!validation.valid) {
+				setNotice(validation.reason ?? 'This node cannot be inserted on the connection.');
+				setContextAddMenu(undefined);
+				return;
+			}
+		}
+		editProject(next => {
+			if (menu?.edgeId) {
+				insertWorkflowNodeOnEdge(next, menu.edgeId, node);
+			} else {
+				next.nodes.push(node);
+				if (node.groupId) {
+					next.groups.find(group => group.id === node.groupId)?.nodeIds.push(node.id);
+				}
+			}
+			if (!menu?.edgeId && menu?.sourceNodeId) {
+				connectWorkflowNodes(next, menu.sourceNodeId, node.id);
+			}
+		});
 		setSelectedEdgeId(undefined);
 		setSelectedNodeIds([node.id]);
+		setActiveNodeControlsId(undefined);
+		setActiveNodeDetail(undefined);
 		setAddMenuOpen(false);
 		setContextAddMenu(undefined);
 		setContextNodeMenu(undefined);
@@ -380,12 +632,12 @@ function WorkflowEditor(): JSX.Element {
 
 	const addShot = useCallback((): void => {
 		const center = contextAddMenu?.flowPosition ?? viewportCenter();
-		const group = createShotGroup(projectRef.current.groups.length + 1, { x: center.x - 520, y: center.y - 150 });
-		const storyboard: AIProjectTextNode = { id: createId('text'), kind: 'text', role: 'storyboard', title: 'Storyboard', content: '', position: { x: 28, y: 74 }, groupId: group.id };
-		const imagePrompt: AIProjectTextNode = { id: createId('text'), kind: 'text', role: 'imagePrompt', title: 'Image prompt', content: '', position: { x: 258, y: 74 }, groupId: group.id };
-		const image: AIProjectImageNode = { ...createMediaNode('image', { x: 488, y: 74 }, group.id), title: 'Storyboard image' };
-		const videoPrompt: AIProjectTextNode = { id: createId('text'), kind: 'text', role: 'videoPrompt', title: 'Video prompt', content: '', position: { x: 258, y: 204 }, groupId: group.id };
-		const video: AIProjectVideoNode = { ...createMediaNode('video', { x: 808, y: 74 }, group.id), title: 'Generated clip' };
+		const group = createShotGroup(projectRef.current.groups.length + 1, { x: center.x - 860, y: center.y - 250 });
+		const storyboard: AIProjectTextNode = { ...createMediaNode('text', { x: 32, y: 82 }, group.id), role: 'storyboard', title: 'Storyboard' };
+		const imagePrompt: AIProjectTextNode = { ...createMediaNode('text', { x: 412, y: 82 }, group.id), role: 'imagePrompt', title: 'Image prompt' };
+		const image: AIProjectImageNode = { ...createMediaNode('image', { x: 792, y: 82 }, group.id), title: 'Storyboard image' };
+		const videoPrompt: AIProjectTextNode = { ...createMediaNode('text', { x: 1070, y: 82 }, group.id), role: 'videoPrompt', title: 'Video prompt' };
+		const video: AIProjectVideoNode = { ...createMediaNode('video', { x: 1450, y: 82 }, group.id), title: 'Generated clip' };
 		const nodes: AIProjectNode[] = [storyboard, imagePrompt, image, videoPrompt, video];
 		group.nodeIds = nodes.map(node => node.id);
 		editProject(next => {
@@ -398,6 +650,8 @@ function WorkflowEditor(): JSX.Element {
 			next.sequence.push({ id: createId('sequence'), videoNodeId: video.id });
 		});
 		setSelectedNodeIds([storyboard.id]);
+		setActiveNodeControlsId(undefined);
+		setActiveNodeDetail(undefined);
 		setFocusedVideoId(video.id);
 		persistCanvasState({ focusedVideoId: video.id });
 		setSelectedEdgeId(undefined);
@@ -420,7 +674,9 @@ function WorkflowEditor(): JSX.Element {
 			next.groups = next.groups.filter(group => group.nodeIds.length > 0);
 		});
 		setSelectedNodeIds([]);
+		setActiveNodeControlsId(undefined);
 		setSelectedEdgeId(undefined);
+		setActiveNodeDetail(current => current && removed.has(current.nodeId) ? undefined : current);
 		setFocusedVideoId(current => {
 			const next = removed.has(current ?? '') ? fallbackVideoId : current;
 			persistCanvasState({ focusedVideoId: next });
@@ -452,9 +708,9 @@ function WorkflowEditor(): JSX.Element {
 			return;
 		}
 		editProject(next => {
-			next.edges.push({ id: createWorkflowEdgeId(connection.source!, connection.target!), source: connection.source!, target: connection.target!, media: validation.media! });
-			invalidateDownstreamNodes(next, [connection.target!]);
+			connectWorkflowNodes(next, connection.source!, connection.target!);
 		});
+		setNotice(undefined);
 	}, [editProject]);
 
 	const moveNodes = useCallback((movedNodes: readonly WorkflowFlowNode[]): void => {
@@ -472,17 +728,35 @@ function WorkflowEditor(): JSX.Element {
 			}
 		});
 	}, [editProject]);
-
-	const runReady = runnableNodeIdsInWorkflowOrder(project);
-	const schedulable = new Set(runReady);
-	const blockedCount = project.nodes.filter(node => {
-		const readiness = nodeReadiness(project, node.id);
-		return !readiness.ready && !(isExecutableNode(node) && schedulable.has(node.id));
-	}).length;
+	const onNodesChange = useCallback((changes: NodeChange<WorkflowFlowNode>[]): void => {
+		const previous = flowNodesRef.current;
+		const positionChanges = changes.filter((change): change is Extract<NodeChange<WorkflowFlowNode>, { type: 'position' }> => change.type === 'position' && Boolean(change.position));
+		let nextChanges = changes;
+		if (positionChanges.length > 0) {
+			const snapped = snapWorkflowCanvasNodeChanges(
+				workflowCanvasNodeFrames(previous),
+				positionChanges,
+				WORKFLOW_CANVAS_SNAP_SCREEN_THRESHOLD / Math.max(0.2, reactFlow.getZoom())
+			);
+			const snappedById = new Map(snapped.changes.map(change => [change.id, change]));
+			nextChanges = changes.map(change => change.type === 'position' ? snappedById.get(change.id) ?? change : change);
+			setSnapGuides(snapped.guides);
+		}
+		const next = applyNodeChanges(nextChanges, previous);
+		flowNodesRef.current = next;
+		setFlowNodes(next);
+	}, [reactFlow]);
 	const rememberViewport = useCallback((viewport: Viewport): void => {
 		setCanvasZoom(viewport.zoom);
 		persistCanvasState({ viewport });
 	}, []);
+	const cancelInitialViewport = useCallback((): void => {
+		if (initialViewportFrameRef.current !== undefined) {
+			window.cancelAnimationFrame(initialViewportFrameRef.current);
+			initialViewportFrameRef.current = undefined;
+		}
+	}, []);
+	useEffect(() => cancelInitialViewport, [cancelInitialViewport]);
 	const focusShot = useCallback(async (videoNodeId: string, instance: ReactFlowInstance<WorkflowFlowNode, WorkflowFlowEdge> = reactFlow): Promise<void> => {
 		const video = nodeById(projectRef.current, videoNodeId);
 		const group = video?.groupId ? instance.getNode(video.groupId) : undefined;
@@ -492,13 +766,68 @@ function WorkflowEditor(): JSX.Element {
 			rememberViewport(instance.getViewport());
 		}
 	}, [reactFlow, rememberViewport]);
-	const selectedNode = selectedNodeId ? nodeById(project, selectedNodeId) : undefined;
-	const selectedShotVideoId = selectedNode?.groupId
-		? project.sequence.find(item => nodeById(project, item.videoNodeId)?.groupId === selectedNode.groupId)?.videoNodeId
-		: undefined;
+	const focusNode = useCallback(async (nodeId: string, edit = false): Promise<void> => {
+		const target = reactFlow.getNode(nodeId);
+		if (!target) {
+			return;
+		}
+		setSelectedNodeIds([nodeId]);
+		setActiveNodeControlsId(edit ? nodeId : undefined);
+		if (edit && nodeById(projectRef.current, nodeId)?.kind === 'text') {
+			setEditingTextNodeId(nodeId);
+		}
+		setSelectedEdgeId(undefined);
+		setActiveNodeDetail(undefined);
+		setNodeSearchOpen(false);
+		await reactFlow.fitView({ nodes: [target], padding: 0.9, minZoom: 0.65, maxZoom: 1, duration: 0 });
+		rememberViewport(reactFlow.getViewport());
+		if (edit) {
+			window.requestAnimationFrame(() => {
+				const element = [...(canvasRef.current?.querySelectorAll<HTMLElement>('.react-flow__node[data-id]') ?? [])]
+					.find(candidate => candidate.dataset.id === nodeId);
+				const node = nodeById(projectRef.current, nodeId);
+				const editor = node?.kind === 'text'
+					? element?.querySelector<HTMLElement>('.text-node-content-editor')
+					: node?.kind === 'image'
+						? element?.querySelector<HTMLTextAreaElement>('.image-node-prompt') ?? element?.querySelector<HTMLInputElement>('.image-node-title-input')
+						: element?.querySelector<HTMLTextAreaElement>('.node-prompt-input');
+				editor?.focus();
+				if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
+					editor.select();
+				}
+			});
+		}
+	}, [reactFlow, rememberViewport]);
+	const duplicateNode = useCallback((nodeId: string): void => {
+		const source = nodeById(projectRef.current, nodeId);
+		if (!source) {
+			return;
+		}
+		const copy = structuredClone(source);
+		copy.id = createId(source.kind);
+		copy.title = `${source.title} copy`;
+		copy.position = { x: source.position.x + 36, y: source.position.y + 36 };
+		if (isExecutableNode(copy)) {
+			copy.status = 'draft';
+			copy.runs = [];
+			delete copy.selectedRunId;
+			delete copy.error;
+		}
+		editProject(next => {
+			next.nodes.push(copy);
+			if (copy.groupId) {
+				next.groups.find(group => group.id === copy.groupId)?.nodeIds.push(copy.id);
+			}
+		});
+		setSelectedNodeIds([copy.id]);
+		setActiveNodeControlsId(undefined);
+		setSelectedEdgeId(undefined);
+		setActiveNodeDetail(undefined);
+		setContextNodeMenu(undefined);
+	}, [editProject]);
 	const contextNode = contextNodeMenu ? nodeById(project, contextNodeMenu.nodeId) : undefined;
 	const contextEdge = contextEdgeMenu ? project.edges.find(edge => edge.id === contextEdgeMenu.edgeId) : undefined;
-	const contextNodeCanRun = contextNode !== undefined && isExecutableNode(contextNode) && contextNode.source !== 'local' && nodeReadiness(project, contextNode.id).ready && !locked;
+	const contextOutputPath = contextNode && isExecutableNode(contextNode) ? selectedOutputPaths(contextNode)[0] : undefined;
 	const contextShotVideoId = contextNode?.groupId
 		? project.sequence.find(item => nodeById(project, item.videoNodeId)?.groupId === contextNode.groupId)?.videoNodeId
 		: undefined;
@@ -509,7 +838,8 @@ function WorkflowEditor(): JSX.Element {
 		initialViewportSetRef.current = true;
 		const savedViewport = validViewport(persistedCanvasState?.viewport);
 		const firstVideoId = initialFocusedVideoId ?? projectRef.current.sequence[0]?.videoNodeId;
-		window.requestAnimationFrame(() => {
+		initialViewportFrameRef.current = window.requestAnimationFrame(() => {
+			initialViewportFrameRef.current = undefined;
 			if (savedViewport) {
 				void instance.setViewport(savedViewport, { duration: 0 }).then(() => rememberViewport(instance.getViewport()));
 			} else if (firstVideoId) {
@@ -523,13 +853,16 @@ function WorkflowEditor(): JSX.Element {
 		setFocusedVideoId(videoNodeId);
 		persistCanvasState({ focusedVideoId: videoNodeId });
 		setSelectedNodeIds([]);
+		setActiveNodeControlsId(undefined);
 		setSelectedEdgeId(undefined);
+		setActiveNodeDetail(undefined);
 		setContextAddMenu(undefined);
 		setContextNodeMenu(undefined);
 		setContextEdgeMenu(undefined);
 		window.requestAnimationFrame(() => window.requestAnimationFrame(() => { void focusShot(videoNodeId); }));
 	}, [focusShot]);
 	const setCanvasZoomLevel = useCallback(async (requestedZoom: number): Promise<void> => {
+		cancelInitialViewport();
 		const bounds = canvasRef.current?.getBoundingClientRect();
 		if (!bounds) {
 			return;
@@ -538,30 +871,79 @@ function WorkflowEditor(): JSX.Element {
 		const center = reactFlow.screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 });
 		await reactFlow.setCenter(center.x, center.y, { zoom, duration: 0 });
 		rememberViewport(reactFlow.getViewport());
-	}, [reactFlow, rememberViewport]);
-	const showAll = useCallback(async (): Promise<void> => {
-		await reactFlow.fitView({ padding: 0.12, maxZoom: 0.95, duration: 0 });
-		rememberViewport(reactFlow.getViewport());
-	}, [reactFlow, rememberViewport]);
-	const positionMenu = useCallback((clientX: number, clientY: number, width: number, height: number, reserveInspector = false): { readonly left: number; readonly top: number } => {
+	}, [cancelInitialViewport, reactFlow, rememberViewport]);
+	const positionMenu = useCallback((clientX: number, clientY: number, width: number, height: number): { readonly left: number; readonly top: number } => {
 		const bounds = canvasRef.current?.getBoundingClientRect();
 		if (!bounds) {
 			return { left: 8, top: 8 };
 		}
-		const availableWidth = Math.max(width + 16, bounds.width - (reserveInspector ? 352 : 0));
-		return {
-			left: Math.min(Math.max(clientX - bounds.left, 8), Math.max(8, availableWidth - width - 8)),
-			top: Math.min(Math.max(clientY - bounds.top, 8), Math.max(8, bounds.height - height - 8))
-		};
+		const position = clampWorkflowCanvasOverlay(
+			{ x: clientX - bounds.left, y: clientY - bounds.top },
+			{ width, height },
+			{ width: bounds.width, height: bounds.height }
+		);
+		return { left: position.x, top: position.y };
 	}, []);
-	const runNode = useCallback((nodeId: string): void => {
+	const openCanvasAddMenu = useCallback((clientX: number, clientY: number, mode: CanvasContextMenuState['mode'], sourceNodeId?: string): void => {
+		const menuHeight = mode === 'context' ? 338 : 270;
+		const menu = positionMenu(clientX, clientY, 250, menuHeight);
+		setSelectedNodeIds(sourceNodeId ? [sourceNodeId] : []);
+		setActiveNodeControlsId(undefined);
+		setSelectedEdgeId(undefined);
+		setActiveNodeDetail(undefined);
+		setAddMenuOpen(false);
 		setContextNodeMenu(undefined);
 		setContextEdgeMenu(undefined);
-		setRunningNodeId(nodeId);
-		setStatus({ label: 'Starting run', tone: 'running' });
-		vscode.postMessage({ type: 'runNode', project: projectRef.current, revision: revisionRef.current, nodeId });
-	}, []);
-
+		setNotice(undefined);
+		setContextAddMenu({
+			...menu,
+			mode,
+			...(sourceNodeId ? { sourceNodeId } : {}),
+			flowPosition: reactFlow.screenToFlowPosition({ x: clientX, y: clientY })
+		});
+	}, [positionMenu, reactFlow]);
+	const insertOnEdge = useCallback((edgeId: string): void => {
+		const edge = projectRef.current.edges.find(candidate => candidate.id === edgeId);
+		const source = edge ? nodeById(projectRef.current, edge.source) : undefined;
+		const target = edge ? nodeById(projectRef.current, edge.target) : undefined;
+		if (!edge || !source || !target) {
+			return;
+		}
+		const sourcePosition = absoluteNodePosition(projectRef.current, source);
+		const targetPosition = absoluteNodePosition(projectRef.current, target);
+		const screen = reactFlow.flowToScreenPosition({
+			x: (sourcePosition.x + targetPosition.x) / 2,
+			y: (sourcePosition.y + targetPosition.y) / 2
+		});
+		openEdgeInsertMenu(edgeId, screen.x, screen.y);
+	}, [openEdgeInsertMenu, reactFlow]);
+	const finishConnection = useCallback((event: MouseEvent | TouchEvent, connectionState: FinalConnectionState): void => {
+		if (!connectionState.fromNode) {
+			return;
+		}
+		if (!connectionState.toNode) {
+			const point = pointerClientPoint(event);
+			const bounds = canvasRef.current?.getBoundingClientRect();
+			if (!point || !bounds || point.x < bounds.left || point.x > bounds.right || point.y < bounds.top || point.y > bounds.bottom) {
+				return;
+			}
+			suppressNextPaneClickRef.current = true;
+			window.setTimeout(() => { suppressNextPaneClickRef.current = false; }, 0);
+			openCanvasAddMenu(point.x, point.y, 'connect', connectionState.fromNode.id);
+			return;
+		}
+		if (connectionState.isValid === false) {
+			const validation = validateWorkflowConnection(projectRef.current, connectionState.fromNode.id, connectionState.toNode.id);
+			setNotice(validation.reason ?? 'These nodes cannot be connected.');
+		}
+	}, [openCanvasAddMenu]);
+	const handleCanvasDoubleClick = useCallback((event: ReactMouseEvent<HTMLElement>): void => {
+		if (locked || !(event.target instanceof Element) || !event.target.closest('.react-flow__pane') || event.target.closest('.react-flow__node, .react-flow__edge, .add-menu, .node-context-menu')) {
+			return;
+		}
+		event.preventDefault();
+		openCanvasAddMenu(event.clientX, event.clientY, 'quick');
+	}, [locked, openCanvasAddMenu]);
 	useEffect(() => {
 		const listener = (event: KeyboardEvent): void => {
 			if (!(event.metaKey || event.ctrlKey)) {
@@ -584,53 +966,29 @@ function WorkflowEditor(): JSX.Element {
 
 	return (
 		<div className="workflow-app">
-			<header className="topbar">
-				<div className="title-group">
-					<input className="project-title" aria-label="Project title" disabled={locked} value={project.title} onChange={event => editProject(next => { next.title = event.target.value; })} />
-					<div className={`save-status tone-${status.tone}`}>{status.label}</div>
-				</div>
-				<div className="topbar-actions">
-					{running && <button className="button danger" onClick={() => vscode.postMessage({ type: 'cancel' })}>Cancel run</button>}
-					<button className="button agent-action" disabled={locked} onClick={() => {
-						saveSnapshotRef.current = JSON.stringify(projectRef.current);
-						setAgentPending(true);
-						vscode.postMessage({ type: 'prepareAgent', project: projectRef.current, revision: revisionRef.current });
-						setStatus({ label: 'Preparing Agent', tone: 'running' });
-					}}>Ask Agent</button>
-					<button className="button primary" disabled={locked} onClick={() => setRunPanelOpen(true)}>Run</button>
-				</div>
-			</header>
-			<div className="readiness-bar">
-				<span><strong>{project.groups.length}</strong> shots</span>
-				<span><strong>{runReady.length}</strong> ready to run</span>
-				<span className={blockedCount ? 'has-issues' : ''}><strong>{blockedCount}</strong> blocked</span>
-				<span><strong>{project.nodes.filter(node => isExecutableNode(node)).reduce((total, node) => total + node.runs.length, 0)}</strong> saved runs</span>
-				{project.outputs[0] && <button className="text-button" onClick={() => vscode.postMessage({ type: 'openOutput', path: project.outputs[0] })}>Open sequence notes</button>}
-			</div>
 			{banner && <div className="banner" role="alert"><span>{banner.message}</span>{banner.action === 'reload' && <button className="button secondary" onClick={() => vscode.postMessage({ type: 'reload' })}>Reload disk version</button>}<button className="icon-button" aria-label="Dismiss message" onClick={() => setBanner(undefined)}>×</button></div>}
-			<div className={`workspace${selectedNodeId || selectedEdgeId ? ' has-inspector' : ''}`} aria-busy={locked}>
-				<main className="canvas" ref={canvasRef}>
-					<div className="canvas-history-controls" aria-label="Canvas history">
-						<button className="toolbar-button" disabled={!past.length} onClick={undo}>Undo</button>
-						<button className="toolbar-button" disabled={!future.length} onClick={redo}>Redo</button>
-						{selectedShotVideoId && <button className="toolbar-button" onClick={() => focusShot(selectedShotVideoId)}>Focus shot</button>}
-						{selectedNodeIds.length > 1 && <span className="selection-count">{selectedNodeIds.length} selected</span>}
-					</div>
+			<div className="workspace" aria-busy={locked}>
+				<main className="canvas" ref={canvasRef} onDoubleClick={handleCanvasDoubleClick}>
+					{(dirty || running || status.tone === 'error') && <div className={`canvas-status tone-${status.tone}`} role="status">{status.label}</div>}
 					<div className="canvas-create-control">
-						<button className="canvas-create-button" aria-label="Add to workflow" aria-expanded={addMenuOpen} onClick={() => { setAddMenuOpen(value => !value); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}>+</button>
-						{addMenuOpen && <AddMenu onAdd={addMedia} onAddShot={addShot} />}
+						<div className="canvas-create-actions">
+							<button className="canvas-find-button" aria-label="Find a workflow node" title="Find node (⌘F)" onClick={() => setNodeSearchOpen(true)}><svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg></button>
+							<button className="canvas-create-button" disabled={locked} aria-label="Add to workflow" title="Add node" aria-expanded={addMenuOpen} onClick={() => { setAddMenuOpen(value => !value); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}><span aria-hidden="true">+</span></button>
+						</div>
+						{addMenuOpen && <AddMenu mode="quick" onAdd={addMedia} onAddShot={addShot} />}
 					</div>
 					<ReactFlow<WorkflowFlowNode, WorkflowFlowEdge>
-						nodes={flowNodes}
-						edges={flowEdges}
-						nodeTypes={nodeTypes}
-						onInit={initializeViewport}
-						minZoom={0.2}
-						maxZoom={4}
-						snapToGrid
-						snapGrid={[16, 16]}
-						connectionMode={ConnectionMode.Strict}
+							nodes={flowNodes}
+							edges={flowEdges}
+							nodeTypes={nodeTypes}
+							edgeTypes={edgeTypes}
+							onNodesChange={onNodesChange}
+							onInit={initializeViewport}
+							minZoom={0.2}
+							maxZoom={4}
+						connectionMode={ConnectionMode.Loose}
 						connectionLineType={ConnectionLineType.SmoothStep}
+						isValidConnection={connection => Boolean(connection.source && connection.target && validateWorkflowConnection(projectRef.current, connection.source, connection.target).valid)}
 						connectOnClick={false}
 						connectionRadius={48}
 						deleteKeyCode={locked ? null : ['Backspace', 'Delete']}
@@ -648,37 +1006,70 @@ function WorkflowEditor(): JSX.Element {
 						onMoveEnd={(_, viewport) => rememberViewport(viewport)}
 						onConnect={connect}
 						onNodeClick={(event, node) => {
-							if (node.type === 'media') {
-								setSelectedNodeIds(current => event.shiftKey ? toggleSelectedId(current, node.id) : [node.id]);
-								setSelectedEdgeId(undefined);
-								const selected = nodeById(projectRef.current, node.id);
-								const shotVideo = selected?.groupId ? projectRef.current.sequence.find(item => nodeById(projectRef.current, item.videoNodeId)?.groupId === selected.groupId) : undefined;
-								if (shotVideo) {
-									setFocusedVideoId(shotVideo.videoNodeId);
-									persistCanvasState({ focusedVideoId: shotVideo.videoNodeId });
-								}
+							if (node.type !== 'media') {
+								return;
+							}
+							if (event.button !== 0) {
+								setActiveNodeControlsId(undefined);
+								return;
+							}
+							if (suppressNextNodeClickRef.current) {
+								setActiveNodeControlsId(undefined);
+								return;
+							}
+							setEditingTextNodeId(current => current === node.id ? current : undefined);
+							setActiveNodeDetail(current => current?.nodeId === node.id ? current : undefined);
+							setSelectedNodeIds(current => event.shiftKey ? toggleSelectedId(current, node.id) : [node.id]);
+							setActiveNodeControlsId(event.shiftKey ? undefined : node.id);
+							setSelectedEdgeId(undefined);
+							const selected = nodeById(projectRef.current, node.id);
+							const shotVideo = selected?.groupId ? projectRef.current.sequence.find(item => nodeById(projectRef.current, item.videoNodeId)?.groupId === selected.groupId) : undefined;
+							if (shotVideo) {
+								setFocusedVideoId(shotVideo.videoNodeId);
+								persistCanvasState({ focusedVideoId: shotVideo.videoNodeId });
 							}
 						}}
-						onEdgeClick={(_, edge) => { setSelectedNodeIds([]); setSelectedEdgeId(edge.id); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
-						onPaneClick={() => { setSelectedNodeIds([]); setSelectedEdgeId(undefined); setAddMenuOpen(false); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
-						onPaneContextMenu={event => {
-							event.preventDefault();
-							const menu = positionMenu(event.clientX, event.clientY, 250, 338);
-							setSelectedNodeIds([]);
+						onNodeDoubleClick={(event, node) => {
+							if (node.type !== 'media' || locked) {
+								return;
+							}
+							event.stopPropagation();
+							setSelectedNodeIds([node.id]);
+							setActiveNodeControlsId(node.id);
 							setSelectedEdgeId(undefined);
-							setAddMenuOpen(false);
+							setContextAddMenu(undefined);
 							setContextNodeMenu(undefined);
 							setContextEdgeMenu(undefined);
-							setContextAddMenu({ ...menu, flowPosition: reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+							void focusNode(node.id, true);
+						}}
+						onEdgeClick={(event, edge) => {
+							setSelectedNodeIds([]);
+							setActiveNodeControlsId(undefined);
+							setEditingTextNodeId(undefined);
+							setSelectedEdgeId(edge.id);
+							setSelectedEdgeAction({ edgeId: edge.id, position: reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+							setActiveNodeDetail(undefined);
+							setContextNodeMenu(undefined);
+							setContextEdgeMenu(undefined);
+						}}
+						onPaneClick={() => { if (suppressNextPaneClickRef.current) { return; } setSelectedNodeIds([]); setActiveNodeControlsId(undefined); setEditingTextNodeId(undefined); setSelectedEdgeId(undefined); setActiveNodeDetail(undefined); setNodeSearchOpen(false); setAddMenuOpen(false); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onPaneContextMenu={event => {
+							event.preventDefault();
+							openCanvasAddMenu(event.clientX, event.clientY, 'context');
 						}}
 						onNodeContextMenu={(event, node) => {
 							event.preventDefault();
 							if (node.type !== 'media') {
 								return;
 							}
-							const menu = positionMenu(event.clientX, event.clientY, 190, 160, !selectedNodeId && !selectedEdgeId);
+							suppressNextNodeClickRef.current = true;
+							window.setTimeout(() => { suppressNextNodeClickRef.current = false; }, 0);
+							const menu = positionMenu(event.clientX, event.clientY, 200, 230);
 							setSelectedNodeIds([node.id]);
+							setActiveNodeControlsId(undefined);
+							setEditingTextNodeId(undefined);
 							setSelectedEdgeId(undefined);
+							setActiveNodeDetail(current => current?.nodeId === node.id ? current : undefined);
 							setAddMenuOpen(false);
 							setContextAddMenu(undefined);
 							setContextEdgeMenu(undefined);
@@ -686,25 +1077,50 @@ function WorkflowEditor(): JSX.Element {
 						}}
 						onEdgeContextMenu={(event, edge) => {
 							event.preventDefault();
-							const menu = positionMenu(event.clientX, event.clientY, 190, 100, !selectedNodeId && !selectedEdgeId);
+							const menu = positionMenu(event.clientX, event.clientY, 190, 72);
 							setSelectedNodeIds([]);
+							setActiveNodeControlsId(undefined);
 							setSelectedEdgeId(edge.id);
+							setSelectedEdgeAction({ edgeId: edge.id, position: reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+							setActiveNodeDetail(undefined);
 							setAddMenuOpen(false);
 							setContextAddMenu(undefined);
 							setContextNodeMenu(undefined);
 							setContextEdgeMenu({ ...menu, edgeId: edge.id });
 						}}
-						onNodeDragStop={(_, node, nodes) => moveNodes(nodes.length ? nodes : [node])}
+						onNodeDragStop={(_, node, nodes) => {
+							setSnapGuides([]);
+							moveNodes(nodes.length ? nodes : [node]);
+							window.setTimeout(() => { suppressNextNodeClickRef.current = false; }, 0);
+						}}
 						onNodesDelete={nodes => removeNodes(nodes.filter(node => node.type === 'media').map(node => node.id))}
 						onEdgesDelete={edges => removeEdges(edges.map(edge => edge.id))}
 						onPaneScroll={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
-						onMoveStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
-						onConnectStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
-						onNodeDragStart={() => { setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
-						onSelectionStart={() => { setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
+						onMoveStart={() => { cancelInitialViewport(); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); setActiveNodeDetail(undefined); setSnapGuides([]); }}
+							onConnectStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); setNotice(undefined); setSnapGuides([]); }}
+							onConnectEnd={finishConnection}
+							onNodeDragStart={(event, node) => {
+								suppressNextNodeClickRef.current = true;
+								setActiveNodeControlsId(undefined);
+								setEditingTextNodeId(undefined);
+								setContextNodeMenu(undefined);
+								setContextAddMenu(undefined);
+								setContextEdgeMenu(undefined);
+								setActiveNodeDetail(undefined);
+								setSnapGuides([]);
+								if (node.type === 'media') {
+									setSelectedNodeIds(current => current.includes(node.id) ? current : event.shiftKey ? [...current, node.id] : [node.id]);
+									setSelectedEdgeId(undefined);
+								}
+							}}
+						onSelectionStart={() => { setActiveNodeControlsId(undefined); setEditingTextNodeId(undefined); setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
 						onSelectionEnd={() => {
 							const nodeIds = reactFlow.getNodes().filter(node => node.type === 'media' && node.selected).map(node => node.id);
 							setSelectedNodeIds(current => sameStringArray(current, nodeIds) ? current : nodeIds);
+							setActiveNodeControlsId(undefined);
+							if (activeNodeDetail && (nodeIds.length !== 1 || nodeIds[0] !== activeNodeDetail.nodeId)) {
+								setActiveNodeDetail(undefined);
+							}
 							setSelectedEdgeId(undefined);
 						}}
 						edgesReconnectable={false}
@@ -712,46 +1128,514 @@ function WorkflowEditor(): JSX.Element {
 						onlyRenderVisibleElements
 						proOptions={{ hideAttribution: true }}
 					>
-						<Background variant={BackgroundVariant.Lines} gap={40} size={1} color="color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)" />
+						<Background variant={BackgroundVariant.Dots} gap={24} size={1.15} color="color-mix(in srgb, var(--vscode-foreground) 7%, transparent)" />
+						<CanvasSnapGuides guides={snapGuides} zoom={canvasZoom} />
 						{project.nodes.length > 12 && <MiniMap position="bottom-left" pannable zoomable nodeColor={node => node.type === 'shotGroup' ? 'var(--vscode-editorWidget-border)' : kindColor((node.data as MediaNodeData).node.kind)} maskColor="color-mix(in srgb, var(--vscode-editor-background) 82%, transparent)" />}
 					</ReactFlow>
+					{project.nodes.length === 0 && project.groups.length === 0 && <div className="canvas-empty-state" aria-live="polite"><strong>Start with the Agent</strong><span>Describe the video you want, or double-click to add a node.</span></div>}
 					<div className="canvas-zoom-controls" aria-label="Canvas zoom">
 						<button className="canvas-zoom-button" aria-label="Zoom out" onClick={() => void setCanvasZoomLevel(reactFlow.getZoom() - 0.1)}>−</button>
 						<span className="canvas-zoom-value" aria-live="polite">{Math.round(canvasZoom * 100)}%</span>
 						<button className="canvas-zoom-button reset" aria-label="Reset zoom to 100%" onClick={() => void setCanvasZoomLevel(1)}>1:1</button>
 						<button className="canvas-zoom-button" aria-label="Zoom in" onClick={() => void setCanvasZoomLevel(reactFlow.getZoom() + 0.1)}>+</button>
-						<button className="canvas-fit-button" onClick={() => void showAll()}>Show all</button>
 					</div>
-					{contextAddMenu && <AddMenu contextPosition={{ left: contextAddMenu.left, top: contextAddMenu.top }} onAdd={addMedia} onAddShot={addShot} />}
-					{contextNodeMenu && contextNode && <NodeContextMenu position={{ left: contextNodeMenu.left, top: contextNodeMenu.top }} node={contextNode} canRun={contextNodeCanRun} onRun={() => runNode(contextNode.id)} onFocus={contextShotVideoId ? () => { setContextNodeMenu(undefined); void focusShot(contextShotVideoId); } : undefined} onOpen={() => setContextNodeMenu(undefined)} onDelete={() => removeNodes([contextNode.id])} />}
-					{contextEdgeMenu && contextEdge && <EdgeContextMenu position={{ left: contextEdgeMenu.left, top: contextEdgeMenu.top }} onOpen={() => setContextEdgeMenu(undefined)} onDelete={() => removeEdges([contextEdge.id])} />}
+					{contextAddMenu && <AddMenu
+						mode={contextAddMenu.mode}
+						contextPosition={{ left: contextAddMenu.left, top: contextAddMenu.top }}
+						kinds={contextAddMenu.edgeId && contextAddMenu.sourceNodeId && contextAddMenu.targetNodeId
+							? workflowIntermediateKindsForConnection(project, contextAddMenu.sourceNodeId, contextAddMenu.targetNodeId)
+							: creationKinds(contextAddMenu.sourceNodeId ? nodeById(project, contextAddMenu.sourceNodeId)?.kind : undefined)}
+						sourceTitle={contextAddMenu.sourceNodeId ? nodeById(project, contextAddMenu.sourceNodeId)?.title : undefined}
+						onAdd={addMedia}
+						onAddShot={contextAddMenu.mode === 'context' ? addShot : undefined}
+						onFind={contextAddMenu.mode === 'context' ? () => { setContextAddMenu(undefined); setNodeSearchOpen(true); } : undefined}
+						onUndo={contextAddMenu.mode === 'context' ? undo : undefined}
+						onRedo={contextAddMenu.mode === 'context' ? redo : undefined}
+						canUndo={past.length > 0}
+						canRedo={future.length > 0}
+					/>}
+					{contextNodeMenu && contextNode && <NodeContextMenu position={{ left: contextNodeMenu.left, top: contextNodeMenu.top }} node={contextNode} inSequence={contextNode.kind === 'video' && project.sequence.some(item => item.videoNodeId === contextNode.id)} onFocus={contextShotVideoId ? () => { setContextNodeMenu(undefined); void focusShot(contextShotVideoId); } : undefined} onEdit={() => { setContextNodeMenu(undefined); void focusNode(contextNode.id, true); }} onOpenOutput={contextOutputPath ? () => { setContextNodeMenu(undefined); openOutput(contextOutputPath); } : undefined} onDuplicate={() => duplicateNode(contextNode.id)} onImport={contextNode.kind === 'text' ? undefined : () => { setContextNodeMenu(undefined); importFiles(contextNode.id); }} onAddToSequence={contextNode.kind === 'video' && !project.sequence.some(item => item.videoNodeId === contextNode.id) ? () => { setContextNodeMenu(undefined); addToSequence(contextNode.id); } : undefined} onDelete={() => removeNodes([contextNode.id])} />}
+					{contextEdgeMenu && contextEdge && <EdgeContextMenu position={{ left: contextEdgeMenu.left, top: contextEdgeMenu.top }} onInsert={() => insertOnEdge(contextEdge.id)} onDelete={() => removeEdges([contextEdge.id])} />}
+					{nodeSearchOpen && <NodeSearchOverlay project={project} onClose={() => setNodeSearchOpen(false)} onSelect={nodeId => { void focusNode(nodeId); }} />}
 					{notice && <div className="canvas-notice" role="status"><span>{notice}</span><button className="icon-button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button></div>}
 				</main>
-				{(selectedNodeId || selectedEdgeId) && <Inspector project={project} providers={providers} selectedNodeId={selectedNodeId} selectedEdgeId={selectedEdgeId} editProject={editProject} running={locked} onRunNode={runNode} onImportFiles={nodeId => vscode.postMessage({ type: 'importFiles', project: projectRef.current, revision: revisionRef.current, nodeId })} onRemoveNode={id => removeNodes([id])} onRemoveEdge={id => removeEdges([id])} onOpenOutput={path => vscode.postMessage({ type: 'openOutput', path })} />}
 			</div>
-			<SequenceBar project={project} mediaUris={mediaUris} selectedNodeId={selectedNodeId} focusedVideoId={focusedVideoId} locked={locked} onSelect={navigateToShot} onPreview={() => setSequencePreviewOpen(true)} editProject={editProject} />
-			{runPanelOpen && <RunPanel project={project} nodeIds={runReady} providers={providers} onClose={() => setRunPanelOpen(false)} onRun={() => { setRunPanelOpen(false); setRunningNodeId('workflow'); setStatus({ label: 'Starting workflow', tone: 'running' }); vscode.postMessage({ type: 'runReady', project: projectRef.current, revision: revisionRef.current }); }} />}
+			{project.sequence.length > 0 && <SequenceBar project={project} mediaUris={mediaUris} focusedVideoId={focusedVideoId} locked={locked} onSelect={navigateToShot} onPreview={() => setSequencePreviewOpen(true)} onOpenOutput={path => vscode.postMessage({ type: 'openOutput', path })} editProject={editProject} />}
 			{sequencePreviewOpen && <SequencePreviewPanel project={project} mediaUris={mediaUris} onClose={() => setSequencePreviewOpen(false)} />}
 		</div>
 	);
 }
 
+function authoredNodePosition(node: WorkflowFlowNode): AIProjectWorkflowPosition {
+	return node.type === 'media' ? node.data.node.position : node.data.group.position;
+}
+
+function samePosition(left: AIProjectWorkflowPosition, right: AIProjectWorkflowPosition): boolean {
+	return left.x === right.x && left.y === right.y;
+}
+
+function reconcileWorkflowFlowNodes(current: readonly WorkflowFlowNode[], projected: readonly WorkflowFlowNode[]): WorkflowFlowNode[] {
+	const currentById = new Map(current.map(node => [node.id, node]));
+	return projected.map(node => {
+		const previous = currentById.get(node.id);
+		if (!previous || previous.parentId !== node.parentId || !samePosition(authoredNodePosition(previous), authoredNodePosition(node))) {
+			return node;
+		}
+		if (previous.type === 'media' && node.type === 'media') {
+			return { ...previous, ...node, position: previous.position, width: previous.width, height: previous.height, measured: previous.measured, dragging: previous.dragging };
+		}
+		if (previous.type === 'shotGroup' && node.type === 'shotGroup') {
+			return { ...previous, ...node, position: previous.position, width: previous.width, height: previous.height, measured: previous.measured, dragging: previous.dragging };
+		}
+		return node;
+	});
+}
+
+function numericNodeDimension(node: WorkflowFlowNode, dimension: 'width' | 'height'): number {
+	const measured = node.measured?.[dimension];
+	if (typeof measured === 'number') {
+		return measured;
+	}
+	const styled = node.style?.[dimension];
+	if (typeof styled === 'number') {
+		return styled;
+	}
+	if (typeof styled === 'string') {
+		const parsed = Number.parseFloat(styled);
+		if (Number.isFinite(parsed)) {
+			return parsed;
+		}
+	}
+	return dimension === 'width' ? 224 : 140;
+}
+
+function workflowCanvasNodeFrames(nodes: readonly WorkflowFlowNode[]): WorkflowCanvasNodeFrame[] {
+	const nodeById = new Map(nodes.map(node => [node.id, node]));
+	return nodes.map(node => {
+		let parentId = node.parentId;
+		let x = 0;
+		let y = 0;
+		const visited = new Set<string>();
+		while (parentId && !visited.has(parentId)) {
+			visited.add(parentId);
+			const parent = nodeById.get(parentId);
+			if (!parent) {
+				break;
+			}
+			x += parent.position.x;
+			y += parent.position.y;
+			parentId = parent.parentId;
+		}
+		return {
+			id: node.id,
+			parentId: node.parentId,
+			position: node.position,
+			parentOffset: { x, y },
+			width: numericNodeDimension(node, 'width'),
+			height: numericNodeDimension(node, 'height')
+		};
+	});
+}
+
+function CanvasSnapGuides({ guides, zoom }: { readonly guides: readonly WorkflowCanvasSnapGuide[]; readonly zoom: number }): JSX.Element {
+	if (guides.length === 0) {
+		return <></>;
+	}
+	const thickness = 1 / Math.max(0.2, zoom);
+	return <ViewportPortal>
+		<svg className="canvas-snap-guides" width="1" height="1" aria-hidden="true">
+			{guides.map((guide, index) => guide.orientation === 'vertical'
+				? <line key={`v:${index}`} data-testid="workflow-snap-guide" x1={guide.x} x2={guide.x} y1={guide.y1 - 10} y2={guide.y2 + 10} strokeWidth={thickness} />
+				: <line key={`h:${index}`} data-testid="workflow-snap-guide" x1={guide.x1 - 10} x2={guide.x2 + 10} y1={guide.y} y2={guide.y} strokeWidth={thickness} />)}
+		</svg>
+	</ViewportPortal>;
+}
+
+function useWorkbenchPlacement(root: RefObject<HTMLDivElement | null>, selector: string, show: boolean, clearance: number): 'top' | 'bottom' {
+	const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
+	useLayoutEffect(() => {
+		if (!show) {
+			return;
+		}
+		let frame = 0;
+		let observer: ResizeObserver | undefined;
+		let mutationObserver: MutationObserver | undefined;
+		const updatePlacement = (): void => {
+			const element = root.current;
+			const canvas = element?.closest('.canvas');
+			const workbench = element?.querySelector<HTMLElement>(selector);
+			if (!element || !canvas || !workbench) {
+				return;
+			}
+			workbench.style.setProperty('--workflow-workbench-shift-x', '0px');
+			const nodeBounds = element.getBoundingClientRect();
+			const canvasBounds = canvas.getBoundingClientRect();
+			const workbenchBounds = workbench.getBoundingClientRect();
+			const viewport = element.closest('.react-flow')?.querySelector<HTMLElement>('.react-flow__viewport');
+			const viewportTransform = viewport ? getComputedStyle(viewport).transform : 'none';
+			const viewportScale = viewportTransform === 'none' ? 1 : Math.max(0.2, new DOMMatrix(viewportTransform).a);
+			const horizontalMargin = 8;
+			const horizontalShift = workbenchBounds.left < canvasBounds.left + horizontalMargin
+				? canvasBounds.left + horizontalMargin - workbenchBounds.left
+				: workbenchBounds.right > canvasBounds.right - horizontalMargin
+					? canvasBounds.right - horizontalMargin - workbenchBounds.right
+					: 0;
+			workbench.style.setProperty('--workflow-workbench-shift-x', `${horizontalShift / viewportScale}px`);
+			const required = workbenchBounds.height + clearance;
+			const spaceAbove = nodeBounds.top - canvasBounds.top;
+			const spaceBelow = canvasBounds.bottom - nodeBounds.bottom;
+			setPlacement(spaceBelow >= required || spaceBelow >= spaceAbove ? 'bottom' : 'top');
+		};
+		const schedulePlacement = (): void => {
+			window.cancelAnimationFrame(frame);
+			frame = window.requestAnimationFrame(updatePlacement);
+		};
+		frame = window.requestAnimationFrame(() => {
+			updatePlacement();
+			const element = root.current;
+			const workbench = element?.querySelector<HTMLElement>(selector);
+			if (element && workbench) {
+				observer = new ResizeObserver(schedulePlacement);
+				observer.observe(element);
+				observer.observe(workbench);
+				mutationObserver = new MutationObserver(schedulePlacement);
+				const flowNode = element.closest('.react-flow__node');
+				const viewport = element.closest('.react-flow')?.querySelector('.react-flow__viewport');
+				if (flowNode) {
+					mutationObserver.observe(flowNode, { attributes: true, attributeFilter: ['class', 'style'] });
+				}
+				if (viewport) {
+					mutationObserver.observe(viewport, { attributes: true, attributeFilter: ['style'] });
+				}
+			}
+		});
+		window.addEventListener('resize', schedulePlacement);
+		return () => {
+			window.cancelAnimationFrame(frame);
+			window.removeEventListener('resize', schedulePlacement);
+			observer?.disconnect();
+			mutationObserver?.disconnect();
+		};
+	}, [clearance, root, selector, show]);
+	return placement;
+}
+
 function MediaNodeCard({ data, selected }: NodeProps<MediaFlowNode>): JSX.Element {
 	const node = data.node;
-	const status = node.kind === 'text' ? data.readiness : node.status;
-	return <div className={`media-node kind-${node.kind}${selected ? ' selected' : ''}${status === 'running' ? ' running' : ''}`}>
-		<Handle type="target" position={Position.Left} aria-label={`${mediaKindLabel(node.kind)} input`} title="Input" />
-		<div className="node-header"><span className="media-kind">{mediaKindLabel(node.kind)}</span><span className={`node-status status-${status.replace(/\s+/g, '-').toLowerCase()}`}>{status}</span></div>
-		{node.kind !== 'text' && (data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <div className={`media-placeholder placeholder-${node.kind}`}>{node.kind === 'image' ? 'IMG' : node.kind === 'video' ? 'VID' : 'AUD'}</div>)}
-		<div className="node-title">{node.title}</div>
-		<div className="node-summary">{nodeSummary(node, data.summary)}</div>
-		<div className="node-footer"><span>{nodeRole(node)}</span><span>{nodeMetric(node)}</span></div>
-		<Handle type="source" position={Position.Right} aria-label={`${mediaKindLabel(node.kind)} output`} title={`${mediaKindLabel(node.kind)} output`} />
+	if (node.kind === 'text') {
+		return <TextNodeCard data={data} node={node} selected={selected} />;
+	}
+	if (node.kind === 'image') {
+		return <ImageNodeCard data={data} node={node} selected={selected} />;
+	}
+	return <GeneratedMediaNodeCard data={data} node={node} selected={selected} />;
+}
+
+function EditableNodeTitle({ data, node, className }: { readonly data: MediaNodeData; readonly node: AIProjectNode; readonly className: string }): JSX.Element {
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(node.title);
+	useEffect(() => {
+		if (!editing) {
+			setDraft(node.title);
+		}
+	}, [editing, node.title]);
+	const finish = (save: boolean): void => {
+		const title = draft.trim();
+		if (save && title && title !== node.title) {
+			data.editProject(next => updateNode(next, node.id, value => { value.title = title; }));
+		}
+		setDraft(title || node.title);
+		setEditing(false);
+	};
+	return editing
+		? <input autoFocus className={`${className}-input nodrag nopan`} aria-label={`${mediaKindLabel(node.kind)} node name`} value={draft} disabled={data.locked} onChange={event => setDraft(event.target.value)} onBlur={() => finish(true)} onDoubleClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finish(true); } else if (event.key === 'Escape') { event.preventDefault(); finish(false); } }} />
+		: <span className={className} title="Double-click to rename" onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); if (!data.locked) { setDraft(node.title); setEditing(true); } }}>{node.title}</span>;
+}
+
+function GeneratedMediaNodeCard({ data, node, selected }: { readonly data: MediaNodeData; readonly node: AIProjectVideoNode | AIProjectAudioNode; readonly selected: boolean }): JSX.Element {
+	const showWorkbench = selected && data.showActions;
+	const root = useRef<HTMLDivElement>(null);
+	const workbenchPlacement = useWorkbenchPlacement(root, '.node-workbench', showWorkbench, 12);
+	const stateLabel = data.isRunning ? 'Generating' : node.status === 'error' ? 'Failed' : node.status === 'stale' ? 'Outdated' : undefined;
+	return <div ref={root} className={`generated-node-shell kind-${node.kind}${selected ? ' selected' : ''}${data.isRunning ? ' running' : ''}`} title={selected ? undefined : `Click to select. Double-click to edit the ${node.kind} prompt.`}>
+		<div className="generated-node-label-row">
+			<EditableNodeTitle data={data} node={node} className="generated-node-title" />
+			{stateLabel && <span className={`generated-node-state${node.status === 'error' ? ' error' : ''}`} aria-live="polite">{stateLabel}</span>}
+		</div>
+		<div className="generated-node-media">
+			{data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <MediaEmptyState node={node} readiness={data.readiness} running={data.isRunning} />}
+		</div>
+		{showWorkbench && <NodeWorkbench data={data} placement={workbenchPlacement} />}
+		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label={`${mediaKindLabel(node.kind)} input`} title={`${mediaKindLabel(node.kind)} input`} />
+		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label={`${mediaKindLabel(node.kind)} output`} title={`${mediaKindLabel(node.kind)} output`} />
 	</div>;
 }
 
+function TextNodeCard({ data, node, selected }: { readonly data: MediaNodeData; readonly node: AIProjectTextNode; readonly selected: boolean }): JSX.Element {
+	const showComposer = selected && data.showActions && !data.textEditing;
+	const root = useRef<HTMLDivElement>(null);
+	const editor = useRef<HTMLDivElement>(null);
+	const composerPlacement = useWorkbenchPlacement(root, '.text-node-ai-composer', showComposer, 16);
+	useLayoutEffect(() => {
+		if (!data.textEditing || !editor.current) {
+			return;
+		}
+		editor.current.focus();
+		placeCaretAtEnd(editor.current);
+	}, [data.textEditing]);
+	const finishEditing = (save: boolean): void => {
+		const content = editor.current ? editableTextNodeMarkdown(editor.current) : node.content;
+		if (save && content !== node.content) {
+			data.editProject(next => updateNode(next, node.id, value => {
+				if (value.kind === 'text') {
+					value.content = content;
+					invalidateDownstreamNodes(next, [value.id], false);
+				}
+			}));
+		}
+		data.onFinishTextEditing();
+	};
+	return <div ref={root} className={`text-node-shell${selected ? ' selected' : ''}${data.textEditing ? ' editing' : ''}`} title={selected ? undefined : 'Click to select. Double-click the content to edit.'}>
+		<div className="text-node-label-row">
+			<svg className="text-node-label-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M3 2.5h10v11H3z" /><path d="M5.25 5h5.5M5.25 7.5h5.5M5.25 10h4" /></svg>
+			<EditableNodeTitle data={data} node={node} className="text-node-title" />
+		</div>
+		{data.textEditing && <TextNodeFormatToolbar onCommand={command => applyTextNodeFormat(editor.current, command)} />}
+		<div className={`text-node-surface${node.content.trim() ? '' : ' empty'}`}>
+			{data.textEditing
+				? <div ref={editor} className="text-node-content-scroll text-node-content-editor nodrag nopan nowheel" aria-label={`${node.title} content`} contentEditable={!data.locked} suppressContentEditableWarning spellCheck onBlur={() => finishEditing(true)} onInput={data.onTextDraftChange} onDoubleClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onKeyDown={event => {
+					if (event.key === 'Escape') {
+						event.preventDefault();
+						event.stopPropagation();
+						finishEditing(false);
+					} else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+						event.preventDefault();
+						event.stopPropagation();
+						finishEditing(true);
+					}
+				}}>{renderTextNodeMarkdown(node.content)}</div>
+				: <div className="text-node-content-scroll text-node-content-preview">{renderTextNodeMarkdown(node.content)}</div>}
+		</div>
+		{showComposer && <TextNodeAIComposer data={data} node={node} placement={composerPlacement} />}
+		{selected && !data.locked && <NodeResizeControl className="text-node-resize-control nodrag nopan" position="bottom-right" minWidth={AI_TEXT_NODE_MIN_WIDTH} minHeight={AI_TEXT_NODE_MIN_HEIGHT} maxWidth={AI_TEXT_NODE_MAX_WIDTH} maxHeight={AI_TEXT_NODE_MAX_HEIGHT} onResizeEnd={(_event, size) => data.editProject(next => updateNode(next, node.id, value => {
+			if (value.kind === 'text') {
+				value.width = Math.round(size.width);
+				value.height = Math.round(size.height);
+			}
+		}))}><svg aria-hidden="true" viewBox="0 0 12 12"><path d="m4.5 10 5.5-5.5M7.5 10l2.5-2.5" /></svg></NodeResizeControl>}
+		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label="Text input" title="Text input" />
+		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label="Text output" title="Text output" />
+	</div>;
+}
+
+type TextNodeFormatCommand = 'paragraph' | 'heading-one' | 'heading-two' | 'heading-three' | 'bold' | 'italic' | 'unordered-list' | 'ordered-list';
+
+function TextNodeFormatToolbar({ onCommand }: { readonly onCommand: (command: TextNodeFormatCommand) => void }): JSX.Element {
+	const actions: readonly { readonly command: TextNodeFormatCommand; readonly label: string; readonly title: string }[] = [
+		{ command: 'paragraph', label: 'T', title: 'Body text' },
+		{ command: 'heading-one', label: 'H1', title: 'Heading 1' },
+		{ command: 'heading-two', label: 'H2', title: 'Heading 2' },
+		{ command: 'heading-three', label: 'H3', title: 'Heading 3' },
+		{ command: 'bold', label: 'B', title: 'Bold' },
+		{ command: 'italic', label: 'I', title: 'Italic' },
+		{ command: 'unordered-list', label: '•', title: 'Bulleted list' },
+		{ command: 'ordered-list', label: '1.', title: 'Numbered list' }
+	];
+	return <div className="text-node-format-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Text formatting" onPointerDown={event => event.stopPropagation()}>
+		{actions.map(action => <button key={action.command} type="button" aria-label={action.title} title={action.title} onMouseDown={event => { event.preventDefault(); onCommand(action.command); }}>{action.label}</button>)}
+	</div>;
+}
+
+function TextNodeAIComposer({ data, node, placement }: { readonly data: MediaNodeData; readonly node: AIProjectTextNode; readonly placement: 'top' | 'bottom' }): JSX.Element {
+	const configuredServices = data.textModelServices.filter(service => service.configured);
+	const [instruction, setInstruction] = useState('');
+	const [serviceId, setServiceId] = useState(configuredServices[0]?.id ?? '');
+	useEffect(() => {
+		if (!configuredServices.some(service => service.id === serviceId)) {
+			setServiceId(configuredServices[0]?.id ?? '');
+		}
+	}, [configuredServices, serviceId]);
+	const submit = (): void => {
+		if (!configuredServices.length) {
+			return;
+		}
+		if (instruction.trim() && serviceId) {
+			data.onRunText(node.id, instruction.trim(), serviceId);
+		}
+	};
+	return <section className={`text-node-ai-composer placement-${placement} nodrag nopan nowheel`} aria-label={`${node.title} AI input`} onPointerDown={event => event.stopPropagation()}>
+		<textarea className="text-node-ai-input nodrag nopan nowheel" aria-label={`Describe how to generate or revise ${node.title}`} value={instruction} disabled={data.locked} rows={3} placeholder={configuredServices.length ? 'Describe what this node should generate or change…' : 'Configure a text model to generate or revise this node.'} onChange={event => setInstruction(event.target.value)} onKeyDown={event => {
+			if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+				event.preventDefault();
+				submit();
+			}
+		}} />
+		<div className="text-node-ai-footer">
+			{configuredServices.length
+				? <label className="text-node-model-control"><span className="sr-only">Text model</span><select aria-label="Text model" value={serviceId} disabled={data.locked} onChange={event => setServiceId(event.target.value)}>{configuredServices.map(service => <option key={service.id} value={service.id}>{service.label}</option>)}</select></label>
+				: <button type="button" className="text-node-configure-model" onClick={data.onConfigureTextModel}>Configure text model</button>}
+			{data.isRunning
+				? <button type="button" className="text-node-ai-submit cancel" aria-label="Cancel text generation" title="Cancel" onClick={data.onCancel}>×</button>
+				: <button type="button" className="text-node-ai-submit" aria-label={configuredServices.length ? `Generate ${node.title}` : 'Text model required'} title={configuredServices.length ? 'Generate (⌘Enter)' : 'Configure a text model to enable generation'} disabled={!configuredServices.length || !instruction.trim() || data.locked} onClick={submit}><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 13V3M4.5 6.5 8 3l3.5 3.5" /></svg></button>}
+		</div>
+	</section>;
+}
+
+function ImageNodeCard({ data, node, selected }: { readonly data: MediaNodeData; readonly node: AIProjectImageNode; readonly selected: boolean }): JSX.Element {
+	const readiness = nodeReadiness(data.project, node.id);
+	const showWorkbench = selected && data.showActions;
+	const root = useRef<HTMLDivElement>(null);
+	const workbenchPlacement = useWorkbenchPlacement(root, '.image-node-workbench', showWorkbench, 12);
+	const stateLabel = data.isRunning
+		? 'Generating'
+		: node.status === 'error'
+			? 'Failed'
+		: node.status === 'stale'
+				? 'Outdated'
+				: undefined;
+	return <div ref={root} className={`image-node-shell${selected ? ' selected' : ''}${data.isRunning ? ' running' : ''}`} title={selected ? undefined : 'Click to select. Double-click to edit the prompt.'}>
+		<div className="image-node-label-row">
+			<EditableNodeTitle data={data} node={node} className="image-node-title" />
+			{stateLabel && <span className={`image-node-state${node.status === 'error' ? ' error' : ''}`} aria-live="polite">{stateLabel}</span>}
+		</div>
+		<div className="image-node-media">
+			{data.previewUris?.length
+				? <ImageNodeResults uris={data.previewUris} title={node.title} />
+				: <ImageNodeEmptyState readiness={readiness.label} running={data.isRunning} />}
+		</div>
+		{showWorkbench && <ImageNodeWorkbench data={data} node={node} placement={workbenchPlacement} />}
+		<Handle id="input" className="workflow-connect-handle input" type="target" position={Position.Left} isConnectableStart={false} aria-label="Image input" title="Image input" />
+		<Handle id="output" className="workflow-connect-handle output" type="source" position={Position.Right} isConnectableEnd={false} aria-label="Image output" title="Image output" />
+	</div>;
+}
+
+function ImageNodeResults({ uris, title }: { readonly uris: readonly string[]; readonly title: string }): JSX.Element {
+	const visible = uris.slice(0, 4);
+	return <div className={`image-node-results result-count-${visible.length}`}>
+		{visible.map((uri, index) => <img key={uri} className="image-node-preview" src={uri} alt={index === 0 ? `Selected result for ${title}` : `${title} result ${index + 1}`} draggable={false} />)}
+		{uris.length > visible.length && <span className="image-node-result-overflow">+{uris.length - visible.length}</span>}
+	</div>;
+}
+
+function ImageNodeEmptyState({ readiness, running }: { readonly readiness: string; readonly running: boolean }): JSX.Element {
+	return <div className={`image-node-empty${running ? ' generating' : ''}`} aria-label={running ? 'Generating image' : readiness}>
+		<div className="image-node-empty-mark" aria-hidden="true"><span /></div>
+	</div>;
+}
+
+function ImageNodeWorkbench({ data, node, placement }: { readonly data: MediaNodeData; readonly node: AIProjectImageNode; readonly placement: 'top' | 'bottom' }): JSX.Element {
+	const compatibleProviders = data.providers.filter(provider => provider.kinds.includes('image'));
+	const readiness = nodeReadiness(data.project, node.id);
+	const message = data.isRunning
+		? 'Generating a new result. The previous result and run history are preserved.'
+		: node.error
+			? node.error
+			: readiness.ready || readiness.label === 'Needs prompt' ? undefined : readiness.reason ?? readiness.label;
+	return <section className={`image-node-workbench placement-${placement} nodrag nopan nowheel${data.detailView ? ' detail-open' : ''}`} aria-label={`${node.title} controls`} onPointerDown={event => event.stopPropagation()}>
+		{data.detailView === 'runs'
+			? <div className="image-node-workbench-detail"><ImageNodeDetailHeading title="Run history" description="Choose which result this workflow uses." onBack={() => data.onShowComposer(node.id)} /><RunHistory node={node} editProject={data.editProject} onOpenOutput={data.onOpenOutput} /></div>
+			: data.detailView === 'settings'
+				? <div className="image-node-workbench-detail"><ImageNodeSettings data={data} node={node} providers={compatibleProviders} onBack={() => data.onShowComposer(node.id)} /></div>
+				: <>
+					{message && <div className={`image-node-message${node.status === 'error' ? ' error' : ''}`} role="status">{message}</div>}
+					{node.source === 'generate'
+						? <textarea className="image-node-prompt nodrag nopan nowheel" aria-label={`${node.title} prompt`} rows={4} value={node.prompt} disabled={data.locked} placeholder="Describe the subject, action, framing, light, and visual style…" onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.prompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} />
+						: <div className="image-node-local-picker"><span>{node.inputFiles.length ? `${node.inputFiles.length} local image${node.inputFiles.length === 1 ? '' : 's'} selected` : 'Choose an image from this project.'}</span><button disabled={data.locked} onClick={() => data.onImportFiles(node.id)}>Choose files</button></div>}
+					<div className="image-node-execution-strip">
+						{node.source === 'generate' && <select className="image-node-provider" aria-label="Image model service" value={node.provider} disabled={data.locked} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.provider = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))}>{compatibleProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select>}
+						<button className="image-node-output-settings" disabled={data.locked} title="Open image settings" onClick={() => data.onShowDetail(node.id, 'settings')}>{node.aspectRatio} · {node.count} {node.count === 1 ? 'image' : 'images'}</button>
+						{node.runs.length > 0 && <button className="image-node-history" disabled={data.locked} onClick={() => data.onShowDetail(node.id, 'runs')}>History {node.runs.length}</button>}
+						{node.source === 'generate' && <button className={`node-run-button${data.isRunning ? ' cancel' : ''}`} disabled={!data.isRunning && !data.canRun} title={!data.isRunning && !data.canRun ? readiness.reason ?? readiness.label : undefined} onClick={() => data.isRunning ? data.onCancel() : data.onRun(node.id)}>{data.isRunning ? 'Cancel' : 'Run'}</button>}
+					</div>
+				</>}
+	</section>;
+}
+
+function ImageNodeDetailHeading({ title, description, onBack }: { readonly title: string; readonly description: string; readonly onBack: () => void }): JSX.Element {
+	return <div className="image-node-panel-heading"><button onClick={onBack}>Prompt</button><span><strong>{title}</strong><small>{description}</small></span></div>;
+}
+
+function ImageNodeSettings({ data, node, providers, onBack }: { readonly data: MediaNodeData; readonly node: AIProjectImageNode; readonly providers: readonly AIMediaProviderOption[]; readonly onBack: () => void }): JSX.Element {
+	return <div className="image-node-settings">
+		<ImageNodeDetailHeading title="Image settings" description="These values apply to the next run only." onBack={onBack} />
+		<div className="image-node-settings-grid">
+			<Field label="Source"><select value={node.source} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.source = event.target.value as AIProjectExecutableNode['source']; invalidateDownstreamNodes(next, [value.id]); }))}><option value="generate">Generate with AI</option><option value="local">Use local media</option></select></Field>
+			<Field label="Frame"><input value={node.aspectRatio} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'image') { value.aspectRatio = event.target.value; invalidateDownstreamNodes(next, [value.id]); } }))} /></Field>
+			{node.source === 'generate' && <><Field label="Model service"><select value={node.provider} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.provider = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))}>{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></Field><Field label="Model"><input value={node.model} placeholder="auto" onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.model = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field><Field label="Results"><input type="number" min="1" max="16" value={node.count} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'image') { value.count = numberInput(event.target.value, 1); invalidateDownstreamNodes(next, [value.id]); } }))} /></Field></>}
+		</div>
+		{node.source === 'generate' && <Field label="Avoid"><textarea rows={3} value={node.negativePrompt} placeholder="Optional details to exclude from the result" onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.negativePrompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field>}
+		<div className="image-node-inputs-row"><span><strong>{node.source === 'local' ? 'Local images' : 'Reference images'}</strong><small>{node.inputFiles.length ? `${node.inputFiles.length} file${node.inputFiles.length === 1 ? '' : 's'} attached` : 'No files attached'}</small></span><div><button onClick={() => data.onImportFiles(node.id)}>Import</button>{node.inputFiles.length > 0 && <button onClick={() => data.editProject(next => updateExecutable(next, node.id, value => { value.inputFiles = []; invalidateDownstreamNodes(next, [value.id]); }))}>Clear</button>}</div></div>
+	</div>;
+}
+
+function MediaEmptyState({ node, readiness, running }: { readonly node: AIProjectExecutableNode; readonly readiness: string; readonly running: boolean }): JSX.Element {
+	const label = running ? `Generating ${node.kind}` : node.source === 'local' ? `Import ${node.kind}` : readiness;
+	return <div className={`media-empty-state placeholder-${node.kind}${running ? ' generating' : ''}`} aria-label={label}><div className="media-empty-visual" aria-hidden="true">{node.kind === 'audio' ? <><i /><i /><i /><i /><i /><i /><i /></> : <span />}</div></div>;
+}
+
+function NodeWorkbench({ data, placement }: { readonly data: MediaNodeData; readonly placement: 'top' | 'bottom' }): JSX.Element {
+	const node = data.node;
+	if (node.kind !== 'video' && node.kind !== 'audio') {
+		return <></>;
+	}
+	const compatibleProviders = data.providers.filter(provider => provider.kinds.includes(node.kind));
+	const readiness = nodeReadiness(data.project, node.id);
+	const message = data.isRunning
+		? `Generating ${node.kind}. The previous result and history are preserved.`
+		: node.error
+			? node.error
+			: readiness.ready || readiness.label === 'Needs prompt' ? undefined : readiness.reason ?? readiness.label;
+	const settingsSummary = node.kind === 'video' ? `${node.aspectRatio} · ${node.durationSeconds}s` : `${roleLabel(node.role)} · ${node.durationSeconds}s`;
+	return <section className={`node-workbench placement-${placement} nodrag nopan nowheel${data.detailView ? ' detail-open' : ''}`} aria-label={`${node.title} controls`} onPointerDown={event => event.stopPropagation()}>
+		{data.detailView === 'runs'
+			? <div className="node-workbench-detail"><ImageNodeDetailHeading title="Run history" description="Choose which result this workflow uses." onBack={() => data.onShowComposer(node.id)} /><RunHistory node={node} editProject={data.editProject} onOpenOutput={data.onOpenOutput} /></div>
+			: data.detailView === 'settings'
+				? <div className="node-workbench-detail"><GeneratedNodeSettings data={data} node={node} providers={compatibleProviders} onBack={() => data.onShowComposer(node.id)} /></div>
+				: <>
+					{message && <div className={`node-composer-status${node.status === 'error' ? ' error' : ''}`} role="status">{message}</div>}
+					{node.source === 'generate'
+						? <textarea className="node-prompt-input" rows={4} value={node.prompt} disabled={data.locked} placeholder={node.kind === 'video' ? 'Describe movement, camera, timing, and sound.' : 'Describe the voice, music, or sound you want.'} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.prompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} />
+						: <div className="node-local-input"><span>{node.inputFiles.length ? `${node.inputFiles.length} local file${node.inputFiles.length === 1 ? '' : 's'} selected` : `Choose ${node.kind} from this project.`}</span><button disabled={data.locked} onClick={() => data.onImportFiles(node.id)}>Choose files</button></div>}
+					<div className="node-execution-strip">
+						{node.source === 'generate' && <select className="node-provider" aria-label={`${mediaKindLabel(node.kind)} model service`} value={node.provider} disabled={data.locked} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.provider = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))}>{compatibleProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select>}
+						<button className="node-settings-button" disabled={data.locked} title={`Open ${node.kind} settings`} onClick={() => data.onShowDetail(node.id, 'settings')}>{settingsSummary}</button>
+						{node.runs.length > 0 && <button className="node-history-button" disabled={data.locked} onClick={() => data.onShowDetail(node.id, 'runs')}>History {node.runs.length}</button>}
+						{node.kind === 'video' && !data.project.sequence.some(item => item.videoNodeId === node.id) && <button className="node-sequence-button" disabled={data.locked} onClick={() => data.onAddToSequence(node.id)}>Add to clips</button>}
+						{node.source === 'local' && <button className="node-settings-button" disabled={data.locked} onClick={() => data.onShowDetail(node.id, 'settings')}>Settings</button>}
+						<button className={`node-run-button${data.isRunning ? ' cancel' : ''}`} disabled={!data.isRunning && !data.canRun} title={!data.isRunning && !data.canRun ? readiness.reason ?? readiness.label : undefined} onClick={() => data.isRunning ? data.onCancel() : data.onRun(node.id)}>{data.isRunning ? 'Cancel' : 'Run'}</button>
+					</div>
+				</>}
+	</section>;
+}
+
+function GeneratedNodeSettings({ data, node, providers, onBack }: { readonly data: MediaNodeData; readonly node: AIProjectVideoNode | AIProjectAudioNode; readonly providers: readonly AIMediaProviderOption[]; readonly onBack: () => void }): JSX.Element {
+	const provider = providers.find(candidate => candidate.id === node.provider);
+	return <div className="generated-node-settings">
+		<ImageNodeDetailHeading title={`${mediaKindLabel(node.kind)} settings`} description="These values apply to the next run only." onBack={onBack} />
+		<div className="image-node-settings-grid">
+			<Field label="Source"><select value={node.source} disabled={data.locked} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.source = event.target.value as AIProjectExecutableNode['source']; invalidateDownstreamNodes(next, [value.id]); }))}><option value="generate">Generate with AI</option><option value="local">Use local media</option></select></Field>
+			{node.source === 'generate' && <><Field label="Model service"><select value={node.provider} disabled={data.locked} onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.provider = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))}>{providers.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></Field><Field label="Model"><input value={node.model} disabled={data.locked} placeholder="auto" onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.model = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field></>}
+		</div>
+		{node.kind === 'video' ? <VideoSettings node={node} provider={provider} editProject={data.editProject} /> : <AudioSettings node={node} editProject={data.editProject} />}
+		{node.source === 'generate' && <Field label="Avoid"><textarea rows={3} value={node.negativePrompt} disabled={data.locked} placeholder="Optional details to exclude from the result" onChange={event => data.editProject(next => updateExecutable(next, node.id, value => { value.negativePrompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field>}
+		<div className="image-node-inputs-row"><span><strong>{node.source === 'local' ? 'Local media' : 'References'}</strong><small>{node.inputFiles.length ? `${node.inputFiles.length} file${node.inputFiles.length === 1 ? '' : 's'} attached` : 'No files attached'}</small></span><div><button disabled={data.locked} onClick={() => data.onImportFiles(node.id)}>Import</button>{node.inputFiles.length > 0 && <button disabled={data.locked} onClick={() => data.editProject(next => updateExecutable(next, node.id, value => { value.inputFiles = []; invalidateDownstreamNodes(next, [value.id]); }))}>Clear</button>}</div></div>
+	</div>;
+}
+
+function WorkflowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, selected, data }: EdgeProps<WorkflowFlowEdge>): JSX.Element {
+	const [path, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+	const actionX = data?.actionPosition?.x ?? labelX;
+	const actionY = data?.actionPosition?.y ?? labelY;
+	return <>
+		<BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+		<foreignObject className={`workflow-edge-add-object${selected ? ' visible' : ''}`} x={actionX - 11} y={actionY - 11} width={22} height={22}>
+			<button className="workflow-edge-add nodrag nopan" aria-label="Insert node on connection" title="Insert node" onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); data?.onInsert(id, event.clientX, event.clientY); }}>+</button>
+		</foreignObject>
+	</>;
+}
+
 function ShotGroupCard({ data }: NodeProps<GroupFlowNode>): JSX.Element {
-	return <div className="shot-group-card"><div><strong>{data.group.title}</strong><span>{data.group.description || 'One clip production pipeline'}</span></div></div>;
+	return <div className="shot-group-card"><div className="shot-group-drag-handle"><strong>{data.group.title}</strong>{data.group.description && <span>{data.group.description}</span>}</div></div>;
 }
 
 function MediaPreview({ uri, kind, title }: { readonly uri: string; readonly kind: AIProjectMediaKind; readonly title: string }): JSX.Element {
@@ -764,144 +1648,142 @@ function MediaPreview({ uri, kind, title }: { readonly uri: string; readonly kin
 	if (kind === 'audio') {
 		return <audio className="node-audio nodrag nopan" src={uri} controls preload="metadata" />;
 	}
-	return <div className="media-placeholder placeholder-text">T</div>;
+	return <div className="media-empty-state"><strong>Preview unavailable</strong></div>;
 }
 
-function AddMenu({ onAdd, onAddShot, contextPosition }: { readonly onAdd: (kind: AIProjectMediaKind) => void; readonly onAddShot: () => void; readonly contextPosition?: { readonly left: number; readonly top: number } }): JSX.Element {
-	return <div className={`add-menu${contextPosition ? ' context' : ''}`} style={contextPosition} role="menu">
-		<div className="menu-label">Media</div>
-		{(['text', 'image', 'video', 'audio'] as const).map(kind => <button key={kind} role="menuitem" onClick={() => onAdd(kind)}><span className={`menu-kind kind-${kind}`}>{kind === 'text' ? 'T' : kind === 'image' ? 'I' : kind === 'video' ? 'V' : 'A'}</span><span><strong>{mediaKindLabel(kind)}</strong><small>{addDescription(kind)}</small></span></button>)}
-		<div className="menu-label structure-label">Structure</div>
-		<button role="menuitem" onClick={onAddShot}><span className="menu-kind">S</span><span><strong>Shot Group</strong><small>Storyboard to one ordered clip</small></span></button>
+function AddMenu({ mode, onAdd, onAddShot, onFind, onUndo, onRedo, canUndo = false, canRedo = false, kinds = mediaKinds, sourceTitle, contextPosition }: {
+	readonly mode: CanvasContextMenuState['mode'];
+	readonly onAdd: (kind: AIProjectMediaKind) => void;
+	readonly onAddShot?: () => void;
+	readonly onFind?: () => void;
+	readonly onUndo?: () => void;
+	readonly onRedo?: () => void;
+	readonly canUndo?: boolean;
+	readonly canRedo?: boolean;
+	readonly kinds?: readonly AIProjectMediaKind[];
+	readonly sourceTitle?: string;
+	readonly contextPosition?: { readonly left: number; readonly top: number };
+}): JSX.Element {
+	const firstItem = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		firstItem.current?.focus();
+	}, []);
+	const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+		if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+			return;
+		}
+		const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')];
+		if (!items.length) {
+			return;
+		}
+		event.preventDefault();
+		const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+		const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : event.key === 'ArrowUp'
+			? (currentIndex <= 0 ? items.length - 1 : currentIndex - 1)
+			: (currentIndex + 1) % items.length;
+		items[index]?.focus();
+	};
+	return <div className={`add-menu${contextPosition ? ' context' : ''} mode-${mode}`} style={contextPosition} role="menu" aria-label={mode === 'connect' ? `Create after ${sourceTitle ?? 'node'}` : mode === 'insert' ? 'Insert node on connection' : 'Add to workflow'} onKeyDown={moveFocus}>
+		{mode === 'context' && <><div className="menu-label">Canvas</div>{onFind && <button ref={firstItem} role="menuitem" onClick={onFind}><span className="menu-shortcut">⌘F</span><span><strong>Find node</strong><small>Search titles, text, and prompts</small></span></button>}<div className="menu-inline-actions"><button role="menuitem" disabled={!canUndo} onClick={onUndo}>Undo</button><button role="menuitem" disabled={!canRedo} onClick={onRedo}>Redo</button></div><div className="context-separator" /></>}
+		<div className="menu-label">{mode === 'connect' ? 'Create next node' : mode === 'insert' ? 'Insert node' : mode === 'quick' ? 'Add node' : 'Media'}</div>
+		{(mode === 'connect' || mode === 'insert') && sourceTitle && <div className="menu-context-source" title={sourceTitle}>{mode === 'insert' ? 'On connection from' : 'From'} <strong>{sourceTitle}</strong></div>}
+		{kinds.map((kind, index) => <button ref={mode !== 'context' && index === 0 ? firstItem : undefined} key={kind} role="menuitem" onClick={() => onAdd(kind)}><span className={`menu-kind kind-${kind}`}>{kind === 'text' ? 'T' : kind === 'image' ? 'I' : kind === 'video' ? 'V' : 'A'}</span><span><strong>{mediaKindLabel(kind)}</strong><small>{addDescription(kind)}</small></span></button>)}
+		{onAddShot && <><div className="menu-label structure-label">Structure</div><button role="menuitem" onClick={onAddShot}><span className="menu-kind">S</span><span><strong>Shot Group</strong><small>Storyboard to one ordered clip</small></span></button></>}
 	</div>;
 }
 
-function NodeContextMenu({ position, node, canRun, onOpen, onRun, onFocus, onDelete }: {
+function NodeContextMenu({ position, node, inSequence, onEdit, onOpenOutput, onDuplicate, onImport, onAddToSequence, onFocus, onDelete }: {
 	readonly position: { readonly left: number; readonly top: number };
 	readonly node: AIProjectNode;
-	readonly canRun: boolean;
-	readonly onOpen: () => void;
-	readonly onRun: () => void;
+	readonly inSequence: boolean;
+	readonly onEdit: () => void;
+	readonly onOpenOutput?: () => void;
+	readonly onDuplicate: () => void;
+	readonly onImport?: () => void;
+	readonly onAddToSequence?: () => void;
 	readonly onFocus?: () => void;
 	readonly onDelete: () => void;
 }): JSX.Element {
 	return <div className="node-context-menu" style={position} role="menu" aria-label={`${node.title} actions`}>
-		<button role="menuitem" onClick={onOpen}>Edit details</button>
+		<button role="menuitem" onClick={onEdit}>{node.kind === 'image' ? 'Edit prompt' : node.kind === 'text' ? 'Edit text' : 'Edit node'}</button>
+		{onOpenOutput && <button role="menuitem" onClick={onOpenOutput}>Open result</button>}
+		<button role="menuitem" onClick={onDuplicate}>Duplicate</button>
+		{onImport && <button role="menuitem" onClick={onImport}>{node.kind === 'image' ? 'Import image' : 'Import media'}</button>}
+		{onAddToSequence && <button role="menuitem" onClick={onAddToSequence}>Add to clips</button>}
+		{node.kind === 'video' && inSequence && <button role="menuitem" disabled>Already in clips</button>}
 		{onFocus && <button role="menuitem" onClick={onFocus}>Focus shot</button>}
-		{canRun && <button role="menuitem" onClick={onRun}>Run node</button>}
 		<div className="context-separator" />
 		<button className="danger" role="menuitem" onClick={onDelete}>Delete node</button>
 	</div>;
 }
 
-function EdgeContextMenu({ position, onOpen, onDelete }: {
+function EdgeContextMenu({ position, onInsert, onDelete }: {
 	readonly position: { readonly left: number; readonly top: number };
-	readonly onOpen: () => void;
+	readonly onInsert: () => void;
 	readonly onDelete: () => void;
 }): JSX.Element {
 	return <div className="node-context-menu" style={position} role="menu" aria-label="Connection actions">
-		<button role="menuitem" onClick={onOpen}>Inspect connection</button>
-		<div className="context-separator" />
+		<button role="menuitem" onClick={onInsert}>Insert node</button>
 		<button className="danger" role="menuitem" onClick={onDelete}>Remove connection</button>
 	</div>;
 }
 
-function Inspector({ project, providers, selectedNodeId, selectedEdgeId, editProject, running, onRunNode, onImportFiles, onRemoveNode, onRemoveEdge, onOpenOutput }: {
-	readonly project: AIProject;
-	readonly providers: readonly AIMediaProviderOption[];
-	readonly selectedNodeId: string | undefined;
-	readonly selectedEdgeId: string | undefined;
-	readonly editProject: (mutation: ProjectMutation) => void;
-	readonly running: boolean;
-	readonly onRunNode: (id: string) => void;
-	readonly onImportFiles: (id: string) => void;
-	readonly onRemoveNode: (id: string) => void;
-	readonly onRemoveEdge: (id: string) => void;
-	readonly onOpenOutput: (path: string) => void;
-}): JSX.Element {
-	const edge = selectedEdgeId ? project.edges.find(candidate => candidate.id === selectedEdgeId) : undefined;
-	if (edge) {
-		return <aside className="inspector"><InspectorHeader title={`${mediaKindLabel(edge.media)} connection`} subtitle={`${nodeById(project, edge.source)?.title ?? edge.source} to ${nodeById(project, edge.target)?.title ?? edge.target}`} /><div className="inspector-scroll"><p className="inspector-copy">This connection passes the selected {edge.media} result downstream.</p><button className="button danger full" onClick={() => onRemoveEdge(edge.id)}>Remove connection</button></div></aside>;
-	}
-	const node = selectedNodeId ? nodeById(project, selectedNodeId) : undefined;
-	if (!node) {
-		return <aside className="inspector" />;
-	}
-	return <aside className="inspector">
-		<InspectorHeader title={node.title} subtitle={`${mediaKindLabel(node.kind)} · ${nodeRole(node)}`} />
-		<div className="inspector-scroll">
-			<Field label="Name"><input value={node.title} onChange={event => editProject(next => updateNode(next, node.id, value => { value.title = event.target.value; }))} /></Field>
-			{node.kind === 'text' ? <TextFields project={project} node={node} editProject={editProject} onImportFiles={onImportFiles} /> : <MediaFields project={project} node={node} providers={providers} editProject={editProject} onImportFiles={onImportFiles} />}
-			{isExecutableNode(node) && <RunHistory project={project} node={node} running={running} editProject={editProject} onRunNode={onRunNode} onOpenOutput={onOpenOutput} />}
-			<details className="more-actions"><summary>More actions</summary><button className="button danger full" onClick={() => onRemoveNode(node.id)}>Delete node</button></details>
-		</div>
-	</aside>;
-}
-
-function InspectorHeader({ title, subtitle }: { readonly title: string; readonly subtitle: string }): JSX.Element {
-	return <div className="inspector-header"><h2>{title}</h2><p>{subtitle}</p></div>;
-}
-
-function TextFields({ project, node, editProject, onImportFiles }: { readonly project: AIProject; readonly node: AIProjectTextNode; readonly editProject: (mutation: ProjectMutation) => void; readonly onImportFiles: (id: string) => void }): JSX.Element {
-	return <>
-		<Field label="Purpose"><select value={node.role} onChange={event => editProject(next => updateNode(next, node.id, value => { if (value.kind === 'text') { value.role = event.target.value as AIProjectTextNode['role']; invalidateDownstreamNodes(next, [value.id]); } }))}>{['brief', 'script', 'storyboard', 'imagePrompt', 'videoPrompt', 'dialogue', 'note'].map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}</select></Field>
-		<Field label="Content"><textarea rows={18} value={node.content} placeholder="Write here, import content, or ask the Agent to fill this block." onChange={event => editProject(next => updateNode(next, node.id, value => { if (value.kind === 'text') { value.content = event.target.value; invalidateDownstreamNodes(next, [value.id]); } }))} /></Field>
-		<button className="text-button import-files" onClick={() => onImportFiles(node.id)}>Import text files…</button>
-		<div className="derived-note"><strong>Downstream context</strong><span>{project.edges.filter(edge => edge.source === node.id).length} connected nodes use this text.</span></div>
-	</>;
-}
-
-function MediaFields({ project, node, providers, editProject, onImportFiles }: { readonly project: AIProject; readonly node: AIProjectExecutableNode; readonly providers: readonly AIMediaProviderOption[]; readonly editProject: (mutation: ProjectMutation) => void; readonly onImportFiles: (id: string) => void }): JSX.Element {
-	const compatibleProviders = providers.filter(provider => provider.kinds.includes(node.kind));
-	const provider = compatibleProviders.find(candidate => candidate.id === node.provider);
-	return <>
-		<div className="readiness-card"><strong>{nodeReadiness(project, node.id).label}</strong><span>{nodeReadiness(project, node.id).reason ?? 'This node has the inputs required for its next run.'}</span></div>
-		<Field label="Source"><select value={node.source} onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.source = event.target.value as AIProjectExecutableNode['source']; invalidateDownstreamNodes(next, [value.id]); }))}><option value="generate">Generate with AI</option><option value="local">Use local media</option></select></Field>
-		{node.source === 'generate' && <>
-			<Field label="Node-specific instructions"><textarea rows={7} value={node.prompt} placeholder="Connected Text blocks are included automatically. Add only instructions specific to this node." onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.prompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field>
-			<div className="prompt-preview"><strong>Effective prompt</strong><pre>{nodePrompt(project, node.id) || 'Connect a Text block or write node-specific instructions.'}</pre></div>
-			<Field label="Avoid"><textarea rows={3} value={node.negativePrompt} onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.negativePrompt = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field>
-			<Field label="Model service"><select value={node.provider} onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.provider = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))}>{compatibleProviders.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></Field>
-			<Field label="Model"><input value={node.model} placeholder="auto" onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.model = event.target.value; invalidateDownstreamNodes(next, [value.id]); }))} /></Field>
-		</>}
-		<Field label={node.source === 'local' ? 'Local project files' : 'Additional local inputs'}><textarea rows={4} value={node.inputFiles.join('\n')} placeholder="One relative project path per line" onChange={event => editProject(next => updateExecutable(next, node.id, value => { value.inputFiles = lines(event.target.value); invalidateDownstreamNodes(next, [value.id]); }))} /></Field>
-		<button className="text-button import-files" onClick={() => onImportFiles(node.id)}>Import media files…</button>
-		{node.kind === 'image' && <ImageSettings node={node} editProject={editProject} />}
-		{node.kind === 'video' && <VideoSettings node={node} provider={provider} editProject={editProject} />}
-		{node.kind === 'audio' && <AudioSettings node={node} editProject={editProject} />}
-	</>;
-}
-
-function ImageSettings({ node, editProject }: { readonly node: AIProjectImageNode; readonly editProject: (mutation: ProjectMutation) => void }): JSX.Element {
-	return <InspectorSection title="Image settings"><div className="field-row"><Field label="Frame"><input value={node.aspectRatio} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'image') { value.aspectRatio = event.target.value; } }))} /></Field><Field label="Results"><input type="number" min="1" max="16" value={node.count} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'image') { value.count = numberInput(event.target.value, 1); } }))} /></Field></div></InspectorSection>;
+function NodeSearchOverlay({ project, onClose, onSelect }: { readonly project: AIProject; readonly onClose: () => void; readonly onSelect: (nodeId: string) => void }): JSX.Element {
+	const [query, setQuery] = useState('');
+	const [kind, setKind] = useState<AIProjectMediaKind | 'all'>('all');
+	const input = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		input.current?.focus();
+	}, []);
+	const normalized = query.trim().toLowerCase();
+	const matches = project.nodes.filter(node => {
+		if (kind !== 'all' && node.kind !== kind) {
+			return false;
+		}
+		if (!normalized) {
+			return true;
+		}
+		const searchable = node.kind === 'text' ? `${node.title}\n${node.content}` : `${node.title}\n${node.prompt}\n${node.inputFiles.join('\n')}`;
+		return searchable.toLowerCase().includes(normalized);
+	});
+	return <div className="node-search-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { onClose(); } }}>
+		<section className="node-search-panel" role="dialog" aria-modal="true" aria-labelledby="node-search-title">
+			<header><strong id="node-search-title">Find node</strong><button className="icon-button" aria-label="Close node search" onClick={onClose}>×</button></header>
+			<input ref={input} className="node-search-input" value={query} placeholder="Search title, text, or prompt" onChange={event => setQuery(event.target.value)} />
+			<div className="node-search-filters" role="group" aria-label="Filter by media type">{(['all', ...mediaKinds] as const).map(value => <button key={value} className={kind === value ? 'active' : undefined} aria-pressed={kind === value} onClick={() => setKind(value)}>{value === 'all' ? 'All' : mediaKindLabel(value)}</button>)}</div>
+			<div className="node-search-results" role="listbox" aria-label="Workflow nodes">{matches.length
+				? matches.map(node => <button key={node.id} role="option" onClick={() => onSelect(node.id)}><span className={`menu-kind kind-${node.kind}`}>{node.kind === 'text' ? 'T' : node.kind === 'image' ? 'I' : node.kind === 'video' ? 'V' : 'A'}</span><span><strong>{node.title}</strong><small>{nodeSummary(node, node.kind === 'text' ? node.content : node.prompt)}</small></span></button>)
+				: <p className="node-search-empty">No matching nodes</p>}</div>
+		</section>
+	</div>;
 }
 
 function VideoSettings({ node, provider, editProject }: { readonly node: AIProjectVideoNode; readonly provider: AIMediaProviderOption | undefined; readonly editProject: (mutation: ProjectMutation) => void }): JSX.Element {
-	return <InspectorSection title="Video settings"><div className="field-row"><Field label="Frame"><input value={node.aspectRatio} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.aspectRatio = event.target.value; } }))} /></Field><Field label="Seconds"><input type="number" min="1" max="120" value={node.durationSeconds} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.durationSeconds = numberInput(event.target.value, 5); } }))} /></Field></div><Field label="Audio"><select value={node.audioMode} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.audioMode = event.target.value as AIProjectVideoNode['audioMode']; } }))}><option value="auto">Auto</option><option value="generate" disabled={provider?.supportsNativeAudio !== true}>Generate with video</option><option value="none">No audio</option></select></Field>{node.audioMode === 'generate' && provider?.supportsNativeAudio !== true && <div className="inline-warning">The selected model service does not report native-audio support.</div>}</InspectorSection>;
+	return <><div className="field-row"><Field label="Frame"><input value={node.aspectRatio} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.aspectRatio = event.target.value; } }))} /></Field><Field label="Seconds"><input type="number" min="1" max="120" value={node.durationSeconds} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.durationSeconds = numberInput(event.target.value, 5); } }))} /></Field></div><Field label="Audio"><select value={node.audioMode} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'video') { value.audioMode = event.target.value as AIProjectVideoNode['audioMode']; } }))}><option value="auto">Auto</option><option value="generate" disabled={provider?.supportsNativeAudio !== true}>Generate with video</option><option value="none">No audio</option></select></Field>{node.audioMode === 'generate' && provider?.supportsNativeAudio !== true && <div className="inline-warning">The selected model service does not report native-audio support.</div>}</>;
 }
 
 function AudioSettings({ node, editProject }: { readonly node: AIProjectAudioNode; readonly editProject: (mutation: ProjectMutation) => void }): JSX.Element {
-	return <InspectorSection title="Audio settings"><div className="field-row"><Field label="Purpose"><select value={node.role} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.role = event.target.value as AIProjectAudioNode['role']; } }))}><option value="voice">Voice</option><option value="music">Music</option><option value="effect">Sound effect</option><option value="reference">Reference</option></select></Field><Field label="Seconds"><input type="number" min="1" max="3600" value={node.durationSeconds} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.durationSeconds = numberInput(event.target.value, 5); } }))} /></Field></div><Field label="Voice"><input value={node.voice} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.voice = event.target.value; } }))} /></Field></InspectorSection>;
+	return <><div className="field-row"><Field label="Purpose"><select value={node.role} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.role = event.target.value as AIProjectAudioNode['role']; } }))}><option value="voice">Voice</option><option value="music">Music</option><option value="effect">Sound effect</option><option value="reference">Reference</option></select></Field><Field label="Seconds"><input type="number" min="1" max="3600" value={node.durationSeconds} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.durationSeconds = numberInput(event.target.value, 5); } }))} /></Field></div><Field label="Voice"><input value={node.voice} onChange={event => editProject(next => updateExecutable(next, node.id, value => { if (value.kind === 'audio') { value.voice = event.target.value; } }))} /></Field></>;
 }
 
-function RunHistory({ project, node, running, editProject, onRunNode, onOpenOutput }: { readonly project: AIProject; readonly node: AIProjectExecutableNode; readonly running: boolean; readonly editProject: (mutation: ProjectMutation) => void; readonly onRunNode: (id: string) => void; readonly onOpenOutput: (path: string) => void }): JSX.Element {
-	const readiness = nodeReadiness(project, node.id);
-	return <InspectorSection title="Runs">
-		<button className="button primary full run-node" disabled={running || node.source === 'local' || !readiness.ready} title={!readiness.ready ? readiness.reason : undefined} onClick={() => onRunNode(node.id)}>Run this {node.kind}</button>
+function RunHistory({ node, editProject, onOpenOutput }: { readonly node: AIProjectExecutableNode; readonly editProject: (mutation: ProjectMutation) => void; readonly onOpenOutput: (path: string) => void }): JSX.Element {
+	return <>
 		{node.error && <div className="inline-error">{node.error}</div>}
 		{node.runs.length ? <div className="run-history">{[...node.runs].reverse().map(run => <div key={run.id} className={`run-record${selectedRun(node)?.id === run.id ? ' selected' : ''}`}><button className="run-select" onClick={() => editProject(next => updateExecutable(next, node.id, value => { value.selectedRunId = run.id; invalidateDownstreamNodes(next, [value.id], false); }))}><strong>{formatRunTime(run.createdAt)}</strong><span>{run.provider} · {run.status}</span></button><div className="run-outputs">{run.outputs.map(output => <button key={output} className="output-link" title={output} onClick={() => onOpenOutput(output)}>{output.split('/').at(-1)}</button>)}</div></div>)}</div> : <p className="muted">No runs yet. Every completed run will remain here.</p>}
-	</InspectorSection>;
+	</>;
 }
 
-function SequenceBar({ project, mediaUris, selectedNodeId, focusedVideoId, locked, onSelect, onPreview, editProject }: { readonly project: AIProject; readonly mediaUris: Readonly<Record<string, string>>; readonly selectedNodeId: string | undefined; readonly focusedVideoId: string | undefined; readonly locked: boolean; readonly onSelect: (id: string) => void; readonly onPreview: () => void; readonly editProject: (mutation: ProjectMutation) => void }): JSX.Element {
-	const selectedVideo = selectedNodeId ? nodeById(project, selectedNodeId) : undefined;
-	const canAddSelected = selectedVideo?.kind === 'video' && !project.sequence.some(item => item.videoNodeId === selectedVideo.id);
+function SequenceBar({ project, mediaUris, focusedVideoId, locked, onSelect, onPreview, onOpenOutput, editProject }: { readonly project: AIProject; readonly mediaUris: Readonly<Record<string, string>>; readonly focusedVideoId: string | undefined; readonly locked: boolean; readonly onSelect: (id: string) => void; readonly onPreview: () => void; readonly onOpenOutput: (path: string) => void; readonly editProject: (mutation: ProjectMutation) => void }): JSX.Element {
+	const [expanded, setExpanded] = useState(false);
 	const playableCount = playableSequenceClips(project, mediaUris).length;
-	return <section className="sequence-bar" aria-label="Clip playback sequence"><div className="sequence-heading"><strong>Sequence</strong><span>Playback order only</span></div><div className="sequence-items">{project.sequence.length ? project.sequence.map((item, index) => {
+	return <section className={`sequence-bar${expanded ? ' expanded' : ' collapsed'}`} aria-label="Clip playback sequence">
+		<div className="sequence-summary"><button className="sequence-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span className="sequence-chevron" aria-hidden="true">›</span><strong>Clips</strong><span>{project.sequence.length}</span><small>{playableCount} ready</small></button>{playableCount === project.sequence.length && <button className="sequence-preview-button" title="Play selected clip results in order" onClick={onPreview}>Preview</button>}</div>
+		{expanded && <><div className="sequence-items">{project.sequence.map((item, index) => {
 		const node = nodeById(project, item.videoNodeId);
 		if (node?.kind !== 'video') { return null; }
 		return <div key={item.id} className={`sequence-item${focusedVideoId === node.id ? ' selected' : ''}`}><button className="sequence-main" onClick={() => onSelect(node.id)}><span>{index + 1}</span><strong>{project.groups.find(group => group.id === node.groupId)?.title ?? node.title}</strong><small>{selectedOutputPaths(node).length ? 'Result selected' : 'No result yet'}</small></button><div className="sequence-actions"><button disabled={locked || index === 0} onClick={() => editProject(next => moveSequence(next, index, index - 1))}>Earlier</button><button disabled={locked || index === project.sequence.length - 1} onClick={() => editProject(next => moveSequence(next, index, index + 1))}>Later</button><button disabled={locked} onClick={() => editProject(next => { next.sequence = next.sequence.filter(candidate => candidate.id !== item.id); })}>Remove</button></div></div>;
-	}) : <span className="sequence-empty">Add Video nodes to define clip order.</span>}</div><div className="sequence-tail">{project.sequence.length > 0 && <button className="button secondary" disabled={playableCount !== project.sequence.length} title={playableCount !== project.sequence.length ? `${project.sequence.length - playableCount} ordered clip result${project.sequence.length - playableCount === 1 ? '' : 's'} still missing` : 'Play selected clip results in order'} onClick={onPreview}>Preview sequence</button>}{canAddSelected && <button className="button secondary sequence-add" disabled={locked} onClick={() => editProject(next => next.sequence.push({ id: createId('sequence'), videoNodeId: selectedVideo.id }))}>Add selected video</button>}</div></section>;
+	})}</div>{project.outputs[0] && <div className="sequence-tail"><button className="text-button" onClick={() => onOpenOutput(project.outputs[0])}>Open notes</button></div>}</>}
+	</section>;
 }
 
 function SequencePreviewPanel({ project, mediaUris, onClose }: { readonly project: AIProject; readonly mediaUris: Readonly<Record<string, string>>; readonly onClose: () => void }): JSX.Element {
@@ -911,16 +1793,7 @@ function SequencePreviewPanel({ project, mediaUris, onClose }: { readonly projec
 	if (!clip) {
 		return <></>;
 	}
-	return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { onClose(); } }}><section className="sequence-preview-panel" role="dialog" aria-modal="true" aria-labelledby="sequence-preview-title"><div className="run-panel-heading"><div><h2 id="sequence-preview-title">Sequence preview</h2><p>Selected clip results play in order. No files are merged or changed.</p></div><button className="icon-button" aria-label="Close sequence preview" onClick={onClose}>×</button></div><div className="sequence-player"><video key={clip.uri} src={clip.uri} controls autoPlay onEnded={() => { if (index < clips.length - 1) { setIndex(index + 1); } }} /><div className="sequence-player-caption"><span>{index + 1} / {clips.length}</span><strong>{clip.title}</strong></div></div><div className="run-panel-actions"><button className="button secondary" disabled={index === 0} onClick={() => setIndex(value => value - 1)}>Previous clip</button><button className="button secondary" disabled={index === clips.length - 1} onClick={() => setIndex(value => value + 1)}>Next clip</button><button className="button primary" onClick={onClose}>Done</button></div></section></div>;
-}
-
-function RunPanel({ project, nodeIds, providers, onClose, onRun }: { readonly project: AIProject; readonly nodeIds: readonly string[]; readonly providers: readonly AIMediaProviderOption[]; readonly onClose: () => void; readonly onRun: () => void }): JSX.Element {
-	const nodes = nodeIds.map(id => nodeById(project, id)).filter((node): node is AIProjectExecutableNode => !!node && isExecutableNode(node));
-	return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { onClose(); } }}><section className="run-panel" role="dialog" aria-modal="true" aria-labelledby="run-title"><div className="run-panel-heading"><div><h2 id="run-title">Run ready media</h2><p>Each result is saved as a new local history entry.</p></div><button className="icon-button" aria-label="Close run review" onClick={onClose}>×</button></div>{nodes.length ? <div className="run-list">{nodes.map(node => <div key={node.id}><span className={`run-kind kind-${node.kind}`}>{mediaKindLabel(node.kind)}</span><div><strong>{node.title}</strong><small>{providers.find(provider => provider.id === node.provider)?.label ?? node.provider} · {node.model}</small></div></div>)}</div> : <div className="run-empty"><strong>Nothing is ready</strong><p>Fill the highlighted prompts or connect the required inputs first.</p></div>}<div className="run-panel-actions"><button className="button secondary" onClick={onClose}>Back to canvas</button><button className="button primary" disabled={!nodes.length} onClick={onRun}>Run {nodes.length} node{nodes.length === 1 ? '' : 's'}</button></div></section></div>;
-}
-
-function InspectorSection({ title, children }: { readonly title: string; readonly children: ReactNode }): JSX.Element {
-	return <section className="inspector-section"><h3>{title}</h3>{children}</section>;
+	return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) { onClose(); } }}><section className="sequence-preview-panel" role="dialog" aria-modal="true" aria-labelledby="sequence-preview-title"><div className="sequence-preview-heading"><div><h2 id="sequence-preview-title">Sequence preview</h2><p>Selected clip results play in order. No files are merged or changed.</p></div><button className="icon-button" aria-label="Close sequence preview" onClick={onClose}>×</button></div><div className="sequence-player"><video key={clip.uri} src={clip.uri} controls autoPlay onEnded={() => { if (index < clips.length - 1) { setIndex(index + 1); } }} /><div className="sequence-player-caption"><span>{index + 1} / {clips.length}</span><strong>{clip.title}</strong></div></div><div className="sequence-preview-actions"><button className="button secondary" disabled={index === 0} onClick={() => setIndex(value => value - 1)}>Previous clip</button><button className="button secondary" disabled={index === clips.length - 1} onClick={() => setIndex(value => value + 1)}>Next clip</button><button className="button primary" onClick={onClose}>Done</button></div></section></div>;
 }
 
 function Field({ label, children }: { readonly label: string; readonly children: ReactNode }): JSX.Element {
@@ -950,7 +1823,7 @@ function moveSequence(project: AIProject, from: number, to: number): void {
 
 function nodeSummary(node: AIProjectNode, resolvedSummary: string): string {
 	if (node.kind === 'text') {
-		return summarize(resolvedSummary, 'Empty text block. Ask the Agent or write directly.');
+		return summarize(resolvedSummary, node.role === 'brief' ? 'Describe what you want to make.' : 'Add text.');
 	}
 	if (node.source === 'local') {
 		return node.inputFiles.length ? `${node.inputFiles.length} local file${node.inputFiles.length === 1 ? '' : 's'}` : 'Choose local project media.';
@@ -970,15 +1843,150 @@ function playableSequenceClips(project: AIProject, mediaUris: Readonly<Record<st
 	});
 }
 
-function nodeRole(node: AIProjectNode): string {
-	return node.role === 'imagePrompt' ? 'Image prompt' : node.role === 'videoPrompt' ? 'Video prompt' : node.role;
+function renderTextNodeMarkdown(value: string): ReactNode[] {
+	const lines = value.replace(/\r\n?/g, '\n').split('\n');
+	const result: ReactNode[] = [];
+	let index = 0;
+	while (index < lines.length) {
+		const line = lines[index];
+		if (!line.trim()) {
+			index++;
+			continue;
+		}
+		const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+		if (heading) {
+			const content = renderInlineTextNodeMarkdown(heading[2], `heading-${index}`);
+			result.push(heading[1].length === 1 ? <h1 key={index}>{content}</h1> : heading[1].length === 2 ? <h2 key={index}>{content}</h2> : <h3 key={index}>{content}</h3>);
+			index++;
+			continue;
+		}
+		const unordered = /^\s*[-*+]\s+(.+)$/.exec(line);
+		if (unordered) {
+			const items: ReactNode[] = [];
+			while (index < lines.length) {
+				const match = /^\s*[-*+]\s+(.+)$/.exec(lines[index]);
+				if (!match) {
+					break;
+				}
+				items.push(<li key={index}>{renderInlineTextNodeMarkdown(match[1], `item-${index}`)}</li>);
+				index++;
+			}
+			result.push(<ul key={`list-${index}`}>{items}</ul>);
+			continue;
+		}
+		const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line);
+		if (ordered) {
+			const items: ReactNode[] = [];
+			while (index < lines.length) {
+				const match = /^\s*\d+[.)]\s+(.+)$/.exec(lines[index]);
+				if (!match) {
+					break;
+				}
+				items.push(<li key={index}>{renderInlineTextNodeMarkdown(match[1], `ordered-${index}`)}</li>);
+				index++;
+			}
+			result.push(<ol key={`ordered-list-${index}`}>{items}</ol>);
+			continue;
+		}
+		if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+			result.push(<hr key={index} />);
+			index++;
+			continue;
+		}
+		const paragraph: string[] = [];
+		const paragraphStart = index;
+		while (index < lines.length && lines[index].trim() && !/^(#{1,3})\s+/.test(lines[index]) && !/^\s*[-*+]\s+/.test(lines[index]) && !/^\s*\d+[.)]\s+/.test(lines[index])) {
+			paragraph.push(lines[index]);
+			index++;
+		}
+		result.push(<p key={paragraphStart}>{renderInlineTextNodeMarkdown(paragraph.join('\n'), `paragraph-${paragraphStart}`)}</p>);
+	}
+	return result;
 }
 
-function nodeMetric(node: AIProjectNode): string {
-	if (node.kind === 'text') { return `${node.content.length} chars`; }
-	if (node.kind === 'image') { return `${node.count} result${node.count === 1 ? '' : 's'}`; }
-	if (node.kind === 'video') { return `${node.durationSeconds}s`; }
-	return `${node.durationSeconds}s`;
+function renderInlineTextNodeMarkdown(value: string, keyPrefix: string): ReactNode[] {
+	const token = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g;
+	const result: ReactNode[] = [];
+	let offset = 0;
+	let index = 0;
+	for (const match of value.matchAll(token)) {
+		const start = match.index ?? 0;
+		if (start > offset) {
+			result.push(value.slice(offset, start));
+		}
+		const current = match[0];
+		const content = current.startsWith('**') || current.startsWith('__') ? current.slice(2, -2) : current.slice(1, -1);
+		const key = `${keyPrefix}-${index++}`;
+		result.push(current.startsWith('**') || current.startsWith('__') ? <strong key={key}>{content}</strong> : current.startsWith('`') ? <code key={key}>{content}</code> : <em key={key}>{content}</em>);
+		offset = start + current.length;
+	}
+	if (offset < value.length) {
+		result.push(value.slice(offset));
+	}
+	return result;
+}
+
+function editableTextNodeMarkdown(root: HTMLElement): string {
+	return [...root.childNodes].map(markdownBlockFromEditableNode).filter(Boolean).join('\n\n').replace(/\u00a0/g, ' ').trim();
+}
+
+function markdownBlockFromEditableNode(node: ChildNode): string {
+	if (node.nodeType === globalThis.Node.TEXT_NODE) {
+		return node.textContent ?? '';
+	}
+	if (!(node instanceof HTMLElement)) {
+		return '';
+	}
+	const tag = node.tagName.toLowerCase();
+	if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
+		return `${'#'.repeat(Number(tag.slice(1)))} ${markdownInlineFromEditableNode(node)}`;
+	}
+	if (tag === 'ul' || tag === 'ol') {
+		return [...node.children].filter(child => child.tagName.toLowerCase() === 'li').map((child, index) => `${tag === 'ul' ? '-' : `${index + 1}.`} ${markdownInlineFromEditableNode(child)}`).join('\n');
+	}
+	if (tag === 'hr') {
+		return '---';
+	}
+	return markdownInlineFromEditableNode(node);
+}
+
+function markdownInlineFromEditableNode(node: ChildNode): string {
+	if (node.nodeType === globalThis.Node.TEXT_NODE) {
+		return node.textContent ?? '';
+	}
+	if (!(node instanceof HTMLElement)) {
+		return '';
+	}
+	const content = [...node.childNodes].map(markdownInlineFromEditableNode).join('');
+	const tag = node.tagName.toLowerCase();
+	return tag === 'strong' || tag === 'b' ? `**${content}**` : tag === 'em' || tag === 'i' ? `*${content}*` : tag === 'code' ? `\`${content}\`` : tag === 'br' ? '\n' : content;
+}
+
+function applyTextNodeFormat(editor: HTMLElement | null, command: TextNodeFormatCommand): void {
+	if (!editor) {
+		return;
+	}
+	editor.focus();
+	if (command === 'bold' || command === 'italic') {
+		document.execCommand(command);
+	} else if (command === 'unordered-list' || command === 'ordered-list') {
+		document.execCommand(command === 'unordered-list' ? 'insertUnorderedList' : 'insertOrderedList');
+	} else {
+		const block = command === 'paragraph' ? 'p' : command === 'heading-one' ? 'h1' : command === 'heading-two' ? 'h2' : 'h3';
+		document.execCommand('formatBlock', false, block);
+	}
+}
+
+function placeCaretAtEnd(element: HTMLElement): void {
+	const selection = window.getSelection();
+	if (!selection) {
+		return;
+	}
+	const range = document.createRange();
+	range.selectNodeContents(element);
+	range.collapse(false);
+	selection.removeAllRanges();
+	selection.addRange(range);
 }
 
 function roleLabel(role: string): string {
@@ -1008,10 +2016,6 @@ function summarize(value: string, fallback: string): string {
 	return compact ? (compact.length > 116 ? `${compact.slice(0, 113)}...` : compact) : fallback;
 }
 
-function lines(value: string): string[] {
-	return value.split('\n').map(item => item.trim()).filter(Boolean);
-}
-
 function numberInput(value: string, fallback: number): number {
 	const parsed = value.trim() ? Number(value) : Number.NaN;
 	return Number.isFinite(parsed) ? parsed : fallback;
@@ -1037,6 +2041,23 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
 
 function toggleSelectedId(current: readonly string[], id: string): readonly string[] {
 	return current.includes(id) ? current.filter(candidate => candidate !== id) : [...current, id];
+}
+
+function creationKinds(source?: AIProjectMediaKind): readonly AIProjectMediaKind[] {
+	return source ? workflowTargetKindsForSource(source) : mediaKinds;
+}
+
+function absoluteNodePosition(project: AIProject, node: AIProjectNode): AIProjectWorkflowPosition {
+	const group = node.groupId ? project.groups.find(candidate => candidate.id === node.groupId) : undefined;
+	return group ? { x: group.position.x + node.position.x, y: group.position.y + node.position.y } : node.position;
+}
+
+function pointerClientPoint(event: MouseEvent | TouchEvent): AIProjectWorkflowPosition | undefined {
+	if ('clientX' in event) {
+		return { x: event.clientX, y: event.clientY };
+	}
+	const touch = event.changedTouches.item(0);
+	return touch ? { x: touch.clientX, y: touch.clientY } : undefined;
 }
 
 createRoot(rootElement).render(<StrictMode><App /></StrictMode>);
