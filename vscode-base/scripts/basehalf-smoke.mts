@@ -1686,48 +1686,53 @@ async function assertPdfGrowsThreeBranches(page) {
 
 async function selectPdfFixtureText(page) {
 	let diagnostic = '';
-	for (const frame of page.frames()) {
-		const root = frame.locator('#basehalf-pdf-viewer[data-status="ready"]');
-		if (await root.count().catch(() => 0) === 0) {
-			continue;
-		}
-		const images = root.locator('embedpdf-container').locator('#document-content img');
-		const candidates = [];
-		for (let index = 0; index < await images.count(); index++) {
-			const box = await images.nth(index).boundingBox();
-			if (box) {
-				candidates.push({ box, area: box.width * box.height });
+	const deadline = Date.now() + 15_000;
+	while (Date.now() < deadline) {
+		for (const frame of page.frames()) {
+			const root = frame.locator('#basehalf-pdf-viewer[data-status="ready"]');
+			if (await root.count().catch(() => 0) === 0) {
+				continue;
 			}
-		}
-		const pageImage = candidates.sort((a, b) => b.area - a.area)[0]?.box;
-		if (!pageImage) {
-			continue;
-		}
+			const images = root.locator('embedpdf-container').locator('#document-content img');
+			const candidates = [];
+			for (let index = 0; index < await images.count(); index++) {
+				const box = await images.nth(index).boundingBox();
+				if (box) {
+					candidates.push({ box, area: box.width * box.height });
+				}
+			}
+			const pageImage = candidates.sort((a, b) => b.area - a.area)[0]?.box;
+			if (!pageImage) {
+				diagnostic = JSON.stringify({ status: 'ready', renderedPageImages: await images.count() });
+				continue;
+			}
 
-		const action = frame.locator('button', { hasText: 'Grow branch' }).last();
-		// Both ends of an EmbedPDF text-selection drag must land on glyphs.
-		// The fixture line starts at x=40pt and has a 120pt baseline on a
-		// 300x200pt page, so keep the drag comfortably inside the rendered text
-		// instead of ending in the large blank area to its right.
-		for (const yRatio of [0.39, 0.36, 0.42]) {
-			await page.mouse.move(pageImage.x + pageImage.width * 0.15, pageImage.y + pageImage.height * yRatio);
-			await page.mouse.down();
-			await page.mouse.move(pageImage.x + pageImage.width * 0.66, pageImage.y + pageImage.height * yRatio, { steps: 24 });
-			await page.mouse.up();
-			if (await action.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)) {
-				return action;
+			const action = frame.locator('button', { hasText: 'Grow branch' }).last();
+			// Both ends of an EmbedPDF text-selection drag must land on glyphs.
+			// The fixture line starts at x=40pt and has a 120pt baseline on a
+			// 300x200pt page, so keep the drag comfortably inside the rendered text
+			// instead of ending in the large blank area to its right.
+			for (const yRatio of [0.39, 0.36, 0.42]) {
+				await page.mouse.move(pageImage.x + pageImage.width * 0.15, pageImage.y + pageImage.height * yRatio);
+				await page.mouse.down();
+				await page.mouse.move(pageImage.x + pageImage.width * 0.66, pageImage.y + pageImage.height * yRatio, { steps: 24 });
+				await page.mouse.up();
+				if (await action.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)) {
+					return action;
+				}
 			}
-		}
-		diagnostic = await root.locator('embedpdf-container').evaluate(async element => {
-			const registry = await element.registry;
-			const interaction = registry.getPlugin('interaction-manager')?.provides();
-			const selection = registry.getPlugin('selection')?.provides();
-			return JSON.stringify({
-				plugins: registry.getAllPlugins().map(plugin => plugin.id),
-				mode: interaction?.forDocument('basehalf-document').getActiveMode(),
-				selection: selection?.getState('basehalf-document')
+			diagnostic = await root.locator('embedpdf-container').evaluate(async element => {
+				const registry = await element.registry;
+				const interaction = registry.getPlugin('interaction-manager')?.provides();
+				const selection = registry.getPlugin('selection')?.provides();
+				return JSON.stringify({
+					plugins: registry.getAllPlugins().map(plugin => plugin.id),
+					mode: interaction?.forDocument('basehalf-document').getActiveMode(),
+					selection: selection?.getState('basehalf-document')
+				});
 			});
-		});
+		}
+		await page.waitForTimeout(100);
 	}
 	throw new Error(`The PDF selection menu did not expose Grow branch for the fixture text: ${diagnostic}`);
 }
@@ -2598,7 +2603,7 @@ async function assertCanvasZoomControls(page) {
 		await reset.click();
 	}
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
-	const beforePan = await page.evaluate(() => {
+	const beforeGesture = await page.evaluate(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
@@ -2615,21 +2620,30 @@ async function assertCanvasZoomControls(page) {
 			center: { x: rootRect.left + rootRect.width / 2, y: rootRect.top + rootRect.height / 2 }
 		};
 	});
-	await page.mouse.move(beforePan.center.x, beforePan.center.y);
+	await page.mouse.move(beforeGesture.center.x, beforeGesture.center.y);
 	await page.mouse.wheel(80, 120);
 	await page.waitForFunction(previous => {
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
 		return viewport instanceof HTMLElement && getComputedStyle(viewport).transform !== previous;
-	}, beforePan.viewport, { timeout: 10_000 });
-	const afterPan = await page.locator('.basehalf-canvas-zoom-controls').boundingBox();
-	if (!afterPan || Math.abs(afterPan.x - beforePan.controls.left) > 1 || Math.abs(afterPan.y - beforePan.controls.top) > 1) {
-		throw new Error(`Expected zoom chrome to stay fixed while React Flow pans: ${JSON.stringify({ beforePan, afterPan })}`);
+	}, beforeGesture.viewport, { timeout: 10_000 });
+	// React Flow reports the final viewport on moveEnd. Let that report settle
+	// before starting a separate imperative zoom command. Chromium may surface
+	// this pixel wheel input as a trackpad pinch on macOS, so use the settled
+	// runtime zoom instead of assuming the gesture was a pure pan.
+	await page.waitForTimeout(250);
+	const zoomAfterGesture = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
+	if (!Number.isFinite(zoomAfterGesture) || zoomAfterGesture <= 0) {
+		throw new Error(`Expected a valid runtime zoom after the viewport gesture; got ${zoomAfterGesture}`);
 	}
-	if (beforePan.rightGap < 4 || beforePan.rightGap > 24 || beforePan.bottomGap < 6 || beforePan.bottomGap > 32) {
-		throw new Error(`Expected zoom controls in the bottom-right of the canvas viewport: ${JSON.stringify(beforePan)}`);
+	const afterGesture = await page.locator('.basehalf-canvas-zoom-controls').boundingBox();
+	if (!afterGesture || Math.abs(afterGesture.x - beforeGesture.controls.left) > 1 || Math.abs(afterGesture.y - beforeGesture.controls.top) > 1) {
+		throw new Error(`Expected zoom chrome to stay fixed while the canvas viewport changes: ${JSON.stringify({ beforeGesture, afterGesture })}`);
+	}
+	if (beforeGesture.rightGap < 4 || beforeGesture.rightGap > 24 || beforeGesture.bottomGap < 6 || beforeGesture.bottomGap > 32) {
+		throw new Error(`Expected zoom controls in the bottom-right of the canvas viewport: ${JSON.stringify(beforeGesture)}`);
 	}
 
-	const initialZoom = 1;
+	const initialZoom = zoomAfterGesture;
 	const nextZoom = Number((initialZoom + 0.1).toFixed(4));
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
 	await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, nextZoom, { timeout: 10_000 });
