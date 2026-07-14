@@ -1442,6 +1442,7 @@ function createCanvasSceneMount(
 				if (!event || viewportCommandKey.current) {
 					return;
 				}
+				delegate.didStartViewportInteraction();
 				viewportGestureSceneKey.current = sceneKeyRef.current;
 				beginInteraction();
 			},

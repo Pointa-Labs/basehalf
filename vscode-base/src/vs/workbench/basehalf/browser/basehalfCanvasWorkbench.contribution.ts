@@ -229,6 +229,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	} | undefined;
 	private lastFolderFocusKey: string | undefined;
 	private restoredFolderFocusKey: string | undefined;
+	private folderFocusRestoreGeneration = 0;
 	private canvasZoom = 1;
 	private renderQueuedBehindGesture = false;
 	private inlineEdit: BaseHalfCanvasInlineEdit | undefined;
@@ -320,6 +321,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
 			showContextMenu: (sceneKey, structuralEpoch, request) => this.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
+			didStartViewportInteraction: () => this.folderFocusRestoreGeneration++,
 			didEndInteraction: () => this.flushRenderQueuedBehindGesture(),
 			reportError: error => {
 				this.logService.error(error instanceof Error ? error : String(error));
@@ -3909,6 +3911,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (nextZoom === this.canvasZoom) {
 			return;
 		}
+		this.folderFocusRestoreGeneration++;
 		const folder = this.getCurrentFolder();
 		const sceneKey = folder ? this.sceneKey(folder) : undefined;
 		this.canvasZoom = nextZoom;
@@ -3989,8 +3992,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.restoredFolderFocusKey = key;
+		const restoreGeneration = this.folderFocusRestoreGeneration;
 		void this.focusMirrorService.readFolderFocus(folder).then(async fields => {
-			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
+			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail || restoreGeneration !== this.folderFocusRestoreGeneration) {
 				return;
 			}
 

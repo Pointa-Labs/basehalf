@@ -99,6 +99,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
+	didStartViewportInteraction(): void;
 	didEndInteraction(): void;
 	reportError(error: unknown): void;
 }
