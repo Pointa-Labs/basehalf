@@ -166,12 +166,12 @@
 		"resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
 		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json",
 		"additionalControlUrls": [
-			"https://plugins.basehalf.com/v1/extensions-control.json"
+			"https://registry.basehalf.com/v1/extensions-control.json"
 		]
 	},
 	"basehalfPlugins": {
-		"catalogIndexUrl": "https://plugins.basehalf.com/v1/catalog-index.json",
-		"assetBaseUrl": "https://plugins.basehalf.com/",
+		"catalogIndexUrl": "https://registry.basehalf.com/v1/catalog-index.json",
+		"assetBaseUrl": "https://registry.basehalf.com/",
 		"publicKeys": [
 			{
 				"keyId": "release-2026-07",

@@ -21,8 +21,17 @@ the Terraform outputs into the `plugins-production` GitHub environment as:
 Set `submission_bucket_name` to a unique private bucket and
 `control_plane_role_name` to the existing Core API workload role. Put the
 `submission_bucket_name` output into Core API as `PLUGIN_SUBMISSION_BUCKET`.
-The default browser CORS allowlist contains `https://basehalf.com` and local
-development on port 4000; override it for additional first-party origins.
+The default browser CORS allowlist admits the isolated publishing portal at
+`https://plugins.basehalf.com`, the main-product compatibility path, and local
+portal development on port 4100. The machine catalog and immutable VSIX assets
+are served from `https://registry.basehalf.com`.
+During the desktop-client migration, CloudFront also retains the former
+registry hostname as an alias. The portal edge proxies only its signed,
+read-only registry paths; remove the legacy alias after the supported-client
+window closes.
+CloudFront attaches a public read-only CORS and security-headers policy to every
+catalog and VSIX behavior so the desktop workbench's `vscode-file://vscode-app`
+origin can fetch assets without granting write methods at the distribution.
 
 After provisioning, export the KMS public key as a PEM SPKI file. During key
 rotation, application packaging can set `BASEHALF_PLUGIN_CATALOG_KEY_ID` and

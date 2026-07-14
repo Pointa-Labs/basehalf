@@ -46,7 +46,7 @@ jobs:
       DISTRIBUTION_ID: ${{ vars.BASEHALF_PLUGIN_CLOUDFRONT_DISTRIBUTION_ID }}
       KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
       CATALOG_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
-      ASSET_BASE_URL: https://plugins.basehalf.com/
+      ASSET_BASE_URL: https://registry.basehalf.com/
     steps:
       - uses: actions/checkout@v4
 
@@ -227,8 +227,8 @@ jobs:
           if [ "${{ inputs.operation }}" = publish ]; then VERSION=$(jq -r .version "$GITHUB_WORKSPACE/release/metadata.json"); fi
           for attempt in 1 2 3 4 5; do
             if node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
-              --catalog-url "https://plugins.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.json" \
-              --signature-url "https://plugins.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.sig.json" \
+              --catalog-url "https://registry.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.json" \
+              --signature-url "https://registry.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.sig.json" \
               --asset-base-url "$ASSET_BASE_URL" \
               --public-key "$GITHUB_WORKSPACE/release/public.pem" \
               --key-id "$CATALOG_KEY_ID" \

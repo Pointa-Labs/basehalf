@@ -596,3 +596,26 @@ source disclosure, and human review are required, but executable plugins remain
 honestly described as trusted local software rather than sandboxed code. The
 generic Marketplace, arbitrary VSIX installation, instant self-publication,
 payments, ratings, and reviews are still not product surfaces.
+
+## D31 — Plugin portal and signed registry use separate subdomains (NEW, 2026-07-14)
+
+**Decision.** `plugins.basehalf.com` is the human-facing publishing and review
+portal, implemented and deployed independently from the main web product.
+`registry.basehalf.com` is the machine-facing signed catalog and immutable VSIX
+origin. Both use the existing Basehalf account, but the portal receives its own
+host-scoped browser session through a short-lived, one-use handoff from
+`basehalf.com`; refresh cookies and browser storage are never shared across the
+two product origins.
+
+**Why.** Publishing is an ecosystem workflow with a different information
+architecture, release cadence, and security boundary from the main product.
+Likewise, a static code-distribution origin should not also serve account UI or
+dynamic APIs. Separating all three surfaces makes their responsibilities clear
+without imposing a second developer account.
+
+**Consequences.** New desktop builds fetch only from the registry origin. The
+portal host exposes only identity and plugin APIs. Old registry paths on the
+portal hostname remain a read-only compatibility proxy for already shipped
+clients during a bounded migration window. The one-time handoff is random,
+stored only as a hash, consumed atomically, and fails closed when its transient
+store is unavailable.

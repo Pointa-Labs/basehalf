@@ -25,7 +25,7 @@ jobs:
       CATALOG_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
       CONTROL_PLANE_URL: ${{ vars.BASEHALF_PLUGIN_CONTROL_PLANE_URL }}
       RELEASE_TOKEN: ${{ secrets.BASEHALF_PLUGIN_RELEASE_SERVICE_TOKEN }}
-      ASSET_BASE_URL: https://plugins.basehalf.com/
+      ASSET_BASE_URL: https://registry.basehalf.com/
       WORKER_ID: github-catalog-promoter
     steps:
       - uses: actions/checkout@v4
@@ -181,8 +181,8 @@ jobs:
           openssl pkey -pubin -inform DER -in "$GITHUB_WORKSPACE/release/public.der" -out "$GITHUB_WORKSPACE/release/public.pem"
           for attempt in 1 2 3 4 5; do
             if node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
-              --catalog-url "https://plugins.basehalf.com/catalogs/${SEQUENCE}/catalog.json" \
-              --signature-url "https://plugins.basehalf.com/catalogs/${SEQUENCE}/catalog.sig.json" \
+              --catalog-url "https://registry.basehalf.com/catalogs/${SEQUENCE}/catalog.json" \
+              --signature-url "https://registry.basehalf.com/catalogs/${SEQUENCE}/catalog.sig.json" \
               --asset-base-url "$ASSET_BASE_URL" \
               --public-key "$GITHUB_WORKSPACE/release/public.pem" \
               --key-id "$CATALOG_KEY_ID" \

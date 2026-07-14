@@ -168,10 +168,14 @@ resource "aws_cloudfront_cache_policy" "immutable" {
   }
 }
 
+data "aws_cloudfront_response_headers_policy" "public_registry" {
+  name = "Managed-CORS-with-preflight-and-SecurityHeadersPolicy"
+}
+
 resource "aws_cloudfront_distribution" "plugins" {
   enabled         = true
   is_ipv6_enabled = true
-  aliases         = [var.domain_name]
+  aliases         = concat([var.domain_name], var.legacy_domain_names)
   price_class     = "PriceClass_200"
 
   origin {
@@ -181,32 +185,35 @@ resource "aws_cloudfront_distribution" "plugins" {
   }
 
   default_cache_behavior {
-    target_origin_id       = "basehalf-plugins-s3"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id        = aws_cloudfront_cache_policy.catalog.id
-    compress               = true
+    target_origin_id           = "basehalf-plugins-s3"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD", "OPTIONS"]
+    cache_policy_id            = aws_cloudfront_cache_policy.catalog.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.public_registry.id
+    compress                   = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "*.vsix"
-    target_origin_id       = "basehalf-plugins-s3"
-    viewer_protocol_policy = "https-only"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id        = aws_cloudfront_cache_policy.immutable.id
-    compress               = false
+    path_pattern               = "*.vsix"
+    target_origin_id           = "basehalf-plugins-s3"
+    viewer_protocol_policy     = "https-only"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD", "OPTIONS"]
+    cache_policy_id            = aws_cloudfront_cache_policy.immutable.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.public_registry.id
+    compress                   = false
   }
 
   ordered_cache_behavior {
-    path_pattern           = "catalogs/*"
-    target_origin_id       = "basehalf-plugins-s3"
-    viewer_protocol_policy = "https-only"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id        = aws_cloudfront_cache_policy.immutable.id
-    compress               = true
+    path_pattern               = "catalogs/*"
+    target_origin_id           = "basehalf-plugins-s3"
+    viewer_protocol_policy     = "https-only"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD", "OPTIONS"]
+    cache_policy_id            = aws_cloudfront_cache_policy.immutable.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.public_registry.id
+    compress                   = true
   }
 
   restrictions {

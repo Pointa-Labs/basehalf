@@ -24,7 +24,7 @@ variable "submission_retention_days" {
 variable "submission_allowed_origins" {
   description = "Browser origins allowed to upload with Core API presigned PUT URLs."
   type        = list(string)
-  default     = ["https://basehalf.com", "http://localhost:4000"]
+  default     = ["https://plugins.basehalf.com", "https://basehalf.com", "http://localhost:4100"]
 }
 
 variable "control_plane_role_name" {
@@ -36,11 +36,17 @@ variable "control_plane_role_name" {
 
 variable "domain_name" {
   type    = string
-  default = "plugins.basehalf.com"
+  default = "registry.basehalf.com"
+}
+
+variable "legacy_domain_names" {
+  description = "Former registry hostnames retained on CloudFront during client migration."
+  type        = list(string)
+  default     = ["plugins.basehalf.com"]
 }
 
 variable "acm_certificate_arn" {
-  description = "ACM certificate in us-east-1 valid for domain_name."
+  description = "ACM certificate in us-east-1 valid for domain_name and legacy_domain_names."
   type        = string
 }
 
