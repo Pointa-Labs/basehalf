@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+
+const developerToolsVersion = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version as string;
 
 export interface ScaffoldOptions {
   readonly directory: string;
@@ -78,7 +83,8 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
       publish: 'npm run compile && bh-plugin publish .',
     },
     devDependencies: {
-      '@basehalf/plugin-sdk': '^0.1.0',
+      '@basehalf/plugin-cli': `^${developerToolsVersion}`,
+      '@basehalf/plugin-sdk': `^${developerToolsVersion}`,
       '@types/vscode': '^1.100.0',
       esbuild: '^0.25.0',
       typescript: '^5.7.0',

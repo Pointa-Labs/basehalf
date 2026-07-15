@@ -188,6 +188,7 @@ jobs:
               --key-id "$CATALOG_KEY_ID" \
               --extension-id "$EXTENSION_ID" \
               --version "$VERSION" \
+              --expected-status active \
               --minimum-sequence "$SEQUENCE"; then exit 0; fi
             sleep 10
           done

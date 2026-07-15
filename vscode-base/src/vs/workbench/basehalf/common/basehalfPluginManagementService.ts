@@ -65,7 +65,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 			this.catalogService.getSnapshot(),
 			this.extensionManagementService.getInstalled()
 		]);
-		return Promise.all(snapshot.plugins.map(async plugin => {
+		const plugins = await Promise.all(snapshot.plugins.map(async plugin => {
 			const extension = installed.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
 			const bundledAvailable = plugin.bundledPath ? await this.fileService.exists(pluginPayloadLocation(plugin)) : false;
 			const installedVersion = extension?.manifest.version;
@@ -101,6 +101,10 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 				error: this.errors.get(plugin.extensionId)
 			};
 		}));
+		// A withdrawn package remains in the signed catalog so existing
+		// installations can be warned and managed. It is not a discoverable new
+		// product for users who never installed it.
+		return plugins.filter(plugin => plugin.state !== 'withdrawn');
 	}
 
 	async refreshCatalog(): Promise<void> {

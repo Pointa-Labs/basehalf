@@ -9,6 +9,11 @@ on:
         type: choice
         options: [publish, withdraw, rollback, security-withdraw, security-restore]
         default: publish
+      extension_id:
+        description: Plugin identity for withdrawal, rollback, and verification
+        required: true
+        default: pointa.basehalf-ai-video
+        type: string
       sequence:
         description: New monotonically increasing catalog sequence
         required: true
@@ -46,6 +51,8 @@ jobs:
       DISTRIBUTION_ID: ${{ vars.BASEHALF_PLUGIN_CLOUDFRONT_DISTRIBUTION_ID }}
       KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
       CATALOG_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
+      CONTROL_PLANE_URL: ${{ vars.BASEHALF_PLUGIN_CONTROL_PLANE_URL }}
+      RELEASE_TOKEN: ${{ secrets.BASEHALF_PLUGIN_RELEASE_SERVICE_TOKEN }}
       ASSET_BASE_URL: https://registry.basehalf.com/
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +143,7 @@ jobs:
             --previous "$GITHUB_WORKSPACE/release/previous.json" \
             --sequence "${{ inputs.sequence }}" \
             --output "$GITHUB_WORKSPACE/release/catalog.json" \
+            --extension-id "${{ inputs.extension_id }}" \
             --version "${{ inputs.version }}" \
             --mode "$MODE"
 
@@ -156,6 +164,7 @@ jobs:
             node --experimental-strip-types scripts/basehalf-plugin-release.mts control \
               --output "$GITHUB_WORKSPACE/release/extensions-control.json" \
               --mode "$MODE" \
+              --extension-id "${{ inputs.extension_id }}" \
               --learn-more-link "https://basehalf.com/security/plugins" "${PREVIOUS[@]}"
           fi
 
@@ -192,6 +201,26 @@ jobs:
             --sequence "${{ inputs.sequence }}" \
             --output release/catalog-index.json
 
+      - name: Synchronize withdrawal state with the control plane
+        if: inputs.operation != 'publish'
+        run: |
+          test -n "$CONTROL_PLANE_URL"
+          test -n "$RELEASE_TOKEN"
+          jq \
+            --arg extension "${{ inputs.extension_id }}" \
+            --arg sequence "${{ inputs.sequence }}" \
+            '(.plugins[] | select(.extensionId == $extension) | [.versions[] | select(.status == "active") | .version]) as $active
+              | {extension_id: $extension, active_versions: $active, catalog_sequence: $sequence}
+              + (if ($active | length) > 0 then {latest_version: $active[0]} else {} end)' \
+            release/catalog.json > release/catalog-state.json
+          curl --fail-with-body --silent --show-error \
+            -H 'content-type: application/json' \
+            -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
+            --data @release/catalog-state.json \
+            "$CONTROL_PLANE_URL/plugin-service/api/v1/internal/releases/catalog-state" \
+            > release/catalog-state-response.json
+          jq -e '.code == "00000"' release/catalog-state-response.json >/dev/null
+
       - name: Publish immutable catalog pair and atomic current index
         run: |
           PREFIX="catalogs/${{ inputs.sequence }}"
@@ -223,8 +252,15 @@ jobs:
       - name: Verify release from CloudFront
         working-directory: vscode-base
         run: |
+          EXTENSION_ID="${{ inputs.extension_id }}"
           VERSION="${{ inputs.version }}"
-          if [ "${{ inputs.operation }}" = publish ]; then VERSION=$(jq -r .version "$GITHUB_WORKSPACE/release/metadata.json"); fi
+          EXPECTED_STATUS=withdrawn
+          if [ "${{ inputs.operation }}" = publish ]; then
+            EXTENSION_ID=$(jq -r .extensionId "$GITHUB_WORKSPACE/release/metadata.json")
+            VERSION=$(jq -r .version "$GITHUB_WORKSPACE/release/metadata.json")
+            EXPECTED_STATUS=active
+          fi
+          if [ "${{ inputs.operation }}" = rollback ] || [ "${{ inputs.operation }}" = security-restore ]; then EXPECTED_STATUS=active; fi
           for attempt in 1 2 3 4 5; do
             if node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
               --catalog-url "https://registry.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.json" \
@@ -232,7 +268,9 @@ jobs:
               --asset-base-url "$ASSET_BASE_URL" \
               --public-key "$GITHUB_WORKSPACE/release/public.pem" \
               --key-id "$CATALOG_KEY_ID" \
+              --extension-id "$EXTENSION_ID" \
               --version "$VERSION" \
+              --expected-status "$EXPECTED_STATUS" \
               --minimum-sequence "${{ inputs.sequence }}"; then exit 0; fi
             sleep 10
           done

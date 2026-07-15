@@ -309,6 +309,7 @@ export async function verifyRelease(options: {
 	keyId: string;
 	extensionId: string;
 	version: string;
+	expectedStatus?: 'active' | 'withdrawn';
 	minimumSequence?: number;
 	timeoutMs?: number;
 }): Promise<ReleaseMetadata> {
@@ -333,6 +334,9 @@ export async function verifyRelease(options: {
 	const release = plugin?.versions?.find((candidate: any) => candidate.version === options.version);
 	if (!release) {
 		throw new Error(`Catalog does not contain ${options.extensionId}@${options.version}.`);
+	}
+	if (options.expectedStatus && release.status !== options.expectedStatus) {
+		throw new Error(`Catalog status for ${options.extensionId}@${options.version} is '${release.status}', expected '${options.expectedStatus}'.`);
 	}
 	validateAssetPath(release.assetPath);
 	const expectedAssetPath = `${options.extensionId}/${options.version}/${release.sha256}.vsix`;
@@ -706,6 +710,7 @@ async function main(): Promise<void> {
 			keyId: required(args, 'key-id'),
 			extensionId: args['extension-id'] ?? OFFICIAL_EXTENSION_ID,
 			version: required(args, 'version'),
+			expectedStatus: args['expected-status'] as 'active' | 'withdrawn' | undefined,
 			minimumSequence: args['minimum-sequence'] ? Number(args['minimum-sequence']) : undefined
 		});
 		console.log(JSON.stringify(result));

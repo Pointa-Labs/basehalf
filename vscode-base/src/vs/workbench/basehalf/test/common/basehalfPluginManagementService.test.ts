@@ -97,7 +97,7 @@ suite('BaseHalfPluginManagementService', () => {
 		await install;
 	});
 
-	test('blocks new installs after withdrawal without hiding an existing installation', async () => {
+	test('hides withdrawn plugins from discovery while retaining an existing installation', async () => {
 		const curated = BASEHALF_CURATED_PLUGINS[0];
 		const withdrawn: IBaseHalfResolvedPlugin = {
 			...curated,
@@ -121,7 +121,7 @@ suite('BaseHalfPluginManagementService', () => {
 		};
 		const freshFixture = createFixture({ plugins: [withdrawn] });
 		const freshService = store.add(freshFixture.service);
-		assert.strictEqual((await freshService.getPlugins())[0].state, 'withdrawn');
+		assert.deepStrictEqual(await freshService.getPlugins(), []);
 		await assert.rejects(freshService.install(curated.extensionId), /withdrawn/);
 
 		const installedFixture = createFixture({ plugins: [withdrawn], initiallyInstalled: true });

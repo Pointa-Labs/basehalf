@@ -70,7 +70,7 @@ jobs:
           tar -xOf "release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-sdk" and .version == "${{ inputs.version }}" and .publishConfig.access == "public"'
           tar -xOf "release/basehalf-plugin-cli-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-cli" and .version == "${{ inputs.version }}" and .dependencies["@basehalf/plugin-sdk"] == "${{ inputs.version }}" and .publishConfig.access == "public"'
 
-      - name: Smoke-test the packed CLI
+      - name: Smoke-test the packed developer experience
         run: |
           mkdir release-smoke
           cd release-smoke
@@ -80,6 +80,18 @@ jobs:
             "$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${{ inputs.version }}.tgz" \
             --ignore-scripts
           ./node_modules/.bin/bh-plugin help | grep -q 'BaseHalf plugin publishing'
+          ./node_modules/.bin/bh-plugin init plugin \
+            --publisher smoke-lab \
+            --name pipeline \
+            --display-name "Pipeline Smoke" \
+            --repository https://github.com/smoke-lab/pipeline \
+            --file-extension bhsmoke
+          cd plugin
+          SDK_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" \
+          CLI_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${{ inputs.version }}.tgz" \
+            node -e 'const fs=require("fs"); const file="package.json"; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.devDependencies["@basehalf/plugin-sdk"]=process.env.SDK_TARBALL; value.devDependencies["@basehalf/plugin-cli"]=process.env.CLI_TARBALL; fs.writeFileSync(file, JSON.stringify(value, null, 2)+"\n");'
+          npm install --ignore-scripts
+          npm run check
 
       - name: Inspect publish contents
         if: inputs.dry_run

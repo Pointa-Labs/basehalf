@@ -163,7 +163,9 @@ fixed `@vscode/vsce` version and a non-exportable AWS KMS P-256 key.
 CloudFront OAC/distribution, KMS, DNS options, and least-privilege GitHub OIDC
 and EC2 roles. Quarantine access is isolated from the public distribution
 origin. Published VSIX objects are never overwritten. Rollback and withdrawal
-always advance the catalog sequence.
+always advance the catalog sequence. Before a new catalog becomes current, the
+signer synchronizes that plugin's active-version set back to the control plane
+so portal and desktop discovery cannot disagree.
 
 Normal withdrawal blocks new installs and shows a reason. Security withdrawal
 also publishes a BaseHalf extension-control document consumed by VS Code's

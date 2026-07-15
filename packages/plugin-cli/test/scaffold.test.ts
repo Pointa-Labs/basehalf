@@ -43,6 +43,13 @@ describe('plugin scaffold', () => {
     );
     expect(manifest.scripts.package).toBe('npm run compile && bh-plugin package .');
     expect(manifest.scripts.publish).toBe('npm run compile && bh-plugin publish .');
+    const developerToolsVersion = JSON.parse(
+      await readFile(path.join(packageDirectory, 'package.json'), 'utf8'),
+    ).version;
+    expect(manifest.devDependencies).toMatchObject({
+      '@basehalf/plugin-cli': `^${developerToolsVersion}`,
+      '@basehalf/plugin-sdk': `^${developerToolsVersion}`,
+    });
     expect(
       JSON.parse(await readFile(path.join(directory, '.vscode/launch.json'), 'utf8'))
         .configurations[0],

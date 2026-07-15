@@ -141,6 +141,7 @@ try {
 		keyId: 'fixture-2026',
 		extensionId: OFFICIAL_EXTENSION_ID,
 		version: release.version,
+		expectedStatus: 'active' as const,
 		minimumSequence: 41
 	};
 	const verified = await verifyRelease(options);
@@ -151,6 +152,7 @@ try {
 	mode = 'vsix-tampered';
 	await assert.rejects(() => verifyRelease(options), /size or SHA-256/);
 	mode = 'ok';
+	await assert.rejects(() => verifyRelease({ ...options, expectedStatus: 'withdrawn' }), /expected 'withdrawn'/);
 	await assert.rejects(() => verifyRelease({ ...options, extensionId: 'pointa.wrong' }), /does not contain/);
 	await assert.rejects(() => verifyRelease({ ...options, version: '9.9.9' }), /does not contain/);
 	mode = 'timeout';
