@@ -42,7 +42,7 @@ jobs:
 
       - name: Install release toolchain
         run: |
-          npm install --global npm@11.5.1
+          npm install --global npm@11.18.0
           pnpm install --frozen-lockfile
 
       - name: Verify requested version
@@ -89,12 +89,8 @@ jobs:
 
       - name: Publish SDK
         if: ${{ !inputs.dry_run }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "./release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" --access public
 
       - name: Publish CLI
         if: ${{ !inputs.dry_run }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish "./release/basehalf-plugin-cli-${{ inputs.version }}.tgz" --access public
