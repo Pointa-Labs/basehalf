@@ -251,7 +251,7 @@ try {
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
 	await step('badge-quick-access-note-search', () => assertBadgeQuickAccessFindsNote(page));
-	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, 'README.md'));
+	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, ''));
 	await step('initial-native-forward-readme-card', () => assertNativeForwardOpensCardDetail(page, 'README.md'));
 
 	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
@@ -287,17 +287,20 @@ try {
 	await step('quick-text-search-app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
 
 	await step('explorer-folder-row-canvas-open', () => openExplorerRow(page, 'docs'));
-	await step('explorer-folder-row-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
+	await step('explorer-folder-row-canvas', () => assertCanvasFolder(page, 'docs'));
 	await step('explorer-file-row-card-open', () => openExplorerRow(page, 'guide.md'));
 	await step('explorer-file-row-card-detail', () => assertCardDetail(page, 'guide.md'));
 	await step('canvas-breadcrumbs-removed', () => assertCanvasBreadcrumbsRemoved(page));
-	await step('native-back-folder-navigation', () => assertNativeBackOpensPreviousCanvas(page, 'docs/guide.md'));
+	await step('native-back-folder-navigation', () => assertNativeBackOpensPreviousCanvas(page, 'docs'));
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 	await step('native-forward-card-navigation', () => assertNativeForwardOpensCardDetail(page, 'guide.md'));
 	await step('explorer-file-row-no-editor-tab', () => assertNoEditorTabFor(page, 'guide.md'));
 
 	await step('folder-quick-open', () => quickOpen(page, 'docs'));
-	await step('folder-quick-open-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
+	await step('folder-quick-open-canvas', async () => {
+		await assertCanvasFolder(page, 'docs');
+		await assertCanvasContainsCard(page, 'docs/guide.md');
+	});
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 	await step('curated-plugin-manager', () => assertCuratedPluginManager(page));
@@ -2578,7 +2581,37 @@ async function assertCanvasContainsCard(page, path) {
 			return;
 		}
 	}
+	const canvas = page.locator('.basehalf-canvas-cards');
+	for (let attempt = 0; attempt < 8; attempt++) {
+		const bounds = await canvas.boundingBox();
+		if (!bounds) {
+			break;
+		}
+		const startX = bounds.x + bounds.width / 2;
+		const startY = bounds.y + bounds.height / 2;
+		await page.mouse.move(startX, startY);
+		await page.mouse.down({ button: 'middle' });
+		await page.mouse.move(bounds.x + bounds.width - 16, bounds.y + bounds.height - 16, { steps: 8 });
+		await page.mouse.up({ button: 'middle' });
+		if (await card.isVisible({ timeout: 500 }).catch(() => false)) {
+			return;
+		}
+	}
 	await card.waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+async function assertCanvasFolder(page, folderPath) {
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
+	await page.locator('.basehalf-canvas-react-island').waitFor({ state: 'visible', timeout: 20_000 });
+	const currentFolder = page.locator(folderPath
+		? '.basehalf-command-center-breadcrumb-segment.current'
+		: '.basehalf-command-center-breadcrumb-segment.current.root').last();
+	await currentFolder.waitFor({ state: 'visible', timeout: 20_000 });
+	const expectedPath = [path.basename(workspacePath), ...folderPath.split('/').filter(Boolean)].join(' / ');
+	const actualPath = await currentFolder.getAttribute('title');
+	if (actualPath !== expectedPath) {
+		throw new Error(`Expected the ${folderPath || '<root>'} canvas, got ${actualPath || '<empty>'}`);
+	}
 }
 
 async function assertCanvasBreadcrumbsRemoved(page) {
@@ -2588,13 +2621,9 @@ async function assertCanvasBreadcrumbsRemoved(page) {
 	}
 }
 
-async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
+async function assertNativeBackOpensPreviousCanvas(page, expectedFolderPath) {
 	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
-	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
-	await page.locator('.basehalf-canvas-react-island').waitFor({ state: 'visible', timeout: 20_000 });
-	if (expectedCardPath) {
-		await assertCanvasContainsCard(page, expectedCardPath);
-	}
+	await assertCanvasFolder(page, expectedFolderPath);
 }
 
 async function assertCanvasZoomControls(page) {
