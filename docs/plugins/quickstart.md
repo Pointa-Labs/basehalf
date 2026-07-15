@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 22 or newer
+- Node.js 22.12 or newer
 - a BaseHalf account
 - Git and a public source repository for the plugin
 

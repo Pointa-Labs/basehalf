@@ -5,7 +5,7 @@ name: CI
 #
 # Required status check (Settings → Branches): `ci-summary`. That single
 # job fans in from the `test` matrix below — protection stays correct even
-# when the matrix changes (matrix-specific names like `test (20.19)` drift
+# when the matrix changes (matrix-specific names like `test (22.12)` drift
 # silently otherwise; we got bitten by that on PR #9).
 
 on:
@@ -22,9 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 20.19 is the root engines floor (electron-vite 5 requirement, Node 18 EOL);
-        # 22 is current LTS and matches Electron 42+ runtime.
-        node-version: ['20.19', '22.x']
+        # 22.12 is the workspace floor and matches the Electron toolchain.
+        # 24 is the next supported LTS line and catches forward-compatibility issues.
+        node-version: ['22.12', '24.x']
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +41,9 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r typecheck
+      # TypeScript project references may build dependency declarations while
+      # checking a dependent package, so keep this graph traversal serialized.
+      - run: pnpm -r --workspace-concurrency=1 typecheck
       - run: pnpm -r build
       - run: pnpm -r test
       - run: pnpm -r --if-present lint
