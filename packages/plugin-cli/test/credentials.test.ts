@@ -19,7 +19,7 @@ describe('publisher credentials', () => {
     temporary.push(directory);
     const file = path.join(directory, 'credentials.json');
     await saveSession(
-      'https://basehalf.com',
+      'https://plugins.basehalf.com',
       {
         accessToken: 'secret',
         publisherId: '1',
@@ -29,9 +29,9 @@ describe('publisher credentials', () => {
       file,
     );
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect((await sessionFor('https://basehalf.com', file)).accessToken).toBe('secret');
+    expect((await sessionFor('https://plugins.basehalf.com', file)).accessToken).toBe('secret');
     expect(await readFile(file, 'utf8')).not.toContain('.tmp');
-    await removeSession('https://basehalf.com', file);
+    await removeSession('https://plugins.basehalf.com', file);
     expect((await readCredentials(file)).servers).toEqual({});
   });
 });

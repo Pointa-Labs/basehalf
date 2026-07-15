@@ -1,0 +1,100 @@
+name: Publish plugin developer tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version already present in both package manifests
+        required: true
+        default: 0.1.0
+        type: string
+      dry_run:
+        description: Build and inspect tarballs without publishing to npm
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: basehalf-plugin-developer-tools-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install release toolchain
+        run: |
+          npm install --global npm@11.5.1
+          pnpm install --frozen-lockfile
+
+      - name: Verify requested version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node -e 'const fs=require("fs"); const wanted=process.env.RELEASE_VERSION; for (const file of ["packages/plugin-sdk/package.json", "packages/plugin-cli/package.json"]) { const value=JSON.parse(fs.readFileSync(file, "utf8")); if (value.version !== wanted) throw new Error(`${file} is ${value.version}, expected ${wanted}`); }'
+
+      - name: Test developer tools
+        run: |
+          pnpm --dir packages/plugin-sdk lint
+          pnpm --dir packages/plugin-sdk typecheck
+          pnpm --dir packages/plugin-sdk test
+          pnpm --dir packages/plugin-sdk build
+          pnpm --dir packages/plugin-cli lint
+          pnpm --dir packages/plugin-cli typecheck
+          pnpm --dir packages/plugin-cli test
+          pnpm --dir packages/plugin-cli build
+
+      - name: Pack public tarballs
+        run: |
+          mkdir -p release
+          pnpm --dir packages/plugin-sdk pack --pack-destination "$GITHUB_WORKSPACE/release"
+          pnpm --dir packages/plugin-cli pack --pack-destination "$GITHUB_WORKSPACE/release"
+          tar -xOf "release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-sdk" and .version == "${{ inputs.version }}" and .publishConfig.access == "public"'
+          tar -xOf "release/basehalf-plugin-cli-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-cli" and .version == "${{ inputs.version }}" and .dependencies["@basehalf/plugin-sdk"] == "${{ inputs.version }}" and .publishConfig.access == "public"'
+
+      - name: Smoke-test the packed CLI
+        run: |
+          mkdir release-smoke
+          cd release-smoke
+          npm init --yes >/dev/null
+          npm install \
+            "$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" \
+            "$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${{ inputs.version }}.tgz" \
+            --ignore-scripts
+          ./node_modules/.bin/bh-plugin help | grep -q 'BaseHalf plugin publishing'
+
+      - name: Inspect publish contents
+        if: inputs.dry_run
+        run: |
+          npm publish "release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" --access public --dry-run
+          npm publish "release/basehalf-plugin-cli-${{ inputs.version }}.tgz" --access public --dry-run
+
+      - name: Publish SDK
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" --access public
+
+      - name: Publish CLI
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "release/basehalf-plugin-cli-${{ inputs.version }}.tgz" --access public

@@ -2,9 +2,11 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type BaseHalfPluginManifest, validateBaseHalfPluginManifest } from '@basehalf/plugin-sdk';
 import { createVSIX } from '@vscode/vsce';
 import { PluginApiClient, normalizeServer } from './apiClient.js';
@@ -18,7 +20,7 @@ import type {
   UploadGrant,
 } from './types.js';
 
-const DEFAULT_SERVER = 'https://basehalf.com';
+const DEFAULT_SERVER = 'https://plugins.basehalf.com';
 
 interface ParsedArguments {
   readonly command: string;
@@ -40,6 +42,12 @@ export async function run(argv: readonly string[]): Promise<void> {
       return;
     case 'init':
       await initialize(args);
+      return;
+    case 'validate':
+      await validate(args);
+      return;
+    case 'package':
+      await packageCommand(args);
       return;
     case 'login':
       await login(server, option(args, 'client-name') ?? os.hostname());
@@ -67,18 +75,43 @@ async function initialize(args: ParsedArguments): Promise<void> {
   const publisher = option(args, 'publisher');
   const name = option(args, 'name');
   const displayName = option(args, 'display-name');
-  if (!directory || !publisher || !name || !displayName) {
-    throw new Error('init requires a directory, --publisher, --name, and --display-name.');
+  const repository = option(args, 'repository');
+  if (!directory || !publisher || !name || !displayName || !repository) {
+    throw new Error(
+      'init requires a directory, --publisher, --name, --display-name, and --repository.',
+    );
   }
   await scaffoldPlugin({
     directory,
     publisher,
     name,
     displayName,
+    repository,
     fileExtension: option(args, 'file-extension') ?? name,
   });
   console.log(`Created ${publisher}.${name} in ${path.resolve(directory)}.`);
-  console.log('Next: npm install, npm run compile, bh-plugin login, bh-plugin publish.');
+  console.log('Next: npm install, open the folder in BaseHalf, and press F5.');
+}
+
+async function validate(args: ParsedArguments): Promise<void> {
+  const directory = pluginDirectory(args);
+  const manifest = await readManifest(directory);
+  await assertPublishFiles(directory, manifest);
+  console.log(`Validated ${extensionIdOf(manifest)}@${manifest.version}.`);
+}
+
+async function packageCommand(args: ParsedArguments): Promise<void> {
+  const directory = pluginDirectory(args);
+  const manifest = await readManifest(directory);
+  await assertPublishFiles(directory, manifest);
+  const extensionId = extensionIdOf(manifest);
+  const output = option(args, 'out');
+  const vsixPath = output
+    ? path.resolve(output)
+    : path.join(directory, `${extensionId}-${manifest.version}.vsix`);
+  await createPluginVsix(directory, vsixPath);
+  console.log(`Packaged ${extensionId}@${manifest.version}.`);
+  console.log(vsixPath);
 }
 
 async function login(server: string, clientName: string): Promise<void> {
@@ -139,11 +172,11 @@ async function whoami(server: string): Promise<void> {
 }
 
 async function publish(server: string, args: ParsedArguments): Promise<void> {
-  const directory = path.resolve(args.positional[0] ?? option(args, 'directory') ?? '.');
+  const directory = pluginDirectory(args);
   const manifest = await readManifest(directory);
   validateBaseHalfPluginManifest(manifest);
   await assertPublishFiles(directory, manifest);
-  const extensionId = `${manifest.publisher}.${manifest.name}`.toLowerCase();
+  const extensionId = extensionIdOf(manifest);
   const session = await sessionFor(server);
   const client = new PluginApiClient(server, session);
   const plugins = await client.get<RemotePlugin[]>('/cli/plugins');
@@ -164,7 +197,7 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
     : path.join(temporaryDirectory, `${extensionId}-${manifest.version}.vsix`);
   try {
     if (!suppliedVsix) {
-      await createVSIX({ cwd: directory, packagePath: vsixPath, dependencies: false });
+      await createPluginVsix(directory, vsixPath);
     }
     const bytes = await readFile(vsixPath);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -192,10 +225,22 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
       `/cli/submissions/${grant.submission_id}/finalize`,
     );
     console.log(`Submitted ${extensionId}@${manifest.version} (${submission.status}).`);
-    console.log(`${server}/plugins`);
+    console.log(`${server}/publish?plugin=${encodeURIComponent(extensionId)}`);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+function pluginDirectory(args: ParsedArguments): string {
+  return path.resolve(args.positional[0] ?? option(args, 'directory') ?? '.');
+}
+
+function extensionIdOf(manifest: BaseHalfPluginManifest): string {
+  return `${manifest.publisher}.${manifest.name}`.toLowerCase();
+}
+
+async function createPluginVsix(directory: string, vsixPath: string): Promise<void> {
+  await createVSIX({ cwd: directory, packagePath: vsixPath, dependencies: false });
 }
 
 async function status(server: string, args: ParsedArguments): Promise<void> {
@@ -333,20 +378,32 @@ function printHelp(): void {
   console.log(`BaseHalf plugin publishing
 
 Usage:
-  bh-plugin init <directory> --publisher <slug> --name <slug> --display-name <name> [--file-extension <ext>]
-  bh-plugin login [--server https://basehalf.com]
-  bh-plugin whoami [--server https://basehalf.com]
+  bh-plugin init <directory> --publisher <slug> --name <slug> --display-name <name> --repository <https-url> [--file-extension <ext>]
+  bh-plugin validate [directory]
+  bh-plugin package [directory] [--out file]
+  bh-plugin login [--server https://plugins.basehalf.com]
+  bh-plugin whoami [--server https://plugins.basehalf.com]
   bh-plugin publish [directory] [--vsix file] [--release-notes-file file]
   bh-plugin status [directory] [--extension-id publisher.name]
-  bh-plugin logout [--server https://basehalf.com]
+  bh-plugin logout [--server https://plugins.basehalf.com]
 
 Publishing uses the same BaseHalf account as the web app. Uploads enter private quarantine,
 validation, and human review before the signed desktop catalog can expose them.`);
 }
 
-if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
+if (isMainModule()) {
   run(process.argv.slice(2)).catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   });
+}
+
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }

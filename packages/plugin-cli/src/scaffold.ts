@@ -6,13 +6,16 @@ export interface ScaffoldOptions {
   readonly publisher: string;
   readonly name: string;
   readonly displayName: string;
+  readonly repository: string;
   readonly fileExtension: string;
 }
 
 export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
   const directory = path.resolve(options.directory);
-  const publisher = slug(options.publisher, 'Publisher');
-  const name = slug(options.name, 'Plugin name');
+  const publisher = slug(options.publisher, 'Publisher', 50);
+  const name = slug(options.name, 'Plugin name', 100);
+  const displayName = requiredDisplayName(options.displayName);
+  const repository = normalizeRepository(options.repository);
   const fileExtension = normalizeExtension(options.fileExtension);
   const projectionId = `${publisher}.${name}.project`;
   const primaryCommand = `${publisher}.${name}.createProject`;
@@ -22,18 +25,22 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
   }
   const manifest = {
     name,
-    displayName: options.displayName,
-    description: `${options.displayName} project surface for BaseHalf.`,
+    displayName,
+    description: `${displayName} project surface for BaseHalf.`,
     version: '0.1.0',
     publisher,
     license: 'Apache-2.0',
+    repository: {
+      type: 'git',
+      url: repository,
+    },
     engines: { vscode: '^1.100.0', basehalf: '^0.4.0' },
     extensionKind: ['workspace'],
     categories: ['Other'],
     main: './out/extension.js',
     basehalf: {
       primaryCommand,
-      primaryCommandLabel: `Create ${options.displayName} Project…`,
+      primaryCommandLabel: `Create ${displayName} Project…`,
     },
     capabilities: {
       untrustedWorkspaces: {
@@ -47,7 +54,7 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
       basehalfCardProjections: [
         {
           id: projectionId,
-          label: options.displayName,
+          label: displayName,
           extensions: [fileExtension],
           order: 100,
           defaultPriority: 100,
@@ -56,15 +63,19 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
       commands: [
         {
           command: primaryCommand,
-          title: `Create ${options.displayName} Project…`,
+          title: `Create ${displayName} Project…`,
           category: 'BaseHalf',
         },
       ],
     },
     scripts: {
       compile:
-        'esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js',
-      package: 'npm run compile && bh-plugin publish',
+        'esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=out/extension.js',
+      watch:
+        'esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --sourcemap --outfile=out/extension.js --watch',
+      check: 'npm run compile && tsc --noEmit && bh-plugin validate .',
+      package: 'npm run compile && bh-plugin package .',
+      publish: 'npm run compile && bh-plugin publish .',
     },
     devDependencies: {
       '@basehalf/plugin-sdk': '^0.1.0',
@@ -76,10 +87,14 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
   const files: Readonly<Record<string, string>> = {
     'package.json': `${JSON.stringify(manifest, null, 2)}\n`,
     'src/extension.ts': extensionSource(projectionId, primaryCommand, fileExtension),
-    'README.md': `# ${options.displayName}\n\nDescribe what this plugin lets people build in BaseHalf and which ordinary project files it owns.\n`,
+    'tsconfig.json': `${JSON.stringify(tsconfig(), null, 2)}\n`,
+    '.vscode/launch.json': `${JSON.stringify(launchConfiguration(), null, 2)}\n`,
+    'test-workspace/README.md': `# ${displayName} test workspace\n\nFiles created while running the plugin development host stay in this folder.\n`,
+    'README.md': `# ${displayName}\n\nDescribe what this plugin lets people build in BaseHalf and which ordinary project files it owns.\n\n## Development\n\n- Run \`npm install\`.\n- Open this folder in BaseHalf and press F5.\n- Run \`npm run check\` before packaging.\n- Run \`npm run package\` to create the exact VSIX for review.\n`,
     'CHANGELOG.md': '# Changelog\n\n## 0.1.0\n\n- Initial project surface.\n',
-    LICENSE: apacheNotice(options.displayName),
+    LICENSE: apacheNotice(displayName),
     '.gitignore': 'node_modules/\nout/\n*.vsix\n',
+    '.vscodeignore': '.vscode/**\nsrc/**\ntest-workspace/**\ntsconfig.json\n*.vsix\n',
   };
   for (const [relativePath, content] of Object.entries(files)) {
     const target = path.join(directory, relativePath);
@@ -93,7 +108,7 @@ function extensionSource(
   primaryCommand: string,
   fileExtension: string,
 ): string {
-  return `import '@basehalf/plugin-sdk/vscode';
+  return `import type {} from '@basehalf/plugin-sdk/vscode';
 import * as vscode from 'vscode';
 
 const projectionId = '${projectionId}';
@@ -133,12 +148,71 @@ function escapeHtml(value: string): string {
 `;
 }
 
-function slug(value: string, label: string): string {
+function slug(value: string, label: string, maximumLength: number): string {
   const result = value.trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/.test(result)) {
-    throw new Error(`${label} must use lowercase letters, numbers, and internal hyphens.`);
+  if (
+    result.length < 3 ||
+    result.length > maximumLength ||
+    !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])$/.test(result)
+  ) {
+    throw new Error(
+      `${label} must be 3-${maximumLength} lowercase letters, numbers, and internal hyphens.`,
+    );
   }
   return result;
+}
+
+function requiredDisplayName(value: string): string {
+  const result = value.trim();
+  if (result.length < 2 || result.length > 150) {
+    throw new Error('Display name must be 2-150 characters.');
+  }
+  return result;
+}
+
+function normalizeRepository(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' || !url.hostname) throw new Error('not https');
+    return url.href.replace(/\/$/, '');
+  } catch {
+    throw new Error('Repository must be an absolute HTTPS URL.');
+  }
+}
+
+function tsconfig(): Record<string, unknown> {
+  return {
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'CommonJS',
+      moduleResolution: 'Node',
+      lib: ['ES2022', 'DOM'],
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+    },
+    include: ['src/**/*.ts'],
+  };
+}
+
+function launchConfiguration(): Record<string, unknown> {
+  return {
+    version: '0.2.0',
+    configurations: [
+      {
+        name: 'Run BaseHalf Plugin',
+        type: 'extensionHost',
+        request: 'launch',
+        runtimeExecutable: '${execPath}',
+        args: [
+          '--extensionDevelopmentPath=${workspaceFolder}',
+          '${workspaceFolder}/test-workspace',
+        ],
+        outFiles: ['${workspaceFolder}/out/**/*.js'],
+        preLaunchTask: 'npm: compile',
+      },
+    ],
+  };
 }
 
 function normalizeExtension(value: string): string {

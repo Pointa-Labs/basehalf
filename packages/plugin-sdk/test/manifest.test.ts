@@ -8,6 +8,7 @@ const valid = {
   displayName: 'Storyboard',
   description: 'A workflow surface.',
   license: 'Apache-2.0',
+  repository: 'https://github.com/studio/storyboard',
   engines: { vscode: '^1.128.0', basehalf: '^0.4.0' },
   main: './dist/extension.js',
   basehalf: {
@@ -58,5 +59,14 @@ describe('BaseHalf plugin manifest contract', () => {
         contributes: { commands: valid.contributes.commands },
       }),
     ).toThrow('at least one BaseHalf card projection');
+  });
+
+  it('requires an HTTPS source disclosure URL', () => {
+    expect(() => validateBaseHalfPluginManifest({ ...valid, repository: undefined })).toThrow(
+      'absolute HTTPS URL',
+    );
+    expect(() =>
+      validateBaseHalfPluginManifest({ ...valid, repository: 'file:///tmp/storyboard' }),
+    ).toThrow('absolute HTTPS URL');
   });
 });

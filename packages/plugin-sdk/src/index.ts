@@ -26,6 +26,13 @@ export interface BaseHalfPluginManifest {
   readonly displayName: string;
   readonly description: string;
   readonly license: string;
+  readonly repository:
+    | string
+    | {
+        readonly type?: string;
+        readonly url: string;
+        readonly directory?: string;
+      };
   readonly engines: {
     readonly vscode: string;
     readonly basehalf: string;
@@ -80,6 +87,7 @@ export function validateBaseHalfPluginManifest(
   requiredText(manifest.description, 'description');
   requiredText(manifest.license, 'license');
   requiredText(manifest.main, 'main');
+  requireHttpsRepository(manifest.repository);
   const primaryCommand = requiredText(manifest.basehalf?.primaryCommand, 'basehalf.primaryCommand');
   requiredText(manifest.basehalf?.primaryCommandLabel, 'basehalf.primaryCommandLabel');
   if (!primaryCommand.toLowerCase().startsWith(`${extensionId}.`)) {
@@ -128,6 +136,22 @@ export function validateBaseHalfPluginManifest(
     ) {
       throw new Error(`Projection '${projection.id}' must declare valid file extensions.`);
     }
+  }
+}
+
+function requireHttpsRepository(value: unknown): string {
+  const candidate =
+    typeof value === 'string'
+      ? value.trim()
+      : value && typeof value === 'object' && 'url' in value
+        ? String((value as { url?: unknown }).url ?? '').trim()
+        : '';
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'https:' || !url.hostname) throw new Error('not https');
+    return url.href;
+  } catch {
+    throw new Error('Plugin manifest repository must be an absolute HTTPS URL.');
   }
 }
 

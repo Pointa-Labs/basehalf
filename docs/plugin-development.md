@@ -42,6 +42,7 @@ bh-plugin init my-plugin \
   --publisher my-studio \
   --name story-board \
   --display-name "Story Board" \
+  --repository https://github.com/my-studio/story-board \
   --file-extension storyboard
 
 cd my-plugin
@@ -95,11 +96,25 @@ usage disclosure, and billing behavior.
 
 ## Test locally
 
-Use the normal extension development-host workflow. Test create/open/save,
+The generated project includes a BaseHalf extension-development launch
+configuration and a separate `test-workspace/`. Open the plugin folder in
+BaseHalf and press **F5**. BaseHalf compiles the extension and opens the test
+workspace in a development-host window without installing the plugin into the
+user's normal profile.
+
+Use that normal extension development-host workflow to test create/open/save,
 external changes, dirty-state navigation, cancellation, provider errors,
 Extension Host restart, disable/uninstall fallback, and project readability
 without the plugin. Generated outputs must be ordinary files with relative
 paths.
+
+Before submitting, validate and create the exact local artifact independently
+of publication:
+
+```bash
+npm run check
+npm run package
+```
 
 BaseHalf does not expose arbitrary **Install from VSIX**. Local development uses
 the development host; distribution uses the reviewed path below.
@@ -112,11 +127,12 @@ Publisher, and accept the current agreements. Then:
 ```bash
 bh-plugin login
 bh-plugin whoami
-bh-plugin publish . --release-notes-file CHANGELOG.md
+npm run publish
 bh-plugin status .
 ```
 
-`login` opens a short-lived device approval page. The stored credential is
+`login` opens a short-lived device approval page on
+`plugins.basehalf.com`. The stored credential is
 opaque, expiring, Publisher-scoped, and owner-readable only. It is not the web
 password and can be revoked from the Plugins page.
 
@@ -143,3 +159,16 @@ reuses VS Code's enable/disable/uninstall, Extension Host restart,
 
 See [`plugin-architecture.md`](plugin-architecture.md) for host internals and the
 wire contract.
+
+## Maintainer release of the developer tools
+
+The SDK and CLI are public npm packages released together at one version. The
+manual **Publish plugin developer tools** workflow tests both packages, builds
+them, packs the workspace dependency to an exact version, and inspects the
+tarballs before publishing the SDK first and the CLI second.
+
+Keep `dry_run` enabled for ordinary verification. A production run uses npm
+trusted publishing through GitHub OIDC when configured; the `NPM_TOKEN` secret
+is retained only as a bootstrap fallback for the first publication. The
+`@basehalf` npm organization and the `npm-production` GitHub environment are
+external prerequisites and are never created by application code.
