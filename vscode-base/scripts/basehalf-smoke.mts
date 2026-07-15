@@ -41,7 +41,14 @@ fs.writeFileSync(
 	'utf8'
 );
 
-createFixtureWorkspace(workspacePath);
+if (opts.verifyUninstalled || opts.verifyInstalled) {
+	if (!fs.existsSync(externalPluginFixturePath())) {
+		throw new Error(`Cannot verify an uninstalled plugin without the preserved fixture at ${externalPluginFixturePath()}`);
+	}
+} else {
+	createFixtureWorkspace(workspacePath);
+	prepareExternalPluginFixture();
+}
 
 const electronPath = getDevElectronPath();
 
@@ -122,6 +129,16 @@ try {
 				checks: ['settings-basehalf-category', 'global-model-services-manager']
 			}, null, 2));
 		} else if (opts.pluginOnly) {
+			if (opts.externalPluginId) {
+				const checks = opts.verifyUninstalled
+					? await assertExternalPluginUninstalled(page)
+					: opts.verifyInstalled
+						? await assertExternalPluginInstalledRelaunch(page)
+					: opts.seedVsix
+						? await assertExternalPluginUpdate(page)
+						: await assertExternalPluginLifecycle(page);
+				console.log(JSON.stringify({ ok: true, workspace: workspacePath, checks, runRoot }, null, 2));
+			} else {
 			await step('quick-open-ai-video-project', () => quickOpen(page, 'episode.aivideo'));
 			await step('ai-video-plugin-projection', () => assertAIVideoProject(page));
 			await step('ai-video-local-workflow-output', () => assertAIVideoLocalWorkflow(page));
@@ -139,6 +156,7 @@ try {
 					'curated-plugin-manager'
 				]
 			}, null, 2));
+			}
 		} else if (opts.contentOnly) {
 			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
@@ -403,6 +421,12 @@ function parseArgs(args) {
 		contentOnly: false,
 		pluginOnly: false,
 		settingsOnly: false,
+		externalPluginId: undefined,
+		externalPluginExtension: undefined,
+		externalPluginVersion: undefined,
+		seedVsix: undefined,
+		verifyUninstalled: false,
+		verifyInstalled: false,
 		output: undefined
 	};
 
@@ -427,6 +451,24 @@ function parseArgs(args) {
 			case '--settings-only':
 				parsed.settingsOnly = true;
 				break;
+			case '--external-plugin-id':
+				parsed.externalPluginId = requireValue(args, ++i, arg).toLowerCase();
+				break;
+			case '--external-plugin-extension':
+				parsed.externalPluginExtension = requireValue(args, ++i, arg).replace(/^\./, '').toLowerCase();
+				break;
+			case '--external-plugin-version':
+				parsed.externalPluginVersion = requireValue(args, ++i, arg);
+				break;
+			case '--seed-vsix':
+				parsed.seedVsix = path.resolve(requireValue(args, ++i, arg));
+				break;
+			case '--verify-uninstalled':
+				parsed.verifyUninstalled = true;
+				break;
+			case '--verify-installed':
+				parsed.verifyInstalled = true;
+				break;
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
 				break;
@@ -436,6 +478,15 @@ function parseArgs(args) {
 			default:
 				throw new Error(`Unknown argument: ${arg}`);
 		}
+	}
+	if (parsed.externalPluginId && (!parsed.pluginOnly || !parsed.externalPluginExtension || !parsed.externalPluginVersion)) {
+		throw new Error('--external-plugin-id requires --plugin-only, --external-plugin-extension, and --external-plugin-version.');
+	}
+	if ((parsed.seedVsix || parsed.verifyUninstalled || parsed.verifyInstalled) && !parsed.externalPluginId) {
+		throw new Error('--seed-vsix and verification modes require --external-plugin-id.');
+	}
+	if (parsed.verifyUninstalled && parsed.verifyInstalled) {
+		throw new Error('--verify-installed and --verify-uninstalled are mutually exclusive.');
 	}
 
 	return parsed;
@@ -459,6 +510,16 @@ Options:
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
   --plugin-only       Run the curated plugin and AI Video integration slice.
   --settings-only     Run BaseHalf Settings and global model-service management.
+  --external-plugin-id <id>
+                      Run the reviewed remote-plugin lifecycle slice.
+  --external-plugin-extension <ext>
+                      File extension contributed by the reviewed test plugin.
+  --external-plugin-version <version>
+                      Remote version expected after install or update.
+  --seed-vsix <path>  Preinstall an older VSIX before exercising remote update.
+  --verify-uninstalled
+                      Relaunch an existing output profile and verify source fallback.
+  --verify-installed  Relaunch an existing output profile and verify cached admission.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);
@@ -654,6 +715,37 @@ function createFixtureWorkspace(workspace) {
 	execFileSync('git', ['branch', 'branch-picker-target'], { cwd: workspace, stdio: 'ignore' });
 	fs.appendFileSync(path.join(workspace, 'README.md'), '\nscm dirty change\n', 'utf8');
 	fs.appendFileSync(path.join(workspace, 'src', 'app.ts'), '\nexport const smokeDirtyChange = true;\n', 'utf8');
+}
+
+function prepareExternalPluginFixture() {
+	if (!opts.externalPluginId) {
+		return;
+	}
+	fs.writeFileSync(externalPluginFixturePath(), '{"kept":true}\n', 'utf8');
+	if (!opts.seedVsix) {
+		return;
+	}
+	if (!fs.existsSync(opts.seedVsix)) {
+		throw new Error(`Seed VSIX does not exist: ${opts.seedVsix}`);
+	}
+	const manifest = JSON.parse(execFileSync('unzip', ['-p', opts.seedVsix, 'extension/package.json'], { encoding: 'utf8' }));
+	const manifestId = `${manifest.publisher}.${manifest.name}`.toLowerCase();
+	if (manifestId !== opts.externalPluginId) {
+		throw new Error(`Seed VSIX id mismatch: expected ${opts.externalPluginId}, received ${manifestId}`);
+	}
+	const extractionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-plugin-seed-'));
+	try {
+		execFileSync('unzip', ['-q', opts.seedVsix, '-d', extractionRoot]);
+		const target = path.join(extensionsDir, `${manifestId}-${manifest.version}`);
+		fs.rmSync(target, { recursive: true, force: true });
+		fs.cpSync(path.join(extractionRoot, 'extension'), target, { recursive: true });
+	} finally {
+		fs.rmSync(extractionRoot, { recursive: true, force: true });
+	}
+}
+
+function externalPluginFixturePath() {
+	return path.join(workspacePath, `reviewed-plugin.${opts.externalPluginExtension}`);
 }
 
 function initializeGitWorkspace(workspace) {
@@ -1470,6 +1562,203 @@ async function assertCuratedPluginManager(page) {
 	await library.waitFor({ state: 'detached', timeout: 15_000 });
 }
 
+async function assertExternalPluginLifecycle(page) {
+	await step('external-plugin-install', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await runExternalPluginAction(library, 'install');
+		await waitForExternalPluginAction(library, 'open');
+		await assertExternalPluginInstalledVersion(library);
+		await closeExternalPluginLibrary(library);
+	});
+	await step('external-plugin-projection', async () => {
+		await quickOpen(page, path.basename(externalPluginFixturePath()));
+		await waitForExternalPluginProjection(page, `Workflow Smoke ${opts.externalPluginVersion}`);
+	});
+	await step('external-plugin-disable-source-fallback', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await runExternalPluginAction(library, 'disable');
+		await waitForExternalPluginAction(library, 'enable');
+		await runNativePluginRuntimeActionIfVisible(page, library);
+		await closeExternalPluginLibrary(library);
+		await reopenExternalPluginFixture(page);
+		await waitForExternalPluginSourceFallback(page);
+	});
+	await step('external-plugin-enable-projection', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await runExternalPluginAction(library, 'enable');
+		await waitForExternalPluginAction(library, 'disable');
+		await runNativePluginRuntimeActionIfVisible(page, library);
+		await closeExternalPluginLibrary(library);
+		await reopenExternalPluginFixture(page);
+		await waitForExternalPluginProjection(page, `Workflow Smoke ${opts.externalPluginVersion}`);
+	});
+	await step('external-plugin-uninstall-preserves-data', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await runExternalPluginAction(library, 'uninstall');
+		const dialog = page.locator('.monaco-dialog-box', { hasText: 'Existing project files and generated outputs stay on disk.' }).first();
+		await dialog.waitFor({ state: 'visible', timeout: 20_000 });
+		await dialog.locator('.monaco-button', { hasText: /^Uninstall$/ }).click();
+		await dialog.waitFor({ state: 'hidden', timeout: 20_000 });
+		await waitForExternalPluginAction(library, 'install');
+		if (!fs.existsSync(externalPluginFixturePath()) || fs.readFileSync(externalPluginFixturePath(), 'utf8') !== '{"kept":true}\n') {
+			throw new Error('Uninstall changed or removed the external plugin project file');
+		}
+		await closeExternalPluginLibrary(library);
+	});
+	return [
+		'external-plugin-server-install',
+		'external-plugin-projection',
+		'external-plugin-disable-source-fallback',
+		'external-plugin-enable-projection',
+		'external-plugin-uninstall-data-retention'
+	];
+}
+
+async function assertExternalPluginUpdate(page) {
+	await step('external-plugin-seeded-catalog-admission', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await waitForExternalPluginAction(library, 'update');
+		await closeExternalPluginLibrary(library);
+	});
+	await step('external-plugin-seeded-projection', async () => {
+		await quickOpen(page, path.basename(externalPluginFixturePath()));
+		await waitForExternalPluginProjection(page, 'Your plugin owns this central project surface');
+	});
+	await step('external-plugin-native-update', async () => {
+		const library = await openExternalPluginLibrary(page);
+		await runExternalPluginAction(library, 'update');
+		await waitForExternalPluginAction(library, 'open');
+		await assertExternalPluginInstalledVersion(library);
+		await runNativePluginRuntimeActionIfVisible(page, library, true);
+		await closeExternalPluginLibrary(library);
+		await reopenExternalPluginFixture(page);
+		await waitForExternalPluginProjection(page, `Workflow Smoke ${opts.externalPluginVersion}`);
+	});
+	return ['external-plugin-seeded-catalog-admission', 'external-plugin-seeded-version-active', 'external-plugin-native-restart-update'];
+}
+
+async function assertExternalPluginUninstalled(page) {
+	await step('external-plugin-relaunch-source-fallback', async () => {
+		if (!fs.existsSync(externalPluginFixturePath()) || fs.readFileSync(externalPluginFixturePath(), 'utf8') !== '{"kept":true}\n') {
+			throw new Error('The external plugin project file did not survive relaunch');
+		}
+		await waitUntil(
+			() => !fs.readdirSync(extensionsDir).some(name => name.toLowerCase().startsWith(`${opts.externalPluginId}-`)),
+			'VS Code extension management to delete the plugin marked for removal after relaunch',
+			15_000
+		);
+		await quickOpen(page, path.basename(externalPluginFixturePath()));
+		await waitForExternalPluginSourceFallback(page);
+	});
+	return ['external-plugin-relaunch-source-fallback', 'external-plugin-user-data-preserved'];
+}
+
+async function assertExternalPluginInstalledRelaunch(page) {
+	await step('external-plugin-relaunch-cached-admission', async () => {
+		const profile = JSON.parse(fs.readFileSync(path.join(extensionsDir, 'extensions.json'), 'utf8'));
+		if (!profile.some(extension => extension.identifier?.id?.toLowerCase() === opts.externalPluginId && extension.version === opts.externalPluginVersion)) {
+			throw new Error(`The expected installed plugin is absent from the VS Code extension profile: ${JSON.stringify(profile)}`);
+		}
+		const library = await openExternalPluginLibrary(page);
+		await library.locator('.basehalf-plugin-library-catalog-status', { hasText: 'Signed remote catalog verified' }).waitFor({ state: 'visible', timeout: 45_000 });
+		await waitForExternalPluginAction(library, 'open');
+		await assertExternalPluginInstalledVersion(library);
+		await closeExternalPluginLibrary(library);
+		await quickOpen(page, path.basename(externalPluginFixturePath()));
+		await waitForExternalPluginProjection(page, `Workflow Smoke ${opts.externalPluginVersion}`);
+	});
+	return ['external-plugin-relaunch-cached-admission', 'external-plugin-relaunch-remote-refresh', 'external-plugin-relaunch-projection'];
+}
+
+async function openExternalPluginLibrary(page) {
+	const productConfig = await page.evaluate(() => {
+		const configuration = globalThis.vscode?.context?.configuration?.();
+		return {
+			basehalfPlugins: configuration?.product?.basehalfPlugins,
+			basehalfProductKeys: Object.keys(configuration?.product ?? {}).filter(key => key.toLowerCase().includes('basehalf'))
+		};
+	});
+	if (!productConfig.basehalfPlugins) {
+		throw new Error(`Remote plugin distribution is absent from the renderer product configuration: ${JSON.stringify(productConfig)}`);
+	}
+	const pluginsAction = page.locator([
+		'.part.activitybar .action-label[aria-label^="Plugins"]',
+		'.part.activitybar .action-label.codicon-extensions',
+		'.part.sidebar .composite-bar .action-label[aria-label^="Plugins"]',
+		'.part.sidebar .composite-bar .action-label.codicon-extensions'
+	].join(', ')).first();
+	await pluginsAction.waitFor({ state: 'visible', timeout: 20_000 });
+	await pluginsAction.click();
+	const sidebarRow = page.locator(`.basehalf-plugins-view [data-extension-id="${opts.externalPluginId}"]`).first();
+	await sidebarRow.waitFor({ state: 'visible', timeout: 45_000 });
+	await sidebarRow.click();
+	const library = page.locator('.basehalf-plugin-library').first();
+	await library.waitFor({ state: 'visible', timeout: 20_000 });
+	const row = library.locator(`[data-extension-id="${opts.externalPluginId}"]`).first();
+	await row.waitFor({ state: 'visible', timeout: 20_000 });
+	await row.click();
+	await library.locator('.basehalf-plugin-library-detail code', { hasText: opts.externalPluginId }).waitFor({ state: 'visible', timeout: 20_000 });
+	return library;
+}
+
+async function runExternalPluginAction(library, action) {
+	const button = library.locator(`[data-plugin-action="${action}"][data-extension-id="${opts.externalPluginId}"]`).first();
+	await button.waitFor({ state: 'visible', timeout: 30_000 });
+	await button.click();
+}
+
+async function waitForExternalPluginAction(library, action) {
+	await library.locator(`[data-plugin-action="${action}"][data-extension-id="${opts.externalPluginId}"]`).first().waitFor({ state: 'visible', timeout: 60_000 });
+}
+
+async function assertExternalPluginInstalledVersion(library) {
+	const row = library.locator('.basehalf-plugin-library-meta-row', { hasText: 'Installed' }).filter({ hasText: opts.externalPluginVersion }).first();
+	await row.waitFor({ state: 'visible', timeout: 30_000 });
+}
+
+async function closeExternalPluginLibrary(library) {
+	await library.locator('[data-action="close"]').click();
+	await library.waitFor({ state: 'detached', timeout: 20_000 });
+}
+
+async function runNativePluginRuntimeActionIfVisible(page, library, required = false) {
+	const action = library.locator('.basehalf-plugin-library-actions .action-label', { hasText: /Restart Extensions|Reload Window/ }).first();
+	const visible = await action.isVisible({ timeout: 5_000 }).catch(() => false);
+	if (!visible) {
+		if (required) {
+			throw new Error('The native extension runtime action was not offered after updating an active plugin');
+		}
+		return;
+	}
+	await action.click();
+	await page.waitForTimeout(1_500);
+}
+
+async function reopenExternalPluginFixture(page) {
+	await quickOpen(page, 'README.md');
+	await page.locator('.basehalf-card-detail-title', { hasText: 'README.md' }).waitFor({ state: 'visible', timeout: 20_000 });
+	await quickOpen(page, path.basename(externalPluginFixturePath()));
+}
+
+async function waitForExternalPluginProjection(page, marker) {
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	const started = Date.now();
+	while (Date.now() - started < 30_000) {
+		for (const frame of page.frames()) {
+			const text = await frame.locator('body').textContent().catch(() => '');
+			if (text?.includes(marker)) {
+				return;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+	throw new Error(`External plugin projection did not render marker: ${marker}`);
+}
+
+async function waitForExternalPluginSourceFallback(page) {
+	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-surface.active .basehalf-card-detail-source').waitFor({ state: 'visible', timeout: 30_000 });
+}
+
 async function assertBaseHalfReleaseNotesSystemPage(page) {
 	await runCommand(page, 'Show Release Notes');
 	const frame = await activeReleaseNotesFrame(page);
@@ -1908,9 +2197,52 @@ async function assertAIVideoProject(page) {
 		if (await node.locator('.workflow-connect-handle').count() !== 4) {
 			throw new Error(`The AI Video ${kind} node did not expose exactly four connection ports`);
 		}
+		const cardSurface = node.locator(kind === 'text' ? '.text-node-surface' : kind === 'image' ? '.image-node-media' : '.generated-node-media');
+		const cardSurfaceBounds = await cardSurface.boundingBox();
+		if (!cardSurfaceBounds) {
+			throw new Error(`The AI Video ${kind} node did not expose stable card-surface geometry`);
+		}
 		for (const side of ['top', 'right', 'bottom', 'left']) {
 			await node.hover();
 			const handle = node.locator(`.react-flow__handle-${side}`);
+			const handleBounds = await handle.boundingBox();
+			if (!handleBounds) {
+				throw new Error(`The AI Video ${kind} ${side} port did not expose stable geometry`);
+			}
+			const visiblePortCenter = side === 'top'
+				? { x: handleBounds.x + handleBounds.width / 2, y: handleBounds.y }
+				: side === 'right'
+					? { x: handleBounds.x + handleBounds.width, y: handleBounds.y + handleBounds.height / 2 }
+					: side === 'bottom'
+						? { x: handleBounds.x + handleBounds.width / 2, y: handleBounds.y + handleBounds.height }
+						: { x: handleBounds.x, y: handleBounds.y + handleBounds.height / 2 };
+			const expectedPortCenter = side === 'top'
+				? { x: cardSurfaceBounds.x + cardSurfaceBounds.width / 2, y: cardSurfaceBounds.y }
+				: side === 'right'
+					? { x: cardSurfaceBounds.x + cardSurfaceBounds.width, y: cardSurfaceBounds.y + cardSurfaceBounds.height / 2 }
+					: side === 'bottom'
+						? { x: cardSurfaceBounds.x + cardSurfaceBounds.width / 2, y: cardSurfaceBounds.y + cardSurfaceBounds.height }
+						: { x: cardSurfaceBounds.x, y: cardSurfaceBounds.y + cardSurfaceBounds.height / 2 };
+			if (Math.abs(visiblePortCenter.x - expectedPortCenter.x) > 1.5 || Math.abs(visiblePortCenter.y - expectedPortCenter.y) > 1.5) {
+				throw new Error(`The AI Video ${kind} ${side} port drifted away from the card edge (expected: ${JSON.stringify(expectedPortCenter)}; actual: ${JSON.stringify(visiblePortCenter)})`);
+			}
+			const handleHitState = await handle.evaluate(element => {
+				const bounds = element.getBoundingClientRect();
+				const target = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+				const style = getComputedStyle(element);
+				return {
+					hit: target === element || element.contains(target),
+					bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+					viewport: { width: window.innerWidth, height: window.innerHeight },
+					target: target ? `${target.tagName.toLowerCase()}.${[...target.classList].join('.')}` : 'none',
+					targets: document.elementsFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2).map(candidate => `${candidate.tagName.toLowerCase()}.${[...candidate.classList].join('.')}`).slice(0, 8),
+					opacity: style.opacity,
+					pointerEvents: style.pointerEvents
+				};
+			});
+			if (!handleHitState.hit) {
+				throw new Error(`The AI Video ${kind} ${side} port was not physically clickable at its visible centre: ${JSON.stringify(handleHitState)}`);
+			}
 			await handle.click();
 			if (await frame.locator('.react-flow__connection-path').count() !== 0) {
 				throw new Error(`A click without a drag on the AI Video ${kind} ${side} port started a connection`);
@@ -2114,12 +2446,19 @@ async function assertAIVideoProject(page) {
 	await page.mouse.up();
 	const videoCreateMenu = frame.locator('.add-menu.mode-connect');
 	await videoCreateMenu.waitFor({ state: 'visible', timeout: 5_000 });
+	const pendingConnection = frame.locator('[data-testid="workflow-pending-connection"]');
+	await pendingConnection.waitFor({ state: 'attached', timeout: 5_000 });
+	const pendingConnectionLength = await pendingConnection.evaluate(path => (path as SVGPathElement).getTotalLength());
+	if (pendingConnectionLength < 40) {
+		throw new Error(`The AI Video connection disappeared or collapsed while its create-node menu was open: ${pendingConnectionLength}`);
+	}
 	const videoTargetKinds = await videoCreateMenu.locator('button[role="menuitem"] strong').allTextContents();
 	if (JSON.stringify(videoTargetKinds) !== JSON.stringify(['Text', 'Video'])) {
 		throw new Error(`Pulling from a Video node offered incompatible next nodes: ${JSON.stringify(videoTargetKinds)}`);
 	}
 	await page.keyboard.press('Escape');
 	await videoCreateMenu.waitFor({ state: 'detached', timeout: 5_000 });
+	await pendingConnection.waitFor({ state: 'detached', timeout: 5_000 });
 
 	const edgeCount = await frame.locator('.react-flow__edge').count();
 	await firstTextNode.hover();

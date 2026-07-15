@@ -23,6 +23,7 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
+import { ExtensionRuntimeActionType, IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { EnablementState, IWorkbenchExtensionEnablementService, IWorkbenchExtensionManagementService } from '../../services/extensionManagement/common/extensionManagement.js';
 import { IBaseHalfResolvedPlugin, resolveBaseHalfPluginAsset } from './basehalfPluginCatalog.js';
 import { IBaseHalfPluginCatalogService } from './basehalfPluginCatalogService.js';
@@ -45,6 +46,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 		@IBaseHalfPluginCatalogService private readonly catalogService: IBaseHalfPluginCatalogService,
 		@IWorkbenchExtensionManagementService private readonly extensionManagementService: IWorkbenchExtensionManagementService,
 		@IWorkbenchExtensionEnablementService private readonly enablementService: IWorkbenchExtensionEnablementService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IFileService private readonly fileService: IFileService,
 		@IRequestService private readonly requestService: IRequestService,
 		@IChecksumService private readonly checksumService: IChecksumService,
@@ -122,7 +124,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 				throw new Error('This plugin has been withdrawn and cannot be newly installed.');
 			}
 			if (plugin.remoteVersion) {
-				await this.installRemote(plugin);
+				return this.installRemote(plugin);
 			} else {
 				if (!plugin.bundledPath) {
 					throw new Error('No compatible reviewed package is available for this plugin.');
@@ -142,8 +144,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 			if (!plugin.remoteVersion) {
 				throw new Error('No compatible remote update is available.');
 			}
-			await this.installRemote(plugin);
-			return { restartRequired: false };
+			return this.installRemote(plugin);
 		});
 	}
 
@@ -239,7 +240,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 		});
 	}
 
-	private async installRemote(plugin: IBaseHalfResolvedPlugin): Promise<void> {
+	private async installRemote(plugin: IBaseHalfResolvedPlugin): Promise<IBaseHalfPluginOperationResult> {
 		const config = this.productService.basehalfPlugins;
 		const version = plugin.remoteVersion;
 		if (!config || !version) {
@@ -287,7 +288,8 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 			if (cancellation.token.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			await this.extensionManagementService.installVSIX(vsix, manifest);
+			const installed = await this.extensionsWorkbenchService.install(vsix, { installGivenVersion: true });
+			return { restartRequired: requiresPluginRuntimeRestart(installed.runtimeState?.action) };
 		} finally {
 			requestTimeout.dispose();
 			try {
@@ -297,6 +299,11 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 			}
 		}
 	}
+}
+
+export function requiresPluginRuntimeRestart(action: ExtensionRuntimeActionType | undefined): boolean {
+	return action === ExtensionRuntimeActionType.RestartExtensions
+		|| action === ExtensionRuntimeActionType.ReloadWindow;
 }
 
 export function limitBaseHalfPluginDownloadStream(

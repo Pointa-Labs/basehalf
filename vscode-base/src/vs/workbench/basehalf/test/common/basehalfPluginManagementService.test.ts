@@ -17,8 +17,9 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IRequestService } from '../../../../platform/request/common/request.js';
+import { ExtensionRuntimeActionType, IExtensionsWorkbenchService } from '../../../contrib/extensions/common/extensions.js';
 import { EnablementState, IWorkbenchExtensionEnablementService, IWorkbenchExtensionManagementService } from '../../../services/extensionManagement/common/extensionManagement.js';
-import { BaseHalfPluginManagementService, limitBaseHalfPluginDownloadStream } from '../../common/basehalfPluginManagementService.js';
+import { BaseHalfPluginManagementService, limitBaseHalfPluginDownloadStream, requiresPluginRuntimeRestart } from '../../common/basehalfPluginManagementService.js';
 import { BASEHALF_CURATED_PLUGINS, IBaseHalfResolvedPlugin } from '../../common/basehalfPluginCatalog.js';
 import { IBaseHalfPluginCatalogService } from '../../common/basehalfPluginCatalogService.js';
 
@@ -141,6 +142,14 @@ suite('BaseHalfPluginManagementService', () => {
 		await assert.rejects(consumed, /exceeds the signed size/);
 		assert.strictEqual(cancellation.token.isCancellationRequested, true);
 	});
+
+	test('requests only the native runtime actions required by extension changes', () => {
+		assert.strictEqual(requiresPluginRuntimeRestart(ExtensionRuntimeActionType.RestartExtensions), true);
+		assert.strictEqual(requiresPluginRuntimeRestart(ExtensionRuntimeActionType.ReloadWindow), true);
+		assert.strictEqual(requiresPluginRuntimeRestart(ExtensionRuntimeActionType.QuitAndInstall), false);
+		assert.strictEqual(requiresPluginRuntimeRestart(ExtensionRuntimeActionType.ApplyUpdate), false);
+		assert.strictEqual(requiresPluginRuntimeRestart(undefined), false);
+	});
 });
 
 function createFixture(options: { readonly plugins?: readonly IBaseHalfResolvedPlugin[]; readonly initiallyInstalled?: boolean } = {}): {
@@ -193,6 +202,7 @@ function createFixture(options: { readonly plugins?: readonly IBaseHalfResolvedP
 		catalog,
 		management as IWorkbenchExtensionManagementService,
 		enablement as IWorkbenchExtensionEnablementService,
+		{ install: async () => extension, queryLocal: async () => installed } as unknown as IExtensionsWorkbenchService,
 		{ exists: async () => true } as unknown as IFileService,
 		{} as IRequestService,
 		{} as IChecksumService,

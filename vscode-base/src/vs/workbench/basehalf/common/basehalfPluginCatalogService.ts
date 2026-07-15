@@ -18,6 +18,7 @@ import { IProductService } from '../../../platform/product/common/productService
 import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { BASEHALF_CURATED_PLUGINS, IBaseHalfPluginCatalogSignature, IBaseHalfRemotePluginCatalog, IBaseHalfResolvedPlugin, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginCatalogSignature, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from './basehalfPluginCatalog.js';
+import { IBaseHalfPluginAdmissionService } from './basehalfPluginAdmissionService.js';
 import { verifyBaseHalfPluginCatalogSignature } from './basehalfPluginCatalogSecurity.js';
 
 const CACHE_CATALOG_KEY = 'basehalf.plugins.catalog.raw';
@@ -64,7 +65,8 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 		@IRequestService private readonly requestService: IRequestService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService
 	) {
 		super();
 		this.initializePromise = this.initialize();
@@ -104,6 +106,7 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 			const fingerprint = await catalogFingerprint(catalogBytes);
 			this.rejectSequenceRollback(catalog.sequence, fingerprint);
 			this.remoteCatalog = catalog;
+			this.updateRuntimeAdmission(catalog);
 			this.source = 'remote';
 			this.lastError = undefined;
 			this.storageService.store(CACHE_CATALOG_KEY, rawCatalog, StorageScope.APPLICATION, StorageTarget.MACHINE);
@@ -120,7 +123,11 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 	}
 
 	private async initialize(): Promise<void> {
-		this.targetPlatform = String(await this.extensionManagementService.getTargetPlatform());
+		try {
+			this.targetPlatform = String(await this.extensionManagementService.getTargetPlatform());
+		} catch (error) {
+			this.logService.warn(`BaseHalf plugin target platform detection failed: ${getErrorMessage(error)}`);
+		}
 		await this.restoreCache();
 	}
 
@@ -141,10 +148,23 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 			const fingerprint = await catalogFingerprint(bytes);
 			this.rejectSequenceRollback(catalog.sequence, fingerprint);
 			this.remoteCatalog = catalog;
+			this.updateRuntimeAdmission(catalog);
 			this.source = 'cache';
 		} catch (error) {
 			this.logService.warn(`BaseHalf cached plugin catalog was ignored: ${getErrorMessage(error)}`);
 		}
+	}
+
+	private updateRuntimeAdmission(catalog: IBaseHalfRemotePluginCatalog): void {
+		this.pluginAdmissionService.replaceVerifiedPlugins(catalog.plugins
+			.filter(plugin => plugin.publisher?.trust === 'reviewed')
+			.map(plugin => ({
+				extensionId: plugin.extensionId,
+				// Withdrawal stops new installs in the management service, but an
+				// already-installed signed build remains trusted. Security removals
+				// use VS Code's extension-control manifest instead.
+				versions: plugin.versions.map(version => version.version)
+			})));
 	}
 
 	private rejectSequenceRollback(sequence: number, fingerprint: string): void {

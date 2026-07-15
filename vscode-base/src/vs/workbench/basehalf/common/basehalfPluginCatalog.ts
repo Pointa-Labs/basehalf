@@ -4,12 +4,30 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { rcompare, satisfies, valid, validRange } from '../../../base/common/semver/semver.js';
+import { URI } from '../../../base/common/uri.js';
 
 export const BASEHALF_MANAGE_PLUGINS_COMMAND_ID = 'basehalf.managePlugins';
 export const BASEHALF_PLUGINS_VIEW_CONTAINER_ID = 'basehalf.view.plugins';
 export const BASEHALF_PLUGINS_VIEW_ID = 'basehalf.plugins';
 export const BASEHALF_PLUGIN_LIBRARY_EDITOR_ID = 'workbench.editors.basehalfPluginLibrary';
 export const BASEHALF_PLUGIN_LIBRARY_RESOURCE_SCHEME = 'basehalf-plugin-library';
+
+const BASEHALF_EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]\.[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/;
+
+export function parseBaseHalfPluginDeepLink(uri: URI, expectedScheme: string): string | undefined {
+	if (uri.scheme !== expectedScheme || uri.authority !== 'plugins') {
+		return undefined;
+	}
+	try {
+		const extensionId = decodeURIComponent(uri.path).replace(/^\/+/, '').toLowerCase();
+		if (!BASEHALF_EXTENSION_ID_PATTERN.test(extensionId)) {
+			return undefined;
+		}
+		return extensionId;
+	} catch {
+		return undefined;
+	}
+}
 
 export type BaseHalfPluginLifecycleState =
 	| 'available'
@@ -133,7 +151,7 @@ export function parseBaseHalfRemotePluginCatalog(value: unknown, officialExtensi
 	for (const [index, rawPlugin] of array(root.plugins, 'catalog.plugins', 200).entries()) {
 		const plugin = record(rawPlugin, `catalog.plugins[${index}]`);
 		const extensionId = string(plugin.extensionId, `catalog.plugins[${index}].extensionId`).toLowerCase();
-		if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]\.[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$/.test(extensionId)) {
+		if (!BASEHALF_EXTENSION_ID_PATTERN.test(extensionId)) {
 			throw new Error(`Plugin catalog extension id '${extensionId}' is invalid.`);
 		}
 		if (seen.has(extensionId)) {

@@ -10,6 +10,7 @@ import { AllowedExtensionsService } from '../../../platform/extensionManagement/
 import { IGalleryExtension, IAllowedExtensionsService } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { ExtensionType, IExtension, TargetPlatform } from '../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
+import { IBaseHalfPluginAdmissionService } from './basehalfPluginAdmissionService.js';
 import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedProductExtension, isBaseHalfRequiredBuiltInExtension } from './basehalfWorkbenchProfile.js';
 
 type BaseHalfAllowedExtensionTarget =
@@ -21,9 +22,11 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 
 	constructor(
 		@IProductService productService: IProductService,
-		@IConfigurationService configurationService: IConfigurationService
+		@IConfigurationService configurationService: IConfigurationService,
+		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService
 	) {
 		super(productService, configurationService);
+		this._register(this.pluginAdmissionService.onDidChange(() => this.fireDidChangeAllowedExtensions()));
 	}
 
 	override isAllowed(extension: IGalleryExtension | IExtension): true | IMarkdownString;
@@ -31,10 +34,10 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 	override isAllowed(extension: BaseHalfAllowedExtensionTarget): true | IMarkdownString {
 		const extensionId = getExtensionId(extension);
 
-		if (!isBaseHalfAllowedProductExtension(extensionId)) {
+		if (!isBaseHalfAllowedProductExtension(extensionId) && !this.pluginAdmissionService.isAllowed(extensionId, getExtensionVersion(extension))) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
-				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated source-control, Agent Area, and official domain-plugin extensions."
+				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated source-control, Agent Area, and signed reviewed plugin extensions."
 			));
 		}
 
@@ -44,6 +47,13 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 
 		return super.isAllowed(extension);
 	}
+}
+
+function getExtensionVersion(extension: BaseHalfAllowedExtensionTarget): string | undefined {
+	if (hasExtensionIdentifier(extension)) {
+		return extension.type === 'gallery' ? extension.version : extension.manifest.version;
+	}
+	return extension.version;
 }
 
 function getExtensionId(extension: BaseHalfAllowedExtensionTarget): string {

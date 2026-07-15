@@ -107,6 +107,7 @@ interface CanvasContextMenuState {
 	readonly mode: 'quick' | 'context' | 'connect' | 'insert';
 	readonly sourceNodeId?: string;
 	readonly sourceAnchor?: AIProjectWorkflowAnchor;
+	readonly connectionFrom?: AIProjectWorkflowPosition;
 	readonly targetNodeId?: string;
 	readonly edgeId?: string;
 }
@@ -904,7 +905,7 @@ function WorkflowEditor(): JSX.Element {
 		);
 		return { left: position.x, top: position.y };
 	}, []);
-	const openCanvasAddMenu = useCallback((clientX: number, clientY: number, mode: CanvasContextMenuState['mode'], sourceNodeId?: string, sourceAnchor?: AIProjectWorkflowAnchor): void => {
+	const openCanvasAddMenu = useCallback((clientX: number, clientY: number, mode: CanvasContextMenuState['mode'], sourceNodeId?: string, sourceAnchor?: AIProjectWorkflowAnchor, connectionFrom?: AIProjectWorkflowPosition): void => {
 		const menuHeight = mode === 'context' ? 338 : 270;
 		const menu = positionMenu(clientX, clientY, 250, menuHeight);
 		setSelectedNodeIds(sourceNodeId ? [sourceNodeId] : []);
@@ -920,6 +921,7 @@ function WorkflowEditor(): JSX.Element {
 			mode,
 			...(sourceNodeId ? { sourceNodeId } : {}),
 			...(sourceAnchor ? { sourceAnchor } : {}),
+			...(connectionFrom ? { connectionFrom } : {}),
 			flowPosition: reactFlow.screenToFlowPosition({ x: clientX, y: clientY })
 		});
 	}, [positionMenu, reactFlow]);
@@ -955,7 +957,8 @@ function WorkflowEditor(): JSX.Element {
 				point.y,
 				'connect',
 				connectionState.fromNode.id,
-				workflowAnchorFromHandle(connectionState.fromHandle?.id, 'east')
+				workflowAnchorFromHandle(connectionState.fromHandle?.id, 'east'),
+				connectionState.from
 			);
 			return;
 		}
@@ -1158,6 +1161,11 @@ function WorkflowEditor(): JSX.Element {
 					>
 						<Background variant={BackgroundVariant.Dots} gap={24} size={1.15} color="color-mix(in srgb, var(--vscode-foreground) 7%, transparent)" />
 						<CanvasSnapGuides guides={snapGuides} zoom={canvasZoom} />
+						{contextAddMenu?.mode === 'connect' && contextAddMenu.connectionFrom && <PendingWorkflowConnection
+							from={contextAddMenu.connectionFrom}
+							fromAnchor={contextAddMenu.sourceAnchor ?? 'east'}
+							to={contextAddMenu.flowPosition}
+						/>}
 						{project.nodes.length > 12 && <MiniMap position="bottom-left" pannable zoomable nodeColor={node => node.type === 'shotGroup' ? 'var(--vscode-editorWidget-border)' : kindColor((node.data as MediaNodeData).node.kind)} maskColor="color-mix(in srgb, var(--vscode-editor-background) 82%, transparent)" />}
 					</ReactFlow>
 					{project.nodes.length === 0 && project.groups.length === 0 && <div className="canvas-empty-state" aria-live="polite"><strong>Start with the Agent</strong><span>Describe the video you want, or double-click to add a node.</span></div>}
@@ -1275,6 +1283,19 @@ function CanvasSnapGuides({ guides, zoom }: { readonly guides: readonly Workflow
 			{guides.map((guide, index) => guide.orientation === 'vertical'
 				? <line key={`v:${index}`} data-testid="workflow-snap-guide" x1={guide.x} x2={guide.x} y1={guide.y1 - 10} y2={guide.y2 + 10} strokeWidth={thickness} />
 				: <line key={`h:${index}`} data-testid="workflow-snap-guide" x1={guide.x1 - 10} x2={guide.x2 + 10} y1={guide.y} y2={guide.y} strokeWidth={thickness} />)}
+		</svg>
+	</ViewportPortal>;
+}
+
+function PendingWorkflowConnection({ from, fromAnchor, to }: {
+	readonly from: AIProjectWorkflowPosition;
+	readonly fromAnchor: AIProjectWorkflowAnchor;
+	readonly to: AIProjectWorkflowPosition;
+}): JSX.Element {
+	const path = workflowCanvasConnectionPath(from, fromAnchor, to, oppositeWorkflowAnchor(fromAnchor));
+	return <ViewportPortal>
+		<svg className="workflow-pending-connection" width="1" height="1" aria-hidden="true">
+			<path data-testid="workflow-pending-connection" className="react-flow__connection-path workflow-connection-line pending" d={path} fill="none" />
 		</svg>
 	</ViewportPortal>;
 }
@@ -1403,11 +1424,13 @@ function GeneratedMediaNodeCard({ data, node, selected }: { readonly data: Media
 			<EditableNodeTitle data={data} node={node} className="generated-node-title" />
 			{stateLabel && <span className={`generated-node-state${node.status === 'error' ? ' error' : ''}`} aria-live="polite">{stateLabel}</span>}
 		</div>
-		<div className="generated-node-media">
-			{data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <MediaEmptyState node={node} readiness={data.readiness} running={data.isRunning} />}
+		<div className="workflow-node-connection-frame generated-node-connection-frame">
+			<div className="generated-node-media">
+				{data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <MediaEmptyState node={node} readiness={data.readiness} running={data.isRunning} />}
+			</div>
+			<WorkflowConnectionHandles kind={node.kind} />
 		</div>
 		{showWorkbench && <NodeWorkbench data={data} placement={workbenchPlacement} />}
-		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 
@@ -1441,20 +1464,23 @@ function TextNodeCard({ data, node, selected }: { readonly data: MediaNodeData; 
 			<EditableNodeTitle data={data} node={node} className="text-node-title" />
 		</div>
 		{data.textEditing && <TextNodeFormatToolbar onCommand={command => applyTextNodeFormat(editor.current, command)} />}
-		<div className={`text-node-surface${node.content.trim() ? '' : ' empty'}`}>
-			{data.textEditing
-				? <div ref={editor} className="text-node-content-scroll text-node-content-editor nodrag nopan nowheel" aria-label={`${node.title} content`} contentEditable={!data.locked} suppressContentEditableWarning spellCheck onBlur={() => finishEditing(true)} onInput={data.onTextDraftChange} onDoubleClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onKeyDown={event => {
-					if (event.key === 'Escape') {
-						event.preventDefault();
-						event.stopPropagation();
-						finishEditing(false);
-					} else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-						event.preventDefault();
-						event.stopPropagation();
-						finishEditing(true);
-					}
-				}}>{renderTextNodeMarkdown(node.content)}</div>
-				: <div className="text-node-content-scroll text-node-content-preview">{renderTextNodeMarkdown(node.content)}</div>}
+		<div className="workflow-node-connection-frame text-node-connection-frame">
+			<div className={`text-node-surface${node.content.trim() ? '' : ' empty'}`}>
+				{data.textEditing
+					? <div ref={editor} className="text-node-content-scroll text-node-content-editor nodrag nopan nowheel" aria-label={`${node.title} content`} contentEditable={!data.locked} suppressContentEditableWarning spellCheck onBlur={() => finishEditing(true)} onInput={data.onTextDraftChange} onDoubleClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onKeyDown={event => {
+						if (event.key === 'Escape') {
+							event.preventDefault();
+							event.stopPropagation();
+							finishEditing(false);
+						} else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+							event.preventDefault();
+							event.stopPropagation();
+							finishEditing(true);
+						}
+					}}>{renderTextNodeMarkdown(node.content)}</div>
+					: <div className="text-node-content-scroll text-node-content-preview">{renderTextNodeMarkdown(node.content)}</div>}
+			</div>
+			<WorkflowConnectionHandles kind={node.kind} />
 		</div>
 		{showComposer && <TextNodeAIComposer data={data} node={node} placement={composerPlacement} />}
 		{selected && !data.locked && <NodeResizeControl className="text-node-resize-control nodrag nopan" position="bottom-right" minWidth={AI_TEXT_NODE_MIN_WIDTH} minHeight={AI_TEXT_NODE_MIN_HEIGHT} maxWidth={AI_TEXT_NODE_MAX_WIDTH} maxHeight={AI_TEXT_NODE_MAX_HEIGHT} onResizeEnd={(_event, size) => data.editProject(next => updateNode(next, node.id, value => {
@@ -1463,7 +1489,6 @@ function TextNodeCard({ data, node, selected }: { readonly data: MediaNodeData; 
 				value.height = Math.round(size.height);
 			}
 		}))}><svg aria-hidden="true" viewBox="0 0 12 12"><path d="m4.5 10 5.5-5.5M7.5 10l2.5-2.5" /></svg></NodeResizeControl>}
-		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 
@@ -1537,13 +1562,15 @@ function ImageNodeCard({ data, node, selected }: { readonly data: MediaNodeData;
 			<EditableNodeTitle data={data} node={node} className="image-node-title" />
 			{stateLabel && <span className={`image-node-state${node.status === 'error' ? ' error' : ''}`} aria-live="polite">{stateLabel}</span>}
 		</div>
-		<div className="image-node-media">
-			{data.previewUris?.length
-				? <ImageNodeResults uris={data.previewUris} title={node.title} />
-				: <ImageNodeEmptyState readiness={readiness.label} running={data.isRunning} />}
+		<div className="workflow-node-connection-frame image-node-connection-frame">
+			<div className="image-node-media">
+				{data.previewUris?.length
+					? <ImageNodeResults uris={data.previewUris} title={node.title} />
+					: <ImageNodeEmptyState readiness={readiness.label} running={data.isRunning} />}
+			</div>
+			<WorkflowConnectionHandles kind={node.kind} />
 		</div>
 		{showWorkbench && <ImageNodeWorkbench data={data} node={node} placement={workbenchPlacement} />}
-		<WorkflowConnectionHandles kind={node.kind} />
 	</div>;
 }
 

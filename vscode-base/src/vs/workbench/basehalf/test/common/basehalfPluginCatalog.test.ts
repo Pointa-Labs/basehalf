@@ -4,8 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BASEHALF_CURATED_PLUGINS, BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID, parseBaseHalfPluginCatalogIndex, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginAsset, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from '../../common/basehalfPluginCatalog.js';
+import { BASEHALF_CURATED_PLUGINS, BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginDeepLink, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginAsset, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from '../../common/basehalfPluginCatalog.js';
 
 suite('BaseHalfPluginCatalog', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -19,6 +20,20 @@ suite('BaseHalfPluginCatalog', () => {
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].category, 'Domain');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].bundledPath, 'plugins/basehalf-ai-video');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].primaryCommand, 'pointa.basehalf-ai-video.createProject');
+	});
+
+	test('parses website plugin links without granting installation authority', () => {
+		assert.strictEqual(
+			parseBaseHalfPluginDeepLink(URI.parse('basehalf://plugins/pointa.basehalf-ai-video'), 'basehalf'),
+			'pointa.basehalf-ai-video'
+		);
+		assert.strictEqual(
+			parseBaseHalfPluginDeepLink(URI.parse('basehalf://plugins/COMMUNITY.STORYBOARD'), 'basehalf'),
+			'community.storyboard'
+		);
+		assert.strictEqual(parseBaseHalfPluginDeepLink(URI.parse('https://plugins/pointa.basehalf-ai-video'), 'basehalf'), undefined);
+		assert.strictEqual(parseBaseHalfPluginDeepLink(URI.parse('basehalf://plugins/pointa.basehalf-ai-video/extra'), 'basehalf'), undefined);
+		assert.strictEqual(parseBaseHalfPluginDeepLink(URI.parse('basehalf://plugins/not-an-extension-id'), 'basehalf'), undefined);
 	});
 
 	test('admits reviewed signed-catalog plugins and selects compatible versions', () => {

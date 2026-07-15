@@ -46,7 +46,7 @@ import { Delegate, Renderer } from '../../contrib/extensions/browser/extensionsL
 import { Extension } from '../../contrib/extensions/browser/extensionsWorkbenchService.js';
 import { ExtensionState, IExtension, IExtensionsViewState, IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from '../common/basehalfPluginCatalog.js';
-import { IBaseHalfManagedPlugin, IBaseHalfPluginManagementService } from '../common/basehalfPluginManagement.js';
+import { IBaseHalfManagedPlugin, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from '../common/basehalfPluginManagement.js';
 import { baseHalfPluginCatalogStatusLabel, baseHalfPluginStatusLabel } from './basehalfPluginLibrary.js';
 
 export const BASEHALF_PLUGIN_ITEM_CONTEXT_MENU = MenuId.for('BaseHalfPluginItemContext');
@@ -148,7 +148,7 @@ class BaseHalfPluginsViewPane extends ViewPane {
 		this.emptyElement = append(this.listElement, $('.basehalf-plugins-view-empty'));
 		this.emptyElement.style.display = 'none';
 
-		void this.reload();
+		void this.reload().then(() => this.pluginManagementService.refreshCatalog());
 	}
 
 	protected override layoutBody(height: number, width: number): void {
@@ -550,25 +550,32 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 	const plugin = argument;
 	const pluginManagementService = accessor.get(IBaseHalfPluginManagementService);
 	const notificationService = accessor.get(INotificationService);
+	const dialogService = accessor.get(IDialogService);
+	const extensionsWorkbenchService = accessor.get(IExtensionsWorkbenchService);
+	const instantiationService = accessor.get(IInstantiationService);
 	try {
+		let result: IBaseHalfPluginOperationResult | undefined;
 		switch (operation) {
-			case 'install': await pluginManagementService.install(plugin.extensionId); break;
-			case 'update': await pluginManagementService.update(plugin.extensionId); break;
-			case 'enable': await pluginManagementService.enable(plugin.extensionId); break;
-			case 'disable': await pluginManagementService.disable(plugin.extensionId); break;
+			case 'install': result = await pluginManagementService.install(plugin.extensionId); break;
+			case 'update': result = await pluginManagementService.update(plugin.extensionId); break;
+			case 'enable': result = await pluginManagementService.enable(plugin.extensionId); break;
+			case 'disable': result = await pluginManagementService.disable(plugin.extensionId); break;
 			case 'open': await pluginManagementService.executePrimary(plugin.extensionId); break;
 			case 'cancel': pluginManagementService.cancel(plugin.extensionId); break;
 			case 'uninstall': {
-				const confirmation = await accessor.get(IDialogService).confirm({
+				const confirmation = await dialogService.confirm({
 					message: localize('basehalf.plugins.confirmUninstall', "Uninstall {0}?", plugin.label),
 					detail: localize('basehalf.plugins.confirmUninstallDetail', "The plugin will be removed from this BaseHalf profile. Existing project files and generated outputs stay on disk."),
 					primaryButton: localize('basehalf.plugins.uninstallButton', "Uninstall")
 				});
 				if (confirmation.confirmed) {
-					await pluginManagementService.uninstall(plugin.extensionId);
+					result = await pluginManagementService.uninstall(plugin.extensionId);
 				}
 				break;
 			}
+		}
+		if (result?.restartRequired) {
+			await showNativePluginRuntimeAction(extensionsWorkbenchService, instantiationService, notificationService, plugin, operation);
 		}
 	} catch (error) {
 		if (isCancellationError(error)) {
@@ -576,6 +583,30 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 		}
 		notificationService.notify({ severity: Severity.Error, message: localize('basehalf.plugins.operationFailed', "Plugin operation failed: {0}", getErrorMessage(error)) });
 	}
+}
+
+async function showNativePluginRuntimeAction(extensionsWorkbenchService: IExtensionsWorkbenchService, instantiationService: IInstantiationService, notificationService: INotificationService, plugin: IBaseHalfManagedPlugin, operation: PluginOperation): Promise<void> {
+	const extensions = await extensionsWorkbenchService.queryLocal();
+	const extension = extensions.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
+	if (!extension?.runtimeState) {
+		return;
+	}
+	const action = instantiationService.createInstance(ExtensionRuntimeStateAction);
+	action.extension = extension;
+	action.update();
+	if (!action.enabled) {
+		action.dispose();
+		return;
+	}
+	const notification = notificationService.prompt(
+		Severity.Info,
+		operation === 'update'
+			? localize('basehalf.plugins.updateRestartRequired', "{0} was updated. Restart extensions to use the new version.", plugin.label)
+			: localize('basehalf.plugins.changeRestartRequired', "Restart extensions to finish changing {0}.", plugin.label),
+		[{ label: action.label, run: () => { void action.run(); } }],
+		{ onCancel: () => action.dispose() }
+	);
+	Event.once(notification.onDidClose)(() => action.dispose());
 }
 
 function primaryAction(plugin: IBaseHalfManagedPlugin): { readonly label: string; readonly commandId: string } | undefined {

@@ -13,15 +13,18 @@ import { AllowedExtensionsConfigKey, ILocalExtension } from '../../../../platfor
 import { ExtensionType, IExtensionManifest } from '../../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { BaseHalfAllowedExtensionsService, getBaseHalfAllowedExtensionsServiceId } from '../../common/basehalfAllowedExtensionsService.js';
+import { BaseHalfPluginAdmissionService } from '../../common/basehalfPluginAdmissionService.js';
 
 suite('BaseHalfAllowedExtensionsService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	let configurationService: TestConfigurationService;
+	let pluginAdmissionService: BaseHalfPluginAdmissionService;
 
 	setup(() => {
 		configurationService = new TestConfigurationService();
 		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, '*');
+		pluginAdmissionService = disposables.add(new BaseHalfPluginAdmissionService());
 	});
 
 	test('allows only BaseHalf curated product extension ids by default', () => {
@@ -65,6 +68,31 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('github.copilot', ExtensionType.User)), true);
 	});
 
+	test('admits only exact signed versions, including versions withdrawn from new installation', () => {
+		const testObject = createService();
+		const extensionId = 'qa-lab.workflow-smoke';
+
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
+		pluginAdmissionService.replaceVerifiedPlugins([{ extensionId, versions: ['0.1.0', '0.1.1'] }]);
+
+		assert.strictEqual(testObject.isAllowed({ id: extensionId, publisherDisplayName: 'QA Lab' }), true);
+		assert.strictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
+		assert.strictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.0')), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.0.9')), true);
+
+		pluginAdmissionService.replaceVerifiedPlugins([]);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(extensionId, ExtensionType.User, '0.1.1')), true);
+	});
+
+	test('recomputes extension enablement when verified catalog admission changes', async () => {
+		const testObject = createService();
+		const promise = Event.toPromise(testObject.onDidChangeAllowedExtensionsConfigValue);
+
+		pluginAdmissionService.replaceVerifiedPlugins([{ extensionId: 'qa-lab.workflow-smoke', versions: ['0.1.1'] }]);
+
+		await promise;
+	});
+
 	test('keeps change events wired through VS Code configuration service', async () => {
 		const testObject = createService();
 		const promise = Event.toPromise(testObject.onDidChangeAllowedExtensionsConfigValue);
@@ -85,7 +113,7 @@ suite('BaseHalfAllowedExtensionsService', () => {
 	});
 
 	function createService(): BaseHalfAllowedExtensionsService {
-		return disposables.add(new BaseHalfAllowedExtensionsService(aProductService(), configurationService as IConfigurationService));
+		return disposables.add(new BaseHalfAllowedExtensionsService(aProductService(), configurationService as IConfigurationService, pluginAdmissionService));
 	}
 
 	function aProductService(): IProductService {
@@ -95,9 +123,9 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		} as unknown as IProductService;
 	}
 
-	function aLocalExtension(id: string, type: ExtensionType): ILocalExtension {
+	function aLocalExtension(id: string, type: ExtensionType, version = '1.0.0'): ILocalExtension {
 		const [publisher, name] = id.split('.');
-		const manifest: Partial<IExtensionManifest> = { name, publisher, version: '1.0.0' };
+		const manifest: Partial<IExtensionManifest> = { name, publisher, version };
 
 		return {
 			type,

@@ -576,6 +576,11 @@ button {
 	z-index: 24 !important;
 }
 
+.workflow-node-connection-frame {
+	position: relative;
+	width: 100%;
+}
+
 .react-flow__node-media:has(.media-node.selected) {
 	width: 338px;
 }
@@ -649,6 +654,10 @@ button {
 	width: 100%;
 	height: 100%;
 	user-select: none;
+}
+
+.text-node-connection-frame {
+	height: 100%;
 }
 
 .text-node-label-row {
@@ -1995,7 +2004,7 @@ button {
 	border: 0;
 	background: transparent;
 	opacity: 0;
-	pointer-events: none;
+	pointer-events: auto;
 	cursor: crosshair;
 	transition: opacity 80ms ease;
 }
@@ -2017,10 +2026,10 @@ button {
 }
 
 .react-flow__node-media:hover .workflow-connect-handle,
+.react-flow__node-media.selected .workflow-connect-handle,
 .workflow-connect-handle.connectingfrom,
 .workflow-connect-handle.connectingto {
 	opacity: 1;
-	pointer-events: auto;
 }
 
 .workflow-connect-handle.connectingfrom,
@@ -2165,6 +2174,14 @@ button {
 	stroke: currentColor;
 	stroke-linecap: round;
 	opacity: 0.66;
+}
+
+.workflow-pending-connection {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: visible;
+	pointer-events: none;
 }
 
 .canvas-zoom-controls {

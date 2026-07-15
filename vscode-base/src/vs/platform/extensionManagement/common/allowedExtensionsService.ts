@@ -36,6 +36,9 @@ export class AllowedExtensionsService extends Disposable implements IAllowedExte
 	}
 	private _onDidChangeAllowedExtensions = this._register(new Emitter<void>());
 	readonly onDidChangeAllowedExtensionsConfigValue = this._onDidChangeAllowedExtensions.event;
+	protected fireDidChangeAllowedExtensions(): void {
+		this._onDidChangeAllowedExtensions.fire();
+	}
 
 	constructor(
 		@IProductService productService: IProductService,
