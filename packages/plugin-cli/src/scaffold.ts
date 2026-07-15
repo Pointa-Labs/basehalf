@@ -184,8 +184,8 @@ function tsconfig(): Record<string, unknown> {
   return {
     compilerOptions: {
       target: 'ES2022',
-      module: 'CommonJS',
-      moduleResolution: 'Node',
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
       lib: ['ES2022', 'DOM'],
       strict: true,
       noEmit: true,

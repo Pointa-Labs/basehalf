@@ -1,6 +1,6 @@
 {
   "name": "@basehalf/plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manifest contracts and stable host API types for BaseHalf plugins.",
   "type": "module",
   "license": "Apache-2.0",

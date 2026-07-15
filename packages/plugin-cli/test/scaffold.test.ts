@@ -1,11 +1,16 @@
+import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { validateBaseHalfPluginManifest } from '@basehalf/plugin-sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scaffoldPlugin } from '../src/scaffold.js';
 
 const temporary: string[] = [];
+const execFileAsync = promisify(execFile);
+const packageDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 afterEach(async () => {
   await Promise.all(
@@ -49,6 +54,30 @@ describe('plugin scaffold', () => {
     });
     expect(await readFile(path.join(directory, 'tsconfig.json'), 'utf8')).toContain('strict');
     expect(await readFile(path.join(directory, '.vscodeignore'), 'utf8')).toContain('*.vsix');
+  });
+
+  it('typechecks the generated project against the public SDK exports', async () => {
+    const root = await mkdtemp(path.join(packageDirectory, '.tmp-scaffold-typecheck-'));
+    temporary.push(root);
+    const directory = path.join(root, 'storyboard');
+    await scaffoldPlugin({
+      directory,
+      publisher: 'studio',
+      name: 'storyboard',
+      displayName: 'Storyboard',
+      repository: 'https://github.com/studio/storyboard',
+      fileExtension: 'storyboard',
+    });
+
+    await expect(
+      execFileAsync(process.execPath, [
+        path.join(packageDirectory, 'node_modules/typescript/bin/tsc'),
+        '--project',
+        path.join(directory, 'tsconfig.json'),
+        '--pretty',
+        'false',
+      ]),
+    ).resolves.toMatchObject({ stderr: '' });
   });
 
   it('rejects identities that cannot be registered by the publishing service', async () => {
