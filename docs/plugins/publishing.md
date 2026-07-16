@@ -16,7 +16,8 @@ bh-plugin login
 bh-plugin whoami
 ```
 
-`login` opens a short-lived device approval page on `plugins.basehalf.com`.
+`login` opens a short-lived browser approval page on `plugins.basehalf.com`.
+The verification code in the browser must match the code in the terminal.
 The CLI receives an opaque, expiring, Publisher-scoped credential—not the web
 password. The credential is stored owner-readable only and can be revoked from
 the plugin portal.

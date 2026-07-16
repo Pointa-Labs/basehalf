@@ -117,13 +117,13 @@ async function packageCommand(args: ParsedArguments): Promise<void> {
 async function login(server: string, clientName: string): Promise<void> {
   const client = new PluginApiClient(server);
   const authorization = await client.post<DeviceAuthorization>('/device/authorizations', {
-    client_name: `bh-plugin on ${clientName}`,
+    client_name: `Basehalf CLI on ${clientName}`,
     scopes: ['publisher:read', 'plugin:write', 'submission:write'],
   });
   const verificationUrl = new URL(authorization.verification_uri);
   verificationUrl.searchParams.set('user_code', authorization.user_code);
-  console.log(`Open ${verificationUrl.href}`);
-  console.log(`Device code: ${authorization.user_code}`);
+  console.log(`Continue in your browser: ${verificationUrl.href}`);
+  console.log(`Verification code: ${authorization.user_code}`);
   openBrowser(verificationUrl.href);
   const deadline = Date.now() + authorization.expires_in * 1000;
   let intervalSeconds = Math.max(1, authorization.interval);
@@ -137,7 +137,7 @@ async function login(server: string, clientName: string): Promise<void> {
       continue;
     }
     if (result.status !== 'approved') {
-      throw new Error(`Device authorization ended with status '${result.status}'.`);
+      throw new Error(`Publishing authorization ended with status '${result.status}'.`);
     }
     const provisional: StoredSession = {
       accessToken: result.access_token,
@@ -155,7 +155,7 @@ async function login(server: string, clientName: string): Promise<void> {
     console.log(`Connected to ${session.publisher?.display_name ?? server}.`);
     return;
   }
-  throw new Error('Device authorization expired.');
+  throw new Error('Publishing authorization expired.');
 }
 
 async function whoami(server: string): Promise<void> {

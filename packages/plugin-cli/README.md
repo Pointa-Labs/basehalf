@@ -37,6 +37,6 @@ npm run publish
 bh-plugin status .
 ```
 
-Authentication uses the existing BaseHalf account in the browser. Publishing uploads an immutable VSIX for automated validation and human review; it does not make the plugin public immediately.
+Authentication uses the existing BaseHalf account in the browser. The verification code in the browser must match the one shown in the terminal. Publishing uploads an immutable VSIX for automated validation and human review; it does not make the plugin public immediately.
 
 Read the [plugin development guide](https://github.com/Pointa-Labs/basehalf/blob/main/docs/plugin-development.md) for the manifest contract, product boundaries, and review policy.
