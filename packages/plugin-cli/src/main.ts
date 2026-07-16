@@ -50,7 +50,7 @@ export async function run(argv: readonly string[]): Promise<void> {
       await packageCommand(args);
       return;
     case 'login':
-      await login(server, option(args, 'client-name') ?? os.hostname());
+      await login(server, option(args, 'client-name') ?? os.hostname(), option(args, 'publisher'));
       return;
     case 'logout':
       await removeSession(server);
@@ -114,16 +114,22 @@ async function packageCommand(args: ParsedArguments): Promise<void> {
   console.log(vsixPath);
 }
 
-async function login(server: string, clientName: string): Promise<void> {
+async function login(
+  server: string,
+  clientName: string,
+  publisherSlug?: string,
+): Promise<StoredSession> {
   const client = new PluginApiClient(server);
   const authorization = await client.post<DeviceAuthorization>('/device/authorizations', {
     client_name: `Basehalf CLI on ${clientName}`,
     scopes: ['publisher:read', 'plugin:write', 'submission:write'],
+    ...(publisherSlug ? { publisher_slug: publisherSlug } : {}),
   });
   const verificationUrl = new URL(authorization.verification_uri);
   verificationUrl.searchParams.set('user_code', authorization.user_code);
-  console.log(`Continue in your browser: ${verificationUrl.href}`);
-  console.log(`Verification code: ${authorization.user_code}`);
+  console.log('Opening BaseHalf to confirm plugin publishing.');
+  console.log(`If prompted, verify this code: ${authorization.user_code}`);
+  console.log(verificationUrl.href);
   openBrowser(verificationUrl.href);
   const deadline = Date.now() + authorization.expires_in * 1000;
   let intervalSeconds = Math.max(1, authorization.interval);
@@ -148,12 +154,13 @@ async function login(server: string, clientName: string): Promise<void> {
     const session = await new PluginApiClient(server, provisional).get<{
       publisher?: { slug?: string; display_name?: string };
     }>('/cli/session');
-    await saveSession(server, {
+    const storedSession: StoredSession = {
       ...provisional,
       ...(session.publisher?.slug ? { publisherSlug: session.publisher.slug } : {}),
-    });
-    console.log(`Connected to ${session.publisher?.display_name ?? server}.`);
-    return;
+    };
+    await saveSession(server, storedSession);
+    console.log(`Publishing connected to ${session.publisher?.display_name ?? server}.`);
+    return storedSession;
   }
   throw new Error('Publishing authorization expired.');
 }
@@ -177,19 +184,6 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
   validateBaseHalfPluginManifest(manifest);
   await assertPublishFiles(directory, manifest);
   const extensionId = extensionIdOf(manifest);
-  const session = await sessionFor(server);
-  const client = new PluginApiClient(server, session);
-  const plugins = await client.get<RemotePlugin[]>('/cli/plugins');
-  let plugin = plugins.find((candidate) => candidate.extension_id === extensionId);
-  if (!plugin) {
-    plugin = await client.post<RemotePlugin>('/cli/plugins', {
-      name: manifest.name,
-      display_name: manifest.displayName,
-      description: manifest.description,
-      ...repositoryPayload(manifest.repository),
-    });
-    console.log(`Registered ${extensionId}.`);
-  }
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'basehalf-plugin-'));
   const suppliedVsix = option(args, 'vsix');
   const vsixPath = suppliedVsix
@@ -207,6 +201,19 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
       : await optionalRead(path.join(directory, 'CHANGELOG.md'));
     if (releaseNotes && Buffer.byteLength(releaseNotes, 'utf8') > 100_000) {
       throw new Error('Release notes exceed the 100 KB publishing limit.');
+    }
+    const session = await sessionForPublisher(server, manifest.publisher);
+    const client = new PluginApiClient(server, session);
+    const plugins = await client.get<RemotePlugin[]>('/cli/plugins');
+    let plugin = plugins.find((candidate) => candidate.extension_id === extensionId);
+    if (!plugin) {
+      plugin = await client.post<RemotePlugin>('/cli/plugins', {
+        name: manifest.name,
+        display_name: manifest.displayName,
+        description: manifest.description,
+        ...repositoryPayload(manifest.repository),
+      });
+      console.log(`Registered ${extensionId}.`);
     }
     const grant = await client.post<UploadGrant>(`/cli/plugins/${plugin.id}/submissions`, {
       version: manifest.version,
@@ -229,6 +236,19 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+async function sessionForPublisher(server: string, publisherSlug: string): Promise<StoredSession> {
+  try {
+    const session = await sessionFor(server);
+    if (session.publisherSlug?.toLowerCase() === publisherSlug.toLowerCase()) {
+      return session;
+    }
+  } catch {
+    // Publishing owns the happy-path sign-in. The browser confirmation below
+    // is used for a missing or expired local session.
+  }
+  return login(server, os.hostname(), publisherSlug);
 }
 
 function pluginDirectory(args: ParsedArguments): string {
@@ -381,14 +401,15 @@ Usage:
   bh-plugin init <directory> --publisher <slug> --name <slug> --display-name <name> --repository <https-url> [--file-extension <ext>]
   bh-plugin validate [directory]
   bh-plugin package [directory] [--out file]
-  bh-plugin login [--server https://plugins.basehalf.com]
+  bh-plugin login [--publisher <slug>] [--server https://plugins.basehalf.com]
   bh-plugin whoami [--server https://plugins.basehalf.com]
   bh-plugin publish [directory] [--vsix file] [--release-notes-file file]
   bh-plugin status [directory] [--extension-id publisher.name]
   bh-plugin logout [--server https://plugins.basehalf.com]
 
-Publishing uses the same BaseHalf account as the web app. Uploads enter private quarantine,
-validation, and human review before the signed desktop catalog can expose them.`);
+Run publish directly from a plugin project. The first publish opens a browser confirmation
+automatically. Uploads enter private validation and review before the signed desktop catalog
+can expose them.`);
 }
 
 if (isMainModule()) {

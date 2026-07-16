@@ -1,7 +1,7 @@
 # BaseHalf plugin architecture
 
-Status: implemented platform and curated publishing path, 2026-07-14. This is
-the implementation map for decisions D25–D30. Product decisions in
+Status: implemented platform and curated publishing path, 2026-07-16. This is
+the implementation map for decisions D25–D32. Product decisions in
 [`decisions.md`](decisions.md) remain authoritative.
 
 ## Product contract
@@ -39,7 +39,7 @@ The generic Extensions/Marketplace surface stays hidden. BaseHalf's Plugins
 entry is the fourth native Activity Bar view beside Files, Git, and Search. It
 reuses VS Code's extension-row renderer, paged list, ActionBar, manage menu,
 context menu, settings, enable/disable/uninstall, runtime-state actions, and
-**Restart to Update** behavior, but reads only BaseHalf's curated catalog.
+update-related restart behavior, but reads only BaseHalf's curated catalog.
 Individual plugins cannot add their own global sidebars.
 
 Executable plugins are trusted local software. The manifest is not represented
@@ -124,13 +124,17 @@ never installs a package learned from a failed or unverified response.
 
 ## Publishing control plane
 
-Developers use their existing Basehalf web account. A user creates or joins one
-Publisher, accepts the current CLA and publishing terms, and owns plugin IDs in
-that Publisher namespace. There is no separate developer identity.
+Developers use their existing BaseHalf web account. The normal path starts with
+`bh-plugin publish` inside the plugin project. The command opens one browser
+confirmation when no matching Publisher-scoped session exists. That
+confirmation accepts current agreements when required and creates the
+manifest-declared personal Publisher namespace when it is available. Team
+Publisher management and manual login remain secondary paths.
 
-The `bh-plugin` CLI uses an OAuth-style device flow. Its opaque, expiring token
-is Publisher-scoped and stored in an owner-only local file. Publication is split
-from signing:
+The device code is verification evidence, not a field the developer normally
+copies or enters. The CLI opens the complete approval URL and resumes after the
+browser decision. Its opaque, expiring token is Publisher-scoped and stored in
+an owner-only local file. Publication is split from signing:
 
 1. the CLI validates, packages, hashes, and requests an upload grant;
 2. the VSIX goes directly to a private quarantine bucket;

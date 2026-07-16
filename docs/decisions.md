@@ -619,3 +619,26 @@ portal hostname remain a read-only compatibility proxy for already shipped
 clients during a bounded migration window. The one-time handoff is random,
 stored only as a hash, consumed atomically, and fails closed when its transient
 store is unavailable.
+
+## D32 — Publishing is one front-stage action; VS Code owns installed lifecycle (NEW, 2026-07-16)
+
+**Decision.** The supported developer path is `bh-plugin publish` from a local
+plugin project. The first run opens one browser confirmation that can accept
+current agreements, create the manifest-declared personal Publisher namespace,
+and authorize the machine. The portal shows release status and revocable
+machine access; it does not duplicate scaffolding, plugin registration, or VSIX
+upload. BaseHalf keeps its signed catalog and verified download path, then
+delegates installed extension lifecycle and runtime-state actions to VS Code.
+
+**Why.** Publisher identities, device authorization, quarantine, review,
+signing, and catalog publication are necessary security controls, but they do
+not need to become separate developer tasks. VS Code already provides mature
+profile installation, enablement, settings, context menus, Extension Host
+restart, uninstall, and product-update restart behavior.
+
+**Consequences.** `login` and `status` remain advanced CLI commands rather than
+happy-path prerequisites. Publisher scope remains an enforceable backend trust
+boundary even when personal Publisher creation is folded into first
+authorization. The website never becomes an alternate package builder or
+installer. Plugin updates remain explicit and use BaseHalf's signed metadata
+instead of the generic Marketplace.

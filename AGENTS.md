@@ -131,6 +131,8 @@ Current public decision index:
 - D28 — AI Video is the first official domain plugin.
 - D29 — Official plugins use a signed static catalog and immutable VSIX distribution.
 - D30 — Community publishing uses the existing Basehalf account and a signer-separated curated pipeline.
+- D31 — Plugin portal and signed registry use separate subdomains.
+- D32 — Publishing is one front-stage action; installed lifecycle stays VS Code-native.
 
 Current private decision index:
 

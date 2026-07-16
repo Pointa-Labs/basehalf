@@ -32,11 +32,18 @@ npm run package
 ## Submit for review
 
 ```sh
-bh-plugin login
 npm run publish
-bh-plugin status .
 ```
 
-Authentication uses the existing BaseHalf account in the browser. The verification code in the browser must match the one shown in the terminal. Publishing uploads an immutable VSIX for automated validation and human review; it does not make the plugin public immediately.
+The first publish opens one browser confirmation with the existing BaseHalf
+account, then resumes automatically. The manifest Publisher is used as the
+publishing namespace; if a matching personal namespace does not exist and is
+available, the confirmation creates it.
+
+Publishing uploads an immutable VSIX for automated validation and human review;
+it does not make the plugin public immediately. Use `bh-plugin status .` when a
+terminal-readable status is useful. Manual `bh-plugin login --publisher <slug>`
+is available for automation and credential management, but is not a prerequisite
+for publish.
 
 Read the [plugin development guide](https://github.com/Pointa-Labs/basehalf/blob/main/docs/plugin-development.md) for the manifest contract, product boundaries, and review policy.

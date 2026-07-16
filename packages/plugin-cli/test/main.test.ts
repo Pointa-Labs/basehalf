@@ -96,20 +96,104 @@ describe('plugin publishing login', () => {
       'http://localhost:4100',
       '--client-name',
       'studio-mac',
+      '--publisher',
+      'studio',
     ]);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(1_000);
     await login;
 
-    expect(log).toHaveBeenCalledWith(
-      'Continue in your browser: http://localhost:4100/device?user_code=ABCD-EFGH',
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:4100/plugin-service/api/v1/device/authorizations',
+      expect.objectContaining({
+        body: JSON.stringify({
+          client_name: 'Basehalf CLI on studio-mac',
+          scopes: ['publisher:read', 'plugin:write', 'submission:write'],
+          publisher_slug: 'studio',
+        }),
+      }),
     );
-    expect(log).toHaveBeenCalledWith('Verification code: ABCD-EFGH');
+    expect(log).toHaveBeenCalledWith('Opening BaseHalf to confirm plugin publishing.');
+    expect(log).toHaveBeenCalledWith('If prompted, verify this code: ABCD-EFGH');
+    expect(log).toHaveBeenCalledWith('http://localhost:4100/device?user_code=ABCD-EFGH');
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.arrayContaining(['http://localhost:4100/device?user_code=ABCD-EFGH']),
       expect.objectContaining({ detached: true }),
     );
-    expect(log).toHaveBeenCalledWith('Connected to Studio.');
+    expect(log).toHaveBeenCalledWith('Publishing connected to Studio.');
   });
+
+  it('starts browser authorization automatically on the first publish', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-first-publish-'));
+    temporary.push(root);
+    process.env.BASEHALF_PLUGIN_CONFIG_HOME = path.join(root, 'credentials');
+    const directory = path.join(root, 'storyboard');
+    await scaffoldPlugin({
+      directory,
+      publisher: 'studio',
+      name: 'storyboard',
+      displayName: 'Storyboard',
+      repository: 'https://github.com/studio/storyboard',
+      fileExtension: 'storyboard',
+    });
+    await mkdir(path.join(directory, 'out'), { recursive: true });
+    await writeFile(path.join(directory, 'out/extension.js'), 'exports.activate = () => {};\n');
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        apiResponse({
+          device_code: 'opaque-device-code',
+          user_code: 'ABCD-EFGH',
+          verification_uri: 'http://localhost:4100/device',
+          expires_in: 60,
+          interval: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        apiResponse({
+          status: 'approved',
+          access_token: 'bhp_test-token',
+          expires_at: '2099-01-01T00:00:00.000Z',
+          publisher_id: '12',
+          scopes: ['publisher:read', 'plugin:write', 'submission:write'],
+        }),
+      )
+      .mockResolvedValueOnce(apiResponse({ publisher: { slug: 'studio', display_name: 'Studio' } }))
+      .mockResolvedValueOnce(apiResponse([]))
+      .mockResolvedValueOnce(
+        apiResponse({
+          id: '20',
+          extension_id: 'studio.storyboard',
+          name: 'storyboard',
+          display_name: 'Storyboard',
+          latest_version: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        apiResponse({
+          submission_id: '30',
+          upload_url: 'https://upload.example/storyboard.vsix',
+          method: 'PUT',
+          headers: {},
+          expires_at: '2099-01-01T00:00:00.000Z',
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(apiResponse({ id: '30', status: 'READY_FOR_REVIEW' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const publishing = run(['publish', directory, '--server', 'http://localhost:4100']);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await publishing;
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      publisher_slug: 'studio',
+    });
+    expect(log).toHaveBeenCalledWith('Publishing connected to Studio.');
+    expect(log).toHaveBeenCalledWith('Submitted studio.storyboard@0.1.0 (READY_FOR_REVIEW).');
+  }, 10_000);
 });

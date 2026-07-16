@@ -41,4 +41,5 @@ npm run check
 ```
 
 Open the generated folder in BaseHalf and press **F5**. When the plugin is ready
-for review, use `bh-plugin login`, `npm run publish`, and `bh-plugin status .`.
+for review, run `npm run publish`. The first publish opens one browser
+confirmation and then continues automatically.
