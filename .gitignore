@@ -12,6 +12,8 @@ VSCode-darwin-*/
 out/
 .turbo/
 *.tsbuildinfo
+tmp/
+**/.terraform/
 # ...but the desktop packaging assets (app icon + its source mark) are INPUTS,
 # not output -- electron-builder reads them from its buildResources dir, which
 # happens to be named `build/`. Un-ignore just that one.
