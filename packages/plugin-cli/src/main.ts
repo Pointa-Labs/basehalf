@@ -156,6 +156,7 @@ async function login(
     }>('/cli/session');
     const storedSession: StoredSession = {
       ...provisional,
+      portalOrigin: verificationUrl.origin,
       ...(session.publisher?.slug ? { publisherSlug: session.publisher.slug } : {}),
     };
     await saveSession(server, storedSession);
@@ -232,7 +233,9 @@ async function publish(server: string, args: ParsedArguments): Promise<void> {
       `/cli/submissions/${grant.submission_id}/finalize`,
     );
     console.log(`Submitted ${extensionId}@${manifest.version} (${submission.status}).`);
-    console.log(`${server}/publish?plugin=${encodeURIComponent(extensionId)}`);
+    const publishUrl = new URL('/publish', session.portalOrigin ?? server);
+    publishUrl.searchParams.set('plugin', extensionId);
+    console.log(publishUrl.href);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }

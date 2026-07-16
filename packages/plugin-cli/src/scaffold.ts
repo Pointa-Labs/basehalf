@@ -96,7 +96,7 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
     'tsconfig.json': `${JSON.stringify(tsconfig(), null, 2)}\n`,
     '.vscode/launch.json': `${JSON.stringify(launchConfiguration(), null, 2)}\n`,
     'test-workspace/README.md': `# ${displayName} test workspace\n\nFiles created while running the plugin development host stay in this folder.\n`,
-    'README.md': `# ${displayName}\n\nDescribe what this plugin lets people build in BaseHalf and which ordinary project files it owns.\n\n## Development\n\n- Run \`npm install\`.\n- Open this folder in BaseHalf and press F5.\n- Run \`npm run check\` before packaging.\n- Run \`npm run package\` to create the exact VSIX for review.\n`,
+    'README.md': `# ${displayName}\n\nDescribe what this plugin lets people build in BaseHalf and which ordinary project files it owns.\n\n## Development\n\n- Run \`npm install\`.\n- Open this folder in BaseHalf and press F5.\n- Run \`npm run check\` before publishing.\n- Run \`npm run package\` to inspect the exact VSIX locally.\n- Run \`npm run publish\` to confirm your BaseHalf account and submit a version for review.\n`,
     'CHANGELOG.md': '# Changelog\n\n## 0.1.0\n\n- Initial project surface.\n',
     LICENSE: apacheNotice(displayName),
     '.gitignore': 'node_modules/\nout/\n*.vsix\n',

@@ -123,6 +123,10 @@ describe('plugin publishing login', () => {
       expect.objectContaining({ detached: true }),
     );
     expect(log).toHaveBeenCalledWith('Publishing connected to Studio.');
+    const credentials = JSON.parse(
+      await readFile(path.join(root, 'plugin-publisher.json'), 'utf8'),
+    );
+    expect(credentials.servers['http://localhost:4100'].portalOrigin).toBe('http://localhost:4100');
   });
 
   it('starts browser authorization automatically on the first publish', async () => {
@@ -195,5 +199,6 @@ describe('plugin publishing login', () => {
     });
     expect(log).toHaveBeenCalledWith('Publishing connected to Studio.');
     expect(log).toHaveBeenCalledWith('Submitted studio.storyboard@0.1.0 (READY_FOR_REVIEW).');
+    expect(log).toHaveBeenCalledWith('http://localhost:4100/publish?plugin=studio.storyboard');
   }, 10_000);
 });

@@ -2,6 +2,7 @@ export interface StoredSession {
   readonly accessToken: string;
   readonly publisherId: string;
   readonly publisherSlug?: string;
+  readonly portalOrigin?: string;
   readonly expiresAt: string;
   readonly scopes: readonly string[];
 }

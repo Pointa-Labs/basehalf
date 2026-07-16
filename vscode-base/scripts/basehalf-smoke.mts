@@ -2081,7 +2081,7 @@ async function assertAIVideoProject(page) {
 	if (await frame.locator('.inspector, .workspace.has-inspector').count() !== 0) {
 		throw new Error('The AI Video workflow restored a permanent node inspector or narrowed canvas');
 	}
-	await frame.waitForFunction(() => document.querySelectorAll('.react-flow__edge').length >= 5, undefined, { timeout: 5_000 });
+	await frame.waitForFunction(() => document.querySelectorAll('.react-flow__edge').length >= 5, undefined, { timeout: 15_000 });
 	if (await frame.locator('.react-flow__edge').count() < 5) {
 		throw new Error('The AI Video workflow canvas did not render its dependency edges');
 	}

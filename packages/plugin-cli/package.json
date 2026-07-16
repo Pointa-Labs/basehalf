@@ -1,6 +1,6 @@
 {
   "name": "@basehalf/plugin-cli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Create, validate, authenticate, and publish BaseHalf plugins.",
   "type": "module",
   "license": "Apache-2.0",

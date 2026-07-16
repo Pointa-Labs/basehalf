@@ -6,7 +6,7 @@ on:
       version:
         description: Exact version already present in both package manifests
         required: true
-        default: 0.1.0
+        default: 0.1.4
         type: string
       dry_run:
         description: Build and inspect tarballs without publishing to npm

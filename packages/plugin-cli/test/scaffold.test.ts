@@ -61,6 +61,7 @@ describe('plugin scaffold', () => {
     });
     expect(await readFile(path.join(directory, 'tsconfig.json'), 'utf8')).toContain('strict');
     expect(await readFile(path.join(directory, '.vscodeignore'), 'utf8')).toContain('*.vsix');
+    expect(await readFile(path.join(directory, 'README.md'), 'utf8')).toContain('npm run publish');
   });
 
   it('typechecks the generated project against the public SDK exports', async () => {
