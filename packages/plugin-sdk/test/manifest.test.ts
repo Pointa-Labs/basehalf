@@ -20,7 +20,7 @@ const valid = {
       {
         id: 'studio.storyboard.project',
         label: 'Storyboard',
-        extensions: ['.storyboard'],
+        extensions: ['.story-board'],
       },
     ],
     commands: [
@@ -32,9 +32,258 @@ const valid = {
   },
 } as const;
 
+const recipeValid = {
+  ...valid,
+  basehalf: {
+    primaryCommand: 'studio.storyboard.createFromTemplate',
+    primaryCommandLabel: 'Create Storyboard from Template…',
+  },
+  contributes: {
+    basehalfCanvasRecipes: [
+      {
+        id: 'studio.storyboard.create-document',
+        label: 'Create document',
+        inputs: [
+          {
+            id: 'prompt',
+            label: 'Prompt',
+            accepts: ['text', 'code'],
+            minItems: 1,
+            maxItems: 4,
+          },
+        ],
+        parameters: [
+          {
+            id: 'tone',
+            label: 'Tone',
+            type: 'enum',
+            default: 'plain',
+            options: [{ value: 'plain', label: 'Plain' }],
+          },
+        ],
+        outputs: [
+          {
+            id: 'document',
+            kind: 'file',
+            extensions: ['.md'],
+            minItems: 1,
+            maxItems: 1,
+            primary: true,
+          },
+        ],
+      },
+    ],
+    basehalfCanvasTemplates: [
+      {
+        id: 'studio.storyboard.starter',
+        label: 'Starter',
+        resource: 'templates/starter.json',
+      },
+    ],
+    commands: [
+      {
+        command: 'studio.storyboard.createFromTemplate',
+        title: 'Create Storyboard from Template…',
+      },
+    ],
+  },
+} as const;
+
+const agentCapabilityValid = {
+  ...valid,
+  contributes: {
+    commands: [
+      ...valid.contributes.commands,
+      { command: 'studio.storyboard.inspectSequence', title: 'Inspect Sequence' },
+    ],
+    basehalfAgentCapabilities: [
+      {
+        id: 'studio.storyboard.sequence-capability',
+        label: 'Sequence',
+        documents: [
+          {
+            kind: 'studio.storyboard.sequence',
+            version: 1,
+            fileExtensions: ['.json'],
+            schemaSummary: 'A versioned root object with ordered items.',
+            pin: {
+              mode: 'exact-result-version',
+              field: 'items[].versionId',
+              targetKinds: ['video'],
+              acceptedVersionStates: ['succeeded', 'imported'],
+              updatePolicy: 'explicit',
+            },
+          },
+        ],
+        operations: [
+          {
+            id: 'studio.storyboard.sequence-inspect',
+            command: 'studio.storyboard.inspectSequence',
+            description: 'Inspect exact pins without modifying the document.',
+            deterministic: true,
+            parameters: [
+              {
+                name: 'sequence',
+                type: 'uri',
+                required: true,
+                description: 'Sequence URI.',
+              },
+            ],
+            returns: { type: 'object', description: 'Per-item state.' },
+          },
+        ],
+      },
+    ],
+  },
+} as const;
+
 describe('BaseHalf plugin manifest contract', () => {
   it('preserves a valid literal manifest', () => {
     expect(defineBaseHalfPlugin(valid)).toBe(valid);
+    expect(defineBaseHalfPlugin(recipeValid)).toBe(recipeValid);
+    expect(defineBaseHalfPlugin(agentCapabilityValid)).toBe(agentCapabilityValid);
+  });
+
+  it('requires one canonical manifest version identity', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({ ...valid, version: '1.0.0-beta.1' }),
+    ).not.toThrow();
+    for (const version of ['v1.0.0', ' 1.0.0 ', '1.0.0+build.1']) {
+      expect(() => validateBaseHalfPluginManifest({ ...valid, version })).toThrow(
+        'canonical SemVer without build metadata',
+      );
+    }
+  });
+
+  it('uses the host projection suffix contract and permits the fixed icon fallback', () => {
+    expect(() => validateBaseHalfPluginManifest(valid)).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: {
+          ...valid.contributes,
+          basehalfCardProjections: [
+            {
+              ...valid.contributes.basehalfCardProjections[0],
+              extensions: ['.story.board'],
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: {
+          ...valid.contributes,
+          basehalfCardProjections: [
+            {
+              id: 'studio.storyboard.sequence',
+              label: 'Sequence',
+              fileNames: ['your-plugin-sequence.json'],
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts standalone recipe, template, and structural-cleanup manifests', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          basehalfCanvasRecipes: recipeValid.contributes.basehalfCanvasRecipes,
+          commands: recipeValid.contributes.commands,
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          basehalfCanvasTemplates: recipeValid.contributes.basehalfCanvasTemplates,
+          commands: recipeValid.contributes.commands,
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        activationEvents: ['onBaseHalfStructuralCleanup:studio.storyboard.result-references'],
+        contributes: {
+          basehalfStructuralCleanups: [
+            {
+              id: 'studio.storyboard.result-references',
+              extensions: ['.bhnode'],
+            },
+          ],
+          commands: valid.contributes.commands,
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('validates Agent capability ownership, exact pins, and declared commands', () => {
+    expect(() => validateBaseHalfPluginManifest(agentCapabilityValid)).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...agentCapabilityValid,
+        contributes: {
+          ...agentCapabilityValid.contributes,
+          basehalfAgentCapabilities: [
+            {
+              ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0],
+              operations: [
+                {
+                  ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0].operations[0],
+                  command: 'studio.storyboard.notDeclared',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('owned declared command');
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...agentCapabilityValid,
+        contributes: {
+          ...agentCapabilityValid.contributes,
+          basehalfAgentCapabilities: [
+            {
+              ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0],
+              documents: [
+                {
+                  ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0].documents[0],
+                  pin: {
+                    ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0].documents[0]
+                      .pin,
+                    field: '../versionId',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('invalid pin field');
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...agentCapabilityValid,
+        contributes: {
+          ...agentCapabilityValid.contributes,
+          basehalfAgentCapabilities: [
+            agentCapabilityValid.contributes.basehalfAgentCapabilities[0],
+            {
+              ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0],
+              id: 'studio.storyboard.review-capability',
+              documents: [],
+            },
+          ],
+        },
+      }),
+    ).toThrow("Agent operation 'studio.storyboard.sequence-inspect' is declared more than once");
   });
 
   it('rejects proposed APIs and competing global surfaces', () => {
@@ -47,9 +296,51 @@ describe('BaseHalf plugin manifest contract', () => {
         contributes: { ...valid.contributes, viewsContainers: {} },
       }),
     ).toThrow('fixed application shell');
+    expect(() => validateBaseHalfPluginManifest({ ...valid, extensionDependencies: [] })).toThrow(
+      'cannot declare extensionDependencies',
+    );
+    expect(() => validateBaseHalfPluginManifest({ ...valid, extensionPack: [] })).toThrow(
+      'cannot declare extensionPack',
+    );
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: { ...valid.contributes, menus: {} },
+      }),
+    ).toThrow('fixed application shell');
   });
 
-  it('rejects invalid compatibility and missing BaseHalf projections', () => {
+  it('rejects identity casing, malformed commands, and detached activation events', () => {
+    expect(() => validateBaseHalfPluginManifest({ ...valid, publisher: 'Studio' })).toThrow(
+      'identity',
+    );
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: {
+          ...valid.contributes,
+          commands: [{ command: 'other.plugin.run', title: 'Run' }],
+        },
+      }),
+    ).toThrow('not owned');
+    expect(() =>
+      validateBaseHalfPluginManifest({ ...valid, activationEvents: ['onStartupFinished'] }),
+    ).toThrow('not tied to a declared contribution');
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        activationEvents: ['onCommand:studio.storyboard.createProject'],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        activationEvents: ['onBaseHalfCardProjection:Studio.storyboard.project'],
+      }),
+    ).toThrow('not tied to a declared contribution');
+  });
+
+  it('rejects invalid compatibility and missing BaseHalf contributions', () => {
     expect(() =>
       validateBaseHalfPluginManifest({ ...valid, engines: { ...valid.engines, basehalf: 'nope' } }),
     ).toThrow('SemVer ranges');
@@ -58,7 +349,309 @@ describe('BaseHalf plugin manifest contract', () => {
         ...valid,
         contributes: { commands: valid.contributes.commands },
       }),
-    ).toThrow('at least one BaseHalf card projection');
+    ).toThrow(
+      'Agent capability, card projection, canvas recipe, canvas template, or structural cleanup',
+    );
+  });
+
+  it('validates recipe ownership, ranges, primary output, and template resources', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              id: 'another.plugin.create-document',
+            },
+          ],
+        },
+      }),
+    ).toThrow("must start with 'studio.storyboard.'");
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              inputs: [
+                {
+                  ...recipeValid.contributes.basehalfCanvasRecipes[0].inputs[0],
+                  minItems: 5,
+                  maxItems: 4,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('invalid item range');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              outputs: [
+                {
+                  ...recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+                  primary: false,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('exactly one primary output');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              outputs: [
+                {
+                  ...recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+                  maxItems: 2,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('primary output must produce exactly one artifact');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasTemplates: [
+            {
+              ...recipeValid.contributes.basehalfCanvasTemplates[0],
+              resource: '../starter.json',
+            },
+          ],
+        },
+      }),
+    ).toThrow('canonical relative JSON path');
+  });
+
+  it('rejects invalid parameter declarations and undeclared recipe fields', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              parameters: [
+                {
+                  id: 'title',
+                  label: 'Title',
+                  type: 'string',
+                  required: true,
+                  default: '   ',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('blank default');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              parameters: [
+                {
+                  id: 'tone',
+                  label: 'Tone',
+                  type: 'enum',
+                  default: 'missing',
+                  options: [{ value: 'plain', label: 'Plain' }],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('default is not an enum option');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              webview: true,
+            },
+          ],
+        },
+      }),
+    ).toThrow('unsupported fields');
+  });
+
+  it('rejects non-canonical template contribution identifiers', () => {
+    const ids = [
+      'Studio.storyboard.starter',
+      ' studio.storyboard.starter',
+      'studio.storyboard.starter ',
+      '1studio.storyboard.starter',
+      'studio.2storyboard.starter',
+      'studio.storyboard.starter_name',
+      `studio.storyboard.${'a'.repeat(111)}`,
+    ];
+    for (const id of ids) {
+      expect(() =>
+        validateBaseHalfPluginManifest({
+          ...recipeValid,
+          contributes: {
+            ...recipeValid.contributes,
+            basehalfCanvasTemplates: [
+              { ...recipeValid.contributes.basehalfCanvasTemplates[0], id },
+            ],
+          },
+        }),
+      ).toThrow(/Canvas template/);
+    }
+  });
+
+  it('rejects duplicate local ids and non-result outputs', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              inputs: [
+                recipeValid.contributes.basehalfCanvasRecipes[0].inputs[0],
+                recipeValid.contributes.basehalfCanvasRecipes[0].inputs[0],
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('duplicate');
+
+    for (const kind of ['folder', 'text', 'code']) {
+      expect(() =>
+        validateBaseHalfPluginManifest({
+          ...recipeValid,
+          contributes: {
+            ...recipeValid.contributes,
+            basehalfCanvasRecipes: [
+              {
+                ...recipeValid.contributes.basehalfCanvasRecipes[0],
+                outputs: [
+                  {
+                    ...recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+                    kind,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      ).toThrow('invalid content kind');
+    }
+  });
+
+  it('caps total recipe bindings and artifacts at host limits', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              inputs: [
+                { id: 'first', label: 'First', accepts: ['text'], minItems: 0, maxItems: 40 },
+                { id: 'second', label: 'Second', accepts: ['text'], minItems: 0, maxItems: 40 },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('no more than 64 inputs in total');
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              outputs: [
+                recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+                {
+                  id: 'alternates',
+                  kind: 'file',
+                  extensions: ['.md'],
+                  minItems: 0,
+                  maxItems: 64,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('no more than 64 artifacts in total');
+  });
+
+  it('accepts only bounded settings owned by the plugin namespace', () => {
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: {
+          ...valid.contributes,
+          configuration: {
+            title: 'Storyboard',
+            properties: {
+              'studio.storyboard.outputDirectory': {
+                type: 'string',
+                default: 'outputs',
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...valid,
+        contributes: {
+          ...valid.contributes,
+          configuration: {
+            properties: {
+              'other.plugin.apiKey': { type: 'string' },
+            },
+          },
+        },
+      }),
+    ).toThrow("outside 'studio.storyboard'");
   });
 
   it('requires an HTTPS source disclosure URL', () => {
