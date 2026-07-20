@@ -20,7 +20,21 @@ cd my-plugin
 npm install
 ```
 
-Open the generated folder in BaseHalf and press `F5` to start a development host with the plugin loaded. The scaffold keeps durable plugin output in ordinary local project files.
+The default scaffold contributes one main-canvas recipe and one starter template. It registers a small deterministic executor, contains no Webview boilerplate, and keeps durable output in ordinary local project files. Its Markdown output is declared as a `file` result; ordinary Text and Code cards retain their normal editor interaction and are not executable containers.
+
+Use the projection mode only when a file format needs its own card-detail surface:
+
+```sh
+bh-plugin init my-project-plugin \
+  --publisher your-publisher \
+  --name my-project-plugin \
+  --display-name "My Project Plugin" \
+  --repository https://github.com/your-publisher/my-project-plugin \
+  --kind projection \
+  --file-extension myproject
+```
+
+For compatibility, supplying `--file-extension` without `--kind` also selects the projection scaffold. Open the generated folder in BaseHalf and press `F5` to start a development host with the plugin loaded.
 
 ## Validate and package
 
@@ -28,6 +42,10 @@ Open the generated folder in BaseHalf and press `F5` to start a development host
 npm run check
 npm run package
 ```
+
+Validation checks the manifest, compiled entry point, README, license, and every declared canvas template resource before packaging. Template files must satisfy the complete public template v1 contract; valid JSON alone is not sufficient.
+
+After packaging, the CLI reopens the exact VSIX and checks its identity, manifest, required resources, archive paths, expanded sizes, and CRCs. `validate`, `package`, and `publish` all begin with the same project validation path; publish cannot substitute an unrelated prebuilt VSIX.
 
 ## Submit for review
 

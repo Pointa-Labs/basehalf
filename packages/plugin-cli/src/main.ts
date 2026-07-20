@@ -3,15 +3,23 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type BaseHalfPluginManifest, validateBaseHalfPluginManifest } from '@basehalf/plugin-sdk';
+import { isDeepStrictEqual } from 'node:util';
+import { crc32 } from 'node:zlib';
+import {
+  BASEHALF_CANVAS_TEMPLATE_MAX_BYTES,
+  type BaseHalfPluginManifest,
+  parseBaseHalfCanvasTemplateForManifest,
+  validateBaseHalfPluginManifest,
+} from '@basehalf/plugin-sdk';
 import { createVSIX } from '@vscode/vsce';
+import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { PluginApiClient, normalizeServer } from './apiClient.js';
 import { removeSession, saveSession, sessionFor } from './credentials.js';
-import { scaffoldPlugin } from './scaffold.js';
+import { type ScaffoldKind, scaffoldPlugin } from './scaffold.js';
 import type {
   DeviceAuthorization,
   DevicePoll,
@@ -21,6 +29,12 @@ import type {
 } from './types.js';
 
 const DEFAULT_SERVER = 'https://plugins.basehalf.com';
+const MAX_PLUGIN_PACKAGE_BYTES = 100 * 1024 * 1024;
+const MAX_PLUGIN_PACKAGE_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+const MAX_PLUGIN_PACKAGE_ENTRIES = 4_096;
+const MAX_PLUGIN_PACKAGE_ENTRY_BYTES = 128 * 1024 * 1024;
+const MAX_PLUGIN_MANIFEST_BYTES = 1024 * 1024;
+const MAX_RELEASE_NOTES_BYTES = 100_000;
 
 interface ParsedArguments {
   readonly command: string;
@@ -76,6 +90,8 @@ async function initialize(args: ParsedArguments): Promise<void> {
   const name = option(args, 'name');
   const displayName = option(args, 'display-name');
   const repository = option(args, 'repository');
+  const fileExtension = option(args, 'file-extension');
+  const kind = scaffoldKind(option(args, 'kind'));
   if (!directory || !publisher || !name || !displayName || !repository) {
     throw new Error(
       'init requires a directory, --publisher, --name, --display-name, and --repository.',
@@ -87,7 +103,8 @@ async function initialize(args: ParsedArguments): Promise<void> {
     name,
     displayName,
     repository,
-    fileExtension: option(args, 'file-extension') ?? name,
+    ...(kind ? { kind } : {}),
+    ...(fileExtension ? { fileExtension } : {}),
   });
   console.log(`Created ${publisher}.${name} in ${path.resolve(directory)}.`);
   console.log('Next: npm install, open the folder in BaseHalf, and press F5.');
@@ -95,21 +112,19 @@ async function initialize(args: ParsedArguments): Promise<void> {
 
 async function validate(args: ParsedArguments): Promise<void> {
   const directory = pluginDirectory(args);
-  const manifest = await readManifest(directory);
-  await assertPublishFiles(directory, manifest);
+  const manifest = await validatePluginProject(directory);
   console.log(`Validated ${extensionIdOf(manifest)}@${manifest.version}.`);
 }
 
 async function packageCommand(args: ParsedArguments): Promise<void> {
   const directory = pluginDirectory(args);
-  const manifest = await readManifest(directory);
-  await assertPublishFiles(directory, manifest);
+  const manifest = await validatePluginProject(directory);
   const extensionId = extensionIdOf(manifest);
   const output = option(args, 'out');
   const vsixPath = output
     ? path.resolve(output)
     : path.join(directory, `${extensionId}-${manifest.version}.vsix`);
-  await createPluginVsix(directory, vsixPath);
+  await createPluginVsix(directory, vsixPath, manifest);
   console.log(`Packaged ${extensionId}@${manifest.version}.`);
   console.log(vsixPath);
 }
@@ -125,8 +140,11 @@ async function login(
     scopes: ['publisher:read', 'plugin:write', 'submission:write'],
     ...(publisherSlug ? { publisher_slug: publisherSlug } : {}),
   });
-  const verificationUrl = new URL(authorization.verification_uri);
-  verificationUrl.searchParams.set('user_code', authorization.user_code);
+  const verificationUrl = createVerificationUrl(
+    server,
+    authorization.verification_uri,
+    authorization.user_code,
+  );
   console.log('Opening BaseHalf to confirm plugin publishing.');
   console.log(`If prompted, verify this code: ${authorization.user_code}`);
   console.log(verificationUrl.href);
@@ -181,28 +199,18 @@ async function whoami(server: string): Promise<void> {
 
 async function publish(server: string, args: ParsedArguments): Promise<void> {
   const directory = pluginDirectory(args);
-  const manifest = await readManifest(directory);
-  validateBaseHalfPluginManifest(manifest);
-  await assertPublishFiles(directory, manifest);
+  const manifest = await validatePluginProject(directory);
   const extensionId = extensionIdOf(manifest);
+  const releaseNotesFile = option(args, 'release-notes-file');
+  const releaseNotes = releaseNotesFile
+    ? await readReleaseNotes(path.resolve(directory, releaseNotesFile), false)
+    : await readReleaseNotes(path.join(directory, 'CHANGELOG.md'), true);
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'basehalf-plugin-'));
-  const suppliedVsix = option(args, 'vsix');
-  const vsixPath = suppliedVsix
-    ? path.resolve(suppliedVsix)
-    : path.join(temporaryDirectory, `${extensionId}-${manifest.version}.vsix`);
+  const vsixPath = path.join(temporaryDirectory, `${extensionId}-${manifest.version}.vsix`);
   try {
-    if (!suppliedVsix) {
-      await createPluginVsix(directory, vsixPath);
-    }
+    await createPluginVsix(directory, vsixPath, manifest);
     const bytes = await readFile(vsixPath);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const releaseNotesFile = option(args, 'release-notes-file');
-    const releaseNotes = releaseNotesFile
-      ? await readFile(path.resolve(directory, releaseNotesFile), 'utf8')
-      : await optionalRead(path.join(directory, 'CHANGELOG.md'));
-    if (releaseNotes && Buffer.byteLength(releaseNotes, 'utf8') > 100_000) {
-      throw new Error('Release notes exceed the 100 KB publishing limit.');
-    }
     const session = await sessionForPublisher(server, manifest.publisher);
     const client = new PluginApiClient(server, session);
     const plugins = await client.get<RemotePlugin[]>('/cli/plugins');
@@ -262,8 +270,330 @@ function extensionIdOf(manifest: BaseHalfPluginManifest): string {
   return `${manifest.publisher}.${manifest.name}`.toLowerCase();
 }
 
-async function createPluginVsix(directory: string, vsixPath: string): Promise<void> {
-  await createVSIX({ cwd: directory, packagePath: vsixPath, dependencies: false });
+async function createPluginVsix(
+  directory: string,
+  vsixPath: string,
+  manifest: BaseHalfPluginManifest,
+): Promise<void> {
+  try {
+    await createVSIX({ cwd: directory, packagePath: vsixPath, dependencies: false });
+    await assertPackagedPlugin(vsixPath, manifest);
+  } catch (error) {
+    await rm(vsixPath, { force: true });
+    throw error;
+  }
+}
+
+async function assertPackagedPlugin(
+  vsixPath: string,
+  sourceManifest: BaseHalfPluginManifest,
+): Promise<void> {
+  const packageStat = await stat(vsixPath);
+  if (
+    !packageStat.isFile() ||
+    packageStat.size < 1 ||
+    packageStat.size > MAX_PLUGIN_PACKAGE_BYTES
+  ) {
+    throw new Error(`Packaged VSIX must be no larger than ${MAX_PLUGIN_PACKAGE_BYTES} bytes.`);
+  }
+  const templateArchivePaths = new Set(
+    (sourceManifest.contributes.basehalfCanvasTemplates ?? []).map(
+      (template) => `extension/${template.resource}`,
+    ),
+  );
+  const inspection = await inspectPluginArchive(vsixPath, templateArchivePaths);
+  const packagedManifest = inspection.manifest;
+  validateBaseHalfPluginManifest(packagedManifest);
+  for (const field of [
+    'publisher',
+    'name',
+    'version',
+    'displayName',
+    'description',
+    'license',
+    'repository',
+    'main',
+    'engines',
+    'basehalf',
+    'contributes',
+    'activationEvents',
+    'enabledApiProposals',
+  ] as const) {
+    if (!isDeepStrictEqual(packagedManifest[field], sourceManifest[field])) {
+      throw new Error(`Packaged VSIX manifest field '${field}' differs from package.json.`);
+    }
+  }
+  const main = sourceManifest.main.replace(/^\.\//, '');
+  const requiredFiles = [
+    `extension/${main}`,
+    ...(sourceManifest.contributes.basehalfCanvasTemplates ?? []).map(
+      (template) => `extension/${template.resource}`,
+    ),
+    ...(sourceManifest.contributes.jsonValidation ?? []).map(
+      (validator) => `extension/${validator.url}`,
+    ),
+  ];
+  for (const requiredFile of requiredFiles) {
+    if (!inspection.files.has(requiredFile)) {
+      throw new Error(`Packaged VSIX is missing '${requiredFile}' or uses different casing.`);
+    }
+  }
+  for (const template of sourceManifest.contributes.basehalfCanvasTemplates ?? []) {
+    const archivePath = `extension/${template.resource}`;
+    const bytes = inspection.contents.get(archivePath);
+    if (!bytes) {
+      throw new Error(`Packaged VSIX is missing '${archivePath}' or uses different casing.`);
+    }
+    try {
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      parseBaseHalfCanvasTemplateForManifest(source, packagedManifest);
+    } catch (error) {
+      throw new Error(
+        `Packaged canvas template failed validation: ${template.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
+  if (!hasArchiveFile(inspection.files, 'extension/readme.md')) {
+    throw new Error('Packaged VSIX is missing README.md.');
+  }
+  if (
+    !['extension/license', 'extension/license.md', 'extension/license.txt'].some((file) =>
+      hasArchiveFile(inspection.files, file),
+    )
+  ) {
+    throw new Error('Packaged VSIX is missing a license file.');
+  }
+}
+
+function hasArchiveFile(files: ReadonlySet<string>, wanted: string): boolean {
+  const canonical = wanted.normalize('NFC').toLowerCase();
+  return [...files].some((file) => file.normalize('NFC').toLowerCase() === canonical);
+}
+
+function inspectPluginArchive(
+  vsixPath: string,
+  retainedFiles: ReadonlySet<string> = new Set(),
+): Promise<{
+  manifest: Record<string, unknown>;
+  files: ReadonlySet<string>;
+  contents: ReadonlyMap<string, Buffer>;
+}> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(vsixPath, { lazyEntries: true, validateEntrySizes: true }, (openError, zip) => {
+      if (openError || !zip) {
+        reject(openError ?? new Error('Could not open packaged VSIX.'));
+        return;
+      }
+      let settled = false;
+      let entryCount = 0;
+      let totalUncompressedBytes = 0;
+      let manifest: Record<string, unknown> | undefined;
+      const files = new Set<string>();
+      const canonicalFiles = new Set<string>();
+      const contents = new Map<string, Buffer>();
+      const fail = (error: unknown) => {
+        if (!settled) {
+          settled = true;
+          zip.close();
+          reject(error);
+        }
+      };
+      zip.on('error', fail);
+      zip.on('end', () => {
+        if (settled) return;
+        if (!manifest) {
+          fail(new Error('Packaged VSIX is missing extension/package.json.'));
+          return;
+        }
+        try {
+          assertNoArchivePathPrefixConflicts(files);
+        } catch (error) {
+          fail(error);
+          return;
+        }
+        settled = true;
+        resolve({ manifest, files, contents });
+      });
+      zip.on('entry', (entry) => {
+        entryCount += 1;
+        if (entryCount > MAX_PLUGIN_PACKAGE_ENTRIES) {
+          fail(
+            new Error(`Packaged VSIX contains more than ${MAX_PLUGIN_PACKAGE_ENTRIES} entries.`),
+          );
+          return;
+        }
+        if (
+          !safeArchiveEntryName(entry.fileName) ||
+          !isArchiveRegularFile(entry) ||
+          isArchiveEncrypted(entry)
+        ) {
+          fail(new Error(`Packaged VSIX contains unsafe entry '${entry.fileName}'.`));
+          return;
+        }
+        const canonical = entry.fileName.normalize('NFC').toLowerCase();
+        if (entry.fileName !== entry.fileName.normalize('NFC') || canonicalFiles.has(canonical)) {
+          fail(new Error(`Packaged VSIX contains ambiguous path '${entry.fileName}'.`));
+          return;
+        }
+        canonicalFiles.add(canonical);
+        files.add(entry.fileName);
+        if (
+          !Number.isSafeInteger(entry.uncompressedSize) ||
+          entry.uncompressedSize < 0 ||
+          entry.uncompressedSize > MAX_PLUGIN_PACKAGE_ENTRY_BYTES
+        ) {
+          fail(new Error(`Packaged VSIX entry '${entry.fileName}' exceeds the size limit.`));
+          return;
+        }
+        totalUncompressedBytes += entry.uncompressedSize;
+        if (
+          !Number.isSafeInteger(totalUncompressedBytes) ||
+          totalUncompressedBytes > MAX_PLUGIN_PACKAGE_UNCOMPRESSED_BYTES
+        ) {
+          fail(new Error('Packaged VSIX expands beyond the allowed size.'));
+          return;
+        }
+        if (canonical === 'extension/package.json' && entry.fileName !== 'extension/package.json') {
+          fail(new Error('Packaged VSIX manifest path must be exactly extension/package.json.'));
+          return;
+        }
+        const retainManifest = entry.fileName === 'extension/package.json';
+        const retainRequestedFile = retainedFiles.has(entry.fileName);
+        const retain = retainManifest || retainRequestedFile;
+        const maximumBytes = retainManifest
+          ? MAX_PLUGIN_MANIFEST_BYTES
+          : retainRequestedFile
+            ? BASEHALF_CANVAS_TEMPLATE_MAX_BYTES
+            : MAX_PLUGIN_PACKAGE_ENTRY_BYTES;
+        readArchiveEntry(zip, entry, maximumBytes, retain).then((bytes) => {
+          try {
+            if (retainManifest) {
+              const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+              const value = JSON.parse(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source);
+              if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                throw new Error('Packaged VSIX manifest must be an object.');
+              }
+              manifest = value as Record<string, unknown>;
+            }
+            if (retainRequestedFile) {
+              contents.set(entry.fileName, bytes);
+            }
+            zip.readEntry();
+          } catch (error) {
+            fail(error);
+          }
+        }, fail);
+      });
+      zip.readEntry();
+    });
+  });
+}
+
+function readArchiveEntry(
+  zip: ZipFile,
+  entry: Entry,
+  maximumBytes: number,
+  retain = true,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zip.openReadStream(entry, (error, stream) => {
+      if (error || !stream) {
+        reject(error ?? new Error(`Could not read '${entry.fileName}' from packaged VSIX.`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let checksum = 0;
+      let settled = false;
+      const fail = (reason: unknown) => {
+        if (!settled) {
+          settled = true;
+          reject(reason);
+        }
+      };
+      stream.on('data', (chunk) => {
+        const bytes = Buffer.from(chunk);
+        size += bytes.length;
+        if (size > maximumBytes) {
+          stream.destroy(new Error(`Packaged VSIX entry '${entry.fileName}' is too large.`));
+          return;
+        }
+        checksum = crc32(bytes, checksum);
+        if (retain) chunks.push(bytes);
+      });
+      stream.on('error', fail);
+      stream.on('end', () => {
+        if (settled) return;
+        if (checksum >>> 0 !== entry.crc32 >>> 0) {
+          fail(new Error(`Packaged VSIX entry '${entry.fileName}' failed CRC validation.`));
+          return;
+        }
+        if (size !== entry.uncompressedSize) {
+          fail(
+            new Error(`Packaged VSIX entry '${entry.fileName}' did not match its declared size.`),
+          );
+          return;
+        }
+        settled = true;
+        resolve(retain ? Buffer.concat(chunks, size) : Buffer.alloc(0));
+      });
+    });
+  });
+}
+
+function safeArchiveEntryName(name: string): boolean {
+  return (
+    Boolean(name) &&
+    name === name.normalize('NFC') &&
+    name === name.trim() &&
+    !name.startsWith('/') &&
+    !name.startsWith('\\') &&
+    !name.includes('\\') &&
+    !containsArchiveForbiddenCharacter(name) &&
+    !/^[A-Za-z]:/.test(name) &&
+    name
+      .split('/')
+      .every(
+        (segment) =>
+          Boolean(segment) &&
+          segment !== '.' &&
+          segment !== '..' &&
+          segment.length <= 255 &&
+          !segment.endsWith('.') &&
+          !segment.endsWith(' ') &&
+          segment.toLowerCase() !== '.bh' &&
+          !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment),
+      )
+  );
+}
+
+function containsArchiveForbiddenCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || codePoint === 0x7f || '<>:"|?*'.includes(character);
+  });
+}
+
+function isArchiveRegularFile(entry: Entry): boolean {
+  const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;
+  return fileType === 0 || fileType === 0x8000;
+}
+
+function isArchiveEncrypted(entry: Entry): boolean {
+  return (entry.generalPurposeBitFlag & 0x1) !== 0;
+}
+
+function assertNoArchivePathPrefixConflicts(files: ReadonlySet<string>): void {
+  const canonical = new Set([...files].map((file) => file.toLowerCase()));
+  for (const file of canonical) {
+    let slash = file.indexOf('/');
+    while (slash >= 0) {
+      if (canonical.has(file.slice(0, slash))) {
+        throw new Error('Packaged VSIX contains a file and one of its descendants.');
+      }
+      slash = file.indexOf('/', slash + 1);
+    }
+  }
 }
 
 async function status(server: string, args: ParsedArguments): Promise<void> {
@@ -314,24 +644,58 @@ async function readManifest(directory: string): Promise<BaseHalfPluginManifest> 
   return value;
 }
 
+async function validatePluginProject(directory: string): Promise<BaseHalfPluginManifest> {
+  const manifest = await readManifest(directory);
+  await assertPublishFiles(directory, manifest);
+  return manifest;
+}
+
 async function assertPublishFiles(
   directory: string,
   manifest: BaseHalfPluginManifest,
 ): Promise<void> {
   for (const relativePath of [manifest.main, 'README.md']) {
     try {
-      await access(path.resolve(directory, relativePath));
+      if (!(await stat(path.resolve(directory, relativePath))).isFile()) {
+        throw new Error('not a file');
+      }
     } catch {
       throw new Error(`Required publish file is missing: ${relativePath}`);
     }
   }
-  const hasLicense = await Promise.any(
-    ['LICENSE', 'LICENSE.md', 'LICENSE.txt'].map((file) => access(path.join(directory, file))),
-  ).then(
-    () => true,
-    () => false,
+
+  for (const validator of manifest.contributes.jsonValidation ?? []) {
+    try {
+      if (!(await stat(path.resolve(directory, validator.url))).isFile()) {
+        throw new Error('not a file');
+      }
+    } catch {
+      throw new Error(`Required JSON schema is missing: ${validator.url}`);
+    }
+  }
+  for (const template of manifest.contributes.basehalfCanvasTemplates ?? []) {
+    const templatePath = path.resolve(directory, template.resource);
+    try {
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(templatePath));
+      parseBaseHalfCanvasTemplateForManifest(source, manifest);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Required canvas template is missing: ${template.resource}`);
+      }
+      throw new Error(
+        `Canvas template failed validation: ${template.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
+  const licenseFiles = (await readdir(directory)).filter((file) =>
+    /^(?:license|license\.md|license\.txt)$/i.test(file),
   );
-  if (!hasLicense && !manifest.license) throw new Error('Plugin must include license information.');
+  const hasLicense = (
+    await Promise.all(
+      licenseFiles.map(async (file) => (await stat(path.join(directory, file))).isFile()),
+    )
+  ).some(Boolean);
+  if (!hasLicense) throw new Error('Plugin must include a license file.');
 }
 
 function repositoryPayload(value: unknown): { repository_url?: string } {
@@ -375,11 +739,43 @@ function option(args: ParsedArguments, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function scaffoldKind(value: string | undefined): ScaffoldKind | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'recipe') return 'recipe';
+  if (value === 'projection') return 'projection';
+  throw new Error("--kind must be 'recipe' or 'projection'.");
+}
+
+function createVerificationUrl(server: string, value: string, userCode: string): URL {
+  let verificationUrl: URL;
+  try {
+    verificationUrl = new URL(value);
+  } catch {
+    throw new Error('Publishing service returned an invalid verification URL.');
+  }
+  if (verificationUrl.origin !== server) {
+    throw new Error('Publishing verification URL must use the publishing server origin.');
+  }
+  if (verificationUrl.username || verificationUrl.password) {
+    throw new Error('Publishing verification URL must not contain credentials.');
+  }
+  verificationUrl.searchParams.set('user_code', userCode);
+  return verificationUrl;
+}
+
 function openBrowser(url: string): void {
   const command =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
-  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
-  const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'explorer.exe'
+        : 'xdg-open';
+  const child = spawn(command, [url], {
+    detached: true,
+    shell: false,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
   child.on('error', () => undefined);
   child.unref();
 }
@@ -388,11 +784,18 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function optionalRead(file: string): Promise<string | undefined> {
+async function readReleaseNotes(file: string, optional: boolean): Promise<string | undefined> {
   try {
-    return await readFile(file, 'utf8');
+    const fileStat = await stat(file);
+    if (!fileStat.isFile() || fileStat.size > MAX_RELEASE_NOTES_BYTES) {
+      throw new Error('Release notes exceed the 100 KB publishing limit.');
+    }
+    return new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if (optional && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    if (error instanceof TypeError) {
+      throw new Error('Release notes must be valid UTF-8 text.');
+    }
     throw error;
   }
 }
@@ -401,12 +804,12 @@ function printHelp(): void {
   console.log(`BaseHalf plugin publishing
 
 Usage:
-  bh-plugin init <directory> --publisher <slug> --name <slug> --display-name <name> --repository <https-url> [--file-extension <ext>]
+  bh-plugin init <directory> --publisher <slug> --name <slug> --display-name <name> --repository <https-url> [--kind recipe|projection] [--file-extension <ext>]
   bh-plugin validate [directory]
   bh-plugin package [directory] [--out file]
   bh-plugin login [--publisher <slug>] [--server https://plugins.basehalf.com]
   bh-plugin whoami [--server https://plugins.basehalf.com]
-  bh-plugin publish [directory] [--vsix file] [--release-notes-file file]
+  bh-plugin publish [directory] [--release-notes-file file]
   bh-plugin status [directory] [--extension-id publisher.name]
   bh-plugin logout [--server https://plugins.basehalf.com]
 
