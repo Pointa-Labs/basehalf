@@ -70,6 +70,7 @@ import { KeyCode } from '../../../../base/common/keyCodes.js';
 import { IExtensionGalleryManifest, IExtensionGalleryManifestService, ExtensionGalleryManifestStatus } from '../../../../platform/extensionManagement/common/extensionGalleryManifest.js';
 import { URI } from '../../../../base/common/uri.js';
 import { DEFAULT_ACCOUNT_SIGN_IN_COMMAND } from '../../../services/accounts/browser/defaultAccount.js';
+import product from '../../../../platform/product/common/product.js';
 
 export const ExtensionsSortByContext = new RawContextKey<string>('extensionsSortByValue', '');
 export const SearchMarketplaceExtensionsContext = new RawContextKey<boolean>('searchMarketplaceExtensions', false);
@@ -222,8 +223,8 @@ export class ExtensionsViewletViewsContribution extends Disposable implements IW
 							},
 							category: REMOTE_CATEGORY,
 							icon: installLocalInRemoteIcon,
-							f1: true,
-							menu: {
+							f1: !product.basehalfVersion,
+							menu: product.basehalfVersion ? undefined : {
 								id: MenuId.ViewTitle,
 								when: ContextKeyExpr.equals('view', id),
 								group: 'navigation',
@@ -244,7 +245,7 @@ export class ExtensionsViewletViewsContribution extends Disposable implements IW
 						id: 'workbench.extensions.actions.installLocalExtensionsInRemote',
 						title: localize2('install remote in local', 'Install Remote Extensions Locally...'),
 						category: REMOTE_CATEGORY,
-						f1: true
+						f1: !product.basehalfVersion
 					});
 				}
 				run(accessor: ServicesAccessor): Promise<void> {

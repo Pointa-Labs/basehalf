@@ -13,6 +13,8 @@ import { TERMINAL_VIEW_ID } from '../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../services/search/common/search.js';
 import { BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from './basehalfPluginCatalog.js';
+import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES } from './basehalfPluginIdentities.js';
+import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 
 export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
 export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.activity.pinnedViewlets2';
@@ -654,12 +656,14 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'domain-plugins',
 		builtInExtensionIds: [],
-		externalExtensionIds: ['pointa.basehalf-ai-video'],
+		externalExtensionIds: BASEHALF_OFFICIAL_PLUGIN_IDENTITIES.map(identity => identity.extensionId),
 		externalSlotIds: [],
 		source: 'extensions/basehalf-ai-video/package.json; BaseHalf curated domain-plugin catalog',
 		reason: 'The first-party AI Video plugin validates the fixed-shell, open-center domain-plugin contract.'
 	}
 ] as const satisfies readonly IBaseHalfAllowedExtensionFamily[];
+
+export { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity };
 
 export const BASEHALF_REQUIRED_MODULE_COMPLETION_GATES = [
 	'vscode-source-comparison',

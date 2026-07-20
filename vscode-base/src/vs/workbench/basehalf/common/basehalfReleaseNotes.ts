@@ -20,6 +20,8 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - Settings live in VS Code's native Settings UI under the BaseHalf category.
 - Release Notes open as a system page in the main surface, without creating user files.
 - Model-service connections are configured once for BaseHalf and shared by reviewed plugins; API keys stay in encrypted application credential storage.
+- The main canvas keeps Markdown and code as ordinary editable files, while File, Image, Video, Audio, PDF, and Presentation result nodes share one optional Recipe, Run, Current, and History model. Domain plugins contribute reviewed recipes and templates instead of separate canvases.
+- A node run consumes frozen direct inputs only. Connections never auto-run a workflow, and a failed or cancelled run keeps the previous Current result.
 - Curated plugin updates use VS Code's native extension runtime state, including Reload Window, Restart Extensions, and Restart to Update when required.
 - Visible editor tabs and VS Code breadcrumbs are hidden by default so BaseHalf navigation remains canvas-first.
 

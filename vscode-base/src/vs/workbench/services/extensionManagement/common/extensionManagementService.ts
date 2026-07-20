@@ -49,6 +49,7 @@ import { verifiedPublisherIcon } from './extensionsIcons.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { IStringDictionary } from '../../../../base/common/collections.js';
 import { CommontExtensionManagementService } from '../../../../platform/extensionManagement/common/abstractExtensionManagementService.js';
+import { assertBaseHalfGalleryInstallAllowed, assertBaseHalfLocationInstallAllowed, assertBaseHalfReviewedPluginInstallSurface, assertBaseHalfVSIXInstallAllowed } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
 
 const TrustedPublishersStorageKey = 'extensions.trustedPublishers';
 
@@ -315,6 +316,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installVSIX(vsix: URI, manifest: IExtensionManifest, options?: InstallOptions): Promise<ILocalExtension> {
+		assertBaseHalfVSIXInstallAllowed(this.productService, `${manifest.publisher}.${manifest.name}`, manifest.version, options);
 		const serversToInstall = this.getServersToInstall(manifest);
 		if (serversToInstall?.length) {
 			await this.checkForWorkspaceTrust(manifest, false);
@@ -347,6 +349,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installFromLocation(location: URI): Promise<ILocalExtension> {
+		assertBaseHalfLocationInstallAllowed(this.productService, location);
 		if (location.scheme === Schemas.file) {
 			if (this.extensionManagementServerService.localExtensionManagementServer) {
 				return this.extensionManagementServerService.localExtensionManagementServer.extensionManagementService.installFromLocation(location, this.userDataProfileService.currentProfile.extensionsResource);
@@ -425,6 +428,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async updateFromGallery(gallery: IGalleryExtension, extension: ILocalExtension, installOptions?: InstallOptions): Promise<ILocalExtension> {
+		assertBaseHalfGalleryInstallAllowed(this.productService, gallery);
 		const server = this.getServer(extension);
 		if (!server) {
 			return Promise.reject(`Invalid location ${extension.location.toString()}`);
@@ -444,6 +448,9 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installGalleryExtensions(extensions: InstallExtensionInfo[]): Promise<InstallExtensionResult[]> {
+		for (const { extension } of extensions) {
+			assertBaseHalfGalleryInstallAllowed(this.productService, extension);
+		}
 		const results = new Map<string, InstallExtensionResult>();
 
 		const extensionsByServer = new Map<IExtensionManagementServer, InstallExtensionInfo[]>();
@@ -510,6 +517,7 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installFromGallery(gallery: IGalleryExtension, installOptions?: InstallOptions, servers?: IExtensionManagementServer[]): Promise<ILocalExtension> {
+		assertBaseHalfGalleryInstallAllowed(this.productService, gallery);
 		const manifest = await this.extensionGalleryService.getManifest(gallery, CancellationToken.None);
 		if (!manifest) {
 			throw new Error(localize('Manifest is not found', "Installing Extension {0} failed: Manifest is not found.", gallery.displayName || gallery.name));
@@ -573,6 +581,9 @@ export class ExtensionManagementService extends CommontExtensionManagementServic
 	}
 
 	async installResourceExtension(extension: IResourceExtension, installOptions: InstallOptions): Promise<ILocalExtension> {
+		if (this.productService.basehalfVersion) {
+			assertBaseHalfReviewedPluginInstallSurface(this.productService);
+		}
 		if (!this.canInstallResourceExtension(extension)) {
 			throw new Error('This extension cannot be installed in the current workspace.');
 		}

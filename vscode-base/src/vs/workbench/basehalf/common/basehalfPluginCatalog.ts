@@ -4,7 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { rcompare, satisfies, valid, validRange } from '../../../base/common/semver/semver.js';
+import { FileAccess } from '../../../base/common/network.js';
+import { extUri, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
+import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES, BASEHALF_RESERVED_OFFICIAL_PLUGIN_PUBLISHERS } from './basehalfPluginIdentities.js';
 
 export const BASEHALF_MANAGE_PLUGINS_COMMAND_ID = 'basehalf.managePlugins';
 export const BASEHALF_PLUGINS_VIEW_CONTAINER_ID = 'basehalf.view.plugins';
@@ -35,7 +38,9 @@ export type BaseHalfPluginLifecycleState =
 	| 'enabled'
 	| 'disabled'
 	| 'updateAvailable'
+	| 'restoreAvailable'
 	| 'updating'
+	| 'restoring'
 	| 'incompatible'
 	| 'withdrawn'
 	| 'error';
@@ -49,6 +54,7 @@ export interface IBaseHalfRemotePluginVersion {
 	readonly targetPlatform: string;
 	readonly assetPath: string;
 	readonly sha256: string;
+	readonly installedContentSha256: string;
 	readonly size: number;
 	readonly publishedAt: string;
 	readonly status: BaseHalfRemotePluginVersionStatus;
@@ -113,6 +119,8 @@ export interface IBaseHalfCuratedPlugin {
 	readonly publisher: IBaseHalfPluginPublisher;
 	/** App-root-relative reviewed payload installed only when the user asks. */
 	readonly bundledPath?: string;
+	/** App-root-relative compiled payload used by unbuilt development workbenches. */
+	readonly developmentPath?: string;
 	readonly primaryCommand?: string;
 	readonly primaryCommandLabel?: string;
 }
@@ -122,21 +130,49 @@ export interface IBaseHalfResolvedPlugin extends IBaseHalfCuratedPlugin {
 	readonly remoteVersion?: IBaseHalfRemotePluginVersion;
 }
 
+export interface IBaseHalfPluginCompatibility {
+	readonly basehalf: string;
+	readonly vscode: string;
+	readonly targetPlatform: string;
+}
+
 /**
  * Product-owned catalog. This deliberately is not derived from Marketplace
  * search results: only reviewed BaseHalf plugins can appear in the product.
  */
 export const BASEHALF_CURATED_PLUGINS: readonly IBaseHalfCuratedPlugin[] = [{
-	extensionId: 'pointa.basehalf-ai-video',
+	extensionId: BASEHALF_OFFICIAL_PLUGIN_IDENTITIES[0].extensionId,
 	galleryUuid: 'a7e47f42-807f-4ac0-93e7-65d03c42c7df',
 	label: 'AI Video',
-	description: 'A node workflow canvas for scripts, characters, scenes, shots, and provider-neutral local generation.',
+	description: 'Video recipes and starter workflows for the BaseHalf canvas.',
 	category: 'Domain',
-	publisher: { slug: 'pointa', displayName: 'BaseHalf', trust: 'official' },
+	publisher: { slug: BASEHALF_OFFICIAL_PLUGIN_IDENTITIES[0].publisher, displayName: 'BaseHalf', trust: 'official' },
 	bundledPath: 'plugins/basehalf-ai-video',
-	primaryCommand: 'pointa.basehalf-ai-video.createProject',
-	primaryCommandLabel: 'Create AI Video Project…'
+	developmentPath: 'extensions/basehalf-ai-video',
+	primaryCommand: 'pointa.basehalf-ai-video.createWorkflow',
+	primaryCommandLabel: 'Create Video Workflow…'
 }];
+
+export function baseHalfBundledPluginLocation(plugin: Pick<IBaseHalfCuratedPlugin, 'bundledPath'>): URI | undefined {
+	return plugin.bundledPath ? joinPath(baseHalfApplicationRoot(), ...plugin.bundledPath.split('/')) : undefined;
+}
+
+export function baseHalfPluginPayloadLocation(plugin: Pick<IBaseHalfCuratedPlugin, 'bundledPath' | 'developmentPath'>, isBuilt: boolean): URI | undefined {
+	const relativePath = !isBuilt && plugin.developmentPath ? plugin.developmentPath : plugin.bundledPath;
+	return relativePath ? joinPath(baseHalfApplicationRoot(), ...relativePath.split('/')) : undefined;
+}
+
+export function baseHalfPluginLocationComparisonKey(location: URI): string {
+	return extUri.getComparisonKey(FileAccess.uriToFileUri(location));
+}
+
+export function baseHalfPluginLocationsEqual(first: URI, second: URI): boolean {
+	return baseHalfPluginLocationComparisonKey(first) === baseHalfPluginLocationComparisonKey(second);
+}
+
+function baseHalfApplicationRoot(): URI {
+	return joinPath(FileAccess.asFileUri(''), '..');
+}
 
 export function parseBaseHalfRemotePluginCatalog(value: unknown, officialExtensionIds: readonly string[]): IBaseHalfRemotePluginCatalog {
 	const root = record(value, 'catalog');
@@ -146,6 +182,7 @@ export function parseBaseHalfRemotePluginCatalog(value: unknown, officialExtensi
 	const sequence = integer(root.sequence, 'catalog.sequence', 1);
 	const generatedAt = isoDate(root.generatedAt, 'catalog.generatedAt');
 	const official = new Set(officialExtensionIds.map(id => id.toLowerCase()));
+	const reservedOfficialPublishers = new Set(BASEHALF_RESERVED_OFFICIAL_PLUGIN_PUBLISHERS);
 	const seen = new Set<string>();
 	const plugins: IBaseHalfRemotePlugin[] = [];
 	for (const [index, rawPlugin] of array(root.plugins, 'catalog.plugins', 200).entries()) {
@@ -167,6 +204,9 @@ export function parseBaseHalfRemotePluginCatalog(value: unknown, officialExtensi
 		}
 		if (!official.has(extensionId) && publisher?.trust !== 'reviewed') {
 			throw new Error(`Community plugin '${extensionId}' cannot claim official trust.`);
+		}
+		if (!official.has(extensionId) && publisher && reservedOfficialPublishers.has(publisher.slug)) {
+			throw new Error(`Community plugin '${extensionId}' cannot claim the reserved Publisher namespace '${publisher.slug}'.`);
 		}
 		const primaryCommand = plugin.primaryCommand === undefined ? undefined : boundedString(plugin.primaryCommand, `${extensionId}.primaryCommand`, 200);
 		const primaryCommandLabel = plugin.primaryCommandLabel === undefined ? undefined : boundedString(plugin.primaryCommandLabel, `${extensionId}.primaryCommandLabel`, 100);
@@ -224,7 +264,7 @@ export function parseBaseHalfPluginCatalogIndex(value: unknown): IBaseHalfPlugin
 export function resolveBaseHalfPluginCatalog(
 	curated: readonly IBaseHalfCuratedPlugin[],
 	remote: IBaseHalfRemotePluginCatalog | undefined,
-	versions: { readonly basehalf: string; readonly vscode: string; readonly targetPlatform: string }
+	versions: IBaseHalfPluginCompatibility
 ): readonly IBaseHalfResolvedPlugin[] {
 	const remoteById = new Map(remote?.plugins.map(plugin => [plugin.extensionId, plugin]) ?? []);
 	const official = curated.map(plugin => {
@@ -254,12 +294,19 @@ export function resolveBaseHalfPluginCatalog(
 
 export function selectBaseHalfRemotePluginVersion(
 	plugin: IBaseHalfRemotePlugin,
-	versions: { readonly basehalf: string; readonly vscode: string; readonly targetPlatform: string }
+	versions: IBaseHalfPluginCompatibility
 ): IBaseHalfRemotePluginVersion | undefined {
 	return plugin.versions.find(version => version.status === 'active'
-		&& platformMatches(version.targetPlatform, versions.targetPlatform)
+		&& isBaseHalfRemotePluginVersionCompatible(version, versions));
+}
+
+export function isBaseHalfRemotePluginVersionCompatible(
+	version: IBaseHalfRemotePluginVersion,
+	versions: IBaseHalfPluginCompatibility
+): boolean {
+	return platformMatches(version.targetPlatform, versions.targetPlatform)
 		&& satisfies(versions.basehalf, version.basehalfRange)
-		&& satisfies(versions.vscode, version.vscodeRange));
+		&& satisfies(versions.vscode, version.vscodeRange);
 }
 
 export function resolveBaseHalfPluginAsset(baseUrl: string, assetPath: string): URL {
@@ -289,21 +336,27 @@ export function resolveBaseHalfPluginCatalogIndexResource(indexUrl: string, reso
 	return resolved;
 }
 
+const MAX_CATALOG_VERSIONS_PER_PLUGIN = 4_096;
+
 function parseVersions(value: unknown, extensionId: string): readonly IBaseHalfRemotePluginVersion[] {
 	const seen = new Set<string>();
-	const versions = array(value, `${extensionId}.versions`, 50).map((rawVersion, index): IBaseHalfRemotePluginVersion => {
+	const versions = array(value, `${extensionId}.versions`, MAX_CATALOG_VERSIONS_PER_PLUGIN).map((rawVersion, index): IBaseHalfRemotePluginVersion => {
 		const version = record(rawVersion, `${extensionId}.versions[${index}]`);
 		const versionValue = string(version.version, `${extensionId}.versions[${index}].version`);
-		if (!valid(versionValue)) {
-			throw new Error(`Plugin catalog version '${versionValue}' for '${extensionId}' is invalid.`);
+		if (valid(versionValue) !== versionValue) {
+			throw new Error(`Plugin catalog version '${versionValue}' for '${extensionId}' must be canonical SemVer without build metadata.`);
 		}
 		if (seen.has(versionValue)) {
 			throw new Error(`Plugin catalog contains duplicate version '${extensionId}@${versionValue}'.`);
 		}
 		seen.add(versionValue);
-		const sha256 = string(version.sha256, `${extensionId}@${versionValue}.sha256`).toLowerCase();
+		const sha256 = string(version.sha256, `${extensionId}@${versionValue}.sha256`);
 		if (!/^[a-f0-9]{64}$/.test(sha256)) {
 			throw new Error(`Plugin catalog SHA-256 for '${extensionId}@${versionValue}' must be 64 lowercase hexadecimal characters.`);
+		}
+		const installedContentSha256 = typeof version.installedContentSha256 === 'string' ? version.installedContentSha256 : '';
+		if (!/^[a-f0-9]{64}$/.test(installedContentSha256)) {
+			throw new Error(`Plugin catalog installed-content SHA-256 for '${extensionId}@${versionValue}' must be 64 lowercase hexadecimal characters.`);
 		}
 		const assetPath = string(version.assetPath, `${extensionId}@${versionValue}.assetPath`);
 		validateAssetPath(assetPath, `${extensionId}@${versionValue}.assetPath`);
@@ -320,6 +373,7 @@ function parseVersions(value: unknown, extensionId: string): readonly IBaseHalfR
 			targetPlatform: boundedString(version.targetPlatform, `${extensionId}@${versionValue}.targetPlatform`, 64),
 			assetPath,
 			sha256,
+			installedContentSha256,
 			size: integer(version.size, `${extensionId}@${versionValue}.size`, 1, 100 * 1024 * 1024),
 			publishedAt: isoDate(version.publishedAt, `${extensionId}@${versionValue}.publishedAt`),
 			status: enumValue(version.status, ['active', 'withdrawn'] as const, `${extensionId}@${versionValue}.status`),

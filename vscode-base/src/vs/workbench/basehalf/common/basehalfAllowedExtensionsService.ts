@@ -11,12 +11,12 @@ import { IGalleryExtension, IAllowedExtensionsService } from '../../../platform/
 import { ExtensionType, IExtension, TargetPlatform } from '../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 import { IBaseHalfPluginAdmissionService } from './basehalfPluginAdmissionService.js';
-import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedProductExtension, isBaseHalfRequiredBuiltInExtension } from './basehalfWorkbenchProfile.js';
+import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedBuiltInExtension, isBaseHalfRequiredBuiltInExtension, isBaseHalfTrustedExternalGalleryIdentity } from './basehalfWorkbenchProfile.js';
 
 type BaseHalfAllowedExtensionTarget =
 	| IGalleryExtension
 	| IExtension
-	| { id: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform };
+	| { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform };
 
 export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService implements IAllowedExtensionsService {
 
@@ -30,11 +30,25 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 	}
 
 	override isAllowed(extension: IGalleryExtension | IExtension): true | IMarkdownString;
-	override isAllowed(extension: { id: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
+	override isAllowed(extension: { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
 	override isAllowed(extension: BaseHalfAllowedExtensionTarget): true | IMarkdownString {
 		const extensionId = getExtensionId(extension);
+		const productBuiltIn = isBaseHalfAllowedBuiltInExtension(extensionId);
+		const trustedExternalGalleryIdentity = isBaseHalfTrustedExternalGalleryIdentity(extensionId, getExtensionUuid(extension));
+		const trustedExternalGalleryInstall = trustedExternalGalleryIdentity && isGalleryInstalledExtension(extension);
+		const admitted = isLocalExtension(extension)
+			? productBuiltIn
+				? extension.type === ExtensionType.System && extension.isBuiltin
+				: trustedExternalGalleryInstall || this.pluginAdmissionService.isAllowedContributor({
+				extensionId,
+				version: extension.manifest.version,
+				extensionLocation: extension.location,
+				isBuiltin: extension.isBuiltin,
+				isUnderDevelopment: true
+				})
+			: productBuiltIn || trustedExternalGalleryIdentity || this.pluginAdmissionService.isAllowed(extensionId, getExtensionVersion(extension));
 
-		if (!isBaseHalfAllowedProductExtension(extensionId) && !this.pluginAdmissionService.isAllowed(extensionId, getExtensionVersion(extension))) {
+		if (!admitted) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
 				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated source-control, Agent Area, and signed reviewed plugin extensions."
@@ -47,6 +61,10 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 
 		return super.isAllowed(extension);
 	}
+}
+
+function getExtensionUuid(extension: BaseHalfAllowedExtensionTarget): string | undefined {
+	return hasExtensionIdentifier(extension) ? extension.identifier.uuid : extension.uuid;
 }
 
 function getExtensionVersion(extension: BaseHalfAllowedExtensionTarget): string | undefined {
@@ -69,6 +87,14 @@ function hasExtensionIdentifier(extension: BaseHalfAllowedExtensionTarget): exte
 		&& !!extension.identifier
 		&& typeof extension.identifier.id === 'string'
 		&& (!('type' in extension) || extension.type === 'gallery' || extension.type === ExtensionType.User || extension.type === ExtensionType.System);
+}
+
+function isLocalExtension(extension: BaseHalfAllowedExtensionTarget): extension is IExtension {
+	return hasExtensionIdentifier(extension) && extension.type !== 'gallery';
+}
+
+function isGalleryInstalledExtension(extension: BaseHalfAllowedExtensionTarget): boolean {
+	return isLocalExtension(extension) && extension.source === 'gallery';
 }
 
 export function getBaseHalfAllowedExtensionsServiceId(): string {

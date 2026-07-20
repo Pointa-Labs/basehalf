@@ -25,7 +25,7 @@ import { ILogService } from '../../log/common/log.js';
 import { IProductService } from '../../product/common/productService.js';
 import { asJson, asTextOrError, IRequestService, isClientError, isServerError, isSuccess } from '../../request/common/request.js';
 import { resolveMarketplaceHeaders } from '../../externalServices/common/marketplace.js';
-import { IStorageService } from '../../storage/common/storage.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../storage/common/storage.js';
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
 import { StopWatch } from '../../../base/common/stopwatch.js';
 import { format2 } from '../../../base/common/strings.js';
@@ -579,7 +579,7 @@ function toExtension(galleryExtension: IRawGalleryExtension, version: IRawGaller
 	};
 }
 
-interface IRawExtensionsControlManifest {
+export interface IRawExtensionsControlManifest {
 	malicious: string[];
 	learnMoreLinks?: IStringDictionary<string>;
 	migrateToPreRelease?: IStringDictionary<{
@@ -601,6 +601,119 @@ interface IRawExtensionsControlManifest {
 	autoUpdate?: IStringDictionary<string>;
 }
 
+const ADDITIONAL_EXTENSIONS_CONTROL_CACHE_KEY = 'basehalf.extensionsControl.additional.v1';
+const MAX_ADDITIONAL_EXTENSIONS_CONTROL_IDS = 10_000;
+
+interface IAdditionalExtensionsControlCache {
+	readonly schemaVersion: 1;
+	readonly sources: readonly {
+		readonly url: string;
+		readonly malicious: readonly string[];
+	}[];
+}
+
+/**
+ * Product-owned emergency controls are intentionally narrower than the
+ * upstream gallery manifest: they may only block exact extension identities.
+ */
+export function parseBaseHalfAdditionalExtensionsControlManifest(value: unknown): IRawExtensionsControlManifest {
+	const manifest = extensionsControlRecord(value, 'additional extension control manifest');
+	const allowedKeys = new Set(['malicious', 'deprecated', 'search', 'autoUpdate']);
+	if (Object.keys(manifest).some(key => !allowedKeys.has(key))) {
+		throw new Error('Additional extension control manifest contains unsupported fields.');
+	}
+	if (!Array.isArray(manifest.malicious) || manifest.malicious.length > MAX_ADDITIONAL_EXTENSIONS_CONTROL_IDS) {
+		throw new Error('Additional extension control manifest has an invalid malicious list.');
+	}
+	const malicious: string[] = [];
+	const seen = new Set<string>();
+	for (const candidate of manifest.malicious) {
+		if (!isString(candidate) || candidate !== candidate.toLowerCase() || !EXTENSION_IDENTIFIER_REGEX.test(candidate) || seen.has(candidate)) {
+			throw new Error('Additional extension control manifest must contain unique lowercase extension identities.');
+		}
+		seen.add(candidate);
+		malicious.push(candidate);
+	}
+	if (!isEmptyRecord(manifest.deprecated) || !Array.isArray(manifest.search) || manifest.search.length !== 0 || !isEmptyRecord(manifest.autoUpdate)) {
+		throw new Error('Additional extension control manifest may only contain emergency extension identities.');
+	}
+	return { malicious, deprecated: {}, search: [], autoUpdate: {} };
+}
+
+export function getBaseHalfCachedAdditionalExtensionControlIds(raw: string | undefined, url: string, configuredUrls: readonly string[]): readonly string[] | undefined {
+	const cache = parseAdditionalExtensionsControlCache(raw, configuredUrls);
+	return cache.sources.find(source => source.url === url)?.malicious;
+}
+
+export function updateBaseHalfAdditionalExtensionControlCache(raw: string | undefined, url: string, malicious: readonly string[], configuredUrls: readonly string[]): string {
+	if (!configuredUrls.includes(url)) {
+		throw new Error('Cannot cache an unconfigured extension control source.');
+	}
+	const validated = parseBaseHalfAdditionalExtensionsControlManifest({ malicious: [...malicious], deprecated: {}, search: [], autoUpdate: {} });
+	const previous = parseAdditionalExtensionsControlCache(raw, configuredUrls);
+	const sources = previous.sources.filter(source => source.url !== url);
+	sources.push({ url, malicious: [...validated.malicious] });
+	return JSON.stringify({ schemaVersion: 1, sources } satisfies IAdditionalExtensionsControlCache);
+}
+
+function parseAdditionalExtensionsControlCache(raw: string | undefined, configuredUrls: readonly string[]): { schemaVersion: 1; sources: { url: string; malicious: string[] }[] } {
+	const empty = { schemaVersion: 1 as const, sources: [] as { url: string; malicious: string[] }[] };
+	if (!raw) {
+		return empty;
+	}
+	try {
+		const value = JSON.parse(raw);
+		const cache = extensionsControlRecord(value, 'cached additional extension controls');
+		if (cache.schemaVersion !== 1 || !Array.isArray(cache.sources) || cache.sources.length > configuredUrls.length) {
+			return empty;
+		}
+		const sources: { url: string; malicious: string[] }[] = [];
+		const seenUrls = new Set<string>();
+		for (const candidate of cache.sources) {
+			const source = extensionsControlRecord(candidate, 'cached additional extension control source');
+			if (!isString(source.url) || !configuredUrls.includes(source.url) || seenUrls.has(source.url)) {
+				return empty;
+			}
+			const manifest = parseBaseHalfAdditionalExtensionsControlManifest({ malicious: source.malicious, deprecated: {}, search: [], autoUpdate: {} });
+			seenUrls.add(source.url);
+			sources.push({ url: source.url, malicious: [...manifest.malicious] });
+		}
+		return { schemaVersion: 1, sources };
+	} catch {
+		return empty;
+	}
+}
+
+function parsePrimaryExtensionsControlManifest(value: unknown): IRawExtensionsControlManifest {
+	const manifest = extensionsControlRecord(value, 'extension control manifest');
+	if (!Array.isArray(manifest.malicious)) {
+		throw new Error('Extension control manifest has an invalid malicious list.');
+	}
+	if ((manifest.learnMoreLinks !== undefined && !isRecordValue(manifest.learnMoreLinks))
+		|| (manifest.migrateToPreRelease !== undefined && !isRecordValue(manifest.migrateToPreRelease))
+		|| (manifest.deprecated !== undefined && !isRecordValue(manifest.deprecated))
+		|| (manifest.search !== undefined && !Array.isArray(manifest.search))
+		|| (manifest.autoUpdate !== undefined && !isRecordValue(manifest.autoUpdate))) {
+		throw new Error('Extension control manifest has invalid fields.');
+	}
+	return manifest as unknown as IRawExtensionsControlManifest;
+}
+
+function extensionsControlRecord(value: unknown, label: string): Record<string, unknown> {
+	if (!isRecordValue(value)) {
+		throw new Error(`${label} must be an object.`);
+	}
+	return value;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isEmptyRecord(value: unknown): boolean {
+	return isRecordValue(value) && Object.keys(value).length === 0;
+}
+
 export abstract class AbstractExtensionGalleryService implements IExtensionGalleryService {
 
 	declare readonly _serviceBrand: undefined;
@@ -612,7 +725,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 	private readonly commonHeadersPromise: Promise<IHeaders>;
 
 	constructor(
-		storageService: IStorageService | undefined,
+		private readonly storageService: IStorageService | undefined,
 		@IRequestService private readonly requestService: IRequestService,
 		@ILogService private readonly logService: ILogService,
 		@IEnvironmentService private readonly environmentService: IEnvironmentService,
@@ -953,7 +1066,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 		if (await this.isExtensionCompatible(extension, includePreRelease, targetPlatform)) {
 			return extension;
 		}
-		if (this.allowedExtensionsService.isAllowed({ id: extension.identifier.id, publisherDisplayName: extension.publisherDisplayName }) !== true) {
+		if (this.allowedExtensionsService.isAllowed(extension) !== true) {
 			return null;
 		}
 		const result = await this.getExtensions([{
@@ -974,6 +1087,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 		return this.isValidVersion(
 			{
 				id: extension.identifier.id,
+				uuid: extension.identifier.uuid,
 				version: extension.version,
 				isPreReleaseVersion: extension.properties.isPreReleaseVersion,
 				targetPlatform: extension.properties.targetPlatform,
@@ -993,7 +1107,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 	}
 
 	private async isValidVersion(
-		extension: { id: string; version: string; isPreReleaseVersion: boolean; targetPlatform: TargetPlatform; manifestAsset: IGalleryExtensionAsset | null; engine: string | undefined; enabledApiProposals: string[] | undefined },
+		extension: { id: string; uuid?: string; version: string; isPreReleaseVersion: boolean; targetPlatform: TargetPlatform; manifestAsset: IGalleryExtensionAsset | null; engine: string | undefined; enabledApiProposals: string[] | undefined },
 		{ targetPlatform, compatible, productVersion, version }: Omit<ExtensionVersionCriteria, 'targetPlatform'> & { targetPlatform: TargetPlatform | undefined },
 		publisherDisplayName: string,
 		allTargetPlatforms: TargetPlatform[]
@@ -1029,7 +1143,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 		}
 
 		if (compatible) {
-			if (this.allowedExtensionsService.isAllowed({ id: extension.id, publisherDisplayName, version: extension.version, prerelease: extension.isPreReleaseVersion, targetPlatform: extension.targetPlatform }) !== true) {
+			if (this.allowedExtensionsService.isAllowed({ id: extension.id, uuid: extension.uuid, publisherDisplayName, version: extension.version, prerelease: extension.isPreReleaseVersion, targetPlatform: extension.targetPlatform }) !== true) {
 				return false;
 			}
 
@@ -1252,7 +1366,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 					continue;
 				}
 				// Skip looking for all versions if the extension is not allowed.
-				if (this.allowedExtensionsService.isAllowed({ id: extensionIdentifier.id, publisherDisplayName: rawGalleryExtension.publisher.displayName }) !== true) {
+				if (this.allowedExtensionsService.isAllowed({ id: extensionIdentifier.id, uuid: extensionIdentifier.uuid, publisherDisplayName: rawGalleryExtension.publisher.displayName }) !== true) {
 					continue;
 				}
 			}
@@ -1327,6 +1441,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 			if (await this.isValidVersion(
 				{
 					id: extensionIdentifier.id,
+					uuid: extensionIdentifier.uuid,
 					version: rawGalleryExtensionVersion.version,
 					isPreReleaseVersion: isPreReleaseVersion(rawGalleryExtensionVersion),
 					targetPlatform: getTargetPlatformForExtensionVersion(rawGalleryExtensionVersion),
@@ -1830,6 +1945,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 					(await this.isValidVersion(
 						{
 							id: extensionIdentifier.id,
+							uuid: extensionIdentifier.uuid,
 							version: version.version,
 							isPreReleaseVersion: isPreReleaseVersion(version),
 							targetPlatform: getTargetPlatformForExtensionVersion(version),
@@ -1935,6 +2051,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 		const results: IRawExtensionsControlManifest[] = [];
 		const urls = [this.extensionsControlUrl, ...this.additionalExtensionsControlUrls];
 		let firstError: unknown;
+		let unresolvedSourceError: unknown;
 		for (const [index, url] of urls.entries()) {
 			try {
 				const context = await this.requestService.request({
@@ -1946,9 +2063,19 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 				if (context.res.statusCode !== 200) {
 					throw new Error(`Extension control endpoint returned ${context.res.statusCode}.`);
 				}
-				const result = await asJson<IRawExtensionsControlManifest>(context);
-				if (result) {
-					results.push(result);
+				const rawResult = await asJson<unknown>(context);
+				const result = index === 0
+					? parsePrimaryExtensionsControlManifest(rawResult)
+					: parseBaseHalfAdditionalExtensionsControlManifest(rawResult);
+				results.push(result);
+				if (index > 0 && this.storageService) {
+					const cached = this.storageService.get(ADDITIONAL_EXTENSIONS_CONTROL_CACHE_KEY, StorageScope.APPLICATION);
+					this.storageService.store(
+						ADDITIONAL_EXTENSIONS_CONTROL_CACHE_KEY,
+						updateBaseHalfAdditionalExtensionControlCache(cached, url, result.malicious, this.additionalExtensionsControlUrls),
+						StorageScope.APPLICATION,
+						StorageTarget.MACHINE
+					);
 				}
 			} catch (error) {
 				firstError ??= error;
@@ -1957,6 +2084,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 						// Product-owned emergency controls must remain available when the
 						// upstream gallery report is temporarily unreachable.
 						this.logService.warn(`Primary extension control manifest '${url}' was ignored: ${getErrorMessage(error)}`);
+						unresolvedSourceError ??= error;
 						continue;
 					}
 					throw error;
@@ -1965,7 +2093,17 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 				// the gallery's protection. Its temporary outage must not erase the
 				// primary control manifest or block extension management startup.
 				this.logService.warn(`Additional extension control manifest '${url}' was ignored: ${getErrorMessage(error)}`);
+				const cached = this.storageService?.get(ADDITIONAL_EXTENSIONS_CONTROL_CACHE_KEY, StorageScope.APPLICATION);
+				const malicious = getBaseHalfCachedAdditionalExtensionControlIds(cached, url, this.additionalExtensionsControlUrls);
+				if (malicious) {
+					results.push({ malicious: [...malicious], deprecated: {}, search: [], autoUpdate: {} });
+				} else {
+					unresolvedSourceError ??= error;
+				}
 			}
+		}
+		if (unresolvedSourceError) {
+			throw unresolvedSourceError;
 		}
 		if (!results.length && firstError) {
 			throw firstError;

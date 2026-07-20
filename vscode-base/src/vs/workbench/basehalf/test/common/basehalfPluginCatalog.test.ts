@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { FileAccess } from '../../../../base/common/network.js';
+import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BASEHALF_CURATED_PLUGINS, BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginDeepLink, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginAsset, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from '../../common/basehalfPluginCatalog.js';
+import { baseHalfBundledPluginLocation, baseHalfPluginLocationsEqual, baseHalfPluginPayloadLocation, BASEHALF_CURATED_PLUGINS, BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginDeepLink, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginAsset, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from '../../common/basehalfPluginCatalog.js';
+import { baseHalfVerifiedPluginAdmissions } from '../../common/basehalfPluginCatalogService.js';
 
 suite('BaseHalfPluginCatalog', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -19,7 +22,17 @@ suite('BaseHalfPluginCatalog', () => {
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].galleryUuid, 'a7e47f42-807f-4ac0-93e7-65d03c42c7df');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].category, 'Domain');
 		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].bundledPath, 'plugins/basehalf-ai-video');
-		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].primaryCommand, 'pointa.basehalf-ai-video.createProject');
+		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].developmentPath, 'extensions/basehalf-ai-video');
+		assert.strictEqual(BASEHALF_CURATED_PLUGINS[0].primaryCommand, 'pointa.basehalf-ai-video.createWorkflow');
+		const applicationRoot = joinPath(FileAccess.asFileUri(''), '..');
+		const bundledLocation = joinPath(applicationRoot, 'plugins', 'basehalf-ai-video');
+		const developmentLocation = joinPath(applicationRoot, 'extensions', 'basehalf-ai-video');
+		assert.strictEqual(baseHalfBundledPluginLocation(BASEHALF_CURATED_PLUGINS[0])?.toString(), bundledLocation.toString());
+		assert.strictEqual(baseHalfPluginPayloadLocation(BASEHALF_CURATED_PLUGINS[0], false)?.toString(), developmentLocation.toString());
+		assert.strictEqual(baseHalfPluginPayloadLocation(BASEHALF_CURATED_PLUGINS[0], true)?.toString(), bundledLocation.toString());
+		const fileLocation = URI.file('/application/extensions/basehalf-ai-video');
+		assert.strictEqual(baseHalfPluginLocationsEqual(fileLocation, fileLocation.with({ scheme: 'vscode-file', authority: 'vscode-app' })), true);
+		assert.strictEqual(baseHalfPluginLocationsEqual(developmentLocation, joinPath(developmentLocation, '..')), false);
 	});
 
 	test('parses website plugin links without granting installation authority', () => {
@@ -97,9 +110,125 @@ suite('BaseHalfPluginCatalog', () => {
 			...root,
 			plugins: [{ ...root.plugins[0], publisher: { slug: 'community', displayName: 'Community', trust: 'reviewed' } }]
 		}, ['pointa.basehalf-ai-video']), /must declare its primary action/);
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			...root,
+			plugins: [{
+				...root.plugins[0],
+				extensionId: 'pointa.community-tool',
+				publisher: { slug: 'pointa', displayName: 'Impersonator', trust: 'reviewed' },
+				primaryCommand: 'pointa.community-tool.create',
+				primaryCommandLabel: 'Create',
+				versions: [version('1.0.0', { extensionId: 'pointa.community-tool' })]
+			}]
+		}, ['pointa.basehalf-ai-video']), /reserved Publisher namespace 'pointa'/);
+	});
+
+	test('admits exact compatible package identities from a signature-verified catalog', () => {
+		const catalog = parseBaseHalfRemotePluginCatalog({
+			schemaVersion: 1,
+			sequence: 9,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'pointa.basehalf-ai-video',
+				label: 'AI Video',
+				description: 'Official plugin',
+				category: 'Domain',
+				versions: [
+					version('0.3.0', { basehalfRange: '^9.0.0' }),
+					version('0.2.0'),
+					version('0.1.0', { status: 'withdrawn' })
+				]
+			}, {
+				extensionId: 'community.workflow',
+				label: 'Workflow',
+				description: 'Reviewed plugin',
+				category: 'Domain',
+				publisher: { slug: 'community', displayName: 'Community', trust: 'reviewed' },
+				primaryCommand: 'community.workflow.create',
+				primaryCommandLabel: 'Create Workflow',
+				versions: [version('1.0.0', { extensionId: 'community.workflow' })]
+			}]
+		}, ['pointa.basehalf-ai-video']);
+
+		assert.deepStrictEqual(baseHalfVerifiedPluginAdmissions(catalog, {
+			basehalf: '0.4.1',
+			vscode: '1.128.0',
+			targetPlatform: 'darwin-arm64'
+		}), [{
+			extensionId: 'pointa.basehalf-ai-video',
+			versions: [
+				{ version: '0.2.0', sha256: 'a'.repeat(64), installedContentSha256: 'b'.repeat(64) },
+				{ version: '0.1.0', sha256: 'a'.repeat(64), installedContentSha256: 'b'.repeat(64) }
+			]
+		}, {
+			extensionId: 'community.workflow',
+			versions: [{ version: '1.0.0', sha256: 'a'.repeat(64), installedContentSha256: 'b'.repeat(64) }]
+		}]);
+	});
+
+	test('retains signed admission grants beyond the former rolling window', () => {
+		const versions = Array.from({ length: 51 }, (_, index) => version(`0.0.${51 - index}`));
+		const catalog = parseBaseHalfRemotePluginCatalog({
+			schemaVersion: 1,
+			sequence: 10,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'pointa.basehalf-ai-video',
+				label: 'AI Video',
+				description: 'Official plugin',
+				category: 'Domain',
+				versions
+			}]
+		}, ['pointa.basehalf-ai-video']);
+		const grants = baseHalfVerifiedPluginAdmissions(catalog, {
+			basehalf: '0.4.1',
+			vscode: '1.128.0',
+			targetPlatform: 'darwin-arm64'
+		});
+		assert.strictEqual(catalog.plugins[0].versions.length, 51);
+		assert.strictEqual(grants[0].versions.length, 51);
+		assert.strictEqual(grants[0].versions.some(grant => grant.version === '0.0.1'), true);
 	});
 
 	test('rejects unsafe catalog asset paths and digests', () => {
+		const versionWithoutInstalledContent = version('0.1.0');
+		delete versionWithoutInstalledContent.installedContentSha256;
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			schemaVersion: 1,
+			sequence: 1,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'pointa.basehalf-ai-video',
+				label: 'AI Video',
+				description: 'Missing installed digest',
+				category: 'Domain',
+				versions: [versionWithoutInstalledContent]
+			}]
+		}, ['pointa.basehalf-ai-video']), /installed-content SHA-256/);
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			schemaVersion: 1,
+			sequence: 1,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'pointa.basehalf-ai-video',
+				label: 'AI Video',
+				description: 'Non-canonical archive digest',
+				category: 'Domain',
+				versions: [version('0.1.0', { sha256: 'A'.repeat(64) })]
+			}]
+		}, ['pointa.basehalf-ai-video']), /Plugin catalog SHA-256/);
+		assert.throws(() => parseBaseHalfRemotePluginCatalog({
+			schemaVersion: 1,
+			sequence: 1,
+			generatedAt: '2026-07-13T00:00:00.000Z',
+			plugins: [{
+				extensionId: 'pointa.basehalf-ai-video',
+				label: 'AI Video',
+				description: 'Non-canonical digest',
+				category: 'Domain',
+				versions: [version('0.1.0', { installedContentSha256: 'B'.repeat(64) })]
+			}]
+		}, ['pointa.basehalf-ai-video']), /installed-content SHA-256/);
 		assert.throws(() => parseBaseHalfRemotePluginCatalog({
 			schemaVersion: 1,
 			sequence: 1,
@@ -117,6 +246,23 @@ suite('BaseHalfPluginCatalog', () => {
 		assert.strictEqual(resolveBaseHalfPluginAsset('http://127.0.0.1:8123/assets/', 'pointa/video.vsix').href, 'http://127.0.0.1:8123/assets/pointa/video.vsix');
 	});
 
+	test('rejects non-canonical catalog version identities', () => {
+		for (const versionValue of ['v1.0.0', ' 1.0.0 ', '1.0.0+build.1']) {
+			assert.throws(() => parseBaseHalfRemotePluginCatalog({
+				schemaVersion: 1,
+				sequence: 1,
+				generatedAt: '2026-07-13T00:00:00.000Z',
+				plugins: [{
+					extensionId: 'pointa.basehalf-ai-video',
+					label: 'AI Video',
+					description: 'Official plugin',
+					category: 'Domain',
+					versions: [version(versionValue)]
+				}]
+			}, ['pointa.basehalf-ai-video']), /canonical SemVer without build metadata/);
+		}
+	});
+
 	test('resolves one atomic index to an immutable catalog/signature pair', () => {
 		const index = parseBaseHalfPluginCatalogIndex({
 			schemaVersion: 1,
@@ -132,7 +278,7 @@ suite('BaseHalfPluginCatalog', () => {
 });
 
 
-function version(versionValue: string, overrides: Partial<Record<'extensionId' | 'basehalfRange' | 'vscodeRange' | 'targetPlatform' | 'assetPath' | 'sha256' | 'size' | 'publishedAt' | 'status' | 'releaseNotes', string | number>> = {}): Record<string, unknown> {
+function version(versionValue: string, overrides: Partial<Record<'extensionId' | 'basehalfRange' | 'vscodeRange' | 'targetPlatform' | 'assetPath' | 'sha256' | 'installedContentSha256' | 'size' | 'publishedAt' | 'status' | 'releaseNotes', string | number>> = {}): Record<string, unknown> {
 	const extensionId = typeof overrides.extensionId === 'string' ? overrides.extensionId : 'pointa.basehalf-ai-video';
 	const releaseOverrides = { ...overrides };
 	delete releaseOverrides.extensionId;
@@ -143,6 +289,7 @@ function version(versionValue: string, overrides: Partial<Record<'extensionId' |
 		targetPlatform: 'universal',
 		assetPath: `${extensionId}/${versionValue}/${'a'.repeat(64)}.vsix`,
 		sha256: 'a'.repeat(64),
+		installedContentSha256: 'b'.repeat(64),
 		size: 1024,
 		publishedAt: '2026-07-13T00:00:00.000Z',
 		status: 'active',

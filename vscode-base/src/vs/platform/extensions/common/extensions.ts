@@ -336,6 +336,8 @@ export const enum ExtensionType {
 	User
 }
 
+export type ExtensionAcquisitionSource = 'gallery' | 'vsix' | 'resource';
+
 export const enum TargetPlatform {
 	WIN32_X64 = 'win32-x64',
 	WIN32_ARM64 = 'win32-arm64',
@@ -360,6 +362,7 @@ export const enum TargetPlatform {
 export interface IExtension {
 	readonly type: ExtensionType;
 	readonly isBuiltin: boolean;
+	readonly source?: ExtensionAcquisitionSource;
 	readonly identifier: IExtensionIdentifier;
 	readonly manifest: IExtensionManifest;
 	readonly location: URI;
@@ -521,6 +524,7 @@ export interface IRelaxedExtensionDescription extends IRelaxedExtensionManifest 
 	isBuiltin: boolean;
 	isUserBuiltin: boolean;
 	isUnderDevelopment: boolean;
+	source?: ExtensionAcquisitionSource;
 	extensionLocation: URI;
 	preRelease: boolean;
 }

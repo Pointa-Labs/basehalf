@@ -23,13 +23,23 @@ export async function verifyBaseHalfPluginCatalogSignature(
 		false,
 		['verify']
 	);
-	const p1363Signature = ecdsaDerToP1363(decodeBase64(signature.signature).buffer, 32);
-	return webCrypto.subtle.verify(
-		{ name: 'ECDSA', hash: 'SHA-256' },
-		key,
-		arrayBuffer(p1363Signature),
-		arrayBuffer(catalogBytes)
-	);
+	const derSignature = decodeBase64(signature.signature).buffer;
+	const p1363Signature = ecdsaDerToP1363(derSignature, 32);
+	for (const candidate of [p1363Signature, derSignature]) {
+		try {
+			if (await webCrypto.subtle.verify(
+				{ name: 'ECDSA', hash: 'SHA-256' },
+				key,
+				arrayBuffer(candidate),
+				arrayBuffer(catalogBytes)
+			)) {
+				return true;
+			}
+		} catch {
+			// Web Crypto implementations differ in the accepted ECDSA signature encoding.
+		}
+	}
+	return false;
 }
 
 export function sha256HexToChecksumBase64(hex: string): string {
@@ -121,5 +131,7 @@ function copyCoordinate(value: Uint8Array, target: Uint8Array, offset: number, c
 }
 
 function arrayBuffer(value: Uint8Array): ArrayBuffer {
-	return value.slice().buffer;
+	const copy = new Uint8Array(value.byteLength);
+	copy.set(value);
+	return copy.buffer;
 }

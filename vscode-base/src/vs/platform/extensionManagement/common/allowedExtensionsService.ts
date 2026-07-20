@@ -67,7 +67,7 @@ export class AllowedExtensionsService extends Disposable implements IAllowedExte
 		return Object.fromEntries(entries);
 	}
 
-	isAllowed(extension: IGalleryExtension | IExtension | { id: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString {
+	isAllowed(extension: IGalleryExtension | IExtension | { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString {
 		if (!this._allowedExtensionsConfigValue) {
 			return true;
 		}

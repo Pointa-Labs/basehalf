@@ -563,6 +563,7 @@ export function toExtension(extensionDescription: IExtensionDescription): IExten
 	return {
 		type: extensionDescription.isBuiltin ? ExtensionType.System : ExtensionType.User,
 		isBuiltin: extensionDescription.isBuiltin || extensionDescription.isUserBuiltin,
+		source: extensionDescription.source,
 		identifier: { id: getGalleryExtensionId(extensionDescription.publisher, extensionDescription.name), uuid: extensionDescription.uuid },
 		manifest: extensionDescription,
 		location: extensionDescription.extensionLocation,
@@ -587,7 +588,8 @@ export function toExtensionDescription(extension: IExtension, isUnderDevelopment
 		targetPlatform: extension.targetPlatform,
 		publisherDisplayName: extension.publisherDisplayName,
 		preRelease: extension.preRelease,
-		...extension.manifest
+		...extension.manifest,
+		source: extension.source
 	};
 }
 

@@ -16,6 +16,8 @@ import { IHostService } from '../../../services/host/browser/host.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Promises } from '../../../../base/common/async.js';
+import product from '../../../../platform/product/common/product.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
 
 export class ExtensionDependencyChecker extends Disposable implements IWorkbenchContribution {
 
@@ -26,14 +28,19 @@ export class ExtensionDependencyChecker extends Disposable implements IWorkbench
 		@IHostService private readonly hostService: IHostService
 	) {
 		super();
-		CommandsRegistry.registerCommand('workbench.extensions.installMissingDependencies', () => this.installMissingDependencies());
-		MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
-			command: {
-				id: 'workbench.extensions.installMissingDependencies',
-				category: localize('extensions', "Extensions"),
-				title: localize('auto install missing deps', "Install Missing Dependencies")
-			}
+		CommandsRegistry.registerCommand('workbench.extensions.installMissingDependencies', () => {
+			assertBaseHalfReviewedPluginInstallSurface(product);
+			return this.installMissingDependencies();
 		});
+		if (!product.basehalfVersion) {
+			MenuRegistry.appendMenuItem(MenuId.CommandPalette, {
+				command: {
+					id: 'workbench.extensions.installMissingDependencies',
+					category: localize('extensions', "Extensions"),
+					title: localize('auto install missing deps', "Install Missing Dependencies")
+				}
+			});
+		}
 	}
 
 	private async getUninstalledMissingDependencies(): Promise<string[]> {
@@ -59,6 +66,7 @@ export class ExtensionDependencyChecker extends Disposable implements IWorkbench
 	}
 
 	private async installMissingDependencies(): Promise<void> {
+		assertBaseHalfReviewedPluginInstallSurface(product);
 		const missingDependencies = await this.getUninstalledMissingDependencies();
 		if (missingDependencies.length) {
 			const extensions = await this.extensionsWorkbenchService.getExtensions(missingDependencies.map(id => ({ id })), CancellationToken.None);

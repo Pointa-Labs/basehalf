@@ -52,6 +52,11 @@ export interface IStorageDatabase {
 	optimize(): Promise<void>;
 
 	close(recovery?: () => Map<string, string>): Promise<void>;
+
+	/**
+	 * Reports whether writes are backed by healthy durable storage.
+	 */
+	readonly isDurable?: () => Promise<boolean>;
 }
 
 export interface IStorageChangeEvent {
@@ -104,6 +109,11 @@ export interface IStorage extends IDisposable {
 	optimize(): Promise<void>;
 
 	close(): Promise<void>;
+
+	/**
+	 * Reports whether writes are backed by healthy durable storage.
+	 */
+	isDurable(): Promise<boolean>;
 }
 
 export enum StorageState {
@@ -413,6 +423,14 @@ export class Storage extends Disposable implements IStorage {
 	isInMemory(): boolean {
 		return this.options.hint === StorageHint.STORAGE_IN_MEMORY;
 	}
+
+	async isDurable(): Promise<boolean> {
+		if (this.isInMemory()) {
+			return false;
+		}
+
+		return this.database.isDurable ? this.database.isDurable() : false;
+	}
 }
 
 export class InMemoryStorageDatabase implements IStorageDatabase {
@@ -433,6 +451,7 @@ export class InMemoryStorageDatabase implements IStorageDatabase {
 
 	async optimize(): Promise<void> { }
 	async close(): Promise<void> { }
+	async isDurable(): Promise<boolean> { return false; }
 }
 
 
@@ -496,4 +515,3 @@ export class MigratingStorage extends Storage {
 		this.set(MIGRATED_KEY, JSON.stringify([...this.migratedKeys]));
 	}
 }
-

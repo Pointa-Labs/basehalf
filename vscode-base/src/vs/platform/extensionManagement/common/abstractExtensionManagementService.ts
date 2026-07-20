@@ -72,7 +72,7 @@ export abstract class CommontExtensionManagementService extends Disposable imple
 	}
 
 	async canInstall(extension: IGalleryExtension): Promise<true | IMarkdownString> {
-		const allowedToInstall = this.allowedExtensionsService.isAllowed({ id: extension.identifier.id, publisherDisplayName: extension.publisherDisplayName });
+		const allowedToInstall = this.allowedExtensionsService.isAllowed(extension);
 		if (allowedToInstall !== true) {
 			return new MarkdownString(nls.localize('not allowed to install', "This extension cannot be installed because {0}", allowedToInstall.value));
 		}
@@ -122,6 +122,7 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 	declare readonly _serviceBrand: undefined;
 
 	private extensionsControlManifest: Promise<IExtensionsControlManifest> | undefined;
+	private lastSuccessfulExtensionsControlManifest: IExtensionsControlManifest | undefined;
 	private lastReportTimestamp = 0;
 	private readonly installingExtensions = new Map<string, { task: IInstallExtensionTask; waitingTasks: IInstallExtensionTask[] }>();
 	private readonly uninstallingExtensions = new Map<string, IUninstallExtensionTask>();
@@ -1007,10 +1008,12 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 	private async updateControlCache(): Promise<IExtensionsControlManifest> {
 		try {
 			this.logService.trace('ExtensionManagementService.updateControlCache');
-			return await this.galleryService.getExtensionsControlManifest();
+			const manifest = await this.galleryService.getExtensionsControlManifest();
+			this.lastSuccessfulExtensionsControlManifest = manifest;
+			return manifest;
 		} catch (err) {
 			this.logService.trace('ExtensionManagementService.refreshControlCache - failed to get extension control manifest', getErrorMessage(err));
-			return { malicious: [], deprecated: {}, search: [] };
+			return preserveLastSuccessfulExtensionsControlManifest(this.lastSuccessfulExtensionsControlManifest, err);
 		}
 	}
 
@@ -1021,6 +1024,13 @@ export abstract class AbstractExtensionManagementService extends CommontExtensio
 	protected abstract moveExtension(extension: ILocalExtension, fromProfileLocation: URI, toProfileLocation: URI, metadata?: Partial<Metadata>): Promise<ILocalExtension>;
 	protected abstract removeExtension(extension: ILocalExtension, fromProfileLocation: URI): Promise<void>;
 	protected abstract deleteExtension(extension: ILocalExtension): Promise<void>;
+}
+
+export function preserveLastSuccessfulExtensionsControlManifest(previous: IExtensionsControlManifest | undefined, error: unknown): IExtensionsControlManifest {
+	if (previous) {
+		return previous;
+	}
+	throw error;
 }
 
 export function toExtensionManagementError(error: Error, code?: ExtensionManagementErrorCode): ExtensionManagementError {

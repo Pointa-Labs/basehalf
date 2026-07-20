@@ -42,6 +42,7 @@ export interface IBaseHalfPluginManagementService {
 	refreshCatalog(): Promise<void>;
 	install(extensionId: string): Promise<IBaseHalfPluginOperationResult>;
 	update(extensionId: string): Promise<IBaseHalfPluginOperationResult>;
+	restore(extensionId: string): Promise<IBaseHalfPluginOperationResult>;
 	enable(extensionId: string): Promise<IBaseHalfPluginOperationResult>;
 	disable(extensionId: string): Promise<IBaseHalfPluginOperationResult>;
 	uninstall(extensionId: string): Promise<IBaseHalfPluginOperationResult>;

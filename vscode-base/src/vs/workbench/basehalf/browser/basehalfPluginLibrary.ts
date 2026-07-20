@@ -24,9 +24,11 @@ import { EditorInputCapabilities, IEditorOpenContext, IUntypedEditorInput } from
 import { EditorInput } from '../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../services/editor/common/editorGroupsService.js';
 import { ExtensionRuntimeStateAction } from '../../contrib/extensions/browser/extensionsActions.js';
-import { IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
+import { IExtension, IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { BASEHALF_PLUGIN_LIBRARY_EDITOR_ID, BASEHALF_PLUGIN_LIBRARY_RESOURCE_SCHEME } from '../common/basehalfPluginCatalog.js';
-import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService } from '../common/basehalfPluginManagement.js';
+import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from '../common/basehalfPluginManagement.js';
+import { getBaseHalfPluginVersionChange } from '../common/basehalfPluginManagementService.js';
+import { showBaseHalfPluginRuntimeAction } from './basehalfPluginRuntimeAction.js';
 
 const pluginLibrarySelectionEmitter = new Emitter<string>();
 
@@ -252,6 +254,12 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 			const releaseNotesBody = append(releaseNotes, $('p'));
 			releaseNotesBody.textContent = plugin.remoteVersion.releaseNotes;
 		}
+		if (plugin.state === 'withdrawn') {
+			const withdrawal = append(this.detail!, $('.basehalf-plugin-library-error'));
+			withdrawal.textContent = plugin.installedVersion
+				? 'This installed version has been withdrawn. It remains manageable on this device, but it is no longer offered for installation.'
+				: 'This plugin has been withdrawn and cannot be installed.';
+		}
 
 		if (plugin.error) {
 			const error = append(this.detail!, $('.basehalf-plugin-library-error'));
@@ -276,24 +284,32 @@ export class BaseHalfPluginLibraryPane extends EditorPane {
 
 	private async runAction(plugin: IBaseHalfManagedPlugin, action: PluginActionId): Promise<void> {
 		try {
+			let result: IBaseHalfPluginOperationResult | undefined;
+			let capturedRuntimeExtension: IExtension | undefined;
 			switch (action) {
-				case 'install': await this.pluginManagementService.install(plugin.extensionId); break;
-				case 'update': await this.pluginManagementService.update(plugin.extensionId); break;
-				case 'enable': await this.pluginManagementService.enable(plugin.extensionId); break;
-				case 'disable': await this.pluginManagementService.disable(plugin.extensionId); break;
+				case 'install': result = await this.pluginManagementService.install(plugin.extensionId); break;
+				case 'update': result = await this.pluginManagementService.update(plugin.extensionId); break;
+				case 'restore': result = await this.pluginManagementService.restore(plugin.extensionId); break;
+				case 'enable': result = await this.pluginManagementService.enable(plugin.extensionId); break;
+				case 'disable': result = await this.pluginManagementService.disable(plugin.extensionId); break;
 				case 'open': await this.pluginManagementService.executePrimary(plugin.extensionId); break;
 				case 'cancel': this.pluginManagementService.cancel(plugin.extensionId); break;
 				case 'uninstall': {
+					capturedRuntimeExtension = (await this.extensionsWorkbenchService.queryLocal())
+						.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
 					const confirmation = await this.dialogService.confirm({
 						message: `Uninstall ${plugin.label}?`,
 						detail: 'The plugin will be removed from this BaseHalf profile. Existing project files and generated outputs stay on disk.',
 						primaryButton: 'Uninstall'
 					});
 					if (confirmation.confirmed) {
-						await this.pluginManagementService.uninstall(plugin.extensionId);
+						result = await this.pluginManagementService.uninstall(plugin.extensionId);
 					}
 					break;
 				}
+			}
+			if (result?.restartRequired) {
+				await showBaseHalfPluginRuntimeAction(this.extensionsWorkbenchService, this.instantiationService, this.notificationService, plugin, action, result, capturedRuntimeExtension);
 			}
 		} catch (error) {
 			if (isCancellationError(error)) {
@@ -329,7 +345,7 @@ export function baseHalfPluginCatalogStatusLabel(status: IBaseHalfPluginCatalogS
 	return status.error ? `Bundled catalog only · ${status.error}` : 'Bundled catalog · remote distribution is not configured for this build.';
 }
 
-type PluginActionId = 'install' | 'update' | 'enable' | 'disable' | 'uninstall' | 'open' | 'cancel';
+type PluginActionId = 'install' | 'update' | 'restore' | 'enable' | 'disable' | 'uninstall' | 'open' | 'cancel';
 
 function pluginActions(plugin: IBaseHalfManagedPlugin): readonly { readonly id: PluginActionId; readonly label: string; readonly icon: string; readonly primary?: boolean }[] {
 	if (plugin.busy) {
@@ -342,8 +358,12 @@ function pluginActions(plugin: IBaseHalfManagedPlugin): readonly { readonly id: 
 		return [{ id: 'install', label: 'Install', icon: 'codicon-cloud-download', primary: true }];
 	}
 	const actions: { id: PluginActionId; label: string; icon: string; primary?: boolean }[] = [];
-	if (plugin.state === 'updateAvailable' || (plugin.state === 'error' && plugin.remoteVersion)) {
+	const versionChange = getBaseHalfPluginVersionChange(plugin.installedVersion, plugin.remoteVersion?.version);
+	if (plugin.state === 'updateAvailable' || (plugin.state === 'error' && versionChange === 'update')) {
 		actions.push({ id: 'update', label: 'Update', icon: 'codicon-cloud-download', primary: true });
+	}
+	if (plugin.state === 'restoreAvailable' || (plugin.state === 'error' && versionChange === 'restore')) {
+		actions.push({ id: 'restore', label: 'Restore', icon: 'codicon-history', primary: true });
 	}
 	if (plugin.enabled && plugin.primaryCommand) {
 		actions.push({ id: 'open', label: plugin.primaryCommandLabel ?? 'Open', icon: 'codicon-add', primary: actions.length === 0 });
@@ -364,7 +384,9 @@ export function baseHalfPluginStatusLabel(plugin: IBaseHalfManagedPlugin): strin
 		case 'enabled': return 'Enabled';
 		case 'disabled': return 'Disabled';
 		case 'updateAvailable': return 'Update available';
+		case 'restoreAvailable': return 'Restore available';
 		case 'updating': return 'Working…';
+		case 'restoring': return 'Restoring…';
 		case 'incompatible': return 'Incompatible';
 		case 'withdrawn': return 'Withdrawn';
 		case 'error': return 'Error';

@@ -16,15 +16,17 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
-import { BASEHALF_CURATED_PLUGINS, IBaseHalfPluginCatalogSignature, IBaseHalfRemotePluginCatalog, IBaseHalfResolvedPlugin, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginCatalogSignature, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from './basehalfPluginCatalog.js';
-import { IBaseHalfPluginAdmissionService } from './basehalfPluginAdmissionService.js';
+import { IStorageService, StorageScope } from '../../../platform/storage/common/storage.js';
+import { BASEHALF_CURATED_PLUGINS, IBaseHalfPluginCatalogSignature, IBaseHalfPluginCompatibility, IBaseHalfRemotePluginCatalog, IBaseHalfResolvedPlugin, isBaseHalfRemotePluginVersionCompatible, parseBaseHalfPluginCatalogIndex, parseBaseHalfPluginCatalogSignature, parseBaseHalfRemotePluginCatalog, resolveBaseHalfPluginCatalog, resolveBaseHalfPluginCatalogIndexResource } from './basehalfPluginCatalog.js';
+import { IBaseHalfPluginAdmissionService, IBaseHalfVerifiedPluginAdmission } from './basehalfPluginAdmissionService.js';
 import { verifyBaseHalfPluginCatalogSignature } from './basehalfPluginCatalogSecurity.js';
+import { IBaseHalfPluginStateStore } from './basehalfPluginStateStore.js';
 
 const CACHE_CATALOG_KEY = 'basehalf.plugins.catalog.raw';
 const CACHE_SIGNATURE_KEY = 'basehalf.plugins.catalog.signature';
 const HIGHEST_SEQUENCE_KEY = 'basehalf.plugins.catalog.highestSequence';
 const HIGHEST_FINGERPRINT_KEY = 'basehalf.plugins.catalog.highestFingerprint';
+const CATALOG_STATE_KEY = 'basehalf.plugins.catalog.state.v1';
 const REQUEST_TIMEOUT_MS = 10_000;
 const INDEX_MAX_BYTES = 64 * 1024;
 const SIGNATURE_MAX_BYTES = 16 * 1024;
@@ -49,6 +51,14 @@ export interface IBaseHalfPluginCatalogService {
 	refresh(): Promise<IBaseHalfPluginCatalogSnapshot>;
 }
 
+interface IBaseHalfPersistedPluginCatalogState {
+	readonly schemaVersion: 1;
+	readonly sequence: number;
+	readonly fingerprint?: string;
+	readonly rawCatalog?: string;
+	readonly rawSignature?: string;
+}
+
 export class BaseHalfPluginCatalogService extends Disposable implements IBaseHalfPluginCatalogService {
 	declare readonly _serviceBrand: undefined;
 
@@ -58,7 +68,10 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 	private source: BaseHalfPluginCatalogSource = 'bundled';
 	private lastError: string | undefined;
 	private targetPlatform: string | undefined;
+	private acceptedSequence = 0;
+	private acceptedFingerprint: string | undefined;
 	private readonly initializePromise: Promise<void>;
+	private refreshTail: Promise<void> = Promise.resolve();
 
 	constructor(
 		@IProductService private readonly productService: IProductService,
@@ -66,10 +79,14 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 		@IStorageService private readonly storageService: IStorageService,
 		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
 		@ILogService private readonly logService: ILogService,
-		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService
+		@IBaseHalfPluginAdmissionService private readonly pluginAdmissionService: IBaseHalfPluginAdmissionService,
+		@IBaseHalfPluginStateStore private readonly pluginStateStore: IBaseHalfPluginStateStore
 	) {
 		super();
 		this.initializePromise = this.initialize();
+		this._register(this.storageService.onDidChangeValue(StorageScope.APPLICATION, CATALOG_STATE_KEY, this._store)(() => {
+			void this.initializePromise.then(() => this.synchronizePersistedState());
+		}));
 	}
 
 	async getSnapshot(): Promise<IBaseHalfPluginCatalogSnapshot> {
@@ -77,7 +94,13 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 		return this.snapshot();
 	}
 
-	async refresh(): Promise<IBaseHalfPluginCatalogSnapshot> {
+	refresh(): Promise<IBaseHalfPluginCatalogSnapshot> {
+		const result = this.refreshTail.then(() => this.refreshOnce());
+		this.refreshTail = result.then(() => undefined, () => undefined);
+		return result;
+	}
+
+	private async refreshOnce(): Promise<IBaseHalfPluginCatalogSnapshot> {
 		await this.initializePromise;
 		const config = this.productService.basehalfPlugins;
 		if (!config?.catalogIndexUrl || !config.publicKeys.length) {
@@ -104,15 +127,22 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 				throw new Error(`Plugin catalog sequence ${catalog.sequence} does not match index sequence ${index.sequence}.`);
 			}
 			const fingerprint = await catalogFingerprint(catalogBytes);
-			this.rejectSequenceRollback(catalog.sequence, fingerprint);
-			this.remoteCatalog = catalog;
-			this.updateRuntimeAdmission(catalog);
-			this.source = 'remote';
+			const persisted = await this.commitCatalogState({
+				schemaVersion: 1,
+				sequence: catalog.sequence,
+				fingerprint,
+				rawCatalog,
+				rawSignature
+			});
+			const accepted = await this.catalogFromPersistedState(persisted);
+			if (!accepted) {
+				throw new Error('The verified catalog state does not contain a usable catalog.');
+			}
+			this.acceptCatalogSequence(accepted.catalog.sequence, accepted.fingerprint);
+			this.remoteCatalog = accepted.catalog;
+			await this.updateRuntimeAdmission(accepted.catalog);
+			this.source = accepted.catalog.sequence === catalog.sequence ? 'remote' : 'cache';
 			this.lastError = undefined;
-			this.storageService.store(CACHE_CATALOG_KEY, rawCatalog, StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.storageService.store(CACHE_SIGNATURE_KEY, rawSignature, StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.storageService.store(HIGHEST_SEQUENCE_KEY, catalog.sequence, StorageScope.APPLICATION, StorageTarget.MACHINE);
-			this.storageService.store(HIGHEST_FINGERPRINT_KEY, fingerprint, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		} catch (error) {
 			this.lastError = getErrorMessage(error);
 			this.logService.warn(`BaseHalf plugin catalog refresh failed: ${this.lastError}`);
@@ -133,58 +163,189 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 
 	private async restoreCache(): Promise<void> {
 		const config = this.productService.basehalfPlugins;
-		const rawCatalog = this.storageService.get(CACHE_CATALOG_KEY, StorageScope.APPLICATION);
-		const rawSignature = this.storageService.get(CACHE_SIGNATURE_KEY, StorageScope.APPLICATION);
-		if (!config?.publicKeys.length || !rawCatalog || !rawSignature) {
+		if (!config?.publicKeys.length) {
 			return;
 		}
 		try {
-			const bytes = new TextEncoder().encode(rawCatalog);
-			const signature: IBaseHalfPluginCatalogSignature = parseBaseHalfPluginCatalogSignature(JSON.parse(rawSignature));
-			if (!await verifyBaseHalfPluginCatalogSignature(bytes, signature, config.publicKeys)) {
-				throw new Error('Cached plugin catalog signature verification failed.');
+			let persisted = parsePersistedCatalogState(await this.pluginStateStore.read(CATALOG_STATE_KEY));
+			if (!persisted) {
+				persisted = await this.migrateLegacyCatalogState();
 			}
-			const catalog = parseBaseHalfRemotePluginCatalog(JSON.parse(rawCatalog), BASEHALF_CURATED_PLUGINS.map(plugin => plugin.extensionId));
-			const fingerprint = await catalogFingerprint(bytes);
-			this.rejectSequenceRollback(catalog.sequence, fingerprint);
-			this.remoteCatalog = catalog;
-			this.updateRuntimeAdmission(catalog);
-			this.source = 'cache';
+			if (!persisted) {
+				return;
+			}
+			this.acceptCatalogSequence(persisted.sequence, persisted.fingerprint);
+			const accepted = await this.catalogFromPersistedState(persisted);
+			if (accepted) {
+				this.acceptCatalogSequence(accepted.catalog.sequence, accepted.fingerprint);
+				this.remoteCatalog = accepted.catalog;
+				await this.updateRuntimeAdmission(accepted.catalog);
+				this.source = 'cache';
+			}
 		} catch (error) {
 			this.logService.warn(`BaseHalf cached plugin catalog was ignored: ${getErrorMessage(error)}`);
 		}
 	}
 
-	private updateRuntimeAdmission(catalog: IBaseHalfRemotePluginCatalog): void {
-		this.pluginAdmissionService.replaceVerifiedPlugins(catalog.plugins
-			.filter(plugin => plugin.publisher?.trust === 'reviewed')
-			.map(plugin => ({
-				extensionId: plugin.extensionId,
-				// Withdrawal stops new installs in the management service, but an
-				// already-installed signed build remains trusted. Security removals
-				// use VS Code's extension-control manifest instead.
-				versions: plugin.versions.map(version => version.version)
-			})));
-	}
-
-	private rejectSequenceRollback(sequence: number, fingerprint: string): void {
+	private async migrateLegacyCatalogState(): Promise<IBaseHalfPersistedPluginCatalogState | undefined> {
+		const rawCatalog = this.storageService.get(CACHE_CATALOG_KEY, StorageScope.APPLICATION);
+		const rawSignature = this.storageService.get(CACHE_SIGNATURE_KEY, StorageScope.APPLICATION);
 		const highestSequence = this.storageService.getNumber(HIGHEST_SEQUENCE_KEY, StorageScope.APPLICATION, 0);
 		const highestFingerprint = this.storageService.get(HIGHEST_FINGERPRINT_KEY, StorageScope.APPLICATION);
-		validateBaseHalfCatalogSequence(sequence, fingerprint, highestSequence, highestFingerprint);
+		let floorState: IBaseHalfPersistedPluginCatalogState | undefined;
+		if (highestSequence > 0) {
+			const validHighestFingerprint = highestFingerprint !== undefined && /^[a-f0-9]{64}$/.test(highestFingerprint)
+				? highestFingerprint
+				: undefined;
+			if (highestFingerprint !== undefined && !validHighestFingerprint) {
+				this.logService.warn('BaseHalf ignored an invalid legacy plugin catalog fingerprint while preserving its sequence floor.');
+			}
+			floorState = {
+				schemaVersion: 1,
+				sequence: highestSequence,
+				fingerprint: validHighestFingerprint
+			};
+		}
+		let cacheState: IBaseHalfPersistedPluginCatalogState | undefined;
+		if (rawCatalog && rawSignature) {
+			try {
+				const bytes = new TextEncoder().encode(rawCatalog);
+				const catalog = parseBaseHalfRemotePluginCatalog(JSON.parse(rawCatalog), BASEHALF_CURATED_PLUGINS.map(plugin => plugin.extensionId));
+				cacheState = {
+					schemaVersion: 1,
+					sequence: catalog.sequence,
+					fingerprint: await catalogFingerprint(bytes),
+					rawCatalog,
+					rawSignature
+				};
+				await this.catalogFromPersistedState(cacheState);
+			} catch (error) {
+				if (!floorState) {
+					throw error;
+				}
+				cacheState = undefined;
+				this.logService.warn(`BaseHalf legacy plugin catalog cache was ignored while preserving its sequence floor: ${getErrorMessage(error)}`);
+			}
+		}
+		let legacyState = cacheState ?? floorState;
+		if (floorState && cacheState) {
+			if (cacheState.sequence < floorState.sequence) {
+				legacyState = floorState;
+			} else if (cacheState.sequence === floorState.sequence) {
+				try {
+					validateBaseHalfCatalogSequence(cacheState.sequence, cacheState.fingerprint ?? '', floorState.sequence, floorState.fingerprint);
+					legacyState = mergePersistedCatalogState(floorState, cacheState);
+				} catch (error) {
+					legacyState = floorState;
+					this.logService.warn(`BaseHalf legacy plugin catalog cache conflicted with its sequence floor and was ignored: ${getErrorMessage(error)}`);
+				}
+			}
+		}
+		if (!legacyState) {
+			return undefined;
+		}
+		return this.commitCatalogState(legacyState);
+	}
+
+	private async synchronizePersistedState(): Promise<void> {
+		try {
+			const persisted = parsePersistedCatalogState(await this.pluginStateStore.read(CATALOG_STATE_KEY));
+			if (!persisted) {
+				return;
+			}
+			validateBaseHalfCatalogSequence(persisted.sequence, persisted.fingerprint ?? '', this.acceptedSequence, this.acceptedFingerprint);
+			if (persisted.sequence === this.acceptedSequence
+				&& persisted.fingerprint === this.acceptedFingerprint
+				&& this.remoteCatalog?.sequence === persisted.sequence) {
+				return;
+			}
+			const accepted = await this.catalogFromPersistedState(persisted);
+			if (!accepted) {
+				return;
+			}
+			this.acceptCatalogSequence(accepted.catalog.sequence, accepted.fingerprint);
+			this.remoteCatalog = accepted.catalog;
+			await this.updateRuntimeAdmission(accepted.catalog);
+			this.source = 'cache';
+			this.lastError = undefined;
+			this._onDidChange.fire(this.snapshot());
+		} catch (error) {
+			this.logService.warn(`BaseHalf plugin catalog state synchronization failed: ${getErrorMessage(error)}`);
+		}
+	}
+
+	private async commitCatalogState(candidate: IBaseHalfPersistedPluginCatalogState): Promise<IBaseHalfPersistedPluginCatalogState> {
+		validateBaseHalfCatalogSequence(candidate.sequence, candidate.fingerprint ?? '', this.acceptedSequence, this.acceptedFingerprint);
+		let expected = await this.pluginStateStore.read(CATALOG_STATE_KEY);
+		for (let attempt = 0; attempt < 20; attempt++) {
+			validateBaseHalfCatalogSequence(candidate.sequence, candidate.fingerprint ?? '', this.acceptedSequence, this.acceptedFingerprint);
+			const current = parsePersistedCatalogState(expected);
+			if (current) {
+				validateBaseHalfCatalogSequence(candidate.sequence, candidate.fingerprint ?? '', current.sequence, current.fingerprint);
+				if (current.sequence === candidate.sequence && current.fingerprint === candidate.fingerprint && current.rawCatalog && current.rawSignature) {
+					return current;
+				}
+			}
+			const next = mergePersistedCatalogState(current, candidate);
+			validateBaseHalfCatalogSequence(next.sequence, next.fingerprint ?? '', this.acceptedSequence, this.acceptedFingerprint);
+			const serialized = JSON.stringify(next);
+			const result = await this.pluginStateStore.compareAndSwap(CATALOG_STATE_KEY, expected, serialized);
+			if (result.swapped) {
+				return next;
+			}
+			expected = result.current;
+		}
+		throw new Error('Plugin catalog state changed repeatedly. Try again.');
+	}
+
+	private async catalogFromPersistedState(state: IBaseHalfPersistedPluginCatalogState): Promise<{ readonly catalog: IBaseHalfRemotePluginCatalog; readonly fingerprint: string } | undefined> {
+		if (!state.rawCatalog || !state.rawSignature) {
+			return undefined;
+		}
+		const config = this.productService.basehalfPlugins;
+		if (!config?.publicKeys.length) {
+			return undefined;
+		}
+		const bytes = new TextEncoder().encode(state.rawCatalog);
+		const signature: IBaseHalfPluginCatalogSignature = parseBaseHalfPluginCatalogSignature(JSON.parse(state.rawSignature));
+		if (!await verifyBaseHalfPluginCatalogSignature(bytes, signature, config.publicKeys)) {
+			throw new Error('Cached plugin catalog signature verification failed.');
+		}
+		const catalog = parseBaseHalfRemotePluginCatalog(JSON.parse(state.rawCatalog), BASEHALF_CURATED_PLUGINS.map(plugin => plugin.extensionId));
+		const fingerprint = await catalogFingerprint(bytes);
+		if (catalog.sequence !== state.sequence || (state.fingerprint && fingerprint !== state.fingerprint)) {
+			throw new Error('Cached plugin catalog state does not match its verified payload.');
+		}
+		return { catalog, fingerprint };
+	}
+
+	private async updateRuntimeAdmission(catalog: IBaseHalfRemotePluginCatalog): Promise<void> {
+		this.pluginAdmissionService.replaceVerifiedPlugins(baseHalfVerifiedPluginAdmissions(catalog, this.compatibility()));
+		await this.pluginAdmissionService.reverifyVerifiedInstalls();
+	}
+
+	private acceptCatalogSequence(sequence: number, fingerprint: string | undefined): void {
+		validateBaseHalfCatalogSequence(sequence, fingerprint ?? '', this.acceptedSequence, this.acceptedFingerprint);
+		this.acceptedSequence = sequence;
+		this.acceptedFingerprint = fingerprint;
 	}
 
 	private snapshot(): IBaseHalfPluginCatalogSnapshot {
-		const plugins = resolveBaseHalfPluginCatalog(BASEHALF_CURATED_PLUGINS, this.remoteCatalog, {
-			basehalf: this.productService.basehalfVersion ?? '0.0.0',
-			vscode: this.productService.version,
-			targetPlatform: this.targetPlatform ?? 'undefined'
-		});
+		const plugins = resolveBaseHalfPluginCatalog(BASEHALF_CURATED_PLUGINS, this.remoteCatalog, this.compatibility());
 		return {
 			plugins,
 			source: this.source,
 			sequence: this.remoteCatalog?.sequence,
 			generatedAt: this.remoteCatalog?.generatedAt,
 			error: this.lastError
+		};
+	}
+
+	private compatibility(): IBaseHalfPluginCompatibility {
+		return {
+			basehalf: this.productService.basehalfVersion ?? '0.0.0',
+			vscode: this.productService.version,
+			targetPlatform: this.targetPlatform ?? 'undefined'
 		};
 	}
 
@@ -210,6 +371,25 @@ export class BaseHalfPluginCatalogService extends Disposable implements IBaseHal
 			cancellation.dispose();
 		}
 	}
+}
+
+export function baseHalfVerifiedPluginAdmissions(
+	catalog: IBaseHalfRemotePluginCatalog,
+	compatibility: IBaseHalfPluginCompatibility
+): readonly IBaseHalfVerifiedPluginAdmission[] {
+	return catalog.plugins.map(plugin => ({
+		extensionId: plugin.extensionId,
+		// Withdrawal stops new installs in the management service, but an
+		// already-installed signed build remains trusted. Security removals
+		// use VS Code's extension-control manifest instead.
+		versions: plugin.versions
+			.filter(version => isBaseHalfRemotePluginVersionCompatible(version, compatibility))
+			.map(version => ({
+				version: version.version,
+				sha256: version.sha256,
+				installedContentSha256: version.installedContentSha256
+			}))
+	})).filter(plugin => plugin.versions.length > 0);
 }
 
 function readLimitedBuffer(stream: ReadableStream<VSBuffer>, maximumBytes: number, cancellation: CancellationTokenSource): Promise<VSBuffer> {
@@ -254,6 +434,58 @@ export function validateBaseHalfCatalogSequence(sequence: number, fingerprint: s
 	if (sequence === highestSequence && highestFingerprint && fingerprint !== highestFingerprint) {
 		throw new Error(`Plugin catalog sequence ${sequence} was already verified with different content.`);
 	}
+}
+
+function parsePersistedCatalogState(raw: string | undefined): IBaseHalfPersistedPluginCatalogState | undefined {
+	if (raw === undefined) {
+		return undefined;
+	}
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		throw new Error('The persisted plugin catalog state is not valid JSON.');
+	}
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('The persisted plugin catalog state is invalid.');
+	}
+	const candidate = value as Record<string, unknown>;
+	if (candidate.schemaVersion !== 1
+		|| !Number.isSafeInteger(candidate.sequence)
+		|| (candidate.sequence as number) <= 0
+		|| (candidate.fingerprint !== undefined && (typeof candidate.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(candidate.fingerprint)))
+		|| (candidate.rawCatalog !== undefined && typeof candidate.rawCatalog !== 'string')
+		|| (candidate.rawSignature !== undefined && typeof candidate.rawSignature !== 'string')
+		|| (candidate.rawCatalog === undefined) !== (candidate.rawSignature === undefined)) {
+		throw new Error('The persisted plugin catalog state is invalid.');
+	}
+	return {
+		schemaVersion: 1,
+		sequence: candidate.sequence as number,
+		fingerprint: candidate.fingerprint as string | undefined,
+		rawCatalog: candidate.rawCatalog as string | undefined,
+		rawSignature: candidate.rawSignature as string | undefined
+	};
+}
+
+function mergePersistedCatalogState(
+	current: IBaseHalfPersistedPluginCatalogState | undefined,
+	candidate: IBaseHalfPersistedPluginCatalogState
+): IBaseHalfPersistedPluginCatalogState {
+	if (!current || candidate.sequence > current.sequence) {
+		return candidate;
+	}
+	const fingerprint = current.fingerprint ?? candidate.fingerprint;
+	const candidatePayloadMatches = !!candidate.rawCatalog
+		&& !!candidate.rawSignature
+		&& (!fingerprint || candidate.fingerprint === fingerprint);
+	return {
+		schemaVersion: 1,
+		sequence: current.sequence,
+		fingerprint,
+		rawCatalog: current.rawCatalog ?? (candidatePayloadMatches ? candidate.rawCatalog : undefined),
+		rawSignature: current.rawSignature ?? (candidatePayloadMatches ? candidate.rawSignature : undefined)
+	};
 }
 
 async function catalogFingerprint(bytes: Uint8Array): Promise<string> {

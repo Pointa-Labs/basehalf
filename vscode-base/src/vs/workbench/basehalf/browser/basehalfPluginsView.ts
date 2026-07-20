@@ -47,7 +47,9 @@ import { Extension } from '../../contrib/extensions/browser/extensionsWorkbenchS
 import { ExtensionState, IExtension, IExtensionsViewState, IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID, BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from '../common/basehalfPluginCatalog.js';
 import { IBaseHalfManagedPlugin, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from '../common/basehalfPluginManagement.js';
+import { getBaseHalfPluginVersionChange } from '../common/basehalfPluginManagementService.js';
 import { baseHalfPluginCatalogStatusLabel, baseHalfPluginStatusLabel } from './basehalfPluginLibrary.js';
+import { showBaseHalfPluginRuntimeAction } from './basehalfPluginRuntimeAction.js';
 
 export const BASEHALF_PLUGIN_ITEM_CONTEXT_MENU = MenuId.for('BaseHalfPluginItemContext');
 
@@ -56,12 +58,14 @@ const BASEHALF_PLUGIN_CONTEXT_ENABLED = 'basehalfPluginEnabled';
 const BASEHALF_PLUGIN_CONTEXT_BUSY = 'basehalfPluginBusy';
 const BASEHALF_PLUGIN_CONTEXT_CAN_INSTALL = 'basehalfPluginCanInstall';
 const BASEHALF_PLUGIN_CONTEXT_CAN_UPDATE = 'basehalfPluginCanUpdate';
+const BASEHALF_PLUGIN_CONTEXT_CAN_RESTORE = 'basehalfPluginCanRestore';
 const BASEHALF_PLUGIN_CONTEXT_CAN_OPEN = 'basehalfPluginCanOpen';
 const BASEHALF_PLUGIN_CONTEXT_HAS_CONFIGURATION = 'basehalfPluginHasConfiguration';
 
 const BASEHALF_PLUGIN_OPEN_DETAILS_COMMAND_ID = 'basehalf.plugins.openDetails';
 const BASEHALF_PLUGIN_INSTALL_COMMAND_ID = 'basehalf.plugins.install';
 const BASEHALF_PLUGIN_UPDATE_COMMAND_ID = 'basehalf.plugins.update';
+const BASEHALF_PLUGIN_RESTORE_COMMAND_ID = 'basehalf.plugins.restore';
 const BASEHALF_PLUGIN_ENABLE_COMMAND_ID = 'basehalf.plugins.enable';
 const BASEHALF_PLUGIN_DISABLE_COMMAND_ID = 'basehalf.plugins.disable';
 const BASEHALF_PLUGIN_UNINSTALL_COMMAND_ID = 'basehalf.plugins.uninstall';
@@ -70,7 +74,7 @@ const BASEHALF_PLUGIN_CANCEL_COMMAND_ID = 'basehalf.plugins.cancel';
 const BASEHALF_PLUGIN_SETTINGS_COMMAND_ID = 'basehalf.plugins.settings';
 const BASEHALF_PLUGIN_REFRESH_COMMAND_ID = 'basehalf.plugins.refreshCatalog';
 
-type PluginOperation = 'install' | 'update' | 'enable' | 'disable' | 'uninstall' | 'open' | 'cancel';
+type PluginOperation = 'install' | 'update' | 'restore' | 'enable' | 'disable' | 'uninstall' | 'open' | 'cancel';
 
 const EXTENSION_LIST_ELEMENT_HEIGHT = 72;
 
@@ -319,12 +323,14 @@ class BaseHalfPluginsViewPane extends ViewPane {
 
 	private showPluginContextMenu(plugin: IBaseHalfManagedPlugin, anchor: HTMLElement | { x: number; y: number }): void {
 		const installed = !!plugin.installedVersion;
+		const versionChange = getBaseHalfPluginVersionChange(plugin.installedVersion, plugin.remoteVersion?.version);
 		const contextKeyService = this.basehalfContextKeyService.createOverlay([
 			[BASEHALF_PLUGIN_CONTEXT_INSTALLED, installed],
 			[BASEHALF_PLUGIN_CONTEXT_ENABLED, plugin.enabled],
 			[BASEHALF_PLUGIN_CONTEXT_BUSY, plugin.busy],
 			[BASEHALF_PLUGIN_CONTEXT_CAN_INSTALL, !installed && !plugin.busy && plugin.state !== 'incompatible' && plugin.state !== 'withdrawn'],
-			[BASEHALF_PLUGIN_CONTEXT_CAN_UPDATE, !plugin.busy && (plugin.state === 'updateAvailable' || (plugin.state === 'error' && !!plugin.remoteVersion))],
+			[BASEHALF_PLUGIN_CONTEXT_CAN_UPDATE, !plugin.busy && (plugin.state === 'updateAvailable' || (plugin.state === 'error' && versionChange === 'update'))],
+			[BASEHALF_PLUGIN_CONTEXT_CAN_RESTORE, !plugin.busy && (plugin.state === 'restoreAvailable' || (plugin.state === 'error' && versionChange === 'restore'))],
 			[BASEHALF_PLUGIN_CONTEXT_CAN_OPEN, installed && plugin.enabled && !!plugin.primaryCommand && !plugin.busy],
 			[BASEHALF_PLUGIN_CONTEXT_HAS_CONFIGURATION, installed && plugin.hasConfiguration]
 		]);
@@ -490,6 +496,7 @@ registerAction2(class BaseHalfOpenPluginDetailsAction extends Action2 {
 registerPluginOperationAction(BASEHALF_PLUGIN_EXECUTE_PRIMARY_COMMAND_ID, localize2('basehalf.plugins.open', "Open"), '1_navigation', ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_CAN_OPEN), 'open', 20);
 registerPluginOperationAction(BASEHALF_PLUGIN_INSTALL_COMMAND_ID, localize2('basehalf.plugins.install', "Install"), '2_install', ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_CAN_INSTALL), 'install', 10);
 registerPluginOperationAction(BASEHALF_PLUGIN_UPDATE_COMMAND_ID, localize2('basehalf.plugins.update', "Update"), '2_install', ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_CAN_UPDATE), 'update', 20);
+registerPluginOperationAction(BASEHALF_PLUGIN_RESTORE_COMMAND_ID, localize2('basehalf.plugins.restore', "Restore"), '2_install', ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_CAN_RESTORE), 'restore', 25);
 registerPluginOperationAction(BASEHALF_PLUGIN_CANCEL_COMMAND_ID, localize2('basehalf.plugins.cancel', "Cancel"), '2_install', ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_BUSY), 'cancel', 30);
 registerPluginOperationAction(BASEHALF_PLUGIN_ENABLE_COMMAND_ID, localize2('basehalf.plugins.enable', "Enable"), '3_manage', ContextKeyExpr.and(ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_INSTALLED), ContextKeyExpr.not(BASEHALF_PLUGIN_CONTEXT_ENABLED), ContextKeyExpr.not(BASEHALF_PLUGIN_CONTEXT_BUSY)), 'enable', 10);
 registerPluginOperationAction(BASEHALF_PLUGIN_DISABLE_COMMAND_ID, localize2('basehalf.plugins.disable', "Disable"), '3_manage', ContextKeyExpr.and(ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_INSTALLED), ContextKeyExpr.has(BASEHALF_PLUGIN_CONTEXT_ENABLED), ContextKeyExpr.not(BASEHALF_PLUGIN_CONTEXT_BUSY)), 'disable', 20);
@@ -555,14 +562,18 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 	const instantiationService = accessor.get(IInstantiationService);
 	try {
 		let result: IBaseHalfPluginOperationResult | undefined;
+		let capturedRuntimeExtension: IExtension | undefined;
 		switch (operation) {
 			case 'install': result = await pluginManagementService.install(plugin.extensionId); break;
 			case 'update': result = await pluginManagementService.update(plugin.extensionId); break;
+			case 'restore': result = await pluginManagementService.restore(plugin.extensionId); break;
 			case 'enable': result = await pluginManagementService.enable(plugin.extensionId); break;
 			case 'disable': result = await pluginManagementService.disable(plugin.extensionId); break;
 			case 'open': await pluginManagementService.executePrimary(plugin.extensionId); break;
 			case 'cancel': pluginManagementService.cancel(plugin.extensionId); break;
 			case 'uninstall': {
+				capturedRuntimeExtension = (await extensionsWorkbenchService.queryLocal())
+					.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
 				const confirmation = await dialogService.confirm({
 					message: localize('basehalf.plugins.confirmUninstall', "Uninstall {0}?", plugin.label),
 					detail: localize('basehalf.plugins.confirmUninstallDetail', "The plugin will be removed from this BaseHalf profile. Existing project files and generated outputs stay on disk."),
@@ -575,7 +586,7 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 			}
 		}
 		if (result?.restartRequired) {
-			await showNativePluginRuntimeAction(extensionsWorkbenchService, instantiationService, notificationService, plugin, operation);
+			await showBaseHalfPluginRuntimeAction(extensionsWorkbenchService, instantiationService, notificationService, plugin, operation, result, capturedRuntimeExtension);
 		}
 	} catch (error) {
 		if (isCancellationError(error)) {
@@ -583,30 +594,6 @@ async function runPluginOperation(accessor: ServicesAccessor, argument: unknown,
 		}
 		notificationService.notify({ severity: Severity.Error, message: localize('basehalf.plugins.operationFailed', "Plugin operation failed: {0}", getErrorMessage(error)) });
 	}
-}
-
-async function showNativePluginRuntimeAction(extensionsWorkbenchService: IExtensionsWorkbenchService, instantiationService: IInstantiationService, notificationService: INotificationService, plugin: IBaseHalfManagedPlugin, operation: PluginOperation): Promise<void> {
-	const extensions = await extensionsWorkbenchService.queryLocal();
-	const extension = extensions.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
-	if (!extension?.runtimeState) {
-		return;
-	}
-	const action = instantiationService.createInstance(ExtensionRuntimeStateAction);
-	action.extension = extension;
-	action.update();
-	if (!action.enabled) {
-		action.dispose();
-		return;
-	}
-	const notification = notificationService.prompt(
-		Severity.Info,
-		operation === 'update'
-			? localize('basehalf.plugins.updateRestartRequired', "{0} was updated. Restart extensions to use the new version.", plugin.label)
-			: localize('basehalf.plugins.changeRestartRequired', "Restart extensions to finish changing {0}.", plugin.label),
-		[{ label: action.label, run: () => { void action.run(); } }],
-		{ onCancel: () => action.dispose() }
-	);
-	Event.once(notification.onDidClose)(() => action.dispose());
 }
 
 function primaryAction(plugin: IBaseHalfManagedPlugin): { readonly label: string; readonly commandId: string } | undefined {
@@ -618,8 +605,12 @@ function primaryAction(plugin: IBaseHalfManagedPlugin): { readonly label: string
 	if (!plugin.installedVersion && plugin.state !== 'incompatible' && plugin.state !== 'withdrawn') {
 		return { label: localize('basehalf.plugins.installInline', "Install"), commandId: BASEHALF_PLUGIN_INSTALL_COMMAND_ID };
 	}
-	if (plugin.state === 'updateAvailable' || (plugin.state === 'error' && plugin.remoteVersion)) {
+	const versionChange = getBaseHalfPluginVersionChange(plugin.installedVersion, plugin.remoteVersion?.version);
+	if (plugin.state === 'updateAvailable' || (plugin.state === 'error' && versionChange === 'update')) {
 		return { label: localize('basehalf.plugins.updateInline', "Update"), commandId: BASEHALF_PLUGIN_UPDATE_COMMAND_ID };
+	}
+	if (plugin.state === 'restoreAvailable' || (plugin.state === 'error' && versionChange === 'restore')) {
+		return { label: localize('basehalf.plugins.restoreInline', "Restore"), commandId: BASEHALF_PLUGIN_RESTORE_COMMAND_ID };
 	}
 	if (plugin.enabled && plugin.primaryCommand) {
 		return { label: localize('basehalf.plugins.openInline', "Open"), commandId: BASEHALF_PLUGIN_EXECUTE_PRIMARY_COMMAND_ID };

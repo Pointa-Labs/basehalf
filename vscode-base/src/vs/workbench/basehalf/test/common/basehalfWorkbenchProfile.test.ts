@@ -33,6 +33,7 @@ import {
 	isBaseHalfAgentExtensionSlot,
 	isBaseHalfAllowedBuiltInExtension,
 	isBaseHalfAllowedExternalExtension,
+	isBaseHalfTrustedExternalGalleryIdentity,
 	isBaseHalfPrimaryViewContainer,
 	isBaseHalfRequiredBuiltInExtension,
 	shouldBaseHalfCloseRemappedViewContainer,
@@ -310,6 +311,10 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('pointa.basehalf-ai-video'), true);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ms-vscode.remote-server'), false);
+		assert.strictEqual(isBaseHalfTrustedExternalGalleryIdentity('openai.chatgpt', '90b52117-6fd1-4f1c-9e14-256bd6e21d79'), true);
+		assert.strictEqual(isBaseHalfTrustedExternalGalleryIdentity('ANTHROPIC.CLAUDE-CODE', '3C13AE49-BABE-45FE-8C48-5E45077A62BF'), true);
+		assert.strictEqual(isBaseHalfTrustedExternalGalleryIdentity('openai.chatgpt', '00000000-0000-0000-0000-000000000000'), false);
+		assert.strictEqual(isBaseHalfTrustedExternalGalleryIdentity('openai.chatgpt', undefined), false);
 
 		assert.strictEqual(isBaseHalfAgentExtensionSlot('basehalf.agentArea.extension.codex'), true);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot('basehalf.agentArea.extension.claude'), true);

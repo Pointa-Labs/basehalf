@@ -13,7 +13,7 @@ import { PolicyCategory } from '../../../base/common/policy.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize, localize2 } from '../../../nls.js';
 import { ConfigurationScope, Extensions, IConfigurationRegistry } from '../../configuration/common/configurationRegistry.js';
-import { ExtensionType, IExtension, IExtensionManifest, TargetPlatform } from '../../extensions/common/extensions.js';
+import { ExtensionAcquisitionSource, ExtensionType, IExtension, IExtensionManifest, TargetPlatform } from '../../extensions/common/extensions.js';
 import { FileOperationError, FileOperationResult, IFileService, IFileStat } from '../../files/common/files.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import { Registry } from '../../registry/common/platform.js';
@@ -250,7 +250,7 @@ export interface IGalleryExtension {
 	queryContext?: IStringDictionary<unknown>;
 }
 
-export type InstallSource = 'gallery' | 'vsix' | 'resource';
+export type InstallSource = ExtensionAcquisitionSource;
 
 export interface IGalleryMetadata {
 	id: string;
@@ -693,7 +693,7 @@ export interface IAllowedExtensionsService {
 	readonly onDidChangeAllowedExtensionsConfigValue: Event<void>;
 
 	isAllowed(extension: IGalleryExtension | IExtension): true | IMarkdownString;
-	isAllowed(extension: { id: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
+	isAllowed(extension: { id: string; uuid?: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
 }
 
 export async function computeSize(location: URI, fileService: IFileService): Promise<number> {
@@ -805,4 +805,3 @@ export function shouldRequireRepositorySignatureFor(isPrivate: boolean, galleryM
 	}
 	return galleryManifest?.capabilities.signing?.allPublicRepositorySigned === true;
 }
-

@@ -86,6 +86,11 @@ export class SQLiteStorageDatabase implements IStorageDatabase {
 		return this.doUpdateItems(connection, request);
 	}
 
+	async isDurable(): Promise<boolean> {
+		const connection = await this.whenConnected;
+		return !connection.isInMemory && !connection.isErroneous;
+	}
+
 	private doUpdateItems(connection: IDatabaseConnection, request: IUpdateRequest): Promise<void> {
 		if (this.logger.isTracing) {
 			this.logger.trace(`[storage ${this.name}] updateItems(): insert(${request.insert ? mapToString(request.insert) : '0'}), delete(${request.delete ? setToString(request.delete) : '0'})`);

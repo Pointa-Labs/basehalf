@@ -126,7 +126,7 @@ import { getDesktopEnvironment } from '../../../base/common/desktopEnvironmentIn
 import { getCodeDisplayProtocol, getDisplayProtocol } from '../../../base/node/osDisplayProtocolInfo.js';
 import { RequestService } from '../../../platform/request/electron-utility/requestService.js';
 import { DefaultExtensionsInitializer } from './contrib/defaultExtensionsInitializer.js';
-import { AllowedExtensionsService } from '../../../platform/extensionManagement/common/allowedExtensionsService.js';
+import { BaseHalfServerAllowedExtensionsService } from '../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { IExtensionGalleryManifestService } from '../../../platform/extensionManagement/common/extensionGalleryManifest.js';
 import { ExtensionGalleryManifestIPCService } from '../../../platform/extensionManagement/common/extensionGalleryManifestServiceIpc.js';
 import { ISharedWebContentExtractorService } from '../../../platform/webContentExtractor/common/webContentExtractor.js';
@@ -360,7 +360,7 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService, undefined, true));
 		services.set(IExtensionsScannerService, new SyncDescriptor(ExtensionsScannerService, undefined, true));
 		services.set(IExtensionSignatureVerificationService, new SyncDescriptor(ExtensionSignatureVerificationService, undefined, true));
-		services.set(IAllowedExtensionsService, new SyncDescriptor(AllowedExtensionsService, undefined, true));
+		services.set(IAllowedExtensionsService, new SyncDescriptor(BaseHalfServerAllowedExtensionsService, undefined, true));
 		services.set(INativeServerExtensionManagementService, new SyncDescriptor(ExtensionManagementService, undefined, true));
 
 		// MCP Management

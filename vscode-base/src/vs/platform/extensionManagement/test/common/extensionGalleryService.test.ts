@@ -11,7 +11,7 @@ import { mock } from '../../../../base/test/common/mock.js';
 import { IConfigurationService } from '../../../configuration/common/configuration.js';
 import { TestConfigurationService } from '../../../configuration/test/common/testConfigurationService.js';
 import { IEnvironmentService } from '../../../environment/common/environment.js';
-import { IRawGalleryExtensionVersion, sortExtensionVersions, filterLatestExtensionVersionsForTargetPlatform } from '../../common/extensionGalleryService.js';
+import { getBaseHalfCachedAdditionalExtensionControlIds, IRawGalleryExtensionVersion, parseBaseHalfAdditionalExtensionsControlManifest, sortExtensionVersions, filterLatestExtensionVersionsForTargetPlatform, updateBaseHalfAdditionalExtensionControlCache } from '../../common/extensionGalleryService.js';
 import { IFileService } from '../../../files/common/files.js';
 import { FileService } from '../../../files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../files/common/inMemoryFilesystemProvider.js';
@@ -24,6 +24,7 @@ import { TelemetryConfiguration, TELEMETRY_SETTING_ID } from '../../../telemetry
 import { TargetPlatform } from '../../../extensions/common/extensions.js';
 import { NullTelemetryService } from '../../../telemetry/common/telemetryUtils.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { preserveLastSuccessfulExtensionsControlManifest } from '../../common/abstractExtensionManagementService.js';
 
 class EnvironmentServiceMock extends mock<IEnvironmentService>() {
 	override readonly serviceMachineIdResource: URI;
@@ -56,6 +57,62 @@ suite('Extension Gallery Service', () => {
 		assert.ok(isUUID(headers['X-Market-User-Id']));
 		const headers2 = await resolveMarketplaceHeaders(product.version, productService, environmentService, configurationService, fileService, storageService, NullTelemetryService);
 		assert.strictEqual(headers['X-Market-User-Id'], headers2['X-Market-User-Id']);
+	});
+
+	test('accepts only exact extension identities from product-owned emergency controls', () => {
+		assert.deepStrictEqual(parseBaseHalfAdditionalExtensionsControlManifest({
+			malicious: ['pointa.basehalf-ai-video'],
+			deprecated: {},
+			search: [],
+			autoUpdate: {}
+		}), {
+			malicious: ['pointa.basehalf-ai-video'],
+			deprecated: {},
+			search: [],
+			autoUpdate: {}
+		});
+		assert.throws(() => parseBaseHalfAdditionalExtensionsControlManifest({
+			malicious: ['pointa'], deprecated: {}, search: [], autoUpdate: {}
+		}), /extension identities/);
+		assert.throws(() => parseBaseHalfAdditionalExtensionsControlManifest({
+			malicious: ['Pointa.basehalf-ai-video'], deprecated: {}, search: [], autoUpdate: {}
+		}), /lowercase/);
+		assert.throws(() => parseBaseHalfAdditionalExtensionsControlManifest({
+			malicious: ['pointa.basehalf-ai-video'], deprecated: { 'pointa.other': true }, search: [], autoUpdate: {}
+		}), /only contain emergency/);
+		assert.throws(() => parseBaseHalfAdditionalExtensionsControlManifest({
+			malicious: [], deprecated: {}, search: [], autoUpdate: {}, learnMoreLinks: {}
+		}), /unsupported fields/);
+	});
+
+	test('preserves last-known emergency controls per configured source', () => {
+		const firstUrl = 'https://registry.basehalf.com/v1/extensions-control.json';
+		const secondUrl = 'https://backup.basehalf.com/v1/extensions-control.json';
+		const configured = [firstUrl, secondUrl];
+		let raw = updateBaseHalfAdditionalExtensionControlCache(undefined, firstUrl, ['pointa.basehalf-ai-video'], configured);
+		raw = updateBaseHalfAdditionalExtensionControlCache(raw, secondUrl, ['studio.media-tools'], configured);
+		assert.deepStrictEqual(getBaseHalfCachedAdditionalExtensionControlIds(raw, firstUrl, configured), ['pointa.basehalf-ai-video']);
+		assert.deepStrictEqual(getBaseHalfCachedAdditionalExtensionControlIds(raw, secondUrl, configured), ['studio.media-tools']);
+
+		// A successful empty response clears only that source. Malformed or
+		// unconfigured persisted data is ignored rather than widening trust.
+		raw = updateBaseHalfAdditionalExtensionControlCache(raw, firstUrl, [], configured);
+		assert.deepStrictEqual(getBaseHalfCachedAdditionalExtensionControlIds(raw, firstUrl, configured), []);
+		assert.deepStrictEqual(getBaseHalfCachedAdditionalExtensionControlIds('{"schemaVersion":1,"sources":[{"url":"https://other.invalid/control","malicious":["pointa.basehalf-ai-video"]}]}', firstUrl, configured), undefined);
+		assert.deepStrictEqual(getBaseHalfCachedAdditionalExtensionControlIds('{not-json', firstUrl, configured), undefined);
+		assert.throws(() => updateBaseHalfAdditionalExtensionControlCache(raw, 'https://other.invalid/control', [], configured), /unconfigured/);
+	});
+
+	test('never replaces the whole control cache with an empty manifest after total failure', () => {
+		const previous = {
+			malicious: [{ extensionOrPublisher: { id: 'pointa.basehalf-ai-video' } }],
+			deprecated: {},
+			search: [],
+			autoUpdate: {}
+		};
+		const failure = new Error('control endpoints unavailable');
+		assert.strictEqual(preserveLastSuccessfulExtensionsControlManifest(previous, failure), previous);
+		assert.throws(() => preserveLastSuccessfulExtensionsControlManifest(undefined, failure), error => error === failure);
 	});
 
 	test('sorting single extension version without target platform', async () => {
@@ -459,5 +516,3 @@ suite('Extension Gallery Service', () => {
 
 	});
 });
-
-

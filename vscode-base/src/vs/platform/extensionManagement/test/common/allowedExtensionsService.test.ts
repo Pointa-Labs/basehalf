@@ -16,6 +16,7 @@ import { getGalleryExtensionId } from '../../common/extensionManagementUtil.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IStringDictionary } from '../../../../base/common/collections.js';
+import { BaseHalfServerAllowedExtensionsService, BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES } from '../../common/basehalfExtensionGalleryPolicy.js';
 
 suite('AllowedExtensionsService', () => {
 
@@ -194,6 +195,33 @@ suite('AllowedExtensionsService', () => {
 		assert.strictEqual(testObject.isAllowed(aLocalExtension('pub.name')) === true, true);
 	});
 
+	test('BaseHalf native server rejects an unreviewed gallery extension', () => {
+		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aBaseHalfProductService(), configurationService));
+		assert.notStrictEqual(testObject.isAllowed(aGalleryExtension('unreviewed')), true);
+	});
+
+	test('BaseHalf native server allows only an exact trusted external gallery identity', () => {
+		const trustedIdentity = BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES[0];
+		const trusted = aGalleryExtension('chatgpt', { publisher: 'openai' });
+		trusted.identifier = { id: trustedIdentity.extensionId, uuid: trustedIdentity.galleryUuid };
+		const wrongUuid = aGalleryExtension('chatgpt', { publisher: 'openai' });
+		wrongUuid.identifier = { id: trustedIdentity.extensionId, uuid: generateUuid() };
+
+		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aBaseHalfProductService(), configurationService));
+		assert.strictEqual(testObject.isAllowed(trusted), true);
+		assert.notStrictEqual(testObject.isAllowed(wrongUuid), true);
+	});
+
+	test('BaseHalf native server keeps verified VSIX metadata on the existing allow-list path', () => {
+		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aBaseHalfProductService(), configurationService));
+		assert.strictEqual(testObject.isAllowed({ id: 'pointa.reviewed-plugin', version: '1.0.0', publisherDisplayName: undefined }), true);
+	});
+
+	test('non-BaseHalf native server keeps existing gallery behavior', () => {
+		const testObject = disposables.add(new BaseHalfServerAllowedExtensionsService(aProductService(), configurationService));
+		assert.strictEqual(testObject.isAllowed(aGalleryExtension('unreviewed')), true);
+	});
+
 	test('should trigger change event when allowed list change', async () => {
 		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, { '*': false });
 		const testObject = disposables.add(new AllowedExtensionsService(aProductService(), configurationService));
@@ -207,6 +235,13 @@ suite('AllowedExtensionsService', () => {
 			_serviceBrand: undefined,
 			extensionPublisherOrgs
 		} as IProductService;
+	}
+
+	function aBaseHalfProductService(): IProductService {
+		return {
+			...aProductService(),
+			basehalfVersion: '1.0.0'
+		};
 	}
 
 	function aGalleryExtension(name: string, properties: Partial<IGalleryExtension> = {}, galleryExtensionProperties: IStringDictionary<unknown> = {}): IGalleryExtension {

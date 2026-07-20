@@ -47,6 +47,17 @@ export interface ISerializableUpdateRequest extends IBaseSerializableStorageRequ
 	delete?: Key[];
 }
 
+export interface ISerializableApplicationStorageItemRequest extends IBaseSerializableStorageRequest {
+	readonly key: Key;
+	readonly expected?: Value;
+	readonly value?: Value;
+}
+
+export interface ISerializableApplicationStorageCompareAndSwapResult {
+	readonly swapped: boolean;
+	readonly current?: Value;
+}
+
 export interface ISerializableItemsChangeEvent {
 	readonly changed?: Item[];
 	readonly deleted?: Key[];

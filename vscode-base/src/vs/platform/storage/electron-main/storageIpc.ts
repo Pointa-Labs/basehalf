@@ -8,7 +8,7 @@ import { Disposable } from '../../../base/common/lifecycle.js';
 import { revive } from '../../../base/common/marshalling.js';
 import { IServerChannel } from '../../../base/parts/ipc/common/ipc.js';
 import { ILogService } from '../../log/common/log.js';
-import { IBaseSerializableStorageRequest, ISerializableItemsChangeEvent, ISerializableUpdateRequest, Key, Value } from '../common/storageIpc.js';
+import { IBaseSerializableStorageRequest, ISerializableApplicationStorageCompareAndSwapResult, ISerializableApplicationStorageItemRequest, ISerializableItemsChangeEvent, ISerializableUpdateRequest, Key, Value } from '../common/storageIpc.js';
 import { ApplicationSharedStorageMain, IStorageChangeEvent, IStorageMain } from './storageMain.js';
 import { IStorageMainService } from './storageMainService.js';
 import { IUserDataProfile } from '../../userDataProfile/common/userDataProfile.js';
@@ -22,6 +22,8 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 	private readonly onDidChangeApplicationSharedStorageEmitter = this._register(new Emitter<ISerializableItemsChangeEvent>());
 
 	private readonly mapProfileToOnDidChangeProfileStorageEmitter = new Map<string /* profile ID */, Emitter<ISerializableItemsChangeEvent>>();
+	private readonly applicationItemOperationTails = new Map<string, Promise<void>>();
+	private readonly pendingDurableApplicationItemUpdates = new Set<string>();
 
 	constructor(
 		private readonly logService: ILogService,
@@ -29,18 +31,26 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 	) {
 		super();
 
-		this.registerStorageChangeListeners(storageMainService.applicationStorage, this.onDidChangeApplicationStorageEmitter);
+		this.registerStorageChangeListeners(storageMainService.applicationStorage, this.onDidChangeApplicationStorageEmitter, true);
 		this.registerStorageChangeListeners(storageMainService.applicationSharedStorage, this.onDidChangeApplicationSharedStorageEmitter);
 	}
 
 	//#region Storage Change Events
 
-	private registerStorageChangeListeners(storage: IStorageMain, emitter: Emitter<ISerializableItemsChangeEvent>): void {
+	private registerStorageChangeListeners(storage: IStorageMain, emitter: Emitter<ISerializableItemsChangeEvent>, protectDurableApplicationItems = false): void {
 
 		// Listen for changes in provided storage to send to listeners
 		// that are listening. Use a debouncer to reduce IPC traffic.
+		const storageChanges = this._register(new Emitter<IStorageChangeEvent>());
+		this._register(storage.onDidChangeStorage(event => {
+			if (protectDurableApplicationItems && this.pendingDurableApplicationItemUpdates.has(event.key)) {
+				return;
+			}
 
-		this._register(Event.debounce(storage.onDidChangeStorage, (prev: IStorageChangeEvent[] | undefined, cur: IStorageChangeEvent) => {
+			storageChanges.fire(event);
+		}));
+
+		this._register(Event.debounce(storageChanges.event, (prev: IStorageChangeEvent[] | undefined, cur: IStorageChangeEvent) => {
 			if (!prev) {
 				prev = [cur];
 			} else {
@@ -116,6 +126,53 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 
 		// handle call
 		switch (command) {
+			case 'getApplicationItem': {
+				if (profile || workspace || applicationShared) {
+					throw new Error('Application item reads cannot target another storage scope.');
+				}
+				const request = arg as ISerializableApplicationStorageItemRequest;
+				this.validateApplicationItemRequest(request);
+				await this.waitForApplicationItemOperation(request.key);
+				await this.assertDurableApplicationStorage(storage);
+				return storage.get(request.key);
+			}
+
+			case 'compareAndSwapApplicationItem': {
+				if (profile || workspace || applicationShared) {
+					throw new Error('Application item updates cannot target another storage scope.');
+				}
+				const request = arg as ISerializableApplicationStorageItemRequest;
+				this.validateApplicationItemRequest(request);
+				return this.queueApplicationItemOperation(request.key, async () => {
+					await this.assertDurableApplicationStorage(storage);
+					const current = storage.get(request.key);
+					if (current !== request.expected) {
+						return { swapped: false, current } satisfies ISerializableApplicationStorageCompareAndSwapResult;
+					}
+
+					if (current === request.value) {
+						return { swapped: true, current: request.value } satisfies ISerializableApplicationStorageCompareAndSwapResult;
+					}
+
+					this.pendingDurableApplicationItemUpdates.add(request.key);
+					try {
+						await this.updateApplicationItem(storage, request.key, request.value);
+						await this.assertDurableApplicationStorage(storage);
+						this.onDidChangeApplicationStorageEmitter.fire(this.serializeStorageChangeEvents([{ key: request.key }], storage));
+						return { swapped: true, current: request.value } satisfies ISerializableApplicationStorageCompareAndSwapResult;
+					} catch (error) {
+						try {
+							await this.updateApplicationItem(storage, request.key, current);
+						} catch (rollbackError) {
+							this.logService.error('StorageIPC#compareAndSwapApplicationItem: Unable to restore the application plugin state cache.', rollbackError);
+						}
+						throw error;
+					} finally {
+						this.pendingDurableApplicationItemUpdates.delete(request.key);
+					}
+				});
+			}
+
 			case 'getItems': {
 				const items = new Map(storage.items);
 				return Array.from(items.entries());
@@ -157,6 +214,42 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 			default:
 				throw new Error(`Call not found: ${command}`);
 		}
+	}
+
+	private validateApplicationItemRequest(request: ISerializableApplicationStorageItemRequest): void {
+		if (typeof request.key !== 'string'
+			|| !request.key.startsWith('basehalf.plugins.')
+			|| request.key.length > 512
+			|| (request.expected !== undefined && (typeof request.expected !== 'string' || Buffer.byteLength(request.expected, 'utf8') > 6 * 1024 * 1024))
+			|| (request.value !== undefined && (typeof request.value !== 'string' || Buffer.byteLength(request.value, 'utf8') > 6 * 1024 * 1024))) {
+			throw new Error('Invalid application plugin state request.');
+		}
+	}
+
+	private async assertDurableApplicationStorage(storage: IStorageMain): Promise<void> {
+		if (storage.isInMemory() || !(await storage.isDurable())) {
+			throw new Error('Durable application plugin state storage is unavailable.');
+		}
+	}
+
+	private updateApplicationItem(storage: IStorageMain, key: string, value: string | undefined): Promise<void> {
+		return value === undefined ? storage.delete(key) : storage.set(key, value);
+	}
+
+	private waitForApplicationItemOperation(key: string): Promise<void> {
+		return this.applicationItemOperationTails.get(key) ?? Promise.resolve();
+	}
+
+	private queueApplicationItemOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+		const result = this.waitForApplicationItemOperation(key).then(operation);
+		const tail = result.then(() => undefined, () => undefined);
+		this.applicationItemOperationTails.set(key, tail);
+		void tail.then(() => {
+			if (this.applicationItemOperationTails.get(key) === tail) {
+				this.applicationItemOperationTails.delete(key);
+			}
+		});
+		return result;
 	}
 
 	private async withStorageInitialized(profile: IUserDataProfile | undefined, workspace: IAnyWorkspaceIdentifier | undefined, applicationShared?: boolean): Promise<IStorageMain> {

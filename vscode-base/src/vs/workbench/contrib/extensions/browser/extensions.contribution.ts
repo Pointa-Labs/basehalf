@@ -86,19 +86,29 @@ import { BuiltInExtensionsContext, ExtensionMarketplaceStatusUpdater, Extensions
 import { ExtensionsWorkbenchService } from './extensionsWorkbenchService.js';
 import './media/extensionManagement.css';
 import { UnsupportedExtensionsMigrationContrib } from './unsupportedExtensionsMigrationContribution.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
+import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID } from '../../../basehalf/common/basehalfPluginCatalog.js';
 
 // Singletons
 registerSingleton(IExtensionsWorkbenchService, ExtensionsWorkbenchService, InstantiationType.Eager /* Auto updates extensions */);
 registerSingleton(IExtensionRecommendationNotificationService, ExtensionRecommendationNotificationService, InstantiationType.Delayed);
 registerSingleton(IExtensionRecommendationsService, ExtensionRecommendationsService, InstantiationType.Eager /* Prompts recommendations in the background */);
 
+const exposeStockExtensionsProductSurface = !product.basehalfVersion;
+
+export function assertArbitraryExtensionInstallAllowed(): void {
+	assertBaseHalfReviewedPluginInstallSurface(product);
+}
+
 // Quick Access
-Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessProvider({
-	ctor: ManageExtensionsQuickAccessProvider,
-	prefix: ManageExtensionsQuickAccessProvider.PREFIX,
-	placeholder: localize('manageExtensionsQuickAccessPlaceholder', "Press Enter to manage extensions."),
-	helpEntries: [{ description: localize('manageExtensionsHelp', "Manage Extensions") }]
-});
+if (exposeStockExtensionsProductSurface) {
+	Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessProvider({
+		ctor: ManageExtensionsQuickAccessProvider,
+		prefix: ManageExtensionsQuickAccessProvider.PREFIX,
+		placeholder: localize('manageExtensionsQuickAccessPlaceholder', "Press Enter to manage extensions."),
+		helpEntries: [{ description: localize('manageExtensionsHelp', "Manage Extensions") }]
+	});
+}
 
 // Editor
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
@@ -379,18 +389,24 @@ jsonRegistry.registerSchema(ExtensionsConfigurationSchemaId, ExtensionsConfigura
 
 // Register Commands
 CommandsRegistry.registerCommand('_extensions.manage', (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string) => {
+	if (product.basehalfVersion) {
+		return accessor.get(ICommandService).executeCommand(BASEHALF_MANAGE_PLUGINS_COMMAND_ID, extensionId);
+	}
 	const extensionService = accessor.get(IExtensionsWorkbenchService);
 	const extension = extensionService.local.find(e => areSameExtensions(e.identifier, { id: extensionId }));
 	if (extension) {
-		extensionService.open(extension, { tab, preserveFocus, feature });
+		return extensionService.open(extension, { tab, preserveFocus, feature });
 	} else {
 		throw new Error(localize('notFound', "Extension '{0}' not found.", extensionId));
 	}
 });
 
 CommandsRegistry.registerCommand('extension.open', async (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string, sideByside?: boolean) => {
-	const extensionService = accessor.get(IExtensionsWorkbenchService);
 	const commandService = accessor.get(ICommandService);
+	if (product.basehalfVersion) {
+		return commandService.executeCommand(BASEHALF_MANAGE_PLUGINS_COMMAND_ID, extensionId);
+	}
+	const extensionService = accessor.get(IExtensionsWorkbenchService);
 
 	const [extension] = await extensionService.getExtensions([{ id: extensionId }], CancellationToken.None);
 	if (extension) {
@@ -457,6 +473,7 @@ CommandsRegistry.registerCommand({
 			justification?: string | { reason: string; action: string };
 			enable?: boolean;
 		}) => {
+		assertArbitraryExtensionInstallAllowed();
 		const extensionsWorkbenchService = accessor.get(IExtensionsWorkbenchService);
 		const extensionManagementService = accessor.get(IWorkbenchExtensionManagementService);
 		const extensionGalleryService = accessor.get(IExtensionGalleryService);
@@ -632,7 +649,9 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 			});
 		this.registerGlobalActions();
 		this.registerContextMenuActions();
-		this.registerQuickAccessProvider();
+		if (exposeStockExtensionsProductSurface) {
+			this.registerQuickAccessProvider();
+		}
 	}
 
 	private async updateExtensionGalleryStatusContexts(): Promise<void> {
@@ -664,23 +683,25 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 
 	// Global actions
 	private registerGlobalActions(): void {
-		this._register(MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
-			command: {
-				id: VIEWLET_ID,
-				title: localize({ key: 'miPreferencesExtensions', comment: ['&& denotes a mnemonic'] }, "&&Extensions")
-			},
-			group: '2_configuration',
-			order: 3,
-			when: IsSessionsWindowContext.negate()
-		}));
-		this._register(MenuRegistry.appendMenuItem(MenuId.GlobalActivity, {
-			command: {
-				id: VIEWLET_ID,
-				title: localize('showExtensions', "Extensions")
-			},
-			group: '2_configuration',
-			order: 3
-		}));
+		if (exposeStockExtensionsProductSurface) {
+			this._register(MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
+				command: {
+					id: VIEWLET_ID,
+					title: localize({ key: 'miPreferencesExtensions', comment: ['&& denotes a mnemonic'] }, "&&Extensions")
+				},
+				group: '2_configuration',
+				order: 3,
+				when: IsSessionsWindowContext.negate()
+			}));
+			this._register(MenuRegistry.appendMenuItem(MenuId.GlobalActivity, {
+				command: {
+					id: VIEWLET_ID,
+					title: localize('showExtensions', "Extensions")
+				},
+				group: '2_configuration',
+				order: 3
+			}));
+		}
 
 		this.registerExtensionAction({
 			id: 'workbench.extensions.action.focusExtensionsView',
@@ -748,6 +769,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 				order: 1
 			}],
 			run: async () => {
+				assertArbitraryExtensionInstallAllowed();
 				const [, pluginResult] = await Promise.all([
 					this.extensionsWorkbenchService.checkForUpdates(),
 					this.pluginInstallService.updateAllPlugins({ silent: true }, CancellationToken.None),
@@ -818,6 +840,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 			],
 			icon: installWorkspaceRecommendedIcon,
 			run: async () => {
+				assertArbitraryExtensionInstallAllowed();
 				await this.extensionsWorkbenchService.updateAll();
 			}
 		});
@@ -910,6 +933,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 				order: 1
 			}],
 			run: async (accessor: ServicesAccessor) => {
+				assertArbitraryExtensionInstallAllowed();
 				const fileDialogService = accessor.get(IFileDialogService);
 				const commandService = accessor.get(ICommandService);
 				const vsixPaths = await fileDialogService.showOpenDialog({
@@ -934,6 +958,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 				when: ContextKeyExpr.and(ResourceContextKey.Extension.isEqualTo('.vsix'), ContextKeyExpr.or(CONTEXT_HAS_LOCAL_SERVER, CONTEXT_HAS_REMOTE_SERVER)),
 			}],
 			run: async (accessor: ServicesAccessor, resources: URI[] | URI) => {
+				assertArbitraryExtensionInstallAllowed();
 				const extensionsWorkbenchService = accessor.get(IExtensionsWorkbenchService);
 				const hostService = accessor.get(IHostService);
 				const notificationService = accessor.get(INotificationService);
@@ -993,6 +1018,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 				when: ContextKeyExpr.or(CONTEXT_HAS_WEB_SERVER, CONTEXT_HAS_LOCAL_SERVER)
 			}],
 			run: async (accessor: ServicesAccessor) => {
+				assertArbitraryExtensionInstallAllowed();
 				const extensionManagementService = accessor.get(IWorkbenchExtensionManagementService);
 				if (isWeb) {
 					return new Promise<void>((c, e) => {
@@ -1338,6 +1364,7 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 				order: 1
 			},
 			run: async (accessor: ServicesAccessor) => {
+				assertArbitraryExtensionInstallAllowed();
 				const view = accessor.get(IViewsService).getActiveViewWithId(WORKSPACE_RECOMMENDATIONS_VIEW_ID) as IWorkspaceRecommendedExtensionsView;
 				return view.installWorkspaceRecommendations();
 			}
@@ -1995,7 +2022,9 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 	}
 
 	private registerExtensionAction(extensionActionOptions: IExtensionActionOptions): IDisposable {
-		const menus = extensionActionOptions.menu ? Array.isArray(extensionActionOptions.menu) ? extensionActionOptions.menu : [extensionActionOptions.menu] : [];
+		const menus = exposeStockExtensionsProductSurface && extensionActionOptions.menu
+			? Array.isArray(extensionActionOptions.menu) ? extensionActionOptions.menu : [extensionActionOptions.menu]
+			: [];
 		let menusWithOutTitles: ({ id: MenuId } & Omit<IMenuItem, 'command'>)[] = [];
 		const menusWithTitles: { id: MenuId; item: IMenuItem }[] = [];
 		if (extensionActionOptions.menuTitles) {
@@ -2014,10 +2043,10 @@ class ExtensionsContributions extends Disposable implements IWorkbenchContributi
 		const disposables = new DisposableStore();
 		disposables.add(registerAction2(class extends Action2 {
 			constructor() {
-				super({
-					...extensionActionOptions,
-					menu: menusWithOutTitles
-				});
+				const actionOptions: IAction2Options = exposeStockExtensionsProductSurface && extensionActionOptions.f1 === true
+					? { ...extensionActionOptions, f1: true, menu: menusWithOutTitles }
+					: { ...extensionActionOptions, f1: false, menu: menusWithOutTitles };
+				super(actionOptions);
 			}
 			run(accessor: ServicesAccessor, ...args: unknown[]): Promise<any> {
 				return extensionActionOptions.run(accessor, ...args);
