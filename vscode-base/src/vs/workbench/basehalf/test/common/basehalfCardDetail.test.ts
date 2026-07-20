@@ -5,9 +5,12 @@
 
 import * as assert from 'assert';
 import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, defaultBaseHalfCardDetailProjection, isBaseHalfMarkdownResource, isBaseHalfMediaResource, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
 
 suite('BaseHalfCardDetail', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('uses source as the fallback projection for non-Markdown files', () => {
 		assert.strictEqual(DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, 'source');
 		assert.strictEqual(defaultBaseHalfCardDetailProjection(URI.file('/workspace/app.ts')), 'source');
@@ -60,12 +63,12 @@ suite('BaseHalfCardDetail', () => {
 			id: 'ai-video.storyboard',
 			label: 'Storyboard',
 			icon: 'codicon-layout',
-			selector: { extensions: ['.story'] },
+			selector: { extensions: ['.story-board'] },
 			order: 400,
 			defaultPriority: 300
 		});
 
-		const resource = URI.file('/workspace/episode.story');
+		const resource = URI.file('/workspace/episode.story-board');
 		assert.deepStrictEqual(registry.getProjections(resource).map(projection => projection.id), ['ai-video.storyboard', 'source']);
 		assert.strictEqual(registry.defaultProjection(resource), 'ai-video.storyboard');
 		assert.strictEqual(registry.normalizeProjection(resource, 'ai-video.storyboard'), 'ai-video.storyboard');
@@ -76,6 +79,24 @@ suite('BaseHalfCardDetail', () => {
 		assert.strictEqual(registry.defaultProjection(resource), 'source');
 		assert.strictEqual(changes, 2);
 		listener.dispose();
+		registry.dispose();
+	});
+
+	test('matches an exact file name without taking over every file with the same extension', () => {
+		const registry = new BaseHalfCardProjectionRegistryService();
+		const registration = registry.registerProjection({
+			id: 'pointa.video.sequence',
+			label: 'Sequence',
+			icon: 'codicon-list-ordered',
+			selector: { fileNames: ['sequence.json'] },
+			order: 400,
+			defaultPriority: 300
+		});
+
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/sequence.json')).map(projection => projection.id), ['pointa.video.sequence', 'source']);
+		assert.strictEqual(registry.defaultProjection(URI.file('/workspace/sequence.json')), 'pointa.video.sequence');
+		assert.deepStrictEqual(registry.getProjections(URI.file('/workspace/shot.json')).map(projection => projection.id), ['source']);
+		registration.dispose();
 		registry.dispose();
 	});
 

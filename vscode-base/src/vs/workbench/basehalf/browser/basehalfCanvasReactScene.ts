@@ -5,7 +5,7 @@
 
 import { FileAccess } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
-import { isHTMLElement } from '../../../base/browser/dom.js';
+import { isHTMLElement, isSVGElement } from '../../../base/browser/dom.js';
 import { localize } from '../../../nls.js';
 import {
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
@@ -24,6 +24,7 @@ import {
 } from '../common/basehalfCanvasFlowSnap.js';
 import {
 	baseHalfCanvasReconnectEndForPath,
+	baseHalfCanvasReconnectSnapForHit,
 	BaseHalfCanvasReconnectHit,
 	BaseHalfCanvasEdgeReconnectEnd,
 	IBaseHalfCanvasReconnectSnap,
@@ -33,6 +34,8 @@ import { IBaseHalfCanvasSnapGuide } from '../common/basehalfCanvasSnap.js';
 import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
+	BaseHalfCanvasSceneSelectionAction,
+	baseHalfCanvasSceneSelectionActions,
 	BaseHalfCanvasSceneContextMenuRequest,
 	IBaseHalfCanvasSceneDelegate,
 	IBaseHalfCanvasSceneEdge,
@@ -41,7 +44,8 @@ import {
 	IBaseHalfCanvasSceneRenderer,
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
-	IBaseHalfCanvasSceneViewport
+	IBaseHalfCanvasSceneViewport,
+	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
 import type {
 	Connection,
@@ -53,11 +57,12 @@ import type {
 	NodeProps,
 	NodeTypes,
 	EdgeTypes,
+	FinalConnectionState,
 	ReactFlowInstance,
 	ReactFlowProps,
 	Viewport
 } from '@xyflow/react';
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import type { Root } from 'react-dom/client';
 
 type BaseHalfCanvasReactVendor = typeof import('react') & typeof import('react-dom/client') & typeof import('@xyflow/react');
@@ -76,12 +81,169 @@ interface IBaseHalfCanvasFlowEdgeData extends Record<string, unknown> {
 	readonly structuralEpoch: number;
 }
 
+export type BaseHalfCanvasConnectionGesture = 'pointer' | 'click';
+
+export interface IBaseHalfCanvasPendingConnectionOwner {
+	readonly token: number;
+	readonly sceneKey: string;
+	readonly structuralEpoch: number;
+	readonly gesture: BaseHalfCanvasConnectionGesture;
+}
+
+export type BaseHalfCanvasPendingConnectionStart =
+	| { readonly kind: 'owned'; readonly previous: IBaseHalfCanvasPendingConnectionOwner | undefined }
+	| { readonly kind: 'deferred-to-click' }
+	| { readonly kind: 'rejected-trailing-click' };
+
+export type BaseHalfCanvasPendingPointerFinish =
+	| { readonly kind: 'owned'; readonly owner: IBaseHalfCanvasPendingConnectionOwner }
+	| { readonly kind: 'deferred-to-click' }
+	| { readonly kind: 'none' };
+
+/**
+ * Owns the one connection gesture that may mutate the live scene. Clearing the
+ * owner is synchronous so a trailing library callback cannot complete a
+ * gesture after the user has cancelled it.
+ */
+export class BaseHalfCanvasPendingConnectionState {
+	private sequence = 0;
+	private owner: IBaseHalfCanvasPendingConnectionOwner | undefined;
+	private pointerAttemptDuringClick = false;
+	private rejectTrailingClickStart = false;
+
+	begin(
+		sceneKey: string,
+		structuralEpoch: number,
+		gesture: BaseHalfCanvasConnectionGesture,
+		options?: { readonly rejectableTrailingClick?: boolean }
+	): BaseHalfCanvasPendingConnectionStart {
+		if (gesture === 'pointer') {
+			this.rejectTrailingClickStart = false;
+			if (this.owner?.gesture === 'click') {
+				// The destination click emits pointer start/end before click completion.
+				// Keep the original click owner and reject mutations from that transient attempt.
+				this.pointerAttemptDuringClick = true;
+				return Object.freeze({ kind: 'deferred-to-click' });
+			}
+		} else if (this.rejectTrailingClickStart) {
+			this.rejectTrailingClickStart = false;
+			if (options?.rejectableTrailingClick) {
+				return Object.freeze({ kind: 'rejected-trailing-click' });
+			}
+		}
+
+		this.pointerAttemptDuringClick = false;
+		const previous = this.owner;
+		this.owner = Object.freeze({ token: ++this.sequence, sceneKey, structuralEpoch, gesture });
+		return Object.freeze({ kind: 'owned', previous });
+	}
+
+	peek(): IBaseHalfCanvasPendingConnectionOwner | undefined {
+		return this.owner;
+	}
+
+	peekMutationOwner(): IBaseHalfCanvasPendingConnectionOwner | undefined {
+		return this.pointerAttemptDuringClick ? undefined : this.owner;
+	}
+
+	finishPointer(): BaseHalfCanvasPendingPointerFinish {
+		if (this.pointerAttemptDuringClick) {
+			this.pointerAttemptDuringClick = false;
+			return Object.freeze({ kind: 'deferred-to-click' });
+		}
+		if (this.owner?.gesture !== 'pointer') {
+			return Object.freeze({ kind: 'none' });
+		}
+		const owner = this.owner;
+		this.owner = undefined;
+		return Object.freeze({ kind: 'owned', owner });
+	}
+
+	take(gesture: BaseHalfCanvasConnectionGesture): IBaseHalfCanvasPendingConnectionOwner | undefined {
+		if (this.owner?.gesture !== gesture) {
+			return undefined;
+		}
+		const owner = this.owner;
+		this.owner = undefined;
+		return owner;
+	}
+
+	cancel(rejectTrailingClickStart = false): IBaseHalfCanvasPendingConnectionOwner | undefined {
+		const owner = this.owner;
+		this.owner = undefined;
+		this.rejectTrailingClickStart ||= rejectTrailingClickStart
+			&& (owner?.gesture === 'pointer' || this.pointerAttemptDuringClick);
+		this.pointerAttemptDuringClick = false;
+		return owner;
+	}
+
+	reset(): IBaseHalfCanvasPendingConnectionOwner | undefined {
+		const owner = this.cancel();
+		this.rejectTrailingClickStart = false;
+		return owner;
+	}
+}
+
+export interface IBaseHalfCanvasNodeDragOrigin {
+	readonly id: string;
+	readonly x: number;
+	readonly y: number;
+}
+
+interface IBaseHalfCanvasNodeDragState {
+	readonly sceneKey: string;
+	readonly structuralEpoch: number;
+	readonly origins: readonly IBaseHalfCanvasNodeDragOrigin[];
+	cancelled: boolean;
+}
+
+interface IBaseHalfCanvasConnectionStoreController {
+	cancel(): void;
+	clearClickStart(): void;
+}
+
 type BaseHalfCanvasPendingEdgeMutation =
 	| { readonly token: number; readonly kind: 'upsert'; readonly edge: IBaseHalfCanvasSceneEdge }
 	| { readonly token: number; readonly kind: 'delete' };
 
 type BaseHalfCanvasFlowNode = Node<IBaseHalfCanvasFlowNodeData, 'basehalf-card'>;
 type BaseHalfCanvasFlowEdge = Edge<IBaseHalfCanvasFlowEdgeData, 'basehalf-reference'>;
+
+export function captureBaseHalfCanvasNodeDragOrigins(
+	nodes: readonly { readonly id: string; readonly position: { readonly x: number; readonly y: number } }[],
+	ids: ReadonlySet<string>
+): readonly IBaseHalfCanvasNodeDragOrigin[] {
+	return Object.freeze(nodes
+		.filter(node => ids.has(node.id))
+		.map(node => Object.freeze({ id: node.id, x: node.position.x, y: node.position.y })));
+}
+
+export function restoreBaseHalfCanvasNodeDragOrigins<T extends { readonly id: string; readonly position: { readonly x: number; readonly y: number } }>(
+	nodes: readonly T[],
+	origins: readonly IBaseHalfCanvasNodeDragOrigin[]
+): T[] {
+	const byId = new Map(origins.map(origin => [origin.id, origin]));
+	return nodes.map(node => {
+		const origin = byId.get(node.id);
+		if (!origin || (node.position.x === origin.x && node.position.y === origin.y)) {
+			return node;
+		}
+		return { ...node, position: { x: origin.x, y: origin.y } };
+	});
+}
+
+export function filterBaseHalfCanvasCancelledNodeDragChanges<T extends { readonly type: string; readonly id?: string }>(
+	changes: readonly T[],
+	origins: readonly IBaseHalfCanvasNodeDragOrigin[]
+): T[] {
+	const cancelledIds = new Set(origins.map(origin => origin.id));
+	return changes.filter(change => {
+		if (change.type !== 'position' && change.type !== 'dimensions') {
+			return true;
+		}
+		return change.id === undefined || !cancelledIds.has(change.id);
+	});
+}
 
 interface IBaseHalfCanvasEdgeReconnectState {
 	readonly end: BaseHalfCanvasEdgeReconnectEnd;
@@ -123,6 +285,101 @@ const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const EDGE_RECONNECT_PATH_SAMPLES = 80;
 const EDGE_RECONNECT_CURSOR_CLASS = 'basehalf-canvas-edge-reconnecting';
+const SELECTION_TOOLBAR_SCREEN_GAP = 10;
+const SELECTION_TOOLBAR_SCREEN_HEIGHT = 32;
+const SELECTION_TOOLBAR_SCREEN_MARGIN = 8;
+const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
+
+export interface IBaseHalfCanvasSelectionToolbarPlacement {
+	readonly left: number;
+	readonly top: number;
+	readonly side: 'above' | 'below';
+}
+
+export function resolveBaseHalfCanvasSelectionToolbarPlacement(options: {
+	readonly left: number;
+	readonly top: number;
+	readonly right: number;
+	readonly bottom: number;
+	readonly viewport: IBaseHalfCanvasSceneViewport;
+	readonly viewportWidth: number;
+	readonly viewportHeight: number;
+	readonly toolbarWidth: number;
+}): IBaseHalfCanvasSelectionToolbarPlacement {
+	const zoom = Math.max(0.2, options.viewport.zoom);
+	const centerScreen = ((options.left + options.right) / 2) * zoom + options.viewport.x;
+	const halfToolbar = options.toolbarWidth / 2;
+	const minimumCenter = SELECTION_TOOLBAR_SCREEN_MARGIN + halfToolbar;
+	const maximumCenter = Math.max(minimumCenter, options.viewportWidth - SELECTION_TOOLBAR_SCREEN_MARGIN - halfToolbar);
+	const clampedCenter = Math.min(maximumCenter, Math.max(minimumCenter, centerScreen));
+	const topScreen = options.top * zoom + options.viewport.y;
+	const bottomScreen = options.bottom * zoom + options.viewport.y;
+	const required = SELECTION_TOOLBAR_SCREEN_HEIGHT + SELECTION_TOOLBAR_SCREEN_GAP + SELECTION_TOOLBAR_SCREEN_MARGIN;
+	const aboveSpace = topScreen;
+	const belowSpace = options.viewportHeight - bottomScreen;
+	const side = aboveSpace >= required || aboveSpace >= belowSpace ? 'above' : 'below';
+	const unclampedAnchor = side === 'above' ? topScreen : bottomScreen;
+	const anchorScreen = side === 'above'
+		? Math.max(SELECTION_TOOLBAR_SCREEN_HEIGHT + SELECTION_TOOLBAR_SCREEN_GAP, unclampedAnchor)
+		: Math.min(options.viewportHeight - SELECTION_TOOLBAR_SCREEN_HEIGHT - SELECTION_TOOLBAR_SCREEN_GAP, unclampedAnchor);
+	return {
+		left: (clampedCenter - options.viewport.x) / zoom,
+		top: (anchorScreen - options.viewport.y) / zoom,
+		side
+	};
+}
+
+export function baseHalfCanvasSceneSelectionRenameLabel(renameChangesPathOnly: boolean): string {
+	return renameChangesPathOnly
+		? localize('basehalf.canvas.selection.renameFile', "Rename file")
+		: localize('basehalf.canvas.selection.rename', "Rename");
+}
+
+export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, 'key' | 'isComposing' | 'keyCode'>): boolean {
+	return event.key === 'Escape' && !event.isComposing && event.keyCode !== 229;
+}
+
+export function baseHalfCanvasTargetBlocksGraphShortcuts(target: EventTarget | null): boolean {
+	if (!isCanvasElement(target)) {
+		return false;
+	}
+	const blocker = target.closest(CANVAS_GRAPH_CONTROL_SELECTOR);
+	return blocker !== null && !blocker.classList.contains('react-flow__node');
+}
+
+export function baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(target: EventTarget | null): boolean {
+	return isCanvasElement(target) && target.closest('.react-flow__edge.selected') !== null;
+}
+
+export function captureBaseHalfCanvasCardFocusPath(root: Element, target: Element | null): readonly number[] | undefined {
+	const reversed: number[] = [];
+	let current = target;
+	while (current && current !== root) {
+		const parent = current.parentElement;
+		if (!parent) {
+			return undefined;
+		}
+		const index = Array.prototype.indexOf.call(parent.children, current) as number;
+		if (index < 0) {
+			return undefined;
+		}
+		reversed.push(index);
+		current = parent;
+	}
+	return current === root ? Object.freeze(reversed.reverse()) : undefined;
+}
+
+export function resolveBaseHalfCanvasCardFocusPath(root: Element, path: readonly number[]): Element | undefined {
+	let current = root;
+	for (const index of path) {
+		const child = current.children[index];
+		if (!child) {
+			return undefined;
+		}
+		current = child;
+	}
+	return current;
+}
 
 let vendorPromise: Promise<BaseHalfCanvasReactVendor> | undefined;
 const stylePromises = new WeakMap<Document, Promise<void>>();
@@ -221,6 +478,21 @@ function clearEdgeReconnectTarget(host: HTMLElement, edgeId: string): void {
 		handle.classList.remove('connection-target');
 		delete handle.dataset.basehalfReconnectEdgeId;
 	}
+}
+
+function isCanvasElement(target: unknown): target is Element {
+	return isHTMLElement(target) || isSVGElement(target);
+}
+
+function isDirectCardControl(target: EventTarget | null): boolean {
+	if (!isCanvasElement(target)) {
+		return false;
+	}
+	const media = target.closest<HTMLMediaElement>('audio, video');
+	if (media && !media.controls) {
+		return false;
+	}
+	return baseHalfCanvasTargetBlocksGraphShortcuts(target);
 }
 
 function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseHalfCanvasReconnectSnap): void {
@@ -483,7 +755,10 @@ function createCanvasSceneMount(
 
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
+		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
+		const updateNodeInternals = vendor.useUpdateNodeInternals();
 		const zoom = vendor.useStore(state => state.transform[2]);
+		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
 		const height = vendor.useStore(state => {
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
@@ -496,12 +771,35 @@ function createCanvasSceneMount(
 				return;
 			}
 			mount.replaceChildren(data.card.element);
+			const focusPath = replacementFocusPath.current;
+			replacementFocusPath.current = undefined;
+			if (focusPath) {
+				const target = resolveBaseHalfCanvasCardFocusPath(data.card.element, focusPath);
+				const focusTarget = isHTMLElement(target)
+					&& (target === data.card.element || target.matches('button, input, textarea, select, [tabindex]'))
+					? target
+					: data.card.element;
+				focusTarget.focus({ preventScroll: true });
+			}
 			return () => {
 				if (data.card.element.parentElement === mount) {
+					const active = data.card.element.ownerDocument.activeElement;
+					replacementFocusPath.current = isHTMLElement(active)
+						? captureBaseHalfCanvasCardFocusPath(data.card.element, active)
+						: undefined;
 					data.card.element.remove();
 				}
 			};
 		}, [data.card.element]);
+
+		vendor.useLayoutEffect(() => {
+			const frame = host.ownerDocument.defaultView?.requestAnimationFrame(() => updateNodeInternals(id));
+			return () => {
+				if (frame !== undefined) {
+					host.ownerDocument.defaultView?.cancelAnimationFrame(frame);
+				}
+			};
+		}, [data.card.element, id, updateNodeInternals]);
 
 		vendor.useLayoutEffect(() => {
 			const element = data.card.element;
@@ -514,6 +812,16 @@ function createCanvasSceneMount(
 				}
 			}
 			element.classList.toggle('selected', selected);
+			for (const media of element.querySelectorAll<HTMLMediaElement>('audio, video')) {
+				media.controls = selected;
+				media.tabIndex = selected ? 0 : -1;
+				media.classList.toggle('nodrag', selected);
+				media.classList.toggle('nopan', selected);
+				media.classList.toggle('nowheel', selected);
+				if (!selected && !media.paused) {
+					media.pause();
+				}
+			}
 			element.dataset.lod = lod;
 			element.dataset.cardHeight = String(height);
 			element.style.setProperty('--bh-mini-label-cap', `${Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, height * MINI_LABEL_CARD_HEIGHT_FRACTION))}px`);
@@ -535,7 +843,18 @@ function createCanvasSceneMount(
 				type: 'source',
 				position: flowPosition(vendor, anchor),
 				className: `basehalf-canvas-card-connect-handle ${anchor}`,
-				isConnectable: true
+				isConnectable: true,
+				tabIndex: selected || clickConnectionInProgress ? 0 : -1,
+				role: 'button',
+				'aria-label': `Create or finish a context connection at the ${anchor} side of ${id}`,
+				onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+					if (event.key !== 'Enter' && event.key !== ' ') {
+						return;
+					}
+					event.preventDefault();
+					event.stopPropagation();
+					event.currentTarget.click();
+				}
 			})),
 			h('div', {
 				ref: hostRef,
@@ -543,6 +862,25 @@ function createCanvasSceneMount(
 				style: { width: '100%', height: '100%' }
 			})
 		);
+	}
+
+	function ConnectionStoreBridge({ register }: {
+		readonly register: (controller: IBaseHalfCanvasConnectionStoreController | undefined) => void;
+	}): ReactElement {
+		const store = vendor.useStoreApi<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>();
+		const controller = vendor.useMemo<IBaseHalfCanvasConnectionStoreController>(() => ({
+			cancel: () => {
+				const state = store.getState();
+				state.cancelConnection();
+				store.setState({ connectionClickStartHandle: null });
+			},
+			clearClickStart: () => store.setState({ connectionClickStartHandle: null })
+		}), [store]);
+		vendor.useLayoutEffect(() => {
+			register(controller);
+			return () => register(undefined);
+		}, [controller, register]);
+		return h(vendor.Fragment);
 	}
 
 	function ReferenceEdge(props: EdgeProps<BaseHalfCanvasFlowEdge>): ReactElement {
@@ -643,17 +981,11 @@ function createCanvasSceneMount(
 					return;
 				}
 
-				const hit = snapForPointer(event);
-				if (hit.kind === 'invalid-card') {
+				const snapped = baseHalfCanvasReconnectSnapForHit(snapForPointer(event));
+				if (!snapped) {
 					finishReconnect();
 					return;
 				}
-				if (hit.kind === 'blank') {
-					interaction.remove(reconnect.flowEdge);
-					finishReconnect();
-					return;
-				}
-				const snapped = hit.snap;
 				interaction.reconnect(reconnect.flowEdge, {
 					source: reconnect.end === 'source' ? snapped.nodeId : previous.from,
 					sourceHandle: reconnect.end === 'source' ? snapped.anchor : previous.from_anchor,
@@ -669,7 +1001,7 @@ function createCanvasSceneMount(
 				finishReconnect();
 			};
 			const onKeyDown = (event: KeyboardEvent) => {
-				if (event.key !== 'Escape') {
+				if (!baseHalfCanvasInteractionOwnsEscape(event)) {
 					return;
 				}
 				event.preventDefault();
@@ -782,6 +1114,91 @@ function createCanvasSceneMount(
 	const nodeTypes: NodeTypes = { 'basehalf-card': CardNode };
 	const edgeTypes: EdgeTypes = { 'basehalf-reference': ReferenceEdge };
 
+	function SelectionToolbar({ nodes, invoke }: {
+		readonly nodes: readonly BaseHalfCanvasFlowNode[];
+		readonly invoke: (action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]) => void;
+	}): ReactElement {
+		const actions = baseHalfCanvasSceneSelectionActions(nodes.length);
+		const viewport = vendor.useViewport();
+		const [focusIndex, setFocusIndex] = vendor.useState(0);
+		const paths = nodes.map(node => node.id);
+		const key = paths.join('\0');
+		vendor.useEffect(() => setFocusIndex(0), [key, actions.length]);
+		if (nodes.length === 0 || actions.length === 0) {
+			return h(vendor.Fragment);
+		}
+		const left = Math.min(...nodes.map(node => node.position.x));
+		const top = Math.min(...nodes.map(node => node.position.y));
+		const right = Math.max(...nodes.map(node => node.position.x + (node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width)));
+		const bottom = Math.max(...nodes.map(node => node.position.y + (node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height)));
+		const placement = resolveBaseHalfCanvasSelectionToolbarPlacement({
+			left,
+			top,
+			right,
+			bottom,
+			viewport,
+			viewportWidth: host.clientWidth,
+			viewportHeight: host.clientHeight,
+			toolbarWidth: nodes.length > 1 ? 116 : 92
+		});
+		const metadata: Record<BaseHalfCanvasSceneSelectionAction, { readonly label: string; readonly icon: string }> = {
+			rename: { label: baseHalfCanvasSceneSelectionRenameLabel(nodes.length === 1 && nodes[0].data.card.renameChangesPathOnly === true), icon: 'edit' },
+			duplicate: { label: localize('basehalf.canvas.selection.duplicate', "Duplicate"), icon: 'files' },
+			copyReferences: { label: localize('basehalf.canvas.selection.copyReferences', "Copy references"), icon: 'copy' },
+			delete: { label: localize('basehalf.canvas.selection.delete', "Delete"), icon: 'trash' }
+		};
+		const moveFocus = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
+			let next: number | undefined;
+			if (event.key === 'ArrowRight') {
+				next = (index + 1) % actions.length;
+			} else if (event.key === 'ArrowLeft') {
+				next = (index - 1 + actions.length) % actions.length;
+			} else if (event.key === 'Home') {
+				next = 0;
+			} else if (event.key === 'End') {
+				next = actions.length - 1;
+			}
+			if (next === undefined) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			setFocusIndex(next);
+			const toolbar = event.currentTarget.closest<HTMLElement>('.basehalf-canvas-selection-toolbar');
+			toolbar?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus();
+		};
+
+		return h(vendor.ViewportPortal, null,
+			h('div', {
+				className: `basehalf-canvas-selection-toolbar ${placement.side} nodrag nopan nowheel`,
+				role: 'toolbar',
+				'aria-label': nodes.length === 1
+					? localize('basehalf.canvas.selection.one', "Selected card actions")
+					: localize('basehalf.canvas.selection.many', "Actions for {0} selected cards", nodes.length),
+				style: { left: placement.left, top: placement.top },
+				onPointerDown: (event: ReactPointerEvent<HTMLElement>) => event.stopPropagation(),
+				onClick: (event: ReactMouseEvent<HTMLElement>) => event.stopPropagation()
+			},
+				nodes.length > 1 ? h('span', { className: 'basehalf-canvas-selection-count' }, String(nodes.length)) : null,
+				...actions.map((action, index) => h('button', {
+					key: action,
+					type: 'button',
+					className: `basehalf-canvas-selection-action codicon codicon-${metadata[action].icon}${action === 'delete' ? ' danger' : ''}`,
+					title: metadata[action].label,
+					'aria-label': metadata[action].label,
+					tabIndex: index === focusIndex ? 0 : -1,
+					onFocus: () => setFocusIndex(index),
+					onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => moveFocus(event, index),
+					onClick: (event: ReactMouseEvent<HTMLElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+						invoke(action, paths);
+					}
+				}))
+			)
+		);
+	}
+
 	function SceneComponent({ initialSnapshot, onReady: ready }: {
 		readonly initialSnapshot: IBaseHalfCanvasSceneSnapshot;
 		readonly onReady: (runtime: IBaseHalfCanvasSceneRuntime) => void;
@@ -798,15 +1215,18 @@ function createCanvasSceneMount(
 		const pendingGeometry = vendor.useRef(new Map<string, number>());
 		const pendingEdges = vendor.useRef(new Map<string, BaseHalfCanvasPendingEdgeMutation>());
 		const interactionDepth = vendor.useRef(0);
+		const interactionGeneration = vendor.useRef(0);
 		const interactionSceneKey = vendor.useRef<string | undefined>(undefined);
 		const interactionStructuralEpoch = vendor.useRef<number | undefined>(undefined);
-		const connectSceneKey = vendor.useRef<string | undefined>(undefined);
-		const connectStructuralEpoch = vendor.useRef<number | undefined>(undefined);
+		const pendingConnection = vendor.useRef(new BaseHalfCanvasPendingConnectionState());
+		const connectionStoreController = vendor.useRef<IBaseHalfCanvasConnectionStoreController | undefined>(undefined);
+		const nodeDragState = vendor.useRef<IBaseHalfCanvasNodeDragState | undefined>(undefined);
 		const interacting = vendor.useRef(false);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 
 		const beginInteraction = vendor.useCallback(() => {
 			if (interactionDepth.current === 0) {
+				interactionGeneration.current++;
 				interactionSceneKey.current = sceneKeyRef.current;
 				interactionStructuralEpoch.current = structuralEpochRef.current;
 			}
@@ -826,49 +1246,6 @@ function createCanvasSceneMount(
 				delegate.didEndInteraction();
 			}
 		}, []);
-		const cancelInteraction = vendor.useCallback(() => {
-			if (!interacting.current) {
-				return;
-			}
-			interactionDepth.current = 0;
-			interacting.current = false;
-			interactionSceneKey.current = undefined;
-			interactionStructuralEpoch.current = undefined;
-			connectSceneKey.current = undefined;
-			connectStructuralEpoch.current = undefined;
-			viewportGestureSceneKey.current = undefined;
-			setGuides([]);
-			delegate.didEndInteraction();
-		}, []);
-		vendor.useEffect(() => {
-			const window = host.ownerDocument.defaultView;
-			if (!window) {
-				return;
-			}
-			let finishTimer: number | undefined;
-			const finishSoon = () => {
-				if (finishTimer !== undefined) {
-					window.clearTimeout(finishTimer);
-				}
-				finishTimer = window.setTimeout(cancelInteraction, 0);
-			};
-			window.addEventListener('pointerup', finishSoon, true);
-			window.addEventListener('pointercancel', finishSoon, true);
-			window.addEventListener('mouseup', finishSoon, true);
-			window.addEventListener('touchend', finishSoon, true);
-			window.addEventListener('blur', cancelInteraction);
-			return () => {
-				if (finishTimer !== undefined) {
-					window.clearTimeout(finishTimer);
-				}
-				window.removeEventListener('pointerup', finishSoon, true);
-				window.removeEventListener('pointercancel', finishSoon, true);
-				window.removeEventListener('mouseup', finishSoon, true);
-				window.removeEventListener('touchend', finishSoon, true);
-				window.removeEventListener('blur', cancelInteraction);
-			};
-		}, [cancelInteraction]);
-
 		const makeNode = vendor.useCallback((card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected = false): BaseHalfCanvasFlowNode => ({
 			id: card.path,
 			type: 'basehalf-card',
@@ -890,6 +1267,7 @@ function createCanvasSceneMount(
 			targetHandle: edge.to_anchor,
 			data: { edge, sceneKey, structuralEpoch },
 			ariaLabel: localize('basehalf.canvas.reference.contextFlow', "Context flows from {0} to {1}", edge.from, edge.to),
+			ariaRole: 'group',
 			markerEnd: { type: vendor.MarkerType.ArrowClosed, width: 14, height: 14 },
 			deletable: true,
 			// The product reconnect gesture starts from either half of the line.
@@ -914,6 +1292,125 @@ function createCanvasSceneMount(
 			edgesRef.current = next;
 			setEdges(next);
 		}, []);
+		const registerConnectionStore = vendor.useCallback((controller: IBaseHalfCanvasConnectionStoreController | undefined) => {
+			connectionStoreController.current = controller;
+		}, []);
+		const resetInteraction = vendor.useCallback(() => {
+			if (!interacting.current) {
+				return;
+			}
+			interactionDepth.current = 0;
+			interacting.current = false;
+			interactionSceneKey.current = undefined;
+			interactionStructuralEpoch.current = undefined;
+			viewportGestureSceneKey.current = undefined;
+			setGuides([]);
+			delegate.didEndInteraction();
+		}, []);
+		const cancelPendingConnection = vendor.useCallback((rejectTrailingClickStart = false) => {
+			const owner = pendingConnection.current.cancel(rejectTrailingClickStart);
+			connectionStoreController.current?.cancel();
+			if (owner) {
+				endInteraction();
+			}
+		}, [endInteraction]);
+		const cancelNodeDrag = vendor.useCallback(() => {
+			const drag = nodeDragState.current;
+			if (!drag || drag.cancelled) {
+				return false;
+			}
+			drag.cancelled = true;
+			if (drag.sceneKey === sceneKeyRef.current && drag.structuralEpoch === structuralEpochRef.current) {
+				setLiveNodes(restoreBaseHalfCanvasNodeDragOrigins(nodesRef.current, drag.origins));
+			}
+			setGuides([]);
+			endInteraction();
+			return true;
+		}, [endInteraction, setLiveNodes]);
+		const cancelAllInteractions = vendor.useCallback(() => {
+			const drag = nodeDragState.current;
+			if (drag && !drag.cancelled) {
+				drag.cancelled = true;
+				if (drag.sceneKey === sceneKeyRef.current && drag.structuralEpoch === structuralEpochRef.current) {
+					setLiveNodes(restoreBaseHalfCanvasNodeDragOrigins(nodesRef.current, drag.origins));
+				}
+			}
+			pendingConnection.current.cancel();
+			connectionStoreController.current?.cancel();
+			resetInteraction();
+		}, [resetInteraction, setLiveNodes]);
+		vendor.useEffect(() => {
+			const window = host.ownerDocument.defaultView;
+			if (!window) {
+				return;
+			}
+			let finishTimer: number | undefined;
+			let dragReleaseTimer: number | undefined;
+			const releaseCancelledDrag = (drag: IBaseHalfCanvasNodeDragState | undefined) => {
+				if (drag?.cancelled && nodeDragState.current === drag) {
+					nodeDragState.current = undefined;
+				}
+			};
+			const finishSoon = () => {
+				if (!interacting.current) {
+					return;
+				}
+				const generation = interactionGeneration.current;
+				if (finishTimer !== undefined) {
+					window.clearTimeout(finishTimer);
+				}
+				finishTimer = window.setTimeout(() => {
+					if (interacting.current && interactionGeneration.current === generation) {
+						const drag = nodeDragState.current;
+						cancelAllInteractions();
+						releaseCancelledDrag(drag);
+					}
+				}, 0);
+			};
+			const cancelImmediately = () => {
+				const drag = nodeDragState.current;
+				cancelAllInteractions();
+				if (dragReleaseTimer !== undefined) {
+					window.clearTimeout(dragReleaseTimer);
+				}
+				dragReleaseTimer = window.setTimeout(() => releaseCancelledDrag(drag), 0);
+			};
+			const onKeyDown = (event: KeyboardEvent) => {
+				if (!baseHalfCanvasInteractionOwnsEscape(event)) {
+					return;
+				}
+				if (pendingConnection.current.peek()) {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+					cancelPendingConnection(true);
+					return;
+				}
+				if (cancelNodeDrag()) {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+				}
+			};
+			window.addEventListener('pointerup', finishSoon, true);
+			window.addEventListener('pointercancel', cancelImmediately, true);
+			window.addEventListener('mouseup', finishSoon, true);
+			window.addEventListener('touchend', finishSoon, true);
+			window.addEventListener('keydown', onKeyDown, true);
+			window.addEventListener('blur', cancelImmediately);
+			return () => {
+				if (finishTimer !== undefined) {
+					window.clearTimeout(finishTimer);
+				}
+				if (dragReleaseTimer !== undefined) {
+					window.clearTimeout(dragReleaseTimer);
+				}
+				window.removeEventListener('pointerup', finishSoon, true);
+				window.removeEventListener('pointercancel', cancelImmediately, true);
+				window.removeEventListener('mouseup', finishSoon, true);
+				window.removeEventListener('touchend', finishSoon, true);
+				window.removeEventListener('keydown', onKeyDown, true);
+				window.removeEventListener('blur', cancelImmediately);
+			};
+		}, [cancelAllInteractions, cancelNodeDrag, cancelPendingConnection]);
 
 		const updateSnapshot = vendor.useCallback((snapshot: IBaseHalfCanvasSceneSnapshot) => {
 			const keyChanged = sceneKeyRef.current !== snapshot.key;
@@ -930,8 +1427,9 @@ function createCanvasSceneMount(
 				pendingEdges.current.clear();
 				interactionDepth.current = 0;
 				interacting.current = false;
-				connectSceneKey.current = undefined;
-				connectStructuralEpoch.current = undefined;
+				pendingConnection.current.reset();
+				connectionStoreController.current?.cancel();
+				nodeDragState.current = undefined;
 				setGuides([]);
 			}
 
@@ -1044,11 +1542,18 @@ function createCanvasSceneMount(
 		}, [updateSnapshot]);
 
 		const onNodesChange = vendor.useCallback((changes: NodeChange<BaseHalfCanvasFlowNode>[]) => {
-			const changesGeometry = changes.some(change => change.type === 'position' || change.type === 'dimensions');
+			const drag = nodeDragState.current;
+			const acceptedChanges = drag?.cancelled
+				? filterBaseHalfCanvasCancelledNodeDragChanges(changes, drag.origins)
+				: changes;
+			if (acceptedChanges.length === 0) {
+				return;
+			}
+			const changesGeometry = acceptedChanges.some(change => change.type === 'position' || change.type === 'dimensions');
 			if (changesGeometry) {
 				const ownerKey = interactionSceneKey.current ?? sceneKeyRef.current;
 				const ownerEpoch = interactionStructuralEpoch.current ?? structuralEpochRef.current;
-				if (ownerKey !== sceneKeyRef.current || ownerEpoch !== structuralEpochRef.current || changes.some(change => {
+				if (ownerKey !== sceneKeyRef.current || ownerEpoch !== structuralEpochRef.current || acceptedChanges.some(change => {
 					if (change.type !== 'position' && change.type !== 'dimensions') {
 						return false;
 					}
@@ -1058,7 +1563,7 @@ function createCanvasSceneMount(
 					return;
 				}
 			}
-			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, changes, {
+			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, acceptedChanges, {
 				threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
 				defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 				defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
@@ -1070,17 +1575,65 @@ function createCanvasSceneMount(
 			setLiveNodes(next);
 			commitFinalGeometry(next, snapped.changes);
 		}, [commitFinalGeometry, setLiveNodes]);
+		const beginNodeDrag = vendor.useCallback((_event: MouseEvent | TouchEvent, node: BaseHalfCanvasFlowNode, draggedNodes: BaseHalfCanvasFlowNode[]) => {
+			const ids = new Set([
+				node.id,
+				...draggedNodes.map(candidate => candidate.id),
+				...nodesRef.current.filter(candidate => candidate.selected).map(candidate => candidate.id)
+			]);
+			nodeDragState.current = {
+				sceneKey: sceneKeyRef.current,
+				structuralEpoch: structuralEpochRef.current,
+				origins: captureBaseHalfCanvasNodeDragOrigins(nodesRef.current, ids),
+				cancelled: false
+			};
+			beginInteraction();
+		}, [beginInteraction]);
+		const finishNodeDrag = vendor.useCallback(() => {
+			const drag = nodeDragState.current;
+			nodeDragState.current = undefined;
+			if (!drag?.cancelled) {
+				endInteraction();
+			}
+		}, [endInteraction]);
 
 		const onEdgesChange = vendor.useCallback((changes: EdgeChange<BaseHalfCanvasFlowEdge>[]) => {
 			setLiveEdges(vendor.applyEdgeChanges(changes, edgesRef.current));
 		}, [setLiveEdges]);
 
-		const optimisticConnect = vendor.useCallback((connection: Connection) => {
-			if (!connection.source || !connection.target || connection.source === connection.target) {
+		const beginConnection = vendor.useCallback((gesture: BaseHalfCanvasConnectionGesture, event?: MouseEvent | TouchEvent) => {
+			const start = pendingConnection.current.begin(sceneKeyRef.current, structuralEpochRef.current, gesture, {
+				rejectableTrailingClick: gesture === 'click' && (event?.detail ?? 0) > 0
+			});
+			if (start.kind === 'deferred-to-click') {
 				return;
 			}
-			const operationKey = connectSceneKey.current;
-			const operationEpoch = connectStructuralEpoch.current;
+			if (start.kind === 'rejected-trailing-click') {
+				host.ownerDocument.defaultView?.queueMicrotask(() => connectionStoreController.current?.cancel());
+				return;
+			}
+			if (start.previous) {
+				endInteraction();
+			}
+			if (gesture === 'pointer') {
+				connectionStoreController.current?.clearClickStart();
+			} else {
+				connectionStoreController.current?.cancel();
+			}
+			beginInteraction();
+		}, [beginInteraction, endInteraction]);
+
+		const optimisticConnect = vendor.useCallback((connection: Connection) => {
+			if (!connection.source || !connection.target) {
+				return;
+			}
+			if (connection.source === connection.target) {
+				delegate.reportError(new Error('A node cannot provide context to itself.'));
+				return;
+			}
+			const owner = pendingConnection.current.peekMutationOwner();
+			const operationKey = owner?.sceneKey;
+			const operationEpoch = owner?.structuralEpoch;
 			const sourceNode = nodesRef.current.find(node => node.id === connection.source);
 			const targetNode = nodesRef.current.find(node => node.id === connection.target);
 			if (!operationKey || operationEpoch === undefined || operationKey !== sceneKeyRef.current || operationEpoch !== structuralEpochRef.current
@@ -1106,6 +1659,7 @@ function createCanvasSceneMount(
 				to_anchor: intent.toAnchor
 			};
 			if (edgesRef.current.some(candidate => candidate.id === edge.id)) {
+				delegate.reportError(new Error('This context connection already exists.'));
 				return;
 			}
 			const token = ++mutationSequence.current;
@@ -1125,12 +1679,66 @@ function createCanvasSceneMount(
 			});
 		}, [makeEdge, setLiveEdges, updateSnapshot]);
 
+		const finishPointerConnect = vendor.useCallback((_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+			const finish = pendingConnection.current.finishPointer();
+			if (finish.kind !== 'owned') {
+				return;
+			}
+			const owner = finish.owner;
+			const operationKey = owner.sceneKey;
+			const operationEpoch = owner.structuralEpoch;
+			endInteraction();
+
+			if (operationKey !== sceneKeyRef.current || operationEpoch !== structuralEpochRef.current
+				|| !state.fromNode || state.toNode) {
+				return;
+			}
+			const sourceNode = nodesRef.current.find(node => node.id === state.fromNode?.id);
+			if (sourceNode?.data.sceneKey !== operationKey || sourceNode.data.structuralEpoch !== operationEpoch) {
+				return;
+			}
+			const bounds = host.getBoundingClientRect();
+			const client = {
+				x: bounds.left + state.pointer.x,
+				y: bounds.top + state.pointer.y
+			};
+			if (client.x < bounds.left || client.x > bounds.right || client.y < bounds.top || client.y > bounds.bottom) {
+				return;
+			}
+			const hit = host.ownerDocument.elementFromPoint(client.x, client.y);
+			if (hit?.closest('.react-flow__node, .react-flow__edge')) {
+				return;
+			}
+			const flow = flowRef.current;
+			if (!flow) {
+				return;
+			}
+			const drop = resolveBaseHalfCanvasSceneConnectionDrop({
+				from: sourceNode.id,
+				fromKind: sourceNode.data.card.kind,
+				fromAnchor: anchorFromHandle(state.fromHandle?.id, 'east')
+			}, false, flow.screenToFlowPosition(client));
+			if (drop) {
+				void delegate.createFromConnection(operationKey, operationEpoch, drop).catch(error => delegate.reportError(error));
+			}
+		}, [endInteraction]);
+		const finishClickConnect = vendor.useCallback(() => {
+			const owner = pendingConnection.current.take('click');
+			if (owner) {
+				endInteraction();
+			}
+		}, [endInteraction]);
+
 		const optimisticReconnect = vendor.useCallback((flowEdge: BaseHalfCanvasFlowEdge, connection: Connection) => {
 			const previous = flowEdge.data?.edge;
 			const operationKey = flowEdge.data?.sceneKey;
 			const operationEpoch = flowEdge.data?.structuralEpoch;
 			if (!previous || !operationKey || operationEpoch === undefined || operationKey !== sceneKeyRef.current || operationEpoch !== structuralEpochRef.current
-				|| !connection.source || !connection.target || connection.source === connection.target) {
+				|| !connection.source || !connection.target) {
+				return;
+			}
+			if (connection.source === connection.target) {
+				delegate.reportError(new Error('A node cannot provide context to itself.'));
 				return;
 			}
 			const sourceNode = nodesRef.current.find(node => node.id === connection.source);
@@ -1157,6 +1765,7 @@ function createCanvasSceneMount(
 				to_anchor: next.toAnchor
 			};
 			if (nextEdge.id !== previous.id && edgesRef.current.some(candidate => candidate.id === nextEdge.id)) {
+				delegate.reportError(new Error('This context connection already exists.'));
 				return;
 			}
 			const token = ++mutationSequence.current;
@@ -1246,6 +1855,7 @@ function createCanvasSceneMount(
 				if (!preserveFocus) {
 					host.focus({ preventScroll: true });
 				}
+				setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
 				setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === flowEdge.id })));
 			},
 			reconnect: optimisticReconnect,
@@ -1256,18 +1866,48 @@ function createCanvasSceneMount(
 				setLiveEdges(edgesRef.current.filter(candidate => candidate.id !== flowEdge.id));
 				removeEdges([flowEdge]);
 			}
-		}), [beginInteraction, endInteraction, optimisticReconnect, ownsCurrentEdge, removeEdges, setLiveEdges]);
+		}), [beginInteraction, endInteraction, optimisticReconnect, ownsCurrentEdge, removeEdges, setLiveEdges, setLiveNodes]);
+
+		const invokeSelectionAction = vendor.useCallback((action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]) => {
+			const selected = paths.map(path => nodesRef.current.find(node => node.id === path));
+			if (selected.some(node => !node)
+				|| selected.some(node => node!.data.sceneKey !== sceneKeyRef.current || node!.data.structuralEpoch !== structuralEpochRef.current)) {
+				return;
+			}
+			void delegate.performSelectionAction(sceneKeyRef.current, structuralEpochRef.current, action, paths)
+				.catch(error => delegate.reportError(error));
+		}, []);
 
 		vendor.useEffect(() => {
 			const onKeyDown = (event: KeyboardEvent) => {
 				const target = event.target;
-				const focusedSelectedEdge = target instanceof Element
-					&& host.contains(target)
-					&& !!target.closest('.react-flow__edge.selected');
-				if ((event.key !== 'Delete' && event.key !== 'Backspace') || (target !== host && !focusedSelectedEdge)) {
+				if (event.isComposing || event.keyCode === 229
+					|| !isCanvasElement(target) || !host.contains(target)
+					|| host.closest('.basehalf-canvas-workbench')?.classList.contains('basehalf-card-detail-open')) {
 					return;
 				}
-				if (host.closest('.basehalf-canvas-workbench')?.classList.contains('basehalf-card-detail-open')) {
+				const toolbarOwnsFocus = !!target.closest('.basehalf-canvas-selection-toolbar');
+				const focusedSelectedEdge = baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(target);
+				if (!toolbarOwnsFocus && !focusedSelectedEdge && baseHalfCanvasTargetBlocksGraphShortcuts(target)) {
+					return;
+				}
+				const selectedNodes = nodesRef.current.filter(node => node.selected);
+				if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd' && selectedNodes.length > 0) {
+					event.preventDefault();
+					event.stopPropagation();
+					invokeSelectionAction('duplicate', selectedNodes.map(node => node.id));
+					return;
+				}
+				if (event.key !== 'Delete' && event.key !== 'Backspace') {
+					return;
+				}
+				if (selectedNodes.length > 0) {
+					event.preventDefault();
+					event.stopPropagation();
+					invokeSelectionAction('delete', selectedNodes.map(node => node.id));
+					return;
+				}
+				if (target !== host && !focusedSelectedEdge) {
 					return;
 				}
 				const selected = edgesRef.current.filter(edge => edge.selected);
@@ -1281,7 +1921,7 @@ function createCanvasSceneMount(
 			};
 			host.addEventListener('keydown', onKeyDown);
 			return () => host.removeEventListener('keydown', onKeyDown);
-		}, [removeEdges, setLiveEdges]);
+		}, [invokeSelectionAction, removeEdges, setLiveEdges]);
 
 		const reportViewport = vendor.useCallback((sceneKey: string, viewport: Viewport, final: boolean) => {
 			if (sceneKeyRef.current !== sceneKey) {
@@ -1393,6 +2033,22 @@ function createCanvasSceneMount(
 				anchor: contextMenuAnchor(event, node.data.card.element)
 			});
 		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		const onEdgeContextMenu = vendor.useCallback((event: ReactMouseEvent<Element>, flowEdge: BaseHalfCanvasFlowEdge) => {
+			const edge = flowEdge.data?.edge;
+			if (!edge) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			host.focus({ preventScroll: true });
+			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === flowEdge.id })));
+			showContextMenu({
+				kind: 'edge',
+				edge,
+				anchor: contextMenuAnchor(event, host)
+			});
+		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
 		const onPaneContextMenu = vendor.useCallback((event: globalThis.MouseEvent | ReactMouseEvent<Element>) => {
 			event.preventDefault();
 			event.stopPropagation();
@@ -1404,6 +2060,18 @@ function createCanvasSceneMount(
 				anchor: contextMenuAnchor(event, host)
 			});
 		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		const onNodeClick = vendor.useCallback((event: ReactMouseEvent<Element>, node: BaseHalfCanvasFlowNode) => {
+			if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || isDirectCardControl(event.target)) {
+				return;
+			}
+			delegate.activateCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
+		}, []);
+		const onNodeDoubleClick = vendor.useCallback((event: ReactMouseEvent<Element>, node: BaseHalfCanvasFlowNode) => {
+			if (isDirectCardControl(event.target)) {
+				return;
+			}
+			delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
+		}, []);
 
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
 			nodes,
@@ -1413,24 +2081,26 @@ function createCanvasSceneMount(
 			onNodesChange,
 			onEdgesChange,
 			onConnect: optimisticConnect,
-			onConnectStart: () => {
-				connectSceneKey.current = sceneKeyRef.current;
-				connectStructuralEpoch.current = structuralEpochRef.current;
-				beginInteraction();
-			},
-			onConnectEnd: () => {
-				connectSceneKey.current = undefined;
-				connectStructuralEpoch.current = undefined;
-				endInteraction();
-			},
+			onConnectStart: () => beginConnection('pointer'),
+			onConnectEnd: finishPointerConnect,
+			onClickConnectStart: event => beginConnection('click', event),
+			onClickConnectEnd: finishClickConnect,
 			onEdgesDelete: removeEdges,
-			onNodeDragStart: beginInteraction,
-			onNodeDragStop: endInteraction,
+			onNodeDragStart: beginNodeDrag,
+			onNodeDragStop: finishNodeDrag,
 			onSelectionStart: beginInteraction,
 			onSelectionEnd: endInteraction,
-			onNodeDoubleClick: (_event, node) => delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id),
+			onNodeClick,
+			onNodeDoubleClick,
 			onNodeContextMenu,
+			onEdgeContextMenu,
 			onPaneContextMenu,
+			onPaneClick: () => {
+				if (pendingConnection.current.peek()?.gesture === 'click') {
+					cancelPendingConnection();
+				}
+				host.focus({ preventScroll: true });
+			},
 			onEdgeClick: () => host.focus({ preventScroll: true }),
 			onInit: flow => {
 				flowRef.current = flow;
@@ -1465,7 +2135,7 @@ function createCanvasSceneMount(
 				}
 			},
 			connectionMode: vendor.ConnectionMode.Loose,
-			connectOnClick: false,
+			connectOnClick: true,
 			connectionRadius: 48,
 			edgesReconnectable: false,
 			deleteKeyCode: null,
@@ -1488,13 +2158,15 @@ function createCanvasSceneMount(
 		const ReactFlowComponent = vendor.ReactFlow as unknown as (props: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>) => ReactElement;
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
 			h(ReactFlowComponent, flowProps,
+				h(ConnectionStoreBridge, { register: registerConnectionStore }),
 				h(vendor.Background, {
 					variant: vendor.BackgroundVariant.Lines,
 					gap: 40,
 					size: 1,
 					color: 'color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)'
 				}),
-				h(SnapGuides, { guides, zoom: viewportRef.current.zoom })
+				h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
+				h(SelectionToolbar, { nodes: nodes.filter(node => node.selected), invoke: invokeSelectionAction })
 			)
 		);
 	}

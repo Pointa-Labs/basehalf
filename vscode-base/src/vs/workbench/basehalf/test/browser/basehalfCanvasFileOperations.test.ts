@@ -13,8 +13,37 @@ import { clearExplorerFileClipboardCut, findValidPasteFileTargetForResource, set
 import '../../../contrib/files/browser/fileCommands.js';
 import { NEW_FILE_COMMAND_ID, NEW_UNTITLED_FILE_COMMAND_ID } from '../../../contrib/files/browser/fileConstants.js';
 import { IExplorerService } from '../../../contrib/files/browser/files.js';
+import { dirtyNodeTextMayReferencePath, nodeTextMayReferencePath } from '../../browser/basehalfMirrorCascade.contribution.js';
 
 suite('BaseHalfCanvasFileOperations', () => {
+	test('finds affected live binding candidates in malformed dirty node text', () => {
+		assert.strictEqual(dirtyNodeTextMayReferencePath('{ "sourcePath": "references/style.png",', ['references']), true);
+		assert.strictEqual(dirtyNodeTextMayReferencePath('{ "sourcePath": "other/style.png",', ['references']), false);
+		assert.strictEqual(dirtyNodeTextMayReferencePath('{ "sourcePath": "REFERENCES\\u002fstyle.png",', ['references']), true);
+	});
+
+	test('detects saved live bindings when a dirty malformed buffer hides the key', () => {
+		const saved = JSON.stringify({
+			version: 2,
+			id: '00000000-0000-4000-8000-000000000001',
+			kind: 'image',
+			title: 'Frame',
+			role: 'Generated image',
+			current: { source: 'empty', outputPaths: [] },
+			recipe: {
+				recipeId: 'image.generate',
+				parameters: {},
+				inputBindings: [{ sourcePath: 'references/style.png', slot: 'reference', order: 0 }]
+			},
+			revisions: [],
+			runs: []
+		});
+		assert.strictEqual(nodeTextMayReferencePath('{ "sourcePat', ['references']), false);
+		assert.strictEqual(nodeTextMayReferencePath(saved, ['references']), true);
+		assert.strictEqual(nodeTextMayReferencePath('{ "sourcePath": "references/style.png",', ['references']), true);
+		assert.strictEqual(nodeTextMayReferencePath('{ "sourcePath": "other/style.png",', ['references']), false);
+	});
+
 	test('copies resources without requiring a materialized Explorer item', async () => {
 		const writes: { readonly resources: readonly URI[]; readonly cut: boolean }[] = [];
 		const explorerService = {

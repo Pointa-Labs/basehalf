@@ -4,14 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	baseHalfCanvasReconnectEndForPath,
+	baseHalfCanvasReconnectSnapForHit,
 	IBaseHalfCanvasPathSample,
 	nearestBaseHalfCanvasPathRatio,
 	resolveBaseHalfCanvasReconnectPoint
 } from '../../common/basehalfCanvasEdgeReconnect.js';
 
 suite('BaseHalfCanvasEdgeReconnect', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	const backtrackingPath: readonly IBaseHalfCanvasPathSample[] = [
 		{ x: 0, y: 0, ratio: 0 },
 		{ x: 80, y: 0, ratio: 0.25 },
@@ -81,5 +85,17 @@ suite('BaseHalfCanvasEdgeReconnect', () => {
 		assert.deepStrictEqual(resolveBaseHalfCanvasReconnectPoint({ x: 140, y: 140 }, [
 			{ nodeId: 'card', left: 0, top: 0, width: 100, height: 100 }
 		], new Set()), { kind: 'blank' });
+	});
+
+	test('cancels reconnect drops on blank or invalid cards instead of deleting the edge', () => {
+		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'blank' }), undefined);
+		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'invalid-card' }), undefined);
+		const snap = {
+			nodeId: 'target',
+			anchor: 'west' as const,
+			clientPoint: { x: 200, y: 60 },
+			distance: 0
+		};
+		assert.strictEqual(baseHalfCanvasReconnectSnapForHit({ kind: 'snap', snap }), snap);
 	});
 });

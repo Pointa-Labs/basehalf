@@ -13,7 +13,7 @@ import {
 	IFileService,
 	IFileStat
 } from '../../../../platform/files/common/files.js';
-import { BaseHalfCanvasMirrorCorrupt, BaseHalfCanvasMirrorService, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
+import { BaseHalfCanvasMirrorCorrupt, BaseHalfCanvasMirrorService, BaseHalfCanvasStateConflict, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfMirrorSymbolicLinkError } from '../../common/basehalfMirrorTree.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
@@ -353,6 +353,44 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.deepStrictEqual(await service.readCanvas(folder('')), updated);
 	});
 
+	test('transitions card geometry exactly and preserves unrelated latest rows', async () => {
+		const before = { path: 'a.md', kind: 'file' as const, x: 1, y: 2, width: 220, height: 112 };
+		const after = { ...before, x: 40, y: 50 };
+		const service = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', serializeCanvasFile({
+				path: '',
+				cards: [before, { path: 'other.md', kind: 'file', x: 300, y: 20, width: 220, height: 112 }],
+				edges: []
+			})]
+		]));
+
+		await service.transitionCanvasState(folder(''), {
+			cards: [{ path: 'a.md', expected: before, next: after }]
+		});
+
+		assert.deepStrictEqual((await service.readCanvas(folder('')))?.cards, [
+			{ path: 'other.md', kind: 'file', x: 300, y: 20, width: 220, height: 112 },
+			after
+		]);
+	});
+
+	test('card state transition fails closed when the touched row changed', async () => {
+		const current = { path: 'a.md', kind: 'file' as const, x: 9, y: 2, width: 220, height: 112 };
+		const service = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', serializeCanvasFile({ path: '', cards: [current], edges: [] })]
+		]));
+
+		await assert.rejects(() => service.transitionCanvasState(folder(''), {
+			cards: [{
+				path: 'a.md',
+				expected: { ...current, x: 1 },
+				next: { ...current, x: 40 }
+			}]
+		}), error => error instanceof BaseHalfCanvasStateConflict);
+
+		assert.deepStrictEqual((await service.readCanvas(folder('')))?.cards, [current]);
+	});
+
 	test('treats an empty card geometry batch as a read-only no-op', async () => {
 		const existingRaw = 'path: ""\ncards: []\nedges: []\n';
 		const fileService = new TestFileService(new Map([
@@ -552,6 +590,23 @@ suite('BaseHalfCanvasMirrorService', () => {
 			to: 'b.md',
 			to_anchor: 'north'
 		}]);
+	});
+
+	test('transitions reconnect endpoints together and rejects a destination collision', async () => {
+		const previous = { from: 'a.md', from_anchor: 'east' as const, to: 'b.md', to_anchor: 'west' as const };
+		const collision = { from: 'a.md', from_anchor: 'south' as const, to: 'c.md', to_anchor: 'north' as const };
+		const service = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', serializeCanvasFile({ path: '', cards: [], edges: [previous, collision] })]
+		]));
+
+		await assert.rejects(() => service.transitionCanvasState(folder(''), {
+			edges: [
+				{ from: previous.from, to: previous.to, expected: previous, next: null },
+				{ from: collision.from, to: collision.to, expected: null, next: { ...collision, from_anchor: 'east' } }
+			]
+		}), error => error instanceof BaseHalfCanvasStateConflict);
+
+		assert.deepStrictEqual((await service.readCanvas(folder('')))?.edges, [previous, collision]);
 	});
 
 	test('removing the last edge retains canonical empty canvas.yaml', async () => {

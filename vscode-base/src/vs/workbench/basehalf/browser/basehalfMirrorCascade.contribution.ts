@@ -4,16 +4,24 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../base/common/event.js';
-import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { VSBuffer } from '../../../base/common/buffer.js';
+import { Disposable, DisposableStore, IDisposable } from '../../../base/common/lifecycle.js';
 import { relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { FileOperation, FileOperationResult, IFileService, toFileOperationResult } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
+import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../platform/notification/common/notification.js';
+import { UndoRedoGroup } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
+import { ITextFileService } from '../../services/textfile/common/textfiles.js';
+import { ISearchService } from '../../services/search/common/search.js';
+import { QueryBuilder } from '../../services/search/common/queryBuilder.js';
 import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { BaseHalfBadgeKind } from '../common/basehalfBadgeMirror.js';
@@ -31,13 +39,72 @@ import {
 import { BaseHalfMirrorCascadeStageError, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfOrderCascadeStages, baseHalfPrepareStructuralDetail, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
+import {
+	BASEHALF_NODE_DOCUMENT_EXTENSION,
+	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
+	IBaseHalfNodeDocument,
+	baseHalfIsReservedOutputTreePath,
+	baseHalfNodeRecipeReferencesPath,
+	baseHalfProjectPathKey,
+	parseBaseHalfNodeDocumentBytesForActiveHost,
+	remapBaseHalfNodeRecipeInputBindings,
+	removeBaseHalfNodeRecipeInputBindings,
+	serializeBaseHalfNodeDocument
+} from '../common/basehalfNodeDocument.js';
+import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
+import { IBaseHalfProjectFileTransitionService } from '../common/basehalfProjectFileTransitions.js';
+import { IBaseHalfOwnedStagedDeleteCleanup, IBaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from './basehalfPluginStructuralDeleteCleanup.js';
 
 interface IBaseHalfPreparedStructuralOperation {
 	readonly operation: FileOperation.MOVE | FileOperation.DELETE;
 	readonly reservation: IBaseHalfStructuralMutationReservation;
 	kinds: ReadonlyMap<string, BaseHalfBadgeKind>;
+	readonly undoRedoGroup: UndoRedoGroup | undefined;
+	readonly stagedDeleteCleanups: IBaseHalfOwnedStagedDeleteCleanup[];
+	completedFileCount: number;
+	deleteCleanupsSettled: boolean;
+	finalizationSucceeded: boolean;
 	finalized: boolean;
 	published: boolean;
+	publication?: Promise<void>;
+}
+
+interface IBaseHalfNodeBindingDocument {
+	readonly resource: URI;
+	readonly expected: VSBuffer;
+	readonly document: IBaseHalfNodeDocument;
+}
+
+export function dirtyNodeTextMayReferencePath(text: string, affectedPaths: readonly string[]): boolean {
+	if (text.length > BASEHALF_NODE_DOCUMENT_MAX_BYTES) {
+		return true;
+	}
+	const roots = affectedPaths.map(path => baseHalfProjectPathKey(path));
+	const pattern = /"sourcePath"\s*:\s*("(?:\\.|[^"\\])*")/g;
+	for (const match of text.matchAll(pattern)) {
+		try {
+			const candidate: unknown = JSON.parse(match[1]);
+			if (typeof candidate !== 'string') {
+				continue;
+			}
+			const sourceKey = baseHalfProjectPathKey(candidate);
+			if (roots.some(root => sourceKey === root || sourceKey.startsWith(`${root}/`))) {
+				return true;
+			}
+		} catch {
+			// An invalid candidate is not a usable live binding.
+		}
+	}
+	return false;
+}
+
+export function nodeTextMayReferencePath(text: string, affectedPaths: readonly string[]): boolean {
+	try {
+		const document = parseBaseHalfNodeDocumentBytesForActiveHost(VSBuffer.fromString(text).buffer);
+		return affectedPaths.some(path => baseHalfNodeRecipeReferencesPath(document, path));
+	} catch {
+		return dirtyNodeTextMayReferencePath(text, affectedPaths);
+	}
 }
 
 interface IBaseHalfCascadeStage {
@@ -112,17 +179,24 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IFileService private readonly fileService: IFileService,
+		@ISearchService private readonly searchService: ISearchService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
+		@ITextFileService private readonly textFileService: ITextFileService,
 		@ILogService private readonly logService: ILogService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
-		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
+		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
+		@IBaseHalfProjectFileTransitionService private readonly projectFileTransitionService: IBaseHalfProjectFileTransitionService,
+		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService
 	) {
 		super();
 
 		this._register(workingCopyFileService.addFileOperationPrecondition({
-			prepare: (files, operation) => this.prepareStructuralDetail(files, operation)
+			prepare: (files, operation, undoInfo, token) => this.prepareStructuralDetail(files, operation, undoInfo, token)
 		}));
 
 		this._register(this.fileService.onDidFilesChange(event => {
@@ -142,33 +216,47 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		}
 	}
 
-	private async prepareStructuralDetail(files: readonly SourceTargetPair[], operation: FileOperation): Promise<IWorkingCopyFileOperationPreconditionGuard | void> {
+	private async prepareStructuralDetail(files: readonly SourceTargetPair[], operation: FileOperation, undoInfo: IFileOperationUndoRedoInfo | undefined, token: CancellationToken): Promise<IWorkingCopyFileOperationPreconditionGuard | void> {
 		if (operation !== FileOperation.MOVE && operation !== FileOperation.DELETE) {
 			return;
 		}
 		if (operation === FileOperation.MOVE && baseHalfMoveCrossesWorkspaceRoots(files, resource => this.contextService.getWorkspaceFolder(resource)?.uri)) {
 			throw new Error('Moving a BaseHalf node between workspace roots is not supported because its workspace-local badge graph cannot be migrated without data loss.');
 		}
+		const executionFence = await this.nodeExecutionService.acquireStructuralOperation(operation, files, token);
 		const affectedPaths = this.operationAffectedPaths(files);
 		const workspaces = this.operationWorkspaces(files);
 		if (affectedPaths.length === 0 || workspaces.length === 0) {
-			return;
+			return executionFence;
 		}
 		const pendingRecovery = this.pendingRecoveryFor(workspaces);
 		if (pendingRecovery) {
+			executionFence.dispose();
 			throw new Error(`A file operation is still finalizing BaseHalf metadata for ${pendingRecovery.description}. Use the Retry action in Notifications before changing these paths again.`);
 		}
 
 		// This is deliberately the first await boundary in BaseHalf's prepare:
 		// commit order is the order operations reach this hard barrier after VS
 		// Code participants complete, not the order of un-awaited API calls.
-		const context: IBaseHalfPreparedStructuralOperation = {
-			operation,
-			reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
-			kinds: new Map(),
-			finalized: false,
-			published: false
-		};
+		let context: IBaseHalfPreparedStructuralOperation;
+		try {
+			context = {
+				operation,
+				reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
+				kinds: new Map(),
+				undoRedoGroup: undoInfo?.undoRedoGroup,
+				stagedDeleteCleanups: [],
+				completedFileCount: 0,
+				deleteCleanupsSettled: false,
+				finalizationSucceeded: false,
+				finalized: false,
+				published: false
+			};
+		} catch (error) {
+			executionFence.dispose();
+			throw error;
+		}
+		let fence: IDisposable | undefined;
 		try {
 			await context.reservation.ready;
 			if (this.disposed) {
@@ -176,7 +264,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			}
 			context.kinds = await this.captureOperationKinds(files);
 			const detail = this.canvasNavigationService.state.cardDetail;
-			const fence = await baseHalfPrepareStructuralDetail(
+			const preparedFence = await baseHalfPrepareStructuralDetail(
 				operation,
 				files,
 				detail?.resource,
@@ -189,11 +277,20 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				},
 				async () => this.flushAffectedActiveProjection(files, operation)
 			);
+			fence = preparedFence || undefined;
+			if (!undoInfo?.isUndoing) {
+				await context.reservation.runPrepared(async lease => {
+					if (operation === FileOperation.DELETE) {
+						context.stagedDeleteCleanups.push(...await this.pluginStructuralDeleteCleanupService.stageDelete(files, token, lease));
+					}
+					await this.stageDestructiveBindingCleanups(context, files, lease);
+				});
+			}
 			let disposed = false;
 			return {
 				didRun: completedFiles => this.finalizePreparedOperation(context, completedFiles, false),
 				didFail: completedFiles => this.finalizePreparedOperation(context, completedFiles, true),
-				afterPublicEvents: () => this.publishPreparedOperation(context),
+				afterPublicEvents: operationSucceeded => this.completePreparedOperation(context, operationSucceeded),
 				dispose: () => {
 					if (disposed) {
 						return;
@@ -207,9 +304,12 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 						void this.abortPreparedOperation(context);
 					}
 					fence?.dispose();
+					executionFence.dispose();
 				}
 			};
 		} catch (error) {
+			fence?.dispose();
+			executionFence.dispose();
 			await this.abortPreparedOperation(context);
 			throw error;
 		}
@@ -245,8 +345,33 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		if (!context.finalized || context.published) {
 			return;
 		}
+		if (!context.publication) {
+			const publication = context.reservation.publish();
+			context.publication = publication;
+			void publication.then(undefined, () => {
+				if (!context.published && context.publication === publication) {
+					context.publication = undefined;
+				}
+			});
+		}
+		await context.publication;
 		context.published = true;
-		await context.reservation.publish();
+	}
+
+	private async completePreparedOperation(context: IBaseHalfPreparedStructuralOperation, operationSucceeded: boolean): Promise<void> {
+		if (!context.deleteCleanupsSettled) {
+			context.deleteCleanupsSettled = true;
+			const canJoinFileUndo = operationSucceeded
+				&& context.finalizationSucceeded
+				&& context.completedFileCount > 0
+				&& context.undoRedoGroup !== undefined;
+			settleBaseHalfStagedDeleteCleanups(
+				context.stagedDeleteCleanups,
+				context.completedFileCount,
+				canJoinFileUndo ? context.undoRedoGroup : undefined
+			);
+		}
+		await this.publishPreparedOperation(context);
 	}
 
 	private async finalizePreparedOperation(context: IBaseHalfPreparedStructuralOperation, completedFiles: readonly SourceTargetPair[], failed: boolean): Promise<void> {
@@ -254,18 +379,39 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			return;
 		}
 		context.finalized = true;
+		context.completedFileCount = completedFiles.length;
 		if (!failed) {
-			await context.reservation.finishInternal(
-				lease => this.handleOperation(context.operation, completedFiles, context.kinds, lease),
-				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
-			);
+			try {
+				await context.reservation.finishInternal(
+					lease => this.handleOperation(context.operation, completedFiles, context.kinds, lease),
+					baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
+				);
+				context.finalizationSucceeded = true;
+			} catch (error) {
+				// The physical operation completed, so every staged cleanup must
+				// remain even though no file undo element will be published.
+				throw error;
+			}
 		} else if (completedFiles.length === 0) {
-			await context.reservation.abortInternal();
+			let rollbackError: unknown;
+			try {
+				await context.reservation.runPrepared(lease => rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, 0, lease));
+			} catch (error) {
+				rollbackError = error;
+			} finally {
+				await context.reservation.abortInternal();
+			}
+			if (rollbackError !== undefined) {
+				throw rollbackError;
+			}
 		} else {
 			this.logService.warn(`BaseHalf mirror cascade: ${context.operation === FileOperation.MOVE ? 'move' : 'delete'} batch failed after ${completedFiles.length} member(s) reached disk; reconciling the completed prefix`);
 			await context.reservation.reconcileInternal(
 				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles),
-				lease => this.handleOperation(context.operation, completedFiles, context.kinds, lease)
+				async lease => {
+					await rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, completedFiles.length, lease);
+					await this.handleOperation(context.operation, completedFiles, context.kinds, lease);
+				}
 			);
 		}
 	}
@@ -275,7 +421,18 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			return;
 		}
 		context.finalized = true;
-		await context.reservation.cancel();
+		let rollbackError: unknown;
+		try {
+			await context.reservation.runPrepared(lease => rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, 0, lease));
+			context.deleteCleanupsSettled = true;
+		} catch (error) {
+			rollbackError = error;
+		} finally {
+			await context.reservation.cancel();
+		}
+		if (rollbackError !== undefined) {
+			throw rollbackError;
+		}
 	}
 
 	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], kinds: ReadonlyMap<string, BaseHalfBadgeKind>, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
@@ -355,6 +512,10 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				{
 					label: 'focus identity retirement',
 					run: () => this.dropMirrorFiles(workspaceFolder, to.relativePath, 'focus.yaml')
+				},
+				{
+					label: 'recipe input identity rewrite',
+					run: () => this.rewriteNodeRecipeBindings(workspaceFolder, from.relativePath, to.relativePath)
 				}
 				],
 				semanticStages: [
@@ -399,6 +560,10 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				run: () => this.dropMirrorFiles(workspaceFolder, from.relativePath, 'focus.yaml')
 			},
 			{
+				label: 'recipe input subtree relocation',
+				run: () => this.rewriteNodeRecipeBindings(workspaceFolder, from.relativePath, to.relativePath)
+			},
+			{
 				label: 'badge graph identity replacement',
 				run: activeLease => this.badgeGraphService.replaceNodeIdentity(workspaceFolder, from.relativePath, to.relativePath, {
 					incomingKind: sourceKind,
@@ -412,6 +577,154 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			projectionStages: stages.slice(0, -1),
 			semanticStages: stages.slice(-1)
 		};
+	}
+
+	private async rewriteNodeRecipeBindings(workspaceFolder: URI, fromPath: string, toPath: string): Promise<void> {
+		const documents = await this.readNodeRecipeBindingDocuments(workspaceFolder, [fromPath]);
+		for (const { resource, expected, document } of documents) {
+			const updated = remapBaseHalfNodeRecipeInputBindings(document, fromPath, toPath);
+			if (updated === document) {
+				continue;
+			}
+			await this.fileService.writeFileWithExpectedContents(
+				resource,
+				VSBuffer.fromString(serializeBaseHalfNodeDocument(updated)),
+				expected,
+				{ atomic: { postfix: '.basehalf-binding-move-tmp' } }
+			);
+		}
+	}
+
+	private async stageDestructiveBindingCleanups(
+		context: IBaseHalfPreparedStructuralOperation,
+		files: readonly SourceTargetPair[],
+		lease: IBaseHalfWorkspaceMutationLease
+	): Promise<void> {
+		const destructive = files.map((file, ownerIndex) => {
+			const source = context.operation === FileOperation.DELETE ? file.target : file.source;
+			if (!source) {
+				return undefined;
+			}
+			const location = this.workspaceLocation(source);
+			if (!location) {
+				return undefined;
+			}
+			if (context.operation === FileOperation.MOVE) {
+				const target = this.workspaceLocation(file.target);
+				if (target && this.uriIdentityService.extUri.isEqual(target.workspaceFolder, location.workspaceFolder)) {
+					return undefined;
+				}
+			}
+			return { ownerIndex, source, ...location };
+		}).filter((entry): entry is NonNullable<typeof entry> => !!entry);
+		const excludedRoots = destructive.map(entry => entry.source);
+
+		for (const entry of destructive) {
+			const documents = await this.readNodeRecipeBindingDocuments(
+				entry.workspaceFolder,
+				[entry.relativePath],
+				excludedRoots
+			);
+			for (const { resource, expected, document } of documents) {
+				const updated = removeBaseHalfNodeRecipeInputBindings(document, entry.relativePath);
+				if (updated === document) {
+					continue;
+				}
+				const transition = await this.projectFileTransitionService.stage({
+					resource,
+					expected,
+					next: VSBuffer.fromString(serializeBaseHalfNodeDocument(updated)),
+					label: 'Update node inputs'
+				}, lease);
+				if (transition.changed) {
+					context.stagedDeleteCleanups.push({ ownerIndex: entry.ownerIndex, transition });
+				}
+			}
+		}
+	}
+
+	private async readNodeRecipeBindingDocuments(
+		workspaceFolder: URI,
+		affectedPaths: readonly string[],
+		excludedRoots: readonly URI[] = []
+	): Promise<readonly IBaseHalfNodeBindingDocument[]> {
+		const query = this.instantiationService.createInstance(QueryBuilder).file([workspaceFolder], {
+			filePattern: `**/*${BASEHALF_NODE_DOCUMENT_EXTENSION}`,
+			shouldGlobSearch: true,
+			maxResults: 100_000,
+			disregardIgnoreFiles: true,
+			disregardGlobalIgnoreFiles: true,
+			disregardParentIgnoreFiles: true,
+			disregardExcludeSettings: true,
+			disregardSearchExcludeSettings: true,
+			ignoreSymlinks: true
+		});
+		const result = await this.searchService.fileSearch(query, CancellationToken.None);
+		if (result.limitHit) {
+			throw new Error('The project contains too many node documents to update recipe inputs safely.');
+		}
+		const resources = result.results
+			.map(match => match.resource)
+			.filter(resource => {
+				const relativePath = getRelativePath(workspaceFolder, resource);
+				return resource.path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
+					&& relativePath !== undefined
+					&& !baseHalfIsReservedOutputTreePath(relativePath)
+					&& !excludedRoots.some(root => this.uriIdentityService.extUri.isEqualOrParent(resource, root));
+			})
+			.sort((left, right) => left.toString().localeCompare(right.toString()));
+		const documents: IBaseHalfNodeBindingDocument[] = [];
+		for (const resource of resources) {
+			if (this.workingCopyService.isDirty(resource)) {
+				const model = this.textFileService.files.get(resource);
+				if (!model?.isResolved()) {
+					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
+				}
+				const text = model.textEditorModel.getValue();
+				if (nodeTextMayReferencePath(text, affectedPaths)) {
+					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
+				}
+				let saved: VSBuffer;
+				try {
+					saved = (await this.fileService.readFile(resource, {
+						atomic: true,
+						limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
+					})).value;
+				} catch (error) {
+					if (toFileOperationResult(error) === FileOperationResult.FILE_TOO_LARGE) {
+						throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
+					}
+					throw error;
+				}
+				if (nodeTextMayReferencePath(saved.toString(), affectedPaths)) {
+					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
+				}
+				continue;
+			}
+			let expected: VSBuffer;
+			try {
+				expected = (await this.fileService.readFile(resource, {
+					atomic: true,
+					limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
+				})).value;
+			} catch (error) {
+				if (toFileOperationResult(error) === FileOperationResult.FILE_TOO_LARGE) {
+					continue;
+				}
+				throw error;
+			}
+			let document: IBaseHalfNodeDocument;
+			try {
+				document = parseBaseHalfNodeDocumentBytesForActiveHost(expected.buffer);
+			} catch {
+				continue;
+			}
+			if (!affectedPaths.some(path => baseHalfNodeRecipeReferencesPath(document, path))) {
+				continue;
+			}
+			documents.push({ resource, expected, document });
+		}
+		return documents;
 	}
 
 	private planCascadeDelete(resource: URI, kind: BaseHalfBadgeKind = 'file'): IBaseHalfCascadePlan | undefined {

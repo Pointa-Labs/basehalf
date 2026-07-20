@@ -52,7 +52,7 @@ suite('BaseHalfBadgeGraphService', () => {
 	test('addReference records both directions, materializing a stub target badge', async () => {
 		const { graph, fs } = createServices();
 
-		await graph.addReference(node('a.md'), node('b.md'));
+		assert.strictEqual(await graph.addReference(node('a.md'), node('b.md')), 'added');
 
 		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md'] }));
 		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { referenced_by: ['a.md'] }));
@@ -67,11 +67,11 @@ suite('BaseHalfBadgeGraphService', () => {
 	test('supports cycles and many-to-many context flow while keeping duplicate adds idempotent', async () => {
 		const { graph, fs } = createServices();
 
-		await graph.addReference(node('a.md'), node('b.md'));
+		assert.strictEqual(await graph.addReference(node('a.md'), node('b.md')), 'added');
 		await graph.addReference(node('a.md'), node('c.md'));
 		await graph.addReference(node('d.md'), node('b.md'));
 		await graph.addReference(node('b.md'), node('a.md'));
-		await graph.addReference(node('a.md'), node('b.md'));
+		assert.strictEqual(await graph.addReference(node('a.md'), node('b.md')), 'already-connected');
 
 		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md', 'c.md'], referenced_by: ['b.md'] }));
 		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { references: ['a.md'], referenced_by: ['a.md', 'd.md'] }));
@@ -103,6 +103,55 @@ suite('BaseHalfBadgeGraphService', () => {
 		const absent = createServices();
 		assert.strictEqual(await absent.graph.repairIncompleteReference(node('a.md'), node('b.md')), false);
 		assert.strictEqual(absent.fs.files.size, 0);
+	});
+
+	test('addReference reports when it repairs an incomplete pair', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md'] })
+		});
+
+		assert.strictEqual(await graph.addReference(node('a.md'), node('b.md')), 'repaired');
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { referenced_by: ['a.md'] }));
+	});
+
+	test('a repaired add can restore the exact one-sided state after a larger transaction fails', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A', references: ['b.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { description: 'B' })
+		});
+
+		const transition = await graph.addReferenceWithState(node('a.md'), node('b.md'));
+		assert.deepStrictEqual(transition, {
+			result: 'repaired',
+			before: { forward: true, backlink: false, forwardIndex: 0 },
+			after: { forward: true, backlink: true, forwardIndex: 0, backlinkIndex: 0 }
+		});
+
+		await graph.transitionReferenceStates([{
+			source: node('a.md'),
+			target: node('b.md'),
+			expected: transition.after,
+			next: transition.before
+		}]);
+
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A', references: ['b.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { description: 'B' }));
+	});
+
+	test('a guarded state transition fails closed after either endpoint changes', async () => {
+		const { graph, fs } = createServices();
+		const transition = await graph.addReferenceWithState(node('a.md'), node('b.md'));
+		fs.files.set(badgePath('b.md'), badgeYaml('b.md'));
+
+		await assert.rejects(() => graph.transitionReferenceStates([{
+			source: node('a.md'),
+			target: node('b.md'),
+			expected: transition.after,
+			next: transition.before
+		}]), /changed before this operation/);
+
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
 	});
 
 	test('addReference restores the source when writing the target backlink fails', async () => {
@@ -205,6 +254,25 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['c.md'] }));
 		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
 		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }));
+	});
+
+	test('reconnect state can restore an incomplete destination exactly', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md', 'c.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] }),
+			[badgePath('c.md')]: badgeYaml('c.md', { description: 'C' })
+		});
+
+		const transition = await graph.reconnectReferenceWithState(node('a.md'), node('b.md'), node('a.md'), node('c.md'));
+		assert.strictEqual(transition.result, 'replaced');
+		await graph.transitionReferenceStates([
+			{ source: node('a.md'), target: node('b.md'), expected: transition.after.previous, next: transition.before.previous },
+			{ source: node('a.md'), target: node('c.md'), expected: transition.after.next, next: transition.before.next }
+		]);
+
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md', 'c.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { referenced_by: ['a.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C' }));
 	});
 
 	test('reconnectReference repairs a target-only destination while replacing the previous pair', async () => {

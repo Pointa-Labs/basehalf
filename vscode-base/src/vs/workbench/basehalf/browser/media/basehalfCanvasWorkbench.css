@@ -256,6 +256,72 @@
 	pointer-events: none;
 }
 
+.monaco-workbench .basehalf-canvas-selection-toolbar {
+	position: absolute;
+	z-index: 32;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	box-sizing: border-box;
+	height: 32px;
+	padding: 3px;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 6px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above {
+	transform: translate(-50%, calc(-100% - 10px)) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: bottom center;
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below {
+	transform: translate(-50%, 10px) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: top center;
+}
+
+.monaco-workbench .basehalf-canvas-selection-count {
+	display: inline-flex;
+	min-width: 20px;
+	height: 22px;
+	align-items: center;
+	justify-content: center;
+	padding: 0 4px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action {
+	display: inline-flex;
+	width: 26px;
+	height: 24px;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.danger:hover {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
 .monaco-workbench .basehalf-canvas-edge-path {
 	fill: none;
 	stroke: var(--bh-card-text-ghost);
@@ -734,10 +800,725 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-preview.kind-folder,
 .monaco-workbench .basehalf-canvas-card-preview.kind-media,
+.monaco-workbench .basehalf-canvas-card-preview.kind-node,
+.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode,
 .monaco-workbench .basehalf-canvas-card-preview.kind-empty,
 .monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
 	font-family: inherit;
 	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 9px 12px 10px;
+	mask-image: none;
+	-webkit-mask-image: none;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-title {
+	color: var(--vscode-errorForeground);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-message {
+	display: -webkit-box;
+	overflow: hidden;
+	font-size: 10px;
+	line-height: 1.35;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action {
+	align-self: flex-end;
+	margin-top: auto;
+	padding: 2px 0;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 0;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-node {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 9px 12px 10px;
+	mask-image: none;
+	-webkit-mask-image: none;
+	color: var(--bh-card-text-secondary);
+}
+
+.monaco-workbench .basehalf-canvas-node-current {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-node-current-label {
+	margin-bottom: 3px;
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1.3;
+}
+
+.monaco-workbench .basehalf-canvas-node-current-value {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--bh-card-text-primary);
+	font-size: 12px;
+	line-height: 1.4;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	white-space: normal;
+}
+
+.monaco-workbench .basehalf-canvas-node-current-media {
+	flex: 1;
+	min-height: 44px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
+	border-radius: 4px;
+}
+
+.monaco-workbench .basehalf-canvas-node-status {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+	line-height: 1.3;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+.monaco-workbench .basehalf-canvas-node-status.ready {
+	color: var(--vscode-testing-iconPassed);
+}
+
+.monaco-workbench .basehalf-canvas-node-status.explaining-action {
+	color: var(--vscode-foreground);
+	-webkit-line-clamp: 3;
+}
+
+.monaco-workbench .basehalf-canvas-node-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: auto;
+}
+
+.monaco-workbench .basehalf-canvas-node-edit {
+	height: 26px;
+	padding: 0 7px;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-node-edit {
+	visibility: visible;
+}
+
+.monaco-workbench .basehalf-canvas-node-edit:hover {
+	color: var(--vscode-textLink-activeForeground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-node-edit:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-node-action {
+	min-width: 48px;
+	height: 26px;
+	padding: 0 10px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border: 0;
+	border-radius: 4px;
+	font: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-node-action:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"] {
+	opacity: 0.52;
+	cursor: help;
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"]:hover {
+	background: var(--vscode-button-background);
+}
+
+.monaco-workbench .basehalf-canvas-node-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-node-action:active {
+	transform: scale(0.97);
+}
+
+.monaco-workbench .basehalf-node-local-surface {
+	display: flex;
+	width: min(400px, calc(100vw - 32px));
+	max-height: min(640px, calc(100vh - 40px));
+	flex-direction: column;
+	overflow: hidden;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 8px;
+	box-shadow: 0 10px 32px rgb(0 0 0 / 28%);
+}
+
+.monaco-workbench .basehalf-node-local-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 16px 16px 10px;
+}
+
+.monaco-workbench .basehalf-node-local-heading {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-node-local-title {
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-node-local-role,
+.monaco-workbench .basehalf-node-local-description,
+.monaco-workbench .basehalf-node-local-empty,
+.monaco-workbench .basehalf-node-local-footer-message {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-node-local-close,
+.monaco-workbench .basehalf-node-local-icon {
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	flex: 0 0 auto;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-node-local-close:hover,
+.monaco-workbench .basehalf-node-local-icon:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-node-local-mode-switch {
+	display: flex;
+	min-height: 30px;
+	align-items: stretch;
+	gap: 20px;
+	padding: 0 16px;
+	border-bottom: var(--vscode-strokeThickness) solid var(--vscode-widget-border);
+}
+
+.monaco-workbench .basehalf-node-local-mode {
+	position: relative;
+	min-width: 0;
+	padding: 0 2px;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	font: inherit;
+	font-size: var(--vscode-bodyFontSize-xSmall);
+	font-weight: var(--vscode-agents-fontWeight-semiBold);
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-node-local-mode.active {
+	color: var(--vscode-foreground);
+	border-bottom-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-node-local-mode.has-draft::after {
+	position: absolute;
+	top: 7px;
+	right: -7px;
+	width: 4px;
+	height: 4px;
+	background: var(--vscode-inputValidation-warningBorder, var(--vscode-problemsWarningIcon-foreground));
+	border-radius: 50%;
+	content: '';
+}
+
+.monaco-workbench .basehalf-node-local-mode:focus-visible,
+.monaco-workbench .basehalf-node-local-close:focus-visible,
+.monaco-workbench .basehalf-node-local-icon:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-node-local-readiness {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 10px 16px 2px;
+	padding: 9px 10px;
+	color: var(--vscode-foreground);
+	background: var(--vscode-textBlockQuote-background);
+	border-radius: 5px;
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+.monaco-workbench .basehalf-node-local-readiness-dot {
+	width: 7px;
+	height: 7px;
+	margin-top: 4px;
+	flex: 0 0 auto;
+	background: var(--vscode-problemsWarningIcon-foreground);
+	border-radius: 50%;
+}
+
+.monaco-workbench .basehalf-node-local-readiness.ready .basehalf-node-local-readiness-dot {
+	background: var(--vscode-testing-iconPassed);
+}
+
+.monaco-workbench .basehalf-node-local-readiness-text {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-node-local-conflict {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	margin: 8px 16px 2px;
+	padding: 9px 10px;
+	background: var(--vscode-inputValidation-warningBackground);
+	border: 1px solid var(--vscode-inputValidation-warningBorder);
+	border-radius: 5px;
+}
+
+.monaco-workbench .basehalf-node-local-conflict.refresh-failed {
+	background: var(--vscode-inputValidation-errorBackground);
+	border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.monaco-workbench .basehalf-node-local-conflict-title {
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-node-local-conflict-message {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-node-local-conflict-actions,
+.monaco-workbench .basehalf-node-local-content-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-top: 2px;
+}
+
+.monaco-workbench .basehalf-node-local-body {
+	min-height: 0;
+	padding: 2px 16px 10px;
+	overflow: auto;
+}
+
+.monaco-workbench .basehalf-node-local-body[hidden],
+.monaco-workbench .basehalf-node-local-footer[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-node-local-section {
+	padding: 12px 0;
+	border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.monaco-workbench .basehalf-node-local-section:last-child {
+	border-bottom: 0;
+}
+
+.monaco-workbench .basehalf-node-local-section.low-priority {
+	padding-top: 16px;
+	border-bottom: 0;
+}
+
+.monaco-workbench .basehalf-node-local-section.low-priority .basehalf-node-local-section-title {
+	color: var(--vscode-disabledForeground);
+	font-weight: 550;
+}
+
+.monaco-workbench .basehalf-node-local-section-title {
+	margin-bottom: 7px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	font-weight: 650;
+	letter-spacing: 0.05em;
+	line-height: 1.3;
+	text-transform: uppercase;
+}
+
+.monaco-workbench .basehalf-node-local-field + .basehalf-node-local-field {
+	margin-top: 10px;
+}
+
+.monaco-workbench .basehalf-node-local-label {
+	display: block;
+	margin-bottom: 5px;
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-node-local-input,
+.monaco-workbench .basehalf-node-local-select {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 30px;
+	padding: 5px 8px;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 3px;
+	font: inherit;
+	font-size: 12px;
+}
+
+.monaco-workbench .basehalf-node-local-compact-select {
+	max-width: 132px;
+	height: 26px;
+	padding: 2px 6px;
+	color: var(--vscode-dropdown-foreground);
+	background: var(--vscode-dropdown-background);
+	border: 1px solid var(--vscode-dropdown-border, transparent);
+	border-radius: 3px;
+	font: inherit;
+	font-size: 10px;
+}
+
+.monaco-workbench .basehalf-node-local-add-input {
+	margin-top: 8px;
+}
+
+.monaco-workbench textarea.basehalf-node-local-input {
+	min-height: 68px;
+	line-height: 1.45;
+	resize: vertical;
+}
+
+.monaco-workbench .basehalf-node-local-input:focus,
+.monaco-workbench .basehalf-node-local-select:focus {
+	border-color: var(--vscode-focusBorder);
+	outline: 0;
+}
+
+.monaco-workbench .basehalf-node-local-description {
+	margin-top: 6px;
+}
+
+.monaco-workbench .basehalf-node-local-link {
+	padding: 2px 0;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 0;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-node-local-link:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
+.monaco-workbench .basehalf-node-local-link:disabled {
+	color: var(--vscode-disabledForeground);
+	cursor: default;
+	text-decoration: none;
+}
+
+.monaco-workbench .basehalf-node-local-slot-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 8px;
+}
+
+.monaco-workbench .basehalf-node-local-slot,
+.monaco-workbench .basehalf-node-local-current-chip {
+	padding: 2px 6px;
+	color: var(--vscode-descriptionForeground);
+	background: var(--vscode-badge-background);
+	border-radius: 999px;
+	font-size: 10px;
+	line-height: 1.4;
+}
+
+.monaco-workbench .basehalf-node-local-list,
+.monaco-workbench .basehalf-node-local-history {
+	margin-top: 8px;
+}
+
+.monaco-workbench .basehalf-node-local-input-row,
+.monaco-workbench .basehalf-node-local-history-row,
+.monaco-workbench .basehalf-node-local-current-row {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 0;
+}
+
+.monaco-workbench .basehalf-node-local-input-row + .basehalf-node-local-input-row,
+.monaco-workbench .basehalf-node-local-history-row + .basehalf-node-local-history-row {
+	border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border) 72%, transparent);
+}
+
+.monaco-workbench .basehalf-node-local-input-row.invalid {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-node-local-input-text,
+.monaco-workbench .basehalf-node-local-history-text,
+.monaco-workbench .basehalf-node-local-current-text {
+	min-width: 0;
+	flex: 1;
+}
+
+.monaco-workbench .basehalf-node-local-input-name,
+.monaco-workbench .basehalf-node-local-history-title,
+.monaco-workbench .basehalf-node-local-current-value {
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-node-local-input-meta,
+.monaco-workbench .basehalf-node-local-history-detail,
+.monaco-workbench .basehalf-node-local-current-source {
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-node-local-history-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 0 0 auto;
+}
+
+.monaco-workbench .basehalf-node-local-history-row {
+	flex-wrap: wrap;
+}
+
+.monaco-workbench .basehalf-node-local-history-disclosure {
+	flex: 0 0 100%;
+	padding: 6px 8px;
+	box-sizing: border-box;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--vscode-editor-background) 70%, transparent);
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--monaco-monospace-font);
+	font-size: 10px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.monaco-workbench .basehalf-node-local-footer {
+	display: flex;
+	min-height: 52px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 12px;
+	padding: 10px 16px;
+	border-top: 1px solid var(--vscode-widget-border);
+}
+
+.monaco-workbench .basehalf-node-local-footer-message {
+	min-width: 0;
+	flex: 1;
+}
+
+.monaco-workbench .basehalf-node-local-save {
+	min-width: 64px;
+	height: 30px;
+	padding: 0 12px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border: 0;
+	border-radius: 3px;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-node-local-save:hover:not(:disabled) {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .basehalf-node-local-save:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-media {
+	position: relative;
+	padding: 0;
+	mask-image: none;
+	-webkit-mask-image: none;
+	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-visual {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: rgb(0 0 0 / 16%);
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
+	object-fit: cover;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-transport {
+	display: block;
+	width: calc(100% - 20px);
+	min-width: 0;
+	margin: auto 10px;
+	accent-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle {
+	display: flex;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 7px;
+	padding: 10px;
+	box-sizing: border-box;
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-glyph {
+	display: flex;
+	opacity: 0.78;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-label {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: 10px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-card:not(.selected) .media-audio > .basehalf-canvas-card-media-transport,
+.monaco-workbench .basehalf-canvas-card.selected .media-audio > .basehalf-canvas-card-media-idle {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-audio,
+.monaco-workbench .basehalf-canvas-node-current-media.media-audio {
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px;
+	box-sizing: border-box;
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-glyph {
+	display: flex;
+	opacity: 0.76;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-label {
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload {
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: var(--vscode-textLink-foreground);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
 }
 
 .monaco-workbench .bh-md-preview {
@@ -1116,10 +1897,19 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
+.monaco-workbench .react-flow__node.selected > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
-.monaco-workbench .basehalf-canvas-card-connect-handle.connectingto {
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
+.monaco-workbench .basehalf-canvas-card-connect-handle.clickconnecting,
+.monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible::before {
+	border-color: var(--vscode-focusBorder);
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 3px;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,

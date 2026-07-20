@@ -7,11 +7,13 @@ import { IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
 import { registerSingleton, InstantiationType } from '../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfCanvasActionContext } from './basehalfCanvasActionContext.js';
 
 export const BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID = 'basehalf.canvas.newNote';
+export const BASEHALF_CANVAS_UNDO_REDO_SOURCE = new UndoRedoSource();
 
-export type BaseHalfCanvasCreateKind = 'note' | 'file' | 'folder';
+export type BaseHalfCanvasCreateKind = 'note' | 'resultNode' | 'file' | 'folder';
 
 export const IBaseHalfCanvasEditingService = createDecorator<IBaseHalfCanvasEditingService>('baseHalfCanvasEditingService');
 
@@ -27,8 +29,11 @@ export type BaseHalfCanvasEditingHandler = (request: BaseHalfCanvasEditingReques
 export type BaseHalfCanvasInlineEditKeyAction = 'accept' | 'cancel';
 
 export function baseHalfCanvasInlineEditKeyAction(event: { readonly key: string; readonly isComposing: boolean; readonly keyCode: number }): BaseHalfCanvasInlineEditKeyAction | undefined {
+	if (event.isComposing || event.keyCode === 229) {
+		return undefined;
+	}
 	if (event.key === 'Enter') {
-		return event.isComposing || event.keyCode === 229 ? undefined : 'accept';
+		return 'accept';
 	}
 	if (event.key === 'Escape') {
 		return 'cancel';

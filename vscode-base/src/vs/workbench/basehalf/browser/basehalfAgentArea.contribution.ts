@@ -13,7 +13,7 @@ import { Emitter, Event } from '../../../base/common/event.js';
 import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../base/common/platform.js';
-import { isObject } from '../../../base/common/types.js';
+import { hasKey, isObject } from '../../../base/common/types.js';
 import { localize2 } from '../../../nls.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
@@ -37,6 +37,7 @@ import { EnablementState } from '../../services/extensionManagement/common/exten
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IExtensionService } from '../../services/extensions/common/extensions.js';
 import { IHostService } from '../../services/host/browser/host.js';
+import { IRemoteAgentService } from '../../services/remote/common/remoteAgentService.js';
 import { IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { TerminalCommandId } from '../../contrib/terminal/common/terminal.js';
 import { ICreateTerminalOptions, ITerminalInstance, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
@@ -73,6 +74,8 @@ import {
 	BaseHalfAgentSessionState,
 	BaseHalfExtensionAgentSessionKind,
 	baseHalfAgentSessionChoiceForKind,
+	baseHalfAgentSessionCanRequestNodeRuns,
+	baseHalfAgentSessionUsesLocalNodeRunBridge,
 	baseHalfTuiSessionLaunchConfig,
 	baseHalfTuiSessionLaunchFailureGuidance,
 	IBaseHalfAgentAreaService,
@@ -155,6 +158,7 @@ interface IBaseHalfRuntimeAgentSession {
 	dropPreview: HTMLElement;
 	disposables: DisposableStore;
 	terminal?: ITerminalInstance;
+	terminalPersistentProcessId?: number;
 	extensionSetVisible?: (visible: boolean) => void;
 	extensionLayout?: () => void;
 	extensionFocus?: () => void | Promise<void>;
@@ -309,6 +313,8 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private readonly _onDidChangeSessions = this._register(new Emitter<readonly IBaseHalfAgentAreaSession[]>());
 	readonly onDidChangeSessions: Event<readonly IBaseHalfAgentAreaSession[]> = this._onDidChangeSessions.event;
+	private readonly _onDidReleaseTerminalProcess = this._register(new Emitter<number>());
+	readonly onDidReleaseTerminalProcess: Event<number> = this._onDidReleaseTerminalProcess.event;
 
 	private readonly root: HTMLElement;
 	private readonly tabsBar: HTMLElement;
@@ -325,6 +331,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private tabsState: IBaseHalfAgentTabsState = BASEHALF_EMPTY_AGENT_TABS_STATE;
 	private readonly runtime = new Map<string, IBaseHalfRuntimeAgentSession>();
+	private readonly releasedTerminalProcessIds = new Set<number>();
 	private readonly extensionProviders = new Map<BaseHalfExtensionAgentSessionKind, IBaseHalfExtensionAgentProvider>();
 	private readonly graceTimers = new Map<string, number>();
 
@@ -350,7 +357,8 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
 		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
-		@IHostService private readonly hostService: IHostService
+		@IHostService private readonly hostService: IHostService,
+		@IRemoteAgentService private readonly remoteAgentService: IRemoteAgentService
 	) {
 		super();
 
@@ -458,6 +466,23 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			}
 			this.root.remove();
 		}));
+	}
+
+	ownsTerminalProcess(persistentProcessId: number): boolean {
+		return this.terminalProcessOwnership(persistentProcessId) === 'owned';
+	}
+
+	terminalProcessOwnership(persistentProcessId: number): 'owned' | 'released' | 'unknown' {
+		for (const session of this.runtime.values()) {
+			if (!baseHalfAgentSessionCanRequestNodeRuns(session.kind)) {
+				continue;
+			}
+			const currentProcessId = session.terminal?.persistentProcessId ?? session.terminalPersistentProcessId;
+			if (currentProcessId === persistentProcessId) {
+				return 'owned';
+			}
+		}
+		return this.releasedTerminalProcessIds.has(persistentProcessId) ? 'released' : 'unknown';
 	}
 
 	mountIn(container: HTMLElement): void {
@@ -1145,6 +1170,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private async attachTerminalToSession(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance, command?: string, focus = true): Promise<void> {
 		session.terminal = terminal;
+		this.rememberTerminalProcess(session, terminal);
 		session.disposables.add(terminal.onDisposed(() => this.handleTerminalDisposed(session)));
 		session.disposables.add(terminal.onTitleChanged(instance => {
 			if (instance.title && session.label !== instance.title) {
@@ -1156,6 +1182,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			this.mutateTabs(state => markAgentPaneActivity(state, session.id));
 		}));
 		session.disposables.add(terminal.onProcessIdReady(() => {
+			this.rememberTerminalProcess(session, terminal);
 			this.clearSessionStatePanel(session);
 			if (session.state === 'starting' || session.state === 'exited' || session.state === 'failed') {
 				session.state = 'ready';
@@ -1308,6 +1335,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	private disposeRuntimeSession(session: IBaseHalfRuntimeAgentSession, killTerminal: boolean): void {
+		const persistentProcessId = session.terminalPersistentProcessId ?? session.terminal?.persistentProcessId;
+		if (persistentProcessId !== undefined && baseHalfAgentSessionCanRequestNodeRuns(session.kind)) {
+			this.releaseTerminalProcess(persistentProcessId);
+		}
 		if (killTerminal && session.terminal && !session.terminal.isDisposed) {
 			void this.terminalService.safeDisposeTerminal(session.terminal);
 		}
@@ -1315,6 +1346,29 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.disposables.dispose();
 		void session.extensionDispose?.();
 		session.extensionDispose = undefined;
+	}
+
+	private rememberTerminalProcess(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance): void {
+		if (!baseHalfAgentSessionCanRequestNodeRuns(session.kind)) {
+			return;
+		}
+		const persistentProcessId = terminal.persistentProcessId;
+		if (persistentProcessId === undefined) {
+			return;
+		}
+		if (session.terminalPersistentProcessId !== undefined && session.terminalPersistentProcessId !== persistentProcessId) {
+			this.releaseTerminalProcess(session.terminalPersistentProcessId);
+		}
+		session.terminalPersistentProcessId = persistentProcessId;
+		this.releasedTerminalProcessIds.delete(persistentProcessId);
+	}
+
+	private releaseTerminalProcess(persistentProcessId: number): void {
+		if (this.releasedTerminalProcessIds.has(persistentProcessId)) {
+			return;
+		}
+		this.releasedTerminalProcessIds.add(persistentProcessId);
+		this._onDidReleaseTerminalProcess.fire(persistentProcessId);
 	}
 
 	// ── Rendering ──────────────────────────────────────────────────────────────
@@ -1865,27 +1919,30 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	private createTerminalOptions(kind: BaseHalfAgentSessionKind, label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
+		const usesNodeRunBridge = baseHalfAgentSessionUsesLocalNodeRunBridge(kind, !!this.remoteAgentService.getConnection());
 		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind);
 		if (tuiConfig) {
-			return { config: this.createAgentAreaTerminalConfig(label, { ...tuiConfig, name: label }) };
+			return { config: this.createAgentAreaTerminalConfig(label, { ...tuiConfig, name: label }, usesNodeRunBridge) };
 		}
 
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
-		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config);
+		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config, usesNodeRunBridge);
 		return terminalOptions;
 	}
 
-	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config']): ICreateTerminalOptions['config'] {
+	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean): ICreateTerminalOptions['config'] {
+		const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
+		const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
 		if (!config) {
-			return { name: label, env: this.createAgentAreaTerminalEnv(), hideFromUser: true };
+			return { name: label, env: this.createAgentAreaTerminalEnv(), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
 		}
 
-		if ('extensionIdentifier' in config) {
+		if (hasKey(config, { extensionIdentifier: true })) {
 			return config;
 		}
 
-		if ('profileName' in config && 'path' in config && config.path) {
+		if (hasKey(config, { profileName: true }) && config.path) {
 			const profile = config;
 			return {
 				executable: profile.path,
@@ -1894,7 +1951,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				icon: profile.icon,
 				color: profile.color,
 				name: profile.overrideName ? profile.profileName : label,
-				hideFromUser: true
+				hideFromUser: true,
+				baseHalfAgentAreaNodeCommandBridge,
+				isTransient
 			};
 		}
 
@@ -1903,7 +1962,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			...shellLaunchConfig,
 			env: this.createAgentAreaTerminalEnv(shellLaunchConfig.env),
 			name: shellLaunchConfig.name ?? label,
-			hideFromUser: true
+			hideFromUser: true,
+			baseHalfAgentAreaNodeCommandBridge,
+			isTransient: isTransient ?? shellLaunchConfig.isTransient
 		};
 	}
 
@@ -1924,7 +1985,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (!isObject(raw)) {
 			return undefined;
 		}
-		if ('target' in raw && 'currentTarget' in raw) {
+		if (hasKey(raw as Partial<Record<'target' | 'currentTarget', unknown>>, { target: true, currentTarget: true })) {
 			return undefined;
 		}
 		return raw as ICreateTerminalOptions;

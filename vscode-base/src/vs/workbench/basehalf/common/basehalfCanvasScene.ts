@@ -15,6 +15,9 @@ import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind
 export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	readonly path: string;
 	readonly kind: BaseHalfCanvasItemKind;
+	/** The visible card title is stored inside this resource, so the structural
+	 *  rename action changes only its filename. */
+	readonly renameChangesPathOnly?: true;
 	/** Product card contents are still authored by the workbench. React Flow owns
 	 *  the node wrapper, geometry, selection, handles, and resize interaction. */
 	readonly element: HTMLElement;
@@ -65,6 +68,29 @@ export interface IBaseHalfCanvasSceneConnection {
 	readonly toAnchor: IBaseHalfCanvasEdge['to_anchor'];
 }
 
+/** A completed source-handle gesture whose pointer landed on empty canvas.
+ *  The controller may offer compatible result-producing operations, but no
+ *  scene or file mutation has happened when this intent is emitted. */
+export interface IBaseHalfCanvasSceneConnectionDrop {
+	readonly from: string;
+	readonly fromKind: BaseHalfCanvasItemKind;
+	readonly fromAnchor: IBaseHalfCanvasEdge['from_anchor'];
+	readonly position: { readonly x: number; readonly y: number };
+}
+
+/** Resolves the only connection completion that may open a create menu. A
+ *  cancelled gesture or any gesture ending on a node has no persistent intent. */
+export function resolveBaseHalfCanvasSceneConnectionDrop(
+	source: Omit<IBaseHalfCanvasSceneConnectionDrop, 'position'> | undefined,
+	targetPresent: boolean,
+	position: { readonly x: number; readonly y: number }
+): IBaseHalfCanvasSceneConnectionDrop | undefined {
+	if (!source || targetPresent) {
+		return undefined;
+	}
+	return Object.freeze({ ...source, position: Object.freeze({ x: position.x, y: position.y }) });
+}
+
 export interface IBaseHalfCanvasSceneReconnect {
 	readonly previous: IBaseHalfCanvasSceneEdge;
 	readonly next: IBaseHalfCanvasSceneConnection;
@@ -75,10 +101,31 @@ export interface IBaseHalfCanvasSceneSelection {
 	readonly edgeId?: string;
 }
 
+export type BaseHalfCanvasSceneSelectionAction = 'rename' | 'duplicate' | 'delete' | 'copyReferences';
+
+/**
+ * The canvas selection surface is deliberately structural. It never mirrors
+ * node-local Run, recipe, model, or history controls into a bulk toolbar.
+ */
+export function baseHalfCanvasSceneSelectionActions(cardCount: number): readonly BaseHalfCanvasSceneSelectionAction[] {
+	if (cardCount <= 0) {
+		return [];
+	}
+	if (cardCount === 1) {
+		return ['rename', 'duplicate', 'delete'];
+	}
+	return ['duplicate', 'copyReferences', 'delete'];
+}
+
 export type BaseHalfCanvasSceneContextMenuRequest =
 	| {
 		readonly kind: 'card';
 		readonly path: string;
+		readonly anchor: HTMLElement | { readonly x: number; readonly y: number };
+	}
+	| {
+		readonly kind: 'edge';
+		readonly edge: IBaseHalfCanvasSceneEdge;
 		readonly anchor: HTMLElement | { readonly x: number; readonly y: number };
 	}
 	| {
@@ -94,8 +141,11 @@ export interface IBaseHalfCanvasSceneFitOptions {
 export interface IBaseHalfCanvasSceneDelegate {
 	commitGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void>;
 	connect(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void>;
+	createFromConnection(sceneKey: string, structuralEpoch: number, drop: IBaseHalfCanvasSceneConnectionDrop): Promise<void>;
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
+	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
+	activateCard(sceneKey: string, structuralEpoch: number, path: string): void;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;

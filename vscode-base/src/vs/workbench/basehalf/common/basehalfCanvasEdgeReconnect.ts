@@ -37,6 +37,12 @@ export type BaseHalfCanvasReconnectHit =
 	| { readonly kind: 'invalid-card' }
 	| { readonly kind: 'blank' };
 
+/** Only a valid card-side snap commits a reconnect. Dropping on empty canvas
+ *  or the excluded opposite endpoint cancels and preserves the existing edge. */
+export function baseHalfCanvasReconnectSnapForHit(hit: BaseHalfCanvasReconnectHit): IBaseHalfCanvasReconnectSnap | undefined {
+	return hit.kind === 'snap' ? hit.snap : undefined;
+}
+
 /** Matches the established card-side target depth used by connection drags. */
 export const BASEHALF_CANVAS_EDGE_RECONNECT_TARGET_DEPTH = 48;
 

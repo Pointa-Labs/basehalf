@@ -22,6 +22,44 @@ import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease 
 export const IBaseHalfBadgeGraphService = createDecorator<IBaseHalfBadgeGraphService>('baseHalfBadgeGraphService');
 
 export type BaseHalfReferenceReconnectResult = 'replaced' | 'already-connected';
+export type BaseHalfReferenceAddResult = 'added' | 'repaired' | 'already-connected';
+
+export interface IBaseHalfReferenceState {
+	readonly forward: boolean;
+	readonly backlink: boolean;
+	readonly forwardIndex?: number;
+	readonly backlinkIndex?: number;
+}
+
+export interface IBaseHalfReferenceAddTransition {
+	readonly result: BaseHalfReferenceAddResult;
+	readonly before: IBaseHalfReferenceState;
+	readonly after: IBaseHalfReferenceState;
+}
+
+export interface IBaseHalfReferenceRemoveTransition {
+	readonly removed: boolean;
+	readonly before: IBaseHalfReferenceState;
+	readonly after: IBaseHalfReferenceState;
+}
+
+export interface IBaseHalfReferenceReconnectState {
+	readonly previous: IBaseHalfReferenceState;
+	readonly next: IBaseHalfReferenceState;
+}
+
+export interface IBaseHalfReferenceReconnectTransition {
+	readonly result: BaseHalfReferenceReconnectResult;
+	readonly before: IBaseHalfReferenceReconnectState;
+	readonly after: IBaseHalfReferenceReconnectState;
+}
+
+export interface IBaseHalfReferenceStateTransition {
+	readonly source: IBaseHalfBadgeNode;
+	readonly target: IBaseHalfBadgeNode;
+	readonly expected: IBaseHalfReferenceState;
+	readonly next: IBaseHalfReferenceState;
+}
 
 export interface IBaseHalfBadgeIdentityReplacementOptions {
 	readonly incomingKind: BaseHalfBadgeKind;
@@ -80,8 +118,13 @@ export interface IBaseHalfBadgeGraphService {
 	 *  otherwise-empty badge retires it to a logically absent tombstone. */
 	updateDescription(node: IBaseHalfBadgeNode, description: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfBadgeFile | null>;
 	/** Record source→target context flow on both ends, materializing minimal
-	 *  badges as needed. Rejects self-references. Idempotent. */
-	addReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	 *  badges as needed. Rejects self-references. Idempotent. The result lets a
+	 *  larger UI transaction roll back only a relationship it actually created. */
+	addReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<BaseHalfReferenceAddResult>;
+	/** Add a relationship and return the exact two-endpoint state observed by
+	 *  the same graph transaction. Larger transactions use this to compensate a
+	 *  repaired one-sided pair without erasing the half that predated them. */
+	addReferenceWithState(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfReferenceAddTransition>;
 	/** Repair source→target only while exactly one endpoint records it. A pair
 	 *  that became complete or absent after UI render is a safe no-op. */
 	repairIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
@@ -89,6 +132,9 @@ export interface IBaseHalfBadgeGraphService {
 	 *  emptied. Returns whether the canonical source edge still existed when
 	 *  the transaction acquired the graph mutex. */
 	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
+	/** Remove a relationship and retain the exact state needed for guarded
+	 *  compensation or undo. */
+	removeReferenceWithState(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfReferenceRemoveTransition>;
 	/** Discard source→target only while exactly one endpoint records it. A pair
 	 *  that became complete or absent after UI render is a safe no-op. */
 	discardIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
@@ -101,6 +147,17 @@ export interface IBaseHalfBadgeGraphService {
 		nextTarget: IBaseHalfBadgeNode,
 		lease?: IBaseHalfWorkspaceMutationLease
 	): Promise<BaseHalfReferenceReconnectResult>;
+	/** Reconnect and retain both involved pair states for guarded compensation. */
+	reconnectReferenceWithState(
+		previousSource: IBaseHalfBadgeNode,
+		previousTarget: IBaseHalfBadgeNode,
+		nextSource: IBaseHalfBadgeNode,
+		nextTarget: IBaseHalfBadgeNode,
+		lease?: IBaseHalfWorkspaceMutationLease
+	): Promise<IBaseHalfReferenceReconnectTransition>;
+	/** Compare and transition one or more pair states as one graph transaction.
+	 *  A mismatch rejects the whole transition without changing either endpoint. */
+	transitionReferenceStates(changes: readonly IBaseHalfReferenceStateTransition[], lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	/** One node's badge, or null when it has none (delegates to the mirror). */
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	/** The node plus the raw outbound/inbound neighbours named by its badge.
@@ -182,21 +239,37 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		);
 	}
 
-	addReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+	addReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<BaseHalfReferenceAddResult> {
+		return this.addReferenceWithState(source, target, lease).then(transition => transition.result);
+	}
+
+	addReferenceWithState(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfReferenceAddTransition> {
 		if (source.relativePath === target.relativePath) {
 			throw new Error(`A badge cannot reference itself: ${source.relativePath}`);
 		}
 
 		this.assertOneWorkspace([source, target]);
 		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
-			await this.transactBadges([source, target], source.relativePath, current => {
+			return this.transactBadges<IBaseHalfReferenceAddTransition>([source, target], source.relativePath, current => {
 				const sourceBadge = current.get(source.relativePath) ?? emptyBadge(source.relativePath, source.kind);
 				const targetBadge = current.get(target.relativePath) ?? emptyBadge(target.relativePath, target.kind);
+				const hasForward = sourceBadge.references.includes(target.relativePath);
+				const hasBacklink = targetBadge.referenced_by.includes(source.relativePath);
+				const before = referenceState(sourceBadge, targetBadge, source.relativePath, target.relativePath);
+				const result: BaseHalfReferenceAddResult = hasForward && hasBacklink
+					? 'already-connected'
+					: hasForward || hasBacklink ? 'repaired' : 'added';
+				if (result === 'already-connected') {
+					return { result: { result, before, after: before }, updates: new Map() };
+				}
+				const nextSourceBadge = { ...sourceBadge, references: appendUnique(sourceBadge.references, target.relativePath) };
+				const nextTargetBadge = { ...targetBadge, referenced_by: appendUnique(targetBadge.referenced_by, source.relativePath) };
+				const after = referenceState(nextSourceBadge, nextTargetBadge, source.relativePath, target.relativePath);
 				return {
-					result: undefined,
-					updates: new Map([
-						[source.relativePath, { ...sourceBadge, references: appendUnique(sourceBadge.references, target.relativePath) }],
-						[target.relativePath, { ...targetBadge, referenced_by: appendUnique(targetBadge.referenced_by, source.relativePath) }]
+					result: { result, before, after },
+					updates: new Map<string, IBaseHalfBadgeFile | null>([
+						[source.relativePath, nextSourceBadge],
+						[target.relativePath, nextTargetBadge]
 					])
 				};
 			});
@@ -233,13 +306,19 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 	}
 
 	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean> {
+		return this.removeReferenceWithState(source, target, lease).then(transition => transition.removed);
+	}
+
+	removeReferenceWithState(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfReferenceRemoveTransition> {
 		this.assertOneWorkspace([source, target]);
 		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
 			return this.transactBadges([source, target], source.relativePath, current => {
 				const sourceBadge = current.get(source.relativePath) ?? null;
 				const targetBadge = current.get(target.relativePath) ?? null;
+				const before = referenceState(sourceBadge, targetBadge, source.relativePath, target.relativePath);
+				const after = { forward: false, backlink: false };
 				return {
-					result: sourceBadge?.references.includes(target.relativePath) ?? false,
+					result: { removed: before.forward, before, after },
 					updates: new Map([
 						[source.relativePath, sourceBadge ? pruneEmpty({ ...sourceBadge, references: sourceBadge.references.filter(candidate => candidate !== target.relativePath) }) : null],
 						[target.relativePath, targetBadge ? pruneEmpty({ ...targetBadge, referenced_by: targetBadge.referenced_by.filter(candidate => candidate !== source.relativePath) }) : null]
@@ -283,6 +362,16 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		nextTarget: IBaseHalfBadgeNode,
 		lease?: IBaseHalfWorkspaceMutationLease
 	): Promise<BaseHalfReferenceReconnectResult> {
+		return this.reconnectReferenceWithState(previousSource, previousTarget, nextSource, nextTarget, lease).then(transition => transition.result);
+	}
+
+	reconnectReferenceWithState(
+		previousSource: IBaseHalfBadgeNode,
+		previousTarget: IBaseHalfBadgeNode,
+		nextSource: IBaseHalfBadgeNode,
+		nextTarget: IBaseHalfBadgeNode,
+		lease?: IBaseHalfWorkspaceMutationLease
+	): Promise<IBaseHalfReferenceReconnectTransition> {
 		if (nextSource.relativePath === nextTarget.relativePath) {
 			throw new Error(`A badge cannot reference itself: ${nextSource.relativePath}`);
 		}
@@ -290,26 +379,29 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		this.assertOneWorkspace(nodes);
 		return this.runWorkspaceMutation(previousSource.workspaceFolder, lease, async () => {
 			const sameEdge = previousSource.relativePath === nextSource.relativePath && previousTarget.relativePath === nextTarget.relativePath;
-			return this.transactBadges(nodes, previousSource.relativePath, current => {
+			return this.transactBadges<IBaseHalfReferenceReconnectTransition>(nodes, previousSource.relativePath, current => {
 				const previousSourceBadge = current.get(previousSource.relativePath) ?? null;
 				const previousTargetBadge = current.get(previousTarget.relativePath) ?? null;
 				const nextSourceBadge = current.get(nextSource.relativePath) ?? null;
 				const nextTargetBadge = current.get(nextTarget.relativePath) ?? null;
-				const previousForward = previousSourceBadge?.references.includes(previousTarget.relativePath) ?? false;
-				const previousBacklink = previousTargetBadge?.referenced_by.includes(previousSource.relativePath) ?? false;
-				const nextForward = nextSourceBadge?.references.includes(nextTarget.relativePath) ?? false;
-				const nextBacklink = nextTargetBadge?.referenced_by.includes(nextSource.relativePath) ?? false;
+				const previousState = referenceState(previousSourceBadge, previousTargetBadge, previousSource.relativePath, previousTarget.relativePath);
+				const nextState = referenceState(nextSourceBadge, nextTargetBadge, nextSource.relativePath, nextTarget.relativePath);
+				const previousForward = previousState.forward;
+				const previousBacklink = previousState.backlink;
+				const nextForward = nextState.forward;
+				const nextBacklink = nextState.backlink;
 				const previousComplete = previousForward && previousBacklink;
 				const previousAbsent = !previousForward && !previousBacklink;
 				const nextComplete = nextForward && nextBacklink;
+				const before = { previous: previousState, next: nextState };
 				if (sameEdge && previousComplete) {
-					return { result: 'already-connected' as const, updates: new Map() };
+					return { result: { result: 'already-connected' as const, before, after: before }, updates: new Map() };
 				}
 				if (!sameEdge && previousAbsent && nextComplete) {
 					// The operation may have committed before an acknowledgement or replay.
 					// Accept only the exact converged state: the old pair is fully absent and
 					// the desired pair is fully present. Any XOR remains a stale conflict.
-					return { result: 'already-connected' as const, updates: new Map() };
+					return { result: { result: 'already-connected' as const, before, after: before }, updates: new Map() };
 				}
 				if (!previousComplete) {
 					throw new Error(`Cannot reconnect a stale reference: ${previousSource.relativePath} no longer references ${previousTarget.relativePath}.`);
@@ -337,7 +429,66 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 					}
 					updates.set(path, next);
 				}
-				return { result: 'replaced' as const, updates };
+				const after = {
+					previous: referenceState(
+						updates.get(previousSource.relativePath) ?? null,
+						updates.get(previousTarget.relativePath) ?? null,
+						previousSource.relativePath,
+						previousTarget.relativePath
+					),
+					next: referenceState(
+						updates.get(nextSource.relativePath) ?? null,
+						updates.get(nextTarget.relativePath) ?? null,
+						nextSource.relativePath,
+						nextTarget.relativePath
+					)
+				};
+				return { result: { result: 'replaced' as const, before, after }, updates };
+			});
+		});
+	}
+
+	transitionReferenceStates(changes: readonly IBaseHalfReferenceStateTransition[], lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		if (changes.length === 0) {
+			return Promise.resolve();
+		}
+		const nodes: IBaseHalfBadgeNode[] = [];
+		const keys = new Set<string>();
+		for (const change of changes) {
+			if (change.source.relativePath === change.target.relativePath) {
+				throw new Error(`A badge cannot reference itself: ${change.source.relativePath}`);
+			}
+			const key = `${change.source.relativePath}\0${change.target.relativePath}`;
+			if (keys.has(key)) {
+				throw new Error(`A reference state transition cannot contain the same pair twice: ${change.source.relativePath} → ${change.target.relativePath}`);
+			}
+			keys.add(key);
+			nodes.push(change.source, change.target);
+		}
+		this.assertOneWorkspace(nodes);
+		return this.runWorkspaceMutation(nodes[0].workspaceFolder, lease, async () => {
+			await this.transactBadges(nodes, changes[0].source.relativePath, current => {
+				for (const change of changes) {
+					const actual = referenceState(
+						current.get(change.source.relativePath) ?? null,
+						current.get(change.target.relativePath) ?? null,
+						change.source.relativePath,
+						change.target.relativePath
+					);
+					if (!referenceStatesEqual(actual, change.expected)) {
+						throw new Error(`The reference '${change.source.relativePath}' → '${change.target.relativePath}' changed before this operation could be applied.`);
+					}
+				}
+
+				const next = new Map(current);
+				for (const change of changes) {
+					applyReferenceState(next, change.source, change.target, change.next);
+				}
+				const updates = new Map<string, IBaseHalfBadgeFile | null>();
+				for (const node of nodes) {
+					updates.set(node.relativePath, next.get(node.relativePath) ?? null);
+				}
+				return { result: undefined, updates };
 			});
 		});
 	}
@@ -1100,6 +1251,72 @@ function pruneEmpty(badge: IBaseHalfBadgeFile): IBaseHalfBadgeFile | null {
 
 function appendUnique(values: readonly string[], value: string): string[] {
 	return values.includes(value) ? [...values] : [...values, value];
+}
+
+function referenceState(
+	source: IBaseHalfBadgeFile | null,
+	target: IBaseHalfBadgeFile | null,
+	sourcePath: string,
+	targetPath: string
+): IBaseHalfReferenceState {
+	const forwardIndex = source?.references.indexOf(targetPath) ?? -1;
+	const backlinkIndex = target?.referenced_by.indexOf(sourcePath) ?? -1;
+	return {
+		forward: forwardIndex >= 0,
+		backlink: backlinkIndex >= 0,
+		...(forwardIndex >= 0 ? { forwardIndex } : {}),
+		...(backlinkIndex >= 0 ? { backlinkIndex } : {})
+	};
+}
+
+function referenceStatesEqual(left: IBaseHalfReferenceState, right: IBaseHalfReferenceState): boolean {
+	return left.forward === right.forward
+		&& left.backlink === right.backlink
+		&& (right.forwardIndex === undefined || left.forwardIndex === right.forwardIndex)
+		&& (right.backlinkIndex === undefined || left.backlinkIndex === right.backlinkIndex);
+}
+
+function applyReferenceState(
+	badges: Map<string, IBaseHalfBadgeFile | null>,
+	source: IBaseHalfBadgeNode,
+	target: IBaseHalfBadgeNode,
+	state: IBaseHalfReferenceState
+): void {
+	const sourceBadge = badges.get(source.relativePath) ?? null;
+	const targetBadge = badges.get(target.relativePath) ?? null;
+	const nextSource = state.forward
+		? {
+			...(sourceBadge ?? emptyBadge(source.relativePath, source.kind)),
+			references: insertUniqueAt(sourceBadge?.references ?? [], target.relativePath, state.forwardIndex)
+		}
+		: sourceBadge ? {
+			...sourceBadge,
+			references: sourceBadge.references.filter(candidate => candidate !== target.relativePath)
+		} : null;
+	const nextTarget = state.backlink
+		? {
+			...(targetBadge ?? emptyBadge(target.relativePath, target.kind)),
+			referenced_by: insertUniqueAt(targetBadge?.referenced_by ?? [], source.relativePath, state.backlinkIndex)
+		}
+		: targetBadge ? {
+			...targetBadge,
+			referenced_by: targetBadge.referenced_by.filter(candidate => candidate !== source.relativePath)
+		} : null;
+	badges.set(source.relativePath, nextSource ? pruneEmpty(nextSource) : null);
+	badges.set(target.relativePath, nextTarget ? pruneEmpty(nextTarget) : null);
+}
+
+function insertUniqueAt(values: readonly string[], value: string, index: number | undefined): string[] {
+	if (values.includes(value)) {
+		return [...values];
+	}
+	const next = [...values];
+	if (index === undefined) {
+		next.push(value);
+	} else {
+		next.splice(Math.max(0, Math.min(index, next.length)), 0, value);
+	}
+	return next;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

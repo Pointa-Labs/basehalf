@@ -85,6 +85,28 @@ export class BaseHalfCanvasMirrorCorrupt extends Error {
 	}
 }
 
+export class BaseHalfCanvasStateConflict extends Error {
+	override readonly name = 'BaseHalfCanvasStateConflict';
+}
+
+export interface IBaseHalfCanvasCardStateTransition {
+	readonly path: string;
+	readonly expected: IBaseHalfCanvasCard | null;
+	readonly next: IBaseHalfCanvasCard | null;
+}
+
+export interface IBaseHalfCanvasEdgeStateTransition {
+	readonly from: string;
+	readonly to: string;
+	readonly expected: IBaseHalfCanvasEdge | null;
+	readonly next: IBaseHalfCanvasEdge | null;
+}
+
+export interface IBaseHalfCanvasStateTransition {
+	readonly cards?: readonly IBaseHalfCanvasCardStateTransition[];
+	readonly edges?: readonly IBaseHalfCanvasEdgeStateTransition[];
+}
+
 export interface IBaseHalfCanvasMirrorService {
 	readonly _serviceBrand: undefined;
 
@@ -96,6 +118,10 @@ export interface IBaseHalfCanvasMirrorService {
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
+	/** Apply exact card and edge transitions together. Only the addressed rows
+	 *  are compared, so unrelated layout edits survive; a touched row mismatch
+	 *  rejects the whole update without overwriting the newer state. */
+	transitionCanvasState(folder: IBaseHalfCanvasFolderState, transition: IBaseHalfCanvasStateTransition, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	/** A node moved `from` → `to`: re-root its own canvas subtree (a folder's
 	 *  child layouts), rewriting card paths and edge endpoints, and carry the
 	 *  PARENT folder's card for it — geometry kept on a same-parent rename,
@@ -170,6 +196,48 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
 		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
 			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => removeCanvasEdge(existing, edge))
+		);
+	}
+
+	transitionCanvasState(folder: IBaseHalfCanvasFolderState, transition: IBaseHalfCanvasStateTransition, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
+		validateCanvasStateTransition(transition);
+		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
+			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => {
+				for (const card of transition.cards ?? []) {
+					const actual = existing.cards.find(candidate => candidate.path === card.path) ?? null;
+					if (!nullableCanvasCardsEqual(actual, card.expected)) {
+						throw new BaseHalfCanvasStateConflict(`The canvas card '${card.path}' changed before this operation could be applied.`);
+					}
+				}
+				for (const edge of transition.edges ?? []) {
+					const actual = existing.edges.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
+					if (!nullableCanvasEdgesEqual(actual, edge.expected)) {
+						throw new BaseHalfCanvasStateConflict(`The canvas connection '${edge.from}' → '${edge.to}' changed before this operation could be applied.`);
+					}
+				}
+
+				let cards = [...existing.cards];
+				for (const card of transition.cards ?? []) {
+					cards = cards.filter(candidate => candidate.path !== card.path);
+					if (card.next) {
+						cards.push(card.next);
+					}
+				}
+				let edges = [...existing.edges];
+				for (const edge of transition.edges ?? []) {
+					edges = edges.filter(candidate => candidate.from !== edge.from || candidate.to !== edge.to);
+					if (edge.next) {
+						edges.push(edge.next);
+					}
+				}
+				const next = {
+					path: existing.path,
+					...(existing.size ? { size: existing.size } : {}),
+					cards,
+					edges
+				};
+				return canvasFilesEqual(existing, next) ? existing : next;
+			})
 		);
 	}
 
@@ -613,6 +681,54 @@ function isCanvasPatchConflict(error: unknown): boolean {
 
 function isEmptyCanvas(canvas: IBaseHalfCanvasFile): boolean {
 	return canvas.cards.length === 0 && canvas.edges.length === 0 && !canvas.size;
+}
+
+function validateCanvasStateTransition(transition: IBaseHalfCanvasStateTransition): void {
+	const cardPaths = new Set<string>();
+	for (const card of transition.cards ?? []) {
+		if (!card.path || cardPaths.has(card.path)) {
+			throw new Error(`A canvas state transition contains an invalid or duplicate card path: ${card.path}`);
+		}
+		cardPaths.add(card.path);
+		if (card.expected?.path !== undefined && card.expected.path !== card.path) {
+			throw new Error(`The expected canvas card identity does not match '${card.path}'.`);
+		}
+		if (card.next?.path !== undefined && card.next.path !== card.path) {
+			throw new Error(`The next canvas card identity does not match '${card.path}'.`);
+		}
+	}
+
+	const edgeKeys = new Set<string>();
+	for (const edge of transition.edges ?? []) {
+		const key = `${edge.from}\0${edge.to}`;
+		if (!edge.from || !edge.to || edge.from === edge.to || edgeKeys.has(key)) {
+			throw new Error(`A canvas state transition contains an invalid or duplicate connection: ${edge.from} → ${edge.to}`);
+		}
+		edgeKeys.add(key);
+		for (const state of [edge.expected, edge.next]) {
+			if (state && (state.from !== edge.from || state.to !== edge.to)) {
+				throw new Error(`A canvas connection state does not match '${edge.from}' → '${edge.to}'.`);
+			}
+		}
+	}
+}
+
+function nullableCanvasCardsEqual(first: IBaseHalfCanvasCard | null, second: IBaseHalfCanvasCard | null): boolean {
+	return first === second || !!first && !!second
+		&& first.path === second.path
+		&& first.kind === second.kind
+		&& first.x === second.x
+		&& first.y === second.y
+		&& first.width === second.width
+		&& first.height === second.height;
+}
+
+function nullableCanvasEdgesEqual(first: IBaseHalfCanvasEdge | null, second: IBaseHalfCanvasEdge | null): boolean {
+	return first === second || !!first && !!second
+		&& first.from === second.from
+		&& first.from_anchor === second.from_anchor
+		&& first.to === second.to
+		&& first.to_anchor === second.to_anchor;
 }
 
 function canvasFilesEqual(first: IBaseHalfCanvasFile, second: IBaseHalfCanvasFile): boolean {
