@@ -436,13 +436,15 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				.pipe(rename(f => f.dirname = `policies/${f.dirname}`));
 			all = es.merge(all, gulp.src('resources/linux/code.png', { base: '.' }), policyDest);
 		} else if (platform === 'darwin') {
-			const shortcut = gulp.src('resources/darwin/bin/code.sh')
+			const createShortcut = (destination: string) => gulp.src('resources/darwin/bin/code.sh')
 				.pipe(replace('@@APPNAME@@', product.applicationName))
 				.pipe(replace('@@NAME@@', product.nameShort))
-				.pipe(rename('bin/code'));
+				.pipe(rename(destination));
+			const shortcut = createShortcut('bin/code');
+			const productShortcut = createShortcut(`bin/${product.applicationName}`);
 			const policyDest = gulp.src('.build/policies/darwin/**', { base: '.build/policies/darwin' })
 				.pipe(rename(f => f.dirname = `policies/${f.dirname}`));
-			all = es.merge(all, shortcut, policyDest);
+			all = es.merge(all, shortcut, productShortcut, policyDest);
 		}
 
 		const electronConfig = {

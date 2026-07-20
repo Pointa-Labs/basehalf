@@ -1,10 +1,8 @@
 .vscode/**
 src/**
 test/**
-webview-src/**
-esbuild.webview.mts
+docs/**
 tsconfig.json
 tsconfig.tsbuildinfo
 out/**/*.map
-dist/**/*.map
 **/.DS_Store

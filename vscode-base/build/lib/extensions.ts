@@ -622,7 +622,6 @@ const esbuildMediaScripts: { script: string; tsconfig: string }[] = [
 	{ script: 'basehalf/esbuild.canvasReactVendor.mts', tsconfig: 'basehalf/canvas-react-vendor-src/tsconfig.json' },
 	{ script: 'basehalf/esbuild.contentViewer.mts', tsconfig: 'basehalf/content-viewer-src/tsconfig.json' },
 	{ script: 'basehalf/esbuild.markdownRich.mts', tsconfig: 'basehalf/markdown-rich-src/tsconfig.json' },
-	{ script: 'basehalf-ai-video/esbuild.webview.mts', tsconfig: 'basehalf-ai-video/webview-src/tsconfig.json' },
 	{ script: 'ipynb/esbuild.notebook.mts', tsconfig: 'ipynb/notebook-src/tsconfig.json' },
 	{ script: 'markdown-language-features/esbuild.notebook.mts', tsconfig: 'markdown-language-features/notebook/tsconfig.json' },
 	{ script: 'markdown-language-features/esbuild.webview.mts', tsconfig: 'markdown-language-features/preview-src/tsconfig.json' },

@@ -1,62 +1,442 @@
 {
-  "name": "basehalf-ai-video",
-  "displayName": "BaseHalf AI Video",
-  "description": "An Agent-authored local workflow canvas for scripts, images, audio, individual video clips, and playback order.",
-  "version": "0.4.0",
-  "publisher": "pointa",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Pointa-Labs/basehalf.git",
-    "directory": "vscode-base/extensions/basehalf-ai-video"
-  },
+	"name": "basehalf-ai-video",
+	"displayName": "BaseHalf AI Video",
+	"description": "Thin video-domain pack for BaseHalf's main canvas: recipes, a starter template, Sequence projection, and bounded structural cleanup.",
+	"version": "0.6.0",
+	"publisher": "pointa",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Pointa-Labs/basehalf.git",
+		"directory": "vscode-base/extensions/basehalf-ai-video"
+	},
 	"engines": {
 		"vscode": "^1.128.0",
 		"basehalf": "^0.4.0"
-  },
-  "extensionKind": [
-    "workspace"
-  ],
-  "categories": [
-    "Other"
-  ],
-  "main": "./out/extension.js",
-  "basehalf": {
-    "primaryCommand": "pointa.basehalf-ai-video.createProject",
-    "primaryCommandLabel": "Create AI Video Project…"
-  },
-  "capabilities": {
-    "untrustedWorkspaces": {
-      "supported": false,
-      "description": "AI Video workflows may write user-approved local output files and call configured providers."
-    },
-    "virtualWorkspaces": false
-  },
-  "contributes": {
-    "basehalfCardProjections": [
-      {
-        "id": "pointa.basehalf-ai-video.project",
-        "label": "AI Video",
-        "icon": "device-camera-video",
-        "extensions": [
-          ".aivideo"
-        ],
-        "order": 400,
-        "defaultPriority": 400
-      }
-    ],
-    "commands": [
-      {
-        "command": "pointa.basehalf-ai-video.createProject",
-        "title": "Create AI Video Project…",
-        "category": "BaseHalf"
-      }
-    ],
-    "jsonValidation": [
-      {
-        "fileMatch": "*.aivideo",
-        "url": "./schemas/aivideo.schema.json"
-      }
-    ]
-  }
+	},
+	"extensionKind": [
+		"workspace"
+	],
+	"categories": [
+		"Other"
+	],
+	"main": "./out/extension.js",
+	"basehalf": {
+		"primaryCommand": "pointa.basehalf-ai-video.createWorkflow",
+		"primaryCommandLabel": "Create Video Workflow…"
+	},
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": false,
+			"description": "Video workflow recipes may create user-approved local planning artifacts."
+		},
+		"virtualWorkspaces": false
+	},
+	"contributes": {
+		"basehalfCardProjections": [
+			{
+				"id": "pointa.basehalf-ai-video.sequence",
+				"label": "Sequence",
+				"icon": "list-ordered",
+				"fileNames": ["video-sequence.json"],
+				"order": 400,
+				"defaultPriority": 300
+			}
+		],
+		"basehalfStructuralCleanups": [
+			{
+				"id": "pointa.basehalf-ai-video.sequence-membership",
+				"extensions": [".bhnode"]
+			}
+		],
+		"basehalfAgentCapabilities": [
+			{
+				"id": "pointa.basehalf-ai-video.sequence-capability",
+				"label": "Video Workflow Documents",
+				"description": "Describe shots and arrange exact local clip results without adding another canvas, editor, or renderer.",
+				"documents": [
+					{
+						"kind": "pointa.basehalf-ai-video.shot",
+						"version": 1,
+						"fileExtensions": [".json"],
+						"schemaSummary": "A shot.json root object with version 1, kind pointa.basehalf-ai-video.shot, a stable id, a title, and clipNodePath ending in .bhnode. clipNodePath is relative to the directory containing that shot.json file."
+					},
+					{
+						"kind": "pointa.basehalf-ai-video.sequence",
+						"version": 1,
+						"fileExtensions": [".json"],
+						"schemaSummary": "A video-sequence.json root object with version 1, kind pointa.basehalf-ai-video.sequence, and ordered items. Every item requires a unique id, title, stable nodeId, videoNodePath ending in .bhnode relative to the directory containing video-sequence.json, and an exact versionId.",
+						"pin": {
+							"mode": "exact-result-version",
+							"field": "items[].versionId",
+							"targetKinds": ["video"],
+							"acceptedVersionStates": ["succeeded", "imported"],
+							"updatePolicy": "explicit"
+						}
+					}
+				],
+				"operations": [
+					{
+						"id": "pointa.basehalf-ai-video.sequence-inspect",
+						"command": "pointa.basehalf-ai-video.inspectSequence",
+						"description": "Validate every exact clip pin and report explicit Current updates without modifying the Sequence.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file in the open local workspace." }
+						],
+						"returns": { "type": "object", "description": "Validation status, update count, and per-item pin state." }
+					},
+					{
+						"id": "pointa.basehalf-ai-video.sequence-add",
+						"command": "pointa.basehalf-ai-video.addSequenceItemFromCurrent",
+						"description": "Append one verified Video Current as an exact pinned Sequence item.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
+								{ "name": "videoNode", "type": "uri", "required": true, "description": "URI of a saved Video result node under the workflow root containing video-sequence.json." },
+							{ "name": "itemId", "type": "string", "required": true, "description": "Unique stable id for the new Sequence item." },
+							{ "name": "title", "type": "string", "required": false, "description": "Optional human-readable clip title." }
+						],
+						"returns": { "type": "object", "description": "The add operation, saved item, saved Sequence document, and fresh inspection." }
+					},
+					{
+						"id": "pointa.basehalf-ai-video.sequence-move",
+						"command": "pointa.basehalf-ai-video.moveSequenceItem",
+						"description": "Move one pinned clip by one position in basic playback order.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
+							{ "name": "itemId", "type": "string", "required": true, "description": "Stable id of the Sequence item to move." },
+							{ "name": "direction", "type": "enum", "required": true, "description": "Move the item one position earlier or later.", "values": ["up", "down"] }
+						],
+						"returns": { "type": "object", "description": "The saved Sequence document after the move." }
+					},
+					{
+						"id": "pointa.basehalf-ai-video.sequence-update",
+						"command": "pointa.basehalf-ai-video.updateSequenceItemToCurrent",
+						"description": "Explicitly replace one exact pin with that Video node's verified Current version.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
+							{ "name": "itemId", "type": "string", "required": true, "description": "Stable id of the Sequence item to update." }
+						],
+						"returns": { "type": "object", "description": "Fresh Sequence inspection after the explicit pin update." }
+					},
+					{
+						"id": "pointa.basehalf-ai-video.sequence-remove",
+						"command": "pointa.basehalf-ai-video.removeSequenceItem",
+						"description": "Remove one playback-order reference while preserving its Video node and local results.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
+							{ "name": "itemId", "type": "string", "required": true, "description": "Stable id of the Sequence item to remove." }
+						],
+						"returns": { "type": "object", "description": "The remove operation, removed item, saved Sequence document, and fresh inspection." }
+					},
+					{
+						"id": "pointa.basehalf-ai-video.sequence-repair-path",
+						"command": "pointa.basehalf-ai-video.repairSequenceItemPath",
+						"description": "Explicitly repair one moved clip path after a bounded stable-identity scan verifies one unique node and the exact pinned result.",
+						"deterministic": true,
+						"parameters": [
+							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
+							{ "name": "itemId", "type": "string", "required": true, "description": "Stable id of the Sequence item whose missing path should be repaired." }
+						],
+						"returns": { "type": "object", "description": "Fresh Sequence inspection after the explicit path repair." }
+					}
+				]
+			}
+		],
+		"commands": [
+			{
+				"command": "pointa.basehalf-ai-video.createWorkflow",
+				"title": "Create Video Workflow…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.inspectSequence",
+				"title": "Show Video Sequence Status…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.addSequenceItemFromCurrent",
+				"title": "Add Current Video to Sequence…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.moveSequenceItem",
+				"title": "Move Video Sequence Clip…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.updateSequenceItemToCurrent",
+				"title": "Update Video Sequence Clip to Current…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.removeSequenceItem",
+				"title": "Remove Video Sequence Clip…",
+				"category": "BaseHalf"
+			},
+			{
+				"command": "pointa.basehalf-ai-video.repairSequenceItemPath",
+				"title": "Repair Moved Video Sequence Clip…",
+				"category": "BaseHalf"
+			}
+		],
+		"basehalfCanvasRecipes": [
+			{
+				"id": "pointa.basehalf-ai-video.storyboard-frame",
+				"label": "Storyboard Frame",
+				"description": "Create a labelled local SVG planning frame from shot instructions and references.",
+				"icon": "file-media",
+				"inputs": [
+					{
+						"id": "prompt",
+						"label": "Prompt",
+						"accepts": ["text", "code", "file"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "reference",
+						"label": "Reference",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "style",
+						"label": "Style Reference",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 4
+					}
+				],
+				"parameters": [
+					{
+						"id": "instructions",
+						"label": "Shot Instructions",
+						"type": "multiline",
+						"required": true,
+						"minLength": 1,
+						"maxLength": 16000
+					},
+					{
+						"id": "aspect-ratio",
+						"label": "Aspect Ratio",
+						"type": "enum",
+						"default": "9:16",
+						"options": [
+							{ "value": "9:16", "label": "Vertical 9:16" },
+							{ "value": "16:9", "label": "Landscape 16:9" },
+							{ "value": "1:1", "label": "Square 1:1" }
+						]
+					},
+					{
+						"id": "shot-label",
+						"label": "Shot Label",
+						"type": "string",
+						"default": "Shot",
+						"maxLength": 120
+					}
+				],
+				"outputs": [
+					{
+						"id": "storyboard",
+						"kind": "image",
+						"extensions": [".svg"],
+						"minItems": 1,
+						"maxItems": 1,
+						"primary": true
+					}
+				]
+			},
+			{
+				"id": "pointa.basehalf-ai-video.clip-brief",
+				"label": "Clip Previsualization",
+				"description": "Create a local text handoff for one planned video clip without claiming generated video.",
+				"icon": "device-camera-video",
+				"inputs": [
+					{
+						"id": "prompt",
+						"label": "Prompt",
+						"accepts": ["text", "code", "file"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "reference",
+						"label": "Visual Reference",
+						"accepts": ["image", "video"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "first-frame",
+						"label": "First Frame",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 1
+					},
+					{
+						"id": "last-frame",
+						"label": "Last Frame",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 1
+					},
+					{
+						"id": "source-video",
+						"label": "Source Video",
+						"accepts": ["video"],
+						"minItems": 0,
+						"maxItems": 1
+					},
+					{
+						"id": "audio",
+						"label": "Audio or Audio Plan",
+						"accepts": ["audio", "text", "file"],
+						"minItems": 0,
+						"maxItems": 4
+					},
+					{
+						"id": "style",
+						"label": "Style Reference",
+						"accepts": ["image", "video"],
+						"minItems": 0,
+						"maxItems": 4
+					}
+				],
+				"parameters": [
+					{
+						"id": "instructions",
+						"label": "Motion Instructions",
+						"type": "multiline",
+						"required": true,
+						"minLength": 1,
+						"maxLength": 16000
+					},
+					{
+						"id": "duration-seconds",
+						"label": "Duration",
+						"type": "number",
+						"default": 5,
+						"minimum": 1,
+						"maximum": 120,
+						"step": 1
+					},
+					{
+						"id": "aspect-ratio",
+						"label": "Aspect Ratio",
+						"type": "enum",
+						"default": "9:16",
+						"options": [
+							{ "value": "9:16", "label": "Vertical 9:16" },
+							{ "value": "16:9", "label": "Landscape 16:9" },
+							{ "value": "1:1", "label": "Square 1:1" }
+						]
+					},
+					{
+						"id": "audio-mode",
+						"label": "Audio",
+						"type": "enum",
+						"default": "auto",
+						"options": [
+							{ "value": "auto", "label": "Follow Connection" },
+							{ "value": "generate", "label": "Request Native Audio" },
+							{ "value": "none", "label": "No Audio" }
+						]
+					}
+				],
+				"outputs": [
+					{
+						"id": "brief",
+						"kind": "file",
+						"extensions": [".md"],
+						"minItems": 1,
+						"maxItems": 1,
+						"primary": true
+					}
+				]
+			},
+			{
+				"id": "pointa.basehalf-ai-video.audio-brief",
+				"label": "Audio Previsualization",
+				"description": "Create a local text handoff for planned dialogue, music, or sound without claiming generated audio.",
+				"icon": "unmute",
+				"inputs": [
+					{
+						"id": "prompt",
+						"label": "Prompt",
+						"accepts": ["text", "code", "file"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "reference",
+						"label": "Audio Reference",
+						"accepts": ["audio", "video"],
+						"minItems": 0,
+						"maxItems": 4
+					}
+				],
+				"parameters": [
+					{
+						"id": "instructions",
+						"label": "Audio Instructions",
+						"type": "multiline",
+						"required": true,
+						"minLength": 1,
+						"maxLength": 16000
+					},
+					{
+						"id": "purpose",
+						"label": "Purpose",
+						"type": "enum",
+						"default": "voice",
+						"options": [
+							{ "value": "voice", "label": "Voice" },
+							{ "value": "music", "label": "Music" },
+							{ "value": "effect", "label": "Sound Effect" }
+						]
+					},
+					{
+						"id": "duration-seconds",
+						"label": "Duration",
+						"type": "number",
+						"default": 5,
+						"minimum": 1,
+						"maximum": 3600,
+						"step": 1
+					},
+					{
+						"id": "voice",
+						"label": "Voice",
+						"type": "string",
+						"default": "auto",
+						"maxLength": 120
+					}
+				],
+				"outputs": [
+					{
+						"id": "brief",
+						"kind": "file",
+						"extensions": [".md"],
+						"minItems": 1,
+						"maxItems": 1,
+						"primary": true
+					}
+				]
+			}
+		],
+		"basehalfCanvasTemplates": [
+			{
+				"id": "pointa.basehalf-ai-video.starter-workflow",
+				"label": "Video Starter Workflow",
+				"description": "A local brief-to-shot workflow using ordinary files and host-owned canvas nodes.",
+				"resource": "templates/starter-workflow.json"
+			}
+		]
+	}
 }
