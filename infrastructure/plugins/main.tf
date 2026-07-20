@@ -113,11 +113,45 @@ resource "aws_kms_key" "catalog" {
   customer_master_key_spec = "ECC_NIST_P256"
   enable_key_rotation      = false
   deletion_window_in_days  = 30
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+locals {
+  catalog_signing_key_arn = coalesce(var.current_catalog_signing_key_arn, aws_kms_key.catalog.arn)
+  catalog_verification_key_arns = distinct(concat(
+    [local.catalog_signing_key_arn, aws_kms_key.catalog.arn],
+    var.trusted_catalog_verification_key_arns
+  ))
+  externally_managed_catalog_key_arns = toset(concat(
+    var.current_catalog_signing_key_arn == null ? [] : [var.current_catalog_signing_key_arn],
+    var.trusted_catalog_verification_key_arns
+  ))
+}
+
+data "aws_kms_key" "externally_managed_catalog" {
+  for_each = local.externally_managed_catalog_key_arns
+  key_id   = each.value
+}
+
+check "externally_managed_catalog_keys_are_usable" {
+  assert {
+    condition = alltrue([
+      for key in data.aws_kms_key.externally_managed_catalog :
+      key.enabled &&
+      key.key_state == "Enabled" &&
+      key.key_usage == "SIGN_VERIFY" &&
+      key.key_spec == "ECC_NIST_P256"
+    ])
+    error_message = "Every current or trusted external catalog KMS key must be Enabled and use SIGN_VERIFY with ECC_NIST_P256."
+  }
 }
 
 resource "aws_kms_alias" "catalog" {
   name          = "alias/basehalf-plugin-catalog"
-  target_key_id = aws_kms_key.catalog.key_id
+  target_key_id = local.catalog_signing_key_arn
 }
 
 resource "aws_cloudfront_origin_access_control" "plugins" {
@@ -262,9 +296,9 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main", "repo:${var.github_repository}:environment:plugins-production"]
+      values   = ["repo:${var.github_repository}:environment:plugins-production"]
     }
   }
 }
@@ -280,12 +314,16 @@ data "aws_iam_policy_document" "publisher" {
     resources = ["${aws_s3_bucket.plugins.arn}/*"]
   }
   statement {
-    actions   = ["s3:ListBucket"]
+    actions   = ["s3:ListBucket", "s3:ListBucketVersions"]
     resources = [aws_s3_bucket.plugins.arn]
   }
   statement {
-    actions   = ["kms:GetPublicKey", "kms:Sign", "kms:Verify"]
-    resources = [aws_kms_key.catalog.arn]
+    actions   = ["kms:Sign"]
+    resources = [local.catalog_signing_key_arn]
+  }
+  statement {
+    actions   = ["kms:GetPublicKey", "kms:Verify"]
+    resources = local.catalog_verification_key_arns
   }
   statement {
     actions   = ["cloudfront:CreateInvalidation"]

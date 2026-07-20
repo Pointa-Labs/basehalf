@@ -20,26 +20,34 @@ jobs:
     env:
       AWS_REGION: ${{ vars.BASEHALF_PLUGIN_AWS_REGION }}
       BUCKET: ${{ vars.BASEHALF_PLUGIN_BUCKET }}
+      SUBMISSION_BUCKET: ${{ vars.BASEHALF_PLUGIN_SUBMISSION_BUCKET }}
       DISTRIBUTION_ID: ${{ vars.BASEHALF_PLUGIN_CLOUDFRONT_DISTRIBUTION_ID }}
-      KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
-      CATALOG_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
+      BASEHALF_CATALOG_SIGNING_KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
+      BASEHALF_CATALOG_SIGNING_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
+      BASEHALF_CATALOG_TRUSTED_KMS_KEYS_JSON: ${{ vars.BASEHALF_PLUGIN_TRUSTED_KMS_KEYS_JSON }}
       CONTROL_PLANE_URL: ${{ vars.BASEHALF_PLUGIN_CONTROL_PLANE_URL }}
       RELEASE_TOKEN: ${{ secrets.BASEHALF_PLUGIN_RELEASE_SERVICE_TOKEN }}
       ASSET_BASE_URL: https://registry.basehalf.com/
-      WORKER_ID: github-catalog-promoter
+      WORKER_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: vscode-base/package-lock.json
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.BASEHALF_PLUGIN_AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate release trust configuration
+        run: |
+          SAFE_CONTROL_PLANE_URL=$(node --experimental-strip-types vscode-base/scripts/basehalf-release-preflight.mts control-url "$CONTROL_PLANE_URL")
+          printf 'CONTROL_PLANE_URL=%s\n' "$SAFE_CONTROL_PLANE_URL" >> "$GITHUB_ENV"
+          bash vscode-base/scripts/basehalf-catalog-kms.sh preflight
 
       - name: Install fixed catalog toolchain
         working-directory: vscode-base
@@ -50,66 +58,167 @@ jobs:
         run: |
           test -n "$CONTROL_PLANE_URL"
           test -n "$RELEASE_TOKEN"
+          test -n "$SUBMISSION_BUCKET"
+          write_ci_value() {
+            destination="$1"
+            name="$2"
+            value="$3"
+            delimiter="BASEHALF_$(openssl rand -hex 16)"
+            {
+              printf '%s<<%s\n' "$name" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$destination"
+          }
           mkdir -p release
-          curl --fail-with-body --silent --show-error \
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+            --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
             -H 'content-type: application/json' \
             -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
             --data "{\"worker_id\":\"$WORKER_ID\"}" \
             "$CONTROL_PLANE_URL/plugin-service/api/v1/internal/releases/claim" \
             > release/claim-response.json
           jq -e '.code == "00000"' release/claim-response.json >/dev/null
-          jq '.data' release/claim-response.json > release/job.json
-          if [ "$(jq -r 'type' release/job.json)" = null ]; then
-            echo 'has_job=false' >> "$GITHUB_OUTPUT"
+          jq '.data' release/claim-response.json > release/job.unvalidated.json
+          if [ "$(jq -r 'type' release/job.unvalidated.json)" = null ]; then
+            write_ci_value "$GITHUB_OUTPUT" has_job false
             exit 0
           fi
-          echo 'has_job=true' >> "$GITHUB_OUTPUT"
-          echo "JOB_ID=$(jq -r .job_id release/job.json)" >> "$GITHUB_ENV"
-          echo "EXTENSION_ID=$(jq -r .extension_id release/job.json)" >> "$GITHUB_ENV"
-          echo "VERSION=$(jq -r .version release/job.json)" >> "$GITHUB_ENV"
+          node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts job \
+            --input release/job.unvalidated.json \
+            --output release/job.json \
+            --submission-bucket "$SUBMISSION_BUCKET" \
+            --aws-region "$AWS_REGION"
+          write_ci_value "$GITHUB_OUTPUT" has_job true
+          write_ci_value "$GITHUB_ENV" JOB_ID "$(jq -er .job_id release/job.json)"
+          write_ci_value "$GITHUB_ENV" EXTENSION_ID "$(jq -er .extension_id release/job.json)"
+          write_ci_value "$GITHUB_ENV" VERSION "$(jq -er .version release/job.json)"
 
       - name: Download and independently verify the reviewed VSIX
         if: steps.claim.outputs.has_job == 'true'
         working-directory: vscode-base
         run: |
-          curl --fail-with-body --silent --show-error \
-            "$(jq -r .download_url "$GITHUB_WORKSPACE/release/job.json")" \
+          DOWNLOAD_URL="$(jq -er .download_url "$GITHUB_WORKSPACE/release/job.json")"
+          EXPECTED_SIZE="$(jq -er '.byte_size | select(type == "number" and . >= 1 and . <= 104857600)' "$GITHUB_WORKSPACE/release/job.json")"
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error --max-time 300 --max-filesize "$EXPECTED_SIZE" \
+            "$DOWNLOAD_URL" \
             --output "$GITHUB_WORKSPACE/release/plugin.vsix"
           node --experimental-strip-types scripts/basehalf-plugin-release.mts metadata \
             --vsix "$GITHUB_WORKSPACE/release/plugin.vsix" \
             --release-job "$GITHUB_WORKSPACE/release/job.json" \
+            --submission-bucket "$SUBMISSION_BUCKET" \
+            --aws-region "$AWS_REGION" \
             --output "$GITHUB_WORKSPACE/release/metadata.json"
           test "$(jq -r .sha256 "$GITHUB_WORKSPACE/release/metadata.json")" = "$(jq -r .sha256 "$GITHUB_WORKSPACE/release/job.json")"
           test "$(jq -r .size "$GITHUB_WORKSPACE/release/metadata.json")" = "$(jq -r .byte_size "$GITHUB_WORKSPACE/release/job.json")"
+          jq -e '.installedContentSha256 | type == "string" and test("^[a-f0-9]{64}$")' "$GITHUB_WORKSPACE/release/metadata.json" >/dev/null
 
       - name: Fetch and verify the current signed catalog
         if: steps.claim.outputs.has_job == 'true'
         run: |
+          write_ci_value() {
+            destination="$1"
+            name="$2"
+            value="$3"
+            delimiter="BASEHALF_$(openssl rand -hex 16)"
+            {
+              printf '%s<<%s\n' "$name" "$delimiter"
+              printf '%s\n' "$value"
+              printf '%s\n' "$delimiter"
+            } >> "$destination"
+          }
           aws s3 cp "s3://${BUCKET}/v1/catalog-index.json" release/previous-index.json
           PREVIOUS_SEQUENCE=$(jq -er '.sequence | select(type == "number" and . >= 1)' release/previous-index.json)
-          NEXT_SEQUENCE=$((PREVIOUS_SEQUENCE + 1))
-          while aws s3api head-object --bucket "$BUCKET" --key "catalogs/${NEXT_SEQUENCE}/catalog.json" >/dev/null 2>&1; do
-            NEXT_SEQUENCE=$((NEXT_SEQUENCE + 1))
-          done
-          echo "SEQUENCE=$NEXT_SEQUENCE" >> "$GITHUB_ENV"
           PREVIOUS_CATALOG=$(jq -er --arg sequence "$PREVIOUS_SEQUENCE" '.catalogPath | select(. == "catalogs/" + $sequence + "/catalog.json")' release/previous-index.json)
           PREVIOUS_SIGNATURE=$(jq -er --arg sequence "$PREVIOUS_SEQUENCE" '.signaturePath | select(. == "catalogs/" + $sequence + "/catalog.sig.json")' release/previous-index.json)
           aws s3 cp "s3://${BUCKET}/${PREVIOUS_CATALOG}" release/previous.json
           aws s3 cp "s3://${BUCKET}/${PREVIOUS_SIGNATURE}" release/previous.sig.json
-          test "$(jq -r .keyId release/previous.sig.json)" = "$CATALOG_KEY_ID"
-          test "$(jq -r .algorithm release/previous.sig.json)" = ECDSA_P256_SHA256_DER
-          jq -r .signature release/previous.sig.json | base64 --decode > release/previous.signature.der
-          openssl dgst -sha256 -binary release/previous.json > release/previous.sha256
-          aws kms verify \
-            --key-id "$KMS_KEY_ID" \
-            --message-type DIGEST \
-            --signing-algorithm ECDSA_SHA_256 \
-            --message fileb://release/previous.sha256 \
-            --signature fileb://release/previous.signature.der \
-            --query SignatureValid --output text | grep -qx True
+          bash vscode-base/scripts/basehalf-catalog-kms.sh verify release/previous.json release/previous.sig.json
+          node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts catalog-content-hashes \
+            --catalog release/previous.json \
+            --asset-base-url "$ASSET_BASE_URL" \
+            --output release/previous-with-content-hashes.json
+          mv release/previous-with-content-hashes.json release/previous.json
+          node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts reconcile \
+            --metadata release/metadata.json \
+            --catalog release/previous.json \
+            --basehalf-range "$(jq -er .basehalf_range release/job.json)" \
+            --vscode-range "$(jq -er .vscode_range release/job.json)" \
+            --target-platform "$(jq -er .target_platform release/job.json)" \
+            --output release/reconciliation.json
+          test "$(jq -er .sequence release/reconciliation.json)" = "$PREVIOUS_SEQUENCE"
+          if [ "$(jq -er .state release/reconciliation.json)" = published ]; then
+            touch release/catalog-publication-observed
+            write_ci_value "$GITHUB_ENV" ALREADY_PUBLISHED true
+            write_ci_value "$GITHUB_ENV" SEQUENCE "$PREVIOUS_SEQUENCE"
+          else
+            NEXT_SEQUENCE=$((PREVIOUS_SEQUENCE + 1))
+            while true; do
+              if aws s3api head-object --bucket "$BUCKET" --key "catalogs/${NEXT_SEQUENCE}/catalog.json" > /dev/null 2> release/next-sequence.head-error; then
+                NEXT_SEQUENCE=$((NEXT_SEQUENCE + 1))
+                continue
+              else
+                STATUS=$?
+              fi
+              if grep -Eq 'An error occurred \((404|NoSuchKey|NotFound)\)' release/next-sequence.head-error; then
+                break
+              fi
+              cat release/next-sequence.head-error >&2
+              exit "$STATUS"
+            done
+            write_ci_value "$GITHUB_ENV" ALREADY_PUBLISHED false
+            write_ci_value "$GITHUB_ENV" SEQUENCE "$NEXT_SEQUENCE"
+          fi
+
+      - name: Backfill immutable identities from the verified catalog
+        if: steps.claim.outputs.has_job == 'true'
+        working-directory: vscode-base
+        run: |
+          bash scripts/basehalf-release-lease.sh "$GITHUB_WORKSPACE/release/lease-before-backfill.json"
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts identity \
+            --catalog "$GITHUB_WORKSPACE/release/previous.json" \
+            --output-directory "$GITHUB_WORKSPACE/release/version-identities"
+          while IFS= read -r -d '' IDENTITY_PATH; do
+            RELATIVE_PATH=${IDENTITY_PATH#"$GITHUB_WORKSPACE/release/version-identities/"}
+            IDENTITY_KEY="identities/${RELATIVE_PATH}"
+            if ! aws s3api put-object \
+                --bucket "$BUCKET" \
+                --key "$IDENTITY_KEY" \
+                --body "$IDENTITY_PATH" \
+                --content-type application/json \
+                --cache-control 'public,max-age=31536000,immutable' \
+                --if-none-match '*'; then
+              EXISTING_PATH=$(mktemp "$GITHUB_WORKSPACE/release/existing-version-identity.XXXXXX")
+              aws s3 cp "s3://${BUCKET}/${IDENTITY_KEY}" "$EXISTING_PATH"
+              cmp "$IDENTITY_PATH" "$EXISTING_PATH"
+              rm -f "$EXISTING_PATH"
+            fi
+          done < <(find "$GITHUB_WORKSPACE/release/version-identities" -type f -name '*.json' -print0 | sort -z)
+
+      - name: Reserve immutable plugin version identity
+        if: steps.claim.outputs.has_job == 'true'
+        working-directory: vscode-base
+        run: |
+          bash scripts/basehalf-release-lease.sh "$GITHUB_WORKSPACE/release/lease-before-identity.json"
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts identity \
+            --metadata "$GITHUB_WORKSPACE/release/metadata.json" \
+            --output "$GITHUB_WORKSPACE/release/version-identity.json"
+          IDENTITY_EXTENSION_ID=$(jq -er .extensionId "$GITHUB_WORKSPACE/release/version-identity.json")
+          IDENTITY_VERSION=$(jq -er .version "$GITHUB_WORKSPACE/release/version-identity.json")
+          IDENTITY_KEY="identities/${IDENTITY_EXTENSION_ID}/${IDENTITY_VERSION}.json"
+          if ! aws s3api put-object \
+              --bucket "$BUCKET" \
+              --key "$IDENTITY_KEY" \
+              --body "$GITHUB_WORKSPACE/release/version-identity.json" \
+              --content-type application/json \
+              --cache-control 'public,max-age=31536000,immutable' \
+              --if-none-match '*'; then
+            aws s3 cp "s3://${BUCKET}/${IDENTITY_KEY}" "$GITHUB_WORKSPACE/release/existing-version-identity.json"
+            cmp "$GITHUB_WORKSPACE/release/version-identity.json" "$GITHUB_WORKSPACE/release/existing-version-identity.json"
+          fi
 
       - name: Build the next catalog
-        if: steps.claim.outputs.has_job == 'true'
+        if: steps.claim.outputs.has_job == 'true' && env.ALREADY_PUBLISHED != 'true'
         working-directory: vscode-base
         run: |
           node --experimental-strip-types scripts/basehalf-plugin-release.mts catalog \
@@ -117,59 +226,64 @@ jobs:
             --sequence "$SEQUENCE" \
             --output "$GITHUB_WORKSPACE/release/catalog.json" \
             --previous "$GITHUB_WORKSPACE/release/previous.json" \
-            --basehalf-range "$(jq -r .basehalf_range "$GITHUB_WORKSPACE/release/job.json")" \
-            --vscode-range "$(jq -r .vscode_range "$GITHUB_WORKSPACE/release/job.json")" \
-            --target-platform "$(jq -r .target_platform "$GITHUB_WORKSPACE/release/job.json")" \
+            --basehalf-range "$(jq -er .basehalf_range "$GITHUB_WORKSPACE/release/job.json")" \
+            --vscode-range "$(jq -er .vscode_range "$GITHUB_WORKSPACE/release/job.json")" \
+            --target-platform "$(jq -er .target_platform "$GITHUB_WORKSPACE/release/job.json")" \
             --status active
 
       - name: Upload immutable asset and sign catalog
-        if: steps.claim.outputs.has_job == 'true'
+        if: steps.claim.outputs.has_job == 'true' && env.ALREADY_PUBLISHED != 'true'
         run: |
+          bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-signing.json
           ASSET_PATH=$(jq -r .assetPath release/metadata.json)
-          if aws s3api head-object --bucket "$BUCKET" --key "$ASSET_PATH" >/dev/null 2>&1; then
-            aws s3 cp "s3://${BUCKET}/${ASSET_PATH}" release/existing-plugin.vsix
-            cmp release/plugin.vsix release/existing-plugin.vsix
-          else
-            aws s3api put-object \
+          if ! aws s3api put-object \
               --bucket "$BUCKET" \
               --key "$ASSET_PATH" \
               --body release/plugin.vsix \
               --content-type application/vsix \
               --cache-control 'public,max-age=31536000,immutable' \
-              --if-none-match '*'
+              --if-none-match '*'; then
+            aws s3 cp "s3://${BUCKET}/${ASSET_PATH}" release/existing-plugin.vsix
+            cmp release/plugin.vsix release/existing-plugin.vsix
           fi
+          bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-catalog-signature.json
           openssl dgst -sha256 -binary release/catalog.json > release/catalog.sha256
           SIGNATURE=$(aws kms sign \
-            --key-id "$KMS_KEY_ID" \
+            --key-id "$BASEHALF_CATALOG_SIGNING_KMS_KEY_ID" \
             --message-type DIGEST \
             --signing-algorithm ECDSA_SHA_256 \
             --message fileb://release/catalog.sha256 \
             --query Signature --output text)
           node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts signature \
-            --key-id "$CATALOG_KEY_ID" \
+            --key-id "$BASEHALF_CATALOG_SIGNING_KEY_ID" \
             --signature "$SIGNATURE" \
             --output release/catalog.sig.json
           node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts index \
             --sequence "$SEQUENCE" \
             --output release/catalog-index.json
 
+      - name: Verify exact catalog signature before publication
+        if: steps.claim.outputs.has_job == 'true' && env.ALREADY_PUBLISHED != 'true'
+        run: bash vscode-base/scripts/basehalf-catalog-kms.sh verify-current release/catalog.json release/catalog.sig.json
+
       - name: Atomically publish the catalog
-        if: steps.claim.outputs.has_job == 'true'
+        if: steps.claim.outputs.has_job == 'true' && env.ALREADY_PUBLISHED != 'true'
         run: |
+          bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-publication.json
+          touch release/catalog-publication-attempted
           PREFIX="catalogs/${SEQUENCE}"
           put_immutable() {
             LOCAL_PATH="$1"
             OBJECT_KEY="$2"
             EXISTING_PATH="release/existing-$(basename "$OBJECT_KEY")"
-            if aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" >/dev/null 2>&1; then
+            if ! aws s3api put-object --bucket "$BUCKET" --key "$OBJECT_KEY" --body "$LOCAL_PATH" --content-type application/json --cache-control 'public,max-age=31536000,immutable' --if-none-match '*'; then
               aws s3 cp "s3://${BUCKET}/${OBJECT_KEY}" "$EXISTING_PATH"
               cmp "$LOCAL_PATH" "$EXISTING_PATH"
-            else
-              aws s3api put-object --bucket "$BUCKET" --key "$OBJECT_KEY" --body "$LOCAL_PATH" --content-type application/json --cache-control 'public,max-age=31536000,immutable' --if-none-match '*'
             fi
           }
           put_immutable release/catalog.json "${PREFIX}/catalog.json"
           put_immutable release/catalog.sig.json "${PREFIX}/catalog.sig.json"
+          bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-index-switch.json
           aws s3 cp release/catalog-index.json "s3://${BUCKET}/v1/catalog-index.json" --content-type application/json --cache-control 'public,max-age=60,must-revalidate'
           aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/v1/catalog-index.json'
 
@@ -177,7 +291,11 @@ jobs:
         if: steps.claim.outputs.has_job == 'true'
         working-directory: vscode-base
         run: |
-          aws kms get-public-key --key-id "$KMS_KEY_ID" --query PublicKey --output text | base64 --decode > "$GITHUB_WORKSPACE/release/public.der"
+          SIGNATURE_FILE="$GITHUB_WORKSPACE/release/catalog.sig.json"
+          if [ ! -f "$SIGNATURE_FILE" ]; then SIGNATURE_FILE="$GITHUB_WORKSPACE/release/previous.sig.json"; fi
+          ACTIVE_CATALOG_KEY_ID=$(jq -er '.keyId | select(type == "string" and length > 0)' "$SIGNATURE_FILE")
+          ACTIVE_KMS_KEY_ID=$(bash scripts/basehalf-catalog-kms.sh resolve "$ACTIVE_CATALOG_KEY_ID")
+          aws kms get-public-key --key-id "$ACTIVE_KMS_KEY_ID" --query PublicKey --output text | base64 --decode > "$GITHUB_WORKSPACE/release/public.der"
           openssl pkey -pubin -inform DER -in "$GITHUB_WORKSPACE/release/public.der" -out "$GITHUB_WORKSPACE/release/public.pem"
           for attempt in 1 2 3 4 5; do
             if node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
@@ -185,11 +303,14 @@ jobs:
               --signature-url "https://registry.basehalf.com/catalogs/${SEQUENCE}/catalog.sig.json" \
               --asset-base-url "$ASSET_BASE_URL" \
               --public-key "$GITHUB_WORKSPACE/release/public.pem" \
-              --key-id "$CATALOG_KEY_ID" \
+              --key-id "$ACTIVE_CATALOG_KEY_ID" \
               --extension-id "$EXTENSION_ID" \
               --version "$VERSION" \
               --expected-status active \
-              --minimum-sequence "$SEQUENCE"; then exit 0; fi
+              --minimum-sequence "$SEQUENCE"; then
+              touch "$GITHUB_WORKSPACE/release/cdn-verified"
+              exit 0
+            fi
             sleep 10
           done
           exit 1
@@ -197,8 +318,10 @@ jobs:
       - name: Complete release job
         if: steps.claim.outputs.has_job == 'true'
         run: |
+          bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-completion.json
           ASSET_PATH=$(jq -r .assetPath release/metadata.json)
-          curl --fail-with-body --silent --show-error \
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+            --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
             -H 'content-type: application/json' \
             -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
             --data "$(jq -nc --arg worker "$WORKER_ID" --arg sequence "$SEQUENCE" --arg asset "$ASSET_PATH" '{worker_id:$worker,catalog_sequence:$sequence,asset_path:$asset}')" \
@@ -209,8 +332,56 @@ jobs:
       - name: Return a failed lease to the release queue
         if: failure() && env.JOB_ID != ''
         run: |
+          complete_if_published() {
+            test -f release/metadata.json || return 1
+            aws s3 cp "s3://${BUCKET}/v1/catalog-index.json" release/recovery-index.json || return 1
+            CURRENT_SEQUENCE=$(jq -er '.sequence | select(type == "number" and . >= 1)' release/recovery-index.json) || return 1
+            CURRENT_CATALOG=$(jq -er --arg sequence "$CURRENT_SEQUENCE" '.catalogPath | select(. == "catalogs/" + $sequence + "/catalog.json")' release/recovery-index.json) || return 1
+            CURRENT_SIGNATURE=$(jq -er --arg sequence "$CURRENT_SEQUENCE" '.signaturePath | select(. == "catalogs/" + $sequence + "/catalog.sig.json")' release/recovery-index.json) || return 1
+            aws s3 cp "s3://${BUCKET}/${CURRENT_CATALOG}" release/recovery-catalog.json || return 1
+            aws s3 cp "s3://${BUCKET}/${CURRENT_SIGNATURE}" release/recovery-catalog.sig.json || return 1
+            bash vscode-base/scripts/basehalf-catalog-kms.sh verify release/recovery-catalog.json release/recovery-catalog.sig.json || return 1
+            node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts reconcile \
+              --metadata release/metadata.json \
+              --catalog release/recovery-catalog.json \
+              --basehalf-range "$(jq -er .basehalf_range release/job.json)" \
+              --vscode-range "$(jq -er .vscode_range release/job.json)" \
+              --target-platform "$(jq -er .target_platform release/job.json)" \
+              --output release/recovery-reconciliation.json || return 1
+            test "$(jq -er .state release/recovery-reconciliation.json)" = published || return 1
+            test "$(jq -er .sequence release/recovery-reconciliation.json)" = "$CURRENT_SEQUENCE" || return 1
+            RECOVERY_ASSET_PATH=$(jq -er .assetPath release/recovery-reconciliation.json) || return 1
+            test -f release/cdn-verified || return 3
+            bash vscode-base/scripts/basehalf-release-lease.sh release/lease-before-recovery-completion.json || true
+            curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+              --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
+              -H 'content-type: application/json' \
+              -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
+              --data "$(jq -nc --arg worker "$WORKER_ID" --arg sequence "$CURRENT_SEQUENCE" --arg asset "$RECOVERY_ASSET_PATH" '{worker_id:$worker,catalog_sequence:$sequence,asset_path:$asset}')" \
+              "$CONTROL_PLANE_URL/plugin-service/api/v1/internal/releases/${JOB_ID}/complete" \
+              > release/recovery-complete-response.json || return 2
+            jq -e '.code == "00000"' release/recovery-complete-response.json >/dev/null || return 2
+          }
+          if complete_if_published; then
+            exit 0
+          else
+            RECOVERY_STATUS=$?
+          fi
+          if [ "$RECOVERY_STATUS" -eq 2 ]; then
+            echo 'The immutable build is already published; leaving the lease for idempotent completion retry.'
+            exit 0
+          fi
+          if [ "$RECOVERY_STATUS" -eq 3 ]; then
+            echo 'The immutable build is published but has not passed CDN verification; leaving the lease for verification retry.'
+            exit 0
+          fi
+          if [ -f release/catalog-publication-attempted ] || [ -f release/catalog-publication-observed ]; then
+            echo 'Catalog publication may have crossed the index boundary; leaving the lease for reconciliation retry.'
+            exit 0
+          fi
           ERROR="GitHub catalog promotion failed in run ${GITHUB_RUN_ID}"
-          curl --fail-with-body --silent --show-error \
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+            --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
             -H 'content-type: application/json' \
             -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
             --data "$(jq -nc --arg worker "$WORKER_ID" --arg error "$ERROR" '{worker_id:$worker,error:$error}')" \

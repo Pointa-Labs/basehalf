@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Publish new package, withdraw a version, or roll back to a version
+        description: Publish, change release status, or retry control-plane synchronization
         required: true
         type: choice
-        options: [publish, withdraw, rollback, security-withdraw, security-restore]
+        options: [publish, withdraw, rollback, security-withdraw, security-restore, sync-state]
         default: publish
       extension_id:
         description: Plugin identity for withdrawal, rollback, and verification
@@ -15,7 +15,7 @@ on:
         default: pointa.basehalf-ai-video
         type: string
       sequence:
-        description: New monotonically increasing catalog sequence
+        description: New monotonically increasing sequence; ignored for sync-state
         required: true
         type: number
       version:
@@ -32,6 +32,11 @@ on:
         required: true
         default: ^1.128.0
         type: string
+      bootstrap_registry:
+        description: Confirm the one-time creation of an empty production registry
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -49,24 +54,58 @@ jobs:
       AWS_REGION: ${{ vars.BASEHALF_PLUGIN_AWS_REGION }}
       BUCKET: ${{ vars.BASEHALF_PLUGIN_BUCKET }}
       DISTRIBUTION_ID: ${{ vars.BASEHALF_PLUGIN_CLOUDFRONT_DISTRIBUTION_ID }}
-      KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
-      CATALOG_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
+      BASEHALF_CATALOG_SIGNING_KMS_KEY_ID: ${{ vars.BASEHALF_PLUGIN_KMS_KEY_ID }}
+      BASEHALF_CATALOG_SIGNING_KEY_ID: ${{ vars.BASEHALF_PLUGIN_CATALOG_KEY_ID }}
+      BASEHALF_CATALOG_TRUSTED_KMS_KEYS_JSON: ${{ vars.BASEHALF_PLUGIN_TRUSTED_KMS_KEYS_JSON }}
       CONTROL_PLANE_URL: ${{ vars.BASEHALF_PLUGIN_CONTROL_PLANE_URL }}
       RELEASE_TOKEN: ${{ secrets.BASEHALF_PLUGIN_RELEASE_SERVICE_TOKEN }}
       ASSET_BASE_URL: https://registry.basehalf.com/
+      INPUT_OPERATION: ${{ inputs.operation }}
+      INPUT_EXTENSION_ID: ${{ inputs.extension_id }}
+      INPUT_SEQUENCE: ${{ inputs.sequence }}
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_BASEHALF_RANGE: ${{ inputs.basehalf_range }}
+      INPUT_VSCODE_RANGE: ${{ inputs.vscode_range }}
+      INPUT_BOOTSTRAP_REGISTRY: ${{ inputs.bootstrap_registry }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-node@v4
+      - name: Validate dispatch inputs
+        run: |
+          case "$INPUT_OPERATION" in
+            publish|withdraw|rollback|security-withdraw|security-restore|sync-state) ;;
+            *) echo 'Invalid plugin release operation.' >&2; exit 1 ;;
+          esac
+          [[ "$INPUT_EXTENSION_ID" =~ ^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]\.[a-z0-9][a-z0-9-]{1,98}[a-z0-9]$ ]]
+          [[ "$INPUT_SEQUENCE" =~ ^[1-9][0-9]*$ ]]
+          if [ "$INPUT_OPERATION" != publish ] && [ "$INPUT_OPERATION" != sync-state ]; then test -n "$INPUT_VERSION"; fi
+          test -n "$INPUT_BASEHALF_RANGE"
+          test -n "$INPUT_VSCODE_RANGE"
+          case "$INPUT_BOOTSTRAP_REGISTRY" in
+            true)
+              test "$INPUT_OPERATION" = publish
+              test "$INPUT_SEQUENCE" = 1
+              ;;
+            false) ;;
+            *) echo 'Invalid registry bootstrap confirmation.' >&2; exit 1 ;;
+          esac
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: vscode-base/package-lock.json
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.BASEHALF_PLUGIN_AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate release trust configuration
+        run: |
+          SAFE_CONTROL_PLANE_URL=$(node --experimental-strip-types vscode-base/scripts/basehalf-release-preflight.mts control-url "$CONTROL_PLANE_URL")
+          printf 'CONTROL_PLANE_URL=%s\n' "$SAFE_CONTROL_PLANE_URL" >> "$GITHUB_ENV"
+          bash vscode-base/scripts/basehalf-catalog-kms.sh preflight
 
       - name: Install fixed release toolchain
         working-directory: vscode-base
@@ -76,85 +115,266 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm ci --ignore-scripts --prefix build
-          # Extension webview build scripts resolve esbuild from the repository
-          # root, while VS Code keeps its pinned copy in build/node_modules.
-          ln -s ../build/node_modules/esbuild node_modules/esbuild
 
       - name: Fetch and verify the previous catalog
         run: |
           mkdir -p release
-          if aws s3api head-object --bucket "$BUCKET" --key v1/catalog-index.json >/dev/null 2>&1; then
+          object_state() {
+            OBJECT_KEY="$1"
+            ERROR_PATH="$2"
+            if aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" > /dev/null 2> "$ERROR_PATH"; then
+              return 0
+            else
+              STATUS=$?
+            fi
+            if grep -Eq 'An error occurred \((404|NoSuchKey|NotFound)\)' "$ERROR_PATH"; then
+              return 44
+            fi
+            cat "$ERROR_PATH" >&2
+            return "$STATUS"
+          }
+          CATALOG_STATE=present
+          BOOTSTRAP_INVENTORY_REQUIRED=false
+          if object_state v1/catalog-index.json release/catalog-index.head-error; then
             aws s3 cp "s3://${BUCKET}/v1/catalog-index.json" release/previous-index.json
             PREVIOUS_SEQUENCE=$(jq -er '.sequence | select(type == "number" and . >= 1)' release/previous-index.json)
             PREVIOUS_CATALOG=$(jq -er --arg sequence "$PREVIOUS_SEQUENCE" '.catalogPath | select(. == "catalogs/" + $sequence + "/catalog.json")' release/previous-index.json)
             PREVIOUS_SIGNATURE=$(jq -er --arg sequence "$PREVIOUS_SEQUENCE" '.signaturePath | select(. == "catalogs/" + $sequence + "/catalog.sig.json")' release/previous-index.json)
             aws s3 cp "s3://${BUCKET}/${PREVIOUS_CATALOG}" release/previous.json
             aws s3 cp "s3://${BUCKET}/${PREVIOUS_SIGNATURE}" release/previous.sig.json
-            test "$(jq -r .keyId release/previous.sig.json)" = "$CATALOG_KEY_ID"
-            test "$(jq -r .algorithm release/previous.sig.json)" = ECDSA_P256_SHA256_DER
-            jq -r .signature release/previous.sig.json | base64 --decode > release/previous.signature.der
-            openssl dgst -sha256 -binary release/previous.json > release/previous.sha256
-            aws kms verify \
-              --key-id "$KMS_KEY_ID" \
-              --message-type DIGEST \
-              --signing-algorithm ECDSA_SHA_256 \
-              --message fileb://release/previous.sha256 \
-              --signature fileb://release/previous.signature.der \
-              --query SignatureValid --output text | grep -qx True
+            bash vscode-base/scripts/basehalf-catalog-kms.sh verify release/previous.json release/previous.sig.json
+          else
+            STATUS=$?
+            if [ "$STATUS" -ne 44 ]; then exit "$STATUS"; fi
+            CATALOG_STATE=missing
+            BOOTSTRAP_INVENTORY_REQUIRED=true
+            if [ "$INPUT_BOOTSTRAP_REGISTRY" != true ]; then
+              echo 'The current catalog index is missing. Refusing to bootstrap without explicit confirmation.' >&2
+              exit 1
+            fi
           fi
-          if aws s3api head-object --bucket "$BUCKET" --key v1/extensions-control.json >/dev/null 2>&1; then
+          CONTROL_STATE=present
+          if object_state v1/extensions-control.json release/extensions-control.head-error; then
             aws s3 cp "s3://${BUCKET}/v1/extensions-control.json" release/previous-control.json
+          else
+            STATUS=$?
+            if [ "$STATUS" -ne 44 ]; then exit "$STATUS"; fi
+            CONTROL_STATE=missing
           fi
+          if [ "$CATALOG_STATE" = present ] && [ "$INPUT_BOOTSTRAP_REGISTRY" = true ]; then
+            if [ "$INPUT_OPERATION" != publish ] || [ "$INPUT_SEQUENCE" -ne "$PREVIOUS_SEQUENCE" ]; then
+              echo 'The registry is already initialized; bootstrap confirmation is valid only for an exact interrupted first publish.' >&2
+              exit 1
+            fi
+          fi
+          if [ "$CATALOG_STATE" != "$CONTROL_STATE" ]; then
+            if [ "$INPUT_BOOTSTRAP_REGISTRY" = true ] && [ "$CATALOG_STATE" = missing ] && [ "$CONTROL_STATE" = present ]; then
+              jq -e 'type == "object"
+                and (keys | sort) == ["autoUpdate", "deprecated", "malicious", "search"]
+                and .malicious == []
+                and .deprecated == {}
+                and .search == []
+                and .autoUpdate == {}' release/previous-control.json >/dev/null || {
+                  echo 'The partially completed registry bootstrap has a non-empty emergency control manifest.' >&2
+                  exit 1
+                }
+            else
+              echo 'The catalog and emergency control state disagree. Refusing to infer or replace either object.' >&2
+              exit 1
+            fi
+          fi
+          if [ "$CONTROL_STATE" = missing ] && [ "$INPUT_BOOTSTRAP_REGISTRY" != true ]; then
+            echo 'The emergency control manifest is missing. Refusing to create an empty replacement implicitly.' >&2
+            exit 1
+          fi
+          CATALOG_ALREADY_CURRENT=false
+          PUBLISH_SEQUENCE_CURRENT=false
+          if [ "$CATALOG_STATE" = present ] && [ "$INPUT_OPERATION" != sync-state ]; then
+            if [ "$INPUT_SEQUENCE" -lt "$PREVIOUS_SEQUENCE" ]; then
+              echo "Catalog sequence ${INPUT_SEQUENCE} is older than the published sequence ${PREVIOUS_SEQUENCE}." >&2
+              exit 1
+            fi
+            if [ "$INPUT_SEQUENCE" -eq "$PREVIOUS_SEQUENCE" ]; then
+              if [ "$INPUT_OPERATION" = publish ]; then
+                PUBLISH_SEQUENCE_CURRENT=true
+              else
+                case "$INPUT_OPERATION" in
+                  withdraw|rollback|security-withdraw|security-restore) ;;
+                  *)
+                    echo 'Only an interrupted catalog change may resume at the current sequence.' >&2
+                    exit 1
+                    ;;
+                esac
+                MODE="$INPUT_OPERATION"
+                if [ "$MODE" = security-withdraw ]; then MODE=withdraw; fi
+                if [ "$MODE" = security-restore ]; then MODE=rollback; fi
+                node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts status-check \
+                  --catalog release/previous.json \
+                  --extension-id "$INPUT_EXTENSION_ID" \
+                  --version "$INPUT_VERSION" \
+                  --mode "$MODE"
+                cp release/previous.json release/catalog.json
+                cp release/previous.sig.json release/catalog.sig.json
+                cp release/previous-index.json release/catalog-index.json
+                CATALOG_ALREADY_CURRENT=true
+              fi
+            fi
+          fi
+          echo "CATALOG_ALREADY_CURRENT=${CATALOG_ALREADY_CURRENT}" >> "$GITHUB_ENV"
+          echo "PUBLISH_SEQUENCE_CURRENT=${PUBLISH_SEQUENCE_CURRENT}" >> "$GITHUB_ENV"
+          echo "BOOTSTRAP_INVENTORY_REQUIRED=${BOOTSTRAP_INVENTORY_REQUIRED}" >> "$GITHUB_ENV"
+
+      - name: Bind canonical installed content hashes
+        if: inputs.operation != 'sync-state'
+        working-directory: vscode-base
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/release/previous.json" ]; then
+            exit 0
+          fi
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts catalog-content-hashes \
+            --catalog "$GITHUB_WORKSPACE/release/previous.json" \
+            --asset-base-url "$ASSET_BASE_URL" \
+            --output "$GITHUB_WORKSPACE/release/previous-with-content-hashes.json"
+          mv "$GITHUB_WORKSPACE/release/previous-with-content-hashes.json" "$GITHUB_WORKSPACE/release/previous.json"
+
+      - name: Backfill immutable identities from the verified catalog
+        if: inputs.operation != 'sync-state'
+        working-directory: vscode-base
+        run: |
+          if [ ! -f "$GITHUB_WORKSPACE/release/previous.json" ]; then
+            exit 0
+          fi
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts identity \
+            --catalog "$GITHUB_WORKSPACE/release/previous.json" \
+            --output-directory "$GITHUB_WORKSPACE/release/version-identities"
+          while IFS= read -r -d '' IDENTITY_PATH; do
+            RELATIVE_PATH=${IDENTITY_PATH#"$GITHUB_WORKSPACE/release/version-identities/"}
+            IDENTITY_KEY="identities/${RELATIVE_PATH}"
+            if ! aws s3api put-object \
+                --bucket "$BUCKET" \
+                --key "$IDENTITY_KEY" \
+                --body "$IDENTITY_PATH" \
+                --content-type application/json \
+                --cache-control 'public,max-age=31536000,immutable' \
+                --if-none-match '*'; then
+              EXISTING_PATH=$(mktemp "$GITHUB_WORKSPACE/release/existing-version-identity.XXXXXX")
+              aws s3 cp "s3://${BUCKET}/${IDENTITY_KEY}" "$EXISTING_PATH"
+              cmp "$IDENTITY_PATH" "$EXISTING_PATH"
+              rm -f "$EXISTING_PATH"
+            fi
+          done < <(find "$GITHUB_WORKSPACE/release/version-identities" -type f -name '*.json' -print0 | sort -z)
 
       - name: Compile and package AI Video
         if: inputs.operation == 'publish'
         working-directory: vscode-base
         run: |
           npm run gulp compile-extension:basehalf-ai-video
-          node extensions/basehalf-ai-video/esbuild.webview.mts
-          npm run basehalf:plugin:package -- --output "$GITHUB_WORKSPACE/release"
-          node -e 'const fs=require("fs"),path=require("path"),crypto=require("crypto");const dir=process.argv[1],file=fs.readdirSync(dir).find(x=>x.endsWith(".vsix"));if(!file)throw Error("VSIX missing");const p=path.join(dir,file),m=require("./extensions/basehalf-ai-video/package.json"),b=fs.readFileSync(p),h=crypto.createHash("sha256").update(b).digest("hex");fs.writeFileSync(path.join(dir,"metadata.json"),JSON.stringify({extensionId:`${m.publisher}.${m.name}`.toLowerCase(),version:m.version,assetPath:`${m.publisher}.${m.name}/${m.version}/${h}.vsix`,sha256:h,size:b.length,vsixPath:p}))' "$GITHUB_WORKSPACE/release"
+          npm run basehalf:plugin:package -- \
+            --output "$GITHUB_WORKSPACE/release" \
+            --metadata-output "$GITHUB_WORKSPACE/release/metadata.json"
+          jq -e '.installedContentSha256 | type == "string" and test("^[a-f0-9]{64}$")' "$GITHUB_WORKSPACE/release/metadata.json" >/dev/null
+
+      - name: Verify empty or resumable bootstrap inventory
+        if: inputs.operation == 'publish' && env.BOOTSTRAP_INVENTORY_REQUIRED == 'true'
+        working-directory: vscode-base
+        run: |
+          aws s3api list-object-versions \
+            --bucket "$BUCKET" \
+            --output json \
+            > "$GITHUB_WORKSPACE/release/bootstrap-inventory.json"
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts bootstrap-check \
+            --inventory "$GITHUB_WORKSPACE/release/bootstrap-inventory.json" \
+            --metadata "$GITHUB_WORKSPACE/release/metadata.json" \
+            --sequence "$INPUT_SEQUENCE"
+          if jq -e '(.Versions // []) | any(.Key == "v1/extensions-control.json")' "$GITHUB_WORKSPACE/release/bootstrap-inventory.json" >/dev/null; then
+            aws s3 cp "s3://${BUCKET}/v1/extensions-control.json" "$GITHUB_WORKSPACE/release/inventory-extensions-control.json"
+            jq -e 'type == "object"
+              and (keys | sort) == ["autoUpdate", "deprecated", "malicious", "search"]
+              and .malicious == []
+              and .deprecated == {}
+              and .search == []
+              and .autoUpdate == {}' "$GITHUB_WORKSPACE/release/inventory-extensions-control.json" >/dev/null
+          fi
 
       - name: Build publish catalog
-        if: inputs.operation == 'publish'
+        if: inputs.operation == 'publish' && env.PUBLISH_SEQUENCE_CURRENT != 'true'
         working-directory: vscode-base
         run: |
           PREVIOUS=()
           test ! -f "$GITHUB_WORKSPACE/release/previous.json" || PREVIOUS=(--previous "$GITHUB_WORKSPACE/release/previous.json")
           node --experimental-strip-types scripts/basehalf-plugin-release.mts catalog \
             --metadata "$GITHUB_WORKSPACE/release/metadata.json" \
-            --sequence "${{ inputs.sequence }}" \
+            --sequence "$INPUT_SEQUENCE" \
             --output "$GITHUB_WORKSPACE/release/catalog.json" \
-            --basehalf-range "${{ inputs.basehalf_range }}" \
-            --vscode-range "${{ inputs.vscode_range }}" \
+            --basehalf-range "$INPUT_BASEHALF_RANGE" \
+            --vscode-range "$INPUT_VSCODE_RANGE" \
             --target-platform universal \
             --status active "${PREVIOUS[@]}"
 
+      - name: Reconcile an already-current publish
+        if: inputs.operation == 'publish' && env.PUBLISH_SEQUENCE_CURRENT == 'true'
+        working-directory: vscode-base
+        run: |
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts publish-check \
+            --metadata "$GITHUB_WORKSPACE/release/metadata.json" \
+            --catalog "$GITHUB_WORKSPACE/release/previous.json" \
+            --sequence "$INPUT_SEQUENCE" \
+            --basehalf-range "$INPUT_BASEHALF_RANGE" \
+            --vscode-range "$INPUT_VSCODE_RANGE" \
+            --target-platform universal \
+            --output "$GITHUB_WORKSPACE/release/current-publish-reconciliation.json"
+          cp "$GITHUB_WORKSPACE/release/previous.json" "$GITHUB_WORKSPACE/release/catalog.json"
+          cp "$GITHUB_WORKSPACE/release/previous.sig.json" "$GITHUB_WORKSPACE/release/catalog.sig.json"
+          cp "$GITHUB_WORKSPACE/release/previous-index.json" "$GITHUB_WORKSPACE/release/catalog-index.json"
+          echo 'CATALOG_ALREADY_CURRENT=true' >> "$GITHUB_ENV"
+
+      - name: Reserve immutable plugin version identity
+        if: inputs.operation == 'publish'
+        working-directory: vscode-base
+        run: |
+          node --experimental-strip-types scripts/basehalf-plugin-release.mts identity \
+            --metadata "$GITHUB_WORKSPACE/release/metadata.json" \
+            --output "$GITHUB_WORKSPACE/release/version-identity.json"
+          EXTENSION_ID=$(jq -er .extensionId "$GITHUB_WORKSPACE/release/version-identity.json")
+          VERSION=$(jq -er .version "$GITHUB_WORKSPACE/release/version-identity.json")
+          IDENTITY_KEY="identities/${EXTENSION_ID}/${VERSION}.json"
+          if ! aws s3api put-object \
+              --bucket "$BUCKET" \
+              --key "$IDENTITY_KEY" \
+              --body "$GITHUB_WORKSPACE/release/version-identity.json" \
+              --content-type application/json \
+              --cache-control 'public,max-age=31536000,immutable' \
+              --if-none-match '*'; then
+            aws s3 cp "s3://${BUCKET}/${IDENTITY_KEY}" "$GITHUB_WORKSPACE/release/existing-version-identity.json"
+            cmp "$GITHUB_WORKSPACE/release/version-identity.json" "$GITHUB_WORKSPACE/release/existing-version-identity.json"
+          fi
+
       - name: Build withdrawal or rollback catalog
-        if: inputs.operation != 'publish'
+        if: inputs.operation != 'publish' && inputs.operation != 'sync-state' && env.CATALOG_ALREADY_CURRENT != 'true'
         working-directory: vscode-base
         run: |
           test -f "$GITHUB_WORKSPACE/release/previous.json"
-          test -n "${{ inputs.version }}"
-          MODE="${{ inputs.operation }}"
+          test -n "$INPUT_VERSION"
+          MODE="$INPUT_OPERATION"
           if [ "$MODE" = security-withdraw ]; then MODE=withdraw; fi
           if [ "$MODE" = security-restore ]; then MODE=rollback; fi
           node --experimental-strip-types scripts/basehalf-plugin-release.mts status \
             --previous "$GITHUB_WORKSPACE/release/previous.json" \
-            --sequence "${{ inputs.sequence }}" \
+            --sequence "$INPUT_SEQUENCE" \
             --output "$GITHUB_WORKSPACE/release/catalog.json" \
-            --extension-id "${{ inputs.extension_id }}" \
-            --version "${{ inputs.version }}" \
+            --extension-id "$INPUT_EXTENSION_ID" \
+            --version "$INPUT_VERSION" \
             --mode "$MODE"
 
       - name: Build BaseHalf emergency extension control manifest
+        if: inputs.operation != 'sync-state'
         working-directory: vscode-base
         run: |
           PREVIOUS=()
           test ! -f "$GITHUB_WORKSPACE/release/previous-control.json" || PREVIOUS=(--previous "$GITHUB_WORKSPACE/release/previous-control.json")
           MODE=restore
-          if [ "${{ inputs.operation }}" = security-withdraw ]; then MODE=block; fi
-          if [ "${{ inputs.operation }}" != security-withdraw ] && [ "${{ inputs.operation }}" != security-restore ]; then
+          if [ "$INPUT_OPERATION" = security-withdraw ]; then MODE=block; fi
+          if [ "$INPUT_OPERATION" != security-withdraw ] && [ "$INPUT_OPERATION" != security-restore ]; then
             if [ -f "$GITHUB_WORKSPACE/release/previous-control.json" ]; then
               cp "$GITHUB_WORKSPACE/release/previous-control.json" "$GITHUB_WORKSPACE/release/extensions-control.json"
             else
@@ -164,8 +384,63 @@ jobs:
             node --experimental-strip-types scripts/basehalf-plugin-release.mts control \
               --output "$GITHUB_WORKSPACE/release/extensions-control.json" \
               --mode "$MODE" \
-              --extension-id "${{ inputs.extension_id }}" \
-              --learn-more-link "https://basehalf.com/security/plugins" "${PREVIOUS[@]}"
+              --extension-id "$INPUT_EXTENSION_ID" "${PREVIOUS[@]}"
+          fi
+
+      - name: Reconcile an interrupted immutable catalog
+        if: inputs.operation != 'sync-state' && env.CATALOG_ALREADY_CURRENT != 'true'
+        run: |
+          object_state() {
+            OBJECT_KEY="$1"
+            ERROR_PATH="$2"
+            if aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" > /dev/null 2> "$ERROR_PATH"; then
+              return 0
+            else
+              STATUS=$?
+            fi
+            if grep -Eq 'An error occurred \((404|NoSuchKey|NotFound)\)' "$ERROR_PATH"; then
+              return 44
+            fi
+            cat "$ERROR_PATH" >&2
+            return "$STATUS"
+          }
+          PREFIX="catalogs/${INPUT_SEQUENCE}"
+          CATALOG_KEY="${PREFIX}/catalog.json"
+          SIGNATURE_KEY="${PREFIX}/catalog.sig.json"
+          if object_state "$CATALOG_KEY" release/candidate-catalog.head-error; then
+            aws s3 cp "s3://${BUCKET}/${CATALOG_KEY}" release/candidate-catalog.json
+            node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync("release/candidate-catalog.json","utf8")).generatedAt;if(typeof value!=="string"||new Date(value).toISOString()!==value)throw new Error("The existing catalog candidate has an invalid generation time.");'
+            if [ "$INPUT_OPERATION" = publish ]; then
+              CANDIDATE_EXTENSION_ID=$(jq -er .extensionId release/metadata.json)
+              CANDIDATE_VERSION=$(jq -er .version release/metadata.json)
+              node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts candidate-check \
+                --requested release/catalog.json \
+                --candidate release/candidate-catalog.json \
+                --extension-id "$CANDIDATE_EXTENSION_ID" \
+                --version "$CANDIDATE_VERSION"
+            else
+              jq -S 'del(.generatedAt)' release/catalog.json > release/requested-catalog.semantic.json
+              jq -S 'del(.generatedAt)' release/candidate-catalog.json > release/candidate-catalog.semantic.json
+              cmp release/requested-catalog.semantic.json release/candidate-catalog.semantic.json
+            fi
+            cp release/candidate-catalog.json release/catalog.json
+            if object_state "$SIGNATURE_KEY" release/candidate-signature.head-error; then
+              aws s3 cp "s3://${BUCKET}/${SIGNATURE_KEY}" release/catalog.sig.json
+              bash vscode-base/scripts/basehalf-catalog-kms.sh verify release/catalog.json release/catalog.sig.json
+            else
+              STATUS=$?
+              if [ "$STATUS" -ne 44 ]; then exit "$STATUS"; fi
+            fi
+          else
+            STATUS=$?
+            if [ "$STATUS" -ne 44 ]; then exit "$STATUS"; fi
+            if object_state "$SIGNATURE_KEY" release/orphan-signature.head-error; then
+              echo 'The immutable catalog signature exists without its catalog.' >&2
+              exit 1
+            else
+              STATUS=$?
+              if [ "$STATUS" -ne 44 ]; then exit "$STATUS"; fi
+            fi
           fi
 
       - name: Upload immutable VSIX
@@ -173,66 +448,91 @@ jobs:
         run: |
           ASSET_PATH=$(jq -r .assetPath release/metadata.json)
           VSIX_PATH=$(jq -r .vsixPath release/metadata.json)
-          aws s3api put-object \
-            --bucket "$BUCKET" \
-            --key "$ASSET_PATH" \
-            --body "$VSIX_PATH" \
-            --content-type application/vsix \
-            --cache-control 'public,max-age=31536000,immutable' \
-            --if-none-match '*'
+          EXISTING_PATH=release/existing-plugin.vsix
+          if aws s3api head-object --bucket "$BUCKET" --key "$ASSET_PATH" >/dev/null 2>&1; then
+            aws s3 cp "s3://${BUCKET}/${ASSET_PATH}" "$EXISTING_PATH"
+            cmp "$VSIX_PATH" "$EXISTING_PATH"
+          elif ! aws s3api put-object \
+              --bucket "$BUCKET" \
+              --key "$ASSET_PATH" \
+              --body "$VSIX_PATH" \
+              --content-type application/vsix \
+              --cache-control 'public,max-age=31536000,immutable' \
+              --if-none-match '*'; then
+            aws s3 cp "s3://${BUCKET}/${ASSET_PATH}" "$EXISTING_PATH"
+            cmp "$VSIX_PATH" "$EXISTING_PATH"
+          fi
 
       - name: Sign exact catalog bytes with KMS P-256
+        if: inputs.operation != 'sync-state'
         run: |
-          openssl dgst -sha256 -binary release/catalog.json > release/catalog.sha256
-          SIGNATURE=$(aws kms sign \
-            --key-id "$KMS_KEY_ID" \
-            --message-type DIGEST \
-            --signing-algorithm ECDSA_SHA_256 \
-            --message fileb://release/catalog.sha256 \
-            --query Signature --output text)
-          node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts signature \
-            --key-id "$CATALOG_KEY_ID" \
-            --signature "$SIGNATURE" \
-            --output release/catalog.sig.json
+          if [ ! -f release/catalog.sig.json ]; then
+            openssl dgst -sha256 -binary release/catalog.json > release/catalog.sha256
+            SIGNATURE=$(aws kms sign \
+              --key-id "$BASEHALF_CATALOG_SIGNING_KMS_KEY_ID" \
+              --message-type DIGEST \
+              --signing-algorithm ECDSA_SHA_256 \
+              --message fileb://release/catalog.sha256 \
+              --query Signature --output text)
+            node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts signature \
+              --key-id "$BASEHALF_CATALOG_SIGNING_KEY_ID" \
+              --signature "$SIGNATURE" \
+              --output release/catalog.sig.json
+            touch release/catalog-signature-generated
+          fi
 
       - name: Build atomic catalog index
+        if: inputs.operation != 'sync-state'
         run: |
           node --experimental-strip-types vscode-base/scripts/basehalf-plugin-release.mts index \
-            --sequence "${{ inputs.sequence }}" \
+            --sequence "$INPUT_SEQUENCE" \
             --output release/catalog-index.json
 
-      - name: Synchronize withdrawal state with the control plane
-        if: inputs.operation != 'publish'
+      - name: Verify exact catalog signature before publication
+        if: inputs.operation != 'sync-state'
         run: |
-          test -n "$CONTROL_PLANE_URL"
-          test -n "$RELEASE_TOKEN"
-          jq \
-            --arg extension "${{ inputs.extension_id }}" \
-            --arg sequence "${{ inputs.sequence }}" \
-            '(.plugins[] | select(.extensionId == $extension) | [.versions[] | select(.status == "active") | .version]) as $active
-              | {extension_id: $extension, active_versions: $active, catalog_sequence: $sequence}
-              + (if ($active | length) > 0 then {latest_version: $active[0]} else {} end)' \
-            release/catalog.json > release/catalog-state.json
-          curl --fail-with-body --silent --show-error \
-            -H 'content-type: application/json' \
-            -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
-            --data @release/catalog-state.json \
-            "$CONTROL_PLANE_URL/plugin-service/api/v1/internal/releases/catalog-state" \
-            > release/catalog-state-response.json
-          jq -e '.code == "00000"' release/catalog-state-response.json >/dev/null
+          if [ -f release/catalog-signature-generated ]; then
+            bash vscode-base/scripts/basehalf-catalog-kms.sh verify-current release/catalog.json release/catalog.sig.json
+          else
+            bash vscode-base/scripts/basehalf-catalog-kms.sh verify-trusted release/catalog.json release/catalog.sig.json
+          fi
+
+      - name: Publish fail-closed emergency control state
+        if: inputs.operation == 'security-withdraw' || inputs.bootstrap_registry
+        run: |
+          if [ "$INPUT_BOOTSTRAP_REGISTRY" = true ]; then
+            if ! aws s3api put-object \
+                --bucket "$BUCKET" \
+                --key v1/extensions-control.json \
+                --body release/extensions-control.json \
+                --content-type application/json \
+                --cache-control 'public,max-age=60,must-revalidate' \
+                --if-none-match '*'; then
+              aws s3 cp "s3://${BUCKET}/v1/extensions-control.json" release/existing-extensions-control.json
+              cmp release/extensions-control.json release/existing-extensions-control.json
+            fi
+          else
+            aws s3 cp release/extensions-control.json "s3://${BUCKET}/v1/extensions-control.json" --content-type application/json --cache-control 'public,max-age=60,must-revalidate'
+          fi
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/v1/extensions-control.json'
+          for attempt in 1 2 3 4 5; do
+            if curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+                https://registry.basehalf.com/v1/extensions-control.json --output release/cdn-extensions-control.json \
+              && cmp release/extensions-control.json release/cdn-extensions-control.json; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
 
       - name: Publish immutable catalog pair and atomic current index
+        if: inputs.operation != 'sync-state' && env.CATALOG_ALREADY_CURRENT != 'true'
         run: |
-          PREFIX="catalogs/${{ inputs.sequence }}"
+          PREFIX="catalogs/${INPUT_SEQUENCE}"
           put_immutable() {
             LOCAL_PATH="$1"
             OBJECT_KEY="$2"
             EXISTING_PATH="release/existing-$(basename "$OBJECT_KEY")"
-            if aws s3api head-object --bucket "$BUCKET" --key "$OBJECT_KEY" >/dev/null 2>&1; then
-              aws s3 cp "s3://${BUCKET}/${OBJECT_KEY}" "$EXISTING_PATH"
-              cmp "$LOCAL_PATH" "$EXISTING_PATH"
-              return
-            fi
             if ! aws s3api put-object --bucket "$BUCKET" --key "$OBJECT_KEY" --body "$LOCAL_PATH" --content-type application/json --cache-control 'public,max-age=31536000,immutable' --if-none-match '*'; then
               aws s3 cp "s3://${BUCKET}/${OBJECT_KEY}" "$EXISTING_PATH"
               cmp "$LOCAL_PATH" "$EXISTING_PATH"
@@ -241,37 +541,101 @@ jobs:
           put_immutable release/catalog.json "${PREFIX}/catalog.json"
           put_immutable release/catalog.sig.json "${PREFIX}/catalog.sig.json"
           aws s3 cp release/catalog-index.json "s3://${BUCKET}/v1/catalog-index.json" --content-type application/json --cache-control 'public,max-age=60,must-revalidate'
-          aws s3 cp release/extensions-control.json "s3://${BUCKET}/v1/extensions-control.json" --content-type application/json --cache-control 'public,max-age=60,must-revalidate'
-          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/v1/catalog-index.json' '/v1/extensions-control.json'
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/v1/catalog-index.json'
 
       - name: Export KMS public key for staging verification
+        if: inputs.operation != 'sync-state'
         run: |
-          aws kms get-public-key --key-id "$KMS_KEY_ID" --query PublicKey --output text | base64 --decode > release/public.der
+          ACTIVE_CATALOG_KEY_ID=$(jq -er '.keyId | select(type == "string" and length > 0)' release/catalog.sig.json)
+          ACTIVE_KMS_KEY_ID=$(bash vscode-base/scripts/basehalf-catalog-kms.sh resolve "$ACTIVE_CATALOG_KEY_ID")
+          aws kms get-public-key --key-id "$ACTIVE_KMS_KEY_ID" --query PublicKey --output text | base64 --decode > release/public.der
           openssl pkey -pubin -inform DER -in release/public.der -out release/public.pem
+          echo "ACTIVE_CATALOG_KEY_ID=$ACTIVE_CATALOG_KEY_ID" >> "$GITHUB_ENV"
 
       - name: Verify release from CloudFront
+        if: inputs.operation != 'sync-state'
         working-directory: vscode-base
         run: |
-          EXTENSION_ID="${{ inputs.extension_id }}"
-          VERSION="${{ inputs.version }}"
+          EXTENSION_ID="$INPUT_EXTENSION_ID"
+          VERSION="$INPUT_VERSION"
           EXPECTED_STATUS=withdrawn
-          if [ "${{ inputs.operation }}" = publish ]; then
+          if [ "$INPUT_OPERATION" = publish ]; then
             EXTENSION_ID=$(jq -r .extensionId "$GITHUB_WORKSPACE/release/metadata.json")
             VERSION=$(jq -r .version "$GITHUB_WORKSPACE/release/metadata.json")
             EXPECTED_STATUS=active
           fi
-          if [ "${{ inputs.operation }}" = rollback ] || [ "${{ inputs.operation }}" = security-restore ]; then EXPECTED_STATUS=active; fi
+          if [ "$INPUT_OPERATION" = rollback ] || [ "$INPUT_OPERATION" = security-restore ]; then EXPECTED_STATUS=active; fi
           for attempt in 1 2 3 4 5; do
-            if node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
-              --catalog-url "https://registry.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.json" \
-              --signature-url "https://registry.basehalf.com/catalogs/${{ inputs.sequence }}/catalog.sig.json" \
-              --asset-base-url "$ASSET_BASE_URL" \
-              --public-key "$GITHUB_WORKSPACE/release/public.pem" \
-              --key-id "$CATALOG_KEY_ID" \
-              --extension-id "$EXTENSION_ID" \
-              --version "$VERSION" \
-              --expected-status "$EXPECTED_STATUS" \
-              --minimum-sequence "${{ inputs.sequence }}"; then exit 0; fi
+            if curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+                https://registry.basehalf.com/v1/catalog-index.json --output "$GITHUB_WORKSPACE/release/cdn-index.json" \
+              && cmp "$GITHUB_WORKSPACE/release/catalog-index.json" "$GITHUB_WORKSPACE/release/cdn-index.json" \
+              && node --experimental-strip-types scripts/basehalf-plugin-release.mts verify \
+                --catalog-url "https://registry.basehalf.com/catalogs/${INPUT_SEQUENCE}/catalog.json" \
+                --signature-url "https://registry.basehalf.com/catalogs/${INPUT_SEQUENCE}/catalog.sig.json" \
+                --asset-base-url "$ASSET_BASE_URL" \
+                --public-key "$GITHUB_WORKSPACE/release/public.pem" \
+                --key-id "$ACTIVE_CATALOG_KEY_ID" \
+                --extension-id "$EXTENSION_ID" \
+                --version "$VERSION" \
+                --expected-status "$EXPECTED_STATUS" \
+                --minimum-sequence "$INPUT_SEQUENCE"; then exit 0; fi
             sleep 10
           done
           exit 1
+
+      - name: Publish restored emergency control state
+        if: inputs.operation == 'security-restore'
+        run: |
+          aws s3 cp release/extensions-control.json "s3://${BUCKET}/v1/extensions-control.json" --content-type application/json --cache-control 'public,max-age=60,must-revalidate'
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/v1/extensions-control.json'
+          for attempt in 1 2 3 4 5; do
+            if curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+                https://registry.basehalf.com/v1/extensions-control.json --output release/cdn-extensions-control.json \
+              && cmp release/extensions-control.json release/cdn-extensions-control.json; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Verify existing current catalog from CloudFront
+        if: inputs.operation == 'sync-state'
+        run: |
+          test -f release/previous-index.json
+          test -f release/previous.json
+          test -f release/previous.sig.json
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error --retry 3 --retry-all-errors \
+            https://registry.basehalf.com/v1/catalog-index.json --output release/cdn-index.json
+          cmp release/previous-index.json release/cdn-index.json
+          CATALOG_PATH=$(jq -er .catalogPath release/previous-index.json)
+          SIGNATURE_PATH=$(jq -er .signaturePath release/previous-index.json)
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error --retry 3 --retry-all-errors \
+            "https://registry.basehalf.com/${CATALOG_PATH}" --output release/cdn-catalog.json
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error --retry 3 --retry-all-errors \
+            "https://registry.basehalf.com/${SIGNATURE_PATH}" --output release/cdn-catalog.sig.json
+          cmp release/previous.json release/cdn-catalog.json
+          cmp release/previous.sig.json release/cdn-catalog.sig.json
+          cp release/previous.json release/catalog.json
+
+      - name: Synchronize published withdrawal state with the control plane
+        if: inputs.operation != 'publish'
+        run: |
+          test -n "$CONTROL_PLANE_URL"
+          test -n "$RELEASE_TOKEN"
+          jq -e \
+            --arg extension "$INPUT_EXTENSION_ID" \
+            '([.plugins[] | select(.extensionId == $extension)]) as $matches
+              | if ($matches | length) != 1 then error("catalog must contain exactly one matching plugin") else . end
+              | ($matches[0].versions | map(select(.status == "active") | .version)) as $active
+              | {extension_id: $extension, active_versions: $active, catalog_sequence: .sequence}
+              + (if ($active | length) > 0 then {latest_version: $active[0]} else {} end)' \
+            release/catalog.json > release/catalog-state.json
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+            --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
+            --retry 3 --retry-all-errors --retry-delay 2 \
+            -H 'content-type: application/json' \
+            -H "x-basehalf-plugin-release-token: $RELEASE_TOKEN" \
+            --data @release/catalog-state.json \
+            "$CONTROL_PLANE_URL/plugin-service/api/v1/internal/releases/catalog-state" \
+            > release/catalog-state-response.json
+          jq -e '.code == "00000"' release/catalog-state-response.json >/dev/null

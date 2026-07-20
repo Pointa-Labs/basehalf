@@ -26,16 +26,16 @@ jobs:
         # 24 is the next supported LTS line and catches forward-compatibility issues.
         node-version: ['22.12', '24.x']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       # pnpm must be on PATH before setup-node runs, so `cache: 'pnpm'` finds it.
       # The root workspace intentionally has no package.json, so keep this pinned
       # to the version used to generate pnpm-lock.yaml.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 9.15.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
@@ -51,8 +51,9 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - run: node vscode-base/scripts/check-workflow-action-pins.mjs
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.9.8
       - run: terraform fmt -check -recursive infrastructure/plugins

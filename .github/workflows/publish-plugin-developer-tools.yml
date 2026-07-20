@@ -6,7 +6,7 @@ on:
       version:
         description: Exact version already present in both package manifests
         required: true
-        default: 0.1.4
+        default: 0.2.0
         type: string
       dry_run:
         description: Build and inspect tarballs without publishing to npm
@@ -26,14 +26,16 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment: npm-production
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 9.15.5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.14.0
           registry-url: https://registry.npmjs.org
@@ -46,8 +48,6 @@ jobs:
           pnpm install --frozen-lockfile
 
       - name: Verify requested version
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           node -e 'const fs=require("fs"); const wanted=process.env.RELEASE_VERSION; for (const file of ["packages/plugin-sdk/package.json", "packages/plugin-cli/package.json"]) { const value=JSON.parse(fs.readFileSync(file, "utf8")); if (value.version !== wanted) throw new Error(`${file} is ${value.version}, expected ${wanted}`); }'
 
@@ -67,8 +67,8 @@ jobs:
           mkdir -p release
           pnpm --dir packages/plugin-sdk pack --pack-destination "$GITHUB_WORKSPACE/release"
           pnpm --dir packages/plugin-cli pack --pack-destination "$GITHUB_WORKSPACE/release"
-          tar -xOf "release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-sdk" and .version == "${{ inputs.version }}" and .publishConfig.access == "public"'
-          tar -xOf "release/basehalf-plugin-cli-${{ inputs.version }}.tgz" package/package.json | jq -e '.name == "@basehalf/plugin-cli" and .version == "${{ inputs.version }}" and .dependencies["@basehalf/plugin-sdk"] == "${{ inputs.version }}" and .publishConfig.access == "public"'
+          tar -xOf "release/basehalf-plugin-sdk-${RELEASE_VERSION}.tgz" package/package.json | jq -e --arg wanted "$RELEASE_VERSION" '.name == "@basehalf/plugin-sdk" and .version == $wanted and .publishConfig.access == "public"'
+          tar -xOf "release/basehalf-plugin-cli-${RELEASE_VERSION}.tgz" package/package.json | jq -e --arg wanted "$RELEASE_VERSION" '.name == "@basehalf/plugin-cli" and .version == $wanted and .dependencies["@basehalf/plugin-sdk"] == $wanted and .publishConfig.access == "public"'
 
       - name: Smoke-test the packed developer experience
         run: |
@@ -76,19 +76,21 @@ jobs:
           cd release-smoke
           npm init --yes >/dev/null
           npm install \
-            "$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" \
-            "$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${{ inputs.version }}.tgz" \
+            "$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${RELEASE_VERSION}.tgz" \
+            "$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${RELEASE_VERSION}.tgz" \
             --ignore-scripts
           ./node_modules/.bin/bh-plugin help | grep -q 'BaseHalf plugin publishing'
           ./node_modules/.bin/bh-plugin init plugin \
             --publisher smoke-lab \
             --name pipeline \
             --display-name "Pipeline Smoke" \
-            --repository https://github.com/smoke-lab/pipeline \
-            --file-extension bhsmoke
+            --repository https://github.com/smoke-lab/pipeline
           cd plugin
-          SDK_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" \
-          CLI_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${{ inputs.version }}.tgz" \
+          test -f templates/starter.json
+          jq -e '.contributes.basehalfCanvasRecipes | length == 1' package.json >/dev/null
+          jq -e '.contributes.basehalfCanvasTemplates | length == 1' package.json >/dev/null
+          SDK_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-sdk-${RELEASE_VERSION}.tgz" \
+          CLI_TARBALL="file:$GITHUB_WORKSPACE/release/basehalf-plugin-cli-${RELEASE_VERSION}.tgz" \
             node -e 'const fs=require("fs"); const file="package.json"; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.devDependencies["@basehalf/plugin-sdk"]=process.env.SDK_TARBALL; value.devDependencies["@basehalf/plugin-cli"]=process.env.CLI_TARBALL; fs.writeFileSync(file, JSON.stringify(value, null, 2)+"\n");'
           npm install --ignore-scripts
           npm run check
@@ -96,13 +98,45 @@ jobs:
       - name: Inspect publish contents
         if: inputs.dry_run
         run: |
-          npm publish "./release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" --access public --dry-run
-          npm publish "./release/basehalf-plugin-cli-${{ inputs.version }}.tgz" --access public --dry-run
+          npm publish "./release/basehalf-plugin-sdk-${RELEASE_VERSION}.tgz" --access public --dry-run
+          npm publish "./release/basehalf-plugin-cli-${RELEASE_VERSION}.tgz" --access public --dry-run
 
-      - name: Publish SDK
+      - name: Publish missing developer tool packages
         if: ${{ !inputs.dry_run }}
-        run: npm publish "./release/basehalf-plugin-sdk-${{ inputs.version }}.tgz" --access public
-
-      - name: Publish CLI
-        if: ${{ !inputs.dry_run }}
-        run: npm publish "./release/basehalf-plugin-cli-${{ inputs.version }}.tgz" --access public
+        run: |
+          publish_or_confirm() {
+            PACKAGE_NAME="$1"
+            TARBALL="$2"
+            SAFE_NAME=$(printf '%s' "$PACKAGE_NAME" | tr '/@' '__')
+            VIEW_JSON="release/${SAFE_NAME}-view.json"
+            VIEW_ERROR="release/${SAFE_NAME}-view.error"
+            LOCAL_SHA=$(sha1sum "$TARBALL" | awk '{print $1}')
+            set +e
+            npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" dist.shasum --json > "$VIEW_JSON" 2> "$VIEW_ERROR"
+            VIEW_STATUS=$?
+            set -e
+            if [ "$VIEW_STATUS" -eq 0 ]; then
+              REMOTE_SHA=$(jq -er 'select(type == "string")' "$VIEW_JSON")
+              if [ "$REMOTE_SHA" != "$LOCAL_SHA" ]; then
+                echo "${PACKAGE_NAME}@${RELEASE_VERSION} already exists with different bytes." >&2
+                exit 1
+              fi
+              echo "${PACKAGE_NAME}@${RELEASE_VERSION} already matches; skipping publish."
+              return
+            fi
+            if ! grep -q 'E404' "$VIEW_JSON" "$VIEW_ERROR"; then
+              cat "$VIEW_ERROR" >&2
+              exit "$VIEW_STATUS"
+            fi
+            npm publish "$TARBALL" --access public
+            for attempt in 1 2 3 4 5 6; do
+              if REMOTE_SHA=$(npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" dist.shasum --json 2>/dev/null | jq -er 'select(type == "string")') && [ "$REMOTE_SHA" = "$LOCAL_SHA" ]; then
+                return
+              fi
+              sleep 5
+            done
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} was not readable with the published digest." >&2
+            exit 1
+          }
+          publish_or_confirm @basehalf/plugin-sdk "./release/basehalf-plugin-sdk-${RELEASE_VERSION}.tgz"
+          publish_or_confirm @basehalf/plugin-cli "./release/basehalf-plugin-cli-${RELEASE_VERSION}.tgz"
