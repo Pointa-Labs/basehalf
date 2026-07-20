@@ -45,4 +45,14 @@ suite('RequestStore', () => {
 			fail();
 		}
 	});
+
+	test('returns the same request identity emitted to responders', async () => {
+		const requestStore: RequestStore<string, { arg: string }> = store.add(instantiationService.createInstance(RequestStore<string, { arg: string }>, undefined));
+		let emittedRequestId: number | undefined;
+		store.add(requestStore.onCreateRequest(event => emittedRequestId = event.requestId));
+		const request = requestStore.createRequestWithId({ arg: 'foo' });
+		strictEqual(request.requestId, emittedRequestId);
+		requestStore.acceptReply(request.requestId, 'done');
+		strictEqual(await request.promise, 'done');
+	});
 });

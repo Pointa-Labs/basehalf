@@ -231,7 +231,7 @@ suite('File Service', () => {
 		assert.strictEqual(stat.name, 'file.yaml');
 		assert.strictEqual(stat.isFile, true);
 		assert.strictEqual(stat.size, next.byteLength);
-		assert.strictEqual((await provider.readFile(resource)).toString(), next.toString());
+		assert.strictEqual(VSBuffer.wrap(await provider.readFile(resource)).toString(), next.toString());
 	});
 
 	test('watch', async () => {

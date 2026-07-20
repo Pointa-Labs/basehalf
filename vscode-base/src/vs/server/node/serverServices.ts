@@ -83,7 +83,7 @@ import { AgentHostChannel, UnavailableAgentHostChannel } from './agentHostChanne
 import { AgentHostIpcChannels } from '../../platform/agentHost/common/agentService.js';
 import { IServerLifetimeService, ServerLifetimeService } from './serverLifetimeService.js';
 import { CSSDevelopmentService, ICSSDevelopmentService } from '../../platform/cssDev/node/cssDevService.js';
-import { AllowedExtensionsService } from '../../platform/extensionManagement/common/allowedExtensionsService.js';
+import { BaseHalfServerAllowedExtensionsService } from '../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { TelemetryLogAppender } from '../../platform/telemetry/common/telemetryLogAppender.js';
 import { INativeMcpDiscoveryHelperService, NativeMcpDiscoveryHelperChannelName } from '../../platform/mcp/common/nativeMcpDiscoveryHelper.js';
 import { NativeMcpDiscoveryHelperChannel } from '../../platform/mcp/node/nativeMcpDiscoveryHelperChannel.js';
@@ -216,7 +216,7 @@ export async function setupServerServices(connectionToken: ServerConnectionToken
 	services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService));
 	services.set(IExtensionsScannerService, new SyncDescriptor(ExtensionsScannerService));
 	services.set(IExtensionSignatureVerificationService, new SyncDescriptor(ExtensionSignatureVerificationService));
-	services.set(IAllowedExtensionsService, new SyncDescriptor(AllowedExtensionsService));
+	services.set(IAllowedExtensionsService, new SyncDescriptor(BaseHalfServerAllowedExtensionsService));
 	services.set(INativeServerExtensionManagementService, new SyncDescriptor(ExtensionManagementService));
 	services.set(INativeMcpDiscoveryHelperService, new SyncDescriptor(NativeMcpDiscoveryHelperService));
 	services.set(IMcpGatewayService, new SyncDescriptor(McpGatewayService));

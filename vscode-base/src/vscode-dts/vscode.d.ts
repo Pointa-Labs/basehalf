@@ -21245,6 +21245,8 @@ declare module 'vscode' {
 			readonly label: string;
 			/** HTTPS endpoint configured by the user. */
 			readonly endpoint: string;
+			/** Digest of the non-secret connection settings used to identify this connection. */
+			readonly connectionIdentity: string;
 			/** Model families exposed by this service. */
 			readonly capabilities: readonly ModelCapability[];
 			/** Credential transport required by the service. */
@@ -21263,6 +21265,22 @@ declare module 'vscode' {
 			readonly apiKey?: string;
 		}
 
+		/** External model connection identity frozen by the host for one explicit run. */
+		export interface ModelServiceRunSnapshot {
+			/** Stable identifier of the selected service. */
+			readonly serviceId: string;
+			/** User-facing name captured for this run. */
+			readonly serviceLabel: string;
+			/** Digest of the non-secret connection settings captured for this run. */
+			readonly connectionIdentity: string;
+			/** Model family requested by the recipe. */
+			readonly capability: ModelCapability;
+			/** Optional provider model identifier selected for this run. */
+			readonly modelId?: string;
+			/** Opaque short-lived grant supplied only to the executor handling this run. */
+			readonly accessToken?: string;
+		}
+
 		/** An event that fires after the user's global model connections change. */
 		export const onDidChangeModelServices: Event<void>;
 
@@ -21277,10 +21295,242 @@ declare module 'vscode' {
 		/**
 		 * Resolves one model connection, including its short-lived credential snapshot.
 		 *
-		 * @param serviceId The stable service identifier returned by {@link getModelServices}.
-		 * @returns The connection snapshot, or `undefined` when it is unavailable.
+		 * @param snapshot The exact immutable connection identity and grant supplied in the current run request.
+		 * @returns The connection snapshot, or `undefined` when the configured connection no longer matches.
 		 */
-		export function getModelServiceAccess(serviceId: string): Thenable<ModelServiceAccess | undefined>;
+		export function getModelServiceAccess(snapshot: ModelServiceRunSnapshot): Thenable<ModelServiceAccess | undefined>;
+
+		/** A content family rendered by the BaseHalf canvas host. */
+		export type CanvasContentKind =
+			| 'text'
+			| 'code'
+			| 'file'
+			| 'folder'
+			| 'image'
+			| 'video'
+			| 'audio'
+			| 'pdf'
+			| 'presentation';
+
+		/** A stable result container rendered and versioned by the BaseHalf canvas host. */
+		export type CanvasNodeKind = Exclude<CanvasContentKind, 'text' | 'code' | 'folder'>;
+
+		/** JSON-compatible recipe configuration persisted by the BaseHalf host. */
+		export type CanvasRecipeValue =
+			| null
+			| boolean
+			| number
+			| string
+			| readonly CanvasRecipeValue[]
+			| { readonly [key: string]: CanvasRecipeValue };
+
+		/** One host-verified artifact copied into the immutable run snapshot. */
+		export interface CanvasArtifactSnapshot {
+			readonly id: string;
+			readonly kind: CanvasContentKind;
+			readonly resource: Uri;
+			readonly runId?: string;
+		}
+
+		/** The bounded node state supplied to one recipe execution. */
+		export interface CanvasNodeSnapshot {
+			readonly id: string;
+			readonly path: string;
+			readonly kind: CanvasContentKind;
+			/** Host-created immutable declaration or source snapshot for this node. */
+			readonly resource?: Uri;
+			readonly current?: CanvasArtifactSnapshot;
+		}
+
+		/** A direct context edge bound to a recipe-local input slot. */
+		export interface CanvasRecipeInput {
+			readonly edgeId: string;
+			/** Recipe-local consumption metadata. This does not change the canvas edge meaning. */
+			readonly slotId: string;
+			readonly order: number;
+			readonly source: CanvasNodeSnapshot;
+		}
+
+		/** Immutable inputs for one explicit canvas recipe execution. */
+		export interface CanvasRecipeExecutionRequest {
+			readonly runId: string;
+			readonly workspaceFolder: Uri;
+			readonly node: CanvasNodeSnapshot;
+			readonly recipeId: string;
+			readonly parameters: Readonly<Record<string, CanvasRecipeValue>>;
+			/** Selected global model connection. Credentials remain available only through {@link getModelServiceAccess}. */
+			readonly modelServiceId?: string;
+			/** Host-frozen service identity. Pass this exact value to {@link getModelServiceAccess}. */
+			readonly modelService?: ModelServiceRunSnapshot;
+			readonly inputs: readonly CanvasRecipeInput[];
+			/** Unique host-selected directory for ordinary local artifacts from this run. */
+			readonly outputDirectory: Uri;
+		}
+
+		/** Bounded progress reported by a canvas recipe executor. */
+		export interface CanvasRecipeProgress {
+			readonly message?: string;
+			readonly increment?: number;
+		}
+
+		/** One ordinary local file returned by a canvas recipe executor. */
+		export interface CanvasRecipeArtifact {
+			readonly id: string;
+			readonly outputId: string;
+			readonly kind: CanvasNodeKind;
+			readonly resource: Uri;
+			readonly label?: string;
+		}
+
+		/** Result candidates returned to the host after one recipe execution. */
+		export interface CanvasRecipeExecutionResult {
+			/** Ordinary local artifacts produced by the executor. */
+			readonly artifacts: readonly CanvasRecipeArtifact[];
+			/** Identifier of the artifact the host should select as the primary result. */
+			readonly primaryArtifactId?: string;
+			/** Optional request identifier reported by the external provider. */
+			readonly providerRequestId?: string;
+			/** Optional bounded usage reported by the executor. */
+			readonly usage?: CanvasRecipeUsage;
+			/** Optional monetary disclosure reported by the executor. */
+			readonly cost?: CanvasRecipeCost;
+		}
+
+		/** Structured, bounded usage disclosed by a recipe executor. */
+		export interface CanvasRecipeUsage {
+			/** Number of input tokens consumed. */
+			readonly inputTokens?: number;
+			/** Number of output tokens produced. */
+			readonly outputTokens?: number;
+			/** Number of cached input tokens reported by the provider. */
+			readonly cachedInputTokens?: number;
+			/** Number of images processed or produced. */
+			readonly images?: number;
+			/** Number of video seconds processed or produced. */
+			readonly videoSeconds?: number;
+			/** Number of audio seconds processed or produced. */
+			readonly audioSeconds?: number;
+		}
+
+		/** Monetary disclosure reported for one completed execution. */
+		export interface CanvasRecipeCost {
+			/** Currency or credit unit used by the provider. */
+			readonly currency: string;
+			/** Decimal amount represented as a string to avoid precision loss. */
+			readonly amount: string;
+			/** Whether the amount is final or an estimate. */
+			readonly kind: 'actual' | 'estimated';
+		}
+
+		/** Backend identity recorded for an immutable run, including unresolved explicit attempts. */
+		export type CanvasRunModel =
+			| { readonly source: 'local' }
+			| ({ readonly source: 'service'; readonly connection: 'resolved' } & ModelServiceRunSnapshot)
+			| {
+				readonly source: 'service';
+				readonly connection: 'unavailable';
+				readonly serviceId?: string;
+				readonly capability: ModelCapability;
+				readonly modelId?: string;
+			};
+
+		/** Availability of one immutable canvas-node artifact on local storage. */
+		export type CanvasArtifactIntegrity = 'available' | 'missing' | 'changed';
+
+		/** Lifecycle state of one immutable canvas-node version. */
+		export type CanvasNodeVersionStatus = 'imported' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+
+		/** Primary artifact selected by one successful or imported node version. */
+		export interface CanvasNodeVersionArtifact {
+			readonly id: string;
+			readonly kind: CanvasNodeKind;
+			readonly resource: Uri;
+			readonly integrity: CanvasArtifactIntegrity;
+		}
+
+		/** Read-only history entry exposed for domain documents that pin exact results. */
+		export interface CanvasNodeVersion {
+			readonly id: string;
+			readonly status: CanvasNodeVersionStatus;
+			readonly createdAt: string;
+			readonly primaryArtifact?: CanvasNodeVersionArtifact;
+			readonly model?: CanvasRunModel;
+			readonly providerRequestId?: string;
+			readonly usage?: CanvasRecipeUsage;
+			readonly cost?: CanvasRecipeCost;
+		}
+
+		/** Stable identity and version state of one host-owned result node. */
+		export interface CanvasNodeState {
+			readonly id: string;
+			readonly kind: CanvasNodeKind;
+			readonly currentVersionId?: string;
+			readonly versions: readonly CanvasNodeVersion[];
+		}
+
+		/** Selects the bounded version view returned by {@link inspectCanvasNode}. */
+		export interface CanvasNodeInspectOptions {
+			/** Exact run or imported-revision ids to include. Missing ids are omitted. */
+			readonly versionIds?: readonly string[];
+			/** Also include the node's Current version, when it has one. */
+			readonly includeCurrent?: boolean;
+		}
+
+		/**
+		 * Reads one saved result node through the host-owned document and integrity model.
+		 *
+		 * This is a read-only capability for reviewed domain plugins. It returns
+		 * `undefined` when the resource does not exist or is not a result-node document.
+		 * Dirty node documents must be saved before they can be inspected. Omitting
+		 * `options` preserves the legacy complete-history view. When `options` is
+		 * supplied, `versions` is a partial view containing only requested ids and,
+		 * when requested, Current; `currentVersionId` still identifies Current even
+		 * when its entry is not included.
+		 */
+		export function inspectCanvasNode(resource: Uri, options?: CanvasNodeInspectOptions): Thenable<CanvasNodeState | undefined>;
+
+		/**
+		 * Atomically replaces one saved ordinary project file only while its bytes
+		 * still equal `expected`, and records the change as one BaseHalf project
+		 * undo step. The host rejects dirty files, symbolic links, and paths outside
+		 * the current workspace.
+		 */
+		export function applyProjectFileTransition(resource: Uri, expected: Uint8Array, next: Uint8Array, label: string): Thenable<void>;
+
+		/** One exact ordinary-project-file transition proposed for a structural cleanup. */
+		export interface ProjectFileTransition {
+			readonly resource: Uri;
+			readonly expected: Uint8Array;
+			readonly next: Uint8Array;
+			readonly label: string;
+		}
+
+		/** Reviewed plugin hook for removing domain references before a canvas node is deleted. */
+		export interface CanvasStructuralCleanupProvider {
+			prepareDelete(resource: Uri, token: CancellationToken): ProviderResult<readonly ProjectFileTransition[]>;
+		}
+
+		/** Registers at most one structural cleanup provider for this reviewed plugin. */
+		export function registerCanvasStructuralCleanupProvider(provider: CanvasStructuralCleanupProvider): Disposable;
+
+		/** Executes a recipe declared through `contributes.basehalfCanvasRecipes`. */
+		export interface CanvasRecipeExecutor {
+			execute(
+				request: CanvasRecipeExecutionRequest,
+				progress: Progress<CanvasRecipeProgress>,
+				token: CancellationToken
+			): ProviderResult<CanvasRecipeExecutionResult>;
+		}
+
+		/**
+		 * Registers the executor for one manifest-declared canvas recipe.
+		 *
+		 * The BaseHalf host continues to own references, layout, current selection,
+		 * and run history. The execution contract supplies frozen direct inputs and
+		 * validates returned ordinary local artifacts. Executable plugins remain
+		 * trusted local software and are not an operating-system sandbox.
+		 */
+		export function registerCanvasRecipeExecutor(recipeId: string, executor: CanvasRecipeExecutor): Disposable;
 
 		/** A BaseHalf-owned card-detail surface backed by a plugin webview. */
 		export interface CardProjectionView {

@@ -17,7 +17,7 @@ import { watchFileContents } from '../../platform/files/node/watcher/nodejs/node
 import { NativeParsedArgs } from '../../platform/environment/common/argv.js';
 import { buildHelpMessage, buildStdinMessage, buildVersionMessage, NATIVE_CLI_COMMANDS, OPTIONS } from '../../platform/environment/node/argv.js';
 import { addArg, parseCLIProcessArgv } from '../../platform/environment/node/argvHelper.js';
-import { combineUriFlags } from './cliArgs.js';
+import { combineUriFlags, getBaseHalfExtensionMutationError } from './cliArgs.js';
 import { getStdinFilePath, hasStdinWithoutTty, readFromStdin, stdinDataListener } from '../../platform/environment/node/stdin.js';
 import { createWaitMarkerFileSync } from '../../platform/environment/node/wait.js';
 import product from '../../platform/product/common/product.js';
@@ -29,6 +29,8 @@ import { cwd } from '../../base/common/process.js';
 import { addUNCHostToAllowlist } from '../../base/node/unc.js';
 import { URI } from '../../base/common/uri.js';
 import { DeferredPromise } from '../../base/common/async.js';
+import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfAgentOperationCommandRequest, IBaseHalfAgentOperationCommandResponse, IBaseHalfNodeCommandResponse } from '../../platform/terminal/common/terminal.js';
+import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedNodeCommandResponse, requestBaseHalfNodeCommand } from '../../platform/terminal/node/basehalfNodeCommandBridge.js';
 
 function shouldSpawnCliProcess(argv: NativeParsedArgs): boolean {
 	return !!argv['install-source']
@@ -43,11 +45,61 @@ function shouldSpawnCliProcess(argv: NativeParsedArgs): boolean {
 
 export async function main(argv: string[]): Promise<void> {
 	let args: NativeParsedArgs;
+	const rawRunNode = findRawRunNodeArgument(argv);
+	const rawRunOperation = findRawRunOperationArgument(argv);
+	const rawListCapabilities = findRawListCapabilitiesArgument(argv);
 
 	try {
 		args = parseCLIProcessArgv(argv);
 	} catch (err) {
+		if (rawListCapabilities.present) {
+			console.log(JSON.stringify(baseHalfRejectedAgentCapabilityDiscoveryResponse(err instanceof Error ? err.message : String(err))));
+			process.exitCode = 1;
+			return;
+		}
+		if (rawRunOperation.present) {
+			console.log(JSON.stringify(baseHalfRejectedAgentOperationResponse('', err instanceof Error ? err.message : String(err))));
+			process.exitCode = 1;
+			return;
+		}
+		if (rawRunNode.present) {
+			console.log(JSON.stringify(baseHalfRejectedNodeCommandResponse(rawRunNode.nodePath, err instanceof Error ? err.message : String(err))));
+			process.exitCode = 1;
+			return;
+		}
 		console.error(err.message);
+		return;
+	}
+	if (rawRunNode.present && !args['run-node']) {
+		console.log(JSON.stringify(baseHalfRejectedNodeCommandResponse(rawRunNode.nodePath, 'The --run-node option requires a workspace-relative node path.')));
+		process.exitCode = 1;
+		return;
+	}
+	if (rawRunOperation.present && !args['run-operation']) {
+		console.log(JSON.stringify(baseHalfRejectedAgentOperationResponse('', 'The --run-operation option requires one JSON request.')));
+		process.exitCode = 1;
+		return;
+	}
+	if (rawListCapabilities.hasValue) {
+		console.log(JSON.stringify(baseHalfRejectedAgentCapabilityDiscoveryResponse('The --list-capabilities option does not accept a value.')));
+		process.exitCode = 1;
+		return;
+	}
+	const agentCommandCount = Number(!!args['run-node']) + Number(!!args['run-operation']) + Number(!!args['list-capabilities']);
+	if (agentCommandCount > 1) {
+		const error = 'Use exactly one of --run-node, --run-operation, or --list-capabilities.';
+		console.log(JSON.stringify(args['list-capabilities']
+			? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
+			: args['run-operation']
+				? baseHalfRejectedAgentOperationResponse('', error)
+				: baseHalfRejectedNodeCommandResponse(args['run-node'] ?? '', error)));
+		process.exitCode = 1;
+		return;
+	}
+	const extensionMutationError = getBaseHalfExtensionMutationError(args, !!product.basehalfVersion);
+	if (extensionMutationError) {
+		console.error(extensionMutationError);
+		process.exitCode = 1;
 		return;
 	}
 
@@ -87,6 +139,75 @@ export async function main(argv: string[]): Promise<void> {
 				tunnelProcess.on('error', reject);
 			});
 		}
+	}
+
+	if (args['run-node']) {
+		const nodePath = args['run-node'];
+		let response: IBaseHalfNodeCommandResponse;
+		const ipcHandlePath = process.env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV];
+		if (!ipcHandlePath) {
+			response = baseHalfRejectedNodeCommandResponse(nodePath, 'Node runs are available only inside a BaseHalf TUI Agent session.');
+		} else {
+			try {
+				response = await requestBaseHalfNodeCommand(ipcHandlePath, {
+					version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+					type: 'runNode',
+					cwd: cwd(),
+					relativePath: nodePath
+				});
+			} catch (error) {
+				response = baseHalfRejectedNodeCommandResponse(nodePath, error instanceof Error ? error.message : String(error));
+			}
+		}
+		console.log(JSON.stringify(response));
+		process.exitCode = response.outcome === 'succeeded' ? 0 : 1;
+		return;
+	}
+
+	if (args['run-operation']) {
+		let request: IBaseHalfAgentOperationCommandRequest;
+		try {
+			request = parseAgentOperationCliRequest(args['run-operation']);
+		} catch (error) {
+			console.log(JSON.stringify(baseHalfRejectedAgentOperationResponse('', error instanceof Error ? error.message : String(error))));
+			process.exitCode = 1;
+			return;
+		}
+		let response: IBaseHalfAgentOperationCommandResponse;
+		const ipcHandlePath = process.env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV];
+		if (!ipcHandlePath) {
+			response = baseHalfRejectedAgentOperationResponse(request.operationId, 'Agent operations are available only inside a BaseHalf TUI Agent session.');
+		} else {
+			try {
+				response = await requestBaseHalfNodeCommand(ipcHandlePath, request);
+			} catch (error) {
+				response = baseHalfRejectedAgentOperationResponse(request.operationId, error instanceof Error ? error.message : String(error));
+			}
+		}
+		console.log(JSON.stringify(response));
+		process.exitCode = response.outcome === 'succeeded' ? 0 : 1;
+		return;
+	}
+
+	if (args['list-capabilities']) {
+		let response: IBaseHalfAgentCapabilityDiscoveryResponse;
+		const ipcHandlePath = process.env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV];
+		if (!ipcHandlePath) {
+			response = baseHalfRejectedAgentCapabilityDiscoveryResponse('Agent capability discovery is available only inside a BaseHalf TUI Agent session.');
+		} else {
+			try {
+				response = await requestBaseHalfNodeCommand(ipcHandlePath, {
+					version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+					type: 'listCapabilities',
+					cwd: cwd()
+				});
+			} catch (error) {
+				response = baseHalfRejectedAgentCapabilityDiscoveryResponse(error instanceof Error ? error.message : String(error));
+			}
+		}
+		console.log(JSON.stringify(response));
+		process.exitCode = response.outcome === 'succeeded' ? 0 : 1;
+		return;
 	}
 
 	// Help (general)
@@ -585,12 +706,75 @@ function getAppRoot() {
 	return dirname(FileAccess.asFileUri('').fsPath);
 }
 
+function findRawRunNodeArgument(argv: readonly string[]): { readonly present: boolean; readonly nodePath: string } {
+	const argumentIndex = argv.indexOf('--run-node');
+	if (argumentIndex >= 0) {
+		const candidate = argv[argumentIndex + 1];
+		return { present: true, nodePath: candidate && !candidate.startsWith('-') ? candidate : '' };
+	}
+	const inline = argv.find(argument => argument.startsWith('--run-node='));
+	return inline === undefined
+		? { present: false, nodePath: '' }
+		: { present: true, nodePath: inline.slice('--run-node='.length) };
+}
+
+function findRawRunOperationArgument(argv: readonly string[]): { readonly present: boolean } {
+	return {
+		present: argv.includes('--run-operation') || argv.some(argument => argument.startsWith('--run-operation='))
+	};
+}
+
+function findRawListCapabilitiesArgument(argv: readonly string[]): { readonly present: boolean; readonly hasValue: boolean } {
+	const hasValue = argv.some(argument => argument.startsWith('--list-capabilities='));
+	return {
+		present: argv.includes('--list-capabilities') || hasValue,
+		hasValue
+	};
+}
+
+export function parseAgentOperationCliRequest(value: string): IBaseHalfAgentOperationCommandRequest {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		throw new Error('The --run-operation request must be valid JSON.');
+	}
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Object.prototype) {
+		throw new Error('The --run-operation request must be a JSON object.');
+	}
+	const record = parsed as Record<string, unknown>;
+	if (Object.keys(record).length !== 2 || !Object.hasOwn(record, 'operationId') || !Object.hasOwn(record, 'parameters')) {
+		throw new Error('The --run-operation request supports only operationId and parameters.');
+	}
+	if (typeof record.operationId !== 'string' || record.operationId.length === 0 || record.operationId.length > 180) {
+		throw new Error('The --run-operation operationId is invalid.');
+	}
+	if (!record.parameters || typeof record.parameters !== 'object' || Array.isArray(record.parameters) || Object.getPrototypeOf(record.parameters) !== Object.prototype) {
+		throw new Error('The --run-operation parameters must be a JSON object.');
+	}
+	const parameters = record.parameters as Record<string, unknown>;
+	if (Object.keys(parameters).length > 32 || Object.entries(parameters).some(([name, entry]) =>
+		name.length === 0 || name.length > 64
+		|| (typeof entry === 'string'
+			? entry.length > 16 * 1024 || entry.includes('\0')
+			: typeof entry !== 'boolean' && (typeof entry !== 'number' || !Number.isFinite(entry))))) {
+		throw new Error('The --run-operation parameters contain an unsupported name, type, or value.');
+	}
+	return {
+		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+		type: 'runOperation',
+		cwd: cwd(),
+		operationId: record.operationId,
+		parameters: parameters as Readonly<Record<string, string | number | boolean>>
+	};
+}
+
 function eventuallyExit(code: number): void {
 	setTimeout(() => process.exit(code), 0);
 }
 
 main(process.argv)
-	.then(() => eventuallyExit(0))
+	.then(() => eventuallyExit(typeof process.exitCode === 'number' ? process.exitCode : 0))
 	.then(null, err => {
 		console.error(err.message || err.stack || err);
 		eventuallyExit(1);

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -e
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+	NAME="$(node -e 'process.stdout.write(require(process.argv[1]).nameLong)' "$ROOT/product.json")"
+	EXE_NAME="$(node -e 'process.stdout.write(require(process.argv[1]).nameShort)' "$ROOT/product.json")"
+	ELECTRON="$ROOT/.build/electron/$NAME.app/Contents/MacOS/$EXE_NAME"
+else
+	NAME="$(node -e 'process.stdout.write(require(process.argv[1]).applicationName)' "$ROOT/product.json")"
+	ELECTRON="$ROOT/.build/electron/$NAME"
+fi
+
+if [[ ! -x "$ELECTRON" ]]; then
+	echo "BaseHalf development runtime is unavailable. Run npm run electron first." >&2
+	exit 1
+fi
+
+export ELECTRON_RUN_AS_NODE=1
+exec "$ELECTRON" "$ROOT/out/cli.js" "$@"

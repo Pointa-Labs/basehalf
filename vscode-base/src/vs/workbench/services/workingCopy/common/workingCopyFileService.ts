@@ -12,7 +12,6 @@ import { URI } from '../../../../base/common/uri.js';
 import { dispose, Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IFileAtomicOptions, IFileService, FileOperation, IFileStatWithMetadata } from '../../../../platform/files/common/files.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { onUnexpectedError } from '../../../../base/common/errors.js';
 import { IWorkingCopyService } from './workingCopyService.js';
 import { IWorkingCopy } from './workingCopy.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
@@ -22,6 +21,7 @@ import { SaveReason } from '../../../common/editor.js';
 import { IProgress, IProgressStep } from '../../../../platform/progress/common/progress.js';
 import { StoredFileWorkingCopySaveParticipant } from './storedFileWorkingCopySaveParticipant.js';
 import { IStoredFileWorkingCopy, IStoredFileWorkingCopyModel } from './storedFileWorkingCopy.js';
+import { UndoRedoGroup } from '../../../../platform/undoRedo/common/undoRedo.js';
 
 export const IWorkingCopyFileService = createDecorator<IWorkingCopyFileService>('workingCopyFileService');
 
@@ -44,6 +44,13 @@ export interface IFileOperationUndoRedoInfo {
 	 * Id of the undo group that the file operation belongs to.
 	 */
 	undoRedoGroupId?: number;
+
+	/**
+	 * The actual undo group, when the caller owns one. Internal preconditions
+	 * that stage companion workspace edits must use this object instead of
+	 * attempting to recover a group globally from its numeric id.
+	 */
+	undoRedoGroup?: UndoRedoGroup;
 
 	/**
 	 * Flag indicates if the operation is an undo.
@@ -121,13 +128,13 @@ export interface IWorkingCopyFileOperationPreconditionGuard extends IDisposable 
 	didFail?(completedFiles: readonly SourceTargetPair[]): Promise<void>;
 	/** Runs after every public did/fail listener but before guard disposal and
 	 * before the file-operation promise resolves. */
-	afterPublicEvents?(): Promise<void>;
+	afterPublicEvents?(operationSucceeded: boolean): Promise<void>;
 }
 
 interface IWorkingCopyFileOperationFinalizer {
 	didRun(completedFiles: readonly SourceTargetPair[]): Promise<void>;
 	didFail(completedFiles: readonly SourceTargetPair[]): Promise<void>;
-	afterPublicEvents(): Promise<void>;
+	afterPublicEvents(operationSucceeded: boolean): Promise<void>;
 }
 
 export interface IStoredFileWorkingCopySaveParticipantContext {
@@ -427,11 +434,15 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			} catch (error) {
 
 				// error event
-				await this.finalizeAndFire(
-					() => finalizer.didFail([]),
-					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-					() => finalizer.afterPublicEvents()
-				).catch(onUnexpectedError);
+				try {
+					await this.finalizeAndFire(
+						() => finalizer.didFail([]),
+						() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+						() => finalizer.afterPublicEvents(false)
+					);
+				} catch (finalizerError) {
+					throw new AggregateError([error, finalizerError], 'The file create failed and its failure finalizer could not restore a consistent state.');
+				}
 
 				throw error;
 			}
@@ -440,7 +451,7 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			await this.finalizeAndFire(
 				() => finalizer.didRun(files),
 				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...files] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-				() => finalizer.afterPublicEvents()
+				operationSucceeded => finalizer.afterPublicEvents(operationSucceeded)
 			);
 
 			return stats;
@@ -499,11 +510,15 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			} catch (error) {
 
 				// error event
-				await this.finalizeAndFire(
-					() => finalizer.didFail(completedFiles),
-					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-					() => finalizer.afterPublicEvents()
-				).catch(onUnexpectedError);
+				try {
+					await this.finalizeAndFire(
+						() => finalizer.didFail(completedFiles),
+						() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+						() => finalizer.afterPublicEvents(false)
+					);
+				} catch (finalizerError) {
+					throw new AggregateError([error, finalizerError], `The file ${move ? 'move' : 'copy'} failed and its failure finalizer could not restore a consistent state.`);
+				}
 
 				throw error;
 			}
@@ -512,7 +527,7 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			await this.finalizeAndFire(
 				() => finalizer.didRun(completedFiles),
 				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-				() => finalizer.afterPublicEvents()
+				operationSucceeded => finalizer.afterPublicEvents(operationSucceeded)
 			);
 
 			return stats;
@@ -560,11 +575,15 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			} catch (error) {
 
 				// error event
-				await this.finalizeAndFire(
-					() => finalizer.didFail(completedFiles),
-					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-					() => finalizer.afterPublicEvents()
-				).catch(onUnexpectedError);
+				try {
+					await this.finalizeAndFire(
+						() => finalizer.didFail(completedFiles),
+						() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+						() => finalizer.afterPublicEvents(false)
+					);
+				} catch (finalizerError) {
+					throw new AggregateError([error, finalizerError], 'The file delete failed and its failure finalizer could not restore a consistent state.');
+				}
 
 				throw error;
 			}
@@ -573,7 +592,7 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			await this.finalizeAndFire(
 				() => finalizer.didRun(completedFiles),
 				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
-				() => finalizer.afterPublicEvents()
+				operationSucceeded => finalizer.afterPublicEvents(operationSucceeded)
 			);
 		});
 	}
@@ -613,15 +632,11 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 					guards.push(guard);
 				}
 			}
-			const finalize = async (kind: 'didRun' | 'didFail' | 'afterPublicEvents', completedFiles: readonly SourceTargetPair[]): Promise<void> => {
+			const finalize = async (kind: 'didRun' | 'didFail', completedFiles: readonly SourceTargetPair[]): Promise<void> => {
 				const errors: unknown[] = [];
 				for (const guard of guards) {
 					try {
-						if (kind === 'afterPublicEvents') {
-							await guard.afterPublicEvents?.();
-						} else {
-							await guard[kind]?.([...completedFiles]);
-						}
+						await guard[kind]?.([...completedFiles]);
 					} catch (error) {
 						errors.push(error);
 					}
@@ -636,18 +651,34 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 			return await task({
 				didRun: completedFiles => finalize('didRun', completedFiles),
 				didFail: completedFiles => finalize('didFail', completedFiles),
-				afterPublicEvents: () => finalize('afterPublicEvents', [])
+				afterPublicEvents: async operationSucceeded => {
+					const errors: unknown[] = [];
+					for (const guard of guards) {
+						try {
+							await guard.afterPublicEvents?.(operationSucceeded);
+						} catch (error) {
+							errors.push(error);
+						}
+					}
+					if (errors.length === 1) {
+						throw errors[0];
+					}
+					if (errors.length > 1) {
+						throw new AggregateError(errors, 'Working copy file-operation afterPublicEvents finalizers failed');
+					}
+				}
 			});
 		} finally {
 			dispose(guards.reverse());
 		}
 	}
 
-	private async finalizeAndFire(finalize: () => Promise<void>, fire: () => Promise<void>, afterPublicEvents: () => Promise<void>): Promise<void> {
+	private async finalizeAndFire(finalize: () => Promise<void>, fire: () => Promise<void>, afterPublicEvents: (operationSucceeded: boolean) => Promise<void>): Promise<void> {
+		let finalizeError: unknown;
 		try {
 			await finalize();
 		} catch (error) {
-			onUnexpectedError(error);
+			finalizeError = error;
 		}
 		let eventError: unknown;
 		try {
@@ -655,13 +686,26 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 		} catch (error) {
 			eventError = error;
 		}
+		let afterPublicEventsError: unknown;
 		try {
-			await afterPublicEvents();
+			await afterPublicEvents(finalizeError === undefined && eventError === undefined);
 		} catch (error) {
-			onUnexpectedError(error);
+			afterPublicEventsError = error;
 		}
 		if (eventError !== undefined) {
+			if (afterPublicEventsError !== undefined) {
+				throw new AggregateError([eventError, afterPublicEventsError], 'Working copy file-operation public listeners and after-public finalizers failed');
+			}
 			throw eventError;
+		}
+		if (finalizeError !== undefined) {
+			if (afterPublicEventsError !== undefined) {
+				throw new AggregateError([finalizeError, afterPublicEventsError], 'Working copy file-operation finalization and after-public finalizers failed');
+			}
+			throw finalizeError;
+		}
+		if (afterPublicEventsError !== undefined) {
+			throw afterPublicEventsError;
 		}
 	}
 

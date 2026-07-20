@@ -18,7 +18,7 @@ import { IEditableData } from '../../../common/views.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { IBulkEditService, ResourceFileEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
-import { IExplorerView, IExplorerService } from './files.js';
+import { IExplorerBulkEditOptions, IExplorerView, IExplorerService } from './files.js';
 import { IProgressService, ProgressLocation, IProgressCompositeOptions, IProgressOptions } from '../../../../platform/progress/common/progress.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { RunOnceScheduler } from '../../../../base/common/async.js';
@@ -185,7 +185,7 @@ export class ExplorerService implements IExplorerService {
 		return [...items];
 	}
 
-	async applyBulkEdit(edit: ResourceFileEdit[], options: { undoLabel: string; progressLabel: string; confirmBeforeUndo?: boolean; progressLocation?: ProgressLocation.Explorer | ProgressLocation.Window }): Promise<void> {
+	async applyBulkEdit(edit: ResourceFileEdit[], options: IExplorerBulkEditOptions): Promise<void> {
 		const cancellationTokenSource = new CancellationTokenSource();
 		const location = options.progressLocation ?? ProgressLocation.Window;
 		let progressOptions;
@@ -205,7 +205,8 @@ export class ExplorerService implements IExplorerService {
 		}
 		const promise = this.progressService.withProgress(progressOptions, async progress => {
 			await this.bulkEditService.apply(edit, {
-				undoRedoSource: UNDO_REDO_SOURCE,
+				undoRedoSource: options.undoRedoSource ?? UNDO_REDO_SOURCE,
+				undoRedoGroup: options.undoRedoGroup,
 				label: options.undoLabel,
 				code: 'undoredo.explorerOperation',
 				progress,

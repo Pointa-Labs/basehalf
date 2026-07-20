@@ -18,6 +18,16 @@ import { createDecorator, ServicesAccessor } from '../../../../platform/instanti
 import { ResourceFileEdit } from '../../../../editor/browser/services/bulkEditService.js';
 import { ProgressLocation } from '../../../../platform/progress/common/progress.js';
 import { isActiveElement } from '../../../../base/browser/dom.js';
+import { UndoRedoGroup, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
+
+export interface IExplorerBulkEditOptions {
+	readonly undoLabel: string;
+	readonly progressLabel: string;
+	readonly confirmBeforeUndo?: boolean;
+	readonly progressLocation?: ProgressLocation.Explorer | ProgressLocation.Window;
+	readonly undoRedoGroup?: UndoRedoGroup;
+	readonly undoRedoSource?: UndoRedoSource;
+}
 
 export interface IExplorerService {
 	readonly _serviceBrand: undefined;
@@ -37,7 +47,7 @@ export interface IExplorerService {
 	setToCopy(stats: ExplorerItem[], cut: boolean): Promise<void>;
 	setResourcesToCopy(resources: readonly URI[], cut: boolean): Promise<void>;
 	isCut(stat: ExplorerItem): boolean;
-	applyBulkEdit(edit: ResourceFileEdit[], options: { undoLabel: string; progressLabel: string; confirmBeforeUndo?: boolean; progressLocation?: ProgressLocation.Explorer | ProgressLocation.Window }): Promise<void>;
+	applyBulkEdit(edit: ResourceFileEdit[], options: IExplorerBulkEditOptions): Promise<void>;
 
 	/**
 	 * Selects and reveal the file element provided by the given resource if its found in the explorer.

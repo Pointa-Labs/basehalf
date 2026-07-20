@@ -97,6 +97,7 @@ import './services/browserView/electron-browser/playwrightWorkbenchService.js';
 import './services/process/electron-browser/processService.js';
 import './services/power/electron-browser/powerService.js';
 import '../platform/basehalf/electron-browser/basehalfMirrorLinkService.js';
+import './basehalf/electron-browser/basehalfPluginPlatform.contribution.js';
 
 import { registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { IUserDataInitializationService, UserDataInitializationService } from './services/userData/browser/userDataInit.js';

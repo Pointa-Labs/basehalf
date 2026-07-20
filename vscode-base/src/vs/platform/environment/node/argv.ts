@@ -156,6 +156,9 @@ export const OPTIONS: OptionDescriptions<Required<NativeParsedArgs>> = {
 	'disable-chromium-sandbox': { type: 'boolean', cat: 't', description: localize('disableChromiumSandbox', "Use this option only when there is requirement to launch the application as sudo user on Linux or when running as an elevated user in an applocker environment on Windows.") },
 	'sandbox': { type: 'boolean' },
 	'locate-shell-integration-path': { type: 'string', cat: 't', args: ['shell'], description: localize('locateShellIntegrationPath', "Print the path to a terminal shell integration script. Allowed values are 'bash', 'pwsh', 'zsh' or 'fish'.") },
+	'run-node': { type: 'string', cat: 'o', args: ['relative-path'], description: localize('basehalfRunNode', "Run one BaseHalf node document in the current workspace and print its JSON result.") },
+	'run-operation': { type: 'string', cat: 'o', args: ['json-request'], description: localize('basehalfRunOperation', "Run one installed reviewed deterministic operation in the current workspace and print its JSON result.") },
+	'list-capabilities': { type: 'boolean', cat: 'o', description: localize('basehalfListCapabilities', "List the host canvas contract, installed recipes, and reviewed extension capabilities available in the current workspace as JSON.") },
 	'telemetry': { type: 'boolean', cat: 't', description: localize('telemetry', "Shows all telemetry events which VS code collects.") },
 
 	'remote': { type: 'string', allowEmptyValue: true },

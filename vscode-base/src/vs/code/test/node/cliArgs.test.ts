@@ -5,7 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../base/test/common/utils.js';
-import { combineUriFlags } from '../../node/cliArgs.js';
+import { combineUriFlags, getBaseHalfExtensionMutationError } from '../../node/cliArgs.js';
 
 suite('combineUriFlags', () => {
 
@@ -63,5 +63,35 @@ suite('combineUriFlags', () => {
 				'--file-uri', 'vscode-remote://host/file.txt',
 			]
 		);
+	});
+});
+
+suite('getBaseHalfExtensionMutationError', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('rejects every generic install and update command in BaseHalf', () => {
+		for (const args of [
+			{ 'install-extension': ['publisher.extension'] },
+			{ 'install-builtin-extension': ['/tmp/extension.vsix'] },
+			{ 'update-extensions': true },
+		]) {
+			assert.strictEqual(
+				getBaseHalfExtensionMutationError(args, true),
+				'BaseHalf installs and updates code plugins only through its reviewed Plugins library.'
+			);
+		}
+	});
+
+	test('allows non-mutating and uninstall commands in BaseHalf', () => {
+		assert.strictEqual(getBaseHalfExtensionMutationError({
+			'list-extensions': true,
+			'locate-extension': ['publisher.extension'],
+			'uninstall-extension': ['publisher.extension'],
+		}, true), undefined);
+	});
+
+	test('preserves generic extension commands outside BaseHalf', () => {
+		assert.strictEqual(getBaseHalfExtensionMutationError({ 'install-builtin-extension': ['/tmp/extension.vsix'], 'update-extensions': true }, false), undefined);
 	});
 });

@@ -486,14 +486,16 @@ import './basehalf/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/browser/basehalfNavigation.contribution.js';
 import './basehalf/browser/basehalfCardProjectionExtensionPoint.contribution.js';
-import './basehalf/common/basehalfPluginCatalogService.js';
-import './basehalf/common/basehalfPluginManagementService.js';
-import './basehalf/browser/basehalfPluginManager.contribution.js';
-import './basehalf/browser/basehalfPluginsView.js';
+import './basehalf/browser/basehalfPluginStructuralCleanupExtensionPoint.contribution.js';
+import './basehalf/browser/basehalfCanvasRecipeExtensionPoint.contribution.js';
+import './basehalf/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
+import './basehalf/browser/basehalfNodeExecutionService.js';
 import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';
 import './basehalf/browser/basehalfMirrorCascade.contribution.js';
+import './basehalf/browser/basehalfNodeFileOperations.contribution.js';
 import './basehalf/browser/basehalfBadgeQuickAccess.contribution.js';
 import './basehalf/browser/basehalfWorkspaceSetup.contribution.js';
 import './basehalf/browser/basehalfAgentArea.contribution.js';
+import './basehalf/browser/basehalfNodeCommandBridge.contribution.js';
 
 //#endregion

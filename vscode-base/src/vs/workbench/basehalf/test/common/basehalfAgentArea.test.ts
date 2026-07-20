@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { DEFAULT_COMMANDS_TO_SKIP_SHELL, TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
 import {
 	BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
@@ -20,6 +21,8 @@ import {
 	BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS,
 	BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS,
+	baseHalfAgentSessionCanRequestNodeRuns,
+	baseHalfAgentSessionUsesLocalNodeRunBridge,
 	baseHalfAgentSessionChoiceForKind,
 	baseHalfTuiSessionLaunchConfig,
 	baseHalfTuiSessionLaunchFailureGuidance
@@ -27,6 +30,8 @@ import {
 import { isBaseHalfAgentExtensionSlot } from '../../common/basehalfWorkbenchProfile.js';
 
 suite('BaseHalfAgentArea', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('declares five first-class Agent Area session choices', () => {
 		assert.deepStrictEqual(
 			BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.kind),
@@ -73,6 +78,20 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('terminal'), undefined);
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-codex'), undefined);
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-claude'), undefined);
+	});
+
+	test('grants the local bridge only to Agent Area terminal-rendered sessions', () => {
+		assert.strictEqual(baseHalfAgentSessionCanRequestNodeRuns('tui-codex'), true);
+		assert.strictEqual(baseHalfAgentSessionCanRequestNodeRuns('tui-claude'), true);
+		assert.strictEqual(baseHalfAgentSessionCanRequestNodeRuns('terminal'), true);
+		assert.strictEqual(baseHalfAgentSessionCanRequestNodeRuns('extension-codex'), false);
+		assert.strictEqual(baseHalfAgentSessionCanRequestNodeRuns('extension-claude'), false);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('tui-codex', false), true);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('tui-claude', false), true);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('terminal', false), true);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('tui-codex', true), false);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('terminal', true), false);
+		assert.strictEqual(baseHalfAgentSessionUsesLocalNodeRunBridge('extension-codex', false), false);
 	});
 
 	test('gives install guidance when a TUI agent CLI fails to launch', () => {

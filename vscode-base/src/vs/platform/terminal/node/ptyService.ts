@@ -5,14 +5,16 @@
 
 import { execFile, exec } from 'child_process';
 import { AutoOpenBarrier, ProcessTimeRunOnceScheduler, Promises, Queue, timeout } from '../../../base/common/async.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../base/common/network.js';
 import { IProcessEnvironment, isWindows, OperatingSystem, OS } from '../../../base/common/platform.js';
 import { URI } from '../../../base/common/uri.js';
 import { getSystemShell } from '../../../base/node/shell.js';
 import { ILogService, LogLevel } from '../../log/common/log.js';
 import { RequestStore } from '../common/requestStore.js';
-import { IProcessDataEvent, IProcessReadyEvent, IPtyService, IRawTerminalInstanceLayoutInfo, IReconnectConstants, IShellLaunchConfig, ITerminalInstanceLayoutInfoById, ITerminalLaunchError, ITerminalsLayoutInfo, ITerminalTabLayoutInfoById, TerminalIcon, IProcessProperty, TitleEventSource, ProcessPropertyType, IProcessPropertyMap, IFixedTerminalDimensions, IPersistentTerminalProcessLaunchConfig, ICrossVersionSerializedTerminalState, ISerializedTerminalState, ITerminalProcessOptions, IPtyHostLatencyMeasurement, type IPtyServiceContribution, PosixShellType, ITerminalLaunchResult } from '../common/terminal.js';
+import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, IProcessDataEvent, IProcessReadyEvent, IPtyService, IRawTerminalInstanceLayoutInfo, IReconnectConstants, IShellLaunchConfig, ITerminalInstanceLayoutInfoById, ITerminalLaunchError, ITerminalsLayoutInfo, ITerminalTabLayoutInfoById, TerminalIcon, IProcessProperty, TitleEventSource, ProcessPropertyType, IProcessPropertyMap, IFixedTerminalDimensions, IPersistentTerminalProcessLaunchConfig, ICrossVersionSerializedTerminalState, ISerializedTerminalState, ITerminalProcessOptions, IPtyHostLatencyMeasurement, type IPtyServiceContribution, PosixShellType, ITerminalLaunchResult, IBaseHalfNodeCommandCancellationEvent, IBaseHalfNodeCommandRequest, IBaseHalfNodeCommandRequestEvent, IBaseHalfNodeCommandResponse } from '../common/terminal.js';
 import { TerminalDataBufferer } from '../common/terminalDataBuffering.js';
 import { escapeNonWindowsPath } from '../common/terminalEnvironment.js';
 import type { ISerializeOptions, SerializeAddon as XtermSerializeAddon } from '@xterm/addon-serialize';
@@ -27,13 +29,42 @@ import { ShellIntegrationAddon } from '../common/xterm/shellIntegrationAddon.js'
 import { formatMessageForTerminal } from '../common/terminalStrings.js';
 import { IPtyHostProcessReplayEvent } from '../common/capabilities/capabilities.js';
 import { IProductService } from '../../product/common/productService.js';
-import { join } from '../../../base/common/path.js';
+import { dirname, join } from '../../../base/common/path.js';
 import { memoize } from '../../../base/common/decorators.js';
 import * as performance from '../../../base/common/performance.js';
 import pkg from '@xterm/headless';
 import { AutoRepliesPtyServiceContribution } from './terminalContrib/autoReplies/autoRepliesContribController.js';
 import { hasKey, isFunction, isNumber, isString } from '../../../base/common/types.js';
 import { getWindowsBuildNumberAsync } from '../../../base/node/windowsVersion.js';
+import { baseHalfRejectedAgentCapabilityDiscoveryResponse, baseHalfRejectedAgentOperationResponse, baseHalfRejectedNodeCommandResponse, BaseHalfNodeCommandServer, resolveBaseHalfCliDirectory } from './basehalfNodeCommandBridge.js';
+
+const BASEHALF_NODE_COMMAND_REQUEST_TIMEOUT = 24 * 60 * 60 * 1000;
+
+function prependBaseHalfCliToPath(env: IProcessEnvironment, executableEnv: IProcessEnvironment, productService: IProductService): void {
+	const cliDirectory = resolveBaseHalfCliDirectory(
+		dirname(FileAccess.asFileUri('').fsPath),
+		productService.applicationName,
+		isWindows
+	);
+	if (!cliDirectory) {
+		return;
+	}
+
+	const pathKey = isWindows
+		? [...Object.keys(env), ...Object.keys(executableEnv)].find(key => key.toLowerCase() === 'path') ?? 'Path'
+		: 'PATH';
+	const currentPath = env[pathKey] ?? executableEnv[pathKey] ?? process.env[pathKey];
+	env[pathKey] = currentPath ? `${cliDirectory}${isWindows ? ';' : ':'}${currentPath}` : cliDirectory;
+}
+
+function deleteEnvironmentVariable(env: IProcessEnvironment, name: string): void {
+	const normalizedName = name.toLowerCase();
+	for (const key of Object.keys(env)) {
+		if (key.toLowerCase() === normalizedName) {
+			delete env[key];
+		}
+	}
+}
 
 type XtermTerminal = pkg.Terminal;
 const { Terminal: XtermTerminal } = pkg;
@@ -100,6 +131,9 @@ export class PtyService extends Disposable implements IPtyService {
 	private readonly _ptys: Map<number, PersistentTerminalProcess> = new Map();
 	private readonly _workspaceLayoutInfos = new Map<WorkspaceId, ISetTerminalLayoutInfoArgs>();
 	private readonly _detachInstanceRequestStore: RequestStore<IProcessDetails | undefined, { workspaceId: string; instanceId: number }>;
+	private readonly _baseHalfNodeCommandRequestStore: RequestStore<IBaseHalfNodeCommandResponse, Omit<IBaseHalfNodeCommandRequestEvent, 'requestId'>>;
+	private readonly _baseHalfNodeCommandServers = new Map<number, BaseHalfNodeCommandServer>();
+	private readonly _pendingBaseHalfNodeCommandRequests = new Map<number, { readonly persistentProcessId: number; readonly request: IBaseHalfNodeCommandRequest }>();
 	private readonly _revivedPtyIdMap: Map<string, { newId: number; state: ISerializedTerminalState }> = new Map();
 
 	// #region Pty service contribution RPC calls
@@ -137,6 +171,10 @@ export class PtyService extends Disposable implements IPtyService {
 	readonly onDidRequestDetach = this._traceEvent('_onDidRequestDetach', this._onDidRequestDetach.event);
 	private readonly _onDidChangeProperty = this._register(new Emitter<{ id: number; property: IProcessProperty }>());
 	readonly onDidChangeProperty = this._traceEvent('_onDidChangeProperty', this._onDidChangeProperty.event);
+	private readonly _onBaseHalfNodeCommandRequest = this._register(new Emitter<IBaseHalfNodeCommandRequestEvent>());
+	readonly onBaseHalfNodeCommandRequest = this._traceEvent('_onBaseHalfNodeCommandRequest', this._onBaseHalfNodeCommandRequest.event);
+	private readonly _onBaseHalfNodeCommandCancellationRequest = this._register(new Emitter<IBaseHalfNodeCommandCancellationEvent>());
+	readonly onBaseHalfNodeCommandCancellationRequest = this._traceEvent('_onBaseHalfNodeCommandCancellationRequest', this._onBaseHalfNodeCommandCancellationRequest.event);
 
 	private _traceEvent<T>(name: string, event: Event<T>): Event<T> {
 		event(e => {
@@ -168,10 +206,21 @@ export class PtyService extends Disposable implements IPtyService {
 				pty.shutdown(true);
 			}
 			this._ptys.clear();
+			for (const persistentProcessId of [...this._baseHalfNodeCommandServers.keys()]) {
+				this.releaseBaseHalfNodeCommandBridge(persistentProcessId);
+			}
 		}));
 
 		this._detachInstanceRequestStore = this._register(new RequestStore(undefined, this._logService));
 		this._register(this._detachInstanceRequestStore.onCreateRequest(this._onDidRequestDetach.fire, this._onDidRequestDetach));
+		this._baseHalfNodeCommandRequestStore = this._register(new RequestStore(BASEHALF_NODE_COMMAND_REQUEST_TIMEOUT, this._logService));
+		this._register(this._baseHalfNodeCommandRequestStore.onCreateRequest(event => {
+			this._pendingBaseHalfNodeCommandRequests.set(event.requestId, {
+				persistentProcessId: event.persistentProcessId,
+				request: event.request
+			});
+			this._onBaseHalfNodeCommandRequest.fire(event);
+		}));
 
 		this._autoRepliesContribution = new AutoRepliesPtyServiceContribution(this._logService);
 
@@ -198,6 +247,57 @@ export class PtyService extends Disposable implements IPtyService {
 			processDetails = await this._buildProcessDetails(persistentProcessId, pty);
 		}
 		this._detachInstanceRequestStore.acceptReply(requestId, processDetails);
+	}
+
+	@traceRpc
+	async acceptBaseHalfNodeCommandResponse(requestId: number, response: IBaseHalfNodeCommandResponse): Promise<void> {
+		if (!this._pendingBaseHalfNodeCommandRequests.delete(requestId)) {
+			return;
+		}
+		this._baseHalfNodeCommandRequestStore.acceptReply(requestId, response);
+	}
+
+	private requestBaseHalfNodeCommand(
+		persistentProcessId: number,
+		workspaceId: string,
+		request: IBaseHalfNodeCommandRequest,
+		cancellationToken: CancellationToken
+	): Promise<IBaseHalfNodeCommandResponse> {
+		const pending = this._baseHalfNodeCommandRequestStore.createRequestWithId({ persistentProcessId, workspaceId, request });
+		let cancellationSent = false;
+		const cancel = () => {
+			if (cancellationSent || !this._pendingBaseHalfNodeCommandRequests.has(pending.requestId)) {
+				return;
+			}
+			cancellationSent = true;
+			this._onBaseHalfNodeCommandCancellationRequest.fire({ requestId: pending.requestId, persistentProcessId });
+		};
+		const listener = cancellationToken.onCancellationRequested(cancel);
+		if (cancellationToken.isCancellationRequested) {
+			cancel();
+		}
+		return pending.promise.finally(() => {
+			listener.dispose();
+			this._pendingBaseHalfNodeCommandRequests.delete(pending.requestId);
+		});
+	}
+
+	@traceRpc
+	async releaseBaseHalfNodeCommandBridge(persistentProcessId: number): Promise<void> {
+		const error = 'This terminal is no longer owned by the BaseHalf Agent Area.';
+		for (const [requestId, pending] of this._pendingBaseHalfNodeCommandRequests) {
+			if (pending.persistentProcessId === persistentProcessId) {
+				this._onBaseHalfNodeCommandCancellationRequest.fire({ requestId, persistentProcessId });
+				this._pendingBaseHalfNodeCommandRequests.delete(requestId);
+				this._baseHalfNodeCommandRequestStore.acceptReply(requestId, pending.request.type === 'runOperation'
+					? baseHalfRejectedAgentOperationResponse(pending.request.operationId, error)
+					: pending.request.type === 'listCapabilities'
+						? baseHalfRejectedAgentCapabilityDiscoveryResponse(error)
+						: baseHalfRejectedNodeCommandResponse(pending.request.relativePath, error));
+			}
+		}
+		this._baseHalfNodeCommandServers.get(persistentProcessId)?.dispose(error);
+		this._baseHalfNodeCommandServers.delete(persistentProcessId);
 	}
 
 	@traceRpc
@@ -334,7 +434,32 @@ export class PtyService extends Disposable implements IPtyService {
 			throw new Error('Attempt to create a process when attach object was provided');
 		}
 		const id = ++this._lastPtyId;
-		const process = new TerminalProcess(shellLaunchConfig, cwd, cols, rows, env, executableEnv, options, this._logService, this._productService);
+		deleteEnvironmentVariable(env, 'BASEHALF_NODE_COMMAND_BRIDGE');
+		deleteEnvironmentVariable(env, BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV);
+		let nodeCommandServer: BaseHalfNodeCommandServer | undefined;
+		if (shellLaunchConfig.baseHalfAgentAreaNodeCommandBridge === true) {
+			prependBaseHalfCliToPath(env, executableEnv, this._productService);
+			nodeCommandServer = new BaseHalfNodeCommandServer(
+				(request, cancellationToken) => this.requestBaseHalfNodeCommand(id, workspaceId, request, cancellationToken),
+				this._logService
+			);
+			try {
+				await nodeCommandServer.start();
+			} catch (error) {
+				nodeCommandServer.dispose();
+				throw error;
+			}
+			env[BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV] = nodeCommandServer.ipcHandlePath;
+			this._baseHalfNodeCommandServers.set(id, nodeCommandServer);
+		}
+		let process: TerminalProcess;
+		try {
+			process = new TerminalProcess(shellLaunchConfig, cwd, cols, rows, env, executableEnv, options, this._logService, this._productService);
+		} catch (error) {
+			nodeCommandServer?.dispose();
+			this._baseHalfNodeCommandServers.delete(id);
+			throw error;
+		}
 		const processLaunchOptions: IPersistentTerminalProcessLaunchConfig = {
 			env,
 			executableEnv,
@@ -342,6 +467,7 @@ export class PtyService extends Disposable implements IPtyService {
 		};
 		const persistentProcess = new PersistentTerminalProcess(id, process, workspaceId, workspaceName, shouldPersist, cols, rows, processLaunchOptions, unicodeVersion, this._reconnectConstants, this._logService, isReviving && isString(shellLaunchConfig.initialText) ? shellLaunchConfig.initialText : undefined, rawReviveBuffer, shellLaunchConfig.icon, shellLaunchConfig.color, shellLaunchConfig.name, shellLaunchConfig.fixedDimensions);
 		process.onProcessExit(event => {
+			void this.releaseBaseHalfNodeCommandBridge(id);
 			for (const contrib of this._contributions) {
 				contrib.handleProcessDispose(id);
 			}

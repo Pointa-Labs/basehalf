@@ -6,10 +6,13 @@
 import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import { applyBaseHalfWorkspaceHint, BaseHalfWorkspaceSetupService } from '../../common/basehalfWorkspaceSetup.js';
 
 suite('BaseHalfWorkspaceSetup', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	const workspaceFolder = URI.file('/work');
 
 	function createService(initial?: Record<string, string>): { service: BaseHalfWorkspaceSetupService; fs: TestFileSystem } {
@@ -57,7 +60,8 @@ suite('BaseHalfWorkspaceSetup', () => {
 			gitignoreUpdated: false, // absent → skipped, never created
 			agentHarnessUpdated: true,
 			claudeMdUpdated: true,
-			agentsMdUpdated: true
+			agentsMdUpdated: true,
+			agentCapabilityCache: 'disabled-no-secure-provider'
 		});
 		assert.ok(fs.files.get('/work/CLAUDE.md')?.includes('.bh/current_focus.yaml'));
 		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('.bh/current_focus.yaml'));
@@ -70,6 +74,14 @@ suite('BaseHalfWorkspaceSetup', () => {
 		assert.ok(fs.files.get('/work/.bh/agent-harness/index.md')?.startsWith('<!-- bh:agent-harness managed'));
 		assert.ok(fs.files.has('/work/.bh/agent-harness/scenarios/bh-mirror-writing.md'));
 		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/bh-mirror-writing.md')?.includes('A context flows into B'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('basehalf --list-capabilities'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('A\'s direct content is context for B'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('for a result node this'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('is its selected Current'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('never means'));
+		assert.ok(!fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('A\'s selected Current is direct context'));
+		assert.strictEqual(fs.files.has('/work/.bh/cache/canvas-capabilities.json'), false);
+		assert.strictEqual([...fs.files.values()].some(content => content.includes('canvas-capabilities.json')), false);
 		assert.strictEqual(fs.files.has('/work/.gitignore'), false);
 
 		const second = await service.ensureSetup(workspaceFolder);
@@ -77,8 +89,44 @@ suite('BaseHalfWorkspaceSetup', () => {
 			gitignoreUpdated: false,
 			agentHarnessUpdated: false,
 			claudeMdUpdated: false,
-			agentsMdUpdated: false
+			agentsMdUpdated: false,
+			agentCapabilityCache: 'disabled-no-secure-provider'
 		});
+	});
+
+	test('keeps automatic capability publication disabled in a normal workspace', async () => {
+		const { service, fs } = createService();
+
+		const report = await service.ensureSetup(workspaceFolder);
+
+		assert.strictEqual(report.agentCapabilityCache, 'disabled-no-secure-provider');
+		assert.strictEqual(fs.capabilityCacheWriteAttempts, 0);
+		assert.strictEqual(fs.createdFolders.includes('/work/.bh/cache'), false);
+		assert.strictEqual(fs.files.has('/work/.bh/cache/canvas-capabilities.json'), false);
+	});
+
+	test('never reaches a cache write when its parent is replaced before commit', async () => {
+		const outside = '/outside/parent-sentinel.json';
+		const { service, fs } = createService({ [outside]: 'keep-parent' });
+		fs.redirectCapabilityCacheWritesTo = outside;
+
+		const report = await service.ensureSetup(workspaceFolder);
+
+		assert.strictEqual(report.agentCapabilityCache, 'disabled-no-secure-provider');
+		assert.strictEqual(fs.capabilityCacheWriteAttempts, 0);
+		assert.strictEqual(fs.files.get(outside), 'keep-parent');
+	});
+
+	test('never reaches a cache write when its leaf is replaced before commit', async () => {
+		const outside = '/outside/leaf-sentinel.json';
+		const { service, fs } = createService({ [outside]: 'keep-leaf' });
+		fs.redirectCapabilityCacheWritesTo = outside;
+
+		const report = await service.ensureSetup(workspaceFolder);
+
+		assert.strictEqual(report.agentCapabilityCache, 'disabled-no-secure-provider');
+		assert.strictEqual(fs.capabilityCacheWriteAttempts, 0);
+		assert.strictEqual(fs.files.get(outside), 'keep-leaf');
 	});
 
 	test('ensureSetup appends .bh/cache/ to an existing gitignore exactly once', async () => {
@@ -98,6 +146,7 @@ suite('BaseHalfWorkspaceSetup', () => {
 	test('harness sync overwrites stale managed files and prunes retired ones, keeping user files', async () => {
 		const { service, fs } = createService({
 			'/work/.bh/agent-harness/index.md': '<!-- bh:agent-harness managed — old --> \n\nstale',
+			'/work/.bh/agent-harness/scenarios/canvas-workflows.md': '<!-- bh:agent-harness managed — old -->\n\nretired capability instructions',
 			'/work/.bh/agent-harness/scenarios/retired.md': '<!-- bh:agent-harness managed — old -->\n\nretired scenario',
 			'/work/.bh/agent-harness/scenarios/user-notes.md': 'my own notes, no sentinel'
 		});
@@ -106,6 +155,8 @@ suite('BaseHalfWorkspaceSetup', () => {
 
 		assert.strictEqual(report.agentHarnessUpdated, true);
 		assert.ok(fs.files.get('/work/.bh/agent-harness/index.md')?.includes('# BaseHalf Agent Harness'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('# Canvas Workflows'));
+		assert.ok(!fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('retired capability instructions'));
 		assert.strictEqual(fs.files.has('/work/.bh/agent-harness/scenarios/retired.md'), false);
 		assert.strictEqual(fs.files.get('/work/.bh/agent-harness/scenarios/user-notes.md'), 'my own notes, no sentinel');
 	});
@@ -124,6 +175,9 @@ suite('BaseHalfWorkspaceSetup', () => {
 
 class TestFileSystem {
 	readonly files = new Map<string, string>();
+	readonly createdFolders: string[] = [];
+	capabilityCacheWriteAttempts = 0;
+	redirectCapabilityCacheWritesTo: string | undefined;
 
 	constructor(initial?: Record<string, string>) {
 		for (const [path, content] of Object.entries(initial ?? {})) {
@@ -141,10 +195,19 @@ class TestFileSystem {
 	}
 
 	async writeFile(resource: URI, buffer: VSBuffer): Promise<void> {
+		if (resource.fsPath === '/work/.bh/cache/canvas-capabilities.json') {
+			this.capabilityCacheWriteAttempts += 1;
+			if (this.redirectCapabilityCacheWritesTo !== undefined) {
+				this.files.set(this.redirectCapabilityCacheWritesTo, buffer.toString());
+				return;
+			}
+		}
 		this.files.set(resource.fsPath, buffer.toString());
 	}
 
-	async createFolder(_resource: URI): Promise<void> { }
+	async createFolder(resource: URI): Promise<void> {
+		this.createdFolders.push(resource.fsPath);
+	}
 
 	async del(resource: URI): Promise<void> {
 		if (!this.files.delete(resource.fsPath)) {

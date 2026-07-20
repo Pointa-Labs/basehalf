@@ -3,6 +3,28 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { NativeParsedArgs } from '../../platform/environment/common/argv.js';
+
+const BASEHALF_EXTENSION_MUTATION_ERROR = 'BaseHalf installs and updates code plugins only through its reviewed Plugins library.';
+
+type ExtensionMutationArgs = Partial<NativeParsedArgs>;
+
+/**
+ * Returns the user-facing error for command-line extension mutations that must
+ * go through BaseHalf's reviewed Plugins library.
+ */
+export function getBaseHalfExtensionMutationError(args: ExtensionMutationArgs, isBaseHalf: boolean): string | undefined {
+	if (!isBaseHalf) {
+		return undefined;
+	}
+
+	if (args['install-extension']?.length || args['install-builtin-extension']?.length || args['update-extensions']) {
+		return BASEHALF_EXTENSION_MUTATION_ERROR;
+	}
+
+	return undefined;
+}
+
 /**
  * Rewrites `--folder-uri <uri>` / `--file-uri <uri>` pairs into a single
  * `--flag=value` token so the URI is not a standalone argv entry. Used on

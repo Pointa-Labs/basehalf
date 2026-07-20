@@ -341,7 +341,10 @@ export class BulkFileEdits {
 
 	async apply(): Promise<readonly URI[]> {
 		const undoOperations: IFileOperation[] = [];
-		const undoRedoInfo = { undoRedoGroupId: this._undoRedoGroup.id };
+		const undoRedoInfo = {
+			undoRedoGroupId: this._undoRedoGroup.id,
+			undoRedoGroup: this._undoRedoGroup
+		};
 
 		const edits: Array<RenameEdit | CopyEdit | DeleteEdit | CreateEdit> = [];
 		for (const edit of this._edits) {

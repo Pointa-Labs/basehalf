@@ -1956,11 +1956,23 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			get onDidChangeModelServices() {
 				return extHostBaseHalf.onDidChangeModelServices;
 			},
+			registerCanvasRecipeExecutor(recipeId, executor) {
+				return extHostBaseHalf.registerCanvasRecipeExecutor(extension, recipeId, executor);
+			},
 			getModelServices(capability) {
 				return extHostBaseHalf.getModelServices(extension, capability);
 			},
-			getModelServiceAccess(serviceId) {
-				return extHostBaseHalf.getModelServiceAccess(extension, serviceId);
+			getModelServiceAccess(snapshot) {
+				return extHostBaseHalf.getModelServiceAccess(extension, snapshot);
+			},
+			inspectCanvasNode(resource, options) {
+				return extHostBaseHalf.inspectCanvasNode(extension, resource, options);
+			},
+			applyProjectFileTransition(resource, expected, next, label) {
+				return extHostBaseHalf.applyProjectFileTransition(extension, resource, expected, next, label);
+			},
+			registerCanvasStructuralCleanupProvider(provider) {
+				return extHostBaseHalf.registerCanvasStructuralCleanupProvider(extension, provider);
 			},
 			registerCardProjectionProvider(projectionId, provider, options) {
 				return extHostBaseHalf.registerCardProjectionProvider(extension, projectionId, provider, options);

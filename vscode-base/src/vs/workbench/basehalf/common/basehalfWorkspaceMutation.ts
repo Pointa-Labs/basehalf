@@ -71,6 +71,8 @@ interface IBaseHalfPendingStructuralOutcome {
 	publishPromise?: Promise<void>;
 }
 
+const MAX_STRUCTURAL_OUTCOME_PUBLISH_ATTEMPTS = 2;
+
 export type BaseHalfStructuralResourceOutcome =
 	| { readonly kind: 'none' }
 	| { readonly kind: 'recreate' }
@@ -79,6 +81,9 @@ export type BaseHalfStructuralResourceOutcome =
 
 export interface IBaseHalfStructuralMutationReservation {
 	readonly ready: Promise<void>;
+	/** Runs preparation while the structural reservation owns its workspace
+	 * lease, without settling or publishing the reservation. */
+	runPrepared<T>(task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>): Promise<T>;
 	finish(task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<void>, completed?: readonly IBaseHalfCompletedStructuralMutation[]): Promise<void>;
 	reconcile(completed: readonly IBaseHalfCompletedStructuralMutation[], task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<void>): Promise<void>;
 	abort(): Promise<void>;
@@ -329,6 +334,12 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 
 		return {
 			ready: leasePromise.then(() => undefined),
+			runPrepared: async task => {
+				if (settled) {
+					throw new Error('A settled structural reservation cannot run more preparation.');
+				}
+				return task(await leasePromise);
+			},
 			finish: (task, completed = []) => settle('committed', completed, task),
 			reconcile: (completed, task) => {
 				if (completed.length === 0) {
@@ -351,6 +362,9 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 	}
 
 	private publishStructuralOutcome(record: IBaseHalfPendingStructuralOutcome): Promise<void> {
+		if (!this.pendingStructuralOutcomes.has(record)) {
+			return Promise.resolve();
+		}
 		record.publishRequested = true;
 		if (record.publishPromise) {
 			return record.publishPromise;
@@ -402,14 +416,33 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 		const affectedPaths = [...new Map(effective.flatMap(candidate => candidate.outcome.affectedPaths).map(path => [`${path.workspace.toString()}\0${path.relativePath}`, path])).values()];
 		const completed = effective.flatMap(candidate => candidate.outcome.completed);
 
-		await this._onDidFinishStructuralMutation.fireAsync({
-			kind: terminal.outcome.kind,
-			workspaces,
-			affectedPaths,
-			completed
-		}, CancellationToken.None);
-		for (const candidate of candidates) {
-			this.pendingStructuralOutcomes.delete(candidate);
+		let publicationError: unknown;
+		try {
+			for (let attempt = 0; attempt < MAX_STRUCTURAL_OUTCOME_PUBLISH_ATTEMPTS; attempt++) {
+				const listenerErrors: unknown[] = [];
+				await this._onDidFinishStructuralMutation.fireAsync({
+					kind: terminal.outcome.kind,
+					workspaces,
+					affectedPaths,
+					completed
+				}, CancellationToken.None, promise => promise.catch(error => {
+					listenerErrors.push(error);
+				}));
+				if (listenerErrors.length === 0) {
+					publicationError = undefined;
+					break;
+				}
+				publicationError = listenerErrors.length === 1
+					? listenerErrors[0]
+					: new AggregateError(listenerErrors, 'Structural outcome listeners failed.');
+			}
+		} finally {
+			// Physical IO is already terminal. A broken retained-surface listener
+			// must be reported, but it must not leave an ordering barrier that can
+			// permanently suppress every later structural outcome.
+			for (const candidate of candidates) {
+				this.pendingStructuralOutcomes.delete(candidate);
+			}
 		}
 
 		// A publish request can arrive while the listener barrier above is
@@ -419,6 +452,9 @@ export class BaseHalfWorkspaceMutationCoordinator implements IBaseHalfWorkspaceM
 				await this.publishStructuralOutcome(candidate);
 				break;
 			}
+		}
+		if (publicationError !== undefined) {
+			throw publicationError;
 		}
 	}
 

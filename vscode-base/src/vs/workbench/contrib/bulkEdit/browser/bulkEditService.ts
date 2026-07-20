@@ -226,9 +226,9 @@ export class BulkEditService implements IBulkEditService {
 		// undo-redo-group: if a group id is passed then try to find it
 		// in the list of active edits. otherwise (or when not found)
 		// create a separate undo-redo-group
-		let undoRedoGroup: UndoRedoGroup | undefined;
+		let undoRedoGroup: UndoRedoGroup | undefined = options?.undoRedoGroup;
 		let undoRedoGroupRemove = () => { };
-		if (typeof options?.undoRedoGroupId === 'number') {
+		if (!undoRedoGroup && typeof options?.undoRedoGroupId === 'number') {
 			for (const candidate of this._activeUndoRedoGroups) {
 				if (candidate.id === options.undoRedoGroupId) {
 					undoRedoGroup = candidate;

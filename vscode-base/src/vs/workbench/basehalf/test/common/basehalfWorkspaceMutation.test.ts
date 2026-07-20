@@ -167,6 +167,57 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		assert.strictEqual(reconciled, true);
 	});
 
+	test('publish retries a transient retained-surface reconciliation failure', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		let attempts = 0;
+		coordinator.onDidFinishStructuralMutation(outcome => {
+			outcome.waitUntil(Promise.resolve().then(() => {
+				attempts++;
+				if (attempts === 1) {
+					throw new Error('transient reconciliation failure');
+				}
+			}));
+		});
+		const reservation = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
+		await reservation.finishInternal(async () => undefined, [{
+			operation: FileOperation.DELETE,
+			target: URI.joinPath(workspaceA, 'a.md')
+		}]);
+
+		await reservation.publish();
+		assert.strictEqual(attempts, 2);
+	});
+
+	test('a persistent retained-surface reconciliation failure cannot block later outcomes', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		let failedAttempts = 0;
+		const failingListener = coordinator.onDidFinishStructuralMutation(outcome => {
+			outcome.waitUntil(Promise.resolve().then(() => {
+				failedAttempts++;
+				throw new Error('persistent reconciliation failure');
+			}));
+		});
+		const failed = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'a.md' }]);
+		await failed.finishInternal(async () => undefined, [{
+			operation: FileOperation.DELETE,
+			target: URI.joinPath(workspaceA, 'a.md')
+		}]);
+
+		await assert.rejects(failed.publish(), /persistent reconciliation failure/);
+		assert.strictEqual(failedAttempts, 2);
+		failingListener.dispose();
+
+		let published = false;
+		coordinator.onDidFinishStructuralMutation(() => { published = true; });
+		const later = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'b.md' }]);
+		await later.finishInternal(async () => undefined, [{
+			operation: FileOperation.DELETE,
+			target: URI.joinPath(workspaceA, 'b.md')
+		}]);
+		await later.publish();
+		assert.strictEqual(published, true);
+	});
+
 	test('nested successor publish composes behind its unpublished predecessor and maps A through B to C', async () => {
 		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
 		const a = URI.joinPath(workspaceA, 'a.md');
@@ -336,6 +387,21 @@ suite('BaseHalfWorkspaceMutationCoordinator', () => {
 		assert.strictEqual(ran, false);
 		await coordinator.runResourceMutation(workspaceA, sourceStamp, async () => { ran = true; });
 		assert.strictEqual(ran, true);
+	});
+
+	test('resource-scoped authored writes survive unrelated scene changes but reject source replacement', async () => {
+		const coordinator = new BaseHalfWorkspaceMutationCoordinator();
+		const sceneStamp = coordinator.capture(workspaceA);
+		const sourceStamp = coordinator.captureResource(workspaceA, 'note.md');
+		const unrelated = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'other.md' }]);
+		await unrelated.finish(async () => undefined);
+
+		assert.strictEqual(coordinator.isStampCurrent(workspaceA, sceneStamp), false);
+		assert.strictEqual(coordinator.isResourceStampCurrent(workspaceA, sourceStamp), true);
+
+		const replaced = coordinator.reserveStructural(workspaceA, [{ workspace: workspaceA, relativePath: 'note.md' }]);
+		await replaced.finish(async () => undefined);
+		assert.strictEqual(coordinator.isResourceStampCurrent(workspaceA, sourceStamp), false);
 	});
 
 	test('resource mutation fence blocks retained intents without inventing a new identity', async () => {

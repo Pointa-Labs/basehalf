@@ -17,6 +17,7 @@ import { ICopyOperation, SourceTargetPair } from '../../common/workingCopyFileSe
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { timeout } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { UndoRedoGroup } from '../../../../../platform/undoRedo/common/undoRedo.js';
 
 suite('WorkingCopyFileService', () => {
 
@@ -160,6 +161,31 @@ suite('WorkingCopyFileService', () => {
 		assert.deepStrictEqual(order, ['participant', 'precondition', 'will', 'io', 'did', 'did:wait', 'release']);
 	});
 
+	test('passes the caller owned undo group object to hard preconditions', async function () {
+		const source = toResource.call(this, '/path/group-source.txt');
+		const target = toResource.call(this, '/path/group-target.txt');
+		await accessor.fileService.createFile(source);
+		const group = new UndoRedoGroup();
+		let observed = false;
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async (_files, operation, undoInfo) => {
+				if (operation === FileOperation.MOVE) {
+					assert.strictEqual(undoInfo?.undoRedoGroupId, group.id);
+					assert.strictEqual(undoInfo?.undoRedoGroup, group);
+					observed = true;
+				}
+				return { dispose: () => undefined };
+			}
+		}));
+
+		await accessor.workingCopyFileService.move(
+			[{ file: { source, target } }],
+			CancellationToken.None,
+			{ undoRedoGroupId: group.id, undoRedoGroup: group }
+		);
+		assert.strictEqual(observed, true);
+	});
+
 	test('hard precondition rejection prevents move and delete IO', async function () {
 		const source = toResource.call(this, '/path/veto.txt');
 		const target = toResource.call(this, '/path/veto-moved.txt');
@@ -192,11 +218,15 @@ suite('WorkingCopyFileService', () => {
 		const source = toResource.call(this, '/path/guard-failure.txt');
 		const target = toResource.call(this, '/path/guard-failure-moved.txt');
 		let guarded = false;
+		let operationSucceeded: boolean | undefined;
 		accessor.fileService.move = async () => { throw new Error('disk failed'); };
 		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
 			prepare: async () => {
 				guarded = true;
-				return { dispose: () => { guarded = false; } };
+				return {
+					afterPublicEvents: async succeeded => { operationSucceeded = succeeded; },
+					dispose: () => { guarded = false; }
+				};
 			}
 		}));
 		disposables.add(accessor.workingCopyFileService.onDidFailWorkingCopyFileOperation(event => {
@@ -204,6 +234,7 @@ suite('WorkingCopyFileService', () => {
 		}));
 
 		await assert.rejects(accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None), /disk failed/);
+		assert.strictEqual(operationSucceeded, false);
 		assert.strictEqual(guarded, false);
 	});
 
@@ -224,7 +255,7 @@ suite('WorkingCopyFileService', () => {
 					assert.deepStrictEqual(completedFiles.map(file => file.target.toString()), [target.toString()]);
 					order.push('internal-finalizer');
 				},
-				afterPublicEvents: async () => { order.push('after-public-barrier'); },
+				afterPublicEvents: async operationSucceeded => { assert.strictEqual(operationSucceeded, true); order.push('after-public-barrier'); },
 				dispose: () => { order.push('guard-dispose'); }
 			} : { dispose: () => undefined }
 		}));
@@ -243,6 +274,96 @@ suite('WorkingCopyFileService', () => {
 
 		assert.deepStrictEqual(order, ['internal-finalizer', 'public-did-start', 'nested-delete-complete', 'after-public-barrier', 'guard-dispose']);
 		assert.deepStrictEqual(deleted, [target.toString()]);
+	});
+
+	test('reports a successful-IO finalizer failure after public listeners run', async function () {
+		const source = toResource.call(this, '/path/finalizer-error-source.txt');
+		const target = toResource.call(this, '/path/finalizer-error-target.txt');
+		await accessor.fileService.createFile(source);
+		const order: string[] = [];
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async (_files, operation) => operation === FileOperation.COPY ? {
+				didRun: async () => {
+					order.push('finalizer');
+					throw new Error('identity finalization failed');
+				},
+				afterPublicEvents: async operationSucceeded => { assert.strictEqual(operationSucceeded, false); order.push('after-public'); },
+				dispose: () => { order.push('dispose'); }
+			} : undefined
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidRunWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.COPY) {
+				order.push('public-did');
+			}
+		}));
+
+		await assert.rejects(
+			accessor.workingCopyFileService.copy([{ file: { source, target } }], CancellationToken.None),
+			/identity finalization failed/
+		);
+		assert.deepStrictEqual(order, ['finalizer', 'public-did', 'after-public', 'dispose']);
+	});
+
+	test('reports an after-public finalizer failure after successful IO', async function () {
+		const source = toResource.call(this, '/path/after-public-error-source.txt');
+		const target = toResource.call(this, '/path/after-public-error-target.txt');
+		await accessor.fileService.createFile(source);
+		const order: string[] = [];
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async (_files, operation) => operation === FileOperation.MOVE ? {
+				didRun: async () => { order.push('finalizer'); },
+				afterPublicEvents: async operationSucceeded => {
+					assert.strictEqual(operationSucceeded, true);
+					order.push('after-public');
+					throw new Error('retained surface publication failed');
+				},
+				dispose: () => { order.push('dispose'); }
+			} : undefined
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidRunWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.MOVE) {
+				order.push('public-did');
+			}
+		}));
+
+		await assert.rejects(
+			accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None),
+			/retained surface publication failed/
+		);
+		assert.strictEqual(await accessor.fileService.exists(target), true);
+		assert.deepStrictEqual(order, ['finalizer', 'public-did', 'after-public', 'dispose']);
+	});
+
+	test('reports both the original IO failure and a hard failure finalizer error', async function () {
+		const source = toResource.call(this, '/path/failure-finalizer-source.txt');
+		const target = toResource.call(this, '/path/failure-finalizer-target.txt');
+		await accessor.fileService.createFile(source);
+		accessor.fileService.copy = async () => { throw new Error('copy IO failed'); };
+		const order: string[] = [];
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async (_files, operation) => operation === FileOperation.COPY ? {
+				didFail: async completedFiles => {
+					assert.deepStrictEqual(completedFiles, []);
+					order.push('failure-finalizer');
+					throw new Error('copy recovery failed');
+				},
+				afterPublicEvents: async operationSucceeded => { assert.strictEqual(operationSucceeded, false); order.push('after-public'); },
+				dispose: () => { order.push('dispose'); }
+			} : undefined
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidFailWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.COPY) {
+				order.push('public-failure');
+			}
+		}));
+
+		await assert.rejects(
+			accessor.workingCopyFileService.copy([{ file: { source, target } }], CancellationToken.None),
+			(error: unknown) => error instanceof AggregateError
+				&& error.errors.some(candidate => candidate instanceof Error && candidate.message === 'copy IO failed')
+				&& error.errors.some(candidate => candidate instanceof Error && candidate.message === 'copy recovery failed')
+		);
+		assert.deepStrictEqual(order, ['failure-finalizer', 'public-failure', 'after-public', 'dispose']);
 	});
 
 	test('move - dirty file (target exists and is dirty)', async function () {

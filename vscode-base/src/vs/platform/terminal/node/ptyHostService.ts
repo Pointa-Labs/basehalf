@@ -13,7 +13,7 @@ import { RemoteLoggerChannelClient } from '../../log/common/logIpc.js';
 import { getResolvedShellEnv } from '../../shell/node/shellEnv.js';
 import { IPtyHostProcessReplayEvent } from '../common/capabilities/capabilities.js';
 import { RequestStore } from '../common/requestStore.js';
-import { HeartbeatConstants, IHeartbeatService, ITerminalLaunchResult, IProcessDataEvent, IProcessProperty, IProcessPropertyMap, IProcessReadyEvent, IPtyHostLatencyMeasurement, IPtyHostService, IPtyService, IRequestResolveVariablesEvent, ISerializedTerminalState, IShellLaunchConfig, ITerminalLaunchError, ITerminalProcessOptions, ITerminalProfile, ITerminalsLayoutInfo, ProcessPropertyType, TerminalIcon, TerminalIpcChannels, TerminalSettingId, TitleEventSource } from '../common/terminal.js';
+import { HeartbeatConstants, IHeartbeatService, ITerminalLaunchResult, IProcessDataEvent, IProcessProperty, IProcessPropertyMap, IProcessReadyEvent, IPtyHostLatencyMeasurement, IPtyHostService, IPtyService, IRequestResolveVariablesEvent, ISerializedTerminalState, IShellLaunchConfig, ITerminalLaunchError, ITerminalProcessOptions, ITerminalProfile, ITerminalsLayoutInfo, ProcessPropertyType, TerminalIcon, TerminalIpcChannels, TerminalSettingId, TitleEventSource, IBaseHalfNodeCommandCancellationEvent, IBaseHalfNodeCommandRequestEvent, IBaseHalfNodeCommandResponse } from '../common/terminal.js';
 import { registerTerminalPlatformConfiguration } from '../common/terminalPlatformConfiguration.js';
 import { IGetTerminalLayoutInfoArgs, IProcessDetails, ISetTerminalLayoutInfoArgs } from '../common/terminalProcess.js';
 import { IPtyHostConnection, IPtyHostStarter } from './ptyHost.js';
@@ -87,6 +87,10 @@ export class PtyHostService extends Disposable implements IPtyHostService {
 	readonly onDidChangeProperty = this._onDidChangeProperty.event;
 	private readonly _onProcessExit = this._register(new Emitter<{ id: number; event: number | undefined }>());
 	readonly onProcessExit = this._onProcessExit.event;
+	private readonly _onBaseHalfNodeCommandRequest = this._register(new Emitter<IBaseHalfNodeCommandRequestEvent>());
+	readonly onBaseHalfNodeCommandRequest = this._onBaseHalfNodeCommandRequest.event;
+	private readonly _onBaseHalfNodeCommandCancellationRequest = this._register(new Emitter<IBaseHalfNodeCommandCancellationEvent>());
+	readonly onBaseHalfNodeCommandCancellationRequest = this._onBaseHalfNodeCommandCancellationRequest.event;
 
 	private readonly _ptyHostStore = this._register(new DisposableStore());
 
@@ -180,6 +184,12 @@ export class PtyHostService extends Disposable implements IPtyHostService {
 		store.add(proxy.onProcessReplay(e => this._onProcessReplay.fire(e)));
 		store.add(proxy.onProcessOrphanQuestion(e => this._onProcessOrphanQuestion.fire(e)));
 		store.add(proxy.onDidRequestDetach(e => this._onDidRequestDetach.fire(e)));
+		if (proxy.onBaseHalfNodeCommandRequest) {
+			store.add(proxy.onBaseHalfNodeCommandRequest(e => this._onBaseHalfNodeCommandRequest.fire(e)));
+		}
+		if (proxy.onBaseHalfNodeCommandCancellationRequest) {
+			store.add(proxy.onBaseHalfNodeCommandCancellationRequest(e => this._onBaseHalfNodeCommandCancellationRequest.fire(e)));
+		}
 
 		store.add(new RemoteLoggerChannelClient(this._loggerService, client.getChannel(TerminalIpcChannels.Logger)));
 
@@ -336,6 +346,20 @@ export class PtyHostService extends Disposable implements IPtyHostService {
 
 	async acceptDetachInstanceReply(requestId: number, persistentProcessId: number): Promise<void> {
 		return this._proxy.acceptDetachInstanceReply(requestId, persistentProcessId);
+	}
+
+	async acceptBaseHalfNodeCommandResponse(requestId: number, response: IBaseHalfNodeCommandResponse): Promise<void> {
+		if (!this._proxy.acceptBaseHalfNodeCommandResponse) {
+			throw new Error('BaseHalf node commands are unavailable in this terminal host.');
+		}
+		return this._proxy.acceptBaseHalfNodeCommandResponse(requestId, response);
+	}
+
+	async releaseBaseHalfNodeCommandBridge(persistentProcessId: number): Promise<void> {
+		if (!this._proxy.releaseBaseHalfNodeCommandBridge) {
+			throw new Error('BaseHalf node commands are unavailable in this terminal host.');
+		}
+		return this._proxy.releaseBaseHalfNodeCommandBridge(persistentProcessId);
 	}
 
 	async freePortKillProcess(port: string): Promise<{ port: string; processId: string }> {

@@ -23,6 +23,7 @@ import { IOpenWindowOptions, IWindowOpenable } from '../../../platform/window/co
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { IExtensionManagementServerService } from '../../services/extensionManagement/common/extensionManagement.js';
 import { IExtensionManifestPropertiesService } from '../../services/extensions/common/extensionManifestPropertiesService.js';
+import { assertBaseHalfReviewedPluginInstallSurface } from '../../basehalf/common/basehalfExtensionInstallPolicy.js';
 
 
 // this class contains the commands that the CLI server is reying on
@@ -53,6 +54,9 @@ interface ManageExtensionsArgs {
 }
 
 CommandsRegistry.registerCommand('_remoteCLI.manageExtensions', async function (accessor: ServicesAccessor, args: ManageExtensionsArgs): Promise<string | undefined> {
+	if (Array.isArray(args.install) && args.install.length) {
+		assertBaseHalfReviewedPluginInstallSurface(accessor.get(IProductService));
+	}
 	const instantiationService = accessor.get(IInstantiationService);
 	const extensionManagementServerService = accessor.get(IExtensionManagementServerService);
 	const remoteExtensionManagementService = extensionManagementServerService.remoteExtensionManagementServer?.extensionManagementService;
@@ -96,7 +100,7 @@ CommandsRegistry.registerCommand('_remoteCLI.manageExtensions', async function (
 
 });
 
-class RemoteExtensionManagementCLI extends ExtensionManagementCLI {
+export class RemoteExtensionManagementCLI extends ExtensionManagementCLI {
 
 	private _location: string | undefined;
 
@@ -107,9 +111,9 @@ class RemoteExtensionManagementCLI extends ExtensionManagementCLI {
 		@ILabelService labelService: ILabelService,
 		@IWorkbenchEnvironmentService envService: IWorkbenchEnvironmentService,
 		@IExtensionManifestPropertiesService private readonly _extensionManifestPropertiesService: IExtensionManifestPropertiesService,
-		@IProductService productService: IProductService,
+		@IProductService private readonly _productService: IProductService,
 	) {
-		super([], logger, extensionManagementService, extensionGalleryService, productService);
+		super([], logger, extensionManagementService, extensionGalleryService, _productService);
 
 		const remoteAuthority = envService.remoteAuthority;
 		this._location = remoteAuthority ? labelService.getHostLabel(Schemas.vscodeRemote, remoteAuthority) : undefined;
@@ -117,6 +121,13 @@ class RemoteExtensionManagementCLI extends ExtensionManagementCLI {
 
 	protected override get location(): string | undefined {
 		return this._location;
+	}
+
+	public override installExtensions(extensions: (string | URI)[], builtinExtensions: (string | URI)[], installOptions: Parameters<ExtensionManagementCLI['installExtensions']>[2], force: boolean): Promise<void> {
+		if (extensions.length || builtinExtensions.length) {
+			assertBaseHalfReviewedPluginInstallSurface(this._productService);
+		}
+		return super.installExtensions(extensions, builtinExtensions, installOptions, force);
 	}
 
 	protected override validateExtensionKind(manifest: IExtensionManifest): boolean {

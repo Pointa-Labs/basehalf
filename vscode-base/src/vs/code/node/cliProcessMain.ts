@@ -65,7 +65,7 @@ import { LoggerService } from '../../platform/log/node/loggerService.js';
 import { localize } from '../../nls.js';
 import { FileUserDataProvider } from '../../platform/userData/common/fileUserDataProvider.js';
 import { addUNCHostToAllowlist, getUNCHost } from '../../base/node/unc.js';
-import { AllowedExtensionsService } from '../../platform/extensionManagement/common/allowedExtensionsService.js';
+import { BaseHalfServerAllowedExtensionsService } from '../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { McpManagementCli } from '../../platform/mcp/common/mcpManagementCli.js';
 import { IExtensionGalleryManifestService } from '../../platform/extensionManagement/common/extensionGalleryManifest.js';
 import { ExtensionGalleryManifestService } from '../../platform/extensionManagement/common/extensionGalleryManifestService.js';
@@ -77,6 +77,7 @@ import { AllowedMcpServersService } from '../../platform/mcp/common/allowedMcpSe
 import { IMcpGalleryManifestService } from '../../platform/mcp/common/mcpGalleryManifest.js';
 import { McpGalleryManifestService } from '../../platform/mcp/common/mcpGalleryManifestService.js';
 import { LINUX_SYSTEM_POLICY_FILE_PATH } from '../../base/common/policy.js';
+import { getBaseHalfExtensionMutationError } from './cliArgs.js';
 
 class CliMain extends Disposable {
 
@@ -231,7 +232,7 @@ class CliMain extends Disposable {
 		services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService, undefined, true));
 		services.set(IExtensionsScannerService, new SyncDescriptor(ExtensionsScannerService, undefined, true));
 		services.set(IExtensionSignatureVerificationService, new SyncDescriptor(ExtensionSignatureVerificationService, undefined, true));
-		services.set(IAllowedExtensionsService, new SyncDescriptor(AllowedExtensionsService, undefined, true));
+		services.set(IAllowedExtensionsService, new SyncDescriptor(BaseHalfServerAllowedExtensionsService, undefined, true));
 		services.set(INativeServerExtensionManagementService, new SyncDescriptor(ExtensionManagementService, undefined, true));
 		services.set(IExtensionGalleryManifestService, new SyncDescriptor(ExtensionGalleryManifestService));
 		services.set(IExtensionGalleryService, new SyncDescriptor(ExtensionGalleryServiceWithNoStorageService, undefined, true));
@@ -303,6 +304,11 @@ class CliMain extends Disposable {
 	}
 
 	private async doRun(environmentService: INativeEnvironmentService, fileService: IFileService, userDataProfilesService: IUserDataProfilesService, instantiationService: IInstantiationService): Promise<void> {
+		const extensionMutationError = getBaseHalfExtensionMutationError(this.argv, !!product.basehalfVersion);
+		if (extensionMutationError) {
+			throw new Error(extensionMutationError);
+		}
+
 		let profile: IUserDataProfile | undefined = undefined;
 		if (environmentService.args.profile) {
 			profile = userDataProfilesService.profiles.find(p => p.name === environmentService.args.profile);

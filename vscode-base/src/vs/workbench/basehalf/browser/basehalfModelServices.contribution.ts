@@ -13,6 +13,7 @@ import {
 	BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID,
 	BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID,
 	BASEHALF_MODEL_CAPABILITIES,
+	BASEHALF_MODEL_SERVICE_API_KEY_MAX_LENGTH,
 	BaseHalfModelCapability,
 	BaseHalfModelServiceAuthorization,
 	IBaseHalfModelServiceConfiguration,
@@ -251,7 +252,8 @@ async function configureModelService(ui: IModelServiceUiServices, existing?: IBa
 		...(headerName ? { headerName } : {})
 	};
 	await ui.modelServices.upsert(configuration);
-	const needsKey = configuration.authorization !== 'none' && (!existing?.configured || existing.authorization === 'none');
+	const saved = (await ui.modelServices.getServices()).find(service => service.id === configuration.id);
+	const needsKey = configuration.authorization !== 'none' && !saved?.configured;
 	if (needsKey) {
 		if (!await setModelServiceApiKey(ui, configuration)) {
 			ui.notifications.warn(localize('basehalf.models.savedNeedsKey', '{0} was saved, but plugins cannot use it until an API key is added.', configuration.label));
@@ -266,7 +268,11 @@ async function setModelServiceApiKey(ui: IModelServiceUiServices, service: IBase
 		title: localize('basehalf.models.apiKeyTitle', '{0} API Key', service.label),
 		prompt: localize('basehalf.models.apiKeyPrompt', 'Stored encrypted for this BaseHalf installation. The value is never shown again.'),
 		password: true,
-		validateInput: async value => value.trim() ? undefined : localize('basehalf.models.apiKeyRequired', 'Enter an API key.')
+		validateInput: async value => !value.trim()
+			? localize('basehalf.models.apiKeyRequired', 'Enter an API key.')
+			: value.trim().length > BASEHALF_MODEL_SERVICE_API_KEY_MAX_LENGTH
+				? localize('basehalf.models.apiKeyTooLong', 'Use an API key with at most {0} characters.', BASEHALF_MODEL_SERVICE_API_KEY_MAX_LENGTH.toLocaleString())
+				: undefined
 	});
 	if (apiKey === undefined) {
 		return false;

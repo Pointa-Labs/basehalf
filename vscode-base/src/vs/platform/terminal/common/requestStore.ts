@@ -44,14 +44,26 @@ export class RequestStore<T, RequestArgs> extends Disposable {
 	 * @param args The arguments to pass to the onCreateRequest event.
 	 */
 	createRequest(args: RequestArgs): Promise<T> {
-		return new Promise<T>((resolve, reject) => {
-			const requestId = ++this._lastRequestId;
+		return this.createRequestWithId(args).promise;
+	}
+
+	createRequestWithId(args: RequestArgs): { readonly requestId: number; readonly promise: Promise<T> } {
+		const requestId = ++this._lastRequestId;
+		const promise = new Promise<T>((resolve, reject) => {
 			this._pendingRequests.set(requestId, resolve);
 			this._onCreateRequest.fire({ requestId, ...args });
 			const tokenSource = new CancellationTokenSource();
-			timeout(this._timeout, tokenSource.token).then(() => reject(`Request ${requestId} timed out (${this._timeout}ms)`));
+			timeout(this._timeout, tokenSource.token).then(() => {
+				if (!this._pendingRequests.delete(requestId)) {
+					return;
+				}
+				dispose(this._pendingRequestDisposables.get(requestId) || []);
+				this._pendingRequestDisposables.delete(requestId);
+				reject(`Request ${requestId} timed out (${this._timeout}ms)`);
+			}, () => undefined);
 			this._pendingRequestDisposables.set(requestId, [toDisposable(() => tokenSource.cancel())]);
 		});
+		return { requestId, promise };
 	}
 
 	/**

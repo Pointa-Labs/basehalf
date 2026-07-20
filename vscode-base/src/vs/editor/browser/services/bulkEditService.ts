@@ -10,7 +10,7 @@ import { IProgress, IProgressStep } from '../../../platform/progress/common/prog
 import { IDisposable } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
 import { isObject } from '../../../base/common/types.js';
-import { UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
+import { UndoRedoGroup, UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { TextModelEditSource } from '../../common/textModelEditSource.js';
 
@@ -102,6 +102,8 @@ export interface IBulkEditOptions {
 	code?: string;
 	quotableLabel?: string;
 	undoRedoSource?: UndoRedoSource;
+	/** Reuses one caller-owned group so related host transactions undo together. */
+	undoRedoGroup?: UndoRedoGroup;
 	undoRedoGroupId?: number;
 	confirmBeforeUndo?: boolean;
 	respectAutoSaveConfig?: boolean;

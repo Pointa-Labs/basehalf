@@ -43,7 +43,10 @@ export interface IBaseHalfSetupReport {
 	readonly agentHarnessUpdated: boolean;
 	readonly claudeMdUpdated: boolean;
 	readonly agentsMdUpdated: boolean;
+	readonly agentCapabilityCache: BaseHalfAgentCapabilityCacheState;
 }
+
+export type BaseHalfAgentCapabilityCacheState = 'disabled-no-secure-provider';
 
 const HINT_MARKER = '<!-- bh:workspace-hint -->';
 // Closing marker: lets a re-run UPGRADE the section in place (replace strictly
@@ -73,17 +76,18 @@ const AGENT_HARNESS_FILES: ReadonlyArray<{ readonly relPath: string; readonly co
 			'# BaseHalf Agent Harness',
 			'',
 			'> Generated and maintained by BaseHalf. These files are refreshed on each app',
-			"> update, so hand-edits are overwritten — don't store your own notes here.",
+			'> update, so hand-edits are overwritten; don\'t store your own notes here.',
 			'',
 			'This directory contains BaseHalf-specific operational contracts for coding',
 			'agents. Treat this file as the scenario index. Load only the scenario that',
-			"matches the user's request.",
+			'matches the user\'s request.',
 			'',
 			'## Scenarios',
 			'',
 			'- Editing or rewriting the focused file: [scenarios/open-file-editing.md](scenarios/open-file-editing.md)',
 			'- Answering cursor, line, or viewport questions: [scenarios/focus-coordinates.md](scenarios/focus-coordinates.md)',
 			'- Generating or updating .bh mirror files: [scenarios/bh-mirror-writing.md](scenarios/bh-mirror-writing.md)',
+			'- Building or running a canvas workflow: [scenarios/canvas-workflows.md](scenarios/canvas-workflows.md)',
 			'',
 			'## Boundary',
 			'',
@@ -167,6 +171,44 @@ const AGENT_HARNESS_FILES: ReadonlyArray<{ readonly relPath: string; readonly co
 			'.bh/current_focus.yaml with a',
 			'regular file; it must remain a symlink.'
 		])
+	},
+	{
+		relPath: `${AGENT_HARNESS_SCENARIOS_DIR}/canvas-workflows.md`,
+		content: managedDoc([
+			'# Canvas Workflows',
+			'',
+			'Use this scenario when the user explicitly asks you to create, configure,',
+			'connect, inspect, or run main-canvas workflow nodes.',
+			'',
+			'## Discover the live contract',
+			'',
+			'Run `basehalf --list-capabilities` from an Agent Area terminal in the open',
+			'workspace. The JSON response is the authority for the installed node document',
+			'contract, recipes, templates, document formats, and deterministic operations.',
+			'Do not guess recipe ids, input roles, parameters, result kinds, or operations.',
+			'',
+			'## One canvas grammar',
+			'',
+			'- Ordinary text and code remain normal user files.',
+			'- A `.bhnode` is a stable result container. Author only the subset returned by',
+			'  capability discovery; Current and History are host-owned.',
+			'- A -> B means A\'s direct content is context for B; for a result node this',
+			'  is its selected Current. It never means run next, and execution never',
+			'  recursively runs upstream nodes.',
+			'- Input role and order belong to B\'s recipe binding, not to the edge.',
+			'- A context edge may exist before it is assigned to a recipe input. B cannot',
+			'  run until every direct incoming context edge has an explicit target-owned',
+			'  role and the recipe\'s minimum input requirements are satisfied.',
+			'',
+			'## Execute explicitly',
+			'',
+			'Use `basehalf --run-node <workspace-relative-.bhnode-path>` for one saved node.',
+			'Use `basehalf --run-operation \'{"operationId":"returned.operation.id","parameters":{}}\'` only',
+			'for an operation',
+			'returned by capability discovery. Never invent a command id or write generated',
+			'lifecycle fields yourself. Each explicit run creates ordinary local results and',
+			'preserves prior successful versions.'
+		])
 	}
 ];
 
@@ -229,8 +271,8 @@ it with a regular file.
 
 For BaseHalf-specific workflows, use \`${AGENT_HARNESS_INDEX_REL}\` as the
 progressive-disclosure index. Load only the matching scenario, such as focused-file
-rewrites, cursor/viewport questions, or \`.bh/\` mirror writes, when that behavior
-matters.
+rewrites, cursor/viewport questions, canvas workflows, or \`.bh/\` mirror writes,
+when that behavior matters.
 
 The user's files are the source of truth; \`.bh/\` is derived. Edit user files with
 your own tools; edit \`.bh/\` only on explicit request — otherwise the app owns it.
@@ -310,7 +352,18 @@ export class BaseHalfWorkspaceSetupService implements IBaseHalfWorkspaceSetupSer
 		const agentHarnessUpdated = await this.installAgentHarness(workspaceFolder);
 		const claudeMdUpdated = await this.installHint(workspaceFolder, CLAUDE_TARGET);
 		const agentsMdUpdated = await this.installHint(workspaceFolder, AGENTS_TARGET);
-		return { gitignoreUpdated, agentHarnessUpdated, claudeMdUpdated, agentsMdUpdated };
+		// The current file providers expose path-based writes only. Publishing an
+		// automatic workspace cache would therefore leave a parent-directory swap
+		// between validation and commit. Until a provider offers a directory-handle
+		// relative, component-no-follow commit, publication remains fail-closed and
+		// the managed harness does not advertise that cache.
+		return {
+			gitignoreUpdated,
+			agentHarnessUpdated,
+			claudeMdUpdated,
+			agentsMdUpdated,
+			agentCapabilityCache: 'disabled-no-secure-provider'
+		};
 	}
 
 	private async updateGitignore(workspaceFolder: URI): Promise<boolean> {

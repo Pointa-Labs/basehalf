@@ -11,7 +11,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
-import { ILocalPtyService, IProcessPropertyMap, IPtyHostLatencyMeasurement, IPtyService, IShellLaunchConfig, ITerminalBackend, ITerminalBackendRegistry, ITerminalChildProcess, ITerminalEnvironment, ITerminalLogService, ITerminalProcessOptions, ITerminalsLayoutInfo, ITerminalsLayoutInfoById, ProcessPropertyType, TerminalExtensions, TerminalIpcChannels, TerminalSettingId, TitleEventSource } from '../../../../platform/terminal/common/terminal.js';
+import { IBaseHalfNodeCommandCancellationEvent, IBaseHalfNodeCommandRequestEvent, IBaseHalfNodeCommandResponse, ILocalPtyService, IProcessPropertyMap, IPtyHostLatencyMeasurement, IPtyService, IShellLaunchConfig, ITerminalBackend, ITerminalBackendRegistry, ITerminalChildProcess, ITerminalEnvironment, ITerminalLogService, ITerminalProcessOptions, ITerminalsLayoutInfo, ITerminalsLayoutInfoById, ProcessPropertyType, TerminalExtensions, TerminalIpcChannels, TerminalSettingId, TitleEventSource } from '../../../../platform/terminal/common/terminal.js';
 import { IGetTerminalLayoutInfoArgs, IProcessDetails, ISetTerminalLayoutInfoArgs } from '../../../../platform/terminal/common/terminalProcess.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
@@ -77,6 +77,10 @@ class LocalTerminalBackend extends BaseTerminalBackend implements ITerminalBacke
 
 	private readonly _onDidRequestDetach = this._register(new Emitter<{ requestId: number; workspaceId: string; instanceId: number }>());
 	readonly onDidRequestDetach = this._onDidRequestDetach.event;
+	private readonly _onBaseHalfNodeCommandRequest = this._register(new Emitter<IBaseHalfNodeCommandRequestEvent>());
+	readonly onBaseHalfNodeCommandRequest = this._onBaseHalfNodeCommandRequest.event;
+	private readonly _onBaseHalfNodeCommandCancellationRequest = this._register(new Emitter<IBaseHalfNodeCommandCancellationEvent>());
+	readonly onBaseHalfNodeCommandCancellationRequest = this._onBaseHalfNodeCommandCancellationRequest.event;
 
 	constructor(
 		@IWorkspaceContextService workspaceContextService: IWorkspaceContextService,
@@ -162,6 +166,12 @@ class LocalTerminalBackend extends BaseTerminalBackend implements ITerminalBacke
 			store.add(directProxy.onProcessReplay(e => this._ptys.get(e.id)?.handleReplay(e.event)));
 			store.add(directProxy.onProcessOrphanQuestion(e => this._ptys.get(e.id)?.handleOrphanQuestion()));
 			store.add(directProxy.onDidRequestDetach(e => this._onDidRequestDetach.fire(e)));
+			if (directProxy.onBaseHalfNodeCommandRequest) {
+				store.add(directProxy.onBaseHalfNodeCommandRequest(e => this._onBaseHalfNodeCommandRequest.fire(e)));
+			}
+			if (directProxy.onBaseHalfNodeCommandCancellationRequest) {
+				store.add(directProxy.onBaseHalfNodeCommandCancellationRequest(e => this._onBaseHalfNodeCommandCancellationRequest.fire(e)));
+			}
 
 			// Eagerly fetch the backend's environment for memoization
 			this.getEnvironment();
@@ -178,6 +188,20 @@ class LocalTerminalBackend extends BaseTerminalBackend implements ITerminalBacke
 			return;
 		}
 		return this._proxy.acceptDetachInstanceReply(requestId, persistentProcessId);
+	}
+
+	async acceptBaseHalfNodeCommandResponse(requestId: number, response: IBaseHalfNodeCommandResponse): Promise<void> {
+		if (!this._proxy.acceptBaseHalfNodeCommandResponse) {
+			throw new Error('BaseHalf node commands are unavailable in this terminal backend.');
+		}
+		return this._proxy.acceptBaseHalfNodeCommandResponse(requestId, response);
+	}
+
+	async releaseBaseHalfNodeCommandBridge(persistentProcessId: number): Promise<void> {
+		if (!this._proxy.releaseBaseHalfNodeCommandBridge) {
+			throw new Error('BaseHalf node commands are unavailable in this terminal backend.');
+		}
+		return this._proxy.releaseBaseHalfNodeCommandBridge(persistentProcessId);
 	}
 
 	async persistTerminalState(): Promise<void> {

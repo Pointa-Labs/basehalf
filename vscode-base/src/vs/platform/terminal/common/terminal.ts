@@ -302,6 +302,230 @@ export interface ITerminalLaunchResult {
 	injectedArgs: string[];
 }
 
+export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
+export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 1;
+
+export type BaseHalfNodeCommandOutcome = 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | 'rejected';
+
+export interface IBaseHalfRunNodeCommandRequest {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'runNode';
+	readonly cwd: string;
+	readonly relativePath: string;
+}
+
+export type BaseHalfAgentOperationParameters = Readonly<Record<string, string | number | boolean>>;
+
+export interface IBaseHalfAgentOperationCommandRequest {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'runOperation';
+	readonly cwd: string;
+	readonly operationId: string;
+	readonly parameters: BaseHalfAgentOperationParameters;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRequest {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'listCapabilities';
+	readonly cwd: string;
+}
+
+/** A single JSON request accepted from a BaseHalf-owned Agent Area terminal. */
+export type IBaseHalfNodeCommandRequest = IBaseHalfRunNodeCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest;
+
+export interface IBaseHalfNodeCommandRunResult {
+	readonly id: string;
+	readonly status: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+	readonly completedAt?: string;
+	readonly outputPaths: readonly string[];
+	readonly error?: string;
+}
+
+export interface IBaseHalfNodeCommandCurrentResult {
+	readonly source: 'empty' | 'imported' | 'run';
+	readonly versionId?: string;
+	readonly outputPaths: readonly string[];
+}
+
+export interface IBaseHalfRunNodeCommandResponse {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly ok: boolean;
+	readonly outcome: BaseHalfNodeCommandOutcome;
+	readonly type?: 'runNode';
+	readonly nodePath: string;
+	readonly run?: IBaseHalfNodeCommandRunResult;
+	readonly current?: IBaseHalfNodeCommandCurrentResult;
+	readonly error?: string;
+}
+
+export interface IBaseHalfAgentOperationCommandResponse {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'runOperation';
+	readonly ok: boolean;
+	readonly outcome: 'succeeded' | 'cancelled' | 'rejected';
+	readonly operationId: string;
+	readonly result?: unknown;
+	readonly error?: string;
+}
+
+export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS = 256;
+export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES = 256;
+export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES = 256;
+
+export type BaseHalfAgentCapabilityDiscoveryJsonValue = null | boolean | number | string | readonly BaseHalfAgentCapabilityDiscoveryJsonValue[] | { readonly [key: string]: BaseHalfAgentCapabilityDiscoveryJsonValue };
+
+export interface IBaseHalfAgentCapabilityDiscoveryNodeDocument {
+	readonly fileExtension: '.bhnode';
+	readonly documentVersion: number;
+	readonly resultKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
+	readonly inputBinding: {
+		readonly scope: 'direct-inbound-reference';
+		readonly fields: readonly ['sourcePath', 'slot', 'order'];
+	};
+	readonly lifecycle: {
+		readonly current: 'host-owned';
+		readonly history: 'host-owned';
+	};
+	readonly runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>';
+	readonly authoring: Readonly<Record<string, BaseHalfAgentCapabilityDiscoveryJsonValue>>;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryHost {
+	readonly nodeDocument: IBaseHalfAgentCapabilityDiscoveryNodeDocument;
+	readonly contextEdge: {
+		readonly source: 'direct-content';
+		readonly resultNodeSource: 'selected-current';
+		readonly target: 'direct-context';
+		readonly autoRun: false;
+		readonly recursive: false;
+		readonly roleAndOrderOwner: 'target-recipe-binding';
+		readonly label: 'none';
+	};
+	readonly templates: readonly {
+		readonly id: string;
+		readonly label: string;
+		readonly description?: string;
+	}[];
+	readonly operations: readonly IBaseHalfAgentCapabilityDiscoveryOperation[];
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRecipeInput {
+	readonly id: string;
+	readonly label: string;
+	readonly accepts: readonly ('text' | 'code' | 'file' | 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
+	readonly minItems: number;
+	readonly maxItems: number;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRecipeEnumOption {
+	readonly value: string;
+	readonly label: string;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRecipeParameter {
+	readonly id: string;
+	readonly label: string;
+	readonly type: 'string' | 'multiline' | 'number' | 'boolean' | 'enum';
+	readonly required?: true;
+	readonly default?: string | number | boolean;
+	readonly minLength?: number;
+	readonly maxLength?: number;
+	readonly minimum?: number;
+	readonly maximum?: number;
+	readonly step?: number;
+	readonly options?: readonly IBaseHalfAgentCapabilityDiscoveryRecipeEnumOption[];
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRecipeOutput {
+	readonly id: string;
+	readonly kind: 'file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation';
+	readonly extensions: readonly string[];
+	readonly minItems: number;
+	readonly maxItems: number;
+	readonly primary?: true;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryRecipe {
+	readonly id: string;
+	readonly label: string;
+	readonly description?: string;
+	readonly icon?: string;
+	readonly modelCapability?: 'text' | 'image' | 'video' | 'audio';
+	readonly inputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeInput[];
+	readonly parameters: readonly IBaseHalfAgentCapabilityDiscoveryRecipeParameter[];
+	readonly outputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeOutput[];
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryPin {
+	readonly mode: 'exact-result-version';
+	readonly field: string;
+	readonly targetKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
+	readonly acceptedVersionStates: readonly ('succeeded' | 'imported')[];
+	readonly updatePolicy: 'explicit';
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryDocument {
+	readonly kind: string;
+	readonly version: number;
+	readonly fileExtensions: readonly string[];
+	readonly schemaSummary: string;
+	readonly pin?: IBaseHalfAgentCapabilityDiscoveryPin;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryParameter {
+	readonly name: string;
+	readonly type: 'uri' | 'string' | 'integer' | 'number' | 'boolean' | 'enum';
+	readonly required: boolean;
+	readonly description: string;
+	readonly values?: readonly string[];
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryReturn {
+	readonly type: 'object' | 'array' | 'string' | 'number' | 'boolean' | 'void';
+	readonly description: string;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryOperation {
+	readonly id: string;
+	readonly description: string;
+	readonly deterministic: true;
+	readonly parameters: readonly IBaseHalfAgentCapabilityDiscoveryParameter[];
+	readonly returns: IBaseHalfAgentCapabilityDiscoveryReturn;
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryExtension {
+	readonly id: string;
+	readonly label: string;
+	readonly description?: string;
+	readonly documents: readonly IBaseHalfAgentCapabilityDiscoveryDocument[];
+	readonly operations: readonly IBaseHalfAgentCapabilityDiscoveryOperation[];
+}
+
+export interface IBaseHalfAgentCapabilityDiscoveryResponse {
+	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
+	readonly type: 'listCapabilities';
+	readonly ok: boolean;
+	readonly outcome: 'succeeded' | 'rejected';
+	readonly host?: IBaseHalfAgentCapabilityDiscoveryHost;
+	readonly recipes?: readonly IBaseHalfAgentCapabilityDiscoveryRecipe[];
+	readonly extensions?: readonly IBaseHalfAgentCapabilityDiscoveryExtension[];
+	readonly error?: string;
+}
+
+export type IBaseHalfNodeCommandResponse = IBaseHalfRunNodeCommandResponse | IBaseHalfAgentOperationCommandResponse | IBaseHalfAgentCapabilityDiscoveryResponse;
+
+export interface IBaseHalfNodeCommandRequestEvent {
+	readonly requestId: number;
+	readonly persistentProcessId: number;
+	readonly workspaceId: string;
+	readonly request: IBaseHalfNodeCommandRequest;
+}
+
+export interface IBaseHalfNodeCommandCancellationEvent {
+	readonly requestId: number;
+	readonly persistentProcessId: number;
+}
+
 /**
  * A service that communicates with a pty host.
 */
@@ -313,6 +537,8 @@ export interface IPtyService {
 	readonly onProcessReplay: Event<{ id: number; event: IPtyHostProcessReplayEvent }>;
 	readonly onProcessOrphanQuestion: Event<{ id: number }>;
 	readonly onDidRequestDetach: Event<{ requestId: number; workspaceId: string; instanceId: number }>;
+	readonly onBaseHalfNodeCommandRequest?: Event<IBaseHalfNodeCommandRequestEvent>;
+	readonly onBaseHalfNodeCommandCancellationRequest?: Event<IBaseHalfNodeCommandCancellationEvent>;
 	readonly onDidChangeProperty: Event<{ id: number; property: IProcessProperty }>;
 	readonly onProcessExit: Event<{ id: number; event: number | undefined }>;
 
@@ -369,6 +595,8 @@ export interface IPtyService {
 	reduceConnectionGraceTime(): Promise<void>;
 	requestDetachInstance(workspaceId: string, instanceId: number): Promise<IProcessDetails | undefined>;
 	acceptDetachInstanceReply(requestId: number, persistentProcessId?: number): Promise<void>;
+	acceptBaseHalfNodeCommandResponse?(requestId: number, response: IBaseHalfNodeCommandResponse): Promise<void>;
+	releaseBaseHalfNodeCommandBridge?(persistentProcessId: number): Promise<void>;
 	freePortKillProcess(port: string): Promise<{ port: string; processId: string }>;
 	/**
 	 * Serializes and returns terminal state.
@@ -493,6 +721,13 @@ export interface IHeartbeatService {
 
 
 export interface IShellLaunchConfig {
+	/**
+	 * Enables the fixed BaseHalf node command bridge for a first-class local TUI
+	 * Agent session. This marker is host-owned and is intentionally absent from
+	 * the extension-host terminal DTO.
+	 */
+	baseHalfAgentAreaNodeCommandBridge?: true;
+
 	/**
 	 * The name of the terminal, if this is not set the name of the process will be used.
 	 */
@@ -1158,6 +1393,8 @@ export interface ITerminalBackend extends ITerminalBackendPtyServiceContribution
 	readonly onPtyHostRestart: Event<void>;
 
 	readonly onDidRequestDetach: Event<{ requestId: number; workspaceId: string; instanceId: number }>;
+	readonly onBaseHalfNodeCommandRequest?: Event<IBaseHalfNodeCommandRequestEvent>;
+	readonly onBaseHalfNodeCommandCancellationRequest?: Event<IBaseHalfNodeCommandCancellationEvent>;
 
 	attachToProcess(id: number): Promise<ITerminalChildProcess | undefined>;
 	attachToRevivedProcess(id: number): Promise<ITerminalChildProcess | undefined>;
@@ -1177,6 +1414,8 @@ export interface ITerminalBackend extends ITerminalBackendPtyServiceContribution
 	reduceConnectionGraceTime(): Promise<void>;
 	requestDetachInstance(workspaceId: string, instanceId: number): Promise<IProcessDetails | undefined>;
 	acceptDetachInstanceReply(requestId: number, persistentProcessId?: number): Promise<void>;
+	acceptBaseHalfNodeCommandResponse?(requestId: number, response: IBaseHalfNodeCommandResponse): Promise<void>;
+	releaseBaseHalfNodeCommandBridge?(persistentProcessId: number): Promise<void>;
 	persistTerminalState(): Promise<void>;
 
 	createProcess(

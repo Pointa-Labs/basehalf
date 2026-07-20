@@ -197,6 +197,14 @@ export function baseHalfTuiSessionLaunchFailureGuidance(kind: BaseHalfAgentSessi
 	return `Make sure the '${choice.terminalCommand}' command is installed and on your PATH, then restart this session.`;
 }
 
+export function baseHalfAgentSessionCanRequestNodeRuns(kind: BaseHalfAgentSessionKind): boolean {
+	return kind === 'tui-codex' || kind === 'tui-claude' || kind === 'terminal';
+}
+
+export function baseHalfAgentSessionUsesLocalNodeRunBridge(kind: BaseHalfAgentSessionKind, isRemote: boolean): boolean {
+	return !isRemote && baseHalfAgentSessionCanRequestNodeRuns(kind);
+}
+
 export interface IBaseHalfCreateAgentTerminalOptions {
 	readonly label?: string;
 	readonly command?: string;
@@ -232,10 +240,13 @@ export interface IBaseHalfAgentAreaService {
 
 	readonly onDidChangeVisibility: Event<boolean>;
 	readonly onDidChangeSessions: Event<readonly IBaseHalfAgentAreaSession[]>;
+	readonly onDidReleaseTerminalProcess: Event<number>;
 	readonly visible: boolean;
 	readonly sessions: readonly IBaseHalfAgentAreaSession[];
 	readonly activeSessionId: string | undefined;
 	readonly activeTerminal: unknown | undefined;
+	ownsTerminalProcess(persistentProcessId: number): boolean;
+	terminalProcessOwnership(persistentProcessId: number): 'owned' | 'released' | 'unknown';
 
 	/**
 	 * Adopt the Agent Area's chrome into the given host element — called by the
