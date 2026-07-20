@@ -478,15 +478,17 @@ services do not silently rewrite either case.
 ecosystem. Its product shell stays fixed: Files/Git/Search/Plugins on the left,
 BaseHalf-owned navigation around the center, and Agent Area on the right.
 The Plugins entry is the BaseHalf-owned manager for that ecosystem; individual
-plugins cannot add Activity Bar entries. Plugins may add project types, central project surfaces, canvases, storyboards,
-workflows, card previews, and card-detail projections inside that shell. They
-may not add competing global product areas, restore tab-first navigation, or
-change BaseHalf reference semantics.
+plugins cannot add Activity Bar entries. D33 narrows the original “open center”
+language: plugins add domain Recipes and Templates to the main canvas, plus card
+previews and file-specific Card Detail Projections inside that shell; they do
+not add a parallel canvas, project mode, or execution lifecycle. They may not
+add competing global product areas, restore tab-first navigation, or change
+BaseHalf reference semantics.
 
-**Why.** The useful analogy is a game mod: a plugin can add a substantial new
-mode inside a protected engine contract without rewriting the launcher, save
-system, or global controls. This keeps BaseHalf extensible without dissolving
-its product identity into a generic VS Code distribution.
+**Why.** A plugin can add substantial domain capability inside a protected
+engine contract without rewriting the launcher, save system, main canvas, or
+global controls. This keeps BaseHalf extensible without dissolving its product
+identity into a generic VS Code distribution.
 
 **Consequences.** The plugin system reuses VS Code's extension host and
 extension lifecycle beneath BaseHalf-specific provider APIs. The first code
@@ -642,3 +644,41 @@ boundary even when personal Publisher creation is folded into first
 authorization. The website never becomes an alternate package builder or
 installer. Plugin updates remain explicit and use BaseHalf's signed metadata
 instead of the generic Marketplace.
+
+## D33 — The main canvas unifies content and optional execution; domain plugins contribute recipes (NEW, 2026-07-18)
+
+**Decision.** BaseHalf has one primary canvas node model. Ordinary text, code,
+files, images, video, and audio remain user-owned local content. File, image,
+video, audio, PDF, and presentation result containers may also carry an
+optional Recipe, explicit Run lifecycle, selected Current result, and immutable
+History. The existing reference edge keeps one meaning: `A → B`
+provides A as direct context to B. It never becomes an automatic execution edge
+or recursively runs upstream nodes.
+
+Text and code remain ordinary editable file cards and can be direct Recipe
+inputs. They are not `.bhnode` result containers. Executable result containers
+use `file`, `image`, `video`, `audio`, `pdf`, or `presentation`, preventing one
+piece of authored text or source code from acquiring two competing interaction
+models.
+
+Domain plugins extend this model by contributing reviewed recipes, templates,
+input roles, parameter validation, and executors. They do not own a parallel
+canvas engine, duplicate node/edge persistence, or replace host Run, Current,
+History, media preview, and failure recovery. Plugin project truth remains
+ordinary readable local files, never `.bh/mirror` or extension-private storage.
+
+**Why.** A second domain canvas makes the same Text/Image/Video/Audio object,
+reference, selection, and history concepts behave differently depending on
+where the user opened them. One host model gives users and Agents a stable
+grammar while preserving plugin-level domain expertise.
+
+**Consequences.** AI Video remains the first official domain capability pack,
+but no longer registers a separate workflow canvas or creates new `.aivideo`
+projects. It contributes shot/sequence conventions, video-domain recipes,
+templates, input binding choices, and executors. Existing `.aivideo` files stay
+readable as ordinary JSON; the prototype format receives no long-lived
+compatibility layer. The general plugin ecosystem and its signed distribution
+remain unchanged. Visual Group/Ungroup is not simulated with folder moves or
+private canvas rows: it remains absent until a portable, user-owned grouping
+document and its delete/undo semantics are defined. Selection UI exposes only
+structural actions that have a complete persisted meaning today.

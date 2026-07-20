@@ -1,10 +1,9 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **This mirrors [`CLAUDE.md`](CLAUDE.md).** BaseHalf keeps ONE maintained agent
-> guide — `CLAUDE.md` in the repo root — so the two can't drift. Read it for the
-> full reference. This file is the compact Codex/Cursor-facing entry point for
-> developing BaseHalf itself, not the workspace hint that BaseHalf installs into
-> a user's project folder.
+> **Companion guide:** [`CLAUDE.md`](CLAUDE.md). Both root guides carry the same
+> current product rules and decision indexes for their respective coding-agent
+> entry points. This file is for developing BaseHalf itself, not the workspace
+> hint that BaseHalf installs into a user's project folder.
 >
 > Product and architecture decisions are indexed below. For subsystem-specific
 > details, read the relevant decision/spec instead of copying workspace-agent
@@ -133,6 +132,7 @@ Current public decision index:
 - D30 — Community publishing uses the existing Basehalf account and a signer-separated curated pipeline.
 - D31 — Plugin portal and signed registry use separate subdomains.
 - D32 — Publishing is one front-stage action; installed lifecycle stays VS Code-native.
+- D33 — Main canvas unifies content and optional execution; domain plugins contribute recipes.
 
 Current private decision index:
 
@@ -168,6 +168,7 @@ Current private decision index:
 - [protocol-not-prompt-injection.md](private-docs/decisions/protocol-not-prompt-injection.md) — compound mechanism is protocol, not prompt injection.
 - [reference-edges-are-context-flow-topology.md](private-docs/decisions/reference-edges-are-context-flow-topology.md) — explicit references form a general directed context-flow graph; Markdown links only navigate and canvas edges have no relationship prose.
 - [rich-editor-agent-native-hardening.md](private-docs/decisions/rich-editor-agent-native-hardening.md) — external writes merge incrementally with remote-author undo semantics; byte fidelity is a gate; Markdown links are authored for navigation without mutating references.
+- [rich-editor-undo-single-owner.md](private-docs/decisions/rich-editor-undo-single-owner.md) — rich editor undo/redo has one owner; collaboration undo manager lifecycle is ours.
 - [right-side-agent-area-hosts-tui-and-extension-agents.md](private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md) — right side is Agent Area for TUI and extension agents.
 - [screen-attention-economy.md](private-docs/decisions/screen-attention-economy.md) — screen attention economy strategy.
 - [target-user-curious-learner-ai-augmented.md](private-docs/decisions/target-user-curious-learner-ai-augmented.md) — target user is curious learner using AI.
@@ -217,10 +218,17 @@ that point instead of relying on this guide.
 - **Curated extensions first.** During the VS Code-base migration, expose only
   the Git/GitHub/GitHub-auth/Codex/Claude extension families needed for SCM and
   Agent Area. Keep the full marketplace and generic Extensions UI hidden.
-- **Fixed shell, open center.** Plugins may add project types, central project
-  surfaces, canvases, workflows, card previews, and card-detail projections.
+- **Fixed shell, open center.** Plugins may add project types, main-canvas
+  recipes and templates, card previews, and file-specific card-detail projections.
   They must not add competing global sidebars/panels, replace Agent Area, make
   editor tabs primary, or change BaseHalf reference semantics.
+- **One primary content/execution canvas.** Text, code, files, folders, images,
+  video, audio, PDF, and presentations use the BaseHalf main-canvas model.
+  Text and code keep their normal file editors; executable result containers
+  use only file/image/video/audio/PDF/presentation kinds. Recipe, Run, Current,
+  and History are optional host capabilities on those result containers.
+  Domain plugins add reviewed recipes, templates, input roles, validation, and executors; they do
+  not duplicate the main canvas, node/edge truth, or execution lifecycle.
 - **Plugin output is user data.** Explicit user/Agent workflow runs may create
   ordinary project files and media. Keep domain truth out of `.bh/mirror` and
   extension-private databases; plugin removal must leave user files readable.
@@ -330,8 +338,8 @@ it with a regular file.
 
 For BaseHalf-specific workflows, use `.bh/agent-harness/index.md` as the
 progressive-disclosure index. Load only the matching scenario, such as focused-file
-rewrites, cursor/viewport questions, or `.bh/` mirror writes, when that behavior
-matters.
+rewrites, cursor/viewport questions, canvas workflows, or `.bh/` mirror writes,
+when that behavior matters.
 
 The user's files are the source of truth; `.bh/` is derived. Edit user files with
 your own tools; edit `.bh/` only on explicit request — otherwise the app owns it.

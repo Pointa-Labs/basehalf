@@ -13,8 +13,8 @@ instead of maintaining a second copy.
 1. [Create your first plugin](plugins/quickstart.md) — install the CLI, generate
    a working TypeScript plugin, and open its development host.
 2. [Manifest and host API](plugins/manifest-and-host-api.md) — understand the
-   fixed-shell contract, card projections, local data, and shared model
-   services.
+   fixed-shell contract, main-canvas Recipes and Templates, local run data,
+   shared model services, and opt-in Card Detail Projections.
 3. [Local development and testing](plugins/local-development.md) — validate,
    package, and test lifecycle and failure behavior before submission.
 4. [Publish, review, and update](plugins/publishing.md) — use your existing
@@ -43,3 +43,10 @@ npm run check
 Open the generated folder in BaseHalf and press **F5**. When the plugin is ready
 for review, run `npm run publish`. The first publish opens one browser
 confirmation and then continues automatically.
+
+The generated plugin extends BaseHalf's existing canvas; it does not ship a
+separate workflow editor. Its Recipe receives only the direct input snapshots
+frozen for an explicit node run and writes ordinary local artifacts into the
+host-provided run directory. BaseHalf owns Run/Cancel, Current, History, and
+credential storage. Use a card-detail Projection only for a proprietary file
+format that needs a dedicated renderer.

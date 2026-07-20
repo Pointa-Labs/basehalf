@@ -254,9 +254,10 @@ packages/                            historical BaseHalf core/desktop material
    activation into BaseHalf folder canvases and card detail.
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
-5. **Fixed shell, open center.** Curated domain plugins can add project modes
-   and center/card projections without replacing BaseHalf navigation, the
-   sidebar, or Agent Area. See the [plugin architecture](docs/plugin-architecture.md).
+5. **Fixed shell, extensible main canvas.** Curated domain plugins can add
+   main-canvas recipes and templates, card previews, and file-specific Card
+   Detail projections without replacing the canvas model, BaseHalf navigation,
+   the sidebar, or Agent Area. See the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
    over the same Markdown working copy.
 7. **BaseHalf does not secretly edit user files.** Automated services publish

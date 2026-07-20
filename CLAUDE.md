@@ -135,6 +135,7 @@ Current public decision index:
 - D30 — Community publishing uses the existing Basehalf account and a signer-separated curated pipeline.
 - D31 — Plugin portal and signed registry use separate subdomains.
 - D32 — Publishing is one front-stage action; installed lifecycle stays VS Code-native.
+- D33 — Main canvas unifies content and optional execution; domain plugins contribute recipes.
 
 Current private decision index:
 
@@ -223,10 +224,17 @@ that point instead of relying on this guide.
 - **Curated extensions first.** During the VS Code-base migration, expose only
   the Git/GitHub/GitHub-auth/Codex/Claude extension families needed for SCM and
   Agent Area. Keep the full marketplace and generic Extensions UI hidden.
-- **Fixed shell, open center.** Plugins may add project types, central project
-  surfaces, canvases, workflows, card previews, and card-detail projections.
+- **Fixed shell, open center.** Plugins may add project types, main-canvas
+  recipes and templates, card previews, and file-specific card-detail projections.
   They must not add competing global sidebars/panels, replace Agent Area, make
   editor tabs primary, or change BaseHalf reference semantics.
+- **One primary content/execution canvas.** Text, code, files, folders, images,
+  video, audio, PDF, and presentations use the BaseHalf main-canvas model.
+  Text and code keep their normal file editors; executable result containers
+  use only file/image/video/audio/PDF/presentation kinds. Recipe, Run, Current,
+  and History are optional host capabilities on those result containers.
+  Domain plugins add reviewed recipes, templates, input roles, validation, and executors; they do
+  not duplicate the main canvas, node/edge truth, or execution lifecycle.
 - **Plugin output is user data.** Explicit user/Agent workflow runs may create
   ordinary project files and media. Keep domain truth out of `.bh/mirror` and
   extension-private databases; plugin removal must leave user files readable.
@@ -336,8 +344,8 @@ it with a regular file.
 
 For BaseHalf-specific workflows, use `.bh/agent-harness/index.md` as the
 progressive-disclosure index. Load only the matching scenario, such as focused-file
-rewrites, cursor/viewport questions, or `.bh/` mirror writes, when that behavior
-matters.
+rewrites, cursor/viewport questions, canvas workflows, or `.bh/` mirror writes,
+when that behavior matters.
 
 The user's files are the source of truth; `.bh/` is derived. Edit user files with
 your own tools; edit `.bh/` only on explicit request — otherwise the app owns it.
