@@ -8,6 +8,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import {
 	BaseHalfCanvasPendingConnectionState,
 	baseHalfCanvasInteractionOwnsEscape,
+	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
 	baseHalfCanvasTargetBlocksGraphShortcuts,
 	baseHalfCanvasTargetOwnsSelectedEdgeShortcuts,
@@ -117,6 +118,22 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasTargetBlocksGraphShortcuts(selectedEdge), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(selectedEdge), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(restingContent), false);
+	});
+
+	test('opens the create menu only for an unmodified primary-button pane double click', () => {
+		const event = {
+			altKey: false,
+			button: 0,
+			ctrlKey: false,
+			detail: 2,
+			metaKey: false,
+			shiftKey: false
+		};
+		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu(event, false), true);
+		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu({ ...event, detail: 1 }, false), false);
+		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu({ ...event, button: 1 }, false), false);
+		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu({ ...event, shiftKey: true }, false), false);
+		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu(event, true), false);
 	});
 
 	test('clears one connection owner synchronously and rejects trailing completion', () => {

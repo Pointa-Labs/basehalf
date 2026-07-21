@@ -117,6 +117,7 @@ try {
 	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 	if (!opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
+		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 	}
 
@@ -195,6 +196,7 @@ try {
 				'fresh-canvas-framed',
 				'root-titlebar-breadcrumb',
 				'canvas-grid-scoped-to-canvas',
+				'canvas-double-click-create-menu',
 				'canvas-create-note-file-folder',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
@@ -2981,6 +2983,31 @@ async function assertCanvasInlineRename(page) {
 	await restoreInput.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to restore the fixture');
 	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertCanvasDoubleClickCreateMenu(page) {
+	const pane = page.locator('.react-flow__pane');
+	await pane.waitFor({ state: 'visible', timeout: 10_000 });
+	const point = await pane.evaluate(element => {
+		const rect = element.getBoundingClientRect();
+		for (let y = rect.top + 48; y < rect.bottom - 48; y += 48) {
+			for (let x = rect.left + 48; x < rect.right - 48; x += 48) {
+				if (element.ownerDocument.elementFromPoint(x, y) === element) {
+					return { x, y };
+				}
+			}
+		}
+		return undefined;
+	});
+	if (!point) {
+		throw new Error('Could not find an unobstructed canvas point for the double-click create menu');
+	}
+
+	await page.mouse.dblclick(point.x, point.y, { button: 'left', delay: 50 });
+	const createAction = page.locator('.context-view.monaco-menu-container .action-label[aria-label="New Note"]').last();
+	await createAction.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.keyboard.press('Escape');
+	await createAction.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
 async function assertCanvasCreateNoteFileAndFolder(page) {

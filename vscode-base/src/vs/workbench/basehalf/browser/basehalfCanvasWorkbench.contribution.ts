@@ -576,6 +576,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
 			activateCard: (sceneKey, structuralEpoch, path) => this.activateSceneCard(sceneKey, structuralEpoch, path),
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
+			showCreateMenu: (sceneKey, structuralEpoch, position) => this.showSceneContextMenu(
+				sceneKey,
+				structuralEpoch,
+				{ kind: 'pane', anchor: position },
+				position
+			),
 			showContextMenu: (sceneKey, structuralEpoch, request) => this.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
 			didStartViewportInteraction: () => this.folderFocusRestoreGeneration++,

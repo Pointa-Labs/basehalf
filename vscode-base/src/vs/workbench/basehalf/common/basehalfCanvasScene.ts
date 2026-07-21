@@ -147,6 +147,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
 	activateCard(sceneKey: string, structuralEpoch: number, path: string): void;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
+	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
 	didStartViewportInteraction(): void;

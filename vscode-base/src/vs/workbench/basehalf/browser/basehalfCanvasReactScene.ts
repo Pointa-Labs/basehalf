@@ -339,6 +339,19 @@ export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, '
 	return event.key === 'Escape' && !event.isComposing && event.keyCode !== 229;
 }
 
+export function baseHalfCanvasShouldOpenCreateMenu(
+	event: Pick<MouseEvent, 'altKey' | 'button' | 'ctrlKey' | 'detail' | 'metaKey' | 'shiftKey'>,
+	connectionPending: boolean
+): boolean {
+	return !connectionPending
+		&& event.detail === 2
+		&& event.button === 0
+		&& !event.altKey
+		&& !event.ctrlKey
+		&& !event.metaKey
+		&& !event.shiftKey;
+}
+
 export function baseHalfCanvasTargetBlocksGraphShortcuts(target: EventTarget | null): boolean {
 	if (!isCanvasElement(target)) {
 		return false;
@@ -1219,6 +1232,8 @@ function createCanvasSceneMount(
 		const interactionSceneKey = vendor.useRef<string | undefined>(undefined);
 		const interactionStructuralEpoch = vendor.useRef<number | undefined>(undefined);
 		const pendingConnection = vendor.useRef(new BaseHalfCanvasPendingConnectionState());
+		const lastPaneConnectionCancellationAt = vendor.useRef<number | undefined>(undefined);
+		const paneDoubleClickStartedOnPane = vendor.useRef(false);
 		const connectionStoreController = vendor.useRef<IBaseHalfCanvasConnectionStoreController | undefined>(undefined);
 		const nodeDragState = vendor.useRef<IBaseHalfCanvasNodeDragState | undefined>(undefined);
 		const interacting = vendor.useRef(false);
@@ -2072,6 +2087,42 @@ function createCanvasSceneMount(
 			}
 			delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
 		}, []);
+		const onPaneDoubleClick = vendor.useCallback((event: MouseEvent) => {
+			const startedOnPane = paneDoubleClickStartedOnPane.current;
+			paneDoubleClickStartedOnPane.current = false;
+			if (!startedOnPane || !isHTMLElement(event.target) || !event.target.classList.contains('react-flow__pane')) {
+				return;
+			}
+			const cancellationAt = lastPaneConnectionCancellationAt.current;
+			lastPaneConnectionCancellationAt.current = undefined;
+			const recentlyCancelledConnection = cancellationAt !== undefined && event.timeStamp - cancellationAt < 750;
+			if (!baseHalfCanvasShouldOpenCreateMenu(event, recentlyCancelledConnection)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			delegate.showCreateMenu(sceneKeyRef.current, structuralEpochRef.current, {
+				x: event.clientX,
+				y: event.clientY
+			});
+			host.focus({ preventScroll: true });
+		}, [setLiveEdges, setLiveNodes]);
+		vendor.useEffect(() => {
+			const onClickCapture = (event: MouseEvent) => {
+				if (event.detail === 1) {
+					paneDoubleClickStartedOnPane.current = isHTMLElement(event.target)
+						&& event.target.classList.contains('react-flow__pane');
+				}
+			};
+			host.addEventListener('click', onClickCapture, true);
+			host.addEventListener('dblclick', onPaneDoubleClick, true);
+			return () => {
+				host.removeEventListener('click', onClickCapture, true);
+				host.removeEventListener('dblclick', onPaneDoubleClick, true);
+			};
+		}, [onPaneDoubleClick]);
 
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
 			nodes,
@@ -2095,8 +2146,10 @@ function createCanvasSceneMount(
 			onNodeContextMenu,
 			onEdgeContextMenu,
 			onPaneContextMenu,
-			onPaneClick: () => {
-				if (pendingConnection.current.peek()?.gesture === 'click') {
+			onPaneClick: event => {
+				const connectionPending = pendingConnection.current.peek()?.gesture === 'click';
+				if (connectionPending) {
+					lastPaneConnectionCancellationAt.current = event.timeStamp;
 					cancelPendingConnection();
 				}
 				host.focus({ preventScroll: true });
