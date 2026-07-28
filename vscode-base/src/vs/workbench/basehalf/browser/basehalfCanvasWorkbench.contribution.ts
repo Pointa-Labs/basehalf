@@ -49,6 +49,7 @@ import { mainWindow } from '../../../base/browser/window.js';
 import {
 	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemBounds,
+	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
 	baseHalfCanvasTransferPosition,
@@ -258,6 +259,16 @@ type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'nodeLoading'; readonly text: string }
 	| { readonly kind: 'invalidNode'; readonly text: string }
 	| { readonly kind: 'text' | 'code' | 'markdown' | 'empty' | 'loading' | 'unavailable'; readonly text: string };
+interface IBaseHalfCanvasCardPreviewCacheEntry {
+	readonly item: IBaseHalfCanvasItem;
+	readonly preview: BaseHalfCanvasCardPreview;
+}
+interface IBaseHalfCanvasCardRenderCacheEntry {
+	readonly item: IBaseHalfCanvasItem;
+	readonly preview: BaseHalfCanvasCardPreview | undefined;
+	readonly visualKey: string;
+	readonly element: HTMLElement;
+}
 type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'presentation' | 'code' | 'file' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
@@ -441,6 +452,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private canvasBadgeRefreshAfterFocusLeaves = false;
 	private pendingCanvasBadgeFocus: { readonly path: string; readonly target: BaseHalfCanvasBadgeFocusTarget } | undefined;
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
+	private renderedCardPreviewsByPath = new Map<string, IBaseHalfCanvasCardPreviewCacheEntry>();
+	private renderedCardsByPath = new Map<string, IBaseHalfCanvasCardRenderCacheEntry>();
 	private renderedCardElementsByPath = new Map<string, HTMLElement>();
 	private renderedNodeChromeByPath = new Map<string, IBaseHalfRenderedNodeChrome>();
 	private renderedPathByResourceKey = new Map<string, string>();
@@ -466,6 +479,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private folderFocusRestoreGeneration = 0;
 	private canvasZoom = 1;
 	private renderQueuedBehindGesture = false;
+	private canvasLayoutReconcileQueuedBehindGesture = false;
+	private canvasLayoutReconcileGeneration = 0;
+	private readonly canvasInteractionEndWaiters = new Set<() => void>();
 	private inlineEdit: BaseHalfCanvasInlineEdit | undefined;
 	private pendingCanvasSelection: { readonly sceneKey: string; readonly paths: readonly string[] } | undefined;
 	private pendingCanvasFit: { readonly sceneKey: string; readonly paths: readonly string[] } | undefined;
@@ -667,7 +683,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				? affectsBadgeMirror
 				: event.affects(folder.resource) || affectsBadgeMirror;
 			if (affectsVisibleSurface && !this.isFocusMirrorOnlyChange(event, folder)) {
-				this.scheduleBackgroundRender();
+				if (this.isCurrentCanvasLayoutOnlyChange(event, folder)) {
+					this.scheduleCanvasLayoutReconciliation();
+				} else {
+					this.scheduleBackgroundRender();
+				}
 			}
 		}));
 		this._register(this.nodeExecutionService.onDidChange(event => {
@@ -770,6 +790,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	override dispose(): void {
 		this.disposed = true;
+		for (const resolve of this.canvasInteractionEndWaiters) {
+			resolve();
+		}
+		this.canvasInteractionEndWaiters.clear();
 		this.cancelPendingNodeActivation();
 		this.clearCardListenerStores();
 		this.canvasNavigationService.setSurfaceActive(false);
@@ -821,6 +845,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			store.dispose();
 		}
 		this.cardListenerStores.clear();
+	}
+
+	private disposeRemovedCardListenerStores(retainedPaths: ReadonlySet<string>): void {
+		for (const [path, store] of this.cardListenerStores) {
+			if (retainedPaths.has(path)) {
+				continue;
+			}
+			store.dispose();
+			this.cardListenerStores.delete(path);
+		}
 	}
 
 	private replaceCardListenerStore(path: string): DisposableStore {
@@ -951,6 +985,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
+			this.renderedCardPreviewsByPath = new Map();
+			this.renderedCardsByPath = new Map();
 			this.renderedCardElementsByPath = new Map();
 			this.renderedNodeChromeByPath = new Map();
 			this.renderedPathByResourceKey = new Map();
@@ -985,6 +1021,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
+			this.renderedCardPreviewsByPath = new Map();
+			this.renderedCardsByPath = new Map();
 			this.renderedCardElementsByPath = new Map();
 			this.renderedNodeChromeByPath = new Map();
 			this.renderedPathByResourceKey = new Map();
@@ -1041,12 +1079,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		const items = model.items;
-		const previews = new Map<string, BaseHalfCanvasCardPreview>(items.map(item => [
-			item.path,
-			item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
-				? { kind: 'nodeLoading', text: 'Checking content…' }
-				: { kind: 'loading', text: 'Loading preview…' }
-		]));
+		const previews = new Map<string, BaseHalfCanvasCardPreview>();
+		const previewItemsToHydrate: IBaseHalfCanvasItem[] = [];
+		for (const item of items) {
+			const cached = this.reusableCardPreview(item);
+			if (cached) {
+				previews.set(item.path, cached);
+				continue;
+			}
+			previewItemsToHydrate.push(item);
+			previews.set(
+				item.path,
+				item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
+					? { kind: 'nodeLoading', text: 'Checking content…' }
+					: { kind: 'loading', text: 'Loading preview…' }
+			);
+		}
 		if (this.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
 		}
@@ -1057,9 +1105,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		clearNode(this.canvasOverlay);
 		clearNode(this.inlineEditLayer);
 		this.inlineEditListeners.clear();
+		const previousRenderedCards = this.renderedCardsByPath;
 		this.renderedBadges = badgeRead.badges;
 		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
+		this.renderedCardPreviewsByPath = new Map(items.map(item => [
+			item.path,
+			{ item, preview: previews.get(item.path)! }
+		]));
+		this.renderedCardsByPath = new Map();
 		this.renderedCardElementsByPath = new Map();
 		this.renderedNodeChromeByPath = new Map();
 		this.renderedPathByResourceKey = new Map(items.map(item => [this.uriIdentityService.extUri.getComparisonKey(item.stat.resource), item.path]));
@@ -1071,7 +1125,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.resetCanvasBadgeDeferredRefresh();
 		this.cardListeners.clear();
-		this.clearCardListenerStores();
 		const sceneCards = items.map((item, index) => {
 			const preview = previews.get(item.path);
 			const bounds = this.cardBoundsForPreview(item, index, items.length, preview);
@@ -1082,14 +1135,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				baseHalfBadgeResourceIdentity(item.stat)
 			);
 			const displayedItem = badge === item.badge ? item : { ...item, badge };
+			const visualKey = this.cardVisualKey(displayedItem);
+			const cached = previousRenderedCards.get(item.path);
+			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey)
+				? cached.element
+				: this.createCard(displayedItem, bounds, preview, structuralStamp);
+			this.renderedCardElementsByPath.set(item.path, element);
+			this.renderedCardsByPath.set(item.path, { item, preview, visualKey, element });
 			return {
 				path: item.path,
 				kind: item.kind,
 				...(item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) ? { renameChangesPathOnly: true as const } : {}),
 				...bounds,
-				element: this.createCard(displayedItem, bounds, preview, structuralStamp)
+				element
 			};
 		});
+		this.disposeRemovedCardListenerStores(new Set(items.map(item => item.path)));
 		const sceneEdges = model.edges.map(edge => {
 			const from = this.renderedItemsByPath.get(edge.from);
 			const to = this.renderedItemsByPath.get(edge.to);
@@ -1118,7 +1179,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
-		void this.hydrateCardPreviews(folder, items, structuralStamp, seq, currentSceneKey);
+		void this.hydrateCardPreviews(folder, previewItemsToHydrate, structuralStamp, seq, currentSceneKey);
 		if (pendingSelection) {
 			this.pendingCanvasSelection = undefined;
 		}
@@ -1415,7 +1476,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				(reverse, lease) => this.applyCanvasGeometryTransition(queuedFolder, nodes, committedTransition!, reverse, lease)
 			);
 		}
-		this.requestRender();
+		if (this.isCurrentSceneKey(sceneKey) && this.renderedSceneStructuralEpoch === structuralEpoch) {
+			const geometryByPath = new Map(geometries.map(geometry => [geometry.path, geometry]));
+			this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => {
+				const geometry = geometryByPath.get(card.path);
+				return geometry ? { ...card, ...geometry } : card;
+			}));
+		}
+		// React Flow already owns the optimistic live geometry. Rebuilding every
+		// card here used to replace hydrated contents with "Loading preview…"
+		// until asynchronous file reads completed. The mirror file event still
+		// provides canonical reconciliation, now with unchanged previews cached.
 	}
 
 	private async chooseConnectionInputSlot(
@@ -2931,6 +3002,226 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return sawRelevantChange;
 	}
 
+	private isCurrentCanvasLayoutOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
+		const mirrorRoot = baseHalfMirrorRoot(folder.workspaceFolder);
+		const canvasResource = this.canvasMirrorService.canvasResource(folder);
+		const canvasParent = dirname(canvasResource);
+		const canvasName = basename(canvasResource);
+		let sawRelevantChange = false;
+		for (const resource of [...event.rawAdded, ...event.rawUpdated, ...event.rawDeleted]) {
+			if (!isEqualOrParent(resource, folder.resource) && !isEqualOrParent(resource, mirrorRoot)) {
+				continue;
+			}
+			sawRelevantChange = true;
+			const isCanvasFile = this.uriIdentityService.extUri.isEqual(resource, canvasResource);
+			const isAtomicCanvasTemporary = this.uriIdentityService.extUri.isEqual(dirname(resource), canvasParent)
+				&& basename(resource).replace(/^\./, '').startsWith(`${canvasName}.basehalf-tmp`);
+			const isCanvasAncestor = isEqualOrParent(canvasResource, resource)
+				&& isEqualOrParent(resource, mirrorRoot);
+			if (!isCanvasFile && !isAtomicCanvasTemporary && !isCanvasAncestor) {
+				return false;
+			}
+		}
+		return sawRelevantChange;
+	}
+
+	private reusableCardPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
+		// Result-node faces also depend on graph, execution, recipe, model-service,
+		// and artifact-integrity state. Re-verify those on every requested render;
+		// ordinary file/folder previews depend only on the versioned resource.
+		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
+			return undefined;
+		}
+		const cached = this.renderedCardPreviewsByPath.get(item.path);
+		if (!cached
+			|| cached.preview.kind === 'loading'
+			|| cached.preview.kind === 'nodeLoading'
+			|| cached.preview.kind === 'unavailable'
+			|| !baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
+			return undefined;
+		}
+		return cached.preview;
+	}
+
+	private cardVisualKey(item: IBaseHalfCanvasItem): string {
+		const relationships = baseHalfCanvasBadgeRelationships(
+			item.path,
+			item.badge,
+			this.renderedBadges,
+			this.renderedBadgeProblems
+		);
+		const ownProblem = this.renderedBadgeProblems.get(item.path);
+		const inlineRename = this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path
+			? { value: this.inlineEdit.value, selectionPending: this.inlineEdit.selectionPending }
+			: undefined;
+		return JSON.stringify({
+			badge: item.badge,
+			badgeOpen: this.openBadgeFaces.has(item.path),
+			inlineRename,
+			relationships: {
+				references: relationships.references,
+				referencedBy: relationships.referencedBy,
+				issues: relationships.issues.map(issue => ({
+					direction: issue.direction,
+					from: issue.from,
+					to: issue.to,
+					reason: issue.reason,
+					problem: issue.problem ? {
+						relativePath: issue.problem.relativePath,
+						message: issue.problem.message,
+						corrupt: issue.problem.corrupt
+					} : undefined
+				}))
+			},
+			ownProblem: ownProblem ? {
+				relativePath: ownProblem.relativePath,
+				message: ownProblem.message,
+				corrupt: ownProblem.corrupt
+			} : undefined
+		});
+	}
+
+	private canReuseRenderedCard(
+		cached: IBaseHalfCanvasCardRenderCacheEntry | undefined,
+		item: IBaseHalfCanvasItem,
+		preview: BaseHalfCanvasCardPreview | undefined,
+		visualKey: string
+	): cached is IBaseHalfCanvasCardRenderCacheEntry {
+		// Badge editors and result nodes have additional live state beyond the
+		// versioned file preview. Ordinary preview cards can retain their exact
+		// DOM identity across unrelated background renders.
+		return !!cached
+			&& cached.element.isConnected
+			&& !item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
+			&& !this.openBadgeFaces.has(item.path)
+			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
+			&& cached.preview === preview
+			&& cached.visualKey === visualKey
+			&& baseHalfCanvasItemsSharePreviewVersion(cached.item, item);
+	}
+
+	private scheduleCanvasLayoutReconciliation(): void {
+		if (this.canvasNavigationService.state.cardDetail) {
+			// Card detail covers the scene. Closing it always performs a fresh
+			// render, so there is no hidden layout work to do here.
+			return;
+		}
+		if (this.canvasScene.isInteracting()) {
+			this.canvasLayoutReconcileQueuedBehindGesture = true;
+			return;
+		}
+		const generation = ++this.canvasLayoutReconcileGeneration;
+		void this.reconcileCurrentCanvasLayout(generation).then(reconciled => {
+			if (!reconciled && !this.disposed) {
+				this.requestRender();
+			}
+		}).catch(error => {
+			if (!this.disposed) {
+				this.logService.warn(error);
+				this.requestRender();
+			}
+		});
+	}
+
+	/**
+	 * canvas.yaml owns layout only. Reconcile that projection directly into
+	 * React Flow while retaining every authored card HTMLElement and listener.
+	 * A full render is reserved for actual item, content, Badge, or node-state
+	 * changes; replacing the card DOM after a drag makes its visual state flash.
+	 */
+	private async reconcileCurrentCanvasLayout(generation: number): Promise<boolean> {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.canvasNavigationService.state.cardDetail) {
+			return true;
+		}
+		const sceneKey = this.sceneKey(folder);
+		const renderSeq = this.renderSeq;
+		const structuralStamp = this.workspaceMutationCoordinator.capture(folder.workspaceFolder);
+		const stat = await this.fileService.resolve(folder.resource, { resolveMetadata: true });
+		const canvas = await this.canvasMirrorService.readCanvas(folder);
+		if (this.disposed
+			|| this.canvasLayoutReconcileGeneration !== generation
+			|| this.renderSeq !== renderSeq
+			|| !this.isCurrentSceneKey(sceneKey)
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+			return true;
+		}
+		if (this.canvasScene.isInteracting()) {
+			this.canvasLayoutReconcileQueuedBehindGesture = true;
+			return true;
+		}
+
+		const model = baseHalfCanvasModelFromStat(stat, {
+			rootLevel: folder.relativePath.length === 0,
+			folderRelativePath: folder.relativePath,
+			canvas,
+			badges: this.renderedBadges
+		});
+		if (model.items.length !== this.renderedItemsByPath.size
+			|| model.items.some(item => {
+				const rendered = this.renderedItemsByPath.get(item.path);
+				return !rendered || !baseHalfCanvasItemsSharePreviewVersion(rendered, item);
+			})) {
+			return false;
+		}
+
+		const currentCards = new Map(this.renderedSceneCards.map(card => [card.path, card]));
+		const nextCards: IBaseHalfCanvasSceneCard[] = [];
+		for (let index = 0; index < model.items.length; index++) {
+			const item = model.items[index];
+			const current = currentCards.get(item.path);
+			if (!current || current.kind !== item.kind) {
+				return false;
+			}
+			const preview = this.renderedCardPreviewsByPath.get(item.path)?.preview;
+			nextCards.push({
+				...current,
+				...this.cardBoundsForPreview(item, index, model.items.length, preview)
+			});
+		}
+		const nextItems = new Map(model.items.map(item => [item.path, item]));
+		const nextEdges: IBaseHalfCanvasSceneEdge[] = [];
+		for (const edge of model.edges) {
+			const from = nextItems.get(edge.from);
+			const to = nextItems.get(edge.to);
+			if (!from || !to) {
+				return false;
+			}
+			nextEdges.push({
+				...edge,
+				id: edgeId(edge.from, edge.to),
+				fromKind: from.kind,
+				toKind: to.kind
+			});
+		}
+
+		const previousPreviews = this.renderedCardPreviewsByPath;
+		const previousRenderedCards = this.renderedCardsByPath;
+		this.renderedItemsByPath = nextItems;
+		this.renderedCardPreviewsByPath = new Map(model.items.flatMap(item => {
+			const cached = previousPreviews.get(item.path);
+			return cached ? [[item.path, { item, preview: cached.preview }] as const] : [];
+		}));
+		this.renderedCardsByPath = new Map(model.items.flatMap(item => {
+			const cached = previousRenderedCards.get(item.path);
+			return cached ? [[item.path, { ...cached, item }] as const] : [];
+		}));
+		this.renderedPathByResourceKey = new Map(model.items.map(item => [
+			this.uriIdentityService.extUri.getComparisonKey(item.stat.resource),
+			item.path
+		]));
+		this.renderedSceneCards = Object.freeze(nextCards);
+		this.renderedSceneEdges = Object.freeze(nextEdges);
+		this.canvasScene.update({
+			key: sceneKey,
+			structuralEpoch: structuralStamp.structuralEpoch,
+			revision: renderSeq,
+			cards: nextCards,
+			edges: nextEdges
+		});
+		return true;
+	}
+
 	private async readCardPreview(
 		item: IBaseHalfCanvasItem,
 		modelServices: readonly IBaseHalfModelServiceDescriptor[],
@@ -3106,9 +3397,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 				return false;
 			}
-			if (this.canvasScene.isInteracting()) {
-				this.renderQueuedBehindGesture = true;
-				return false;
+			while (this.canvasScene.isInteracting()) {
+				await this.waitForCanvasSceneInteractionEnd();
+				if (!this.isRenderCurrent(seq)
+					|| !this.isCurrentSceneKey(sceneKey)
+					|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+					return false;
+				}
 			}
 			if (this.badgeInteractionRenderGate.defer()) {
 				return false;
@@ -3116,23 +3411,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 			const replacements = new Map<string, IBaseHalfCanvasSceneCard>();
 			for (const { item, preview } of hydrated) {
-				if (!preview || this.renderedItemsByPath.get(item.path) !== item) {
+				const currentItem = this.renderedItemsByPath.get(item.path);
+				if (!preview || !currentItem || !baseHalfCanvasItemsSharePreviewVersion(item, currentItem)) {
 					continue;
 				}
 				const currentCard = this.renderedSceneCards.find(card => card.path === item.path);
 				if (!currentCard) {
 					continue;
 				}
+				this.renderedCardPreviewsByPath.set(item.path, { item: currentItem, preview });
 				const badge = this.badgeMetadataWithDraft(
 					folder.workspaceFolder,
-					item.path,
-					item.badge,
-					baseHalfBadgeResourceIdentity(item.stat)
+					currentItem.path,
+					currentItem.badge,
+					baseHalfBadgeResourceIdentity(currentItem.stat)
 				);
-				const displayedItem = badge === item.badge ? item : { ...item, badge };
-				replacements.set(item.path, {
+				const displayedItem = badge === currentItem.badge ? currentItem : { ...currentItem, badge };
+				const element = this.createCard(displayedItem, currentCard, preview, structuralStamp);
+				this.renderedCardsByPath.set(currentItem.path, {
+					item: currentItem,
+					preview,
+					visualKey: this.cardVisualKey(displayedItem),
+					element
+				});
+				replacements.set(currentItem.path, {
 					...currentCard,
-					element: this.createCard(displayedItem, currentCard, preview, structuralStamp)
+					element
 				});
 			}
 			if (replacements.size === 0) {
@@ -8810,10 +9114,31 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 
 	private flushRenderQueuedBehindGesture(): void {
+		for (const resolve of this.canvasInteractionEndWaiters) {
+			resolve();
+		}
+		this.canvasInteractionEndWaiters.clear();
+		if (this.canvasLayoutReconcileQueuedBehindGesture) {
+			this.canvasLayoutReconcileQueuedBehindGesture = false;
+			this.scheduleCanvasLayoutReconciliation();
+		}
 		if (this.renderQueuedBehindGesture) {
 			this.renderQueuedBehindGesture = false;
 			this.requestRender();
 		}
+	}
+
+	private waitForCanvasSceneInteractionEnd(): Promise<void> {
+		if (!this.canvasScene.isInteracting() || this.disposed) {
+			return Promise.resolve();
+		}
+		return new Promise(resolve => {
+			const finish = () => {
+				this.canvasInteractionEndWaiters.delete(finish);
+				resolve();
+			};
+			this.canvasInteractionEndWaiters.add(finish);
+		});
 	}
 
 	private deferRenderForSceneInteraction(): boolean {

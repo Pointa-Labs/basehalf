@@ -14,6 +14,7 @@ import {
 	baseHalfCanvasEdgePath,
 	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemsFromStat,
+	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
@@ -47,6 +48,45 @@ suite('BaseHalfCanvasModel', () => {
 		]);
 
 		assert.deepStrictEqual(baseHalfCanvasItemsFromStat(root, true).map(item => item.name), ['a', 'b', 'a.md', 'z.md']);
+	});
+
+	test('reuses hydrated previews only while the resource version is unchanged', () => {
+		const previous = {
+			path: 'notes.md',
+			name: 'notes.md',
+			kind: 'file' as const,
+			stat: { ...file('/workspace/notes.md'), etag: 'v1', mtime: 10, size: 12 }
+		};
+
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(previous, {
+			...previous,
+			card: { path: 'notes.md', kind: 'file', x: 400, y: 300, width: 300, height: 220 },
+			stat: { ...previous.stat }
+		}), true);
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(previous, {
+			...previous,
+			stat: { ...previous.stat, etag: 'v2', mtime: 11 }
+		}), false);
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(previous, {
+			...previous,
+			path: 'renamed.md',
+			name: 'renamed.md',
+			stat: { ...previous.stat, resource: URI.file('/workspace/renamed.md') }
+		}), false);
+
+		const withoutEtag = { ...previous, stat: { ...previous.stat, etag: undefined } };
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(withoutEtag, {
+			...withoutEtag,
+			stat: { ...withoutEtag.stat }
+		}), true);
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(withoutEtag, {
+			...withoutEtag,
+			stat: { ...withoutEtag.stat, size: 13 }
+		}), false);
+		assert.strictEqual(baseHalfCanvasItemsSharePreviewVersion(
+			{ ...withoutEtag, stat: { ...withoutEtag.stat, mtime: undefined } },
+			{ ...withoutEtag, stat: { ...withoutEtag.stat, mtime: undefined } }
+		), false);
 	});
 
 	test('returns stable grid positions', () => {

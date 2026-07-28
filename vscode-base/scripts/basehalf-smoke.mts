@@ -3168,6 +3168,33 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	if (!before?.edgePath) {
 		throw new Error('Missing docs→src live edge geometry');
 	}
+	await page.evaluate(() => {
+		const cards = document.querySelector('.basehalf-canvas-cards');
+		if (!(cards instanceof HTMLElement)) {
+			throw new Error('Missing canvas cards host before drag preview stability check');
+		}
+		cards.dataset.smokeLoadingPreviewObserved = String(cards.textContent?.includes('Loading preview…') === true);
+		cards.dataset.smokeCardElementReplaced = 'false';
+		cards.dataset.smokeReplacedCardPaths = '';
+		const originalCards = new Map(Array.from(cards.querySelectorAll('.basehalf-canvas-card')).flatMap(card => {
+			const path = card instanceof HTMLElement ? card.dataset.basehalfCardPath : undefined;
+			return path ? [[path, card] as const] : [];
+		}));
+		const observer = new MutationObserver(() => {
+			if (cards.textContent?.includes('Loading preview…')) {
+				cards.dataset.smokeLoadingPreviewObserved = 'true';
+			}
+			for (const [path, original] of originalCards) {
+				if (cards.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`) !== original) {
+					cards.dataset.smokeCardElementReplaced = 'true';
+					const replaced = new Set(cards.dataset.smokeReplacedCardPaths?.split('\n').filter(Boolean));
+					replaced.add(path);
+					cards.dataset.smokeReplacedCardPaths = [...replaced].join('\n');
+				}
+			}
+		});
+		observer.observe(cards, { childList: true, characterData: true, subtree: true });
+	});
 
 	await page.mouse.move(before.startX, before.startY);
 	await page.mouse.down();
@@ -3207,9 +3234,49 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBefore) {
 		throw new Error('Canvas geometry persisted before the drag gesture completed');
 	}
+	// Let the selection transition that starts on pointer-down finish. The
+	// release regression is a different transition: the old drag-only shadow
+	// changed its target abruptly when React Flow removed `.dragging`.
+	await page.waitForTimeout(180);
+	const dragPaint = await page.evaluate(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const node = card?.closest('.react-flow__node');
+		if (!(card instanceof HTMLElement) || !(node instanceof HTMLElement) || !node.classList.contains('dragging')) {
+			throw new Error('Missing actively dragged docs card before pointer-up paint check');
+		}
+		const style = getComputedStyle(card);
+		return {
+			backgroundColor: style.backgroundColor,
+			borderColor: style.borderColor,
+			boxShadow: style.boxShadow
+		};
+	});
 
 	await page.mouse.up();
 	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== canvasBefore, 'dragged docs geometry to persist after pointer-up');
+	await page.waitForTimeout(350);
+	const settledPaint = await page.evaluate(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		if (!(card instanceof HTMLElement)) {
+			throw new Error('Missing docs card after pointer-up paint check');
+		}
+		const style = getComputedStyle(card);
+		return {
+			backgroundColor: style.backgroundColor,
+			borderColor: style.borderColor,
+			boxShadow: style.boxShadow
+		};
+	});
+	if (JSON.stringify(dragPaint) !== JSON.stringify(settledPaint)) {
+		throw new Error(`Dragging changed card paint at pointer-up: ${JSON.stringify({ dragPaint, settledPaint })}`);
+	}
+	if (await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-loading-preview-observed') === 'true') {
+		throw new Error('Dragging a card replaced hydrated content with the Loading preview placeholder');
+	}
+	if (await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-card-element-replaced') === 'true') {
+		const paths = await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-replaced-card-paths');
+		throw new Error(`Dragging a card rebuilt card DOM instead of reconciling layout in place: ${paths}`);
+	}
 }
 
 // A reference line is itself the reconnect affordance: its first directed

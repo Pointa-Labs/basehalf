@@ -115,6 +115,44 @@ export interface IBaseHalfCanvasItem {
 	readonly badge?: IBaseHalfCanvasBadgeMetadata;
 }
 
+/**
+ * A canvas geometry or badge refresh rebuilds the scene model even when the
+ * underlying file did not change. In that case the already-hydrated preview is
+ * still valid and must be kept instead of flashing the loading placeholder.
+ *
+ * Providers do not have to expose an etag. Fall back to resolved modification
+ * metadata, but fail closed when there is no usable version signal.
+ */
+export function baseHalfCanvasItemsSharePreviewVersion(
+	previous: IBaseHalfCanvasItem,
+	current: IBaseHalfCanvasItem
+): boolean {
+	if (previous.path !== current.path
+		|| previous.name !== current.name
+		|| previous.kind !== current.kind
+		|| previous.stat.resource.toString() !== current.stat.resource.toString()
+		|| previous.stat.isFile !== current.stat.isFile
+		|| previous.stat.isDirectory !== current.stat.isDirectory
+		|| previous.stat.isSymbolicLink !== current.stat.isSymbolicLink) {
+		return false;
+	}
+
+	const previousEtag = previous.stat.etag;
+	const currentEtag = current.stat.etag;
+	if (previousEtag !== undefined || currentEtag !== undefined) {
+		return previousEtag !== undefined && previousEtag === currentEtag;
+	}
+	if (previous.stat.mtime === undefined || current.stat.mtime === undefined
+		|| previous.stat.mtime !== current.stat.mtime) {
+		return false;
+	}
+	if (current.stat.isFile) {
+		return previous.stat.size !== undefined
+			&& previous.stat.size === current.stat.size;
+	}
+	return true;
+}
+
 export interface IBaseHalfCanvasPosition {
 	readonly x: number;
 	readonly y: number;

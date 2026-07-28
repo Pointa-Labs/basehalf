@@ -455,8 +455,9 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
 .monaco-workbench .react-flow__node.resizing .basehalf-canvas-card {
 	z-index: 2;
-	border-color: var(--bh-card-accent);
-	box-shadow: 0 10px 28px rgb(0 0 0 / 60%);
+}
+
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card {
 	cursor: grabbing;
 }
 

@@ -13,8 +13,10 @@ import { IBaseHalfWorkspaceSetupService } from '../common/basehalfWorkspaceSetup
 /**
  * Runs BaseHalf workspace setup for every opened workspace folder: agent hints
  * in CLAUDE.md/AGENTS.md, the `.bh/agent-harness/` docs, and the `.bh/cache/`
- * gitignore policy. Idempotent per open — an already-current workspace is a
- * no-op — and best-effort: a setup failure must never block the workbench.
+ * gitignore policy. A tracked `.basehalf-no-workspace-setup` marker opts a
+ * repository out before any write. Idempotent per open — an already-current
+ * workspace is a no-op — and best-effort: a setup failure must never block the
+ * workbench.
  */
 class BaseHalfWorkspaceSetupContribution extends Disposable implements IWorkbenchContribution {
 

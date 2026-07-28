@@ -8,7 +8,7 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
-import { applyBaseHalfWorkspaceHint, BaseHalfWorkspaceSetupService } from '../../common/basehalfWorkspaceSetup.js';
+import { applyBaseHalfWorkspaceHint, BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER, BaseHalfWorkspaceSetupService } from '../../common/basehalfWorkspaceSetup.js';
 
 suite('BaseHalfWorkspaceSetup', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -57,6 +57,7 @@ suite('BaseHalfWorkspaceSetup', () => {
 
 		const first = await service.ensureSetup(workspaceFolder);
 		assert.deepStrictEqual(first, {
+			disabledByMarker: false,
 			gitignoreUpdated: false, // absent → skipped, never created
 			agentHarnessUpdated: true,
 			claudeMdUpdated: true,
@@ -86,12 +87,41 @@ suite('BaseHalfWorkspaceSetup', () => {
 
 		const second = await service.ensureSetup(workspaceFolder);
 		assert.deepStrictEqual(second, {
+			disabledByMarker: false,
 			gitignoreUpdated: false,
 			agentHarnessUpdated: false,
 			claudeMdUpdated: false,
 			agentsMdUpdated: false,
 			agentCapabilityCache: 'disabled-no-secure-provider'
 		});
+	});
+
+	test('tracked opt-out marker prevents every workspace setup write', async () => {
+		const agents = '# Development instructions\n';
+		const claude = '# Development instructions\n';
+		const gitignore = 'node_modules/\n';
+		const { service, fs } = createService({
+			[`/work/${BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER}`]: 'This repository is not a BaseHalf product workspace.\n',
+			'/work/AGENTS.md': agents,
+			'/work/CLAUDE.md': claude,
+			'/work/.gitignore': gitignore
+		});
+
+		const report = await service.ensureSetup(workspaceFolder);
+
+		assert.deepStrictEqual(report, {
+			disabledByMarker: true,
+			gitignoreUpdated: false,
+			agentHarnessUpdated: false,
+			claudeMdUpdated: false,
+			agentsMdUpdated: false,
+			agentCapabilityCache: 'disabled-no-secure-provider'
+		});
+		assert.strictEqual(fs.files.get('/work/AGENTS.md'), agents);
+		assert.strictEqual(fs.files.get('/work/CLAUDE.md'), claude);
+		assert.strictEqual(fs.files.get('/work/.gitignore'), gitignore);
+		assert.strictEqual(fs.files.has('/work/.bh/agent-harness/index.md'), false);
+		assert.deepStrictEqual(fs.createdFolders, []);
 	});
 
 	test('keeps automatic capability publication disabled in a normal workspace', async () => {

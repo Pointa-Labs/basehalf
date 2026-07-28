@@ -9,6 +9,12 @@ import {
 import type { SetupReport } from './types.js';
 
 /**
+ * A tracked repository-level opt-out for folders that may be opened by a
+ * BaseHalf development host but must not be initialized as product workspaces.
+ */
+export const BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER = '.basehalf-no-workspace-setup';
+
+/**
  * `--setup` work, factored out so it stays testable in isolation.
  *
  * Non-destructive guarantees:
@@ -243,12 +249,28 @@ const AGENTS_TARGET: HintTarget = {
 };
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {
+  if (await isSetupDisabled(fs, workspaceRoot)) {
+    return {
+      disabledByMarker: true,
+      gitignoreUpdated: false,
+      gitignoreSkipped: true,
+      gitignoreAbsent: false,
+      agentHarnessUpdated: false,
+      agentHarnessSkipped: true,
+      claudeMdUpdated: false,
+      claudeMdSkipped: true,
+      agentsMdUpdated: false,
+      agentsMdSkipped: true,
+    };
+  }
+
   const gitignore = await updateGitignore(fs, workspaceRoot);
   const agentHarness = await installAgentHarness(fs, workspaceRoot);
   const claude = await installHint(fs, workspaceRoot, CLAUDE_TARGET);
   const agents = await installHint(fs, workspaceRoot, AGENTS_TARGET);
 
   return {
+    disabledByMarker: false,
     ...gitignore,
     agentHarnessUpdated: agentHarness.updated,
     agentHarnessSkipped: agentHarness.skipped,
@@ -257,6 +279,14 @@ export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<Setup
     agentsMdUpdated: agents.updated,
     agentsMdSkipped: agents.skipped,
   };
+}
+
+async function isSetupDisabled(fs: FsLike, workspaceRoot: string): Promise<boolean> {
+  const marker = join(workspaceRoot, BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER);
+  // Presence alone is the contract. lstat avoids following a planted symlink;
+  // its only effect is to suppress writes, so ambiguous marker nodes fail safe.
+  const entry = fs.lstat ? await fs.lstat(marker) : await fs.stat(marker);
+  return entry !== null;
 }
 
 async function updateGitignore(

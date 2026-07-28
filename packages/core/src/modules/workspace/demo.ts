@@ -214,6 +214,7 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     workspace: addResult.workspace,
     filesCreated,
     setup: addResult.setup ?? {
+      disabledByMarker: false,
       gitignoreUpdated: false,
       agentHarnessUpdated: false,
       claudeMdUpdated: false,

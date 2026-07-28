@@ -49,6 +49,8 @@ export interface WorkspaceAddArgs {
 }
 
 export interface SetupReport {
+  /** A root `.basehalf-no-workspace-setup` marker disabled every setup write. */
+  readonly disabledByMarker: boolean;
   /** `.bh/cache/` line added to .gitignore. */
   readonly gitignoreUpdated: boolean;
   /** Agent harness docs written under `.bh/agent-harness/`. */

@@ -12,6 +12,13 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 export const IBaseHalfWorkspaceSetupService = createDecorator<IBaseHalfWorkspaceSetupService>('baseHalfWorkspaceSetupService');
 
 /**
+ * A tracked repository-level opt-out for folders that may be opened by a
+ * BaseHalf development host but must not be initialized as product workspaces.
+ * Presence alone disables setup; the file's contents are intentionally ignored.
+ */
+export const BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER = '.basehalf-no-workspace-setup';
+
+/**
  * Workspace setup: the PUBLISH half of the agent protocol. Opening a folder as
  * a BaseHalf workspace installs the pointers that let any coding agent find
  * `.bh/` — without them the whole mirror (badges, references, focus) is
@@ -39,6 +46,7 @@ export interface IBaseHalfWorkspaceSetupService {
 }
 
 export interface IBaseHalfSetupReport {
+	readonly disabledByMarker: boolean;
 	readonly gitignoreUpdated: boolean;
 	readonly agentHarnessUpdated: boolean;
 	readonly claudeMdUpdated: boolean;
@@ -348,6 +356,17 @@ export class BaseHalfWorkspaceSetupService implements IBaseHalfWorkspaceSetupSer
 	) { }
 
 	async ensureSetup(workspaceFolder: URI): Promise<IBaseHalfSetupReport> {
+		if (await this.isSetupDisabled(workspaceFolder)) {
+			return {
+				disabledByMarker: true,
+				gitignoreUpdated: false,
+				agentHarnessUpdated: false,
+				claudeMdUpdated: false,
+				agentsMdUpdated: false,
+				agentCapabilityCache: 'disabled-no-secure-provider'
+			};
+		}
+
 		const gitignoreUpdated = await this.updateGitignore(workspaceFolder);
 		const agentHarnessUpdated = await this.installAgentHarness(workspaceFolder);
 		const claudeMdUpdated = await this.installHint(workspaceFolder, CLAUDE_TARGET);
@@ -358,12 +377,28 @@ export class BaseHalfWorkspaceSetupService implements IBaseHalfWorkspaceSetupSer
 		// relative, component-no-follow commit, publication remains fail-closed and
 		// the managed harness does not advertise that cache.
 		return {
+			disabledByMarker: false,
 			gitignoreUpdated,
 			agentHarnessUpdated,
 			claudeMdUpdated,
 			agentsMdUpdated,
 			agentCapabilityCache: 'disabled-no-secure-provider'
 		};
+	}
+
+	private async isSetupDisabled(workspaceFolder: URI): Promise<boolean> {
+		const resource = URI.joinPath(workspaceFolder, BASEHALF_WORKSPACE_SETUP_DISABLE_MARKER);
+		try {
+			await this.fileService.resolve(resource);
+			return true;
+		} catch (error) {
+			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+				return false;
+			}
+			// Setup mutates user-authored root files. If the provider cannot
+			// safely determine whether an opt-out exists, fail closed.
+			return true;
+		}
 	}
 
 	private async updateGitignore(workspaceFolder: URI): Promise<boolean> {

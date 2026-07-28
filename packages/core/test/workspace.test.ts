@@ -801,6 +801,7 @@ describe('workspace module (integration, real FS)', () => {
 // ── --setup (non-destructive) ───────────────────────────────────────────────
 
 type SetupReport = {
+  disabledByMarker: boolean;
   gitignoreUpdated: boolean;
   agentHarnessUpdated: boolean;
   claudeMdUpdated: boolean;
@@ -813,6 +814,39 @@ type SetupReport = {
 };
 
 describe('workspace --setup (mock FS, non-destructive)', () => {
+  it('skips every setup write when the repository opt-out marker is present', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    files.set('/work/.basehalf-no-workspace-setup', 'Development repository.\n');
+    files.set('/work/.gitignore', 'node_modules/\n');
+    files.set('/work/AGENTS.md', '# Development instructions\n');
+    files.set('/work/CLAUDE.md', '# Development instructions\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+
+    expect(r.setup).toEqual({
+      disabledByMarker: true,
+      gitignoreUpdated: false,
+      gitignoreSkipped: true,
+      gitignoreAbsent: false,
+      agentHarnessUpdated: false,
+      agentHarnessSkipped: true,
+      claudeMdUpdated: false,
+      claudeMdSkipped: true,
+      agentsMdUpdated: false,
+      agentsMdSkipped: true,
+    });
+    expect(files.get('/work/.gitignore')).toBe('node_modules/\n');
+    expect(files.get('/work/AGENTS.md')).toBe('# Development instructions\n');
+    expect(files.get('/work/CLAUDE.md')).toBe('# Development instructions\n');
+    expect(files.has('/work/.bh/agent-harness/index.md')).toBe(false);
+  });
+
   it('appends .bh/cache/ to existing .gitignore when missing', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');

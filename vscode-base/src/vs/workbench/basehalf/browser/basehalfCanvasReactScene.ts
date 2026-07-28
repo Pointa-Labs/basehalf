@@ -837,7 +837,9 @@ function createCanvasSceneMount(
 			}
 			element.dataset.lod = lod;
 			element.dataset.cardHeight = String(height);
-			element.style.setProperty('--bh-mini-label-cap', `${Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, height * MINI_LABEL_CARD_HEIGHT_FRACTION))}px`);
+			const miniLabelCap = `${Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, height * MINI_LABEL_CARD_HEIGHT_FRACTION))}px`;
+			element.style.setProperty('--bh-mini-label-cap', miniLabelCap);
+			element.querySelector<HTMLElement>('.basehalf-canvas-card-mini')?.style.setProperty('--bh-mini-label-cap', miniLabelCap);
 		}, [data.card.element, height, lod, selected]);
 
 		return h(vendor.Fragment, null,
