@@ -765,14 +765,16 @@ function createCanvasSceneMount(
 } {
 	const h = vendor.createElement;
 	const EdgeInteractionContext = vendor.createContext<IBaseHalfCanvasEdgeInteraction | undefined>(undefined);
+	const SelectionSizeContext = vendor.createContext(0);
 
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
 		const presentationRef = vendor.useRef<BaseHalfCanvasCardPresentation>('shell');
-		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height, zoom: 1 });
+		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height });
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
 		const zoom = vendor.useStore(state => state.transform[2]);
+		const selectionSize = vendor.useContext(SelectionSizeContext);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
 		const nearViewport = vendor.useStore(state => {
 			const node = state.nodeLookup.get(id);
@@ -797,16 +799,20 @@ function createCanvasSceneMount(
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
-		const presentation = nearViewport
+		const presentation = nearViewport || data.card.forceInteractive === true
 			? baseHalfCanvasCardPresentation(
 				height,
 				zoom,
-				selected || data.card.forceInteractive === true,
+				{
+					forceInteractive: data.card.forceInteractive === true,
+					selected,
+					selectionSize
+				},
 				presentationRef.current
 			)
 			: 'shell';
 		presentationRef.current = presentation;
-		mountedCardRef.current = { card: data.card, height, zoom };
+		mountedCardRef.current = { card: data.card, height };
 
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
@@ -816,9 +822,7 @@ function createCanvasSceneMount(
 			}
 			mounted.card.updatePresentation({
 				level: 'shell',
-				height: mounted.height,
-				zoom: mounted.zoom,
-				selected: false
+				height: mounted.height
 			});
 		}, []);
 
@@ -873,11 +877,9 @@ function createCanvasSceneMount(
 			element.dataset.cardHeight = String(height);
 			data.card.updatePresentation({
 				level: presentation,
-				height,
-				zoom,
-				selected
+				height
 			});
-		}, [data.card, data.card.element, height, presentation, selected, zoom]);
+		}, [data.card, data.card.element, height, presentation, selected]);
 
 		return h(vendor.Fragment, null,
 			h(vendor.NodeResizer, {
@@ -2248,17 +2250,20 @@ function createCanvasSceneMount(
 			fitView: false
 		};
 		const ReactFlowComponent = vendor.ReactFlow as unknown as (props: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>) => ReactElement;
+		const selectedNodes = nodes.filter(node => node.selected);
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
-			h(ReactFlowComponent, flowProps,
-				h(ConnectionStoreBridge, { register: registerConnectionStore }),
-				h(vendor.Background, {
-					variant: vendor.BackgroundVariant.Lines,
-					gap: 40,
-					size: 1,
-					color: 'color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)'
-				}),
-				h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
-				h(SelectionToolbar, { nodes: nodes.filter(node => node.selected), invoke: invokeSelectionAction })
+			h(SelectionSizeContext.Provider, { value: selectedNodes.length },
+				h(ReactFlowComponent, flowProps,
+					h(ConnectionStoreBridge, { register: registerConnectionStore }),
+					h(vendor.Background, {
+						variant: vendor.BackgroundVariant.Lines,
+						gap: 40,
+						size: 1,
+						color: 'color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)'
+					}),
+					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
+					h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction })
+				)
 			)
 		);
 	}

@@ -2141,7 +2141,43 @@ async function assertVideoWorkflowNodeRun(page) {
 	if ((await action.textContent())?.trim() !== 'Run') {
 		throw new Error(`The executable node did not expose one Run action: ${(await action.textContent()) ?? 'missing'}`);
 	}
+	await action.evaluate(button => {
+		const state = window as typeof window & {
+			__basehalfSmokeNodeActionRegressed?: boolean;
+			__basehalfSmokeSawNodeCancel?: boolean;
+		};
+		state.__basehalfSmokeSawNodeCancel = false;
+		state.__basehalfSmokeNodeActionRegressed = false;
+		const capture = () => {
+			if (button instanceof HTMLButtonElement
+				&& button.dataset.nodeAction === 'cancel'
+				&& button.textContent?.trim() === 'Cancel') {
+				state.__basehalfSmokeSawNodeCancel = true;
+			}
+		};
+		new MutationObserver(capture).observe(button, {
+			attributes: true,
+			childList: true,
+			characterData: true,
+			subtree: true
+		});
+		const card = button.closest('.basehalf-canvas-card');
+		if (card) {
+			new MutationObserver(() => {
+				const current = card.querySelector<HTMLButtonElement>('.basehalf-canvas-node-action');
+				if (state.__basehalfSmokeSawNodeCancel && current?.dataset.nodeAction === 'run') {
+					state.__basehalfSmokeNodeActionRegressed = true;
+				}
+			}).observe(card, {
+				attributes: true,
+				childList: true,
+				characterData: true,
+				subtree: true
+			});
+		}
+	});
 	await action.click();
+	await page.waitForFunction(() => (window as typeof window & { __basehalfSmokeSawNodeCancel?: boolean }).__basehalfSmokeSawNodeCancel === true, null, { timeout: 10_000 });
 	await waitUntil(() => {
 		try {
 			const node = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
@@ -2155,6 +2191,9 @@ async function assertVideoWorkflowNodeRun(page) {
 			return false;
 		}
 	}, 'canvas node run to persist Current and History', 20_000);
+	if (await page.evaluate(() => (window as typeof window & { __basehalfSmokeNodeActionRegressed?: boolean }).__basehalfSmokeNodeActionRegressed === true)) {
+		throw new Error('The canvas node action reverted to Run while execution was active.');
+	}
 	await card.locator('.basehalf-canvas-card-media-visual').waitFor({ state: 'visible', timeout: 15_000 });
 	const node = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 	const run = node.runs?.[0];

@@ -9,8 +9,6 @@ import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresent
 export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly level: BaseHalfCanvasCardPresentation;
 	readonly height: number;
-	readonly zoom: number;
-	readonly selected: boolean;
 }
 
 /**

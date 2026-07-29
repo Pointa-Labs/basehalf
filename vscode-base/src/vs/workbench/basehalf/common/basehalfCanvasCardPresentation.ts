@@ -10,6 +10,12 @@ export const BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM = 0.45;
 export const BASEHALF_CANVAS_CARD_SHELL_ENTER_SCREEN_HEIGHT = 72;
 export const BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT = 96;
 
+export interface IBaseHalfCanvasCardPresentationContext {
+	readonly forceInteractive: boolean;
+	readonly selected: boolean;
+	readonly selectionSize: number;
+}
+
 /**
  * Keep one continuous card design while making unreadable far-away content
  * cheap. The gap between enter and exit thresholds prevents small wheel or
@@ -18,23 +24,28 @@ export const BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT = 96;
 export function baseHalfCanvasCardPresentation(
 	height: number,
 	zoom: number,
-	interactive: boolean,
+	context: IBaseHalfCanvasCardPresentationContext,
 	previous: BaseHalfCanvasCardPresentation = 'shell'
 ): BaseHalfCanvasCardPresentation {
-	if (interactive) {
+	if (context.forceInteractive) {
 		return 'interactive';
 	}
 
 	const projectedHeight = height * zoom;
+	let passive: BaseHalfCanvasCardPresentation;
 	if (previous === 'shell') {
-		return zoom > BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM
+		passive = zoom > BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM
 			&& projectedHeight > BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT
 			? 'preview'
 			: 'shell';
+	} else {
+		passive = zoom < BASEHALF_CANVAS_CARD_SHELL_ENTER_ZOOM
+			|| projectedHeight < BASEHALF_CANVAS_CARD_SHELL_ENTER_SCREEN_HEIGHT
+			? 'shell'
+			: 'preview';
 	}
 
-	return zoom < BASEHALF_CANVAS_CARD_SHELL_ENTER_ZOOM
-		|| projectedHeight < BASEHALF_CANVAS_CARD_SHELL_ENTER_SCREEN_HEIGHT
-		? 'shell'
-		: 'preview';
+	return passive === 'preview' && context.selected && context.selectionSize === 1
+		? 'interactive'
+		: passive;
 }

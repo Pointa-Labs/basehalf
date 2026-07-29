@@ -691,7 +691,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 50%;
 }
 
-.monaco-workbench .basehalf-reference-issue-marker.mini {
+.monaco-workbench .basehalf-reference-issue-marker.overview {
 	display: inline-block;
 	margin-left: 4px;
 	vertical-align: 0.08em;
