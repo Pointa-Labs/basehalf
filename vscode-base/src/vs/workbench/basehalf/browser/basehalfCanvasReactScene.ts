@@ -15,7 +15,7 @@ import {
 	BaseHalfCanvasAnchor,
 	baseHalfCanvasEdgePath
 } from '../common/basehalfCanvasModel.js';
-import { baseHalfCanvasCardLod } from '../common/basehalfCanvasCardLod.js';
+import { baseHalfCanvasCardPresentation, BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../common/basehalfConfiguration.js';
 import {
 	BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD,
@@ -280,8 +280,8 @@ interface IBaseHalfCanvasSceneRuntime {
 const CANVAS_REACT_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-react-vendor-out';
 const CANVAS_REACT_VENDOR_SCRIPT = 'canvasReactVendor.js';
 const CANVAS_REACT_VENDOR_STYLES = 'canvasReactVendor.css';
-const MINI_LABEL_MIN_FLOW_PX = 12;
-const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
+const CANVAS_NODE_CULL_THRESHOLD = 100;
+const CANVAS_PREVIEW_OVERSCAN_VIEWPORTS = 0.75;
 const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const EDGE_RECONNECT_PATH_SAMPLES = 80;
 const EDGE_RECONNECT_CURSOR_CLASS = 'basehalf-canvas-edge-reconnecting';
@@ -769,14 +769,58 @@ function createCanvasSceneMount(
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
+		const presentationRef = vendor.useRef<BaseHalfCanvasCardPresentation>('shell');
+		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height, zoom: 1 });
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
 		const zoom = vendor.useStore(state => state.transform[2]);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
+		const nearViewport = vendor.useStore(state => {
+			const node = state.nodeLookup.get(id);
+			if (!node) {
+				return false;
+			}
+			const [viewportX, viewportY, viewportZoom] = state.transform;
+			const nodeWidth = node.measured.width ?? node.width ?? data.card.width;
+			const nodeHeight = node.measured.height ?? node.height ?? data.card.height;
+			const left = node.internals.positionAbsolute.x * viewportZoom + viewportX;
+			const top = node.internals.positionAbsolute.y * viewportZoom + viewportY;
+			const right = left + nodeWidth * viewportZoom;
+			const bottom = top + nodeHeight * viewportZoom;
+			const overscanX = host.clientWidth * CANVAS_PREVIEW_OVERSCAN_VIEWPORTS;
+			const overscanY = host.clientHeight * CANVAS_PREVIEW_OVERSCAN_VIEWPORTS;
+			return right >= -overscanX
+				&& left <= host.clientWidth + overscanX
+				&& bottom >= -overscanY
+				&& top <= host.clientHeight + overscanY;
+		});
 		const height = vendor.useStore(state => {
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
-		const lod = baseHalfCanvasCardLod(height, zoom);
+		const presentation = nearViewport
+			? baseHalfCanvasCardPresentation(
+				height,
+				zoom,
+				selected || data.card.forceInteractive === true,
+				presentationRef.current
+			)
+			: 'shell';
+		presentationRef.current = presentation;
+		mountedCardRef.current = { card: data.card, height, zoom };
+
+		vendor.useLayoutEffect(() => () => {
+			const mounted = mountedCardRef.current;
+			const active = mounted.card.element.ownerDocument.activeElement;
+			if (isHTMLElement(active) && mounted.card.element.contains(active)) {
+				active.blur();
+			}
+			mounted.card.updatePresentation({
+				level: 'shell',
+				height: mounted.height,
+				zoom: mounted.zoom,
+				selected: false
+			});
+		}, []);
 
 		vendor.useLayoutEffect(() => {
 			const mount = hostRef.current;
@@ -816,7 +860,7 @@ function createCanvasSceneMount(
 
 		vendor.useLayoutEffect(() => {
 			const element = data.card.element;
-			if (lod !== 'full') {
+			if (presentation === 'shell') {
 				const active = element.ownerDocument.activeElement;
 				if (isHTMLElement(active)
 					&& active.closest('.basehalf-canvas-card-badge-face')
@@ -825,22 +869,15 @@ function createCanvasSceneMount(
 				}
 			}
 			element.classList.toggle('selected', selected);
-			for (const media of element.querySelectorAll<HTMLMediaElement>('audio, video')) {
-				media.controls = selected;
-				media.tabIndex = selected ? 0 : -1;
-				media.classList.toggle('nodrag', selected);
-				media.classList.toggle('nopan', selected);
-				media.classList.toggle('nowheel', selected);
-				if (!selected && !media.paused) {
-					media.pause();
-				}
-			}
-			element.dataset.lod = lod;
+			element.dataset.previewLevel = presentation;
 			element.dataset.cardHeight = String(height);
-			const miniLabelCap = `${Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, height * MINI_LABEL_CARD_HEIGHT_FRACTION))}px`;
-			element.style.setProperty('--bh-mini-label-cap', miniLabelCap);
-			element.querySelector<HTMLElement>('.basehalf-canvas-card-mini')?.style.setProperty('--bh-mini-label-cap', miniLabelCap);
-		}, [data.card.element, height, lod, selected]);
+			data.card.updatePresentation({
+				level: presentation,
+				height,
+				zoom,
+				selected
+			});
+		}, [data.card, data.card.element, height, presentation, selected, zoom]);
 
 		return h(vendor.Fragment, null,
 			h(vendor.NodeResizer, {
@@ -2205,7 +2242,7 @@ function createCanvasSceneMount(
 			selectionMode: vendor.SelectionMode.Partial,
 			panOnDrag: [1, 2],
 			multiSelectionKeyCode: 'Shift',
-			onlyRenderVisibleElements: !nodes.some(node => node.data.card.element.classList.contains('badge-open')),
+			onlyRenderVisibleElements: nodes.length > CANVAS_NODE_CULL_THRESHOLD,
 			proOptions: { hideAttribution: true },
 			defaultEdgeOptions: { type: 'basehalf-reference', animated: false },
 			fitView: false

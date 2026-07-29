@@ -77,6 +77,7 @@ import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResour
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction, BASEHALF_CANVAS_UNDO_REDO_SOURCE, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
+import { baseHalfCanvasMarkdownPreviewSource } from '../common/basehalfCanvasPreview.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
@@ -119,9 +120,10 @@ import {
 	IBaseHalfModelServiceService
 } from '../common/basehalfModelServices.js';
 import {
-	baseHalfCanvasCardLod,
-	BaseHalfCanvasCardLod
-} from '../common/basehalfCanvasCardLod.js';
+	BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT,
+	BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM,
+	BaseHalfCanvasCardPresentation
+} from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
@@ -149,6 +151,7 @@ import {
 	IBaseHalfCanvasSceneConnection,
 	IBaseHalfCanvasSceneConnectionDrop,
 	IBaseHalfCanvasSceneCard,
+	IBaseHalfCanvasSceneCardPresentation,
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
@@ -223,7 +226,6 @@ interface IBaseHalfNodeInboundState {
 
 interface IBaseHalfRenderedNodeChrome {
 	readonly currentLabel: string;
-	readonly summary?: HTMLElement;
 	readonly status?: HTMLElement;
 	readonly action?: HTMLButtonElement;
 }
@@ -391,8 +393,8 @@ type BaseHalfCanvasInlineEdit =
 		selectionPending: boolean;
 	};
 
-const MINI_LABEL_MIN_FLOW_PX = 12;
-const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
+const OVERVIEW_LABEL_MIN_FLOW_PX = 12;
+const OVERVIEW_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
 const BASEHALF_CANVAS_UNDO_REDO_PRIORITY = 115;
@@ -459,6 +461,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderedPathByResourceKey = new Map<string, string>();
 	private renderedSceneCards: readonly IBaseHalfCanvasSceneCard[] = [];
 	private renderedSceneEdges: readonly IBaseHalfCanvasSceneEdge[] = [];
+	private readonly cardPresentationUpdaters = new WeakMap<HTMLElement, (presentation: IBaseHalfCanvasSceneCardPresentation) => void>();
+	private readonly pendingCardPreviewPaths = new Map<string, number>();
+	private cardPreviewHydrationTimer: number | undefined;
+	private cardPreviewHydrationRunning = false;
 	private renderedSceneStructuralEpoch = 0;
 	private readonly richWebviewWarmup: BaseHalfMarkdownRichWebviewWarmup;
 	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
@@ -807,6 +813,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mainWindow.clearTimeout(this.badgeInteractionReleaseTimer);
 			this.badgeInteractionReleaseTimer = undefined;
 		}
+		if (this.cardPreviewHydrationTimer !== undefined) {
+			mainWindow.clearTimeout(this.cardPreviewHydrationTimer);
+			this.cardPreviewHydrationTimer = undefined;
+		}
+		this.pendingCardPreviewPaths.clear();
 		this.badgeInteractionRenderGate.reset();
 		super.dispose();
 	}
@@ -890,12 +901,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			action.setAttribute('aria-label', action.title);
 		}
 
-		const summary = chrome.summary;
-		if (summary) {
-			summary.textContent = `${chrome.currentLabel}\n${state.status}`;
-			summary.title = state.message;
-			summary.setAttribute('aria-label', `${chrome.currentLabel}. ${state.status}. ${state.message}`);
-		}
 	}
 
 	private deferCanvasBadgeRefreshWhileFocused(): boolean {
@@ -1080,14 +1085,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const items = model.items;
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
-		const previewItemsToHydrate: IBaseHalfCanvasItem[] = [];
 		for (const item of items) {
 			const cached = this.reusableCardPreview(item);
 			if (cached) {
 				previews.set(item.path, cached);
 				continue;
 			}
-			previewItemsToHydrate.push(item);
 			previews.set(
 				item.path,
 				item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
@@ -1147,7 +1150,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				kind: item.kind,
 				...(item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) ? { renameChangesPathOnly: true as const } : {}),
 				...bounds,
-				element
+				element,
+				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
+				...(this.openBadgeFaces.has(item.path) ? { forceInteractive: true as const } : {})
 			};
 		});
 		this.disposeRemovedCardListenerStores(new Set(items.map(item => item.path)));
@@ -1179,7 +1184,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
-		void this.hydrateCardPreviews(folder, previewItemsToHydrate, structuralStamp, seq, currentSceneKey);
 		if (pendingSelection) {
 			this.pendingCanvasSelection = undefined;
 		}
@@ -2972,10 +2976,38 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.canvasZoom = viewport.zoom;
 		this.updateCanvasZoomChrome();
 		if (final) {
+			this.scheduleOverscanCardPreviews(viewport);
 			const folder = this.getCurrentFolder();
 			if (folder) {
 				this.scheduleFolderFocusWrite(200, { folder, viewport });
 			}
+		}
+	}
+
+	private scheduleOverscanCardPreviews(viewport: IBaseHalfCanvasSceneViewport): void {
+		if (viewport.zoom <= BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM) {
+			return;
+		}
+		const width = this.cards.clientWidth / viewport.zoom;
+		const height = this.cards.clientHeight / viewport.zoom;
+		if (width <= 0 || height <= 0) {
+			return;
+		}
+		const left = -viewport.x / viewport.zoom;
+		const top = -viewport.y / viewport.zoom;
+		const overscanX = width * 0.75;
+		const overscanY = height * 0.75;
+		const right = left + width;
+		const bottom = top + height;
+		for (const card of this.renderedSceneCards) {
+			if (card.height * viewport.zoom <= BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT
+				|| card.x + card.width < left - overscanX
+				|| card.x > right + overscanX
+				|| card.y + card.height < top - overscanY
+				|| card.y > bottom + overscanY) {
+				continue;
+			}
+			this.scheduleCardPreviewHydration(card.path);
 		}
 	}
 
@@ -3321,10 +3353,71 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 
 			const kind = markdownPreviewKind(item.name);
-			const text = kind === 'markdown' ? cleanMarkdownPreviewSource(raw) : cleanCardPreviewText(item.name, raw);
+			const text = kind === 'markdown' ? baseHalfCanvasMarkdownPreviewSource(raw) : cleanCardPreviewText(item.name, raw);
 			return text ? { kind, text } : { kind: 'empty', text: 'Empty file' };
 		} catch {
 			return { kind: 'unavailable', text: 'Preview unavailable' };
+		}
+	}
+
+	private scheduleCardPreviewHydration(path: string, priority = 1): void {
+		const current = this.renderedCardPreviewsByPath.get(path)?.preview;
+		if (current?.kind !== 'loading' && current?.kind !== 'nodeLoading') {
+			return;
+		}
+		this.pendingCardPreviewPaths.set(path, Math.max(priority, this.pendingCardPreviewPaths.get(path) ?? 0));
+		if (this.cardPreviewHydrationRunning || this.cardPreviewHydrationTimer !== undefined) {
+			return;
+		}
+		this.cardPreviewHydrationTimer = mainWindow.setTimeout(() => {
+			this.cardPreviewHydrationTimer = undefined;
+			void this.drainCardPreviewHydration();
+		}, 0);
+	}
+
+	private async drainCardPreviewHydration(): Promise<void> {
+		if (this.cardPreviewHydrationRunning || this.disposed) {
+			return;
+		}
+		this.cardPreviewHydrationRunning = true;
+		try {
+			while (!this.disposed && this.pendingCardPreviewPaths.size > 0) {
+				const folder = this.getCurrentFolder();
+				if (!folder || this.canvasNavigationService.state.cardDetail) {
+					this.pendingCardPreviewPaths.clear();
+					return;
+				}
+				const seq = this.renderSeq;
+				const sceneKey = this.sceneKey(folder);
+				const structuralStamp = this.workspaceMutationCoordinator.capture(folder.workspaceFolder);
+				const next = [...this.pendingCardPreviewPaths]
+					.sort((left, right) => right[1] - left[1])
+					.slice(0, 4);
+				for (const [path] of next) {
+					this.pendingCardPreviewPaths.delete(path);
+				}
+				const items = next.flatMap(([path]) => {
+					const item = this.renderedItemsByPath.get(path);
+					const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+					return item && (preview?.kind === 'loading' || preview?.kind === 'nodeLoading') ? [item] : [];
+				});
+				if (items.length === 0) {
+					continue;
+				}
+				await this.hydrateCardPreviews(folder, items, structuralStamp, seq, sceneKey);
+				if (!this.isRenderCurrent(seq) || !this.isCurrentSceneKey(sceneKey)) {
+					return;
+				}
+			}
+		} catch (error) {
+			if (!this.disposed) {
+				this.logService.warn(error);
+			}
+		} finally {
+			this.cardPreviewHydrationRunning = false;
+			if (!this.disposed && this.pendingCardPreviewPaths.size > 0) {
+				this.scheduleCardPreviewHydration([...this.pendingCardPreviewPaths.keys()][0]);
+			}
 		}
 	}
 
@@ -3436,7 +3529,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				});
 				replacements.set(currentItem.path, {
 					...currentCard,
-					element
+					element,
+					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
+					...(this.openBadgeFaces.has(currentItem.path) ? { forceInteractive: true as const } : {})
 				});
 			}
 			if (replacements.size === 0) {
@@ -3515,7 +3610,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return {};
 			}
 			const kind = markdownPreviewKind(outputPath);
-			const text = kind === 'markdown' ? cleanMarkdownPreviewSource(raw) : cleanCardPreviewText(outputPath, raw);
+			const text = kind === 'markdown' ? baseHalfCanvasMarkdownPreviewSource(raw) : cleanCardPreviewText(outputPath, raw);
 			return text ? { currentOutputText: text } : {};
 		} catch {
 			return primaryArtifact ? {} : { currentOutputIntegrity: 'missing' };
@@ -4336,6 +4431,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		structuralStamp: IBaseHalfWorkspaceMutationStamp
 	): HTMLElement {
 		const listeners = this.replaceCardListenerStore(item.path);
+		const presentationListeners = new MutableDisposable<DisposableStore>();
+		listeners.add(presentationListeners);
 		const card = $('.basehalf-canvas-card');
 		const displayName = cardDisplayName(item, preview);
 		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
@@ -4344,7 +4441,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.dataset.basehalfCardPath = item.path;
 		card.dataset.cardHeight = String(bounds.height);
 		const badgeOpen = this.openBadgeFaces.has(item.path);
-		card.dataset.lod = this.cardLod(bounds);
+		card.dataset.previewLevel = 'shell';
 		card.dataset.projection = badgeOpen ? 'badge' : 'preview';
 		card.classList.add(item.kind);
 		card.classList.toggle('badge-open', badgeOpen);
@@ -4365,54 +4462,77 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const dirname = item.path.includes('/') ? item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1)) : '';
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
-
-		const mini = append(content, $('.basehalf-canvas-card-mini'));
-		this.renderCardTitleChip(mini, type, displayName, orphan, bounds.height, badgeIssueCount);
-
-		const summary = append(content, $('.basehalf-canvas-card-summary'));
-		this.renderCardSummary(summary, type, item, preview, orphan, badgeRelationships, badgeIssueCount, canShowBadgeFace, listeners);
-
-		const full = append(content, $('.basehalf-canvas-card-full'));
-		const header = append(full, $('.basehalf-canvas-card-header'));
-		const icon = append(header, $('.basehalf-canvas-card-icon'));
-		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
-		const title = append(header, $('.basehalf-canvas-card-title'));
-		const titleRow = append(title, $('.basehalf-canvas-card-title-row'));
-		const label = append(titleRow, $('.basehalf-canvas-card-label'));
-		label.textContent = displayName;
-		if (preview?.kind === 'folder') {
-			const count = append(titleRow, $('.basehalf-canvas-card-kind-chip.folder'));
-			count.textContent = folderCountLabel(preview.total);
-		}
-		if (preview?.kind === 'node') {
-			const kind = append(titleRow, $('.basehalf-canvas-card-kind-chip'));
-			kind.textContent = nodeKindLabel(preview.document.kind);
-		}
-		if (canShowBadgeFace) {
-			this.renderCardBadgeToggle(titleRow, item, badgeRelationships, badgeIssueCount, listeners);
-		}
-		if (orphan) {
-			const missing = append(titleRow, $('.basehalf-canvas-card-kind-chip.danger'));
-			missing.textContent = 'Missing';
-		}
-		if (preview?.kind === 'node') {
-			const role = append(title, $('.basehalf-canvas-card-path'));
-			role.textContent = preview.document.role;
-		} else if (dirname) {
-			const path = append(title, $('.basehalf-canvas-card-path'));
-			path.textContent = `${dirname}/`;
-		}
-
-		const body = append(full, $('.basehalf-canvas-card-body'));
-		if (this.openBadgeFaces.has(item.path) && canShowBadgeFace) {
-			this.renderCardBadgeFace(body, item, listeners);
-		} else {
-			this.renderCardPreview(body, item, preview, orphan, listeners);
-		}
-		this.renderFolderCoverage(full, item, preview);
 		this.renderInlineRenameEditor(card, item);
-		this.restorePendingCanvasBadgeFocus(card, item.path);
 		this.renderedCardElementsByPath.set(item.path, card);
+
+		let renderedPresentation: BaseHalfCanvasCardPresentation | undefined;
+		const updatePresentation = (presentation: IBaseHalfCanvasSceneCardPresentation): void => {
+			card.dataset.previewLevel = presentation.level;
+			card.dataset.cardHeight = String(presentation.height);
+			const overviewLabelCapPx = Math.round(Math.max(OVERVIEW_LABEL_MIN_FLOW_PX, presentation.height * OVERVIEW_LABEL_CARD_HEIGHT_FRACTION));
+			card.style.setProperty('--bh-overview-label-cap', `${overviewLabelCapPx}px`);
+			if (renderedPresentation === presentation.level) {
+				return;
+			}
+			renderedPresentation = presentation.level;
+			const nextListeners = new DisposableStore();
+			presentationListeners.value = nextListeners;
+			clearNode(content);
+			this.renderedNodeChromeByPath.delete(item.path);
+			if (presentation.level === 'shell') {
+				const shell = append(content, $('.basehalf-canvas-card-overview'));
+				this.renderCardOverview(shell, type, displayName, orphan, badgeIssueCount);
+				return;
+			}
+
+			const active = append(content, $('.basehalf-canvas-card-active'));
+			const header = append(active, $('.basehalf-canvas-card-header'));
+			const icon = append(header, $('.basehalf-canvas-card-icon'));
+			this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
+			const title = append(header, $('.basehalf-canvas-card-title'));
+			const titleRow = append(title, $('.basehalf-canvas-card-title-row'));
+			const label = append(titleRow, $('.basehalf-canvas-card-label'));
+			label.textContent = displayName;
+			if (preview?.kind === 'folder') {
+				const count = append(titleRow, $('.basehalf-canvas-card-kind-chip.folder'));
+				count.textContent = folderCountLabel(preview.total);
+			}
+			if (preview?.kind === 'node') {
+				const kind = append(titleRow, $('.basehalf-canvas-card-kind-chip'));
+				kind.textContent = nodeKindLabel(preview.document.kind);
+			}
+			if (canShowBadgeFace) {
+				this.renderCardBadgeToggle(titleRow, item, badgeRelationships, badgeIssueCount, nextListeners);
+			}
+			if (orphan) {
+				const missing = append(titleRow, $('.basehalf-canvas-card-kind-chip.danger'));
+				missing.textContent = 'Missing';
+			}
+			if (preview?.kind === 'node') {
+				const role = append(title, $('.basehalf-canvas-card-path'));
+				role.textContent = preview.document.role;
+			} else if (dirname) {
+				const path = append(title, $('.basehalf-canvas-card-path'));
+				path.textContent = `${dirname}/`;
+			}
+
+			const body = append(active, $('.basehalf-canvas-card-body'));
+			if (badgeOpen && canShowBadgeFace) {
+				this.renderCardBadgeFace(body, item, nextListeners);
+			} else {
+				this.renderCardPreview(body, item, preview, orphan, presentation.level === 'interactive', nextListeners);
+			}
+			this.renderFolderCoverage(active, item, preview);
+			this.restorePendingCanvasBadgeFocus(card, item.path);
+			this.scheduleCardPreviewHydration(item.path, presentation.level === 'interactive' ? 2 : 1);
+		};
+		this.cardPresentationUpdaters.set(card, updatePresentation);
+		updatePresentation({
+			level: 'shell',
+			height: bounds.height,
+			zoom: this.canvasZoom,
+			selected: false
+		});
 
 		listeners.add(this.addDisposableListener(card, 'keydown', event => {
 			if (event.target !== card) {
@@ -4472,32 +4592,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			let target: HTMLElement | null | undefined;
 			switch (pending.target) {
 				case 'prompt':
-					target = card.dataset.lod === 'full'
+					target = card.dataset.previewLevel !== 'shell'
 						? card.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt')
 						: undefined;
 					break;
 				case 'add-reference':
-					target = card.dataset.lod === 'full'
+					target = card.dataset.previewLevel !== 'shell'
 						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-reference')
 						: undefined;
 					break;
 				case 'inbound-toggle':
-					target = card.dataset.lod === 'full'
+					target = card.dataset.previewLevel !== 'shell'
 						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-inbound-toggle')
 						: undefined;
 					break;
+				case 'toggle':
+					target = card.dataset.previewLevel !== 'shell'
+						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-active .basehalf-canvas-card-badge-toggle')
+						: undefined;
+					break;
 			}
-			const projection = card.dataset.lod === 'full' ? '.basehalf-canvas-card-full' : '.basehalf-canvas-card-summary';
-			const fallback = card.querySelector<HTMLButtonElement>(`${projection} .basehalf-canvas-card-badge-toggle`);
-			const focusTarget = target ?? fallback;
-			if (!focusTarget) {
+			if (!target) {
 				if (attempts++ < 8) {
 					mainWindow.requestAnimationFrame(focus);
 				}
 				return;
 			}
-			focusTarget.focus();
-			if (card.ownerDocument.activeElement === focusTarget) {
+			target.focus();
+			if (card.ownerDocument.activeElement === target) {
 				this.pendingCanvasBadgeFocus = undefined;
 			} else if (attempts++ < 8) {
 				mainWindow.requestAnimationFrame(focus);
@@ -4515,55 +4637,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return baseHalfCanvasItemBounds(item, index, total);
 	}
 
-	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number, badgeIssueCount: number): void {
-		const capPx = Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, cardHeightPx * MINI_LABEL_CARD_HEIGHT_FRACTION));
-		container.style.setProperty('--bh-mini-label-cap', `${capPx}px`);
-		const flow = append(container, $('.basehalf-canvas-card-mini-flow'));
-		const icon = append(flow, $('.basehalf-canvas-card-mini-icon'));
+	private renderCardOverview(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, badgeIssueCount: number): void {
+		const flow = append(container, $('.basehalf-canvas-card-overview-flow'));
+		const icon = append(flow, $('.basehalf-canvas-card-overview-icon'));
 		this.renderGlyph(icon, type, glyphTone(type, orphan), '1.15em');
-		const label = append(flow, $('.basehalf-canvas-card-mini-label'));
+		const label = append(flow, $('.basehalf-canvas-card-overview-label'));
 		label.textContent = name;
 		label.classList.toggle('danger', orphan);
 		if (badgeIssueCount > 0) {
-			const marker = append(label, $('span.basehalf-reference-issue-marker.mini'));
+			const marker = append(label, $('span.basehalf-reference-issue-marker.overview'));
 			marker.setAttribute('data-testid', 'card-reference-issue-marker');
 			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
 			marker.setAttribute('aria-hidden', 'true');
-		}
-	}
-
-	private renderCardSummary(
-		container: HTMLElement,
-		type: BaseHalfCanvasGlyphType,
-		item: IBaseHalfCanvasItem,
-		preview: BaseHalfCanvasCardPreview | undefined,
-		orphan: boolean,
-		badgeRelationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
-		badgeIssueCount: number,
-		canShowBadgeFace: boolean,
-		listeners: DisposableStore
-	): void {
-		const flow = append(container, $('.basehalf-canvas-card-summary-flow'));
-		const identity = append(flow, $('.basehalf-canvas-card-summary-identity'));
-		const icon = append(identity, $('.basehalf-canvas-card-summary-icon'));
-		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
-		const label = append(identity, $('.basehalf-canvas-card-summary-label'));
-		label.textContent = cardDisplayName(item, preview);
-		label.classList.toggle('danger', orphan);
-		if (canShowBadgeFace) {
-			this.renderCardBadgeToggle(identity, item, badgeRelationships, badgeIssueCount, listeners);
-		}
-
-		const detail = append(flow, $('.basehalf-canvas-card-summary-detail'));
-		detail.textContent = this.openBadgeFaces.has(item.path)
-			? cardBadgeSummaryText(item, badgeRelationships, badgeIssueCount)
-			: cardSummaryText(item, preview, orphan);
-		if (!this.openBadgeFaces.has(item.path) && preview?.kind === 'node') {
-			const state = nodeLocalStateForCardPreview(preview);
-			const currentLabel = nodePreviewCurrentLabel(preview);
-			this.renderedNodeChromeByPath.set(item.path, { currentLabel, summary: detail });
-			detail.title = state.message;
-			detail.setAttribute('aria-label', `${currentLabel}. ${state.status}. ${state.message}`);
 		}
 	}
 
@@ -4633,6 +4718,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		item: IBaseHalfCanvasItem,
 		preview: BaseHalfCanvasCardPreview | undefined,
 		orphan: boolean,
+		interactive: boolean,
 		listeners: DisposableStore
 	): void {
 		const previewNode = append(container, $('.basehalf-canvas-card-preview'));
@@ -4654,11 +4740,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		if (preview.kind === 'media') {
-			this.renderMediaPreview(previewNode, preview);
+			this.renderMediaPreview(previewNode, preview, interactive);
 			return;
 		}
 		if (preview.kind === 'node') {
-			this.renderNodePreview(previewNode, item, preview, listeners);
+			this.renderNodePreview(previewNode, item, preview, interactive, listeners);
 			return;
 		}
 		if (preview.kind === 'invalidNode') {
@@ -4698,6 +4784,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
+		interactive: boolean,
 		listeners: DisposableStore
 	): void {
 		const current = append(container, $('.basehalf-canvas-node-current'));
@@ -4708,7 +4795,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		currentLabel.textContent = remainingOutputs > 0 ? `Current (+${remainingOutputs})` : 'Current';
 		if (preview.currentMedia) {
 			const media = append(current, $('.basehalf-canvas-node-current-media'));
-			this.renderMediaPreview(media, { kind: 'media', ...preview.currentMedia });
+			this.renderMediaPreview(media, { kind: 'media', ...preview.currentMedia }, interactive);
 		} else {
 			const currentValue = append(current, $('.basehalf-canvas-node-current-value'));
 			currentValue.textContent = nodePreviewCurrentLabel(preview);
@@ -6744,7 +6831,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderMediaPreview(
 		container: HTMLElement,
-		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'media' }>
+		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'media' }>,
+		interactive: boolean
 	): void {
 		container.classList.add(`media-${preview.mediaKind}`);
 		if (preview.mediaKind === 'image') {
@@ -6757,28 +6845,38 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				image.remove();
 				this.renderMediaFallback(container, preview.text, 'image', () => {
 					clearNode(container);
-					this.renderMediaPreview(container, preview);
+					this.renderMediaPreview(container, preview, interactive);
 				});
 			}, { once: true });
 			return;
 		}
 		if (preview.mediaKind === 'video') {
+			if (!interactive) {
+				this.renderMediaFallback(container, preview.text, 'video');
+				return;
+			}
 			const video = append(container, $('video.basehalf-canvas-card-media-visual')) as HTMLVideoElement;
 			video.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
 			video.preload = 'metadata';
-			video.controls = false;
+			video.controls = true;
+			video.tabIndex = 0;
+			video.classList.add('nodrag', 'nopan', 'nowheel');
 			video.playsInline = true;
 			this.configureCardMediaTransport(video);
 			video.addEventListener('error', () => {
 				video.remove();
 				this.renderMediaFallback(container, preview.text, 'video', () => {
 					clearNode(container);
-					this.renderMediaPreview(container, preview);
+					this.renderMediaPreview(container, preview, interactive);
 				});
 			}, { once: true });
 			return;
 		}
 		if (preview.mediaKind === 'audio') {
+			if (!interactive) {
+				this.renderMediaFallback(container, preview.text, 'audio');
+				return;
+			}
 			const idle = append(container, $('.basehalf-canvas-card-media-idle'));
 			idle.setAttribute('aria-hidden', 'true');
 			const glyph = append(idle, $('.basehalf-canvas-card-media-idle-glyph'));
@@ -6788,13 +6886,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const audio = append(container, $('audio.basehalf-canvas-card-media-transport')) as HTMLAudioElement;
 			audio.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
 			audio.preload = 'metadata';
-			audio.controls = false;
+			audio.controls = true;
+			audio.tabIndex = 0;
+			audio.classList.add('nodrag', 'nopan', 'nowheel');
 			this.configureCardMediaTransport(audio);
 			audio.addEventListener('error', () => {
 				audio.remove();
 				this.renderMediaFallback(container, preview.text, 'audio', () => {
 					clearNode(container);
-					this.renderMediaPreview(container, preview);
+					this.renderMediaPreview(container, preview, interactive);
 				});
 			}, { once: true });
 			return;
@@ -6875,7 +6975,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderMarkdownPreview(container: HTMLElement, text: string): void {
 		const md = append(container, $('.bh-md-preview'));
-		const lines = text.split('\n').slice(0, 10);
+		const lines = text.split('\n');
 		for (const raw of lines) {
 			const line = raw.trim();
 			if (!line) {
@@ -7417,11 +7517,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.requestRender();
 	}
-
-	private cardLod(bounds: IBaseHalfCanvasBounds): BaseHalfCanvasCardLod {
-		return baseHalfCanvasCardLod(bounds.height, this.canvasZoom);
-	}
-
 
 	private badgeDescriptionKey(workspaceFolder: URI, relativePath: string): string {
 		return `${workspaceFolder.toString()}\0${relativePath}`;
@@ -9441,16 +9536,6 @@ function markdownPreviewKind(name: string): 'markdown' | 'text' | 'code' {
 	return badgeType(name, false) === 'code' ? 'code' : 'text';
 }
 
-function cleanMarkdownPreviewSource(raw: string): string {
-	const lines = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')
-		.split('\n')
-		.map(line => line.trimEnd())
-		.filter(line => line.trim().length > 0)
-		.slice(0, 12);
-	const preview = lines.join('\n');
-	return preview.length > 800 ? `${preview.slice(0, 797)}...` : preview;
-}
-
 function cleanCardPreviewText(name: string, raw: string): string {
 	let text = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
 	if (/\.mdx?$/i.test(name)) {
@@ -9623,48 +9708,6 @@ function nodeLocalStateForCardPreview(preview: Extract<BaseHalfCanvasCardPreview
 		inputKinds: preview.inputKinds,
 		matchingRecipeCount: preview.matchingRecipeCount
 	});
-}
-
-function cardSummaryText(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined, orphan: boolean): string {
-	if (orphan) {
-		return item.kind === 'folder' ? item.badge?.description ?? 'Missing folder' : 'Missing file';
-	}
-	if (!preview) {
-		return 'Preview unavailable';
-	}
-	if (preview.kind === 'folder') {
-		const count = folderCountLabel(preview.total);
-		const firstNames = preview.items.slice(0, 2).map(child => child.kind === 'folder' ? `${child.name}/` : child.name);
-		return firstNames.length > 0 ? `${count}\n${firstNames.join(', ')}` : count;
-	}
-	if (preview.kind === 'node') {
-		const status = nodeLocalStateForCardPreview(preview).status;
-		const current = nodePreviewCurrentLabel(preview);
-		return `${current}\n${status}`;
-	}
-	const lines = preview.text.split(/\r?\n/)
-		.map(line => stripMarkdownInline(line.trim().replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s{0,3}>\s?/, '')))
-		.filter(Boolean)
-		.slice(0, 3);
-	return lines.length > 0 ? lines.join('\n') : 'Empty file';
-}
-
-function cardBadgeSummaryText(
-	item: IBaseHalfCanvasItem,
-	relationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
-	issueCount: number
-): string {
-	const lines = [item.badge?.description?.trim() || 'No Badge prompt'];
-	if (issueCount > 0) {
-		lines.push(`${issueCount} metadata issue${issueCount === 1 ? '' : 's'}`);
-	}
-	if (relationships.references.length > 0) {
-		lines.push(`${relationships.references.length} reference${relationships.references.length === 1 ? '' : 's'}`);
-	}
-	if (relationships.referencedBy.length > 0) {
-		lines.push(`${relationships.referencedBy.length} referenced by`);
-	}
-	return lines.slice(0, 3).join('\n');
 }
 
 function canvasChildPath(parent: string, name: string): string {

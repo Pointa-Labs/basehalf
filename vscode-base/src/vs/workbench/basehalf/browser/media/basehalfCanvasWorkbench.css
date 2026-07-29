@@ -477,8 +477,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 6px;
 }
 
-.monaco-workbench .basehalf-canvas-card-mini {
-	display: none;
+.monaco-workbench .basehalf-canvas-card-overview {
+	display: flex;
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
@@ -487,21 +487,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 }
 
-.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-mini {
-	display: flex;
-}
-
-.monaco-workbench .basehalf-canvas-card[data-lod="summary"] .basehalf-canvas-card-summary {
-	display: flex;
-}
-
-.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-summary,
-.monaco-workbench .basehalf-canvas-card[data-lod="summary"] .basehalf-canvas-card-full,
-.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-full {
-	display: none;
-}
-
-.monaco-workbench .basehalf-canvas-card-mini-flow {
+.monaco-workbench .basehalf-canvas-card-overview-flow {
 	/* Counter-scale the label toward a constant on-screen size with a TRANSFORM,
 	   not font-size. The flow font stays fixed at 13px, so the accumulated render
 	   scale of the glyphs (card layer zoom × this inverse scale) is constant and
@@ -510,10 +496,10 @@ body.basehalf-canvas-edge-reconnecting * {
 	   zoom frame, which read as text flicker. The scale follows the original
 	   clamped counter-scale spec: hold ~13px on screen, never smaller than the
 	   12px caption, capped at a fraction of the card's own height (per-card
-	   --bh-mini-label-cap) so the label can never overrun a shrinking card. The
+	   --bh-overview-label-cap) so the label can never overrun a shrinking card. The
 	   layout width is widened by the inverse factor so the scaled block still
 	   fills the card; long names stay on one stable, ellipsized line. */
-	--bh-mini-label-scale: calc(clamp(12px, calc(13px / var(--basehalf-canvas-zoom, 1)), var(--bh-mini-label-cap, 22px)) / 13px);
+	--bh-overview-label-scale: calc(clamp(12px, calc(13px / var(--basehalf-canvas-zoom, 1)), var(--bh-overview-label-cap, 22px)) / 13px);
 	display: flex;
 	align-items: center;
 	gap: 0.42em;
@@ -521,19 +507,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 	flex: none;
 	font-size: 13px;
-	width: calc(100% / var(--bh-mini-label-scale));
-	transform: scale(var(--bh-mini-label-scale));
+	width: calc(100% / var(--bh-overview-label-scale));
+	transform: scale(var(--bh-overview-label-scale));
 	transform-origin: left center;
 }
 
-.monaco-workbench .basehalf-canvas-card-mini-icon {
+.monaco-workbench .basehalf-canvas-card-overview-icon {
 	flex: none;
 	display: flex;
 	align-items: center;
 	height: 1.35em;
 }
 
-.monaco-workbench .basehalf-canvas-card-mini-label {
+.monaco-workbench .basehalf-canvas-card-overview-label {
 	color: var(--bh-card-text-primary);
 	font-size: 1em;
 	font-weight: 600;
@@ -544,75 +530,11 @@ body.basehalf-canvas-edge-reconnecting * {
 	letter-spacing: 0;
 }
 
-.monaco-workbench .basehalf-canvas-card-mini-label.danger {
+.monaco-workbench .basehalf-canvas-card-overview-label.danger {
 	color: var(--bh-card-danger);
 }
 
-.monaco-workbench .basehalf-canvas-card-summary {
-	display: none;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
-	align-items: flex-start;
-	padding: 12px 16px;
-	overflow: hidden;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-flow {
-	--bh-summary-scale: calc(clamp(14px, calc(14px / var(--basehalf-canvas-zoom, 1)), 24px) / 14px);
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	width: calc(100% / var(--bh-summary-scale));
-	min-width: 0;
-	transform: scale(var(--bh-summary-scale));
-	transform-origin: left top;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-identity {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	min-width: 0;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-icon {
-	flex: none;
-	display: flex;
-	align-items: center;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-label {
-	min-width: 0;
-	flex: 1;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--bh-card-text-primary);
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 20px;
-	letter-spacing: 0;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-label.danger {
-	color: var(--bh-card-danger);
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-detail {
-	overflow: hidden;
-	display: -webkit-box;
-	-webkit-line-clamp: 3;
-	-webkit-box-orient: vertical;
-	white-space: pre-line;
-	overflow-wrap: anywhere;
-	color: var(--bh-card-text-tertiary);
-	font-family: var(--monaco-monospace-font);
-	font-size: 11px;
-	line-height: 16px;
-}
-
-.monaco-workbench .basehalf-canvas-card-full {
+.monaco-workbench .basehalf-canvas-card-active {
 	display: flex;
 	flex: 1;
 	min-width: 0;

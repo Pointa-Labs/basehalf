@@ -4,6 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
+import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
+
+export interface IBaseHalfCanvasSceneCardPresentation {
+	readonly level: BaseHalfCanvasCardPresentation;
+	readonly height: number;
+	readonly zoom: number;
+	readonly selected: boolean;
+}
 
 /**
  * The narrow, service-free protocol between BaseHalf's VS Code workbench
@@ -21,6 +29,12 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** Product card contents are still authored by the workbench. React Flow owns
 	 *  the node wrapper, geometry, selection, handles, and resize interaction. */
 	readonly element: HTMLElement;
+	/** The scene reports only meaningful presentation changes. The workbench
+	 *  keeps one card body alive at a time and owns its resource lifecycle. */
+	readonly updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => void;
+	/** An open in-card editor remains interactive even before selection catches
+	 *  up with a replacement scene snapshot. */
+	readonly forceInteractive?: true;
 }
 
 export interface IBaseHalfCanvasSceneEdge extends IBaseHalfCanvasEdge {
