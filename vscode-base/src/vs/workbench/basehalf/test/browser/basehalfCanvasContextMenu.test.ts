@@ -11,7 +11,7 @@ import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { isIMenuItem, MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
+import { isIMenuItem, isISubmenuItem, MenuId, MenuRegistry } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { TestConfigurationService } from '../../../../platform/configuration/test/common/testConfigurationService.js';
@@ -34,13 +34,14 @@ import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecuti
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 import {
 	BASEHALF_CANVAS_CARD_CONTEXT_MENU,
+	BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
 	BASEHALF_CANVAS_PANE_CONTEXT_MENU,
 	baseHalfTemplateFolderBaseName,
 	parseBaseHalfPendingTemplateSetups
 } from '../../browser/basehalfCanvasContextMenu.js';
 import { IBaseHalfBadgeGraphService, BaseHalfBadgeGraphService } from '../../common/basehalfBadgeGraph.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
-import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../common/basehalfCanvasEditing.js';
+import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasRecipeRegistryService, IBaseHalfCanvasRecipeRegistryService } from '../../common/basehalfCanvasRecipes.js';
@@ -70,9 +71,61 @@ suite('BaseHalf canvas context menu', () => {
 			['1_new', 'basehalf.canvas.newFile'],
 			['1_new', 'basehalf.canvas.newFolder'],
 			['1_new', 'basehalf.canvas.newNote'],
-			['1_new', 'basehalf.canvas.newResultNode'],
 			['5_transfer', 'basehalf.canvas.paste']
 		]);
+		assert.deepStrictEqual(MenuRegistry.getMenuItems(BASEHALF_CANVAS_PANE_CONTEXT_MENU)
+			.filter(isISubmenuItem)
+			.map(item => [item.group, item.submenu.id]), [
+			['1_new', BASEHALF_CANVAS_NEW_RESULT_NODE_MENU.id]
+		]);
+		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_NEW_RESULT_NODE_MENU), [
+			['1_content', 'basehalf.canvas.newAudioNode'],
+			['1_content', 'basehalf.canvas.newFileNode'],
+			['1_content', 'basehalf.canvas.newImageNode'],
+			['1_content', 'basehalf.canvas.newPdfNode'],
+			['1_content', 'basehalf.canvas.newPresentationNode'],
+			['1_content', 'basehalf.canvas.newVideoNode']
+		]);
+	});
+
+	test('keeps canvas card creation out of the command palette and dispatches typed result nodes', async () => {
+		const resultCommands = [
+			['basehalf.canvas.newImageNode', 'image'],
+			['basehalf.canvas.newVideoNode', 'video'],
+			['basehalf.canvas.newAudioNode', 'audio'],
+			['basehalf.canvas.newPdfNode', 'pdf'],
+			['basehalf.canvas.newPresentationNode', 'presentation'],
+			['basehalf.canvas.newFileNode', 'file']
+		] as const;
+		const commandPaletteIds = new Set(MenuRegistry.getMenuItems(MenuId.CommandPalette)
+			.filter(isIMenuItem)
+			.map(item => item.command.id));
+		for (const commandId of [
+			BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID,
+			'basehalf.canvas.newFile',
+			'basehalf.canvas.newFolder',
+			...resultCommands.map(([commandId]) => commandId)
+		]) {
+			assert.strictEqual(commandPaletteIds.has(commandId), false);
+		}
+
+		const requests: unknown[][] = [];
+		const accessor = {
+			get: <T>(service: unknown): T => {
+				if (service === IBaseHalfCanvasEditingService) {
+					return {
+						requestCreate: async (...args: unknown[]) => { requests.push(args); }
+					} as T;
+				}
+				throw new Error('Unexpected service');
+			}
+		} as ServicesAccessor;
+		for (const [commandId] of resultCommands) {
+			const command = CommandsRegistry.getCommand(commandId);
+			assert.ok(command);
+			await command.handler(accessor);
+		}
+		assert.deepStrictEqual(requests, resultCommands.map(([, kind]) => [undefined, 'resultNode', kind]));
 	});
 
 	test('registers a hidden workspace-only run command that delegates to the node execution service', async () => {

@@ -25,20 +25,20 @@ suite('BaseHalfCanvasEditing', () => {
 		assert.strictEqual(baseHalfCanvasInlineEditKeyAction({ key: 'Escape', isComposing: false, keyCode: 229 }), undefined);
 	});
 
-	test('awaits distinct note, media-node, file, and folder creation intents', async () => {
+	test('awaits distinct note, typed result-node, file, and folder creation intents', async () => {
 		const service = new BaseHalfCanvasEditingService();
 		const requests: BaseHalfCanvasEditingRequest[] = [];
 		disposables.add(service.registerHandler(async request => { requests.push(request); }));
 		const context = actionContext();
 
 		await service.requestCreate(undefined, 'note');
-		await service.requestCreate(context, 'resultNode');
+		await service.requestCreate(context, 'resultNode', 'video');
 		await service.requestCreate(context, 'file');
 		await service.requestCreate(context, 'folder');
 
 		assert.deepStrictEqual(requests, [
 			{ kind: 'create', context: undefined, createKind: 'note' },
-			{ kind: 'create', context, createKind: 'resultNode' },
+			{ kind: 'create', context, createKind: 'resultNode', resultKind: 'video' },
 			{ kind: 'create', context, createKind: 'file' },
 			{ kind: 'create', context, createKind: 'folder' }
 		]);

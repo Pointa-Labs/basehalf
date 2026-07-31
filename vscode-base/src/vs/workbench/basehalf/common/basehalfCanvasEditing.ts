@@ -9,6 +9,7 @@ import { registerSingleton, InstantiationType } from '../../../platform/instanti
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfCanvasActionContext } from './basehalfCanvasActionContext.js';
+import { BaseHalfNodeKind } from './basehalfNodeDocument.js';
 
 export const BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID = 'basehalf.canvas.newNote';
 export const BASEHALF_CANVAS_UNDO_REDO_SOURCE = new UndoRedoSource();
@@ -19,7 +20,8 @@ export const IBaseHalfCanvasEditingService = createDecorator<IBaseHalfCanvasEdit
 
 export type BaseHalfCanvasEditingRequest =
 	| { readonly kind: 'rename'; readonly context: IBaseHalfCanvasActionContext }
-	| { readonly kind: 'create'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly createKind: BaseHalfCanvasCreateKind }
+	| { readonly kind: 'create'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly createKind: Exclude<BaseHalfCanvasCreateKind, 'resultNode'> }
+	| { readonly kind: 'create'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly createKind: 'resultNode'; readonly resultKind: BaseHalfNodeKind }
 	| { readonly kind: 'paste'; readonly context: IBaseHalfCanvasActionContext }
 	| { readonly kind: 'import'; readonly context: IBaseHalfCanvasActionContext }
 	| { readonly kind: 'select'; readonly folder: URI; readonly resources: readonly URI[] };
@@ -45,7 +47,8 @@ export interface IBaseHalfCanvasEditingService {
 	readonly _serviceBrand: undefined;
 	registerHandler(handler: BaseHalfCanvasEditingHandler): IDisposable;
 	requestRename(context: IBaseHalfCanvasActionContext): Promise<void>;
-	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: BaseHalfCanvasCreateKind): Promise<void>;
+	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: Exclude<BaseHalfCanvasCreateKind, 'resultNode'>): Promise<void>;
+	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: 'resultNode', resultKind: BaseHalfNodeKind): Promise<void>;
 	requestPaste(context: IBaseHalfCanvasActionContext): Promise<void>;
 	requestImport(context: IBaseHalfCanvasActionContext): Promise<void>;
 	requestSelection(folder: URI, resources: readonly URI[]): Promise<void>;
@@ -72,7 +75,15 @@ export class BaseHalfCanvasEditingService implements IBaseHalfCanvasEditingServi
 		return this.dispatch({ kind: 'rename', context });
 	}
 
-	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: BaseHalfCanvasCreateKind): Promise<void> {
+	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: Exclude<BaseHalfCanvasCreateKind, 'resultNode'>): Promise<void>;
+	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: 'resultNode', resultKind: BaseHalfNodeKind): Promise<void>;
+	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: BaseHalfCanvasCreateKind, resultKind?: BaseHalfNodeKind): Promise<void> {
+		if (createKind === 'resultNode') {
+			if (!resultKind) {
+				return Promise.reject(new Error('A result content kind is required when creating a canvas result node.'));
+			}
+			return this.dispatch({ kind: 'create', context, createKind, resultKind });
+		}
 		return this.dispatch({ kind: 'create', context, createKind });
 	}
 

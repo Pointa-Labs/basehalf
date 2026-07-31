@@ -118,6 +118,7 @@ try {
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 	if (!opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
+		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 	}
 
@@ -197,6 +198,7 @@ try {
 				'root-titlebar-breadcrumb',
 				'canvas-grid-scoped-to-canvas',
 				'canvas-double-click-create-menu',
+				'canvas-create-result-node-submenu',
 				'canvas-create-note-file-folder',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
@@ -328,6 +330,7 @@ try {
 			'fresh-canvas-framed',
 			'root-titlebar-breadcrumb',
 			'canvas-grid-scoped-to-canvas',
+			'canvas-create-result-node-submenu',
 			'canvas-create-note-file-folder',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
@@ -3061,6 +3064,26 @@ async function assertCanvasDoubleClickCreateMenu(page) {
 	await createAction.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
+async function assertCanvasCreateResultNodeSubmenu(page) {
+	await clickCanvasCreateSubmenuAction(page, 'New Media or Document', 'Image');
+	const nodePath = path.join(workspacePath, 'image.bhnode');
+	await waitUntil(() => fs.existsSync(nodePath), 'canvas result-node submenu to create an image node');
+	if (await page.locator('.quick-input-widget').isVisible()) {
+		throw new Error('Canvas result-node submenu unexpectedly opened Quick Input');
+	}
+	const document = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+	if (document.kind !== 'image' || document.title !== 'Image') {
+		throw new Error(`Canvas result-node submenu created the wrong document: ${JSON.stringify(document)}`);
+	}
+	const card = page.locator('.basehalf-canvas-card[data-basehalf-card-path="image.bhnode"]');
+	await card.waitFor({ state: 'visible', timeout: 10_000 });
+	if (!await card.evaluate(element => element.classList.contains('selected'))) {
+		throw new Error('Canvas result-node submenu did not select the new image node');
+	}
+	fs.rmSync(nodePath, { force: true });
+	await card.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
 async function assertCanvasCreateNoteFileAndFolder(page) {
 	const createButton = page.locator('.basehalf-canvas-create-button');
 	await createButton.waitFor({ state: 'visible', timeout: 10_000 });
@@ -3136,6 +3159,20 @@ async function clickCanvasCreateAction(page, label) {
 	// VS Code intentionally attaches menu mouse-up listeners after a 100 ms
 	// guard against the pointer event that opened the menu. Let the real widget
 	// settle, then use a normal Playwright click through its public interaction.
+	await page.waitForTimeout(150);
+	await action.click();
+}
+
+async function clickCanvasCreateSubmenuAction(page, submenuLabel, actionLabel) {
+	const createButton = page.locator('.basehalf-canvas-create-button');
+	await createButton.focus();
+	await page.keyboard.press('Enter');
+	const submenu = page.getByRole('menuitem', { name: submenuLabel, exact: true }).filter({ visible: true }).last();
+	await submenu.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForTimeout(150);
+	await submenu.hover();
+	const action = page.getByRole('menuitem', { name: actionLabel, exact: true }).filter({ visible: true }).last();
+	await action.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.waitForTimeout(150);
 	await action.click();
 }

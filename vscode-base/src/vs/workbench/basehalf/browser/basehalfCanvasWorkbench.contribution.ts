@@ -274,6 +274,23 @@ type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: '
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'presentation' | 'code' | 'file' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
+function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
+	switch (kind) {
+		case 'file':
+			return localize('basehalf.canvas.resultKind.file', "File");
+		case 'image':
+			return localize('basehalf.canvas.resultKind.image', "Image");
+		case 'video':
+			return localize('basehalf.canvas.resultKind.video', "Video");
+		case 'audio':
+			return localize('basehalf.canvas.resultKind.audio', "Audio");
+		case 'pdf':
+			return localize('basehalf.canvas.resultKind.pdf', "PDF");
+		case 'presentation':
+			return localize('basehalf.canvas.resultKind.presentation', "Presentation");
+	}
+}
+
 const nodeRunDateFormatter = safeIntl.DateTimeFormat(undefined, {
 	month: 'short',
 	day: 'numeric',
@@ -397,6 +414,7 @@ const OVERVIEW_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
 const BASEHALF_CANVAS_UNDO_REDO_PRIORITY = 115;
+
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
 
@@ -3851,14 +3869,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			return;
 		}
-			if (request.createKind === 'note') {
-				await this.createUntitledNote(folder, context, placement.canvasPosition);
-				return;
-			}
-			if (request.createKind === 'resultNode') {
-				await this.createEmptyContentNode(folder, context, placement.canvasPosition);
-				return;
-			}
+		if (request.createKind === 'note') {
+			await this.createUntitledNote(folder, context, placement.canvasPosition);
+			return;
+		}
+		if (request.createKind === 'resultNode') {
+			await this.createEmptyContentNode(folder, context, placement.canvasPosition, request.resultKind);
+			return;
+		}
 		if (this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
@@ -3972,44 +3990,30 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private async createEmptyContentNode(
 		folder: IBaseHalfCanvasFolderState,
 		context: IBaseHalfCanvasActionContext,
-		canvasPosition: { readonly x: number; readonly y: number }
+		canvasPosition: { readonly x: number; readonly y: number },
+		kind: BaseHalfNodeKind
 	): Promise<void> {
-		const choices: (IQuickPickItem & { readonly kind: BaseHalfNodeKind })[] = [
-			{ label: 'File', description: 'Import or generate a reusable output file', kind: 'file' },
-			{ label: 'Image', description: 'Import or generate an image', kind: 'image' },
-			{ label: 'Video', description: 'Import or generate a video', kind: 'video' },
-			{ label: 'Audio', description: 'Import or generate audio', kind: 'audio' },
-			{ label: 'PDF', description: 'Import or generate a PDF', kind: 'pdf' },
-			{ label: 'Presentation', description: 'Import or generate a presentation', kind: 'presentation' }
-		];
-		const choice = await this.quickInputService.pick<IQuickPickItem & { readonly kind: BaseHalfNodeKind }>(choices, {
-			title: 'New Media or Document',
-			placeHolder: 'Choose what this node will contain'
-		});
-		if (!choice) {
-			return;
-		}
 		await this.canvasActionContextService.assertCurrent(context);
 		if (!this.uriIdentityService.extUri.isEqual(this.getCurrentFolder()?.resource, folder.resource)) {
 			return;
 		}
-		const baseName = choice.kind;
+		const label = canvasResultNodeKindLabel(kind);
 		let name: string | undefined;
 		for (let index = 0; index < 1000; index++) {
-			const candidate = `${baseName}${index === 0 ? '' : `-${index + 1}`}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
+			const candidate = `${kind}${index === 0 ? '' : `-${index + 1}`}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
 			if (!await this.fileService.exists(joinPath(folder.resource, candidate))) {
 				name = candidate;
 				break;
 			}
 		}
 		if (!name) {
-			throw new Error(`Too many ${choice.label.toLowerCase()} outputs already use the default name.`);
+			throw new Error(`Too many ${label.toLowerCase()} outputs already use the default name.`);
 		}
 		const document = createBaseHalfNodeDocument({
 			id: generateUuid(),
-			kind: choice.kind,
-			title: choice.label,
-			role: getBaseHalfCanvasDefaultNodeRole(choice.kind)
+			kind,
+			title: label,
+			role: getBaseHalfCanvasDefaultNodeRole(kind)
 		});
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			open: false,

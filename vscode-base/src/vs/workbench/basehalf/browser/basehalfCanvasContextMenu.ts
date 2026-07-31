@@ -11,7 +11,7 @@ import { CancellationToken } from '../../../base/common/cancellation.js';
 import { CancellationError, isCancellationError } from '../../../base/common/errors.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { localize, localize2 } from '../../../nls.js';
-import { MenuId, Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
+import { MenuId, MenuRegistry, Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { FileSystemProviderCapabilities, IFileService } from '../../../platform/files/common/files.js';
@@ -39,7 +39,7 @@ import {
 } from '../common/basehalfCanvasRecipes.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID, IBaseHalfCanvasCreateFromTemplateCommandArguments, IBaseHalfCanvasCreateFromTemplateCommandResult, IBaseHalfCanvasTemplate, parseBaseHalfCanvasTemplate } from '../common/basehalfCanvasTemplate.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
-import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
+import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../contrib/files/browser/fileConstants.js';
@@ -49,11 +49,11 @@ import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/commo
 
 export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardContext');
 export const BASEHALF_CANVAS_PANE_CONTEXT_MENU = MenuId.for('BaseHalfCanvasPaneContext');
+export const BASEHALF_CANVAS_NEW_RESULT_NODE_MENU = MenuId.for('BaseHalfCanvasNewResultNode');
 
 const BASEHALF_CANVAS_OPEN_COMMAND_ID = 'basehalf.canvas.openResource';
 export const BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID = 'basehalf.canvas.openResultNodeContent';
 const BASEHALF_CANVAS_NEW_FILE_COMMAND_ID = 'basehalf.canvas.newFile';
-const BASEHALF_CANVAS_NEW_RESULT_NODE_COMMAND_ID = 'basehalf.canvas.newResultNode';
 const BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID = 'basehalf.canvas.newFolder';
 const BASEHALF_CANVAS_PASTE_COMMAND_ID = 'basehalf.canvas.paste';
 const BASEHALF_CANVAS_IMPORT_COMMAND_ID = 'basehalf.canvas.importFiles';
@@ -69,6 +69,13 @@ const MAX_UNDO_FILE_SIZE = 5_000_000;
 const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
 const MAX_PENDING_TEMPLATE_SETUPS = 32;
 const MAX_PENDING_TEMPLATE_FILES = 200;
+
+MenuRegistry.appendMenuItem(BASEHALF_CANVAS_PANE_CONTEXT_MENU, {
+	submenu: BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
+	title: localize2('basehalf.canvas.context.newResultNode', "New Media or Document"),
+	group: '1_new',
+	order: 15
+});
 
 export interface IBaseHalfPendingTemplateFile {
 	readonly path: string;
@@ -463,7 +470,6 @@ registerAction2(class BaseHalfCanvasNewNoteAction extends Action2 {
 		super({
 			id: BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID,
 			title: localize2('basehalf.canvas.context.newNote', "New Note"),
-			f1: true,
 			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 10 }
 		});
 	}
@@ -495,20 +501,68 @@ registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
 	}
 });
 
-registerAction2(class BaseHalfCanvasNewResultNodeAction extends Action2 {
-	constructor() {
-		super({
-			id: BASEHALF_CANVAS_NEW_RESULT_NODE_COMMAND_ID,
-			title: localize2('basehalf.canvas.context.newResultNode', "New Media or Document..."),
-			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 15 }
-		});
-	}
+function registerBaseHalfCanvasNewResultNodeAction(
+	id: string,
+	title: ReturnType<typeof localize2>,
+	resultKind: BaseHalfNodeKind,
+	order: number
+): void {
+	registerAction2(class BaseHalfCanvasNewResultNodeAction extends Action2 {
+		constructor() {
+			super({
+				id,
+				title,
+				menu: { id: BASEHALF_CANVAS_NEW_RESULT_NODE_MENU, group: '1_content', order }
+			});
+		}
 
-	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
-		const editingService = accessor.get(IBaseHalfCanvasEditingService);
-		await editingService.requestCreate(isBaseHalfCanvasActionContext(argument) ? argument : undefined, 'resultNode');
-	}
-});
+		override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+			const editingService = accessor.get(IBaseHalfCanvasEditingService);
+			await editingService.requestCreate(
+				isBaseHalfCanvasActionContext(argument) ? argument : undefined,
+				'resultNode',
+				resultKind
+			);
+		}
+	});
+}
+
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newFileNode',
+	localize2('basehalf.canvas.context.newFileNode', "File"),
+	'file',
+	5
+);
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newImageNode',
+	localize2('basehalf.canvas.context.newImageNode', "Image"),
+	'image',
+	10
+);
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newVideoNode',
+	localize2('basehalf.canvas.context.newVideoNode', "Video"),
+	'video',
+	20
+);
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newAudioNode',
+	localize2('basehalf.canvas.context.newAudioNode', "Audio"),
+	'audio',
+	30
+);
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newPdfNode',
+	localize2('basehalf.canvas.context.newPdfNode', "PDF"),
+	'pdf',
+	40
+);
+registerBaseHalfCanvasNewResultNodeAction(
+	'basehalf.canvas.newPresentationNode',
+	localize2('basehalf.canvas.context.newPresentationNode', "Presentation"),
+	'presentation',
+	50
+);
 
 registerAction2(class BaseHalfCanvasNewFolderAction extends Action2 {
 	constructor() {
