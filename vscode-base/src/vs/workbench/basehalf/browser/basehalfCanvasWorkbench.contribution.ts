@@ -78,7 +78,7 @@ import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalf
 import { baseHalfCanvasInlineEditKeyAction, BASEHALF_CANVAS_UNDO_REDO_SOURCE, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { baseHalfCanvasMarkdownPreviewSource } from '../common/basehalfCanvasPreview.js';
-import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
@@ -145,6 +145,7 @@ import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import {
 	BaseHalfCanvasSceneContextMenuRequest,
+	BaseHalfCanvasSceneNoteProjection,
 	BaseHalfCanvasSceneSelectionAction,
 	IBaseHalfCanvasSceneConnection,
 	IBaseHalfCanvasSceneConnectionDrop,
@@ -617,7 +618,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
 			activateCard: (sceneKey, structuralEpoch, path) => this.activateSceneCard(sceneKey, structuralEpoch, path),
-			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
+			openCard: (sceneKey, structuralEpoch, path, projection) => this.openSceneCard(sceneKey, structuralEpoch, path, projection),
 			showCreateMenu: (sceneKey, structuralEpoch, position) => this.showSceneContextMenu(
 				sceneKey,
 				structuralEpoch,
@@ -1178,6 +1179,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return {
 				path: item.path,
 				kind: item.kind,
+				...(isBaseHalfMarkdownResource(item.stat.resource) ? { controls: { kind: 'note' as const } } : {}),
 				...(item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) ? { renameChangesPathOnly: true as const } : {}),
 				...bounds,
 				element,
@@ -2602,7 +2604,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// node never opens a second surface unexpectedly.
 	}
 
-	private openSceneCard(sceneKey: string, structuralEpoch: number, path: string): void {
+	private openSceneCard(sceneKey: string, structuralEpoch: number, path: string, projection?: BaseHalfCanvasSceneNoteProjection): void {
 		this.cancelPendingNodeActivation();
 		const folder = this.getCurrentFolder();
 		if (!folder || this.sceneKey(folder) !== sceneKey
@@ -2620,7 +2622,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			return;
 		}
-		void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
+		void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true, projection });
 	}
 
 	private cancelPendingNodeActivation(): void {

@@ -11,10 +11,12 @@ import {
 	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
 	baseHalfCanvasTargetBlocksGraphShortcuts,
+	baseHalfCanvasTargetOwnsSelectionShortcuts,
 	baseHalfCanvasTargetOwnsSelectedEdgeShortcuts,
 	captureBaseHalfCanvasNodeDragOrigins,
 	captureBaseHalfCanvasCardFocusPath,
 	filterBaseHalfCanvasCancelledNodeDragChanges,
+	resolveBaseHalfCanvasNoteSelectionPlacement,
 	resolveBaseHalfCanvasSelectionToolbarPlacement,
 	resolveBaseHalfCanvasCardFocusPath,
 	restoreBaseHalfCanvasNodeDragOrigins
@@ -85,6 +87,92 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.ok(bottom.left <= 734);
 	});
 
+	test('keeps Note controls split when possible and stacks them inside viewport edges', () => {
+		const centered = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: 300,
+			top: 180,
+			right: 500,
+			bottom: 380,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 600
+		});
+		assert.strictEqual(centered.visible, true);
+		assert.strictEqual(centered.mode, 'split');
+		assert.ok(centered.toolbar.top + centered.toolbar.height < 180);
+		assert.ok(centered.views.top > 380);
+
+		const highZoom = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: 200,
+			top: 60,
+			right: 400,
+			bottom: 280,
+			viewport: { x: 0, y: 0, zoom: 2 },
+			viewportWidth: 800,
+			viewportHeight: 680
+		});
+		assert.strictEqual(highZoom.mode, 'split');
+		assert.ok(highZoom.toolbar.top * 2 + highZoom.toolbar.height <= 112);
+		assert.ok(highZoom.views.top * 2 >= 568);
+		assert.ok(highZoom.views.top * 2 + highZoom.views.height <= 672);
+
+		const bottomEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: 740,
+			top: 520,
+			right: 940,
+			bottom: 720,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 600
+		});
+		assert.strictEqual(bottomEdge.mode, 'stack-above');
+		assert.ok(bottomEdge.views.left >= 8);
+		assert.ok(bottomEdge.views.left + bottomEdge.views.width <= 792);
+		assert.ok(bottomEdge.views.top >= 8);
+		assert.ok(bottomEdge.toolbar.top + bottomEdge.toolbar.height <= 520);
+
+		const topEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: -120,
+			top: -40,
+			right: 80,
+			bottom: 160,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 300,
+			viewportHeight: 600
+		});
+		assert.strictEqual(topEdge.mode, 'stack-below');
+		assert.strictEqual(topEdge.compact, true);
+		assert.ok(topEdge.toolbar.left >= 8);
+		assert.ok(topEdge.toolbar.top >= 8);
+		assert.ok(topEdge.views.top + topEdge.views.height <= 592);
+
+		const narrow = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: 20,
+			top: 180,
+			right: 160,
+			bottom: 300,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 180,
+			viewportHeight: 600
+		});
+		assert.strictEqual(narrow.narrow, true);
+		assert.strictEqual(narrow.views.width, 164);
+		assert.strictEqual(narrow.views.height, 196);
+		assert.ok(narrow.toolbar.left >= 8);
+		assert.ok(narrow.views.left + narrow.views.width <= 172);
+
+		const offscreen = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: 900,
+			top: 700,
+			right: 1100,
+			bottom: 900,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 600
+		});
+		assert.strictEqual(offscreen.visible, false);
+	});
+
 	test('distinguishes a structural file rename from a visible node title edit', () => {
 		assert.strictEqual(baseHalfCanvasSceneSelectionRenameLabel(false), 'Rename');
 		assert.strictEqual(baseHalfCanvasSceneSelectionRenameLabel(true), 'Rename file');
@@ -106,6 +194,10 @@ suite('BaseHalfCanvasReactScene', () => {
 		const flowNodeContent = document.createElement('div');
 		const flowNodeButton = document.createElement('button');
 		flowNode.append(flowNodeContent, flowNodeButton);
+		const noteToolbar = document.createElement('div');
+		noteToolbar.classList.add('basehalf-canvas-note-toolbar');
+		const noteToolbarButton = document.createElement('button');
+		noteToolbar.append(noteToolbarButton);
 		const selectedEdge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 		selectedEdge.classList.add('react-flow__edge', 'selected', 'nopan');
 		card.append(editor, customInput, restingContent);
@@ -118,6 +210,8 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasTargetBlocksGraphShortcuts(selectedEdge), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(selectedEdge), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(restingContent), false);
+		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(noteToolbarButton), true);
+		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(restingContent), false);
 	});
 
 	test('opens the create menu only for an unmodified primary-button pane double click', () => {

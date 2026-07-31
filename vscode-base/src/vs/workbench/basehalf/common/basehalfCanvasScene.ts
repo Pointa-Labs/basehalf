@@ -11,6 +11,26 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly height: number;
 }
 
+export type BaseHalfCanvasSceneNoteProjection = 'source' | 'preview';
+
+export type BaseHalfCanvasSceneCardControls = {
+	readonly kind: 'note';
+};
+
+export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'structural' | 'note';
+
+export function baseHalfCanvasSceneSelectionSurface(
+	cards: readonly Pick<IBaseHalfCanvasSceneCard, 'controls'>[]
+): BaseHalfCanvasSceneSelectionSurface {
+	if (cards.length === 0) {
+		return 'none';
+	}
+	if (cards.length === 1 && cards[0].controls?.kind === 'note') {
+		return 'note';
+	}
+	return 'structural';
+}
+
 /**
  * The narrow, service-free protocol between BaseHalf's VS Code workbench
  * controller and the in-document React Flow renderer island.
@@ -21,6 +41,9 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	readonly path: string;
 	readonly kind: BaseHalfCanvasItemKind;
+	/** Selection chrome is an explicit product projection. The renderer never
+	 *  infers a file type from a path or from authored card DOM. */
+	readonly controls?: BaseHalfCanvasSceneCardControls;
 	/** The visible card title is stored inside this resource, so the structural
 	 *  rename action changes only its filename. */
 	readonly renameChangesPathOnly?: true;
@@ -158,7 +181,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
 	activateCard(sceneKey: string, structuralEpoch: number, path: string): void;
-	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
+	openCard(sceneKey: string, structuralEpoch: number, path: string, projection?: BaseHalfCanvasSceneNoteProjection): void;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;

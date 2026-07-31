@@ -322,6 +322,184 @@
 	outline-offset: -1px;
 }
 
+.monaco-workbench .basehalf-canvas-note-toolbar,
+.monaco-workbench .basehalf-canvas-note-views {
+	z-index: 1001;
+	box-sizing: border-box;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
+.monaco-workbench .basehalf-canvas-note-surface {
+	position: absolute;
+	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: top left;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar {
+	display: flex;
+	height: 32px;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	border-radius: 6px;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-label {
+	display: inline-flex;
+	height: 24px;
+	align-items: center;
+	gap: 6px;
+	padding: 0 7px 0 5px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 600;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-label .codicon {
+	font-size: 14px;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar.compact .basehalf-canvas-note-toolbar-label,
+.monaco-workbench .basehalf-canvas-note-toolbar.compact .basehalf-canvas-note-toolbar-label + .basehalf-canvas-note-toolbar-divider {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-divider {
+	width: 1px;
+	height: 16px;
+	margin: 0 2px;
+	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action {
+	display: inline-flex;
+	width: 26px;
+	height: 24px;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:hover,
+.monaco-workbench .basehalf-canvas-note-toolbar-action.open:hover {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.danger:hover {
+	color: var(--vscode-errorForeground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:active,
+.monaco-workbench .basehalf-canvas-note-view-action:active {
+	transform: translateY(1px);
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:focus-visible,
+.monaco-workbench .basehalf-canvas-note-view-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
+	color: var(--vscode-textLink-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-note-views {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	min-height: 104px;
+	align-items: center;
+	gap: 18px;
+	padding: 14px 16px;
+	border-radius: 8px;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-views.compact {
+	grid-template-columns: minmax(0, 1fr);
+	align-content: center;
+	gap: 10px;
+}
+
+.monaco-workbench .basehalf-canvas-note-views.narrow .basehalf-canvas-note-view-actions {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.monaco-workbench .basehalf-canvas-note-views-copy {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 5px;
+}
+
+.monaco-workbench .basehalf-canvas-note-views-title {
+	color: var(--vscode-foreground);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-note-views-description {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-canvas-note-view-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-note-view-action {
+	display: inline-flex;
+	height: 30px;
+	align-items: center;
+	gap: 6px;
+	padding: 0 9px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 4px;
+	font: inherit;
+	font-size: 11px;
+	white-space: nowrap;
+	cursor: pointer;
+	pointer-events: auto;
+	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-note-views.narrow .basehalf-canvas-note-view-action {
+	width: 100%;
+	justify-content: center;
+}
+
+.monaco-workbench .basehalf-canvas-note-view-action:hover {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-note-view-action .codicon {
+	font-size: 14px;
+}
+
 .monaco-workbench .basehalf-canvas-edge-path {
 	fill: none;
 	stroke: var(--bh-card-text-ghost);

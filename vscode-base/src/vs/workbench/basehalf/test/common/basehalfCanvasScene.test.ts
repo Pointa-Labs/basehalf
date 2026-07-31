@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasSceneSelectionActions, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
+import { baseHalfCanvasSceneSelectionActions, baseHalfCanvasSceneSelectionSurface, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
 
 suite('BaseHalfCanvasScene', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -25,5 +25,16 @@ suite('BaseHalfCanvasScene', () => {
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(0), []);
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(1), ['rename', 'duplicate', 'delete']);
 		assert.deepStrictEqual(baseHalfCanvasSceneSelectionActions(3), ['duplicate', 'copyReferences', 'delete']);
+	});
+
+	test('shows Note controls only for one explicitly typed Note card', () => {
+		const note = { controls: { kind: 'note' as const } };
+		const file = { controls: undefined };
+
+		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([]), 'none');
+		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([note]), 'note');
+		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([file]), 'structural');
+		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([note, file]), 'structural');
+		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([note, note]), 'structural');
 	});
 });

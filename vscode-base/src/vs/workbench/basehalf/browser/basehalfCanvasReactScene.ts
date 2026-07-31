@@ -34,6 +34,7 @@ import { IBaseHalfCanvasSnapGuide } from '../common/basehalfCanvasSnap.js';
 import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
+	BaseHalfCanvasSceneNoteProjection,
 	BaseHalfCanvasSceneSelectionAction,
 	baseHalfCanvasSceneSelectionActions,
 	BaseHalfCanvasSceneContextMenuRequest,
@@ -45,6 +46,7 @@ import {
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneViewport,
+	baseHalfCanvasSceneSelectionSurface,
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
 import type {
@@ -288,6 +290,16 @@ const EDGE_RECONNECT_CURSOR_CLASS = 'basehalf-canvas-edge-reconnecting';
 const SELECTION_TOOLBAR_SCREEN_GAP = 10;
 const SELECTION_TOOLBAR_SCREEN_HEIGHT = 32;
 const SELECTION_TOOLBAR_SCREEN_MARGIN = 8;
+const NOTE_CONTROLS_SCREEN_MARGIN = 8;
+const NOTE_CONTROLS_SCREEN_GAP = 14;
+const NOTE_CONTROLS_MIN_SCREEN_GAP = 8;
+const NOTE_CONTROLS_STACK_GAP = 8;
+const NOTE_TOOLBAR_SCREEN_WIDTH = 190;
+const NOTE_TOOLBAR_SCREEN_HEIGHT = 32;
+const NOTE_VIEWS_MAX_SCREEN_WIDTH = 420;
+const NOTE_VIEWS_SCREEN_HEIGHT = 104;
+const NOTE_VIEWS_COMPACT_SCREEN_HEIGHT = 128;
+const NOTE_VIEWS_NARROW_SCREEN_HEIGHT = 196;
 const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
 
 export interface IBaseHalfCanvasSelectionToolbarPlacement {
@@ -329,6 +341,118 @@ export function resolveBaseHalfCanvasSelectionToolbarPlacement(options: {
 	};
 }
 
+export interface IBaseHalfCanvasNoteSelectionPlacement {
+	readonly visible: boolean;
+	readonly mode: 'split' | 'stack-above' | 'stack-below';
+	readonly compact: boolean;
+	readonly narrow: boolean;
+	readonly toolbar: { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
+	readonly views: { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
+}
+
+export function resolveBaseHalfCanvasNoteSelectionPlacement(options: {
+	readonly left: number;
+	readonly top: number;
+	readonly right: number;
+	readonly bottom: number;
+	readonly viewport: IBaseHalfCanvasSceneViewport;
+	readonly viewportWidth: number;
+	readonly viewportHeight: number;
+}): IBaseHalfCanvasNoteSelectionPlacement {
+	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
+	const viewportWidth = Math.max(0, options.viewportWidth);
+	const viewportHeight = Math.max(0, options.viewportHeight);
+	const leftScreen = options.left * zoom + options.viewport.x;
+	const topScreen = options.top * zoom + options.viewport.y;
+	const rightScreen = options.right * zoom + options.viewport.x;
+	const bottomScreen = options.bottom * zoom + options.viewport.y;
+	const visible = rightScreen >= 0
+		&& leftScreen <= viewportWidth
+		&& bottomScreen >= 0
+		&& topScreen <= viewportHeight
+		&& viewportWidth > NOTE_CONTROLS_SCREEN_MARGIN * 2
+		&& viewportHeight > NOTE_CONTROLS_SCREEN_MARGIN * 2;
+	const viewsWidth = Math.max(0, Math.min(NOTE_VIEWS_MAX_SCREEN_WIDTH, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN * 2));
+	const compact = viewsWidth < 340;
+	const narrow = viewsWidth < 220;
+	const viewsHeight = narrow
+		? NOTE_VIEWS_NARROW_SCREEN_HEIGHT
+		: compact
+			? NOTE_VIEWS_COMPACT_SCREEN_HEIGHT
+			: NOTE_VIEWS_SCREEN_HEIGHT;
+	const toolbarWidth = Math.max(0, Math.min(NOTE_TOOLBAR_SCREEN_WIDTH, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN * 2));
+	const groupWidth = Math.max(toolbarWidth, viewsWidth);
+	const halfGroup = groupWidth / 2;
+	const minimumCenter = NOTE_CONTROLS_SCREEN_MARGIN + halfGroup;
+	const maximumCenter = Math.max(minimumCenter, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN - halfGroup);
+	const nodeCenterScreen = (leftScreen + rightScreen) / 2;
+	const centerScreen = Math.min(maximumCenter, Math.max(minimumCenter, nodeCenterScreen));
+	const aboveSpace = topScreen - NOTE_CONTROLS_SCREEN_MARGIN;
+	const belowSpace = viewportHeight - bottomScreen - NOTE_CONTROLS_SCREEN_MARGIN;
+	const canSplit = aboveSpace >= NOTE_CONTROLS_MIN_SCREEN_GAP + NOTE_TOOLBAR_SCREEN_HEIGHT
+		&& belowSpace >= NOTE_CONTROLS_MIN_SCREEN_GAP + viewsHeight;
+	const groupHeight = NOTE_TOOLBAR_SCREEN_HEIGHT + NOTE_CONTROLS_STACK_GAP + viewsHeight;
+	const canStackAbove = aboveSpace >= groupHeight + NOTE_CONTROLS_MIN_SCREEN_GAP;
+	const canStackBelow = belowSpace >= groupHeight + NOTE_CONTROLS_MIN_SCREEN_GAP;
+	const mode: IBaseHalfCanvasNoteSelectionPlacement['mode'] = canSplit
+		? 'split'
+		: canStackAbove && (!canStackBelow || aboveSpace >= belowSpace)
+			? 'stack-above'
+			: canStackBelow
+				? 'stack-below'
+				: aboveSpace >= belowSpace
+					? 'stack-above'
+					: 'stack-below';
+	let toolbarTopScreen: number;
+	let viewsTopScreen: number;
+	if (mode === 'split') {
+		const toolbarGap = Math.min(NOTE_CONTROLS_SCREEN_GAP, aboveSpace - NOTE_TOOLBAR_SCREEN_HEIGHT);
+		const viewsGap = Math.min(NOTE_CONTROLS_SCREEN_GAP, belowSpace - viewsHeight);
+		toolbarTopScreen = topScreen - toolbarGap - NOTE_TOOLBAR_SCREEN_HEIGHT;
+		viewsTopScreen = bottomScreen + viewsGap;
+	} else if (mode === 'stack-above') {
+		const stackGap = canStackAbove
+			? Math.min(NOTE_CONTROLS_SCREEN_GAP, aboveSpace - groupHeight)
+			: NOTE_CONTROLS_SCREEN_GAP;
+		const groupBottom = Math.max(
+			NOTE_CONTROLS_SCREEN_MARGIN + groupHeight,
+			Math.min(topScreen - stackGap, viewportHeight - NOTE_CONTROLS_SCREEN_MARGIN)
+		);
+		toolbarTopScreen = groupBottom - NOTE_TOOLBAR_SCREEN_HEIGHT;
+		viewsTopScreen = toolbarTopScreen - NOTE_CONTROLS_STACK_GAP - viewsHeight;
+	} else {
+		const stackGap = canStackBelow
+			? Math.min(NOTE_CONTROLS_SCREEN_GAP, belowSpace - groupHeight)
+			: NOTE_CONTROLS_SCREEN_GAP;
+		const groupTop = Math.min(
+			viewportHeight - NOTE_CONTROLS_SCREEN_MARGIN - groupHeight,
+			Math.max(bottomScreen + stackGap, NOTE_CONTROLS_SCREEN_MARGIN)
+		);
+		toolbarTopScreen = Math.max(NOTE_CONTROLS_SCREEN_MARGIN, groupTop);
+		viewsTopScreen = toolbarTopScreen + NOTE_TOOLBAR_SCREEN_HEIGHT + NOTE_CONTROLS_STACK_GAP;
+	}
+	const toFlowX = (screen: number): number => (screen - options.viewport.x) / zoom;
+	const toFlowY = (screen: number): number => (screen - options.viewport.y) / zoom;
+	return {
+		visible,
+		mode,
+		compact,
+		narrow,
+		toolbar: {
+			left: toFlowX(centerScreen - toolbarWidth / 2),
+			top: toFlowY(toolbarTopScreen),
+			width: toolbarWidth,
+			height: NOTE_TOOLBAR_SCREEN_HEIGHT
+		},
+		views: {
+			left: toFlowX(centerScreen - viewsWidth / 2),
+			top: toFlowY(viewsTopScreen),
+			width: viewsWidth,
+			height: viewsHeight
+		}
+	};
+}
+
 export function baseHalfCanvasSceneSelectionRenameLabel(renameChangesPathOnly: boolean): string {
 	return renameChangesPathOnly
 		? localize('basehalf.canvas.selection.renameFile', "Rename file")
@@ -362,6 +486,11 @@ export function baseHalfCanvasTargetBlocksGraphShortcuts(target: EventTarget | n
 
 export function baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(target: EventTarget | null): boolean {
 	return isCanvasElement(target) && target.closest('.react-flow__edge.selected') !== null;
+}
+
+export function baseHalfCanvasTargetOwnsSelectionShortcuts(target: EventTarget | null): boolean {
+	return isCanvasElement(target)
+		&& target.closest('.basehalf-canvas-selection-toolbar, .basehalf-canvas-note-toolbar') !== null;
 }
 
 export function captureBaseHalfCanvasCardFocusPath(root: Element, target: Element | null): readonly number[] | undefined {
@@ -1244,6 +1373,177 @@ function createCanvasSceneMount(
 		);
 	}
 
+	function NoteSelectionControls({ node, invoke }: {
+		readonly node: BaseHalfCanvasFlowNode;
+		readonly invoke: (action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]) => void;
+	}): ReactElement {
+		const viewport = vendor.useViewport();
+		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
+		const [focusIndex, setFocusIndex] = vendor.useState(0);
+		vendor.useEffect(() => {
+			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
+				setViewportSize(current => current.width === width && current.height === height ? current : { width, height });
+			};
+			updateSize();
+			const ResizeObserverConstructor = host.ownerDocument.defaultView?.ResizeObserver;
+			if (!ResizeObserverConstructor) {
+				return;
+			}
+			const observer = new ResizeObserverConstructor(entries => {
+				const size = entries[0]?.contentRect;
+				updateSize(size?.width, size?.height);
+			});
+			observer.observe(host);
+			return () => observer.disconnect();
+		}, []);
+		const actions: readonly { readonly id: BaseHalfCanvasSceneSelectionAction; readonly label: string; readonly icon: string; readonly danger?: true }[] = [
+			{ id: 'rename', label: baseHalfCanvasSceneSelectionRenameLabel(node.data.card.renameChangesPathOnly === true), icon: 'edit' },
+			{ id: 'duplicate', label: localize('basehalf.canvas.selection.duplicate', "Duplicate"), icon: 'files' },
+			{ id: 'delete', label: localize('basehalf.canvas.selection.delete', "Delete"), icon: 'trash', danger: true }
+		];
+		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
+		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
+		const placement = resolveBaseHalfCanvasNoteSelectionPlacement({
+			left: node.position.x,
+			top: node.position.y,
+			right: node.position.x + nodeWidth,
+			bottom: node.position.y + nodeHeight,
+			viewport,
+			viewportWidth: viewportSize.width,
+			viewportHeight: viewportSize.height
+		});
+		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
+			event.stopPropagation();
+		};
+		const open = (projection?: BaseHalfCanvasSceneNoteProjection): void => {
+			delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id, projection);
+		};
+		const moveFocus = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
+			let next: number | undefined;
+			if (event.key === 'ArrowRight') {
+				next = (index + 1) % (actions.length + 1);
+			} else if (event.key === 'ArrowLeft') {
+				next = (index - 1 + actions.length + 1) % (actions.length + 1);
+			} else if (event.key === 'Home') {
+				next = 0;
+			} else if (event.key === 'End') {
+				next = actions.length;
+			}
+			if (next === undefined) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			setFocusIndex(next);
+			event.currentTarget.closest<HTMLElement>('.basehalf-canvas-note-toolbar')
+				?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus();
+		};
+		if (!placement.visible) {
+			return h(vendor.Fragment);
+		}
+		const openLabel = localize('basehalf.canvas.note.openRich', "Open {0} in rich editor", node.id);
+
+		return h(vendor.ViewportPortal, null,
+			h('div', {
+				className: `basehalf-canvas-note-toolbar basehalf-canvas-note-surface${placement.toolbar.width < NOTE_TOOLBAR_SCREEN_WIDTH ? ' compact' : ''} nodrag nopan nowheel`,
+				role: 'toolbar',
+				'aria-label': localize('basehalf.canvas.note.actions', "{0} note actions", node.id),
+				'data-placement': placement.mode,
+				style: {
+					left: placement.toolbar.left,
+					top: placement.toolbar.top,
+					width: placement.toolbar.width,
+					height: placement.toolbar.height
+				},
+				onPointerDown: stopEvent,
+				onClick: stopEvent,
+				onDoubleClick: stopEvent
+			},
+				h('span', { className: 'basehalf-canvas-note-toolbar-label' },
+					h('span', { className: 'codicon codicon-note', 'aria-hidden': 'true' }),
+					h('span', null, localize('basehalf.canvas.note.label', "Note"))
+				),
+				h('span', { className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' }),
+				...actions.map((action, index) => h('button', {
+					key: action.id,
+					type: 'button',
+					className: `basehalf-canvas-note-toolbar-action codicon codicon-${action.icon}${action.danger ? ' danger' : ''}`,
+					title: action.label,
+					'aria-label': action.label,
+					tabIndex: index === focusIndex ? 0 : -1,
+					onFocus: () => setFocusIndex(index),
+					onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => moveFocus(event, index),
+					onClick: (event: ReactMouseEvent<HTMLElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+						invoke(action.id, [node.id]);
+					}
+				})),
+				h('span', { className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' }),
+				h('button', {
+					type: 'button',
+					className: 'basehalf-canvas-note-toolbar-action open codicon codicon-screen-full',
+					title: openLabel,
+					'aria-label': openLabel,
+					tabIndex: focusIndex === actions.length ? 0 : -1,
+					onFocus: () => setFocusIndex(actions.length),
+					onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => moveFocus(event, actions.length),
+					onClick: (event: ReactMouseEvent<HTMLElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+						open();
+					}
+				})
+			),
+			h('div', {
+				className: `basehalf-canvas-note-views basehalf-canvas-note-surface${placement.compact ? ' compact' : ''}${placement.narrow ? ' narrow' : ''} nodrag nopan nowheel`,
+				role: 'region',
+				'aria-label': localize('basehalf.canvas.note.views', "{0} note views", node.id),
+				'data-placement': placement.mode,
+				style: {
+					left: placement.views.left,
+					top: placement.views.top,
+					width: placement.views.width,
+					height: placement.views.height
+				},
+				onPointerDown: stopEvent,
+				onClick: stopEvent,
+				onDoubleClick: stopEvent
+			},
+				h('div', { className: 'basehalf-canvas-note-views-copy' },
+					h('span', { className: 'basehalf-canvas-note-views-title' }, localize('basehalf.canvas.note.views.title', "Note views")),
+					h('span', { className: 'basehalf-canvas-note-views-description' }, localize('basehalf.canvas.note.views.description', "Open the Markdown source or a read-only preview."))
+			),
+				h('div', { className: 'basehalf-canvas-note-view-actions' },
+					h('button', {
+						type: 'button',
+						className: 'basehalf-canvas-note-view-action',
+						onClick: (event: ReactMouseEvent<HTMLElement>) => {
+							event.preventDefault();
+							event.stopPropagation();
+							open('source');
+						}
+					},
+						h('span', { className: 'codicon codicon-code', 'aria-hidden': 'true' }),
+						h('span', null, localize('basehalf.canvas.note.source', "Source"))
+					),
+					h('button', {
+						type: 'button',
+						className: 'basehalf-canvas-note-view-action',
+						onClick: (event: ReactMouseEvent<HTMLElement>) => {
+							event.preventDefault();
+							event.stopPropagation();
+							open('preview');
+						}
+					},
+						h('span', { className: 'codicon codicon-preview', 'aria-hidden': 'true' }),
+						h('span', null, localize('basehalf.canvas.note.preview', "Preview"))
+					)
+				)
+			)
+		);
+	}
+
 	function SceneComponent({ initialSnapshot, onReady: ready }: {
 		readonly initialSnapshot: IBaseHalfCanvasSceneSnapshot;
 		readonly onReady: (runtime: IBaseHalfCanvasSceneRuntime) => void;
@@ -1933,7 +2233,7 @@ function createCanvasSceneMount(
 					|| host.closest('.basehalf-canvas-workbench')?.classList.contains('basehalf-card-detail-open')) {
 					return;
 				}
-				const toolbarOwnsFocus = !!target.closest('.basehalf-canvas-selection-toolbar');
+				const toolbarOwnsFocus = baseHalfCanvasTargetOwnsSelectionShortcuts(target);
 				const focusedSelectedEdge = baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(target);
 				if (!toolbarOwnsFocus && !focusedSelectedEdge && baseHalfCanvasTargetBlocksGraphShortcuts(target)) {
 					return;
@@ -2242,6 +2542,7 @@ function createCanvasSceneMount(
 		};
 		const ReactFlowComponent = vendor.ReactFlow as unknown as (props: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>) => ReactElement;
 		const selectedNodes = nodes.filter(node => node.selected);
+		const selectionSurface = baseHalfCanvasSceneSelectionSurface(selectedNodes.map(node => node.data.card));
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
 			h(SelectionSizeContext.Provider, { value: selectedNodes.length },
 				h(ReactFlowComponent, flowProps,
@@ -2253,7 +2554,11 @@ function createCanvasSceneMount(
 						color: 'color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)'
 					}),
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
-					h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction })
+					selectionSurface === 'note'
+						? h(NoteSelectionControls, { node: selectedNodes[0], invoke: invokeSelectionAction })
+						: selectionSurface === 'structural'
+							? h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction })
+							: null
 				)
 			)
 		);

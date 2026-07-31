@@ -120,6 +120,7 @@ try {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
+		await step('canvas-note-selection-controls', () => assertCanvasNoteSelectionControls(page));
 	}
 
 		if (opts.settingsOnly) {
@@ -200,6 +201,7 @@ try {
 				'canvas-double-click-create-menu',
 				'canvas-create-result-node-submenu',
 				'canvas-create-note-file-folder',
+				'canvas-note-selection-controls',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
 				'canvas-derived-edge-visible',
@@ -332,6 +334,7 @@ try {
 			'canvas-grid-scoped-to-canvas',
 			'canvas-create-result-node-submenu',
 			'canvas-create-note-file-folder',
+			'canvas-note-selection-controls',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'statusbar-curated',
@@ -2663,6 +2666,201 @@ async function assertNoEditorTabFor(page, name) {
 	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
 }
 
+async function assertCanvasNoteSelectionControls(page) {
+	await closeCardDetailIfOpen(page);
+	const pane = page.locator('.react-flow__pane');
+	const note = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const folder = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	if (await resetZoom.isEnabled()) {
+		await resetZoom.click();
+	}
+	await note.waitFor({ state: 'visible', timeout: 20_000 });
+	await folder.waitFor({ state: 'visible', timeout: 20_000 });
+	await centerCanvasCards(page, [note]);
+	await pane.click({ position: { x: 16, y: 16 } });
+	await note.click();
+
+	const toolbar = page.getByRole('toolbar', { name: 'README.md note actions', exact: true });
+	const views = page.getByRole('region', { name: 'README.md note views', exact: true });
+	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	await views.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-canvas-selection-toolbar').count() !== 0) {
+		throw new Error('A selected Note rendered both specialized and generic selection controls');
+	}
+	const openButton = toolbar.locator('button').last();
+	if (!await openButton.evaluate(button => button.classList.contains('codicon-screen-full'))) {
+		throw new Error('The Note open action is not the last toolbar button');
+	}
+
+	const initialBoxes = await Promise.all([note.boundingBox(), toolbar.boundingBox(), views.boundingBox()]);
+	const [initialNoteBox, initialToolbarBox, initialViewsBox] = initialBoxes;
+	if (!initialNoteBox || !initialToolbarBox || !initialViewsBox) {
+		throw new Error('Could not measure the selected Note controls');
+	}
+	if (initialToolbarBox.y + initialToolbarBox.height > initialNoteBox.y - 8) {
+		throw new Error('The Note toolbar overlaps the top connection area');
+	}
+	if (initialViewsBox.y < initialNoteBox.y + initialNoteBox.height + 8) {
+		throw new Error('The Note views panel overlaps the bottom connection area');
+	}
+	const pointerPolicy = await views.evaluate(element => {
+		const actions = element.querySelector('.basehalf-canvas-note-view-actions');
+		return {
+			panel: getComputedStyle(element).pointerEvents,
+			actions: actions ? getComputedStyle(actions).pointerEvents : ''
+		};
+	});
+	if (pointerPolicy.panel !== 'none' || pointerPolicy.actions === 'none') {
+		throw new Error(`The Note views panel blocks background interactions outside its actions: ${JSON.stringify(pointerPolicy)}`);
+	}
+	const stacking = await note.evaluate((card, controlsSelector) => {
+		const node = card.closest('.react-flow__node');
+		const controls = document.querySelector(controlsSelector);
+		return {
+			node: node ? Number(getComputedStyle(node).zIndex) : Number.NaN,
+			controls: controls ? Number(getComputedStyle(controls).zIndex) : Number.NaN
+		};
+	}, '.basehalf-canvas-note-toolbar');
+	if (!Number.isFinite(stacking.node) || !Number.isFinite(stacking.controls) || stacking.controls <= stacking.node) {
+		throw new Error(`Note controls do not stay above the selected node: ${JSON.stringify(stacking)}`);
+	}
+
+	for (let attempt = 0; attempt < 12 && await zoomOut.isEnabled(); attempt++) {
+		await zoomOut.click();
+		await page.waitForTimeout(50);
+	}
+	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) <= 0.21, null, { timeout: 10_000 });
+	const zoomedBoxes = await Promise.all([toolbar.boundingBox(), views.boundingBox()]);
+	const [zoomedToolbarBox, zoomedViewsBox] = zoomedBoxes;
+	if (!zoomedToolbarBox || !zoomedViewsBox
+		|| Math.abs(zoomedToolbarBox.width - initialToolbarBox.width) > 1
+		|| Math.abs(zoomedToolbarBox.height - initialToolbarBox.height) > 1
+		|| Math.abs(zoomedViewsBox.width - initialViewsBox.width) > 1
+		|| Math.abs(zoomedViewsBox.height - initialViewsBox.height) > 1) {
+		throw new Error('Note controls changed screen size with canvas zoom');
+	}
+	await openButton.click();
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
+	await closeCardDetailIfOpen(page);
+	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	await views.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) <= 0.21, null, { timeout: 10_000 });
+	await resetZoom.click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	const centeredNoteBox = await note.boundingBox();
+	if (!canvasBox || !centeredNoteBox) {
+		throw new Error('Could not measure the canvas before the Note edge-placement check');
+	}
+	const panX = canvasBox.x + canvasBox.width - 12 - (centeredNoteBox.x + centeredNoteBox.width);
+	const panY = canvasBox.y + canvasBox.height - 12 - (centeredNoteBox.y + centeredNoteBox.height);
+	const panStart = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + 40 };
+	await page.mouse.move(panStart.x, panStart.y);
+	await page.mouse.down({ button: 'middle' });
+	await page.mouse.move(panStart.x + panX, panStart.y + panY, { steps: 8 });
+	await page.mouse.up({ button: 'middle' });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-note-toolbar')?.getAttribute('data-placement') === 'stack-above', null, { timeout: 10_000 });
+	const edgeBoxes = await Promise.all([
+		page.locator('.basehalf-canvas-cards').boundingBox(),
+		toolbar.boundingBox(),
+		views.boundingBox()
+	]);
+	const [edgeCanvasBox, edgeToolbarBox, edgeViewsBox] = edgeBoxes;
+	if (!edgeCanvasBox || !edgeToolbarBox || !edgeViewsBox
+		|| edgeToolbarBox.x < edgeCanvasBox.x + 7
+		|| edgeViewsBox.x < edgeCanvasBox.x + 7
+		|| edgeToolbarBox.x + edgeToolbarBox.width > edgeCanvasBox.x + edgeCanvasBox.width - 7
+		|| edgeViewsBox.x + edgeViewsBox.width > edgeCanvasBox.x + edgeCanvasBox.width - 7
+		|| edgeToolbarBox.y < edgeCanvasBox.y + 7
+		|| edgeViewsBox.y < edgeCanvasBox.y + 7
+		|| edgeToolbarBox.y + edgeToolbarBox.height > edgeCanvasBox.y + edgeCanvasBox.height - 7
+		|| edgeViewsBox.y + edgeViewsBox.height > edgeCanvasBox.y + edgeCanvasBox.height - 7) {
+		throw new Error('Note controls escaped the canvas at the lower-right viewport edge');
+	}
+	await centerCanvasCards(page, [note]);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-note-toolbar')?.getAttribute('data-placement') === 'split', null, { timeout: 10_000 });
+	const cardsHost = page.locator('.basehalf-canvas-cards');
+	const originalHostWidth = await cardsHost.evaluate(element => element.style.width);
+	const originalHostBox = await cardsHost.boundingBox();
+	if (!originalHostBox || originalHostBox.width <= 600) {
+		throw new Error('The canvas is too narrow for the resize-observer smoke check');
+	}
+	const resizedHostWidth = Math.round(originalHostBox.width * 0.62);
+	await cardsHost.evaluate((element, width) => { element.style.width = `${width}px`; }, resizedHostWidth);
+	await page.waitForFunction(width => {
+		const host = document.querySelector('.basehalf-canvas-cards');
+		const controls = document.querySelector('.basehalf-canvas-note-views');
+		if (!(host instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
+			return false;
+		}
+		const hostRect = host.getBoundingClientRect();
+		const controlsRect = controls.getBoundingClientRect();
+		return Math.abs(hostRect.width - width) <= 1
+			&& controlsRect.left >= hostRect.left + 7
+			&& controlsRect.right <= hostRect.right - 7;
+	}, resizedHostWidth, { timeout: 10_000 });
+	await cardsHost.evaluate((element, width) => { element.style.width = width; }, originalHostWidth);
+	await page.waitForFunction(width => Math.abs(document.querySelector('.basehalf-canvas-cards')?.getBoundingClientRect().width - width) <= 1, originalHostBox.width, { timeout: 10_000 });
+
+	await pane.click({ position: { x: 16, y: 16 } });
+	await toolbar.waitFor({ state: 'hidden', timeout: 10_000 });
+	await views.waitFor({ state: 'hidden', timeout: 10_000 });
+	await centerCanvasCards(page, [folder]);
+	await folder.click();
+	await page.getByRole('toolbar', { name: 'Selected card actions', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-canvas-note-toolbar, .basehalf-canvas-note-views').count() !== 0) {
+		throw new Error('A non-Note card rendered Note selection controls');
+	}
+
+	await centerCanvasCards(page, [note]);
+	await pane.click({ position: { x: 16, y: 16 } });
+	await note.click();
+	await centerCanvasCards(page, [folder]);
+	await folder.click({ modifiers: ['Shift'] });
+	await page.getByRole('toolbar', { name: 'Actions for 2 selected cards', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-canvas-note-toolbar, .basehalf-canvas-note-views').count() !== 0) {
+		throw new Error('A multi-selection rendered single-Note controls');
+	}
+
+	const selectNote = async () => {
+		await centerCanvasCards(page, [note]);
+		await pane.click({ position: { x: 16, y: 16 } });
+		await note.click();
+		await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+		await views.waitFor({ state: 'visible', timeout: 10_000 });
+	};
+
+	await selectNote();
+	await views.getByRole('button', { name: 'Source', exact: true }).click();
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-source').waitFor({ state: 'visible', timeout: 15_000 });
+	await assertNoEditorTabFor(page, 'README.md');
+	await closeCardDetailIfOpen(page);
+
+	await selectNote();
+	await views.getByRole('button', { name: 'Preview', exact: true }).click();
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-preview').waitFor({ state: 'visible', timeout: 15_000 });
+	await closeCardDetailIfOpen(page);
+
+	await selectNote();
+	await openButton.click();
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
+	await closeCardDetailIfOpen(page);
+
+	await centerCanvasCards(page, [note]);
+	await pane.click({ position: { x: 16, y: 16 } });
+	await note.dblclick({ delay: 40 });
+	await assertCardDetail(page, 'README.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
+	await closeCardDetailIfOpen(page);
+}
+
 async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const checkoutConflictDialog = page.locator('.monaco-dialog-box', { hasText: 'Your local changes would be overwritten by checkout' }).first();
 	if (await checkoutConflictDialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
@@ -2946,26 +3144,35 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
 	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
 	const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
-	await page.mouse.move(sourcePoint.x, sourcePoint.y);
-	await page.mouse.down();
-	// React Flow intentionally waits until the pointer crosses its connection
-	// drag threshold; pointer-down alone does not create a draft path.
-	await page.mouse.move(sourcePoint.x + 8, sourcePoint.y, { steps: 2 });
-	try {
-		await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 10_000 });
-	} catch (error) {
-		const state = await page.evaluate(({ x, y }) => {
-			const target = document.elementFromPoint(x, y);
-			const handle = document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east');
-			return {
-				targetClass: target?.getAttribute('class'),
-				handleClass: handle?.getAttribute('class'),
-				handlePointerEvents: handle ? getComputedStyle(handle).pointerEvents : undefined,
-				handleOpacity: handle ? getComputedStyle(handle).opacity : undefined
-			};
-		}, sourcePoint);
-		await page.mouse.up();
-		throw new Error(`Connection gesture did not start from the visible handle: ${JSON.stringify(state)}`, { cause: error });
+	let connectionStarted = false;
+	let connectionStartState;
+	for (let attempt = 0; attempt < 3 && !connectionStarted; attempt++) {
+		await docs.hover();
+		await page.mouse.move(sourcePoint.x, sourcePoint.y);
+		await page.mouse.down();
+		// The connection gesture intentionally waits until the pointer crosses its
+		// drag threshold; pointer-down alone does not create a draft path.
+		await page.mouse.move(sourcePoint.x + 8 + attempt * 4, sourcePoint.y, { steps: 3 });
+		connectionStarted = await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 2_500 })
+			.then(() => true, () => false);
+		if (!connectionStarted) {
+			connectionStartState = await page.evaluate(({ x, y }) => {
+				const target = document.elementFromPoint(x, y);
+				const handle = document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east');
+				return {
+					targetClass: target?.getAttribute('class'),
+					handleClass: handle?.getAttribute('class'),
+					handlePointerEvents: handle ? getComputedStyle(handle).pointerEvents : undefined,
+					handleOpacity: handle ? getComputedStyle(handle).opacity : undefined
+				};
+			}, sourcePoint);
+			await page.mouse.up();
+			await page.keyboard.press('Escape');
+			await page.waitForTimeout(100);
+		}
+	}
+	if (!connectionStarted) {
+		throw new Error(`Connection gesture did not start from the visible handle: ${JSON.stringify(connectionStartState)}`);
 	}
 	await page.mouse.move(canvasBox.x + canvasBox.width - 30, canvasBox.y + canvasBox.height - 80, { steps: 8 });
 	await page.mouse.up();
