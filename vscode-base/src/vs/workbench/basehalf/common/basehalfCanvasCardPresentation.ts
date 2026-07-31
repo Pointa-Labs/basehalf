@@ -5,47 +5,28 @@
 
 export type BaseHalfCanvasCardPresentation = 'shell' | 'preview' | 'interactive';
 
-export const BASEHALF_CANVAS_CARD_SHELL_ENTER_ZOOM = 0.35;
-export const BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM = 0.45;
-export const BASEHALF_CANVAS_CARD_SHELL_ENTER_SCREEN_HEIGHT = 72;
-export const BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT = 96;
-
 export interface IBaseHalfCanvasCardPresentationContext {
 	readonly forceInteractive: boolean;
+	readonly nearViewport: boolean;
 	readonly selected: boolean;
 	readonly selectionSize: number;
 }
 
 /**
- * Keep one continuous card design while making unreadable far-away content
- * cheap. The gap between enter and exit thresholds prevents small wheel or
- * trackpad reversals from repeatedly rebuilding the preview near the boundary.
+ * Visible cards retain one static preview at every zoom. Only explicit
+ * single-card interaction promotes that preview to its live controls.
  */
 export function baseHalfCanvasCardPresentation(
-	height: number,
-	zoom: number,
-	context: IBaseHalfCanvasCardPresentationContext,
-	previous: BaseHalfCanvasCardPresentation = 'shell'
+	context: IBaseHalfCanvasCardPresentationContext
 ): BaseHalfCanvasCardPresentation {
 	if (context.forceInteractive) {
 		return 'interactive';
 	}
-
-	const projectedHeight = height * zoom;
-	let passive: BaseHalfCanvasCardPresentation;
-	if (previous === 'shell') {
-		passive = zoom > BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM
-			&& projectedHeight > BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT
-			? 'preview'
-			: 'shell';
-	} else {
-		passive = zoom < BASEHALF_CANVAS_CARD_SHELL_ENTER_ZOOM
-			|| projectedHeight < BASEHALF_CANVAS_CARD_SHELL_ENTER_SCREEN_HEIGHT
-			? 'shell'
-			: 'preview';
+	if (!context.nearViewport) {
+		return 'shell';
 	}
-
-	return passive === 'preview' && context.selected && context.selectionSize === 1
-		? 'interactive'
-		: passive;
+	if (context.selected && context.selectionSize === 1) {
+		return 'interactive';
+	}
+	return 'preview';
 }

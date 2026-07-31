@@ -2122,13 +2122,8 @@ async function assertVideoWorkflowNodeRun(page) {
 	if (await resetZoom.isEnabled()) {
 		await resetZoom.click();
 	}
-	const zoomIn = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]');
-	for (let attempt = 0; attempt < 8 && await card.getAttribute('data-preview-level') === 'shell' && await zoomIn.isEnabled(); attempt++) {
-		await zoomIn.click();
-		await page.waitForTimeout(80);
-	}
-	await page.waitForFunction(path => document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`)?.getAttribute('data-preview-level') !== 'shell', `${workflowName}/${relativeNodePath}`, { timeout: 10_000 });
 	await centerCanvasCards(page, [card]);
+	await page.waitForFunction(path => document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`)?.getAttribute('data-preview-level') !== 'shell', `${workflowName}/${relativeNodePath}`, { timeout: 10_000 });
 	const action = card.locator('.basehalf-canvas-node-action');
 	await page.waitForFunction(path => {
 		const button = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"] .basehalf-canvas-node-action`);
@@ -2851,19 +2846,25 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 
-	const canvasBeforePresentationChange = fs.readFileSync(canvasPath, 'utf8');
+	const canvasBeforeZoom = fs.readFileSync(canvasPath, 'utf8');
 	await page.locator('.react-flow__pane').click({ position: { x: 16, y: 16 } });
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-preview-level') === 'preview', null, { timeout: 10_000 });
-	for (let attempt = 0; attempt < 10 && await readme.getAttribute('data-preview-level') !== 'shell'; attempt++) {
+	await readme.evaluate(card => {
+		card.querySelector('.basehalf-canvas-card-active')?.setAttribute('data-smoke-zoom-identity', 'active');
+		card.querySelector('.basehalf-canvas-card-preview')?.setAttribute('data-smoke-zoom-identity', 'preview');
+	});
+	for (let attempt = 0; attempt < 12 && await zoomOut.isEnabled(); attempt++) {
 		await zoomOut.click();
 		await page.waitForTimeout(80);
 	}
 	await page.waitForFunction(() => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-		return card?.getAttribute('data-preview-level') === 'shell'
-			&& card.querySelectorAll('.basehalf-canvas-card-overview').length === 1
-			&& card.querySelector('.basehalf-canvas-card-active') === null
-			&& card.querySelector('.basehalf-canvas-card-preview') === null
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		return Number(root?.getAttribute('data-zoom')) <= 0.21
+			&& card?.getAttribute('data-preview-level') === 'preview'
+			&& card.querySelectorAll('.basehalf-canvas-card-active[data-smoke-zoom-identity="active"]').length === 1
+			&& card.querySelectorAll('.basehalf-canvas-card-preview[data-smoke-zoom-identity="preview"]').length === 1
+			&& card.querySelector('.basehalf-canvas-card-overview') === null
 			&& card.querySelector('video, audio, textarea') === null;
 	}, null, { timeout: 10_000 });
 	if (await resetZoom.isEnabled()) {
@@ -2872,12 +2873,13 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await page.waitForFunction(() => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 		return card?.getAttribute('data-preview-level') === 'preview'
-			&& card.querySelectorAll('.basehalf-canvas-card-active').length === 1
+			&& card.querySelectorAll('.basehalf-canvas-card-active[data-smoke-zoom-identity="active"]').length === 1
+			&& card.querySelectorAll('.basehalf-canvas-card-preview[data-smoke-zoom-identity="preview"]').length === 1
 			&& card.querySelector('.basehalf-canvas-card-overview') === null;
 	}, null, { timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
-	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforePresentationChange) {
-		throw new Error('Changing card presentation changed persisted card geometry');
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeZoom) {
+		throw new Error('Zooming the canvas changed persisted card geometry');
 	}
 
 	const readmeNode = page.locator('.react-flow__node', { has: readme });

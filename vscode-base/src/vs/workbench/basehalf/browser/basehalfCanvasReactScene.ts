@@ -15,7 +15,7 @@ import {
 	BaseHalfCanvasAnchor,
 	baseHalfCanvasEdgePath
 } from '../common/basehalfCanvasModel.js';
-import { baseHalfCanvasCardPresentation, BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
+import { baseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../common/basehalfConfiguration.js';
 import {
 	BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD,
@@ -770,10 +770,8 @@ function createCanvasSceneMount(
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
-		const presentationRef = vendor.useRef<BaseHalfCanvasCardPresentation>('shell');
 		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height });
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
-		const zoom = vendor.useStore(state => state.transform[2]);
 		const selectionSize = vendor.useContext(SelectionSizeContext);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
 		const nearViewport = vendor.useStore(state => {
@@ -799,19 +797,12 @@ function createCanvasSceneMount(
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
-		const presentation = nearViewport || data.card.forceInteractive === true
-			? baseHalfCanvasCardPresentation(
-				height,
-				zoom,
-				{
-					forceInteractive: data.card.forceInteractive === true,
-					selected,
-					selectionSize
-				},
-				presentationRef.current
-			)
-			: 'shell';
-		presentationRef.current = presentation;
+		const presentation = baseHalfCanvasCardPresentation({
+			forceInteractive: data.card.forceInteractive === true,
+			nearViewport,
+			selected,
+			selectionSize
+		});
 		mountedCardRef.current = { card: data.card, height };
 
 		vendor.useLayoutEffect(() => () => {

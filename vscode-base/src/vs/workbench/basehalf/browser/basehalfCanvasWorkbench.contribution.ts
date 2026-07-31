@@ -119,11 +119,7 @@ import {
 	IBaseHalfModelServiceDescriptor,
 	IBaseHalfModelServiceService
 } from '../common/basehalfModelServices.js';
-import {
-	BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT,
-	BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM,
-	BaseHalfCanvasCardPresentation
-} from '../common/basehalfCanvasCardPresentation.js';
+import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
@@ -3013,10 +3009,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private scheduleOverscanCardPreviews(viewport: IBaseHalfCanvasSceneViewport): void {
 		this.cardPreviewHydrationQueue.resetViewport();
-		if (viewport.zoom <= BASEHALF_CANVAS_CARD_SHELL_EXIT_ZOOM) {
-			this.ensureCardPreviewHydrationScheduled();
-			return;
-		}
 		const width = this.cards.clientWidth / viewport.zoom;
 		const height = this.cards.clientHeight / viewport.zoom;
 		if (width <= 0 || height <= 0) {
@@ -3030,8 +3022,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const right = left + width;
 		const bottom = top + height;
 		for (const card of this.renderedSceneCards) {
-			if (card.height * viewport.zoom <= BASEHALF_CANVAS_CARD_SHELL_EXIT_SCREEN_HEIGHT
-				|| card.x + card.width < left - overscanX
+			if (card.x + card.width < left - overscanX
 				|| card.x > right + overscanX
 				|| card.y + card.height < top - overscanY
 				|| card.y > bottom + overscanY) {

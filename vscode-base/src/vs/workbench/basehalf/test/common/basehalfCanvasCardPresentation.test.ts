@@ -12,46 +12,43 @@ suite('BaseHalfCanvasCardPresentation', () => {
 
 	const passive: IBaseHalfCanvasCardPresentationContext = {
 		forceInteractive: false,
+		nearViewport: true,
 		selected: false,
 		selectionSize: 0
 	};
 
-	test('uses one preview presentation throughout ordinary zoom', () => {
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 1, passive), 'preview');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.5, passive), 'preview');
+	test('uses one presentation for every visible passive card', () => {
+		assert.strictEqual(baseHalfCanvasCardPresentation(passive), 'preview');
 	});
 
-	test('uses hysteresis around the unreadable far-view boundary', () => {
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.34, passive, 'preview'), 'shell');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.4, passive, 'shell'), 'shell');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.46, passive, 'shell'), 'preview');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.4, passive, 'preview'), 'preview');
-	});
-
-	test('keeps intrinsically short cards cheap and explicit editors available', () => {
-		assert.strictEqual(baseHalfCanvasCardPresentation(70, 1, passive, 'preview'), 'shell');
-		assert.strictEqual(baseHalfCanvasCardPresentation(90, 1, passive, 'shell'), 'shell');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.2, {
+	test('keeps offscreen cards unhydrated unless interaction is explicit', () => {
+		assert.strictEqual(baseHalfCanvasCardPresentation({
 			...passive,
+			nearViewport: false
+		}), 'shell');
+		assert.strictEqual(baseHalfCanvasCardPresentation({
+			...passive,
+			nearViewport: false,
+			selected: true,
+			selectionSize: 1
+		}), 'shell');
+		assert.strictEqual(baseHalfCanvasCardPresentation({
+			...passive,
+			nearViewport: false,
 			forceInteractive: true
-		}, 'shell'), 'interactive');
+		}), 'interactive');
 	});
 
-	test('promotes only one selected readable card to interactive', () => {
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 1, {
-			forceInteractive: false,
+	test('promotes only one selected visible card to interactive', () => {
+		assert.strictEqual(baseHalfCanvasCardPresentation({
+			...passive,
 			selected: true,
 			selectionSize: 1
 		}), 'interactive');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 1, {
-			forceInteractive: false,
+		assert.strictEqual(baseHalfCanvasCardPresentation({
+			...passive,
 			selected: true,
 			selectionSize: 2
 		}), 'preview');
-		assert.strictEqual(baseHalfCanvasCardPresentation(220, 0.2, {
-			forceInteractive: false,
-			selected: true,
-			selectionSize: 1
-		}, 'preview'), 'shell');
 	});
 });

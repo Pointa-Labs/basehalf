@@ -10,16 +10,17 @@ import { baseHalfCanvasMarkdownPreviewSource } from '../../common/basehalfCanvas
 suite('BaseHalfCanvasPreview', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('preserves content beyond the old fixed visual line limit', () => {
+	test('uses one fixed block budget for the static preview', () => {
 		const source = Array.from({ length: 18 }, (_, index) => `paragraph ${index + 1}`).join('\n\n');
+		const preview = baseHalfCanvasMarkdownPreviewSource(source).split('\n');
 
-		assert.deepStrictEqual(baseHalfCanvasMarkdownPreviewSource(source).split('\n'), Array.from(
-			{ length: 18 },
-			(_, index) => `paragraph ${index + 1}`
-		));
+		assert.deepStrictEqual(preview, [
+			...Array.from({ length: 15 }, (_, index) => `paragraph ${index + 1}`),
+			'...'
+		]);
 	});
 
-	test('bounds preview work without using the guard as a visual line clamp', () => {
+	test('bounds preview work by block and character count', () => {
 		const blocks = Array.from({ length: 205 }, (_, index) => `line ${index + 1}`).join('\n');
 		const longLine = 'a'.repeat(5000);
 		const blockPreview = baseHalfCanvasMarkdownPreviewSource(blocks).split('\n');
@@ -32,8 +33,8 @@ suite('BaseHalfCanvasPreview', () => {
 			characterCount: characterPreview.length,
 			characterSuffix: characterPreview.slice(-3)
 		}, {
-			blockCount: 201,
-			lastContentBlock: 'line 200',
+			blockCount: 16,
+			lastContentBlock: 'line 15',
 			blockSuffix: '...',
 			characterCount: 4096,
 			characterSuffix: '...'
