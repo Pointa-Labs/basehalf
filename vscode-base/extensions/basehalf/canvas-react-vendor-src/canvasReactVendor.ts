@@ -5,6 +5,36 @@
 
 import '@xyflow/react/dist/base.css';
 import './canvasReactVendor.css';
+import {
+	RiBold,
+	RiCheckLine,
+	RiFileCopyLine,
+	RiFullscreenLine,
+	RiH1,
+	RiH2,
+	RiH3,
+	RiItalic,
+	RiListOrdered,
+	RiListUnordered,
+	RiSubtractLine,
+	RiText,
+} from 'react-icons/ri';
+
+// Keep Canvas Markdown actions on the same icon vocabulary as the rich editor.
+export const BaseHalfCanvasToolbarIcons = Object.freeze({
+	heading1: RiH1,
+	heading2: RiH2,
+	heading3: RiH3,
+	paragraph: RiText,
+	bold: RiBold,
+	italic: RiItalic,
+	bulletList: RiListUnordered,
+	orderedList: RiListOrdered,
+	divider: RiSubtractLine,
+	copy: RiFileCopyLine,
+	copied: RiCheckLine,
+	expand: RiFullscreenLine,
+});
 
 // Keep this façade explicit. The workbench loads this browser bundle by URL and
 // consumes only these names; no bare React or React Flow imports may escape into

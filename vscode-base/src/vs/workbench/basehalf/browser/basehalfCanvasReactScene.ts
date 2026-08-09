@@ -69,10 +69,37 @@ import type {
 	ReactFlowProps,
 	Viewport
 } from '@xyflow/react';
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type { ComponentType, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import type { Root } from 'react-dom/client';
 
-type BaseHalfCanvasReactVendor = typeof import('react') & typeof import('react-dom/client') & typeof import('@xyflow/react');
+interface IBaseHalfCanvasToolbarIconProps {
+	readonly size?: number | string;
+	readonly className?: string;
+	readonly 'aria-hidden'?: boolean;
+	readonly focusable?: boolean;
+	readonly 'data-basehalf-icon'?: string;
+}
+
+type BaseHalfCanvasToolbarIcon = ComponentType<IBaseHalfCanvasToolbarIconProps>;
+
+interface IBaseHalfCanvasToolbarIcons {
+	readonly heading1: BaseHalfCanvasToolbarIcon;
+	readonly heading2: BaseHalfCanvasToolbarIcon;
+	readonly heading3: BaseHalfCanvasToolbarIcon;
+	readonly paragraph: BaseHalfCanvasToolbarIcon;
+	readonly bold: BaseHalfCanvasToolbarIcon;
+	readonly italic: BaseHalfCanvasToolbarIcon;
+	readonly bulletList: BaseHalfCanvasToolbarIcon;
+	readonly orderedList: BaseHalfCanvasToolbarIcon;
+	readonly divider: BaseHalfCanvasToolbarIcon;
+	readonly copy: BaseHalfCanvasToolbarIcon;
+	readonly copied: BaseHalfCanvasToolbarIcon;
+	readonly expand: BaseHalfCanvasToolbarIcon;
+}
+
+type BaseHalfCanvasReactVendor = typeof import('react') & typeof import('react-dom/client') & typeof import('@xyflow/react') & {
+	readonly BaseHalfCanvasToolbarIcons: IBaseHalfCanvasToolbarIcons;
+};
 
 interface IBaseHalfCanvasFlowNodeData extends Record<string, unknown> {
 	readonly card: IBaseHalfCanvasSceneCard;
@@ -1496,6 +1523,16 @@ function createCanvasSceneMount(
 			}
 		}, content);
 		const divider = (key: string): ReactElement => h('span', { key, className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' });
+		const icon = (name: keyof IBaseHalfCanvasToolbarIcons): ReactElement => {
+			const Icon = vendor.BaseHalfCanvasToolbarIcons[name];
+			return h(Icon, {
+				size: 18,
+				className: 'basehalf-canvas-note-toolbar-icon',
+				'data-basehalf-icon': name,
+				'aria-hidden': true,
+				focusable: false
+			});
+		};
 		const formatActive = (type: IBaseHalfCanvasNoteFormatState['blockType']): boolean => formatState.ready && formatState.blockType === type;
 		const backgroundLabels: Readonly<Record<BaseHalfCanvasNoteBackground, string>> = {
 			default: localize('basehalf.canvas.note.background.default', "Default background"),
@@ -1513,18 +1550,18 @@ function createCanvasSceneMount(
 		const actions: ReactElement[] = [
 			button(0, 'background', localize('basehalf.canvas.note.background', "Background color"), 'background', h('span', { className: `basehalf-canvas-note-background-swatch ${background}` }), () => setBackgroundOpen(open => !open), backgroundOpen),
 			divider('block-divider'),
-			button(1, 'h1', localize('basehalf.canvas.note.heading1', "Heading 1"), 'text', 'H1', () => invokeFormat('setHeading1'), formatActive('heading1')),
-			button(2, 'h2', localize('basehalf.canvas.note.heading2', "Heading 2"), 'text', 'H2', () => invokeFormat('setHeading2'), formatActive('heading2')),
-			button(3, 'h3', localize('basehalf.canvas.note.heading3', "Heading 3"), 'text', 'H3', () => invokeFormat('setHeading3'), formatActive('heading3')),
-			button(4, 'paragraph', localize('basehalf.canvas.note.paragraph', "Paragraph"), 'text paragraph', '¶', () => invokeFormat('setParagraph'), formatActive('paragraph')),
+			button(1, 'h1', localize('basehalf.canvas.note.heading1', "Heading 1"), 'icon', icon('heading1'), () => invokeFormat('setHeading1'), formatActive('heading1')),
+			button(2, 'h2', localize('basehalf.canvas.note.heading2', "Heading 2"), 'icon', icon('heading2'), () => invokeFormat('setHeading2'), formatActive('heading2')),
+			button(3, 'h3', localize('basehalf.canvas.note.heading3', "Heading 3"), 'icon', icon('heading3'), () => invokeFormat('setHeading3'), formatActive('heading3')),
+			button(4, 'paragraph', localize('basehalf.canvas.note.paragraph', "Paragraph"), 'icon', icon('paragraph'), () => invokeFormat('setParagraph'), formatActive('paragraph')),
 			divider('format-divider'),
-			button(5, 'bold', localize('basehalf.canvas.note.bold', "Bold"), 'text bold', 'B', () => invokeFormat('toggleBold'), formatState.bold),
-			button(6, 'italic', localize('basehalf.canvas.note.italic', "Italic"), 'text italic', 'I', () => invokeFormat('toggleItalic'), formatState.italic),
-			button(7, 'bullet', localize('basehalf.canvas.note.bulletList', "Bulleted list"), 'codicon codicon-list-unordered', null, () => invokeFormat('toggleBulletList'), formatActive('bulletList')),
-			button(8, 'ordered', localize('basehalf.canvas.note.orderedList', "Numbered list"), 'codicon codicon-list-ordered', null, () => invokeFormat('toggleOrderedList'), formatActive('orderedList')),
-			button(9, 'divider', localize('basehalf.canvas.note.divider', "Divider"), 'codicon codicon-remove', null, () => invokeFormat('insertDivider')),
+			button(5, 'bold', localize('basehalf.canvas.note.bold', "Bold"), 'icon', icon('bold'), () => invokeFormat('toggleBold'), formatState.bold),
+			button(6, 'italic', localize('basehalf.canvas.note.italic', "Italic"), 'icon', icon('italic'), () => invokeFormat('toggleItalic'), formatState.italic),
+			button(7, 'bullet', localize('basehalf.canvas.note.bulletList', "Bulleted list"), 'icon', icon('bulletList'), () => invokeFormat('toggleBulletList'), formatActive('bulletList')),
+			button(8, 'ordered', localize('basehalf.canvas.note.orderedList', "Numbered list"), 'icon', icon('orderedList'), () => invokeFormat('toggleOrderedList'), formatActive('orderedList')),
+			button(9, 'divider', localize('basehalf.canvas.note.divider', "Divider"), 'icon', icon('divider'), () => invokeFormat('insertDivider')),
 			divider('content-divider'),
-			button(10, 'copy', copied ? localize('basehalf.canvas.note.copied', "Copied") : localize('basehalf.canvas.note.copy', "Copy all"), `codicon codicon-${copied ? 'check' : 'copy'}`, null, () => {
+			button(10, 'copy', copied ? localize('basehalf.canvas.note.copied', "Copied") : localize('basehalf.canvas.note.copy', "Copy all"), 'icon', icon(copied ? 'copied' : 'copy'), () => {
 				setBackgroundOpen(false);
 				void delegate.copyNote(node.data.sceneKey, node.data.structuralEpoch, node.id).then(() => {
 					setCopied(true);
@@ -1534,7 +1571,7 @@ function createCanvasSceneMount(
 					copiedTimer.current = host.ownerDocument.defaultView?.setTimeout(() => setCopied(false), 1400);
 				}, error => delegate.reportError(error));
 			}),
-			button(11, 'open', localize('basehalf.canvas.note.expand', "Expand {0}", node.id), 'open codicon codicon-screen-full', null, () => {
+			button(11, 'open', localize('basehalf.canvas.note.expand', "Expand {0}", node.id), 'open icon', icon('expand'), () => {
 				void delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id).catch(error => delegate.reportError(error));
 			})
 		];

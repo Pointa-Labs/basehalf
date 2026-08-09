@@ -380,10 +380,6 @@
 	transition: background-color 120ms ease, color 120ms ease;
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-action.italic {
-	font-style: italic;
-}
-
 .monaco-workbench .basehalf-canvas-note-toolbar-action.open {
 	position: sticky;
 	right: 0;
@@ -428,17 +424,11 @@
 	background: var(--vscode-menu-background);
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-action.text {
-	font-family: var(--vscode-font-family);
-}
-
-.monaco-workbench .basehalf-canvas-note-toolbar-action.bold {
-	font-weight: 800;
-}
-
-.monaco-workbench .basehalf-canvas-note-toolbar-action.paragraph {
-	font-size: 17px;
-	font-weight: 400;
+.monaco-workbench .basehalf-canvas-note-toolbar-icon {
+	display: block;
+	width: 18px;
+	height: 18px;
+	flex: 0 0 18px;
 }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch,
