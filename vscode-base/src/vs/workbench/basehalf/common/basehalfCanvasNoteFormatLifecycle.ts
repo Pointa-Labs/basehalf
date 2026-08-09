@@ -27,6 +27,73 @@ export function baseHalfCanvasNoteFormatOwnerKey(owner: IBaseHalfCanvasNoteForma
 	return JSON.stringify([owner.sceneKey, owner.path, owner.resourceKey]);
 }
 
+export type BaseHalfCanvasNoteMountIntent = 'edit' | 'format';
+
+export function baseHalfCanvasNoteMountRequestsFocus(intent: BaseHalfCanvasNoteMountIntent): boolean {
+	return intent === 'edit';
+}
+
+export interface IBaseHalfCanvasNoteFocusLease {
+	readonly id: number;
+}
+
+/**
+ * Makes delayed editor focus an explicitly owned, single-use action. A newer
+ * edit request supersedes the old lease, and leaving the Canvas consumes the
+ * lease without moving focus back when asynchronous mounting finishes.
+ */
+export class BaseHalfCanvasNoteFocusLeaseOwner {
+	private sequence = 0;
+	private current: IBaseHalfCanvasNoteFocusLease | undefined;
+
+	claim(): IBaseHalfCanvasNoteFocusLease {
+		const lease = { id: ++this.sequence };
+		this.current = lease;
+		return lease;
+	}
+
+	revoke(): void {
+		this.current = undefined;
+	}
+
+	release(lease: IBaseHalfCanvasNoteFocusLease): void {
+		if (this.current === lease) {
+			this.current = undefined;
+		}
+	}
+
+	consume(lease: IBaseHalfCanvasNoteFocusLease, focusRemainsOwned: () => boolean): boolean {
+		if (this.current !== lease) {
+			return false;
+		}
+		this.current = undefined;
+		return focusRemainsOwned();
+	}
+}
+
+export async function baseHalfCanvasNotePrepareIdentityBoundClose<T extends object>(
+	accepted: T,
+	current: () => T | undefined,
+	prepareAccepted: () => Promise<boolean>
+): Promise<boolean> {
+	if (current() !== accepted) {
+		return false;
+	}
+	return prepareAccepted();
+}
+
+export type BaseHalfCanvasNoteFormatCommandOutcome = 'applied' | 'cancelled' | 'rejected';
+
+export function baseHalfCanvasNoteFormatCommandOutcome(
+	cancelled: boolean,
+	handled: boolean
+): BaseHalfCanvasNoteFormatCommandOutcome {
+	if (cancelled) {
+		return 'cancelled';
+	}
+	return handled ? 'applied' : 'rejected';
+}
+
 /**
  * Owns the accepted formatting intents covered by one navigation guard. An
  * intent from another Note identity must acquire a different guard instead of

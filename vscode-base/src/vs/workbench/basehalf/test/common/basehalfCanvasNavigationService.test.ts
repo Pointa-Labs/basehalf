@@ -13,9 +13,10 @@ import { TestNotificationService } from '../../../../platform/notification/test/
 import { UriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { TestWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
-import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigationService.js';
 import { BaseHalfCardProjectionRegistryService } from '../../common/basehalfCardDetail.js';
+import { baseHalfCanvasNotePrepareIdentityBoundClose } from '../../common/basehalfCanvasNoteFormatLifecycle.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfCanvasNavigationService', () => {
@@ -511,6 +512,51 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(flushCalls, 0);
 		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
 		blocker.dispose();
+	});
+
+	test('does not let a resource open captured from one editor close its replacement', async () => {
+		const target = URI.file('/workspace/target.md');
+		const service = createService(new Map([
+			[target.fsPath, aFileStat(target, FileType.File)]
+		]));
+		let acceptedCloseCalls = 0;
+		let replacementCloseCalls = 0;
+		let accepted: IBaseHalfActiveCanvasEditor;
+		accepted = {
+			resource: URI.file('/workspace/accepted.md'),
+			workspaceFolder,
+			relativePath: 'accepted.md',
+			prepareToClose: async () => baseHalfCanvasNotePrepareIdentityBoundClose(
+				accepted,
+				() => service.activeCanvasEditor,
+				async () => {
+					acceptedCloseCalls++;
+					service.setActiveCanvasEditor(undefined);
+					return true;
+				}
+			)
+		};
+		const replacement = {
+			resource: URI.file('/workspace/replacement.md'),
+			workspaceFolder,
+			relativePath: 'replacement.md',
+			prepareToClose: async () => {
+				replacementCloseCalls++;
+				service.setActiveCanvasEditor(undefined);
+				return true;
+			}
+		};
+		service.setActiveCanvasEditor(accepted);
+
+		const navigation = service.openResource(target, { source: 'quickAccess' });
+		service.setActiveCanvasEditor(replacement);
+		const result = await navigation;
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(acceptedCloseCalls, 0);
+		assert.strictEqual(replacementCloseCalls, 0);
+		assert.strictEqual(service.activeCanvasEditor, replacement);
+		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
 	test('waits for a pre-mount authoring intent before direct quick-access navigation', async () => {

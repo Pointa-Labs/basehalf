@@ -9,6 +9,10 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import {
 	baseHalfCanvasNoteFormatOwnerKey,
 	baseHalfCanvasNoteFormatOwnersEqual,
+	baseHalfCanvasNoteFormatCommandOutcome,
+	baseHalfCanvasNoteMountRequestsFocus,
+	baseHalfCanvasNotePrepareIdentityBoundClose,
+	BaseHalfCanvasNoteFocusLeaseOwner,
 	BaseHalfCanvasNoteFormatNavigationOwnership,
 	BaseHalfCanvasNoteFormatSelectionBarrier
 } from '../../common/basehalfCanvasNoteFormatLifecycle.js';
@@ -95,6 +99,89 @@ suite('BaseHalfCanvasNoteFormatSelectionBarrier', () => {
 		await Promise.resolve();
 
 		assert.strictEqual(applied, false);
+	});
+});
+
+suite('BaseHalfCanvasNoteFocusLeaseOwner', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('requests focus for direct editing but not background formatting', () => {
+		assert.strictEqual(baseHalfCanvasNoteMountRequestsFocus('edit'), true);
+		assert.strictEqual(baseHalfCanvasNoteMountRequestsFocus('format'), false);
+	});
+
+	test('allows only the current edit lease to focus', () => {
+		const owner = new BaseHalfCanvasNoteFocusLeaseOwner();
+		const stale = owner.claim();
+		const current = owner.claim();
+
+		assert.strictEqual(owner.consume(stale, () => true), false);
+		assert.strictEqual(owner.consume(current, () => true), true);
+		assert.strictEqual(owner.consume(current, () => true), false);
+	});
+
+	test('does not restore focus after ownership leaves the Canvas', () => {
+		const owner = new BaseHalfCanvasNoteFocusLeaseOwner();
+		const lease = owner.claim();
+		let focusCalls = 0;
+		if (owner.consume(lease, () => false)) {
+			focusCalls++;
+		}
+
+		assert.strictEqual(focusCalls, 0);
+		assert.strictEqual(owner.consume(lease, () => true), false);
+	});
+
+	test('revokes a pending edit lease for a non-focusing mount', () => {
+		const owner = new BaseHalfCanvasNoteFocusLeaseOwner();
+		const lease = owner.claim();
+		owner.revoke();
+
+		assert.strictEqual(owner.consume(lease, () => true), false);
+	});
+
+	test('does not let an accepted editor close its replacement', async () => {
+		const accepted = { id: 'accepted' };
+		const replacement = { id: 'replacement' };
+		let current: typeof accepted | undefined = replacement;
+		let closeCalls = 0;
+
+		const closed = await baseHalfCanvasNotePrepareIdentityBoundClose(
+			accepted,
+			() => current,
+			async () => {
+				closeCalls++;
+				current = undefined;
+				return true;
+			}
+		);
+
+		assert.strictEqual(closed, false);
+		assert.strictEqual(closeCalls, 0);
+		assert.strictEqual(current, replacement);
+	});
+});
+
+suite('BaseHalfCanvasNoteFormatCommandOutcome', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('keeps cancellation terminal when a running command later reports handled', async () => {
+		const handled = new DeferredPromise<boolean>();
+		let cancelled = false;
+		const outcome = (async () => {
+			const result = await handled.p;
+			return baseHalfCanvasNoteFormatCommandOutcome(cancelled, result);
+		})();
+
+		cancelled = true;
+		await handled.complete(true);
+
+		assert.strictEqual(await outcome, 'cancelled');
+	});
+
+	test('distinguishes applied and rejected commands when still current', () => {
+		assert.strictEqual(baseHalfCanvasNoteFormatCommandOutcome(false, true), 'applied');
+		assert.strictEqual(baseHalfCanvasNoteFormatCommandOutcome(false, false), 'rejected');
 	});
 });
 

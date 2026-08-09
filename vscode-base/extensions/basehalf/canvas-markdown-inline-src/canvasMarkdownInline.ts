@@ -1157,6 +1157,20 @@ function commandForFormat(command: BaseHalfMarkdownFormatCommand): Command {
 	}
 }
 
+function runCanvasFormatCommand(
+	command: BaseHalfMarkdownFormatCommand,
+	state: EditorState,
+	dispatch: (transaction: Transaction) => void,
+	view: EditorView,
+	onHandled: () => void,
+): boolean {
+	const handled = commandForFormat(command)(state, dispatch, view);
+	if (handled) {
+		onHandled();
+	}
+	return handled;
+}
+
 /**
  * A source tile adds one transparent document level around ordinary Markdown
  * blocks. ProseMirror's standard join command correctly removes that level on
@@ -1450,12 +1464,13 @@ export function createCanvasMarkdownInlineEditor(
 			if (destroyed || readOnly) {
 				return false;
 			}
-			const handled = commandForFormat(command)(view.state, transaction => view.dispatch(transaction), view);
-			if (handled) {
-				view.focus();
-				emitFormatState();
-			}
-			return handled;
+			return runCanvasFormatCommand(
+				command,
+				view.state,
+				transaction => view.dispatch(transaction),
+				view,
+				emitFormatState,
+			);
 		},
 		isComposing() {
 			return compositionActive || view.composing;

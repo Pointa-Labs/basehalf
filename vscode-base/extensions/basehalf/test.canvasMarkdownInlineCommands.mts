@@ -48,10 +48,19 @@ export function exerciseCanvasFormatCommand(
 	});
 	let emitted: Transaction | undefined;
 	let dispatchCount = 0;
-	const handled = commandForFormat(command)(state, transaction => {
-		dispatchCount++;
-		emitted = transaction;
-	});
+	let focusCount = 0;
+	let handledCount = 0;
+	const commandView = { focus: () => focusCount++ } as EditorView;
+	const handled = runCanvasFormatCommand(
+		command,
+		state,
+		transaction => {
+			dispatchCount++;
+			emitted = transaction;
+		},
+		commandView,
+		() => handledCount++,
+	);
 	const nextState = emitted ? state.apply(emitted) : state;
 	const serialized: string[] = [];
 	nextState.doc.forEach(node => {
@@ -61,6 +70,8 @@ export function exerciseCanvasFormatCommand(
 	return {
 		handled,
 		dispatchCount,
+		focusCount,
+		handledCount,
 		markdown: serialized.join('\\n\\n'),
 	};
 }
@@ -91,7 +102,13 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 		anchorText: string,
 		headText?: string,
 		includeHeadText?: boolean,
-	) => { readonly handled: boolean; readonly dispatchCount: number; readonly markdown: string };
+	) => {
+		readonly handled: boolean;
+		readonly dispatchCount: number;
+		readonly focusCount: number;
+		readonly handledCount: number;
+		readonly markdown: string;
+	};
 };
 const exercise = testModule.exerciseCanvasFormatCommand;
 
@@ -108,6 +125,8 @@ function assertCommand(
 	const actual = exercise(input, command, anchorText, headText, includeHeadText);
 	assert.equal(actual.handled, true, `${name}: command should be handled`);
 	assert.equal(actual.dispatchCount, expectedDispatchCount, `${name}: unexpected transaction count`);
+	assert.equal(actual.focusCount, 0, `${name}: formatting command moved focus`);
+	assert.equal(actual.handledCount, 1, `${name}: handled callback should run once`);
 	assert.equal(actual.markdown, expectedMarkdown, `${name}: unexpected Markdown`);
 }
 
@@ -115,6 +134,8 @@ function assertRejectedCommand(name: string, input: string | readonly string[], 
 	const actual = exercise(input, command, token);
 	assert.equal(actual.handled, false, `${name}: command should not be handled`);
 	assert.equal(actual.dispatchCount, 0, `${name}: rejected command dispatched a transaction`);
+	assert.equal(actual.focusCount, 0, `${name}: rejected command moved focus`);
+	assert.equal(actual.handledCount, 0, `${name}: rejected command ran handled callback`);
 }
 
 const mixedInput = '* one\n* two\n\noutside';

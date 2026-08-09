@@ -83,8 +83,13 @@ import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanva
 import {
 	baseHalfCanvasNoteFormatOwnerKey,
 	baseHalfCanvasNoteFormatOwnersEqual,
+	baseHalfCanvasNoteFormatCommandOutcome,
+	baseHalfCanvasNoteMountRequestsFocus,
+	baseHalfCanvasNotePrepareIdentityBoundClose,
+	BaseHalfCanvasNoteFocusLeaseOwner,
 	BaseHalfCanvasNoteFormatNavigationOwnership,
 	BaseHalfCanvasNoteFormatSelectionBarrier,
+	IBaseHalfCanvasNoteFocusLease,
 	IBaseHalfCanvasNoteFormatOwner
 } from '../common/basehalfCanvasNoteFormatLifecycle.js';
 import { baseHalfCanvasInlineEditKeyAction, BASEHALF_CANVAS_UNDO_REDO_SOURCE, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
@@ -265,8 +270,20 @@ interface IBaseHalfActiveCanvasNoteEditor {
 	readonly fallbackRendering: DisposableStore;
 	readonly instance: BaseHalfCanvasMarkdownInlineEditor;
 	readonly open: Promise<void>;
+	readonly focusIntent: IBaseHalfPendingCanvasNoteFocus | undefined;
 	closing?: Promise<boolean>;
 }
+
+type IBaseHalfPendingCanvasNoteFocus = {
+	readonly path: string;
+	readonly point?: IBaseHalfCanvasNoteEditPoint;
+	readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
+} & ({
+	readonly focus: true;
+	readonly lease: IBaseHalfCanvasNoteFocusLease;
+} | {
+	readonly focus: false;
+});
 
 interface IBaseHalfPendingCanvasNoteFormatCommand {
 	readonly sceneKey: string;
@@ -573,7 +590,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private activeNodeLocalSurface: IBaseHalfActiveNodeLocalSurface | undefined;
 	private activeCanvasNoteEditor: IBaseHalfActiveCanvasNoteEditor | undefined;
 	private canvasNoteSurfacePath: string | undefined;
-	private pendingCanvasNoteFocus: { readonly path: string; readonly point?: IBaseHalfCanvasNoteEditPoint; readonly selection?: IBaseHalfCanvasMarkdownInlineSelection } | undefined;
+	private pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
 	private renderedNoteBackgrounds: ReadonlyMap<string, BaseHalfCanvasNoteBackground> = new Map();
 	private readonly canvasNoteFormatStates = new Map<string, IBaseHalfCanvasNoteFormatState>();
 	private readonly canvasNoteSelections = new Map<string, IBaseHalfCanvasMarkdownInlineSelection>();
@@ -582,6 +599,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private pendingCanvasNoteFormatDrain: { readonly active: IBaseHalfActiveCanvasNoteEditor; readonly promise: Promise<void> } | undefined;
 	private pendingCanvasNoteNavigationGuard: IBaseHalfPendingCanvasNoteNavigationGuard | undefined;
 	private readonly pendingCanvasSelectionFormatBarrier = new BaseHalfCanvasNoteFormatSelectionBarrier();
+	private readonly canvasNoteFocusLeaseOwner = new BaseHalfCanvasNoteFocusLeaseOwner();
 	private nodeLocalSurfaceOpenChain: Promise<void> = Promise.resolve();
 	private nodeLocalSurfaceIntent = 0;
 	private disposed = false;
@@ -909,6 +927,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	override dispose(): void {
 		this.disposed = true;
+		this.canvasNoteFocusLeaseOwner.revoke();
 		this.pendingCanvasSelectionFormatBarrier.reset();
 		this.cancelPendingCanvasNoteFormatCommands();
 		if (this.pendingCanvasNoteNavigationGuard) {
@@ -2823,9 +2842,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return this.closeActiveCanvasNoteEditorAfterFormats();
 		}
 		if (this.canvasNoteSurfacePath === notePath) {
-			if (this.pendingCanvasNoteFocus?.path === notePath) {
-				this.pendingCanvasNoteFocus = undefined;
-			}
+			this.clearPendingCanvasNoteFocus(notePath);
 			this.canvasNoteSurfacePath = undefined;
 			this.requestRender();
 		}
@@ -2876,11 +2893,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const active = this.activeCanvasNoteEditor;
 		const rememberedSelection = point ? undefined : this.canvasNoteSelections.get(resourceKey);
 		const rememberedPoint = point ?? (rememberedSelection ? undefined : this.canvasNoteEditPoints.get(resourceKey));
-		const pendingFocus = {
+		const focus = baseHalfCanvasNoteMountRequestsFocus(acceptedFormatOwner ? 'format' : 'edit');
+		if (!focus) {
+			this.canvasNoteFocusLeaseOwner.revoke();
+		}
+		const focusLocation = {
 			path,
 			...(rememberedPoint ? { point: rememberedPoint } : {}),
 			...(rememberedSelection ? { selection: rememberedSelection } : {})
 		};
+		const pendingFocus: IBaseHalfPendingCanvasNoteFocus = focus
+			? { ...focusLocation, focus: true, lease: this.canvasNoteFocusLeaseOwner.claim() }
+			: { ...focusLocation, focus: false };
 		if (active?.path === path
 			&& active.sceneKey === sceneKey
 			&& this.uriIdentityService.extUri.isEqual(active.state.resource, item.stat.resource)) {
@@ -2890,7 +2914,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const closed = await active.closing;
 				if (!closed) {
 					if (this.activeCanvasNoteEditor === active) {
-						active.instance.focus(rememberedPoint);
+						this.focusCanvasNoteEditorFromIntent(active, pendingFocus);
+					} else {
+						this.releaseCanvasNoteFocusIntent(pendingFocus);
 					}
 					return;
 				}
@@ -2904,16 +2930,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					this.canvasNoteSurfacePath = path;
 					this.pendingCanvasNoteFocus = pendingFocus;
 					this.requestRender();
+				} else {
+					this.releaseCanvasNoteFocusIntent(pendingFocus);
 				}
 				return;
 			}
 			await active.open.catch(() => undefined);
 			if (this.activeCanvasNoteEditor === active && !active.closing && remainsCurrent()) {
-				active.instance.focus(rememberedPoint);
+				this.focusCanvasNoteEditorFromIntent(active, pendingFocus);
+			} else {
+				this.releaseCanvasNoteFocusIntent(pendingFocus);
 			}
 			return;
 		}
 		if (!await this.closeActiveCanvasNoteEditor(false) || !remainsCurrent()) {
+			this.releaseCanvasNoteFocusIntent(pendingFocus);
 			return;
 		}
 		this.canvasNoteSurfacePath = path;
@@ -3321,15 +3352,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			pending.running = true;
 			try {
 				const handled = await active.instance.runFormatCommand(pending.command);
-				if (handled) {
-					this.completePendingCanvasNoteFormatCommand(pending);
-				} else if (pending.cancelled) {
-					this.cancelPendingCanvasNoteFormatCommand(pending);
-				} else {
-					this.failPendingCanvasNoteFormatCommand(
-						pending,
-						new Error(localize('basehalf.canvas.note.formatNotApplied', "The formatting action could not be applied."))
-					);
+				switch (baseHalfCanvasNoteFormatCommandOutcome(pending.cancelled, handled)) {
+					case 'applied':
+						this.completePendingCanvasNoteFormatCommand(pending);
+						break;
+					case 'cancelled':
+						this.cancelPendingCanvasNoteFormatCommand(pending);
+						break;
+					case 'rejected':
+						this.failPendingCanvasNoteFormatCommand(
+							pending,
+							new Error(localize('basehalf.canvas.note.formatNotApplied', "The formatting action could not be applied."))
+						);
+						break;
 				}
 			} catch (error) {
 				if (pending.cancelled) {
@@ -3343,6 +3378,47 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					this.cancelPendingCanvasNoteFormatCommand(pending);
 				}
 			}
+		}
+	}
+
+	private releaseCanvasNoteFocusIntent(intent: IBaseHalfPendingCanvasNoteFocus | undefined): void {
+		if (intent?.focus) {
+			this.canvasNoteFocusLeaseOwner.release(intent.lease);
+		}
+	}
+
+	private clearPendingCanvasNoteFocus(path: string): void {
+		const pending = this.pendingCanvasNoteFocus;
+		if (pending?.path !== path) {
+			return;
+		}
+		this.pendingCanvasNoteFocus = undefined;
+		this.releaseCanvasNoteFocusIntent(pending);
+	}
+
+	private focusCanvasNoteEditorFromIntent(
+		active: IBaseHalfActiveCanvasNoteEditor,
+		intent: IBaseHalfPendingCanvasNoteFocus | undefined
+	): void {
+		if (!intent?.focus) {
+			return;
+		}
+		const shouldFocus = this.canvasNoteFocusLeaseOwner.consume(intent.lease, () => {
+			if (this.disposed
+				|| this.activeCanvasNoteEditor !== active
+				|| active.closing
+				|| this.canvasNavigationService.state.cardDetail) {
+				return false;
+			}
+			const ownerDocument = active.card.ownerDocument;
+			const focused = ownerDocument.activeElement;
+			return ownerDocument.hasFocus()
+				&& (focused === ownerDocument.body
+					|| focused === active.card
+					|| (isHTMLElement(focused) && active.card.contains(focused)));
+		});
+		if (shouldFocus) {
+			active.instance.focus(intent.point);
 		}
 	}
 
@@ -3361,19 +3437,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async closeActiveCanvasNoteEditorAfterFormats(refreshCanvas = true): Promise<boolean> {
-		const active = this.activeCanvasNoteEditor;
-		if (!active) {
+		const accepted = this.activeCanvasNoteEditor;
+		if (!accepted) {
 			return true;
 		}
-		if (!active.closing) {
-			if (!await this.drainActiveCanvasNoteFormatCommands(active)) {
-				return false;
+		return this.closeCanvasNoteEditorAfterFormats(accepted, refreshCanvas);
+	}
+
+	private closeCanvasNoteEditorAfterFormats(
+		accepted: IBaseHalfActiveCanvasNoteEditor,
+		refreshCanvas = true
+	): Promise<boolean> {
+		return baseHalfCanvasNotePrepareIdentityBoundClose(
+			accepted,
+			() => this.activeCanvasNoteEditor,
+			async () => {
+				if (!accepted.closing && !await this.drainActiveCanvasNoteFormatCommands(accepted)) {
+					return false;
+				}
+				if (this.activeCanvasNoteEditor !== accepted) {
+					return false;
+				}
+				const closed = await this.closeActiveCanvasNoteEditor(refreshCanvas);
+				return this.activeCanvasNoteEditor && this.activeCanvasNoteEditor !== accepted
+					? false
+					: closed;
 			}
-		}
-		if (this.activeCanvasNoteEditor !== active) {
-			return this.closeActiveCanvasNoteEditorAfterFormats(refreshCanvas);
-		}
-		return this.closeActiveCanvasNoteEditor(refreshCanvas);
+		);
 	}
 
 	private async closeActiveCanvasNoteEditor(refreshCanvas = true): Promise<boolean> {
@@ -3448,9 +3538,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (this.canvasNoteSurfacePath === active.path) {
 			this.canvasNoteSurfacePath = undefined;
 		}
-		if (this.pendingCanvasNoteFocus?.path === active.path) {
-			this.pendingCanvasNoteFocus = undefined;
-		}
+		this.clearPendingCanvasNoteFocus(active.path);
+		this.releaseCanvasNoteFocusIntent(active.focusIntent);
 		this.canvasNavigationService.setActiveCanvasEditor(undefined);
 		active.instance.dispose();
 		active.host.remove();
@@ -8083,7 +8172,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					status => card.setAttribute('data-note-save-state', status),
 					{
 						onCanvasToolbarRequest: requestToolbarFocus,
-						onCanvasExitRequest: () => void this.closeActiveCanvasNoteEditorAfterFormats(),
+						onCanvasExitRequest: () => void this.closeCanvasNoteEditorAfterFormats(active),
 						onSaveRequest: save => void save.then(ok => {
 							if (!ok) {
 								this.showCanvasNoteSaveWarning(item.path);
@@ -8104,24 +8193,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					fallback,
 					fallbackRendering,
 					instance,
-					open
+					open,
+					focusIntent: pendingFocus
 				};
 				this.activeCanvasNoteEditor = active;
 				card.dataset.noteSurface = 'true';
 				card.dataset.noteEditing = 'true';
 				this.canvasNavigationService.setActiveCanvasEditor({
 					...state,
-					prepareToClose: () => this.closeActiveCanvasNoteEditorAfterFormats()
+					prepareToClose: () => this.closeCanvasNoteEditorAfterFormats(active)
 				});
 				listeners.add(toDisposable(() => {
+					this.releaseCanvasNoteFocusIntent(active.focusIntent);
 					instance.dispose();
 					if (this.activeCanvasNoteEditor === active) {
 						this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandMatchesActive(pending, active));
 						this.activeCanvasNoteEditor = undefined;
 						this.canvasNoteSurfacePath = undefined;
-						if (this.pendingCanvasNoteFocus?.path === active.path) {
-							this.pendingCanvasNoteFocus = undefined;
-						}
+						this.clearPendingCanvasNoteFocus(active.path);
 						this.canvasNavigationService.setActiveCanvasEditor(undefined);
 					}
 					delete card.dataset.noteSurface;
@@ -8137,18 +8226,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						fallback.setAttribute('aria-hidden', 'true');
 						fallback.setAttribute('inert', '');
 						host.classList.add('ready');
-						instance.focus(pendingFocus?.point);
+						this.focusCanvasNoteEditorFromIntent(active, pendingFocus);
 						void this.runPendingCanvasNoteFormatCommands(active);
 					}
 				}, error => {
+					this.releaseCanvasNoteFocusIntent(pendingFocus);
 					if (this.activeCanvasNoteEditor !== active) {
 						return;
 					}
 					this.activeCanvasNoteEditor = undefined;
 					this.canvasNoteSurfacePath = undefined;
-					if (this.pendingCanvasNoteFocus?.path === active.path) {
-						this.pendingCanvasNoteFocus = undefined;
-					}
+					this.clearPendingCanvasNoteFocus(active.path);
 					this.canvasNavigationService.setActiveCanvasEditor(undefined);
 					this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandMatchesActive(pending, active));
 					instance.dispose();
