@@ -6,12 +6,18 @@
 import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
 
+export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
+
+/** A pointer location measured in the unscaled body of a Markdown card. */
+export interface IBaseHalfCanvasNoteEditPoint {
+	readonly x: number;
+	readonly y: number;
+}
+
 export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly level: BaseHalfCanvasCardPresentation;
 	readonly height: number;
 }
-
-export type BaseHalfCanvasSceneNoteProjection = 'source' | 'preview';
 
 export type BaseHalfCanvasSceneCardControls = {
 	readonly kind: 'note';
@@ -180,8 +186,11 @@ export interface IBaseHalfCanvasSceneDelegate {
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
-	activateCard(sceneKey: string, structuralEpoch: number, path: string): void;
-	openCard(sceneKey: string, structuralEpoch: number, path: string, projection?: BaseHalfCanvasSceneNoteProjection): void;
+	cancelPendingCardOpen(): void;
+	prepareSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean>;
+	focusNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void;
+	editNote(sceneKey: string, structuralEpoch: number, path: string, point?: IBaseHalfCanvasNoteEditPoint): Promise<void>;
+	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;

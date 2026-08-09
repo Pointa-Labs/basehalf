@@ -48,7 +48,10 @@ import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	BaseHalfMarkdownRichEditorCommand,
+	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWorkbenchCommand,
+	IBaseHalfMarkdownRichFormatState,
+	IBaseHalfMarkdownRichFocusPoint,
 	isBaseHalfMarkdownRichWebviewMessage
 } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
 import { BaseHalfMarkdownRichWebviewBridge } from '../../common/basehalfMarkdownRichWebviewBridge.js';
@@ -63,6 +66,13 @@ import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdow
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 
+interface IBaseHalfMarkdownRichProjectionSave {
+	promise: Promise<boolean>;
+	error?: string;
+}
+
+const markdownRichProjectionSaves = new Map<string, IBaseHalfMarkdownRichProjectionSave>();
+
 // The rich editor owns its edit history (the webview's collaboration undo
 // manager), so workbench Undo/Redo must be delivered to it as an explicit
 // editor command. This priority must outrank the generic webview
@@ -73,16 +83,13 @@ const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf
 const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
 const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
 
-/**
- * A booted, document-less editor shell handed over by the warmup pool: its
- * DOM already lives inside the card-detail body (an iframe reload is the
- * price of reparenting) and its webview has parsed the editor bundle.
- */
-export interface IBaseHalfPrewarmedMarkdownRichWebview {
-	readonly host: HTMLElement;
-	readonly root: HTMLElement;
-	readonly webviewHost: HTMLElement;
-	readonly webview: IWebviewElement;
+export interface IBaseHalfMarkdownRichCardDetailOptions {
+	readonly surface?: BaseHalfMarkdownRichSurface;
+	readonly canvasAuthoring?: boolean;
+	readonly onFormatStateChange?: (state: IBaseHalfMarkdownRichFormatState) => void;
+	readonly onCanvasToolbarRequest?: () => void;
+	readonly onCanvasAuthoringRequest?: (point?: IBaseHalfMarkdownRichFocusPoint) => void;
+	readonly onCanvasExitRequest?: () => void;
 }
 
 export function createBaseHalfMarkdownRichWebviewElement(webviewService: IWebviewService, title: string): IWebviewElement {
@@ -104,11 +111,7 @@ export function createBaseHalfMarkdownRichWebviewElement(webviewService: IWebvie
 	});
 }
 
-/**
- * The webview HTML for the rich Markdown editor. An empty `key` boots a
- * prewarmed shell: it loads and constructs the editor but stays inert until
- * the host assigns a document via the `adopt` message.
- */
+/** The webview HTML for one keyed rich Markdown document projection. */
 export function baseHalfMarkdownRichWebviewHtml(key: string, locale = language): string {
 	const nonce = generateUuid();
 	const script = asWebviewUri(markdownRichScript).toString(true);
@@ -143,7 +146,8 @@ export function baseHalfMarkdownRichLocale(value: string): string {
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
-	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number }>();
+	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number; readonly handoff?: true }>();
+	private readonly pendingEditorSaveContents = new Set<string>();
 	private pendingStructuralFreeze: { readonly requestId: string; readonly frozen: boolean; readonly promise: DeferredPromise<boolean>; readonly timer: number } | undefined;
 
 	private state: IBaseHalfCardDetailState | undefined;
@@ -156,19 +160,27 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private webview: IWebviewElement | undefined;
 	private dirty = false;
 	private lastSentContent: string | undefined;
-	private writingTextModel = false;
+	private lastAcceptedEditorContent: string | undefined;
+	private writingTextModel = 0;
 	private disposed = false;
 	private visible = false;
 	private pendingModelSync = false;
 	private structuralFrozen = false;
 	private acknowledgedStructuralFrozen = false;
+	private editorReady = false;
+	private readonly pendingEditorCommands: BaseHalfMarkdownRichEditorCommand[] = [];
+	private pendingPrepareToClose: Promise<boolean> | undefined;
+	private pendingProjectionHandoff: Promise<boolean> | undefined;
+	private pendingProjectionSave: Promise<boolean> | undefined;
+	private projectionSaveFailed = false;
+	private canvasAuthoring: boolean;
 	private readonly firstRendered = new DeferredPromise<void>();
 
 	constructor(
 		private readonly container: HTMLElement,
 		private readonly onEditorFocus: (() => void) | undefined,
-		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
-		private readonly prewarmed: IBaseHalfPrewarmedMarkdownRichWebview | undefined,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved' | 'error') => void,
+		private readonly options: IBaseHalfMarkdownRichCardDetailOptions = {},
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
@@ -186,16 +198,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
+		this.canvasAuthoring = this.surface !== 'canvas' || this.options.canvasAuthoring === true;
 
-		// A prewarmed shell arrives with its DOM (and booted webview) already
-		// built inside `container`; reparenting the iframe would reload it and
-		// void the warmup, so adopt the existing elements instead.
-		const root = this.prewarmed
-			? this.prewarmed.root
-			: append(this.container, $('.basehalf-card-detail-markdown-rich'));
-		this.webviewHost = this.prewarmed
-			? this.prewarmed.webviewHost
-			: append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
+		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
 		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
@@ -223,24 +229,22 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this._register(modelReference);
 			this.model = modelReference.object.textEditorModel;
 			this.lastSentContent = this.model.getValue();
+			this.lastAcceptedEditorContent = this.lastSentContent;
+			this.observeProjectionSave();
 
 			this.liveDocument = this._register(markdownRichDocuments.acquire(this.documentKey));
 			this.bridge = this._register(new BaseHalfMarkdownRichWebviewBridge(this.documentKey, this.liveDocument.document.doc, {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
-			if (this.prewarmed) {
-				this.webview = this._register(this.prewarmed.webview);
-			} else {
-				this.webview = this._register(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
-				this.webview.mountTo(this.webviewHost, mainWindow);
-				this.webview.setHtml(baseHalfMarkdownRichWebviewHtml(this.documentKey));
-			}
+			this.webview = this._register(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
 			this.webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder];
+			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
+			this.webview.mountTo(this.webviewHost, mainWindow);
+			this.webview.setHtml(baseHalfMarkdownRichWebviewHtml(this.documentKey));
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
 
-			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
 			if (this.structuralFrozen) {
 				this.postStructuralFreeze();
 			}
@@ -272,13 +276,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				}
 			}));
 
-			if (this.prewarmed) {
-				// The shell is already booted and inert; assigning its document
-				// key triggers the ordinary `ready` handshake and boot flow.
-				await this.webview.postMessage({ type: 'basehalf.markdownRich.adopt', key: this.documentKey });
-			}
-
-			await this.sendDocumentState(state);
 			this.updateStatus();
 
 			// open() resolves at the first meaningful frame: the webview acks
@@ -295,6 +292,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		this.pendingEditorCommands.length = 0;
 		this.firstRendered.complete();
 		for (const pending of this.pendingFlushes.values()) {
 			mainWindow.clearTimeout(pending.timer);
@@ -335,8 +333,76 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
-	focus(): void {
+	setCanvasAuthoring(authoring: boolean): void {
+		if (this.surface !== 'canvas' || this.canvasAuthoring === authoring) {
+			return;
+		}
+		this.canvasAuthoring = authoring;
+		this.updateEditable();
+		this.updateStatus();
+	}
+
+	focus(point?: IBaseHalfMarkdownRichFocusPoint): void {
 		this.webview?.focus();
+		if (point) {
+			void this.bridge?.sendFocusAtPoint(point).catch(error => this.logService.error(error));
+		}
+	}
+
+	/**
+	 * Sends a semantic edit command to the active editor. Commands issued while
+	 * the document projection is still loading are retained until it reports a
+	 * usable selection state.
+	 */
+	runEditorCommand(command: BaseHalfMarkdownRichEditorCommand): boolean {
+		if (this.disposed) {
+			return false;
+		}
+		const bridge = this.bridge;
+		if (!bridge || !this.editorReady) {
+			this.pendingEditorCommands.push(command);
+			return true;
+		}
+
+		void bridge.sendCommand(command).catch(error => this.logService.error(error));
+		return true;
+	}
+
+	/**
+	 * Fences input and takes a stable serialized snapshot before the caller
+	 * removes this surface. A failed save restores editing so local work remains
+	 * available for conflict resolution or retry.
+	 */
+	prepareToClose(): Promise<boolean> {
+		if (this.disposed) {
+			return this.ensureProjectionSaved();
+		}
+		if (!this.bridge) {
+			return Promise.resolve(true);
+		}
+		if (!this.pendingPrepareToClose) {
+			this.pendingPrepareToClose = this.doPrepareToClose();
+		}
+		return this.pendingPrepareToClose;
+	}
+
+	prepareProjectionHandoff(): Promise<boolean> {
+		if (this.disposed || !this.bridge) {
+			return Promise.resolve(false);
+		}
+		if (!this.pendingProjectionHandoff) {
+			this.pendingProjectionHandoff = this.doPrepareProjectionHandoff();
+		}
+		return this.pendingProjectionHandoff;
+	}
+
+	resumeAfterProjectionHandoff(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.pendingProjectionHandoff = undefined;
+		this.pendingPrepareToClose = undefined;
+		this.setStructuralFrozen(false);
 	}
 
 	/**
@@ -375,6 +441,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		if (!this.bridge) {
 			return !structural;
 		}
+		// A canvas-to-detail handoff can finish opening while its shared working
+		// copy is still saving. That durable write remains part of this surface's
+		// close contract even though the newly mounted webview is not dirty.
+		if ((this.pendingProjectionSave || this.projectionSaveFailed) && !await this.ensureProjectionSaved()) {
+			return false;
+		}
 		if (!baseHalfMarkdownRichNeedsSaveRequest(this.dirty, this.visible, options)) {
 			return true;
 		}
@@ -383,21 +455,121 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		const requestId = `flush-${generateUuid()}`;
-		const posted = await this.bridge.sendSave(requestId, {
-			forceSerialize: options.forceSerialize ?? true,
-			forceWrite: options.forceWrite ?? false,
-			structural
-		});
-		if (!posted) {
-			return false;
-		}
-
 		return new Promise<boolean>(resolve => {
 			const timer = mainWindow.setTimeout(() => {
 				this.pendingFlushes.delete(requestId);
 				resolve(false);
 			}, 15000);
-			this.pendingFlushes.set(requestId, { resolve, timer });
+			const pending = { resolve, timer };
+			this.pendingFlushes.set(requestId, pending);
+			void this.bridge!.sendSave(requestId, {
+				forceSerialize: options.forceSerialize ?? true,
+				forceWrite: options.forceWrite ?? false,
+				structural,
+				handoff: false
+			}).then(posted => {
+				if (!posted && this.pendingFlushes.get(requestId) === pending) {
+					this.pendingFlushes.delete(requestId);
+					mainWindow.clearTimeout(timer);
+					resolve(false);
+				}
+			}, () => {
+				if (this.pendingFlushes.get(requestId) === pending) {
+					this.pendingFlushes.delete(requestId);
+					mainWindow.clearTimeout(timer);
+					resolve(false);
+				}
+			});
+		});
+	}
+
+	private async doPrepareToClose(): Promise<boolean> {
+		this.setStructuralFrozen(true);
+		if (!await this.waitForStructuralFreeze()) {
+			if (!this.disposed) {
+				this.pendingPrepareToClose = undefined;
+				this.setStructuralFrozen(false);
+			}
+			return false;
+		}
+		if (this.pendingProjectionHandoff) {
+			if (!await this.pendingProjectionHandoff || !await this.ensureProjectionSaved()) {
+				if (!this.disposed) {
+					this.pendingPrepareToClose = undefined;
+					this.setStructuralFrozen(false);
+				}
+				return false;
+			}
+			return true;
+		}
+		if (!this.editorReady) {
+			return true;
+		}
+		const saved = await this.flush({
+			forceSerialize: true,
+			forceWrite: false,
+			rejectOnError: true,
+			structural: true
+		});
+		if (!saved && !this.disposed) {
+			this.pendingPrepareToClose = undefined;
+			this.setStructuralFrozen(false);
+		}
+		return saved;
+	}
+
+	private async doPrepareProjectionHandoff(): Promise<boolean> {
+		this.setStructuralFrozen(true);
+		if (!await this.waitForStructuralFreeze()) {
+			if (!this.disposed) {
+				this.pendingPrepareToClose = undefined;
+				this.setStructuralFrozen(false);
+			}
+			return false;
+		}
+		if (!this.editorReady) {
+			return true;
+		}
+
+		const captured = await this.captureProjectionHandoff();
+		if (!captured && !this.disposed) {
+			this.pendingProjectionHandoff = undefined;
+			this.setStructuralFrozen(false);
+		}
+		return captured;
+	}
+
+	private async captureProjectionHandoff(): Promise<boolean> {
+		const bridge = this.bridge;
+		if (!bridge) {
+			return false;
+		}
+		const requestId = `handoff-${generateUuid()}`;
+		return new Promise<boolean>(resolve => {
+			const timer = mainWindow.setTimeout(() => {
+				this.pendingFlushes.delete(requestId);
+				resolve(false);
+			}, 15000);
+			const pending = { resolve, timer, handoff: true as const };
+			this.pendingFlushes.set(requestId, pending);
+			void bridge.sendSave(requestId, {
+				forceSerialize: true,
+				forceWrite: false,
+				structural: true,
+				handoff: true
+			}).then(posted => {
+				if (!posted && this.pendingFlushes.get(requestId) === pending) {
+					this.pendingFlushes.delete(requestId);
+					mainWindow.clearTimeout(timer);
+					resolve(false);
+				}
+			}, () => {
+				if (this.pendingFlushes.get(requestId) === pending) {
+					this.pendingFlushes.delete(requestId);
+					mainWindow.clearTimeout(timer);
+					resolve(false);
+				}
+			});
 		});
 	}
 
@@ -419,6 +591,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		if (message.type === 'basehalf.markdownRich.rendered') {
+			this.editorReady = true;
 			this.firstRendered.complete();
 			return;
 		}
@@ -428,6 +601,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		switch (message.type) {
+			case 'basehalf.markdownRich.formatStateChanged':
+				this.handleFormatStateChanged(message.state);
+				break;
 			case 'basehalf.markdownRich.structuralFreezeChanged':
 				this.handleStructuralFreezeChanged(message.requestId, message.frozen);
 				break;
@@ -453,6 +629,17 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				break;
 			case 'basehalf.markdownRich.workbenchCommand':
 				await this.handleWorkbenchCommand(message.command);
+				break;
+			case 'basehalf.markdownRich.canvasCommand':
+				if (this.surface === 'canvas') {
+					if (message.command === 'focusToolbar') {
+						this.options.onCanvasToolbarRequest?.();
+					} else if (message.command === 'beginAuthoring') {
+						this.options.onCanvasAuthoringRequest?.(message.point);
+					} else {
+						this.options.onCanvasExitRequest?.();
+					}
+				}
 				break;
 			case 'basehalf.markdownRich.fileSearch':
 				await this.handleFileSearch(state, message.requestId, message.query);
@@ -554,13 +741,23 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private dispatchEditorCommand(command: BaseHalfMarkdownRichEditorCommand): boolean {
 		const webview = this.webview;
-		const bridge = this.bridge;
-		if (!webview || !bridge || this.webviewService.activeWebview !== webview || !webview.isFocused) {
+		if (!webview || this.webviewService.activeWebview !== webview || !webview.isFocused) {
 			return false;
 		}
+		return this.runEditorCommand(command);
+	}
 
-		void bridge.sendCommand(command).catch(error => this.logService.error(error));
-		return true;
+	private handleFormatStateChanged(state: IBaseHalfMarkdownRichFormatState): void {
+		this.editorReady = state.ready;
+		this.options.onFormatStateChange?.(state);
+		if (!state.ready || !this.bridge || this.pendingEditorCommands.length === 0) {
+			return;
+		}
+
+		const pending = this.pendingEditorCommands.splice(0);
+		for (const command of pending) {
+			void this.bridge.sendCommand(command).catch(error => this.logService.error(error));
+		}
 	}
 
 	// Backs the rich editor's `[[` link autocomplete: resolves workspace files
@@ -662,7 +859,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), state.selection);
+		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection);
 		this.writeSelectionFocus(state);
 		await this.sendAdhdState(state);
 	}
@@ -724,9 +921,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		if (!bridge) {
 			return;
 		}
+		const pendingHandoff = this.pendingFlushes.get(message.requestId);
+		if (pendingHandoff?.handoff) {
+			await this.handleProjectionHandoff(message, model, bridge, pendingHandoff);
+			return;
+		}
 
 		this.setSaveStatus('saving');
-		this.writingTextModel = true;
+		this.writingTextModel++;
+		this.pendingEditorSaveContents.add(message.content);
 		try {
 			const outcome = await this.coordinator.handleSaveRequested(
 				message,
@@ -735,7 +938,14 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			);
 			if (outcome.result === 'saved' || outcome.result === 'noop') {
 				this.lastSentContent = outcome.content ?? model.getValue();
+				this.lastAcceptedEditorContent = this.lastSentContent;
 				this.dirty = false;
+				if (!this.textFileService.isDirty(model.uri)) {
+					this.projectionSaveFailed = false;
+					if (this.documentKey) {
+						markdownRichProjectionSaves.delete(this.documentKey);
+					}
+				}
 			}
 			const pending = this.pendingFlushes.get(message.requestId);
 			if (pending) {
@@ -744,13 +954,137 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				pending.resolve(outcome.okToLeave);
 			}
 		} finally {
-			this.writingTextModel = false;
+			this.pendingEditorSaveContents.delete(message.content);
+			this.writingTextModel--;
 			this.updateStatus();
 		}
 	}
 
+	private async handleProjectionHandoff(
+		message: BaseHalfMarkdownRichSaveRequestedMessage,
+		model: ITextModel,
+		bridge: BaseHalfMarkdownRichWebviewBridge,
+		pending: { readonly resolve: (ok: boolean) => void; readonly timer: number; readonly handoff?: true }
+	): Promise<void> {
+		let ok = false;
+		this.setSaveStatus('saving');
+		this.writingTextModel++;
+		try {
+			const current = model.getValue();
+			if (!message.forceWrite
+				&& current !== message.previousContent
+				&& current !== message.content
+				&& current !== this.lastAcceptedEditorContent
+				&& !this.pendingEditorSaveContents.has(current)) {
+				await bridge.sendSaveResult(message.requestId, 'blockedByConflict', { disk: current });
+				return;
+			}
+			if (current !== message.content) {
+				model.pushEditOperations(null, [{
+					range: model.getFullModelRange(),
+					text: message.content
+				}], () => null);
+			}
+			this.lastSentContent = message.content;
+			this.lastAcceptedEditorContent = message.content;
+			this.dirty = false;
+			this.pendingProjectionSave = this.startProjectionSave(model);
+			await bridge.sendSaveResult(message.requestId, current === message.content ? 'noop' : 'saved', { content: message.content });
+			ok = true;
+		} catch (error) {
+			await bridge.sendSaveResult(message.requestId, 'writeFailed', { message: toErrorMessage(error) });
+		} finally {
+			this.writingTextModel--;
+			if (this.pendingFlushes.get(message.requestId) === pending) {
+				this.pendingFlushes.delete(message.requestId);
+				mainWindow.clearTimeout(pending.timer);
+				pending.resolve(ok);
+			}
+			this.updateStatus();
+		}
+	}
+
+	private startProjectionSave(model: ITextModel): Promise<boolean> {
+		if (this.textFileAdapter().isReadonly(model.uri) || !this.textFileService.isDirty(model.uri)) {
+			this.projectionSaveFailed = false;
+			return Promise.resolve(true);
+		}
+		const documentKey = this.documentKey;
+		if (!documentKey) {
+			return Promise.resolve(false);
+		}
+		const record: IBaseHalfMarkdownRichProjectionSave = { promise: Promise.resolve(false) };
+		record.promise = this.textFileService.save(model.uri, { ignoreErrorHandler: true }).then(() => {
+			const saved = !this.textFileService.isDirty(model.uri);
+			if (!saved) {
+				record.error = 'Changes could not be saved to disk.';
+			}
+			return saved;
+		}, error => {
+			record.error = toErrorMessage(error);
+			this.logService.error(error);
+			return false;
+		}).then(saved => {
+			if (markdownRichProjectionSaves.get(documentKey) === record) {
+				if (saved) {
+					markdownRichProjectionSaves.delete(documentKey);
+				} else {
+					this.projectionSaveFailed = true;
+				}
+			}
+			if (!this.disposed && this.documentKey === documentKey) {
+				this.updateStatus();
+			}
+			return saved;
+		});
+		markdownRichProjectionSaves.set(documentKey, record);
+		return record.promise;
+	}
+
+	private async ensureProjectionSaved(): Promise<boolean> {
+		if (this.pendingProjectionSave && await this.pendingProjectionSave) {
+			return true;
+		}
+		const state = this.state;
+		if (!state || this.textFileAdapter().isReadonly(state.resource) || !this.textFileService.isDirty(state.resource)) {
+			this.projectionSaveFailed = false;
+			return true;
+		}
+		const saved = await this.textFileService.save(state.resource, { ignoreErrorHandler: true }).then(
+			() => !this.textFileService.isDirty(state.resource),
+			error => {
+				this.logService.error(error);
+				return false;
+			}
+		);
+		this.projectionSaveFailed = !saved;
+		if (saved && this.documentKey) {
+			markdownRichProjectionSaves.delete(this.documentKey);
+		}
+		return saved;
+	}
+
+	private observeProjectionSave(): void {
+		const documentKey = this.documentKey;
+		if (!documentKey) {
+			return;
+		}
+		const record = markdownRichProjectionSaves.get(documentKey);
+		if (!record) {
+			return;
+		}
+		this.pendingProjectionSave = record.promise;
+		void record.promise.then(saved => {
+			if (this.disposed || this.documentKey !== documentKey) {
+				return;
+			}
+			this.projectionSaveFailed = !saved;
+			this.updateStatus();
+		});
+	}
+
 	private handleModelContentChanged(): void {
-		if (!this.model || this.writingTextModel) {
+		if (!this.model || this.writingTextModel > 0) {
 			return;
 		}
 
@@ -775,7 +1109,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		this.lastSentContent = content;
-		void this.bridge?.sendInit(model.uri.toString(), this.webviewBaseUri(model.uri), content, this.isEditable(), state.selection);
+		void this.bridge?.sendInit(model.uri.toString(), this.webviewBaseUri(model.uri), content, this.isEditable(), this.surface, state.selection);
 	}
 
 	private updateEditable(): void {
@@ -789,6 +1123,18 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 
+		if (this.projectionSaveFailed && !this.textFileService.isDirty(model.uri)) {
+			this.projectionSaveFailed = false;
+			if (this.documentKey) {
+				markdownRichProjectionSaves.delete(this.documentKey);
+			}
+		}
+
+		if (this.projectionSaveFailed) {
+			this.setSaveStatus('error');
+			return;
+		}
+
 		if (!this.isEditable()) {
 			this.setSaveStatus('saved');
 			return;
@@ -797,7 +1143,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		this.setSaveStatus(this.dirty || this.textFileService.isDirty(model.uri) ? 'saving' : 'saved');
 	}
 
-	private setSaveStatus(status: 'saving' | 'saved'): void {
+	private setSaveStatus(status: 'saving' | 'saved' | 'error'): void {
 		this.onSaveStatusChange(status);
 	}
 
@@ -806,7 +1152,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		if (!model) {
 			return false;
 		}
-		return !this.textFileAdapter().isReadonly(model.uri);
+		return !this.textFileAdapter().isReadonly(model.uri)
+			&& (this.surface !== 'canvas' || this.canvasAuthoring);
+	}
+
+	private get surface(): BaseHalfMarkdownRichSurface {
+		return this.options.surface ?? 'detail';
 	}
 
 	private textFileAdapter(): IBaseHalfMarkdownRichTextFileService {

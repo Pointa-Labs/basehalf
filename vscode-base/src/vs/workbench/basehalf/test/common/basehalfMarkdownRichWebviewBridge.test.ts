@@ -17,7 +17,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
 
-		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, {
+		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, 'canvas', {
 			startLineNumber: 3,
 			startColumn: 1,
 			endLineNumber: 3,
@@ -31,11 +31,14 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			endLineNumber: 9,
 			endColumn: 5
 		}), true);
+		assert.strictEqual(await bridge.sendFocusAtPoint({ x: 84.5, y: 126 }), true);
 		assert.strictEqual(await bridge.sendCommand('undo'), true);
 		assert.strictEqual(await bridge.sendCommand('redo'), true);
+		assert.strictEqual(await bridge.sendCommand('setHeading2'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleBold'), true);
 		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
 		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: 'attachments/diagram.png' }), true);
-		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true }), true);
+		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true, handoff: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
 			readingModeEnabled: true,
@@ -56,6 +59,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				baseUri: 'vscode-webview-resource://base/workspace/',
 				content: '# Doc\n',
 				editable: true,
+				surface: 'canvas',
 				selection: {
 					startLineNumber: 3,
 					startColumn: 1,
@@ -85,6 +89,11 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				}
 			},
 			{
+				type: 'basehalf.markdownRich.focusAtPoint',
+				key: 'workspace\u0000doc.md',
+				point: { x: 84.5, y: 126 }
+			},
+			{
 				type: 'basehalf.markdownRich.command',
 				key: 'workspace\u0000doc.md',
 				command: 'undo'
@@ -93,6 +102,16 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.command',
 				key: 'workspace\u0000doc.md',
 				command: 'redo'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'setHeading2'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleBold'
 			},
 			{
 				type: 'basehalf.markdownRich.fileSearchResult',
@@ -112,7 +131,8 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				requestId: 'save-1',
 				forceSerialize: true,
 				forceWrite: false,
-				structural: true
+				structural: true,
+				handoff: false
 			},
 			{
 				type: 'basehalf.markdownRich.saveResult',

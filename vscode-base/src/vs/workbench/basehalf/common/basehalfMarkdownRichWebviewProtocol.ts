@@ -19,6 +19,35 @@ export interface IBaseHalfMarkdownRichTextSelection {
 
 export type BaseHalfMarkdownRichWorkbenchCommand = 'quickOpen' | 'showCommands';
 
+export type BaseHalfMarkdownRichCanvasCommand = 'focusToolbar' | 'beginAuthoring' | 'exitEditor';
+
+export type BaseHalfMarkdownRichSurface = 'detail' | 'canvas';
+
+export interface IBaseHalfMarkdownRichFocusPoint {
+	readonly x: number;
+	readonly y: number;
+}
+
+export type BaseHalfMarkdownRichBlockType =
+	| 'paragraph'
+	| 'heading1'
+	| 'heading2'
+	| 'heading3'
+	| 'bulletList'
+	| 'numberedList'
+	| 'mixed'
+	| 'other';
+
+export interface IBaseHalfMarkdownRichFormatState {
+	readonly ready: boolean;
+	readonly editable: boolean;
+	readonly canSetBlockType: boolean;
+	readonly canToggleStyle: boolean;
+	readonly blockType: BaseHalfMarkdownRichBlockType;
+	readonly bold: boolean;
+	readonly italic: boolean;
+}
+
 /**
  * Editing commands the host forwards into the rich editor. The rich editor's
  * edit history lives in the webview's collaboration undo manager, so
@@ -26,7 +55,17 @@ export type BaseHalfMarkdownRichWorkbenchCommand = 'quickOpen' | 'showCommands';
  * explicit editor command instead of the generic webview native-undo path,
  * which mutates the DOM behind the editor's transaction model.
  */
-export type BaseHalfMarkdownRichEditorCommand = 'undo' | 'redo';
+export type BaseHalfMarkdownRichEditorCommand =
+	| 'undo'
+	| 'redo'
+	| 'setParagraph'
+	| 'setHeading1'
+	| 'setHeading2'
+	| 'setHeading3'
+	| 'toggleBold'
+	| 'toggleItalic'
+	| 'setBulletList'
+	| 'setNumberedList';
 
 /**
  * A workspace file offered by the `[[` link autocomplete. `path` is
@@ -51,20 +90,7 @@ export interface IBaseHalfMarkdownRichFileLink {
  *   collaboration provider attach point). Host code must never push replica
  *   state into a live editor outside that `ready` replay.
  */
-/**
- * A prewarmed editor shell boots without a document key (the expensive part —
- * webview process, bundle parse, editor construction — is document
- * independent). It announces itself with `booted` under this sentinel key and
- * stays inert until the host assigns its real document key via `adopt`, at
- * which point it emits the ordinary `ready` and the standard boot flow runs.
- */
-export const BASEHALF_MARKDOWN_RICH_WARMUP_KEY = 'basehalf.warmup';
-
 export type BaseHalfMarkdownRichHostMessage =
-	| {
-		readonly type: 'basehalf.markdownRich.adopt';
-		readonly key: string;
-	}
 	| {
 		readonly type: 'basehalf.markdownRich.init';
 		readonly key: string;
@@ -72,6 +98,7 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly baseUri: string;
 		readonly content: string;
 		readonly editable: boolean;
+		readonly surface: BaseHalfMarkdownRichSurface;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
 	}
 	| {
@@ -99,6 +126,11 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.focusAtPoint';
+		readonly key: string;
+		readonly point: IBaseHalfMarkdownRichFocusPoint;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.command';
 		readonly key: string;
 		readonly command: BaseHalfMarkdownRichEditorCommand;
@@ -123,6 +155,7 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly forceSerialize: boolean;
 		readonly forceWrite: boolean;
 		readonly structural: boolean;
+		readonly handoff: boolean;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.saveResult';
@@ -142,12 +175,6 @@ export type BaseHalfMarkdownRichHostMessage =
 	};
 
 export type BaseHalfMarkdownRichWebviewMessage =
-	| {
-		// A keyless prewarmed shell finished booting; sent under the warmup
-		// sentinel key since the shell has no document yet.
-		readonly type: 'basehalf.markdownRich.booted';
-		readonly key: string;
-	}
 	| {
 		readonly type: 'basehalf.markdownRich.ready';
 		readonly key: string;
@@ -178,6 +205,11 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly dirty: boolean;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.formatStateChanged';
+		readonly key: string;
+		readonly state: IBaseHalfMarkdownRichFormatState;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.structuralFreezeChanged';
 		readonly key: string;
 		readonly requestId: string;
@@ -196,6 +228,12 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.workbenchCommand';
 		readonly key: string;
 		readonly command: BaseHalfMarkdownRichWorkbenchCommand;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.canvasCommand';
+		readonly key: string;
+		readonly command: BaseHalfMarkdownRichCanvasCommand;
+		readonly point?: IBaseHalfMarkdownRichFocusPoint;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.fileSearch';
@@ -245,14 +283,13 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 	}
 
 	switch (candidate.type) {
-		case 'basehalf.markdownRich.adopt':
-			return true;
 		case 'basehalf.markdownRich.init':
 			return typeof candidate.resource === 'string'
 				&& typeof candidate.baseUri === 'string'
 				&& candidate.baseUri.length > 0
 				&& typeof candidate.content === 'string'
 				&& typeof candidate.editable === 'boolean'
+				&& isBaseHalfMarkdownRichSurface(candidate.surface)
 				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
 		case 'basehalf.markdownRich.applyYjsUpdate':
 			return candidate.update instanceof ArrayBuffer;
@@ -264,8 +301,10 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& typeof candidate.frozen === 'boolean';
 		case 'basehalf.markdownRich.revealSelection':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
+		case 'basehalf.markdownRich.focusAtPoint':
+			return isBaseHalfMarkdownRichFocusPoint(candidate.point);
 		case 'basehalf.markdownRich.command':
-			return candidate.command === 'undo' || candidate.command === 'redo';
+			return isBaseHalfMarkdownRichEditorCommand(candidate.command);
 		case 'basehalf.markdownRich.fileSearchResult':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -282,7 +321,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& candidate.requestId.length > 0
 				&& typeof candidate.forceSerialize === 'boolean'
 				&& typeof candidate.forceWrite === 'boolean'
-				&& typeof candidate.structural === 'boolean';
+				&& typeof candidate.structural === 'boolean'
+				&& typeof candidate.handoff === 'boolean';
 		case 'basehalf.markdownRich.saveResult':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -309,7 +349,6 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 	}
 
 	switch (candidate.type) {
-		case 'basehalf.markdownRich.booted':
 		case 'basehalf.markdownRich.ready':
 		case 'basehalf.markdownRich.rendered':
 			return true;
@@ -321,6 +360,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& typeof candidate.forceWrite === 'boolean';
 		case 'basehalf.markdownRich.dirtyChanged':
 			return typeof candidate.dirty === 'boolean';
+		case 'basehalf.markdownRich.formatStateChanged':
+			return isBaseHalfMarkdownRichFormatState(candidate.state);
 		case 'basehalf.markdownRich.structuralFreezeChanged':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -333,6 +374,10 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
 		case 'basehalf.markdownRich.workbenchCommand':
 			return candidate.command === 'quickOpen' || candidate.command === 'showCommands';
+		case 'basehalf.markdownRich.canvasCommand':
+			return (candidate.command === 'focusToolbar' || candidate.command === 'exitEditor')
+				? candidate.point === undefined
+				: candidate.command === 'beginAuthoring' && isBaseHalfMarkdownRichFocusPoint(candidate.point);
 		case 'basehalf.markdownRich.fileSearch':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -353,6 +398,56 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 		case 'basehalf.markdownRich.error':
 			return typeof candidate.message === 'string'
 				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
+		default:
+			return false;
+	}
+}
+
+function isBaseHalfMarkdownRichSurface(value: unknown): value is BaseHalfMarkdownRichSurface {
+	return value === 'detail' || value === 'canvas';
+}
+
+function isBaseHalfMarkdownRichEditorCommand(value: unknown): value is BaseHalfMarkdownRichEditorCommand {
+	switch (value) {
+		case 'undo':
+		case 'redo':
+		case 'setParagraph':
+		case 'setHeading1':
+		case 'setHeading2':
+		case 'setHeading3':
+		case 'toggleBold':
+		case 'toggleItalic':
+		case 'setBulletList':
+		case 'setNumberedList':
+			return true;
+		default:
+			return false;
+	}
+}
+
+function isBaseHalfMarkdownRichFormatState(value: unknown): value is IBaseHalfMarkdownRichFormatState {
+	const candidate = value as Partial<IBaseHalfMarkdownRichFormatState> | undefined;
+	return !!candidate
+		&& typeof candidate.ready === 'boolean'
+		&& typeof candidate.editable === 'boolean'
+		&& typeof candidate.canSetBlockType === 'boolean'
+		&& typeof candidate.canToggleStyle === 'boolean'
+		&& isBaseHalfMarkdownRichBlockType(candidate.blockType)
+		&& typeof candidate.bold === 'boolean'
+		&& typeof candidate.italic === 'boolean';
+}
+
+function isBaseHalfMarkdownRichBlockType(value: unknown): value is BaseHalfMarkdownRichBlockType {
+	switch (value) {
+		case 'paragraph':
+		case 'heading1':
+		case 'heading2':
+		case 'heading3':
+		case 'bulletList':
+		case 'numberedList':
+		case 'mixed':
+		case 'other':
+			return true;
 		default:
 			return false;
 	}
@@ -430,6 +525,20 @@ function isBaseHalfMarkdownRichSelection(value: unknown): value is IBaseHalfMark
 		&& isPositiveInteger(selection.startColumn)
 		&& (selection.endLineNumber === undefined || isPositiveInteger(selection.endLineNumber))
 		&& (selection.endColumn === undefined || isPositiveInteger(selection.endColumn));
+}
+
+function isBaseHalfMarkdownRichFocusPoint(value: unknown): value is IBaseHalfMarkdownRichFocusPoint {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const point = value as Partial<IBaseHalfMarkdownRichFocusPoint>;
+	return typeof point.x === 'number'
+		&& Number.isFinite(point.x)
+		&& point.x >= 0
+		&& typeof point.y === 'number'
+		&& Number.isFinite(point.y)
+		&& point.y >= 0;
 }
 
 function isBaseHalfMarkdownRichAdhdCommand(value: unknown): value is IBaseHalfAdhdCommand {

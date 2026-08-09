@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	BaseHalfCanvasPendingConnectionState,
+	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
@@ -87,7 +88,7 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.ok(bottom.left <= 734);
 	});
 
-	test('keeps Note controls split when possible and stacks them inside viewport edges', () => {
+	test('keeps the Note toolbar above or below the card and inside viewport edges', () => {
 		const centered = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 300,
 			top: 180,
@@ -98,9 +99,10 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportHeight: 600
 		});
 		assert.strictEqual(centered.visible, true);
-		assert.strictEqual(centered.mode, 'split');
-		assert.ok(centered.toolbar.top + centered.toolbar.height < 180);
-		assert.ok(centered.views.top > 380);
+		assert.strictEqual(centered.side, 'above');
+		assert.strictEqual(centered.width, 36);
+		assert.strictEqual(centered.height, 36);
+		assert.ok(centered.top + centered.height < 180);
 
 		const highZoom = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 200,
@@ -111,10 +113,10 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportWidth: 800,
 			viewportHeight: 680
 		});
-		assert.strictEqual(highZoom.mode, 'split');
-		assert.ok(highZoom.toolbar.top * 2 + highZoom.toolbar.height <= 112);
-		assert.ok(highZoom.views.top * 2 >= 568);
-		assert.ok(highZoom.views.top * 2 + highZoom.views.height <= 672);
+		assert.strictEqual(highZoom.side, 'above');
+		assert.strictEqual(highZoom.width, 36);
+		assert.strictEqual(highZoom.height, 36);
+		assert.ok(highZoom.top * 2 + highZoom.height <= 110);
 
 		const bottomEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 740,
@@ -125,11 +127,11 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportWidth: 800,
 			viewportHeight: 600
 		});
-		assert.strictEqual(bottomEdge.mode, 'stack-above');
-		assert.ok(bottomEdge.views.left >= 8);
-		assert.ok(bottomEdge.views.left + bottomEdge.views.width <= 792);
-		assert.ok(bottomEdge.views.top >= 8);
-		assert.ok(bottomEdge.toolbar.top + bottomEdge.toolbar.height <= 520);
+		assert.strictEqual(bottomEdge.side, 'above');
+		assert.ok(bottomEdge.left >= 8);
+		assert.ok(bottomEdge.left + bottomEdge.width <= 792);
+		assert.ok(bottomEdge.top >= 8);
+		assert.ok(bottomEdge.top + bottomEdge.height <= 520);
 
 		const topEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: -120,
@@ -140,11 +142,11 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportWidth: 300,
 			viewportHeight: 600
 		});
-		assert.strictEqual(topEdge.mode, 'stack-below');
-		assert.strictEqual(topEdge.compact, true);
-		assert.ok(topEdge.toolbar.left >= 8);
-		assert.ok(topEdge.toolbar.top >= 8);
-		assert.ok(topEdge.views.top + topEdge.views.height <= 592);
+		assert.strictEqual(topEdge.side, 'below');
+		assert.ok(topEdge.left >= 8);
+		assert.ok(topEdge.top >= 8);
+		assert.ok(topEdge.left + topEdge.width <= 292);
+		assert.ok(topEdge.top + topEdge.height <= 592);
 
 		const narrow = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 20,
@@ -155,11 +157,10 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportWidth: 180,
 			viewportHeight: 600
 		});
-		assert.strictEqual(narrow.narrow, true);
-		assert.strictEqual(narrow.views.width, 164);
-		assert.strictEqual(narrow.views.height, 196);
-		assert.ok(narrow.toolbar.left >= 8);
-		assert.ok(narrow.views.left + narrow.views.width <= 172);
+		assert.strictEqual(narrow.width, 36);
+		assert.strictEqual(narrow.height, 36);
+		assert.ok(narrow.left >= 8);
+		assert.ok(narrow.left + narrow.width <= 172);
 
 		const offscreen = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 900,
@@ -171,6 +172,72 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportHeight: 600
 		});
 		assert.strictEqual(offscreen.visible, false);
+	});
+
+	test('commits an allowed selection intent after preparation', async () => {
+		const coordinator = new BaseHalfCanvasSelectionIntentCoordinator();
+		const order: string[] = [];
+
+		const committed = await coordinator.request(
+			async () => { order.push('prepare'); return true; },
+			() => order.push('commit')
+		);
+
+		assert.strictEqual(committed, true);
+		assert.deepStrictEqual(order, ['prepare', 'commit']);
+	});
+
+	test('does not commit a vetoed selection intent', async () => {
+		const coordinator = new BaseHalfCanvasSelectionIntentCoordinator();
+		let commitCalls = 0;
+
+		const committed = await coordinator.request(async () => false, () => commitCalls++);
+
+		assert.strictEqual(committed, false);
+		assert.strictEqual(commitCalls, 0);
+	});
+
+	test('coalesces rapid selection intents so only the newest one commits', async () => {
+		const coordinator = new BaseHalfCanvasSelectionIntentCoordinator();
+		const order: string[] = [];
+		const request = (id: string) => coordinator.request(
+			async () => { order.push(`prepare-${id}`); return true; },
+			() => order.push(`commit-${id}`)
+		);
+
+		const results = await Promise.all([request('A'), request('B'), request('C')]);
+
+		assert.deepStrictEqual(results, [false, false, true]);
+		assert.deepStrictEqual(order, ['prepare-A', 'prepare-B', 'prepare-C', 'commit-C']);
+	});
+
+	test('invalidates an in-flight selection when the controlled selection is chosen again', async () => {
+		const coordinator = new BaseHalfCanvasSelectionIntentCoordinator();
+		let release!: () => void;
+		const preparing = new Promise<void>(resolve => release = resolve);
+		let committed = false;
+		const pending = coordinator.request(async () => {
+			await preparing;
+			return true;
+		}, () => committed = true);
+
+		coordinator.invalidate();
+		release();
+
+		assert.strictEqual(await pending, false);
+		assert.strictEqual(committed, false);
+	});
+
+	test('propagates preparation errors and recovers the selection intent queue', async () => {
+		const coordinator = new BaseHalfCanvasSelectionIntentCoordinator();
+		const failure = new Error('save failed');
+		const commits: string[] = [];
+		const rejected = coordinator.request(async () => { throw failure; }, () => commits.push('failed'));
+		const recovered = coordinator.request(async () => true, () => commits.push('recovered'));
+
+		await assert.rejects(rejected, error => error === failure);
+		assert.strictEqual(await recovered, true);
+		assert.deepStrictEqual(commits, ['recovered']);
 	});
 
 	test('distinguishes a structural file rename from a visible node title edit', () => {

@@ -34,7 +34,6 @@ import { IBaseHalfCanvasSnapGuide } from '../common/basehalfCanvasSnap.js';
 import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
-	BaseHalfCanvasSceneNoteProjection,
 	BaseHalfCanvasSceneSelectionAction,
 	baseHalfCanvasSceneSelectionActions,
 	BaseHalfCanvasSceneContextMenuRequest,
@@ -46,6 +45,7 @@ import {
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneViewport,
+	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
 	baseHalfCanvasSceneSelectionSurface,
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
@@ -186,6 +186,40 @@ export class BaseHalfCanvasPendingConnectionState {
 	}
 }
 
+export class BaseHalfCanvasSelectionIntentCoordinator {
+	private sequence = 0;
+	private queue: Promise<void> = Promise.resolve();
+
+	invalidate(): void {
+		this.sequence++;
+	}
+
+	request(prepare: () => Promise<boolean>, commit: () => unknown): Promise<boolean> {
+		const sequence = ++this.sequence;
+		let resolveResult!: (value: boolean) => void;
+		let rejectResult!: (reason: unknown) => void;
+		const result = new Promise<boolean>((resolve, reject) => {
+			resolveResult = resolve;
+			rejectResult = reject;
+		});
+		const run = async (): Promise<void> => {
+			try {
+				const allowed = await prepare();
+				if (!allowed || sequence !== this.sequence) {
+					resolveResult(false);
+					return;
+				}
+				resolveResult(commit() !== false);
+			} catch (error) {
+				rejectResult(error);
+				throw error;
+			}
+		};
+		this.queue = this.queue.then(run, run).then(() => undefined, () => undefined);
+		return result;
+	}
+}
+
 export interface IBaseHalfCanvasNodeDragOrigin {
 	readonly id: string;
 	readonly x: number;
@@ -291,15 +325,9 @@ const SELECTION_TOOLBAR_SCREEN_GAP = 10;
 const SELECTION_TOOLBAR_SCREEN_HEIGHT = 32;
 const SELECTION_TOOLBAR_SCREEN_MARGIN = 8;
 const NOTE_CONTROLS_SCREEN_MARGIN = 8;
-const NOTE_CONTROLS_SCREEN_GAP = 14;
-const NOTE_CONTROLS_MIN_SCREEN_GAP = 8;
-const NOTE_CONTROLS_STACK_GAP = 8;
-const NOTE_TOOLBAR_SCREEN_WIDTH = 190;
-const NOTE_TOOLBAR_SCREEN_HEIGHT = 32;
-const NOTE_VIEWS_MAX_SCREEN_WIDTH = 420;
-const NOTE_VIEWS_SCREEN_HEIGHT = 104;
-const NOTE_VIEWS_COMPACT_SCREEN_HEIGHT = 128;
-const NOTE_VIEWS_NARROW_SCREEN_HEIGHT = 196;
+const NOTE_CONTROLS_SCREEN_GAP = 10;
+const NOTE_TOOLBAR_SCREEN_WIDTH = 36;
+const NOTE_TOOLBAR_SCREEN_HEIGHT = 36;
 const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
 
 export interface IBaseHalfCanvasSelectionToolbarPlacement {
@@ -343,11 +371,11 @@ export function resolveBaseHalfCanvasSelectionToolbarPlacement(options: {
 
 export interface IBaseHalfCanvasNoteSelectionPlacement {
 	readonly visible: boolean;
-	readonly mode: 'split' | 'stack-above' | 'stack-below';
-	readonly compact: boolean;
-	readonly narrow: boolean;
-	readonly toolbar: { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
-	readonly views: { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
+	readonly side: 'above' | 'below';
+	readonly left: number;
+	readonly top: number;
+	readonly width: number;
+	readonly height: number;
 }
 
 export function resolveBaseHalfCanvasNoteSelectionPlacement(options: {
@@ -372,84 +400,30 @@ export function resolveBaseHalfCanvasNoteSelectionPlacement(options: {
 		&& topScreen <= viewportHeight
 		&& viewportWidth > NOTE_CONTROLS_SCREEN_MARGIN * 2
 		&& viewportHeight > NOTE_CONTROLS_SCREEN_MARGIN * 2;
-	const viewsWidth = Math.max(0, Math.min(NOTE_VIEWS_MAX_SCREEN_WIDTH, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN * 2));
-	const compact = viewsWidth < 340;
-	const narrow = viewsWidth < 220;
-	const viewsHeight = narrow
-		? NOTE_VIEWS_NARROW_SCREEN_HEIGHT
-		: compact
-			? NOTE_VIEWS_COMPACT_SCREEN_HEIGHT
-			: NOTE_VIEWS_SCREEN_HEIGHT;
 	const toolbarWidth = Math.max(0, Math.min(NOTE_TOOLBAR_SCREEN_WIDTH, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN * 2));
-	const groupWidth = Math.max(toolbarWidth, viewsWidth);
-	const halfGroup = groupWidth / 2;
-	const minimumCenter = NOTE_CONTROLS_SCREEN_MARGIN + halfGroup;
-	const maximumCenter = Math.max(minimumCenter, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN - halfGroup);
+	const halfToolbar = toolbarWidth / 2;
+	const minimumCenter = NOTE_CONTROLS_SCREEN_MARGIN + halfToolbar;
+	const maximumCenter = Math.max(minimumCenter, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN - halfToolbar);
 	const nodeCenterScreen = (leftScreen + rightScreen) / 2;
 	const centerScreen = Math.min(maximumCenter, Math.max(minimumCenter, nodeCenterScreen));
 	const aboveSpace = topScreen - NOTE_CONTROLS_SCREEN_MARGIN;
 	const belowSpace = viewportHeight - bottomScreen - NOTE_CONTROLS_SCREEN_MARGIN;
-	const canSplit = aboveSpace >= NOTE_CONTROLS_MIN_SCREEN_GAP + NOTE_TOOLBAR_SCREEN_HEIGHT
-		&& belowSpace >= NOTE_CONTROLS_MIN_SCREEN_GAP + viewsHeight;
-	const groupHeight = NOTE_TOOLBAR_SCREEN_HEIGHT + NOTE_CONTROLS_STACK_GAP + viewsHeight;
-	const canStackAbove = aboveSpace >= groupHeight + NOTE_CONTROLS_MIN_SCREEN_GAP;
-	const canStackBelow = belowSpace >= groupHeight + NOTE_CONTROLS_MIN_SCREEN_GAP;
-	const mode: IBaseHalfCanvasNoteSelectionPlacement['mode'] = canSplit
-		? 'split'
-		: canStackAbove && (!canStackBelow || aboveSpace >= belowSpace)
-			? 'stack-above'
-			: canStackBelow
-				? 'stack-below'
-				: aboveSpace >= belowSpace
-					? 'stack-above'
-					: 'stack-below';
-	let toolbarTopScreen: number;
-	let viewsTopScreen: number;
-	if (mode === 'split') {
-		const toolbarGap = Math.min(NOTE_CONTROLS_SCREEN_GAP, aboveSpace - NOTE_TOOLBAR_SCREEN_HEIGHT);
-		const viewsGap = Math.min(NOTE_CONTROLS_SCREEN_GAP, belowSpace - viewsHeight);
-		toolbarTopScreen = topScreen - toolbarGap - NOTE_TOOLBAR_SCREEN_HEIGHT;
-		viewsTopScreen = bottomScreen + viewsGap;
-	} else if (mode === 'stack-above') {
-		const stackGap = canStackAbove
-			? Math.min(NOTE_CONTROLS_SCREEN_GAP, aboveSpace - groupHeight)
-			: NOTE_CONTROLS_SCREEN_GAP;
-		const groupBottom = Math.max(
-			NOTE_CONTROLS_SCREEN_MARGIN + groupHeight,
-			Math.min(topScreen - stackGap, viewportHeight - NOTE_CONTROLS_SCREEN_MARGIN)
-		);
-		toolbarTopScreen = groupBottom - NOTE_TOOLBAR_SCREEN_HEIGHT;
-		viewsTopScreen = toolbarTopScreen - NOTE_CONTROLS_STACK_GAP - viewsHeight;
-	} else {
-		const stackGap = canStackBelow
-			? Math.min(NOTE_CONTROLS_SCREEN_GAP, belowSpace - groupHeight)
-			: NOTE_CONTROLS_SCREEN_GAP;
-		const groupTop = Math.min(
-			viewportHeight - NOTE_CONTROLS_SCREEN_MARGIN - groupHeight,
-			Math.max(bottomScreen + stackGap, NOTE_CONTROLS_SCREEN_MARGIN)
-		);
-		toolbarTopScreen = Math.max(NOTE_CONTROLS_SCREEN_MARGIN, groupTop);
-		viewsTopScreen = toolbarTopScreen + NOTE_TOOLBAR_SCREEN_HEIGHT + NOTE_CONTROLS_STACK_GAP;
-	}
+	const requiredSpace = NOTE_CONTROLS_SCREEN_GAP + NOTE_TOOLBAR_SCREEN_HEIGHT;
+	const side: IBaseHalfCanvasNoteSelectionPlacement['side'] = aboveSpace >= requiredSpace || aboveSpace >= belowSpace ? 'above' : 'below';
+	const unclampedTop = side === 'above'
+		? topScreen - NOTE_CONTROLS_SCREEN_GAP - NOTE_TOOLBAR_SCREEN_HEIGHT
+		: bottomScreen + NOTE_CONTROLS_SCREEN_GAP;
+	const maximumTop = Math.max(NOTE_CONTROLS_SCREEN_MARGIN, viewportHeight - NOTE_CONTROLS_SCREEN_MARGIN - NOTE_TOOLBAR_SCREEN_HEIGHT);
+	const toolbarTopScreen = Math.min(maximumTop, Math.max(NOTE_CONTROLS_SCREEN_MARGIN, unclampedTop));
 	const toFlowX = (screen: number): number => (screen - options.viewport.x) / zoom;
 	const toFlowY = (screen: number): number => (screen - options.viewport.y) / zoom;
 	return {
 		visible,
-		mode,
-		compact,
-		narrow,
-		toolbar: {
-			left: toFlowX(centerScreen - toolbarWidth / 2),
-			top: toFlowY(toolbarTopScreen),
-			width: toolbarWidth,
-			height: NOTE_TOOLBAR_SCREEN_HEIGHT
-		},
-		views: {
-			left: toFlowX(centerScreen - viewsWidth / 2),
-			top: toFlowY(viewsTopScreen),
-			width: viewsWidth,
-			height: viewsHeight
-		}
+		side,
+		left: toFlowX(centerScreen - toolbarWidth / 2),
+		top: toFlowY(toolbarTopScreen),
+		width: toolbarWidth,
+		height: NOTE_TOOLBAR_SCREEN_HEIGHT
 	};
 }
 
@@ -899,7 +873,7 @@ function createCanvasSceneMount(
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
-		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height });
+		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height, retainPresentation: false });
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
 		const selectionSize = vendor.useContext(SelectionSizeContext);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
@@ -926,13 +900,19 @@ function createCanvasSceneMount(
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
+		const note = data.card.controls?.kind === 'note';
+		const noteEditing = note && data.card.forceInteractive === true;
 		const presentation = baseHalfCanvasCardPresentation({
 			forceInteractive: data.card.forceInteractive === true,
 			nearViewport,
-			selected,
+			selected: selected && !note,
 			selectionSize
 		});
-		mountedCardRef.current = { card: data.card, height };
+		mountedCardRef.current = {
+			card: data.card,
+			height,
+			retainPresentation: data.card.forceInteractive === true && note
+		};
 
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
@@ -940,10 +920,12 @@ function createCanvasSceneMount(
 			if (isHTMLElement(active) && mounted.card.element.contains(active)) {
 				active.blur();
 			}
-			mounted.card.updatePresentation({
-				level: 'shell',
-				height: mounted.height
-			});
+			if (!mounted.retainPresentation) {
+				mounted.card.updatePresentation({
+					level: 'shell',
+					height: mounted.height
+				});
+			}
 		}, []);
 
 		vendor.useLayoutEffect(() => {
@@ -992,20 +974,24 @@ function createCanvasSceneMount(
 					active.blur();
 				}
 			}
-			element.classList.toggle('selected', selected);
+			// Editing is a document interaction, not a structural Canvas
+			// interaction. Keep the React Flow selection internally so clicking the
+			// pane can close the editor through the normal selection transaction,
+			// but do not project structural selection chrome over editable text.
+			element.classList.toggle('selected', selected && !noteEditing);
 			element.dataset.previewLevel = presentation;
 			element.dataset.cardHeight = String(height);
 			data.card.updatePresentation({
 				level: presentation,
 				height
 			});
-		}, [data.card, data.card.element, height, presentation, selected]);
+		}, [data.card, data.card.element, height, noteEditing, presentation, selected]);
 
 		return h(vendor.Fragment, null,
 			h(vendor.NodeResizer, {
 				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
 				minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT,
-				isVisible: selected,
+				isVisible: selected && !noteEditing,
 				lineClassName: 'basehalf-canvas-node-resizer-line',
 				handleClassName: 'basehalf-canvas-node-resizer-handle',
 				onResizeStart: data.beginResize,
@@ -1016,9 +1002,9 @@ function createCanvasSceneMount(
 				id: anchor,
 				type: 'source',
 				position: flowPosition(vendor, anchor),
-				className: `basehalf-canvas-card-connect-handle ${anchor}`,
-				isConnectable: true,
-				tabIndex: selected || clickConnectionInProgress ? 0 : -1,
+				className: `basehalf-canvas-card-connect-handle ${anchor}${noteEditing ? ' editing' : ''}`,
+				isConnectable: !noteEditing,
+				tabIndex: !noteEditing && (selected || clickConnectionInProgress) ? 0 : -1,
 				role: 'button',
 				'aria-label': `Create or finish a context connection at the ${anchor} side of ${id}`,
 				onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -1373,13 +1359,10 @@ function createCanvasSceneMount(
 		);
 	}
 
-	function NoteSelectionControls({ node, invoke }: {
-		readonly node: BaseHalfCanvasFlowNode;
-		readonly invoke: (action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]) => void;
-	}): ReactElement {
+	function NoteSelectionControls({ node }: { readonly node: BaseHalfCanvasFlowNode }): ReactElement {
 		const viewport = vendor.useViewport();
 		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
-		const [focusIndex, setFocusIndex] = vendor.useState(0);
+		const buttonRef = vendor.useRef<HTMLButtonElement | null>(null);
 		vendor.useEffect(() => {
 			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
 				setViewportSize(current => current.width === width && current.height === height ? current : { width, height });
@@ -1396,11 +1379,16 @@ function createCanvasSceneMount(
 			observer.observe(host);
 			return () => observer.disconnect();
 		}, []);
-		const actions: readonly { readonly id: BaseHalfCanvasSceneSelectionAction; readonly label: string; readonly icon: string; readonly danger?: true }[] = [
-			{ id: 'rename', label: baseHalfCanvasSceneSelectionRenameLabel(node.data.card.renameChangesPathOnly === true), icon: 'edit' },
-			{ id: 'duplicate', label: localize('basehalf.canvas.selection.duplicate', "Duplicate"), icon: 'files' },
-			{ id: 'delete', label: localize('basehalf.canvas.selection.delete', "Delete"), icon: 'trash', danger: true }
-		];
+		vendor.useEffect(() => {
+			const element = node.data.card.element;
+			const focusToolbar = (): void => {
+				element.ownerDocument.defaultView?.setTimeout(() => buttonRef.current?.focus(), 0);
+			};
+			element.addEventListener(BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT, focusToolbar);
+			return () => {
+				element.removeEventListener(BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT, focusToolbar);
+			};
+		}, [node.data.card.element]);
 		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
 		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
 		const placement = resolveBaseHalfCanvasNoteSelectionPlacement({
@@ -1415,131 +1403,51 @@ function createCanvasSceneMount(
 		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
 			event.stopPropagation();
 		};
-		const open = (projection?: BaseHalfCanvasSceneNoteProjection): void => {
-			delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id, projection);
-		};
-		const moveFocus = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
-			let next: number | undefined;
-			if (event.key === 'ArrowRight') {
-				next = (index + 1) % (actions.length + 1);
-			} else if (event.key === 'ArrowLeft') {
-				next = (index - 1 + actions.length + 1) % (actions.length + 1);
-			} else if (event.key === 'Home') {
-				next = 0;
-			} else if (event.key === 'End') {
-				next = actions.length;
+		const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				event.stopPropagation();
+				delegate.focusNoteEditor(node.data.sceneKey, node.data.structuralEpoch, node.id);
 			}
-			if (next === undefined) {
-				return;
-			}
-			event.preventDefault();
-			event.stopPropagation();
-			setFocusIndex(next);
-			event.currentTarget.closest<HTMLElement>('.basehalf-canvas-note-toolbar')
-				?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus();
 		};
 		if (!placement.visible) {
 			return h(vendor.Fragment);
 		}
-		const openLabel = localize('basehalf.canvas.note.openRich', "Open {0} in rich editor", node.id);
 
 		return h(vendor.ViewportPortal, null,
 			h('div', {
-				className: `basehalf-canvas-note-toolbar basehalf-canvas-note-surface${placement.toolbar.width < NOTE_TOOLBAR_SCREEN_WIDTH ? ' compact' : ''} nodrag nopan nowheel`,
+				className: 'basehalf-canvas-note-toolbar basehalf-canvas-note-surface nodrag nopan nowheel',
 				role: 'toolbar',
-				'aria-label': localize('basehalf.canvas.note.actions', "{0} note actions", node.id),
-				'data-placement': placement.mode,
+				'aria-label': localize('basehalf.canvas.note.actions', "Actions for {0}", node.id),
+				'data-placement': placement.side,
 				style: {
-					left: placement.toolbar.left,
-					top: placement.toolbar.top,
-					width: placement.toolbar.width,
-					height: placement.toolbar.height
+					left: placement.left,
+					top: placement.top,
+					width: placement.width,
+					height: placement.height
 				},
 				onPointerDown: stopEvent,
 				onClick: stopEvent,
 				onDoubleClick: stopEvent
 			},
-				h('span', { className: 'basehalf-canvas-note-toolbar-label' },
-					h('span', { className: 'codicon codicon-note', 'aria-hidden': 'true' }),
-					h('span', null, localize('basehalf.canvas.note.label', "Note"))
-				),
-				h('span', { className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' }),
-				...actions.map((action, index) => h('button', {
-					key: action.id,
-					type: 'button',
-					className: `basehalf-canvas-note-toolbar-action codicon codicon-${action.icon}${action.danger ? ' danger' : ''}`,
-					title: action.label,
-					'aria-label': action.label,
-					tabIndex: index === focusIndex ? 0 : -1,
-					onFocus: () => setFocusIndex(index),
-					onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => moveFocus(event, index),
-					onClick: (event: ReactMouseEvent<HTMLElement>) => {
-						event.preventDefault();
-						event.stopPropagation();
-						invoke(action.id, [node.id]);
-					}
-				})),
-				h('span', { className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' }),
 				h('button', {
+					ref: buttonRef,
 					type: 'button',
 					className: 'basehalf-canvas-note-toolbar-action open codicon codicon-screen-full',
-					title: openLabel,
-					'aria-label': openLabel,
-					tabIndex: focusIndex === actions.length ? 0 : -1,
-					onFocus: () => setFocusIndex(actions.length),
-					onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => moveFocus(event, actions.length),
+					title: localize('basehalf.canvas.note.expand', "Expand {0}", node.id),
+					'aria-label': localize('basehalf.canvas.note.expand', "Expand {0}", node.id),
+					tabIndex: 0,
+					onKeyDown,
+					onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+						event.preventDefault();
+						event.stopPropagation();
+					},
 					onClick: (event: ReactMouseEvent<HTMLElement>) => {
 						event.preventDefault();
 						event.stopPropagation();
-						open();
+						void delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id).catch(error => delegate.reportError(error));
 					}
 				})
-			),
-			h('div', {
-				className: `basehalf-canvas-note-views basehalf-canvas-note-surface${placement.compact ? ' compact' : ''}${placement.narrow ? ' narrow' : ''} nodrag nopan nowheel`,
-				role: 'region',
-				'aria-label': localize('basehalf.canvas.note.views', "{0} note views", node.id),
-				'data-placement': placement.mode,
-				style: {
-					left: placement.views.left,
-					top: placement.views.top,
-					width: placement.views.width,
-					height: placement.views.height
-				},
-				onPointerDown: stopEvent,
-				onClick: stopEvent,
-				onDoubleClick: stopEvent
-			},
-				h('div', { className: 'basehalf-canvas-note-views-copy' },
-					h('span', { className: 'basehalf-canvas-note-views-title' }, localize('basehalf.canvas.note.views.title', "Note views")),
-					h('span', { className: 'basehalf-canvas-note-views-description' }, localize('basehalf.canvas.note.views.description', "Open the Markdown source or a read-only preview."))
-			),
-				h('div', { className: 'basehalf-canvas-note-view-actions' },
-					h('button', {
-						type: 'button',
-						className: 'basehalf-canvas-note-view-action',
-						onClick: (event: ReactMouseEvent<HTMLElement>) => {
-							event.preventDefault();
-							event.stopPropagation();
-							open('source');
-						}
-					},
-						h('span', { className: 'codicon codicon-code', 'aria-hidden': 'true' }),
-						h('span', null, localize('basehalf.canvas.note.source', "Source"))
-					),
-					h('button', {
-						type: 'button',
-						className: 'basehalf-canvas-note-view-action',
-						onClick: (event: ReactMouseEvent<HTMLElement>) => {
-							event.preventDefault();
-							event.stopPropagation();
-							open('preview');
-						}
-					},
-						h('span', { className: 'codicon codicon-preview', 'aria-hidden': 'true' }),
-						h('span', null, localize('basehalf.canvas.note.preview', "Preview"))
-					)
-				)
 			)
 		);
 	}
@@ -1559,11 +1467,19 @@ function createCanvasSceneMount(
 		const viewportCommandQueue = vendor.useRef<Promise<void>>(Promise.resolve());
 		const pendingGeometry = vendor.useRef(new Map<string, number>());
 		const pendingEdges = vendor.useRef(new Map<string, BaseHalfCanvasPendingEdgeMutation>());
+		const pendingSelectionChanges = vendor.useRef({
+			nodes: new Map<string, boolean>(),
+			edges: new Map<string, boolean>(),
+			lastPositive: undefined as 'node' | 'edge' | undefined,
+			scheduled: false
+		});
 		const interactionDepth = vendor.useRef(0);
 		const interactionGeneration = vendor.useRef(0);
 		const interactionSceneKey = vendor.useRef<string | undefined>(undefined);
 		const interactionStructuralEpoch = vendor.useRef<number | undefined>(undefined);
 		const pendingConnection = vendor.useRef(new BaseHalfCanvasPendingConnectionState());
+		const selectionIntents = vendor.useRef(new BaseHalfCanvasSelectionIntentCoordinator());
+		const pendingSelectionRequest = vendor.useRef<{ readonly key: string; readonly promise: Promise<boolean> } | undefined>(undefined);
 		const lastPaneConnectionCancellationAt = vendor.useRef<number | undefined>(undefined);
 		const paneDoubleClickStartedOnPane = vendor.useRef(false);
 		const connectionStoreController = vendor.useRef<IBaseHalfCanvasConnectionStoreController | undefined>(undefined);
@@ -1639,6 +1555,102 @@ function createCanvasSceneMount(
 			edgesRef.current = next;
 			setEdges(next);
 		}, []);
+		const requestSelection = vendor.useCallback((selection: IBaseHalfCanvasSceneSelection): Promise<boolean> => {
+			const sceneKey = sceneKeyRef.current;
+			const structuralEpoch = structuralEpochRef.current;
+			const selectedCards = new Set(selection.cardPaths ?? []);
+			const selectedEdgeId = selection.edgeId;
+			const requestKey = JSON.stringify({ sceneKey, structuralEpoch, cards: [...selectedCards].sort(), edge: selectedEdgeId });
+			const pending = pendingSelectionRequest.current;
+			if (pending?.key === requestKey) {
+				return pending.promise;
+			}
+			const currentCards = nodesRef.current.filter(node => node.selected).map(node => node.id);
+			const currentEdgeId = edgesRef.current.find(edge => edge.selected)?.id;
+			if (currentCards.length === selectedCards.size
+				&& currentCards.every(path => selectedCards.has(path))
+				&& currentEdgeId === selectedEdgeId) {
+				selectionIntents.current.invalidate();
+				pendingSelectionRequest.current = undefined;
+				return Promise.resolve(true);
+			}
+			const promise = selectionIntents.current.request(
+				() => delegate.prepareSelectionChange(sceneKey, structuralEpoch, [...selectedCards]),
+				() => {
+					if (sceneKeyRef.current !== sceneKey || structuralEpochRef.current !== structuralEpoch) {
+						return false;
+					}
+					setLiveNodes(nodesRef.current.map(node => ({ ...node, selected: selectedCards.has(node.id) })));
+					setLiveEdges(edgesRef.current.map(edge => ({ ...edge, selected: edge.id === selectedEdgeId })));
+					return true;
+				}
+			).catch(error => {
+				delegate.reportError(error);
+				return false;
+			});
+			const request = { key: requestKey, promise };
+			pendingSelectionRequest.current = request;
+			void promise.finally(() => {
+				if (pendingSelectionRequest.current === request) {
+					pendingSelectionRequest.current = undefined;
+				}
+			});
+			return promise;
+		}, [setLiveEdges, setLiveNodes]);
+		const queueSelectionChanges = vendor.useCallback((
+			nodeChanges: readonly { readonly id: string; readonly selected: boolean }[] = [],
+			edgeChanges: readonly { readonly id: string; readonly selected: boolean }[] = []
+		): void => {
+			const pending = pendingSelectionChanges.current;
+			for (const change of nodeChanges) {
+				pending.nodes.set(change.id, change.selected);
+				if (change.selected) {
+					pending.lastPositive = 'node';
+				}
+			}
+			for (const change of edgeChanges) {
+				pending.edges.set(change.id, change.selected);
+				if (change.selected) {
+					pending.lastPositive = 'edge';
+				}
+			}
+			if (pending.scheduled) {
+				return;
+			}
+			pending.scheduled = true;
+			queueMicrotask(() => {
+				const batch = pendingSelectionChanges.current;
+				batch.scheduled = false;
+				const selectedCards = new Set(nodesRef.current.filter(node => node.selected).map(node => node.id));
+				let selectedEdgeId = edgesRef.current.find(edge => edge.selected)?.id;
+				for (const [id, selected] of batch.nodes) {
+					if (selected) {
+						selectedCards.add(id);
+					} else {
+						selectedCards.delete(id);
+					}
+				}
+				for (const [id, selected] of batch.edges) {
+					if (selected) {
+						selectedEdgeId = id;
+					} else if (selectedEdgeId === id) {
+						selectedEdgeId = undefined;
+					}
+				}
+				if (batch.lastPositive === 'node' && selectedCards.size > 0) {
+					selectedEdgeId = undefined;
+				} else if (batch.lastPositive === 'edge' && selectedEdgeId) {
+					selectedCards.clear();
+				}
+				batch.nodes.clear();
+				batch.edges.clear();
+				batch.lastPositive = undefined;
+				void requestSelection({
+					cardPaths: [...selectedCards],
+					...(selectedEdgeId ? { edgeId: selectedEdgeId } : {})
+				});
+			});
+		}, [requestSelection]);
 		const registerConnectionStore = vendor.useCallback((controller: IBaseHalfCanvasConnectionStoreController | undefined) => {
 			connectionStoreController.current = controller;
 		}, []);
@@ -1760,17 +1772,25 @@ function createCanvasSceneMount(
 		}, [cancelAllInteractions, cancelNodeDrag, cancelPendingConnection]);
 
 		const updateSnapshot = vendor.useCallback((snapshot: IBaseHalfCanvasSceneSnapshot) => {
-			const keyChanged = sceneKeyRef.current !== snapshot.key;
-			const structureChanged = structuralEpochRef.current !== snapshot.structuralEpoch;
-			const identityChanged = keyChanged || structureChanged;
+				const keyChanged = sceneKeyRef.current !== snapshot.key;
+				const structureChanged = structuralEpochRef.current !== snapshot.structuralEpoch;
+				const identityChanged = keyChanged || structureChanged;
+				const selectionControlledByHost = snapshot.selectedCardPaths !== undefined || snapshot.selectedEdgeId !== undefined;
 			if (!identityChanged && snapshot.revision < snapshotRef.current.revision) {
 				return;
 			}
 			sceneKeyRef.current = snapshot.key;
 			structuralEpochRef.current = snapshot.structuralEpoch;
 			snapshotRef.current = snapshot;
-			if (identityChanged) {
-				pendingGeometry.current.clear();
+				if (identityChanged || selectionControlledByHost) {
+					selectionIntents.current.invalidate();
+					pendingSelectionRequest.current = undefined;
+					pendingSelectionChanges.current.nodes.clear();
+					pendingSelectionChanges.current.edges.clear();
+					pendingSelectionChanges.current.lastPositive = undefined;
+				}
+				if (identityChanged) {
+					pendingGeometry.current.clear();
 				pendingEdges.current.clear();
 				interactionDepth.current = 0;
 				interacting.current = false;
@@ -1781,7 +1801,7 @@ function createCanvasSceneMount(
 			}
 
 			const currentNodeById = new Map(nodesRef.current.map(node => [node.id, node]));
-			const selectedCards = snapshot.selectedCardPaths ? new Set(snapshot.selectedCardPaths) : undefined;
+				const selectedCards = selectionControlledByHost ? new Set(snapshot.selectedCardPaths ?? []) : undefined;
 			const nextNodes = snapshot.cards.map(card => {
 				const current = currentNodeById.get(card.path);
 				const selected = selectedCards ? selectedCards.has(card.path) : current?.selected ?? false;
@@ -1806,7 +1826,12 @@ function createCanvasSceneMount(
 				}
 				const projected = mutation?.kind === 'upsert' ? mutation.edge : edge;
 				const current = currentEdgeById.get(projected.id);
-				nextEdges.push(makeEdge(projected, snapshot.key, snapshot.structuralEpoch, snapshot.selectedEdgeId ? projected.id === snapshot.selectedEdgeId : current?.selected ?? false));
+					nextEdges.push(makeEdge(
+						projected,
+						snapshot.key,
+						snapshot.structuralEpoch,
+						selectionControlledByHost ? projected.id === snapshot.selectedEdgeId : current?.selected ?? false
+					));
 			}
 			if (!identityChanged) {
 				for (const [id, mutation] of pendingEdges.current) {
@@ -1896,11 +1921,19 @@ function createCanvasSceneMount(
 			if (acceptedChanges.length === 0) {
 				return;
 			}
-			const changesGeometry = acceptedChanges.some(change => change.type === 'position' || change.type === 'dimensions');
+			const selectionChanges = acceptedChanges.filter(change => change.type === 'select');
+			if (selectionChanges.length > 0) {
+				queueSelectionChanges(selectionChanges);
+			}
+			const nonSelectionChanges = acceptedChanges.filter(change => change.type !== 'select');
+			if (nonSelectionChanges.length === 0) {
+				return;
+			}
+			const changesGeometry = nonSelectionChanges.some(change => change.type === 'position' || change.type === 'dimensions');
 			if (changesGeometry) {
 				const ownerKey = interactionSceneKey.current ?? sceneKeyRef.current;
 				const ownerEpoch = interactionStructuralEpoch.current ?? structuralEpochRef.current;
-				if (ownerKey !== sceneKeyRef.current || ownerEpoch !== structuralEpochRef.current || acceptedChanges.some(change => {
+				if (ownerKey !== sceneKeyRef.current || ownerEpoch !== structuralEpochRef.current || nonSelectionChanges.some(change => {
 					if (change.type !== 'position' && change.type !== 'dimensions') {
 						return false;
 					}
@@ -1910,7 +1943,7 @@ function createCanvasSceneMount(
 					return;
 				}
 			}
-			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, acceptedChanges, {
+			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, nonSelectionChanges, {
 				threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
 				defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 				defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
@@ -1921,7 +1954,7 @@ function createCanvasSceneMount(
 			const next = vendor.applyNodeChanges(snapped.changes, nodesRef.current);
 			setLiveNodes(next);
 			commitFinalGeometry(next, snapped.changes);
-		}, [commitFinalGeometry, setLiveNodes]);
+		}, [commitFinalGeometry, queueSelectionChanges, setLiveNodes]);
 		const beginNodeDrag = vendor.useCallback((_event: MouseEvent | TouchEvent, node: BaseHalfCanvasFlowNode, draggedNodes: BaseHalfCanvasFlowNode[]) => {
 			const ids = new Set([
 				node.id,
@@ -1945,8 +1978,15 @@ function createCanvasSceneMount(
 		}, [endInteraction]);
 
 		const onEdgesChange = vendor.useCallback((changes: EdgeChange<BaseHalfCanvasFlowEdge>[]) => {
-			setLiveEdges(vendor.applyEdgeChanges(changes, edgesRef.current));
-		}, [setLiveEdges]);
+			const selectionChanges = changes.filter(change => change.type === 'select');
+			if (selectionChanges.length > 0) {
+				queueSelectionChanges([], selectionChanges);
+			}
+			const nonSelectionChanges = changes.filter(change => change.type !== 'select');
+			if (nonSelectionChanges.length > 0) {
+				setLiveEdges(vendor.applyEdgeChanges(nonSelectionChanges, edgesRef.current));
+			}
+		}, [queueSelectionChanges, setLiveEdges]);
 
 		const beginConnection = vendor.useCallback((gesture: BaseHalfCanvasConnectionGesture, event?: MouseEvent | TouchEvent) => {
 			const start = pendingConnection.current.begin(sceneKeyRef.current, structuralEpochRef.current, gesture, {
@@ -2202,8 +2242,7 @@ function createCanvasSceneMount(
 				if (!preserveFocus) {
 					host.focus({ preventScroll: true });
 				}
-				setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
-				setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === flowEdge.id })));
+				void requestSelection({ edgeId: flowEdge.id });
 			},
 			reconnect: optimisticReconnect,
 			remove(flowEdge): void {
@@ -2213,7 +2252,7 @@ function createCanvasSceneMount(
 				setLiveEdges(edgesRef.current.filter(candidate => candidate.id !== flowEdge.id));
 				removeEdges([flowEdge]);
 			}
-		}), [beginInteraction, endInteraction, optimisticReconnect, ownsCurrentEdge, removeEdges, setLiveEdges, setLiveNodes]);
+		}), [beginInteraction, endInteraction, optimisticReconnect, ownsCurrentEdge, removeEdges, requestSelection, setLiveEdges]);
 
 		const invokeSelectionAction = vendor.useCallback((action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]) => {
 			const selected = paths.map(path => nodesRef.current.find(node => node.id === path));
@@ -2352,13 +2391,11 @@ function createCanvasSceneMount(
 				return flowRef.current?.screenToFlowPosition({ x, y }) ?? { x, y };
 			},
 			select(selection: IBaseHalfCanvasSceneSelection): void {
-				const selectedCards = new Set(selection.cardPaths ?? []);
-				setLiveNodes(nodesRef.current.map(node => ({ ...node, selected: selectedCards.has(node.id) })));
-				setLiveEdges(edgesRef.current.map(edge => ({ ...edge, selected: selection.edgeId === edge.id })));
+				void requestSelection(selection);
 			},
 			getViewport: () => viewportRef.current,
 			isInteracting: () => interacting.current
-		}), [runViewportCommand, setLiveEdges, setLiveNodes, updateSnapshot]);
+		}), [requestSelection, runViewportCommand, updateSnapshot]);
 
 		vendor.useEffect(() => ready(runtime), [runtime]);
 
@@ -2372,14 +2409,13 @@ function createCanvasSceneMount(
 			event.preventDefault();
 			event.stopPropagation();
 			host.focus({ preventScroll: true });
-			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === node.id })));
-			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			showContextMenu({
-				kind: 'card',
-				path: node.id,
-				anchor: contextMenuAnchor(event, node.data.card.element)
+			const anchor = contextMenuAnchor(event, node.data.card.element);
+			void requestSelection({ cardPaths: [node.id] }).then(selected => {
+				if (selected) {
+					showContextMenu({ kind: 'card', path: node.id, anchor });
+				}
 			});
-		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		}, [contextMenuAnchor, requestSelection, showContextMenu]);
 		const onEdgeContextMenu = vendor.useCallback((event: ReactMouseEvent<Element>, flowEdge: BaseHalfCanvasFlowEdge) => {
 			const edge = flowEdge.data?.edge;
 			if (!edge) {
@@ -2388,37 +2424,61 @@ function createCanvasSceneMount(
 			event.preventDefault();
 			event.stopPropagation();
 			host.focus({ preventScroll: true });
-			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === flowEdge.id })));
-			showContextMenu({
-				kind: 'edge',
-				edge,
-				anchor: contextMenuAnchor(event, host)
+			const anchor = contextMenuAnchor(event, host);
+			void requestSelection({ edgeId: flowEdge.id }).then(selected => {
+				if (selected) {
+					showContextMenu({ kind: 'edge', edge, anchor });
+				}
 			});
-		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		}, [contextMenuAnchor, requestSelection, showContextMenu]);
 		const onPaneContextMenu = vendor.useCallback((event: globalThis.MouseEvent | ReactMouseEvent<Element>) => {
 			event.preventDefault();
 			event.stopPropagation();
 			host.focus({ preventScroll: true });
-			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			showContextMenu({
-				kind: 'pane',
-				anchor: contextMenuAnchor(event, host)
+			const anchor = contextMenuAnchor(event, host);
+			void requestSelection({}).then(selected => {
+				if (selected) {
+					showContextMenu({ kind: 'pane', anchor });
+				}
 			});
-		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		}, [contextMenuAnchor, requestSelection, showContextMenu]);
 		const onNodeClick = vendor.useCallback((event: ReactMouseEvent<Element>, node: BaseHalfCanvasFlowNode) => {
 			if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || isDirectCardControl(event.target)) {
 				return;
 			}
-			delegate.activateCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
-		}, []);
+			void requestSelection({ cardPaths: [node.id] }).then(selected => {
+				if (selected) {
+					delegate.cancelPendingCardOpen();
+				}
+			});
+		}, [requestSelection]);
 		const onNodeDoubleClick = vendor.useCallback((event: ReactMouseEvent<Element>, node: BaseHalfCanvasFlowNode) => {
 			if (isDirectCardControl(event.target)) {
 				return;
 			}
-			delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
-		}, []);
+			const noteBody = isHTMLElement(event.target) && event.target.closest<HTMLElement>('.basehalf-canvas-card-body');
+			if (node.data.card.controls?.kind === 'note' && !noteBody) {
+				return;
+			}
+			const noteFocusPoint = noteBody ? (() => {
+				const bounds = noteBody.getBoundingClientRect();
+				const scaleX = bounds.width > 0 ? noteBody.clientWidth / bounds.width : 1;
+				const scaleY = bounds.height > 0 ? noteBody.clientHeight / bounds.height : 1;
+				return {
+					x: Math.max(0, (event.clientX - bounds.left) * scaleX),
+					y: Math.max(0, (event.clientY - bounds.top) * scaleY)
+				};
+			})() : undefined;
+			void requestSelection({ cardPaths: [node.id] }).then(selected => {
+				if (!selected) {
+					return;
+				}
+				const action = node.data.card.controls?.kind === 'note'
+					? delegate.editNote(node.data.sceneKey, node.data.structuralEpoch, node.id, noteFocusPoint)
+					: delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
+				void action.catch(error => delegate.reportError(error));
+			});
+		}, [requestSelection]);
 		const onPaneDoubleClick = vendor.useCallback((event: MouseEvent) => {
 			const startedOnPane = paneDoubleClickStartedOnPane.current;
 			paneDoubleClickStartedOnPane.current = false;
@@ -2433,14 +2493,16 @@ function createCanvasSceneMount(
 			}
 			event.preventDefault();
 			event.stopPropagation();
-			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
-			delegate.showCreateMenu(sceneKeyRef.current, structuralEpochRef.current, {
-				x: event.clientX,
-				y: event.clientY
+			const sceneKey = sceneKeyRef.current;
+			const structuralEpoch = structuralEpochRef.current;
+			const position = { x: event.clientX, y: event.clientY };
+			void requestSelection({}).then(selected => {
+				if (selected && sceneKeyRef.current === sceneKey && structuralEpochRef.current === structuralEpoch) {
+					delegate.showCreateMenu(sceneKey, structuralEpoch, position);
+				}
 			});
 			host.focus({ preventScroll: true });
-		}, [setLiveEdges, setLiveNodes]);
+		}, [requestSelection]);
 		vendor.useEffect(() => {
 			const onClickCapture = (event: MouseEvent) => {
 				if (event.detail === 1) {
@@ -2484,9 +2546,13 @@ function createCanvasSceneMount(
 					lastPaneConnectionCancellationAt.current = event.timeStamp;
 					cancelPendingConnection();
 				}
+				void requestSelection({});
 				host.focus({ preventScroll: true });
 			},
-			onEdgeClick: () => host.focus({ preventScroll: true }),
+			onEdgeClick: (_event, edge) => {
+				host.focus({ preventScroll: true });
+				void requestSelection({ edgeId: edge.id });
+			},
 			onInit: flow => {
 				flowRef.current = flow;
 				reportViewport(sceneKeyRef.current, flow.getViewport(), false);
@@ -2535,7 +2601,8 @@ function createCanvasSceneMount(
 			selectionMode: vendor.SelectionMode.Partial,
 			panOnDrag: [1, 2],
 			multiSelectionKeyCode: 'Shift',
-			onlyRenderVisibleElements: nodes.length > CANVAS_NODE_CULL_THRESHOLD,
+			onlyRenderVisibleElements: nodes.length > CANVAS_NODE_CULL_THRESHOLD
+				&& !nodes.some(node => node.data.card.controls?.kind === 'note' && node.data.card.forceInteractive === true),
 			proOptions: { hideAttribution: true },
 			defaultEdgeOptions: { type: 'basehalf-reference', animated: false },
 			fitView: false
@@ -2555,7 +2622,7 @@ function createCanvasSceneMount(
 					}),
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
 					selectionSurface === 'note'
-						? h(NoteSelectionControls, { node: selectedNodes[0], invoke: invokeSelectionAction })
+						? h(NoteSelectionControls, { node: selectedNodes[0] })
 						: selectionSurface === 'structural'
 							? h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction })
 							: null

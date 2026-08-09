@@ -22,11 +22,11 @@ export function baseHalfCanvasCardPresentation(
 	if (context.forceInteractive) {
 		return 'interactive';
 	}
-	if (!context.nearViewport) {
-		return 'shell';
-	}
 	if (context.selected && context.selectionSize === 1) {
 		return 'interactive';
+	}
+	if (!context.nearViewport) {
+		return 'shell';
 	}
 	return 'preview';
 }

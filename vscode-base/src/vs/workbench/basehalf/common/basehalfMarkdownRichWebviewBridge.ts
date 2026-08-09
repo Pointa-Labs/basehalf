@@ -9,8 +9,10 @@ import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
+	BaseHalfMarkdownRichSurface,
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichFileLink,
+	IBaseHalfMarkdownRichFocusPoint,
 	IBaseHalfMarkdownRichTextSelection,
 	baseHalfMarkdownRichUpdateFromPayload,
 	isBaseHalfMarkdownRichWebviewMessage,
@@ -40,7 +42,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		this._register(toDisposable(() => this.doc.off('update', this.onDocUpdate)));
 	}
 
-	sendInit(resource: string, baseUri: string, content: string, editable: boolean, selection?: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
+	sendInit(
+		resource: string,
+		baseUri: string,
+		content: string,
+		editable: boolean,
+		surface: BaseHalfMarkdownRichSurface,
+		selection?: IBaseHalfMarkdownRichTextSelection
+	): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
 			key: this.key,
@@ -48,6 +57,7 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			baseUri,
 			content,
 			editable,
+			surface,
 			...(selection ? { selection } : {})
 		});
 	}
@@ -74,6 +84,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			type: 'basehalf.markdownRich.revealSelection',
 			key: this.key,
 			selection
+		});
+	}
+
+	sendFocusAtPoint(point: IBaseHalfMarkdownRichFocusPoint): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.focusAtPoint',
+			key: this.key,
+			point
 		});
 	}
 
@@ -104,14 +122,15 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean; readonly structural: boolean }): Promise<boolean> {
+	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean; readonly structural: boolean; readonly handoff: boolean }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.save',
 			key: this.key,
 			requestId,
 			forceSerialize: options.forceSerialize,
 			forceWrite: options.forceWrite,
-			structural: options.structural
+			structural: options.structural,
+			handoff: options.handoff
 		});
 	}
 

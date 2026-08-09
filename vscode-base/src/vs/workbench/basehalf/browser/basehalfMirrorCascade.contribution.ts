@@ -27,6 +27,7 @@ import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { BaseHalfBadgeKind } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { BaseHalfCardDetailProjection } from '../common/basehalfCardDetail.js';
 import {
 	baseHalfIsMirrorSubtree,
 	baseHalfAssertMirrorPathComponentsNotSymbolicLink,
@@ -263,11 +264,11 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				throw new Error('BaseHalf mirror cascade was disposed before the file operation reached its commit barrier.');
 			}
 			context.kinds = await this.captureOperationKinds(files);
-			const detail = this.canvasNavigationService.state.cardDetail;
+			const activeEditor = this.activeEditorProjection();
 			const preparedFence = await baseHalfPrepareStructuralDetail(
 				operation,
 				files,
-				detail?.resource,
+				activeEditor?.resource,
 				() => {
 					const fences = new DisposableStore();
 					for (const path of affectedPaths) {
@@ -317,20 +318,39 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 
 	private async flushAffectedActiveProjection(files: readonly SourceTargetPair[], operation: FileOperation): Promise<boolean> {
 		for (let attempt = 0; attempt < 3; attempt++) {
-			const detail = this.canvasNavigationService.state.cardDetail;
-			if (!detail || !baseHalfStructuralOperationAffectsResource(operation, files, detail.resource)) {
+			const inlineEditor = this.canvasNavigationService.activeCanvasEditor;
+			if (inlineEditor && baseHalfStructuralOperationAffectsResource(operation, files, inlineEditor.resource)) {
+				if (!await inlineEditor.prepareToClose()) {
+					return false;
+				}
+				if (this.canvasNavigationService.activeCanvasEditor === inlineEditor) {
+					return false;
+				}
+				continue;
+			}
+			const activeEditor = this.activeEditorProjection();
+			if (!activeEditor || !baseHalfStructuralOperationAffectsResource(operation, files, activeEditor.resource)) {
 				return true;
 			}
-			const identity = `${detail.resource.toString()}\0${detail.projection}`;
-			if (!await this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, baseHalfStructuralEditorFlushOptions(detail.projection))) {
+			const identity = `${activeEditor.resource.toString()}\0${activeEditor.projection}`;
+			if (!await this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, baseHalfStructuralEditorFlushOptions(activeEditor.projection))) {
 				return false;
 			}
-			const current = this.canvasNavigationService.state.cardDetail;
+			const current = this.activeEditorProjection();
 			if (`${current?.resource.toString()}\0${current?.projection}` === identity) {
 				return true;
 			}
 		}
 		return false;
+	}
+
+	private activeEditorProjection(): { readonly resource: URI; readonly projection: BaseHalfCardDetailProjection } | undefined {
+		const detail = this.canvasNavigationService.state.cardDetail;
+		if (detail) {
+			return detail;
+		}
+		const inlineEditor = this.canvasNavigationService.activeCanvasEditor;
+		return inlineEditor ? { resource: inlineEditor.resource, projection: 'rich' } : undefined;
 	}
 
 	override dispose(): void {

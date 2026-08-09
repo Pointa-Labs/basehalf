@@ -21,7 +21,7 @@ suite('BaseHalfCanvasCardPresentation', () => {
 		assert.strictEqual(baseHalfCanvasCardPresentation(passive), 'preview');
 	});
 
-	test('keeps offscreen cards unhydrated unless interaction is explicit', () => {
+	test('keeps offscreen passive cards unhydrated and retains the single selected editor', () => {
 		assert.strictEqual(baseHalfCanvasCardPresentation({
 			...passive,
 			nearViewport: false
@@ -31,7 +31,7 @@ suite('BaseHalfCanvasCardPresentation', () => {
 			nearViewport: false,
 			selected: true,
 			selectionSize: 1
-		}), 'shell');
+		}), 'interactive');
 		assert.strictEqual(baseHalfCanvasCardPresentation({
 			...passive,
 			nearViewport: false,

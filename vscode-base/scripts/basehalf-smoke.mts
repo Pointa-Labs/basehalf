@@ -94,6 +94,7 @@ const env = {
 
 let app;
 let canvasViewportBeforeCardDetail;
+const pageErrors = [];
 try {
 	if (!fs.existsSync(electronPath)) {
 		throw new Error(`Dev Electron was not found at ${electronPath}. Run npm run electron or npm run basehalf:smoke first.`);
@@ -101,7 +102,10 @@ try {
 
 	app = await _electron.launch({ executablePath: electronPath, args, timeout: 60_000, env });
 	const page = await app.firstWindow();
-	page.on('pageerror', error => console.error(`[basehalf-smoke] pageerror: ${error.stack || error.message}`));
+	page.on('pageerror', error => {
+		pageErrors.push(error);
+		console.error(`[basehalf-smoke] pageerror: ${error.stack || error.message}`);
+	});
 	page.on('console', message => {
 		if (shouldLogConsoleMessage(message)) {
 			const location = message.location();
@@ -120,7 +124,7 @@ try {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
-		await step('canvas-note-selection-controls', () => assertCanvasNoteSelectionControls(page));
+		await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
 	}
 
 		if (opts.settingsOnly) {
@@ -604,6 +608,10 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'README.md'), [
 		'# Smoke README',
 		'',
+		'soft-line-alpha',
+		'soft-line-beta',
+		'soft-line-gamma',
+		'',
 		'> **Smoke editable quote.** It keeps a [guide link](docs/guide.md) as a rich quote block.',
 		'',
 		'- **Smoke nested item** starts here',
@@ -797,10 +805,24 @@ async function runCommandWhenAvailable(page, value, timeout = 30_000) {
 }
 
 async function tryRunCommand(page, value, options = {}) {
-	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
-	const quickInput = visibleQuickInput(page);
-	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
-	await quickInput.fill(`>${value}`);
+	let quickInput;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const previousQuickInput = visibleQuickInput(page);
+		if (await previousQuickInput.isVisible().catch(() => false)) {
+			await page.keyboard.press('Escape');
+			await previousQuickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		}
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+		const candidate = visibleQuickInput(page);
+		await candidate.waitFor({ state: 'visible', timeout: 15_000 });
+		if (await candidate.fill(`>${value}`, { timeout: 3_000 }).then(() => true, () => false)) {
+			quickInput = candidate;
+			break;
+		}
+	}
+	if (!quickInput) {
+		throw new Error(`Could not open QuickInput for command: ${value}`);
+	}
 	const firstRow = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
 	await firstRow.waitFor({ state: 'visible', timeout: 15_000 });
 	const firstRowText = ((await firstRow.getAttribute('aria-label')) ?? (await firstRow.textContent()) ?? '').replace(/\s+/g, ' ').trim();
@@ -2666,13 +2688,196 @@ async function assertNoEditorTabFor(page, name) {
 	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
 }
 
-async function assertCanvasNoteSelectionControls(page) {
+async function assertCanvasStillOnTop(page, context) {
+	const state = await page.evaluate(() => {
+		const editorPart = document.querySelector('.monaco-workbench .part.editor');
+		const activeEditor = document.querySelector('.monaco-workbench .part.editor .editor-instance[aria-label]');
+		return {
+			canvasOnTop: editorPart?.classList.contains('basehalf-canvas-on-top') === true,
+			activeEditor: activeEditor?.getAttribute('aria-label') ?? undefined
+		};
+	});
+	if (!state.canvasOnTop || state.activeEditor !== undefined) {
+		throw new Error(`Canvas lost its primary surface ${context}: ${JSON.stringify(state)}`);
+	}
+}
+
+function canvasNoteInlineEditor(page, relativePath) {
+	const host = page.getByTestId(`canvas-note-editor-${relativePath}`);
+	return {
+		host,
+		surface: host.locator('.basehalf-canvas-markdown-inline').first(),
+		editable: host.locator('.basehalf-canvas-markdown-inline > .ProseMirror').first()
+	};
+}
+
+async function waitForCanvasNoteInlineEditor(page, relativePath) {
+	const editor = canvasNoteInlineEditor(page, relativePath);
+	await editor.host.waitFor({ state: 'visible', timeout: 3_000 });
+	await editor.surface.waitFor({ state: 'visible', timeout: 3_000 });
+	await editor.editable.waitFor({ state: 'visible', timeout: 3_000 });
+	await page.waitForFunction(testId => {
+		const host = document.querySelector(`[data-testid="${testId}"]`);
+		const editable = host?.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror');
+		return editable instanceof HTMLElement
+			&& editable.getAttribute('contenteditable') === 'true'
+			&& (document.activeElement === editable || editable.contains(document.activeElement));
+	}, `canvas-note-editor-${relativePath}`, { timeout: 3_000 });
+	const liveEditors = await page.locator('[data-testid^="canvas-note-editor-"]').count();
+	if (liveEditors !== 1) {
+		throw new Error(`Expected exactly one Canvas Note inline editor, got ${liveEditors}`);
+	}
+	return editor;
+}
+
+async function placeCanvasInlineCaretAfter(editable, token) {
+	await editable.evaluate(async (root, expectedToken) => {
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let node;
+		while ((node = walker.nextNode())) {
+			const offset = node.textContent?.indexOf(expectedToken) ?? -1;
+			if (offset < 0) {
+				continue;
+			}
+			node.parentElement?.scrollIntoView({ block: 'center', inline: 'nearest' });
+			const range = document.createRange();
+			range.setStart(node, offset + expectedToken.length);
+			range.collapse(true);
+			root.focus();
+			const selection = root.ownerDocument.getSelection();
+			selection?.removeAllRanges();
+			selection?.addRange(range);
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			return;
+		}
+		throw new Error(`Inline editor did not render visible token: ${expectedToken}`);
+	}, token);
+}
+
+async function placeCanvasInlineCaretBefore(editable, token) {
+	await editable.evaluate(async (root, expectedToken) => {
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let node;
+		while ((node = walker.nextNode())) {
+			const offset = node.textContent?.indexOf(expectedToken) ?? -1;
+			if (offset < 0) {
+				continue;
+			}
+			const range = document.createRange();
+			range.setStart(node, offset);
+			range.collapse(true);
+			root.focus();
+			const selection = root.ownerDocument.getSelection();
+			selection?.removeAllRanges();
+			selection?.addRange(range);
+			root.ownerDocument.dispatchEvent(new Event('selectionchange'));
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			return;
+		}
+		throw new Error(`Inline editor did not render visible token: ${expectedToken}`);
+	}, token);
+}
+
+async function clickCanvasInlineCaretAfter(page, editable, token) {
+	const point = await editable.evaluate((root, expectedToken) => {
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let node;
+		while ((node = walker.nextNode())) {
+			const offset = node.textContent?.indexOf(expectedToken) ?? -1;
+			if (offset < 0) {
+				continue;
+			}
+			const range = document.createRange();
+			range.setStart(node, offset + expectedToken.length - 1);
+			range.setEnd(node, offset + expectedToken.length);
+			const rect = range.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) {
+				throw new Error(`Inline token has no clickable text bounds: ${expectedToken}`);
+			}
+			return { x: rect.right - 0.25, y: rect.top + rect.height / 2 };
+		}
+		throw new Error(`Inline editor did not render visible token: ${expectedToken}`);
+	}, token);
+	await page.mouse.click(point.x, point.y);
+}
+
+async function dragSelectCanvasInline(page, editable, fromToken, toToken) {
+	const points = await editable.evaluate((root, tokens) => {
+		const pointFor = expectedToken => {
+			const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+			let node;
+			while ((node = walker.nextNode())) {
+				const offset = node.textContent?.indexOf(expectedToken) ?? -1;
+				if (offset < 0) {
+					continue;
+				}
+				const character = Math.max(offset, offset + Math.floor(expectedToken.length / 2));
+				const range = document.createRange();
+				range.setStart(node, character);
+				range.setEnd(node, Math.min((node.textContent?.length ?? 0), character + 1));
+				const rect = range.getBoundingClientRect();
+				if (rect.width <= 0 || rect.height <= 0) {
+					throw new Error(`Inline token has no selectable text bounds: ${expectedToken}`);
+				}
+				return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+			}
+			throw new Error(`Inline editor did not render selection token: ${expectedToken}`);
+		};
+		return { from: pointFor(tokens.fromToken), to: pointFor(tokens.toToken) };
+	}, { fromToken, toToken });
+	// Collapse any previous directional selection first. Starting a second drag
+	// on an existing selection endpoint can invoke the browser's drag-selection
+	// gesture instead of creating a new range.
+	await page.mouse.click(points.from.x, points.from.y);
+	await page.mouse.move(points.from.x, points.from.y);
+	await page.mouse.down();
+	await page.mouse.move(points.to.x, points.to.y, { steps: 12 });
+	await page.mouse.up();
+	return editable.evaluate(root => {
+		const selection = root.ownerDocument.getSelection();
+		const unitFor = node => {
+			const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+			return element?.closest?.('[data-basehalf-markdown-unit]')?.getAttribute('data-basehalf-markdown-unit');
+		};
+		return {
+			collapsed: selection?.isCollapsed ?? true,
+			text: selection?.toString() ?? '',
+			anchorUnit: unitFor(selection?.anchorNode),
+			focusUnit: unitFor(selection?.focusNode)
+		};
+	});
+}
+
+async function assertNoCanvasNoteHeavyEditor(page, cardSelector, phase) {
+	const canvasDom = await page.locator(cardSelector).locator([
+		'.monaco-editor',
+		'.bn-editor',
+		'.basehalf-card-detail-markdown-rich',
+		'.basehalf-card-detail-markdown-rich-webview',
+		'iframe',
+		'webview'
+	].join(', ')).count();
+	const richFrames = await markdownRichEditorFrameCount(page, cardSelector);
+	const detailOpen = await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false);
+	const parkedDom = detailOpen ? 0 : await page.locator('.basehalf-card-detail-body .basehalf-card-detail-markdown-rich').count();
+	const parkedFrames = detailOpen ? 0 : await markdownRichEditorFrameCount(page, '.basehalf-card-detail-body');
+	if (canvasDom !== 0 || richFrames !== 0 || parkedDom !== 0 || parkedFrames !== 0) {
+		throw new Error(`Canvas Note mounted Monaco, BlockNote, or a rich Webview during ${phase}: ${JSON.stringify({ canvasDom, richFrames, parkedDom, parkedFrames })}`);
+	}
+}
+
+async function assertCanvasNoteInlineWysiwygEditor(page) {
 	await closeCardDetailIfOpen(page);
 	const pane = page.locator('.react-flow__pane');
-	const note = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const cardSelector = '.basehalf-canvas-card[data-basehalf-card-path="README.md"]';
+	const note = page.locator(cardSelector);
 	const folder = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+	const readmePath = path.join(workspacePath, 'README.md');
+	const originalMarkdown = fs.readFileSync(readmePath, 'utf8');
 	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
 	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	const inlineEditor = canvasNoteInlineEditor(page, 'README.md');
+
 	if (await resetZoom.isEnabled()) {
 		await resetZoom.click();
 	}
@@ -2680,185 +2885,475 @@ async function assertCanvasNoteSelectionControls(page) {
 	await folder.waitFor({ state: 'visible', timeout: 20_000 });
 	await centerCanvasCards(page, [note]);
 	await pane.click({ position: { x: 16, y: 16 } });
-	await note.click();
 
-	const toolbar = page.getByRole('toolbar', { name: 'README.md note actions', exact: true });
-	const views = page.getByRole('region', { name: 'README.md note views', exact: true });
-	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
-	await views.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await page.locator('.basehalf-canvas-selection-toolbar').count() !== 0) {
-		throw new Error('A selected Note rendered both specialized and generic selection controls');
-	}
-	const openButton = toolbar.locator('button').last();
-	if (!await openButton.evaluate(button => button.classList.contains('codicon-screen-full'))) {
-		throw new Error('The Note open action is not the last toolbar button');
-	}
-
-	const initialBoxes = await Promise.all([note.boundingBox(), toolbar.boundingBox(), views.boundingBox()]);
-	const [initialNoteBox, initialToolbarBox, initialViewsBox] = initialBoxes;
-	if (!initialNoteBox || !initialToolbarBox || !initialViewsBox) {
-		throw new Error('Could not measure the selected Note controls');
-	}
-	if (initialToolbarBox.y + initialToolbarBox.height > initialNoteBox.y - 8) {
-		throw new Error('The Note toolbar overlaps the top connection area');
-	}
-	if (initialViewsBox.y < initialNoteBox.y + initialNoteBox.height + 8) {
-		throw new Error('The Note views panel overlaps the bottom connection area');
-	}
-	const pointerPolicy = await views.evaluate(element => {
-		const actions = element.querySelector('.basehalf-canvas-note-view-actions');
-		return {
-			panel: getComputedStyle(element).pointerEvents,
-			actions: actions ? getComputedStyle(actions).pointerEvents : ''
-		};
+	const staticPreview = note.locator('.basehalf-canvas-card-preview .bh-md-preview').first();
+	await staticPreview.waitFor({ state: 'visible', timeout: 20_000 });
+	const staticPreviewIdentity = await staticPreview.evaluate(preview => {
+		const identity = `preview-${Date.now()}-${Math.random()}`;
+		preview.setAttribute('data-smoke-preview-identity', identity);
+		return identity;
 	});
-	if (pointerPolicy.panel !== 'none' || pointerPolicy.actions === 'none') {
-		throw new Error(`The Note views panel blocks background interactions outside its actions: ${JSON.stringify(pointerPolicy)}`);
+	const staticPreviewHtml = await staticPreview.evaluate(preview => preview.innerHTML);
+	const staticCardBox = await note.boundingBox();
+	const softLineTokens = ['soft-line-alpha', 'soft-line-beta', 'soft-line-gamma'];
+	const measureSoftLines = root => root.evaluate((content, tokens) => {
+		const body = content.closest('.basehalf-canvas-card-body');
+		if (!(body instanceof HTMLElement)) {
+			throw new Error('Note content is not inside its card body');
+		}
+		const bodyBounds = body.getBoundingClientRect();
+		return tokens.map(token => {
+			const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+			let node;
+			while ((node = walker.nextNode())) {
+				const offset = node.textContent?.indexOf(token) ?? -1;
+				if (offset < 0) {
+					continue;
+				}
+				const range = document.createRange();
+				range.setStart(node, offset);
+				range.setEnd(node, offset + token.length);
+				const bounds = range.getBoundingClientRect();
+				return {
+					x: bounds.left - bodyBounds.left,
+					y: bounds.top - bodyBounds.top,
+					height: bounds.height
+				};
+			}
+			throw new Error(`Note content did not render soft-line token: ${token}`);
+		});
+	}, softLineTokens);
+	const unselectedSoftLines = await measureSoftLines(staticPreview);
+	if (new Set(unselectedSoftLines.map(metric => Math.round(metric.y * 10))).size !== softLineTokens.length) {
+		throw new Error(`Static Note collapsed source soft lines: ${JSON.stringify(unselectedSoftLines)}`);
 	}
-	const stacking = await note.evaluate((card, controlsSelector) => {
+	const restingCursor = await staticPreview.evaluate(preview => getComputedStyle(preview).cursor);
+	if (restingCursor !== 'grab') {
+		throw new Error(`A resting Note must remain a draggable card, got cursor=${restingCursor}`);
+	}
+
+	await note.click();
+	const toolbar = page.getByRole('toolbar', { name: 'Actions for README.md', exact: true });
+	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	const toolbarLabels = await toolbar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
+	if (JSON.stringify(toolbarLabels) !== JSON.stringify(['Expand README.md'])) {
+		throw new Error(`The Note toolbar must contain only Expand: ${JSON.stringify(toolbarLabels)}`);
+	}
+	const expandButton = toolbar.getByRole('button', { name: 'Expand README.md', exact: true });
+	if (!await expandButton.evaluate(button => button.classList.contains('codicon-screen-full'))) {
+		throw new Error('The Note Expand action is not a screen-full toolbar button');
+	}
+	if (await page.locator('.basehalf-canvas-note-views, .basehalf-canvas-selection-toolbar').count() !== 0) {
+		throw new Error('A selected Note rendered retired views or generic selection controls');
+	}
+	if (await note.getAttribute('data-preview-level') !== 'preview'
+		|| await inlineEditor.host.count() !== 0
+		|| await note.locator('.basehalf-canvas-note-editor-fallback').count() !== 0) {
+		throw new Error('Selecting a Note replaced its static preview with an editor surface');
+	}
+	const selectedPreviewState = await staticPreview.evaluate((preview, expectedIdentity) => ({
+		identity: preview.getAttribute('data-smoke-preview-identity'),
+		html: preview.innerHTML,
+		expectedIdentity
+	}), staticPreviewIdentity);
+	if (selectedPreviewState.identity !== selectedPreviewState.expectedIdentity || selectedPreviewState.html !== staticPreviewHtml) {
+		throw new Error(`Selecting a Note replaced or rewrote its static preview: ${JSON.stringify(selectedPreviewState)}`);
+	}
+	const selectedSoftLines = await measureSoftLines(staticPreview);
+	if (unselectedSoftLines.some((metric, index) => Math.abs(metric.x - selectedSoftLines[index].x) > 1
+		|| Math.abs(metric.y - selectedSoftLines[index].y) > 1
+		|| Math.abs(metric.height - selectedSoftLines[index].height) > 1)) {
+		throw new Error(`Selecting a Note changed its soft-line layout: ${JSON.stringify({ unselectedSoftLines, selectedSoftLines })}`);
+	}
+	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
+		throw new Error('Selecting a Note changed its Markdown source');
+	}
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'single-click selection');
+
+	const [selectedNoteBox, initialToolbarBox] = await Promise.all([note.boundingBox(), toolbar.boundingBox()]);
+	if (!selectedNoteBox || !initialToolbarBox) {
+		throw new Error('Could not measure the selected Note toolbar');
+	}
+	const toolbarIsSeparated = initialToolbarBox.y + initialToolbarBox.height <= selectedNoteBox.y - 8
+		|| initialToolbarBox.y >= selectedNoteBox.y + selectedNoteBox.height + 8;
+	if (!toolbarIsSeparated) {
+		throw new Error('The Note toolbar overlaps the selected card or its connection area');
+	}
+	const stacking = await note.evaluate(card => {
 		const node = card.closest('.react-flow__node');
-		const controls = document.querySelector(controlsSelector);
+		const controls = document.querySelector('.basehalf-canvas-note-toolbar');
 		return {
 			node: node ? Number(getComputedStyle(node).zIndex) : Number.NaN,
 			controls: controls ? Number(getComputedStyle(controls).zIndex) : Number.NaN
 		};
-	}, '.basehalf-canvas-note-toolbar');
+	});
 	if (!Number.isFinite(stacking.node) || !Number.isFinite(stacking.controls) || stacking.controls <= stacking.node) {
 		throw new Error(`Note controls do not stay above the selected node: ${JSON.stringify(stacking)}`);
 	}
-
 	for (let attempt = 0; attempt < 12 && await zoomOut.isEnabled(); attempt++) {
 		await zoomOut.click();
 		await page.waitForTimeout(50);
 	}
 	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) <= 0.21, null, { timeout: 10_000 });
-	const zoomedBoxes = await Promise.all([toolbar.boundingBox(), views.boundingBox()]);
-	const [zoomedToolbarBox, zoomedViewsBox] = zoomedBoxes;
-	if (!zoomedToolbarBox || !zoomedViewsBox
+	const zoomedToolbarBox = await toolbar.boundingBox();
+	if (!zoomedToolbarBox
 		|| Math.abs(zoomedToolbarBox.width - initialToolbarBox.width) > 1
-		|| Math.abs(zoomedToolbarBox.height - initialToolbarBox.height) > 1
-		|| Math.abs(zoomedViewsBox.width - initialViewsBox.width) > 1
-		|| Math.abs(zoomedViewsBox.height - initialViewsBox.height) > 1) {
-		throw new Error('Note controls changed screen size with canvas zoom');
+		|| Math.abs(zoomedToolbarBox.height - initialToolbarBox.height) > 1) {
+		throw new Error('The Note toolbar changed screen size with canvas zoom');
 	}
-	await openButton.click();
-	await assertCardDetail(page, 'README.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
-	await closeCardDetailIfOpen(page);
-	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
-	await views.waitFor({ state: 'visible', timeout: 10_000 });
-	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) <= 0.21, null, { timeout: 10_000 });
+	if (await inlineEditor.host.count() !== 0) {
+		throw new Error('Zooming a selected Note mounted its inline editor');
+	}
 	await resetZoom.click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 
-	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
-	const centeredNoteBox = await note.boundingBox();
-	if (!canvasBox || !centeredNoteBox) {
-		throw new Error('Could not measure the canvas before the Note edge-placement check');
+	await note.locator('.basehalf-canvas-card-header').dblclick();
+	await page.waitForTimeout(250);
+	if (await inlineEditor.host.count() !== 0
+		|| await staticPreview.getAttribute('data-smoke-preview-identity') !== staticPreviewIdentity) {
+		throw new Error('Double-clicking the Note header entered content editing or replaced its static preview');
 	}
-	const panX = canvasBox.x + canvasBox.width - 12 - (centeredNoteBox.x + centeredNoteBox.width);
-	const panY = canvasBox.y + canvasBox.height - 12 - (centeredNoteBox.y + centeredNoteBox.height);
-	const panStart = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + 40 };
-	await page.mouse.move(panStart.x, panStart.y);
-	await page.mouse.down({ button: 'middle' });
-	await page.mouse.move(panStart.x + panX, panStart.y + panY, { steps: 8 });
-	await page.mouse.up({ button: 'middle' });
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-note-toolbar')?.getAttribute('data-placement') === 'stack-above', null, { timeout: 10_000 });
-	const edgeBoxes = await Promise.all([
-		page.locator('.basehalf-canvas-cards').boundingBox(),
-		toolbar.boundingBox(),
-		views.boundingBox()
-	]);
-	const [edgeCanvasBox, edgeToolbarBox, edgeViewsBox] = edgeBoxes;
-	if (!edgeCanvasBox || !edgeToolbarBox || !edgeViewsBox
-		|| edgeToolbarBox.x < edgeCanvasBox.x + 7
-		|| edgeViewsBox.x < edgeCanvasBox.x + 7
-		|| edgeToolbarBox.x + edgeToolbarBox.width > edgeCanvasBox.x + edgeCanvasBox.width - 7
-		|| edgeViewsBox.x + edgeViewsBox.width > edgeCanvasBox.x + edgeCanvasBox.width - 7
-		|| edgeToolbarBox.y < edgeCanvasBox.y + 7
-		|| edgeViewsBox.y < edgeCanvasBox.y + 7
-		|| edgeToolbarBox.y + edgeToolbarBox.height > edgeCanvasBox.y + edgeCanvasBox.height - 7
-		|| edgeViewsBox.y + edgeViewsBox.height > edgeCanvasBox.y + edgeCanvasBox.height - 7) {
-		throw new Error('Note controls escaped the canvas at the lower-right viewport edge');
+
+	// Use a block that is physically inside the clipped card viewport. A locator
+	// can report later paragraphs as visible even when the card's overflow clips
+	// their click point to an earlier block.
+	const visibleNeedle = 'soft-line-beta';
+	const sourceParagraph = () => note.locator('.bh-md-preview p', { hasText: visibleNeedle }).first();
+	await sourceParagraph().waitFor({ state: 'visible', timeout: 20_000 });
+	const inlineOpenStarted = Date.now();
+	await sourceParagraph().dblclick();
+	const activeInlineEditor = await waitForCanvasNoteInlineEditor(page, 'README.md');
+	console.error(`[basehalf-smoke] canvas-note-inline-ready-ms ${Date.now() - inlineOpenStarted}`);
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'inline WYSIWYG editing');
+	const editingFallback = note.locator('.basehalf-canvas-note-editor-fallback');
+	if (await editingFallback.count() !== 1 || await editingFallback.getAttribute('aria-hidden') !== 'true') {
+		throw new Error('The ready Canvas inline editor did not retain one accessibility-hidden atomic exit frame');
 	}
-	await centerCanvasCards(page, [note]);
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-note-toolbar')?.getAttribute('data-placement') === 'split', null, { timeout: 10_000 });
-	const cardsHost = page.locator('.basehalf-canvas-cards');
-	const originalHostWidth = await cardsHost.evaluate(element => element.style.width);
-	const originalHostBox = await cardsHost.boundingBox();
-	if (!originalHostBox || originalHostBox.width <= 600) {
-		throw new Error('The canvas is too narrow for the resize-observer smoke check');
+	const editingCursor = await activeInlineEditor.editable.evaluate(editable => getComputedStyle(editable).cursor);
+	if (editingCursor !== 'text') {
+		throw new Error(`The active Note editor must advertise text input, got cursor=${editingCursor}`);
 	}
-	const resizedHostWidth = Math.round(originalHostBox.width * 0.62);
-	await cardsHost.evaluate((element, width) => { element.style.width = `${width}px`; }, resizedHostWidth);
-	await page.waitForFunction(width => {
-		const host = document.querySelector('.basehalf-canvas-cards');
-		const controls = document.querySelector('.basehalf-canvas-note-views');
-		if (!(host instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
+	const scrollbarContract = await activeInlineEditor.surface.evaluate(scrollable => {
+		const workbench = scrollable.closest('.basehalf-canvas-workbench');
+		const zoom = Number(workbench?.getAttribute('data-zoom'));
+		const scrollbarStyle = getComputedStyle(scrollable, '::-webkit-scrollbar');
+		const trackStyle = getComputedStyle(scrollable, '::-webkit-scrollbar-track');
+		const owners: string[] = [];
+		for (let current: Element | null = scrollable; current; current = current.parentElement) {
+			const overflowY = getComputedStyle(current).overflowY;
+			if (overflowY === 'auto' || overflowY === 'scroll') {
+				owners.push(current.getAttribute('class') ?? current.tagName);
+			}
+			if (current.classList.contains('basehalf-canvas-card-body')) {
+				break;
+			}
+		}
+		const before = scrollable.scrollTop;
+		const maximum = Math.max(0, scrollable.scrollHeight - scrollable.clientHeight);
+		scrollable.scrollTop = maximum;
+		const reachesEnd = maximum > 0 && Math.abs(scrollable.scrollTop - maximum) <= 1;
+		scrollable.scrollTop = before;
+		return {
+			overflowX: getComputedStyle(scrollable).overflowX,
+			overflowY: getComputedStyle(scrollable).overflowY,
+			owners,
+			reachesEnd,
+			screenWidth: Number.parseFloat(scrollbarStyle.width) * zoom,
+			trackBackground: trackStyle.backgroundColor
+		};
+	});
+	if (scrollbarContract.overflowX !== 'hidden'
+		|| scrollbarContract.overflowY !== 'auto'
+		|| scrollbarContract.owners.length !== 1
+		|| !scrollbarContract.reachesEnd
+		|| !Number.isFinite(scrollbarContract.screenWidth)
+		|| scrollbarContract.screenWidth < 8
+		|| scrollbarContract.screenWidth > 12
+		|| scrollbarContract.trackBackground !== 'rgba(0, 0, 0, 0)') {
+		throw new Error(`Canvas Markdown does not have one stable overlay scrollbar: ${JSON.stringify(scrollbarContract)}`);
+	}
+	const editingChrome = await note.evaluate(card => {
+		const node = card.closest('.react-flow__node');
+		const visibleResizeHandles = Array.from(node?.querySelectorAll('.basehalf-canvas-node-resizer-handle') ?? []).filter(handle => {
+			const style = getComputedStyle(handle);
+			return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+		}).length;
+		const liveConnectionHandles = Array.from(node?.querySelectorAll('.basehalf-canvas-card-connect-handle') ?? []).filter(handle => {
+			const style = getComputedStyle(handle);
+			return style.pointerEvents !== 'none' || style.opacity !== '0';
+		}).length;
+		return {
+			cardSelected: card.classList.contains('selected'),
+			visibleResizeHandles,
+			liveConnectionHandles,
+			connectionHandles: Array.from(node?.querySelectorAll('.basehalf-canvas-card-connect-handle') ?? []).map(handle => ({
+				className: handle.getAttribute('class'),
+				style: handle.getAttribute('style'),
+				opacity: getComputedStyle(handle).opacity,
+				pointerEvents: getComputedStyle(handle).pointerEvents
+			}))
+		};
+	});
+	if (editingChrome.cardSelected || editingChrome.visibleResizeHandles !== 0 || editingChrome.liveConnectionHandles !== 0) {
+		throw new Error(`Editing a Note exposed structural selection chrome: ${JSON.stringify(editingChrome)}`);
+	}
+	const editingCardBox = await note.boundingBox();
+	if (!staticCardBox || !editingCardBox
+		|| Math.abs(staticCardBox.width - editingCardBox.width) > 1
+		|| Math.abs(staticCardBox.height - editingCardBox.height) > 1) {
+		throw new Error(`Opening the Canvas inline editor changed card geometry: ${JSON.stringify({ staticCardBox, editingCardBox })}`);
+	}
+	const editingSoftLines = await measureSoftLines(activeInlineEditor.surface);
+	if (selectedSoftLines.some((metric, index) => Math.abs(metric.x - editingSoftLines[index].x) > 1
+		|| Math.abs(metric.y - editingSoftLines[index].y) > 1
+		|| Math.abs(metric.height - editingSoftLines[index].height) > 1)) {
+		throw new Error(`Opening the Canvas inline editor changed its soft-line layout: ${JSON.stringify({ selectedSoftLines, editingSoftLines })}`);
+	}
+	const editingDragBefore = await note.boundingBox();
+	const editingDragTarget = await activeInlineEditor.editable.boundingBox();
+	if (!editingDragBefore || !editingDragTarget) {
+		throw new Error('Could not measure the active Note drag fence');
+	}
+	await page.mouse.move(editingDragTarget.x + 12, editingDragTarget.y + Math.min(12, editingDragTarget.height / 2));
+	await page.mouse.down();
+	await page.mouse.move(editingDragTarget.x + 52, editingDragTarget.y + Math.min(30, editingDragTarget.height / 2 + 18), { steps: 6 });
+	await page.mouse.up();
+	const editingDragAfter = await note.boundingBox();
+	if (!editingDragAfter
+		|| Math.abs(editingDragBefore.x - editingDragAfter.x) > 1
+		|| Math.abs(editingDragBefore.y - editingDragAfter.y) > 1) {
+		throw new Error(`Dragging inside the active editor moved the canvas card: ${JSON.stringify({ editingDragBefore, editingDragAfter })}`);
+	}
+	const siblingQuote = activeInlineEditor.surface.locator('.basehalf-canvas-markdown-inline-unit blockquote', { hasText: 'Smoke editable quote.' }).first();
+	await siblingQuote.click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror strong')?.textContent?.includes('Smoke editable quote.'), null, { timeout: 3_000 });
+	const siblingSoftLines = activeInlineEditor.surface.locator('.basehalf-canvas-markdown-inline-unit p', { hasText: visibleNeedle }).first();
+	await siblingSoftLines.click();
+	await page.waitForFunction(token => document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror')?.textContent?.includes(token), visibleNeedle, { timeout: 3_000 });
+	const upwardSelection = await dragSelectCanvasInline(page, activeInlineEditor.editable, 'Smoke editable quote.', 'soft-line-alpha');
+	if (upwardSelection.collapsed
+		|| !upwardSelection.text.includes('soft-line-beta')
+		|| upwardSelection.anchorUnit === upwardSelection.focusUnit) {
+		throw new Error(`Bottom-up Canvas Markdown selection stopped at a unit boundary: ${JSON.stringify(upwardSelection)}`);
+	}
+	const downwardSelection = await dragSelectCanvasInline(page, activeInlineEditor.editable, 'soft-line-alpha', 'Smoke editable quote.');
+	if (downwardSelection.collapsed
+		|| !downwardSelection.text.includes('soft-line-beta')
+		|| downwardSelection.anchorUnit === downwardSelection.focusUnit) {
+		throw new Error(`Top-down Canvas Markdown selection stopped at a unit boundary: ${JSON.stringify(downwardSelection)}`);
+	}
+	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
+		throw new Error('Moving the caret or selecting across Markdown units changed source bytes without a text edit');
+	}
+	const crossUnitReplacement = 'canvas-cross-unit-replacement';
+	await page.keyboard.insertText(crossUnitReplacement);
+	await page.waitForFunction(marker => {
+		const text = document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror')?.textContent ?? '';
+		return text.includes(marker) && !text.includes('soft-line-beta');
+	}, crossUnitReplacement, { timeout: 3_000 });
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await page.waitForFunction(marker => {
+		const text = document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror')?.textContent ?? '';
+		return !text.includes(marker) && text.includes('soft-line-beta') && text.includes('Smoke editable quote.');
+	}, crossUnitReplacement, { timeout: 3_000 });
+
+	await placeCanvasInlineCaretBefore(activeInlineEditor.editable, 'needle-basehalf-second');
+	await page.keyboard.press('Backspace');
+	await page.waitForFunction(() => {
+		const root = document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror');
+		if (!(root instanceof HTMLElement)) {
 			return false;
 		}
-		const hostRect = host.getBoundingClientRect();
-		const controlsRect = controls.getBoundingClientRect();
-		return Math.abs(hostRect.width - width) <= 1
-			&& controlsRect.left >= hostRect.left + 7
-			&& controlsRect.right <= hostRect.right - 7;
-	}, resizedHostWidth, { timeout: 10_000 });
-	await cardsHost.evaluate((element, width) => { element.style.width = width; }, originalHostWidth);
-	await page.waitForFunction(width => Math.abs(document.querySelector('.basehalf-canvas-cards')?.getBoundingClientRect().width - width) <= 1, originalHostBox.width, { timeout: 10_000 });
-
+		const unitFor = token => {
+			const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+			let node;
+			while ((node = walker.nextNode())) {
+				if (node.textContent?.includes(token)) {
+					return node.parentElement?.closest('[data-basehalf-markdown-unit]')?.getAttribute('data-basehalf-markdown-unit');
+				}
+			}
+			return undefined;
+		};
+		const first = unitFor('needle-basehalf-routing');
+		const second = unitFor('needle-basehalf-second');
+		return first !== undefined && first === second;
+	}, null, { timeout: 3_000 });
+	const joinedBoundaryMarkdown = originalMarkdown.replace(
+		'needle-basehalf-routing\n\nneedle-basehalf-second',
+		'needle-basehalf-routingneedle-basehalf-second'
+	);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+S' : 'Control+S');
+	await waitUntil(
+		() => fs.readFileSync(readmePath, 'utf8') === joinedBoundaryMarkdown,
+		'Backspace at a paragraph boundary to save one joined Markdown paragraph',
+		15_000
+	);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await page.waitForFunction(() => {
+		const units = Array.from(document.querySelectorAll('.basehalf-canvas-markdown-inline > .ProseMirror > [data-basehalf-markdown-unit]'));
+		return units.some(unit => unit.textContent?.includes('needle-basehalf-routing'))
+			&& units.some(unit => unit.textContent?.includes('needle-basehalf-second'))
+			&& !units.some(unit => unit.textContent?.includes('needle-basehalf-routing') && unit.textContent?.includes('needle-basehalf-second'));
+	}, null, { timeout: 3_000 });
 	await pane.click({ position: { x: 16, y: 16 } });
-	await toolbar.waitFor({ state: 'hidden', timeout: 10_000 });
-	await views.waitFor({ state: 'hidden', timeout: 10_000 });
-	await centerCanvasCards(page, [folder]);
-	await folder.click();
-	await page.getByRole('toolbar', { name: 'Selected card actions', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
-	if (await page.locator('.basehalf-canvas-note-toolbar, .basehalf-canvas-note-views').count() !== 0) {
-		throw new Error('A non-Note card rendered Note selection controls');
-	}
+	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await waitUntil(
+		() => fs.readFileSync(readmePath, 'utf8') === originalMarkdown,
+		'paragraph-boundary undo to restore exact Markdown bytes',
+		15_000
+	).catch(error => {
+		throw new Error(`Paragraph-boundary undo saved unexpected Markdown: ${JSON.stringify(fs.readFileSync(readmePath, 'utf8'))}`, { cause: error });
+	});
+	await sourceParagraph().dblclick();
+	await waitForCanvasNoteInlineEditor(page, 'README.md');
 
+	const firstCaretMarker = ' canvas-inline-first';
+	const secondCaretMarker = ' canvas-inline-second';
+	await clickCanvasInlineCaretAfter(page, activeInlineEditor.editable, visibleNeedle);
+	await page.keyboard.insertText(firstCaretMarker);
+	// Let the first model edit close its undo group and deliberately cross VS
+	// Code's 800 ms dirty-file tracker window. A BaseHalf-owned working copy must
+	// stay on the Canvas instead of being opened in a native Monaco editor.
+	await page.waitForTimeout(1_000);
+	await page.keyboard.insertText(secondCaretMarker);
+	await assertCanvasStillOnTop(page, 'before inline undo');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await page.waitForFunction(({ first, second }) => {
+		const text = document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror')?.textContent ?? '';
+		return text.includes(first) && !text.includes(second);
+	}, { first: firstCaretMarker, second: secondCaretMarker }, { timeout: 3_000 });
+	await assertCanvasStillOnTop(page, 'after inline undo');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y');
+	await page.waitForFunction(({ first, second }) => {
+		const text = document.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror')?.textContent ?? '';
+		return text.includes(first) && text.includes(second);
+	}, { first: firstCaretMarker, second: secondCaretMarker }, { timeout: 3_000 });
+	await assertCanvasStillOnTop(page, 'after inline redo');
+	await note.evaluate((card, token) => {
+		const body = card.querySelector('.basehalf-canvas-card-body');
+		const workbench = card.closest('.basehalf-canvas-workbench');
+		if (!(body instanceof HTMLElement) || !(workbench instanceof HTMLElement)) {
+			throw new Error('Missing Note body or Canvas root before atomic exit probe');
+		}
+		const samples: boolean[] = [];
+		const record = () => {
+			samples.push(body.textContent?.includes(token) === true);
+			workbench.setAttribute('data-smoke-note-exit-samples', JSON.stringify(samples));
+		};
+		record();
+		new MutationObserver(record).observe(body, { childList: true, characterData: true, subtree: true });
+	}, visibleNeedle);
+	await pane.click({ position: { x: 16, y: 16 } });
+	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await page.waitForTimeout(100);
+	const canvasWorkbench = page.locator('.basehalf-canvas-workbench');
+	const exitSamples = JSON.parse(await canvasWorkbench.getAttribute('data-smoke-note-exit-samples') ?? '[]');
+	if (exitSamples.length === 0 || exitSamples.some(sample => sample !== true)) {
+		throw new Error(`Canvas Note exposed an empty/partial body while exiting edit mode: ${JSON.stringify(exitSamples)}`);
+	}
+	await canvasWorkbench.evaluate(root => root.removeAttribute('data-smoke-note-exit-samples'));
+	await assertCanvasStillOnTop(page, 'after inline click-away');
+	const caretMarker = `${firstCaretMarker}${secondCaretMarker}`;
+	const expectedCaretMarkdown = originalMarkdown.replace(visibleNeedle, `${visibleNeedle}${caretMarker}`);
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8') === expectedCaretMarkdown, 'click-away to durably save the localized Canvas inline edit', 15_000);
+	const caretMarkdown = fs.readFileSync(readmePath, 'utf8');
+	if (caretMarkdown !== expectedCaretMarkdown
+		|| caretMarkdown.slice(0, caretMarkdown.indexOf(caretMarker)) + caretMarkdown.slice(caretMarkdown.indexOf(caretMarker) + caretMarker.length) !== originalMarkdown) {
+		throw new Error('The Canvas inline editor changed bytes outside the visible needle edit');
+	}
+	await note.locator('.bh-md-preview', { hasText: caretMarker }).waitFor({ state: 'visible', timeout: 10_000 });
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'inline click-away exit');
+
+	const restoreReadmeFixture = async () => {
+		// Test cleanup intentionally arrives as an external write. This also
+		// verifies that the resting preview reconciles the same file after its
+		// inline editor has been disposed.
+		fs.writeFileSync(readmePath, originalMarkdown, 'utf8');
+		await waitUntil(() => fs.readFileSync(readmePath, 'utf8') === originalMarkdown, 'README fixture cleanup', 15_000);
+		await note.locator('.bh-md-preview p', { hasText: 'needle-basehalf-routing' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	};
+	await restoreReadmeFixture();
+	await assertCanvasStillOnTop(page, 'after inline fixture restore');
+
+	const quotePreview = () => note.locator('.bh-md-preview blockquote', { hasText: 'Smoke editable quote.' }).first();
+	await quotePreview().waitFor({ state: 'visible', timeout: 10_000 });
+	await quotePreview().dblclick();
+	const quoteEditor = await waitForCanvasNoteInlineEditor(page, 'README.md');
+	const activeQuote = quoteEditor.surface.locator('.basehalf-canvas-markdown-inline-unit blockquote', { hasText: 'Smoke editable quote.' }).first();
+	await activeQuote.locator('strong', { hasText: 'Smoke editable quote.' }).waitFor({ state: 'visible', timeout: 5_000 });
+	await activeQuote.locator('a', { hasText: 'guide link' }).waitFor({ state: 'visible', timeout: 5_000 });
+	const visibleQuoteText = await activeQuote.innerText();
+	if (visibleQuoteText.includes('**') || visibleQuoteText.includes('docs/guide.md')) {
+		throw new Error(`Canvas inline WYSIWYG exposed Markdown markers or a link destination: ${JSON.stringify(visibleQuoteText)}`);
+	}
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'formatted inline WYSIWYG unit');
+	await page.keyboard.press('Escape');
+	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
+		throw new Error('Opening and closing a formatted Canvas inline unit normalized its Markdown bytes');
+	}
+	await quotePreview().waitFor({ state: 'visible', timeout: 10_000 });
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'formatted static preview');
+
+	await sourceParagraph().waitFor({ state: 'visible', timeout: 10_000 });
+	await sourceParagraph().dblclick();
+	const expandInlineEditor = await waitForCanvasNoteInlineEditor(page, 'README.md');
+	const expandMarker = ' canvas-expand-inline-marker';
+	await placeCanvasInlineCaretAfter(expandInlineEditor.editable, visibleNeedle);
+	await page.keyboard.insertText(expandMarker);
+	await expandButton.click();
+	await assertCardDetail(page, 'README.md');
+	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	const expectedExpandedMarkdown = originalMarkdown.replace(visibleNeedle, `${visibleNeedle}${expandMarker}`);
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8') === expectedExpandedMarkdown, 'Expand to durably save Canvas inline edit before opening rich detail', 15_000);
+	const expandedMarkdown = fs.readFileSync(readmePath, 'utf8');
+	if (expandedMarkdown !== expectedExpandedMarkdown) {
+		throw new Error('Expand did not preserve the exact Markdown bytes outside the active inline unit');
+	}
+	const detailFrame = await activeMarkdownRichFrame(page, '.basehalf-card-detail-surface.active');
+	await detailFrame.locator('.bn-editor', { hasText: expandMarker }).waitFor({ state: 'visible', timeout: 15_000 });
+	if (await markdownRichEditorFrameCount(page, '.basehalf-card-detail-surface.active') !== 1) {
+		throw new Error('Expand did not leave exactly one rich editor in Card Detail');
+	}
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'expanded Card Detail');
+	await assertNoEditorTabFor(page, 'README.md');
+	await closeCardDetailIfOpen(page);
+	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
 	await centerCanvasCards(page, [note]);
+	await restoreReadmeFixture();
+
 	await pane.click({ position: { x: 16, y: 16 } });
 	await note.click();
+	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	await sourceParagraph().dblclick();
+	await waitForCanvasNoteInlineEditor(page, 'README.md');
 	await centerCanvasCards(page, [folder]);
 	await folder.click({ modifiers: ['Shift'] });
 	await page.getByRole('toolbar', { name: 'Actions for 2 selected cards', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
-	if (await page.locator('.basehalf-canvas-note-toolbar, .basehalf-canvas-note-views').count() !== 0) {
-		throw new Error('A multi-selection rendered single-Note controls');
+	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	if (await page.locator('.basehalf-canvas-note-toolbar, [data-testid^="canvas-note-editor-"]').count() !== 0) {
+		throw new Error('A multi-selection retained single-Note controls or its inline editor');
+	}
+	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
+		throw new Error('Closing an unchanged inline editor for multi-selection changed Markdown');
+	}
+	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'multi-selection');
+
+	await pane.click({ position: { x: 16, y: 16 } });
+	await centerCanvasCards(page, [folder]);
+	await folder.click();
+	await page.getByRole('toolbar', { name: 'Selected card actions', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-canvas-note-toolbar, [data-testid^="canvas-note-editor-"]').count() !== 0) {
+		throw new Error('A non-Note card rendered Note controls or a Note inline editor');
 	}
 
-	const selectNote = async () => {
-		await centerCanvasCards(page, [note]);
-		await pane.click({ position: { x: 16, y: 16 } });
-		await note.click();
-		await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
-		await views.waitFor({ state: 'visible', timeout: 10_000 });
-	};
-
-	await selectNote();
-	await views.getByRole('button', { name: 'Source', exact: true }).click();
-	await assertCardDetail(page, 'README.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-source').waitFor({ state: 'visible', timeout: 15_000 });
-	await assertNoEditorTabFor(page, 'README.md');
-	await closeCardDetailIfOpen(page);
-
-	await selectNote();
-	await views.getByRole('button', { name: 'Preview', exact: true }).click();
-	await assertCardDetail(page, 'README.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-preview').waitFor({ state: 'visible', timeout: 15_000 });
-	await closeCardDetailIfOpen(page);
-
-	await selectNote();
-	await openButton.click();
-	await assertCardDetail(page, 'README.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
-	await closeCardDetailIfOpen(page);
-
-	await centerCanvasCards(page, [note]);
-	await pane.click({ position: { x: 16, y: 16 } });
-	await note.dblclick({ delay: 40 });
-	await assertCardDetail(page, 'README.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
-	await closeCardDetailIfOpen(page);
+	const inlineSelectionErrors = pageErrors.filter(error => /Position \d+ out of range/.test(error.message));
+	if (inlineSelectionErrors.length > 0) {
+		throw new Error(`The Canvas inline editor produced an invalid document selection: ${inlineSelectionErrors.map(error => error.message).join('; ')}`);
+	}
+	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
+		throw new Error('Canvas Note inline smoke did not restore the README fixture exactly');
+	}
 }
 
 async function assertCanvasCardBadgePreviewAndConnectors(page) {
@@ -3345,7 +3840,46 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	await assertCardDetail(page, 'smoke-note.md');
 	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-card-detail-close').click();
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]').waitFor({ state: 'visible', timeout: 10_000 });
+	const emptyNote = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]');
+	await emptyNote.waitFor({ state: 'visible', timeout: 10_000 });
+	await centerCanvasCards(page, [emptyNote]);
+	const emptyNotePlaceholder = emptyNote.locator('.basehalf-canvas-note-empty', { hasText: 'Double-click to edit' });
+	await emptyNotePlaceholder.waitFor({ state: 'visible', timeout: 10_000 });
+	await emptyNote.click();
+	const emptyNoteEditor = canvasNoteInlineEditor(page, 'smoke-note.md');
+	const emptyNoteToolbar = page.getByRole('toolbar', { name: 'Actions for smoke-note.md', exact: true });
+	await emptyNoteToolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	const emptyToolbarLabels = await emptyNoteToolbar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
+	if (JSON.stringify(emptyToolbarLabels) !== JSON.stringify(['Expand smoke-note.md'])) {
+		throw new Error(`The empty Note toolbar must contain only Expand: ${JSON.stringify(emptyToolbarLabels)}`);
+	}
+	if (await emptyNote.getAttribute('data-preview-level') !== 'preview' || await emptyNoteEditor.host.count() !== 0) {
+		throw new Error('Selecting a newly created empty Note mounted its editor before a double click');
+	}
+	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'empty Note selection');
+	const emptyInlineOpenStarted = Date.now();
+	await emptyNotePlaceholder.dblclick();
+	await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
+	console.error(`[basehalf-smoke] canvas-note-empty-inline-ready-ms ${Date.now() - emptyInlineOpenStarted}`);
+	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'empty Note inline editing');
+	const emptyNotePath = path.join(workspacePath, 'smoke-note.md');
+	const initialEmptyNoteMarkdown = fs.readFileSync(emptyNotePath, 'utf8');
+	if (initialEmptyNoteMarkdown.trim() !== '') {
+		throw new Error(`A newly created empty Note had unexpected content before its first Canvas edit: ${JSON.stringify(initialEmptyNoteMarkdown)}`);
+	}
+	const emptyNoteMarkdown = 'Empty Note inline smoke\n\nBody';
+	await page.keyboard.insertText('Empty Note inline smoke');
+	await page.keyboard.press('Enter');
+	await page.keyboard.insertText('Body');
+	await page.keyboard.press('Escape');
+	await emptyNoteEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await waitUntil(() => fs.readFileSync(emptyNotePath, 'utf8') === emptyNoteMarkdown, 'Escape to save visible empty Note text exactly', 15_000);
+	await emptyNote.locator('.bh-md-preview p', { hasText: 'Empty Note inline smoke' }).first().waitFor({ state: 'visible', timeout: 10_000 });
+	await emptyNote.locator('.bh-md-preview p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'saved empty Note preview');
+	if (await page.getByRole('button', { name: /save/i }).filter({ visible: true }).count()) {
+		throw new Error('Inline Note editing exposed an explicit Save action');
+	}
 
 	for (const relativePath of ['smoke-data.json', 'smoke-folder', 'smoke-note.md']) {
 		fs.rmSync(path.join(workspacePath, relativePath), { recursive: true, force: true });
@@ -3405,10 +3939,33 @@ async function centerCanvasCards(page, cards) {
 			return;
 		}
 
-		const startX = canvasBox.x + canvasBox.width / 2;
-		const startY = canvasBox.y + canvasBox.height / 2;
-		const maxDeltaX = Math.max(1, canvasBox.width / 2 - 12);
-		const maxDeltaY = Math.max(1, canvasBox.height / 2 - 12);
+		const panStart = await page.evaluate(({ bounds, horizontal, vertical }) => {
+			const xFractions = horizontal >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
+			const yFractions = vertical >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
+			for (const yFraction of yFractions) {
+				for (const xFraction of xFractions) {
+					const x = bounds.x + bounds.width * xFraction;
+					const y = bounds.y + bounds.height * yFraction;
+					if (document.elementFromPoint(x, y)?.closest('.react-flow__pane')) {
+						return { x, y };
+					}
+				}
+			}
+			return undefined;
+		}, { bounds: canvasBox, horizontal: deltaX, vertical: deltaY });
+		if (!panStart) {
+			await page.waitForTimeout(100);
+			continue;
+		}
+
+		const startX = panStart.x;
+		const startY = panStart.y;
+		const maxDeltaX = Math.max(1, deltaX >= 0
+			? canvasBox.x + canvasBox.width - startX - 12
+			: startX - canvasBox.x - 12);
+		const maxDeltaY = Math.max(1, deltaY >= 0
+			? canvasBox.y + canvasBox.height - startY - 12
+			: startY - canvasBox.y - 12);
 		await page.mouse.move(startX, startY);
 		await page.mouse.down({ button: 'middle' });
 		await page.mouse.move(
@@ -4351,6 +4908,8 @@ async function assertCanvasSnapGuides(page) {
 		};
 		const readmeMatrix = matrixFor(readmeNode);
 		const docsMatrix = matrixFor(docsNode);
+		// Start from the Note body: outside edit mode the whole card is the
+		// draggable surface, not only its header.
 		const readmeRect = readmeCard.getBoundingClientRect();
 		const rootRect = root.getBoundingClientRect();
 		const zoom = Number(root.getAttribute('data-zoom')) || 1;
@@ -5162,7 +5721,7 @@ async function assertMarkdownRichMenuUndoRoutesToEditor(page) {
 	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes(marker), 'menu undo to persist the marker removal', 15_000);
 }
 
-async function activeMarkdownRichFrame(page) {
+async function activeMarkdownRichFrame(page, ownerSelector) {
 	const started = Date.now();
 	let lastFrameUrls = [];
 	while (Date.now() - started < 20_000) {
@@ -5170,7 +5729,7 @@ async function activeMarkdownRichFrame(page) {
 		lastFrameUrls = frames.map(frame => frame.url()).filter(Boolean);
 		for (const frame of frames) {
 			const editorCount = await frame.locator('.basehalf-markdown-rich.ready .bn-editor').count().catch(() => 0);
-			if (editorCount > 0) {
+			if (editorCount > 0 && await markdownRichFrameBelongsTo(frame, ownerSelector)) {
 				return frame;
 			}
 		}
@@ -5178,6 +5737,31 @@ async function activeMarkdownRichFrame(page) {
 	}
 
 	throw new Error(`Markdown rich editor webview was not ready. Frames: ${lastFrameUrls.join(', ')}`);
+}
+
+async function markdownRichEditorFrameCount(page, ownerSelector) {
+	const counts = await Promise.all(page.frames().map(async frame => {
+		if (!await markdownRichFrameBelongsTo(frame, ownerSelector)) {
+			return 0;
+		}
+		return frame.locator('.basehalf-markdown-rich.ready .bn-editor').count().catch(() => 0);
+	}));
+	return counts.reduce((total, count) => total + count, 0);
+}
+
+async function markdownRichFrameBelongsTo(frame, ownerSelector) {
+	if (!ownerSelector) {
+		return true;
+	}
+	let ownerFrame = frame;
+	const mainFrame = frame.page().mainFrame();
+	while (ownerFrame.parentFrame() && ownerFrame.parentFrame() !== mainFrame) {
+		ownerFrame = ownerFrame.parentFrame();
+	}
+	const frameElement = await ownerFrame.frameElement().catch(() => undefined);
+	return frameElement
+		? frameElement.evaluate((element, selector) => element.closest(selector) !== null, ownerSelector).catch(() => false)
+		: false;
 }
 
 async function assertSourceCardFlushesBeforeNavigation(page) {

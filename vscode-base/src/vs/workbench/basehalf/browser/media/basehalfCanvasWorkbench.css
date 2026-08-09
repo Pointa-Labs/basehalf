@@ -322,14 +322,13 @@
 	outline-offset: -1px;
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar,
-.monaco-workbench .basehalf-canvas-note-views {
+.monaco-workbench .basehalf-canvas-note-toolbar {
 	z-index: 1001;
 	box-sizing: border-box;
 	color: var(--vscode-menu-foreground);
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-	box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
 }
 
 .monaco-workbench .basehalf-canvas-note-surface {
@@ -340,33 +339,18 @@
 
 .monaco-workbench .basehalf-canvas-note-toolbar {
 	display: flex;
-	height: 32px;
+	height: 36px;
 	align-items: center;
 	gap: 2px;
 	padding: 3px;
+	overflow-x: auto;
+	overflow-y: hidden;
 	border-radius: 6px;
 	pointer-events: auto;
+	scrollbar-width: none;
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-label {
-	display: inline-flex;
-	height: 24px;
-	align-items: center;
-	gap: 6px;
-	padding: 0 7px 0 5px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
-	font-weight: 600;
-	white-space: nowrap;
-	user-select: none;
-}
-
-.monaco-workbench .basehalf-canvas-note-toolbar-label .codicon {
-	font-size: 14px;
-}
-
-.monaco-workbench .basehalf-canvas-note-toolbar.compact .basehalf-canvas-note-toolbar-label,
-.monaco-workbench .basehalf-canvas-note-toolbar.compact .basehalf-canvas-note-toolbar-label + .basehalf-canvas-note-toolbar-divider {
+.monaco-workbench .basehalf-canvas-note-toolbar::-webkit-scrollbar {
 	display: none;
 }
 
@@ -379,8 +363,9 @@
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action {
 	display: inline-flex;
-	width: 26px;
-	height: 24px;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 28px;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
@@ -388,8 +373,29 @@
 	background: transparent;
 	border: 0;
 	border-radius: 4px;
+	font-family: var(--vscode-font-family);
+	font-size: 11px;
+	font-weight: 600;
 	cursor: pointer;
 	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.italic {
+	font-style: italic;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
+	position: sticky;
+	right: 0;
+	z-index: 1;
+	margin-left: auto;
+	background: var(--vscode-menu-background);
+	box-shadow: -5px 0 7px var(--vscode-menu-background);
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.active {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-activeBackground));
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action:hover,
@@ -398,106 +404,23 @@
 	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-action.danger:hover {
-	color: var(--vscode-errorForeground);
-	background: var(--vscode-toolbar-hoverBackground);
+.monaco-workbench .basehalf-canvas-note-toolbar-action:disabled {
+	cursor: default;
+	opacity: 0.38;
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-action:active,
-.monaco-workbench .basehalf-canvas-note-view-action:active {
+.monaco-workbench .basehalf-canvas-note-toolbar-action:active:not(:disabled) {
 	transform: translateY(1px);
 }
 
-.monaco-workbench .basehalf-canvas-note-toolbar-action:focus-visible,
-.monaco-workbench .basehalf-canvas-note-view-action:focus-visible {
+.monaco-workbench .basehalf-canvas-note-toolbar-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action.open {
-	color: var(--vscode-textLink-foreground);
-}
-
-.monaco-workbench .basehalf-canvas-note-views {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	min-height: 104px;
-	align-items: center;
-	gap: 18px;
-	padding: 14px 16px;
-	border-radius: 8px;
-	pointer-events: none;
-}
-
-.monaco-workbench .basehalf-canvas-note-views.compact {
-	grid-template-columns: minmax(0, 1fr);
-	align-content: center;
-	gap: 10px;
-}
-
-.monaco-workbench .basehalf-canvas-note-views.narrow .basehalf-canvas-note-view-actions {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-}
-
-.monaco-workbench .basehalf-canvas-note-views-copy {
-	display: flex;
-	min-width: 0;
-	flex-direction: column;
-	gap: 5px;
-}
-
-.monaco-workbench .basehalf-canvas-note-views-title {
-	color: var(--vscode-foreground);
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 1.35;
-}
-
-.monaco-workbench .basehalf-canvas-note-views-description {
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
-	line-height: 1.45;
-}
-
-.monaco-workbench .basehalf-canvas-note-view-actions {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	pointer-events: auto;
-}
-
-.monaco-workbench .basehalf-canvas-note-view-action {
-	display: inline-flex;
-	height: 30px;
-	align-items: center;
-	gap: 6px;
-	padding: 0 9px;
-	color: var(--vscode-foreground);
-	background: transparent;
-	border: 1px solid var(--vscode-widget-border);
-	border-radius: 4px;
-	font: inherit;
-	font-size: 11px;
-	white-space: nowrap;
-	cursor: pointer;
-	pointer-events: auto;
-	transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-
-.monaco-workbench .basehalf-canvas-note-views.narrow .basehalf-canvas-note-view-action {
-	width: 100%;
-	justify-content: center;
-}
-
-.monaco-workbench .basehalf-canvas-note-view-action:hover {
-	color: var(--vscode-menu-selectionForeground);
-	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
-	border-color: var(--vscode-focusBorder);
-}
-
-.monaco-workbench .basehalf-canvas-note-view-action .codicon {
-	font-size: 14px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
 }
 
 .monaco-workbench .basehalf-canvas-edge-path {
@@ -628,6 +551,18 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-color: var(--bh-card-accent);
 	box-shadow: 0 0 0 1px rgb(0 120 212 / 58%), 0 4px 14px rgb(7 8 9 / 34%);
 	outline: none;
+}
+
+/* The scene keeps the editing Note selected as an internal navigation owner,
+ * but document editing must not look like a structural card selection. */
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"],
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:hover,
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:focus-visible,
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"].selected {
+	border-color: var(--bh-card-border);
+	box-shadow: 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
+	outline: none;
+	transition: none;
 }
 
 .monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
@@ -897,6 +832,175 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.5;
 	mask-image: linear-gradient(to bottom, #000 70%, transparent);
 	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown.interactive {
+	position: relative;
+	display: flex;
+	padding: 0;
+	overflow: hidden;
+	font-family: inherit;
+	mask-image: none;
+	-webkit-mask-image: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown:not(.interactive) {
+	font-family: inherit;
+	white-space: normal;
+	mask-image: none;
+	-webkit-mask-image: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	background: transparent;
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-note-inline-editor {
+	background: var(--bh-card-surface);
+}
+
+.monaco-workbench .basehalf-canvas-note-editor.ready {
+	visibility: visible;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor-fallback {
+	box-sizing: border-box;
+	padding: 8px 12px 12px;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor-fallback[aria-hidden="true"] {
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 8px 12px 12px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+	scrollbar-width: thin;
+	white-space: normal;
+	caret-color: var(--vscode-editorCursor-foreground);
+	cursor: text;
+	user-select: text;
+}
+
+/*
+ * The editor lives inside React Flow's scaled viewport. A native scrollbar is
+ * scaled with the card, so its usual platform width becomes enormous at high
+ * zoom and too small to use at low zoom. Keep this one scroll owner, but make
+ * its controls screen-sized and give normal/hover/drag one visual contract.
+ */
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar {
+	width: calc(10px / var(--basehalf-canvas-zoom, 1));
+	height: 0;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track-piece,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-button {
+	display: none;
+	width: 0;
+	height: 0;
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:hover,
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:active {
+	min-height: calc(28px / var(--basehalf-canvas-zoom, 1));
+	border: calc(2px / var(--basehalf-canvas-zoom, 1)) solid transparent;
+	border-radius: calc(5px / var(--basehalf-canvas-zoom, 1));
+	background: var(--vscode-scrollbarSlider-background);
+	background-clip: padding-box;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror {
+	min-height: 100%;
+	outline: none;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror.ProseMirror-hideselection *::selection {
+	background: transparent;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit [data-tight="true"] > li > p {
+	margin-block: 0;
+	padding-block: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit.unsupported {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0 0 8px;
+	padding: 6px 8px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editorError-foreground) 55%, transparent);
+	border-radius: 4px;
+	background: var(--bh-card-surface);
+	color: var(--vscode-editorError-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-label {
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-actions {
+	display: flex;
+	flex: none;
+	gap: 5px;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action {
+	padding: 2px 6px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 3px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	font: inherit;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-card[data-note-save-state="error"] {
+	box-shadow: 0 0 0 1px var(--vscode-editorError-foreground) inset;
 }
 
 .monaco-workbench .basehalf-canvas-card-preview.kind-folder,
@@ -1627,31 +1731,70 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 	color: var(--bh-card-text-secondary);
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-canvas-note-empty {
+	color: var(--bh-card-text-tertiary);
+	font-size: 13px;
 }
 
 .monaco-workbench .bh-md-preview h1,
 .monaco-workbench .bh-md-preview h2,
 .monaco-workbench .bh-md-preview h3,
-.monaco-workbench .bh-md-preview p {
-	margin: 0 0 6px;
-	line-height: 1.35;
+.monaco-workbench .bh-md-preview p,
+.monaco-workbench .bh-md-preview blockquote,
+.monaco-workbench .bh-md-preview pre,
+.monaco-workbench .bh-md-preview ul,
+.monaco-workbench .bh-md-preview ol {
+	margin: 0;
+	padding-top: 3px;
+	padding-bottom: 3px;
+	line-height: 1.45;
 }
 
 .monaco-workbench .bh-md-preview h1 {
 	color: var(--bh-card-text-primary);
-	font-size: 16px;
+	font-size: 18px;
 	font-weight: 700;
 }
 
 .monaco-workbench .bh-md-preview h2 {
 	color: var(--bh-card-text-primary);
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h3 {
+	color: var(--bh-card-text-primary);
 	font-size: 14px;
 	font-weight: 700;
 }
 
-.monaco-workbench .bh-md-preview h3,
-.monaco-workbench .bh-md-preview p {
-	font-size: 12px;
+.monaco-workbench .bh-md-preview ul,
+.monaco-workbench .bh-md-preview ol {
+	padding-left: 22px;
+}
+
+.monaco-workbench .bh-md-preview blockquote {
+	padding-left: 10px;
+	border-left: 2px solid var(--bh-card-text-ghost);
+}
+
+.monaco-workbench .bh-md-preview code {
+	font-family: var(--monaco-monospace-font);
+	font-size: 0.92em;
+}
+
+.monaco-workbench .bh-md-preview pre {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.monaco-workbench .bh-md-preview a {
+	color: var(--vscode-textLink-foreground);
+	text-decoration: none;
 }
 
 .monaco-workbench .basehalf-canvas-folder-preview-list {
@@ -2005,6 +2148,13 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.editing,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-card-connect-handle {
+	opacity: 0 !important;
+	pointer-events: none !important;
+	transition: none;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible::before {

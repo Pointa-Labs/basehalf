@@ -20,6 +20,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			baseUri: 'vscode-webview-resource://base/workspace/',
 			content: '# Doc\n',
 			editable: true,
+			surface: 'detail',
 			selection: {
 				startLineNumber: 3,
 				startColumn: 1,
@@ -43,6 +44,16 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			}
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.focusAtPoint',
+			key: 'workspace\u0000doc.md',
+			point: { x: 42.5, y: 18 }
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.focusAtPoint',
+			key: 'workspace\u0000doc.md',
+			point: { x: -1, y: 18 }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.command',
 			key: 'workspace\u0000doc.md',
 			command: 'undo'
@@ -52,6 +63,22 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			key: 'workspace\u0000doc.md',
 			command: 'redo'
 		}), true);
+		for (const command of [
+			'setParagraph',
+			'setHeading1',
+			'setHeading2',
+			'setHeading3',
+			'toggleBold',
+			'toggleItalic',
+			'setBulletList',
+			'setNumberedList'
+		]) {
+			assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command
+			}), true);
+		}
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.fileSearchResult',
 			key: 'workspace\u0000doc.md',
@@ -76,7 +103,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			requestId: 'save-1',
 			forceSerialize: true,
 			forceWrite: false,
-			structural: true
+			structural: true,
+			handoff: false
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.saveResult',
@@ -105,6 +133,15 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), true);
 
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.init',
+			key: 'workspace\u0000doc.md',
+			resource: 'file:///workspace/doc.md',
+			baseUri: 'vscode-webview-resource://base/workspace/',
+			content: '# Doc\n',
+			editable: true,
+			surface: 'sidebar'
+		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md', resource: 'file:///workspace/doc.md', content: '# Doc\n', editable: true, selection: { startLineNumber: 0, startColumn: 1 } }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md', resource: 'file:///workspace/doc.md', content: '# Doc\n', editable: true, selection: { startLineNumber: 1, startColumn: 'bad' } }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: '' }), false);
@@ -156,6 +193,19 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			dirty: true
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: {
+				ready: true,
+				editable: true,
+				canSetBlockType: true,
+				canToggleStyle: true,
+				blockType: 'heading2',
+				bold: true,
+				italic: false
+			}
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.editorActivated',
 			key: 'workspace\u0000doc.md'
 		}), true);
@@ -173,6 +223,22 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.workbenchCommand',
 			key: 'workspace\u0000doc.md',
 			command: 'showCommands'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'focusToolbar'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'beginAuthoring',
+			point: { x: 120, y: 64 }
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'exitEditor'
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.fileSearch',
@@ -246,9 +312,29 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			dirty: 'yes'
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: { ready: true, editable: true, canSetBlockType: true, canToggleStyle: true, blockType: 'heading4', bold: true, italic: false }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: { ready: true, editable: 'yes', canSetBlockType: true, canToggleStyle: true, blockType: 'paragraph', bold: true, italic: false }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.workbenchCommand',
 			key: 'workspace\u0000doc.md',
 			command: 'unknown'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'beginAuthoring'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'save'
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',

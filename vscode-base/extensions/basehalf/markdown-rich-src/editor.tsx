@@ -29,6 +29,7 @@ import {
 } from '@blocknote/react';
 import { applyUpdate, Doc as YDoc, UndoManager, type XmlFragment } from 'yjs';
 import { defaultDeleteFilter, defaultProtectedNodes, ySyncPluginKey, yUndoPluginKey } from 'y-prosemirror';
+import { TextSelection } from '@tiptap/pm/state';
 import { createRoot } from 'react-dom/client';
 import {
 	useCallback,
@@ -37,6 +38,7 @@ import {
 	useRef,
 	useState,
 	type JSX,
+	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
 	buildBaseHalfMarkdownFocusFields,
@@ -69,11 +71,13 @@ import {
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
 import {
-	BASEHALF_MARKDOWN_RICH_WARMUP_KEY,
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
+	type BaseHalfMarkdownRichBlockType,
 	type BaseHalfMarkdownRichEditorCommand,
+	type BaseHalfMarkdownRichSurface,
 	type BaseHalfMarkdownRichWebviewMessage,
+	type IBaseHalfMarkdownRichFormatState,
 	type IBaseHalfMarkdownRichFileLink,
 	type IBaseHalfMarkdownRichTextSelection,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
@@ -202,6 +206,7 @@ const schema = BlockNoteSchema.create({
 
 interface SessionState {
 	key: string;
+	surface: BaseHalfMarkdownRichSurface;
 	resource: string;
 	baseUri: string;
 	frontmatter: string;
@@ -216,6 +221,7 @@ interface SessionState {
 	dirty: boolean;
 	structuralFrozen: boolean;
 	editRevision: number;
+	lastAcknowledgedRevision: number;
 	loading: boolean;
 	pendingSaveContent: Map<string, { readonly content: string; readonly revision: number }>;
 	conflictDisk: string | undefined;
@@ -228,6 +234,7 @@ interface IIncomingInit {
 	readonly key: string;
 	readonly resource: string;
 	readonly baseUri: string;
+	readonly surface: BaseHalfMarkdownRichSurface;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
 	/** Arrival order; a payload older than the latest arrival is stale. */
 	readonly generation: number;
@@ -249,6 +256,7 @@ interface ContextMenuState {
 function createSessionState(key = ''): SessionState {
 	return {
 		key,
+		surface: 'detail',
 		resource: '',
 		baseUri: '',
 		frontmatter: '',
@@ -263,6 +271,7 @@ function createSessionState(key = ''): SessionState {
 		dirty: false,
 		structuralFrozen: false,
 		editRevision: 0,
+		lastAcknowledgedRevision: 0,
 		loading: true,
 		pendingSaveContent: new Map(),
 		conflictDisk: undefined,
@@ -317,6 +326,87 @@ function clearSelectionReveal(editorElement: HTMLElement | undefined): void {
 
 function shiftedRect(rect: DOMRect, x: number): DOMRect {
 	return new DOMRect(rect.x + x, rect.y, rect.width, rect.height);
+}
+
+function baseHalfFormatBlockType(block: { readonly type: string; readonly props: Record<string, unknown> }): BaseHalfMarkdownRichBlockType {
+	switch (block.type) {
+		case 'paragraph':
+			return 'paragraph';
+		case 'heading':
+			switch (block.props.level) {
+				case 1: return 'heading1';
+				case 2: return 'heading2';
+				case 3: return 'heading3';
+				default: return 'other';
+			}
+		case 'bulletListItem':
+			return 'bulletList';
+		case 'numberedListItem':
+			return 'numberedList';
+		default:
+			return 'other';
+	}
+}
+
+function baseHalfSelectionBlockType(blocks: readonly { readonly type: string; readonly props: Record<string, unknown> }[]): BaseHalfMarkdownRichBlockType {
+	if (blocks.length === 0) {
+		return 'other';
+	}
+	const blockTypes = new Set(blocks.map(baseHalfFormatBlockType));
+	return blockTypes.size === 1 ? blockTypes.values().next().value ?? 'other' : 'mixed';
+}
+
+function baseHalfCanChangeBlockType(block: { readonly type: string; readonly content?: unknown }): boolean {
+	switch (block.type) {
+		case 'paragraph':
+		case 'heading':
+		case 'bulletListItem':
+		case 'numberedListItem':
+		case 'checkListItem':
+		case 'quote':
+			return block.content !== undefined;
+		default:
+			return false;
+	}
+}
+
+type BaseHalfEditableBlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bulletList' | 'numberedList';
+
+async function baseHalfAdoptLoadProjection(
+	editorApi: IBaseHalfMarkdownEditorApi,
+	currentBlocks: readonly unknown[],
+	projectedBlocks: readonly unknown[],
+	projectedById: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
+): Promise<Map<string, IBaseHalfMarkdownReuseEntry> | undefined> {
+	if (currentBlocks.length !== projectedBlocks.length) {
+		return undefined;
+	}
+
+	const [currentMarkdown, projectedMarkdown] = await Promise.all([
+		editorApi.blocksToMarkdownLossy([...currentBlocks]),
+		editorApi.blocksToMarkdownLossy([...projectedBlocks]),
+	]);
+	if (currentMarkdown !== projectedMarkdown) {
+		return undefined;
+	}
+
+	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
+	for (let index = 0; index < projectedBlocks.length; index++) {
+		const projectedId = (projectedBlocks[index] as { readonly id?: unknown }).id;
+		const currentId = (currentBlocks[index] as { readonly id?: unknown }).id;
+		if (typeof projectedId !== 'string') {
+			continue;
+		}
+		const entry = projectedById.get(projectedId);
+		if (!entry) {
+			continue;
+		}
+		if (typeof currentId !== 'string') {
+			return undefined;
+		}
+		byId.set(currentId, entry);
+	}
+	return byId.size === projectedById.size ? byId : undefined;
 }
 
 // Wires the `[[` gesture to workspace file search: picking a file inserts a
@@ -414,6 +504,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
 	const pendingEditorCommands = useRef<BaseHalfMarkdownRichEditorCommand[]>([]);
+	const lastPostedFormatState = useRef<string | undefined>(undefined);
 	const compositionSettledWaiters = useRef(new Set<() => void>());
 	const pendingSaveSettledWaiters = useRef(new Set<() => void>());
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
@@ -426,6 +517,10 @@ function MarkdownRichEditor(): JSX.Element {
 		readonly timer: number;
 	}>());
 	const focusTimer = useRef<number | undefined>(undefined);
+	const pointFocusTimer = useRef<number | undefined>(undefined);
+	const pointFocusFrame = useRef<number | undefined>(undefined);
+	const yTransactionRevision = useRef(0);
+	const lastYTransactionAt = useRef(performance.now());
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
@@ -487,6 +582,14 @@ function MarkdownRichEditor(): JSX.Element {
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
 		},
 	});
+	useEffect(() => {
+		const onAfterTransaction = (): void => {
+			yTransactionRevision.current += 1;
+			lastYTransactionAt.current = performance.now();
+		};
+		ydoc.on('afterTransaction', onAfterTransaction);
+		return () => ydoc.off('afterTransaction', onAfterTransaction);
+	}, [ydoc]);
 	const portalElements = useMemo(() => portalElement ? {
 		formattingToolbar: portalElement,
 		linkToolbar: portalElement,
@@ -564,6 +667,18 @@ function MarkdownRichEditor(): JSX.Element {
 		blocksToMarkdownLossy: blocks => editor.blocksToMarkdownLossy(blocks as Parameters<typeof editor.blocksToMarkdownLossy>[0]),
 	}), [editor]);
 
+	const discardSelectionForNextSharedTransaction = useCallback(() => {
+		const viewState = editor.prosemirrorView?.state;
+		const binding = viewState
+			? (ySyncPluginKey.getState(viewState) as {
+				binding?: { beforeTransactionSelection: unknown };
+			} | undefined)?.binding
+			: undefined;
+		if (binding) {
+			binding.beforeTransactionSelection = { type: 'text', anchor: null, head: null };
+		}
+	}, [editor]);
+
 	const notifyDirty = useCallback((dirty: boolean) => {
 		const state = session.current;
 		if (state.dirty === dirty) {
@@ -589,6 +704,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string, baseUri: string) => {
 		const state = session.current;
 		const isNewResource = state.key !== key || state.resource !== resource;
+		const wasReady = state.ready;
 		// A deferred command belongs to the projection generation that received
 		// it. Never let an IME-era undo cross a full document reload.
 		pendingEditorCommands.current.length = 0;
@@ -609,24 +725,33 @@ function MarkdownRichEditor(): JSX.Element {
 
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
 		const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editorApi, body);
-		editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
-		// Rebuilding the projection is an ordinary local transaction, which the
-		// collaboration undo manager tracks like any edit. Clear the stacks so
-		// load, reload, and conflict resolution are never themselves undoable —
-		// otherwise undo could walk past the load and blank the document. The
+		const adoptedById = !wasReady
+			? await baseHalfAdoptLoadProjection(editorApi, editor.document, blocks, byId).catch(() => undefined)
+			: undefined;
+		if (!adoptedById) {
+			const view = editor.prosemirrorView;
+			if (view) {
+				view.dispatch(view.state.tr.setSelection(TextSelection.atStart(view.state.doc)));
+			}
+			discardSelectionForNextSharedTransaction();
+			editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+		}
+		// Loading or adopting a projection must not become an undoable edit.
+		// Otherwise undo could walk past the load and blank the document. The
 		// fallback covers loads that land while the editor view is unmounted.
 		(ensureLiveUndoManager() ?? liveUndoManager.current)?.clear();
 
 		state.frontmatter = frontmatter;
-		state.byId = byId;
+		state.byId = adoptedById ?? byId;
 		state.lastDisk = content;
 		state.editRevision = 0;
+		state.lastAcknowledgedRevision = 0;
 		state.ready = true;
 		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
 		state.loading = false;
 		notifyDirty(false);
 		setVersion(value => value + 1);
-	}, [editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
+	}, [discardSelectionForNextSharedTransaction, editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
 
 	// First meaningful frame: tell the host once the applied document has been
 	// COMMITTED to the DOM (effects run after commit), so the projection swap
@@ -703,15 +828,136 @@ function MarkdownRichEditor(): JSX.Element {
 		});
 	}, [vscode]);
 
+	const selectedBlocks = useCallback(() => {
+		try {
+			return editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
+		} catch {
+			return [];
+		}
+	}, [editor]);
+
+	const postFormatState = useCallback((): void => {
+		const state = session.current;
+		if (!state.key) {
+			return;
+		}
+
+		const ready = state.ready && !state.loading;
+		const editable = ready
+			&& state.editable
+			&& !state.structuralFrozen
+			&& state.conflictDisk === undefined
+			&& state.writeError === undefined;
+		let blockType: BaseHalfMarkdownRichBlockType = 'other';
+		let bold = false;
+		let italic = false;
+		let canSetBlockType = false;
+		let canToggleStyle = false;
+		if (ready) {
+			const selection = selectedBlocks();
+			canSetBlockType = selection.some(baseHalfCanChangeBlockType);
+			canToggleStyle = canSetBlockType;
+			const blocks = selection.map(block => ({
+				type: block.type,
+				props: block.props as unknown as Record<string, unknown>,
+			}));
+			blockType = baseHalfSelectionBlockType(blocks);
+			try {
+				const styles = editor.getActiveStyles() as { readonly bold?: unknown; readonly italic?: unknown };
+				bold = styles.bold === true;
+				italic = styles.italic === true;
+			} catch {
+				// The editor view may be between projection generations.
+			}
+		}
+
+		const formatState: IBaseHalfMarkdownRichFormatState = { ready, editable, canSetBlockType, canToggleStyle, blockType, bold, italic };
+		const signature = `${state.key}:${JSON.stringify(formatState)}`;
+		if (lastPostedFormatState.current === signature) {
+			return;
+		}
+		lastPostedFormatState.current = signature;
+		vscode.postMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: state.key,
+			state: formatState,
+		});
+	}, [editor, selectedBlocks, vscode]);
+
+	const setSelectedBlockType = useCallback((type: BaseHalfEditableBlockType): boolean => {
+		const blocks = selectedBlocks().filter(baseHalfCanChangeBlockType);
+		if (blocks.length === 0) {
+			return false;
+		}
+
+		editor.focus();
+		editor.transact(() => {
+			for (const block of blocks) {
+				switch (type) {
+					case 'paragraph':
+						editor.updateBlock(block, { type: 'paragraph' });
+						break;
+					case 'heading1':
+						editor.updateBlock(block, { type: 'heading', props: { level: 1, isToggleable: false } });
+						break;
+					case 'heading2':
+						editor.updateBlock(block, { type: 'heading', props: { level: 2, isToggleable: false } });
+						break;
+					case 'heading3':
+						editor.updateBlock(block, { type: 'heading', props: { level: 3, isToggleable: false } });
+						break;
+					case 'bulletList':
+						editor.updateBlock(block, { type: 'bulletListItem' });
+						break;
+					case 'numberedList':
+						editor.updateBlock(block, { type: 'numberedListItem' });
+						break;
+				}
+			}
+		});
+		postFormatState();
+		return true;
+	}, [editor, postFormatState, selectedBlocks]);
+
 	const executeEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		ensureLiveUndoManager();
-		return command === 'undo' ? editor.undo() : editor.redo();
-	}, [editor, ensureLiveUndoManager]);
+		editor.focus();
+		switch (command) {
+			case 'undo':
+				return editor.undo();
+			case 'redo':
+				return editor.redo();
+			case 'setParagraph':
+				return setSelectedBlockType('paragraph');
+			case 'setHeading1':
+				return setSelectedBlockType('heading1');
+			case 'setHeading2':
+				return setSelectedBlockType('heading2');
+			case 'setHeading3':
+				return setSelectedBlockType('heading3');
+			case 'toggleBold':
+				editor.toggleStyles({ bold: true });
+				postFormatState();
+				return true;
+			case 'toggleItalic':
+				editor.toggleStyles({ italic: true });
+				postFormatState();
+				return true;
+			case 'setBulletList':
+				return setSelectedBlockType('bulletList');
+			case 'setNumberedList':
+				return setSelectedBlockType('numberedList');
+		}
+	}, [editor, ensureLiveUndoManager, postFormatState, setSelectedBlockType]);
 
 	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		const state = session.current;
-		if (!state.ready || state.loading || !state.editable || state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
+		if (!state.editable || state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
 			return false;
+		}
+		if (!state.ready || state.loading) {
+			pendingEditorCommands.current.push(command);
+			return true;
 		}
 
 		if (composing.current || !!editor.prosemirrorView?.composing) {
@@ -721,12 +967,19 @@ function MarkdownRichEditor(): JSX.Element {
 		return executeEditorCommand(command);
 	}, [editor, executeEditorCommand]);
 
-	const flushPendingEditorCommands = useCallback((): void => {
+	const flushPendingEditorCommands = useCallback((allowWhileFrozen = false): void => {
+		if (session.current.structuralFrozen && !allowWhileFrozen) {
+			return;
+		}
 		const commands = pendingEditorCommands.current.splice(0);
 		for (const command of commands) {
-			runEditorCommand(command);
+			if (allowWhileFrozen) {
+				executeEditorCommand(command);
+			} else {
+				runEditorCommand(command);
+			}
 		}
-	}, [runEditorCommand]);
+	}, [executeEditorCommand, runEditorCommand]);
 
 	const waitForCompositionSettled = useCallback(async (): Promise<void> => {
 		while (composing.current || !!editor.prosemirrorView?.composing) {
@@ -743,7 +996,7 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 	}, []);
 
-	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean, structural = false) => {
+	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean, structural = false, handoff = false) => {
 		const state = session.current;
 		if (!state.key || !state.ready) {
 			return;
@@ -776,7 +1029,7 @@ function MarkdownRichEditor(): JSX.Element {
 			const snapshot = structural
 				? await baseHalfCaptureStableMarkdownRichSnapshot({
 					waitForCompositionSettled,
-					waitForPendingSaveSettled,
+					waitForPendingSaveSettled: handoff ? async () => undefined : waitForPendingSaveSettled,
 					isComposing: () => composing.current || !!editor.prosemirrorView?.composing,
 					isFrozen: () => state.structuralFrozen && state.key === key && state.resource === resource,
 					revision: () => state.editRevision,
@@ -831,6 +1084,13 @@ function MarkdownRichEditor(): JSX.Element {
 	const scheduleFocus = useCallback(() => {
 		if (focusTimer.current !== undefined) {
 			window.clearTimeout(focusTimer.current);
+		}
+		if (pointFocusTimer.current !== undefined) {
+			window.clearTimeout(pointFocusTimer.current);
+		}
+		if (pointFocusFrame.current !== undefined) {
+			window.cancelAnimationFrame(pointFocusFrame.current);
+			pointFocusFrame.current = undefined;
 		}
 		focusTimer.current = window.setTimeout(() => {
 			focusTimer.current = undefined;
@@ -925,6 +1185,56 @@ function MarkdownRichEditor(): JSX.Element {
 		window.requestAnimationFrame(() => reveal());
 	}, [editor, scheduleFocus]);
 
+	const focusAtPoint = useCallback((point: { readonly x: number; readonly y: number }): void => {
+		if (pointFocusTimer.current !== undefined) {
+			window.clearTimeout(pointFocusTimer.current);
+		}
+		if (pointFocusFrame.current !== undefined) {
+			window.cancelAnimationFrame(pointFocusFrame.current);
+			pointFocusFrame.current = undefined;
+		}
+		const quietWindow = 80;
+		const place = (remainingAttempts: number): void => {
+			const delay = Math.max(16, quietWindow - (performance.now() - lastYTransactionAt.current));
+			pointFocusTimer.current = window.setTimeout(() => {
+				pointFocusTimer.current = undefined;
+				const view = editor.prosemirrorView;
+				const documentBeforeFrame = view?.state.doc;
+				const revisionBeforeFrame = yTransactionRevision.current;
+				if (!view || !documentBeforeFrame || session.current.loading || !session.current.ready) {
+					if (remainingAttempts > 0) {
+						place(remainingAttempts - 1);
+						return;
+					}
+					editor.focus();
+					return;
+				}
+				pointFocusFrame.current = window.requestAnimationFrame(() => {
+					pointFocusFrame.current = undefined;
+					const settled = view.state.doc === documentBeforeFrame
+						&& yTransactionRevision.current === revisionBeforeFrame
+						&& performance.now() - lastYTransactionAt.current >= quietWindow;
+					if (!settled) {
+						if (remainingAttempts > 0) {
+							place(remainingAttempts - 1);
+						} else {
+							view.focus();
+						}
+						return;
+					}
+					const state = view.state;
+					const hit = view.posAtCoords({ left: point.x, top: point.y });
+					if (hit && state.doc.content.size > 1) {
+						const position = Math.max(1, Math.min(hit.pos, state.doc.content.size - 1));
+						view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(position))));
+					}
+					view.focus();
+				});
+			}, delay);
+		};
+		place(8);
+	}, [editor]);
+
 	// Applies an external file change (agent writes, other tools) to the live
 	// document incrementally: only the changed segment range is replaced, so
 	// blocks outside it — and the cursor, scroll position, and undo history —
@@ -950,6 +1260,7 @@ function MarkdownRichEditor(): JSX.Element {
 		if (body === oldBody) {
 			state.frontmatter = frontmatter;
 			state.lastDisk = content;
+			state.lastAcknowledgedRevision = state.editRevision;
 			// Read ranges are absolute file lines; a frontmatter size change
 			// shifts every block's line span.
 			state.readBlockIds = projectAdhdReadBlocks(state.adhd);
@@ -1069,6 +1380,7 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		state.frontmatter = frontmatter;
 		state.lastDisk = content;
+		state.lastAcknowledgedRevision = state.editRevision;
 		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
 		setVersion(value => value + 1);
 
@@ -1101,6 +1413,7 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 
 		pendingInit.current = undefined;
+		session.current.surface = payload.surface;
 		session.current.baseUri = payload.baseUri;
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
@@ -1113,6 +1426,7 @@ function MarkdownRichEditor(): JSX.Element {
 				// The document gained local edits after this content was sent
 				// (parked during composition, or an in-flight race). Rebuilding
 				// would clobber them; divergence is the save conflict path's job.
+				flushPendingEditorCommands();
 				return;
 			}
 			// Full rebuild; only this path re-reveals the host's navigation
@@ -1120,7 +1434,10 @@ function MarkdownRichEditor(): JSX.Element {
 			await applyContent(payload.content, payload.editable, payload.key, payload.resource, payload.baseUri);
 			revealSelection(payload.selection);
 		}
-	}, [applyContent, applyExternalContent, editor, revealSelection]);
+		if (payload.generation === initGeneration.current) {
+			flushPendingEditorCommands();
+		}
+	}, [applyContent, applyExternalContent, editor, flushPendingEditorCommands, revealSelection]);
 
 	useEffect(() => {
 		const onCompositionStart = () => {
@@ -1186,14 +1503,6 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 
 			switch (message.type) {
-				case 'basehalf.markdownRich.adopt':
-					// A prewarmed shell receives its document identity here and
-					// then runs the ordinary boot handshake.
-					if (!state.key) {
-						state.key = message.key;
-						vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: message.key });
-					}
-					break;
 				case 'basehalf.markdownRich.init':
 					void handleIncomingInit({
 						content: message.content,
@@ -1201,11 +1510,15 @@ function MarkdownRichEditor(): JSX.Element {
 						key: message.key,
 						resource: message.resource,
 						baseUri: message.baseUri,
+						surface: message.surface,
 						generation: ++initGeneration.current,
 						...(message.selection ? { selection: message.selection } : {})
 					}).catch(reportError);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
+					if (!state.ready || state.structuralFrozen) {
+						discardSelectionForNextSharedTransaction();
+					}
 					applyUpdate(ydoc, new Uint8Array(message.update), 'basehalf.host');
 					break;
 				case 'basehalf.markdownRich.setEditable':
@@ -1226,12 +1539,21 @@ function MarkdownRichEditor(): JSX.Element {
 							active.blur();
 						}
 						editor.prosemirrorView?.dom.blur();
-					} else if (state.dirty && state.conflictDisk === undefined && state.writeError === undefined) {
-						scheduleSave();
+					} else {
+						flushPendingEditorCommands();
+						if (state.dirty && state.conflictDisk === undefined && state.writeError === undefined) {
+							scheduleSave();
+						}
 					}
 					setVersion(value => value + 1);
 					void (async () => {
 						if (message.frozen) {
+							// Commands accepted before the freeze remain part of the
+							// authoring transaction. Composition must commit before those
+							// commands run and before the host receives the freeze ack.
+							await waitForCompositionSettled();
+							flushPendingEditorCommands(true);
+							editor.prosemirrorView?.dom.blur();
 							await asyncMutationBarrier.waitForIdle();
 						}
 						vscode.postMessage({
@@ -1245,6 +1567,9 @@ function MarkdownRichEditor(): JSX.Element {
 				}
 				case 'basehalf.markdownRich.revealSelection':
 					revealSelection(message.selection);
+					break;
+				case 'basehalf.markdownRich.focusAtPoint':
+					focusAtPoint(message.point);
 					break;
 				case 'basehalf.markdownRich.command':
 					runEditorCommand(message.command);
@@ -1270,7 +1595,7 @@ function MarkdownRichEditor(): JSX.Element {
 					break;
 				}
 				case 'basehalf.markdownRich.save':
-					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite, message.structural);
+					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite, message.structural, message.handoff);
 					break;
 				case 'basehalf.markdownRich.saveResult': {
 					const pending = state.pendingSaveContent.get(message.requestId);
@@ -1281,8 +1606,12 @@ function MarkdownRichEditor(): JSX.Element {
 						}
 						pendingSaveSettledWaiters.current.clear();
 					}
+					if (pending && pending.revision < state.lastAcknowledgedRevision) {
+						break;
+					}
 					if (message.result === 'saved' || message.result === 'noop') {
 						state.lastDisk = message.content ?? pending?.content ?? state.lastDisk;
+						state.lastAcknowledgedRevision = pending?.revision ?? state.editRevision;
 						state.conflictDisk = undefined;
 						state.writeError = undefined;
 						if (!pending || pending.revision === state.editRevision) {
@@ -1311,13 +1640,13 @@ function MarkdownRichEditor(): JSX.Element {
 		window.addEventListener('message', onMessage);
 		if (session.current.key) {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
-		} else {
-			// Prewarmed shell: booted without a document. Announce under the
-			// warmup sentinel and stay inert until the host adopts us.
-			vscode.postMessage({ type: 'basehalf.markdownRich.booted', key: BASEHALF_MARKDOWN_RICH_WARMUP_KEY });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, flushPendingEditorCommands, focusAtPoint, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, vscode, waitForCompositionSettled, ydoc]);
+
+	useEffect(() => {
+		postFormatState();
+	}, [postFormatState, version]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
@@ -1333,15 +1662,19 @@ function MarkdownRichEditor(): JSX.Element {
 			notifyDirty(true);
 			scheduleSave();
 			scheduleFocus();
+			postFormatState();
 		});
-		const offSelection = editor.onSelectionChange(() => scheduleFocus());
+		const offSelection = editor.onSelectionChange(() => {
+			scheduleFocus();
+			postFormatState();
+		});
 		scroll?.addEventListener('scroll', scheduleFocus, { passive: true });
 		return () => {
 			offChange();
 			offSelection();
 			scroll?.removeEventListener('scroll', scheduleFocus);
 		};
-	}, [editor, ensureLiveUndoManager, notifyDirty, scheduleFocus, scheduleSave]);
+	}, [editor, ensureLiveUndoManager, notifyDirty, postFormatState, scheduleFocus, scheduleSave]);
 
 	useEffect(() => {
 		const state = session.current;
@@ -1767,6 +2100,40 @@ function MarkdownRichEditor(): JSX.Element {
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
+			const state = session.current;
+			if (!state.key || state.surface !== 'canvas' || !state.ready || event.isComposing) {
+				return;
+			}
+			if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.key === 'F10') {
+				event.preventDefault();
+				event.stopPropagation();
+				vscode.postMessage({
+					type: 'basehalf.markdownRich.canvasCommand',
+					key: state.key,
+					command: 'focusToolbar',
+				});
+				return;
+			}
+			if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+				return;
+			}
+			if (contextMenu !== undefined || (portalElement?.childElementCount ?? 0) > 0) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.canvasCommand',
+				key: state.key,
+				command: 'exitEditor',
+			});
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, [contextMenu, portalElement, vscode]);
+
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key.toLowerCase() !== 's' || (!event.metaKey && !event.ctrlKey)) {
 				return;
 			}
@@ -1784,6 +2151,12 @@ function MarkdownRichEditor(): JSX.Element {
 		if (focusTimer.current !== undefined) {
 			window.clearTimeout(focusTimer.current);
 		}
+		if (pointFocusTimer.current !== undefined) {
+			window.clearTimeout(pointFocusTimer.current);
+		}
+		if (pointFocusFrame.current !== undefined) {
+			window.cancelAnimationFrame(pointFocusFrame.current);
+		}
 		if (revealTimer.current !== undefined) {
 			window.clearTimeout(revealTimer.current);
 		}
@@ -1792,6 +2165,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const state = session.current;
 	void version;
 	const canEdit = state.ready && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
+	const usesEmbeddedControls = state.surface === 'detail';
 	const notifyEditorActivated = useCallback(() => {
 		const state = session.current;
 		if (!state.key || !state.ready || state.loading) {
@@ -1799,6 +2173,20 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 
 		vscode.postMessage({ type: 'basehalf.markdownRich.editorActivated', key: state.key });
+	}, [vscode]);
+	const beginCanvasAuthoring = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+		const state = session.current;
+		if (!state.key || state.surface !== 'canvas' || !state.ready || state.editable
+			|| state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
+			return;
+		}
+
+		vscode.postMessage({
+			type: 'basehalf.markdownRich.canvasCommand',
+			key: state.key,
+			command: 'beginAuthoring',
+			point: { x: event.clientX, y: event.clientY }
+		});
 	}, [vscode]);
 
 	const keepLocal = () => {
@@ -1824,17 +2212,20 @@ function MarkdownRichEditor(): JSX.Element {
 
 	return (
 		<div
-			className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}
+			className={`basehalf-markdown-rich surface-${state.surface}${state.ready ? ' ready' : ''}`}
 			aria-busy={state.structuralFrozen}
 			onPointerDownCapture={notifyEditorActivated}
 			onFocusCapture={notifyEditorActivated}
+			onDoubleClick={beginCanvasAuthoring}
 		>
-			<div
-				ref={setPortalElement}
-				className="basehalf-markdown-rich-portal bn-root bn-mantine"
-				data-color-scheme={colorScheme}
-				data-mantine-color-scheme={colorScheme}
-			/>
+			{usesEmbeddedControls && (
+				<div
+					ref={setPortalElement}
+					className="basehalf-markdown-rich-portal bn-root bn-mantine"
+					data-color-scheme={colorScheme}
+					data-mantine-color-scheme={colorScheme}
+				/>
+			)}
 			{state.conflictDisk !== undefined && (
 				<div className="basehalf-markdown-rich-banner warning">
 					<span>This file changed outside the rich editor.</span>
@@ -1887,11 +2278,19 @@ function MarkdownRichEditor(): JSX.Element {
 						theme={baseHalfBlockNoteTheme}
 						sideMenu={false}
 						formattingToolbar={false}
-						portalElements={portalElements}
+						linkToolbar={usesEmbeddedControls}
+						slashMenu={usesEmbeddedControls}
+						filePanel={usesEmbeddedControls}
+						tableHandles={usesEmbeddedControls}
+						emojiPicker={usesEmbeddedControls}
+						comments={usesEmbeddedControls}
+						portalElements={usesEmbeddedControls ? portalElements : undefined}
 					>
-						<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
-						<BaseHalfSideMenuController portalElement={portalElement} />
-						<BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />
+						{usesEmbeddedControls && (
+							<FormattingToolbarController formattingToolbar={BaseHalfFormattingToolbar} portalElement={portalElement} />
+						)}
+						{usesEmbeddedControls && <BaseHalfSideMenuController portalElement={portalElement} />}
+						{usesEmbeddedControls && <BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />}
 					</BlockNoteView>
 				</div>
 			</div>

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfActiveEditorFlushOptions, baseHalfEditorProjectionCanFlush, baseHalfStructuralEditorFlushOptions, BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, baseHalfActiveEditorFlushOptions, baseHalfEditorProjectionCanFlush, baseHalfStructuralEditorFlushOptions, BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfEditorFlushService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -50,33 +50,31 @@ suite('BaseHalfEditorFlushService', () => {
 		assert.deepStrictEqual(calls.length, 1);
 	});
 
-	test('a pane flush drains every registered surface', async () => {
-		// The card detail retains one surface per projection of the open
-		// document, so several flushers can be live on one pane at once.
+	test('the shared content pane flush drains both detail and canvas rich surfaces', async () => {
 		const service = new BaseHalfEditorFlushService();
-		let firstCalls = 0;
-		let secondCalls = 0;
-		const first = service.registerPaneFlusher('pane', async () => {
-			firstCalls++;
+		let detailCalls = 0;
+		let canvasCalls = 0;
+		const detail = service.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			detailCalls++;
 			return true;
 		});
-		const second = disposables.add(service.registerPaneFlusher('pane', async () => {
-			secondCalls++;
+		const canvas = disposables.add(service.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			canvasCalls++;
 			return true;
 		}));
 
-		assert.strictEqual(await service.flushPane('pane'), true);
-		assert.strictEqual(firstCalls, 1);
-		assert.strictEqual(secondCalls, 1);
+		assert.strictEqual(await service.flushPane(BASEHALF_CARD_DETAIL_PANE_ID), true);
+		assert.strictEqual(detailCalls, 1);
+		assert.strictEqual(canvasCalls, 1);
 
-		first.dispose();
-		assert.strictEqual(await service.flushPane('pane'), true);
-		assert.strictEqual(firstCalls, 1);
-		assert.strictEqual(secondCalls, 2);
+		detail.dispose();
+		assert.strictEqual(await service.flushPane(BASEHALF_CARD_DETAIL_PANE_ID), true);
+		assert.strictEqual(detailCalls, 1);
+		assert.strictEqual(canvasCalls, 2);
 
-		second.dispose();
-		assert.strictEqual(await service.flushPane('pane'), true);
-		assert.strictEqual(secondCalls, 2);
+		canvas.dispose();
+		assert.strictEqual(await service.flushPane(BASEHALF_CARD_DETAIL_PANE_ID), true);
+		assert.strictEqual(canvasCalls, 2);
 	});
 
 	test('cold Preview structural preflight owns shared TextModel save without hidden Source or Rich', async () => {

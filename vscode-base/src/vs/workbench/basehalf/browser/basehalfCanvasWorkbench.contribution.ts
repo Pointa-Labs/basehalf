@@ -7,9 +7,11 @@ import './media/basehalfCanvasWorkbench.css';
 
 import * as DOM from '../../../base/browser/dom.js';
 import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isHTMLTextAreaElement, isSVGElement } from '../../../base/browser/dom.js';
+import { renderMarkdown } from '../../../base/browser/markdownRenderer.js';
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
+import { MarkdownString } from '../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { safeIntl } from '../../../base/common/date.js';
@@ -121,9 +123,9 @@ import {
 } from '../common/basehalfModelServices.js';
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
+import { BaseHalfCanvasMarkdownInlineEditor } from './cardDetail/basehalfCanvasMarkdownInlineEditor.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
-import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { IBaseHalfCardDetailSurfaceInstance, IBaseHalfCardDetailSurfaceRegistryService } from './cardDetail/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from './cardDetail/basehalfMediaCardDetail.js';
@@ -145,8 +147,9 @@ import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.
 import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import {
 	BaseHalfCanvasSceneContextMenuRequest,
-	BaseHalfCanvasSceneNoteProjection,
 	BaseHalfCanvasSceneSelectionAction,
+	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
+	IBaseHalfCanvasNoteEditPoint,
 	IBaseHalfCanvasSceneConnection,
 	IBaseHalfCanvasSceneConnectionDrop,
 	IBaseHalfCanvasSceneCard,
@@ -234,6 +237,18 @@ interface IBaseHalfActiveNodeLocalSurface {
 	hasDraftChanges(): boolean;
 	closeForSwitch(): Promise<boolean>;
 	closeForShutdown(): Promise<boolean>;
+}
+
+interface IBaseHalfActiveCanvasNoteEditor {
+	readonly path: string;
+	readonly state: IBaseHalfCardDetailState;
+	readonly card: HTMLElement;
+	readonly host: HTMLElement;
+	readonly fallback: HTMLElement;
+	readonly fallbackRendering: DisposableStore;
+	readonly instance: BaseHalfCanvasMarkdownInlineEditor;
+	readonly open: Promise<void>;
+	closing?: Promise<boolean>;
 }
 
 type BaseHalfCanvasCardPreview =
@@ -415,6 +430,7 @@ const OVERVIEW_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
 const BASEHALF_CANVAS_UNDO_REDO_PRIORITY = 115;
+const BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY = 10_000;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -487,7 +503,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private cardPreviewModelServicesGeneration = -1;
 	private cardPreviewModelServicesPromise: Promise<readonly IBaseHalfModelServiceDescriptor[]> | undefined;
 	private renderedSceneStructuralEpoch = 0;
-	private readonly richWebviewWarmup: BaseHalfMarkdownRichWebviewWarmup;
 	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
 	private detailSurfaceResourceKey: string | undefined;
 	private activeDetailProjection: BaseHalfCardDetailProjection | undefined;
@@ -521,6 +536,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		readonly createPosition?: { readonly x: number; readonly y: number };
 	} | undefined;
 	private activeNodeLocalSurface: IBaseHalfActiveNodeLocalSurface | undefined;
+	private activeCanvasNoteEditor: IBaseHalfActiveCanvasNoteEditor | undefined;
+	private canvasNoteSurfacePath: string | undefined;
+	private pendingCanvasNoteFocus: { readonly path: string; readonly point?: IBaseHalfCanvasNoteEditPoint } | undefined;
 	private nodeLocalSurfaceOpenChain: Promise<void> = Promise.resolve();
 	private nodeLocalSurfaceIntent = 0;
 	private disposed = false;
@@ -617,8 +635,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
 			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
-			activateCard: (sceneKey, structuralEpoch, path) => this.activateSceneCard(sceneKey, structuralEpoch, path),
-			openCard: (sceneKey, structuralEpoch, path, projection) => this.openSceneCard(sceneKey, structuralEpoch, path, projection),
+			cancelPendingCardOpen: () => this.cancelPendingNodeActivation(),
+			prepareSelectionChange: (sceneKey, structuralEpoch, paths) => this.prepareSceneSelectionChange(sceneKey, structuralEpoch, paths),
+			focusNoteEditor: (sceneKey, structuralEpoch, path) => this.focusSceneNoteEditor(sceneKey, structuralEpoch, path),
+			editNote: (sceneKey, structuralEpoch, path, point) => this.beginSceneNoteEdit(sceneKey, structuralEpoch, path, point),
+			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
 			showCreateMenu: (sceneKey, structuralEpoch, position) => this.showSceneContextMenu(
 				sceneKey,
 				structuralEpoch,
@@ -684,7 +705,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
-		this.richWebviewWarmup = this._register(this.instantiationService.createInstance(BaseHalfMarkdownRichWebviewWarmup, this.detailBody));
 		this.registerCardDetailSurfaceProviders();
 
 		this.editorContainer.prepend(this.root);
@@ -776,6 +796,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.root.ownerDocument, 'pointerup', finishBadgePointerGesture, true));
 		this._register(this.addDisposableListener(this.root.ownerDocument, 'pointercancel', finishBadgePointerGesture, true));
 		this._register(this.addDisposableListener(mainWindow, 'blur', finishBadgePointerGesture, true));
+		this._register(UndoCommand.addImplementation(BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY, 'basehalfCanvasNoteEditor', () => {
+			const active = this.activeCanvasNoteEditor;
+			if (!active?.instance.hasFocus()) {
+				return false;
+			}
+			return Promise.resolve(active.instance.undo()).catch(error => this.reportCanvasMutationError(error));
+		}));
+		this._register(RedoCommand.addImplementation(BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY, 'basehalfCanvasNoteEditor', () => {
+			const active = this.activeCanvasNoteEditor;
+			if (!active?.instance.hasFocus()) {
+				return false;
+			}
+			return Promise.resolve(active.instance.redo()).catch(error => this.reportCanvasMutationError(error));
+		}));
 		this._register(UndoCommand.addImplementation(BASEHALF_CANVAS_UNDO_REDO_PRIORITY, 'basehalfCanvas', () => {
 			if (!this.isCanvasUndoRedoActive() || !this.undoRedoService.canUndo(this.canvasUndoRedoSource)) {
 				return false;
@@ -994,6 +1028,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (this.disposed) {
 			return;
 		}
+		const navigatedDetail = this.canvasNavigationService.state.cardDetail;
+		const inlineEditor = this.activeCanvasNoteEditor;
+		if (navigatedDetail) {
+			this.canvasNoteSurfacePath = undefined;
+		}
+		if (navigatedDetail && inlineEditor) {
+			// Navigation has already drained the shared editor flush barrier. Retire
+			// the canvas author before the detail surface can acquire the document.
+			this.activeCanvasNoteEditor = undefined;
+			this.canvasNoteSurfacePath = undefined;
+			this.canvasNavigationService.setActiveCanvasEditor(undefined);
+			inlineEditor.instance.dispose();
+			delete inlineEditor.card.dataset.noteSurface;
+			delete inlineEditor.card.dataset.noteEditing;
+			delete inlineEditor.card.dataset.noteSaveState;
+			this.renderedCardsByPath.delete(inlineEditor.path);
+		}
 		// Card detail is navigation state, not scene data. It must react even if a
 		// pointer gesture is still winding down on the canvas underneath.
 		this.renderDetail();
@@ -1013,6 +1064,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
+			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
+				return;
+			}
+			if (!this.isRenderCurrent(seq)) {
+				return;
+			}
 			clearNode(this.canvasOverlay);
 			clearNode(this.inlineEditLayer);
 			this.inlineEditListeners.clear();
@@ -1044,6 +1101,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		try {
 			stat = await this.fileService.resolve(folder.resource, { resolveMetadata: true });
 		} catch (error) {
+			if (!this.isRenderCurrent(seq)) {
+				return;
+			}
+			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
+				return;
+			}
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
@@ -1114,6 +1177,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		const items = model.items;
+		const activeNoteBeforeModelUpdate = this.activeCanvasNoteEditor;
+		if (activeNoteBeforeModelUpdate && !items.some(item => item.path === activeNoteBeforeModelUpdate.path
+			&& this.uriIdentityService.extUri.isEqual(item.stat.resource, activeNoteBeforeModelUpdate.state.resource))) {
+			if (!await this.closeActiveCanvasNoteEditor(false)) {
+				return;
+			}
+			if (!this.isRenderCurrent(seq)
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
+		}
+		if (this.canvasNoteSurfacePath && !this.activeCanvasNoteEditor
+			&& !items.some(item => item.path === this.canvasNoteSurfacePath && isBaseHalfMarkdownResource(item.stat.resource))) {
+			this.canvasNoteSurfacePath = undefined;
+		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
 		for (const item of items) {
 			const cached = this.reusableCardPreview(item);
@@ -1133,6 +1211,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 			return;
+		}
+		const currentSceneKey = this.sceneKey(folder);
+		let pendingSelection = this.pendingCanvasSelection?.sceneKey === currentSceneKey
+			? this.pendingCanvasSelection.paths
+			: undefined;
+		const activeNote = this.activeCanvasNoteEditor;
+		const changesNote = pendingSelection && this.canvasNoteSurfacePath
+			&& !(pendingSelection.length === 1 && pendingSelection[0] === this.canvasNoteSurfacePath);
+		if (changesNote) {
+			if (activeNote) {
+				const closed = await this.closeActiveCanvasNoteEditor(false);
+				if (!this.isRenderCurrent(seq)
+					|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+					return;
+				}
+				if (!closed) {
+					this.pendingCanvasSelection = undefined;
+					pendingSelection = undefined;
+				}
+			} else {
+				this.canvasNoteSurfacePath = undefined;
+			}
 		}
 
 		clearNode(this.canvasOverlay);
@@ -1158,7 +1258,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.resetCanvasBadgeDeferredRefresh();
 		this.cardListeners.clear();
-		const currentSceneKey = this.sceneKey(folder);
 		const sceneCards = items.map((item, index) => {
 			const preview = previews.get(item.path);
 			const bounds = this.cardBoundsForPreview(item, index, items.length, preview);
@@ -1184,7 +1283,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				...bounds,
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
-				...(this.openBadgeFaces.has(item.path) ? { forceInteractive: true as const } : {})
+				...(this.openBadgeFaces.has(item.path) || this.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {})
 			};
 		});
 		this.disposeRemovedCardListenerStores(new Set(items.map(item => item.path)));
@@ -1204,9 +1303,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderedSceneCards = Object.freeze(sceneCards);
 		this.renderedSceneEdges = Object.freeze(sceneEdges);
 		this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
-		const pendingSelection = this.pendingCanvasSelection?.sceneKey === currentSceneKey
-			? this.pendingCanvasSelection.paths
-			: undefined;
 		this.canvasScene.update({
 			key: currentSceneKey,
 			structuralEpoch: structuralStamp.structuralEpoch,
@@ -2592,20 +2688,193 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.requestRender();
 	}
 
-	private activateSceneCard(sceneKey: string, structuralEpoch: number, _path: string): void {
+	private async prepareSceneSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean> {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+			return false;
+		}
+		const changesNote = this.canvasNoteSurfacePath !== undefined
+			&& !(paths.length === 1 && paths[0] === this.canvasNoteSurfacePath);
+		const active = this.activeCanvasNoteEditor;
+		if (!active || (paths.length === 1 && paths[0] === active.path)) {
+			if (!active && changesNote) {
+				if (this.pendingCanvasNoteFocus?.path === this.canvasNoteSurfacePath) {
+					this.pendingCanvasNoteFocus = undefined;
+				}
+				this.canvasNoteSurfacePath = undefined;
+				this.requestRender();
+			}
+			return true;
+		}
+		return this.closeActiveCanvasNoteEditor();
+	}
+
+	private async beginSceneNoteEdit(
+		sceneKey: string,
+		structuralEpoch: number,
+		path: string,
+		point?: IBaseHalfCanvasNoteEditPoint
+	): Promise<void> {
 		this.cancelPendingNodeActivation();
 		const folder = this.getCurrentFolder();
+		const item = this.renderedItemsByPath.get(path);
+		if (!folder || this.canvasNavigationService.state.cardDetail || !item
+			|| !isBaseHalfMarkdownResource(item.stat.resource)
+			|| this.sceneKey(folder) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+			return;
+		}
+		const remainsCurrent = (): boolean => {
+			const currentFolder = this.getCurrentFolder();
+			const currentItem = this.renderedItemsByPath.get(path);
+			return !!currentFolder
+				&& !this.canvasNavigationService.state.cardDetail
+				&& !!currentItem
+				&& isBaseHalfMarkdownResource(currentItem.stat.resource)
+				&& this.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)
+				&& this.sceneKey(currentFolder) === sceneKey
+				&& this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch));
+		};
+		const active = this.activeCanvasNoteEditor;
+		if (active?.path === path) {
+			this.canvasNoteSurfacePath = path;
+			active.card.dataset.noteEditing = 'true';
+			if (active.closing) {
+				const closed = await active.closing;
+				if (!closed) {
+					if (this.activeCanvasNoteEditor === active) {
+						active.instance.focus(point);
+					}
+					return;
+				}
+				// Multiple callers may await the same close. Retire identity-safely here
+				// as well so a rapid second double click cannot race the original closer
+				// and lose the re-open request between promise settlement and teardown.
+				if (this.activeCanvasNoteEditor === active) {
+					this.retireActiveCanvasNoteEditor(active, false);
+				}
+				if (remainsCurrent()) {
+					this.canvasNoteSurfacePath = path;
+					this.pendingCanvasNoteFocus = { path, ...(point ? { point } : {}) };
+					this.requestRender();
+				}
+				return;
+			}
+			await active.open.catch(() => undefined);
+			if (this.activeCanvasNoteEditor === active && !active.closing && remainsCurrent()) {
+				active.instance.focus(point);
+			}
+			return;
+		}
+		if (!await this.closeActiveCanvasNoteEditor(false) || !remainsCurrent()) {
+			return;
+		}
+		this.canvasNoteSurfacePath = path;
+		this.pendingCanvasNoteFocus = { path, ...(point ? { point } : {}) };
+		this.requestRender();
+	}
+
+	private focusSceneNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void {
+		const folder = this.getCurrentFolder();
+		const active = this.activeCanvasNoteEditor;
 		if (!folder || this.sceneKey(folder) !== sceneKey
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
-		// Selection only reveals the low-emphasis Edit action. Editing and History
-		// open from that explicit action, so selecting or preparing to drag a result
-		// node never opens a second surface unexpectedly.
+		if (active?.path === path && !active.closing) {
+			active.instance.focus();
+			return;
+		}
+		this.renderedCardElementsByPath.get(path)?.focus();
 	}
 
-	private openSceneCard(sceneKey: string, structuralEpoch: number, path: string, projection?: BaseHalfCanvasSceneNoteProjection): void {
+	private async closeActiveCanvasNoteEditor(refreshCanvas = true): Promise<boolean> {
+		const active = this.activeCanvasNoteEditor;
+		if (!active) {
+			return true;
+		}
+		if (!active.closing) {
+			active.closing = active.instance.prepareToClose();
+		}
+		const closing = active.closing;
+		let ok = false;
+		try {
+			ok = await closing;
+		} catch (error) {
+			this.logService.error(error);
+		}
+		if (this.activeCanvasNoteEditor !== active || active.closing !== closing) {
+			return ok;
+		}
+		if (!ok) {
+			active.closing = undefined;
+			active.instance.focus();
+			this.showCanvasNoteSaveWarning(active.path);
+			return false;
+		}
+		this.retireActiveCanvasNoteEditor(active, refreshCanvas);
+		return true;
+	}
+
+	/**
+	 * Refresh the resting projection while the opaque editor still covers it.
+	 * Removing the editor then reveals one complete frame instead of exposing
+	 * an empty card until the canvas render timer runs.
+	 */
+	private refreshActiveCanvasNoteFallback(active: IBaseHalfActiveCanvasNoteEditor): void {
+		const text = active.instance.getDocumentText();
+		if (text === undefined) {
+			return;
+		}
+		active.fallbackRendering.clear();
+		clearNode(active.fallback);
+		this.renderStaticMarkdownSource(
+			active.fallback,
+			active.state.resource,
+			baseHalfCanvasMarkdownPreviewSource(text),
+			active.fallbackRendering
+		);
+	}
+
+	private retireActiveCanvasNoteEditor(
+		active: IBaseHalfActiveCanvasNoteEditor,
+		refreshCanvas: boolean
+	): void {
+		if (this.activeCanvasNoteEditor !== active) {
+			return;
+		}
+		// Every successful retirement, including a rapid-close waiter that wins
+		// the continuation race, must preserve the atomic projection boundary.
+		this.refreshActiveCanvasNoteFallback(active);
+		this.activeCanvasNoteEditor = undefined;
+		if (this.canvasNoteSurfacePath === active.path) {
+			this.canvasNoteSurfacePath = undefined;
+		}
+		if (this.pendingCanvasNoteFocus?.path === active.path) {
+			this.pendingCanvasNoteFocus = undefined;
+		}
+		this.canvasNavigationService.setActiveCanvasEditor(undefined);
+		active.instance.dispose();
+		active.host.remove();
+		active.fallback.removeAttribute('aria-hidden');
+		active.fallback.removeAttribute('inert');
+		delete active.card.dataset.noteSurface;
+		delete active.card.dataset.noteEditing;
+		delete active.card.dataset.noteSaveState;
+		this.renderedCardsByPath.delete(active.path);
+		if (refreshCanvas) {
+			mainWindow.setTimeout(() => {
+				if (!this.disposed) {
+					this.requestRender();
+				}
+			}, 0);
+		}
+	}
+
+	private async openSceneCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void> {
 		this.cancelPendingNodeActivation();
+		const intent = this.nodeLocalSurfaceIntent;
 		const folder = this.getCurrentFolder();
 		if (!folder || this.sceneKey(folder) !== sceneKey
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
@@ -2615,14 +2884,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!item) {
 			return;
 		}
-		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			const anchor = this.renderedCardElementsByPath.get(item.path);
+		if (!await this.closeActiveCanvasNoteEditor(false)) {
+			return;
+		}
+		const currentFolder = this.getCurrentFolder();
+		const currentItem = this.renderedItemsByPath.get(path);
+		const currentStampValid = !!currentFolder
+			&& this.sceneKey(currentFolder) === sceneKey
+			&& this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch));
+		if (this.nodeLocalSurfaceIntent !== intent
+			|| !currentStampValid
+			|| !currentItem
+			|| !this.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)) {
+			return;
+		}
+		if (currentItem.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
+			const anchor = this.renderedCardElementsByPath.get(currentItem.path);
 			if (anchor) {
-				void this.openResultNodeContent(folder, item, anchor);
+				void this.openResultNodeContent(currentFolder, currentItem, anchor);
 			}
 			return;
 		}
-		void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true, projection });
+		if (currentItem.stat.isDirectory) {
+			await this.canvasNavigationService.openFolderCanvas(currentItem.stat.resource, { source: 'api' });
+		} else {
+			await this.canvasNavigationService.openCardDetail(currentItem.stat.resource, {
+				source: 'api',
+				pinned: true,
+				...(isBaseHalfMarkdownResource(currentItem.stat.resource) ? { projection: 'rich' as const } : {})
+			});
+		}
 	}
 
 	private cancelPendingNodeActivation(): void {
@@ -2715,6 +3006,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		if (action === 'duplicate') {
+			const hadActiveNote = !!this.activeCanvasNoteEditor;
+			if (hadActiveNote && !await this.closeActiveCanvasNoteEditor(false)) {
+				return;
+			}
+			if (hadActiveNote) {
+				this.canvasScene.select({ cardPaths: [] });
+			}
 			await this.duplicateSceneSelection(sceneKey, structuralEpoch, folder, items);
 			return;
 		}
@@ -2819,6 +3117,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 		if (!confirmation.confirmed) {
 			return;
+		}
+		const hadActiveNote = !!this.activeCanvasNoteEditor;
+		if (hadActiveNote && !await this.closeActiveCanvasNoteEditor(false)) {
+			return;
+		}
+		if (hadActiveNote) {
+			this.canvasScene.select({ cardPaths: [] });
 		}
 		await this.resolveSceneSelection(sceneKey, structuralEpoch, items.map(item => item.path));
 		const apply = (permanently: boolean) => this.canvasResourceDeletionService.delete(items.map(item => ({
@@ -3161,6 +3466,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		visualKey: string,
 		sceneKey: string
 	): cached is IBaseHalfCanvasCardRenderCacheEntry {
+		const activeNote = this.activeCanvasNoteEditor;
+		if (cached
+			&& activeNote?.path === item.path
+			&& activeNote.card === cached.element
+			&& cached.sceneKey === sceneKey
+			&& this.uriIdentityService.extUri.isEqual(activeNote.state.resource, item.stat.resource)
+			&& !this.openBadgeFaces.has(item.path)
+			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)) {
+			// The selected Note owns a live inline editor. Preserve its exact DOM identity
+			// across autosave-driven preview refreshes; selection teardown performs a
+			// stable flush before the card may return to its static preview.
+			return true;
+		}
 		// Badge editors and result nodes have additional live state beyond the
 		// versioned file preview. Ordinary preview cards can retain their exact
 		// DOM identity across unrelated background renders.
@@ -3396,6 +3714,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 			const kind = markdownPreviewKind(item.name);
 			const text = kind === 'markdown' ? baseHalfCanvasMarkdownPreviewSource(raw) : cleanCardPreviewText(item.name, raw);
+			if (kind === 'markdown') {
+				return { kind, text };
+			}
 			return text ? { kind, text } : { kind: 'empty', text: 'Empty file' };
 		} catch {
 			return { kind: 'unavailable', text: 'Preview unavailable' };
@@ -3613,8 +3934,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const currentCard = this.renderedSceneCards.find(card => card.path === item.path);
 				if (!currentCard) {
 					continue;
-				}
-				this.renderedCardPreviewsByPath.set(item.path, { item: currentItem, preview });
+					}
+					this.renderedCardPreviewsByPath.set(item.path, { item: currentItem, preview });
+					if (this.activeCanvasNoteEditor?.path === currentItem.path) {
+						continue;
+					}
 				const badge = this.badgeMetadataWithDraft(
 					folder.workspaceFolder,
 					currentItem.path,
@@ -3634,7 +3958,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					...currentCard,
 					element,
 					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
-					...(this.openBadgeFaces.has(currentItem.path) ? { forceInteractive: true as const } : {})
+					...(this.openBadgeFaces.has(currentItem.path) || this.canvasNoteSurfacePath === currentItem.path ? { forceInteractive: true as const } : {})
 				});
 			}
 			if (replacements.size === 0) {
@@ -3827,6 +4151,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				.find(candidate => candidate.path === context.relativePath
 					&& this.uriIdentityService.extUri.isEqual(candidate.stat.resource, context.resource));
 			if (!item) {
+				return;
+			}
+			if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
 			this.inlineEdit = {
@@ -4526,6 +4853,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const card = $('.basehalf-canvas-card');
 		const displayName = cardDisplayName(item, preview);
 		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
+		const markdownNote = isBaseHalfMarkdownResource(item.stat.resource);
 		card.tabIndex = 0;
 		card.setAttribute('role', 'group');
 		card.dataset.basehalfCardPath = item.path;
@@ -4540,7 +4868,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			? `${item.path} - click to select; double-click to open Current content`
 			: item.kind === 'folder'
 			? `${item.path} - click to select; double-click to enter this folder`
-			: `${item.path} - click to select; double-click to open the editor`;
+			: markdownNote
+				? `${item.path} - click to select; double-click the content to edit`
+				: `${item.path} - click to select; double-click to open the editor`;
 
 		const type = preview?.kind === 'node' ? preview.document.kind : preview?.kind === 'nodeLoading' ? 'generic' : badgeType(item.name, item.kind === 'folder');
 		const orphan = item.badge?.orphan === true;
@@ -4615,7 +4945,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (badgeOpen && canShowBadgeFace) {
 				this.renderCardBadgeFace(body, item, nextListeners);
 			} else {
-				this.renderCardPreview(body, item, preview, orphan, presentation.level === 'interactive', nextListeners);
+				this.renderCardPreview(body, item, preview, orphan, presentation.level === 'interactive', nextListeners, card);
 			}
 			this.renderFolderCoverage(active, item, preview);
 			this.restorePendingCanvasBadgeFocus(card, item.path);
@@ -4653,6 +4983,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						this.cancelPendingNodeActivation();
 						void this.openResultNodeContent(folder, item, card);
 					}
+				} else if (markdownNote) {
+					this.selectCard(item.path);
+					void this.beginSceneNoteEdit(sceneKey, structuralStamp.structuralEpoch, item.path);
 				} else {
 					void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 				}
@@ -4782,8 +5115,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		listeners.add(this.addDisposableListener(badgeToggle, 'click', event => {
 			event.preventDefault();
 			event.stopPropagation();
-			this.selectCard(item.path);
-			this.toggleBadgeFace(item.path);
+			void (async () => {
+				if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditor(false)) {
+					return;
+				}
+				this.selectCard(item.path);
+				this.toggleBadgeFace(item.path);
+			})();
 		}));
 	}
 
@@ -4811,12 +5149,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		preview: BaseHalfCanvasCardPreview | undefined,
 		orphan: boolean,
 		interactive: boolean,
-		listeners: DisposableStore
+		listeners: DisposableStore,
+		card: HTMLElement
 	): void {
 		const previewNode = append(container, $('.basehalf-canvas-card-preview'));
-		previewNode.classList.add(`kind-${preview?.kind ?? 'unavailable'}`);
+		const previewKindClass = `kind-${preview?.kind ?? 'unavailable'}`;
+		previewNode.classList.add(previewKindClass);
 		if (orphan) {
 			previewNode.textContent = item.kind === 'folder' ? item.badge?.description ?? '' : 'Missing file';
+			return;
+		}
+		if (interactive
+			&& this.canvasNoteSurfacePath === item.path
+			&& isBaseHalfMarkdownResource(item.stat.resource)) {
+			previewNode.classList.remove(previewKindClass);
+			previewNode.classList.add('kind-markdown');
+			this.renderMarkdownPreview(previewNode, item, preview?.kind === 'markdown' ? preview.text : '', true, listeners, card);
 			return;
 		}
 		if (!preview) {
@@ -4828,7 +5176,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		if (preview.kind === 'markdown') {
-			this.renderMarkdownPreview(previewNode, preview.text);
+			this.renderMarkdownPreview(previewNode, item, preview.text, interactive, listeners, card);
 			return;
 		}
 		if (preview.kind === 'media') {
@@ -7067,29 +7415,186 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private renderMarkdownPreview(container: HTMLElement, text: string): void {
-		const md = append(container, $('.bh-md-preview'));
-		const lines = text.split('\n');
-		for (const raw of lines) {
-			const line = raw.trim();
-			if (!line) {
-				continue;
+	private renderMarkdownPreview(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		text: string,
+		interactive: boolean,
+		listeners: DisposableStore,
+		card: HTMLElement
+	): void {
+		if (interactive
+			&& this.canvasNoteSurfacePath === item.path
+			&& !this.canvasNavigationService.state.cardDetail
+			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
+			&& !this.activeCanvasNoteEditor) {
+			const folder = this.getCurrentFolder();
+			if (folder && isBaseHalfMarkdownResource(item.stat.resource)) {
+				container.classList.add('interactive');
+				const fallback = append(container, $('.bh-md-preview.basehalf-canvas-note-editor-fallback'));
+				const fallbackRendering = new DisposableStore();
+				listeners.add(fallbackRendering);
+				this.renderStaticMarkdownPreview(fallback, item, text, fallbackRendering);
+				const host = append(container, $('.basehalf-canvas-note-editor.basehalf-canvas-note-inline-editor.nodrag.nopan.nowheel'));
+				host.setAttribute('data-testid', `canvas-note-editor-${item.path}`);
+				const pendingFocus = this.pendingCanvasNoteFocus?.path === item.path
+					? this.pendingCanvasNoteFocus
+					: undefined;
+				if (pendingFocus) {
+					this.pendingCanvasNoteFocus = undefined;
+				}
+				const state: IBaseHalfCardDetailState = {
+					resource: item.stat.resource,
+					workspaceFolder: folder.workspaceFolder,
+					relativePath: item.path,
+					source: 'api',
+					pinned: true,
+					projection: 'rich'
+				};
+				const requestToolbarFocus = (): void => {
+					const EventConstructor = card.ownerDocument.defaultView?.Event;
+					if (EventConstructor) {
+						card.dispatchEvent(new EventConstructor(BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT));
+					}
+				};
+				const instance = this.instantiationService.createInstance(
+					BaseHalfCanvasMarkdownInlineEditor,
+					host,
+					status => card.setAttribute('data-note-save-state', status),
+					{
+						onCanvasToolbarRequest: requestToolbarFocus,
+						onCanvasExitRequest: () => void this.closeActiveCanvasNoteEditor(),
+						onSaveRequest: save => void save.then(ok => {
+							if (!ok) {
+								this.showCanvasNoteSaveWarning(item.path);
+							}
+						}),
+						onOpenLink: href => this.openStaticMarkdownPreviewLink(href)
+					}
+				);
+				const open = instance.open(state, pendingFocus?.point);
+				const active: IBaseHalfActiveCanvasNoteEditor = {
+					path: item.path,
+					state,
+					card,
+					host,
+					fallback,
+					fallbackRendering,
+					instance,
+					open
+				};
+				this.activeCanvasNoteEditor = active;
+				card.dataset.noteSurface = 'true';
+				card.dataset.noteEditing = 'true';
+				this.canvasNavigationService.setActiveCanvasEditor({
+					...state,
+					prepareToClose: () => this.closeActiveCanvasNoteEditor()
+				});
+				listeners.add(toDisposable(() => {
+					instance.dispose();
+					if (this.activeCanvasNoteEditor === active) {
+						this.activeCanvasNoteEditor = undefined;
+						this.canvasNoteSurfacePath = undefined;
+						if (this.pendingCanvasNoteFocus?.path === active.path) {
+							this.pendingCanvasNoteFocus = undefined;
+						}
+						this.canvasNavigationService.setActiveCanvasEditor(undefined);
+					}
+					delete card.dataset.noteSurface;
+					delete card.dataset.noteEditing;
+				}));
+				for (const type of ['pointerdown', 'mousedown', 'click', 'dblclick', 'wheel'] as const) {
+					listeners.add(this.addDisposableListener(host, type, event => event.stopPropagation()));
+				}
+				void open.then(() => {
+					if (this.activeCanvasNoteEditor === active) {
+						// The preview remains the atomic exit frame underneath the live
+						// surface, but only one projection enters the accessibility tree.
+						fallback.setAttribute('aria-hidden', 'true');
+						fallback.setAttribute('inert', '');
+						host.classList.add('ready');
+						instance.focus(pendingFocus?.point);
+					}
+				}, error => {
+					if (this.activeCanvasNoteEditor !== active) {
+						return;
+					}
+					this.activeCanvasNoteEditor = undefined;
+					this.canvasNoteSurfacePath = undefined;
+					if (this.pendingCanvasNoteFocus?.path === active.path) {
+						this.pendingCanvasNoteFocus = undefined;
+					}
+					this.canvasNavigationService.setActiveCanvasEditor(undefined);
+					instance.dispose();
+					delete card.dataset.noteSurface;
+					delete card.dataset.noteEditing;
+					this.renderedCardsByPath.delete(item.path);
+					this.requestRender();
+					this.reportCanvasMutationError(error);
+				});
+				return;
 			}
-			const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-			if (heading) {
-				const h = append(md, heading[1].length === 1 ? $('h1') : heading[1].length === 2 ? $('h2') : $('h3'));
-				h.textContent = stripMarkdownInline(heading[2]);
-				continue;
-			}
-			const bullet = /^[-*+]\s+(.+)$/.exec(line);
-			if (bullet) {
-				const item = append(md, $('p.bullet'));
-				item.textContent = `• ${stripMarkdownInline(bullet[1])}`;
-				continue;
-			}
-			const paragraph = append(md, $('p'));
-			paragraph.textContent = stripMarkdownInline(line);
 		}
+
+		const md = append(container, $('.bh-md-preview'));
+		this.renderStaticMarkdownPreview(md, item, text, listeners);
+	}
+
+	private renderStaticMarkdownPreview(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		text: string,
+		listeners: DisposableStore
+	): void {
+		this.renderStaticMarkdownSource(container, item.stat.resource, text, listeners);
+	}
+
+	private renderStaticMarkdownSource(
+		container: HTMLElement,
+		resource: URI,
+		text: string,
+		listeners: DisposableStore
+	): void {
+		if (!text.trim()) {
+			const empty = append(container, $('span.basehalf-canvas-note-empty'));
+			empty.textContent = localize('basehalf.canvas.note.empty', "Double-click to edit");
+			return;
+		}
+		const markdown = new MarkdownString(text, { isTrusted: false, supportHtml: false });
+		markdown.baseUri = resource;
+		listeners.add(renderMarkdown(markdown, {
+			actionHandler: href => this.openStaticMarkdownPreviewLink(href),
+			fillInIncompleteTokens: true,
+			// BlockNote's canonical Markdown projection preserves ordinary soft
+			// line breaks. Keep the resting card on that same GFM contract so
+			// selecting a Note cannot reflow source lines when its rich surface
+			// takes over.
+			markedOptions: { gfm: true, breaks: true },
+			sanitizerConfig: {
+				replaceWithPlaintext: true,
+				allowedTags: {
+					override: ['a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'hr', 'li', 'ol', 'p', 'pre', 'strong', 'ul']
+				}
+			}
+		}, container));
+	}
+
+	private openStaticMarkdownPreviewLink(href: string): void {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		let resource: URI;
+		try {
+			resource = URI.parse(href).with({ query: null, fragment: null });
+		} catch {
+			return;
+		}
+		if (!this.uriIdentityService.extUri.isEqualOrParent(resource, folder.workspaceFolder)) {
+			return;
+		}
+		void this.canvasNavigationService.openResource(resource, { source: 'api', pinned: true })
+			.catch(error => this.logService.error(error));
 	}
 
 	private renderCardBadgeFace(
@@ -7947,6 +8452,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async vetoShutdownForUnsavedCanvasDrafts(): Promise<boolean> {
+		if (!await this.canvasNavigationService.flushActiveEditor()) {
+			return true;
+		}
 		const nodeSurface = this.activeNodeLocalSurface;
 		if (nodeSurface?.hasDraftChanges() && !await nodeSurface.closeForShutdown()) {
 			return true;
@@ -8325,6 +8833,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		warning.textContent = message;
 	}
 
+	private showCanvasNoteSaveWarning(path: string): void {
+		const message = localize(
+			'basehalf.canvas.note.saveFailed',
+			"Couldn't save {0}. The editor is still open so your text is not lost.",
+			path
+		);
+		const duplicate = [...this.canvasOverlay.querySelectorAll<HTMLElement>('.basehalf-canvas-warning')]
+			.some(warning => warning.textContent === message);
+		if (!duplicate) {
+			this.renderCanvasWarning(message);
+		}
+	}
+
 	private queueCanvasWarning(message: string): void {
 		if (!this.pendingCanvasWarnings.includes(message)) {
 			this.pendingCanvasWarnings.push(message);
@@ -8487,9 +9008,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			clearNode(this.detailBadgeZone);
 			this.setDetailSaveStatus(undefined);
 			clearNode(this.detailProjectionActions);
-			// detailBody is NOT cleared wholesale: surfaces remove their own
-			// hosts on dispose, and the prewarmed shell parked in the body
-			// must survive open/close cycles.
+			// Projection surfaces own and remove their hosts on dispose; there is
+			// deliberately no document-less rich editor parked in this container.
 			clearNode(this.detailTitle);
 			this.detailMeta.textContent = '';
 			// Re-assert folder focus only on the open→closed TRANSITION. An
@@ -8497,7 +9017,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// renderDetail runs before the canvas pipeline, so a 0ms write of
 			// the not-yet-framed viewport would land in focus.yaml first and
 			// the restore would then faithfully restore the unframed state.
-			if (wasOpen) {
+				if (wasOpen) {
+					// Selected Notes were rendered as static previews underneath the detail
+					// surface. Recreate the retained cards once so the static selected Note
+					// and its controls are current when detail closes.
+				this.renderedCardsByPath = new Map();
 				this.scheduleFolderFocusWrite(0);
 			}
 			return;
@@ -8729,6 +9253,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		for (const surface of this.detailSurfaces.values()) {
 			surface.instance.setStructuralFrozen?.(fenced);
 		}
+		const activeNote = this.activeCanvasNoteEditor;
+		if (activeNote) {
+			const noteFenced = this.workspaceMutationCoordinator.isResourceMutationFenced(
+				activeNote.state.workspaceFolder,
+				activeNote.state.relativePath
+			);
+			activeNote.card.toggleAttribute('aria-busy', noteFenced);
+			activeNote.instance.setStructuralFrozen(noteFenced);
+		}
 	}
 
 	/**
@@ -8800,8 +9333,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private registerCardDetailSurfaceProviders(): void {
 		this._register(this.cardDetailSurfaceRegistryService.registerProvider('rich', {
 			create: (parent, state) => {
-				const prewarmed = this.richWebviewWarmup.take();
-				const host = prewarmed?.host ?? append(parent, $('.basehalf-card-detail-surface'));
+				const host = append(parent, $('.basehalf-card-detail-surface'));
 				return {
 					host,
 					instance: this.instantiationService.createInstance(
@@ -8809,7 +9341,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						host,
 						() => this.closeDetailBadgePopover(state, false),
 						status => this.setDetailSaveStatus(status),
-						prewarmed
+						{}
 					)
 				};
 			}
@@ -9648,13 +10180,6 @@ function cleanCardPreviewText(name: string, raw: string): string {
 		.slice(0, 8);
 	const preview = lines.join('\n');
 	return preview.length > 520 ? `${preview.slice(0, 517)}...` : preview;
-}
-
-function stripMarkdownInline(value: string): string {
-	return value
-		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-		.replace(/[*_`~]/g, '')
-		.trim();
 }
 
 function baseHalfReferenceLabel(relativePath: string): string {
