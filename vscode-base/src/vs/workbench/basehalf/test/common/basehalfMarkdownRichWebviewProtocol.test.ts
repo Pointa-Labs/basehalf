@@ -180,6 +180,18 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			key: 'workspace\u0000doc.md'
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.rendered',
+			key: 'workspace\u0000doc.md'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.focusBoundarySettled',
+			key: 'workspace\u0000doc.md'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.focusBoundarySettled',
+			key: ''
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.yjsUpdate',
 			key: 'workspace\u0000doc.md',
 			update: [0, 1, 255]

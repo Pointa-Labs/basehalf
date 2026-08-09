@@ -3012,6 +3012,15 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 }
 
+/* The iframe can load and measure while hidden, but it cannot take focus or
+   expose a half-initialized editor before its load/focus boundary settles. */
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="booting"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="settling"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="paused"] {
+	opacity: 0;
+	pointer-events: none;
+}
+
 .monaco-workbench .basehalf-card-detail-media,
 .monaco-workbench .basehalf-card-detail-media-webview {
 	position: relative;

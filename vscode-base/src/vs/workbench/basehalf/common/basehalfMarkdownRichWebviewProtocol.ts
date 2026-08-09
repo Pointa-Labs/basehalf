@@ -165,9 +165,15 @@ export type BaseHalfMarkdownRichWebviewMessage =
 	}
 	| {
 		// First meaningful frame: the initial document content has been
-		// applied and painted. The host holds the projection swap on this,
-		// so a booting editor never becomes visible half-drawn.
+		// applied and committed. The host still waits for the webview load
+		// boundary before exposing this generation as interactive.
 		readonly type: 'basehalf.markdownRich.rendered';
+		readonly key: string;
+	}
+	| {
+		// The document frame finished its load boundary after the rendered
+		// commit, so no delayed frame-swap focus remains outstanding.
+		readonly type: 'basehalf.markdownRich.focusBoundarySettled';
 		readonly key: string;
 	}
 	| {
@@ -335,6 +341,7 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 	switch (candidate.type) {
 		case 'basehalf.markdownRich.ready':
 		case 'basehalf.markdownRich.rendered':
+		case 'basehalf.markdownRich.focusBoundarySettled':
 			return true;
 		case 'basehalf.markdownRich.saveRequested':
 			return typeof candidate.requestId === 'string'

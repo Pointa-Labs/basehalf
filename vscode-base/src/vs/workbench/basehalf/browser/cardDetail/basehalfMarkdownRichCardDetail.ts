@@ -5,10 +5,10 @@
 
 import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
-import { DeferredPromise, timeout } from '../../../../base/common/async.js';
+import { DeferredPromise } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { toErrorMessage } from '../../../../base/common/errorMessage.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
 import { language } from '../../../../base/common/platform.js';
@@ -24,6 +24,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IQuickInput, IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -34,7 +35,7 @@ import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../.
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { IBaseHalfFileFocusFields, IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
-import { baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
+import { baseHalfMarkdownRichColdFlushResult, baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
 import {
 	BaseHalfMarkdownRichLiveDocumentRegistry,
 	baseHalfMarkdownRichDocumentKey,
@@ -90,6 +91,95 @@ export interface IBaseHalfMarkdownRichCardDetailOptions {
 	readonly onCanvasToolbarRequest?: () => void;
 	readonly onCanvasAuthoringRequest?: (point?: IBaseHalfMarkdownRichFocusPoint) => void;
 	readonly onCanvasExitRequest?: () => void;
+}
+
+export type BaseHalfMarkdownRichFirstFrameState = 'booting' | 'settling' | 'paused' | 'rendered' | 'error' | 'timeout';
+
+/**
+ * A cold custom-editor iframe must be measurable without becoming an input
+ * target. The explicit state on both the retained surface and its webview host
+ * also gives callers a first-frame contract that is stronger than "active".
+ */
+export function applyBaseHalfMarkdownRichFirstFrameState(
+	container: HTMLElement,
+	webviewHost: HTMLElement,
+	state: BaseHalfMarkdownRichFirstFrameState,
+	interactive = state !== 'booting' && state !== 'settling' && state !== 'paused'
+): void {
+	const pending = state === 'booting' || state === 'settling' || state === 'paused';
+	const rendered = state === 'rendered';
+	container.dataset.basehalfRenderState = state;
+	webviewHost.dataset.basehalfRenderState = state;
+	container.toggleAttribute('data-basehalf-rendered', rendered);
+	webviewHost.toggleAttribute('data-basehalf-rendered', rendered);
+	setBaseHalfMarkdownRichInteractionEnabled(webviewHost, interactive);
+	if (pending) {
+		webviewHost.setAttribute('aria-busy', 'true');
+	} else {
+		webviewHost.removeAttribute('aria-busy');
+	}
+}
+
+export function setBaseHalfMarkdownRichInteractionEnabled(webviewHost: HTMLElement, enabled: boolean): void {
+	webviewHost.inert = !enabled;
+}
+
+export function baseHalfMarkdownRichColdGenerationAction(
+	state: BaseHalfMarkdownRichFirstFrameState,
+	editorReady: boolean,
+	quickInputVisible: boolean
+): 'mount' | 'pause' | 'keep' {
+	if (editorReady || (state !== 'booting' && state !== 'settling' && state !== 'paused')) {
+		return 'keep';
+	}
+	return quickInputVisible ? 'pause' : 'mount';
+}
+
+export function baseHalfMarkdownRichFirstFrameAcknowledgement(
+	state: BaseHalfMarkdownRichFirstFrameState,
+	message: 'rendered' | 'focusBoundarySettled'
+): BaseHalfMarkdownRichFirstFrameState {
+	if (message === 'rendered') {
+		return state === 'booting' ? 'settling' : state;
+	}
+	return state === 'settling' ? 'rendered' : state;
+}
+
+export function baseHalfMarkdownRichShouldGuardQuickInput(
+	visible: boolean,
+	hasLiveWebviewGeneration: boolean,
+	hasCurrentQuickInput: boolean
+): boolean {
+	return visible && hasLiveWebviewGeneration && hasCurrentQuickInput;
+}
+
+export class BaseHalfMarkdownRichQuickInputFocusGuard<T extends { ignoreFocusOut: boolean }, G> {
+	private guarded: { readonly target: T; readonly generation: G; readonly originalIgnoreFocusOut: boolean } | undefined;
+
+	get target(): T | undefined {
+		return this.guarded?.target;
+	}
+
+	guard(target: T, generation: G): void {
+		if (this.guarded?.target === target && this.guarded.generation === generation) {
+			return;
+		}
+		this.restore();
+		this.guarded = { target, generation, originalIgnoreFocusOut: target.ignoreFocusOut };
+		target.ignoreFocusOut = true;
+	}
+
+	owns(target: T | undefined, generation: G | undefined): boolean {
+		return !!this.guarded && this.guarded.target === target && this.guarded.generation === generation;
+	}
+
+	restore(): void {
+		const guarded = this.guarded;
+		this.guarded = undefined;
+		if (guarded) {
+			guarded.target.ignoreFocusOut = guarded.originalIgnoreFocusOut;
+		}
+	}
 }
 
 export function createBaseHalfMarkdownRichWebviewElement(webviewService: IWebviewService, title: string): IWebviewElement {
@@ -175,6 +265,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private projectionSaveFailed = false;
 	private canvasAuthoring: boolean;
 	private readonly firstRendered = new DeferredPromise<void>();
+	private firstFrameState: BaseHalfMarkdownRichFirstFrameState = 'booting';
+	private webviewGeneration: DisposableStore | undefined;
+	private firstFrameResumeTimer: number | undefined;
+	private readonly quickInputFocusGuard = new BaseHalfMarkdownRichQuickInputFocusGuard<IQuickInput, DisposableStore>();
 
 	constructor(
 		private readonly container: HTMLElement,
@@ -191,6 +285,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ISearchService private readonly searchService: ISearchService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
@@ -202,7 +297,19 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
 		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'booting');
 		this.setSaveStatus('saving');
+		this._register(this.quickInputService.onShow(() => {
+			this.guardVisibleQuickInput();
+		}));
+		this._register(this.quickInputService.onHide(() => {
+			this.restoreGuardedQuickInput();
+			if (this.editorReady && this.firstFrameState === 'paused') {
+				this.settleFirstFrame('rendered');
+			} else if (!this.webviewGeneration) {
+				this.scheduleFirstFrameWebviewResume();
+			}
+		}));
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -236,25 +343,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this.bridge = this._register(new BaseHalfMarkdownRichWebviewBridge(this.documentKey, this.liveDocument.document.doc, {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
-			this.webview = this._register(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
-			this.webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder];
-			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
-			this.webview.mountTo(this.webviewHost, mainWindow);
-			this.webview.setHtml(baseHalfMarkdownRichWebviewHtml(this.documentKey));
+			this.mountFirstFrameWebview();
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
 
-			if (this.structuralFrozen) {
-				this.postStructuralFreeze();
-			}
-			this._register(this.webview.onMissingCsp(extension => {
-				this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
-			}));
-			this._register(this.webview.onFatalError(error => {
-				this.setSaveStatus('saving');
-				this.logService.error(error.message);
-			}));
 			this._register(this.textFileService.files.onDidChangeDirty(file => {
 				if (this.model && isEqual(file.resource, this.model.uri)) {
 					this.updateStatus();
@@ -278,10 +371,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 			this.updateStatus();
 
-			// open() resolves at the first meaningful frame: the webview acks
-			// `rendered` once the document is applied and painted. The timeout
-			// is a progress guarantee for a wedged webview, not a UI delay.
-			await Promise.race([this.firstRendered.p, timeout(10_000)]);
+			await this.firstRendered.p;
 		} catch (error) {
 			if (this.disposed) {
 				return;
@@ -292,6 +382,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		if (this.firstFrameResumeTimer !== undefined) {
+			mainWindow.clearTimeout(this.firstFrameResumeTimer);
+			this.firstFrameResumeTimer = undefined;
+		}
+		this.disposeWebviewGeneration();
 		this.pendingEditorCommands.length = 0;
 		this.firstRendered.complete();
 		for (const pending of this.pendingFlushes.values()) {
@@ -327,6 +422,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 		this.visible = visible;
+		if (visible) {
+			this.guardVisibleQuickInput();
+		} else {
+			this.restoreGuardedQuickInput();
+		}
 		if (visible && this.pendingModelSync) {
 			this.pendingModelSync = false;
 			this.forwardModelContent();
@@ -446,6 +546,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		// close contract even though the newly mounted webview is not dirty.
 		if ((this.pendingProjectionSave || this.projectionSaveFailed) && !await this.ensureProjectionSaved()) {
 			return false;
+		}
+		const coldFlushResult = baseHalfMarkdownRichColdFlushResult(this.editorReady, this.dirty);
+		if (coldFlushResult !== undefined) {
+			return coldFlushResult;
 		}
 		if (!baseHalfMarkdownRichNeedsSaveRequest(this.dirty, this.visible, options)) {
 			return true;
@@ -591,8 +695,38 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		if (message.type === 'basehalf.markdownRich.rendered') {
+			const nextState = baseHalfMarkdownRichFirstFrameAcknowledgement(this.firstFrameState, 'rendered');
+			if (!this.editorReady && nextState === 'settling' && nextState !== this.firstFrameState) {
+				this.firstFrameState = nextState;
+				applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'settling');
+			}
+			return;
+		}
+
+		if (message.type === 'basehalf.markdownRich.focusBoundarySettled') {
+			if (this.firstFrameState !== 'settling'
+				|| baseHalfMarkdownRichFirstFrameAcknowledgement(this.firstFrameState, 'focusBoundarySettled') !== 'rendered') {
+				return;
+			}
 			this.editorReady = true;
-			this.firstRendered.complete();
+			this.flushPendingEditorCommands();
+			const guardedInput = this.quickInputFocusGuard.target;
+			const currentQuickInput = this.quickInputService.currentQuickInput;
+			if (guardedInput && this.quickInputFocusGuard.owns(currentQuickInput, this.webviewGeneration)) {
+				// Keep ownership guarded until the picker closes. Refocusing here is
+				// unnecessary when the picker already owns focus and can move focus
+				// into its temporarily disabled result list while providers load.
+				this.firstFrameState = 'paused';
+				applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'paused');
+				return;
+			}
+			this.restoreGuardedQuickInput();
+			if (currentQuickInput) {
+				this.firstFrameState = 'paused';
+				applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'paused');
+				return;
+			}
+			this.settleFirstFrame('rendered');
 			return;
 		}
 
@@ -748,15 +882,21 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private handleFormatStateChanged(state: IBaseHalfMarkdownRichFormatState): void {
-		this.editorReady = state.ready;
 		this.options.onFormatStateChange?.(state);
-		if (!state.ready || !this.bridge || this.pendingEditorCommands.length === 0) {
+		if (!state.ready || !this.editorReady) {
 			return;
 		}
+		this.flushPendingEditorCommands();
+	}
 
+	private flushPendingEditorCommands(): void {
+		const bridge = this.bridge;
+		if (!bridge || this.pendingEditorCommands.length === 0) {
+			return;
+		}
 		const pending = this.pendingEditorCommands.splice(0);
 		for (const command of pending) {
-			void this.bridge.sendCommand(command).catch(error => this.logService.error(error));
+			void bridge.sendCommand(command).catch(error => this.logService.error(error));
 		}
 	}
 
@@ -1169,26 +1309,151 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private renderError(error: unknown): void {
+		this.disposeWebviewGeneration();
 		clearNode(this.webviewHost);
-		// The error notice is this surface's first meaningful frame; unblock
-		// the projection swap so the message becomes visible.
-		this.firstRendered.complete();
 
 		if (error instanceof TooLargeFileOperationError) {
 			this.renderNotice('The file is too large to open here.');
 			this.setSaveStatus('saved');
+			this.settleFirstFrame('error');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
 			this.renderNotice('The file is not displayed here because it is either binary or uses an unsupported text encoding.');
 			this.setSaveStatus('saved');
+			this.settleFirstFrame('error');
 			return;
 		}
 
 		this.logService.error('[BaseHalf] rich Markdown card detail failed to open', error);
 		this.renderNotice(`Unable to open the file. ${toErrorMessage(error)}`);
 		this.setSaveStatus('saved');
+		this.settleFirstFrame('error');
+	}
+
+	private renderTimeout(): void {
+		this.disposeWebviewGeneration();
+		clearNode(this.webviewHost);
+		this.renderNotice('The rich editor took too long to load. Close and reopen this card to try again.');
+		this.setSaveStatus('saved');
+		this.logService.error('[BaseHalf] rich Markdown card detail timed out before its first frame');
+		this.settleFirstFrame('timeout');
+	}
+
+	private settleFirstFrame(state: 'rendered' | 'error' | 'timeout'): void {
+		if (this.firstFrameState !== 'booting' && this.firstFrameState !== 'settling' && this.firstFrameState !== 'paused') {
+			return;
+		}
+		this.firstFrameState = state;
+		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, state);
+		this.firstRendered.complete();
+	}
+
+	private mountFirstFrameWebview(): void {
+		const state = this.state;
+		const documentKey = this.documentKey;
+		if (this.disposed || this.webviewGeneration || !state || !documentKey || !this.model || !this.bridge) {
+			return;
+		}
+		const action = baseHalfMarkdownRichColdGenerationAction(
+			this.firstFrameState,
+			this.editorReady,
+			!!this.quickInputService.currentQuickInput
+		);
+		if (action === 'keep') {
+			return;
+		}
+		if (action === 'pause') {
+			this.firstFrameState = 'paused';
+			applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'paused');
+			return;
+		}
+
+		this.firstFrameState = 'booting';
+		clearNode(this.webviewHost);
+		applyBaseHalfMarkdownRichFirstFrameState(this.container, this.webviewHost, 'booting');
+		const generation = new DisposableStore();
+		this.webviewGeneration = generation;
+		const webview = generation.add(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
+		this.webview = webview;
+		webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder];
+		generation.add(webview.onMessage(event => {
+			if (this.webviewGeneration === generation && this.webview === webview) {
+				void this.handleWebviewMessage(event.message);
+			}
+		}));
+		generation.add(webview.onMissingCsp(extension => {
+			this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
+		}));
+		generation.add(webview.onFatalError(error => {
+			if (this.webviewGeneration !== generation) {
+				return;
+			}
+			if (!this.editorReady && (this.firstFrameState === 'booting' || this.firstFrameState === 'settling')) {
+				this.renderError(new Error(error.message));
+				return;
+			}
+			this.setSaveStatus('saving');
+			this.logService.error(error.message);
+		}));
+		generation.add(webview.onDidFocus(() => {
+			if (this.quickInputFocusGuard.owns(this.quickInputService.currentQuickInput, generation)) {
+				this.quickInputService.focus();
+			}
+		}));
+		const timer = mainWindow.setTimeout(() => {
+			if (!this.disposed && !this.editorReady
+				&& (this.firstFrameState === 'booting' || this.firstFrameState === 'settling')
+				&& this.webviewGeneration === generation) {
+				this.renderTimeout();
+			}
+		}, 10_000);
+		generation.add(toDisposable(() => mainWindow.clearTimeout(timer)));
+		webview.mountTo(this.webviewHost, mainWindow);
+		webview.setHtml(baseHalfMarkdownRichWebviewHtml(documentKey));
+		if (this.structuralFrozen) {
+			this.postStructuralFreeze();
+		}
+	}
+
+	private guardVisibleQuickInput(): void {
+		const generation = this.webviewGeneration;
+		const input = this.quickInputService.currentQuickInput;
+		if (!baseHalfMarkdownRichShouldGuardQuickInput(this.visible, !!generation, !!input) || !generation || !input) {
+			this.restoreGuardedQuickInput();
+			return;
+		}
+		this.quickInputFocusGuard.guard(input, generation);
+	}
+
+	private restoreGuardedQuickInput(): void {
+		this.quickInputFocusGuard.restore();
+	}
+
+	private scheduleFirstFrameWebviewResume(): void {
+		if (this.disposed || this.editorReady || this.firstFrameResumeTimer !== undefined) {
+			return;
+		}
+		this.firstFrameResumeTimer = mainWindow.setTimeout(() => {
+			this.firstFrameResumeTimer = undefined;
+			if (this.disposed || this.editorReady || this.quickInputService.currentQuickInput
+				|| (this.firstFrameState !== 'booting' && this.firstFrameState !== 'settling' && this.firstFrameState !== 'paused')) {
+				return;
+			}
+			this.mountFirstFrameWebview();
+		}, 0);
+	}
+
+	private disposeWebviewGeneration(): void {
+		this.restoreGuardedQuickInput();
+		const generation = this.webviewGeneration;
+		this.webviewGeneration = undefined;
+		this.webview = undefined;
+		generation?.dispose();
+		// Any acknowledgement belonged to the disposed iframe generation. A
+		// replacement replays the current freeze state with a fresh request id.
+		this.settleStructuralFreeze(false);
 	}
 
 	private renderNotice(message: string): void {

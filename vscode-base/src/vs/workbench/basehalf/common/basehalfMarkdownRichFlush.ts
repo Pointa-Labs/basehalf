@@ -5,6 +5,19 @@
 
 import { baseHalfEditorProjectionCanFlush, IBaseHalfEditorFlushOptions } from './basehalfEditorFlush.js';
 
+/**
+ * A first-frame rich surface is inert, so a clean projection cannot contain an
+ * unobserved user edit. Complete that flush without posting into a webview that
+ * has not installed its message handler yet. A dirty cold state is unexpected
+ * and fails closed instead of claiming that its content was saved.
+ */
+export function baseHalfMarkdownRichColdFlushResult(editorReady: boolean, dirty: boolean): boolean | undefined {
+	if (editorReady) {
+		return undefined;
+	}
+	return !dirty;
+}
+
 /** Host dirty messages cross a webview boundary and may lag the editor. A
  * structural flush therefore always asks the webview/YJS owner to serialize,
  * even when the host's last observed dirty bit is false. */

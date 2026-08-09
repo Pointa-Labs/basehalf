@@ -805,18 +805,27 @@ function MarkdownRichEditor(): JSX.Element {
 	}, [discardSelectionForNextSharedTransaction, editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
 
 	// First meaningful frame: tell the host once the applied document has been
-	// COMMITTED to the DOM (effects run after commit), so the projection swap
-	// it is holding never reveals a half-built editor. Deliberately not paint
-	// based (no rAF): the host keeps this webview hidden until the swap, and a
-	// hidden iframe receives no animation frames — the browser paints the
-	// committed DOM in the same frame the layer becomes visible.
+	// committed to the DOM, then separately acknowledge the window load
+	// boundary. The outer webview registers its load handling before this
+	// document runs, so the second message cannot precede its frame swap/focus
+	// work. The host keeps the generation inert until both phases arrive.
 	useEffect(() => {
 		const state = session.current;
 		if (renderedAnnounced.current || !state.ready || !state.key) {
 			return;
 		}
 		renderedAnnounced.current = true;
-		vscode.postMessage({ type: 'basehalf.markdownRich.rendered', key: state.key });
+		const key = state.key;
+		vscode.postMessage({ type: 'basehalf.markdownRich.rendered', key });
+
+		const announceFocusBoundarySettled = () => {
+			vscode.postMessage({ type: 'basehalf.markdownRich.focusBoundarySettled', key });
+		};
+		if (document.readyState === 'complete') {
+			announceFocusBoundarySettled();
+			return;
+		}
+		window.addEventListener('load', announceFocusBoundarySettled, { once: true });
 	}, [version, vscode]);
 
 	const reportError = useCallback((error: unknown) => {

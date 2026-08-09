@@ -4,9 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
+import { baseHalfMarkdownRichColdFlushResult, baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
 
 suite('BaseHalfMarkdownRichFlush', () => {
+	test('completes a forced cold clean flush without entering the webview save path', () => {
+		const coldResult = baseHalfMarkdownRichColdFlushResult(false, false);
+		assert.strictEqual(coldResult, true);
+		assert.strictEqual(coldResult === undefined
+			&& baseHalfMarkdownRichNeedsSaveRequest(false, true, { forceSerialize: true }), false);
+		assert.strictEqual(baseHalfMarkdownRichColdFlushResult(true, false), undefined);
+	});
+
+	test('fails a cold dirty flush closed', () => {
+		assert.strictEqual(baseHalfMarkdownRichColdFlushResult(false, true), false);
+		assert.strictEqual(baseHalfMarkdownRichColdFlushResult(true, true), undefined);
+	});
+
 	test('dirty editor requests a save in the ordinary path', () => {
 		assert.strictEqual(baseHalfMarkdownRichNeedsSaveRequest(true, false, {}), true);
 	});
