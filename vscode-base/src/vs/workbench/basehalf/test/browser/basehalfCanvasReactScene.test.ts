@@ -9,6 +9,7 @@ import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
+	baseHalfCanvasSceneCardIsNoteEditing,
 	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
 	baseHalfCanvasTargetBlocksGraphShortcuts,
@@ -243,6 +244,13 @@ suite('BaseHalfCanvasReactScene', () => {
 	test('distinguishes a structural file rename from a visible node title edit', () => {
 		assert.strictEqual(baseHalfCanvasSceneSelectionRenameLabel(false), 'Rename');
 		assert.strictEqual(baseHalfCanvasSceneSelectionRenameLabel(true), 'Rename file');
+	});
+
+	test('does not confuse an interactive Badge face with Note editing', () => {
+		const controls = { kind: 'note' as const };
+		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ controls }), false);
+		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ controls, noteEditing: true }), true);
+		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ noteEditing: true }), false);
 	});
 
 	test('keeps composition and nested controls ahead of graph shortcuts', () => {

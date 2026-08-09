@@ -466,6 +466,12 @@ export function baseHalfCanvasSceneSelectionRenameLabel(renameChangesPathOnly: b
 		: localize('basehalf.canvas.selection.rename', "Rename");
 }
 
+export function baseHalfCanvasSceneCardIsNoteEditing(
+	card: Pick<IBaseHalfCanvasSceneCard, 'controls' | 'noteEditing'>
+): boolean {
+	return card.controls?.kind === 'note' && card.noteEditing === true;
+}
+
 export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, 'key' | 'isComposing' | 'keyCode'>): boolean {
 	return event.key === 'Escape' && !event.isComposing && event.keyCode !== 229;
 }
@@ -934,13 +940,15 @@ function createCanvasSceneMount(
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
 		const note = data.card.controls?.kind === 'note';
-		const noteEditing = note && data.card.forceInteractive === true;
-		const presentation = baseHalfCanvasCardPresentation({
-			forceInteractive: data.card.forceInteractive === true,
-			nearViewport,
-			selected: selected && !note,
-			selectionSize
-		});
+		const noteEditing = baseHalfCanvasSceneCardIsNoteEditing(data.card);
+		const presentation = noteEditing
+			? 'preview'
+			: baseHalfCanvasCardPresentation({
+				forceInteractive: data.card.forceInteractive === true,
+				nearViewport,
+				selected: selected && !note,
+				selectionSize
+			});
 		mountedCardRef.current = {
 			card: data.card,
 			height,

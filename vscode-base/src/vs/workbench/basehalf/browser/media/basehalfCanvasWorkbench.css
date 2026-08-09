@@ -921,17 +921,11 @@ body.basehalf-canvas-edge-reconnecting * {
 	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
 
-.monaco-workbench .basehalf-canvas-card-preview.kind-markdown.interactive {
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
+	--basehalf-canvas-note-content-padding: 8px 12px 12px;
+	--basehalf-canvas-note-scrollbar-width: calc(10px / var(--basehalf-canvas-zoom, 1));
 	position: relative;
-	display: flex;
-	padding: 0;
-	overflow: hidden;
-	font-family: inherit;
-	mask-image: none;
-	-webkit-mask-image: none;
-}
-
-.monaco-workbench .basehalf-canvas-card-preview.kind-markdown:not(.interactive) {
+	padding: var(--basehalf-canvas-note-content-padding);
 	font-family: inherit;
 	white-space: normal;
 	mask-image: none;
@@ -958,28 +952,17 @@ body.basehalf-canvas-edge-reconnecting * {
 	visibility: visible;
 }
 
-.monaco-workbench .basehalf-canvas-note-editor-fallback {
-	box-sizing: border-box;
-	padding: 8px 12px 12px;
-}
-
 .monaco-workbench .basehalf-canvas-note-editor-fallback[aria-hidden="true"] {
 	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline {
-	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
 	flex: 1;
-	min-width: 0;
-	min-height: 0;
-	padding: 8px 12px 12px;
+	padding: var(--basehalf-canvas-note-content-padding);
 	overflow-x: hidden;
-	overflow-y: auto;
-	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
-	scrollbar-width: thin;
-	white-space: normal;
+	overflow-y: scroll;
 	caret-color: var(--vscode-editorCursor-foreground);
 	cursor: text;
 	user-select: text;
@@ -992,7 +975,7 @@ body.basehalf-canvas-edge-reconnecting * {
  * its controls screen-sized and give normal/hover/drag one visual contract.
  */
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar {
-	width: calc(10px / var(--basehalf-canvas-zoom, 1));
+	width: var(--basehalf-canvas-note-scrollbar-width);
 	height: 0;
 }
 
@@ -1814,12 +1797,26 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .bh-md-preview {
+	box-sizing: border-box;
+	width: 100%;
 	height: 100%;
-	overflow: hidden;
+	min-width: 0;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: hidden;
+	white-space: normal;
 	color: var(--bh-card-text-secondary);
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 	font-size: 13px;
 	line-height: 1.45;
+}
+
+/* The resting projection must remain draggable across its entire body, so it
+ * cannot own an invisible native scrollbar. Reserve the live editor's gutter
+ * as inert box space instead; both projections then keep the same line measure
+ * at every Canvas zoom without introducing a resting pointer target. */
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown .bh-md-preview:not(.basehalf-canvas-markdown-inline) {
+	padding-right: var(--basehalf-canvas-note-scrollbar-width);
 }
 
 .monaco-workbench .basehalf-canvas-note-empty {
@@ -2305,6 +2302,16 @@ body.basehalf-canvas-edge-reconnecting * {
 	background: var(--bh-card-surface) !important;
 	border: 1px solid var(--bh-card-accent) !important;
 	border-radius: 2px;
+}
+
+/* The workbench marks the Note as editing before the React scene commits its
+ * next render. Hide structural resize chrome from that same synchronous state
+ * boundary so it cannot survive for one frame over the text editor. */
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-line,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle {
+	opacity: 0 !important;
+	pointer-events: none !important;
+	transition: none !important;
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),

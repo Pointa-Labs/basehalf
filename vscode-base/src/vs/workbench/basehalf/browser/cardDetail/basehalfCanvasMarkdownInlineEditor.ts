@@ -463,6 +463,16 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		return this.model?.getValue();
 	}
 
+	getScrollTop(): number {
+		return this.root.scrollTop;
+	}
+
+	setScrollTop(scrollTop: number): void {
+		if (!this.disposed && Number.isFinite(scrollTop)) {
+			this.root.scrollTop = Math.max(0, scrollTop);
+		}
+	}
+
 	getSelection(): IBaseHalfCanvasMarkdownInlineSelection | undefined {
 		return this.runtime?.getSelection();
 	}

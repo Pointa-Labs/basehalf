@@ -75,9 +75,12 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** The scene reports only meaningful presentation changes. The workbench
 	 *  keeps one card body alive at a time and owns its resource lifecycle. */
 	readonly updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => void;
-	/** An open in-card editor remains interactive even before selection catches
-	 *  up with a replacement scene snapshot. */
+	/** An explicitly open in-card surface (for example a Badge face or editor)
+	 *  stays mounted while selection catches up with a replacement snapshot. */
 	readonly forceInteractive?: true;
+	/** Only the Markdown Note inline editor suppresses structural controls and
+	 *  retains the static preview beneath its live editing overlay. */
+	readonly noteEditing?: true;
 }
 
 export interface IBaseHalfCanvasSceneEdge extends IBaseHalfCanvasEdge {
