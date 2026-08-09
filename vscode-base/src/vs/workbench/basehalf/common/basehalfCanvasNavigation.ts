@@ -37,12 +37,19 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	readonly preserveFocus?: boolean;
 	readonly pinned?: boolean;
 	readonly projection?: BaseHalfCardDetailProjection;
+	/** The caller already froze the inline author and adopted its current
+	 * projection into the shared working copy. */
+	readonly canvasProjectionHandoff?: true;
 }
 
 export interface IBaseHalfWorkspaceResource {
 	readonly resource: URI;
 	readonly workspaceFolder: URI;
 	readonly relativePath: string;
+}
+
+export interface IBaseHalfActiveCanvasEditor extends IBaseHalfWorkspaceResource {
+	prepareToClose(): Promise<boolean>;
 }
 
 export interface IBaseHalfCanvasFolderState extends IBaseHalfWorkspaceResource {
@@ -73,10 +80,19 @@ export interface IBaseHalfCanvasNavigationService {
 	readonly onDidChangeState: Event<IBaseHalfCanvasNavigationState>;
 	readonly onDidChangeSurfaceActive: Event<boolean>;
 	readonly state: IBaseHalfCanvasNavigationState;
+	/** The selected canvas editor is transient and never enters location history. */
+	readonly activeCanvasEditor: IBaseHalfActiveCanvasEditor | undefined;
 	readonly isSurfaceActive: boolean;
 	readonly canGoBack: boolean;
 	readonly canGoForward: boolean;
+	/** Whether a BaseHalf-owned Canvas or Card Detail surface currently owns
+	 * the resource's working copy outside VS Code's editor groups. */
+	isResourceOpen(resource: URI): boolean;
 	setSurfaceActive(active: boolean): void;
+	/** Register or clear the single inline editor owned by the active canvas. */
+	setActiveCanvasEditor(editor: IBaseHalfActiveCanvasEditor | undefined): void;
+	/** Persist every active authoring surface before a structural lifecycle boundary. */
+	flushActiveEditor(): Promise<boolean>;
 
 	openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;

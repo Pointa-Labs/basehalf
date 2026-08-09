@@ -18,6 +18,7 @@ import { MockContextKeyService } from '../../../../../platform/keybinding/test/c
 import { UriIdentityService } from '../../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { TestWorkspace } from '../../../../../platform/workspace/test/common/testWorkspace.js';
 import { DEFAULT_EDITOR_ASSOCIATION } from '../../../../common/editor.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
 import { EditorService } from '../../../../services/editor/browser/editorService.js';
 import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
@@ -50,8 +51,11 @@ suite('Files - TextFileEditorTracker', () => {
 		disposables.clear();
 	});
 
-	async function createTracker(autoSaveEnabled = false): Promise<{ accessor: TestServiceAccessor; cleanup: () => Promise<void> }> {
+	async function createTracker(autoSaveEnabled = false, baseHalfOpenResources: readonly URI[] = []): Promise<{ accessor: TestServiceAccessor; cleanup: () => Promise<void> }> {
 		const instantiationService = workbenchInstantiationService(undefined, disposables);
+		instantiationService.stub(IBaseHalfCanvasNavigationService, {
+			isResourceOpen: (resource: URI) => baseHalfOpenResources.some(candidate => isEqual(candidate, resource))
+		} as unknown as IBaseHalfCanvasNavigationService);
 
 		const configurationService = new TestConfigurationService();
 		if (autoSaveEnabled) {
@@ -122,6 +126,20 @@ suite('Files - TextFileEditorTracker', () => {
 		const resource = toResource.call(this, '/path/index.txt');
 
 		await testDirtyTextFileModelOpensEditorDependingOnAutoSaveSetting(resource, false, false);
+	});
+
+	test('dirty text file model owned by a BaseHalf surface does not open as editor', async function () {
+		const resource = toResource.call(this, '/path/index.txt');
+		const { accessor, cleanup } = await createTracker(false, [resource]);
+
+		const model = await accessor.textFileService.files.resolve(resource) as IResolvedTextFileEditorModel;
+		disposables.add(model);
+		model.textEditorModel.setValue('Owned by BaseHalf');
+
+		await timeout(20);
+		assert.ok(!accessor.editorService.isOpened({ resource, typeId: FILE_EDITOR_INPUT_ID, editorId: DEFAULT_EDITOR_ASSOCIATION.id }));
+
+		await cleanup();
 	});
 
 	test('dirty text file model does not open as editor if autosave is ON', async function () {

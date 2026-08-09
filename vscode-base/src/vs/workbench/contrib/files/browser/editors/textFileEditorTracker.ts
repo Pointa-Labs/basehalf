@@ -19,6 +19,7 @@ import { Schemas } from '../../../../../base/common/network.js';
 import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
 import { IWorkingCopyEditorService } from '../../../../services/workingCopy/common/workingCopyEditorService.js';
 import { DEFAULT_EDITOR_ASSOCIATION } from '../../../../common/editor.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
 
 export class TextFileEditorTracker extends Disposable implements IWorkbenchContribution {
 
@@ -31,7 +32,8 @@ export class TextFileEditorTracker extends Disposable implements IWorkbenchContr
 		@IHostService private readonly hostService: IHostService,
 		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
 		@IFilesConfigurationService private readonly filesConfigurationService: IFilesConfigurationService,
-		@IWorkingCopyEditorService private readonly workingCopyEditorService: IWorkingCopyEditorService
+		@IWorkingCopyEditorService private readonly workingCopyEditorService: IWorkingCopyEditorService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super();
 
@@ -76,6 +78,10 @@ export class TextFileEditorTracker extends Disposable implements IWorkbenchContr
 				// the save resulted in an error and not for untitled
 				// that are not auto-saved anyway
 				return false;
+			}
+
+			if (this.baseHalfCanvasNavigationService.isResourceOpen(resource)) {
+				return false; // model is owned by a BaseHalf Canvas/Card Detail surface outside editor groups
 			}
 
 			if (this.editorService.isOpened({ resource, typeId: resource.scheme === Schemas.untitled ? UntitledTextEditorInput.ID : FILE_EDITOR_INPUT_ID, editorId: DEFAULT_EDITOR_ASSOCIATION.id })) {

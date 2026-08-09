@@ -16,6 +16,7 @@ import {
 	IBaseHalfCanvasFolderState,
 	IBaseHalfCanvasNavigationService,
 	IBaseHalfCanvasNavigationState,
+	IBaseHalfActiveCanvasEditor,
 	IBaseHalfCardDetailState,
 	IBaseHalfNavigationHistoryOptions,
 	IBaseHalfOpenResourceOptions
@@ -33,11 +34,16 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 	private readonly backStack: IBaseHalfCanvasNavigationState[] = [];
 	private readonly forwardStack: IBaseHalfCanvasNavigationState[] = [];
 	private _isSurfaceActive = false;
+	private _activeCanvasEditor: IBaseHalfActiveCanvasEditor | undefined;
 
 	private _state: IBaseHalfCanvasNavigationState;
 
 	get state(): IBaseHalfCanvasNavigationState {
 		return this._state;
+	}
+
+	get activeCanvasEditor(): IBaseHalfActiveCanvasEditor | undefined {
+		return this._activeCanvasEditor;
 	}
 
 	get isSurfaceActive(): boolean {
@@ -50,6 +56,13 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 
 	get canGoForward(): boolean {
 		return this.forwardStack.length > 0;
+	}
+
+	isResourceOpen(resource: URI): boolean {
+		return (!!this._activeCanvasEditor
+			&& this.uriIdentityService.extUri.isEqual(this._activeCanvasEditor.resource, resource))
+			|| (!!this._state.cardDetail
+				&& this.uriIdentityService.extUri.isEqual(this._state.cardDetail.resource, resource));
 	}
 
 	constructor(
@@ -73,6 +86,10 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		}
 		this._isSurfaceActive = active;
 		this._onDidChangeSurfaceActive.fire(active);
+	}
+
+	setActiveCanvasEditor(editor: IBaseHalfActiveCanvasEditor | undefined): void {
+		this._activeCanvasEditor = editor;
 	}
 
 	async openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
@@ -104,7 +121,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
-		if (!await this.flushActiveCardDetail()) {
+		if ((this._activeCanvasEditor || this._state.cardDetail) && !await this.flushActiveEditor()) {
 			return { handled: false, reason: 'blockedByDirtyEditor' };
 		}
 
@@ -127,7 +144,13 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
-		if (!await this.flushActiveCardDetail()) {
+		const adoptsCanvasProjection = options.canvasProjectionHandoff === true
+			&& !this._state.cardDetail
+			&& !!this._activeCanvasEditor
+			&& this.uriIdentityService.extUri.isEqual(this._activeCanvasEditor.resource, resource);
+		if (!adoptsCanvasProjection
+			&& (this._activeCanvasEditor || this._state.cardDetail)
+			&& !await this.flushActiveEditor()) {
 			return { handled: false, reason: 'blockedByDirtyEditor' };
 		}
 
@@ -158,7 +181,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!this._state.cardDetail) {
 			return true;
 		}
-		if (!await this.flushActiveCardDetail()) {
+		if (!await this.flushActiveEditor()) {
 			return false;
 		}
 
@@ -177,7 +200,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!previous) {
 			return false;
 		}
-		if (!await this.flushActiveCardDetail()) {
+		if (!await this.flushActiveEditor()) {
 			this.backStack.push(previous);
 			return false;
 		}
@@ -192,7 +215,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!next) {
 			return false;
 		}
-		if (!await this.flushActiveCardDetail()) {
+		if (!await this.flushActiveEditor()) {
 			this.forwardStack.push(next);
 			return false;
 		}
@@ -202,22 +225,30 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return true;
 	}
 
-	private async flushActiveCardDetail(): Promise<boolean> {
-		if (!this._state.cardDetail) {
-			return true;
+	async flushActiveEditor(): Promise<boolean> {
+		const inlineEditor = this._activeCanvasEditor;
+		if (inlineEditor) {
+			const prepared = await inlineEditor.prepareToClose();
+			if (!prepared || this._activeCanvasEditor === inlineEditor) {
+				this.notifyBlockedEditor();
+				return false;
+			}
 		}
-		const flushed = await this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID);
+		const flushed = this._state.cardDetail
+			? await this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID)
+			: true;
 		if (!flushed) {
-			// The refusal must be explained: without this, a failed save turns
-			// every navigation attempt into a silent no-op that reads as a
-			// hung app. Identical notifications coalesce, so repeated attempts
-			// do not stack.
-			this.notificationService.notify({
-				severity: Severity.Warning,
-				message: 'The open card has changes that could not be saved to disk, so it stays open. Resolve the conflict shown on the card, or save manually, then navigate again.'
-			});
+			this.notifyBlockedEditor();
 		}
 		return flushed;
+	}
+
+	private notifyBlockedEditor(): void {
+		// Identical notifications coalesce, so repeated attempts do not stack.
+		this.notificationService.notify({
+			severity: Severity.Warning,
+			message: 'The active editor has changes that could not be saved to disk, so it stays open. Resolve the conflict shown in the editor, or save manually, then navigate again.'
+		});
 	}
 
 	private updateState(

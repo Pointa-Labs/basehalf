@@ -8,6 +8,7 @@ import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import {
 	BaseHalfNavigationResult,
+	IBaseHalfActiveCanvasEditor,
 	IBaseHalfCanvasNavigationService,
 	IBaseHalfCanvasNavigationState,
 	IBaseHalfOpenResourceOptions
@@ -136,12 +137,20 @@ class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
 	readonly canGoBack = false;
 	readonly canGoForward = false;
 	readonly isSurfaceActive = false;
+	activeCanvasEditor: IBaseHalfActiveCanvasEditor | undefined;
 
 	readonly opened: Array<{ resource: URI; options: IBaseHalfOpenResourceOptions }> = [];
 
 	constructor(private readonly result: BaseHalfNavigationResult) { }
 
+	isResourceOpen(): boolean { return false; }
 	setSurfaceActive(): void { }
+	setActiveCanvasEditor(editor: IBaseHalfActiveCanvasEditor | undefined): void {
+		this.activeCanvasEditor = editor;
+	}
+	async flushActiveEditor(): Promise<boolean> {
+		return true;
+	}
 
 	async openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
 		this.opened.push({ resource, options });

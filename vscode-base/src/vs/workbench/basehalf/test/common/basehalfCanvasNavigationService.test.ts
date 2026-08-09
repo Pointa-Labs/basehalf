@@ -224,6 +224,43 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.isSurfaceActive, false);
 	});
 
+	test('tracks the active canvas editor independently from card detail state', () => {
+		const service = createService(new Map());
+		const editor = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => true
+		};
+
+		service.setActiveCanvasEditor(editor);
+		assert.strictEqual(service.activeCanvasEditor, editor);
+		assert.strictEqual(service.state.cardDetail, undefined);
+
+		service.setActiveCanvasEditor(undefined);
+		assert.strictEqual(service.activeCanvasEditor, undefined);
+	});
+
+	test('reports working copies owned outside VS Code editor groups', async () => {
+		const service = createService(new Map());
+		const canvasResource = URI.file('/workspace/note.md');
+		const detailResource = URI.file('/workspace/detail.md');
+
+		service.setActiveCanvasEditor({
+			resource: canvasResource,
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => true
+		});
+		assert.strictEqual(service.isResourceOpen(canvasResource), true);
+		assert.strictEqual(service.isResourceOpen(detailResource), false);
+
+		service.setActiveCanvasEditor(undefined);
+		await service.openCardDetail(detailResource, { source: 'api' });
+		assert.strictEqual(service.isResourceOpen(canvasResource), false);
+		assert.strictEqual(service.isResourceOpen(detailResource), true);
+	});
+
 	test('tracks canvas navigation history for native back and forward controls', async () => {
 		const service = createService(new Map([
 			['/workspace/docs/guide.md', aFileStat(URI.file('/workspace/docs/guide.md'), FileType.File)]
@@ -434,6 +471,152 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(result.handled, true);
 		assert.strictEqual(result.handled && result.target, 'cardDetail');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
+	});
+
+	test('flushes the active canvas editor before navigating without card detail', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map([
+			['/workspace/docs', aFileStat(URI.file('/workspace/docs'), FileType.Directory)]
+		]), [workspaceFolder], flushService);
+		let canClose = false;
+		let closeCalls = 0;
+		service.setActiveCanvasEditor({
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => {
+				closeCalls++;
+				if (canClose) {
+					service.setActiveCanvasEditor(undefined);
+				}
+				return canClose;
+			}
+		});
+		let flushCalls = 0;
+		const blocker = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			flushCalls++;
+			return false;
+		});
+
+		assert.deepStrictEqual(await service.openFolderCanvas(URI.file('/workspace/docs'), { source: 'api' }), { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(closeCalls, 1);
+		assert.strictEqual(flushCalls, 0);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
+
+		canClose = true;
+		const result = await service.openFolderCanvas(URI.file('/workspace/docs'), { source: 'api' });
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(closeCalls, 2);
+		assert.strictEqual(flushCalls, 0);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		blocker.dispose();
+	});
+
+	test('adopts a frozen canvas projection without treating Expand as a disk-save request', async () => {
+		const service = createService(new Map());
+		let closeCalls = 0;
+		service.setActiveCanvasEditor({
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => {
+				closeCalls++;
+				return false;
+			}
+		});
+
+		const result = await service.openCardDetail(URI.file('/workspace/note.md'), {
+			source: 'api',
+			projection: 'rich',
+			canvasProjectionHandoff: true
+		});
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(closeCalls, 0);
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'note.md');
+	});
+
+	test('does not let a projection handoff bypass a different active resource', async () => {
+		const service = createService(new Map());
+		let closeCalls = 0;
+		service.setActiveCanvasEditor({
+			resource: URI.file('/workspace/other.md'),
+			workspaceFolder,
+			relativePath: 'other.md',
+			prepareToClose: async () => {
+				closeCalls++;
+				return false;
+			}
+		});
+
+		const result = await service.openCardDetail(URI.file('/workspace/note.md'), {
+			source: 'api',
+			projection: 'rich',
+			canvasProjectionHandoff: true
+		});
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(closeCalls, 1);
+		assert.strictEqual(service.state.cardDetail, undefined);
+	});
+
+	test('drains a projection handoff guard and its detail flusher at a lifecycle boundary', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/note.md'), { source: 'api', projection: 'rich' });
+		let guardCalls = 0;
+		let paneCalls = 0;
+		const guard = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => {
+				guardCalls++;
+				service.setActiveCanvasEditor(undefined);
+				return true;
+			}
+		};
+		service.setActiveCanvasEditor(guard);
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			paneCalls++;
+			return true;
+		});
+
+		assert.strictEqual(await service.flushActiveEditor(), true);
+		assert.strictEqual(guardCalls, 1);
+		assert.strictEqual(paneCalls, 1);
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'note.md');
+		flusher.dispose();
+	});
+
+	test('vetoes a lifecycle boundary when the handoff detail cannot finish its durable save', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/note.md'), { source: 'api', projection: 'rich' });
+		let guardCalls = 0;
+		let paneCalls = 0;
+		const guard = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => {
+				guardCalls++;
+				service.setActiveCanvasEditor(undefined);
+				return true;
+			}
+		};
+		service.setActiveCanvasEditor(guard);
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			paneCalls++;
+			return false;
+		});
+
+		assert.strictEqual(await service.flushActiveEditor(), false);
+		assert.strictEqual(guardCalls, 1);
+		assert.strictEqual(paneCalls, 1);
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'note.md');
+		flusher.dispose();
 	});
 
 	function createService(
