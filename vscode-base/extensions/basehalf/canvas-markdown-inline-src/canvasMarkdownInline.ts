@@ -5,7 +5,7 @@
 
 import './canvasMarkdownInline.css';
 
-import { baseKeymap, joinBackward, joinForward } from '@tiptap/pm/commands';
+import { baseKeymap, joinBackward, joinForward, setBlockType, toggleMark } from '@tiptap/pm/commands';
 import { keymap } from '@tiptap/pm/keymap';
 import {
 	defaultMarkdownParser,
@@ -14,14 +14,45 @@ import {
 	MarkdownSerializer,
 	schema as commonmarkSchema,
 } from '@tiptap/pm/markdown';
-import { DOMParser as ProseMirrorDOMParser, Schema, type Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { liftListItem, sinkListItem, splitListItem } from '@tiptap/pm/schema-list';
+import { DOMParser as ProseMirrorDOMParser, Schema, type MarkType, type Node as ProseMirrorNode, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
+import { liftListItem, sinkListItem, splitListItem, wrapInList } from '@tiptap/pm/schema-list';
 import { EditorState, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
 import { EditorView } from '@tiptap/pm/view';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
 	readonly head: number;
+}
+
+export type CanvasMarkdownInlineFormatCommand =
+	| 'setHeading1'
+	| 'setHeading2'
+	| 'setHeading3'
+	| 'setParagraph'
+	| 'toggleBold'
+	| 'toggleItalic'
+	| 'toggleBulletList'
+	| 'toggleOrderedList'
+	| 'insertDivider';
+
+export type CanvasMarkdownInlineBlockType =
+	| 'heading1'
+	| 'heading2'
+	| 'heading3'
+	| 'paragraph'
+	| 'bulletList'
+	| 'orderedList'
+	| 'mixed'
+	| 'other';
+
+export type CanvasMarkdownInlineToggleState = boolean | 'mixed';
+
+export interface CanvasMarkdownInlineFormatState {
+	readonly ready: boolean;
+	readonly editable: boolean;
+	readonly blockType: CanvasMarkdownInlineBlockType;
+	readonly bold: CanvasMarkdownInlineToggleState;
+	readonly italic: CanvasMarkdownInlineToggleState;
 }
 
 export interface CanvasMarkdownInlineUnit {
@@ -45,6 +76,7 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly onRedoRequest?: () => void;
 	readonly onExitRequest?: () => void;
 	readonly onToolbarRequest?: () => void;
+	readonly onFormatStateChange?: (state: CanvasMarkdownInlineFormatState) => void;
 }
 
 export interface CanvasMarkdownInlineEditorRuntime {
@@ -53,6 +85,8 @@ export interface CanvasMarkdownInlineEditorRuntime {
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): CanvasMarkdownInlineSelection;
 	getMarkdown(): string;
+	getFormatState(): CanvasMarkdownInlineFormatState;
+	runFormatCommand(command: CanvasMarkdownInlineFormatCommand): boolean;
 	isComposing(): boolean;
 	destroy(): void;
 }
@@ -400,6 +434,139 @@ function insertSoftBreak(state: EditorState, dispatch?: (transaction: Transactio
 	return true;
 }
 
+function listTypeAt(position: ResolvedPos): 'bulletList' | 'orderedList' | undefined {
+	for (let depth = position.depth; depth > 0; depth--) {
+		const type = position.node(depth).type;
+		if (type === canvasSchema.nodes.bullet_list) {
+			return 'bulletList';
+		}
+		if (type === canvasSchema.nodes.ordered_list) {
+			return 'orderedList';
+		}
+	}
+	return undefined;
+}
+
+function blockTypeAt(position: ResolvedPos): CanvasMarkdownInlineBlockType {
+	const list = listTypeAt(position);
+	if (list) {
+		return list;
+	}
+	for (let depth = position.depth; depth > 0; depth--) {
+		const node = position.node(depth);
+		if (node.type === canvasSchema.nodes.heading) {
+			return `heading${node.attrs.level}` as CanvasMarkdownInlineBlockType;
+		}
+		if (node.type === canvasSchema.nodes.paragraph) {
+			return 'paragraph';
+		}
+	}
+	return 'other';
+}
+
+function blockTypeForState(state: EditorState): CanvasMarkdownInlineBlockType {
+	const types = new Set<CanvasMarkdownInlineBlockType>();
+	const { from, to, $from } = state.selection;
+	state.doc.nodesBetween(from, Math.max(from, to), (node, position) => {
+		if (!node.isTextblock) {
+			return;
+		}
+		const inside = Math.min(state.doc.content.size, position + 1);
+		types.add(blockTypeAt(state.doc.resolve(inside)));
+	});
+	if (types.size === 0) {
+		types.add(blockTypeAt($from));
+	}
+	return types.size === 1 ? [...types][0] : 'mixed';
+}
+
+function markStateForState(state: EditorState, markType: MarkType): CanvasMarkdownInlineToggleState {
+	const { empty, from, to, $from } = state.selection;
+	if (empty) {
+		return !!markType.isInSet(state.storedMarks ?? $from.marks());
+	}
+	let marked = false;
+	let unmarked = false;
+	state.doc.nodesBetween(from, to, (node, position) => {
+		if (!node.isText) {
+			return;
+		}
+		const start = Math.max(from, position);
+		const end = Math.min(to, position + node.nodeSize);
+		if (end <= start) {
+			return;
+		}
+		if (markType.isInSet(node.marks)) {
+			marked = true;
+		} else {
+			unmarked = true;
+		}
+	});
+	return marked && unmarked ? 'mixed' : marked;
+}
+
+function formatStateForEditor(state: EditorState, readOnly: boolean): CanvasMarkdownInlineFormatState {
+	return {
+		ready: true,
+		editable: !readOnly,
+		blockType: blockTypeForState(state),
+		bold: markStateForState(state, canvasSchema.marks.strong),
+		italic: markStateForState(state, canvasSchema.marks.em),
+	};
+}
+
+function sameFormatState(a: CanvasMarkdownInlineFormatState | undefined, b: CanvasMarkdownInlineFormatState): boolean {
+	return !!a
+		&& a.ready === b.ready
+		&& a.editable === b.editable
+		&& a.blockType === b.blockType
+		&& a.bold === b.bold
+		&& a.italic === b.italic;
+}
+
+function switchListType(state: EditorState, dispatch: ((transaction: Transaction) => void) | undefined, target: NodeType): boolean {
+	const current = listTypeAt(state.selection.$from);
+	const targetName = target === canvasSchema.nodes.bullet_list ? 'bulletList' : 'orderedList';
+	if (current === targetName) {
+		return liftListItem(canvasSchema.nodes.list_item)(state, dispatch);
+	}
+	if (current) {
+		let depth = state.selection.$from.depth;
+		while (depth > 0 && state.selection.$from.node(depth).type !== canvasSchema.nodes.bullet_list && state.selection.$from.node(depth).type !== canvasSchema.nodes.ordered_list) {
+			depth--;
+		}
+		if (depth > 0) {
+			if (dispatch) {
+				const attrs = target === canvasSchema.nodes.ordered_list ? { order: 1 } : null;
+				dispatch(state.tr.setNodeMarkup(state.selection.$from.before(depth), target, attrs).scrollIntoView());
+			}
+			return true;
+		}
+	}
+	return wrapInList(target)(state, dispatch);
+}
+
+function insertDivider(state: EditorState, dispatch?: (transaction: Transaction) => void): boolean {
+	if (dispatch) {
+		dispatch(state.tr.replaceSelectionWith(canvasSchema.nodes.horizontal_rule.create()).scrollIntoView());
+	}
+	return true;
+}
+
+function commandForFormat(command: CanvasMarkdownInlineFormatCommand): Command {
+	switch (command) {
+		case 'setHeading1': return setBlockType(canvasSchema.nodes.heading, { level: 1 });
+		case 'setHeading2': return setBlockType(canvasSchema.nodes.heading, { level: 2 });
+		case 'setHeading3': return setBlockType(canvasSchema.nodes.heading, { level: 3 });
+		case 'setParagraph': return setBlockType(canvasSchema.nodes.paragraph);
+		case 'toggleBold': return toggleMark(canvasSchema.marks.strong);
+		case 'toggleItalic': return toggleMark(canvasSchema.marks.em);
+		case 'toggleBulletList': return (state, dispatch) => switchListType(state, dispatch, canvasSchema.nodes.bullet_list);
+		case 'toggleOrderedList': return (state, dispatch) => switchListType(state, dispatch, canvasSchema.nodes.ordered_list);
+		case 'insertDivider': return insertDivider;
+	}
+}
+
 /**
  * A source tile adds one transparent document level around ordinary Markdown
  * blocks. ProseMirror's standard join command correctly removes that level on
@@ -454,6 +621,7 @@ export function createCanvasMarkdownInlineEditor(
 	let readOnly = options.readOnly ?? false;
 	let compositionActive = false;
 	let pendingMarkdownChange = false;
+	let lastFormatState: CanvasMarkdownInlineFormatState | undefined;
 	const documentLineEnding = options.markdown.includes('\r\n') ? '\r\n' : '\n';
 	let lastReportedMarkdown = options.markdown;
 
@@ -465,6 +633,10 @@ export function createCanvasMarkdownInlineEditor(
 	);
 	const listItem = canvasSchema.nodes.list_item;
 	const plugins = [
+		keymap({
+			'Mod-b': whenEditable(toggleMark(canvasSchema.marks.strong)),
+			'Mod-i': whenEditable(toggleMark(canvasSchema.marks.em)),
+		}),
 		keymap({
 			Backspace: whenEditable(joinAcrossMarkdownUnit(-1)),
 			Delete: whenEditable(joinAcrossMarkdownUnit(1)),
@@ -547,6 +719,14 @@ export function createCanvasMarkdownInlineEditor(
 		}
 		return true;
 	};
+	const emitFormatState = (): CanvasMarkdownInlineFormatState => {
+		const state = formatStateForEditor(view.state, readOnly);
+		if (!sameFormatState(lastFormatState, state)) {
+			lastFormatState = state;
+			options.onFormatStateChange?.(state);
+		}
+		return state;
+	};
 
 	host.replaceChildren();
 	view = new EditorView(host, {
@@ -567,6 +747,7 @@ export function createCanvasMarkdownInlineEditor(
 		dispatchTransaction(transaction) {
 			const nextState = view.state.apply(transaction);
 			view.updateState(nextState);
+			emitFormatState();
 			if (!transaction.docChanged) {
 				return;
 			}
@@ -611,6 +792,7 @@ export function createCanvasMarkdownInlineEditor(
 			},
 		},
 	});
+	emitFormatState();
 
 	const onCompositionStart = (): void => {
 		if (compositionActive) {
@@ -644,16 +826,19 @@ export function createCanvasMarkdownInlineEditor(
 			if (!result) {
 				view.dispatch(view.state.tr.setSelection(TextSelection.atEnd(view.state.doc)));
 				view.focus();
+				emitFormatState();
 				return false;
 			}
 			const position = Math.max(0, Math.min(view.state.doc.content.size, result.pos));
 			const selection = TextSelection.between(view.state.doc.resolve(position), view.state.doc.resolve(position));
 			view.dispatch(view.state.tr.setSelection(selection));
 			view.focus();
+			emitFormatState();
 			return true;
 		},
 		focus() {
 			view.focus();
+			emitFormatState();
 		},
 		setReadOnly(value) {
 			if (readOnly === value) {
@@ -661,12 +846,27 @@ export function createCanvasMarkdownInlineEditor(
 			}
 			readOnly = value;
 			view.setProps({ editable: () => !readOnly });
+			emitFormatState();
 		},
 		getSelection() {
 			return selectionSnapshot(view.state.selection);
 		},
 		getMarkdown() {
 			return serializeDocument(view.state.doc);
+		},
+		getFormatState() {
+			return emitFormatState();
+		},
+		runFormatCommand(command) {
+			if (destroyed || readOnly) {
+				return false;
+			}
+			const handled = commandForFormat(command)(view.state, transaction => view.dispatch(transaction), view);
+			if (handled) {
+				view.focus();
+				emitFormatState();
+			}
+			return handled;
 		},
 		isComposing() {
 			return compositionActive || view.composing;

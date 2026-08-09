@@ -247,7 +247,7 @@ focus file of the node the user is looking at right now:
 - \`kind: folder\` → they're on a folder's canvas. Use that folder's \`badge.yaml\`
   and \`canvas.yaml\`, plus \`viewport_center\` and \`zoom\`.
 
-The \`.bh/mirror/\` tree holds up to four YAML files per node (sparse — only what's
+The \`.bh/mirror/\` tree holds up to five YAML files per node (sparse — only what's
 been annotated):
 - \`.bh/mirror/<path>/badge.yaml\` — a node's one-line \`description\`, outbound
   \`references\` (paths) and inbound \`referenced_by\` (paths). \`A → B\` means A's
@@ -261,6 +261,8 @@ been annotated):
   the live one).
 - \`.bh/mirror/<file>/adhd.yaml\` — per-file reading aids: \`highlight_keywords\` and
   read line-ranges (\`read_paragraphs\`).
+- \`.bh/mirror/<path>/appearance.yaml\` — user-selected visual presentation such as
+  the canvas card \`background\` preset.
 
 To answer or edit, start from the focused node. Its incoming \`referenced_by\` nodes
 are upstream context; follow either direction when more graph context is useful.

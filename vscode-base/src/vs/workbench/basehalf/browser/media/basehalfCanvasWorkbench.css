@@ -345,7 +345,7 @@
 	padding: 3px;
 	overflow-x: auto;
 	overflow-y: hidden;
-	border-radius: 6px;
+	border-radius: 18px;
 	pointer-events: auto;
 	scrollbar-width: none;
 }
@@ -394,8 +394,8 @@
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action.active {
-	color: var(--vscode-menu-selectionForeground);
-	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-activeBackground));
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action:hover,
@@ -419,9 +419,89 @@
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-action.open {
-	color: var(--vscode-button-foreground);
-	background: var(--vscode-button-background);
+	color: var(--vscode-icon-foreground);
+	background: var(--vscode-menu-background);
 }
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.text {
+	font-family: var(--vscode-font-family);
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.bold {
+	font-weight: 800;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.paragraph {
+	font-size: 17px;
+	font-weight: 400;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch,
+.monaco-workbench .basehalf-canvas-note-background-option {
+	--basehalf-note-swatch: var(--bh-card-surface);
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch {
+	box-sizing: border-box;
+	width: 16px;
+	height: 16px;
+	background: var(--basehalf-note-swatch);
+	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
+	border-radius: 50%;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-palette {
+	z-index: 1002;
+	display: grid;
+	grid-template-columns: repeat(4, 28px);
+	gap: 4px;
+	box-sizing: border-box;
+	width: 130px;
+	height: 72px;
+	padding: 6px;
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 8px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option {
+	box-sizing: border-box;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	background: var(--basehalf-note-swatch);
+	border: 2px solid transparent;
+	border-radius: 50%;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option:hover,
+.monaco-workbench .basehalf-canvas-note-background-option:focus-visible {
+	border-color: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option.active {
+	border-color: var(--vscode-foreground);
+	box-shadow: 0 0 0 1px var(--vscode-menu-background) inset;
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch.red,
+.monaco-workbench .basehalf-canvas-note-background-option.red { --basehalf-note-swatch: #392626; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.orange,
+.monaco-workbench .basehalf-canvas-note-background-option.orange { --basehalf-note-swatch: #3b2c22; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.yellow,
+.monaco-workbench .basehalf-canvas-note-background-option.yellow { --basehalf-note-swatch: #373320; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.green,
+.monaco-workbench .basehalf-canvas-note-background-option.green { --basehalf-note-swatch: #22332a; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.cyan,
+.monaco-workbench .basehalf-canvas-note-background-option.cyan { --basehalf-note-swatch: #203238; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.blue,
+.monaco-workbench .basehalf-canvas-note-background-option.blue { --basehalf-note-swatch: #222f3d; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.purple,
+.monaco-workbench .basehalf-canvas-note-background-option.purple { --basehalf-note-swatch: #30273c; }
 
 .monaco-workbench .basehalf-canvas-edge-path {
 	fill: none;
@@ -495,6 +575,18 @@ body.basehalf-canvas-edge-reconnecting * {
 	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.monaco-workbench .basehalf-canvas-card[data-note-background="red"] { --basehalf-canvas-note-background: #392626; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="orange"] { --basehalf-canvas-note-background: #3b2c22; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="yellow"] { --basehalf-canvas-note-background: #373320; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="green"] { --basehalf-canvas-note-background: #22332a; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="cyan"] { --basehalf-canvas-note-background: #203238; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="blue"] { --basehalf-canvas-note-background: #222f3d; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="purple"] { --basehalf-canvas-note-background: #30273c; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background]:not([data-note-background="default"]) {
+	background: var(--basehalf-canvas-note-background);
+}
+
 .monaco-workbench .basehalf-canvas-card.inline-editing {
 	cursor: default;
 }
@@ -548,8 +640,8 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card:focus-visible,
 .monaco-workbench .basehalf-canvas-card.selected {
-	border-color: var(--bh-card-accent);
-	box-shadow: 0 0 0 1px rgb(0 120 212 / 58%), 0 4px 14px rgb(7 8 9 / 34%);
+	border-color: var(--bh-card-border-strong);
+	box-shadow: 0 0 0 1px rgb(152 156 160 / 28%), 0 4px 14px rgb(7 8 9 / 34%);
 	outline: none;
 }
 
@@ -559,8 +651,8 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:hover,
 .monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:focus-visible,
 .monaco-workbench .basehalf-canvas-card[data-note-editing="true"].selected {
-	border-color: var(--bh-card-border);
-	box-shadow: 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
+	border-color: var(--bh-card-border-strong);
+	box-shadow: 0 0 0 1px rgb(152 156 160 / 28%), 0 4px 14px rgb(7 8 9 / 34%);
 	outline: none;
 	transition: none;
 }
@@ -864,7 +956,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-note-inline-editor {
-	background: var(--bh-card-surface);
+	background: var(--basehalf-canvas-note-background, var(--bh-card-surface));
 }
 
 .monaco-workbench .basehalf-canvas-note-editor.ready {

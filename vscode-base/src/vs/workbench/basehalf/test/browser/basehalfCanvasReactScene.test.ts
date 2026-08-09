@@ -100,7 +100,7 @@ suite('BaseHalfCanvasReactScene', () => {
 		});
 		assert.strictEqual(centered.visible, true);
 		assert.strictEqual(centered.side, 'above');
-		assert.strictEqual(centered.width, 36);
+		assert.strictEqual(centered.width, 392);
 		assert.strictEqual(centered.height, 36);
 		assert.ok(centered.top + centered.height < 180);
 
@@ -114,7 +114,7 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportHeight: 680
 		});
 		assert.strictEqual(highZoom.side, 'above');
-		assert.strictEqual(highZoom.width, 36);
+		assert.strictEqual(highZoom.width, 392);
 		assert.strictEqual(highZoom.height, 36);
 		assert.ok(highZoom.top * 2 + highZoom.height <= 110);
 
@@ -157,7 +157,7 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportWidth: 180,
 			viewportHeight: 600
 		});
-		assert.strictEqual(narrow.width, 36);
+		assert.strictEqual(narrow.width, 164);
 		assert.strictEqual(narrow.height, 36);
 		assert.ok(narrow.left >= 8);
 		assert.ok(narrow.left + narrow.width <= 172);

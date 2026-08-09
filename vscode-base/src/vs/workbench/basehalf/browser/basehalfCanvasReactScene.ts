@@ -45,7 +45,12 @@ import {
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneViewport,
+	BaseHalfCanvasNoteBackground,
+	BaseHalfCanvasNoteFormatCommand,
+	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
+	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
+	IBaseHalfCanvasNoteFormatState,
 	baseHalfCanvasSceneSelectionSurface,
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
@@ -326,8 +331,9 @@ const SELECTION_TOOLBAR_SCREEN_HEIGHT = 32;
 const SELECTION_TOOLBAR_SCREEN_MARGIN = 8;
 const NOTE_CONTROLS_SCREEN_MARGIN = 8;
 const NOTE_CONTROLS_SCREEN_GAP = 10;
-const NOTE_TOOLBAR_SCREEN_WIDTH = 36;
+const NOTE_TOOLBAR_SCREEN_WIDTH = 392;
 const NOTE_TOOLBAR_SCREEN_HEIGHT = 36;
+const NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT = 72;
 const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
 
 export interface IBaseHalfCanvasSelectionToolbarPlacement {
@@ -1362,7 +1368,17 @@ function createCanvasSceneMount(
 	function NoteSelectionControls({ node }: { readonly node: BaseHalfCanvasFlowNode }): ReactElement {
 		const viewport = vendor.useViewport();
 		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
+		const [formatState, setFormatState] = vendor.useState<IBaseHalfCanvasNoteFormatState>(() => node.data.card.controls?.formatState ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE);
+		const [background, setBackground] = vendor.useState<BaseHalfCanvasNoteBackground>(() => node.data.card.controls?.background ?? 'default');
+		const [backgroundOpen, setBackgroundOpen] = vendor.useState(false);
+		const [copied, setCopied] = vendor.useState(false);
+		const [focusIndex, setFocusIndex] = vendor.useState(0);
 		const buttonRef = vendor.useRef<HTMLButtonElement | null>(null);
+		const copiedTimer = vendor.useRef<number | undefined>(undefined);
+		vendor.useEffect(() => {
+			setFormatState(node.data.card.controls?.formatState ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE);
+			setBackground(node.data.card.controls?.background ?? 'default');
+		}, [node.data.card.controls]);
 		vendor.useEffect(() => {
 			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
 				setViewportSize(current => current.width === width && current.height === height ? current : { width, height });
@@ -1385,10 +1401,23 @@ function createCanvasSceneMount(
 				element.ownerDocument.defaultView?.setTimeout(() => buttonRef.current?.focus(), 0);
 			};
 			element.addEventListener(BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT, focusToolbar);
+			const updateFormatState = (event: Event): void => {
+				const detail = (event as CustomEvent<IBaseHalfCanvasNoteFormatState>).detail;
+				if (detail) {
+					setFormatState(detail);
+				}
+			};
+			element.addEventListener(BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT, updateFormatState);
 			return () => {
 				element.removeEventListener(BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT, focusToolbar);
+				element.removeEventListener(BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT, updateFormatState);
 			};
 		}, [node.data.card.element]);
+		vendor.useEffect(() => () => {
+			if (copiedTimer.current !== undefined) {
+				host.ownerDocument.defaultView?.clearTimeout(copiedTimer.current);
+			}
+		}, []);
 		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
 		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
 		const placement = resolveBaseHalfCanvasNoteSelectionPlacement({
@@ -1403,16 +1432,112 @@ function createCanvasSceneMount(
 		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
 			event.stopPropagation();
 		};
-		const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+		const actionCount = 12;
+		const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				event.stopPropagation();
+				setBackgroundOpen(false);
 				delegate.focusNoteEditor(node.data.sceneKey, node.data.structuralEpoch, node.id);
+				return;
+			}
+			let next: number | undefined;
+			if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+				next = (index + 1) % actionCount;
+			} else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+				next = (index - 1 + actionCount) % actionCount;
+			} else if (event.key === 'Home') {
+				next = 0;
+			} else if (event.key === 'End') {
+				next = actionCount - 1;
+			}
+			if (next !== undefined) {
+				event.preventDefault();
+				event.stopPropagation();
+				setFocusIndex(next);
+				event.currentTarget.closest<HTMLElement>('.basehalf-canvas-note-toolbar')
+					?.querySelectorAll<HTMLButtonElement>(':scope > button')[next]?.focus();
 			}
 		};
 		if (!placement.visible) {
 			return h(vendor.Fragment);
 		}
+		const invokeFormat = (command: BaseHalfCanvasNoteFormatCommand): void => {
+			setBackgroundOpen(false);
+			void delegate.formatNote(node.data.sceneKey, node.data.structuralEpoch, node.id, command).catch(error => delegate.reportError(error));
+		};
+		const button = (
+			index: number,
+			key: string,
+			label: string,
+			className: string,
+			content: ReactNode,
+			onClick: () => void,
+			active?: boolean
+		): ReactElement => h('button', {
+			...(index === 0 ? { ref: buttonRef } : {}),
+			key,
+			type: 'button',
+			className: `basehalf-canvas-note-toolbar-action ${className}${active ? ' active' : ''}`,
+			title: label,
+			'aria-label': label,
+			...(active !== undefined ? { 'aria-pressed': active } : {}),
+			tabIndex: index === focusIndex ? 0 : -1,
+			onFocus: () => setFocusIndex(index),
+			onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => onKeyDown(event, index),
+			onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+				event.preventDefault();
+				event.stopPropagation();
+			},
+			onClick: (event: ReactMouseEvent<HTMLElement>) => {
+				event.preventDefault();
+				event.stopPropagation();
+				onClick();
+			}
+		}, content);
+		const divider = (key: string): ReactElement => h('span', { key, className: 'basehalf-canvas-note-toolbar-divider', 'aria-hidden': 'true' });
+		const formatActive = (type: IBaseHalfCanvasNoteFormatState['blockType']): boolean => formatState.ready && formatState.blockType === type;
+		const backgroundLabels: Readonly<Record<BaseHalfCanvasNoteBackground, string>> = {
+			default: localize('basehalf.canvas.note.background.default', "Default background"),
+			red: localize('basehalf.canvas.note.background.red', "Red background"),
+			orange: localize('basehalf.canvas.note.background.orange', "Orange background"),
+			yellow: localize('basehalf.canvas.note.background.yellow', "Yellow background"),
+			green: localize('basehalf.canvas.note.background.green', "Green background"),
+			cyan: localize('basehalf.canvas.note.background.cyan', "Cyan background"),
+			blue: localize('basehalf.canvas.note.background.blue', "Blue background"),
+			purple: localize('basehalf.canvas.note.background.purple', "Purple background")
+		};
+		const paletteTop = placement.side === 'above'
+			? placement.top + (NOTE_TOOLBAR_SCREEN_HEIGHT + 6) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom)
+			: placement.top - (NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT + 6) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom);
+		const actions: ReactElement[] = [
+			button(0, 'background', localize('basehalf.canvas.note.background', "Background color"), 'background', h('span', { className: `basehalf-canvas-note-background-swatch ${background}` }), () => setBackgroundOpen(open => !open), backgroundOpen),
+			divider('block-divider'),
+			button(1, 'h1', localize('basehalf.canvas.note.heading1', "Heading 1"), 'text', 'H1', () => invokeFormat('setHeading1'), formatActive('heading1')),
+			button(2, 'h2', localize('basehalf.canvas.note.heading2', "Heading 2"), 'text', 'H2', () => invokeFormat('setHeading2'), formatActive('heading2')),
+			button(3, 'h3', localize('basehalf.canvas.note.heading3', "Heading 3"), 'text', 'H3', () => invokeFormat('setHeading3'), formatActive('heading3')),
+			button(4, 'paragraph', localize('basehalf.canvas.note.paragraph', "Paragraph"), 'text paragraph', '¶', () => invokeFormat('setParagraph'), formatActive('paragraph')),
+			divider('format-divider'),
+			button(5, 'bold', localize('basehalf.canvas.note.bold', "Bold"), 'text bold', 'B', () => invokeFormat('toggleBold'), formatState.bold === true),
+			button(6, 'italic', localize('basehalf.canvas.note.italic', "Italic"), 'text italic', 'I', () => invokeFormat('toggleItalic'), formatState.italic === true),
+			button(7, 'bullet', localize('basehalf.canvas.note.bulletList', "Bulleted list"), 'codicon codicon-list-unordered', null, () => invokeFormat('toggleBulletList'), formatActive('bulletList')),
+			button(8, 'ordered', localize('basehalf.canvas.note.orderedList', "Numbered list"), 'codicon codicon-list-ordered', null, () => invokeFormat('toggleOrderedList'), formatActive('orderedList')),
+			button(9, 'divider', localize('basehalf.canvas.note.divider', "Divider"), 'codicon codicon-remove', null, () => invokeFormat('insertDivider')),
+			divider('content-divider'),
+			button(10, 'copy', copied ? localize('basehalf.canvas.note.copied', "Copied") : localize('basehalf.canvas.note.copy', "Copy all"), `codicon codicon-${copied ? 'check' : 'copy'}`, null, () => {
+				setBackgroundOpen(false);
+				void delegate.copyNote(node.data.sceneKey, node.data.structuralEpoch, node.id).then(() => {
+					setCopied(true);
+					if (copiedTimer.current !== undefined) {
+						host.ownerDocument.defaultView?.clearTimeout(copiedTimer.current);
+					}
+					copiedTimer.current = host.ownerDocument.defaultView?.setTimeout(() => setCopied(false), 1400);
+				}, error => delegate.reportError(error));
+			}),
+			button(11, 'open', localize('basehalf.canvas.note.expand', "Expand {0}", node.id), 'open codicon codicon-screen-full', null, () => {
+				void delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id).catch(error => delegate.reportError(error));
+			})
+		];
 
 		return h(vendor.ViewportPortal, null,
 			h('div', {
@@ -1429,26 +1554,35 @@ function createCanvasSceneMount(
 				onPointerDown: stopEvent,
 				onClick: stopEvent,
 				onDoubleClick: stopEvent
-			},
-				h('button', {
-					ref: buttonRef,
-					type: 'button',
-					className: 'basehalf-canvas-note-toolbar-action open codicon codicon-screen-full',
-					title: localize('basehalf.canvas.note.expand', "Expand {0}", node.id),
-					'aria-label': localize('basehalf.canvas.note.expand', "Expand {0}", node.id),
-					tabIndex: 0,
-					onKeyDown,
-					onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
-						event.preventDefault();
-						event.stopPropagation();
-					},
-					onClick: (event: ReactMouseEvent<HTMLElement>) => {
-						event.preventDefault();
-						event.stopPropagation();
-						void delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id).catch(error => delegate.reportError(error));
-					}
-				})
-			)
+			}, ...actions),
+			backgroundOpen ? h('div', {
+				className: 'basehalf-canvas-note-background-palette basehalf-canvas-note-surface nodrag nopan nowheel',
+				role: 'menu',
+				'aria-label': localize('basehalf.canvas.note.backgroundOptions', "Card background colors"),
+				style: { left: placement.left, top: paletteTop },
+				onPointerDown: stopEvent,
+				onClick: stopEvent
+			}, ...(['default', 'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple'] as const).map(value => h('button', {
+				key: value,
+				type: 'button',
+				className: `basehalf-canvas-note-background-option ${value}${value === background ? ' active' : ''}`,
+				title: backgroundLabels[value],
+				'aria-label': backgroundLabels[value],
+				'aria-checked': value === background,
+				role: 'menuitemradio',
+				onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+					event.preventDefault();
+					event.stopPropagation();
+				},
+				onClick: (event: ReactMouseEvent<HTMLElement>) => {
+					event.preventDefault();
+					event.stopPropagation();
+					void delegate.setNoteBackground(node.data.sceneKey, node.data.structuralEpoch, node.id, value).then(() => {
+						setBackground(value);
+						setBackgroundOpen(false);
+					}, error => delegate.reportError(error));
+				}
+				}))) : null
 		);
 	}
 
@@ -2446,9 +2580,24 @@ function createCanvasSceneMount(
 			if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || isDirectCardControl(event.target)) {
 				return;
 			}
+			const noteBody = node.data.card.controls?.kind === 'note' && isHTMLElement(event.target)
+				? event.target.closest<HTMLElement>('.basehalf-canvas-card-body')
+				: undefined;
+			const notePoint = noteBody ? (() => {
+				const bounds = noteBody.getBoundingClientRect();
+				const scaleX = bounds.width > 0 ? noteBody.clientWidth / bounds.width : 1;
+				const scaleY = bounds.height > 0 ? noteBody.clientHeight / bounds.height : 1;
+				return {
+					x: Math.max(0, (event.clientX - bounds.left) * scaleX),
+					y: Math.max(0, (event.clientY - bounds.top) * scaleY)
+				};
+			})() : undefined;
 			void requestSelection({ cardPaths: [node.id] }).then(selected => {
 				if (selected) {
 					delegate.cancelPendingCardOpen();
+					if (notePoint) {
+						delegate.rememberNoteEditPoint(node.data.sceneKey, node.data.structuralEpoch, node.id, notePoint);
+					}
 				}
 			});
 		}, [requestSelection]);

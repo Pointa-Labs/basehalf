@@ -2778,6 +2778,30 @@ async function placeCanvasInlineCaretBefore(editable, token) {
 	}, token);
 }
 
+async function selectCanvasInlineToken(editable, token) {
+	await editable.evaluate(async (root, expectedToken) => {
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let node;
+		while ((node = walker.nextNode())) {
+			const offset = node.textContent?.indexOf(expectedToken) ?? -1;
+			if (offset < 0) {
+				continue;
+			}
+			const range = document.createRange();
+			range.setStart(node, offset);
+			range.setEnd(node, offset + expectedToken.length);
+			root.focus();
+			const selection = root.ownerDocument.getSelection();
+			selection?.removeAllRanges();
+			selection?.addRange(range);
+			root.ownerDocument.dispatchEvent(new Event('selectionchange'));
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			return;
+		}
+		throw new Error(`Inline editor did not render selectable token: ${expectedToken}`);
+	}, token);
+}
+
 async function clickCanvasInlineCaretAfter(page, editable, token) {
 	const point = await editable.evaluate((root, expectedToken) => {
 		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -2935,9 +2959,12 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	await note.click();
 	const toolbar = page.getByRole('toolbar', { name: 'Actions for README.md', exact: true });
 	await toolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	const toolbarIdentity = `toolbar-${Date.now()}-${Math.random()}`;
+	await toolbar.evaluate((element, identity) => element.setAttribute('data-smoke-toolbar-identity', identity), toolbarIdentity);
 	const toolbarLabels = await toolbar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
-	if (JSON.stringify(toolbarLabels) !== JSON.stringify(['Expand README.md'])) {
-		throw new Error(`The Note toolbar must contain only Expand: ${JSON.stringify(toolbarLabels)}`);
+	const expectedToolbarLabels = ['Background color', 'Heading 1', 'Heading 2', 'Heading 3', 'Paragraph', 'Bold', 'Italic', 'Bulleted list', 'Numbered list', 'Divider', 'Copy all', 'Expand README.md'];
+	if (JSON.stringify(toolbarLabels) !== JSON.stringify(expectedToolbarLabels)) {
+		throw new Error(`The Note toolbar has an unexpected action contract: ${JSON.stringify(toolbarLabels)}`);
 	}
 	const expandButton = toolbar.getByRole('button', { name: 'Expand README.md', exact: true });
 	if (!await expandButton.evaluate(button => button.classList.contains('codicon-screen-full'))) {
@@ -2969,6 +2996,17 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 		throw new Error('Selecting a Note changed its Markdown source');
 	}
 	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'single-click selection');
+	const backgroundButton = toolbar.getByRole('button', { name: 'Background color', exact: true });
+	await backgroundButton.click();
+	const blueBackground = page.getByRole('menuitemradio', { name: 'Blue background', exact: true });
+	await blueBackground.click();
+	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('data-note-background') === 'blue', cardSelector, { timeout: 3_000 });
+	const appearancePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'appearance.yaml');
+	await waitUntil(() => fs.existsSync(appearancePath) && fs.readFileSync(appearancePath, 'utf8') === 'background: blue\n', 'Canvas Note background to persist');
+	await backgroundButton.click();
+	await page.getByRole('menuitemradio', { name: 'Default background', exact: true }).click();
+	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('data-note-background') === 'default', cardSelector, { timeout: 3_000 });
+	await waitUntil(() => fs.readFileSync(appearancePath, 'utf8') === 'background: default\n', 'Canvas Note background reset to persist');
 
 	const [selectedNoteBox, initialToolbarBox] = await Promise.all([note.boundingBox(), toolbar.boundingBox()]);
 	if (!selectedNoteBox || !initialToolbarBox) {
@@ -3025,6 +3063,10 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	const activeInlineEditor = await waitForCanvasNoteInlineEditor(page, 'README.md');
 	console.error(`[basehalf-smoke] canvas-note-inline-ready-ms ${Date.now() - inlineOpenStarted}`);
 	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'inline WYSIWYG editing');
+	if (await toolbar.getAttribute('data-smoke-toolbar-identity') !== toolbarIdentity
+		|| JSON.stringify(await toolbar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))) !== JSON.stringify(expectedToolbarLabels)) {
+		throw new Error('Entering Note editing replaced or changed the selected-card toolbar');
+	}
 	const editingFallback = note.locator('.basehalf-canvas-note-editor-fallback');
 	if (await editingFallback.count() !== 1 || await editingFallback.getAttribute('aria-hidden') !== 'true') {
 		throw new Error('The ready Canvas inline editor did not retain one accessibility-hidden atomic exit frame');
@@ -3109,6 +3151,20 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 		|| Math.abs(metric.height - editingSoftLines[index].height) > 1)) {
 		throw new Error(`Opening the Canvas inline editor changed its soft-line layout: ${JSON.stringify({ selectedSoftLines, editingSoftLines })}`);
 	}
+	await selectCanvasInlineToken(activeInlineEditor.editable, visibleNeedle);
+	const boldButton = toolbar.getByRole('button', { name: 'Bold', exact: true });
+	await boldButton.click();
+	await page.waitForFunction(token => Array.from(document.querySelectorAll('.basehalf-canvas-markdown-inline > .ProseMirror strong')).some(element => element.textContent?.includes(token)), visibleNeedle, { timeout: 3_000 });
+	const toolbarFormatFocus = await activeInlineEditor.editable.evaluate(editable => ({
+		contenteditable: editable.getAttribute('contenteditable'),
+		focused: document.activeElement === editable || editable.contains(document.activeElement),
+		selection: document.getSelection()?.toString()
+	}));
+	if (toolbarFormatFocus.contenteditable !== 'true' || !toolbarFormatFocus.focused || toolbarFormatFocus.selection !== visibleNeedle) {
+		throw new Error(`A toolbar format command lost the active editor selection: ${JSON.stringify(toolbarFormatFocus)}`);
+	}
+	await boldButton.click();
+	await page.waitForFunction(token => !Array.from(document.querySelectorAll('.basehalf-canvas-markdown-inline > .ProseMirror strong')).some(element => element.textContent?.includes(token)), visibleNeedle, { timeout: 3_000 });
 	const editingDragBefore = await note.boundingBox();
 	const editingDragTarget = await activeInlineEditor.editable.boundingBox();
 	if (!editingDragBefore || !editingDragTarget) {
@@ -3850,8 +3906,9 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	const emptyNoteToolbar = page.getByRole('toolbar', { name: 'Actions for smoke-note.md', exact: true });
 	await emptyNoteToolbar.waitFor({ state: 'visible', timeout: 10_000 });
 	const emptyToolbarLabels = await emptyNoteToolbar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
-	if (JSON.stringify(emptyToolbarLabels) !== JSON.stringify(['Expand smoke-note.md'])) {
-		throw new Error(`The empty Note toolbar must contain only Expand: ${JSON.stringify(emptyToolbarLabels)}`);
+	const expectedEmptyToolbarLabels = ['Background color', 'Heading 1', 'Heading 2', 'Heading 3', 'Paragraph', 'Bold', 'Italic', 'Bulleted list', 'Numbered list', 'Divider', 'Copy all', 'Expand smoke-note.md'];
+	if (JSON.stringify(emptyToolbarLabels) !== JSON.stringify(expectedEmptyToolbarLabels)) {
+		throw new Error(`The empty Note toolbar has an unexpected action contract: ${JSON.stringify(emptyToolbarLabels)}`);
 	}
 	if (await emptyNote.getAttribute('data-preview-level') !== 'preview' || await emptyNoteEditor.host.count() !== 0) {
 		throw new Error('Selecting a newly created empty Note mounted its editor before a double click');
@@ -3859,7 +3916,7 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'empty Note selection');
 	const emptyInlineOpenStarted = Date.now();
 	await emptyNotePlaceholder.dblclick();
-	await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
+	const activeEmptyNoteEditor = await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
 	console.error(`[basehalf-smoke] canvas-note-empty-inline-ready-ms ${Date.now() - emptyInlineOpenStarted}`);
 	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'empty Note inline editing');
 	const emptyNotePath = path.join(workspacePath, 'smoke-note.md');
@@ -3871,6 +3928,22 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	await page.keyboard.insertText('Empty Note inline smoke');
 	await page.keyboard.press('Enter');
 	await page.keyboard.insertText('Body');
+	await selectCanvasInlineToken(activeEmptyNoteEditor.editable, 'Body');
+	await emptyNoteToolbar.getByRole('button', { name: 'Heading 2', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('h2', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Paragraph', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Bulleted list', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('ul li', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Numbered list', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('ol li', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Numbered list', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	await placeCanvasInlineCaretBefore(activeEmptyNoteEditor.editable, 'Body');
+	await emptyNoteToolbar.getByRole('button', { name: 'Divider', exact: true }).click();
+	await activeEmptyNoteEditor.editable.locator('hr').waitFor({ state: 'visible', timeout: 3_000 });
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await activeEmptyNoteEditor.editable.locator('hr').waitFor({ state: 'detached', timeout: 3_000 });
 	await page.keyboard.press('Escape');
 	await emptyNoteEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
 	await waitUntil(() => fs.readFileSync(emptyNotePath, 'utf8') === emptyNoteMarkdown, 'Escape to save visible empty Note text exactly', 15_000);

@@ -19,7 +19,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileEditorModelState } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasNoteEditPoint } from '../../common/basehalfCanvasScene.js';
+import { BaseHalfCanvasNoteFormatCommand, IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 
@@ -61,7 +61,7 @@ export function collectBaseHalfCanvasMarkdownReferenceDefinitions(markdown: stri
 
 export type BaseHalfCanvasMarkdownInlineSaveStatus = 'saving' | 'saved' | 'error';
 
-interface IBaseHalfCanvasMarkdownInlineSelection {
+export interface IBaseHalfCanvasMarkdownInlineSelection {
 	readonly anchor: number;
 	readonly head: number;
 }
@@ -72,6 +72,8 @@ interface IBaseHalfCanvasMarkdownInlineRuntime {
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): IBaseHalfCanvasMarkdownInlineSelection;
 	getMarkdown(): string;
+	getFormatState(): IBaseHalfCanvasNoteFormatState;
+	runFormatCommand(command: BaseHalfCanvasNoteFormatCommand): boolean;
 	isComposing(): boolean;
 	destroy(): void;
 }
@@ -96,6 +98,7 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 		readonly onRedoRequest?: () => void;
 		readonly onExitRequest?: () => void;
 		readonly onToolbarRequest?: () => void;
+		readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
 	}): IBaseHalfCanvasMarkdownInlineRuntime;
 }
 
@@ -166,6 +169,7 @@ export interface IBaseHalfCanvasMarkdownInlineEditorOptions {
 	readonly onCanvasExitRequest?: () => void;
 	readonly onSaveRequest?: (save: Promise<boolean>) => void;
 	readonly onOpenLink?: (href: string) => void;
+	readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
 }
 
 let vendorPromise: Promise<IBaseHalfCanvasMarkdownInlineVendor> | undefined;
@@ -308,7 +312,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.setSaveStatus('saving');
 	}
 
-	async open(state: IBaseHalfCardDetailState, point?: IBaseHalfCanvasNoteEditPoint): Promise<void> {
+	async open(state: IBaseHalfCardDetailState, point?: IBaseHalfCanvasNoteEditPoint, selection?: IBaseHalfCanvasMarkdownInlineSelection): Promise<void> {
 		if (this.disposed) {
 			throw new Error('The Canvas Markdown inline editor has been disposed.');
 		}
@@ -348,7 +352,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			this.model = modelReference.object.textEditorModel;
 			session.add(this.model.onDidChangeContent(event => this.handleModelContentChange(event)));
 			session.add(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
-			if (!this.renderDocument({ point })) {
+			if (!this.renderDocument({ point, selection })) {
 				throw new Error('This Markdown block needs the full editor. Use Expand to edit it.');
 			}
 			this.updateRuntimeReadOnly();
@@ -458,6 +462,42 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		return this.model?.getValue();
 	}
 
+	getSelection(): IBaseHalfCanvasMarkdownInlineSelection | undefined {
+		return this.runtime?.getSelection();
+	}
+
+	getFormatState(): IBaseHalfCanvasNoteFormatState | undefined {
+		return this.runtime?.getFormatState();
+	}
+
+	async runFormatCommand(command: BaseHalfCanvasNoteFormatCommand): Promise<boolean> {
+		if (this.disposed || this.compositionConflict) {
+			return false;
+		}
+		await this.waitForHistorySettled();
+		await this.waitForCompositionSettled();
+		if (this.disposed || this.compositionConflict || this.isReadOnly()) {
+			return false;
+		}
+		this.finishEditGroup();
+		const handled = this.runtime?.runFormatCommand(command) ?? false;
+		if (handled) {
+			// The runtime reports its source splice synchronously. Close that edit
+			// group immediately so one toolbar action is exactly one TextModel undo.
+			this.finishEditGroup();
+			this.options.onEditorFocus?.();
+		}
+		return handled;
+	}
+
+	async copyDocument(): Promise<void> {
+		const text = this.model?.getValue();
+		if (text === undefined) {
+			throw new Error('The Markdown document is not ready to copy.');
+		}
+		await this.clipboardService.writeText(text);
+	}
+
 	override dispose(): void {
 		if (this.disposed) {
 			return;
@@ -554,7 +594,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			onUndoRequest: () => void this.undo(),
 			onRedoRequest: () => void this.redo(),
 			onExitRequest: () => this.options.onCanvasExitRequest?.(),
-			onToolbarRequest: () => this.options.onCanvasToolbarRequest?.()
+			onToolbarRequest: () => this.options.onCanvasToolbarRequest?.(),
+			onFormatStateChange: formatState => this.options.onFormatStateChange?.(formatState)
 		});
 		seedRendering.clear();
 		this.runtime = runtime;

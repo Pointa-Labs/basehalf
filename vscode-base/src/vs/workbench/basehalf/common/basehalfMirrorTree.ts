@@ -10,8 +10,9 @@ import { FileOperationResult, IFileService, toFileOperationResult } from '../../
 /**
  * Utilities for treating `<workspace>/.bh/mirror/` as a tree of per-node
  * directories. Every workspace file/folder `rel` owns the directory
- * `.bh/mirror/<rel>/`, holding up to four YAML files (badge / canvas / focus /
- * adhd). The workspace root maps to `.bh/mirror/` itself (`rel === ''`).
+ * `.bh/mirror/<rel>/`, holding up to five YAML files (badge / canvas / focus /
+ * adhd / appearance). The workspace root maps to `.bh/mirror/` itself
+ * (`rel === ''`).
  *
  * The mirror is sparse: only annotated nodes have a directory, so operations
  * that need "every node with a <kind>.yaml" walk the tree instead of walking

@@ -7,6 +7,39 @@ import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
+export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
+
+export type BaseHalfCanvasNoteFormatCommand =
+	| 'setHeading1'
+	| 'setHeading2'
+	| 'setHeading3'
+	| 'setParagraph'
+	| 'toggleBold'
+	| 'toggleItalic'
+	| 'toggleBulletList'
+	| 'toggleOrderedList'
+	| 'insertDivider';
+
+export type BaseHalfCanvasNoteBlockType = 'heading1' | 'heading2' | 'heading3' | 'paragraph' | 'bulletList' | 'orderedList' | 'mixed' | 'other';
+export type BaseHalfCanvasNoteToggleState = boolean | 'mixed';
+
+export interface IBaseHalfCanvasNoteFormatState {
+	readonly ready: boolean;
+	readonly editable: boolean;
+	readonly blockType: BaseHalfCanvasNoteBlockType;
+	readonly bold: BaseHalfCanvasNoteToggleState;
+	readonly italic: BaseHalfCanvasNoteToggleState;
+}
+
+export const BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE: IBaseHalfCanvasNoteFormatState = Object.freeze({
+	ready: false,
+	editable: false,
+	blockType: 'paragraph',
+	bold: false,
+	italic: false,
+});
+
+export type BaseHalfCanvasNoteBackground = 'default' | 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple';
 
 /** A pointer location measured in the unscaled body of a Markdown card. */
 export interface IBaseHalfCanvasNoteEditPoint {
@@ -21,6 +54,8 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 
 export type BaseHalfCanvasSceneCardControls = {
 	readonly kind: 'note';
+	readonly formatState?: IBaseHalfCanvasNoteFormatState;
+	readonly background?: BaseHalfCanvasNoteBackground;
 };
 
 export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'structural' | 'note';
@@ -190,6 +225,10 @@ export interface IBaseHalfCanvasSceneDelegate {
 	prepareSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean>;
 	focusNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void;
 	editNote(sceneKey: string, structuralEpoch: number, path: string, point?: IBaseHalfCanvasNoteEditPoint): Promise<void>;
+	rememberNoteEditPoint(sceneKey: string, structuralEpoch: number, path: string, point: IBaseHalfCanvasNoteEditPoint): void;
+	formatNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfCanvasNoteFormatCommand): Promise<void>;
+	copyNote(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
+	setNoteBackground(sceneKey: string, structuralEpoch: number, path: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
