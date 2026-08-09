@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { lexer, type Token, type Tokens } from '../../../base/common/marked/marked.js';
+import { parse as parseYaml, type YamlParseError } from '../../../base/common/yaml.js';
 
 export const BASEHALF_RAW_PASSTHROUGH_BLOCK = 'rawPassthrough';
 
@@ -58,8 +59,49 @@ export function splitBaseHalfMarkdownFrontmatter(content: string): { frontmatter
 		return { frontmatter: '', body: content };
 	}
 
+	// A pair of thematic breaks must not hide the Markdown between them. Limit
+	// frontmatter recognition to the shape of a top-level YAML mapping.
+	const candidate = content.slice(openLineEnd + 1, match.index);
+	if (!isYamlMapping(candidate)) {
+		return { frontmatter: '', body: content };
+	}
+
 	const end = match.index + match[0].length;
 	return { frontmatter: content.slice(0, end), body: content.slice(end) };
+}
+
+function isYamlMapping(candidate: string): boolean {
+	const firstLineEnd = candidate.search(/\r|\n/);
+	const firstLine = firstLineEnd >= 0 ? candidate.slice(0, firstLineEnd) : candidate;
+	if (firstLine.trim() === '') {
+		return false;
+	}
+	const errors: YamlParseError[] = [];
+	const node = parseYaml(candidate, errors);
+	return errors.every(error => isUnsupportedYamlAnchorIndent(candidate, error))
+		&& node?.type === 'map'
+		&& yamlTriviaOnly(candidate.slice(0, node.startOffset))
+		&& yamlTriviaOnly(candidate.slice(node.endOffset));
+}
+
+function isUnsupportedYamlAnchorIndent(candidate: string, error: YamlParseError): boolean {
+	if (error.code !== 'unexpected-indentation') {
+		return false;
+	}
+	const lines = candidate.slice(0, error.startOffset).split(/\r\n?|\n/);
+	while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+		lines.pop();
+	}
+	const previousLine = lines.at(-1)?.trimEnd() ?? '';
+	return /:\s*&[A-Za-z0-9_-]+(?:\s+#.*)?$/.test(previousLine);
+}
+
+/** The shared YAML parser intentionally leaves comments and blank lines outside
+ * the root node's offsets. Require every otherwise-unconsumed byte to be YAML
+ * trivia so a valid mapping followed by ordinary prose cannot masquerade as
+ * frontmatter. */
+function yamlTriviaOnly(value: string): boolean {
+	return value.split(/\r\n?|\n/).every(line => line.trim() === '' || /^[ \t]*#/.test(line));
 }
 
 export function joinBaseHalfMarkdownFrontmatter(frontmatter: string, body: string): string {
@@ -463,9 +505,15 @@ async function collectContributions(
 		}
 
 		const fresh = (await editor.blocksToMarkdownLossy([block])).trimEnd();
+		const synthesized = ensureSynthesizedBlockBoundary(
+			contributions[contributions.length - 1]?.text,
+			document[index - 1],
+			block,
+			fresh
+		);
 		contributions.push(entry
 			? { id, text: entry.prefix + fresh + entry.sep, synthesized: false }
-			: { id, text: fresh + defaultSep(block), synthesized: true });
+			: { id, text: synthesized + defaultSep(block), synthesized: true });
 		index++;
 	}
 
@@ -690,6 +738,45 @@ function passthroughBlock(segment: IBaseHalfMarkdownSegment): unknown {
 }
 
 const LIST_ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
+
+function ensureSynthesizedBlockBoundary(previousText: string | undefined, previousBlock: unknown, block: unknown, fresh: string): string {
+	if (!previousText || fresh === '') {
+		return fresh;
+	}
+
+	const previousType = (previousBlock as { type?: string } | undefined)?.type;
+	const type = (block as { type?: string })?.type;
+	const requiredBreaks = previousType === type && LIST_ITEM_TYPES.has(type ?? '') ? 1 : 2;
+	const existingBreaks = countTrailingLineBreaks(previousText);
+	if (existingBreaks >= requiredBreaks) {
+		return fresh;
+	}
+
+	const eol = previousText.includes('\r\n') ? '\r\n' : '\n';
+	return eol.repeat(requiredBreaks - existingBreaks) + fresh;
+}
+
+function countTrailingLineBreaks(value: string): number {
+	let count = 0;
+	let index = value.length;
+	while (index > 0) {
+		if (value.charCodeAt(index - 1) === 10) {
+			index--;
+			if (index > 0 && value.charCodeAt(index - 1) === 13) {
+				index--;
+			}
+			count++;
+			continue;
+		}
+		if (value.charCodeAt(index - 1) === 13) {
+			index--;
+			count++;
+			continue;
+		}
+		break;
+	}
+	return count;
+}
 
 function defaultSep(block: unknown): string {
 	return LIST_ITEM_TYPES.has((block as { type?: string }).type ?? '') ? '\n' : '\n\n';

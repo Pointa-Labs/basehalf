@@ -664,7 +664,7 @@ class YamlScanner {
 		// Per YAML spec 8.1.1.1, content indentation = parent_block_indent + N
 		// where N is the explicit indent indicator (or auto-detected).
 		// Also used to establish a minimum content indent for auto-detection.
-		const parentBlockIndent = this.getParentBlockIndent(start);
+		const parentBlockIndent = this.getParentBlockIndent();
 
 		// Compute the content indentation level
 		let contentIndent = explicitIndent > 0 ? parentBlockIndent + explicitIndent : 0;
@@ -852,7 +852,7 @@ class YamlScanner {
 	 * - After Dash: the column of the dash
 	 * - At document level: -1 (allows content at indent 0)
 	 */
-	private getParentBlockIndent(blockScalarPos: number): number {
+	private getParentBlockIndent(): number {
 		for (let i = this.tokens.length - 1; i >= 0; i--) {
 			const t = this.tokens[i];
 			if (t.type === TokenType.Newline || t.type === TokenType.Comment || t.type === TokenType.Indent) { continue; }

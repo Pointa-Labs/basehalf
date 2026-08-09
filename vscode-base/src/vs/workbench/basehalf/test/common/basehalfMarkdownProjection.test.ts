@@ -49,8 +49,68 @@ suite('BaseHalfMarkdownProjection', () => {
 			const hr = '---\n\nJust a thematic break above, then prose.\n';
 			assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(hr), { frontmatter: '', body: hr });
 
+			const separatedBody = '---\n\nprose\n\n---\n\ntail';
+			assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(separatedBody), {
+				frontmatter: '',
+				body: separatedBody
+			});
+
 			const setext = 'Title\n---\n\nbody\n';
 			assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(setext), { frontmatter: '', body: setext });
+		});
+
+		test('recognizes parsed top-level YAML mappings conservatively', () => {
+			const content = [
+				'---',
+				'# document metadata',
+				'title: A note',
+				'tags:',
+				'  - alpha',
+				'  - beta',
+				'---',
+				'body'
+			].join('\n');
+
+			assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(content), {
+				frontmatter: content.slice(0, content.indexOf('body')),
+				body: 'body'
+			});
+
+			for (const mapping of [
+				'{ title: Note, tags: [alpha, beta] }',
+				'{}',
+				'defaults: &defaults\n  theme: dark\npage:\n  <<: *defaults',
+				'"complex: # key with \\"quote\\"": value',
+				`'single: # key with ''quote''': value`,
+				'# leading trivia\ntitle: Note\n# trailing trivia',
+			]) {
+				for (const eol of ['\n', '\r\n']) {
+					const frontmatter = `---${eol}${mapping.replace(/\n/g, eol)}${eol}---`;
+					const withBody = `${frontmatter}${eol}body`;
+					assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(withBody), {
+						frontmatter: `${frontmatter}${eol}`,
+						body: 'body'
+					});
+					assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(frontmatter), {
+						frontmatter,
+						body: ''
+					});
+				}
+			}
+
+			for (const body of [
+				'---\n\n---\nbody',
+				'---\n\ntitle: prose\n\n---\ntail',
+				'---\r\n\r\ntitle: prose\r\n\r\n---\r\ntail',
+				'---\n- list item\n---\nbody',
+				'---\nordinary prose\n---\nbody',
+				'---\nscalar\n---\nbody',
+				'---\ntitle: metadata\nordinary prose\n---\nbody',
+				'---\n{ title: metadata } trailing prose\n---\nbody',
+				'---\ntitle: [unterminated\n---\nbody'
+			]) {
+				assert.deepStrictEqual(splitBaseHalfMarkdownFrontmatter(body), { frontmatter: '', body });
+			}
 		});
 	});
 
@@ -402,6 +462,29 @@ suite('BaseHalfMarkdownProjection', () => {
 			], '', new Map());
 
 			assert.strictEqual(out, '- Alpha\n- Beta\n');
+		});
+
+		test('separates synthesized blocks inserted after an unchanged final block', async () => {
+			const editor = new FakeMarkdownEditor();
+			const paragraphById = new Map([
+				['a', { key: 'Tail', raw: 'Tail', prefix: '', sep: '' }]
+			]);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
+				{ id: 'a', type: 'paragraph', markdown: 'Tail' },
+				{ id: 'divider', type: 'divider', markdown: '***' }
+			], '', paragraphById), 'Tail\n\n***\n');
+
+			const listById = new Map([
+				['first', { key: '- Alpha', raw: '- Alpha', prefix: '', sep: '' }]
+			]);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
+				{ id: 'first', type: 'bulletListItem', markdown: '- Alpha' },
+				{ id: 'second', type: 'bulletListItem', markdown: '- Beta' }
+			], '', listById), '- Alpha\n- Beta\n');
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, [
+				{ id: 'first', type: 'bulletListItem', markdown: '- Alpha' },
+				{ id: 'body', type: 'paragraph', markdown: 'Body' }
+			], '', listById), '- Alpha\n\nBody\n');
 		});
 
 		test('keeps frontmatter fences separated from newly serialized body content', async () => {

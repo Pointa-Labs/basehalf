@@ -19,6 +19,7 @@
 		"noEmit": true
 	},
 	"include": [
+		"../../../src/typings/vscode-globals-nls.d.ts",
 		"./**/*.ts",
 		"./**/*.tsx"
 	]
