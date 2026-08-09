@@ -322,7 +322,7 @@ data "aws_iam_policy_document" "publisher" {
     resources = [local.catalog_signing_key_arn]
   }
   statement {
-    actions   = ["kms:GetPublicKey", "kms:Verify"]
+    actions   = ["kms:DescribeKey", "kms:GetPublicKey", "kms:Verify"]
     resources = local.catalog_verification_key_arns
   }
   statement {

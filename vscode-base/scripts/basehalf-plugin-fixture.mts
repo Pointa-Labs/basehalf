@@ -1680,7 +1680,7 @@ function assertTerraformSigningKeyRotation(mainFile: string, variablesFile: stri
 	assert.match(source, /key\.key_usage == "SIGN_VERIFY"/);
 	assert.match(source, /key\.key_spec == "ECC_NIST_P256"/);
 	assert.match(source, /actions\s+= \["kms:Sign"\][\s\S]+resources = \[local\.catalog_signing_key_arn\]/);
-	assert.match(source, /actions\s+= \["kms:GetPublicKey", "kms:Verify"\][\s\S]+resources = local\.catalog_verification_key_arns/);
+	assert.match(source, /actions\s+= \["kms:DescribeKey", "kms:GetPublicKey", "kms:Verify"\][\s\S]+resources = local\.catalog_verification_key_arns/);
 	assert.match(outputs, /catalog_retained_managed_key_arn/);
 	assert.match(outputs, /catalog_trusted_verification_key_arns/);
 }
