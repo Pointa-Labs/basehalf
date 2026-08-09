@@ -15,15 +15,28 @@ const ELLIPSIS = '...';
 export function baseHalfCanvasMarkdownPreviewSource(raw: string): string {
 	const lines = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')
 		.split('\n')
-		.map(line => line.trimEnd())
-		.filter(line => line.trim().length > 0);
-	const truncatedByBlockCount = lines.length > BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS;
+		.map(line => line.trimEnd());
+	const contentLineCount = lines.reduce((count, line) => count + (line.trim().length > 0 ? 1 : 0), 0);
+	const truncatedByBlockCount = contentLineCount > BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS;
 	const contentBlockLimit = truncatedByBlockCount
 		? BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS - 1
 		: BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS;
-	const previewLines = lines.slice(0, contentBlockLimit);
+	const previewLines: string[] = [];
+	let includedContentLines = 0;
+	for (const line of lines) {
+		if (line.trim().length > 0) {
+			if (includedContentLines >= contentBlockLimit) {
+				break;
+			}
+			includedContentLines++;
+		}
+		previewLines.push(line);
+	}
+	while (previewLines.at(-1)?.trim().length === 0) {
+		previewLines.pop();
+	}
 	const preview = previewLines.join('\n');
-	const blockSuffix = truncatedByBlockCount ? `\n${ELLIPSIS}` : '';
+	const blockSuffix = truncatedByBlockCount ? `\n\n${ELLIPSIS}` : '';
 	const maximumContentLength = BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_CHARACTERS - blockSuffix.length;
 
 	if (preview.length > maximumContentLength) {

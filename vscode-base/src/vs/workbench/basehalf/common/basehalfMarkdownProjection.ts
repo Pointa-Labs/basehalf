@@ -67,11 +67,24 @@ export function joinBaseHalfMarkdownFrontmatter(frontmatter: string, body: strin
 }
 
 export function segmentBaseHalfMarkdownBody(body: string): IBaseHalfMarkdownSegment[] {
+	return segmentBaseHalfMarkdownBodyWithListMode(body, true);
+}
+
+/**
+ * Tiles a Markdown body at top-level block boundaries while preserving every
+ * source byte. Unlike {@link segmentBaseHalfMarkdownBody}, a top-level list is
+ * kept as one segment instead of being split into one segment per list item.
+ */
+export function segmentBaseHalfMarkdownTopLevelBody(body: string): IBaseHalfMarkdownSegment[] {
+	return segmentBaseHalfMarkdownBodyWithListMode(body, false);
+}
+
+function segmentBaseHalfMarkdownBodyWithListMode(body: string, splitListItems: boolean): IBaseHalfMarkdownSegment[] {
 	if (body === '') {
 		return [];
 	}
 
-	const units = collectUnits(body);
+	const units = collectUnits(body, splitListItems);
 	if (units.length === 0) {
 		return [{ source: body, raw: body, prefix: '', sep: '' }];
 	}
@@ -125,7 +138,7 @@ export async function projectBaseHalfMarkdownSegment(
 	for (const part of paragraphParts) {
 		let partBlocks: unknown[] = [];
 		try {
-			partBlocks = await editor.tryParseMarkdownToBlocks(part);
+			partBlocks = normalizeBaseHalfMarkdownSoftBreaks(await editor.tryParseMarkdownToBlocks(part));
 		} catch {
 			partBlocks = [];
 		}
@@ -277,6 +290,71 @@ function attachmentNameFromHref(href: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Removes the single formatting space BlockNote 0.51 inserts after every soft
+ * line break while converting its intermediate `<br>\n` HTML back into block
+ * content. Leaving that parser artifact in the document makes BlockNote's
+ * required `white-space: pre-wrap` indent every continued line by one space.
+ *
+ * Code blocks keep their whitespace byte-for-byte. In inline-capable blocks we
+ * remove exactly one parser-owned space, including when a style boundary puts
+ * the line feed and following text in separate inline nodes.
+ */
+export function normalizeBaseHalfMarkdownSoftBreaks(blocks: unknown[]): unknown[] {
+	return blocks.map(normalizeBaseHalfMarkdownSoftBreakBlock);
+}
+
+function normalizeBaseHalfMarkdownSoftBreakBlock(value: unknown): unknown {
+	if (!isRecord(value) || value.type === 'codeBlock' || value.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
+		return value;
+	}
+
+	let changed = false;
+	const normalized: Record<string, unknown> = { ...value };
+	if (Array.isArray(value.content)) {
+		const content = normalizeBaseHalfMarkdownInlineSoftBreaks(value.content);
+		if (content !== value.content) {
+			normalized.content = content;
+			changed = true;
+		}
+	}
+	const originalChildren = value.children;
+	if (Array.isArray(originalChildren)) {
+		const children = originalChildren.map(normalizeBaseHalfMarkdownSoftBreakBlock);
+		if (children.some((child, index) => child !== originalChildren[index])) {
+			normalized.children = children;
+			changed = true;
+		}
+	}
+
+	return changed ? normalized : value;
+}
+
+function normalizeBaseHalfMarkdownInlineSoftBreaks(content: unknown[]): unknown[] {
+	let afterLineFeed = false;
+	let changed = false;
+	const normalized = content.map(value => {
+		if (!isRecord(value) || value.type !== 'text' || typeof value.text !== 'string') {
+			afterLineFeed = false;
+			return value;
+		}
+
+		let text = value.text;
+		if (afterLineFeed && text.startsWith(' ')) {
+			text = text.slice(1);
+		}
+		text = text.replace(/\n /g, '\n');
+		afterLineFeed = text.endsWith('\n');
+		if (text === value.text) {
+			return value;
+		}
+
+		changed = true;
+		return { ...value, text };
+	});
+	return changed ? normalized : content;
 }
 
 export async function buildBaseHalfMarkdownLoadProjection(
@@ -435,7 +513,7 @@ async function spliceIntactGroup(
 	return run.length;
 }
 
-function collectUnits(body: string): IBaseHalfMarkdownUnit[] {
+function collectUnits(body: string, splitListItems: boolean): IBaseHalfMarkdownUnit[] {
 	// The lexer normalizes CR/CRLF to LF before tokenizing, so token raws can
 	// only be located in an equally normalized view; the map converts matched
 	// offsets back into positions in the original bytes.
@@ -467,7 +545,7 @@ function collectUnits(body: string): IBaseHalfMarkdownUnit[] {
 			continue;
 		}
 
-		if (isListToken(token) && token.items.length > 0) {
+		if (splitListItems && isListToken(token) && token.items.length > 0) {
 			const listUnits = collectListItemUnits(normalized, toOriginal, token, start, end);
 			if (listUnits.length === token.items.length) {
 				units.push(...listUnits);

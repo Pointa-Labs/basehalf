@@ -1,0 +1,21 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.basehalf-canvas-markdown-inline .ProseMirror {
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 1em;
+	color: inherit;
+	font: inherit;
+	line-height: inherit;
+	overflow-wrap: anywhere;
+	outline: none;
+	white-space: pre-wrap;
+}
+
+.basehalf-canvas-markdown-inline .ProseMirror:focus,
+.basehalf-canvas-markdown-inline .ProseMirror:focus-visible {
+	outline: none;
+}

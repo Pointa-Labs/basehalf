@@ -12,12 +12,9 @@ suite('BaseHalfCanvasPreview', () => {
 
 	test('uses one fixed block budget for the static preview', () => {
 		const source = Array.from({ length: 18 }, (_, index) => `paragraph ${index + 1}`).join('\n\n');
-		const preview = baseHalfCanvasMarkdownPreviewSource(source).split('\n');
+		const preview = baseHalfCanvasMarkdownPreviewSource(source);
 
-		assert.deepStrictEqual(preview, [
-			...Array.from({ length: 15 }, (_, index) => `paragraph ${index + 1}`),
-			'...'
-		]);
+		assert.strictEqual(preview, `${Array.from({ length: 15 }, (_, index) => `paragraph ${index + 1}`).join('\n\n')}\n\n...`);
 	});
 
 	test('bounds preview work by block and character count', () => {
@@ -27,13 +24,13 @@ suite('BaseHalfCanvasPreview', () => {
 		const characterPreview = baseHalfCanvasMarkdownPreviewSource(longLine);
 
 		assert.deepStrictEqual({
-			blockCount: blockPreview.length,
-			lastContentBlock: blockPreview.at(-2),
+			contentBlockCount: blockPreview.filter(line => line.length > 0).length,
+			lastContentBlock: blockPreview.at(-3),
 			blockSuffix: blockPreview.at(-1),
 			characterCount: characterPreview.length,
 			characterSuffix: characterPreview.slice(-3)
 		}, {
-			blockCount: 16,
+			contentBlockCount: 16,
 			lastContentBlock: 'line 15',
 			blockSuffix: '...',
 			characterCount: 4096,

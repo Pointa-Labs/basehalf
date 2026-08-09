@@ -13,8 +13,10 @@ import {
 	IBaseHalfMarkdownEditorApi,
 	IBaseHalfMarkdownSegment,
 	joinBaseHalfMarkdownFrontmatter,
+	normalizeBaseHalfMarkdownSoftBreaks,
 	projectBaseHalfStandaloneFileLink,
 	segmentBaseHalfMarkdownBody,
+	segmentBaseHalfMarkdownTopLevelBody,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter
 } from '../../common/basehalfMarkdownProjection.js';
@@ -139,6 +141,69 @@ suite('BaseHalfMarkdownProjection', () => {
 		});
 	});
 
+	suite('segmentBaseHalfMarkdownTopLevelBody', () => {
+		const tiles = (body: string): IBaseHalfMarkdownSegment[] => {
+			const segments = segmentBaseHalfMarkdownTopLevelBody(body);
+			assert.strictEqual(segments.map(segment => segment.raw).join(''), body);
+			for (const segment of segments) {
+				assert.strictEqual(segment.prefix + segment.source + segment.sep, segment.raw);
+			}
+			return segments;
+		};
+
+		test('keeps paragraphs and paragraph soft breaks in top-level segments', () => {
+			const segments = tiles('First paragraph.\n\nsoft-line-one\nsoft-line-two\n\nLast paragraph.\n');
+
+			assert.deepStrictEqual(segments.map(segment => segment.source), [
+				'First paragraph.',
+				'soft-line-one\nsoft-line-two',
+				'Last paragraph.'
+			]);
+		});
+
+		test('keeps an entire top-level list in one segment', () => {
+			const segments = tiles('Before.\n\n- alpha\n- beta\n- gamma\n\nAfter.\n');
+
+			assert.deepStrictEqual(segments.map(segment => segment.source), [
+				'Before.',
+				'- alpha\n- beta\n- gamma',
+				'After.'
+			]);
+		});
+
+		test('keeps blockquotes and fenced code as distinct top-level segments', () => {
+			const body = '> quote one\n> quote two\n\n```ts\nconst value = 1;\n```\n';
+			const segments = tiles(body);
+
+			assert.deepStrictEqual(segments.map(segment => segment.source), [
+				'> quote one\n> quote two',
+				'```ts\nconst value = 1;\n```'
+			]);
+		});
+
+		test('maps CRLF offsets back to original bytes', () => {
+			const body = '# Title\r\n\r\nline one\r\nline two\r\n\r\n- alpha\r\n- beta\r\n';
+			const segments = tiles(body);
+
+			assert.deepStrictEqual(segments.map(segment => segment.source), [
+				'# Title',
+				'line one\r\nline two',
+				'- alpha\r\n- beta'
+			]);
+			assert.deepStrictEqual(segments.map(segment => segment.sep), ['\r\n\r\n', '\r\n\r\n', '\r\n']);
+		});
+
+		test('assigns leading and trailing separators without losing bytes', () => {
+			const body = '\n\nFirst.\n\nSecond.\n\n\n';
+			const segments = tiles(body);
+
+			assert.deepStrictEqual(segments.map(segment => ({ prefix: segment.prefix, sep: segment.sep })), [
+				{ prefix: '\n\n', sep: '\n\n' },
+				{ prefix: '', sep: '\n\n\n' }
+			]);
+		});
+	});
+
 	test('projects standalone local file links as rich file blocks without changing Markdown', async () => {
 		const editor = new FakeMarkdownEditor();
 		const source = '[Lecture slides](attachments/lecture%201.pdf)';
@@ -207,6 +272,36 @@ suite('BaseHalfMarkdownProjection', () => {
 			assert.notStrictEqual((projection.blocks[0] as { readonly type: string }).type, 'file');
 			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projection.blocks, '', projection.byId), source);
 		}
+	});
+
+	test('removes BlockNote soft-break formatter spaces without changing code whitespace', () => {
+		const code = {
+			id: 'code',
+			type: 'codeBlock',
+			content: [{ type: 'text', text: 'alpha\n beta' }],
+			children: []
+		};
+		const blocks = [{
+			id: 'paragraph',
+			type: 'paragraph',
+			content: [
+				{ type: 'text', text: 'alpha\n beta\n', styles: {} },
+				{ type: 'text', text: ' gamma', styles: { bold: true } }
+			],
+			children: [{
+				id: 'nested',
+				type: 'paragraph',
+				content: [{ type: 'text', text: 'nested\n line' }],
+				children: []
+			}]
+		}, code];
+
+		const normalized = normalizeBaseHalfMarkdownSoftBreaks(blocks) as typeof blocks;
+
+		assert.deepStrictEqual(normalized[0].content.map(item => item.text), ['alpha\nbeta\n', 'gamma']);
+		assert.strictEqual(normalized[0].children[0].content[0].text, 'nested\nline');
+		assert.strictEqual(normalized[1], code);
+		assert.strictEqual(normalized[1].content[0].text, 'alpha\n beta');
 	});
 
 	suite('content loss detection', () => {
