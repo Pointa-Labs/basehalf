@@ -276,7 +276,9 @@ try {
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
 	await step('badge-quick-access-note-search', () => assertBadgeQuickAccessFindsNote(page));
 	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, ''));
-	await step('initial-native-forward-readme-card', () => assertNativeForwardOpensCardDetail(page, 'README.md'));
+	await step('initial-native-forward-readme-card', () => assertNativeForwardOpensCardDetail(page, 'README.md', {
+		coldRichQuickInputQuery: 'src/app.ts'
+	}));
 
 	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
 	await step('app-card-detail', () => assertCardDetail(page, 'app.ts'));
@@ -778,7 +780,7 @@ async function fillAndAcceptQuickOpen(page, value, acceptKey) {
 	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
-	await waitForQuickInputResult(page);
+	await waitForQuickInputResult(page, value);
 	if (await quickInput.isVisible().catch(() => false)) {
 		await page.keyboard.press(acceptKey);
 		try {
@@ -872,9 +874,10 @@ function isExpectedCommandRow(rowText, expectedText) {
 		|| rowText.includes(`: ${expectedText} `);
 }
 
-async function waitForQuickInputResult(page) {
-	await page.waitForFunction(() => {
-		const input = Array.from(document.querySelectorAll('.quick-input-widget input')).find(candidate => {
+async function waitForQuickInputResult(page, query) {
+	const expectedToken = path.basename(query.startsWith('%') ? query.slice(1) : query).toLocaleLowerCase();
+	await page.waitForFunction(({ expectedQuery, expectedToken }) => {
+		const widget = Array.from(document.querySelectorAll('.quick-input-widget')).find(candidate => {
 			const element = candidate;
 			const rect = element.getBoundingClientRect();
 			const style = getComputedStyle(element);
@@ -883,22 +886,19 @@ async function waitForQuickInputResult(page) {
 				&& rect.width > 0
 				&& rect.height > 0;
 		});
-		const inputVisible = !!input && (() => {
-			const element = input;
-			const rect = element.getBoundingClientRect();
-			const style = getComputedStyle(element);
-			return style.display !== 'none'
-				&& style.visibility !== 'hidden'
-				&& rect.width > 0
-				&& rect.height > 0;
-		})();
-		const rows = Array.from(document.querySelectorAll('.quick-input-list .monaco-list-row[role="option"]'));
+		const input = widget?.querySelector('input');
+		if (!widget || !input || input.value !== expectedQuery) {
+			return false;
+		}
+		const rows = Array.from(widget.querySelectorAll('.quick-input-list .monaco-list-row[role="option"]'));
 		const hasResult = rows.some(row => {
 			const text = (row.getAttribute('aria-label') ?? row.textContent ?? '').replace(/\s+/g, ' ').trim();
-			return text && text !== 'No matching results';
+			return text
+				&& text !== 'No matching results'
+				&& text.toLocaleLowerCase().includes(expectedToken);
 		});
-		return hasResult || !inputVisible;
-	}, null, { timeout: 15_000 });
+		return hasResult;
+	}, { expectedQuery: query, expectedToken }, { timeout: 15_000 });
 }
 
 async function openExplorerRow(page, label) {
@@ -1883,7 +1883,7 @@ async function assertGitBranchCheckoutQuickPick(page) {
 	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill('branch-picker-target');
-	await waitForQuickInputResult(page);
+	await waitForQuickInputResult(page, 'branch-picker-target');
 
 	const firstRow = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
 	await firstRow.waitFor({ state: 'visible', timeout: 15_000 });
@@ -1901,10 +1901,30 @@ async function assertGitBranchCheckoutQuickPick(page) {
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
-	// The projection surface must ACTIVATE via its first-frame signal. The
-	// bound must stay below the workbench's 10s wedged-boot fallback swap,
-	// or a broken rendered ack would still pass here.
-	await page.locator('.basehalf-card-detail-surface.active').waitFor({ state: 'visible', timeout: 8_000 });
+	const activeSurface = page.locator('.basehalf-card-detail-surface.active');
+	await activeSurface.waitFor({ state: 'visible', timeout: 8_000 });
+	const richHost = activeSurface.locator('.basehalf-card-detail-markdown-rich-webview');
+	if (await richHost.count()) {
+		// A first rich surface is active immediately so its iframe loads at normal
+		// priority. It is not interactive until the webview acknowledges both the
+		// document commit and settled focus boundary.
+		const renderedHost = activeSurface.locator(
+			'[data-basehalf-rendered][data-basehalf-render-state="rendered"].basehalf-card-detail-markdown-rich-webview'
+		);
+		await renderedHost.waitFor({ state: 'visible', timeout: 8_000 });
+		await page.waitForFunction(host => !host.inert && host.getAttribute('aria-busy') === null, await renderedHost.elementHandle(), { timeout: 8_000 });
+		const lifecycle = await renderedHost.evaluate(host => ({
+			hostInert: host.inert,
+			hostBusy: host.getAttribute('aria-busy'),
+			surfaceRendered: host.closest('.basehalf-card-detail-surface')?.getAttribute('data-basehalf-rendered'),
+			surfaceState: host.closest('.basehalf-card-detail-surface')?.getAttribute('data-basehalf-render-state')
+		}));
+		if (lifecycle.hostInert || lifecycle.hostBusy !== null
+			|| lifecycle.surfaceRendered === null || lifecycle.surfaceState !== 'rendered') {
+			throw new Error(`The rich Card Detail first-frame lifecycle is incomplete: ${JSON.stringify(lifecycle)}`);
+		}
+		await activeMarkdownRichFrame(page, '.basehalf-card-detail-surface.active');
+	}
 }
 
 async function assertMediaCardDetail(page) {
@@ -2662,8 +2682,119 @@ async function assertCanvasZoomControls(page) {
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-async function assertNativeForwardOpensCardDetail(page, title) {
+async function assertNativeForwardOpensCardDetail(page, title, options = {}) {
 	await clickCommandCenterNavigationButton(page, 'arrow-right', 'Go Forward');
+	if (options.coldRichQuickInputQuery) {
+		const focusBeforeQuickInput = await page.evaluate(() => {
+			const active = document.activeElement;
+			return active instanceof HTMLElement ? {
+				tag: active.tagName,
+				classes: active.className,
+				id: active.id,
+				ariaLabel: active.getAttribute('aria-label')
+			} : undefined;
+		});
+		await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+		const quickInput = visibleQuickInput(page);
+		try {
+			await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+		} catch (error) {
+			const focusAfterQuickInput = await page.evaluate(() => {
+				const active = document.activeElement;
+				const widget = document.querySelector('.quick-input-widget');
+				return {
+					active: active instanceof HTMLElement ? {
+						tag: active.tagName,
+						classes: active.className,
+						id: active.id,
+						ariaLabel: active.getAttribute('aria-label')
+					} : undefined,
+					widgetDisplay: widget instanceof HTMLElement ? getComputedStyle(widget).display : undefined,
+					hostState: document.querySelector('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich-webview')?.getAttribute('data-basehalf-render-state')
+				};
+			});
+			throw new Error(`Cold rich Quick Input did not remain visible: ${JSON.stringify({ focusBeforeQuickInput, focusAfterQuickInput, cause: String(error) })}`);
+		}
+
+		await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
+		await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+		const activeSurface = page.locator('.basehalf-card-detail-surface.active');
+		const richHost = activeSurface.locator('.basehalf-card-detail-markdown-rich-webview');
+		await richHost.waitFor({ state: 'visible', timeout: 8_000 });
+		const coldFrame = richHost.locator('iframe').first();
+		await coldFrame.waitFor({ state: 'attached', timeout: 8_000 });
+		const coldFrameName = await coldFrame.getAttribute('name');
+		if (!coldFrameName) {
+			throw new Error('The cold rich focus probe could not identify its iframe generation');
+		}
+		const initialLifecycle = await richHost.evaluate(host => ({
+			state: host.dataset.basehalfRenderState,
+			inert: host.inert,
+			busy: host.getAttribute('aria-busy'),
+			rendered: host.hasAttribute('data-basehalf-rendered')
+		}));
+		if (initialLifecycle.state === 'rendered') {
+			throw new Error(`The cold rich focus probe missed the first-frame boundary: ${JSON.stringify(initialLifecycle)}`);
+		}
+		if ((initialLifecycle.state !== 'booting' && initialLifecycle.state !== 'settling' && initialLifecycle.state !== 'paused')
+			|| !initialLifecycle.inert || initialLifecycle.busy !== 'true' || initialLifecycle.rendered) {
+			throw new Error(`The cold rich Card Detail started with an invalid lifecycle: ${JSON.stringify(initialLifecycle)}`);
+		}
+
+		await page.waitForFunction(({ host, expectedFrameName }) => {
+			const state = host.dataset.basehalfRenderState;
+			const sameGeneration = [...host.querySelectorAll('iframe')].some(frame => frame.name === expectedFrameName);
+			return state === 'paused' || state === 'rendered' || !sameGeneration;
+		}, { host: await richHost.elementHandle(), expectedFrameName: coldFrameName }, { timeout: 15_000 });
+		const guardedLifecycle = await richHost.evaluate((host, expectedFrameName) => ({
+			state: host.dataset.basehalfRenderState,
+			inert: host.inert,
+			busy: host.getAttribute('aria-busy'),
+			rendered: host.hasAttribute('data-basehalf-rendered'),
+			sameGeneration: [...host.querySelectorAll('iframe')].some(frame => frame.name === expectedFrameName)
+		}), coldFrameName);
+		if (guardedLifecycle.state !== 'paused' || !guardedLifecycle.inert
+			|| guardedLifecycle.busy !== 'true' || guardedLifecycle.rendered || !guardedLifecycle.sameGeneration) {
+			throw new Error(`The cold rich focus probe did not settle behind Quick Input: ${JSON.stringify({ coldFrameName, guardedLifecycle })}`);
+		}
+		const quickInputFocusAtBoundary = await quickInput.evaluate(input => ({
+			visible: input.getClientRects().length > 0 && getComputedStyle(input).visibility !== 'hidden',
+			focused: input.ownerDocument.activeElement === input
+		})).catch(() => undefined);
+		if (!quickInputFocusAtBoundary?.visible || !quickInputFocusAtBoundary.focused) {
+			throw new Error(`The cold rich focus boundary displaced Quick Input: ${JSON.stringify(quickInputFocusAtBoundary)}`);
+		}
+
+		await quickInput.fill(options.coldRichQuickInputQuery);
+		await waitForQuickInputResult(page, options.coldRichQuickInputQuery);
+		const quickInputFocus = await quickInput.evaluate(input => ({
+			visible: input.getClientRects().length > 0 && getComputedStyle(input).visibility !== 'hidden',
+			focused: input.ownerDocument.activeElement === input,
+			value: input.value
+		})).catch(() => undefined);
+		if (!quickInputFocus?.visible || !quickInputFocus.focused || quickInputFocus.value !== options.coldRichQuickInputQuery) {
+			throw new Error(`The cold rich Card Detail displaced Quick Input: ${JSON.stringify(quickInputFocus)}`);
+		}
+		const guardedAfterQuery = await richHost.evaluate((host, expectedFrameName) => ({
+			state: host.dataset.basehalfRenderState,
+			inert: host.inert,
+			busy: host.getAttribute('aria-busy'),
+			rendered: host.hasAttribute('data-basehalf-rendered'),
+			sameGeneration: [...host.querySelectorAll('iframe')].some(frame => frame.name === expectedFrameName)
+		}), coldFrameName);
+		if (guardedAfterQuery.state !== 'paused' || !guardedAfterQuery.inert
+			|| guardedAfterQuery.busy !== 'true' || guardedAfterQuery.rendered || !guardedAfterQuery.sameGeneration) {
+			throw new Error(`The cold rich generation escaped its focus guard while Quick Input still owned focus: ${JSON.stringify(guardedAfterQuery)}`);
+		}
+
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		const renderedHost = activeSurface.locator(
+			'.basehalf-card-detail-markdown-rich-webview[data-basehalf-rendered][data-basehalf-render-state="rendered"]'
+		);
+		await renderedHost.waitFor({ state: 'visible', timeout: 15_000 });
+		await page.waitForFunction(host => !host.inert, await renderedHost.elementHandle(), { timeout: 8_000 });
+	}
 	await assertCardDetail(page, title);
 }
 
@@ -2970,8 +3101,41 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	if (JSON.stringify(toolbarLabels) !== JSON.stringify(expectedToolbarLabels)) {
 		throw new Error(`The Note toolbar has an unexpected action contract: ${JSON.stringify(toolbarLabels)}`);
 	}
+	const toolbarIconContract = {
+		'Heading 1': 'heading1',
+		'Heading 2': 'heading2',
+		'Heading 3': 'heading3',
+		Paragraph: 'paragraph',
+		Bold: 'bold',
+		Italic: 'italic',
+		'Bulleted list': 'bulletList',
+		'Numbered list': 'orderedList',
+		Divider: 'divider',
+		'Copy all': 'copy',
+		'Expand README.md': 'expand'
+	};
+	for (const [label, iconName] of Object.entries(toolbarIconContract)) {
+		const iconButton = toolbar.getByRole('button', { name: label, exact: true });
+		const iconState = await iconButton.evaluate((button, expectedName) => {
+			const iconElement = button.querySelector(':scope > svg.basehalf-canvas-note-toolbar-icon');
+			return {
+				name: iconElement?.getAttribute('data-basehalf-icon'),
+				ariaHidden: iconElement?.getAttribute('aria-hidden'),
+				focusable: iconElement?.getAttribute('focusable'),
+				size: iconElement ? { width: getComputedStyle(iconElement).width, height: getComputedStyle(iconElement).height } : undefined,
+				expectedName
+			};
+		}, iconName);
+		if (iconState.name !== iconName
+			|| iconState.ariaHidden !== 'true'
+			|| iconState.focusable !== 'false'
+			|| iconState.size?.width !== '18px'
+			|| iconState.size?.height !== '18px') {
+			throw new Error(`The Note toolbar icon contract is broken for ${label}: ${JSON.stringify({ iconName, iconState })}`);
+		}
+	}
 	const expandButton = toolbar.getByRole('button', { name: 'Expand README.md', exact: true });
-	if (!await expandButton.evaluate(button => button.classList.contains('codicon-screen-full'))) {
+	if (!await expandButton.locator(':scope > svg[data-basehalf-icon="expand"]').count()) {
 		throw new Error('The Note Expand action is not a screen-full toolbar button');
 	}
 	if (await page.locator('.basehalf-canvas-note-views, .basehalf-canvas-selection-toolbar').count() !== 0) {
@@ -4976,7 +5140,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 		''
 	].join('\n'), 'utf8');
 	await assertCanvasEdgeGone(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await quickOpen(page, AGENT_CREATED_CARD_PATH);
+	await openExplorerRow(page, AGENT_CREATED_CARD_PATH);
 	await assertCardDetail(page, AGENT_CREATED_CARD_PATH);
 	await page.locator('[data-testid="card-detail-badge-toggle"]').waitFor({ state: 'visible', timeout: 10_000 });
 	const initialDetailBadge = await page.evaluate(() => {
