@@ -8,7 +8,7 @@ import '@blocknote/mantine/style.css';
 import './editor.css';
 
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
-import { SideMenuExtension } from '@blocknote/core/extensions';
+import { insertOrUpdateBlockForSlashMenu, SideMenuExtension } from '@blocknote/core/extensions';
 import { en, zh, zhTW, type Dictionary } from '@blocknote/core/locales';
 import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
@@ -29,7 +29,7 @@ import {
 } from '@blocknote/react';
 import { applyUpdate, Doc as YDoc, UndoManager, type XmlFragment } from 'yjs';
 import { defaultDeleteFilter, defaultProtectedNodes, ySyncPluginKey, yUndoPluginKey } from 'y-prosemirror';
-import { TextSelection } from '@tiptap/pm/state';
+import { TextSelection, type EditorState } from '@tiptap/pm/state';
 import { createRoot } from 'react-dom/client';
 import {
 	useCallback,
@@ -73,7 +73,6 @@ import {
 import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
-	type BaseHalfMarkdownRichBlockType,
 	type BaseHalfMarkdownRichEditorCommand,
 	type BaseHalfMarkdownRichSurface,
 	type BaseHalfMarkdownRichWebviewMessage,
@@ -81,6 +80,7 @@ import {
 	type IBaseHalfMarkdownRichFileLink,
 	type IBaseHalfMarkdownRichTextSelection,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
+import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
 import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichStructuralSave.js';
 import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichAsyncMutation.js';
 
@@ -328,7 +328,7 @@ function shiftedRect(rect: DOMRect, x: number): DOMRect {
 	return new DOMRect(rect.x + x, rect.y, rect.width, rect.height);
 }
 
-function baseHalfFormatBlockType(block: { readonly type: string; readonly props: Record<string, unknown> }): BaseHalfMarkdownRichBlockType {
+function baseHalfFormatBlockType(block: { readonly type: string; readonly props: Record<string, unknown> }): BaseHalfMarkdownFormatBlockType {
 	switch (block.type) {
 		case 'paragraph':
 			return 'paragraph';
@@ -342,18 +342,49 @@ function baseHalfFormatBlockType(block: { readonly type: string; readonly props:
 		case 'bulletListItem':
 			return 'bulletList';
 		case 'numberedListItem':
-			return 'numberedList';
+			return 'orderedList';
 		default:
 			return 'other';
 	}
 }
 
-function baseHalfSelectionBlockType(blocks: readonly { readonly type: string; readonly props: Record<string, unknown> }[]): BaseHalfMarkdownRichBlockType {
+function baseHalfSelectionBlockType(blocks: readonly { readonly type: string; readonly props: Record<string, unknown> }[]): BaseHalfMarkdownFormatBlockType {
 	if (blocks.length === 0) {
 		return 'other';
 	}
 	const blockTypes = new Set(blocks.map(baseHalfFormatBlockType));
 	return blockTypes.size === 1 ? blockTypes.values().next().value ?? 'other' : 'mixed';
+}
+
+function baseHalfSelectionMarkState(state: EditorState, markName: string): BaseHalfMarkdownFormatToggleState {
+	const markType = state.schema.marks[markName];
+	if (!markType) {
+		return false;
+	}
+
+	const { from, to, empty, $from } = state.selection;
+	if (empty) {
+		return !!markType.isInSet(state.storedMarks ?? $from.marks());
+	}
+
+	let marked = 0;
+	let unmarked = 0;
+	state.doc.nodesBetween(from, to, (node, position) => {
+		if (!node.isText) {
+			return;
+		}
+		const overlap = Math.max(0, Math.min(to, position + node.nodeSize) - Math.max(from, position));
+		if (overlap === 0) {
+			return;
+		}
+		if (markType.isInSet(node.marks)) {
+			marked += overlap;
+		} else {
+			unmarked += overlap;
+		}
+	});
+
+	return marked > 0 && unmarked > 0 ? 'mixed' : marked > 0;
 }
 
 function baseHalfCanChangeBlockType(block: { readonly type: string; readonly content?: unknown }): boolean {
@@ -370,7 +401,27 @@ function baseHalfCanChangeBlockType(block: { readonly type: string; readonly con
 	}
 }
 
-type BaseHalfEditableBlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bulletList' | 'numberedList';
+function baseHalfBlockMatchesEditableType(
+	block: { readonly type: string; readonly props: Record<string, unknown> },
+	type: BaseHalfEditableBlockType,
+): boolean {
+	switch (type) {
+		case 'paragraph':
+			return block.type === 'paragraph';
+		case 'heading1':
+		case 'heading2':
+		case 'heading3':
+			return block.type === 'heading'
+				&& block.props.level === Number(type.at(-1))
+				&& block.props.isToggleable === false;
+		case 'bulletList':
+			return block.type === 'bulletListItem';
+		case 'orderedList':
+			return block.type === 'numberedListItem';
+	}
+}
+
+type BaseHalfEditableBlockType = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'bulletList' | 'orderedList';
 
 async function baseHalfAdoptLoadProjection(
 	editorApi: IBaseHalfMarkdownEditorApi,
@@ -848,9 +899,9 @@ function MarkdownRichEditor(): JSX.Element {
 			&& !state.structuralFrozen
 			&& state.conflictDisk === undefined
 			&& state.writeError === undefined;
-		let blockType: BaseHalfMarkdownRichBlockType = 'other';
-		let bold = false;
-		let italic = false;
+		let blockType: BaseHalfMarkdownFormatBlockType = 'other';
+		let bold: BaseHalfMarkdownFormatToggleState = false;
+		let italic: BaseHalfMarkdownFormatToggleState = false;
 		let canSetBlockType = false;
 		let canToggleStyle = false;
 		if (ready) {
@@ -862,12 +913,10 @@ function MarkdownRichEditor(): JSX.Element {
 				props: block.props as unknown as Record<string, unknown>,
 			}));
 			blockType = baseHalfSelectionBlockType(blocks);
-			try {
-				const styles = editor.getActiveStyles() as { readonly bold?: unknown; readonly italic?: unknown };
-				bold = styles.bold === true;
-				italic = styles.italic === true;
-			} catch {
-				// The editor view may be between projection generations.
+			const view = editor.prosemirrorView;
+			if (view) {
+				bold = baseHalfSelectionMarkState(view.state, 'bold');
+				italic = baseHalfSelectionMarkState(view.state, 'italic');
 			}
 		}
 
@@ -889,10 +938,18 @@ function MarkdownRichEditor(): JSX.Element {
 		if (blocks.length === 0) {
 			return false;
 		}
+		const changedBlocks = blocks.filter(block => !baseHalfBlockMatchesEditableType({
+			type: block.type,
+			props: block.props as unknown as Record<string, unknown>,
+		}, type));
+		if (changedBlocks.length === 0) {
+			postFormatState();
+			return true;
+		}
 
 		editor.focus();
 		editor.transact(() => {
-			for (const block of blocks) {
+			for (const block of changedBlocks) {
 				switch (type) {
 					case 'paragraph':
 						editor.updateBlock(block, { type: 'paragraph' });
@@ -909,7 +966,7 @@ function MarkdownRichEditor(): JSX.Element {
 					case 'bulletList':
 						editor.updateBlock(block, { type: 'bulletListItem' });
 						break;
-					case 'numberedList':
+					case 'orderedList':
 						editor.updateBlock(block, { type: 'numberedListItem' });
 						break;
 				}
@@ -919,36 +976,92 @@ function MarkdownRichEditor(): JSX.Element {
 		return true;
 	}, [editor, postFormatState, selectedBlocks]);
 
-	const executeEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
-		ensureLiveUndoManager();
-		editor.focus();
-		switch (command) {
-			case 'undo':
-				return editor.undo();
-			case 'redo':
-				return editor.redo();
-			case 'setParagraph':
-				return setSelectedBlockType('paragraph');
-			case 'setHeading1':
-				return setSelectedBlockType('heading1');
-			case 'setHeading2':
-				return setSelectedBlockType('heading2');
-			case 'setHeading3':
-				return setSelectedBlockType('heading3');
-			case 'toggleBold':
-				editor.toggleStyles({ bold: true });
-				postFormatState();
-				return true;
-			case 'toggleItalic':
-				editor.toggleStyles({ italic: true });
-				postFormatState();
-				return true;
-			case 'setBulletList':
-				return setSelectedBlockType('bulletList');
-			case 'setNumberedList':
-				return setSelectedBlockType('numberedList');
+	const toggleSelectedList = useCallback((type: 'bulletList' | 'orderedList'): boolean => {
+		const blocks = selectedBlocks().filter(baseHalfCanChangeBlockType);
+		if (blocks.length === 0) {
+			return false;
 		}
-	}, [editor, ensureLiveUndoManager, postFormatState, setSelectedBlockType]);
+
+		const targetType: BaseHalfEditableBlockType = blocks.every(block => baseHalfFormatBlockType({
+			type: block.type,
+			props: block.props as unknown as Record<string, unknown>,
+		}) === type) ? 'paragraph' : type;
+		return setSelectedBlockType(targetType);
+	}, [selectedBlocks, setSelectedBlockType]);
+
+	const insertDivider = useCallback((): boolean => {
+		try {
+			const cursor = editor.getTextCursorPosition();
+			if (!cursor.nextBlock) {
+				// The trailing-block extension renders a decoration, while the slash
+				// helper needs a real editable block after non-editable content. Add it
+				// to the same capture group so one Undo removes the divider and this
+				// structural cursor target together.
+				editor.transact(() => {
+					editor.insertBlocks([{ type: 'paragraph' }], cursor.block, 'after');
+					editor.setTextCursorPosition(cursor.block, 'end');
+				});
+			}
+
+			// Keep the helper's own dispatch boundaries so its selection movement
+			// and the editor plugins can finish before this semantic action closes.
+			insertOrUpdateBlockForSlashMenu(editor, { type: 'divider' });
+			postFormatState();
+			return true;
+		} catch (error) {
+			reportError(error);
+			return false;
+		}
+	}, [editor, postFormatState, reportError]);
+
+	const executeEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
+		const undoManager = ensureLiveUndoManager();
+		editor.focus();
+		if (command === 'undo') {
+			undoManager?.stopCapturing();
+			const handled = editor.undo();
+			undoManager?.stopCapturing();
+			return handled;
+		}
+		if (command === 'redo') {
+			undoManager?.stopCapturing();
+			const handled = editor.redo();
+			undoManager?.stopCapturing();
+			return handled;
+		}
+
+		// A toolbar action is one semantic edit. Fence it from adjacent typing and
+		// from the next action even when Yjs' capture timeout has not elapsed.
+		undoManager?.stopCapturing();
+		try {
+			switch (command) {
+				case 'setParagraph':
+					return setSelectedBlockType('paragraph');
+				case 'setHeading1':
+					return setSelectedBlockType('heading1');
+				case 'setHeading2':
+					return setSelectedBlockType('heading2');
+				case 'setHeading3':
+					return setSelectedBlockType('heading3');
+				case 'toggleBold':
+					editor.toggleStyles({ bold: true });
+					postFormatState();
+					return true;
+				case 'toggleItalic':
+					editor.toggleStyles({ italic: true });
+					postFormatState();
+					return true;
+				case 'toggleBulletList':
+					return toggleSelectedList('bulletList');
+				case 'toggleOrderedList':
+					return toggleSelectedList('orderedList');
+				case 'insertDivider':
+					return insertDivider();
+			}
+		} finally {
+			undoManager?.stopCapturing();
+		}
+	}, [editor, ensureLiveUndoManager, insertDivider, postFormatState, setSelectedBlockType, toggleSelectedList]);
 
 	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		const state = session.current;

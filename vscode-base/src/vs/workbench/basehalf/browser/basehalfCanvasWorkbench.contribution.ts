@@ -10,6 +10,7 @@ import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isHTMLTextArea
 import { renderMarkdown } from '../../../base/browser/markdownRenderer.js';
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
+import { DeferredPromise } from '../../../base/common/async.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
 import { MarkdownString } from '../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
@@ -78,7 +79,14 @@ import {
 	IBaseHalfCanvasStateTransition
 } from '../common/basehalfCanvasMirror.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
-import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
+import {
+	baseHalfCanvasNoteFormatOwnerKey,
+	baseHalfCanvasNoteFormatOwnersEqual,
+	BaseHalfCanvasNoteFormatNavigationOwnership,
+	BaseHalfCanvasNoteFormatSelectionBarrier,
+	IBaseHalfCanvasNoteFormatOwner
+} from '../common/basehalfCanvasNoteFormatLifecycle.js';
 import { baseHalfCanvasInlineEditKeyAction, BASEHALF_CANVAS_UNDO_REDO_SOURCE, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { baseHalfCanvasMarkdownPreviewSource } from '../common/basehalfCanvasPreview.js';
@@ -151,7 +159,6 @@ import {
 	BaseHalfCanvasSceneContextMenuRequest,
 	BaseHalfCanvasSceneSelectionAction,
 	BaseHalfCanvasNoteBackground,
-	BaseHalfCanvasNoteFormatCommand,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -166,6 +173,7 @@ import {
 	IBaseHalfCanvasSceneReconnect,
 	IBaseHalfCanvasSceneViewport
 } from '../common/basehalfCanvasScene.js';
+import type { BaseHalfMarkdownFormatCommand } from '../common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import { BaseHalfNodeArtifactIntegrity, baseHalfNodeImportedAssetDirectory, IBaseHalfNodeExecutionService, IBaseHalfNodeExecutionState } from './basehalfNodeExecutionService.js';
@@ -247,7 +255,9 @@ interface IBaseHalfActiveNodeLocalSurface {
 }
 
 interface IBaseHalfActiveCanvasNoteEditor {
+	readonly sceneKey: string;
 	readonly path: string;
+	readonly resourceKey: string;
 	readonly state: IBaseHalfCardDetailState;
 	readonly card: HTMLElement;
 	readonly host: HTMLElement;
@@ -255,6 +265,24 @@ interface IBaseHalfActiveCanvasNoteEditor {
 	readonly fallbackRendering: DisposableStore;
 	readonly instance: BaseHalfCanvasMarkdownInlineEditor;
 	readonly open: Promise<void>;
+	closing?: Promise<boolean>;
+}
+
+interface IBaseHalfPendingCanvasNoteFormatCommand {
+	readonly sceneKey: string;
+	readonly path: string;
+	readonly resourceKey: string;
+	readonly command: BaseHalfMarkdownFormatCommand;
+	readonly completion: DeferredPromise<boolean>;
+	navigationGuard?: IBaseHalfPendingCanvasNoteNavigationGuard;
+	active?: IBaseHalfActiveCanvasNoteEditor;
+	cancelled: boolean;
+	running: boolean;
+}
+
+interface IBaseHalfPendingCanvasNoteNavigationGuard {
+	readonly ownership: BaseHalfCanvasNoteFormatNavigationOwnership<IBaseHalfPendingCanvasNoteFormatCommand>;
+	readonly editor: IBaseHalfActiveCanvasEditor;
 	closing?: Promise<boolean>;
 }
 
@@ -550,12 +578,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly canvasNoteFormatStates = new Map<string, IBaseHalfCanvasNoteFormatState>();
 	private readonly canvasNoteSelections = new Map<string, IBaseHalfCanvasMarkdownInlineSelection>();
 	private readonly canvasNoteEditPoints = new Map<string, IBaseHalfCanvasNoteEditPoint>();
-	private readonly pendingCanvasNoteFormatCommands: {
-		readonly sceneKey: string;
-		readonly path: string;
-		readonly resourceKey: string;
-		readonly command: BaseHalfCanvasNoteFormatCommand;
-	}[] = [];
+	private readonly pendingCanvasNoteFormatCommands: IBaseHalfPendingCanvasNoteFormatCommand[] = [];
+	private pendingCanvasNoteFormatDrain: { readonly active: IBaseHalfActiveCanvasNoteEditor; readonly promise: Promise<void> } | undefined;
+	private pendingCanvasNoteNavigationGuard: IBaseHalfPendingCanvasNoteNavigationGuard | undefined;
+	private readonly pendingCanvasSelectionFormatBarrier = new BaseHalfCanvasNoteFormatSelectionBarrier();
 	private nodeLocalSurfaceOpenChain: Promise<void> = Promise.resolve();
 	private nodeLocalSurfaceIntent = 0;
 	private disposed = false;
@@ -883,6 +909,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	override dispose(): void {
 		this.disposed = true;
+		this.pendingCanvasSelectionFormatBarrier.reset();
+		this.cancelPendingCanvasNoteFormatCommands();
+		if (this.pendingCanvasNoteNavigationGuard) {
+			this.releaseCanvasNoteFormatNavigationGuard(this.pendingCanvasNoteNavigationGuard, true);
+		}
 		for (const resolve of this.canvasInteractionEndWaiters) {
 			resolve();
 		}
@@ -1056,9 +1087,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (navigatedDetail) {
 			this.canvasNoteSurfacePath = undefined;
 		}
+		if (navigatedDetail && !inlineEditor) {
+			this.cancelPendingCanvasNoteFormatCommands(pending => !pending.active);
+		}
 		if (navigatedDetail && inlineEditor) {
 			// Navigation has already drained the shared editor flush barrier. Retire
 			// the canvas author before the detail surface can acquire the document.
+			await this.drainActiveCanvasNoteFormatCommands(inlineEditor);
 			this.activeCanvasNoteEditor = undefined;
 			this.canvasNoteSurfacePath = undefined;
 			this.canvasNavigationService.setActiveCanvasEditor(undefined);
@@ -1087,6 +1122,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
+			this.cancelPendingCanvasNoteFormatCommands();
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
@@ -1130,6 +1166,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
+			this.cancelPendingCanvasNoteFormatCommands(pending => pending.sceneKey === this.sceneKey(folder));
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
@@ -1247,12 +1284,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const liveNoteKeys = new Set(items
 			.filter(item => isBaseHalfMarkdownResource(item.stat.resource))
 			.map(item => `${item.path}\0${this.uriIdentityService.extUri.getComparisonKey(item.stat.resource)}`));
-		for (let index = this.pendingCanvasNoteFormatCommands.length - 1; index >= 0; index--) {
-			const pending = this.pendingCanvasNoteFormatCommands[index];
-			if (pending.sceneKey !== currentSceneKey || !liveNoteKeys.has(`${pending.path}\0${pending.resourceKey}`)) {
-				this.pendingCanvasNoteFormatCommands.splice(index, 1);
-			}
-		}
+		this.cancelPendingCanvasNoteFormatCommands(pending => pending.sceneKey !== currentSceneKey
+			|| !liveNoteKeys.has(`${pending.path}\0${pending.resourceKey}`));
 		let pendingSelection = this.pendingCanvasSelection?.sceneKey === currentSceneKey
 			? this.pendingCanvasSelection.paths
 			: undefined;
@@ -1261,7 +1294,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			&& !(pendingSelection.length === 1 && pendingSelection[0] === this.canvasNoteSurfacePath);
 		if (changesNote) {
 			if (activeNote) {
-				const closed = await this.closeActiveCanvasNoteEditor(false);
+				const closed = await this.closeActiveCanvasNoteEditorAfterFormats(false);
 				if (!this.isRenderCurrent(seq)
 					|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 					return;
@@ -1271,7 +1304,26 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					pendingSelection = undefined;
 				}
 			} else {
-				this.canvasNoteSurfacePath = undefined;
+				const notePath = this.canvasNoteSurfacePath;
+				const noteItem = notePath ? items.find(item => item.path === notePath && isBaseHalfMarkdownResource(item.stat.resource)) : undefined;
+				const resourceKey = noteItem ? this.uriIdentityService.extUri.getComparisonKey(noteItem.stat.resource) : undefined;
+				const waitsForPreMountFormat = !!notePath && !!resourceKey
+					&& this.pendingCanvasNoteFormatCommands.some(pending => pending.sceneKey === currentSceneKey
+						&& pending.path === notePath
+						&& pending.resourceKey === resourceKey);
+				if (notePath && resourceKey && waitsForPreMountFormat) {
+					this.deferPendingCanvasSelectionUntilCanvasNoteFormatsSettle(
+						currentSceneKey,
+						notePath,
+						resourceKey
+					);
+					// Keep the current Note selected and force its inline projection to
+					// mount in this render. The queued selection is replayed only after
+					// every accepted formatting intent has reached a terminal outcome.
+					pendingSelection = undefined;
+				} else {
+					this.canvasNoteSurfacePath = undefined;
+				}
 			}
 		}
 
@@ -2741,50 +2793,87 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return false;
 		}
-		const changesNote = this.canvasNoteSurfacePath !== undefined
-			&& !(paths.length === 1 && paths[0] === this.canvasNoteSurfacePath);
-		const active = this.activeCanvasNoteEditor;
-		if (!active || (paths.length === 1 && paths[0] === active.path)) {
-			if (!active && changesNote) {
-				if (this.pendingCanvasNoteFocus?.path === this.canvasNoteSurfacePath) {
-					this.pendingCanvasNoteFocus = undefined;
-				}
-				this.canvasNoteSurfacePath = undefined;
-				this.requestRender();
-			}
+		const notePath = this.canvasNoteSurfacePath ?? this.activeCanvasNoteEditor?.path;
+		const changesNote = notePath !== undefined && !(paths.length === 1 && paths[0] === notePath);
+		if (!changesNote) {
 			return true;
 		}
-		return this.closeActiveCanvasNoteEditor();
+		const activeBeforeWait = this.activeCanvasNoteEditor;
+		const noteItem = this.renderedItemsByPath.get(notePath);
+		const resourceKey = activeBeforeWait?.path === notePath && activeBeforeWait.sceneKey === sceneKey
+			? activeBeforeWait.resourceKey
+			: noteItem && isBaseHalfMarkdownResource(noteItem.stat.resource)
+				? this.uriIdentityService.extUri.getComparisonKey(noteItem.stat.resource)
+				: undefined;
+		if (resourceKey) {
+			if (!await this.waitForCanvasNoteFormatCommands(sceneKey, notePath, resourceKey)) {
+				return false;
+			}
+		}
+		const currentFolder = this.getCurrentFolder();
+		if (!currentFolder || this.sceneKey(currentFolder) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch))) {
+			return false;
+		}
+		const active = this.activeCanvasNoteEditor;
+		if (active) {
+			if (paths.length === 1 && paths[0] === active.path) {
+				return true;
+			}
+			return this.closeActiveCanvasNoteEditorAfterFormats();
+		}
+		if (this.canvasNoteSurfacePath === notePath) {
+			if (this.pendingCanvasNoteFocus?.path === notePath) {
+				this.pendingCanvasNoteFocus = undefined;
+			}
+			this.canvasNoteSurfacePath = undefined;
+			this.requestRender();
+		}
+		return true;
 	}
 
 	private async beginSceneNoteEdit(
 		sceneKey: string,
 		structuralEpoch: number,
 		path: string,
-		point?: IBaseHalfCanvasNoteEditPoint
+		point?: IBaseHalfCanvasNoteEditPoint,
+		acceptedFormatOwner?: IBaseHalfCanvasNoteFormatOwner
 	): Promise<void> {
 		this.cancelPendingNodeActivation();
 		const folder = this.getCurrentFolder();
 		const item = this.renderedItemsByPath.get(path);
 		if (!folder || this.canvasNavigationService.state.cardDetail || !item
 			|| !isBaseHalfMarkdownResource(item.stat.resource)
-			|| this.sceneKey(folder) !== sceneKey
-			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+			|| this.sceneKey(folder) !== sceneKey) {
+			return;
+		}
+		const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
+		const owner = { sceneKey, path, resourceKey };
+		if (acceptedFormatOwner
+			? !baseHalfCanvasNoteFormatOwnersEqual(acceptedFormatOwner, owner)
+			: !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
 		const remainsCurrent = (): boolean => {
 			const currentFolder = this.getCurrentFolder();
 			const currentItem = this.renderedItemsByPath.get(path);
-			return !!currentFolder
-				&& !this.canvasNavigationService.state.cardDetail
-				&& !!currentItem
-				&& isBaseHalfMarkdownResource(currentItem.stat.resource)
-				&& this.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)
-				&& this.sceneKey(currentFolder) === sceneKey
-				&& this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch));
+			if (!currentFolder
+				|| this.canvasNavigationService.state.cardDetail
+				|| !currentItem
+				|| !isBaseHalfMarkdownResource(currentItem.stat.resource)
+				|| !this.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)
+				|| this.sceneKey(currentFolder) !== sceneKey) {
+				return false;
+			}
+			return acceptedFormatOwner
+				? baseHalfCanvasNoteFormatOwnersEqual(acceptedFormatOwner, {
+					sceneKey,
+					path,
+					resourceKey: this.uriIdentityService.extUri.getComparisonKey(currentItem.stat.resource)
+				})
+				: this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch));
 		};
 		const active = this.activeCanvasNoteEditor;
-		const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
 		const rememberedSelection = point ? undefined : this.canvasNoteSelections.get(resourceKey);
 		const rememberedPoint = point ?? (rememberedSelection ? undefined : this.canvasNoteEditPoints.get(resourceKey));
 		const pendingFocus = {
@@ -2792,7 +2881,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			...(rememberedPoint ? { point: rememberedPoint } : {}),
 			...(rememberedSelection ? { selection: rememberedSelection } : {})
 		};
-		if (active?.path === path) {
+		if (active?.path === path
+			&& active.sceneKey === sceneKey
+			&& this.uriIdentityService.extUri.isEqual(active.state.resource, item.stat.resource)) {
 			this.canvasNoteSurfacePath = path;
 			active.card.dataset.noteEditing = 'true';
 			if (active.closing) {
@@ -2843,7 +2934,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.canvasNoteSelections.delete(resourceKey);
 	}
 
-	private async formatSceneNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfCanvasNoteFormatCommand): Promise<void> {
+	private async formatSceneNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfMarkdownFormatCommand): Promise<void> {
 		const folder = this.getCurrentFolder();
 		const item = this.renderedItemsByPath.get(path);
 		if (!folder || !item || !isBaseHalfMarkdownResource(item.stat.resource)
@@ -2851,20 +2942,41 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
-		const active = this.activeCanvasNoteEditor;
-		if (active?.path === path && !active.closing && this.uriIdentityService.extUri.isEqual(active.state.resource, item.stat.resource)) {
-			await active.open;
-			await active.instance.runFormatCommand(command);
-			return;
-		}
 		const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
-		const pending = { sceneKey, path, resourceKey, command };
+		const pending: IBaseHalfPendingCanvasNoteFormatCommand = {
+			sceneKey,
+			path,
+			resourceKey,
+			command,
+			completion: new DeferredPromise<boolean>(),
+			cancelled: false,
+			running: false
+		};
 		this.pendingCanvasNoteFormatCommands.push(pending);
-		await this.beginSceneNoteEdit(sceneKey, structuralEpoch, path);
-		if (this.canvasNoteSurfacePath !== path && this.activeCanvasNoteEditor?.path !== path) {
-			const index = this.pendingCanvasNoteFormatCommands.indexOf(pending);
-			if (index >= 0) {
-				this.pendingCanvasNoteFormatCommands.splice(index, 1);
+		// Attach the consumer before opening the editor: loading can fail while a
+		// previous author is still closing, and every accepted intent must settle.
+		void pending.completion.p.catch(() => undefined);
+		const active = this.activeCanvasNoteEditor;
+		const navigationGuard = !active
+			? this.ensureCanvasNoteFormatNavigationGuard(sceneKey, path, resourceKey, item.stat.resource, folder.workspaceFolder, pending)
+			: undefined;
+		try {
+			if (active && !active.closing && this.canvasNoteFormatCommandMatchesActive(pending, active)) {
+				pending.active = active;
+				void this.runPendingCanvasNoteFormatCommands(active);
+			} else {
+				await this.beginSceneNoteEdit(sceneKey, structuralEpoch, path, undefined, { sceneKey, path, resourceKey });
+				const opened = this.activeCanvasNoteEditor;
+				if (opened && !opened.closing && this.canvasNoteFormatCommandMatchesActive(pending, opened)) {
+					void this.runPendingCanvasNoteFormatCommands(opened);
+				} else if (this.canvasNoteSurfacePath !== path) {
+					this.cancelPendingCanvasNoteFormatCommand(pending);
+				}
+			}
+			await pending.completion.p;
+		} finally {
+			if (navigationGuard) {
+				this.releaseCanvasNoteFormatNavigationGuard(navigationGuard);
 			}
 		}
 	}
@@ -2938,18 +3050,299 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async runPendingCanvasNoteFormatCommands(active: IBaseHalfActiveCanvasNoteEditor): Promise<void> {
-		const activeResourceKey = this.uriIdentityService.extUri.getComparisonKey(active.state.resource);
+	private ensureCanvasNoteFormatNavigationGuard(
+		sceneKey: string,
+		path: string,
+		resourceKey: string,
+		resource: URI,
+		workspaceFolder: URI,
+		pending: IBaseHalfPendingCanvasNoteFormatCommand
+	): IBaseHalfPendingCanvasNoteNavigationGuard {
+		const completion = pending.completion.p.catch(() => false);
+		const owner = { sceneKey, path, resourceKey };
+		const existing = this.pendingCanvasNoteNavigationGuard;
+		if (existing) {
+			if (!existing.ownership.accept(owner, pending, completion)) {
+				const error = new Error(localize(
+					'basehalf.canvas.note.formatOwnerBusy',
+					"Another Note formatting action is still starting. Try again after it finishes."
+				));
+				this.failPendingCanvasNoteFormatCommand(pending, error);
+				throw error;
+			}
+			pending.navigationGuard = existing;
+			return existing;
+		}
+		const ownership = new BaseHalfCanvasNoteFormatNavigationOwnership<IBaseHalfPendingCanvasNoteFormatCommand>(owner);
+		ownership.accept(owner, pending, completion);
+		const editor: IBaseHalfActiveCanvasEditor = {
+			resource,
+			workspaceFolder,
+			relativePath: path,
+			supportsCanvasProjectionHandoff: false,
+			prepareToClose: () => {
+				if (!guard.closing) {
+					guard.closing = this.prepareCanvasNoteFormatNavigationGuard(guard);
+				}
+				return guard.closing;
+			}
+		};
+		const guard: IBaseHalfPendingCanvasNoteNavigationGuard = { ownership, editor };
+		pending.navigationGuard = guard;
+		this.pendingCanvasNoteNavigationGuard = guard;
+		if (!this.canvasNavigationService.activeCanvasEditor) {
+			this.canvasNavigationService.setActiveCanvasEditor(editor);
+		}
+		return guard;
+	}
+
+	private async prepareCanvasNoteFormatNavigationGuard(guard: IBaseHalfPendingCanvasNoteNavigationGuard): Promise<boolean> {
+		const applied = await this.waitForCanvasNoteFormatNavigationGuard(guard);
+		if (!applied) {
+			this.releaseCanvasNoteFormatNavigationGuard(guard, true);
+			return false;
+		}
+		if (!this.activeCanvasNoteEditor
+			|| this.canvasNavigationService.activeCanvasEditor === guard.editor) {
+			this.releaseCanvasNoteFormatNavigationGuard(guard, true);
+			return false;
+		}
+		this.releaseCanvasNoteFormatNavigationGuard(guard, true);
+		return true;
+	}
+
+	private async waitForCanvasNoteFormatNavigationGuard(guard: IBaseHalfPendingCanvasNoteNavigationGuard): Promise<boolean> {
+		return guard.ownership.wait();
+	}
+
+	private releaseCanvasNoteFormatNavigationGuard(
+		guard: IBaseHalfPendingCanvasNoteNavigationGuard,
+		force = false
+	): void {
+		if (this.pendingCanvasNoteNavigationGuard !== guard
+			|| (!force && guard.ownership.hasPending)) {
+			return;
+		}
+		this.pendingCanvasNoteNavigationGuard = undefined;
+		if (this.canvasNavigationService.activeCanvasEditor === guard.editor) {
+			this.canvasNavigationService.setActiveCanvasEditor(undefined);
+		}
+	}
+
+	private canvasNoteFormatCommandMatchesActive(
+		pending: IBaseHalfPendingCanvasNoteFormatCommand,
+		active: IBaseHalfActiveCanvasNoteEditor
+	): boolean {
+		return pending.sceneKey === active.sceneKey
+			&& pending.path === active.path
+			&& pending.resourceKey === active.resourceKey;
+	}
+
+	private canvasNoteFormatCommandOwnedByActive(
+		pending: IBaseHalfPendingCanvasNoteFormatCommand,
+		active: IBaseHalfActiveCanvasNoteEditor
+	): boolean {
+		return pending.active === active && this.canvasNoteFormatCommandMatchesActive(pending, active);
+	}
+
+	private isCanvasNoteFormatCommandCurrent(
+		pending: IBaseHalfPendingCanvasNoteFormatCommand,
+		active: IBaseHalfActiveCanvasNoteEditor
+	): boolean {
+		if (this.disposed || this.activeCanvasNoteEditor !== active || active.closing
+			|| !this.canvasNoteFormatCommandOwnedByActive(pending, active)) {
+			return false;
+		}
 		const folder = this.getCurrentFolder();
-		const activeSceneKey = folder ? this.sceneKey(folder) : undefined;
-		for (let index = 0; index < this.pendingCanvasNoteFormatCommands.length;) {
-			const pending = this.pendingCanvasNoteFormatCommands[index];
-			if (pending.sceneKey !== activeSceneKey || pending.path !== active.path || pending.resourceKey !== activeResourceKey) {
-				index++;
+		const item = this.renderedItemsByPath.get(pending.path);
+		return !!folder
+			&& this.sceneKey(folder) === pending.sceneKey
+			&& !!item
+			&& isBaseHalfMarkdownResource(item.stat.resource)
+			&& this.uriIdentityService.extUri.getComparisonKey(item.stat.resource) === pending.resourceKey;
+	}
+
+	private removePendingCanvasNoteFormatCommand(pending: IBaseHalfPendingCanvasNoteFormatCommand): void {
+		const index = this.pendingCanvasNoteFormatCommands.indexOf(pending);
+		if (index >= 0) {
+			this.pendingCanvasNoteFormatCommands.splice(index, 1);
+		}
+	}
+
+	private completePendingCanvasNoteFormatCommand(pending: IBaseHalfPendingCanvasNoteFormatCommand): void {
+		this.removePendingCanvasNoteFormatCommand(pending);
+		void pending.completion.complete(true);
+		this.settlePendingCanvasNoteFormatNavigationGuard(pending);
+	}
+
+	private failPendingCanvasNoteFormatCommand(pending: IBaseHalfPendingCanvasNoteFormatCommand, error: unknown): void {
+		this.removePendingCanvasNoteFormatCommand(pending);
+		void pending.completion.error(error);
+		this.settlePendingCanvasNoteFormatNavigationGuard(pending);
+	}
+
+	private cancelPendingCanvasNoteFormatCommand(pending: IBaseHalfPendingCanvasNoteFormatCommand): void {
+		pending.cancelled = true;
+		if (pending.running) {
+			return;
+		}
+		this.removePendingCanvasNoteFormatCommand(pending);
+		void pending.completion.complete(false);
+		this.settlePendingCanvasNoteFormatNavigationGuard(pending);
+	}
+
+	private settlePendingCanvasNoteFormatNavigationGuard(pending: IBaseHalfPendingCanvasNoteFormatCommand): void {
+		const guard = pending.navigationGuard;
+		if (!guard) {
+			return;
+		}
+		pending.navigationGuard = undefined;
+		guard.ownership.settle(pending);
+		this.releaseCanvasNoteFormatNavigationGuard(guard);
+	}
+
+	private cancelPendingCanvasNoteFormatCommands(
+		predicate: (pending: IBaseHalfPendingCanvasNoteFormatCommand) => boolean = () => true
+	): void {
+		for (const pending of [...this.pendingCanvasNoteFormatCommands]) {
+			if (predicate(pending)) {
+				this.cancelPendingCanvasNoteFormatCommand(pending);
+			}
+		}
+	}
+
+	private deferPendingCanvasSelectionUntilCanvasNoteFormatsSettle(
+		sceneKey: string,
+		path: string,
+		resourceKey: string
+	): void {
+		const owner = baseHalfCanvasNoteFormatOwnerKey({ sceneKey, path, resourceKey });
+		this.pendingCanvasSelectionFormatBarrier.defer(
+			owner,
+			() => this.waitForCanvasNoteFormatCommands(sceneKey, path, resourceKey),
+			applied => {
+				if (!applied) {
+					const pendingSelection = this.pendingCanvasSelection;
+					if (pendingSelection?.sceneKey === sceneKey
+						&& this.canvasNoteSurfacePath === path
+						&& !(pendingSelection.paths.length === 1 && pendingSelection.paths[0] === path)) {
+						this.pendingCanvasSelection = undefined;
+					}
+				}
+				if (!this.disposed) {
+					this.requestRender();
+				}
+			}
+		);
+	}
+
+	private async waitForCanvasNoteFormatCommands(
+		sceneKey: string,
+		path: string,
+		resourceKey: string
+	): Promise<boolean> {
+		let applied = true;
+		while (true) {
+			const pending = this.pendingCanvasNoteFormatCommands.filter(candidate => candidate.sceneKey === sceneKey
+				&& candidate.path === path
+				&& candidate.resourceKey === resourceKey);
+			if (pending.length === 0) {
+				return applied;
+			}
+			const outcomes = await Promise.all(pending.map(candidate => candidate.completion.p.catch(() => false)));
+			applied = outcomes.every(Boolean) && applied;
+		}
+	}
+
+	private async drainActiveCanvasNoteFormatCommands(active: IBaseHalfActiveCanvasNoteEditor): Promise<boolean> {
+		let applied = true;
+		for (const pending of this.pendingCanvasNoteFormatCommands) {
+			if (!pending.active && this.canvasNoteFormatCommandMatchesActive(pending, active)) {
+				pending.active = active;
+			}
+		}
+		if (this.pendingCanvasNoteFormatCommands.some(pending => this.canvasNoteFormatCommandOwnedByActive(pending, active))) {
+			void this.runPendingCanvasNoteFormatCommands(active);
+		}
+		while (true) {
+			const pending = this.pendingCanvasNoteFormatCommands.filter(candidate => this.canvasNoteFormatCommandMatchesActive(candidate, active));
+			if (pending.length === 0) {
+				return applied;
+			}
+			const outcomes = await Promise.all(pending.map(candidate => candidate.completion.p.catch(() => false)));
+			applied = outcomes.every(Boolean) && applied;
+		}
+	}
+
+	private runPendingCanvasNoteFormatCommands(active: IBaseHalfActiveCanvasNoteEditor): Promise<void> {
+		const currentDrain = this.pendingCanvasNoteFormatDrain;
+		if (currentDrain?.active === active) {
+			return currentDrain.promise;
+		}
+		const promise = this.doRunPendingCanvasNoteFormatCommands(active);
+		const drain = { active, promise };
+		this.pendingCanvasNoteFormatDrain = drain;
+		void promise.then(() => {
+			if (this.pendingCanvasNoteFormatDrain !== drain) {
+				return;
+			}
+			this.pendingCanvasNoteFormatDrain = undefined;
+			if (this.activeCanvasNoteEditor === active
+				&& this.pendingCanvasNoteFormatCommands.some(pending => (!pending.active || pending.active === active)
+					&& this.canvasNoteFormatCommandMatchesActive(pending, active))) {
+				void this.runPendingCanvasNoteFormatCommands(active);
+			}
+		});
+		return promise;
+	}
+
+	private async doRunPendingCanvasNoteFormatCommands(active: IBaseHalfActiveCanvasNoteEditor): Promise<void> {
+		for (const pending of this.pendingCanvasNoteFormatCommands) {
+			if (!pending.active && this.canvasNoteFormatCommandMatchesActive(pending, active)) {
+				pending.active = active;
+			}
+		}
+		try {
+			await active.open;
+		} catch {
+			this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandOwnedByActive(pending, active));
+			return;
+		}
+		while (true) {
+			const pending = this.pendingCanvasNoteFormatCommands.find(candidate => !candidate.running
+				&& this.canvasNoteFormatCommandOwnedByActive(candidate, active));
+			if (!pending) {
+				return;
+			}
+			if (!this.isCanvasNoteFormatCommandCurrent(pending, active)) {
+				this.cancelPendingCanvasNoteFormatCommand(pending);
 				continue;
 			}
-			this.pendingCanvasNoteFormatCommands.splice(index, 1);
-			await active.instance.runFormatCommand(pending.command);
+			pending.running = true;
+			try {
+				const handled = await active.instance.runFormatCommand(pending.command);
+				if (handled) {
+					this.completePendingCanvasNoteFormatCommand(pending);
+				} else if (pending.cancelled) {
+					this.cancelPendingCanvasNoteFormatCommand(pending);
+				} else {
+					this.failPendingCanvasNoteFormatCommand(
+						pending,
+						new Error(localize('basehalf.canvas.note.formatNotApplied', "The formatting action could not be applied."))
+					);
+				}
+			} catch (error) {
+				if (pending.cancelled) {
+					this.cancelPendingCanvasNoteFormatCommand(pending);
+				} else {
+					this.failPendingCanvasNoteFormatCommand(pending, error);
+				}
+			} finally {
+				pending.running = false;
+				if (pending.cancelled && !pending.completion.isSettled) {
+					this.cancelPendingCanvasNoteFormatCommand(pending);
+				}
+			}
 		}
 	}
 
@@ -2965,6 +3358,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.renderedCardElementsByPath.get(path)?.focus();
+	}
+
+	private async closeActiveCanvasNoteEditorAfterFormats(refreshCanvas = true): Promise<boolean> {
+		const active = this.activeCanvasNoteEditor;
+		if (!active) {
+			return true;
+		}
+		if (!active.closing) {
+			if (!await this.drainActiveCanvasNoteFormatCommands(active)) {
+				return false;
+			}
+		}
+		if (this.activeCanvasNoteEditor !== active) {
+			return this.closeActiveCanvasNoteEditorAfterFormats(refreshCanvas);
+		}
+		return this.closeActiveCanvasNoteEditor(refreshCanvas);
 	}
 
 	private async closeActiveCanvasNoteEditor(refreshCanvas = true): Promise<boolean> {
@@ -3022,6 +3431,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (this.activeCanvasNoteEditor !== active) {
 			return;
 		}
+		this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandOwnedByActive(pending, active));
 		// Every successful retirement, including a rapid-close waiter that wins
 		// the continuation race, must preserve the atomic projection boundary.
 		this.refreshActiveCanvasNoteFallback(active);
@@ -3071,7 +3481,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!item) {
 			return;
 		}
-		if (!await this.closeActiveCanvasNoteEditor(false)) {
+		const targetResourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
+		if (!await this.waitForCanvasNoteFormatCommands(sceneKey, path, targetResourceKey)) {
+			return;
+		}
+		const folderBeforeClose = this.getCurrentFolder();
+		const itemBeforeClose = this.renderedItemsByPath.get(path);
+		if (!folderBeforeClose || this.sceneKey(folderBeforeClose) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folderBeforeClose.workspaceFolder, this.sceneMutationStamp(folderBeforeClose, structuralEpoch))
+			|| !itemBeforeClose
+			|| this.uriIdentityService.extUri.getComparisonKey(itemBeforeClose.stat.resource) !== targetResourceKey) {
+			return;
+		}
+		if (!await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 			return;
 		}
 		const currentFolder = this.getCurrentFolder();
@@ -3194,7 +3616,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (action === 'duplicate') {
 			const hadActiveNote = !!this.activeCanvasNoteEditor;
-			if (hadActiveNote && !await this.closeActiveCanvasNoteEditor(false)) {
+			if (hadActiveNote && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 				return;
 			}
 			if (hadActiveNote) {
@@ -3306,7 +3728,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		const hadActiveNote = !!this.activeCanvasNoteEditor;
-		if (hadActiveNote && !await this.closeActiveCanvasNoteEditor(false)) {
+		if (hadActiveNote && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 			return;
 		}
 		if (hadActiveNote) {
@@ -4341,7 +4763,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (!item) {
 				return;
 			}
-			if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditor(false)) {
+			if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 				return;
 			}
 			this.inlineEdit = {
@@ -5312,7 +5734,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			event.preventDefault();
 			event.stopPropagation();
 			void (async () => {
-				if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditor(false)) {
+				if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 					return;
 				}
 				this.selectCard(item.path);
@@ -7627,6 +8049,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const folder = this.getCurrentFolder();
 			if (folder && isBaseHalfMarkdownResource(item.stat.resource)) {
 				container.classList.add('interactive');
+				const sceneKey = this.sceneKey(folder);
+				const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
 				const fallback = append(container, $('.bh-md-preview.basehalf-canvas-note-editor-fallback'));
 				const fallbackRendering = new DisposableStore();
 				listeners.add(fallbackRendering);
@@ -7659,7 +8083,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					status => card.setAttribute('data-note-save-state', status),
 					{
 						onCanvasToolbarRequest: requestToolbarFocus,
-						onCanvasExitRequest: () => void this.closeActiveCanvasNoteEditor(),
+						onCanvasExitRequest: () => void this.closeActiveCanvasNoteEditorAfterFormats(),
 						onSaveRequest: save => void save.then(ok => {
 							if (!ok) {
 								this.showCanvasNoteSaveWarning(item.path);
@@ -7671,7 +8095,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				);
 				const open = instance.open(state, pendingFocus?.point, pendingFocus?.selection);
 				const active: IBaseHalfActiveCanvasNoteEditor = {
+					sceneKey,
 					path: item.path,
+					resourceKey,
 					state,
 					card,
 					host,
@@ -7685,11 +8111,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				card.dataset.noteEditing = 'true';
 				this.canvasNavigationService.setActiveCanvasEditor({
 					...state,
-					prepareToClose: () => this.closeActiveCanvasNoteEditor()
+					prepareToClose: () => this.closeActiveCanvasNoteEditorAfterFormats()
 				});
 				listeners.add(toDisposable(() => {
 					instance.dispose();
 					if (this.activeCanvasNoteEditor === active) {
+						this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandMatchesActive(pending, active));
 						this.activeCanvasNoteEditor = undefined;
 						this.canvasNoteSurfacePath = undefined;
 						if (this.pendingCanvasNoteFocus?.path === active.path) {
@@ -7723,13 +8150,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						this.pendingCanvasNoteFocus = undefined;
 					}
 					this.canvasNavigationService.setActiveCanvasEditor(undefined);
-					const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
-					for (let index = this.pendingCanvasNoteFormatCommands.length - 1; index >= 0; index--) {
-						if (this.pendingCanvasNoteFormatCommands[index].path === item.path
-							&& this.pendingCanvasNoteFormatCommands[index].resourceKey === resourceKey) {
-							this.pendingCanvasNoteFormatCommands.splice(index, 1);
-						}
-					}
+					this.cancelPendingCanvasNoteFormatCommands(pending => this.canvasNoteFormatCommandMatchesActive(pending, active));
 					instance.dispose();
 					delete card.dataset.noteSurface;
 					delete card.dataset.noteEditing;

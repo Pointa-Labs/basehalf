@@ -5,31 +5,12 @@
 
 import type { IBaseHalfCanvasBounds, IBaseHalfCanvasEdge, BaseHalfCanvasItemKind } from './basehalfCanvasModel.js';
 import type { BaseHalfCanvasCardPresentation } from './basehalfCanvasCardPresentation.js';
+import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from './basehalfMarkdownFormatting.js';
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
 
-export type BaseHalfCanvasNoteFormatCommand =
-	| 'setHeading1'
-	| 'setHeading2'
-	| 'setHeading3'
-	| 'setParagraph'
-	| 'toggleBold'
-	| 'toggleItalic'
-	| 'toggleBulletList'
-	| 'toggleOrderedList'
-	| 'insertDivider';
-
-export type BaseHalfCanvasNoteBlockType = 'heading1' | 'heading2' | 'heading3' | 'paragraph' | 'bulletList' | 'orderedList' | 'mixed' | 'other';
-export type BaseHalfCanvasNoteToggleState = boolean | 'mixed';
-
-export interface IBaseHalfCanvasNoteFormatState {
-	readonly ready: boolean;
-	readonly editable: boolean;
-	readonly blockType: BaseHalfCanvasNoteBlockType;
-	readonly bold: BaseHalfCanvasNoteToggleState;
-	readonly italic: BaseHalfCanvasNoteToggleState;
-}
+export type IBaseHalfCanvasNoteFormatState = IBaseHalfMarkdownFormatState;
 
 export const BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE: IBaseHalfCanvasNoteFormatState = Object.freeze({
 	ready: false,
@@ -226,7 +207,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	focusNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void;
 	editNote(sceneKey: string, structuralEpoch: number, path: string, point?: IBaseHalfCanvasNoteEditPoint): Promise<void>;
 	rememberNoteEditPoint(sceneKey: string, structuralEpoch: number, path: string, point: IBaseHalfCanvasNoteEditPoint): void;
-	formatNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfCanvasNoteFormatCommand): Promise<void>;
+	formatNote(sceneKey: string, structuralEpoch: number, path: string, command: BaseHalfMarkdownFormatCommand): Promise<void>;
 	copyNote(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	setNoteBackground(sceneKey: string, structuralEpoch: number, path: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;

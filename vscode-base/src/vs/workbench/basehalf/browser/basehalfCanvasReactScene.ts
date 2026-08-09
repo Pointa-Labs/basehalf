@@ -46,7 +46,6 @@ import {
 	IBaseHalfCanvasSceneSnapshot,
 	IBaseHalfCanvasSceneViewport,
 	BaseHalfCanvasNoteBackground,
-	BaseHalfCanvasNoteFormatCommand,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -54,6 +53,7 @@ import {
 	baseHalfCanvasSceneSelectionSurface,
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
+import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
 import type {
 	Connection,
 	Edge,
@@ -1462,7 +1462,7 @@ function createCanvasSceneMount(
 		if (!placement.visible) {
 			return h(vendor.Fragment);
 		}
-		const invokeFormat = (command: BaseHalfCanvasNoteFormatCommand): void => {
+		const invokeFormat = (command: BaseHalfMarkdownFormatCommand): void => {
 			setBackgroundOpen(false);
 			void delegate.formatNote(node.data.sceneKey, node.data.structuralEpoch, node.id, command).catch(error => delegate.reportError(error));
 		};
@@ -1473,12 +1473,12 @@ function createCanvasSceneMount(
 			className: string,
 			content: ReactNode,
 			onClick: () => void,
-			active?: boolean
+			active?: BaseHalfMarkdownFormatToggleState
 		): ReactElement => h('button', {
 			...(index === 0 ? { ref: buttonRef } : {}),
 			key,
 			type: 'button',
-			className: `basehalf-canvas-note-toolbar-action ${className}${active ? ' active' : ''}`,
+			className: `basehalf-canvas-note-toolbar-action ${className}${active === true ? ' active' : active === 'mixed' ? ' mixed' : ''}`,
 			title: label,
 			'aria-label': label,
 			...(active !== undefined ? { 'aria-pressed': active } : {}),
@@ -1518,8 +1518,8 @@ function createCanvasSceneMount(
 			button(3, 'h3', localize('basehalf.canvas.note.heading3', "Heading 3"), 'text', 'H3', () => invokeFormat('setHeading3'), formatActive('heading3')),
 			button(4, 'paragraph', localize('basehalf.canvas.note.paragraph', "Paragraph"), 'text paragraph', '¶', () => invokeFormat('setParagraph'), formatActive('paragraph')),
 			divider('format-divider'),
-			button(5, 'bold', localize('basehalf.canvas.note.bold', "Bold"), 'text bold', 'B', () => invokeFormat('toggleBold'), formatState.bold === true),
-			button(6, 'italic', localize('basehalf.canvas.note.italic', "Italic"), 'text italic', 'I', () => invokeFormat('toggleItalic'), formatState.italic === true),
+			button(5, 'bold', localize('basehalf.canvas.note.bold', "Bold"), 'text bold', 'B', () => invokeFormat('toggleBold'), formatState.bold),
+			button(6, 'italic', localize('basehalf.canvas.note.italic', "Italic"), 'text italic', 'I', () => invokeFormat('toggleItalic'), formatState.italic),
 			button(7, 'bullet', localize('basehalf.canvas.note.bulletList', "Bulleted list"), 'codicon codicon-list-unordered', null, () => invokeFormat('toggleBulletList'), formatActive('bulletList')),
 			button(8, 'ordered', localize('basehalf.canvas.note.orderedList', "Numbered list"), 'codicon codicon-list-ordered', null, () => invokeFormat('toggleOrderedList'), formatActive('orderedList')),
 			button(9, 'divider', localize('basehalf.canvas.note.divider', "Divider"), 'codicon codicon-remove', null, () => invokeFormat('insertDivider')),

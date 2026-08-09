@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	baseHalfMarkdownRichUpdateFromPayload,
 	isBaseHalfMarkdownRichHostMessage,
@@ -12,6 +13,8 @@ import {
 } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
 
 suite('BaseHalfMarkdownRichWebviewProtocol', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('recognizes valid host messages and rejects incomplete envelopes', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.init',
@@ -70,14 +73,22 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			'setHeading3',
 			'toggleBold',
 			'toggleItalic',
-			'setBulletList',
-			'setNumberedList'
+			'toggleBulletList',
+			'toggleOrderedList',
+			'insertDivider'
 		]) {
 			assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 				type: 'basehalf.markdownRich.command',
 				key: 'workspace\u0000doc.md',
 				command
 			}), true);
+		}
+		for (const command of ['setBulletList', 'setNumberedList']) {
+			assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command
+			}), false);
 		}
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.fileSearchResult',
@@ -200,9 +211,9 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 				editable: true,
 				canSetBlockType: true,
 				canToggleStyle: true,
-				blockType: 'heading2',
-				bold: true,
-				italic: false
+				blockType: 'orderedList',
+				bold: 'mixed',
+				italic: 'mixed'
 			}
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
@@ -319,7 +330,17 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.formatStateChanged',
 			key: 'workspace\u0000doc.md',
+			state: { ready: true, editable: true, canSetBlockType: true, canToggleStyle: true, blockType: 'numberedList', bold: true, italic: false }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
 			state: { ready: true, editable: 'yes', canSetBlockType: true, canToggleStyle: true, blockType: 'paragraph', bold: true, italic: false }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: { ready: true, editable: true, canSetBlockType: true, canToggleStyle: true, blockType: 'paragraph', bold: 'partial', italic: false }
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.workbenchCommand',

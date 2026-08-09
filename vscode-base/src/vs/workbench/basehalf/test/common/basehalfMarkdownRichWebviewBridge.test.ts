@@ -7,7 +7,7 @@ import * as assert from 'assert';
 import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from '../../common/vendor/yjs.bundle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { BaseHalfMarkdownRichHostMessage } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
-import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTransport } from '../../common/basehalfMarkdownRichWebviewBridge.js';
+import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTransport, isBaseHalfMarkdownRichRoutedWebviewMessage } from '../../common/basehalfMarkdownRichWebviewBridge.js';
 
 suite('BaseHalfMarkdownRichWebviewBridge', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -36,6 +36,9 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendCommand('redo'), true);
 		assert.strictEqual(await bridge.sendCommand('setHeading2'), true);
 		assert.strictEqual(await bridge.sendCommand('toggleBold'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleBulletList'), true);
+		assert.strictEqual(await bridge.sendCommand('toggleOrderedList'), true);
+		assert.strictEqual(await bridge.sendCommand('insertDivider'), true);
 		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
 		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: 'attachments/diagram.png' }), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true, handoff: false }), true);
@@ -112,6 +115,21 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.command',
 				key: 'workspace\u0000doc.md',
 				command: 'toggleBold'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleBulletList'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'toggleOrderedList'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'insertDivider'
 			},
 			{
 				type: 'basehalf.markdownRich.fileSearchResult',
@@ -234,6 +252,25 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.handleWebviewMessage({ type: 'basehalf.markdownRich.ready', key: 'other\u0000doc.md' }), false);
 		assert.strictEqual(await bridge.handleWebviewMessage({ type: 'basehalf.markdownRich.yjsUpdate', key: 'workspace\u0000doc.md', update: [999] }), false);
 		assert.strictEqual(host.getText('body').toString(), '');
+	});
+
+	test('routes mixed rich format state for the matching document', () => {
+		const message = {
+			type: 'basehalf.markdownRich.formatStateChanged',
+			key: 'workspace\u0000doc.md',
+			state: {
+				ready: true,
+				editable: true,
+				canSetBlockType: true,
+				canToggleStyle: true,
+				blockType: 'paragraph',
+				bold: 'mixed',
+				italic: false,
+			}
+		};
+
+		assert.strictEqual(isBaseHalfMarkdownRichRoutedWebviewMessage(message, 'workspace\u0000doc.md'), true);
+		assert.strictEqual(isBaseHalfMarkdownRichRoutedWebviewMessage(message, 'workspace\u0000other.md'), false);
 	});
 });
 

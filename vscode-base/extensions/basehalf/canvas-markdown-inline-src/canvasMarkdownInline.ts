@@ -14,45 +14,24 @@ import {
 	MarkdownSerializer,
 	schema as commonmarkSchema,
 } from '@tiptap/pm/markdown';
-import { DOMParser as ProseMirrorDOMParser, Schema, type MarkType, type Node as ProseMirrorNode, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
+import { DOMParser as ProseMirrorDOMParser, Fragment, Schema, type MarkType, type Node as ProseMirrorNode, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from '@tiptap/pm/schema-list';
 import { EditorState, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
+import { canJoin, canSplit } from '@tiptap/pm/transform';
 import { EditorView } from '@tiptap/pm/view';
+import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
 	readonly head: number;
 }
 
-export type CanvasMarkdownInlineFormatCommand =
-	| 'setHeading1'
-	| 'setHeading2'
-	| 'setHeading3'
-	| 'setParagraph'
-	| 'toggleBold'
-	| 'toggleItalic'
-	| 'toggleBulletList'
-	| 'toggleOrderedList'
-	| 'insertDivider';
-
-export type CanvasMarkdownInlineBlockType =
-	| 'heading1'
-	| 'heading2'
-	| 'heading3'
-	| 'paragraph'
-	| 'bulletList'
-	| 'orderedList'
-	| 'mixed'
-	| 'other';
-
-export type CanvasMarkdownInlineToggleState = boolean | 'mixed';
-
 export interface CanvasMarkdownInlineFormatState {
 	readonly ready: boolean;
 	readonly editable: boolean;
-	readonly blockType: CanvasMarkdownInlineBlockType;
-	readonly bold: CanvasMarkdownInlineToggleState;
-	readonly italic: CanvasMarkdownInlineToggleState;
+	readonly blockType: BaseHalfMarkdownFormatBlockType;
+	readonly bold: BaseHalfMarkdownFormatToggleState;
+	readonly italic: BaseHalfMarkdownFormatToggleState;
 }
 
 export interface CanvasMarkdownInlineUnit {
@@ -86,7 +65,7 @@ export interface CanvasMarkdownInlineEditorRuntime {
 	getSelection(): CanvasMarkdownInlineSelection;
 	getMarkdown(): string;
 	getFormatState(): CanvasMarkdownInlineFormatState;
-	runFormatCommand(command: CanvasMarkdownInlineFormatCommand): boolean;
+	runFormatCommand(command: BaseHalfMarkdownFormatCommand): boolean;
 	isComposing(): boolean;
 	destroy(): void;
 }
@@ -434,28 +413,64 @@ function insertSoftBreak(state: EditorState, dispatch?: (transaction: Transactio
 	return true;
 }
 
-function listTypeAt(position: ResolvedPos): 'bulletList' | 'orderedList' | undefined {
+function toggleTextMark(markType: MarkType): Command {
+	// Match the rich projection's toggle behavior: a mixed selection becomes
+	// uniformly styled on the first action, while a fully styled selection is
+	// cleared. ProseMirror's default removes a mark when any selected text has it.
+	return toggleMark(markType, null, { removeWhenPresent: false });
+}
+
+interface CanvasListContext {
+	readonly type: 'bulletList' | 'orderedList';
+	readonly nodePosition: number;
+	readonly depth: number;
+	readonly itemIndex: number;
+}
+
+interface CanvasBlockquoteContext {
+	readonly nodePosition: number;
+	readonly depth: number;
+	readonly childIndex: number;
+}
+
+function listContextAt(position: ResolvedPos): CanvasListContext | undefined {
 	for (let depth = position.depth; depth > 0; depth--) {
 		const type = position.node(depth).type;
 		if (type === canvasSchema.nodes.bullet_list) {
-			return 'bulletList';
+			return { type: 'bulletList', nodePosition: position.before(depth), depth, itemIndex: position.index(depth) };
 		}
 		if (type === canvasSchema.nodes.ordered_list) {
-			return 'orderedList';
+			return { type: 'orderedList', nodePosition: position.before(depth), depth, itemIndex: position.index(depth) };
 		}
 	}
 	return undefined;
 }
 
-function blockTypeAt(position: ResolvedPos): CanvasMarkdownInlineBlockType {
+function listTypeAt(position: ResolvedPos): 'bulletList' | 'orderedList' | undefined {
+	return listContextAt(position)?.type;
+}
+
+function blockquoteContextAt(position: ResolvedPos): CanvasBlockquoteContext | undefined {
+	for (let depth = position.depth; depth > 0; depth--) {
+		if (position.node(depth).type === canvasSchema.nodes.blockquote) {
+			return { nodePosition: position.before(depth), depth, childIndex: position.index(depth) };
+		}
+	}
+	return undefined;
+}
+
+function blockTypeAt(position: ResolvedPos): BaseHalfMarkdownFormatBlockType {
 	const list = listTypeAt(position);
 	if (list) {
 		return list;
 	}
+	if (blockquoteContextAt(position)) {
+		return 'other';
+	}
 	for (let depth = position.depth; depth > 0; depth--) {
 		const node = position.node(depth);
 		if (node.type === canvasSchema.nodes.heading) {
-			return `heading${node.attrs.level}` as CanvasMarkdownInlineBlockType;
+			return `heading${node.attrs.level}` as BaseHalfMarkdownFormatBlockType;
 		}
 		if (node.type === canvasSchema.nodes.paragraph) {
 			return 'paragraph';
@@ -464,8 +479,8 @@ function blockTypeAt(position: ResolvedPos): CanvasMarkdownInlineBlockType {
 	return 'other';
 }
 
-function blockTypeForState(state: EditorState): CanvasMarkdownInlineBlockType {
-	const types = new Set<CanvasMarkdownInlineBlockType>();
+function blockTypeForState(state: EditorState): BaseHalfMarkdownFormatBlockType {
+	const types = new Set<BaseHalfMarkdownFormatBlockType>();
 	const { from, to, $from } = state.selection;
 	state.doc.nodesBetween(from, Math.max(from, to), (node, position) => {
 		if (!node.isTextblock) {
@@ -480,7 +495,7 @@ function blockTypeForState(state: EditorState): CanvasMarkdownInlineBlockType {
 	return types.size === 1 ? [...types][0] : 'mixed';
 }
 
-function markStateForState(state: EditorState, markType: MarkType): CanvasMarkdownInlineToggleState {
+function markStateForState(state: EditorState, markType: MarkType): BaseHalfMarkdownFormatToggleState {
 	const { empty, from, to, $from } = state.selection;
 	if (empty) {
 		return !!markType.isInSet(state.storedMarks ?? $from.marks());
@@ -524,45 +539,620 @@ function sameFormatState(a: CanvasMarkdownInlineFormatState | undefined, b: Canv
 		&& a.italic === b.italic;
 }
 
-function switchListType(state: EditorState, dispatch: ((transaction: Transaction) => void) | undefined, target: NodeType): boolean {
-	const current = listTypeAt(state.selection.$from);
-	const targetName = target === canvasSchema.nodes.bullet_list ? 'bulletList' : 'orderedList';
-	if (current === targetName) {
-		return liftListItem(canvasSchema.nodes.list_item)(state, dispatch);
-	}
-	if (current) {
-		let depth = state.selection.$from.depth;
-		while (depth > 0 && state.selection.$from.node(depth).type !== canvasSchema.nodes.bullet_list && state.selection.$from.node(depth).type !== canvasSchema.nodes.ordered_list) {
-			depth--;
-		}
-		if (depth > 0) {
-			if (dispatch) {
-				const attrs = target === canvasSchema.nodes.ordered_list ? { order: 1 } : null;
-				dispatch(state.tr.setNodeMarkup(state.selection.$from.before(depth), target, attrs).scrollIntoView());
-			}
-			return true;
-		}
-	}
-	return wrapInList(target)(state, dispatch);
+interface SelectedTextblock {
+	readonly node: ProseMirrorNode;
+	readonly position: number;
+	readonly list: CanvasListContext | undefined;
+	readonly blockquote: CanvasBlockquoteContext | undefined;
 }
 
-function insertDivider(state: EditorState, dispatch?: (transaction: Transaction) => void): boolean {
-	if (dispatch) {
-		dispatch(state.tr.replaceSelectionWith(canvasSchema.nodes.horizontal_rule.create()).scrollIntoView());
+function selectedTextblocks(state: EditorState): readonly SelectedTextblock[] {
+	const blocks: SelectedTextblock[] = [];
+	const seen = new Set<number>();
+	const add = (node: ProseMirrorNode, position: number): void => {
+		if (!node.isTextblock || seen.has(position)) {
+			return;
+		}
+		seen.add(position);
+		blocks.push({
+			node,
+			position,
+			list: listContextAt(state.doc.resolve(Math.min(state.doc.content.size, position + 1))),
+			blockquote: blockquoteContextAt(state.doc.resolve(Math.min(state.doc.content.size, position + 1))),
+		});
+	};
+
+	const { from, to, $from } = state.selection;
+	state.doc.nodesBetween(from, to, (node, position) => add(node, position));
+	if (blocks.length === 0) {
+		for (let depth = $from.depth; depth > 0; depth--) {
+			const node = $from.node(depth);
+			if (node.isTextblock) {
+				add(node, $from.before(depth));
+				break;
+			}
+		}
+	}
+	return blocks;
+}
+
+function selectionHasList(state: EditorState): boolean {
+	return selectedTextblocks(state).some(block => block.node.type !== canvasSchema.nodes.code_block && block.list !== undefined);
+}
+
+function selectionSupportsBlockTransform(state: EditorState): boolean {
+	return selectedTextblocks(state).some(block => block.node.type !== canvasSchema.nodes.code_block);
+}
+
+interface SelectedBlockquoteGroup {
+	readonly context: CanvasBlockquoteContext;
+	readonly blocks: readonly SelectedTextblock[];
+	readonly firstChildIndex: number;
+	readonly lastChildIndex: number;
+}
+
+function selectedBlockquoteGroups(state: EditorState): readonly SelectedBlockquoteGroup[] {
+	const grouped = new Map<number, SelectedTextblock[]>();
+	for (const block of selectedTextblocks(state)) {
+		if (block.node.type === canvasSchema.nodes.code_block || !block.blockquote) {
+			continue;
+		}
+		const blocks = grouped.get(block.blockquote.nodePosition) ?? [];
+		blocks.push(block);
+		grouped.set(block.blockquote.nodePosition, blocks);
+	}
+	return [...grouped.values()].map(blocks => {
+		const context = blocks[0].blockquote!;
+		const childIndexes = blocks.map(block => block.blockquote!.childIndex);
+		return {
+			context,
+			blocks,
+			firstChildIndex: Math.min(...childIndexes),
+			lastChildIndex: Math.max(...childIndexes),
+		};
+	}).sort((a, b) => b.context.depth - a.context.depth || a.context.nodePosition - b.context.nodePosition);
+}
+
+function liftSelectedBlockquoteGroup(state: EditorState, group: SelectedBlockquoteGroup): Transaction | undefined {
+	const quote = state.doc.nodeAt(group.context.nodePosition);
+	if (!quote || quote.type !== canvasSchema.nodes.blockquote) {
+		return undefined;
+	}
+	const firstChildIndex = Math.max(0, Math.min(quote.childCount - 1, group.firstChildIndex));
+	const lastChildIndex = Math.max(firstChildIndex, Math.min(quote.childCount - 1, group.lastChildIndex));
+	const replacements: ProseMirrorNode[] = [];
+	const movedChildren: Array<{ readonly oldStart: number; readonly newStart: number; readonly nodeSize: number }> = [];
+	let oldChildStart = group.context.nodePosition + 1;
+	for (let index = 0; index < firstChildIndex; index++) {
+		oldChildStart += quote.child(index).nodeSize;
+	}
+	let newChildStart = group.context.nodePosition;
+	if (firstChildIndex > 0) {
+		const before = quote.copy(Fragment.fromArray(Array.from(
+			{ length: firstChildIndex },
+			(_, index) => quote.child(index),
+		)));
+		replacements.push(before);
+		newChildStart += before.nodeSize;
+	}
+	for (let index = firstChildIndex; index <= lastChildIndex; index++) {
+		const child = quote.child(index);
+		replacements.push(child);
+		movedChildren.push({ oldStart: oldChildStart, newStart: newChildStart, nodeSize: child.nodeSize });
+		oldChildStart += child.nodeSize;
+		newChildStart += child.nodeSize;
+	}
+	if (lastChildIndex < quote.childCount - 1) {
+		replacements.push(quote.copy(Fragment.fromArray(Array.from(
+			{ length: quote.childCount - lastChildIndex - 1 },
+			(_, index) => quote.child(lastChildIndex + index + 1),
+		))));
+	}
+	const transaction = state.tr.replaceWith(
+		group.context.nodePosition,
+		group.context.nodePosition + quote.nodeSize,
+		Fragment.fromArray(replacements),
+	);
+	const mapPosition = (position: number, association: -1 | 1): number => {
+		for (const moved of movedChildren) {
+			if (position >= moved.oldStart && position <= moved.oldStart + moved.nodeSize) {
+				return moved.newStart + position - moved.oldStart;
+			}
+		}
+		return transaction.mapping.map(position, association);
+	};
+	const anchor = Math.max(0, Math.min(transaction.doc.content.size, mapPosition(state.selection.anchor, -1)));
+	const head = Math.max(0, Math.min(transaction.doc.content.size, mapPosition(state.selection.head, 1)));
+	return transaction.setSelection(TextSelection.between(transaction.doc.resolve(anchor), transaction.doc.resolve(head)));
+}
+
+function liftSelectionOutOfBlockquotes(state: EditorState, aggregate: Transaction): boolean {
+	const maximumLifts = Math.max(1, state.doc.nodeSize);
+	for (let pass = 0; pass < maximumLifts; pass++) {
+		const intermediateState = state.apply(aggregate);
+		const group = selectedBlockquoteGroups(intermediateState)[0];
+		if (!group) {
+			return true;
+		}
+		const produced = liftSelectedBlockquoteGroup(intermediateState, group);
+		if (!produced || produced.steps.length === 0) {
+			return false;
+		}
+		for (const step of produced.steps) {
+			aggregate.step(step);
+		}
+		if (produced.selectionSet) {
+			aggregate.setSelection(Selection.fromJSON(aggregate.doc, produced.selection.toJSON()));
+		}
+	}
+	return selectedBlockquoteGroups(state.apply(aggregate)).length === 0;
+}
+
+interface SelectedListGroup {
+	readonly context: CanvasListContext;
+	readonly blocks: readonly SelectedTextblock[];
+	readonly firstItemIndex: number;
+	readonly lastItemIndex: number;
+}
+
+function selectedListGroups(state: EditorState): readonly SelectedListGroup[] {
+	const grouped = new Map<number, SelectedTextblock[]>();
+	for (const block of selectedTextblocks(state)) {
+		if (block.node.type === canvasSchema.nodes.code_block || !block.list) {
+			continue;
+		}
+		const blocks = grouped.get(block.list.nodePosition) ?? [];
+		blocks.push(block);
+		grouped.set(block.list.nodePosition, blocks);
+	}
+	return [...grouped.values()].map(blocks => {
+		const context = blocks[0].list!;
+		const itemIndexes = blocks.map(block => block.list!.itemIndex);
+		return {
+			context,
+			blocks,
+			firstItemIndex: Math.min(...itemIndexes),
+			lastItemIndex: Math.max(...itemIndexes),
+		};
+	}).sort((a, b) => b.context.depth - a.context.depth || a.context.nodePosition - b.context.nodePosition);
+}
+
+function selectionForListGroup(state: EditorState, group: SelectedListGroup): Selection {
+	const from = Math.min(...group.blocks.map(block => block.position + 1));
+	const to = Math.max(...group.blocks.map(block => block.position + Math.max(1, block.node.nodeSize - 1)));
+	return TextSelection.between(state.doc.resolve(from), state.doc.resolve(to));
+}
+
+function appendCommandTransactionAtSelection(
+	state: EditorState,
+	aggregate: Transaction,
+	selection: Selection,
+	command: Command,
+): boolean {
+	const intermediateState = state.apply(aggregate);
+	const scopedState = intermediateState.apply(intermediateState.tr.setSelection(selection));
+	let produced: Transaction | undefined;
+	if (!command(scopedState, transaction => produced = transaction) || !produced) {
+		return false;
+	}
+	for (const step of produced.steps) {
+		aggregate.step(step);
 	}
 	return true;
 }
 
-function commandForFormat(command: CanvasMarkdownInlineFormatCommand): Command {
+function findJoinableListBoundary(document: ProseMirrorNode): number | undefined {
+	const visit = (parent: ProseMirrorNode, contentStart: number): number | undefined => {
+		let offset = 0;
+		for (let index = 0; index < parent.childCount; index++) {
+			const child = parent.child(index);
+			const childPosition = contentStart + offset;
+			if (index > 0) {
+				const previous = parent.child(index - 1);
+				const bothLists = (child.type === canvasSchema.nodes.bullet_list || child.type === canvasSchema.nodes.ordered_list)
+					&& child.type === previous.type;
+				const compatibleOrder = child.type !== canvasSchema.nodes.ordered_list
+					|| child.attrs.order === previous.attrs.order
+					|| child.attrs.order === previous.attrs.order + previous.childCount;
+				if (bothLists
+					&& child.attrs.tight === previous.attrs.tight
+					&& compatibleOrder
+					&& canJoin(document, childPosition)) {
+					return childPosition;
+				}
+			}
+			if (!child.isLeaf) {
+				const nested = visit(child, childPosition + 1);
+				if (nested !== undefined) {
+					return nested;
+				}
+			}
+			offset += child.nodeSize;
+		}
+		return undefined;
+	};
+	return visit(document, 0);
+}
+
+function joinAdjacentCompatibleLists(transaction: Transaction): void {
+	for (let boundary = findJoinableListBoundary(transaction.doc); boundary !== undefined; boundary = findJoinableListBoundary(transaction.doc)) {
+		transaction.join(boundary);
+	}
+}
+
+function liftSelectionOutOfLists(state: EditorState, aggregate: Transaction): boolean {
+	const maximumLifts = Math.max(1, state.doc.nodeSize);
+	for (let pass = 0; pass < maximumLifts; pass++) {
+		const intermediateState = state.apply(aggregate);
+		const group = selectedListGroups(intermediateState)[0];
+		if (!group) {
+			joinAdjacentCompatibleLists(aggregate);
+			return true;
+		}
+		const stepCount = aggregate.steps.length;
+		if (!appendCommandTransactionAtSelection(
+			state,
+			aggregate,
+			selectionForListGroup(intermediateState, group),
+			liftListItem(canvasSchema.nodes.list_item),
+		) || aggregate.steps.length === stepCount) {
+			return false;
+		}
+	}
+	return !selectionHasList(state.apply(aggregate));
+}
+
+function ensureSelectionBlockType(
+	state: EditorState,
+	aggregate: Transaction,
+	target: NodeType,
+	attrs: Readonly<Record<string, unknown>> | null = null,
+): boolean {
+	const maximumChanges = Math.max(1, state.doc.nodeSize);
+	for (let pass = 0; pass < maximumChanges; pass++) {
+		const intermediateState = state.apply(aggregate);
+		const transformable = selectedParentBlocks(intermediateState)
+			.filter(candidate => candidate.block.node.type !== canvasSchema.nodes.code_block);
+		if (transformable.length === 0) {
+			return false;
+		}
+		const remaining = transformable.filter(candidate => !candidate.block.node.hasMarkup(target, attrs));
+		const first = remaining[0];
+		if (!first) {
+			return true;
+		}
+		const group = [first];
+		for (const candidate of remaining.slice(1)) {
+			const previous = group[group.length - 1];
+			if (candidate.parentPosition !== first.parentPosition
+				|| candidate.parentDepth !== first.parentDepth
+				|| candidate.childIndex !== previous.childIndex + 1) {
+				break;
+			}
+			group.push(candidate);
+		}
+		if (!group.every(({ block, childIndex }) => block.node.type === target
+			|| intermediateState.doc.resolve(block.position).parent.canReplaceWith(childIndex, childIndex + 1, target))) {
+			return false;
+		}
+		const from = Math.min(...group.map(candidate => candidate.block.position + 1));
+		const to = Math.max(...group.map(candidate => candidate.block.position + Math.max(1, candidate.block.node.nodeSize - 1)));
+		const stepCount = aggregate.steps.length;
+		if (!appendCommandTransactionAtSelection(
+			state,
+			aggregate,
+			TextSelection.between(intermediateState.doc.resolve(from), intermediateState.doc.resolve(to)),
+			setBlockType(target, attrs),
+		) || aggregate.steps.length === stepCount) {
+			return false;
+		}
+	}
+	return selectedTextblocks(state.apply(aggregate))
+		.filter(block => block.node.type !== canvasSchema.nodes.code_block)
+		.every(block => block.node.hasMarkup(target, attrs));
+}
+
+function setTextBlockKind(target: NodeType, attrs: Readonly<Record<string, unknown>> | null = null): Command {
+	return (state, dispatch) => {
+		if (!selectionSupportsBlockTransform(state)) {
+			return false;
+		}
+		const aggregate = state.tr;
+		if (selectedBlockquoteGroups(state).length > 0 && !liftSelectionOutOfBlockquotes(state, aggregate)) {
+			return false;
+		}
+		if (selectionHasList(state) && !liftSelectionOutOfLists(state, aggregate)) {
+			return false;
+		}
+		if (!ensureSelectionBlockType(state, aggregate, target, attrs)) {
+			return false;
+		}
+		if (dispatch && aggregate.docChanged) {
+			dispatch(aggregate.scrollIntoView());
+		}
+		return true;
+	};
+}
+
+function listAttrs(target: NodeType, tight: boolean): Readonly<Record<string, unknown>> {
+	return target === canvasSchema.nodes.ordered_list ? { order: 1, tight } : { tight };
+}
+
+function changeSelectedListGroupType(state: EditorState, group: SelectedListGroup, target: NodeType): Transaction | undefined {
+	const list = state.doc.nodeAt(group.context.nodePosition);
+	if (!list || (list.type !== canvasSchema.nodes.bullet_list && list.type !== canvasSchema.nodes.ordered_list)) {
+		return undefined;
+	}
+	const firstItemIndex = Math.max(0, Math.min(list.childCount - 1, group.firstItemIndex));
+	const lastItemIndex = Math.max(firstItemIndex, Math.min(list.childCount - 1, group.lastItemIndex));
+	let selectedStart = group.context.nodePosition + 1;
+	for (let index = 0; index < firstItemIndex; index++) {
+		selectedStart += list.child(index).nodeSize;
+	}
+	let selectedEnd = selectedStart;
+	for (let index = firstItemIndex; index <= lastItemIndex; index++) {
+		selectedEnd += list.child(index).nodeSize;
+	}
+
+	const transaction = state.tr;
+	const marker = group.blocks[0].position + 1;
+	if (lastItemIndex < list.childCount - 1) {
+		if (!canSplit(transaction.doc, selectedEnd, 1)) {
+			return undefined;
+		}
+		transaction.split(selectedEnd, 1);
+	}
+	if (firstItemIndex > 0) {
+		const mappedStart = transaction.mapping.map(selectedStart, -1);
+		if (!canSplit(transaction.doc, mappedStart, 1)) {
+			return undefined;
+		}
+		transaction.split(mappedStart, 1);
+	}
+
+	const selectedList = listContextAt(transaction.doc.resolve(transaction.mapping.map(marker)));
+	if (!selectedList) {
+		return undefined;
+	}
+	transaction.setNodeMarkup(
+		selectedList.nodePosition,
+		target,
+		listAttrs(target, list.attrs.tight),
+	);
+	return transaction;
+}
+
+function convertSelectedListsInPlace(state: EditorState, aggregate: Transaction, target: NodeType): boolean {
+	const targetName = target === canvasSchema.nodes.bullet_list ? 'bulletList' : 'orderedList';
+	const maximumConversions = Math.max(1, state.doc.nodeSize);
+	for (let pass = 0; pass < maximumConversions; pass++) {
+		const intermediateState = state.apply(aggregate);
+		const group = selectedListGroups(intermediateState).find(candidate => candidate.context.type !== targetName);
+		if (!group) {
+			joinAdjacentCompatibleLists(aggregate);
+			return true;
+		}
+		const produced = changeSelectedListGroupType(intermediateState, group, target);
+		if (!produced || produced.steps.length === 0) {
+			return false;
+		}
+		for (const step of produced.steps) {
+			aggregate.step(step);
+		}
+	}
+	return false;
+}
+
+interface SelectedParentBlock {
+	readonly block: SelectedTextblock;
+	readonly parentPosition: number;
+	readonly parentDepth: number;
+	readonly childIndex: number;
+}
+
+function selectedParentBlocks(state: EditorState): readonly SelectedParentBlock[] {
+	return selectedTextblocks(state).map(block => {
+		const position = state.doc.resolve(block.position);
+		return {
+			block,
+			parentPosition: position.depth > 0 ? position.before(position.depth) : -1,
+			parentDepth: position.depth,
+			childIndex: position.index(position.depth),
+		};
+	});
+}
+
+function wrapSelectionInLists(state: EditorState, aggregate: Transaction, target: NodeType): boolean {
+	const maximumWraps = Math.max(1, state.doc.nodeSize);
+	for (let pass = 0; pass < maximumWraps; pass++) {
+		const intermediateState = state.apply(aggregate);
+		const remaining = selectedParentBlocks(intermediateState).filter(candidate => candidate.block.node.type !== canvasSchema.nodes.code_block
+			&& candidate.block.list === undefined);
+		const first = remaining[0];
+		if (!first) {
+			return true;
+		}
+		const group = [first];
+		for (const candidate of remaining.slice(1)) {
+			const previous = group[group.length - 1];
+			if (candidate.parentPosition !== first.parentPosition
+				|| candidate.parentDepth !== first.parentDepth
+				|| candidate.childIndex !== previous.childIndex + 1) {
+				break;
+			}
+			group.push(candidate);
+		}
+		const from = Math.min(...group.map(candidate => candidate.block.position + 1));
+		const to = Math.max(...group.map(candidate => candidate.block.position + Math.max(1, candidate.block.node.nodeSize - 1)));
+		const stepCount = aggregate.steps.length;
+		if (!appendCommandTransactionAtSelection(
+			state,
+			aggregate,
+			TextSelection.between(intermediateState.doc.resolve(from), intermediateState.doc.resolve(to)),
+			wrapInList(target, listAttrs(target, true)),
+		) || aggregate.steps.length === stepCount) {
+			return false;
+		}
+	}
+	return selectedTextblocks(state.apply(aggregate))
+		.filter(block => block.node.type !== canvasSchema.nodes.code_block)
+		.every(block => block.list !== undefined);
+}
+
+function switchListType(target: NodeType): Command {
+	return (state, dispatch) => {
+		if (!selectionSupportsBlockTransform(state)) {
+			return false;
+		}
+		const targetName = target === canvasSchema.nodes.bullet_list ? 'bulletList' : 'orderedList';
+		const aggregate = state.tr;
+		if (selectedBlockquoteGroups(state).length > 0 && !liftSelectionOutOfBlockquotes(state, aggregate)) {
+			return false;
+		}
+		const initialBlocks = selectedTextblocks(state.apply(aggregate))
+			.filter(block => block.node.type !== canvasSchema.nodes.code_block);
+		if (initialBlocks.length === 0) {
+			return false;
+		}
+		const listBlocks = initialBlocks.filter(block => block.list !== undefined);
+		const allInTargetList = listBlocks.length === initialBlocks.length
+			&& listBlocks.every(block => block.list?.type === targetName);
+		if (allInTargetList) {
+			if (!liftSelectionOutOfLists(state, aggregate)) {
+				return false;
+			}
+		} else if (listBlocks.length === initialBlocks.length) {
+			if (!convertSelectedListsInPlace(state, aggregate, target)) {
+				return false;
+			}
+		} else {
+			if (listBlocks.length > 0 && !liftSelectionOutOfLists(state, aggregate)) {
+				return false;
+			}
+			if (!ensureSelectionBlockType(state, aggregate, canvasSchema.nodes.paragraph)
+				|| !wrapSelectionInLists(state, aggregate, target)) {
+				return false;
+			}
+		}
+		joinAdjacentCompatibleLists(aggregate);
+		if (!aggregate.docChanged) {
+			return false;
+		}
+		if (dispatch) {
+			dispatch(aggregate.scrollIntoView());
+		}
+		return true;
+	};
+}
+
+function insertDividerAfterListItem(
+	state: EditorState,
+	context: CanvasListContext,
+	dispatch?: (transaction: Transaction) => void,
+): boolean {
+	const list = state.doc.nodeAt(context.nodePosition);
+	if (!list || context.itemIndex < 0 || context.itemIndex >= list.childCount) {
+		return false;
+	}
+	if (!dispatch) {
+		return true;
+	}
+
+	const item = list.child(context.itemIndex);
+	const replaceEmptyItem = state.selection.empty
+		&& item.childCount === 1
+		&& !!item.firstChild?.isTextblock
+		&& item.firstChild.content.size === 0;
+	const beforeEnd = replaceEmptyItem ? context.itemIndex : context.itemIndex + 1;
+	const afterStart = context.itemIndex + 1;
+	const replacements: ProseMirrorNode[] = [];
+	if (beforeEnd > 0) {
+		replacements.push(list.copy(Fragment.fromArray(Array.from({ length: beforeEnd }, (_, index) => list.child(index)))));
+	}
+	const divider = canvasSchema.nodes.horizontal_rule.create();
+	const dividerOffset = replacements.reduce((total, node) => total + node.nodeSize, 0);
+	replacements.push(divider);
+	if (afterStart < list.childCount) {
+		replacements.push(list.copy(Fragment.fromArray(Array.from(
+			{ length: list.childCount - afterStart },
+			(_, index) => list.child(afterStart + index),
+		))));
+	}
+
+	const transaction = state.tr.replaceWith(
+		context.nodePosition,
+		context.nodePosition + list.nodeSize,
+		Fragment.fromArray(replacements),
+	);
+	let dividerEnd = context.nodePosition + dividerOffset + divider.nodeSize;
+	let nextSelection = Selection.findFrom(transaction.doc.resolve(dividerEnd), 1, true);
+	if (!nextSelection) {
+		const paragraph = canvasSchema.nodes.paragraph.create();
+		transaction.insert(dividerEnd, paragraph);
+		dividerEnd += paragraph.nodeSize;
+		nextSelection = TextSelection.near(transaction.doc.resolve(dividerEnd - 1), -1);
+	}
+	dispatch(transaction.setSelection(nextSelection).scrollIntoView());
+	return true;
+}
+
+function insertDivider(state: EditorState, dispatch?: (transaction: Transaction) => void): boolean {
+	const { $head } = state.selection;
+	const list = listContextAt($head);
+	if (list) {
+		return insertDividerAfterListItem(state, list, dispatch);
+	}
+	let unitDepth = $head.depth;
+	while (unitDepth > 0 && $head.node(unitDepth).type !== canvasSchema.nodes.markdown_unit) {
+		unitDepth--;
+	}
+	if (unitDepth === 0) {
+		return false;
+	}
+
+	const unit = $head.node(unitDepth);
+	const childIndex = Math.min(unit.childCount - 1, $head.index(unitDepth));
+	if (childIndex < 0) {
+		return false;
+	}
+	let childOffset = 0;
+	for (let index = 0; index < childIndex; index++) {
+		childOffset += unit.child(index).nodeSize;
+	}
+	const child = unit.child(childIndex);
+	const childStart = $head.start(unitDepth) + childOffset;
+	const childEnd = childStart + child.nodeSize;
+	if (!dispatch) {
+		return true;
+	}
+
+	const divider = canvasSchema.nodes.horizontal_rule.create();
+	const replaceEmptyBlock = state.selection.empty && child.isTextblock && child.content.size === 0;
+	const transaction = replaceEmptyBlock
+		? state.tr.replaceWith(childStart, childEnd, divider)
+		: state.tr.insert(childEnd, divider);
+	let dividerEnd = (replaceEmptyBlock ? childStart : childEnd) + divider.nodeSize;
+	let nextSelection = Selection.findFrom(transaction.doc.resolve(dividerEnd), 1, true);
+	if (!nextSelection) {
+		const paragraph = canvasSchema.nodes.paragraph.create();
+		transaction.insert(dividerEnd, paragraph);
+		dividerEnd += paragraph.nodeSize;
+		nextSelection = TextSelection.near(transaction.doc.resolve(dividerEnd - 1), -1);
+	}
+	dispatch(transaction.setSelection(nextSelection).scrollIntoView());
+	return true;
+}
+
+function commandForFormat(command: BaseHalfMarkdownFormatCommand): Command {
 	switch (command) {
-		case 'setHeading1': return setBlockType(canvasSchema.nodes.heading, { level: 1 });
-		case 'setHeading2': return setBlockType(canvasSchema.nodes.heading, { level: 2 });
-		case 'setHeading3': return setBlockType(canvasSchema.nodes.heading, { level: 3 });
-		case 'setParagraph': return setBlockType(canvasSchema.nodes.paragraph);
-		case 'toggleBold': return toggleMark(canvasSchema.marks.strong);
-		case 'toggleItalic': return toggleMark(canvasSchema.marks.em);
-		case 'toggleBulletList': return (state, dispatch) => switchListType(state, dispatch, canvasSchema.nodes.bullet_list);
-		case 'toggleOrderedList': return (state, dispatch) => switchListType(state, dispatch, canvasSchema.nodes.ordered_list);
+		case 'setHeading1': return setTextBlockKind(canvasSchema.nodes.heading, { level: 1 });
+		case 'setHeading2': return setTextBlockKind(canvasSchema.nodes.heading, { level: 2 });
+		case 'setHeading3': return setTextBlockKind(canvasSchema.nodes.heading, { level: 3 });
+		case 'setParagraph': return setTextBlockKind(canvasSchema.nodes.paragraph);
+		case 'toggleBold': return toggleTextMark(canvasSchema.marks.strong);
+		case 'toggleItalic': return toggleTextMark(canvasSchema.marks.em);
+		case 'toggleBulletList': return switchListType(canvasSchema.nodes.bullet_list);
+		case 'toggleOrderedList': return switchListType(canvasSchema.nodes.ordered_list);
 		case 'insertDivider': return insertDivider;
 	}
 }
@@ -634,8 +1224,8 @@ export function createCanvasMarkdownInlineEditor(
 	const listItem = canvasSchema.nodes.list_item;
 	const plugins = [
 		keymap({
-			'Mod-b': whenEditable(toggleMark(canvasSchema.marks.strong)),
-			'Mod-i': whenEditable(toggleMark(canvasSchema.marks.em)),
+			'Mod-b': whenEditable(toggleTextMark(canvasSchema.marks.strong)),
+			'Mod-i': whenEditable(toggleTextMark(canvasSchema.marks.em)),
 		}),
 		keymap({
 			Backspace: whenEditable(joinAcrossMarkdownUnit(-1)),
@@ -663,7 +1253,6 @@ export function createCanvasMarkdownInlineEditor(
 		plugins,
 	});
 
-	let view: EditorView;
 	const serializeUnit = (document: ProseMirrorNode): string => {
 		let markdown = canvasSerializer.serialize(document);
 		// Segment separators belong to the workbench projection. The serializer
@@ -729,7 +1318,7 @@ export function createCanvasMarkdownInlineEditor(
 	};
 
 	host.replaceChildren();
-	view = new EditorView(host, {
+	const view = new EditorView(host, {
 		state: initialState,
 		editable: () => !readOnly,
 		nodeViews: {

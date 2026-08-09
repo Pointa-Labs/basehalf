@@ -49,6 +49,8 @@ export interface IBaseHalfWorkspaceResource {
 }
 
 export interface IBaseHalfActiveCanvasEditor extends IBaseHalfWorkspaceResource {
+	/** False while an authoring intent exists but no projection is ready to hand off. */
+	readonly supportsCanvasProjectionHandoff?: boolean;
 	prepareToClose(): Promise<boolean>;
 }
 

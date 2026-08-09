@@ -97,12 +97,16 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
+		const acceptedCanvasEditor = this._activeCanvasEditor;
 
 		let stat;
 		try {
 			stat = await this.fileService.resolve(resource);
 		} catch {
 			return { handled: false, reason: 'missingOrUnreadable' };
+		}
+		if (acceptedCanvasEditor && !await this.flushActiveEditor(acceptedCanvasEditor)) {
+			return { handled: false, reason: 'blockedByDirtyEditor' };
 		}
 
 		if (stat.isDirectory) {
@@ -147,6 +151,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		const adoptsCanvasProjection = options.canvasProjectionHandoff === true
 			&& !this._state.cardDetail
 			&& !!this._activeCanvasEditor
+			&& this._activeCanvasEditor.supportsCanvasProjectionHandoff !== false
 			&& this.uriIdentityService.extUri.isEqual(this._activeCanvasEditor.resource, resource);
 		if (!adoptsCanvasProjection
 			&& (this._activeCanvasEditor || this._state.cardDetail)
@@ -225,9 +230,16 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return true;
 	}
 
-	async flushActiveEditor(): Promise<boolean> {
-		const inlineEditor = this._activeCanvasEditor;
-		if (inlineEditor) {
+	async flushActiveEditor(acceptedCanvasEditor?: IBaseHalfActiveCanvasEditor): Promise<boolean> {
+		if (acceptedCanvasEditor && this._activeCanvasEditor !== acceptedCanvasEditor) {
+			const prepared = await acceptedCanvasEditor.prepareToClose();
+			if (!prepared) {
+				this.notifyBlockedEditor();
+				return false;
+			}
+		}
+		while (this._activeCanvasEditor) {
+			const inlineEditor = this._activeCanvasEditor;
 			const prepared = await inlineEditor.prepareToClose();
 			if (!prepared || this._activeCanvasEditor === inlineEditor) {
 				this.notifyBlockedEditor();

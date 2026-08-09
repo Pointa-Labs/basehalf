@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { DeferredPromise } from '../../../../base/common/async.js';
 import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
@@ -512,6 +513,87 @@ suite('BaseHalfCanvasNavigationService', () => {
 		blocker.dispose();
 	});
 
+	test('waits for a pre-mount authoring intent before direct quick-access navigation', async () => {
+		const target = URI.file('/workspace/target.md');
+		const service = createService(new Map([
+			[target.fsPath, aFileStat(target, FileType.File)]
+		]));
+		const guardEntered = new DeferredPromise<void>();
+		const mountedEntered = new DeferredPromise<void>();
+		const formatApplied = new DeferredPromise<void>();
+		const durable = new DeferredPromise<boolean>();
+		const mountedEditor = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			prepareToClose: async () => {
+				await mountedEntered.complete(undefined);
+				const ready = await durable.p;
+				service.setActiveCanvasEditor(undefined);
+				return ready;
+			}
+		};
+		const guard = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			supportsCanvasProjectionHandoff: false,
+			prepareToClose: async () => {
+				await guardEntered.complete(undefined);
+				await formatApplied.p;
+				service.setActiveCanvasEditor(mountedEditor);
+				return true;
+			}
+		};
+		service.setActiveCanvasEditor(guard);
+
+		const navigation = service.openResource(target, { source: 'quickAccess' });
+		await guardEntered.p;
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.activeCanvasEditor, guard);
+
+		await formatApplied.complete(undefined);
+		await mountedEntered.p;
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.activeCanvasEditor, mountedEditor);
+
+		await durable.complete(true);
+		const result = await navigation;
+		assert.ok(result.handled && result.target === 'cardDetail');
+		if (result.handled && result.target === 'cardDetail') {
+			assert.strictEqual(result.state.resource.fsPath, target.fsPath);
+		}
+	});
+
+	test('blocks direct navigation when its captured pre-mount authoring intent fails', async () => {
+		const target = URI.file('/workspace/target.md');
+		const service = createService(new Map([
+			[target.fsPath, aFileStat(target, FileType.File)]
+		]));
+		const intentOutcome = new DeferredPromise<boolean>();
+		let guardCalls = 0;
+		const guard = {
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			supportsCanvasProjectionHandoff: false,
+			prepareToClose: async () => {
+				guardCalls++;
+				return intentOutcome.p;
+			}
+		};
+		service.setActiveCanvasEditor(guard);
+
+		const navigation = service.openResource(target, { source: 'quickAccess' });
+		await intentOutcome.complete(false);
+		service.setActiveCanvasEditor(undefined);
+		const result = await navigation;
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(guardCalls, 1);
+		assert.strictEqual(service.state.cardDetail, undefined);
+	});
+
 	test('adopts a frozen canvas projection without treating Expand as a disk-save request', async () => {
 		const service = createService(new Map());
 		let closeCalls = 0;
@@ -535,6 +617,32 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(result.handled && result.target, 'cardDetail');
 		assert.strictEqual(closeCalls, 0);
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'note.md');
+	});
+
+	test('does not hand off a resource whose authoring projection has not mounted', async () => {
+		const service = createService(new Map());
+		let guardCalls = 0;
+		service.setActiveCanvasEditor({
+			resource: URI.file('/workspace/note.md'),
+			workspaceFolder,
+			relativePath: 'note.md',
+			supportsCanvasProjectionHandoff: false,
+			prepareToClose: async () => {
+				guardCalls++;
+				service.setActiveCanvasEditor(undefined);
+				return false;
+			}
+		});
+
+		const result = await service.openCardDetail(URI.file('/workspace/note.md'), {
+			source: 'api',
+			projection: 'rich',
+			canvasProjectionHandoff: true
+		});
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(guardCalls, 1);
+		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
 	test('does not let a projection handoff bypass a different active resource', async () => {

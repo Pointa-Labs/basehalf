@@ -19,7 +19,8 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileEditorModelState } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
-import { BaseHalfCanvasNoteFormatCommand, IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '../../common/basehalfCanvasScene.js';
+import { IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '../../common/basehalfCanvasScene.js';
+import type { BaseHalfMarkdownFormatCommand } from '../../common/basehalfMarkdownFormatting.js';
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 
@@ -73,7 +74,7 @@ interface IBaseHalfCanvasMarkdownInlineRuntime {
 	getSelection(): IBaseHalfCanvasMarkdownInlineSelection;
 	getMarkdown(): string;
 	getFormatState(): IBaseHalfCanvasNoteFormatState;
-	runFormatCommand(command: BaseHalfCanvasNoteFormatCommand): boolean;
+	runFormatCommand(command: BaseHalfMarkdownFormatCommand): boolean;
 	isComposing(): boolean;
 	destroy(): void;
 }
@@ -470,7 +471,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		return this.runtime?.getFormatState();
 	}
 
-	async runFormatCommand(command: BaseHalfCanvasNoteFormatCommand): Promise<boolean> {
+	async runFormatCommand(command: BaseHalfMarkdownFormatCommand): Promise<boolean> {
 		if (this.disposed || this.compositionConflict) {
 			return false;
 		}

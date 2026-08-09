@@ -5,6 +5,12 @@
 
 import { IBaseHalfMarkdownFocusFields } from './basehalfMarkdownFocus.js';
 import { IBaseHalfAdhdCommand, IBaseHalfAdhdFile, isBaseHalfAdhdFile } from './basehalfAdhd.js';
+import {
+	isBaseHalfMarkdownFormatCommand,
+	isBaseHalfMarkdownFormatState,
+	type BaseHalfMarkdownFormatCommand,
+	type IBaseHalfMarkdownFormatState,
+} from './basehalfMarkdownFormatting.js';
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
@@ -28,24 +34,9 @@ export interface IBaseHalfMarkdownRichFocusPoint {
 	readonly y: number;
 }
 
-export type BaseHalfMarkdownRichBlockType =
-	| 'paragraph'
-	| 'heading1'
-	| 'heading2'
-	| 'heading3'
-	| 'bulletList'
-	| 'numberedList'
-	| 'mixed'
-	| 'other';
-
-export interface IBaseHalfMarkdownRichFormatState {
-	readonly ready: boolean;
-	readonly editable: boolean;
+export interface IBaseHalfMarkdownRichFormatState extends IBaseHalfMarkdownFormatState {
 	readonly canSetBlockType: boolean;
 	readonly canToggleStyle: boolean;
-	readonly blockType: BaseHalfMarkdownRichBlockType;
-	readonly bold: boolean;
-	readonly italic: boolean;
 }
 
 /**
@@ -58,14 +49,7 @@ export interface IBaseHalfMarkdownRichFormatState {
 export type BaseHalfMarkdownRichEditorCommand =
 	| 'undo'
 	| 'redo'
-	| 'setParagraph'
-	| 'setHeading1'
-	| 'setHeading2'
-	| 'setHeading3'
-	| 'toggleBold'
-	| 'toggleItalic'
-	| 'setBulletList'
-	| 'setNumberedList';
+	| BaseHalfMarkdownFormatCommand;
 
 /**
  * A workspace file offered by the `[[` link autocomplete. `path` is
@@ -408,49 +392,15 @@ function isBaseHalfMarkdownRichSurface(value: unknown): value is BaseHalfMarkdow
 }
 
 function isBaseHalfMarkdownRichEditorCommand(value: unknown): value is BaseHalfMarkdownRichEditorCommand {
-	switch (value) {
-		case 'undo':
-		case 'redo':
-		case 'setParagraph':
-		case 'setHeading1':
-		case 'setHeading2':
-		case 'setHeading3':
-		case 'toggleBold':
-		case 'toggleItalic':
-		case 'setBulletList':
-		case 'setNumberedList':
-			return true;
-		default:
-			return false;
-	}
+	return value === 'undo' || value === 'redo' || isBaseHalfMarkdownFormatCommand(value);
 }
 
 function isBaseHalfMarkdownRichFormatState(value: unknown): value is IBaseHalfMarkdownRichFormatState {
 	const candidate = value as Partial<IBaseHalfMarkdownRichFormatState> | undefined;
 	return !!candidate
-		&& typeof candidate.ready === 'boolean'
-		&& typeof candidate.editable === 'boolean'
 		&& typeof candidate.canSetBlockType === 'boolean'
 		&& typeof candidate.canToggleStyle === 'boolean'
-		&& isBaseHalfMarkdownRichBlockType(candidate.blockType)
-		&& typeof candidate.bold === 'boolean'
-		&& typeof candidate.italic === 'boolean';
-}
-
-function isBaseHalfMarkdownRichBlockType(value: unknown): value is BaseHalfMarkdownRichBlockType {
-	switch (value) {
-		case 'paragraph':
-		case 'heading1':
-		case 'heading2':
-		case 'heading3':
-		case 'bulletList':
-		case 'numberedList':
-		case 'mixed':
-		case 'other':
-			return true;
-		default:
-			return false;
-	}
+		&& isBaseHalfMarkdownFormatState(candidate);
 }
 
 export function toBaseHalfMarkdownRichTransferableUpdate(update: Uint8Array): IBaseHalfMarkdownRichTransferableUpdate {

@@ -14,6 +14,9 @@
 	"categories": [
 		"Other"
 	],
+	"scripts": {
+		"test:canvas-markdown-inline": "node test.canvasMarkdownInlineCommands.mts"
+	},
 	"devDependencies": {
 		"@types/vscode-webview": "1.57.5"
 	}
