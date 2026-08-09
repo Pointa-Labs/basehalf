@@ -93,6 +93,7 @@ const env = {
 };
 
 let app;
+let smokeFailed = false;
 let canvasViewportBeforeCardDetail;
 const pageErrors = [];
 try {
@@ -405,15 +406,18 @@ try {
 	console.log(JSON.stringify(summary, null, 2));
 	}
 } catch (error) {
+	smokeFailed = true;
 	await writeFailureArtifacts(error);
 	throw error;
 } finally {
 	if (app) {
-		await app.close().catch(() => undefined);
+		await closeElectronApplication(app);
 	}
 
-	if (!opts.keep && !opts.output) {
+	if (!opts.keep && !opts.output && !smokeFailed) {
 		fs.rmSync(runRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	} else if (smokeFailed && !opts.keep && !opts.output) {
+		console.error(`[basehalf-smoke] preserved failure artifacts: ${runRoot}`);
 	}
 }
 
@@ -3924,32 +3928,344 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	if (initialEmptyNoteMarkdown.trim() !== '') {
 		throw new Error(`A newly created empty Note had unexpected content before its first Canvas edit: ${JSON.stringify(initialEmptyNoteMarkdown)}`);
 	}
-	const emptyNoteMarkdown = 'Empty Note inline smoke\n\nBody';
-	await page.keyboard.insertText('Empty Note inline smoke');
-	await page.keyboard.press('Enter');
-	await page.keyboard.insertText('Body');
-	await selectCanvasInlineToken(activeEmptyNoteEditor.editable, 'Body');
-	await emptyNoteToolbar.getByRole('button', { name: 'Heading 2', exact: true }).click();
-	await activeEmptyNoteEditor.editable.locator('h2', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
-	await emptyNoteToolbar.getByRole('button', { name: 'Paragraph', exact: true }).click();
-	await activeEmptyNoteEditor.editable.locator('p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
+	const projectionTokens = {
+		heading1: 'Projection heading one',
+		heading2: 'Projection heading two',
+		heading3: 'Projection heading three',
+		paragraph: 'Projection paragraph',
+		emphasis: 'Projection bold italic',
+		bullet: 'Projection bullet item',
+		numbered: 'Projection numbered item',
+		dividerTail: 'Projection divider tail',
+		richHeading1: 'Rich command heading one',
+		richHeading2: 'Rich command heading two',
+		richHeading3: 'Rich command heading three',
+		richParagraph: 'Rich command paragraph',
+		richEmphasis: 'Rich command bold italic',
+		richBullet: 'Rich command bullet item',
+		richOrdered: 'Rich command numbered item',
+		richDivider: 'Rich command divider anchor'
+	};
+	const projectionParagraphs = Object.values(projectionTokens);
+	for (let index = 0; index < projectionParagraphs.length; index++) {
+		await page.keyboard.insertText(projectionParagraphs[index]);
+		if (index < projectionParagraphs.length - 1) {
+			await page.keyboard.press('Enter');
+		}
+	}
+
+	const applyBlockFormat = async (token, action, selector) => {
+		await selectCanvasInlineToken(activeEmptyNoteEditor.editable, token);
+		await emptyNoteToolbar.getByRole('button', { name: action, exact: true }).click();
+		await activeEmptyNoteEditor.editable.locator(selector, { hasText: token }).waitFor({ state: 'visible', timeout: 3_000 });
+	};
+	await applyBlockFormat(projectionTokens.heading1, 'Heading 1', 'h1');
+	await applyBlockFormat(projectionTokens.heading2, 'Heading 2', 'h2');
+	await applyBlockFormat(projectionTokens.heading3, 'Heading 3', 'h3');
+	await applyBlockFormat(projectionTokens.heading3, 'Bulleted list', 'ul li');
+	await applyBlockFormat(projectionTokens.heading3, 'Heading 3', 'h3');
+	await applyBlockFormat(projectionTokens.paragraph, 'Heading 1', 'h1');
+	await applyBlockFormat(projectionTokens.paragraph, 'Paragraph', 'p');
+	await selectCanvasInlineToken(activeEmptyNoteEditor.editable, projectionTokens.emphasis);
+	await emptyNoteToolbar.getByRole('button', { name: 'Bold', exact: true }).click();
+	await emptyNoteToolbar.getByRole('button', { name: 'Italic', exact: true }).click();
+	const canvasEmphasis = activeEmptyNoteEditor.editable.locator('p', { hasText: projectionTokens.emphasis });
+	await canvasEmphasis.locator('strong', { hasText: projectionTokens.emphasis }).waitFor({ state: 'visible', timeout: 3_000 });
+	await canvasEmphasis.locator('em', { hasText: projectionTokens.emphasis }).waitFor({ state: 'visible', timeout: 3_000 });
+	await applyBlockFormat(projectionTokens.bullet, 'Bulleted list', 'ul li');
+	await selectCanvasInlineToken(activeEmptyNoteEditor.editable, projectionTokens.bullet);
+	const bulletListItem = activeEmptyNoteEditor.editable.locator('ul li', { hasText: projectionTokens.bullet });
 	await emptyNoteToolbar.getByRole('button', { name: 'Bulleted list', exact: true }).click();
-	await activeEmptyNoteEditor.editable.locator('ul li', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
-	await emptyNoteToolbar.getByRole('button', { name: 'Numbered list', exact: true }).click();
-	await activeEmptyNoteEditor.editable.locator('ol li', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
-	await emptyNoteToolbar.getByRole('button', { name: 'Numbered list', exact: true }).click();
-	await activeEmptyNoteEditor.editable.locator('p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 3_000 });
-	await placeCanvasInlineCaretBefore(activeEmptyNoteEditor.editable, 'Body');
+	await bulletListItem.waitFor({ state: 'detached', timeout: 3_000 });
+	await activeEmptyNoteEditor.editable.locator('.basehalf-canvas-markdown-inline-unit > p', { hasText: projectionTokens.bullet }).waitFor({ state: 'visible', timeout: 3_000 });
+	await applyBlockFormat(projectionTokens.bullet, 'Bulleted list', 'ul li');
+	await applyBlockFormat(projectionTokens.bullet, 'Numbered list', 'ol li');
+	await applyBlockFormat(projectionTokens.bullet, 'Bulleted list', 'ul li');
+	await applyBlockFormat(projectionTokens.numbered, 'Numbered list', 'ol li');
+	await applyBlockFormat(projectionTokens.numbered, 'Heading 1', 'h1');
+	await applyBlockFormat(projectionTokens.numbered, 'Numbered list', 'ol li');
+	await selectCanvasInlineToken(activeEmptyNoteEditor.editable, projectionTokens.dividerTail);
 	await emptyNoteToolbar.getByRole('button', { name: 'Divider', exact: true }).click();
 	await activeEmptyNoteEditor.editable.locator('hr').waitFor({ state: 'visible', timeout: 3_000 });
+	await activeEmptyNoteEditor.editable.locator('p', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 3_000 });
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
 	await activeEmptyNoteEditor.editable.locator('hr').waitFor({ state: 'detached', timeout: 3_000 });
-	await page.keyboard.press('Escape');
+	await activeEmptyNoteEditor.editable.locator('p', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 3_000 });
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y');
+	await activeEmptyNoteEditor.editable.locator('hr').waitFor({ state: 'visible', timeout: 3_000 });
+	await activeEmptyNoteEditor.editable.locator('p', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 3_000 });
+
+	await emptyNoteToolbar.getByRole('button', { name: 'Expand smoke-note.md', exact: true }).click();
+	await assertCardDetail(page, 'smoke-note.md');
 	await emptyNoteEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
-	await waitUntil(() => fs.readFileSync(emptyNotePath, 'utf8') === emptyNoteMarkdown, 'Escape to save visible empty Note text exactly', 15_000);
-	await emptyNote.locator('.bh-md-preview p', { hasText: 'Empty Note inline smoke' }).first().waitFor({ state: 'visible', timeout: 10_000 });
-	await emptyNote.locator('.bh-md-preview p', { hasText: 'Body' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'saved empty Note preview');
+	await waitUntil(() => {
+		const markdown = fs.readFileSync(emptyNotePath, 'utf8');
+		return projectionParagraphs.every(token => markdown.includes(token));
+	}, 'Canvas formatting to save every edited block before Expand', 15_000);
+	const canvasFormattedMarkdown = fs.readFileSync(emptyNotePath, 'utf8');
+	const sourceSemantics = {
+		heading1: new RegExp(`^# ${projectionTokens.heading1}$`, 'm').test(canvasFormattedMarkdown),
+		heading2: new RegExp(`^## ${projectionTokens.heading2}$`, 'm').test(canvasFormattedMarkdown),
+		heading3: new RegExp(`^### ${projectionTokens.heading3}$`, 'm').test(canvasFormattedMarkdown),
+		paragraph: new RegExp(`^${projectionTokens.paragraph}$`, 'm').test(canvasFormattedMarkdown),
+		bullet: new RegExp(`^[*+-] ${projectionTokens.bullet}$`, 'm').test(canvasFormattedMarkdown),
+		numbered: new RegExp(`^1\\. ${projectionTokens.numbered}$`, 'm').test(canvasFormattedMarkdown),
+		divider: /^---$/m.test(canvasFormattedMarkdown)
+	};
+	if (Object.values(sourceSemantics).some(value => !value)) {
+		throw new Error(`Canvas toolbar did not save standard Markdown semantics: ${JSON.stringify({ sourceSemantics, canvasFormattedMarkdown })}`);
+	}
+	const projectionFrame = await activeMarkdownRichFrame(page, '.basehalf-card-detail-surface.active');
+	await projectionFrame.locator('.bn-editor', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 15_000 });
+	const richBlocks = await projectionFrame.locator('.bn-block-content').evaluateAll(elements => elements.map(element => ({
+		type: element.getAttribute('data-content-type'),
+		level: element.getAttribute('data-level'),
+		headingTag: element.querySelector('h1, h2, h3')?.tagName ?? null,
+		text: element.textContent?.trim() ?? '',
+		bold: element.querySelector('strong') !== null,
+		italic: element.querySelector('em') !== null,
+		divider: element.querySelector('hr') !== null
+	})));
+	const richBlock = token => richBlocks.find(block => block.text.includes(token));
+	const richSemantics = {
+		heading1: richBlock(projectionTokens.heading1)?.type === 'heading' && richBlock(projectionTokens.heading1)?.headingTag === 'H1',
+		heading2: richBlock(projectionTokens.heading2)?.type === 'heading' && richBlock(projectionTokens.heading2)?.headingTag === 'H2',
+		heading3: richBlock(projectionTokens.heading3)?.type === 'heading' && richBlock(projectionTokens.heading3)?.headingTag === 'H3',
+		paragraph: richBlock(projectionTokens.paragraph)?.type === 'paragraph',
+		bold: richBlock(projectionTokens.emphasis)?.type === 'paragraph' && richBlock(projectionTokens.emphasis)?.bold === true,
+		italic: richBlock(projectionTokens.emphasis)?.type === 'paragraph' && richBlock(projectionTokens.emphasis)?.italic === true,
+		bullet: richBlock(projectionTokens.bullet)?.type === 'bulletListItem',
+		numbered: richBlock(projectionTokens.numbered)?.type === 'numberedListItem',
+		divider: richBlocks.some(block => block.type === 'divider' && block.divider),
+		dividerTail: richBlock(projectionTokens.dividerTail)?.type === 'paragraph'
+	};
+	if (Object.values(richSemantics).some(value => !value)) {
+		throw new Error(`The rich projection did not preserve Canvas formatting semantics: ${JSON.stringify({ richSemantics, richBlocks })}`);
+	}
+
+	// Exercise the shared commands inside the real BlockNote projection. This
+	// intentionally enters through the same validated webview message boundary
+	// as the host adapter, then leaves the resulting Markdown for the Canvas
+	// projection to parse after Card Detail closes.
+	const richKey = decodeURIComponent(await projectionFrame.locator('#root').getAttribute('data-basehalf-key') ?? '');
+	if (!richKey) {
+		throw new Error('The rich projection did not expose its document key');
+	}
+	const sendRichFormat = async command => {
+		await projectionFrame.evaluate(({ key, command }) => new Promise((resolve, reject) => {
+			const message = { type: 'basehalf.markdownRich.command', key, command };
+			const onMessage = event => {
+				if (event.source !== window
+					|| event.data?.type !== message.type
+					|| event.data?.key !== key
+					|| event.data?.command !== command) {
+					return;
+				}
+				window.clearTimeout(timeout);
+				window.removeEventListener('message', onMessage);
+				resolve(undefined);
+			};
+			const timeout = window.setTimeout(() => {
+				window.removeEventListener('message', onMessage);
+				reject(new Error(`Timed out delivering rich editor command: ${command}`));
+			}, 3_000);
+			window.addEventListener('message', onMessage);
+			window.postMessage(message, '*');
+		}), { key: richKey, command });
+	};
+	const focusRichBlock = async token => {
+		const block = projectionFrame.locator('.bn-block-content', { hasText: token }).first();
+		await block.scrollIntoViewIfNeeded();
+		await block.click();
+		return block;
+	};
+	const selectRichToken = async token => {
+		const selected = await projectionFrame.evaluate(expectedToken => {
+			const root = document.querySelector('.bn-editor');
+			if (!root) {
+				return false;
+			}
+			const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+			while (walker.nextNode()) {
+				const node = walker.currentNode;
+				const start = node.textContent?.indexOf(expectedToken) ?? -1;
+				if (start < 0) {
+					continue;
+				}
+				const range = document.createRange();
+				range.setStart(node, start);
+				range.setEnd(node, start + expectedToken.length);
+				const selection = window.getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				document.dispatchEvent(new Event('selectionchange'));
+				return true;
+			}
+			return false;
+		}, token);
+		if (!selected) {
+			throw new Error(`The rich projection did not render selectable text: ${token}`);
+		}
+		await page.waitForTimeout(50);
+	};
+
+	await focusRichBlock(projectionTokens.richHeading1);
+	await sendRichFormat('setHeading1');
+	await projectionFrame.locator('h1', { hasText: projectionTokens.richHeading1 }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('setHeading1');
+	await sendRichFormat('undo');
+	await projectionFrame.locator('.bn-block-content[data-content-type="paragraph"]', { hasText: projectionTokens.richHeading1 }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('redo');
+	await projectionFrame.locator('h1', { hasText: projectionTokens.richHeading1 }).waitFor({ state: 'visible', timeout: 3_000 });
+	await focusRichBlock(projectionTokens.richHeading2);
+	await sendRichFormat('setHeading2');
+	await projectionFrame.locator('h2', { hasText: projectionTokens.richHeading2 }).waitFor({ state: 'visible', timeout: 3_000 });
+	await focusRichBlock(projectionTokens.richParagraph);
+	await sendRichFormat('setHeading1');
+	await projectionFrame.locator('h1', { hasText: projectionTokens.richParagraph }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('setParagraph');
+	await projectionFrame.locator('.bn-block-content[data-content-type="paragraph"]', { hasText: projectionTokens.richParagraph }).waitFor({ state: 'visible', timeout: 3_000 });
+
+	await selectRichToken(projectionTokens.richEmphasis);
+	await sendRichFormat('toggleBold');
+	await sendRichFormat('toggleItalic');
+	const richCommandEmphasis = projectionFrame.locator('.bn-block-content', { hasText: projectionTokens.richEmphasis });
+	await richCommandEmphasis.locator('strong', { hasText: projectionTokens.richEmphasis }).waitFor({ state: 'visible', timeout: 3_000 });
+	await richCommandEmphasis.locator('em', { hasText: projectionTokens.richEmphasis }).waitFor({ state: 'visible', timeout: 3_000 });
+
+	await focusRichBlock(projectionTokens.richBullet);
+	await sendRichFormat('toggleBulletList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="bulletListItem"]', { hasText: projectionTokens.richBullet }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('toggleBulletList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="paragraph"]', { hasText: projectionTokens.richBullet }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('toggleBulletList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="bulletListItem"]', { hasText: projectionTokens.richBullet }).waitFor({ state: 'visible', timeout: 3_000 });
+	await focusRichBlock(projectionTokens.richOrdered);
+	await sendRichFormat('toggleOrderedList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="numberedListItem"]', { hasText: projectionTokens.richOrdered }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('toggleBulletList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="bulletListItem"]', { hasText: projectionTokens.richOrdered }).waitFor({ state: 'visible', timeout: 3_000 });
+	await sendRichFormat('toggleOrderedList');
+	await projectionFrame.locator('.bn-block-content[data-content-type="numberedListItem"]', { hasText: projectionTokens.richOrdered }).waitFor({ state: 'visible', timeout: 3_000 });
+
+	const dividerCountBeforeRichCommand = await projectionFrame.locator('.bn-block-content[data-content-type="divider"] hr').count();
+	await focusRichBlock(projectionTokens.richDivider);
+	await sendRichFormat('insertDivider');
+	await projectionFrame.waitForFunction(expected => document.querySelectorAll('.bn-block-content[data-content-type="divider"] hr').length === expected, dividerCountBeforeRichCommand + 1);
+	await sendRichFormat('undo');
+	await projectionFrame.waitForFunction(expected => document.querySelectorAll('.bn-block-content[data-content-type="divider"] hr').length === expected, dividerCountBeforeRichCommand);
+	if (!(await projectionFrame.locator('h1', { hasText: projectionTokens.richHeading1 }).count())
+		|| !(await projectionFrame.locator('.bn-block-content[data-content-type="numberedListItem"]', { hasText: projectionTokens.richOrdered }).count())) {
+		throw new Error('One rich Undo crossed the formatting-command boundary');
+	}
+	await sendRichFormat('redo');
+	await projectionFrame.waitForFunction(expected => document.querySelectorAll('.bn-block-content[data-content-type="divider"] hr').length === expected, dividerCountBeforeRichCommand + 1);
+
+	await focusRichBlock(projectionTokens.richHeading3);
+	await dispatchMarkdownRichComposition(projectionFrame, 'compositionstart');
+	await sendRichFormat('setHeading3');
+	if (await projectionFrame.locator('h3', { hasText: projectionTokens.richHeading3 }).count()) {
+		throw new Error('The rich projection ran a formatting command before IME composition settled');
+	}
+	await dispatchMarkdownRichComposition(projectionFrame, 'compositionend');
+	await projectionFrame.locator('h3', { hasText: projectionTokens.richHeading3 }).waitFor({ state: 'visible', timeout: 3_000 });
+
+	await closeCardDetailIfOpen(page);
+	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
+	await centerCanvasCards(page, [emptyNote]);
+	await emptyNote.locator('.bh-md-preview h1', { hasText: projectionTokens.heading1 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h2', { hasText: projectionTokens.heading2 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h3', { hasText: projectionTokens.heading3 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
+	const previewEmphasis = emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.emphasis });
+	await previewEmphasis.locator('strong', { hasText: projectionTokens.emphasis }).waitFor({ state: 'visible', timeout: 15_000 });
+	await previewEmphasis.locator('em', { hasText: projectionTokens.emphasis }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview ul li', { hasText: projectionTokens.bullet }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview ol li', { hasText: projectionTokens.numbered }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview hr').waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h1', { hasText: projectionTokens.richHeading1 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h2', { hasText: projectionTokens.richHeading2 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h3', { hasText: projectionTokens.richHeading3 }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.richParagraph }).waitFor({ state: 'visible', timeout: 15_000 });
+	const richCommandPreviewEmphasis = emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.richEmphasis });
+	await richCommandPreviewEmphasis.locator('strong', { hasText: projectionTokens.richEmphasis }).waitFor({ state: 'visible', timeout: 15_000 });
+	await richCommandPreviewEmphasis.locator('em', { hasText: projectionTokens.richEmphasis }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview ul li', { hasText: projectionTokens.richBullet }).waitFor({ state: 'visible', timeout: 15_000 });
+	const richFormattedMarkdown = fs.readFileSync(emptyNotePath, 'utf8');
+	if (richFormattedMarkdown === canvasFormattedMarkdown) {
+		throw new Error('The rich formatting adapter did not serialize any of its semantic edits');
+	}
+	if (!new RegExp(`^1\\. ${projectionTokens.richOrdered}$`, 'm').test(richFormattedMarkdown)
+		|| !new RegExp(`^${projectionTokens.richDivider}\\n\\n(?:---|\\*\\*\\*)$`, 'm').test(richFormattedMarkdown)) {
+		throw new Error(`The rich list or divider command did not save standard Markdown: ${JSON.stringify(richFormattedMarkdown)}`);
+	}
+
+	// A resting-toolbar command is accepted before its inline projection exists.
+	// Expanding immediately afterwards must wait for that edit and its durable
+	// working-copy flush instead of dropping or replaying the command later.
+	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.paragraph }).dblclick();
+	const reopenedEmptyNoteEditor = await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
+	await reopenedEmptyNoteEditor.editable.locator('ol li', { hasText: projectionTokens.richOrdered }).waitFor({ state: 'visible', timeout: 15_000 });
+	if ((await reopenedEmptyNoteEditor.editable.locator('hr').count()) !== dividerCountBeforeRichCommand + 1) {
+		throw new Error('The Canvas editor did not parse the divider saved by the rich projection');
+	}
+	await selectCanvasInlineToken(reopenedEmptyNoteEditor.editable, projectionTokens.paragraph);
+	await page.keyboard.press('Escape');
+	await reopenedEmptyNoteEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Heading 2', exact: true }).click();
+	await emptyNoteToolbar.getByRole('button', { name: 'Expand smoke-note.md', exact: true }).click();
+	await assertCardDetail(page, 'smoke-note.md');
+	const immediateExpandFrame = await activeMarkdownRichFrame(page, '.basehalf-card-detail-surface.active');
+	await immediateExpandFrame.locator('h2', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
+	await waitUntil(
+		() => new RegExp(`^## ${projectionTokens.paragraph}$`, 'm').test(fs.readFileSync(emptyNotePath, 'utf8')),
+		'resting format command to persist before immediate Expand',
+		15_000
+	);
+	await closeCardDetailIfOpen(page);
+	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
+	await centerCanvasCards(page, [emptyNote]);
+	await emptyNote.locator('.bh-md-preview h2', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
+
+	await emptyNote.locator('.bh-md-preview p', { hasText: projectionTokens.dividerTail }).dblclick();
+	const selectionExitEditor = await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
+	await selectCanvasInlineToken(selectionExitEditor.editable, projectionTokens.dividerTail);
+	await page.keyboard.press('Escape');
+	await selectionExitEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Heading 1', exact: true }).click();
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]').click();
+	await selectionExitEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await emptyNote.locator('.bh-md-preview h1', { hasText: projectionTokens.dividerTail }).waitFor({ state: 'visible', timeout: 15_000 });
+	await waitUntil(
+		() => new RegExp(`^# ${projectionTokens.dividerTail}$`, 'm').test(fs.readFileSync(emptyNotePath, 'utf8')),
+		'resting format command to persist before selecting another card',
+		15_000
+	);
+
+	// Direct navigation does not originate from the selected-card delegate. Its
+	// navigation barrier must still wait for a resting format intent to mount,
+	// execute, and reach disk before Quick Open changes the visible resource.
+	await emptyNote.click();
+	await emptyNoteToolbar.waitFor({ state: 'visible', timeout: 10_000 });
+	await emptyNote.locator('.bh-md-preview h2', { hasText: projectionTokens.paragraph }).dblclick();
+	const quickOpenExitEditor = await waitForCanvasNoteInlineEditor(page, 'smoke-note.md');
+	await selectCanvasInlineToken(quickOpenExitEditor.editable, projectionTokens.paragraph);
+	await page.keyboard.press('Escape');
+	await quickOpenExitEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
+	await emptyNoteToolbar.getByRole('button', { name: 'Heading 3', exact: true }).click();
+	await quickOpen(page, 'README.md');
+	await assertCardDetail(page, 'README.md');
+	await waitUntil(
+		() => new RegExp(`^### ${projectionTokens.paragraph}$`, 'm').test(fs.readFileSync(emptyNotePath, 'utf8')),
+		'resting format command to persist before direct Quick Open navigation',
+		15_000
+	);
+	await closeCardDetailIfOpen(page);
+	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
+	await centerCanvasCards(page, [emptyNote]);
+	await emptyNote.locator('.bh-md-preview h3', { hasText: projectionTokens.paragraph }).waitFor({ state: 'visible', timeout: 15_000 });
+	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]', 'Canvas to rich projection round trip');
 	if (await page.getByRole('button', { name: /save/i }).filter({ visible: true }).count()) {
 		throw new Error('Inline Note editing exposed an explicit Save action');
 	}
@@ -5948,5 +6264,53 @@ async function writeFailureArtifacts(error) {
 	const html = await page.locator('html').evaluate(element => element.outerHTML).catch(() => undefined);
 	if (html) {
 		fs.writeFileSync(path.join(logsPath, 'failure.html'), html, 'utf8');
+	}
+}
+
+async function closeElectronApplication(application, timeoutMs = 15_000) {
+	const pid = application.process().pid;
+	let timeoutHandle;
+	try {
+		await Promise.race([
+			application.close(),
+			new Promise((_, reject) => {
+				timeoutHandle = setTimeout(
+					() => reject(new Error(`Electron did not close within ${timeoutMs}ms`)),
+					timeoutMs
+				);
+			}),
+		]);
+	} catch (error) {
+		console.error(`[basehalf-smoke] graceful Electron shutdown failed; forcing process-tree cleanup: ${error instanceof Error ? error.message : String(error)}`);
+		if (pid) {
+			try {
+				forceKillProcessTree(pid);
+			} catch (killError) {
+				console.error(`[basehalf-smoke] forced Electron cleanup failed: ${killError instanceof Error ? killError.message : String(killError)}`);
+			}
+		}
+	} finally {
+		if (timeoutHandle !== undefined) {
+			clearTimeout(timeoutHandle);
+		}
+	}
+}
+
+function forceKillProcessTree(pid) {
+	if (process.platform === 'win32') {
+		execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' });
+		return;
+	}
+
+	try {
+		process.kill(-pid, 'SIGKILL');
+	} catch (groupError) {
+		try {
+			process.kill(pid, 'SIGKILL');
+		} catch (processError) {
+			if (groupError?.code !== 'ESRCH' || processError?.code !== 'ESRCH') {
+				throw processError;
+			}
+		}
 	}
 }
