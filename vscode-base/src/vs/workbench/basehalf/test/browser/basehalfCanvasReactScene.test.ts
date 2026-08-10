@@ -10,6 +10,8 @@ import {
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasSceneCardIsNoteEditing,
+	baseHalfCanvasSceneProjectsSelection,
+	baseHalfCanvasSceneShowsResizeControls,
 	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
 	baseHalfCanvasTargetBlocksGraphShortcuts,
@@ -251,6 +253,18 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ controls }), false);
 		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ controls, noteEditing: true }), true);
 		assert.strictEqual(baseHalfCanvasSceneCardIsNoteEditing({ noteEditing: true }), false);
+	});
+
+	test('projects selection separately from single-card resize controls', () => {
+		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(false, false), false);
+		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(false, true), false);
+		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(true, false), true);
+		assert.strictEqual(baseHalfCanvasSceneProjectsSelection(true, true), false);
+
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1), true);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 2), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, true, 1), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, false, 1), false);
 	});
 
 	test('keeps composition and nested controls ahead of graph shortcuts', () => {

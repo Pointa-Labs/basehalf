@@ -50,8 +50,18 @@
 	--bh-card-text-ghost: #666a6d;
 	--bh-card-border: #343638;
 	--bh-card-border-strong: #4a4d50;
-	--bh-card-accent: #0078d4;
-	--bh-card-accent-soft: #04395e;
+	/* Pointer selection and geometry stay neutral. Keyboard focus and
+	 * commit-ready intents are independent semantic layers. */
+	--bh-canvas-active-border: var(--vscode-contrastActiveBorder, var(--bh-card-border-strong));
+	--bh-canvas-active-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-card-text-tertiary) 32%, transparent), 0 4px 14px rgb(7 8 9 / 34%);
+	--bh-canvas-geometry: var(--bh-card-text-tertiary);
+	--bh-canvas-geometry-strong: var(--bh-card-text-primary);
+	--bh-canvas-marquee-fill: color-mix(in srgb, var(--bh-canvas-geometry) 10%, transparent);
+	--bh-canvas-focus-ring: var(--vscode-focusBorder, var(--bh-card-text-primary));
+	--bh-card-accent: var(--vscode-textLink-foreground, #0078d4);
+	--bh-card-accent-soft: color-mix(in srgb, var(--bh-card-accent) 28%, var(--bh-card-surface));
+	--bh-canvas-intent: var(--bh-card-accent);
+	--bh-canvas-intent-soft: var(--bh-card-accent-soft);
 	--bh-card-warning: #cca700;
 	--bh-card-danger: #f14c4c;
 	--bh-card-danger-soft: #5a1d1d;
@@ -66,6 +76,17 @@
 	overflow: hidden;
 	background-color: var(--bh-card-bg);
 	color: var(--vscode-foreground);
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-workbench {
+		--bh-canvas-active-border: CanvasText;
+		--bh-canvas-geometry: CanvasText;
+		--bh-canvas-geometry-strong: CanvasText;
+		--bh-canvas-focus-ring: Highlight;
+		--bh-canvas-intent: LinkText;
+		--bh-canvas-intent-soft: LinkText;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open {
@@ -94,10 +115,15 @@
 	display: none;
 }
 
-.monaco-workbench .basehalf-canvas-create-button:hover,
+.monaco-workbench .basehalf-canvas-create-button:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	border-color: var(--bh-card-border-strong);
+	outline: none;
+}
+
 .monaco-workbench .basehalf-canvas-create-button:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
-	border-color: var(--vscode-focusBorder);
+	border-color: var(--bh-canvas-focus-ring);
 	outline: none;
 }
 
@@ -111,8 +137,8 @@
 	z-index: 7;
 	content: '';
 	pointer-events: none;
-	background-color: color-mix(in srgb, var(--bh-card-accent-soft) 42%, transparent);
-	border: 1px dashed var(--bh-card-accent);
+	background-color: color-mix(in srgb, var(--bh-canvas-intent-soft) 42%, transparent);
+	border: 1px dashed var(--bh-canvas-intent);
 	border-radius: 6px;
 }
 
@@ -127,7 +153,7 @@
 	pointer-events: none;
 	color: var(--vscode-input-foreground);
 	background-color: var(--vscode-input-background);
-	border: 1px solid var(--vscode-focusBorder);
+	border: 1px solid var(--bh-canvas-intent);
 	border-radius: 4px;
 	box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
 	font-size: 12px;
@@ -178,10 +204,14 @@
 	cursor: pointer;
 }
 
-.monaco-workbench .basehalf-canvas-zoom-button:hover:not(:disabled),
+.monaco-workbench .basehalf-canvas-zoom-button:hover:not(:disabled) {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--bh-card-border-strong);
+}
+
 .monaco-workbench .basehalf-canvas-zoom-button:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
-	outline: 1px solid var(--vscode-focusBorder);
+	outline: 1px solid var(--bh-canvas-focus-ring);
 }
 
 .monaco-workbench .basehalf-canvas-zoom-button:disabled {
@@ -229,7 +259,7 @@
 	height: 44px;
 	padding: 7px 9px;
 	background: var(--bh-card-surface);
-	border: 1px solid var(--bh-card-accent);
+	border: 1px solid var(--bh-canvas-intent);
 	border-radius: 6px;
 	box-shadow: 0 4px 14px rgb(7 8 9 / 42%);
 	pointer-events: auto;
@@ -508,10 +538,18 @@
 }
 
 .monaco-workbench .basehalf-canvas-edge-path.hover,
-.monaco-workbench .basehalf-canvas-edge-path.selected,
-.monaco-workbench .basehalf-canvas-edge-path.reconnecting,
+.monaco-workbench .basehalf-canvas-edge-path.selected {
+	stroke: var(--bh-canvas-geometry-strong);
+	stroke-width: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.reconnecting {
+	stroke: var(--bh-canvas-intent);
+	stroke-width: 2px;
+}
+
 .monaco-workbench .react-flow__edge:focus-visible .basehalf-canvas-edge-path {
-	stroke: var(--bh-card-accent);
+	stroke: var(--bh-canvas-focus-ring);
 	stroke-width: 2px;
 }
 
@@ -538,7 +576,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	z-index: 4;
 	overflow: visible;
 	pointer-events: none;
-	color: color-mix(in srgb, var(--bh-card-accent) 60%, transparent);
+	color: color-mix(in srgb, var(--bh-canvas-geometry) 72%, transparent);
 }
 
 .monaco-workbench .basehalf-canvas-snap-guide-line {
@@ -628,32 +666,46 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-color: var(--bh-card-folder-border);
 }
 
-.monaco-workbench .basehalf-canvas-card:hover {
-	border-color: var(--bh-card-border-strong);
-	box-shadow: 0 2px 5px rgb(7 8 9 / 52%), 0 8px 24px rgb(7 8 9 / 18%);
+.monaco-workbench .basehalf-canvas-workbench .react-flow__node-basehalf-card:focus,
+.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus:not(:focus-visible) {
+	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-card:focus-visible,
 .monaco-workbench .basehalf-canvas-card.selected {
-	border-color: var(--bh-card-border-strong);
-	box-shadow: 0 0 0 1px rgb(152 156 160 / 28%), 0 4px 14px rgb(7 8 9 / 34%);
-	outline: none;
+	border-color: var(--bh-canvas-active-border);
+	box-shadow: var(--bh-canvas-active-shadow);
 }
 
 /* The scene keeps the editing Note selected as an internal navigation owner,
  * but document editing must not look like a structural card selection. */
-.monaco-workbench .basehalf-canvas-card[data-note-editing="true"],
-.monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:hover,
-.monaco-workbench .basehalf-canvas-card[data-note-editing="true"]:focus-visible,
-.monaco-workbench .basehalf-canvas-card[data-note-editing="true"].selected {
-	border-color: var(--bh-card-border-strong);
-	box-shadow: 0 0 0 1px rgb(152 156 160 / 28%), 0 4px 14px rgb(7 8 9 / 34%);
-	outline: none;
+.monaco-workbench .basehalf-canvas-card[data-note-editing="true"] {
+	border-color: var(--bh-canvas-active-border);
+	box-shadow: var(--bh-canvas-active-shadow);
 	transition: none;
 }
 
+.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+.monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
+	outline: 2px solid var(--bh-canvas-focus-ring);
+	outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card[data-note-editing="true"]:not(:focus-visible) {
+		outline: 1px solid CanvasText;
+		outline-offset: 1px;
+	}
+
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+	.monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
+		outline: 2px solid Highlight;
+		outline-offset: 2px;
+	}
+}
+
 .monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
-.monaco-workbench .react-flow__node.resizing .basehalf-canvas-card {
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) .basehalf-canvas-card {
 	z-index: 2;
 }
 
@@ -662,8 +714,8 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-card.connection-target {
-	border-color: var(--bh-card-accent);
-	box-shadow: 0 0 0 1px rgb(0 120 212 / 70%), 0 10px 28px rgb(0 0 0 / 60%);
+	border-color: var(--bh-canvas-intent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-canvas-intent) 70%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
 }
 
 .monaco-workbench .basehalf-canvas-card-content {
@@ -859,9 +911,9 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
-	color: var(--bh-card-accent);
-	background: rgb(0 120 212 / 12%);
-	border-color: var(--bh-card-accent-soft);
+	color: var(--bh-card-text-primary);
+	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
+	border-color: var(--bh-canvas-geometry);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-dot {
@@ -1348,7 +1400,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-node-local-mode.active {
 	color: var(--vscode-foreground);
-	border-bottom-color: var(--vscode-focusBorder);
+	border-bottom-color: var(--bh-canvas-geometry-strong);
 }
 
 .monaco-workbench .basehalf-node-local-mode.has-draft::after {
@@ -2187,7 +2239,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	opacity: 0.75;
 }
 
-.monaco-workbench .basehalf-canvas-card-connect-handle {
+.monaco-workbench .basehalf-canvas-react-island .basehalf-canvas-card-connect-handle {
 	--bh-connect-scale: 1;
 
 	position: absolute;
@@ -2223,7 +2275,6 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
-.monaco-workbench .react-flow__node.selected > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
 .monaco-workbench .basehalf-canvas-card-connect-handle.clickconnecting,
@@ -2233,6 +2284,8 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.editing,
+.monaco-workbench .react-flow__node.dragging > .basehalf-canvas-card-connect-handle,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-card-connect-handle {
 	opacity: 0 !important;
 	pointer-events: none !important;
@@ -2256,8 +2309,8 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.valid::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connection-target::before {
-	border-color: var(--bh-card-accent-soft);
-	background: var(--bh-card-accent);
+	border-color: var(--bh-canvas-intent-soft);
+	background: var(--bh-canvas-intent);
 }
 
 .monaco-workbench .react-flow__node.connection-target > .basehalf-canvas-card-connect-handle.connection-target {
@@ -2298,8 +2351,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	height: 7px !important;
 	box-sizing: border-box;
 	background: var(--bh-card-surface) !important;
-	border: 1px solid var(--bh-card-accent) !important;
+	border: 1px solid var(--bh-canvas-geometry) !important;
 	border-radius: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle::before {
+	content: '';
+	position: absolute;
+	inset: -7px;
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle:hover,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-node-resizer-handle {
+	border-color: var(--bh-canvas-geometry-strong) !important;
 }
 
 /* The workbench marks the Note as editing before the React scene commits its
@@ -2380,11 +2444,16 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-empty-note:hover,
+.monaco-workbench .basehalf-canvas-empty-import:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	border-color: var(--bh-card-border-strong);
+	outline: none;
+}
+
 .monaco-workbench .basehalf-canvas-empty-note:focus-visible,
-.monaco-workbench .basehalf-canvas-empty-import:hover,
 .monaco-workbench .basehalf-canvas-empty-import:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
-	border-color: var(--vscode-focusBorder);
+	border-color: var(--bh-canvas-focus-ring);
 	outline: none;
 }
 
@@ -2817,7 +2886,11 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 999px;
 }
 
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover {
+	border-color: color-mix(in srgb, var(--vscode-foreground) 42%, transparent);
+	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
+}
+
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible {
 	border-color: color-mix(in srgb, var(--vscode-focusBorder) 65%, transparent);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);

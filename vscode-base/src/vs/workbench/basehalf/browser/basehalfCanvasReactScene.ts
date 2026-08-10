@@ -472,6 +472,14 @@ export function baseHalfCanvasSceneCardIsNoteEditing(
 	return card.controls?.kind === 'note' && card.noteEditing === true;
 }
 
+export function baseHalfCanvasSceneProjectsSelection(selected: boolean, noteEditing: boolean): boolean {
+	return selected && !noteEditing;
+}
+
+export function baseHalfCanvasSceneShowsResizeControls(selected: boolean, noteEditing: boolean, selectionSize: number): boolean {
+	return baseHalfCanvasSceneProjectsSelection(selected, noteEditing) && selectionSize === 1;
+}
+
 export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, 'key' | 'isComposing' | 'keyCode'>): boolean {
 	return event.key === 'Escape' && !event.isComposing && event.keyCode !== 229;
 }
@@ -913,6 +921,11 @@ function createCanvasSceneMount(
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
 		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height, retainPresentation: false });
+		const activeResizeRef = vendor.useRef<{
+			readonly card: IBaseHalfCanvasSceneCard;
+			readonly end: () => void;
+			readonly removeBoundaryListeners: () => void;
+		} | undefined>(undefined);
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
 		const selectionSize = vendor.useContext(SelectionSizeContext);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
@@ -941,6 +954,8 @@ function createCanvasSceneMount(
 		});
 		const note = data.card.controls?.kind === 'note';
 		const noteEditing = baseHalfCanvasSceneCardIsNoteEditing(data.card);
+		const structuralSelectionVisible = baseHalfCanvasSceneProjectsSelection(selected, noteEditing);
+		const resizeControlsVisible = baseHalfCanvasSceneShowsResizeControls(selected, noteEditing, selectionSize);
 		const presentation = noteEditing
 			? 'preview'
 			: baseHalfCanvasCardPresentation({
@@ -954,9 +969,43 @@ function createCanvasSceneMount(
 			height,
 			retainPresentation: data.card.forceInteractive === true && note
 		};
+		const finishCardResize = (): void => {
+			const active = activeResizeRef.current;
+			if (!active) {
+				return;
+			}
+			activeResizeRef.current = undefined;
+			active.removeBoundaryListeners();
+			delete active.card.element.dataset.cardResizing;
+			active.end();
+		};
+		const beginCardResize = (): void => {
+			if (activeResizeRef.current) {
+				return;
+			}
+			const view = data.card.element.ownerDocument.defaultView;
+			const settleAtPointerBoundary = (): void => view?.queueMicrotask(() => finishCardResize());
+			const removeBoundaryListeners = (): void => {
+				view?.removeEventListener('pointerup', settleAtPointerBoundary, true);
+				view?.removeEventListener('pointercancel', settleAtPointerBoundary, true);
+				view?.removeEventListener('blur', settleAtPointerBoundary, true);
+			};
+			view?.addEventListener('pointerup', settleAtPointerBoundary, true);
+			view?.addEventListener('pointercancel', settleAtPointerBoundary, true);
+			view?.addEventListener('blur', settleAtPointerBoundary, true);
+			activeResizeRef.current = {
+				card: data.card,
+				end: data.endResize,
+				removeBoundaryListeners
+			};
+			data.card.element.dataset.cardResizing = 'true';
+			data.beginResize();
+		};
 
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
+			finishCardResize();
+			delete mounted.card.element.dataset.cardResizing;
 			const active = mounted.card.element.ownerDocument.activeElement;
 			if (isHTMLElement(active) && mounted.card.element.contains(active)) {
 				active.blur();
@@ -986,6 +1035,8 @@ function createCanvasSceneMount(
 				focusTarget.focus({ preventScroll: true });
 			}
 			return () => {
+				finishCardResize();
+				delete data.card.element.dataset.cardResizing;
 				if (data.card.element.parentElement === mount) {
 					const active = data.card.element.ownerDocument.activeElement;
 					replacementFocusPath.current = isHTMLElement(active)
@@ -1019,24 +1070,24 @@ function createCanvasSceneMount(
 			// interaction. Keep the React Flow selection internally so clicking the
 			// pane can close the editor through the normal selection transaction,
 			// but do not project structural selection chrome over editable text.
-			element.classList.toggle('selected', selected && !noteEditing);
+			element.classList.toggle('selected', structuralSelectionVisible);
 			element.dataset.previewLevel = presentation;
 			element.dataset.cardHeight = String(height);
 			data.card.updatePresentation({
 				level: presentation,
 				height
 			});
-		}, [data.card, data.card.element, height, noteEditing, presentation, selected]);
+		}, [data.card, data.card.element, height, presentation, structuralSelectionVisible]);
 
 		return h(vendor.Fragment, null,
 			h(vendor.NodeResizer, {
 				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
 				minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT,
-				isVisible: selected && !noteEditing,
+				isVisible: resizeControlsVisible,
 				lineClassName: 'basehalf-canvas-node-resizer-line',
 				handleClassName: 'basehalf-canvas-node-resizer-handle',
-				onResizeStart: data.beginResize,
-				onResizeEnd: data.endResize
+				onResize: beginCardResize,
+				onResizeEnd: finishCardResize
 			}),
 			...(['north', 'east', 'south', 'west'] as const).map(anchor => h(vendor.Handle, {
 				key: anchor,

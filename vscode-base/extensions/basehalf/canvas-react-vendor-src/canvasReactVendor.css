@@ -18,12 +18,12 @@
 .basehalf-canvas-react-island .react-flow {
 	--xy-background-color: transparent;
 	--xy-edge-stroke: var(--vscode-descriptionForeground);
-	--xy-edge-stroke-selected: var(--vscode-focusBorder);
-	--xy-connectionline-stroke: var(--vscode-focusBorder);
-	--xy-handle-background-color: var(--vscode-focusBorder);
-	--xy-selection-background-color: color-mix(in srgb, var(--vscode-focusBorder) 12%, transparent);
-	--xy-selection-border: 1px solid var(--vscode-focusBorder);
-	--xy-resize-background-color: var(--vscode-focusBorder);
+	--xy-edge-stroke-selected: var(--bh-canvas-geometry-strong, var(--vscode-foreground));
+	--xy-connectionline-stroke: var(--bh-canvas-intent, var(--vscode-textLink-foreground));
+	--xy-handle-background-color: var(--bh-canvas-geometry, var(--vscode-descriptionForeground));
+	--xy-selection-background-color: var(--bh-canvas-marquee-fill, color-mix(in srgb, var(--vscode-descriptionForeground) 10%, transparent));
+	--xy-selection-border: 1px dashed var(--bh-canvas-geometry, var(--vscode-descriptionForeground));
+	--xy-resize-background-color: var(--bh-canvas-geometry, var(--vscode-descriptionForeground));
 
 	width: 100%;
 	height: 100%;
