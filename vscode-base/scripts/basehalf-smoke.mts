@@ -3065,6 +3065,200 @@ async function assertNoCanvasNoteHeavyEditor(page, cardSelector, phase) {
 	}
 }
 
+async function captureCanvasCardComputedChrome(card) {
+	return card.evaluate(element => {
+		const node = element.closest('.react-flow__node');
+		const workbench = element.closest('.basehalf-canvas-workbench');
+		if (!(node instanceof HTMLElement) || !(workbench instanceof HTMLElement)) {
+			throw new Error('Canvas card chrome capture could not resolve its scene node');
+		}
+
+		const probe = document.createElement('span');
+		probe.style.position = 'absolute';
+		probe.style.visibility = 'hidden';
+		probe.style.pointerEvents = 'none';
+		workbench.appendChild(probe);
+		const resolveColor = property => {
+			probe.style.color = `var(${property})`;
+			return getComputedStyle(probe).color;
+		};
+		const colors = {
+			activeBorder: resolveColor('--bh-canvas-active-border'),
+			geometry: resolveColor('--bh-canvas-geometry'),
+			geometryStrong: resolveColor('--bh-canvas-geometry-strong'),
+			focusRing: resolveColor('--bh-canvas-focus-ring'),
+			intent: resolveColor('--bh-canvas-intent')
+		};
+		probe.remove();
+
+		const isVisible = element => {
+			const style = getComputedStyle(element);
+			const bounds = element.getBoundingClientRect();
+			return style.display !== 'none'
+				&& style.visibility !== 'hidden'
+				&& Number.parseFloat(style.opacity) > 0
+				&& bounds.width > 0
+				&& bounds.height > 0;
+		};
+		const borderPaint = style => ({
+			top: { width: style.borderTopWidth, style: style.borderTopStyle, color: style.borderTopColor },
+			right: { width: style.borderRightWidth, style: style.borderRightStyle, color: style.borderRightColor },
+			bottom: { width: style.borderBottomWidth, style: style.borderBottomStyle, color: style.borderBottomColor },
+			left: { width: style.borderLeftWidth, style: style.borderLeftStyle, color: style.borderLeftColor }
+		});
+		const isPaintedBorder = border => Number.parseFloat(border.width) > 0
+			&& border.style !== 'none'
+			&& border.style !== 'hidden'
+			&& border.color !== 'transparent'
+			&& border.color !== 'rgba(0, 0, 0, 0)';
+		const resizeLines = Array.from(node.querySelectorAll('.basehalf-canvas-node-resizer-line')).map(line => {
+			const style = getComputedStyle(line);
+			const borders = borderPaint(style);
+			return {
+				className: line.getAttribute('class'),
+				opacity: style.opacity,
+				pointerEvents: style.pointerEvents,
+				borders,
+				painted: Object.values(borders).some(isPaintedBorder)
+			};
+		});
+		const resizeHandles = Array.from(node.querySelectorAll('.basehalf-canvas-node-resizer-handle')).map(handle => {
+			const style = getComputedStyle(handle);
+			const visible = isVisible(handle);
+			return {
+				className: handle.getAttribute('class'),
+				visible,
+				interactive: visible && style.pointerEvents !== 'none',
+				borderColor: style.borderColor,
+				backgroundColor: style.backgroundColor,
+				opacity: style.opacity,
+				pointerEvents: style.pointerEvents
+			};
+		});
+		const connectionHandles = Array.from(node.querySelectorAll('.basehalf-canvas-card-connect-handle')).map(handle => {
+			const style = getComputedStyle(handle);
+			return {
+				className: handle.getAttribute('class'),
+				visible: isVisible(handle),
+				pointerEvents: style.pointerEvents
+			};
+		});
+		const cardStyle = getComputedStyle(element);
+		const nodeStyle = getComputedStyle(node);
+		const outlinePaint = style => Number.parseFloat(style.outlineWidth) > 0 && style.outlineStyle !== 'none'
+			? { outlineColor: style.outlineColor, outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth }
+			: { outlineColor: 'transparent', outlineStyle: 'none', outlineWidth: '0px' };
+		return {
+			colors,
+			cardFocusVisible: element.matches(':focus-visible'),
+			nodeFocusVisible: node.matches(':focus-visible'),
+			activeElementInside: element === document.activeElement || element.contains(document.activeElement),
+			cardSelected: element.classList.contains('selected'),
+			cardResizing: element.dataset.cardResizing === 'true',
+			nodeSelected: node.classList.contains('selected'),
+			nodeDragging: node.classList.contains('dragging'),
+			nodeResizing: element.dataset.cardResizing === 'true',
+			noteEditing: element.dataset.noteEditing === 'true',
+			cardPaint: {
+				backgroundColor: cardStyle.backgroundColor,
+				borderTopColor: cardStyle.borderTopColor,
+				borderRightColor: cardStyle.borderRightColor,
+				borderBottomColor: cardStyle.borderBottomColor,
+				borderLeftColor: cardStyle.borderLeftColor,
+				boxShadow: cardStyle.boxShadow,
+				...outlinePaint(cardStyle)
+			},
+			nodePaint: outlinePaint(nodeStyle),
+			resizeLines,
+			resizeHandles,
+			connectionHandles,
+			paintedResizeLines: resizeLines.filter(line => line.painted).length,
+			visibleResizeHandles: resizeHandles.filter(handle => handle.visible).length,
+			interactiveResizeHandles: resizeHandles.filter(handle => handle.interactive).length,
+			liveConnectionHandles: connectionHandles.filter(handle => handle.visible || handle.pointerEvents !== 'none').length
+		};
+	});
+}
+
+function assertCanvasCardChromeDoesNotUseIntent(chrome, phase) {
+	const usages = [];
+	for (const [property, color] of Object.entries(chrome.cardPaint)) {
+		if (property.startsWith('border') && color === chrome.colors.intent) {
+			usages.push(`card.${property}`);
+		}
+	}
+	if (chrome.cardPaint.outlineStyle !== 'none'
+		&& chrome.cardPaint.outlineWidth !== '0px'
+		&& chrome.cardPaint.outlineColor === chrome.colors.intent) {
+		usages.push('card.outlineColor');
+	}
+	if (chrome.nodePaint.outlineStyle !== 'none'
+		&& chrome.nodePaint.outlineWidth !== '0px'
+		&& chrome.nodePaint.outlineColor === chrome.colors.intent) {
+		usages.push('node.outlineColor');
+	}
+	for (const [index, line] of chrome.resizeLines.entries()) {
+		for (const [side, border] of Object.entries(line.borders)) {
+			if (border.color === chrome.colors.intent) {
+				usages.push(`resizeLine[${index}].${side}`);
+			}
+		}
+	}
+	for (const [index, handle] of chrome.resizeHandles.entries()) {
+		if (handle.visible && handle.borderColor === chrome.colors.intent) {
+			usages.push(`resizeHandle[${index}].borderColor`);
+		}
+		if (handle.visible && handle.backgroundColor === chrome.colors.intent) {
+			usages.push(`resizeHandle[${index}].backgroundColor`);
+		}
+	}
+	if (usages.length > 0) {
+		throw new Error(`Canvas card used connection-intent paint during ${phase}: ${JSON.stringify({ usages, chrome })}`);
+	}
+}
+
+function assertCanvasPointerChromeHasNoOutline(chrome, phase) {
+	const painted = [];
+	for (const [owner, paint] of [['card', chrome.cardPaint], ['node', chrome.nodePaint]]) {
+		if (paint.outlineStyle !== 'none' && paint.outlineWidth !== '0px') {
+			painted.push({ owner, color: paint.outlineColor, style: paint.outlineStyle, width: paint.outlineWidth });
+		}
+	}
+	if (painted.length > 0) {
+		throw new Error(`Pointer interaction rendered a focus outline during ${phase}: ${JSON.stringify({ painted, chrome })}`);
+	}
+}
+
+function assertCanvasCardUsesActiveBorder(chrome, phase) {
+	const sides = ['borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
+	const unexpected = sides.filter(side => chrome.cardPaint[side] !== chrome.colors.activeBorder);
+	if (unexpected.length > 0) {
+		throw new Error(`Active Canvas card did not use one steady border during ${phase}: ${JSON.stringify({ unexpected, chrome })}`);
+	}
+}
+
+function assertCanvasCardPaintEqual(expected, actual, phase) {
+	if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+		throw new Error(`Canvas card paint changed during ${phase}: ${JSON.stringify({ expected, actual })}`);
+	}
+}
+
+function assertCanvasCardResizeChromeIsNeutral(chrome, phase, allowActive = false) {
+	assertCanvasCardChromeDoesNotUseIntent(chrome, phase);
+	assertCanvasPointerChromeHasNoOutline(chrome, phase);
+	assertCanvasCardUsesActiveBorder(chrome, phase);
+	if (chrome.paintedResizeLines !== 0) {
+		throw new Error(`Canvas card rendered a resize outline during ${phase}: ${JSON.stringify(chrome.resizeLines)}`);
+	}
+	const expectedBorders = allowActive
+		? new Set([chrome.colors.geometry, chrome.colors.geometryStrong])
+		: new Set([chrome.colors.geometry]);
+	const unexpected = chrome.resizeHandles.filter(handle => handle.visible && !expectedBorders.has(handle.borderColor));
+	if (unexpected.length > 0) {
+		throw new Error(`Canvas card rendered non-neutral resize handles during ${phase}: ${JSON.stringify({ expected: [...expectedBorders], unexpected })}`);
+	}
+}
+
 async function startCanvasNoteEditTransitionProbe(note, tokens, expectedPreviewIdentity, direction = 'enter', exactParagraph) {
 	await note.evaluate((card, { expectedTokens, expectedPreviewIdentity, direction, exactParagraph, timeout, frameLimit }) => {
 		type ProbePhase = 'static' | 'mounting' | 'ready' | 'missing';
@@ -4046,6 +4240,16 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	if (restingCursor !== 'grab') {
 		throw new Error(`A resting Note must remain a draggable card, got cursor=${restingCursor}`);
 	}
+	const restingChrome = await captureCanvasCardComputedChrome(note);
+	assertCanvasCardChromeDoesNotUseIntent(restingChrome, 'resting Note pointer state');
+	assertCanvasPointerChromeHasNoOutline(restingChrome, 'resting Note pointer state');
+	if (restingChrome.cardSelected
+		|| restingChrome.nodeSelected
+		|| restingChrome.paintedResizeLines !== 0
+		|| restingChrome.visibleResizeHandles !== 0
+		|| restingChrome.interactiveResizeHandles !== 0) {
+		throw new Error(`A resting Note exposed active structural chrome: ${JSON.stringify(restingChrome)}`);
+	}
 	const [restingGutterCardBefore, restingGutterBox] = await Promise.all([note.boundingBox(), staticPreview.boundingBox()]);
 	const restingGutterScrollBefore = await staticPreview.evaluate(preview => preview.scrollTop);
 	if (!restingGutterCardBefore || !restingGutterBox) {
@@ -4262,6 +4466,97 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	await page.getByRole('menuitemradio', { name: 'Default background', exact: true }).click();
 	await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('data-note-background') === 'default', cardSelector, { timeout: 3_000 });
 	await waitUntil(() => fs.readFileSync(appearancePath, 'utf8') === 'background: default\n', 'Canvas Note background reset to persist');
+	await page.waitForFunction(selector => {
+		const card = document.querySelector(selector);
+		if (!(card instanceof HTMLElement)) {
+			return false;
+		}
+		const probe = document.createElement('span');
+		probe.style.backgroundColor = 'var(--bh-card-surface)';
+		card.appendChild(probe);
+		const settled = getComputedStyle(card).backgroundColor === getComputedStyle(probe).backgroundColor;
+		probe.remove();
+		return settled;
+	}, cardSelector, { timeout: 3_000 });
+	let selectedNoteChrome = await captureCanvasCardComputedChrome(note);
+	assertCanvasCardResizeChromeIsNeutral(selectedNoteChrome, 'selected Note pointer state');
+	if (!selectedNoteChrome.cardSelected
+		|| !selectedNoteChrome.nodeSelected
+		|| selectedNoteChrome.visibleResizeHandles !== 4
+		|| selectedNoteChrome.interactiveResizeHandles !== 4) {
+		throw new Error(`A selected Note did not expose four neutral corner resize handles: ${JSON.stringify(selectedNoteChrome)}`);
+	}
+	try {
+		await page.emulateMedia({ forcedColors: 'active' });
+		await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+		const forcedSelectedChrome = await captureCanvasCardComputedChrome(note);
+		if (forcedSelectedChrome.cardFocusVisible
+			|| forcedSelectedChrome.cardPaint.outlineStyle === 'none'
+			|| Number.parseFloat(forcedSelectedChrome.cardPaint.outlineWidth) !== 1
+			|| forcedSelectedChrome.cardPaint.outlineColor !== forcedSelectedChrome.colors.activeBorder) {
+			throw new Error(`Forced-colors selection did not render a one-pixel CanvasText outline: ${JSON.stringify(forcedSelectedChrome)}`);
+		}
+		await page.keyboard.press('Tab');
+		await note.evaluate(card => {
+			const node = card.closest('.react-flow__node-basehalf-card');
+			if (!(node instanceof HTMLElement)) {
+				throw new Error('Selected Note is missing its React Flow focus owner');
+			}
+			node.focus();
+		});
+		const forcedKeyboardChrome = await captureCanvasCardComputedChrome(note);
+		if (!forcedKeyboardChrome.nodeFocusVisible
+			|| forcedKeyboardChrome.cardFocusVisible
+			|| (forcedKeyboardChrome.nodePaint.outlineStyle !== 'none' && forcedKeyboardChrome.nodePaint.outlineWidth !== '0px')
+			|| forcedKeyboardChrome.cardPaint.outlineStyle === 'none'
+			|| Number.parseFloat(forcedKeyboardChrome.cardPaint.outlineWidth) !== 2
+			|| forcedKeyboardChrome.cardPaint.outlineColor !== forcedKeyboardChrome.colors.focusRing
+			|| forcedKeyboardChrome.cardPaint.outlineColor === forcedSelectedChrome.cardPaint.outlineColor) {
+			throw new Error(`Forced-colors keyboard focus did not replace selection with a two-pixel Highlight outline: ${JSON.stringify({ forcedSelectedChrome, forcedKeyboardChrome })}`);
+		}
+	} finally {
+		await page.emulateMedia({ forcedColors: 'none' });
+		await note.evaluate(async card => {
+			await Promise.allSettled(card.getAnimations().map(animation => animation.finished));
+		});
+	}
+	await note.evaluate(card => card.blur());
+	await note.click();
+	selectedNoteChrome = await captureCanvasCardComputedChrome(note);
+	assertCanvasCardResizeChromeIsNeutral(selectedNoteChrome, 'pointer-restored selected Note after forced-colors');
+	await page.keyboard.press('Tab');
+	await note.evaluate(card => card.focus());
+	const keyboardFocusedNoteChrome = await captureCanvasCardComputedChrome(note);
+	if (!keyboardFocusedNoteChrome.cardFocusVisible
+		|| keyboardFocusedNoteChrome.cardPaint.outlineStyle === 'none'
+		|| keyboardFocusedNoteChrome.cardPaint.outlineWidth === '0px'
+		|| keyboardFocusedNoteChrome.cardPaint.outlineColor !== keyboardFocusedNoteChrome.colors.focusRing) {
+		throw new Error(`Keyboard focus did not render the Canvas focus ring: ${JSON.stringify(keyboardFocusedNoteChrome)}`);
+	}
+	assertCanvasCardUsesActiveBorder(keyboardFocusedNoteChrome, 'keyboard-focused selected Note');
+	await note.evaluate(card => card.blur());
+	await page.keyboard.press('Tab');
+	await note.evaluate(card => {
+		const node = card.closest('.react-flow__node-basehalf-card');
+		if (!(node instanceof HTMLElement)) {
+			throw new Error('Selected Note is missing its React Flow focus owner');
+		}
+		node.focus();
+	});
+	const keyboardFocusedNodeChrome = await captureCanvasCardComputedChrome(note);
+	if (!keyboardFocusedNodeChrome.nodeFocusVisible
+		|| keyboardFocusedNodeChrome.cardFocusVisible
+		|| (keyboardFocusedNodeChrome.nodePaint.outlineStyle !== 'none' && keyboardFocusedNodeChrome.nodePaint.outlineWidth !== '0px')
+		|| keyboardFocusedNodeChrome.cardPaint.outlineStyle === 'none'
+		|| keyboardFocusedNodeChrome.cardPaint.outlineWidth === '0px'
+		|| keyboardFocusedNodeChrome.cardPaint.outlineColor !== keyboardFocusedNodeChrome.colors.focusRing) {
+		throw new Error(`React Flow focus owner did not project exactly one Canvas focus ring onto its card: ${JSON.stringify(keyboardFocusedNodeChrome)}`);
+	}
+	assertCanvasCardUsesActiveBorder(keyboardFocusedNodeChrome, 'keyboard-focused selected Note through React Flow owner');
+	await note.evaluate(card => (card.closest('.react-flow__node-basehalf-card') as HTMLElement | null)?.blur());
+	await note.click();
+	selectedNoteChrome = await captureCanvasCardComputedChrome(note);
+	assertCanvasCardResizeChromeIsNeutral(selectedNoteChrome, 'pointer-restored selected Note');
 
 	const [selectedNoteBox, initialToolbarBox] = await Promise.all([note.boundingBox(), toolbar.boundingBox()]);
 	if (!selectedNoteBox || !initialToolbarBox) {
@@ -4355,29 +4650,14 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	}
 	await activeInlineEditor.surface.evaluate(surface => surface.scrollTop = 0);
 	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-	const editingChrome = await note.evaluate(card => {
-		const node = card.closest('.react-flow__node');
-		const visibleResizeHandles = Array.from(node?.querySelectorAll('.basehalf-canvas-node-resizer-handle') ?? []).filter(handle => {
-			const style = getComputedStyle(handle);
-			return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-		}).length;
-		const liveConnectionHandles = Array.from(node?.querySelectorAll('.basehalf-canvas-card-connect-handle') ?? []).filter(handle => {
-			const style = getComputedStyle(handle);
-			return style.pointerEvents !== 'none' || style.opacity !== '0';
-		}).length;
-		return {
-			cardSelected: card.classList.contains('selected'),
-			visibleResizeHandles,
-			liveConnectionHandles,
-			connectionHandles: Array.from(node?.querySelectorAll('.basehalf-canvas-card-connect-handle') ?? []).map(handle => ({
-				className: handle.getAttribute('class'),
-				style: handle.getAttribute('style'),
-				opacity: getComputedStyle(handle).opacity,
-				pointerEvents: getComputedStyle(handle).pointerEvents
-			}))
-		};
-	});
-	if (editingChrome.cardSelected || editingChrome.visibleResizeHandles !== 0 || editingChrome.liveConnectionHandles !== 0) {
+	const editingChrome = await captureCanvasCardComputedChrome(note);
+	assertCanvasCardResizeChromeIsNeutral(editingChrome, 'active Note editing');
+	assertCanvasCardPaintEqual(selectedNoteChrome.cardPaint, editingChrome.cardPaint, 'selected-to-editing transition');
+	if (editingChrome.cardSelected
+		|| editingChrome.paintedResizeLines !== 0
+		|| editingChrome.visibleResizeHandles !== 0
+		|| editingChrome.interactiveResizeHandles !== 0
+		|| editingChrome.liveConnectionHandles !== 0) {
 		throw new Error(`Editing a Note exposed structural selection chrome: ${JSON.stringify(editingChrome)}`);
 	}
 	const editingCardBox = await note.boundingBox();
@@ -5620,6 +5900,18 @@ async function assertCanvasEdgeGone(page, from, to) {
 // persistence intentionally happens only after pointer-up.
 async function assertCanvasEdgeFollowsCardDragLive(page) {
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	const docsNode = page.locator('.react-flow__node', { has: docs });
+	await docs.click();
+	await docsNode.locator(':scope > .basehalf-canvas-node-resizer-handle.bottom.right').waitFor({ state: 'visible', timeout: 10_000 });
+	const activeBeforeDrag = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(activeBeforeDrag, 'selected docs card before drag');
+	if (!activeBeforeDrag.cardSelected
+		|| !activeBeforeDrag.nodeSelected
+		|| activeBeforeDrag.visibleResizeHandles !== 4
+		|| activeBeforeDrag.interactiveResizeHandles !== 4) {
+		throw new Error(`Selected docs card did not expose four neutral resize handles before drag: ${JSON.stringify(activeBeforeDrag)}`);
+	}
 	const canvasBefore = fs.readFileSync(canvasPath, 'utf8');
 	const before = await page.evaluate(() => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
@@ -5710,37 +6002,21 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	// release regression is a different transition: the old drag-only shadow
 	// changed its target abruptly when React Flow removed `.dragging`.
 	await page.waitForTimeout(180);
-	const dragPaint = await page.evaluate(() => {
-		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
-		const node = card?.closest('.react-flow__node');
-		if (!(card instanceof HTMLElement) || !(node instanceof HTMLElement) || !node.classList.contains('dragging')) {
-			throw new Error('Missing actively dragged docs card before pointer-up paint check');
-		}
-		const style = getComputedStyle(card);
-		return {
-			backgroundColor: style.backgroundColor,
-			borderColor: style.borderColor,
-			boxShadow: style.boxShadow
-		};
-	});
+	const dragChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(dragChrome, 'active docs card drag');
+	assertCanvasCardPaintEqual(activeBeforeDrag.cardPaint, dragChrome.cardPaint, 'selected-to-drag transition');
+	if (!dragChrome.nodeDragging) {
+		throw new Error(`Missing actively dragged docs card before pointer-up chrome check: ${JSON.stringify(dragChrome)}`);
+	}
 
 	await page.mouse.up();
 	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== canvasBefore, 'dragged docs geometry to persist after pointer-up');
 	await page.waitForTimeout(350);
-	const settledPaint = await page.evaluate(() => {
-		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
-		if (!(card instanceof HTMLElement)) {
-			throw new Error('Missing docs card after pointer-up paint check');
-		}
-		const style = getComputedStyle(card);
-		return {
-			backgroundColor: style.backgroundColor,
-			borderColor: style.borderColor,
-			boxShadow: style.boxShadow
-		};
-	});
-	if (JSON.stringify(dragPaint) !== JSON.stringify(settledPaint)) {
-		throw new Error(`Dragging changed card paint at pointer-up: ${JSON.stringify({ dragPaint, settledPaint })}`);
+	const settledDragChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(settledDragChrome, 'selected docs card after drag');
+	assertCanvasCardPaintEqual(activeBeforeDrag.cardPaint, settledDragChrome.cardPaint, 'drag pointer-up transition');
+	if (settledDragChrome.nodeDragging || !settledDragChrome.cardSelected || !settledDragChrome.nodeSelected) {
+		throw new Error(`Docs card did not return to steady selected chrome after drag: ${JSON.stringify(settledDragChrome)}`);
 	}
 	if (await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-loading-preview-observed') === 'true') {
 		throw new Error('Dragging a card replaced hydrated content with the Loading preview placeholder');
@@ -5748,6 +6024,145 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	if (await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-card-element-replaced') === 'true') {
 		const paths = await page.locator('.basehalf-canvas-cards').getAttribute('data-smoke-replaced-card-paths');
 		throw new Error(`Dragging a card rebuilt card DOM instead of reconciling layout in place: ${paths}`);
+	}
+
+	const resizeHandle = docsNode.locator(':scope > .basehalf-canvas-node-resizer-handle.bottom.right');
+	const [resizeBeforeBox, resizeHandleBox] = await Promise.all([docs.boundingBox(), resizeHandle.boundingBox()]);
+	if (!resizeBeforeBox || !resizeHandleBox) {
+		throw new Error('Could not measure the selected docs card before resize');
+	}
+	const resizeCanvasBefore = fs.readFileSync(canvasPath, 'utf8');
+	const resizeBeforeChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(resizeBeforeChrome, 'selected docs card before resize');
+	assertCanvasCardPaintEqual(activeBeforeDrag.cardPaint, resizeBeforeChrome.cardPaint, 'drag-to-resize resting transition');
+	const resizeStart = {
+		x: resizeHandleBox.x + resizeHandleBox.width / 2,
+		y: resizeHandleBox.y + resizeHandleBox.height / 2
+	};
+	await docs.evaluate(card => {
+		const scope = window as typeof window & { __basehalfSmokeNoMoveResizeObserver?: MutationObserver };
+		scope.__basehalfSmokeNoMoveResizeObserver?.disconnect();
+		card.dataset.smokeNoMoveResizeObserved = String(card.dataset.cardResizing === 'true');
+		const observer = new MutationObserver(records => {
+			if (card.dataset.cardResizing === 'true' || records.some(record => record.oldValue === 'true')) {
+				card.dataset.smokeNoMoveResizeObserved = 'true';
+			}
+		});
+		observer.observe(card, { attributes: true, attributeFilter: ['data-card-resizing'], attributeOldValue: true });
+		scope.__basehalfSmokeNoMoveResizeObserver = observer;
+	});
+	await page.mouse.move(resizeStart.x, resizeStart.y);
+	await page.mouse.down();
+	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+	const noMovePointerDownState = await docs.evaluate(card => ({
+		cardResizing: card.dataset.cardResizing === 'true',
+		observedResizeSession: card.dataset.smokeNoMoveResizeObserved === 'true'
+	}));
+	await page.mouse.up();
+	await page.mouse.move(1, 1);
+	await page.waitForTimeout(150);
+	const noMoveFinalState = await docs.evaluate(card => {
+		const scope = window as typeof window & { __basehalfSmokeNoMoveResizeObserver?: MutationObserver };
+		const state = {
+			cardResizing: card.dataset.cardResizing === 'true',
+			observedResizeSession: card.dataset.smokeNoMoveResizeObserved === 'true'
+		};
+		scope.__basehalfSmokeNoMoveResizeObserver?.disconnect();
+		delete scope.__basehalfSmokeNoMoveResizeObserver;
+		delete card.dataset.smokeNoMoveResizeObserved;
+		return state;
+	});
+	const noMoveAfterChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(noMoveAfterChrome, 'selected docs card after resize-handle click');
+	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, noMoveAfterChrome.cardPaint, 'resize-handle click transition');
+	const lingeringConnectionHandles = noMoveAfterChrome.connectionHandles.filter(handle => /(?:^|\s)(?:connectingfrom|connectingto|clickconnecting|connection-target)(?:\s|$)/.test(handle.className ?? ''));
+	if (noMovePointerDownState.cardResizing
+		|| noMovePointerDownState.observedResizeSession
+		|| noMoveFinalState.cardResizing
+		|| noMoveFinalState.observedResizeSession
+		|| noMoveAfterChrome.cardResizing
+		|| noMoveAfterChrome.nodeResizing
+		|| noMoveAfterChrome.liveConnectionHandles !== 0
+		|| lingeringConnectionHandles.length !== 0) {
+		throw new Error(`A no-move resize-handle click left active resize or connection chrome: ${JSON.stringify({ noMovePointerDownState, noMoveFinalState, lingeringConnectionHandles, noMoveAfterChrome })}`);
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== resizeCanvasBefore) {
+		throw new Error('A no-move resize-handle click changed Canvas geometry on disk');
+	}
+	await page.mouse.move(resizeStart.x, resizeStart.y);
+	await page.mouse.down();
+	await page.mouse.move(resizeStart.x + 48, resizeStart.y + 36, { steps: 10 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') === 'true', null, { timeout: 10_000 });
+	const resizeDuringChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(resizeDuringChrome, 'active docs card resize', true);
+	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, resizeDuringChrome.cardPaint, 'resize pointer-down transition');
+	if (!resizeDuringChrome.nodeResizing) {
+		throw new Error(`Missing actively resized docs card before pointer-up chrome check: ${JSON.stringify(resizeDuringChrome)}`);
+	}
+	const resizeDuringBox = await docs.boundingBox();
+	if (!resizeDuringBox
+		|| resizeDuringBox.width < resizeBeforeBox.width + 24
+		|| resizeDuringBox.height < resizeBeforeBox.height + 18) {
+		throw new Error(`Dragging the resize handle did not change card dimensions live: ${JSON.stringify({ resizeBeforeBox, resizeDuringBox })}`);
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== resizeCanvasBefore) {
+		throw new Error('Canvas geometry persisted before the resize gesture completed');
+	}
+	await page.mouse.up();
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== resizeCanvasBefore, 'resized docs geometry to persist after pointer-up');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') !== 'true', null, { timeout: 10_000 });
+	await page.waitForTimeout(350);
+	const resizeAfterChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(resizeAfterChrome, 'selected docs card after resize hover', true);
+	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, resizeAfterChrome.cardPaint, 'resize pointer-up transition');
+	const resizeAfterBox = await docs.boundingBox();
+	if (!resizeAfterBox
+		|| resizeAfterBox.width < resizeBeforeBox.width + 24
+		|| resizeAfterBox.height < resizeBeforeBox.height + 18) {
+		throw new Error(`Resized docs card did not retain its new dimensions: ${JSON.stringify({ resizeBeforeBox, resizeAfterBox })}`);
+	}
+
+	const restoreHandleBox = await resizeHandle.boundingBox();
+	if (!restoreHandleBox) {
+		throw new Error('Could not measure the docs card handle before restoring its fixture size');
+	}
+	const restoreCanvasBefore = fs.readFileSync(canvasPath, 'utf8');
+	const restoreStart = {
+		x: restoreHandleBox.x + restoreHandleBox.width / 2,
+		y: restoreHandleBox.y + restoreHandleBox.height / 2
+	};
+	await page.mouse.move(restoreStart.x, restoreStart.y);
+	await page.mouse.down();
+	await page.mouse.move(
+		restoreStart.x + resizeBeforeBox.width - resizeAfterBox.width,
+		restoreStart.y + resizeBeforeBox.height - resizeAfterBox.height,
+		{ steps: 10 }
+	);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') === 'true', null, { timeout: 10_000 });
+	const restoreDuringChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(restoreDuringChrome, 'active docs card fixture-size restore', true);
+	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, restoreDuringChrome.cardPaint, 'fixture-size restore pointer-down transition');
+	const restoreDuringBox = await docs.boundingBox();
+	if (!restoreDuringBox
+		|| Math.abs(restoreDuringBox.width - resizeBeforeBox.width) > 2
+		|| Math.abs(restoreDuringBox.height - resizeBeforeBox.height) > 2) {
+		throw new Error(`Reverse resize did not restore the docs card fixture size live: ${JSON.stringify({ resizeBeforeBox, restoreDuringBox })}`);
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== restoreCanvasBefore) {
+		throw new Error('Restored Canvas geometry persisted before the resize gesture completed');
+	}
+	await page.mouse.up();
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== restoreCanvasBefore, 'restored docs geometry to persist after pointer-up');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') !== 'true', null, { timeout: 10_000 });
+	await page.waitForTimeout(350);
+	const restoreAfterChrome = await captureCanvasCardComputedChrome(docs);
+	assertCanvasCardResizeChromeIsNeutral(restoreAfterChrome, 'selected docs card after fixture-size restore hover', true);
+	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, restoreAfterChrome.cardPaint, 'fixture-size restore pointer-up transition');
+	const restoredBox = await docs.boundingBox();
+	if (!restoredBox
+		|| Math.abs(restoredBox.width - resizeBeforeBox.width) > 2
+		|| Math.abs(restoredBox.height - resizeBeforeBox.height) > 2) {
+		throw new Error(`Docs card did not retain its restored fixture size: ${JSON.stringify({ resizeBeforeBox, restoredBox })}`);
 	}
 }
 
