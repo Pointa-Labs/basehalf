@@ -11,6 +11,7 @@ import {
 	computeBaseHalfCanvasMarkdownTextEdit,
 	renderBaseHalfCanvasStoredMarkdown,
 	renderBaseHalfCanvasStoredMarkdownBody,
+	resolveBaseHalfCanvasMarkdownInlineUnitAtPoint,
 	transformBaseHalfCanvasMarkdownOffset
 } from '../../browser/cardDetail/basehalfCanvasMarkdownInlineEditor.js';
 
@@ -41,6 +42,39 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 			{ offset: 2, length: 0, text: '新' }
 		);
 		assert.strictEqual(computeBaseHalfCanvasMarkdownTextEdit('same', 'same'), undefined);
+	});
+
+	test('restores the resting viewport before resolving the clicked Markdown unit', () => {
+		const scroller = document.createElement('div');
+		scroller.style.position = 'fixed';
+		scroller.style.left = '0';
+		scroller.style.top = '0';
+		scroller.style.width = '120px';
+		scroller.style.height = '40px';
+		scroller.style.overflow = 'hidden';
+		const units = Array.from({ length: 3 }, () => {
+			const element = document.createElement('div');
+			element.style.height = '40px';
+			element.style.width = '120px';
+			scroller.appendChild(element);
+			return { element };
+		});
+		document.body.appendChild(scroller);
+		try {
+			const bounds = scroller.getBoundingClientRect();
+			const point = { x: bounds.left + 10, y: bounds.top + 20 };
+			assert.strictEqual(
+				resolveBaseHalfCanvasMarkdownInlineUnitAtPoint(scroller, units, point.x, point.y, 0),
+				units[0]
+			);
+			assert.strictEqual(
+				resolveBaseHalfCanvasMarkdownInlineUnitAtPoint(scroller, units, point.x, point.y, 40),
+				units[1]
+			);
+			assert.strictEqual(scroller.scrollTop, 40);
+		} finally {
+			scroller.remove();
+		}
 	});
 
 	test('collects reference definitions without escaping a real code fence', () => {

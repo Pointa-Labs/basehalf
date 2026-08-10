@@ -8429,7 +8429,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				onFormatStateChange: formatState => this.publishCanvasNoteFormatState(path, item.stat.resource, formatState)
 			}
 		);
-		const open = instance.open(state, pendingFocus?.point, pendingFocus?.selection);
+		const open = instance.open(state, pendingFocus?.point, pendingFocus?.selection, fallbackScrollTop);
 		const active: IBaseHalfActiveCanvasNoteEditor = {
 			sceneKey,
 			structuralEpoch: this.renderedSceneStructuralEpoch,

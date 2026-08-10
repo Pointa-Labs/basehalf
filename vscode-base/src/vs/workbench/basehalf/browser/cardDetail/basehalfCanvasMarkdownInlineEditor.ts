@@ -118,6 +118,32 @@ export interface IBaseHalfCanvasMarkdownTextEdit {
 	readonly text: string;
 }
 
+/**
+ * Resolves a pointer against a rebuilt inline projection after restoring the
+ * viewport owned by the resting preview. The two projections use separate
+ * scrollers, so measuring before this assignment can select a different block.
+ */
+export function resolveBaseHalfCanvasMarkdownInlineUnitAtPoint<T extends { readonly element: HTMLElement }>(
+	scroller: HTMLElement,
+	units: readonly T[],
+	x: number,
+	y: number,
+	scrollTop: number
+): T | undefined {
+	scroller.scrollTop = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0;
+	let nearest: { readonly unit: T; readonly distance: number } | undefined;
+	for (const unit of units) {
+		const bounds = unit.element.getBoundingClientRect();
+		const dx = x < bounds.left ? bounds.left - x : x > bounds.right ? x - bounds.right : 0;
+		const dy = y < bounds.top ? bounds.top - y : y > bounds.bottom ? y - bounds.bottom : 0;
+		const distance = dx * dx + dy * dy;
+		if (!nearest || distance < nearest.distance) {
+			nearest = { unit, distance };
+		}
+	}
+	return nearest?.unit;
+}
+
 /** Computes the smallest contiguous TextModel edit that produces `next`. */
 export function computeBaseHalfCanvasMarkdownTextEdit(current: string, next: string): IBaseHalfCanvasMarkdownTextEdit | undefined {
 	if (current === next) {
@@ -359,7 +385,12 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.setSaveStatus('saving');
 	}
 
-	async open(state: IBaseHalfCardDetailState, point?: IBaseHalfCanvasNoteEditPoint, selection?: IBaseHalfCanvasMarkdownInlineSelection): Promise<void> {
+	async open(
+		state: IBaseHalfCardDetailState,
+		point?: IBaseHalfCanvasNoteEditPoint,
+		selection?: IBaseHalfCanvasMarkdownInlineSelection,
+		initialScrollTop = 0
+	): Promise<void> {
 		if (this.disposed) {
 			throw new Error('The Canvas Markdown inline editor has been disposed.');
 		}
@@ -399,7 +430,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			this.model = modelReference.object.textEditorModel;
 			session.add(this.model.onDidChangeContent(event => this.handleModelContentChange(event)));
 			session.add(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
-			if (!this.renderDocument({ point, selection })) {
+			if (!this.renderDocument({ point, selection, scrollTop: initialScrollTop })) {
 				throw new BaseHalfCanvasMarkdownRequiresRichEditorError();
 			}
 			this.updateRuntimeReadOnly();
@@ -578,6 +609,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		readonly clientPoint?: { readonly x: number; readonly y: number };
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
 		readonly focus?: boolean;
+		readonly scrollTop?: number;
 	} = {}): boolean {
 		if (this.compositionConflict && this.runtime) {
 			return true;
@@ -588,7 +620,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		if (!model || !vendor || !state) {
 			return false;
 		}
-		const scrollTop = this.root.scrollTop;
+		const scrollTop = options.scrollTop ?? this.root.scrollTop;
 		this.rendered.clear();
 		this.runtime = undefined;
 		this.root.replaceChildren();
@@ -635,7 +667,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		}
 
 		const clientPoint = options.clientPoint ?? (options.point ? this.toClientPoint(options.point) : undefined);
-		const target = clientPoint ? this.unitAtClientPoint(units, clientPoint.x, clientPoint.y) : units.find(unit => unit.supported);
+		const target = clientPoint
+			? resolveBaseHalfCanvasMarkdownInlineUnitAtPoint(this.root, units, clientPoint.x, clientPoint.y, scrollTop)
+			: units.find(unit => unit.supported);
 		if (!target || !target.supported) {
 			return false;
 		}
@@ -913,20 +947,6 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			x: bounds.left + point.x * bounds.width / body.clientWidth,
 			y: bounds.top + point.y * bounds.height / body.clientHeight
 		};
-	}
-
-	private unitAtClientPoint(units: readonly IBaseHalfCanvasMarkdownRenderedUnit[], x: number, y: number): IBaseHalfCanvasMarkdownRenderedUnit | undefined {
-		let nearest: { readonly unit: IBaseHalfCanvasMarkdownRenderedUnit; readonly distance: number } | undefined;
-		for (const unit of units) {
-			const bounds = unit.element.getBoundingClientRect();
-			const dx = x < bounds.left ? bounds.left - x : x > bounds.right ? x - bounds.right : 0;
-			const dy = y < bounds.top ? bounds.top - y : y > bounds.bottom ? y - bounds.bottom : 0;
-			const distance = dx * dx + dy * dy;
-			if (!nearest || distance < nearest.distance) {
-				nearest = { unit, distance };
-			}
-		}
-		return nearest?.unit;
 	}
 
 	private scheduleEditGroupEnd(): void {
