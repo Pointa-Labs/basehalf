@@ -5,36 +5,43 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasMarkdownPreviewSource } from '../../common/basehalfCanvasPreview.js';
+import {
+	baseHalfCanvasMarkdownEditTarget,
+	baseHalfCanvasMarkdownPreviewSource,
+	baseHalfCanvasMarkdownSourceFitsInline,
+	BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES
+} from '../../common/basehalfCanvasPreview.js';
 
 suite('BaseHalfCanvasPreview', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('uses one fixed block budget for the static preview', () => {
-		const source = Array.from({ length: 18 }, (_, index) => `paragraph ${index + 1}`).join('\n\n');
-		const preview = baseHalfCanvasMarkdownPreviewSource(source);
-
-		assert.strictEqual(preview, `${Array.from({ length: 15 }, (_, index) => `paragraph ${index + 1}`).join('\n\n')}\n\n...`);
+	test('preserves Markdown whitespace and line endings exactly', () => {
+		const source = '# heading\r\n\r\nline with tab\tand hard break  \r\n\r\n';
+		assert.strictEqual(baseHalfCanvasMarkdownPreviewSource(source), source);
 	});
 
-	test('bounds preview work by block and character count', () => {
+	test('does not summarize long Markdown documents', () => {
 		const blocks = Array.from({ length: 205 }, (_, index) => `line ${index + 1}`).join('\n');
 		const longLine = 'a'.repeat(5000);
-		const blockPreview = baseHalfCanvasMarkdownPreviewSource(blocks).split('\n');
-		const characterPreview = baseHalfCanvasMarkdownPreviewSource(longLine);
 
-		assert.deepStrictEqual({
-			contentBlockCount: blockPreview.filter(line => line.length > 0).length,
-			lastContentBlock: blockPreview.at(-3),
-			blockSuffix: blockPreview.at(-1),
-			characterCount: characterPreview.length,
-			characterSuffix: characterPreview.slice(-3)
-		}, {
-			contentBlockCount: 16,
-			lastContentBlock: 'line 15',
-			blockSuffix: '...',
-			characterCount: 4096,
-			characterSuffix: '...'
-		});
+		assert.strictEqual(baseHalfCanvasMarkdownPreviewSource(blocks), blocks);
+		assert.strictEqual(baseHalfCanvasMarkdownPreviewSource(longLine), longLine);
+	});
+
+	test('admits inline editing only for a complete projection within the byte gate', () => {
+		assert.strictEqual(BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES, 8192);
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8192, true), 'inline');
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8193, true), 'richDetail');
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8192, false), 'richDetail');
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(undefined, true), 'inline');
+	});
+
+	test('measures a live Markdown source with the same UTF-8 byte boundary', () => {
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(8192)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(8193)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(2730)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(2731)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('😀'.repeat(2048)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline(`${'😀'.repeat(2048)}a`), false);
 	});
 });

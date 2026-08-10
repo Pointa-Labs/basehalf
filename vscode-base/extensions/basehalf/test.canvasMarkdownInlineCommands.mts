@@ -75,6 +75,34 @@ export function exerciseCanvasFormatCommand(
 		markdown: serialized.join('\\n\\n'),
 	};
 }
+
+export function exerciseCanvasProjectionPersistence(source: string, edited: string, renderedCandidate: string) {
+	const input = {
+		id: 'persistence-unit',
+		markdown: source,
+		prefix: '',
+		separator: '',
+		element: undefined as unknown as HTMLElement,
+	};
+	const sourceDocument = parseMarkdown(source);
+	const initialNode = canvasSchema.nodes.markdown_unit.create({ unitId: input.id }, sourceDocument.content);
+	const records = new Map<string, CanvasMarkdownRuntimeUnit>([[input.id, {
+		input,
+		initialNode,
+		staticElement: undefined as unknown as HTMLElement,
+	}]]);
+	const unchangedDocument = canvasSchema.nodes.doc.create(null, [initialNode]);
+	const editedSourceDocument = parseMarkdown(edited);
+	const editedNode = canvasSchema.nodes.markdown_unit.create({ unitId: input.id }, editedSourceDocument.content);
+	const editedDocument = canvasSchema.nodes.doc.create(null, [editedNode]);
+	const renderedDocument = parseMarkdown(renderedCandidate);
+	return {
+		renderedCandidatePreservesSourceProjection:
+			canvasMarkdownProjectionIsEquivalent(renderedDocument, sourceDocument),
+		unchanged: serializeCanvasMarkdownDocument(unchangedDocument, records, source.includes('\\r\\n') ? '\\r\\n' : '\\n'),
+		edited: serializeCanvasMarkdownDocument(editedDocument, records, source.includes('\\r\\n') ? '\\r\\n' : '\\n'),
+	};
+}
 `;
 
 const result = await build({
@@ -108,6 +136,15 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 		readonly focusCount: number;
 		readonly handledCount: number;
 		readonly markdown: string;
+	};
+	readonly exerciseCanvasProjectionPersistence: (
+		source: string,
+		edited: string,
+		renderedCandidate: string,
+	) => {
+		readonly renderedCandidatePreservesSourceProjection: boolean;
+		readonly unchanged: string;
+		readonly edited: string;
 	};
 };
 const exercise = testModule.exerciseCanvasFormatCommand;
@@ -189,5 +226,32 @@ assertRejectedCommand('code block rejects paragraph conversion', '```ts\nconst v
 assertRejectedCommand('code block rejects list conversion', '```ts\nconst value = 1;\n```', 'toggleBulletList', 'const value = 1;');
 assertCommand('mixed code selection changes only rich-compatible blocks', ['```ts\nconst value = 1;\n```', 'plain'], 'setHeading1', 'const value = 1;', 'plain', true, '```ts\nconst value = 1;\n```\n\n# plain', 1);
 assertCommand('reverse mixed code selection lists only rich-compatible blocks', ['```ts\nconst value = 1;\n```', 'plain'], 'toggleBulletList', 'plain', 'const value = 1;', false, '```ts\nconst value = 1;\n```\n\n* plain', 1);
+
+const malformedEmphasis = '春风吹过，城中的草木却长得异常茂盛**，';
+const malformedPersistence = testModule.exerciseCanvasProjectionPersistence(
+	malformedEmphasis,
+	'春风吹过，城中的草木却长得异常茂盛新**，',
+	`${malformedEmphasis}******`,
+);
+assert.equal(malformedPersistence.renderedCandidatePreservesSourceProjection, false, 'synthetic renderer text must be rejected');
+assert.equal(malformedPersistence.unchanged, malformedEmphasis, 'untouched malformed Markdown must remain byte-identical');
+assert.equal(malformedPersistence.edited, '春风吹过，城中的草木却长得异常茂盛新\\*\\*，', 'an intentional edit must not persist synthetic stars');
+
+const formattingMismatch = testModule.exerciseCanvasProjectionPersistence('**same text**', '**same text**', 'same text');
+assert.equal(formattingMismatch.renderedCandidatePreservesSourceProjection, false, 'equal visible text with different Markdown semantics must be rejected');
+
+const hiddenSourceSemantics = [
+	['hard break', 'line\\\nnext', 'line\nnext'],
+	['fence language', '```ts\nconst value = 1;\n```', '```\nconst value = 1;\n```'],
+	['tight list rhythm', '- one\n- two', '- one\n\n- two'],
+	['link destination', '[guide](docs/guide.md "Guide")', '[guide]()'],
+] as const;
+for (const [name, sourceMarkdown, renderedMarkdown] of hiddenSourceSemantics) {
+	const result = testModule.exerciseCanvasProjectionPersistence(sourceMarkdown, sourceMarkdown, renderedMarkdown);
+	assert.equal(result.renderedCandidatePreservesSourceProjection, true, `${name}: invisible source metadata must not force a different glyph projection`);
+}
+
+const malformedListProjection = testModule.exerciseCanvasProjectionPersistence('- **()*', '- **()*', '- \\*\\*()*');
+assert.equal(malformedListProjection.renderedCandidatePreservesSourceProjection, false, 'list/source metadata must not bypass a visible-text mismatch');
 
 console.log('Canvas Markdown inline command tests passed.');

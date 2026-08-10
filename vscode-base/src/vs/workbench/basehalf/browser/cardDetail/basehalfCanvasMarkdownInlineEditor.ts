@@ -7,7 +7,7 @@ import { $, addDisposableListener, append, EventType, isHTMLElement } from '../.
 import { renderMarkdown } from '../../../../base/browser/markdownRenderer.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
-import { Disposable, DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -91,6 +91,7 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 			readonly editable: boolean;
 			readonly element: HTMLElement;
 		}[];
+		readonly requiredEditableUnitId?: string;
 		readonly readOnly?: boolean;
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
 		readonly onMarkdownChange?: (markdown: string) => void;
@@ -171,6 +172,51 @@ export interface IBaseHalfCanvasMarkdownInlineEditorOptions {
 	readonly onSaveRequest?: (save: Promise<boolean>) => void;
 	readonly onOpenLink?: (href: string) => void;
 	readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
+}
+
+/** The clicked Markdown unit cannot round-trip through the lightweight editor. */
+export class BaseHalfCanvasMarkdownRequiresRichEditorError extends Error {
+	constructor() {
+		super('This Markdown content requires the full editor.');
+		this.name = 'BaseHalfCanvasMarkdownRequiresRichEditorError';
+	}
+}
+
+/**
+ * Renders a stored Markdown snapshot without the speculative token repair used
+ * for partial streaming responses. A file projection must never invent source
+ * characters that an editor could later mistake for user content.
+ */
+export function renderBaseHalfCanvasStoredMarkdown(
+	container: HTMLElement,
+	resource: URI,
+	source: string,
+	onOpenLink?: (href: string) => void
+): IDisposable {
+	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: false });
+	markdown.baseUri = resource;
+	return renderMarkdown(markdown, {
+		...(onOpenLink ? { actionHandler: onOpenLink } : {}),
+		fillInIncompleteTokens: false,
+		markedOptions: { gfm: true, breaks: true },
+		sanitizerConfig: {
+			replaceWithPlaintext: true,
+			allowedTags: {
+				override: ['a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'hr', 'li', 'ol', 'p', 'pre', 'strong', 'ul']
+			}
+		}
+	}, container);
+}
+
+/** Render only the authored Markdown body shared by resting and inline views. */
+export function renderBaseHalfCanvasStoredMarkdownBody(
+	container: HTMLElement,
+	resource: URI,
+	documentSource: string,
+	onOpenLink?: (href: string) => void
+): IDisposable {
+	const { body } = splitBaseHalfMarkdownFrontmatter(documentSource);
+	return renderBaseHalfCanvasStoredMarkdown(container, resource, body, onOpenLink);
 }
 
 let vendorPromise: Promise<IBaseHalfCanvasMarkdownInlineVendor> | undefined;
@@ -354,7 +400,7 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			session.add(this.model.onDidChangeContent(event => this.handleModelContentChange(event)));
 			session.add(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
 			if (!this.renderDocument({ point, selection })) {
-				throw new Error('This Markdown block needs the full editor. Use Expand to edit it.');
+				throw new BaseHalfCanvasMarkdownRequiresRichEditorError();
 			}
 			this.updateRuntimeReadOnly();
 			this.updateStatus();
@@ -461,6 +507,11 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 	/** The authoritative working-copy text used for an atomic preview reveal. */
 	getDocumentText(): string | undefined {
 		return this.model?.getValue();
+	}
+
+	/** A zero-copy lower bound for the UTF-8 byte size of the working copy. */
+	getDocumentLength(): number | undefined {
+		return this.model?.getValueLength();
 	}
 
 	getScrollTop(): number {
@@ -588,26 +639,36 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		if (!target || !target.supported) {
 			return false;
 		}
-		const runtime = vendor.createCanvasMarkdownInlineEditor(this.root, {
-			markdown: body,
-			units: units.map((unit, index) => ({
-				id: String(index),
-				markdown: unit.markdown,
-				prefix: unit.prefix,
-				separator: unit.separator,
-				editable: unit.supported,
-				element: unit.element
-			})),
-			readOnly: this.isReadOnly(),
-			selection: options.selection,
-			onMarkdownChange: markdown => this.applyDocumentMarkdown(markdown),
-			onCompositionChange: composing => this.handleCompositionChange(composing),
-			onUndoRequest: () => void this.undo(),
-			onRedoRequest: () => void this.redo(),
-			onExitRequest: () => this.options.onCanvasExitRequest?.(),
-			onToolbarRequest: () => this.options.onCanvasToolbarRequest?.(),
-			onFormatStateChange: formatState => this.options.onFormatStateChange?.(formatState)
-		});
+		const targetIndex = units.indexOf(target);
+		let runtime: IBaseHalfCanvasMarkdownInlineRuntime;
+		try {
+			runtime = vendor.createCanvasMarkdownInlineEditor(this.root, {
+				markdown: body,
+				units: units.map((unit, index) => ({
+					id: String(index),
+					markdown: unit.markdown,
+					prefix: unit.prefix,
+					separator: unit.separator,
+					editable: unit.supported,
+					element: unit.element
+				})),
+				requiredEditableUnitId: String(targetIndex),
+				readOnly: this.isReadOnly(),
+				selection: options.selection,
+				onMarkdownChange: markdown => this.applyDocumentMarkdown(markdown),
+				onCompositionChange: composing => this.handleCompositionChange(composing),
+				onUndoRequest: () => void this.undo(),
+				onRedoRequest: () => void this.redo(),
+				onExitRequest: () => this.options.onCanvasExitRequest?.(),
+				onToolbarRequest: () => this.options.onCanvasToolbarRequest?.(),
+				onFormatStateChange: formatState => this.options.onFormatStateChange?.(formatState)
+			});
+		} catch (error) {
+			if (error instanceof RangeError) {
+				throw new BaseHalfCanvasMarkdownRequiresRichEditorError();
+			}
+			throw error;
+		}
 		seedRendering.clear();
 		this.runtime = runtime;
 		renderStore.add(toDisposable(() => runtime.destroy()));
@@ -635,19 +696,12 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			return;
 		}
 		const contextualSource = referenceDefinitions ? `${source}\n\n${referenceDefinitions}` : source;
-		const markdown = new MarkdownString(contextualSource, { isTrusted: false, supportHtml: false });
-		markdown.baseUri = state.resource;
-		store.add(renderMarkdown(markdown, {
-			actionHandler: href => this.options.onOpenLink?.(href),
-			fillInIncompleteTokens: true,
-			markedOptions: { gfm: true, breaks: true },
-			sanitizerConfig: {
-				replaceWithPlaintext: true,
-				allowedTags: {
-					override: ['a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'hr', 'li', 'ol', 'p', 'pre', 'strong', 'ul']
-				}
-			}
-		}, container));
+		store.add(renderBaseHalfCanvasStoredMarkdown(
+			container,
+			state.resource,
+			contextualSource,
+			href => this.options.onOpenLink?.(href)
+		));
 	}
 
 	private applyDocumentMarkdown(markdown: string): void {

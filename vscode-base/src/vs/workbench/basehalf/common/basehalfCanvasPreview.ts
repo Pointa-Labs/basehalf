@@ -3,44 +3,63 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-const BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS = 16;
-const BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_CHARACTERS = 4096;
-const ELLIPSIS = '...';
-
 /**
- * Keep the static card preview bounded independently from canvas zoom. One
- * block is reserved for the truncation marker when source content exceeds the
- * budget.
+ * A Markdown card is a projection of the stored document, not a summary.
+ * Preserve the source text exactly here. File-card hydration uses an
+ * all-or-nothing size gate, and an active editor applies that same gate before
+ * rebuilding its resting fallback. Neither path may normalize, truncate, or
+ * decorate source.
  */
 export function baseHalfCanvasMarkdownPreviewSource(raw: string): string {
-	const lines = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')
-		.split('\n')
-		.map(line => line.trimEnd());
-	const contentLineCount = lines.reduce((count, line) => count + (line.trim().length > 0 ? 1 : 0), 0);
-	const truncatedByBlockCount = contentLineCount > BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS;
-	const contentBlockLimit = truncatedByBlockCount
-		? BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS - 1
-		: BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_BLOCKS;
-	const previewLines: string[] = [];
-	let includedContentLines = 0;
-	for (const line of lines) {
-		if (line.trim().length > 0) {
-			if (includedContentLines >= contentBlockLimit) {
-				break;
-			}
-			includedContentLines++;
-		}
-		previewLines.push(line);
-	}
-	while (previewLines.at(-1)?.trim().length === 0) {
-		previewLines.pop();
-	}
-	const preview = previewLines.join('\n');
-	const blockSuffix = truncatedByBlockCount ? `\n\n${ELLIPSIS}` : '';
-	const maximumContentLength = BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_CHARACTERS - blockSuffix.length;
+	return raw;
+}
 
-	if (preview.length > maximumContentLength) {
-		return `${preview.slice(0, BASEHALF_CANVAS_MARKDOWN_PREVIEW_MAX_CHARACTERS - ELLIPSIS.length)}${ELLIPSIS}`;
+export const BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES = 8192;
+
+/**
+ * Apply the Canvas inline boundary to the current source, not JavaScript's
+ * UTF-16 code-unit length. File stat sizes and file-service read limits are
+ * byte based, so a live TextModel must use the same UTF-8 measurement. Stop as
+ * soon as the limit is exceeded instead of allocating an encoded copy of a
+ * potentially very large document.
+ */
+export function baseHalfCanvasMarkdownSourceFitsInline(source: string): boolean {
+	let bytes = 0;
+	for (let index = 0; index < source.length; index++) {
+		const codeUnit = source.charCodeAt(index);
+		if (codeUnit <= 0x7F) {
+			bytes += 1;
+		} else if (codeUnit <= 0x7FF) {
+			bytes += 2;
+		} else if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF
+			&& index + 1 < source.length
+			&& source.charCodeAt(index + 1) >= 0xDC00
+			&& source.charCodeAt(index + 1) <= 0xDFFF) {
+			bytes += 4;
+			index++;
+		} else {
+			// BMP characters and lone surrogate code units both encode to three
+			// bytes; TextEncoder replaces the latter with U+FFFD.
+			bytes += 3;
+		}
+		if (bytes > BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES) {
+			return false;
+		}
 	}
-	return `${preview}${blockSuffix}`;
+	return true;
+}
+
+/**
+ * Inline editing is only a valid transition when the Canvas already owns the
+ * complete stored projection that remains underneath the editor. The file
+ * size is a second, defensive boundary against stale preview metadata.
+ */
+export function baseHalfCanvasMarkdownEditTarget(
+	fileSize: number | undefined,
+	hasCompleteMarkdownPreview: boolean
+): 'inline' | 'richDetail' {
+	return hasCompleteMarkdownPreview
+		&& (fileSize === undefined || fileSize <= BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES)
+		? 'inline'
+		: 'richDetail';
 }

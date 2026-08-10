@@ -4,10 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	collectBaseHalfCanvasMarkdownReferenceDefinitions,
 	computeBaseHalfCanvasMarkdownTextEdit,
+	renderBaseHalfCanvasStoredMarkdown,
+	renderBaseHalfCanvasStoredMarkdownBody,
 	transformBaseHalfCanvasMarkdownOffset
 } from '../../browser/cardDetail/basehalfCanvasMarkdownInlineEditor.js';
 
@@ -53,5 +56,46 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 			'',
 			'[text][fake]'
 		].join('\n')), '');
+	});
+
+	test('stored Markdown rendering never completes malformed emphasis', () => {
+		const source = '春风吹过，城中的草木却长得异常茂盛**，';
+		const unit = document.createElement('div');
+		const rendering = renderBaseHalfCanvasStoredMarkdown(unit, URI.file('/notes/test.md'), source);
+		try {
+			assert.strictEqual(unit.textContent, source);
+			assert.strictEqual(unit.textContent?.endsWith('**，******'), false);
+		} finally {
+			rendering.dispose();
+		}
+	});
+
+	test('resting Markdown renders the same frontmatter-free body as inline editing', () => {
+		const source = '---\r\ntitle: Hidden metadata\r\ntags:\r\n  - test\r\n---\r\n# Visible body\r\n\r\nBody text  \r\n';
+		const before = source;
+		const unit = document.createElement('div');
+		const rendering = renderBaseHalfCanvasStoredMarkdownBody(unit, URI.file('/notes/frontmatter.md'), source);
+		try {
+			assert.strictEqual(unit.textContent?.includes('Hidden metadata'), false);
+			assert.strictEqual(unit.textContent?.includes('Visible body'), true);
+			assert.strictEqual(unit.textContent?.includes('Body text'), true);
+			assert.strictEqual(source, before);
+		} finally {
+			rendering.dispose();
+		}
+	});
+
+	test('frontmatter-only Markdown has an empty shared body projection', () => {
+		const unit = document.createElement('div');
+		const rendering = renderBaseHalfCanvasStoredMarkdownBody(
+			unit,
+			URI.file('/notes/metadata-only.md'),
+			'---\ntitle: Hidden metadata\n---\n'
+		);
+		try {
+			assert.strictEqual(unit.textContent, '');
+		} finally {
+			rendering.dispose();
+		}
 	});
 });

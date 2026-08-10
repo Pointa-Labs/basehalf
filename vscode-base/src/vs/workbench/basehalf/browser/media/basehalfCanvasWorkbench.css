@@ -923,7 +923,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
 	--basehalf-canvas-note-content-padding: 8px 12px 12px;
-	--basehalf-canvas-note-scrollbar-width: calc(10px / var(--basehalf-canvas-zoom, 1));
+	--basehalf-canvas-note-scrollbar-width: 10px;
 	position: relative;
 	padding: var(--basehalf-canvas-note-content-padding);
 	font-family: inherit;
@@ -968,12 +968,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	user-select: text;
 }
 
-/*
- * The editor lives inside React Flow's scaled viewport. A native scrollbar is
- * scaled with the card, so its usual platform width becomes enormous at high
- * zoom and too small to use at low zoom. Keep this one scroll owner, but make
- * its controls screen-sized and give normal/hover/drag one visual contract.
- */
+/* Keep every part of the Note in Canvas coordinates. React Flow scales the
+ * complete card; changing scrollbar layout with zoom would reflow text and
+ * move the caret or scroll anchor inside an otherwise unchanged document. */
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar {
 	width: var(--basehalf-canvas-note-scrollbar-width);
 	height: 0;
@@ -994,9 +991,9 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:hover,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:active {
-	min-height: calc(28px / var(--basehalf-canvas-zoom, 1));
-	border: calc(2px / var(--basehalf-canvas-zoom, 1)) solid transparent;
-	border-radius: calc(5px / var(--basehalf-canvas-zoom, 1));
+	min-height: 28px;
+	border: 2px solid transparent;
+	border-radius: 5px;
 	background: var(--vscode-scrollbarSlider-background);
 	background-clip: padding-box;
 }
@@ -1078,6 +1075,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-preview.kind-node,
 .monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode,
 .monaco-workbench .basehalf-canvas-card-preview.kind-empty,
+.monaco-workbench .basehalf-canvas-card-preview.kind-richRequired,
 .monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
 	font-family: inherit;
 	color: var(--bh-card-text-tertiary);

@@ -17,8 +17,14 @@ import { ITextFileService, TextFileOperationError, TextFileOperationResult } fro
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import { splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../common/basehalfMarkdownRichTextModel.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
+
+/** The rendered preview shares the rich projection's frontmatter boundary. */
+export function baseHalfMarkdownPreviewBody(source: string): string {
+	return splitBaseHalfMarkdownFrontmatter(source).body;
+}
 
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private readonly previewScroll: HTMLElement;
@@ -204,7 +210,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		}
 
 		this.rendered.clear();
-		const markdown = new MarkdownString(model.getValue(), {
+		const markdown = new MarkdownString(baseHalfMarkdownPreviewBody(model.getValue()), {
 			isTrusted: false,
 			supportHtml: true
 		});

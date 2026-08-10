@@ -47,6 +47,8 @@ export interface CanvasMarkdownInlineUnit {
 export interface CanvasMarkdownInlineEditorOptions {
 	readonly markdown: string;
 	readonly units: readonly CanvasMarkdownInlineUnit[];
+	/** Unit hit by the edit gesture; it must survive the projection parity gate. */
+	readonly requiredEditableUnitId?: string;
 	readonly readOnly?: boolean;
 	readonly selection?: CanvasMarkdownInlineSelection;
 	readonly onMarkdownChange?: (markdown: string) => void;
@@ -315,22 +317,6 @@ function normalizeLineEndings(markdown: string): string {
 	return markdown.replace(/\r\n?/g, '\n');
 }
 
-function sourceCarriesRendererHiddenSemantics(markdown: string): boolean {
-	const tokens = canvasTokenizer.parse(normalizeLineEndings(markdown), {}) as readonly MarkdownToken[];
-	for (const token of tokens) {
-		if (token.type === 'fence'
-			|| token.type === 'code_block'
-			|| token.type === 'bullet_list_open'
-			|| token.type === 'ordered_list_open') {
-			return true;
-		}
-		if (token.children?.some(child => child.type === 'link_open' || child.type === 'hardbreak')) {
-			return true;
-		}
-	}
-	return false;
-}
-
 /** Returns whether a top-level Canvas Markdown unit can round-trip through the inline editor. */
 export function canEditCanvasMarkdownUnit(markdown: string): boolean {
 	try {
@@ -362,12 +348,61 @@ interface CanvasMarkdownRuntimeUnit {
 	readonly staticElement: HTMLElement;
 }
 
+function canvasMarkdownProjectionIsEquivalent(renderedDocument: ProseMirrorNode, sourceDocument: ProseMirrorNode): boolean {
+	const sameMarks = (rendered: ProseMirrorNode, source: ProseMirrorNode): boolean => {
+		if (rendered.marks.length !== source.marks.length) {
+			return false;
+		}
+		const renderedTypes = rendered.marks.map(mark => mark.type.name).sort();
+		const sourceTypes = source.marks.map(mark => mark.type.name).sort();
+		return renderedTypes.every((type, index) => type === sourceTypes[index]);
+	};
+	const sameNode = (rendered: ProseMirrorNode, source: ProseMirrorNode): boolean => {
+		const renderedType = rendered.type.name;
+		const sourceType = source.type.name;
+		const sameBreak = (renderedType === 'soft_break' || renderedType === 'hard_break')
+			&& (sourceType === 'soft_break' || sourceType === 'hard_break');
+		if (renderedType !== sourceType && !sameBreak) {
+			return false;
+		}
+		if (rendered.isText || source.isText) {
+			return rendered.isText
+				&& source.isText
+				&& rendered.text === source.text
+				&& sameMarks(rendered, source);
+		}
+		if (!sameMarks(rendered, source)) {
+			return false;
+		}
+		// These attributes carry source fidelity but do not change the resting
+		// glyph projection. Seed them from source after the visible tree matches.
+		if (sourceType === 'heading' && rendered.attrs.level !== source.attrs.level) {
+			return false;
+		}
+		if (sourceType === 'ordered_list' && rendered.attrs.order !== source.attrs.order) {
+			return false;
+		}
+		if (rendered.childCount !== source.childCount) {
+			return false;
+		}
+		for (let index = 0; index < rendered.childCount; index++) {
+			if (!sameNode(rendered.child(index), source.child(index))) {
+				return false;
+			}
+		}
+		return true;
+	};
+	return sameNode(renderedDocument, sourceDocument);
+}
+
 function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 	readonly document: ProseMirrorNode;
 	readonly records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>;
+	readonly editableUnitIds: ReadonlySet<string>;
 } {
 	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
 	const nodes: ProseMirrorNode[] = [];
+	const editableUnitIds = new Set<string>();
 	for (const unit of units) {
 		if (records.has(unit.id)) {
 			throw new RangeError(`Duplicate Canvas Markdown unit id: ${unit.id}`);
@@ -375,11 +410,21 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 		const staticElement = unit.element.cloneNode(true) as HTMLElement;
 		let node: ProseMirrorNode;
 		if (unit.editable) {
-			const parsed = unit.element.childNodes.length > 0 && !sourceCarriesRendererHiddenSemantics(unit.markdown)
+			const sourceDocument = parseMarkdown(unit.markdown);
+			const renderedDocument = unit.element.childNodes.length > 0
 				? ProseMirrorDOMParser.fromSchema(canvasSchema).parse(unit.element)
-				: parseMarkdown(unit.markdown);
-			const content = parsed.childCount > 0 ? parsed.content : canvasSchema.nodes.paragraph.create();
-			node = canvasSchema.nodes.markdown_unit.create({ unitId: unit.id }, content);
+				: sourceDocument;
+			if (!canvasMarkdownProjectionIsEquivalent(renderedDocument, sourceDocument)) {
+				// A renderer may decorate an incomplete or unsupported construct for
+				// display, or parse the same text into different Markdown semantics.
+				// Preserve that exact resting DOM as a read-only atom instead of
+				// allowing presentation-only state into the editable source model.
+				node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
+			} else {
+				const content = sourceDocument.childCount > 0 ? sourceDocument.content : canvasSchema.nodes.paragraph.create();
+				node = canvasSchema.nodes.markdown_unit.create({ unitId: unit.id }, content);
+				editableUnitIds.add(unit.id);
+			}
 		} else {
 			node = canvasSchema.nodes.unsupported_markdown.create({ unitId: unit.id });
 		}
@@ -389,7 +434,50 @@ function createDocumentUnits(units: readonly CanvasMarkdownInlineUnit[]): {
 	return {
 		document: canvasSchema.nodes.doc.create(null, nodes),
 		records,
+		editableUnitIds,
 	};
+}
+
+function serializeCanvasMarkdownUnit(document: ProseMirrorNode): string {
+	let markdown = canvasSerializer.serialize(document);
+	// Segment separators belong to the workbench projection. The serializer
+	// may close a document with one LF; never leak that byte into the unit.
+	let tail: ProseMirrorNode = document;
+	while (tail.lastChild) {
+		tail = tail.lastChild;
+	}
+	if (tail.type.name !== 'soft_break' && markdown.endsWith('\n')) {
+		markdown = markdown.slice(0, -1);
+	}
+	return markdown;
+}
+
+function serializeCanvasMarkdownDocument(
+	document: ProseMirrorNode,
+	records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>,
+	documentLineEnding: '\n' | '\r\n',
+): string {
+	let markdown = '';
+	document.forEach(node => {
+		const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
+		const record = unitId ? records.get(unitId) : undefined;
+		if (record) {
+			let source = record.input.markdown;
+			if (node.type === canvasSchema.nodes.markdown_unit && !node.content.eq(record.initialNode.content)) {
+				source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node.content));
+				if (record.input.markdown.includes('\r\n') || documentLineEnding === '\r\n') {
+					source = source.replace(/\n/g, '\r\n');
+				}
+			}
+			markdown += `${record.input.prefix}${source}${record.input.separator}`;
+			return;
+		}
+		// Unit wrappers are document-only schema nodes. Preserve user content
+		// defensively if a future command introduces a bare top-level block.
+		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node));
+		markdown += `${markdown.length > 0 ? '\n\n' : ''}${source}`;
+	});
+	return markdown;
 }
 
 function selectionForDocument(document: ProseMirrorNode, requested?: CanvasMarkdownInlineSelection): Selection {
@@ -1260,52 +1348,20 @@ export function createCanvasMarkdownInlineEditor(
 	if (!options.units.some(unit => unit.editable)) {
 		throw new RangeError('This Markdown document needs the full editor.');
 	}
-	const { document: initialDocument, records } = createDocumentUnits(options.units);
+	const { document: initialDocument, records, editableUnitIds } = createDocumentUnits(options.units);
+	if (editableUnitIds.size === 0
+		|| (options.requiredEditableUnitId !== undefined && !editableUnitIds.has(options.requiredEditableUnitId))) {
+		throw new RangeError('This Markdown document needs the full editor.');
+	}
 	const initialState = EditorState.create({
 		doc: initialDocument,
 		selection: selectionForDocument(initialDocument, options.selection),
 		plugins,
 	});
 
-	const serializeUnit = (document: ProseMirrorNode): string => {
-		let markdown = canvasSerializer.serialize(document);
-		// Segment separators belong to the workbench projection. The serializer
-		// may close a document with one LF; never leak that byte into the unit.
-		let tail: ProseMirrorNode = document;
-		while (tail.lastChild) {
-			tail = tail.lastChild;
-		}
-		if (tail.type.name !== 'soft_break' && markdown.endsWith('\n')) {
-			markdown = markdown.slice(0, -1);
-		}
-		return markdown;
-	};
-	const serializeDocument = (document: ProseMirrorNode): string => {
-		let markdown = '';
-		document.forEach(node => {
-			const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
-			const record = unitId ? records.get(unitId) : undefined;
-			if (record) {
-				let source = record.input.markdown;
-				if (node.type === canvasSchema.nodes.markdown_unit && !node.content.eq(record.initialNode.content)) {
-					source = serializeUnit(canvasSchema.nodes.doc.create(null, node.content));
-					if (record.input.markdown.includes('\r\n') || documentLineEnding === '\r\n') {
-						source = source.replace(/\n/g, '\r\n');
-					}
-				}
-				markdown += `${record.input.prefix}${source}${record.input.separator}`;
-				return;
-			}
-			// Unit wrappers are document-only schema nodes. Preserve user content
-			// defensively if a future command introduces a bare top-level block.
-			const source = serializeUnit(canvasSchema.nodes.doc.create(null, node));
-			markdown += `${markdown.length > 0 ? '\n\n' : ''}${source}`;
-		});
-		return markdown;
-	};
 	const emitMarkdownChange = (): void => {
 		pendingMarkdownChange = false;
-		const markdown = serializeDocument(view.state.doc);
+		const markdown = serializeCanvasMarkdownDocument(view.state.doc, records, documentLineEnding);
 		if (markdown === lastReportedMarkdown) {
 			return;
 		}
@@ -1455,7 +1511,7 @@ export function createCanvasMarkdownInlineEditor(
 			return selectionSnapshot(view.state.selection);
 		},
 		getMarkdown() {
-			return serializeDocument(view.state.doc);
+			return serializeCanvasMarkdownDocument(view.state.doc, records, documentLineEnding);
 		},
 		getFormatState() {
 			return emitFormatState();
