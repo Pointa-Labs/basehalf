@@ -44,6 +44,13 @@ const statusMessage = requiredElement<HTMLElement>('basehalf-pdf-status-message'
 const vscode = acquireVsCodeApi();
 const initialization: { timeout?: number } = {};
 
+for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
+	window.addEventListener(type, () => vscode.postMessage({ type: 'basehalf.pdf.userInteraction' }), {
+		capture: true,
+		passive: true
+	});
+}
+
 function requiredDatasetValue(name: string): string {
 	const value = root.dataset[name];
 	if (!value) {

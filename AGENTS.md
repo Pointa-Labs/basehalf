@@ -145,6 +145,7 @@ Current private decision index:
 - [block-editor-blocknote.md](private-docs/decisions/block-editor-blocknote.md) — block editor uses BlockNote.
 - [blocknote-confirmed-for-notion-parity.md](private-docs/decisions/blocknote-confirmed-for-notion-parity.md) — BlockNote supports Notion-level editing goals.
 - [brief-freshness-calibration.md](private-docs/decisions/brief-freshness-calibration.md) — agents should compare annotation/file freshness dates.
+- [canvas-creation-stays-on-canvas.md](private-docs/decisions/canvas-creation-stays-on-canvas.md) — creating any node stays on the canvas; New Note enters its inline editor and Card Detail requires explicit open intent.
 - [canvas-lib-react-flow.md](private-docs/decisions/canvas-lib-react-flow.md) — canvas uses React Flow.
 - [clean-slate-delete-old-src.md](private-docs/decisions/clean-slate-delete-old-src.md) — old `src/` reference implementation was deleted cleanly.
 - [containers-renamed-to-badges.md](private-docs/decisions/containers-renamed-to-badges.md) — containers renamed to badges.

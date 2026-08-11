@@ -31,6 +31,12 @@ export interface IBaseHalfNavigationHistoryOptions {
 	readonly history?: 'push' | 'replace';
 }
 
+export interface IBaseHalfCloseCardDetailOptions extends IBaseHalfNavigationHistoryOptions {
+	/** Close only this exact detail epoch. A replacement opened while the active
+	 * editor is flushing must never be closed by an older async intent. */
+	readonly expectedCardDetail?: IBaseHalfCardDetailState;
+}
+
 export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistoryOptions {
 	readonly source: BaseHalfOpenSource;
 	readonly selection?: ITextEditorSelection;
@@ -40,6 +46,9 @@ export interface IBaseHalfOpenResourceOptions extends IBaseHalfNavigationHistory
 	/** The caller already froze the inline author and adopted its current
 	 * projection into the shared working copy. */
 	readonly canvasProjectionHandoff?: true;
+	/** Replace only this exact detail epoch. A newer detail opened while the
+	 * active editor is flushing must win over an older structural reconciliation. */
+	readonly expectedCardDetail?: IBaseHalfCardDetailState;
 }
 
 export interface IBaseHalfWorkspaceResource {
@@ -74,7 +83,7 @@ export interface IBaseHalfCanvasNavigationState {
 export type BaseHalfNavigationResult =
 	| { readonly handled: true; readonly target: 'canvasFolder'; readonly state: IBaseHalfCanvasFolderState }
 	| { readonly handled: true; readonly target: 'cardDetail'; readonly state: IBaseHalfCardDetailState }
-	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' | 'blockedByDirtyEditor' };
+	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' | 'blockedByDirtyEditor' | 'superseded' };
 
 export interface IBaseHalfCanvasNavigationService {
 	readonly _serviceBrand: undefined;
@@ -99,7 +108,7 @@ export interface IBaseHalfCanvasNavigationService {
 	openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
-	closeCardDetail(options?: IBaseHalfNavigationHistoryOptions): Promise<boolean>;
+	closeCardDetail(options?: IBaseHalfCloseCardDetailOptions): Promise<boolean>;
 	goBack(): Promise<boolean>;
 	goForward(): Promise<boolean>;
 }

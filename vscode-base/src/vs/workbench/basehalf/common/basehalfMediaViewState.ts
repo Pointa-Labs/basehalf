@@ -25,7 +25,11 @@ export interface IBaseHalfPdfCreateBranchMessage {
 	readonly selection: IBaseHalfPdfSelection;
 }
 
-export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage;
+export interface IBaseHalfPdfUserInteractionMessage {
+	readonly type: 'basehalf.pdf.userInteraction';
+}
+
+export type BaseHalfPdfWebviewMessage = IBaseHalfPdfViewStateMessage | IBaseHalfPdfCreateBranchMessage | IBaseHalfPdfUserInteractionMessage;
 
 export const DEFAULT_BASEHALF_PDF_VIEW_STATE: IBaseHalfPdfViewState = Object.freeze({
 	page: 1,
@@ -87,4 +91,10 @@ export function baseHalfPdfSelectionFromMessage(value: unknown): IBaseHalfPdfSel
 	}
 
 	return { text, pages };
+}
+
+export function isBaseHalfPdfUserInteractionMessage(value: unknown): value is IBaseHalfPdfUserInteractionMessage {
+	return !!value
+		&& typeof value === 'object'
+		&& (value as Partial<IBaseHalfPdfUserInteractionMessage>).type === 'basehalf.pdf.userInteraction';
 }

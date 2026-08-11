@@ -18,7 +18,7 @@ import {
 	IBaseHalfCanvasNavigationState,
 	IBaseHalfActiveCanvasEditor,
 	IBaseHalfCardDetailState,
-	IBaseHalfNavigationHistoryOptions,
+	IBaseHalfCloseCardDetailOptions,
 	IBaseHalfOpenResourceOptions
 } from './basehalfCanvasNavigation.js';
 import { IBaseHalfCardProjectionRegistryService } from './basehalfCardDetail.js';
@@ -37,6 +37,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 	private _activeCanvasEditor: IBaseHalfActiveCanvasEditor | undefined;
 
 	private _state: IBaseHalfCanvasNavigationState;
+	private stateVersion = 0;
 
 	get state(): IBaseHalfCanvasNavigationState {
 		return this._state;
@@ -148,6 +149,11 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
+		const acceptedCardDetail = this._state.cardDetail;
+		const acceptedVersion = this.stateVersion;
+		if (options.expectedCardDetail && acceptedCardDetail !== options.expectedCardDetail) {
+			return { handled: false, reason: 'superseded' };
+		}
 		const adoptsCanvasProjection = options.canvasProjectionHandoff === true
 			&& !this._state.cardDetail
 			&& !!this._activeCanvasEditor
@@ -157,6 +163,10 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			&& (this._activeCanvasEditor || this._state.cardDetail)
 			&& !await this.flushActiveEditor()) {
 			return { handled: false, reason: 'blockedByDirtyEditor' };
+		}
+		if (options.expectedCardDetail
+			&& (this.stateVersion !== acceptedVersion || this._state.cardDetail !== acceptedCardDetail)) {
+			return { handled: false, reason: 'superseded' };
 		}
 
 		const canvasFolder = this.toParentCanvasFolder(resource, options);
@@ -182,11 +192,19 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return { handled: true, target: 'cardDetail', state: cardDetail };
 	}
 
-	async closeCardDetail(options: IBaseHalfNavigationHistoryOptions = {}): Promise<boolean> {
-		if (!this._state.cardDetail) {
-			return true;
+	async closeCardDetail(options: IBaseHalfCloseCardDetailOptions = {}): Promise<boolean> {
+		const accepted = this._state.cardDetail;
+		const acceptedVersion = this.stateVersion;
+		if (!accepted) {
+			return options.expectedCardDetail === undefined;
+		}
+		if (options.expectedCardDetail && accepted !== options.expectedCardDetail) {
+			return false;
 		}
 		if (!await this.flushActiveEditor()) {
+			return false;
+		}
+		if (this.stateVersion !== acceptedVersion || this._state.cardDetail !== accepted) {
 			return false;
 		}
 
@@ -267,6 +285,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		state: IBaseHalfCanvasNavigationState,
 		options: { readonly recordHistory: boolean; readonly collapseHistoryBoundary?: boolean } = { recordHistory: true }
 	): void {
+		this.stateVersion++;
 		if (this.statesEqual(this._state, state)) {
 			this._state = state;
 			if (options.collapseHistoryBoundary) {

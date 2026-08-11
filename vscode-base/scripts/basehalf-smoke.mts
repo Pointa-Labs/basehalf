@@ -2057,9 +2057,16 @@ async function assertPdfGrowsThreeBranches(page) {
 		const action = await selectPdfFixtureText(page);
 		await action.click();
 		const name = branchNames[index];
-		await assertCardDetail(page, name);
 		const branchPath = path.join(workspacePath, 'docs', name);
 		await waitUntil(() => fs.existsSync(branchPath), `${name} to be created from the PDF selection`, 15_000);
+		await assertCanvasFolder(page, 'docs');
+		const branchCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="docs/${name}"]`);
+		await branchCard.waitFor({ state: 'visible', timeout: 15_000 });
+		await waitForCanvasCardSelection(page, `docs/${name}`, 15_000);
+		if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+			throw new Error(`${name} opened Card Detail instead of returning to the PDF canvas`);
+		}
+		const branchEditor = await waitForCanvasNoteInlineEditor(page, `docs/${name}`);
 		const markdown = fs.readFileSync(branchPath, 'utf8');
 		if (!markdown.includes('> BaseHalf PDF') || !markdown.includes('Source: [textbook.pdf](./textbook.pdf), page 1')) {
 			throw new Error(`${name} did not preserve the selected passage and source page as ordinary Markdown`);
@@ -2072,12 +2079,13 @@ async function assertPdfGrowsThreeBranches(page) {
 		if (!sourceBadge.includes(`docs/${name}`) || !targetBadge.includes('docs/textbook.pdf')) {
 			throw new Error(`${name} did not persist the two-sided PDF context-flow reference`);
 		}
+		await page.keyboard.press('Escape');
+		await branchEditor.host.waitFor({ state: 'detached', timeout: 10_000 });
 	}
 
 	if (!fs.existsSync(sourcePath)) {
 		throw new Error('Growing PDF branches unexpectedly moved or removed the source document');
 	}
-	await closeCardDetailIfOpen(page);
 	for (const name of branchNames) {
 		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="docs/${name}"]`).waitFor({ state: 'visible', timeout: 15_000 });
 	}
@@ -2152,6 +2160,14 @@ async function assertVideoWorkflowTemplate(page) {
 		'shots/shot-01/clip.bhnode',
 			'video-sequence.json'
 	].every(relativePath => fs.existsSync(path.join(workflowRoot, relativePath))), 'video workflow template files to be created', 20_000);
+	await assertCanvasFolder(page, '');
+	const workflowCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}"]`);
+	await workflowCard.waitFor({ state: 'visible', timeout: 15_000 });
+	await waitForCanvasCardSelection(page, workflowName, 15_000);
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas template creation opened content instead of staying on the parent canvas');
+	}
+	await workflowCard.dblclick();
 	await assertCanvasFolder(page, workflowName);
 	for (const relativePath of [
 		'brief.md',
@@ -3086,18 +3102,44 @@ function canvasNoteInlineEditor(page, relativePath) {
 	};
 }
 
+async function waitForCanvasCardSelection(page, relativePath, timeout = 10_000) {
+	await page.waitForFunction(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card'))
+			.find(candidate => candidate instanceof HTMLElement && candidate.dataset.basehalfCardPath === path);
+		return card?.closest('.react-flow__node')?.classList.contains('selected') === true;
+	}, relativePath, { timeout });
+}
+
 async function waitForCanvasNoteInlineEditor(page, relativePath) {
 	const editor = canvasNoteInlineEditor(page, relativePath);
-	await editor.host.waitFor({ state: 'visible', timeout: 3_000 });
-	await editor.surface.waitFor({ state: 'visible', timeout: 3_000 });
-	await editor.editable.waitFor({ state: 'visible', timeout: 3_000 });
-	await page.waitForFunction(testId => {
-		const host = document.querySelector(`[data-testid="${testId}"]`);
-		const editable = host?.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror');
-		return editable instanceof HTMLElement
-			&& editable.getAttribute('contenteditable') === 'true'
-			&& (document.activeElement === editable || editable.contains(document.activeElement));
-	}, `canvas-note-editor-${relativePath}`, { timeout: 3_000 });
+	await editor.host.waitFor({ state: 'visible', timeout: 10_000 });
+	await editor.surface.waitFor({ state: 'visible', timeout: 10_000 });
+	await editor.editable.waitFor({ state: 'visible', timeout: 10_000 });
+	try {
+		await page.waitForFunction(testId => {
+			const host = document.querySelector(`[data-testid="${testId}"]`);
+			const editable = host?.querySelector('.basehalf-canvas-markdown-inline > .ProseMirror');
+			return editable instanceof HTMLElement
+				&& editable.getAttribute('contenteditable') === 'true'
+				&& (document.activeElement === editable || editable.contains(document.activeElement));
+		}, `canvas-note-editor-${relativePath}`, { timeout: 10_000 });
+	} catch (error) {
+		const focus = await page.evaluate(() => {
+			const active = document.activeElement;
+			return {
+				tag: active?.tagName,
+				className: active instanceof HTMLElement ? active.className : undefined,
+				role: active?.getAttribute('role'),
+				ariaLabel: active?.getAttribute('aria-label'),
+				cardPath: active instanceof HTMLElement
+					? active.closest<HTMLElement>('.basehalf-canvas-card')?.dataset.basehalfCardPath
+					: undefined,
+				insideCardDetail: active instanceof HTMLElement && active.closest('.basehalf-card-detail') !== null,
+				insideCanvas: active instanceof HTMLElement && active.closest('.basehalf-canvas-workbench') !== null
+			};
+		});
+		throw new Error(`Canvas Note ${relativePath} mounted but did not receive focus: ${JSON.stringify(focus)} (${error instanceof Error ? error.message : String(error)})`);
+	}
 	const liveEditors = await page.locator('[data-testid^="canvas-note-editor-"]').count();
 	if (liveEditors !== 1) {
 		throw new Error(`Expected exactly one Canvas Note inline editor, got ${liveEditors}`);
@@ -5574,8 +5616,10 @@ async function assertCanvasCreateResultNodeSubmenu(page) {
 	}
 	const card = page.locator('.basehalf-canvas-card[data-basehalf-card-path="image.bhnode"]');
 	await card.waitFor({ state: 'visible', timeout: 10_000 });
-	if (!await card.evaluate(element => element.classList.contains('selected'))) {
-		throw new Error('Canvas result-node submenu did not select the new image node');
+	await waitForCanvasCardSelection(page, 'image.bhnode');
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)
+		|| await page.locator('.basehalf-node-local-surface').isVisible().catch(() => false)) {
+		throw new Error('Canvas result-node creation opened content instead of leaving the new card selected');
 	}
 	fs.rmSync(nodePath, { force: true });
 	await card.waitFor({ state: 'hidden', timeout: 10_000 });
@@ -5594,12 +5638,15 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	await input.fill('smoke-data.json');
 	await input.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-data.json')), 'canvas New File to create the exact extension');
-	await assertCardDetail(page, 'smoke-data.json');
+	const dataCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]');
+	await dataCard.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas New File opened Card Detail instead of staying on the canvas');
+	}
+	await waitForCanvasCardSelection(page, 'smoke-data.json');
 	if (fs.existsSync(path.join(workspacePath, 'smoke-data.json.md'))) {
 		throw new Error('Canvas New File appended .md to an explicitly named JSON file');
 	}
-	await page.locator('.basehalf-card-detail-close').click();
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]').waitFor({ state: 'visible', timeout: 10_000 });
 
 	await clickCanvasCreateAction(page, 'New Folder...');
 	input = page.locator('.basehalf-canvas-inline-create-card input');
@@ -5615,28 +5662,57 @@ async function assertCanvasCreateNoteFileAndFolder(page) {
 	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
 		throw new Error('Canvas New Folder navigated away from its parent canvas');
 	}
-	if (!await folderCard.evaluate(element => element.classList.contains('selected'))) {
-		throw new Error('Canvas New Folder did not select the new folder on its parent canvas');
-	}
+	await waitForCanvasCardSelection(page, 'smoke-folder');
 
+	await dataCard.dblclick();
+	await assertCardDetail(page, 'smoke-data.json');
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+N' : 'Control+N');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'untitled.md')), 'global New Note to create an untitled Markdown file');
-	const titleInput = page.locator('.basehalf-card-detail-title-input input');
-	await titleInput.waitFor({ state: 'visible', timeout: 15_000 });
-	if (await titleInput.inputValue() !== 'untitled.md') {
-		throw new Error(`New Note did not focus the real filename, got ${JSON.stringify(await titleInput.inputValue())}`);
+	const untitledNote = page.locator('.basehalf-canvas-card[data-basehalf-card-path="untitled.md"]');
+	await untitledNote.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas New Note opened Card Detail instead of staying on the canvas');
 	}
-	// Renaming is a structural edit and must flush the newly opened rich
-	// working copy first. Wait for that working copy to finish attaching.
-	await activeMarkdownRichFrame(page);
-	await titleInput.fill('smoke-note.md');
-	await titleInput.press('Enter');
-	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-note.md')) && !fs.existsSync(path.join(workspacePath, 'untitled.md')), 'new-note title rename to move the real file');
-	await assertCardDetail(page, 'smoke-note.md');
-	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
-	await page.locator('.basehalf-card-detail-close').click();
+	await waitForCanvasCardSelection(page, 'untitled.md');
+	const createdNoteEditor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
+	await assertNoCanvasNoteHeavyEditor(page, '.basehalf-canvas-card[data-basehalf-card-path="untitled.md"]', 'new Note automatic inline editing');
+	await page.keyboard.press('Escape');
+	await createdNoteEditor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	fs.rmSync(path.join(workspacePath, 'untitled.md'), { force: true });
+	await untitledNote.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	// The Create menu closes after dispatching its command. Its focus restoration
+	// must not override the explicit New Note inline-edit intent.
+	await clickCanvasCreateAction(page, 'New Note');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'untitled.md')), 'canvas Create menu New Note to create an untitled Markdown file');
+	await untitledNote.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas Create menu New Note opened Card Detail instead of staying on the canvas');
+	}
+	await waitForCanvasCardSelection(page, 'untitled.md');
+	const menuCreatedNoteEditor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
+	await page.keyboard.press('Escape');
+	await menuCreatedNoteEditor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	fs.rmSync(path.join(workspacePath, 'untitled.md'), { force: true });
+	await untitledNote.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	// File intent remains distinct from Note intent even when the exact filename
+	// is Markdown: select the card, but do not enter its inline editor.
+	await clickCanvasCreateAction(page, 'New File...');
+	input = page.locator('.basehalf-canvas-inline-create-card input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	await input.fill('smoke-note.md');
+	await input.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-note.md')), 'canvas New File to create an exact Markdown filename');
 	const emptyNote = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]');
 	await emptyNote.waitFor({ state: 'visible', timeout: 10_000 });
+	await waitForCanvasCardSelection(page, 'smoke-note.md');
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas New File treated an exact Markdown filename as an automatic Card Detail open');
+	}
+	if (await canvasNoteInlineEditor(page, 'smoke-note.md').host.count() !== 0) {
+		throw new Error('Canvas New File treated an exact Markdown file as the New Note editing intent');
+	}
 	await centerCanvasCards(page, [emptyNote]);
 	const emptyNotePlaceholder = emptyNote.locator('.basehalf-canvas-note-empty', { hasText: 'Double-click to edit' });
 	await emptyNotePlaceholder.waitFor({ state: 'visible', timeout: 10_000 });
@@ -6022,7 +6098,13 @@ async function clickCanvasCreateAction(page, label) {
 	const createButton = page.locator('.basehalf-canvas-create-button');
 	await createButton.focus();
 	await page.keyboard.press('Enter');
-	const action = page.getByRole('menuitem', { name: label, exact: true }).filter({ visible: true }).last();
+	// A command keybinding is part of the menuitem's accessible name (for
+	// example, "New Note ⌘N"). Match the visible action label so the helper
+	// exercises both keybound and unbound create commands.
+	const action = page.locator('.context-view.monaco-menu-container .action-label')
+		.filter({ hasText: new RegExp(`^${escapeRegExp(label)}$`) })
+		.filter({ visible: true })
+		.last();
 	await action.waitFor({ state: 'visible', timeout: 10_000 });
 	// VS Code intentionally attaches menu mouse-up listeners after a 100 ms
 	// guard against the pointer event that opened the menu. Let the real widget

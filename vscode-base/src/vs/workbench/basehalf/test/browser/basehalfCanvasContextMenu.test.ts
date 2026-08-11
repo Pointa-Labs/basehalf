@@ -185,6 +185,7 @@ suite('BaseHalf canvas context menu', () => {
 		}]);
 		assert.deepStrictEqual(created.sourceBadge?.references, ['Starter/frame.bhnode']);
 		assert.deepStrictEqual(created.targetBadge?.referenced_by, ['Starter/brief.md']);
+		assert.deepStrictEqual(harness.selections, [{ folder: harness.workspaceFolder, resources: [harness.projectResource] }]);
 
 		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		assert.strictEqual(await harness.fileService.exists(harness.projectResource), false);
@@ -344,6 +345,7 @@ interface ITemplateHarness {
 	readonly targetBadgeNode: IBaseHalfBadgeNode;
 	readonly templateSource: string;
 	readonly promptLabels: readonly (readonly string[])[];
+	readonly selections: readonly { readonly folder: URI; readonly resources: readonly URI[] }[];
 	create(): Promise<void>;
 	createWithCancellation(token: CancellationToken): Promise<void>;
 	resume(): Promise<void>;
@@ -450,6 +452,15 @@ async function createTemplateHarness(
 		setSurfaceActive: () => undefined,
 		openResource: async () => ({ handled: false, reason: 'unsupportedResource' as const })
 	} as unknown as IBaseHalfCanvasNavigationService;
+	const selections: { folder: URI; resources: readonly URI[] }[] = [];
+	const editing = {
+		beginPostCreateIntent: () => ({ generation: 1 }),
+		invalidatePostCreateIntents: () => undefined,
+		isPostCreateIntentCurrent: () => true,
+		requestSelection: async (folder: URI, resources: readonly URI[]) => {
+			selections.push({ folder, resources: [...resources] });
+		}
+	} as unknown as IBaseHalfCanvasEditingService;
 	const configurationService = new TestConfigurationService({ explorer: { confirmUndo: 'default' } });
 	const quickInputService = {
 		pick: async (items: readonly unknown[]) => items[0]
@@ -464,6 +475,7 @@ async function createTemplateHarness(
 		[IBaseHalfCanvasRecipeRegistryService, recipes],
 		[IFileService, fileService],
 		[IBaseHalfCanvasNavigationService, navigation],
+		[IBaseHalfCanvasEditingService, editing],
 		[IBaseHalfCanvasMirrorService, canvasMirror],
 		[IBaseHalfBadgeGraphService, badgeGraph],
 		[IConfigurationService, configurationService],
@@ -501,6 +513,7 @@ async function createTemplateHarness(
 		targetBadgeNode: templateBadgeNode(workspaceFolder, projectResource, 'frame.bhnode'),
 		templateSource,
 		promptLabels,
+		selections,
 		create: async () => createCommand.handler(accessor, TEMPLATE_ID),
 		createWithCancellation: async cancellationToken => createCommand.handler(accessor, {
 			templateId: TEMPLATE_ID,

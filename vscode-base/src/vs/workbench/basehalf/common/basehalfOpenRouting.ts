@@ -73,5 +73,5 @@ export async function tryOpenBaseHalfResource(
 }
 
 export function shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result: BaseHalfOpenRoutingResult): boolean {
-	return !result.handled && result.reason !== 'blockedByDirtyEditor';
+	return !result.handled && result.reason !== 'blockedByDirtyEditor' && result.reason !== 'superseded';
 }

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
+import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, DEFAULT_BASEHALF_PDF_VIEW_STATE, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 
 suite('BaseHalfMediaViewState', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -46,5 +46,11 @@ suite('BaseHalfMediaViewState', () => {
 			type: 'basehalf.pdf.createBranch',
 			selection: { text: 'Passage', pages: [] }
 		}), undefined);
+	});
+
+	test('recognizes only the explicit PDF user-interaction bridge message', () => {
+		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.userInteraction' }), true);
+		assert.strictEqual(isBaseHalfPdfUserInteractionMessage({ type: 'basehalf.pdf.viewState' }), false);
+		assert.strictEqual(isBaseHalfPdfUserInteractionMessage(undefined), false);
 	});
 });

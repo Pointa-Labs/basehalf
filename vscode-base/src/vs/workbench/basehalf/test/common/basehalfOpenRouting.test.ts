@@ -122,6 +122,7 @@ suite('BaseHalfOpenRouting', () => {
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'forcedVSCodeEditor' }), true);
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'missingOrUnreadable' }), true);
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'blockedByDirtyEditor' }), false);
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'superseded' }), false);
 	});
 });
 

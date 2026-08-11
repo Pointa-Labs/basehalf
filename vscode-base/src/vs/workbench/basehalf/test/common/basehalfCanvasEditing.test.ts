@@ -61,6 +61,27 @@ suite('BaseHalfCanvasEditing', () => {
 		]);
 	});
 
+	test('drops a post-create selection after a newer interaction invalidates its intent', async () => {
+		const service = new BaseHalfCanvasEditingService();
+		const requests: BaseHalfCanvasEditingRequest[] = [];
+		disposables.add(service.registerHandler(async request => { requests.push(request); }));
+		const first = service.beginPostCreateIntent();
+
+		assert.strictEqual(service.isPostCreateIntentCurrent(first), true);
+		service.invalidatePostCreateIntents();
+		assert.strictEqual(service.isPostCreateIntentCurrent(first), false);
+		await service.requestSelection(URI.file('/work'), [URI.file('/work/stale')], first);
+		assert.deepStrictEqual(requests, []);
+
+		const current = service.beginPostCreateIntent();
+		await service.requestSelection(URI.file('/work'), [URI.file('/work/current')], current);
+		assert.deepStrictEqual(requests, [{
+			kind: 'select',
+			folder: URI.file('/work'),
+			resources: [URI.file('/work/current')]
+		}]);
+	});
+
 	test('propagates handler completion and failures to command callers', async () => {
 		const service = new BaseHalfCanvasEditingService();
 		await assert.rejects(service.requestCreate(undefined, 'note'), /surface is not available/);

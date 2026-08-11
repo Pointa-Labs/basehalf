@@ -211,6 +211,112 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
+	test('does not close or flush a replacement Card Detail for an older expected identity', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/first.md'), { source: 'api' });
+		const first = service.state.cardDetail!;
+		await service.openCardDetail(URI.file('/workspace/replacement.md'), { source: 'api' });
+		const replacement = service.state.cardDetail!;
+		let flushCalls = 0;
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			flushCalls++;
+			return true;
+		});
+
+		assert.strictEqual(await service.closeCardDetail({ expectedCardDetail: first }), false);
+		assert.strictEqual(flushCalls, 0);
+		assert.strictEqual(service.state.cardDetail, replacement);
+		flusher.dispose();
+	});
+
+	test('keeps a replacement opened while an older Card Detail close is flushing', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/first.md'), { source: 'api' });
+		const first = service.state.cardDetail!;
+		const firstFlushEntered = new DeferredPromise<void>();
+		const releaseFirstFlush = new DeferredPromise<boolean>();
+		let flushCalls = 0;
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			flushCalls++;
+			if (flushCalls === 1) {
+				firstFlushEntered.complete(undefined);
+				return releaseFirstFlush.p;
+			}
+			return true;
+		});
+
+		const closing = service.closeCardDetail({ expectedCardDetail: first });
+		await firstFlushEntered.p;
+		const opened = await service.openCardDetail(URI.file('/workspace/replacement.md'), { source: 'api' });
+		assert.ok(opened.handled && opened.target === 'cardDetail');
+		const replacement = service.state.cardDetail!;
+		releaseFirstFlush.complete(true);
+
+		assert.strictEqual(await closing, false);
+		assert.strictEqual(flushCalls, 2);
+		assert.strictEqual(service.state.cardDetail, replacement);
+		flusher.dispose();
+	});
+
+	test('does not replace a newer Card Detail for an older expected identity', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/first.md'), { source: 'api' });
+		const first = service.state.cardDetail!;
+		await service.openCardDetail(URI.file('/workspace/replacement.md'), { source: 'api' });
+		const replacement = service.state.cardDetail!;
+		let flushCalls = 0;
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			flushCalls++;
+			return true;
+		});
+
+		assert.deepStrictEqual(await service.openCardDetail(URI.file('/workspace/moved.md'), {
+			source: 'api',
+			history: 'replace',
+			expectedCardDetail: first
+		}), { handled: false, reason: 'superseded' });
+		assert.strictEqual(flushCalls, 0);
+		assert.strictEqual(service.state.cardDetail, replacement);
+		flusher.dispose();
+	});
+
+	test('keeps a replacement opened while an older Card Detail replace is flushing', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map(), [workspaceFolder], flushService);
+		await service.openCardDetail(URI.file('/workspace/first.md'), { source: 'api' });
+		const first = service.state.cardDetail!;
+		const firstFlushEntered = new DeferredPromise<void>();
+		const releaseFirstFlush = new DeferredPromise<boolean>();
+		let flushCalls = 0;
+		const flusher = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => {
+			flushCalls++;
+			if (flushCalls === 1) {
+				firstFlushEntered.complete(undefined);
+				return releaseFirstFlush.p;
+			}
+			return true;
+		});
+
+		const replacing = service.openCardDetail(URI.file('/workspace/moved.md'), {
+			source: 'api',
+			history: 'replace',
+			expectedCardDetail: first
+		});
+		await firstFlushEntered.p;
+		const opened = await service.openCardDetail(URI.file('/workspace/replacement.md'), { source: 'api' });
+		assert.ok(opened.handled && opened.target === 'cardDetail');
+		const replacement = service.state.cardDetail!;
+		releaseFirstFlush.complete(true);
+
+		assert.deepStrictEqual(await replacing, { handled: false, reason: 'superseded' });
+		assert.strictEqual(flushCalls, 2);
+		assert.strictEqual(service.state.cardDetail, replacement);
+		flusher.dispose();
+	});
+
 	test('publishes whether the BaseHalf surface owns global navigation', () => {
 		const service = createService(new Map());
 		const events: boolean[] = [];

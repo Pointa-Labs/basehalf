@@ -24,7 +24,7 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
-import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
+import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService, IBaseHalfCanvasPostCreateIntent } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { IBaseHalfCanvasMirrorService, IBaseHalfCanvasStateTransition } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfBadgeGraphService, IBaseHalfReferenceStateTransition } from '../common/basehalfBadgeGraph.js';
@@ -166,6 +166,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		const recipes = accessor.get(IBaseHalfCanvasRecipeRegistryService);
 		const fileService = accessor.get(IFileService);
 		const navigation = accessor.get(IBaseHalfCanvasNavigationService);
+		const editing = accessor.get(IBaseHalfCanvasEditingService);
+		const postCreateIntent = editing.beginPostCreateIntent();
 		const canvasMirror = accessor.get(IBaseHalfCanvasMirrorService);
 		const badgeGraph = accessor.get(IBaseHalfBadgeGraphService);
 		const configurationService = accessor.get(IConfigurationService);
@@ -248,6 +250,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			canvasMirror,
 			badgeGraph,
 			navigation,
+			editing,
+			postCreateIntent,
 			fileService,
 			storageService,
 			dialogService,
@@ -292,7 +296,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		}
 		removePendingTemplateSetup(storageService, pending.id);
 		pushTemplateCreationUndo(runtime, allFiles);
-		await navigation.openResource(projectResource, { source: 'api', pinned: true });
+		await editing.requestSelection(currentFolder.resource, [projectResource], postCreateIntent);
 		return { templateId: descriptor.id, projectPath: projectRelativePath };
 	}
 });
@@ -358,6 +362,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		const canvasMirror = accessor.get(IBaseHalfCanvasMirrorService);
 		const badgeGraph = accessor.get(IBaseHalfBadgeGraphService);
 		const navigation = accessor.get(IBaseHalfCanvasNavigationService);
+		const editing = accessor.get(IBaseHalfCanvasEditingService);
 		const workspaceMutationCoordinator = accessor.get(IBaseHalfWorkspaceMutationCoordinator);
 		const undoRedoService = accessor.get(IUndoRedoService);
 		const workingCopyService = accessor.get(IWorkingCopyService);
@@ -382,6 +387,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		if (!pick) {
 			return;
 		}
+		const postCreateIntent = editing.beginPostCreateIntent();
 
 		const setup = pick.setup;
 		const workspaceFolder = workspaceContextService.getWorkspace().folders
@@ -421,6 +427,8 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			canvasMirror,
 			badgeGraph,
 			navigation,
+			editing,
+			postCreateIntent,
 			fileService,
 			storageService,
 			dialogService,
@@ -819,6 +827,8 @@ interface IBaseHalfTemplateSetupRuntime {
 	readonly canvasMirror: IBaseHalfCanvasMirrorService;
 	readonly badgeGraph: IBaseHalfBadgeGraphService;
 	readonly navigation: IBaseHalfCanvasNavigationService;
+	readonly editing: IBaseHalfCanvasEditingService;
+	readonly postCreateIntent: IBaseHalfCanvasPostCreateIntent;
 	readonly fileService: IFileService;
 	readonly storageService: IStorageService;
 	readonly dialogService: IDialogService;
@@ -868,6 +878,7 @@ function validateTemplateRecipes(
 async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime, initialError?: unknown): Promise<void> {
 	let failure = initialError;
 	let allowPartialRecovery = false;
+	let postCreateIntent = runtime.postCreateIntent;
 	for (;;) {
 		if (failure === undefined) {
 			try {
@@ -880,7 +891,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 				failure = error;
 			}
 			if (failure === undefined) {
-				await runtime.navigation.openResource(runtime.projectResource, { source: 'api', pinned: true });
+				await runtime.editing.requestSelection(dirname(runtime.projectResource), [runtime.projectResource], postCreateIntent);
 				return;
 			}
 		}
@@ -903,6 +914,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 				cancelButton: true
 			});
 			if (result === 'retry') {
+				postCreateIntent = runtime.editing.beginPostCreateIntent();
 				allowPartialRecovery = failure instanceof BaseHalfTemplatePartialMetadataError;
 				failure = undefined;
 				continue;
@@ -911,9 +923,10 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 				await runtime.navigation.openResource(runtime.projectResource, { source: 'api', pinned: true });
 			}
 			if (result === 'forget') {
+				postCreateIntent = runtime.editing.beginPostCreateIntent();
 				if (await canStopPendingTemplateSetup(runtime)) {
 					removePendingTemplateSetup(runtime.storageService, runtime.pending.id);
-					await runtime.navigation.openResource(runtime.projectResource, { source: 'api', pinned: true });
+					await runtime.editing.requestSelection(dirname(runtime.projectResource), [runtime.projectResource], postCreateIntent);
 					return;
 				}
 				failure = new Error(localize(

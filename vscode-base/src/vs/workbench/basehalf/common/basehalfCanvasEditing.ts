@@ -18,6 +18,10 @@ export type BaseHalfCanvasCreateKind = 'note' | 'resultNode' | 'file' | 'folder'
 
 export const IBaseHalfCanvasEditingService = createDecorator<IBaseHalfCanvasEditingService>('baseHalfCanvasEditingService');
 
+export interface IBaseHalfCanvasPostCreateIntent {
+	readonly generation: number;
+}
+
 export type BaseHalfCanvasEditingRequest =
 	| { readonly kind: 'rename'; readonly context: IBaseHalfCanvasActionContext }
 	| { readonly kind: 'create'; readonly context: IBaseHalfCanvasActionContext | undefined; readonly createKind: Exclude<BaseHalfCanvasCreateKind, 'resultNode'> }
@@ -51,13 +55,18 @@ export interface IBaseHalfCanvasEditingService {
 	requestCreate(context: IBaseHalfCanvasActionContext | undefined, createKind: 'resultNode', resultKind: BaseHalfNodeKind): Promise<void>;
 	requestPaste(context: IBaseHalfCanvasActionContext): Promise<void>;
 	requestImport(context: IBaseHalfCanvasActionContext): Promise<void>;
-	requestSelection(folder: URI, resources: readonly URI[]): Promise<void>;
+	beginPostCreateIntent(): IBaseHalfCanvasPostCreateIntent;
+	invalidatePostCreateIntents(): void;
+	isPostCreateIntentCurrent(intent: IBaseHalfCanvasPostCreateIntent): boolean;
+	requestSelection(folder: URI, resources: readonly URI[], intent?: IBaseHalfCanvasPostCreateIntent): Promise<void>;
 }
 
 export class BaseHalfCanvasEditingService implements IBaseHalfCanvasEditingService {
 	declare readonly _serviceBrand: undefined;
 
 	private handler: BaseHalfCanvasEditingHandler | undefined;
+	private postCreateGeneration = 0;
+	private currentPostCreateIntent: IBaseHalfCanvasPostCreateIntent | undefined;
 
 	registerHandler(handler: BaseHalfCanvasEditingHandler): IDisposable {
 		if (this.handler) {
@@ -95,7 +104,26 @@ export class BaseHalfCanvasEditingService implements IBaseHalfCanvasEditingServi
 		return this.dispatch({ kind: 'import', context });
 	}
 
-	requestSelection(folder: URI, resources: readonly URI[]): Promise<void> {
+	beginPostCreateIntent(): IBaseHalfCanvasPostCreateIntent {
+		const intent = Object.freeze({ generation: ++this.postCreateGeneration });
+		this.currentPostCreateIntent = intent;
+		return intent;
+	}
+
+	invalidatePostCreateIntents(): void {
+		this.postCreateGeneration++;
+		this.currentPostCreateIntent = undefined;
+	}
+
+	isPostCreateIntentCurrent(intent: IBaseHalfCanvasPostCreateIntent): boolean {
+		return this.currentPostCreateIntent === intent
+			&& intent.generation === this.postCreateGeneration;
+	}
+
+	requestSelection(folder: URI, resources: readonly URI[], intent?: IBaseHalfCanvasPostCreateIntent): Promise<void> {
+		if (intent && !this.isPostCreateIntentCurrent(intent)) {
+			return Promise.resolve();
+		}
 		return this.dispatch({ kind: 'select', folder, resources });
 	}
 

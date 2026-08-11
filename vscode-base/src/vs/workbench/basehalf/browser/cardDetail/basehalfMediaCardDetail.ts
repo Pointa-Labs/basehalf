@@ -22,7 +22,7 @@ import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../common/basehalfContentRendering.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
-import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
+import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
@@ -49,6 +49,7 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	constructor(
 		container: HTMLElement,
 		private readonly createPdfBranch: (resource: URI, selection: IBaseHalfPdfSelection) => Promise<void>,
+		private readonly onPdfUserInteraction: () => void,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
@@ -165,6 +166,10 @@ export class BaseHalfMediaCardDetail extends Disposable {
 
 	private handleWebviewMessage(kind: BaseHalfRenderableContentKind, resource: URI, message: unknown): void {
 		if (kind !== 'pdf') {
+			return;
+		}
+		if (isBaseHalfPdfUserInteractionMessage(message)) {
+			this.onPdfUserInteraction();
 			return;
 		}
 
