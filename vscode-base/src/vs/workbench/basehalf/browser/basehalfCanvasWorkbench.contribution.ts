@@ -7,11 +7,13 @@ import './media/basehalfCanvasWorkbench.css';
 
 import * as DOM from '../../../base/browser/dom.js';
 import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isHTMLTextAreaElement, isSVGElement } from '../../../base/browser/dom.js';
+import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../base/browser/ui/contextview/contextview.js';
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
 import { DeferredPromise } from '../../../base/common/async.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { isMacintosh } from '../../../base/common/platform.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { safeIntl } from '../../../base/common/date.js';
 import { generateUuid } from '../../../base/common/uuid.js';
@@ -522,10 +524,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly root: HTMLElement;
 	private readonly createButton: HTMLButtonElement;
 	private readonly chrome: HTMLElement;
-	private readonly zoomOut: HTMLButtonElement;
-	private readonly zoomReset: HTMLButtonElement;
-	private readonly zoomIn: HTMLButtonElement;
-	private readonly zoomValue: HTMLElement;
+	private readonly zoomControls: HTMLElement;
+	private readonly snapToggle: HTMLButtonElement;
+	private readonly zoomValue: HTMLButtonElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
 	private readonly inlineEditLayer: HTMLElement;
@@ -604,6 +605,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private restoredFolderFocusKey: string | undefined;
 	private folderFocusRestoreGeneration = 0;
 	private canvasZoom = 1;
+	private canvasSnapEnabled = true;
+	private zoomMenuOpen = false;
+	private zoomMenu: HTMLElement | undefined;
+	private zoomMenuInput: HTMLInputElement | undefined;
+	private zoomMenuInAction: HTMLButtonElement | undefined;
+	private zoomMenuOutAction: HTMLButtonElement | undefined;
+	private zoomMenuPresetActions: readonly { readonly button: HTMLButtonElement; readonly zoom: number }[] = [];
 	private renderQueuedBehindGesture = false;
 	private canvasLayoutReconcileQueuedBehindGesture = false;
 	private canvasLayoutReconcileGeneration = 0;
@@ -716,11 +724,26 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.createButton, 'click', () => this.showCanvasCreateMenu(this.createButton)));
 
 		this.chrome = DOM.append(this.root, DOM.$('.basehalf-canvas-chrome'));
-		const zoomControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
-		this.zoomOut = this.createZoomButton(zoomControls, 'Zoom Out', 'codicon-remove', () => this.zoomBy(-1));
-		this.zoomValue = DOM.append(zoomControls, DOM.$('.basehalf-canvas-zoom-value'));
-		this.zoomReset = this.createZoomButton(zoomControls, 'Reset Zoom', 'codicon-debug-restart', () => this.setCanvasZoom(1));
-		this.zoomIn = this.createZoomButton(zoomControls, 'Zoom In', 'codicon-add', () => this.zoomBy(1));
+		this.zoomControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
+		this.zoomControls.setAttribute('role', 'group');
+		this.zoomControls.setAttribute('aria-label', localize('basehalf.canvas.viewControls', "Canvas view controls"));
+		this.snapToggle = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
+		this.snapToggle.type = 'button';
+		this.snapToggle.setAttribute('data-testid', 'canvas-snap-toggle');
+		const snapIcon = append(this.snapToggle, $('span.codicon.codicon-magnet'));
+		snapIcon.setAttribute('aria-hidden', 'true');
+		this._register(this.addDisposableListener(this.snapToggle, 'click', () => this.toggleCanvasSnap()));
+		this.zoomValue = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-zoom-value')) as HTMLButtonElement;
+		this.zoomValue.type = 'button';
+		this.zoomValue.setAttribute('aria-haspopup', 'dialog');
+		this.zoomValue.setAttribute('aria-expanded', 'false');
+		this.zoomValue.setAttribute('data-testid', 'canvas-zoom-trigger');
+		this._register(this.addDisposableListener(this.zoomValue, 'click', () => this.toggleCanvasZoomMenu()));
+		this._register(toDisposable(() => {
+			if (this.zoomMenuOpen) {
+				this.contextViewService.hideContextView();
+			}
+		}));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
@@ -939,6 +962,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 
 		this.updateCanvasLayer();
+		this.updateCanvasSnapChrome();
 		this.updateCanvasZoomChrome();
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
 			let detailReconciliation: Promise<void> | undefined;
@@ -5009,6 +5033,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private updateCanvasLayer(): void {
 		const editorContent = Array.from(this.editorContainer.children).find(child => child.classList.contains('content'));
 		const active = this.editorService.visibleEditors.length === 0 || editorContent?.classList.contains('empty') === true;
+		if (!active && this.zoomMenuOpen) {
+			this.closeCanvasZoomMenu(false);
+		}
 		this.editorContainer.classList.toggle('basehalf-canvas-on-top', active);
 		this.canvasNavigationService.setSurfaceActive(active);
 	}
@@ -9937,8 +9964,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderDetail(): void {
 		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		const chromeHidden = !!cardDetail || !this.getCurrentFolder();
+		if (chromeHidden && this.zoomMenuOpen) {
+			this.closeCanvasZoomMenu(false);
+		}
 		this.detail.classList.toggle('visible', !!cardDetail);
-		this.createButton.classList.toggle('hidden', !!cardDetail || !this.getCurrentFolder());
+		this.createButton.classList.toggle('hidden', chromeHidden);
+		this.chrome.classList.toggle('hidden', chromeHidden);
 		if (cardDetail) {
 			this.fileDragDepth = 0;
 			this.root.classList.remove('basehalf-canvas-file-dragging');
@@ -10729,13 +10761,254 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 
-	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
-		const button = append(container, $(`button.basehalf-canvas-zoom-button.codicon.${icon}`)) as HTMLButtonElement;
-		button.type = 'button';
-		button.title = title;
-		button.setAttribute('aria-label', title);
-		this._register(this.addDisposableListener(button, 'click', () => action()));
-		return button;
+	private toggleCanvasSnap(): void {
+		this.canvasSnapEnabled = !this.canvasSnapEnabled;
+		this.canvasScene.setSnapEnabled(this.canvasSnapEnabled);
+		this.updateCanvasSnapChrome();
+	}
+
+	private updateCanvasSnapChrome(): void {
+		const label = localize('basehalf.canvas.snapToCards', "Snap to cards");
+		this.snapToggle.title = label;
+		this.snapToggle.setAttribute('aria-label', label);
+		this.snapToggle.setAttribute('aria-pressed', String(this.canvasSnapEnabled));
+		this.snapToggle.classList.toggle('active', this.canvasSnapEnabled);
+	}
+
+	private toggleCanvasZoomMenu(): void {
+		if (this.zoomMenuOpen) {
+			this.closeCanvasZoomMenu(true);
+			return;
+		}
+
+		this.showCanvasZoomMenu();
+	}
+
+	private showCanvasZoomMenu(): void {
+		let focusZoomInput = () => { };
+		this.zoomMenuOpen = true;
+		this.zoomValue.classList.add('open');
+		this.zoomValue.setAttribute('aria-expanded', 'true');
+
+		const delegate: IContextViewDelegate = {
+			getAnchor: () => this.zoomControls,
+			anchorAlignment: AnchorAlignment.LEFT,
+			anchorAxisAlignment: AnchorAxisAlignment.VERTICAL,
+			anchorPosition: AnchorPosition.ABOVE,
+			canRelayout: true,
+			focus: () => focusZoomInput(),
+			render: contextContainer => {
+				const store = new DisposableStore();
+				const menu = append(contextContainer, $('.basehalf-canvas-zoom-menu'));
+				menu.id = 'basehalf-canvas-zoom-menu';
+				menu.setAttribute('role', 'dialog');
+				menu.setAttribute('aria-label', localize('basehalf.canvas.zoomOptions', "Canvas zoom options"));
+				menu.setAttribute('data-testid', 'canvas-zoom-menu');
+
+				const inputShell = append(menu, $('.basehalf-canvas-zoom-input-shell'));
+				const input = append(inputShell, $('input.basehalf-canvas-zoom-input')) as HTMLInputElement;
+				input.type = 'text';
+				input.inputMode = 'decimal';
+				input.autocomplete = 'off';
+				input.spellcheck = false;
+				input.value = formatBaseHalfCanvasZoomPercent(this.canvasZoom);
+				input.setAttribute('aria-label', localize(
+					'basehalf.canvas.zoomPercentageInput',
+					"Zoom percentage, from {0}% to {1}%",
+					Math.round(BASEHALF_CANVAS_MIN_ZOOM * 100),
+					Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)
+				));
+				input.setAttribute('data-testid', 'canvas-zoom-input');
+				const inputSuffix = append(inputShell, $('span.basehalf-canvas-zoom-input-suffix'));
+				inputSuffix.textContent = '%';
+				inputSuffix.setAttribute('aria-hidden', 'true');
+
+				const actionList = append(menu, $('.basehalf-canvas-zoom-menu-actions'));
+				actionList.setAttribute('role', 'menu');
+				const actionButtons: HTMLButtonElement[] = [];
+				const addAction = (
+					label: string,
+					shortcut: string | undefined,
+					action: () => void,
+					options?: { readonly actionId?: string; readonly zoomTarget?: number }
+				): HTMLButtonElement => {
+					const button = append(actionList, $('button.basehalf-canvas-zoom-menu-action')) as HTMLButtonElement;
+					button.type = 'button';
+					button.setAttribute('role', 'menuitem');
+					button.setAttribute('aria-label', label);
+					button.dataset.zoomAction = options?.actionId;
+					if (options?.zoomTarget !== undefined) {
+						button.dataset.zoomTarget = String(options.zoomTarget);
+					}
+					const actionLabel = append(button, $('span.basehalf-canvas-zoom-menu-label'));
+					actionLabel.textContent = label;
+					if (shortcut) {
+						const shortcutLabel = append(button, $('span.basehalf-canvas-zoom-menu-shortcut'));
+						shortcutLabel.textContent = shortcut;
+						shortcutLabel.setAttribute('aria-hidden', 'true');
+					}
+					store.add(this.addDisposableListener(button, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						this.closeCanvasZoomMenu(event.detail === 0);
+						action();
+					}));
+					actionButtons.push(button);
+					return button;
+				};
+
+				const commandKey = isMacintosh ? '⌘' : localize('basehalf.canvas.controlKey', "Ctrl");
+				this.zoomMenuInAction = addAction(localize('basehalf.canvas.zoomIn', "Zoom In"), `${commandKey} +`, () => this.zoomBy(1), { actionId: 'in' });
+				this.zoomMenuOutAction = addAction(localize('basehalf.canvas.zoomOut', "Zoom Out"), `${commandKey} -`, () => this.zoomBy(-1), { actionId: 'out' });
+				addAction(localize('basehalf.canvas.fitToScreen', "Fit to Screen"), undefined, () => this.fitCanvasToScreen(), { actionId: 'fit' });
+
+				const separator = append(actionList, $('.basehalf-canvas-zoom-menu-separator'));
+				separator.setAttribute('role', 'separator');
+
+				const presetPercentages = [50, 100, Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)];
+				const presetActions: { readonly button: HTMLButtonElement; readonly zoom: number }[] = [];
+				for (const percentage of [...new Set(presetPercentages)]) {
+					const zoom = percentage / 100;
+					const button = addAction(
+						localize('basehalf.canvas.zoomToPercentage', "Zoom to {0}%", percentage),
+						percentage === 100 ? `${commandKey} 0` : undefined,
+						() => this.setCanvasZoom(zoom),
+						{ actionId: percentage === 100 ? 'reset' : `preset-${percentage}`, zoomTarget: zoom }
+					);
+					presetActions.push({ button, zoom });
+				}
+				this.zoomMenuPresetActions = presetActions;
+
+				const markInputValid = (): void => {
+					input.removeAttribute('aria-invalid');
+					inputShell.classList.remove('invalid');
+					input.title = '';
+				};
+				const commitInput = (): void => {
+					const zoom = baseHalfCanvasZoomFromPercentInput(input.value);
+					if (zoom === undefined) {
+						const message = localize(
+							'basehalf.canvas.zoomPercentageRange',
+							"Enter a value from {0}% to {1}%.",
+							Math.round(BASEHALF_CANVAS_MIN_ZOOM * 100),
+							Math.round(BASEHALF_CANVAS_MAX_ZOOM * 100)
+						);
+						input.setAttribute('aria-invalid', 'true');
+						inputShell.classList.add('invalid');
+						input.title = message;
+						input.select();
+						return;
+					}
+					markInputValid();
+					this.closeCanvasZoomMenu(true);
+					this.setCanvasZoom(zoom);
+				};
+				store.add(this.addDisposableListener(input, 'input', markInputValid));
+				store.add(this.addDisposableListener(menu, 'keydown', event => {
+					if (event.key === 'Escape') {
+						event.preventDefault();
+						event.stopPropagation();
+						this.closeCanvasZoomMenu(true);
+						return;
+					}
+					if ((event.metaKey || event.ctrlKey) && !event.altKey
+						&& (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+						event.preventDefault();
+						event.stopPropagation();
+						this.closeCanvasZoomMenu(true);
+						if (event.key === '0') {
+							this.setCanvasZoom(1);
+						} else {
+							this.zoomBy(event.key === '-' ? -1 : 1);
+						}
+						return;
+					}
+					const enabledActionButtons = actionButtons.filter(button => !button.disabled);
+					if (isHTMLInputElement(event.target)) {
+						if (event.key === 'Enter') {
+							event.preventDefault();
+							commitInput();
+						} else if (event.key === 'ArrowDown' && enabledActionButtons.length > 0) {
+							event.preventDefault();
+							enabledActionButtons[0].focus();
+						} else if (event.key === 'ArrowUp' && enabledActionButtons.length > 0) {
+							event.preventDefault();
+							enabledActionButtons[enabledActionButtons.length - 1].focus();
+						}
+						return;
+					}
+					const target = isHTMLElement(event.target) && event.target.tagName === 'BUTTON'
+						? event.target as HTMLButtonElement
+						: undefined;
+					const index = target ? enabledActionButtons.indexOf(target) : -1;
+					if (index < 0) {
+						return;
+					}
+					if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+						event.preventDefault();
+						const delta = event.key === 'ArrowDown' ? 1 : -1;
+						enabledActionButtons[(index + delta + enabledActionButtons.length) % enabledActionButtons.length].focus();
+					} else if (event.key === 'Home' || event.key === 'End') {
+						event.preventDefault();
+						enabledActionButtons[event.key === 'Home' ? 0 : enabledActionButtons.length - 1].focus();
+					}
+				}));
+				store.add(this.addDisposableListener(menu, 'focusout', event => {
+					const next = event.relatedTarget;
+					if ((isHTMLElement(next) || isSVGElement(next))
+						&& (menu.contains(next) || this.zoomValue.contains(next))) {
+						return;
+					}
+					this.closeCanvasZoomMenu(false);
+				}));
+				store.add(this.addDisposableListener(menu.ownerDocument, 'pointerdown', event => {
+					const target = event.target;
+					if ((isHTMLElement(target) || isSVGElement(target))
+						&& (menu.contains(target) || this.zoomValue.contains(target))) {
+						return;
+					}
+					this.closeCanvasZoomMenu(false);
+				}, true));
+
+				this.zoomMenu = menu;
+				this.zoomMenuInput = input;
+				this.zoomValue.setAttribute('aria-controls', menu.id);
+				this.updateCanvasZoomMenuChrome();
+				focusZoomInput = () => {
+					input.focus({ preventScroll: true });
+					input.select();
+				};
+				store.add(toDisposable(() => {
+					focusZoomInput = () => { };
+					if (this.zoomMenu === menu) {
+						this.zoomMenu = undefined;
+						this.zoomMenuInput = undefined;
+						this.zoomMenuInAction = undefined;
+						this.zoomMenuOutAction = undefined;
+						this.zoomMenuPresetActions = [];
+					}
+				}));
+				return store;
+			},
+			onHide: data => {
+				this.zoomMenuOpen = false;
+				this.zoomValue.classList.remove('open');
+				this.zoomValue.setAttribute('aria-expanded', 'false');
+				this.zoomValue.removeAttribute('aria-controls');
+				if ((data as { readonly restoreFocus?: boolean } | undefined)?.restoreFocus && this.zoomValue.isConnected) {
+					this.zoomValue.focus({ preventScroll: true });
+				}
+			}
+		};
+
+		this.contextViewService.showContextView(delegate);
+	}
+
+	private closeCanvasZoomMenu(restoreFocus: boolean): void {
+		if (!this.zoomMenuOpen) {
+			return;
+		}
+		this.contextViewService.hideContextView({ restoreFocus });
 	}
 
 	private updateCanvasZoomChrome(): void {
@@ -10743,29 +11016,76 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.canvasZoom = zoom;
 		this.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
 		this.root.dataset.zoom = String(zoom);
-		this.zoomValue.textContent = `${Math.round(zoom * 100)}%`;
-		this.zoomOut.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
-		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
-		this.zoomReset.disabled = zoom === 1;
+		const percentage = Math.round(zoom * 100);
+		this.zoomValue.textContent = `${percentage}%`;
+		const zoomLabel = localize('basehalf.canvas.zoomMenuAtPercentage', "Zoom options, {0}%", percentage);
+		this.zoomValue.title = zoomLabel;
+		this.zoomValue.setAttribute('aria-label', zoomLabel);
+		this.updateCanvasZoomMenuChrome();
+	}
+
+	private updateCanvasZoomMenuChrome(): void {
+		if (!this.zoomMenu) {
+			return;
+		}
+		const zoom = normalizeCanvasZoom(this.canvasZoom);
+		if (this.zoomMenuOutAction) {
+			this.zoomMenuOutAction.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
+		}
+		if (this.zoomMenuInAction) {
+			this.zoomMenuInAction.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
+		}
+		for (const { button, zoom: targetZoom } of this.zoomMenuPresetActions) {
+			const current = Math.abs(targetZoom - zoom) < 0.0001;
+			button.classList.toggle('current', current);
+			if (current) {
+				button.setAttribute('aria-current', 'true');
+			} else {
+				button.removeAttribute('aria-current');
+			}
+		}
+		if (this.zoomMenuInput && this.zoomMenuInput.ownerDocument.activeElement !== this.zoomMenuInput) {
+			this.zoomMenuInput.value = formatBaseHalfCanvasZoomPercent(zoom);
+		}
 	}
 
 	private zoomBy(direction: -1 | 1): void {
 		this.setCanvasZoom(this.canvasZoom + direction * BASEHALF_CANVAS_ZOOM_STEP);
 	}
 
+	private fitCanvasToScreen(): void {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		this.folderFocusRestoreGeneration++;
+		const sceneKey = this.sceneKey(folder);
+		void this.canvasScene.fit(undefined, {
+			padding: 0.12,
+			maxZoom: 1
+		}).then(() => {
+			if (this.isCurrentSceneKey(sceneKey)) {
+				this.scheduleFolderFocusWrite(0, { folder, viewport: this.canvasScene.getViewport() });
+			}
+		}).catch(error => this.logService.error(error));
+	}
+
 	private onCanvasKeyDown(event: KeyboardEvent): void {
-		if (!(event.metaKey || event.ctrlKey)) {
+		if (this.canvasNavigationService.state.cardDetail || !(event.metaKey || event.ctrlKey) || event.altKey) {
 			return;
 		}
 
 		if (event.key === '=' || event.key === '+') {
 			event.preventDefault();
+			event.stopPropagation();
 			this.zoomBy(1);
 		} else if (event.key === '-') {
 			event.preventDefault();
+			event.stopPropagation();
 			this.zoomBy(-1);
 		} else if (event.key === '0') {
 			event.preventDefault();
+			event.stopPropagation();
 			this.setCanvasZoom(1);
 		}
 	}
@@ -11073,6 +11393,22 @@ function oppositeCanvasAnchor(anchor: IBaseHalfCanvasEdge['from_anchor']): IBase
 
 function normalizeCanvasZoom(value: number): number {
 	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(4));
+}
+
+export function baseHalfCanvasZoomFromPercentInput(value: string): number | undefined {
+	const match = /^(\d+(?:\.\d+)?)\s*%?$/.exec(value.trim());
+	if (!match) {
+		return undefined;
+	}
+	const zoom = Number(match[1]) / 100;
+	if (!Number.isFinite(zoom) || zoom < BASEHALF_CANVAS_MIN_ZOOM || zoom > BASEHALF_CANVAS_MAX_ZOOM) {
+		return undefined;
+	}
+	return normalizeCanvasZoom(zoom);
+}
+
+export function formatBaseHalfCanvasZoomPercent(zoom: number): string {
+	return String(Number((normalizeCanvasZoom(zoom) * 100).toFixed(2)));
 }
 
 function mapCanvasPoint(point: { readonly x: number; readonly y: number }, map: (value: number) => number): { readonly x: number; readonly y: number } {

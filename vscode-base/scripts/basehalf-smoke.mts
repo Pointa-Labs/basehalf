@@ -123,7 +123,7 @@ try {
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
-	if (!opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
+	if (!opts.zoomOnly && !opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
@@ -187,6 +187,25 @@ try {
 					'pdf-grow-three-branches'
 				]
 			}, null, 2));
+		} else if (opts.zoomOnly) {
+			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
+			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+			await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
+			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
+			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+			await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
+			console.log(JSON.stringify({
+				ok: true,
+				workspace: workspacePath,
+				checks: [
+					'fresh-canvas-framed',
+					'root-titlebar-breadcrumb',
+					'canvas-grid-scoped-to-canvas',
+					'canvas-zoom-controls',
+					'canvas-snap-guides',
+					'readme-card-detail-covers-scrolled-canvas'
+				]
+			}, null, 2));
 		} else if (opts.canvasOnly) {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
@@ -197,6 +216,7 @@ try {
 			await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
 			await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 			await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
+			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 		console.log(JSON.stringify({
 			ok: true,
@@ -218,6 +238,7 @@ try {
 				'agent-reference-draws-edge',
 				'edge-delete-scoped-to-canvas',
 				'edge-delete-removes-reference',
+				'canvas-zoom-controls',
 				'canvas-snap-guides'
 			]
 		}, null, 2));
@@ -429,6 +450,7 @@ function parseArgs(args) {
 	const parsed = {
 		keep: false,
 		verbose: false,
+		zoomOnly: false,
 		canvasOnly: false,
 		contentOnly: false,
 		pluginOnly: false,
@@ -450,6 +472,9 @@ function parseArgs(args) {
 				break;
 			case '--verbose':
 				parsed.verbose = true;
+				break;
+			case '--zoom-only':
+				parsed.zoomOnly = true;
 				break;
 			case '--canvas-only':
 				parsed.canvasOnly = true;
@@ -519,6 +544,7 @@ Options:
   --output <path>     Store smoke logs/user-data/crashes in this directory.
   --keep              Keep the generated temporary directory after the run.
   --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
+  --zoom-only         Run the lower-left zoom and card-snapping controls slice.
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
   --plugin-only       Run the curated plugin and AI Video integration slice.
   --settings-only     Run BaseHalf Settings and global model-service management.
@@ -2174,10 +2200,7 @@ async function assertVideoWorkflowNodeRun(page) {
 	const nodePath = path.join(workspacePath, workflowName, relativeNodePath);
 	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}/${relativeNodePath}"]`);
 	await card.waitFor({ state: 'visible', timeout: 15_000 });
-	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
-	if (await resetZoom.isEnabled()) {
-		await resetZoom.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await centerCanvasCards(page, [card]);
 	await page.waitForFunction(path => document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`)?.getAttribute('data-preview-level') !== 'shell', `${workflowName}/${relativeNodePath}`, { timeout: 10_000 });
 	const action = card.locator('.basehalf-canvas-node-action');
@@ -2552,15 +2575,87 @@ async function assertCanvasGridScopedToCanvas(page) {
 	}, null, { timeout: 10_000 });
 }
 
+function canvasZoomController(page) {
+	const trigger = page.locator('.basehalf-canvas-zoom-value:visible');
+	const menu = page.locator('.basehalf-canvas-zoom-menu:visible');
+	return {
+		trigger,
+		menu,
+		input: menu.locator('.basehalf-canvas-zoom-input'),
+		action: action => menu.locator(`[data-zoom-action="${action}"]`)
+	};
+}
+
+async function openCanvasZoomMenu(page) {
+	const controller = canvasZoomController(page);
+	await controller.trigger.waitFor({ state: 'visible', timeout: 10_000 });
+	if (!await controller.menu.isVisible().catch(() => false)) {
+		await controller.trigger.click();
+	}
+	await controller.menu.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await controller.menu.getAttribute('role') !== 'dialog'
+		|| await controller.trigger.getAttribute('aria-expanded') !== 'true') {
+		throw new Error('Canvas zoom trigger did not open its dialog');
+	}
+	return controller;
+}
+
+async function zoomCanvas(page, action, options = {}) {
+	if (options.preserveFocus) {
+		const acted = await page.evaluate(({ actionName, useMetaKey }) => {
+			const activeElement = document.activeElement;
+			const root = activeElement?.closest('.basehalf-canvas-workbench');
+			if (!(activeElement instanceof HTMLElement) || !(root instanceof HTMLElement)) {
+				throw new Error('Canvas zoom shortcut requires focus inside the visible canvas');
+			}
+			const zoom = Number(root.dataset.zoom);
+			if (actionName === 'out' && zoom <= 0.2 || actionName === 'in' && zoom >= 4) {
+				return false;
+			}
+			const key = actionName === 'reset' ? '0' : actionName === 'out' ? '-' : actionName === 'in' ? '=' : undefined;
+			if (!key) {
+				throw new Error(`Canvas zoom action cannot preserve focus through a shortcut: ${actionName}`);
+			}
+			const event = new KeyboardEvent('keydown', {
+				key,
+				metaKey: useMetaKey,
+				ctrlKey: !useMetaKey,
+				bubbles: true,
+				cancelable: true
+			});
+			activeElement.dispatchEvent(event);
+			if (!event.defaultPrevented) {
+				throw new Error(`Canvas zoom shortcut was not handled: ${actionName}`);
+			}
+			return true;
+		}, { actionName: action, useMetaKey: process.platform === 'darwin' });
+		await page.locator('.basehalf-canvas-zoom-menu').waitFor({ state: 'hidden', timeout: 10_000 });
+		return acted;
+	}
+
+	const controller = await openCanvasZoomMenu(page);
+	const actionButton = controller.action(action);
+	await actionButton.waitFor({ state: 'visible', timeout: 10_000 });
+	if (!await actionButton.isEnabled()) {
+		await page.keyboard.press('Escape');
+		await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+		return false;
+	}
+	await actionButton.click();
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	return true;
+}
+
 async function assertCanvasContainsCard(page, path) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
 	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`);
 	if (await card.isVisible({ timeout: 2_000 }).catch(() => false)) {
 		return;
 	}
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
-	for (let attempt = 0; attempt < 8 && await zoomOut.isEnabled(); attempt++) {
-		await zoomOut.click();
+	for (let attempt = 0; attempt < 8; attempt++) {
+		if (!await zoomCanvas(page, 'out')) {
+			break;
+		}
 		if (await card.isVisible({ timeout: 500 }).catch(() => false)) {
 			return;
 		}
@@ -2618,28 +2713,73 @@ async function assertNativeBackOpensPreviousCanvas(page, expectedFolderPath) {
 }
 
 async function assertCanvasZoomControls(page) {
-	const reset = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
-	if (await reset.isEnabled()) {
-		await reset.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 	const beforeGesture = await page.evaluate(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
+		const chrome = controls?.closest('.basehalf-canvas-chrome');
+		const snapToggle = controls?.querySelector('.basehalf-canvas-snap-toggle');
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
-		if (!(root instanceof HTMLElement) || !(controls instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+		if (!(root instanceof HTMLElement)
+			|| !(controls instanceof HTMLElement)
+			|| !(chrome instanceof HTMLElement)
+			|| !(snapToggle instanceof HTMLButtonElement)
+			|| !(viewport instanceof HTMLElement)) {
 			throw new Error('Missing React Flow zoom geometry');
 		}
 		const rootRect = root.getBoundingClientRect();
 		const controlsRect = controls.getBoundingClientRect();
+		const framePaint = element => {
+			const style = getComputedStyle(element);
+			return {
+				backgroundColor: style.backgroundColor,
+				borderTopWidth: style.borderTopWidth,
+				borderRightWidth: style.borderRightWidth,
+				borderBottomWidth: style.borderBottomWidth,
+				borderLeftWidth: style.borderLeftWidth,
+				boxShadow: style.boxShadow
+			};
+		};
 		return {
-			controls: { left: controlsRect.left, top: controlsRect.top },
+			controls: { left: controlsRect.left, top: controlsRect.top, right: controlsRect.right, bottom: controlsRect.bottom },
 			viewport: getComputedStyle(viewport).transform,
-			rightGap: rootRect.right - controlsRect.right,
+			leftGap: controlsRect.left - rootRect.left,
 			bottomGap: rootRect.bottom - controlsRect.bottom,
+			snapPressed: snapToggle.getAttribute('aria-pressed'),
+			railChrome: { container: framePaint(chrome), controls: framePaint(controls) },
 			center: { x: rootRect.left + rootRect.width / 2, y: rootRect.top + rootRect.height / 2 }
 		};
 	});
+	if (beforeGesture.snapPressed !== 'true') {
+		throw new Error(`Expected Canvas snap to be enabled by default: ${JSON.stringify(beforeGesture)}`);
+	}
+	if (Object.values(beforeGesture.railChrome).some(chrome =>
+		!['transparent', 'rgba(0, 0, 0, 0)'].includes(chrome.backgroundColor)
+		|| chrome.borderTopWidth !== '0px'
+		|| chrome.borderRightWidth !== '0px'
+		|| chrome.borderBottomWidth !== '0px'
+		|| chrome.borderLeftWidth !== '0px'
+		|| chrome.boxShadow !== 'none')) {
+		throw new Error(`Expected unframed Canvas view controls: ${JSON.stringify(beforeGesture.railChrome)}`);
+	}
+	if (beforeGesture.leftGap < 8 || beforeGesture.leftGap > 20 || beforeGesture.bottomGap < 12 || beforeGesture.bottomGap > 24) {
+		throw new Error(`Expected Canvas view controls in the lower-left of the canvas viewport: ${JSON.stringify(beforeGesture)}`);
+	}
+	await page.locator('.basehalf-canvas-zoom-value').blur();
+	await page.mouse.move(beforeGesture.center.x, beforeGesture.center.y);
+	if (opts.output) {
+		await page.screenshot({ path: path.join(logsPath, 'canvas-zoom-rail.png'), fullPage: true });
+	}
+	const snapToggle = page.locator('.basehalf-canvas-snap-toggle:visible');
+	await snapToggle.click();
+	if (await snapToggle.getAttribute('aria-pressed') !== 'false') {
+		throw new Error('Canvas snap toggle did not expose its disabled state');
+	}
+	await snapToggle.click();
+	if (await snapToggle.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('Canvas snap toggle did not restore its enabled state');
+	}
 	await page.mouse.move(beforeGesture.center.x, beforeGesture.center.y);
 	await page.mouse.wheel(80, 120);
 	await page.waitForFunction(previous => {
@@ -2659,19 +2799,112 @@ async function assertCanvasZoomControls(page) {
 	if (!afterGesture || Math.abs(afterGesture.x - beforeGesture.controls.left) > 1 || Math.abs(afterGesture.y - beforeGesture.controls.top) > 1) {
 		throw new Error(`Expected zoom chrome to stay fixed while the canvas viewport changes: ${JSON.stringify({ beforeGesture, afterGesture })}`);
 	}
-	if (beforeGesture.rightGap < 4 || beforeGesture.rightGap > 24 || beforeGesture.bottomGap < 6 || beforeGesture.bottomGap > 32) {
-		throw new Error(`Expected zoom controls in the bottom-right of the canvas viewport: ${JSON.stringify(beforeGesture)}`);
+
+	let controller = await openCanvasZoomMenu(page);
+	await controller.input.waitFor({ state: 'visible', timeout: 10_000 });
+	const [menuBox, controlsBox] = await Promise.all([controller.menu.boundingBox(), page.locator('.basehalf-canvas-zoom-controls').boundingBox()]);
+	if (!menuBox || !controlsBox || menuBox.y + menuBox.height > controlsBox.y - 1) {
+		throw new Error(`Expected the Canvas zoom dialog above its lower-left controls: ${JSON.stringify({ menuBox, controlsBox })}`);
+	}
+	if (!await controller.input.evaluate(input => document.activeElement === input)) {
+		throw new Error('Opening Canvas zoom options did not focus the percentage input');
+	}
+	if (opts.output) {
+		await page.screenshot({ path: path.join(logsPath, 'canvas-zoom-menu.png'), fullPage: true });
+	}
+	await controller.trigger.click();
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	if (await controller.trigger.getAttribute('aria-expanded') !== 'false') {
+		throw new Error('Clicking the open Canvas zoom trigger did not close its dialog');
+	}
+	controller = await openCanvasZoomMenu(page);
+	await page.keyboard.press('Escape');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	if (await controller.trigger.getAttribute('aria-expanded') !== 'false'
+		|| !await controller.trigger.evaluate(trigger => document.activeElement === trigger)) {
+		throw new Error('Escape did not close Canvas zoom options and restore trigger focus');
 	}
 
-	const initialZoom = zoomAfterGesture;
-	const nextZoom = Number((initialZoom + 0.1).toFixed(4));
-	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
+	controller = await openCanvasZoomMenu(page);
+	await controller.input.fill('37.5%');
+	await controller.input.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '0.375', null, { timeout: 10_000 });
+
+	controller = await openCanvasZoomMenu(page);
+	if (await controller.input.inputValue() !== '37.5') {
+		throw new Error(`Canvas zoom percentage did not round-trip exactly: ${await controller.input.inputValue()}`);
+	}
+	await controller.input.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '0.375', null, { timeout: 10_000 });
+
+	controller = await openCanvasZoomMenu(page);
+	await controller.input.press('ArrowDown');
+	if (await page.locator('.basehalf-canvas-zoom-menu-action:focus').getAttribute('data-zoom-action') !== 'in') {
+		throw new Error('Canvas zoom dialog did not move keyboard focus from its input to the first enabled action');
+	}
+	await page.keyboard.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '0.475', null, { timeout: 10_000 });
+	if (!await controller.trigger.evaluate(trigger => document.activeElement === trigger)) {
+		throw new Error('Keyboard activation of a Canvas zoom action did not restore trigger focus');
+	}
+
+	controller = await openCanvasZoomMenu(page);
+	await controller.input.fill('50');
+	await controller.input.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '0.5', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value', { hasText: '50%' }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (await controller.trigger.getAttribute('aria-expanded') !== 'false'
+		|| !await controller.trigger.evaluate(trigger => document.activeElement === trigger)) {
+		throw new Error('Committing a Canvas zoom percentage did not close the dialog and restore trigger focus');
+	}
+
+	const nextZoom = 0.6;
+	await zoomCanvas(page, 'in');
 	await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, nextZoom, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: `${Math.round(nextZoom * 100)}%` }).waitFor({ state: 'visible', timeout: 10_000 });
-	for (let index = 0; index < 5; index++) {
-		await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
+
+	controller = await openCanvasZoomMenu(page);
+	const workbenchZoomBefore = await page.evaluate(() => ({
+		devicePixelRatio: window.devicePixelRatio,
+		innerWidth: window.innerWidth,
+		innerHeight: window.innerHeight
+	}));
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+=' : 'Control+=');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1.1', null, { timeout: 10_000 });
+	const workbenchZoomAfter = await page.evaluate(() => ({
+		devicePixelRatio: window.devicePixelRatio,
+		innerWidth: window.innerWidth,
+		innerHeight: window.innerHeight
+	}));
+	if (JSON.stringify(workbenchZoomAfter) !== JSON.stringify(workbenchZoomBefore)) {
+		throw new Error(`Canvas zoom shortcut also changed the workbench zoom: ${JSON.stringify({ workbenchZoomBefore, workbenchZoomAfter })}`);
 	}
-	await page.waitForFunction(() => {
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+
+	await zoomCanvas(page, 'preset-400');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '4', null, { timeout: 10_000 });
+	controller = await openCanvasZoomMenu(page);
+	await controller.input.press('ArrowDown');
+	if (await page.locator('.basehalf-canvas-zoom-menu-action:focus').getAttribute('data-zoom-action') !== 'out') {
+		throw new Error('Canvas zoom keyboard navigation did not skip the disabled Zoom In action at 400%');
+	}
+	await page.keyboard.press('Escape');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+
+	const beforeFitTransform = await page.locator('.basehalf-canvas-cards .react-flow__viewport').evaluate(viewport => getComputedStyle(viewport).transform);
+	await zoomCanvas(page, 'fit');
+	await page.waitForFunction(previousTransform => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
 		if (!(root instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
@@ -2679,9 +2912,12 @@ async function assertCanvasZoomControls(page) {
 		}
 		const transform = getComputedStyle(viewport).transform;
 		const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
-		return Math.abs(matrix.a - Number(root.dataset.zoom)) < 0.01;
-	}, null, { timeout: 10_000 });
-	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
+		return transform !== previousTransform
+			&& Math.abs(matrix.a - Number(root.dataset.zoom)) < 0.01
+			&& document.querySelector('.basehalf-canvas-zoom-value')?.textContent?.trim() === `${Math.round(Number(root.dataset.zoom) * 100)}%`;
+	}, beforeFitTransform, { timeout: 10_000 });
+
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
 }
@@ -4112,13 +4348,11 @@ function assertCanvasNoteZoomStates(states, mode, identities) {
 	}
 }
 
-async function assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, surface, mode, tokens, zoomOut, resetZoom) {
-	if (await resetZoom.isEnabled()) {
-		// Exercise the same zoom command without transferring DOM focus to its
-		// button. Pointer ownership is covered by the controls tests; this probe
-		// isolates the invariant that zoom itself cannot reflow or mutate a Note.
-		await resetZoom.evaluate(button => button.click());
-	}
+async function assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, surface, mode, tokens) {
+	// Exercise the menu command without transferring DOM focus to its trigger or
+	// dialog. Pointer ownership is covered by the controls tests; this probe
+	// isolates the invariant that zoom itself cannot reflow or mutate a Note.
+	await zoomCanvas(page, 'reset', { preserveFocus: true });
 	await waitForCanvasNoteZoom(page, 1);
 	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 	const identities = await installCanvasNoteZoomProbe(surface, mode);
@@ -4132,20 +4366,22 @@ async function assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, sur
 			while (Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom')) > target + 0.001) {
 				const current = Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom'));
 				const next = Math.max(target, Math.round((current - 0.1) * 10) / 10);
-				await zoomOut.evaluate(button => button.click());
+				if (!await zoomCanvas(page, 'out', { preserveFocus: true })) {
+					throw new Error(`Canvas zoom reached its minimum before ${target}`);
+				}
 				await waitForCanvasNoteZoom(page, next);
 			}
 			states.push(await captureCanvasNoteZoomState(page, mode, tokens, identities));
 		}
-		await resetZoom.evaluate(button => button.click());
+		await zoomCanvas(page, 'reset', { preserveFocus: true });
 		await waitForCanvasNoteZoom(page, 1);
 		states.push(await captureCanvasNoteZoomState(page, mode, tokens, identities));
 	} catch (error) {
 		sequenceError = error;
 	} finally {
 		try {
-			if (Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom')) !== 1 && await resetZoom.isEnabled()) {
-				await resetZoom.evaluate(button => button.click());
+			if (Number(await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom')) !== 1) {
+				await zoomCanvas(page, 'reset', { preserveFocus: true });
 				await waitForCanvasNoteZoom(page, 1).catch(() => undefined);
 			}
 		} catch (error) {
@@ -4177,13 +4413,9 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	const folder = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	const readmePath = path.join(workspacePath, 'README.md');
 	const originalMarkdown = fs.readFileSync(readmePath, 'utf8');
-	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	const inlineEditor = canvasNoteInlineEditor(page, 'README.md');
 
-	if (await resetZoom.isEnabled()) {
-		await resetZoom.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await note.waitFor({ state: 'visible', timeout: 20_000 });
 	await folder.waitFor({ state: 'visible', timeout: 20_000 });
 	await centerCanvasCards(page, [note]);
@@ -4286,7 +4518,7 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 		|| Math.abs(restingZoomScrollTop.actual - restingZoomScrollTop.target) > 1) {
 		throw new Error(`Could not establish a non-zero resting Note zoom position: ${JSON.stringify(restingZoomScrollTop)}`);
 	}
-	await assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, staticPreview, 'resting', [visibleNeedle, CANVAS_MALFORMED_EMPHASIS_NEEDLE], zoomOut, resetZoom);
+	await assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, staticPreview, 'resting', [visibleNeedle, CANVAS_MALFORMED_EMPHASIS_NEEDLE]);
 	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
 		throw new Error('Zooming the resting Canvas Note changed its Markdown source');
 	}
@@ -4578,8 +4810,10 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	if (!Number.isFinite(stacking.node) || !Number.isFinite(stacking.controls) || stacking.controls <= stacking.node) {
 		throw new Error(`Note controls do not stay above the selected node: ${JSON.stringify(stacking)}`);
 	}
-	for (let attempt = 0; attempt < 12 && await zoomOut.isEnabled(); attempt++) {
-		await zoomOut.click();
+	for (let attempt = 0; attempt < 12; attempt++) {
+		if (!await zoomCanvas(page, 'out')) {
+			break;
+		}
 		await page.waitForTimeout(50);
 	}
 	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) <= 0.21, null, { timeout: 10_000 });
@@ -4592,7 +4826,7 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	if (await inlineEditor.host.count() !== 0) {
 		throw new Error('Zooming a selected Note mounted its inline editor');
 	}
-	await resetZoom.click();
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 
 	await note.locator('.basehalf-canvas-card-header').dblclick();
@@ -4644,7 +4878,7 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 		throw new Error(`Could not establish a non-zero active Note zoom position: ${JSON.stringify(activeZoomScrollTop)}`);
 	}
 	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-	await assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, activeInlineEditor.surface, 'active', transitionTokens, zoomOut, resetZoom);
+	await assertCanvasNoteProgrammaticZoomLayoutInvariantSequence(page, activeInlineEditor.surface, 'active', transitionTokens);
 	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {
 		throw new Error('Zooming the active Canvas Note changed its Markdown source');
 	}
@@ -4931,13 +5165,9 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		await checkoutConflictDialog.waitFor({ state: 'hidden', timeout: 10_000 });
 	}
 
-	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	if (await resetZoom.isEnabled()) {
-		await resetZoom.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
 
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
@@ -5082,7 +5312,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		throw new Error('Background Badge refresh replaced or unfocused the active canvas prompt');
 	}
 	for (let attempt = 0; attempt < 4; attempt++) {
-		await zoomOut.evaluate(button => button.click());
+		await zoomCanvas(page, 'out', { preserveFocus: true });
 		await page.waitForTimeout(80);
 	}
 	await page.waitForFunction(([expected, marker]) => {
@@ -5095,7 +5325,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 			&& prompt.getAttribute('data-smoke-editor-instance') === marker
 			&& prompt.value === expected;
 	}, [canvasBadgeDraft, 'retained'], { timeout: 10_000 });
-	await resetZoom.evaluate(button => button.click());
+	await zoomCanvas(page, 'reset', { preserveFocus: true });
 	await page.waitForFunction(expected => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 		const prompt = card?.querySelector('.basehalf-canvas-card-badge-prompt');
@@ -5117,8 +5347,10 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		card.querySelector('.basehalf-canvas-card-active')?.setAttribute('data-smoke-zoom-identity', 'active');
 		card.querySelector('.basehalf-canvas-card-preview')?.setAttribute('data-smoke-zoom-identity', 'preview');
 	});
-	for (let attempt = 0; attempt < 12 && await zoomOut.isEnabled(); attempt++) {
-		await zoomOut.click();
+	for (let attempt = 0; attempt < 12; attempt++) {
+		if (!await zoomCanvas(page, 'out')) {
+			break;
+		}
 		await page.waitForTimeout(80);
 	}
 	await page.waitForFunction(() => {
@@ -5131,9 +5363,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 			&& card.querySelector('.basehalf-canvas-card-overview') === null
 			&& card.querySelector('video, audio, textarea') === null;
 	}, null, { timeout: 10_000 });
-	if (await resetZoom.isEnabled()) {
-		await resetZoom.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 		return card?.getAttribute('data-preview-level') === 'preview'
@@ -5172,18 +5402,15 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	for (let attempt = 0; attempt < 8 && (!await docs.isVisible() || !await src.isVisible()); attempt++) {
-		if (!await zoomOut.isEnabled()) {
+		if (!await zoomCanvas(page, 'out')) {
 			break;
 		}
-		await zoomOut.click();
 		await page.waitForTimeout(50);
 	}
 	await docs.waitFor({ state: 'visible', timeout: 10_000 });
 	await src.waitFor({ state: 'visible', timeout: 10_000 });
 	await centerCanvasCards(page, [docs, src]);
-	if (await resetZoom.isEnabled()) {
-		await resetZoom.click();
-	}
+	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
 	await docs.locator('.basehalf-canvas-folder-preview-label', { hasText: 'guide.md' }).waitFor({ state: 'visible', timeout: 10_000 });
 	await src.locator('.basehalf-canvas-folder-preview-label', { hasText: 'app.ts' }).waitFor({ state: 'visible', timeout: 10_000 });
@@ -6174,16 +6401,14 @@ async function assertCanvasEdgeHalfReconnect(page) {
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	for (let attempt = 0; attempt < 16; attempt++) {
 		const zoom = await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom').then(Number);
 		if (zoom <= 0.5) {
 			break;
 		}
-		if (!await zoomOut.isEnabled()) {
+		if (!await zoomCanvas(page, 'out')) {
 			break;
 		}
-		await zoomOut.click();
 		await page.waitForTimeout(50);
 	}
 	await docs.waitFor({ state: 'visible', timeout: 10_000 });
@@ -6907,13 +7132,11 @@ async function closeCardDetailIfOpen(page) {
 }
 
 async function assertCanvasSnapGuides(page) {
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	for (let i = 0; i < 10; i++) {
 		const zoom = await page.locator('.basehalf-canvas-workbench').evaluate(root => Number(root.getAttribute('data-zoom')) || 1);
-		if (zoom <= 0.5 || !(await zoomOut.isEnabled())) {
+		if (zoom <= 0.5 || !(await zoomCanvas(page, 'out'))) {
 			break;
 		}
-		await zoomOut.click();
 		await page.waitForFunction(previous => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) < previous, zoom, { timeout: 10_000 });
 	}
 
@@ -7009,6 +7232,33 @@ async function assertCanvasSnapGuides(page) {
 		return savedX !== undefined && [savedX, savedX + geometry.draggedWidth / 2, savedX + geometry.draggedWidth]
 			.some(axis => Math.abs(axis - verticalGuide.x1) <= 0.1);
 	}, 'README.md card to persist on the displayed docs snap axis');
+
+	const snapToggle = page.locator('.basehalf-canvas-snap-toggle:visible');
+	const pane = page.locator('.basehalf-canvas-cards .react-flow__pane');
+	await pane.click({ position: { x: 20, y: 20 } });
+	const toggleDrag = await readme.boundingBox();
+	if (!toggleDrag) {
+		throw new Error('README.md card disappeared before exercising the snap toggle');
+	}
+	const toggleDragStartX = toggleDrag.x + toggleDrag.width / 2;
+	const toggleDragStartY = toggleDrag.y + toggleDrag.height / 2;
+	await page.mouse.move(toggleDragStartX, toggleDragStartY);
+	await page.mouse.down();
+	await page.mouse.move(toggleDragStartX + 30, toggleDragStartY, { steps: 8 });
+	await page.mouse.move(toggleDragStartX + 3 * geometry.zoom, toggleDragStartY, { steps: 8 });
+	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length > 0, null, { timeout: 10_000 });
+	// A programmatic click lets the fixed viewport control change state while
+	// React Flow still owns the pointer gesture.
+	await snapToggle.evaluate(button => button.click());
+	if (await snapToggle.getAttribute('aria-pressed') !== 'false') {
+		throw new Error('Canvas snap toggle did not disable snapping during an active drag');
+	}
+	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length === 0, null, { timeout: 10_000 });
+	await page.mouse.up();
+	await snapToggle.click();
+	if (await snapToggle.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('Canvas snap toggle did not restore snapping after clearing the active guide');
+	}
 }
 
 async function scrollCanvasWorkbenchForCardDetail(page) {
@@ -7037,7 +7287,8 @@ async function assertCardDetailCoversCanvasViewport(page) {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const detail = document.querySelector('.basehalf-card-detail.visible');
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
-		if (!(root instanceof HTMLElement) || !(detail instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+		const canvasChrome = root?.querySelector('.basehalf-canvas-chrome');
+		if (!(root instanceof HTMLElement) || !(detail instanceof HTMLElement) || !(viewport instanceof HTMLElement) || !(canvasChrome instanceof HTMLElement)) {
 			throw new Error('Missing visible BaseHalf card detail');
 		}
 
@@ -7055,7 +7306,9 @@ async function assertCardDetailCoversCanvasViewport(page) {
 			detailRight: detailRect.right,
 			viewportTransform: getComputedStyle(viewport).transform,
 			locked: root.classList.contains('basehalf-card-detail-open'),
-			bottomProbeIsCanvas: !!bottomProbe?.closest('.basehalf-canvas-card, .basehalf-canvas-surface')
+			bottomProbeIsCanvas: !!bottomProbe?.closest('.basehalf-canvas-card, .basehalf-canvas-surface'),
+			canvasChromeHidden: getComputedStyle(canvasChrome).display === 'none',
+			zoomMenuVisible: Array.from(document.querySelectorAll('.basehalf-canvas-zoom-menu')).some(menu => menu instanceof HTMLElement && menu.offsetParent !== null)
 		};
 	});
 
@@ -7071,6 +7324,9 @@ async function assertCardDetailCoversCanvasViewport(page) {
 	}
 	if (geometry.bottomProbeIsCanvas) {
 		throw new Error(`Card detail leaves canvas visible at the bottom: ${JSON.stringify(geometry)}`);
+	}
+	if (!geometry.canvasChromeHidden || geometry.zoomMenuVisible) {
+		throw new Error(`Card detail left Canvas zoom chrome interactive: ${JSON.stringify(geometry)}`);
 	}
 }
 

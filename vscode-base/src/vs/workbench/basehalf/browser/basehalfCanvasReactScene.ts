@@ -334,6 +334,7 @@ interface IBaseHalfCanvasEdgeInteraction {
 
 interface IBaseHalfCanvasSceneRuntime {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
+	setSnapEnabled(enabled: boolean): void;
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;
@@ -685,6 +686,7 @@ function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseH
 export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 	private readonly whenReady: Promise<IBaseHalfCanvasSceneRuntime>;
 	private runtime: IBaseHalfCanvasSceneRuntime | undefined;
+	private snapEnabled = true;
 	private latestSnapshot: IBaseHalfCanvasSceneSnapshot | undefined;
 	private latestViewport: IBaseHalfCanvasSceneViewport = { x: 0, y: 0, zoom: 1 };
 	private root: Root | undefined;
@@ -713,6 +715,11 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void {
 		this.latestSnapshot = snapshot;
 		this.runtime?.update(snapshot);
+	}
+
+	setSnapEnabled(enabled: boolean): void {
+		this.snapEnabled = enabled;
+		this.runtime?.setSnapEnabled(enabled);
 	}
 
 	setZoom(zoom: number): Promise<void> {
@@ -821,6 +828,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 							return;
 						}
 						this.runtime = runtime;
+						runtime.setSnapEnabled(this.snapEnabled);
 						if (this.latestSnapshot) {
 							runtime.update(this.latestSnapshot);
 						}
@@ -1715,6 +1723,7 @@ function createCanvasSceneMount(
 		const connectionStoreController = vendor.useRef<IBaseHalfCanvasConnectionStoreController | undefined>(undefined);
 		const nodeDragState = vendor.useRef<IBaseHalfCanvasNodeDragState | undefined>(undefined);
 		const interacting = vendor.useRef(false);
+		const snapEnabledRef = vendor.useRef(true);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 
 		const beginInteraction = vendor.useCallback(() => {
@@ -2175,6 +2184,7 @@ function createCanvasSceneMount(
 			}
 			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, nonSelectionChanges, {
 				threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
+				disabled: !snapEnabledRef.current,
 				defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 				defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
@@ -2571,6 +2581,12 @@ function createCanvasSceneMount(
 
 		const runtime = vendor.useMemo<IBaseHalfCanvasSceneRuntime>(() => ({
 			update: updateSnapshot,
+			setSnapEnabled(enabled: boolean): void {
+				snapEnabledRef.current = enabled;
+				if (!enabled) {
+					setGuides(current => current.length === 0 ? current : []);
+				}
+			},
 			async setZoom(zoom: number): Promise<void> {
 				await runViewportCommand(async () => {
 					const flow = flowRef.current;

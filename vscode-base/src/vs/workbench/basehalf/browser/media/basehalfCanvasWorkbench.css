@@ -40,7 +40,7 @@
 
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
-	--basehalf-canvas-zoom-bottom-offset: 48px;
+	--basehalf-canvas-zoom-bottom-offset: 16px;
 	--bh-card-bg: #161718;
 	--bh-card-surface: #222426;
 	--bh-card-surface-muted: #191a1b;
@@ -165,18 +165,22 @@
 	position: absolute;
 	top: auto;
 	bottom: var(--basehalf-canvas-zoom-bottom-offset);
-	left: 0;
-	right: 0;
+	left: 14px;
+	right: auto;
 	z-index: 3;
 	display: flex;
 	align-items: center;
-	justify-content: flex-end;
-	width: 100%;
-	height: 0;
-	min-height: 0;
+	justify-content: flex-start;
+	width: auto;
+	height: 28px;
 	box-sizing: border-box;
-	padding: 0 10px;
 	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-chrome.hidden,
+.monaco-workbench .part.editor.basehalf-canvas-host:not(.basehalf-canvas-on-top) > .basehalf-canvas-workbench .basehalf-canvas-chrome,
+.monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open .basehalf-canvas-chrome {
+	display: none;
 }
 
 .monaco-workbench .basehalf-canvas-zoom-controls {
@@ -185,46 +189,215 @@
 	gap: 2px;
 	flex: none;
 	height: 28px;
-	padding: 2px;
 	pointer-events: auto;
-	background-color: color-mix(in srgb, var(--bh-card-surface-muted) 92%, transparent);
-	border: 1px solid var(--bh-card-border-strong);
-	border-radius: 4px;
-	box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
 }
 
-.monaco-workbench .basehalf-canvas-zoom-button {
-	width: 22px;
-	height: 22px;
+.monaco-workbench .basehalf-canvas-chrome-button {
+	display: inline-flex;
+	height: 28px;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
 	padding: 0;
-	color: var(--vscode-icon-foreground);
+	color: var(--vscode-foreground);
 	background: transparent;
-	border: 0;
-	border-radius: 3px;
+	border: var(--vscode-strokeThickness) solid transparent;
+	border-radius: var(--vscode-cornerRadius-medium);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-bodyFontSize-small);
+	font-variant-numeric: tabular-nums;
+	font-weight: 400;
 	cursor: pointer;
+	transition: background-color 100ms ease, color 100ms ease;
 }
 
-.monaco-workbench .basehalf-canvas-zoom-button:hover:not(:disabled) {
+.monaco-workbench .basehalf-canvas-chrome-button:hover,
+.monaco-workbench .basehalf-canvas-chrome-button.open {
 	background-color: var(--vscode-toolbar-hoverBackground);
-	outline: 1px solid var(--bh-card-border-strong);
 }
 
-.monaco-workbench .basehalf-canvas-zoom-button:focus-visible {
+.monaco-workbench .basehalf-canvas-chrome-button:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
-	outline: 1px solid var(--bh-canvas-focus-ring);
+	border-color: var(--bh-canvas-focus-ring);
+	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-zoom-button:disabled {
-	opacity: 0.45;
-	cursor: default;
+.monaco-workbench .basehalf-canvas-chrome-button:active {
+	transform: translateY(1px);
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle {
+	width: 28px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle.active {
+	color: var(--vscode-icon-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle .codicon {
+	font-size: var(--vscode-codiconFontSize);
 }
 
 .monaco-workbench .basehalf-canvas-zoom-value {
-	width: 38px;
+	min-width: 44px;
+	padding: 0 var(--vscode-spacing-size80);
 	text-align: center;
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu {
+	display: flex;
+	width: 188px;
+	box-sizing: border-box;
+	flex-direction: column;
+	padding: 6px;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: var(--vscode-strokeThickness) solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: var(--vscode-cornerRadius-large);
+	box-shadow: 0 8px 24px var(--vscode-widget-shadow);
+	font-family: var(--vscode-font-family);
+	transform: translateY(-8px);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell {
+	display: flex;
+	height: 32px;
+	align-items: center;
+	box-sizing: border-box;
+	margin-bottom: var(--vscode-spacing-size60);
+	padding: 0 var(--vscode-spacing-size100);
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: var(--vscode-strokeThickness) solid transparent;
+	border-radius: var(--vscode-cornerRadius-medium);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell.invalid {
+	border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input {
+	min-width: 0;
+	height: 100%;
+	flex: 1;
+	padding: 0;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	outline: 0;
+	font-family: inherit;
+	font-size: var(--vscode-bodyFontSize-small);
 	font-variant-numeric: tabular-nums;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input::selection {
+	color: var(--vscode-editor-selectionForeground, var(--vscode-input-foreground));
+	background: var(--vscode-editor-selectionBackground);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-suffix {
+	flex: none;
+	margin-left: 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--vscode-bodyFontSize-small);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-actions {
+	display: flex;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action {
+	display: flex;
+	width: 100%;
+	height: 32px;
+	align-items: center;
+	justify-content: space-between;
+	box-sizing: border-box;
+	padding: 0 10px;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: var(--vscode-cornerRadius-medium);
+	font-family: inherit;
+	font-size: var(--vscode-bodyFontSize);
+	text-align: left;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled),
+.monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible:not(:disabled) {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:active:not(:disabled) {
+	transform: translateY(1px);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:disabled {
+	color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+	cursor: default;
+	opacity: 0.55;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action.current .basehalf-canvas-zoom-menu-label {
+	font-weight: var(--vscode-agents-fontWeight-semiBold);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-shortcut {
+	flex: none;
+	margin-left: 12px;
+	color: var(--vscode-menu-foreground);
+	font-size: var(--vscode-bodyFontSize-xSmall);
+	opacity: 0.62;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled) .basehalf-canvas-zoom-menu-shortcut,
+.monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible:not(:disabled) .basehalf-canvas-zoom-menu-shortcut {
+	color: var(--vscode-menu-selectionForeground);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-separator {
+	height: 1px;
+	flex: none;
+	margin: var(--vscode-spacing-size60) var(--vscode-spacing-size40);
+	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-chrome-button:focus-visible,
+	.monaco-workbench .basehalf-canvas-zoom-input-shell:focus-within {
+		border-color: Highlight;
+	}
+
+	.monaco-workbench .basehalf-canvas-snap-toggle[aria-pressed="true"] {
+		color: HighlightText;
+		background: Highlight;
+	}
+
+	.monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible {
+		outline: 1px solid Highlight;
+		outline-offset: -2px;
+	}
+
+	.monaco-workbench .basehalf-canvas-zoom-menu {
+		border-color: CanvasText;
+		box-shadow: none;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-surface {
@@ -2464,8 +2637,8 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-truncated {
 	position: absolute;
-	left: 48px;
-	bottom: 20px;
+	left: 14px;
+	bottom: 58px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
 }
