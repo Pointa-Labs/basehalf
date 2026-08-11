@@ -8,13 +8,14 @@ import { RunOnceScheduler } from '../../../base/common/async.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../platform/configuration/common/configurationRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
-import { EditorsOrder } from '../../common/editor.js';
+import { EditorsOrder, GroupModelChangeKind } from '../../common/editor.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IViewDescriptorService, ViewContainerLocation } from '../../common/views.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY, BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseAgentExtensionViewContainer, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE } from '../common/basehalfWorkbenchProfile.js';
@@ -36,6 +37,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IViewsService private readonly viewsService: IViewsService,
 		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
 	) {
@@ -46,6 +48,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		this.applyAuxiliaryBarProfile();
 		this.applyStatusBarProfile();
 		this.registerHiddenSurfaceGuards();
+		this.registerStartupEditorGuard();
 		this.registerSingleSurfaceEditorGuard();
 		this.closeRestoredCompetingSurfaces();
 	}
@@ -170,6 +173,23 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		this._register(this.editorGroupsService.onDidAddGroup(() => collapseScheduler.schedule()));
 	}
 
+	private registerStartupEditorGuard(): void {
+		const closeScheduler = this._register(new RunOnceScheduler(
+			() => void this.closeRestoredStartupEditors().catch(error => this.logService.error(error)),
+			0
+		));
+		this._register(this.editorService.onDidEditorsChange(event => {
+			if (
+				this.lifecycleService.phase >= LifecyclePhase.Restored
+				&& event.event.kind === GroupModelChangeKind.EDITOR_OPEN
+				&& event.event.editor
+				&& shouldBaseHalfCloseStartupEditor(event.event.editor.typeId, this.workspaceContextService.getWorkbenchState())
+			) {
+				closeScheduler.schedule();
+			}
+		}));
+	}
+
 	private async closeRestoredCompetingSurfaces(): Promise<void> {
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 		await this.closeRestoredHiddenViewContainers();
@@ -285,9 +305,10 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 	}
 
 	private async closeRestoredStartupEditors(): Promise<void> {
+		const workbenchState = this.workspaceContextService.getWorkbenchState();
 		const editorsToClose = this.editorService
 			.getEditors(EditorsOrder.SEQUENTIAL)
-			.filter(identifier => shouldBaseHalfCloseStartupEditor(identifier.editor.typeId));
+			.filter(identifier => shouldBaseHalfCloseStartupEditor(identifier.editor.typeId, workbenchState));
 
 		if (!editorsToClose.length) {
 			return;

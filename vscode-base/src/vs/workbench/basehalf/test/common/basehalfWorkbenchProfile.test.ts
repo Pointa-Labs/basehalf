@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import {
 	BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
 	BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY,
@@ -258,22 +259,23 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.deepStrictEqual(BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, ['workbench.sidebar.activeviewletid', 'workbench.panelpart.activepanelid']);
 	});
 
-	test('closes restored VS Code startup editors that would cover the BaseHalf canvas', () => {
+	test('keeps the BaseHalf welcome while closing competing restored startup editors', () => {
 		assert.deepStrictEqual(
 			BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 			[
-				'workbench.editors.gettingStartedInput',
 				'workbench.editors.agentSessionsWelcomeInput',
 				'workbench.editors.workspaceTrust',
 				'workbench.editors.workspaceTrustRequiredEditor'
 			]
 		);
 
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput'), true);
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcomeInput'), true);
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcome'), false);
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.textResourceEditor'), false);
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.input.searchEditor'), false);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput', WorkbenchState.EMPTY), false);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput', WorkbenchState.FOLDER), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput', WorkbenchState.WORKSPACE), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcomeInput', WorkbenchState.EMPTY), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcome', WorkbenchState.EMPTY), false);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.textResourceEditor', WorkbenchState.FOLDER), false);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.input.searchEditor', WorkbenchState.WORKSPACE), false);
 	});
 
 	test('keeps visible, remapped, and hidden surface ids disjoint', () => {

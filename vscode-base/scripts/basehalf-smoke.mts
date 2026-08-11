@@ -19,6 +19,7 @@ const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf
 assertProductIdentity();
 
 const opts = parseArgs(process.argv.slice(2));
+const runsNewWindowWelcome = !opts.zoomOnly && !opts.canvasOnly && !opts.contentOnly && !opts.pluginOnly && !opts.settingsOnly;
 const AGENT_CREATED_CARD_PATH = 'agent-angle.md';
 const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
@@ -35,11 +36,16 @@ for (const dir of [logsPath, crashesPath, userDataDir, extensionsDir, workspaceP
 
 // Playwright cannot inspect a native macOS context menu. The smoke profile is
 // disposable, so use VS Code's custom renderer here to exercise the same menu
-// registrations and commands without changing product or user settings.
+// registrations and commands without changing product settings. Welcome runs
+// also force the broader stock startup choice: Folder/Workspace must still
+// return to the canvas, while the empty New Window must keep BaseHalf Welcome.
 fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true });
 fs.writeFileSync(
 	path.join(userDataDir, 'User', 'settings.json'),
-	JSON.stringify({ 'window.menuStyle': 'custom' }, null, '\t'),
+	JSON.stringify({
+		'window.menuStyle': 'custom',
+		...(runsNewWindowWelcome ? { 'workbench.startupEditor': 'welcomePage' } : {})
+	}, null, '\t'),
 	'utf8'
 );
 
@@ -58,7 +64,7 @@ const args = [
 	root,
 	workspacePath,
 	'--skip-release-notes',
-	'--skip-welcome',
+	...(runsNewWindowWelcome ? [] : ['--skip-welcome']),
 	'--disable-telemetry',
 	'--disable-experiments',
 	'--no-cached-data',
@@ -105,25 +111,30 @@ try {
 
 	app = await _electron.launch({ executablePath: electronPath, args, timeout: 60_000, env });
 	const page = await app.firstWindow();
-	page.on('pageerror', error => {
-		pageErrors.push(error);
-		console.error(`[basehalf-smoke] pageerror: ${error.stack || error.message}`);
-	});
-	page.on('console', message => {
-		if (shouldLogConsoleMessage(message)) {
-			const location = message.location();
-			const source = location.url ? ` (${location.url}:${location.lineNumber + 1})` : '';
-			console.error(`[basehalf-smoke] console.${message.type()}: ${message.text()}${source}`);
-		}
-	});
+	observePage(page);
 
 	await page.setViewportSize({ width: 1280, height: 860 });
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
+	if (opts.newWindowOnly) {
+		await step('new-window-basehalf-welcome', () => assertNewWindowBaseHalfWelcome(app, page));
+		const summary = {
+			ok: true,
+			workspace: workspacePath,
+			checks: ['new-window-basehalf-welcome']
+		};
+		if (opts.keep || opts.output) {
+			summary.runRoot = runRoot;
+		}
+		console.log(JSON.stringify(summary, null, 2));
+	} else {
+	if (runsNewWindowWelcome) {
+		await step('new-window-basehalf-welcome', () => assertNewWindowBaseHalfWelcome(app, page));
+	}
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
-	if (!opts.zoomOnly && !opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
+		if (!opts.zoomOnly && !opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
 		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
@@ -187,26 +198,26 @@ try {
 					'pdf-grow-three-branches'
 				]
 			}, null, 2));
-		} else if (opts.zoomOnly) {
-			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
-			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
-			await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
-			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
-			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
-			await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
-			console.log(JSON.stringify({
-				ok: true,
-				workspace: workspacePath,
-				checks: [
-					'fresh-canvas-framed',
-					'root-titlebar-breadcrumb',
-					'canvas-grid-scoped-to-canvas',
-					'canvas-zoom-controls',
-					'canvas-snap-guides',
-					'readme-card-detail-covers-scrolled-canvas'
-				]
-			}, null, 2));
-		} else if (opts.canvasOnly) {
+			} else if (opts.zoomOnly) {
+				await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
+				await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+				await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
+				await step('quick-open-readme', () => quickOpen(page, 'README.md'));
+				await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+				await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
+				console.log(JSON.stringify({
+					ok: true,
+					workspace: workspacePath,
+					checks: [
+						'fresh-canvas-framed',
+						'root-titlebar-breadcrumb',
+						'canvas-grid-scoped-to-canvas',
+						'canvas-zoom-controls',
+						'canvas-snap-guides',
+						'readme-card-detail-covers-scrolled-canvas'
+					]
+				}, null, 2));
+			} else if (opts.canvasOnly) {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
@@ -235,11 +246,11 @@ try {
 				'canvas-edge-follows-card-drag-live',
 				'canvas-edge-half-reconnect',
 				'agent-creates-card',
-				'agent-reference-draws-edge',
-				'edge-delete-scoped-to-canvas',
-				'edge-delete-removes-reference',
-				'canvas-zoom-controls',
-				'canvas-snap-guides'
+					'agent-reference-draws-edge',
+					'edge-delete-scoped-to-canvas',
+					'edge-delete-removes-reference',
+					'canvas-zoom-controls',
+					'canvas-snap-guides'
 			]
 		}, null, 2));
 	} else {
@@ -359,6 +370,7 @@ try {
 		checks: [
 			'product-identity-basehalf',
 			'canvas-visible',
+			'new-window-basehalf-welcome',
 			'fresh-canvas-framed',
 			'root-titlebar-breadcrumb',
 			'canvas-grid-scoped-to-canvas',
@@ -430,6 +442,7 @@ try {
 	}
 	console.log(JSON.stringify(summary, null, 2));
 	}
+	}
 } catch (error) {
 	smokeFailed = true;
 	await writeFailureArtifacts(error);
@@ -455,6 +468,7 @@ function parseArgs(args) {
 		contentOnly: false,
 		pluginOnly: false,
 		settingsOnly: false,
+		newWindowOnly: false,
 		externalPluginId: undefined,
 		externalPluginExtension: undefined,
 		externalPluginVersion: undefined,
@@ -487,6 +501,9 @@ function parseArgs(args) {
 				break;
 			case '--settings-only':
 				parsed.settingsOnly = true;
+				break;
+			case '--new-window-only':
+				parsed.newWindowOnly = true;
 				break;
 			case '--external-plugin-id':
 				parsed.externalPluginId = requireValue(args, ++i, arg).toLowerCase();
@@ -525,6 +542,9 @@ function parseArgs(args) {
 	if (parsed.verifyUninstalled && parsed.verifyInstalled) {
 		throw new Error('--verify-installed and --verify-uninstalled are mutually exclusive.');
 	}
+	if (parsed.newWindowOnly && (parsed.zoomOnly || parsed.canvasOnly || parsed.contentOnly || parsed.pluginOnly || parsed.settingsOnly)) {
+		throw new Error('--new-window-only cannot be combined with another smoke slice.');
+	}
 
 	return parsed;
 }
@@ -541,13 +561,14 @@ function printHelpAndExit() {
 	console.log(`Usage: npm run basehalf:smoke-no-compile -- [options]
 
 Options:
-  --output <path>     Store smoke logs/user-data/crashes in this directory.
-  --keep              Keep the generated temporary directory after the run.
-  --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
-  --zoom-only         Run the lower-left zoom and card-snapping controls slice.
+	  --output <path>     Store smoke logs/user-data/crashes in this directory.
+	  --keep              Keep the generated temporary directory after the run.
+	  --zoom-only         Run the lower-left zoom and card-snapping controls slice.
+	  --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
   --plugin-only       Run the curated plugin and AI Video integration slice.
   --settings-only     Run BaseHalf Settings and global model-service management.
+  --new-window-only   Open a new empty window and verify the BaseHalf Welcome surface.
   --external-plugin-id <id>
                       Run the reviewed remote-plugin lifecycle slice.
   --external-plugin-extension <ext>
@@ -620,6 +641,21 @@ function shouldLogConsoleMessage(message) {
 	const text = message.text();
 	return !text.includes('[Extension Host (stderr)] Debugger listening on')
 		&& !text.includes('[Extension Host (stderr)] For help, see: https://nodejs.org/learn/getting-started/debugging');
+}
+
+function observePage(page, label) {
+	const sourceLabel = label ? `${label} ` : '';
+	page.on('pageerror', error => {
+		pageErrors.push(error);
+		console.error(`[basehalf-smoke] ${sourceLabel}pageerror: ${error.stack || error.message}`);
+	});
+	page.on('console', message => {
+		if (shouldLogConsoleMessage(message)) {
+			const location = message.location();
+			const source = location.url ? ` (${location.url}:${location.lineNumber + 1})` : '';
+			console.error(`[basehalf-smoke] ${sourceLabel}console.${message.type()}: ${message.text()}${source}`);
+		}
+	});
 }
 
 async function step(name, run) {
@@ -827,6 +863,56 @@ async function runCommand(page, value) {
 	if (!ran) {
 		throw new Error(`Command not found in QuickInput: ${value}`);
 	}
+}
+
+async function assertNewWindowBaseHalfWelcome(application, workspacePage) {
+	await workspacePage.locator('.gettingStartedContainer').waitFor({ state: 'detached', timeout: 30_000 });
+	const workspaceEditorPart = workspacePage.locator('.part.editor.basehalf-canvas-host');
+	if (!await workspaceEditorPart.evaluate(element => element.classList.contains('basehalf-canvas-on-top'))) {
+		throw new Error('A non-empty workspace did not return to the BaseHalf canvas after the competing Welcome editor opened.');
+	}
+
+	const existingWindows = new Set(application.windows());
+	const [welcomePage] = await Promise.all([
+		application.waitForEvent('window', { timeout: 60_000 }),
+		runCommand(workspacePage, 'New Window')
+	]);
+	if (existingWindows.has(welcomePage)) {
+		throw new Error('The New Window command did not create a distinct Electron window.');
+	}
+
+	observePage(welcomePage, 'new-window');
+	await welcomePage.setViewportSize({ width: 1280, height: 860 });
+	await welcomePage.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
+	const welcome = welcomePage.locator('.gettingStartedContainer');
+	await welcome.waitFor({ state: 'visible', timeout: 60_000 });
+	const heading = welcome.locator('h1.product-name', { hasText: 'BaseHalf' });
+	await heading.waitFor({ state: 'visible', timeout: 15_000 });
+	await welcome.locator('button', { hasText: 'Open Folder as Canvas' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	await welcome.getByText('Recent Canvases', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+	await welcomePage.locator('.basehalf-canvas-empty', { hasText: 'No folder' }).waitFor({ state: 'attached', timeout: 15_000 });
+
+	const layerState = await welcomePage.evaluate(() => {
+		const editorPart = document.querySelector('.part.editor.basehalf-canvas-host');
+		const welcomeContainer = document.querySelector('.gettingStartedContainer');
+		const productHeading = welcomeContainer?.querySelector('h1.product-name');
+		if (!(productHeading instanceof HTMLElement)) {
+			return { canvasOnTop: editorPart?.classList.contains('basehalf-canvas-on-top') ?? false, welcomeTopmost: false };
+		}
+		const bounds = productHeading.getBoundingClientRect();
+		const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+		return {
+			canvasOnTop: editorPart?.classList.contains('basehalf-canvas-on-top') ?? false,
+			welcomeTopmost: hit?.closest('.gettingStartedContainer') === welcomeContainer
+		};
+	});
+	if (layerState.canvasOnTop || !layerState.welcomeTopmost) {
+		throw new Error(`The BaseHalf Welcome surface is obscured by the empty canvas: ${JSON.stringify(layerState)}`);
+	}
+
+	await welcomePage.close();
+	await workspacePage.bringToFront();
+	await workspacePage.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 async function runCommandWhenAvailable(page, value, timeout = 30_000) {
@@ -2158,7 +2244,7 @@ async function assertVideoWorkflowTemplate(page) {
 		'shots/shot-01/clip-plan.bhnode',
 		'shots/shot-01/audio.bhnode',
 		'shots/shot-01/clip.bhnode',
-			'video-sequence.json'
+		'video-sequence.json'
 	].every(relativePath => fs.existsSync(path.join(workflowRoot, relativePath))), 'video workflow template files to be created', 20_000);
 	await assertCanvasFolder(page, '');
 	const workflowCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}"]`);
@@ -8238,16 +8324,20 @@ async function writeFailureArtifacts(error) {
 		return;
 	}
 
-	const page = app.windows()[0];
-	if (!page) {
+	const pages = app.windows();
+	if (pages.length === 0) {
 		return;
 	}
 
 	fs.mkdirSync(logsPath, { recursive: true });
-	await page.screenshot({ path: path.join(logsPath, 'failure.png'), fullPage: true }).catch(() => undefined);
-	const html = await page.locator('html').evaluate(element => element.outerHTML).catch(() => undefined);
-	if (html) {
-		fs.writeFileSync(path.join(logsPath, 'failure.html'), html, 'utf8');
+	for (let index = 0; index < pages.length; index++) {
+		const page = pages[index];
+		const artifactName = index === 0 ? 'failure' : `failure-window-${index + 1}`;
+		await page.screenshot({ path: path.join(logsPath, `${artifactName}.png`), fullPage: true }).catch(() => undefined);
+		const html = await page.locator('html').evaluate(element => element.outerHTML).catch(() => undefined);
+		if (html) {
+			fs.writeFileSync(path.join(logsPath, `${artifactName}.html`), html, 'utf8');
+		}
 	}
 }
 

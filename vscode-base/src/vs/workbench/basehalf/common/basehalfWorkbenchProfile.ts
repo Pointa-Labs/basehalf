@@ -15,6 +15,7 @@ import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } fro
 import { BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from './basehalfPluginCatalog.js';
 import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES } from './basehalfPluginIdentities.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
+import { WorkbenchState } from '../../../platform/workspace/common/workspace.js';
 
 export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
 export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.activity.pinnedViewlets2';
@@ -540,7 +541,6 @@ export const BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR = [
 ] as const;
 
 export const BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS = [
-	'workbench.editors.gettingStartedInput',
 	'workbench.editors.agentSessionsWelcomeInput',
 	'workbench.editors.workspaceTrust',
 	'workbench.editors.workspaceTrustRequiredEditor'
@@ -893,8 +893,9 @@ export function shouldBaseHalfHideView(id: string): boolean {
 	return HIDDEN_VIEW_IDS.has(id);
 }
 
-export function shouldBaseHalfCloseStartupEditor(typeId: string): boolean {
-	return CLOSED_STARTUP_EDITOR_TYPE_IDS.has(typeId);
+export function shouldBaseHalfCloseStartupEditor(typeId: string, workbenchState: WorkbenchState): boolean {
+	return CLOSED_STARTUP_EDITOR_TYPE_IDS.has(typeId)
+		|| (typeId === 'workbench.editors.gettingStartedInput' && workbenchState !== WorkbenchState.EMPTY);
 }
 
 export function getIncompleteBaseHalfModuleTracks(): readonly IBaseHalfMigrationModuleTrack[] {
