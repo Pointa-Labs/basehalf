@@ -871,6 +871,7 @@ export function removeCanvasEdge(canvas: IBaseHalfCanvasFile, edge: Pick<IBaseHa
 }
 
 export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
+	assertCanvasGeometrySerializable(canvas);
 	const lines = [
 		`path: ${yamlString(canvas.path)}`
 	];
@@ -915,6 +916,32 @@ export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 
 	lines.push('');
 	return lines.join('\n');
+}
+
+function assertCanvasGeometrySerializable(canvas: IBaseHalfCanvasFile): void {
+	if (canvas.size) {
+		assertCanvasFinitePositive(canvas.size.width, 'canvas size width');
+		assertCanvasFinitePositive(canvas.size.height, 'canvas size height');
+	}
+	for (const card of canvas.cards) {
+		assertCanvasFinite(card.x, `card '${card.path}' x`);
+		assertCanvasFinite(card.y, `card '${card.path}' y`);
+		assertCanvasFinitePositive(card.width, `card '${card.path}' width`);
+		assertCanvasFinitePositive(card.height, `card '${card.path}' height`);
+	}
+}
+
+function assertCanvasFinite(value: number, label: string): void {
+	if (!Number.isFinite(value)) {
+		throw new RangeError(`Cannot serialize canvas: ${label} must be a finite number`);
+	}
+}
+
+function assertCanvasFinitePositive(value: number, label: string): void {
+	assertCanvasFinite(value, label);
+	if (value <= 0) {
+		throw new RangeError(`Cannot serialize canvas: ${label} must be positive`);
+	}
 }
 
 function yamlString(value: string): string {

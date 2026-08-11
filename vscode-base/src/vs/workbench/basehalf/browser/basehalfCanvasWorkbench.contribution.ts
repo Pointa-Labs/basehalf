@@ -411,12 +411,37 @@ type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'invalidNode'; readonly text: string }
 	| { readonly kind: 'text' | 'code' | 'markdown' | 'empty' | 'loading' | 'unavailable' | 'richRequired'; readonly text: string };
 
+export function baseHalfCanvasCardPreviewRenderKey(preview: BaseHalfCanvasCardPreview | undefined): string {
+	return JSON.stringify(preview, (_key, value: unknown) => {
+		if (value instanceof Map) {
+			return [...value.entries()].sort(([left], [right]) => String(left).localeCompare(String(right)));
+		}
+		return value;
+	}) ?? '';
+}
+
+export function baseHalfCanvasCardPreviewCanRetainElement(
+	resultNode: boolean,
+	previous: BaseHalfCanvasCardPreview | undefined,
+	next: BaseHalfCanvasCardPreview | undefined
+): boolean {
+	return previous === next
+		|| (resultNode && baseHalfCanvasCardPreviewRenderKey(previous) === baseHalfCanvasCardPreviewRenderKey(next));
+}
+
+export function baseHalfCanvasWarningDisplayMessage(message: string): string {
+	return message === 'Corrupt canvas.yaml' || message.startsWith('Corrupt canvas.yaml at ')
+		? 'Corrupt canvas.yaml'
+		: message;
+}
+
 export function baseHalfCanvasPendingSelectionIsReady(
 	paths: readonly string[],
 	availablePaths: ReadonlySet<string>
 ): boolean {
 	return paths.length > 0 && paths.every(path => availablePaths.has(path));
 }
+
 interface IBaseHalfCanvasCardPreviewCacheEntry {
 	readonly item: IBaseHalfCanvasItem;
 	readonly preview: BaseHalfCanvasCardPreview;
@@ -1423,10 +1448,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
+		const retainedResultNodePaths: string[] = [];
 		for (const item of items) {
 			const cached = this.reusableCardPreview(item);
 			if (cached) {
 				previews.set(item.path, cached);
+				if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
+					&& this.renderedCardsByPath.get(item.path)?.element.dataset.previewLevel !== 'shell') {
+					retainedResultNodePaths.push(item.path);
+				}
 				continue;
 			}
 			previews.set(
@@ -1513,6 +1543,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		clearNode(this.inlineEditLayer);
 		this.inlineEditListeners.clear();
 		const previousRenderedCards = this.renderedCardsByPath;
+		const previousRenderedNodeChrome = this.renderedNodeChromeByPath;
 		this.renderedBadges = badgeRead.badges;
 		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
@@ -1557,6 +1588,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.applyNoteBackground(element, isBaseHalfMarkdownResource(item.stat.resource) ? this.renderedNoteBackgrounds.get(item.path) ?? 'default' : undefined);
 			this.renderedCardElementsByPath.set(item.path, element);
 			this.renderedCardsByPath.set(item.path, { item, preview, visualKey, sceneKey: currentSceneKey, element });
+			if (cached?.element === element) {
+				const retainedChrome = previousRenderedNodeChrome.get(item.path);
+				if (retainedChrome) {
+					this.renderedNodeChromeByPath.set(item.path, retainedChrome);
+				}
+			}
 			return {
 				path: item.path,
 				kind: item.kind,
@@ -1611,6 +1648,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// read from the committed host snapshot itself; React presentation
 			// callbacks are intentionally lazy and cannot be the sole wake-up edge.
 			this.scheduleCardPreviewHydration(this.canvasNoteSurfacePath, 2);
+		}
+		for (const path of retainedResultNodePaths) {
+			this.scheduleCardPreviewHydration(path);
 		}
 		if (pendingSelection && this.pendingCanvasSelection === pendingSelectionRequest) {
 			this.pendingCanvasSelection = undefined;
@@ -4632,12 +4672,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private reusableCardPreview(item: IBaseHalfCanvasItem): BaseHalfCanvasCardPreview | undefined {
-		// Result-node faces also depend on graph, execution, recipe, model-service,
-		// and artifact-integrity state. Re-verify those on every requested render;
-		// ordinary file/folder previews depend only on the versioned resource.
-		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			return undefined;
-		}
 		const cached = this.renderedCardPreviewsByPath.get(item.path);
 		if (!cached
 			|| cached.preview.kind === 'nodeLoading'
@@ -4645,6 +4679,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
 			return undefined;
 		}
+		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
+			&& cached.preview.kind !== 'node'
+			&& cached.preview.kind !== 'invalidNode') {
+			return undefined;
+		}
+		// Result nodes are still re-verified after the retained frame is mounted.
+		// Keeping this last complete preview avoids replacing a playing video (or
+		// another media element) with a loading face during unrelated renders.
 		return cached.preview;
 	}
 
@@ -4726,15 +4768,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// after the atomic editor-to-preview handoff.
 			return true;
 		}
-		// Badge editors and result nodes have additional live state beyond the
-		// versioned file preview. Ordinary preview cards can retain their exact
-		// DOM identity across unrelated background renders.
+		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
+		const previewUnchanged = baseHalfCanvasCardPreviewCanRetainElement(resultNode, cached?.preview, preview);
+		// Result nodes are re-verified on every requested render, but an equivalent
+		// verified result must retain its media DOM and playback state. Ordinary
+		// previews already share their cached object identity.
 		return !!cached
 			&& cached.sceneKey === sceneKey
-			&& !item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
 			&& !this.openBadgeFaces.has(item.path)
 			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
-			&& cached.preview === preview
+			&& previewUnchanged
 			&& cached.visualKey === visualKey
 			&& baseHalfCanvasItemsSharePreviewVersion(cached.item, item);
 	}
@@ -4981,7 +5024,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private scheduleCardPreviewHydration(path: string, priority = 1): void {
 		const current = this.renderedCardPreviewsByPath.get(path)?.preview;
-		if (current?.kind !== 'loading' && current?.kind !== 'nodeLoading') {
+		const resultNode = this.renderedItemsByPath.get(path)?.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) === true;
+		if (current?.kind !== 'loading' && current?.kind !== 'nodeLoading' && !resultNode) {
 			this.cardPreviewHydrationQueue.delete(path);
 			return;
 		}
@@ -4995,7 +5039,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const current = this.renderedCardPreviewsByPath.get(path)?.preview;
 		if (current?.kind !== 'loading' && current?.kind !== 'nodeLoading') {
-			this.cardPreviewHydrationQueue.delete(path);
+			if (this.renderedItemsByPath.get(path)?.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) !== true) {
+				this.cardPreviewHydrationQueue.delete(path);
+			}
 			return;
 		}
 		// A newly created Note can enter its editing projection before the first
@@ -5014,7 +5060,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private ensureCardPreviewHydrationScheduled(): void {
 		this.cardPreviewHydrationQueue.prune(path => {
 			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
-			return preview?.kind === 'loading' || preview?.kind === 'nodeLoading';
+			return preview?.kind === 'loading'
+				|| preview?.kind === 'nodeLoading'
+				|| this.renderedItemsByPath.get(path)?.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) === true;
 		});
 		if (this.cardPreviewHydrationQueue.size === 0
 			|| this.cardPreviewHydrationRunning
@@ -5055,7 +5103,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const items = batch.paths.flatMap(path => {
 					const item = this.renderedItemsByPath.get(path);
 					const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
-					return item && (preview?.kind === 'loading' || preview?.kind === 'nodeLoading') ? [item] : [];
+					return item && (preview?.kind === 'loading'
+						|| preview?.kind === 'nodeLoading'
+						|| item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) ? [item] : [];
 				});
 				if (items.length === 0) {
 					continue;
@@ -5096,9 +5146,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		batch: IBaseHalfCanvasPreviewHydrationBatch
 	): Promise<void> {
 		// Ordinary content must never wait for credential-backed model discovery.
-		// Result nodes also get a safe, verification-pending face first so their
-		// local content remains visible while the global service list resolves.
-		if (!await this.hydrateCardPreviewItems(folder, items, [], false, structuralStamp, seq, batch)) {
+		// New result nodes also get a safe, verification-pending face first. A
+		// result node with a complete cached face keeps that face until fresh
+		// verification completes, so its media element is never downgraded to a
+		// loading or verification-pending frame during unrelated canvas work.
+		const initialItems = items.filter(item => {
+			const preview = this.renderedCardPreviewsByPath.get(item.path)?.preview;
+			return preview?.kind === 'loading' || preview?.kind === 'nodeLoading';
+		});
+		if (initialItems.length > 0
+			&& !await this.hydrateCardPreviewItems(folder, initialItems, [], false, structuralStamp, seq, batch)) {
 			return;
 		}
 
@@ -10317,10 +10374,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderCanvasWarning(message: string): void {
-		const warningIndex = this.canvasOverlay.querySelectorAll('.basehalf-canvas-warning').length;
+		const displayMessage = baseHalfCanvasWarningDisplayMessage(message);
+		const warnings = [...this.canvasOverlay.querySelectorAll<HTMLElement>('.basehalf-canvas-warning')];
+		const duplicate = warnings.some(warning => warning.textContent === displayMessage);
+		if (duplicate) {
+			return;
+		}
 		const warning = append(this.canvasOverlay, $('.basehalf-canvas-warning'));
-		warning.style.top = `${58 + warningIndex * 30}px`;
-		warning.textContent = message;
+		warning.style.top = `${58 + warnings.length * 30}px`;
+		warning.textContent = displayMessage;
 	}
 
 	private showCanvasNoteSaveWarning(path: string): void {

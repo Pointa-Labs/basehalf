@@ -277,6 +277,56 @@ type BaseHalfCanvasPendingEdgeMutation =
 type BaseHalfCanvasFlowNode = Node<IBaseHalfCanvasFlowNodeData, 'basehalf-card'>;
 type BaseHalfCanvasFlowEdge = Edge<IBaseHalfCanvasFlowEdgeData, 'basehalf-reference'>;
 
+export function baseHalfCanvasSceneNodeSize(
+	card: Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'>
+): Pick<BaseHalfCanvasFlowNode, 'initialWidth' | 'initialHeight' | 'measured' | 'style'> {
+	return {
+		initialWidth: card.width,
+		initialHeight: card.height,
+		// XYResizer snapshots `measured` at pointer-down and falls back to zero
+		// when it is absent. A controlled snapshot can arrive just before the
+		// ResizeObserver does, so seed the known persisted rectangle as the first
+		// measured value instead of exposing a transient minimum-size resize.
+		measured: { width: card.width, height: card.height },
+		style: { width: card.width, height: card.height }
+	};
+}
+
+export function baseHalfCanvasSceneGeometryForCommit(
+	geometry: IBaseHalfCanvasSceneGeometry,
+	fallback: Pick<IBaseHalfCanvasSceneCard, 'x' | 'y' | 'width' | 'height'>
+): IBaseHalfCanvasSceneGeometry {
+	const finiteOr = (value: number, fallbackValue: number, finalFallback: number): number =>
+		Number.isFinite(value) ? value : Number.isFinite(fallbackValue) ? fallbackValue : finalFallback;
+	return {
+		...geometry,
+		x: finiteOr(geometry.x, fallback.x, 0),
+		y: finiteOr(geometry.y, fallback.y, 0),
+		width: Math.max(BASEHALF_CANVAS_MIN_CARD_WIDTH, finiteOr(geometry.width, fallback.width, BASEHALF_CANVAS_MIN_CARD_WIDTH)),
+		height: Math.max(BASEHALF_CANVAS_MIN_CARD_HEIGHT, finiteOr(geometry.height, fallback.height, BASEHALF_CANVAS_MIN_CARD_HEIGHT))
+	};
+}
+
+export function baseHalfCanvasResizeStartSize(
+	bounds: Pick<DOMRect, 'width' | 'height'>,
+	zoom: number,
+	fallback: Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'>
+): Pick<IBaseHalfCanvasSceneCard, 'width' | 'height'> {
+	const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+	const width = bounds.width / safeZoom;
+	const height = bounds.height / safeZoom;
+	const safeDimension = (value: number, fallbackValue: number, minimum: number): number => Math.max(
+		minimum,
+		Number.isFinite(value) && value > 0
+			? value
+			: Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : minimum
+	);
+	return {
+		width: safeDimension(width, fallback.width, BASEHALF_CANVAS_MIN_CARD_WIDTH),
+		height: safeDimension(height, fallback.height, BASEHALF_CANVAS_MIN_CARD_HEIGHT)
+	};
+}
+
 export function captureBaseHalfCanvasNodeDragOrigins(
 	nodes: readonly { readonly id: string; readonly position: { readonly x: number; readonly y: number } }[],
 	ids: ReadonlySet<string>
@@ -935,6 +985,7 @@ function createCanvasSceneMount(
 			readonly removeBoundaryListeners: () => void;
 		} | undefined>(undefined);
 		const updateNodeInternals = vendor.useUpdateNodeInternals();
+		const store = vendor.useStoreApi<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>();
 		const selectionSize = vendor.useContext(SelectionSizeContext);
 		const clickConnectionInProgress = vendor.useStore(state => Boolean(state.connectionClickStartHandle));
 		const nearViewport = vendor.useStore(state => {
@@ -977,7 +1028,7 @@ function createCanvasSceneMount(
 			height,
 			retainPresentation: data.card.forceInteractive === true && note
 		};
-		const finishCardResize = (): void => {
+		const finishCardResize = vendor.useCallback((): void => {
 			const active = activeResizeRef.current;
 			if (!active) {
 				return;
@@ -986,8 +1037,8 @@ function createCanvasSceneMount(
 			active.removeBoundaryListeners();
 			delete active.card.element.dataset.cardResizing;
 			active.end();
-		};
-		const beginCardResize = (): void => {
+		}, []);
+		const beginCardResize = vendor.useCallback((): void => {
 			if (activeResizeRef.current) {
 				return;
 			}
@@ -1006,9 +1057,34 @@ function createCanvasSceneMount(
 				end: data.endResize,
 				removeBoundaryListeners
 			};
-			data.card.element.dataset.cardResizing = 'true';
 			data.beginResize();
-		};
+		}, [data.beginResize, data.card, data.endResize, finishCardResize]);
+		const markCardResizing = vendor.useCallback((): void => {
+			const active = activeResizeRef.current;
+			if (active) {
+				active.card.element.dataset.cardResizing = 'true';
+			}
+		}, []);
+		const prepareCardResizeMeasurement = vendor.useCallback((event: globalThis.PointerEvent): void => {
+			const target = event.target;
+			if ((!isHTMLElement(target) && !isSVGElement(target))
+				|| !target.closest('.react-flow__resize-control')) {
+				return;
+			}
+			const nodeElement = hostRef.current?.closest('.react-flow__node');
+			const internalNode = store.getState().nodeLookup.get(id);
+			if (!isHTMLElement(nodeElement) || !internalNode) {
+				return;
+			}
+			const measured = baseHalfCanvasResizeStartSize(nodeElement.getBoundingClientRect(), store.getState().transform[2], data.card);
+			// XYResizer snapshots only the internal measured box at native drag
+			// start. A controlled-node reconciliation can temporarily clear that
+			// box while the already-painted DOM still has the correct live size.
+			// Refresh it synchronously in capture phase, before d3-drag observes the
+			// same pointer, so a second resize cannot start from zero/minimum size.
+			internalNode.measured.width = measured.width;
+			internalNode.measured.height = measured.height;
+		}, [data.card, id, store]);
 
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
@@ -1056,6 +1132,15 @@ function createCanvasSceneMount(
 		}, [data.card.element]);
 
 		vendor.useLayoutEffect(() => {
+			const nodeElement = hostRef.current?.closest('.react-flow__node');
+			if (!isHTMLElement(nodeElement)) {
+				return;
+			}
+			nodeElement.addEventListener('pointerdown', prepareCardResizeMeasurement, true);
+			return () => nodeElement.removeEventListener('pointerdown', prepareCardResizeMeasurement, true);
+		}, [prepareCardResizeMeasurement]);
+
+		vendor.useLayoutEffect(() => {
 			const frame = host.ownerDocument.defaultView?.requestAnimationFrame(() => updateNodeInternals(id));
 			return () => {
 				if (frame !== undefined) {
@@ -1094,7 +1179,8 @@ function createCanvasSceneMount(
 				isVisible: resizeControlsVisible,
 				lineClassName: 'basehalf-canvas-node-resizer-line',
 				handleClassName: 'basehalf-canvas-node-resizer-handle',
-				onResize: beginCardResize,
+				onResizeStart: beginCardResize,
+				onResize: markCardResizing,
 				onResizeEnd: finishCardResize
 			}),
 			...(['north', 'east', 'south', 'west'] as const).map(anchor => h(vendor.Handle, {
@@ -1752,9 +1838,7 @@ function createCanvasSceneMount(
 			id: card.path,
 			type: 'basehalf-card',
 			position: { x: card.x, y: card.y },
-			initialWidth: card.width,
-			initialHeight: card.height,
-			style: { width: card.width, height: card.height },
+			...baseHalfCanvasSceneNodeSize(card),
 			data: { card, sceneKey, structuralEpoch, beginResize: beginInteraction, endResize: endInteraction },
 			deletable: false,
 			selected
@@ -2109,14 +2193,14 @@ function createCanvasSceneMount(
 				if (node.data.sceneKey !== operationKey || node.data.structuralEpoch !== operationEpoch) {
 					return;
 				}
-				geometries.push({
+				geometries.push(baseHalfCanvasSceneGeometryForCommit({
 					path: id,
 					kind: node.data.card.kind,
 					x: node.position.x,
 					y: node.position.y,
 					width: node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width,
 					height: node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height
-				});
+				}, node.data.card));
 			}
 			if (geometries.length === 0 || !operationKey || operationEpoch === undefined) {
 				return;

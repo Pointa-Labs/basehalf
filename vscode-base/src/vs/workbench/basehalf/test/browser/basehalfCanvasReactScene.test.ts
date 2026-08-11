@@ -9,7 +9,10 @@ import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
+	baseHalfCanvasResizeStartSize,
 	baseHalfCanvasSceneCardIsNoteEditing,
+	baseHalfCanvasSceneGeometryForCommit,
+	baseHalfCanvasSceneNodeSize,
 	baseHalfCanvasSceneProjectsSelection,
 	baseHalfCanvasSceneShowsResizeControls,
 	baseHalfCanvasShouldOpenCreateMenu,
@@ -61,6 +64,42 @@ suite('BaseHalfCanvasReactScene', () => {
 			resolveBaseHalfCanvasCardFocusPath(root as unknown as Element, [1]),
 			undefined
 		);
+	});
+
+	test('clamps invalid final geometry before it reaches the canvas mirror', () => {
+		assert.deepStrictEqual(baseHalfCanvasSceneGeometryForCommit({
+			path: 'note.md',
+			kind: 'file',
+			x: Number.NaN,
+			y: 42,
+			width: -8,
+			height: Number.POSITIVE_INFINITY
+		}, {
+			x: 12,
+			y: 24,
+			width: 300,
+			height: 220
+		}), {
+			path: 'note.md',
+			kind: 'file',
+			x: 12,
+			y: 42,
+			width: 140,
+			height: 220
+		});
+	});
+
+	test('recovers the painted card size for a repeated resize start', () => {
+		assert.deepStrictEqual(baseHalfCanvasResizeStartSize(
+			{ width: 148, height: 112 },
+			0.5,
+			{ width: 248, height: 188 }
+		), { width: 296, height: 224 });
+		assert.deepStrictEqual(baseHalfCanvasResizeStartSize(
+			{ width: Number.NaN, height: 0 },
+			1,
+			{ width: 248, height: 188 }
+		), { width: 248, height: 188 });
 	});
 
 	test('keeps selection actions inside the viewport and flips below a top card', () => {
@@ -265,6 +304,15 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 2), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, true, 1), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, false, 1), false);
+	});
+
+	test('seeds the resizer measured box from persisted card geometry', () => {
+		assert.deepStrictEqual(baseHalfCanvasSceneNodeSize({ width: 640, height: 360 }), {
+			initialWidth: 640,
+			initialHeight: 360,
+			measured: { width: 640, height: 360 },
+			style: { width: 640, height: 360 }
+		});
 	});
 
 	test('keeps composition and nested controls ahead of graph shortcuts', () => {

@@ -422,6 +422,18 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual(fileService.files.get('/work/.bh/mirror/canvas.yaml'), 'path: [unterminated');
 	});
 
+	test('rejects invalid geometry before it can corrupt canvas.yaml', async () => {
+		const fileService = new TestFileService(new Map());
+		const service = mirrorService(fileService as unknown as IFileService);
+
+		await assert.rejects(
+			() => service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 10, y: 20, width: -8, height: 112 }),
+			error => error instanceof RangeError && error.message.includes('card \'a.md\' width must be positive')
+		);
+		assert.strictEqual(fileService.files.has('/work/.bh/mirror/canvas.yaml'), false);
+		assert.strictEqual(fileService.writeCount, 0);
+	});
+
 	test('serializes concurrent card geometry writes through one latest-read path', async () => {
 		const fileService = new TestFileService(new Map());
 		const service = mirrorService(fileService as unknown as IFileService);
