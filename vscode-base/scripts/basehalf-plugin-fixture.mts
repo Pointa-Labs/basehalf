@@ -372,6 +372,94 @@ try {
 	await writeVsix(floodVsix, flood);
 	await assert.rejects(() => metadataFromVsix({ vsixPath: floodVsix }), /more than 4096 entries/);
 	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
+	const officialManifestFixture = JSON.parse(fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', 'package.json'), 'utf8'));
+	const officialProviderContribution = officialManifestFixture.contributes.basehalfModelProviderCatalogs[0];
+	const officialVideoModelContribution = officialManifestFixture.contributes.basehalfVideoModelCatalogs[0];
+	const officialProviderArchivePath = `extension/${officialProviderContribution.resource}`;
+	const officialVideoModelArchivePath = `extension/${officialVideoModelContribution.resource}`;
+	const officialProviderBytes = fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', officialProviderContribution.resource));
+	const officialVideoModelBytes = fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', officialVideoModelContribution.resource));
+	const providerManifest = {
+		...reviewedManifest,
+		contributes: {
+			...reviewedManifest.contributes,
+			basehalfModelProviderCatalogs: [officialProviderContribution],
+			basehalfVideoModelCatalogs: [officialVideoModelContribution]
+		}
+	};
+	const providerFiles = new Set([...reviewedFiles, officialProviderArchivePath, officialVideoModelArchivePath]);
+	const providerResources = new Map([
+		...reviewedTemplates,
+		[officialProviderArchivePath, officialProviderBytes] as const,
+		[officialVideoModelArchivePath, officialVideoModelBytes] as const
+	]);
+	validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, providerResources);
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, providerResources), /model provider catalog .* resource .* is missing/);
+	assert.throws(() => validateReviewedVsixManifest({
+		...providerManifest,
+		contributes: {
+			...providerManifest.contributes,
+			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, id: 'other.extension.official-providers' }]
+		}
+	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /model provider catalog .* not uniquely owned/);
+	assert.throws(() => validateReviewedVsixManifest({
+		...providerManifest,
+		contributes: {
+			...providerManifest.contributes,
+			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, resource: '../provider-connections.json' }]
+		}
+	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /path is invalid/);
+	assert.throws(() => validateReviewedVsixManifest({
+		...providerManifest,
+		contributes: {
+			...providerManifest.contributes,
+			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, connections: [] }]
+		}
+	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /unsupported fields/);
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /model provider catalog .* was not inspected/);
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...reviewedTemplates,
+		[officialProviderArchivePath, Buffer.from(JSON.stringify({ schemaVersion: 2, connections: [] }))]
+	])), /model provider catalog .* failed validation: .*schemaVersion/);
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...reviewedTemplates,
+		[officialProviderArchivePath, Buffer.alloc(128 * 1024 + 1)]
+	])), /model provider catalog .* exceeds 131072 bytes/);
+	const officialProviderCatalog = JSON.parse(officialProviderBytes.toString('utf8'));
+	const officialVideoModelCatalog = JSON.parse(officialVideoModelBytes.toString('utf8'));
+	const missingScopeProviderCatalog = structuredClone(officialProviderCatalog);
+	missingScopeProviderCatalog.connections = missingScopeProviderCatalog.connections.filter((connection: any) => connection.providerId !== 'byteplus');
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...providerResources,
+		[officialProviderArchivePath, Buffer.from(JSON.stringify(missingScopeProviderCatalog))]
+	])), /video model scope 'byteplus\/modelark\/global' must match exactly one .* found 0/);
+	const duplicateScopeProviderCatalog = structuredClone(officialProviderCatalog);
+	duplicateScopeProviderCatalog.connections.push({
+		...structuredClone(duplicateScopeProviderCatalog.connections[0]),
+		id: 'pointa.basehalf-ai-video.byteplus-modelark-duplicate'
+	});
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...providerResources,
+		[officialProviderArchivePath, Buffer.from(JSON.stringify(duplicateScopeProviderCatalog))]
+	])), /video model scope 'byteplus\/modelark\/global' must match exactly one .* found 2/);
+	const uncoveredProviderCatalog = structuredClone(officialProviderCatalog);
+	uncoveredProviderCatalog.connections.push({
+		...structuredClone(uncoveredProviderCatalog.connections[0]),
+		id: 'pointa.basehalf-ai-video.uncovered-video-provider',
+		providerId: 'uncovered',
+		deploymentId: 'official',
+		region: 'global'
+	});
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...providerResources,
+		[officialProviderArchivePath, Buffer.from(JSON.stringify(uncoveredProviderCatalog))]
+	])), /video-capable model provider connection 'pointa\.basehalf-ai-video\.uncovered-video-provider' does not unlock any owned video model/);
+	const driftedVideoModelCatalog = structuredClone(officialVideoModelCatalog);
+	driftedVideoModelCatalog.models[0].key.region = 'scope-drift';
+	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
+		...providerResources,
+		[officialVideoModelArchivePath, Buffer.from(JSON.stringify(driftedVideoModelCatalog))]
+	])), /video model scope 'byteplus\/modelark\/scope-drift' must match exactly one .* found 0/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, enabledApiProposals: ['unsafe'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /proposed APIs/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, extensionDependencies: ['other.extension'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /cannot declare extensionDependencies/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onStartupFinished'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
@@ -432,14 +520,14 @@ try {
 				]
 			}]
 		}
-	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /no more than 64 artifacts in total/);
+	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /must declare exactly one output/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, contributes: {
 		...reviewedManifest.contributes,
 		basehalfCanvasRecipes: [{
 			...reviewedManifest.contributes.basehalfCanvasRecipes[0],
 			outputs: [{ id: 'storyboard', kind: 'image', extensions: ['.svg'], minItems: 0, maxItems: 2, primary: true }]
 		}]
-	} }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /primary output must produce exactly one artifact/);
+	} }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /output must produce exactly one artifact/);
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, new Set([...reviewedFiles].filter(file => !file.endsWith('starter-workflow.json'))), OFFICIAL_EXTENSION_ID, reviewedTemplates), /resource .* is missing/);
 	assert.throws(() => validateReviewedVsixManifest({
 		...reviewedManifest,

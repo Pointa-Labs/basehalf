@@ -569,7 +569,7 @@ function _resolveSettingsTree(tocData: ITOCEntry<string>, allSettings: Set<ISett
 		children = tocData.children
 			.filter(child => child.hide !== true)
 			.map(child => _resolveSettingsTree(child, allSettings, filter, logService))
-			.filter(child => child.children?.length || child.settings?.length);
+			.filter(child => child.custom || child.children?.length || child.settings?.length);
 	}
 
 	let settings: ISetting[] | undefined;
@@ -584,7 +584,7 @@ function _resolveSettingsTree(tocData: ITOCEntry<string>, allSettings: Set<ISett
 		sortSettings(settings);
 	}
 
-	if (!children && !settings) {
+	if (!children && !settings && !tocData.custom) {
 		throw new Error(`TOC node has no child groups or settings: ${tocData.id}`);
 	}
 
@@ -592,7 +592,8 @@ function _resolveSettingsTree(tocData: ITOCEntry<string>, allSettings: Set<ISett
 		id: tocData.id,
 		label: tocData.label,
 		children,
-		settings
+		settings,
+		custom: tocData.custom
 	};
 }
 
@@ -2456,6 +2457,9 @@ export class SettingsTreeFilter implements ITreeFilter<SettingsTreeElement> {
 
 		// Group with no visible children
 		if (element instanceof SettingsTreeGroupElement) {
+			if (element.customSection) {
+				return this.viewState.query?.trim() ? false : true;
+			}
 			// When filtering to a specific category, only show that category and its descendants
 			if (this.isFilteringGroups && this.viewState.categoryFilter) {
 				if (!this.groupIsRelatedToCategory(element, this.viewState.categoryFilter)) {

@@ -28,6 +28,7 @@ suite('BaseHalfPluginPlatformBoundary', () => {
 
 		assert.ok(desktopMain.includes('basehalfPluginPlatform.contribution.js'));
 		assert.ok(desktopPluginPlatform.includes('basehalfPluginStateStore.js'));
+		assert.ok(desktopPluginPlatform.includes('basehalfModelCredentialStore.js'));
 	});
 
 	test('keeps the common state-store module free of desktop process services', () => {

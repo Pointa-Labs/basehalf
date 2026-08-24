@@ -194,28 +194,28 @@ test('coalesces overlapping projection refreshes into one in-flight inspection',
 	assert.equal(calls, 2);
 });
 
-test('tracks only current Sequence pins while retaining a temporarily unavailable artifact path', () => {
+test('tracks only referenced Sequence results while retaining a temporarily unavailable artifact path', () => {
 	const paths = new SequenceProjectionArtifactPaths(3);
 	paths.reconcile([
-		{ pinKey: 'opening:run-1', verifiedResourceKey: 'file:///project/opening.mp4' },
-		{ pinKey: 'close:run-2', verifiedResourceKey: 'file:///project/close.mp4' }
+		{ resultKey: 'opening:node-1', verifiedResourceKey: 'file:///project/opening.mp4' },
+		{ resultKey: 'close:node-2', verifiedResourceKey: 'file:///project/close.mp4' }
 	]);
 	assert.equal(paths.size, 2);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), true);
 
 	paths.reconcile([
-		{ pinKey: 'opening:run-1' },
-		{ pinKey: 'close:run-2', verifiedResourceKey: 'file:///project/close-replaced.mp4' }
+		{ resultKey: 'opening:node-1' },
+		{ resultKey: 'close:node-2', verifiedResourceKey: 'file:///project/close-replaced.mp4' }
 	]);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), true);
 	assert.equal(paths.hasResource('file:///project/close.mp4'), false);
 	assert.equal(paths.hasResource('file:///project/close-replaced.mp4'), true);
 
-	paths.reconcile([{ pinKey: 'close:run-3', verifiedResourceKey: 'file:///project/close-current.mp4' }]);
+	paths.reconcile([{ resultKey: 'close:node-3', verifiedResourceKey: 'file:///project/close-result.mp4' }]);
 	assert.equal(paths.size, 1);
 	assert.equal(paths.hasResource('file:///project/opening.mp4'), false);
 	assert.equal(paths.hasResource('file:///project/close-replaced.mp4'), false);
-	assert.equal(paths.hasResource('file:///project/close-current.mp4'), true);
+	assert.equal(paths.hasResource('file:///project/close-result.mp4'), true);
 
 	paths.clear();
 	assert.equal(paths.size, 0);
@@ -224,10 +224,10 @@ test('tracks only current Sequence pins while retaining a temporarily unavailabl
 test('bounds and validates the Sequence artifact path set', () => {
 	const paths = new SequenceProjectionArtifactPaths(1);
 	assert.throws(() => paths.reconcile([
-		{ pinKey: 'one', verifiedResourceKey: 'file:///one.mp4' },
-		{ pinKey: 'two', verifiedResourceKey: 'file:///two.mp4' }
+		{ resultKey: 'one', verifiedResourceKey: 'file:///one.mp4' },
+		{ resultKey: 'two', verifiedResourceKey: 'file:///two.mp4' }
 	]), /more than 1/);
-	assert.throws(() => paths.reconcile([{ pinKey: '' }]), /missing its pin identity/);
+	assert.throws(() => paths.reconcile([{ resultKey: '' }]), /missing its result identity/);
 	const duplicatePaths = new SequenceProjectionArtifactPaths(2);
-	assert.throws(() => duplicatePaths.reconcile([{ pinKey: 'same' }, { pinKey: 'same' }]), /duplicated/);
+	assert.throws(() => duplicatePaths.reconcile([{ resultKey: 'same' }, { resultKey: 'same' }]), /duplicated/);
 });

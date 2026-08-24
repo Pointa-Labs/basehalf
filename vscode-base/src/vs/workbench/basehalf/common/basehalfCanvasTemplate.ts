@@ -10,6 +10,7 @@ import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import {
 	BASEHALF_NODE_MAX_BINDINGS,
 	BASEHALF_NODE_MAX_ID_LENGTH,
+	BASEHALF_NODE_PROMPT_MAX_LENGTH,
 	BASEHALF_PROJECT_PATH_MAX_LENGTH,
 	BaseHalfNodeJsonValue,
 	BaseHalfNodeKind,
@@ -58,6 +59,7 @@ export interface IBaseHalfCanvasTemplateNode {
 	readonly kind: BaseHalfNodeKind;
 	readonly title: string;
 	readonly role: string;
+	readonly prompt?: string;
 	readonly recipe?: IBaseHalfCanvasTemplateRecipe;
 }
 
@@ -94,7 +96,7 @@ export class BaseHalfCanvasTemplateError extends Error {
 /**
  * Parses the static, declarative template format accepted from reviewed
  * extensions. Templates create host-owned files and references; they cannot
- * carry run history, credentials, executable code, or private extension state.
+ * carry Attempts, Results, credentials, executable code, or private extension state.
  */
 export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemplate {
 	if (typeof source !== 'string' || VSBuffer.fromString(source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
@@ -186,7 +188,7 @@ function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTex
 
 function parseNode(value: unknown, path: string): IBaseHalfCanvasTemplateNode {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['path', 'kind', 'title', 'role', 'recipe'], path);
+	assertOnlyKeys(candidate, ['path', 'kind', 'title', 'role', 'prompt', 'recipe'], path);
 	const kind = text(candidate.kind, `${path}.kind`, 16) as BaseHalfNodeKind;
 	if (!NODE_KINDS.has(kind)) {
 		throw invalid(`${path}.kind is not a supported node content kind.`);
@@ -197,6 +199,7 @@ function parseNode(value: unknown, path: string): IBaseHalfCanvasTemplateNode {
 		kind,
 		title: text(candidate.title, `${path}.title`, 240),
 		role: text(candidate.role, `${path}.role`, 120),
+		...(candidate.prompt === undefined ? {} : { prompt: text(candidate.prompt, `${path}.prompt`, BASEHALF_NODE_PROMPT_MAX_LENGTH, true) }),
 		...(recipe ? { recipe } : {})
 	});
 }

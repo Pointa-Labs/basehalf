@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { mainWindow } from '../../../base/browser/window.js';
-import { Limiter } from '../../../base/common/async.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken, CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
@@ -33,9 +32,10 @@ import {
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_MAX_ID_LENGTH,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeRunArtifact,
+	IBaseHalfNodeResultArtifact,
 	parseBaseHalfNodeDocumentBytes,
-	parseBaseHalfNodeDocumentBytesForActiveHost
+	parseBaseHalfNodeDocumentBytesForActiveHost,
+	validateBaseHalfNodePersistentId
 } from '../../basehalf/common/basehalfNodeDocument.js';
 import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/common/basehalfPluginAdmissionService.js';
 import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/common/basehalfPluginStructuralCleanup.js';
@@ -49,15 +49,6 @@ interface IBaseHalfRegisteredProjection {
 	readonly extension: extHostProtocol.WebviewExtensionDescription;
 	readonly options: { readonly retainContextWhenHidden?: boolean };
 	readonly serializeBuffersForPostMessage: boolean;
-}
-
-const BASEHALF_CANVAS_NODE_INSPECT_MAX_VERSION_IDS = 256;
-const BASEHALF_CANVAS_NODE_INSPECT_DEFAULT_VERSION_LIMIT = 256;
-const BASEHALF_CANVAS_NODE_INSPECT_MAX_CONCURRENT_INTEGRITY_CHECKS = 8;
-
-interface IBaseHalfNormalizedCanvasNodeInspectOptions {
-	readonly versionIds: readonly string[];
-	readonly includeCurrent: boolean;
 }
 
 interface IBaseHalfCanvasNodeReadState {
@@ -152,16 +143,15 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 	private readonly proxy: extHostProtocol.ExtHostBaseHalfShape;
 	private readonly registrations = this._register(new DisposableMap<string>());
 	private readonly recipeRegistrations = this._register(new DisposableMap<string>());
+	private readonly modelProviderConnectionValidatorRegistrations = this._register(new DisposableMap<string>());
 	private readonly structuralCleanupRegistrations = this._register(new DisposableMap<string>());
-	private readonly canvasNodeVersionLimiter = this._register(new Limiter<extHostProtocol.IBaseHalfCanvasNodeVersionDto>(
-		BASEHALF_CANVAS_NODE_INSPECT_MAX_CONCURRENT_INTEGRITY_CHECKS
-	));
 	private readonly sessions = new Map<extHostProtocol.WebviewHandle, MainThreadBaseHalfCardProjectionSession>();
-	private readonly recipeRuns = new Map<string, {
+	private readonly recipeAttempts = new Map<string, {
 		readonly progress: IProgress<IBaseHalfCanvasRecipeProgress>;
+		readonly acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>;
 		readonly cancellation: CancellationTokenSource;
 		readonly extensionId: string;
-		readonly modelService?: extHostProtocol.IBaseHalfModelServiceRunSnapshotDto;
+		readonly modelService?: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto;
 	}>();
 
 	constructor(
@@ -249,9 +239,29 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.recipeRegistrations.deleteAndDispose(recipeId.toLowerCase());
 	}
 
-	$reportCanvasRecipeProgress(runHandle: string, progress: extHostProtocol.IBaseHalfCanvasRecipeProgressDto): void {
-		const run = this.recipeRuns.get(runHandle);
-		if (!run || !progress || typeof progress !== 'object') {
+	$registerModelProviderConnectionValidator(extension: extHostProtocol.WebviewExtensionDescription, specId: string): void {
+		const extensionId = extension.id.value.toLowerCase();
+		const id = specId.trim().toLowerCase();
+		this.modelProviderConnectionValidatorRegistrations.set(id, this.modelServiceService.registerConnectionValidator(id, extensionId, {
+			validate: (connection, token) => this.proxy.$validateModelProviderConnection(id, {
+				specId: connection.specId,
+				endpoint: connection.endpoint,
+				providerId: connection.providerId,
+				deploymentId: connection.deploymentId,
+				region: connection.region,
+				publicValues: connection.publicValues,
+				credentialValues: connection.secretValues
+			}, token)
+		}));
+	}
+
+	$unregisterModelProviderConnectionValidator(specId: string): void {
+		this.modelProviderConnectionValidatorRegistrations.deleteAndDispose(specId.trim().toLowerCase());
+	}
+
+	$reportCanvasRecipeProgress(attemptHandle: string, progress: extHostProtocol.IBaseHalfCanvasRecipeProgressDto): void {
+		const attempt = this.recipeAttempts.get(attemptHandle);
+		if (!attempt || !progress || typeof progress !== 'object') {
 			return;
 		}
 		const message = typeof progress.message === 'string' ? progress.message.slice(0, 500) : undefined;
@@ -259,20 +269,34 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			? Math.max(0, Math.min(100, progress.increment))
 			: undefined;
 		if (message !== undefined || increment !== undefined) {
-			run.progress.report({ ...(message === undefined ? {} : { message }), ...(increment === undefined ? {} : { increment }) });
+			attempt.progress.report({
+				...(message === undefined ? {} : { message }),
+				...(increment === undefined ? {} : { increment })
+			});
 		}
+	}
+
+	async $acknowledgeCanvasRecipeProviderRequestId(attemptHandle: string, providerRequestId: string): Promise<void> {
+		const attempt = this.recipeAttempts.get(attemptHandle);
+		if (!attempt) {
+			throw new Error('This canvas recipe Attempt is no longer active.');
+		}
+		if (typeof providerRequestId !== 'string'
+			|| providerRequestId.length > BASEHALF_NODE_MAX_ID_LENGTH
+			|| !/^[A-Za-z0-9][A-Za-z0-9._:/@+~-]*$/.test(providerRequestId)) {
+			throw new Error('The video provider returned an invalid request id.');
+		}
+		await attempt.acknowledgeProviderRequestId(providerRequestId);
 	}
 
 	async $inspectCanvasNode(
 		extension: extHostProtocol.IBaseHalfExtensionIdentityDto,
-		resource: UriComponents,
-		options?: extHostProtocol.IBaseHalfCanvasNodeInspectOptionsDto
+		resource: UriComponents
 	): Promise<extHostProtocol.IBaseHalfCanvasNodeStateDto | undefined> {
 		const contributor = reviveBaseHalfExtensionIdentity(extension);
 		if (!this.pluginAdmissionService.isAllowedContributor(contributor)) {
 			throw new Error(`Extension '${contributor.extensionId}' is not admitted to inspect BaseHalf canvas nodes.`);
 		}
-		const selection = normalizeCanvasNodeInspectOptions(options);
 		const nodeResource = URI.revive(resource);
 		if (nodeResource.query || nodeResource.fragment || !nodeResource.path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			return undefined;
@@ -286,7 +310,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			return undefined;
 		}
 		if (this.workingCopyService.isDirty(nodeResource)) {
-			throw new Error('Save this node before inspecting its versions.');
+			throw new Error('Save this node before inspecting its lifecycle.');
 		}
 		const source = await this.fileService.readFile(beforeRead.nodeRealpath, {
 			atomic: true,
@@ -312,27 +336,39 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		} catch {
 			return undefined;
 		}
-		const currentVersionId = document.current.runId ?? document.current.revisionId;
-		const allVersions = [
-			...document.runs.map(run => ({ id: run.id, status: run.status, createdAt: run.completedAt ?? run.startedAt ?? run.createdAt })),
-			...document.revisions.map(revision => ({ id: revision.id, status: 'imported' as const, createdAt: revision.createdAt }))
-		];
-		const selectedVersions = selection === undefined
-			? selectDefaultCanvasNodeVersions(allVersions, currentVersionId)
-			: selectCanvasNodeVersions(allVersions, selection, currentVersionId);
-		const versions = await Promise.all(selectedVersions.map(version => this.canvasNodeVersionLimiter.queue(() => this.toCanvasNodeVersionDto(
-			workspaceFolder.uri,
-			document,
-			version.id,
-			version.status,
-			version.createdAt,
-			selection !== undefined
-		))));
+		const latest = document.attempts.at(-1);
+		const lifecycle: extHostProtocol.BaseHalfCanvasNodeLifecycleDto = document.result
+			? 'result'
+			: latest?.status === 'running' || this.nodeExecutionService.getActiveRun(nodeResource)
+				? 'running'
+				: latest?.status === 'failed' || latest?.status === 'cancelled' || latest?.status === 'interrupted'
+					? latest.status
+					: 'draft';
+		const resultArtifact = document.result === undefined
+			? undefined
+			: await this.toCanvasNodeResultArtifactDto(workspaceFolder.uri, document.result.artifact);
+		const result: extHostProtocol.IBaseHalfCanvasNodeResultDto | undefined = document.result === undefined || resultArtifact === undefined
+			? undefined
+			: document.result.source === 'attempt'
+				? { source: 'attempt', attemptId: document.result.attemptId, artifact: resultArtifact }
+				: { source: 'imported', artifact: resultArtifact };
 		return {
 			id: document.id,
 			kind: document.kind,
-			...(currentVersionId ? { currentVersionId } : {}),
-			versions
+			lifecycle,
+			...(result === undefined ? {} : { result }),
+			attempts: document.attempts.map(attempt => ({
+				id: attempt.id,
+				status: attempt.status,
+				createdAt: attempt.createdAt,
+				...(attempt.startedAt === undefined ? {} : { startedAt: attempt.startedAt }),
+				...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
+				model: attempt.model,
+				...(attempt.providerRequestId === undefined ? {} : { providerRequestId: attempt.providerRequestId }),
+				...(attempt.usage === undefined ? {} : { usage: attempt.usage }),
+				...(attempt.cost === undefined ? {} : { cost: attempt.cost }),
+				...(attempt.error === undefined ? {} : { error: attempt.error })
+			}))
 		};
 	}
 
@@ -398,12 +434,12 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		return this.modelServiceService.getServices(reviveBaseHalfExtensionIdentity(extension), capability);
 	}
 
-	$getModelServiceAccess(extension: extHostProtocol.IBaseHalfExtensionIdentityDto, snapshot: extHostProtocol.IBaseHalfModelServiceRunSnapshotDto): Promise<extHostProtocol.IBaseHalfModelServiceAccessDto | undefined> {
+	$getModelServiceAccess(extension: extHostProtocol.IBaseHalfExtensionIdentityDto, snapshot: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto): Promise<extHostProtocol.IBaseHalfModelServiceAccessDto | undefined> {
 		const contributor = reviveBaseHalfExtensionIdentity(extension);
-		const grant = [...this.recipeRuns.values()].find(run => run.extensionId === contributor.extensionId.toLowerCase()
-			&& run.modelService?.accessToken !== undefined
-			&& run.modelService.accessToken === snapshot.accessToken
-			&& sameModelServiceRunSnapshot(run.modelService, snapshot));
+		const grant = [...this.recipeAttempts.values()].find(attempt => attempt.extensionId === contributor.extensionId.toLowerCase()
+			&& attempt.modelService?.accessToken !== undefined
+			&& attempt.modelService.accessToken === snapshot.accessToken
+			&& sameModelServiceAttemptSnapshot(attempt.modelService, snapshot));
 		if (!grant?.modelService) {
 			return Promise.resolve(undefined);
 		}
@@ -419,10 +455,10 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			session.dispose();
 		}
 		this.sessions.clear();
-		for (const run of this.recipeRuns.values()) {
-			run.cancellation.dispose(true);
+		for (const attempt of this.recipeAttempts.values()) {
+			attempt.cancellation.dispose(true);
 		}
-		this.recipeRuns.clear();
+		this.recipeAttempts.clear();
 		super.dispose();
 	}
 
@@ -433,77 +469,65 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		progress: IProgress<IBaseHalfCanvasRecipeProgress>,
 		token: CancellationToken
 	): Promise<IBaseHalfCanvasRecipeExecutionResult> {
-		const runHandle = generateUuid();
+		const attemptHandle = generateUuid();
 		const cancellation = new CancellationTokenSource(token);
 		const modelService = request.modelService
 			? { ...request.modelService, accessToken: generateUuid() }
 			: undefined;
-		this.recipeRuns.set(runHandle, {
+		this.recipeAttempts.set(attemptHandle, {
 			progress,
+			acknowledgeProviderRequestId: request.acknowledgeProviderRequestId,
 			cancellation,
 			extensionId,
 			...(modelService === undefined ? {} : { modelService })
 		});
 		try {
 			const result = await this.proxy.$executeCanvasRecipe(
-				runHandle,
+				attemptHandle,
 				recipeId,
 				toRecipeExecutionRequestDto(request, modelService),
 				cancellation.token
 			);
+			if (!result || typeof result !== 'object' || Array.isArray(result) || !result.artifact || typeof result.artifact !== 'object' || Array.isArray(result.artifact)) {
+				throw new Error(`BaseHalf canvas recipe '${recipeId}' returned an invalid result.`);
+			}
+			const unknownResultProperty = Object.keys(result).find(key => !['artifact', 'providerRequestId', 'usage', 'cost'].includes(key));
+			if (unknownResultProperty) {
+				throw new Error(`BaseHalf canvas recipe '${recipeId}' result contains unsupported property '${unknownResultProperty}'.`);
+			}
+			const unknownArtifactProperty = Object.keys(result.artifact).find(key => !['id', 'outputId', 'kind', 'resource', 'label'].includes(key));
+			if (unknownArtifactProperty) {
+				throw new Error(`BaseHalf canvas recipe '${recipeId}' artifact contains unsupported property '${unknownArtifactProperty}'.`);
+			}
 			return {
-				artifacts: result.artifacts.map(artifact => ({
-					id: artifact.id,
-					outputId: artifact.outputId,
-					kind: artifact.kind,
-					resource: URI.revive(artifact.resource),
-					...(artifact.label === undefined ? {} : { label: artifact.label })
-				})),
-					...(result.primaryArtifactId === undefined ? {} : { primaryArtifactId: result.primaryArtifactId }),
-					...(result.providerRequestId === undefined ? {} : { providerRequestId: result.providerRequestId }),
-					...(result.usage === undefined ? {} : { usage: result.usage }),
-					...(result.cost === undefined ? {} : { cost: result.cost })
-				};
+				artifact: {
+					id: validateBaseHalfNodePersistentId(result.artifact.id, `${recipeId}.artifact.id`),
+					outputId: result.artifact.outputId,
+					kind: result.artifact.kind,
+					resource: URI.revive(result.artifact.resource),
+					...(result.artifact.label === undefined ? {} : { label: result.artifact.label })
+				},
+				...(result.providerRequestId === undefined ? {} : { providerRequestId: result.providerRequestId }),
+				...(result.usage === undefined ? {} : { usage: result.usage }),
+				...(result.cost === undefined ? {} : { cost: result.cost })
+			};
 		} finally {
-			this.recipeRuns.delete(runHandle);
+			this.recipeAttempts.delete(attemptHandle);
 			cancellation.dispose();
 		}
 	}
 
-	private async toCanvasNodeVersionDto(
+	private async toCanvasNodeResultArtifactDto(
 		workspaceFolder: URI,
-		document: IBaseHalfNodeDocument,
-		id: string,
-		status: extHostProtocol.BaseHalfCanvasNodeVersionStatusDto,
-		createdAt: string,
-		freshIntegrity = false
-	): Promise<extHostProtocol.IBaseHalfCanvasNodeVersionDto> {
-		const revision = status === 'imported' ? document.revisions.find(candidate => candidate.id === id) : undefined;
-		const run = status === 'imported' ? undefined : document.runs.find(candidate => candidate.id === id);
-		const version = revision ?? run;
-		const primaryArtifact = version?.artifacts.find(artifact => artifact.id === version.primaryArtifactId);
-		return {
-			id,
-			status,
-			createdAt,
-			...(primaryArtifact ? { primaryArtifact: await this.toCanvasNodeVersionArtifactDto(workspaceFolder, primaryArtifact, freshIntegrity) } : {}),
-			...(run ? { model: run.model } : {}),
-			...(run?.providerRequestId === undefined ? {} : { providerRequestId: run.providerRequestId }),
-			...(run?.usage === undefined ? {} : { usage: run.usage }),
-			...(run?.cost === undefined ? {} : { cost: run.cost })
-		};
-	}
-
-	private async toCanvasNodeVersionArtifactDto(
-		workspaceFolder: URI,
-		artifact: IBaseHalfNodeRunArtifact,
-		freshIntegrity: boolean
-	): Promise<extHostProtocol.IBaseHalfCanvasNodeVersionArtifactDto> {
+		artifact: IBaseHalfNodeResultArtifact
+	): Promise<extHostProtocol.IBaseHalfCanvasNodeResultArtifactDto> {
 		return {
 			id: artifact.id,
+			outputId: artifact.outputId,
 			kind: artifact.kind,
 			resource: URI.joinPath(workspaceFolder, ...artifact.path.split('/')),
-			integrity: await this.nodeExecutionService.getArtifactIntegrity(workspaceFolder, artifact, freshIntegrity ? { fresh: true } : undefined)
+			integrity: await this.nodeExecutionService.getArtifactIntegrity(workspaceFolder, artifact, { fresh: true }),
+			...(artifact.label === undefined ? {} : { label: artifact.label })
 		};
 	}
 }
@@ -530,91 +554,6 @@ function sameCanvasNodeFileIdentity(
 		&& left.size === right.size;
 }
 
-function normalizeCanvasNodeInspectOptions(
-	options: extHostProtocol.IBaseHalfCanvasNodeInspectOptionsDto | undefined
-): IBaseHalfNormalizedCanvasNodeInspectOptions | undefined {
-	if (options === undefined) {
-		return undefined;
-	}
-	if (!options || typeof options !== 'object' || Array.isArray(options)) {
-		throw new Error('Canvas node inspect options must be an object.');
-	}
-	for (const key of Object.keys(options)) {
-		if (key !== 'versionIds' && key !== 'includeCurrent') {
-			throw new Error(`Canvas node inspect option '${key}' is not supported.`);
-		}
-	}
-	if (options.includeCurrent !== undefined && typeof options.includeCurrent !== 'boolean') {
-		throw new Error('Canvas node inspect option \'includeCurrent\' must be a boolean.');
-	}
-	if (options.versionIds !== undefined && !Array.isArray(options.versionIds)) {
-		throw new Error('Canvas node inspect option \'versionIds\' must be an array.');
-	}
-	const values = options.versionIds ?? [];
-	if (values.length > BASEHALF_CANVAS_NODE_INSPECT_MAX_VERSION_IDS) {
-		throw new Error(`Canvas node inspect option 'versionIds' supports at most ${BASEHALF_CANVAS_NODE_INSPECT_MAX_VERSION_IDS} ids.`);
-	}
-	const versionIds: string[] = [];
-	const seen = new Set<string>();
-	for (const value of values) {
-		if (typeof value !== 'string' || value.length === 0 || value.length > BASEHALF_NODE_MAX_ID_LENGTH
-			|| value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)) {
-			throw new Error(`Canvas node inspect version ids must be non-empty text of at most ${BASEHALF_NODE_MAX_ID_LENGTH} characters.`);
-		}
-		if (seen.has(value)) {
-			throw new Error(`Canvas node inspect version id '${value}' is duplicated.`);
-		}
-		seen.add(value);
-		versionIds.push(value);
-	}
-	return Object.freeze({
-		versionIds: Object.freeze(versionIds),
-		includeCurrent: options.includeCurrent ?? false
-	});
-}
-
-function selectCanvasNodeVersions<TVersion extends { readonly id: string }>(
-	allVersions: readonly TVersion[],
-	selection: IBaseHalfNormalizedCanvasNodeInspectOptions,
-	currentVersionId: string | undefined
-): readonly TVersion[] {
-	const byId = new Map(allVersions.map(version => [version.id, version]));
-	const selected: TVersion[] = [];
-	const ids = [...selection.versionIds];
-	if (selection.includeCurrent && currentVersionId && !ids.includes(currentVersionId)) {
-		ids.push(currentVersionId);
-	}
-	for (const id of ids) {
-		const version = byId.get(id);
-		if (version) {
-			selected.push(version);
-		}
-	}
-	return selected;
-}
-
-function selectDefaultCanvasNodeVersions<TVersion extends { readonly id: string; readonly createdAt: string }>(
-	allVersions: readonly TVersion[],
-	currentVersionId: string | undefined
-): readonly TVersion[] {
-	if (allVersions.length <= BASEHALF_CANVAS_NODE_INSPECT_DEFAULT_VERSION_LIMIT) {
-		return allVersions;
-	}
-	const ranked = allVersions.map((version, index) => ({
-		index,
-		createdAt: Date.parse(version.createdAt)
-	})).sort((left, right) => right.createdAt - left.createdAt || right.index - left.index);
-	const selectedIndexes = new Set(ranked.slice(0, BASEHALF_CANVAS_NODE_INSPECT_DEFAULT_VERSION_LIMIT).map(entry => entry.index));
-	const currentIndex = currentVersionId === undefined
-		? -1
-		: allVersions.findIndex(version => version.id === currentVersionId);
-	if (currentIndex >= 0 && !selectedIndexes.has(currentIndex)) {
-		selectedIndexes.delete(ranked[BASEHALF_CANVAS_NODE_INSPECT_DEFAULT_VERSION_LIMIT - 1].index);
-		selectedIndexes.add(currentIndex);
-	}
-	return allVersions.filter((_version, index) => selectedIndexes.has(index));
-}
-
 function reviveBaseHalfExtensionIdentity(extension: extHostProtocol.IBaseHalfExtensionIdentityDto): IBaseHalfPluginContributorIdentity {
 	return {
 		extensionId: extension.id.value,
@@ -627,13 +566,14 @@ function reviveBaseHalfExtensionIdentity(extension: extHostProtocol.IBaseHalfExt
 
 function toRecipeExecutionRequestDto(
 	request: IBaseHalfCanvasRecipeExecutionRequest,
-	modelService?: extHostProtocol.IBaseHalfModelServiceRunSnapshotDto
+	modelService?: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto
 ): extHostProtocol.IBaseHalfCanvasRecipeExecutionRequestDto {
 	return {
-		runId: request.runId,
+		attemptId: request.attemptId,
 		workspaceFolder: request.workspaceFolder,
 		node: toNodeSnapshotDto(request.node),
 		recipeId: request.recipeId,
+		prompt: request.prompt,
 		parameters: request.parameters,
 		...(request.modelServiceId === undefined ? {} : { modelServiceId: request.modelServiceId }),
 		...(modelService === undefined ? {} : { modelService }),
@@ -643,13 +583,14 @@ function toRecipeExecutionRequestDto(
 			order: input.order,
 			source: toNodeSnapshotDto(input.source)
 		})),
-		outputDirectory: request.outputDirectory
+		outputDirectory: request.outputDirectory,
+		...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId })
 	};
 }
 
-function sameModelServiceRunSnapshot(
-	left: extHostProtocol.IBaseHalfModelServiceRunSnapshotDto,
-	right: extHostProtocol.IBaseHalfModelServiceRunSnapshotDto
+function sameModelServiceAttemptSnapshot(
+	left: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto,
+	right: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto
 ): boolean {
 	return left.serviceId === right.serviceId
 		&& left.serviceLabel === right.serviceLabel
@@ -664,12 +605,12 @@ function toNodeSnapshotDto(node: IBaseHalfCanvasNodeSnapshot): extHostProtocol.I
 		path: node.path,
 		kind: node.kind,
 		...(node.resource === undefined ? {} : { resource: node.resource }),
-		...(node.current === undefined ? {} : {
-			current: {
-				id: node.current.id,
-				kind: node.current.kind,
-				resource: node.current.resource,
-				...(node.current.runId === undefined ? {} : { runId: node.current.runId })
+		...(node.result === undefined ? {} : {
+			result: {
+				id: node.result.id,
+				kind: node.result.kind,
+				resource: node.result.resource,
+				...(node.result.attemptId === undefined ? {} : { attemptId: node.result.attemptId })
 			}
 		})
 	};

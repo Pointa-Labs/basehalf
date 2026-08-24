@@ -1956,6 +1956,9 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			get onDidChangeModelServices() {
 				return extHostBaseHalf.onDidChangeModelServices;
 			},
+			registerModelProviderConnectionValidator(specId, validator) {
+				return extHostBaseHalf.registerModelProviderConnectionValidator(extension, specId, validator);
+			},
 			registerCanvasRecipeExecutor(recipeId, executor) {
 				return extHostBaseHalf.registerCanvasRecipeExecutor(extension, recipeId, executor);
 			},
@@ -1965,8 +1968,8 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 			getModelServiceAccess(snapshot) {
 				return extHostBaseHalf.getModelServiceAccess(extension, snapshot);
 			},
-			inspectCanvasNode(resource, options) {
-				return extHostBaseHalf.inspectCanvasNode(extension, resource, options);
+			inspectCanvasNode(resource) {
+				return extHostBaseHalf.inspectCanvasNode(extension, resource);
 			},
 			applyProjectFileTransition(resource, expected, next, label) {
 				return extHostBaseHalf.applyProjectFileTransition(extension, resource, expected, next, label);

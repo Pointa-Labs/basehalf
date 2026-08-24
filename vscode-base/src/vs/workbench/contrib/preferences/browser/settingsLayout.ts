@@ -24,6 +24,7 @@ export interface ITOCEntry<T> {
 	order?: number;
 	children?: ITOCEntry<T>[];
 	settings?: Array<T>;
+	custom?: boolean;
 	hide?: boolean;
 }
 
@@ -196,9 +197,9 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['basehalf.agent.*']
 				},
 				{
-					id: 'basehalf/modelServices',
-					label: localize('basehalfModelServices', "Model Services"),
-					settings: ['basehalf.models.*']
+					id: 'basehalf/models',
+					label: localize('basehalfModelsAndProviders', "Models & Providers"),
+					custom: true
 				}
 			]
 		},

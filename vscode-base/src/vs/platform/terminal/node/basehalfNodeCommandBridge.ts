@@ -425,7 +425,7 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !isRecord(value.contextEdge)
 		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'roleAndOrderOwner', 'label'])
 		|| value.contextEdge.source !== 'direct-content'
-		|| value.contextEdge.resultNodeSource !== 'selected-current'
+		|| value.contextEdge.resultNodeSource !== 'sealed-result'
 		|| value.contextEdge.target !== 'direct-context'
 		|| value.contextEdge.autoRun !== false
 		|| value.contextEdge.recursive !== false
@@ -469,9 +469,10 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| document.inputBinding.fields[1] !== 'slot'
 		|| document.inputBinding.fields[2] !== 'order'
 		|| !isRecord(document.lifecycle)
-		|| !hasOnlyKeys(document.lifecycle, ['current', 'history'])
-		|| document.lifecycle.current !== 'host-owned'
-		|| document.lifecycle.history !== 'host-owned'
+		|| !hasOnlyKeys(document.lifecycle, ['attempts', 'result', 'retry'])
+		|| document.lifecycle.attempts !== 'host-owned'
+		|| document.lifecycle.result !== 'host-owned-single-file'
+		|| document.lifecycle.retry !== 'frozen-only'
 		|| document.runCommand !== 'basehalf --run-node <workspace-relative-.bhnode-path>'
 		|| !isRecord(document.authoring)
 		|| !hasOnlyKeys(document.authoring, ['contractVersion', 'schema', 'examples', 'hostOwnedFields', 'rules'])
@@ -479,7 +480,7 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !isRecord(document.authoring.schema)
 		|| !isRecord(document.authoring.examples)
 		|| !Array.isArray(document.authoring.hostOwnedFields)
-		|| !arraysEqual(document.authoring.hostOwnedFields, ['current', 'revisions', 'runs'])
+		|| !arraysEqual(document.authoring.hostOwnedFields, ['result', 'attempts'])
 		|| !Array.isArray(document.authoring.rules)
 		|| !document.authoring.rules.every(rule => isBoundedText(rule, 500))) {
 		return false;
@@ -491,13 +492,16 @@ function isCapabilityDiscoveryRecipes(value: readonly unknown[]): boolean {
 	const ids = new Set<string>();
 	for (const recipe of value) {
 		if (!isRecord(recipe)
-			|| !hasOnlyKeys(recipe, ['id', 'label', 'inputs', 'parameters', 'outputs'], ['description', 'icon', 'modelCapability'])
+			|| !hasOnlyKeys(recipe, ['id', 'label', 'inputs', 'parameters', 'outputs'], ['description', 'icon', 'modelCapability', 'videoModelCatalogId'])
 			|| !isContributionId(recipe.id)
 			|| ids.has(recipe.id)
 			|| !isBoundedText(recipe.label, 80)
 			|| (recipe.description !== undefined && !isBoundedText(recipe.description, 500))
 			|| (recipe.icon !== undefined && (typeof recipe.icon !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(recipe.icon)))
 			|| (recipe.modelCapability !== undefined && !['text', 'image', 'video', 'audio'].includes(String(recipe.modelCapability)))
+			|| (recipe.modelCapability === 'video'
+				? !isContributionId(recipe.videoModelCatalogId) || !sameContributionOwner(recipe.id, recipe.videoModelCatalogId)
+				: recipe.videoModelCatalogId !== undefined)
 			|| !Array.isArray(recipe.inputs)
 			|| recipe.inputs.length > 16
 			|| !recipe.inputs.every(isCapabilityDiscoveryRecipeInput)
@@ -507,16 +511,25 @@ function isCapabilityDiscoveryRecipes(value: readonly unknown[]): boolean {
 			|| !recipe.parameters.every(isCapabilityDiscoveryRecipeParameter)
 			|| !hasUniqueLocalIds(recipe.parameters)
 			|| !Array.isArray(recipe.outputs)
-			|| recipe.outputs.length < 1
-			|| recipe.outputs.length > 8
+			|| recipe.outputs.length !== 1
 			|| !recipe.outputs.every(isCapabilityDiscoveryRecipeOutput)
 			|| !hasUniqueLocalIds(recipe.outputs)
-			|| recipe.outputs.filter(output => isRecord(output) && output.primary === true).length !== 1) {
+			|| !isRecord(recipe.outputs[0])
+			|| recipe.outputs[0].primary !== true
+			|| recipe.outputs[0].minItems !== 1
+			|| recipe.outputs[0].maxItems !== 1) {
 			return false;
 		}
 		ids.add(recipe.id);
 	}
 	return true;
+}
+
+function sameContributionOwner(left: unknown, right: unknown): boolean {
+	if (typeof left !== 'string' || typeof right !== 'string') {
+		return false;
+	}
+	return left.split('.', 2).join('.') === right.split('.', 2).join('.');
 }
 
 function isCapabilityDiscoveryRecipeInput(value: unknown): boolean {
@@ -640,41 +653,18 @@ function isCapabilityDiscoveryExtensions(value: readonly unknown[]): value is re
 }
 
 function isCapabilityDiscoveryDocument(value: unknown): boolean {
-	if (!isRecord(value)
-		|| !hasOnlyKeys(value, ['kind', 'version', 'fileExtensions', 'schemaSummary'], ['pin'])
-		|| !isContributionId(value.kind)
-		|| !Number.isSafeInteger(value.version)
-		|| (value.version as number) < 1
-		|| (value.version as number) > 1_000_000
-		|| !Array.isArray(value.fileExtensions)
-		|| value.fileExtensions.length === 0
-		|| value.fileExtensions.length > 16
-		|| !value.fileExtensions.every(extension => typeof extension === 'string' && /^\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$/.test(extension))
-		|| new Set(value.fileExtensions).size !== value.fileExtensions.length
-		|| !isBoundedText(value.schemaSummary, 2_000)) {
-		return false;
-	}
-	if (value.pin === undefined) {
-		return true;
-	}
-	const pin = value.pin;
-	const targetKinds = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'];
-	const versionStates = ['succeeded', 'imported'];
-	return isRecord(pin)
-		&& hasOnlyKeys(pin, ['mode', 'field', 'targetKinds', 'acceptedVersionStates', 'updatePolicy'])
-		&& pin.mode === 'exact-result-version'
-		&& isBoundedText(pin.field, 200)
-		&& Array.isArray(pin.targetKinds)
-		&& pin.targetKinds.length > 0
-		&& pin.targetKinds.length <= targetKinds.length
-		&& pin.targetKinds.every(kind => targetKinds.includes(String(kind)))
-		&& new Set(pin.targetKinds).size === pin.targetKinds.length
-		&& Array.isArray(pin.acceptedVersionStates)
-		&& pin.acceptedVersionStates.length > 0
-		&& pin.acceptedVersionStates.length <= versionStates.length
-		&& pin.acceptedVersionStates.every(state => versionStates.includes(String(state)))
-		&& new Set(pin.acceptedVersionStates).size === pin.acceptedVersionStates.length
-		&& pin.updatePolicy === 'explicit';
+	return isRecord(value)
+		&& hasOnlyKeys(value, ['kind', 'version', 'fileExtensions', 'schemaSummary'])
+		&& isContributionId(value.kind)
+		&& Number.isSafeInteger(value.version)
+		&& (value.version as number) >= 1
+		&& (value.version as number) <= 1_000_000
+		&& Array.isArray(value.fileExtensions)
+		&& value.fileExtensions.length > 0
+		&& value.fileExtensions.length <= 16
+		&& value.fileExtensions.every(extension => typeof extension === 'string' && /^\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$/.test(extension))
+		&& new Set(value.fileExtensions).size === value.fileExtensions.length
+		&& isBoundedText(value.schemaSummary, 2_000);
 }
 
 function isCapabilityDiscoveryOperation(value: unknown): value is { readonly id: string } {

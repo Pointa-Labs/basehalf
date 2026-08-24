@@ -148,6 +148,15 @@ suite('StorageDatabaseChannel durable application items', () => {
 		strictEqual(events[0].deleted?.[0], key);
 	});
 
+	test('admits only narrowly addressed BaseHalf model credentials', async () => {
+		const storage = new TestStorage();
+		const channel = createChannel(storage);
+		const credentialKey = 'secret://basehalf.modelConnections.pointa.test.byteplus.11111111-1111-4111-8111-111111111111.credentials';
+		strictEqual((await channel.call(undefined, 'compareAndSwapApplicationItem', request(credentialKey, undefined, 'encrypted')) as ISerializableApplicationStorageCompareAndSwapResult).swapped, true);
+		strictEqual(await channel.call(undefined, 'getApplicationItem', request(credentialKey)), 'encrypted');
+		await rejects(channel.call(undefined, 'getApplicationItem', request('secret://extension.arbitrary.token')), /invalid/i);
+	});
+
 	test('rejects reads and updates when application storage is in memory', async () => {
 		const storage = new TestStorage();
 		storage.inMemory = true;

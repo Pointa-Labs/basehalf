@@ -87,7 +87,7 @@ export class SettingsTreeGroupElement extends SettingsTreeElement {
 		});
 	}
 
-	constructor(_id: string, count: number | undefined, label: string, level: number, isFirstGroup: boolean) {
+	constructor(_id: string, count: number | undefined, label: string, level: number, isFirstGroup: boolean, readonly customSection = false) {
 		super(_id);
 
 		this.count = count;
@@ -659,7 +659,7 @@ export class SettingsTreeModel implements IDisposable {
 
 	private createSettingsTreeGroupElement(tocEntry: ITOCEntry<ISetting>, parent?: SettingsTreeGroupElement): SettingsTreeGroupElement {
 		const depth = parent ? this.getDepth(parent) + 1 : 0;
-		const element = new SettingsTreeGroupElement(tocEntry.id, undefined, tocEntry.label, depth, false);
+		const element = new SettingsTreeGroupElement(tocEntry.id, undefined, tocEntry.label, depth, false, tocEntry.custom === true);
 		element.parent = parent;
 
 		const children: SettingsTreeGroupChild[] = [];

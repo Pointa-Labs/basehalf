@@ -41,15 +41,17 @@
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 16px;
-	--bh-card-bg: #161718;
+	--bh-card-bg: #0b0c0d;
 	--bh-card-surface: #222426;
 	--bh-card-surface-muted: #191a1b;
 	--bh-card-text-primary: #e1e2e3;
 	--bh-card-text-secondary: #b0b3b5;
 	--bh-card-text-tertiary: #898d90;
 	--bh-card-text-ghost: #666a6d;
-	--bh-card-border: #343638;
-	--bh-card-border-strong: #4a4d50;
+	--bh-card-border: #3a3c3f;
+	--bh-card-border-strong: #565a5e;
+	--bh-card-radius: 22px;
+	--bh-card-inner-radius: 21px;
 	/* Pointer selection and geometry stay neutral. Keyboard focus and
 	 * commit-ready intents are independent semantic layers. */
 	--bh-canvas-active-border: var(--vscode-contrastActiveBorder, var(--bh-card-border-strong));
@@ -459,20 +461,24 @@
 	pointer-events: none;
 }
 
+.monaco-workbench .basehalf-canvas-selection-toolbar,
+.monaco-workbench .basehalf-canvas-note-toolbar {
+	box-sizing: border-box;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+}
+
 .monaco-workbench .basehalf-canvas-selection-toolbar {
 	position: absolute;
 	z-index: 32;
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	box-sizing: border-box;
-	height: 32px;
+	height: 36px;
 	padding: 3px;
-	color: var(--vscode-menu-foreground);
-	background: var(--vscode-menu-background);
-	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-	border-radius: 6px;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+	border-radius: 18px;
 	pointer-events: auto;
 }
 
@@ -489,7 +495,7 @@
 .monaco-workbench .basehalf-canvas-selection-count {
 	display: inline-flex;
 	min-width: 20px;
-	height: 22px;
+	height: 28px;
 	align-items: center;
 	justify-content: center;
 	padding: 0 4px;
@@ -500,8 +506,9 @@
 
 .monaco-workbench .basehalf-canvas-selection-action {
 	display: inline-flex;
-	width: 26px;
-	height: 24px;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 28px;
 	align-items: center;
 	justify-content: center;
 	padding: 0;
@@ -510,6 +517,66 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
+}
+
+/*
+ * Every node-adjacent surface follows one selection-chrome lifecycle. The
+ * React Flow portal remains mounted while a card moves so local editor state
+ * survives; only the peripheral UI retracts until the final selection settles.
+ */
+@keyframes basehalf-canvas-adjacent-chrome-emerge {
+	from {
+		translate: 0 var(--basehalf-adjacent-chrome-retract-y, var(--basehalf-adjacent-chrome-travel, 6px));
+	}
+
+	to {
+		translate: 0 0;
+	}
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome {
+	--basehalf-adjacent-chrome-retract-y: var(--basehalf-adjacent-chrome-travel, 6px);
+	opacity: 1;
+	visibility: visible;
+	translate: 0 0;
+	animation: basehalf-canvas-adjacent-chrome-emerge 140ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 0ms;
+	will-change: translate;
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-placement="below"] {
+	--basehalf-adjacent-chrome-retract-y: calc(0px - var(--basehalf-adjacent-chrome-travel, 6px));
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome {
+	opacity: 1;
+	visibility: hidden !important;
+	translate: 0 var(--basehalf-adjacent-chrome-retract-y, var(--basehalf-adjacent-chrome-travel, 6px));
+	pointer-events: none !important;
+	animation: none;
+	/* Retract first, then hide in one discrete step. Revealing begins at the
+	 * card edge and travels outward, so the chrome never cross-fades. */
+	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 88ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-adjacent-chrome {
+		translate: 0 0;
+		animation: none;
+		transition: none;
+		will-change: auto;
+	}
+
+	.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+	.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome {
+		opacity: 1;
+		visibility: hidden !important;
+		translate: 0 0;
+		animation: none;
+		transition: none;
+		will-change: auto;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-selection-action:hover {
@@ -527,17 +594,43 @@
 
 .monaco-workbench .basehalf-canvas-note-toolbar {
 	z-index: 1001;
-	box-sizing: border-box;
-	color: var(--vscode-menu-foreground);
-	background: var(--vscode-menu-background);
-	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
 }
 
 .monaco-workbench .basehalf-canvas-note-surface {
 	position: absolute;
 	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
 	transform-origin: top left;
+}
+
+/*
+ * React Flow owns this adjacent surface's live position. Its workbench-authored
+ * child stays at a constant screen size while the canvas viewport transforms.
+ */
+.monaco-workbench .basehalf-canvas-video-composer-surface {
+	position: absolute;
+	z-index: 1000;
+	box-sizing: border-box;
+	overflow: visible;
+	pointer-events: auto;
+	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
+	transform-origin: top left;
+}
+
+.monaco-workbench .basehalf-canvas-video-composer-surface[data-visible="false"] {
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-composer-surface > .basehalf-video-composer-mount {
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+
+.monaco-workbench .basehalf-canvas-video-composer-surface .basehalf-video-composer {
+	width: 100%;
+	max-width: 100%;
+	height: 100%;
+	max-height: 100%;
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar {
@@ -555,6 +648,32 @@
 
 .monaco-workbench .basehalf-canvas-note-toolbar::-webkit-scrollbar {
 	display: none;
+}
+
+/*
+ * Result-video actions share the Note toolbar's screen-space material and
+ * controls. The distinct class is the semantic hook used by keyboard
+ * ownership and smoke coverage; actions only appear when the host advertises
+ * a real command for the selected sealed Result.
+ */
+.monaco-workbench .basehalf-video-result-toolbar {
+	justify-content: flex-start;
+	overscroll-behavior-x: contain;
+}
+
+.monaco-workbench .basehalf-video-context-toolbar {
+	justify-content: center;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-upload-action {
+	width: auto;
+	min-width: 0;
+	flex: 1 1 auto;
+	gap: 6px;
+	padding: 0 12px;
+	white-space: nowrap;
+	font-size: 12px;
 }
 
 .monaco-workbench .basehalf-canvas-note-toolbar-divider {
@@ -632,6 +751,7 @@
 	width: 18px;
 	height: 18px;
 	flex: 0 0 18px;
+	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-note-background-swatch,
@@ -771,7 +891,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-primary);
 	background: var(--bh-card-surface);
 	border: 1px solid var(--bh-card-border);
-	border-radius: 6px;
+	border-radius: var(--bh-card-radius);
 	box-shadow: 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
 	cursor: grab;
 	touch-action: none;
@@ -797,21 +917,20 @@ body.basehalf-canvas-edge-reconnecting * {
 	cursor: default;
 }
 
-.monaco-workbench .basehalf-canvas-card.inline-editing > .basehalf-canvas-card-content {
-	visibility: hidden;
-}
-
 .monaco-workbench .basehalf-canvas-inline-name-editor {
-	position: absolute;
-	inset: 0;
-	z-index: 3;
 	display: flex;
+	flex: 1;
 	align-items: center;
 	box-sizing: border-box;
-	padding: 8px 10px;
-	background: inherit;
-	border-radius: inherit;
+	min-width: 0;
+	height: 24px;
+	padding: 0;
+	background: transparent;
 	cursor: text;
+}
+
+.monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-caption-identity > :not(.basehalf-canvas-inline-name-editor) {
+	display: none;
 }
 
 .monaco-workbench .basehalf-canvas-inline-name-editor,
@@ -899,64 +1018,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
-	border-radius: 6px;
-}
-
-.monaco-workbench .basehalf-canvas-card-overview {
-	display: flex;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
-	align-items: center;
-	padding: 8px 12px;
-	overflow: hidden;
-}
-
-.monaco-workbench .basehalf-canvas-card-overview-flow {
-	/* Counter-scale the label toward a constant on-screen size with a TRANSFORM,
-	   not font-size. The flow font stays fixed at 13px, so the accumulated render
-	   scale of the glyphs (card layer zoom × this inverse scale) is constant and
-	   continuous zooming repaints the label with pixel-identical content — the
-	   per-frame font-size recompute this replaces re-laid-out every label on every
-	   zoom frame, which read as text flicker. The scale follows the original
-	   clamped counter-scale spec: hold ~13px on screen, never smaller than the
-	   12px caption, capped at a fraction of the card's own height (per-card
-	   --bh-overview-label-cap) so the label can never overrun a shrinking card. The
-	   layout width is widened by the inverse factor so the scaled block still
-	   fills the card; long names stay on one stable, ellipsized line. */
-	--bh-overview-label-scale: calc(clamp(12px, calc(13px / var(--basehalf-canvas-zoom, 1)), var(--bh-overview-label-cap, 22px)) / 13px);
-	display: flex;
-	align-items: center;
-	gap: 0.42em;
-	min-width: 0;
-	overflow: hidden;
-	flex: none;
-	font-size: 13px;
-	width: calc(100% / var(--bh-overview-label-scale));
-	transform: scale(var(--bh-overview-label-scale));
-	transform-origin: left center;
-}
-
-.monaco-workbench .basehalf-canvas-card-overview-icon {
-	flex: none;
-	display: flex;
-	align-items: center;
-	height: 1.35em;
-}
-
-.monaco-workbench .basehalf-canvas-card-overview-label {
-	color: var(--bh-card-text-primary);
-	font-size: 1em;
-	font-weight: 600;
-	line-height: 1.35;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	letter-spacing: 0;
-}
-
-.monaco-workbench .basehalf-canvas-card-overview-label.danger {
-	color: var(--bh-card-danger);
+	border-radius: var(--bh-card-inner-radius);
 }
 
 .monaco-workbench .basehalf-canvas-card-active {
@@ -967,37 +1029,46 @@ body.basehalf-canvas-edge-reconnecting * {
 	flex-direction: column;
 }
 
-.monaco-workbench .basehalf-canvas-card-header {
+.monaco-workbench .basehalf-canvas-card-caption {
+	position: absolute;
+	/* Absolute children resolve against the card's padding box. Offset the
+	 * one-pixel frame so the external identity aligns with the painted frame,
+	 * while preserving an exact eight-pixel visual gap. */
+	left: -1px;
+	right: -1px;
+	bottom: calc(100% + 9px);
+	z-index: 3;
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	gap: 8px;
 	box-sizing: border-box;
+	height: 24px;
 	min-width: 0;
-	flex: none;
-	min-height: 44px;
-	padding: 10px 12px 9px;
-	border-bottom: 1px solid var(--bh-card-border);
+	padding: 0 2px;
+	pointer-events: auto;
 }
 
-.monaco-workbench .basehalf-canvas-card-icon {
+.monaco-workbench .basehalf-canvas-card-caption-identity {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	flex: 1;
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-icon {
 	flex: none;
 	display: flex;
 	align-items: center;
 	height: 20px;
 }
 
-.monaco-workbench .basehalf-canvas-card-title {
-	min-width: 0;
-	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-}
-
-.monaco-workbench .basehalf-canvas-card-title-row {
+.monaco-workbench .basehalf-canvas-card-caption-actions {
+	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	justify-content: flex-end;
+	gap: 4px;
 	min-width: 0;
 }
 
@@ -1010,36 +1081,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-primary);
 	font-size: 13px;
 	font-weight: 600;
-	line-height: 20px;
+	line-height: 24px;
 	letter-spacing: 0;
 }
 
-.monaco-workbench .basehalf-canvas-card-path {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--bh-card-text-tertiary);
-	font-size: 11px;
-	font-family: var(--monaco-monospace-font);
-}
-
-.monaco-workbench .basehalf-canvas-card-kind-chip {
-	flex: none;
-	padding: 1px 5px;
-	border-radius: 4px;
-	background: rgb(255 255 255 / 5%);
-	color: var(--bh-card-folder-glyph);
-	font-size: 9px;
-	font-weight: 600;
-	line-height: 12px;
-	letter-spacing: 0.6px;
-	text-transform: uppercase;
-}
-
-.monaco-workbench .basehalf-canvas-card-kind-chip.danger {
+.monaco-workbench .basehalf-canvas-card-label.danger {
 	color: var(--bh-card-danger);
-	background: var(--bh-card-danger-soft);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-toggle {
@@ -1056,7 +1103,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid transparent;
 	border-radius: 6px;
 	cursor: pointer;
-	opacity: 0.56;
+	opacity: 0.72;
 	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 80ms ease;
 }
 
@@ -1097,7 +1144,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	height: 7px;
 	border-radius: 50%;
 	background: var(--bh-card-accent);
-	border: 1.5px solid var(--bh-card-surface);
+	border: 1.5px solid var(--bh-card-bg);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-dot.issue {
@@ -1128,6 +1175,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	border-radius: var(--bh-card-inner-radius);
 }
 
 .monaco-workbench .basehalf-canvas-card-preview {
@@ -1362,7 +1410,141 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-secondary);
 }
 
-.monaco-workbench .basehalf-canvas-node-current {
+.monaco-workbench .basehalf-canvas-card.node-kind-video .basehalf-canvas-card-preview.kind-node {
+	gap: 0;
+	padding: 0;
+	font-family: inherit;
+	white-space: normal;
+	mask-image: none;
+	-webkit-mask-image: none;
+	background: var(--bh-card-surface);
+}
+
+.monaco-workbench .basehalf-video-stage {
+	position: relative;
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	align-items: stretch;
+	justify-content: stretch;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--bh-card-surface) 90%, black);
+	isolation: isolate;
+}
+
+.monaco-workbench .basehalf-video-stage::after {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	border: 1px solid rgb(255 255 255 / 11%);
+	content: '';
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-stage-media,
+.monaco-workbench .basehalf-video-stage-media > .basehalf-canvas-card-media-visual {
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+}
+
+.monaco-workbench .basehalf-video-stage-media > .basehalf-canvas-card-media-visual {
+	object-fit: contain;
+	background: #08090a;
+}
+
+.monaco-workbench .basehalf-canvas-card.node-kind-video:not(.selected) .basehalf-video-stage-media > .basehalf-canvas-card-media-visual {
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-stage-empty {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	min-height: 0;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 9px;
+	padding: 20px;
+	box-sizing: border-box;
+	color: var(--bh-card-text-tertiary);
+	text-align: center;
+}
+
+.monaco-workbench .basehalf-video-stage-glyph {
+	display: flex;
+	opacity: 0.52;
+}
+
+.monaco-workbench .basehalf-video-stage-empty.simple {
+	gap: 0;
+	padding: 24px;
+}
+
+.monaco-workbench .basehalf-video-stage-empty.simple .basehalf-video-stage-glyph {
+	opacity: 0.72;
+}
+
+.monaco-workbench .basehalf-video-stage-hint {
+	max-width: 250px;
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+.monaco-workbench .basehalf-video-state {
+	position: absolute;
+	right: 10px;
+	bottom: 10px;
+	z-index: 2;
+	display: inline-flex;
+	max-width: calc(100% - 20px);
+	align-items: center;
+	box-sizing: border-box;
+	padding: 5px 8px;
+	color: rgb(255 255 255 / 86%);
+	background: rgb(10 11 12 / 78%);
+	border: 1px solid rgb(255 255 255 / 10%);
+	border-radius: 5px;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+	font-size: 10px;
+	line-height: 1.25;
+	-webkit-line-clamp: 1;
+	backdrop-filter: blur(8px);
+}
+
+.monaco-workbench .basehalf-video-state.ready {
+	color: color-mix(in srgb, var(--vscode-testing-iconPassed) 82%, white);
+}
+
+.monaco-workbench .basehalf-video-progress {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 3;
+	height: 3px;
+	border-radius: 0;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-video-stage,
+	.monaco-workbench .basehalf-video-state {
+		border-color: CanvasText;
+		background: Canvas;
+		color: CanvasText;
+		forced-color-adjust: none;
+	}
+
+	.monaco-workbench .basehalf-video-progress,
+	.monaco-workbench .basehalf-video-progress .basehalf-canvas-node-progress-value {
+		background: Highlight;
+		forced-color-adjust: none;
+	}
+}
+
+.monaco-workbench .basehalf-canvas-node-result {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
@@ -1370,7 +1552,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 }
 
-.monaco-workbench .basehalf-canvas-node-current-label {
+.monaco-workbench .basehalf-canvas-node-result-label {
 	margin-bottom: 3px;
 	color: var(--bh-card-text-tertiary);
 	font-size: 10px;
@@ -1378,7 +1560,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.3;
 }
 
-.monaco-workbench .basehalf-canvas-node-current-value {
+.monaco-workbench .basehalf-canvas-node-result-value {
 	display: -webkit-box;
 	overflow: hidden;
 	color: var(--bh-card-text-primary);
@@ -1389,7 +1571,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: normal;
 }
 
-.monaco-workbench .basehalf-canvas-node-current-media {
+.monaco-workbench .basehalf-canvas-node-result-media {
 	flex: 1;
 	min-height: 44px;
 	overflow: hidden;
@@ -1409,6 +1591,60 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-node-status.ready {
 	color: var(--vscode-testing-iconPassed);
+}
+
+.monaco-workbench .basehalf-canvas-node-status.executing::before {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	margin-right: 5px;
+	box-sizing: border-box;
+	border: 1px solid color-mix(in srgb, var(--vscode-progressBar-background) 32%, transparent);
+	border-top-color: var(--vscode-progressBar-background);
+	border-radius: 50%;
+	content: '';
+	vertical-align: -1px;
+	animation: basehalf-node-execution-spin 850ms linear infinite;
+}
+
+.monaco-workbench .basehalf-canvas-node-progress {
+	position: relative;
+	height: 2px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--vscode-progressBar-background) 18%, transparent);
+	border-radius: 999px;
+}
+
+.monaco-workbench .basehalf-canvas-node-progress-value {
+	display: block;
+	height: 100%;
+	background: var(--vscode-progressBar-background);
+	border-radius: inherit;
+	transition: width 140ms ease-out;
+}
+
+.monaco-workbench .basehalf-canvas-node-progress.indeterminate .basehalf-canvas-node-progress-value {
+	animation: basehalf-node-progress-indeterminate 1.15s ease-in-out infinite;
+}
+
+@keyframes basehalf-node-execution-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes basehalf-node-progress-indeterminate {
+	from { transform: translateX(-130%); }
+	to { transform: translateX(370%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-node-status.executing::before,
+	.monaco-workbench .basehalf-canvas-node-progress.indeterminate .basehalf-canvas-node-progress-value {
+		animation: none;
+	}
+
+	.monaco-workbench .basehalf-canvas-node-progress-value {
+		transition: none;
+	}
 }
 
 .monaco-workbench .basehalf-canvas-node-status.explaining-action {
@@ -1497,6 +1733,928 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 8px;
 	box-shadow: 0 10px 32px rgb(0 0 0 / 28%);
+}
+
+.monaco-workbench .basehalf-video-composer {
+	position: relative;
+	display: flex;
+	isolation: isolate;
+	box-sizing: border-box;
+	width: min(var(--basehalf-video-composer-width, 520px), calc(100vw - 24px));
+	height: min(172px, calc(100vh - 24px));
+	max-height: min(172px, calc(100vh - 24px));
+	flex-direction: column;
+	overflow: visible;
+	color: var(--vscode-foreground);
+	background: var(--bh-card-surface);
+	border: 1px solid color-mix(in srgb, var(--bh-card-border-strong) 88%, rgb(255 255 255 / 12%));
+	border-radius: 14px;
+	box-shadow: 0 10px 30px rgb(5 6 7 / 34%), inset 0 1px 0 rgb(255 255 255 / 6%);
+}
+
+.monaco-workbench .basehalf-video-composer-overlay-root {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-video-composer-overlay-root:empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer-accessible-title {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-body.video-composer-body,
+.monaco-workbench .basehalf-video-composer-main {
+	flex: 1 1 auto;
+	min-height: 0;
+	padding: 10px 12px 0;
+	overflow: hidden;
+	border-radius: 13px 13px 0 0;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-video-prompt-section {
+	overflow: hidden;
+	padding: 0;
+	border: 0;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-video-prompt-section > .basehalf-node-local-section-title {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer-control,
+.monaco-workbench .basehalf-video-model-trigger,
+.monaco-workbench .basehalf-video-settings-trigger,
+.monaco-workbench .basehalf-video-attempts-trigger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 1px solid transparent;
+	font-family: inherit;
+	cursor: pointer;
+	transition: color 120ms ease, background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.monaco-workbench .basehalf-video-composer-control {
+	width: 30px;
+	height: 30px;
+	background: transparent;
+	border-color: transparent;
+	border-radius: 8px;
+	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-video-model-trigger,
+.monaco-workbench .basehalf-video-settings-trigger,
+.monaco-workbench .basehalf-video-attempts-trigger {
+	height: 30px;
+	min-width: 0;
+	border-radius: 8px;
+}
+
+.monaco-workbench .basehalf-video-model-trigger {
+	max-width: min(180px, 34%);
+	flex: 0 1 auto;
+	justify-content: flex-start;
+	gap: 6px;
+	padding-inline: 7px;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-size: 13px;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-settings-trigger {
+	min-width: 52px;
+	flex: 1 1 auto;
+	justify-content: flex-start;
+	gap: 6px;
+	padding-inline: 7px;
+	overflow: hidden;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-settings-trigger > span {
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.monaco-workbench .basehalf-video-settings-trigger > span + span {
+	padding-left: 6px;
+	border-left: 1px solid color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
+}
+
+.monaco-workbench .basehalf-video-attempts-trigger {
+	width: 30px;
+	min-width: 30px;
+	flex: 0 0 30px;
+	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-video-composer-control:hover:not(:disabled),
+.monaco-workbench .basehalf-video-composer-control.active,
+.monaco-workbench .basehalf-video-model-trigger:hover:not(:disabled),
+.monaco-workbench .basehalf-video-settings-trigger:hover:not(:disabled),
+.monaco-workbench .basehalf-video-attempts-trigger:hover:not(:disabled),
+.monaco-workbench .basehalf-video-model-trigger[aria-expanded="true"],
+.monaco-workbench .basehalf-video-settings-trigger[aria-expanded="true"],
+.monaco-workbench .basehalf-video-attempts-trigger[aria-expanded="true"] {
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
+	border-color: color-mix(in srgb, var(--vscode-widget-border) 74%, var(--vscode-foreground));
+}
+
+.monaco-workbench .basehalf-video-composer-control:active:not(:disabled),
+.monaco-workbench .basehalf-video-model-trigger:active:not(:disabled),
+.monaco-workbench .basehalf-video-settings-trigger:active:not(:disabled),
+.monaco-workbench .basehalf-video-attempts-trigger:active:not(:disabled),
+.monaco-workbench .basehalf-video-composer-primary:active:not(:disabled) {
+	transform: scale(0.96);
+}
+
+.monaco-workbench .basehalf-video-composer-control:disabled,
+.monaco-workbench .basehalf-video-model-trigger:disabled,
+.monaco-workbench .basehalf-video-settings-trigger:disabled,
+.monaco-workbench .basehalf-video-attempts-trigger:disabled {
+	opacity: 0.38;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-prompt-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.monaco-workbench textarea.basehalf-video-prompt {
+	min-height: 58px;
+	max-height: 68px;
+	padding: 4px 0 0;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	font-family: inherit;
+	font-size: 13px;
+	line-height: 1.55;
+	resize: none;
+}
+
+.monaco-workbench textarea.basehalf-video-prompt::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+	opacity: 0.9;
+}
+
+.monaco-workbench textarea.basehalf-video-prompt:focus {
+	outline: 0;
+}
+
+.monaco-workbench .basehalf-video-prompt-copy {
+	display: -webkit-box;
+	min-height: 58px;
+	padding-top: 4px;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-size: 13px;
+	line-height: 1.55;
+	white-space: normal;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+}
+
+.monaco-workbench .basehalf-video-prompt-copy.unsaved {
+	-webkit-line-clamp: 2;
+}
+
+.monaco-workbench .basehalf-video-prompt-unsaved {
+	margin-top: 3px;
+	color: var(--vscode-editorWarning-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-footer,
+.monaco-workbench .basehalf-video-composer-footer {
+	position: relative;
+	display: flex;
+	min-height: 46px;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 8px 8px 12px;
+	overflow: hidden;
+	border-top: 0;
+	border-radius: 0 0 13px 13px;
+}
+
+.monaco-workbench .basehalf-video-composer-metadata {
+	display: flex;
+	min-width: 0;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 2px;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-video-settings-trigger .basehalf-video-composer-metadata-item,
+.monaco-workbench .basehalf-video-settings-trigger .basehalf-video-composer-metadata-empty {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-composer-controls {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 2px;
+}
+
+.monaco-workbench .basehalf-video-composer-primary {
+	display: inline-flex;
+	width: 32px;
+	height: 32px;
+	min-width: 32px;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	color: color-mix(in srgb, var(--vscode-editor-background) 90%, black);
+	background: color-mix(in srgb, var(--vscode-foreground) 92%, transparent);
+	border: 1px solid rgb(255 255 255 / 10%);
+	border-radius: 50%;
+	font-size: 16px;
+	cursor: pointer;
+	transition: transform 80ms ease, opacity 120ms ease, background 120ms ease;
+}
+
+.monaco-workbench .basehalf-video-composer-primary:hover:not(:disabled) {
+	background: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-video-composer-primary[data-node-action="cancel"] {
+	color: var(--vscode-foreground);
+	background: var(--vscode-button-secondaryBackground);
+}
+
+.monaco-workbench .basehalf-video-composer-primary:disabled {
+	opacity: 0.46;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-composer-primary:focus-visible {
+	outline: 2px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-video-composer-control:focus-visible,
+.monaco-workbench .basehalf-video-model-trigger:focus-visible,
+.monaco-workbench .basehalf-video-settings-trigger:focus-visible,
+.monaco-workbench .basehalf-video-attempts-trigger:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-save,
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-footer-message:empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-footer-message:not(:empty) {
+	display: block;
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	color: var(--vscode-editorWarning-foreground);
+	font-size: 11px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-composer .basehalf-node-local-footer:has(.basehalf-node-local-footer-message:not(:empty)) .basehalf-video-composer-metadata {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer-popover {
+	position: absolute;
+	top: auto;
+	bottom: 48px;
+	display: flex;
+	box-sizing: border-box;
+	max-width: calc(100vw - 16px);
+	max-height: calc(100vh - 16px);
+	flex-direction: column;
+	overflow: hidden;
+	color: var(--vscode-menu-foreground);
+	background: var(--bh-card-surface);
+	border: 1px solid color-mix(in srgb, var(--bh-card-border-strong) 88%, rgb(255 255 255 / 12%));
+	border-radius: 14px;
+	box-shadow: 0 16px 40px rgb(7 8 9 / 38%), inset 0 1px 0 rgb(255 255 255 / 4%);
+	pointer-events: auto;
+	transform-origin: var(--basehalf-video-popover-origin, bottom left);
+	animation: basehalf-video-popover-enter 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-video-composer-popover[hidden] {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.settings {
+	right: auto;
+	left: 8px;
+	width: min(336px, calc(100% - 16px), calc(100vw - 16px));
+	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 12px;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.models {
+	right: auto;
+	left: 8px;
+	width: min(360px, calc(100% - 16px), calc(100vw - 16px));
+	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 8px;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.inputs {
+	right: auto;
+	left: 8px;
+	width: min(340px, calc(100% - 16px), calc(100vw - 16px));
+	max-height: min(360px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 8px;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.attempts {
+	right: 8px;
+	left: auto;
+	width: min(380px, calc(100% - 16px), calc(100vw - 16px));
+	min-height: 0;
+	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 8px;
+}
+
+.monaco-workbench .basehalf-video-settings-scroll,
+.monaco-workbench .basehalf-video-attempts-scroll,
+.monaco-workbench .basehalf-video-popover-list,
+.monaco-workbench .basehalf-video-model-list {
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+}
+
+.monaco-workbench .basehalf-video-composer-popover[data-popover-placement="below"] {
+	top: calc(100% + 6px);
+	bottom: auto;
+	transform-origin: top left;
+	animation-name: basehalf-video-popover-enter-below;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.attempts[data-popover-placement="below"] {
+	transform-origin: top right;
+}
+
+.monaco-workbench .basehalf-video-popover-heading {
+	margin: 0 0 6px;
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-video-model-list {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+	padding: 1px;
+}
+
+.monaco-workbench .basehalf-video-model-provider-group,
+.monaco-workbench .basehalf-video-model-spec-group {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-video-model-provider-heading {
+	padding: 4px 7px 3px;
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-video-model-spec-heading {
+	padding: 2px 7px 3px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-video-model-spec-group + .basehalf-video-model-spec-group {
+	margin-top: 5px;
+}
+
+.monaco-workbench .basehalf-video-model-option {
+	display: grid;
+	min-width: 0;
+	min-height: 48px;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: center;
+	box-sizing: border-box;
+	gap: 8px;
+	padding: 6px 7px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 9px;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: color 120ms ease, background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.monaco-workbench .basehalf-video-model-option:hover:not(:disabled),
+.monaco-workbench .basehalf-video-model-option:focus-visible,
+.monaco-workbench .basehalf-video-model-option.selected {
+	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 78%, transparent);
+	border-color: color-mix(in srgb, var(--vscode-widget-border) 68%, transparent);
+}
+
+.monaco-workbench .basehalf-video-model-option:active:not(:disabled) {
+	transform: scale(0.985);
+}
+
+.monaco-workbench .basehalf-video-model-option:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-video-model-option:disabled {
+	opacity: 0.42;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-model-option-icon {
+	color: var(--vscode-descriptionForeground);
+	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-video-model-option-copy {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.monaco-workbench .basehalf-video-model-option-label,
+.monaco-workbench .basehalf-video-model-option-meta {
+	min-width: 0;
+	overflow: hidden;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-model-option-label {
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-video-model-option-meta {
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+
+.monaco-workbench .basehalf-video-model-option-state {
+	display: inline-flex;
+	min-width: 78px;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 5px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-model-option-state-text {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-video-model-option:hover:not(:disabled) .basehalf-video-model-option-state-text,
+.monaco-workbench .basehalf-video-model-option:focus-visible .basehalf-video-model-option-state-text,
+.monaco-workbench .basehalf-video-model-option.selected .basehalf-video-model-option-state-text {
+	visibility: visible;
+}
+
+.monaco-workbench .basehalf-video-model-option[data-connection-state="locked"]:hover:not(:disabled) .basehalf-video-model-option-label,
+.monaco-workbench .basehalf-video-model-option[data-connection-state="locked"]:focus-visible .basehalf-video-model-option-label,
+.monaco-workbench .basehalf-video-model-option[data-connection-state="locked"]:hover:not(:disabled) .basehalf-video-model-option-state,
+.monaco-workbench .basehalf-video-model-option[data-connection-state="locked"]:focus-visible .basehalf-video-model-option-state {
+	color: var(--vscode-textLink-foreground);
+}
+
+.monaco-workbench .basehalf-video-model-option.selected .basehalf-video-model-option-state {
+	color: var(--vscode-testing-iconPassed);
+}
+
+.monaco-workbench .basehalf-video-popover-description {
+	margin: 0 0 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-video-popover-empty {
+	display: flex;
+	min-height: 72px;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 12px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+	text-align: center;
+}
+
+.monaco-workbench .basehalf-video-popover-actions {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border) 72%, transparent);
+}
+
+.monaco-workbench .basehalf-video-popover-actions > button {
+	min-height: 28px;
+	padding: 0 8px;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-video-popover-actions > button:hover:not(:disabled) {
+	color: var(--vscode-textLink-activeForeground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-video-popover-field + .basehalf-video-popover-field {
+	margin-top: 12px;
+}
+
+.monaco-workbench .basehalf-video-popover-field > label,
+.monaco-workbench .basehalf-video-popover-field > .basehalf-video-popover-heading {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.monaco-workbench .basehalf-video-popover-field > input,
+.monaco-workbench .basehalf-video-popover-field > select,
+.monaco-workbench .basehalf-video-popover-field > textarea {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 32px;
+	padding: 5px 8px;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 8px;
+	font: inherit;
+	font-size: 12px;
+}
+
+.monaco-workbench .basehalf-video-settings-scroll {
+	padding: 2px 1px 10px;
+}
+
+.monaco-workbench .basehalf-video-capability-field.disabled {
+	opacity: 0.62;
+}
+
+.monaco-workbench select.basehalf-video-capability-select {
+	height: 34px;
+	color: var(--vscode-dropdown-foreground);
+	background: color-mix(in srgb, var(--vscode-dropdown-background) 88%, var(--bh-card-surface));
+	border-color: color-mix(in srgb, var(--vscode-widget-border) 82%, transparent);
+	cursor: pointer;
+}
+
+.monaco-workbench select.basehalf-video-capability-select:disabled {
+	opacity: 0.48;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-mode-segmented .basehalf-video-segment {
+	min-width: max-content;
+}
+
+.monaco-workbench .basehalf-video-parameter-reason {
+	margin-top: 5px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	line-height: 1.4;
+}
+
+.monaco-workbench .basehalf-video-capability-status {
+	box-sizing: border-box;
+	margin-top: 12px;
+	padding: 8px 9px;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 54%, transparent);
+	border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 64%, transparent);
+	border-radius: 8px;
+	font-size: 10px;
+	line-height: 1.45;
+}
+
+.monaco-workbench .basehalf-video-model-picker-notice {
+	margin: 0 0 6px;
+}
+
+.monaco-workbench .basehalf-video-range-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 44px;
+	align-items: center;
+	gap: 10px;
+	min-height: 32px;
+}
+
+.monaco-workbench input.basehalf-video-range {
+	width: 100%;
+	accent-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-video-range-value {
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.monaco-workbench .basehalf-video-segmented {
+	display: flex;
+	height: 34px;
+	align-items: center;
+	box-sizing: border-box;
+	gap: 2px;
+	padding: 2px;
+	overflow-x: auto;
+	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 78%, transparent);
+	border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 64%, transparent);
+	border-radius: 10px;
+	overscroll-behavior-inline: contain;
+}
+
+.monaco-workbench .basehalf-video-segment {
+	display: inline-flex;
+	height: 28px;
+	min-width: 44px;
+	flex: 1 0 auto;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding-inline: 8px;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-video-segment:hover:not(:disabled) {
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-video-segment.active,
+.monaco-workbench .basehalf-video-segment.selected,
+.monaco-workbench .basehalf-video-segment[aria-pressed="true"],
+.monaco-workbench .basehalf-video-segment[aria-checked="true"],
+.monaco-workbench .basehalf-video-segment[aria-selected="true"] {
+	color: var(--vscode-foreground);
+	background: color-mix(in srgb, var(--vscode-menu-background) 68%, var(--vscode-toolbar-hoverBackground));
+	box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+.monaco-workbench .basehalf-video-segment:disabled {
+	opacity: 0.38;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-popover-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-video-popover-row {
+	display: flex;
+	min-height: 52px;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	padding: 8px;
+	border-radius: 8px;
+}
+
+.monaco-workbench .basehalf-video-popover-row + .basehalf-video-popover-row {
+	border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border) 64%, transparent);
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
+
+.monaco-workbench .basehalf-video-popover-row-title {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-popover-row-meta {
+	min-width: 0;
+	margin-top: 3px;
+	overflow: hidden;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-video-input-text {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.monaco-workbench select.basehalf-video-input-role,
+.monaco-workbench select.basehalf-video-input-add {
+	box-sizing: border-box;
+	height: 28px;
+	padding: 2px 6px;
+	color: var(--vscode-dropdown-foreground);
+	background: var(--vscode-dropdown-background);
+	border: 1px solid var(--vscode-dropdown-border, transparent);
+	border-radius: 6px;
+	font: inherit;
+	font-size: 10px;
+}
+
+.monaco-workbench select.basehalf-video-input-role {
+	width: 100px;
+	min-width: 100px;
+	flex: 0 0 100px;
+}
+
+.monaco-workbench select.basehalf-video-input-add {
+	width: 100%;
+	min-height: 32px;
+	margin-top: 8px;
+}
+
+.monaco-workbench button.basehalf-video-input-remove {
+	display: inline-flex;
+	width: 28px;
+	height: 28px;
+	min-width: 28px;
+	flex: 0 0 28px;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench button.basehalf-video-input-remove:hover:not(:disabled) {
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench select.basehalf-video-input-role:disabled,
+.monaco-workbench select.basehalf-video-input-add:disabled,
+.monaco-workbench button.basehalf-video-input-remove:disabled {
+	opacity: 0.38;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-video-popover-field > input:focus,
+.monaco-workbench .basehalf-video-popover-field > select:focus,
+.monaco-workbench .basehalf-video-popover-field > textarea:focus,
+.monaco-workbench select.basehalf-video-input-role:focus,
+.monaco-workbench select.basehalf-video-input-add:focus {
+	border-color: var(--vscode-focusBorder);
+	outline: 0;
+}
+
+.monaco-workbench .basehalf-video-segment:focus-visible,
+.monaco-workbench .basehalf-video-popover-actions > button:focus-visible,
+.monaco-workbench .basehalf-video-popover-row:focus-visible,
+.monaco-workbench button.basehalf-video-input-remove:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+@keyframes basehalf-video-popover-enter {
+	from {
+		transform: translateY(4px);
+	}
+
+	to {
+		transform: translateY(0);
+	}
+}
+
+@keyframes basehalf-video-popover-enter-below {
+	from {
+		transform: translateY(-4px);
+	}
+
+	to {
+		transform: translateY(0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-video-composer-popover {
+		animation: none;
+	}
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-video-composer,
+	.monaco-workbench .basehalf-video-composer-popover,
+	.monaco-workbench .basehalf-video-composer-control,
+	.monaco-workbench .basehalf-video-composer-primary,
+	.monaco-workbench .basehalf-video-model-trigger,
+	.monaco-workbench .basehalf-video-settings-trigger,
+	.monaco-workbench .basehalf-video-attempts-trigger,
+	.monaco-workbench .basehalf-video-popover-field > input,
+	.monaco-workbench .basehalf-video-popover-field > select,
+	.monaco-workbench .basehalf-video-popover-field > textarea,
+	.monaco-workbench select.basehalf-video-input-role,
+	.monaco-workbench select.basehalf-video-input-add,
+	.monaco-workbench button.basehalf-video-input-remove,
+	.monaco-workbench .basehalf-video-capability-status,
+	.monaco-workbench .basehalf-video-model-option,
+	.monaco-workbench .basehalf-video-segmented,
+	.monaco-workbench .basehalf-video-segment {
+		color: CanvasText;
+		background: Canvas;
+		border-color: CanvasText;
+		forced-color-adjust: none;
+	}
+
+	.monaco-workbench .basehalf-video-segment.active,
+	.monaco-workbench .basehalf-video-segment.selected,
+	.monaco-workbench .basehalf-video-segment[aria-pressed="true"],
+	.monaco-workbench .basehalf-video-segment[aria-checked="true"],
+	.monaco-workbench .basehalf-video-segment[aria-selected="true"] {
+		color: HighlightText;
+		background: Highlight;
+	}
 }
 
 .monaco-workbench .basehalf-node-local-header {
@@ -1743,7 +2901,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	margin-top: 8px;
 }
 
-.monaco-workbench textarea.basehalf-node-local-input {
+.monaco-workbench textarea.basehalf-node-local-input:not(.basehalf-video-prompt) {
 	min-height: 68px;
 	line-height: 1.45;
 	resize: vertical;
@@ -1787,8 +2945,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	margin-top: 8px;
 }
 
-.monaco-workbench .basehalf-node-local-slot,
-.monaco-workbench .basehalf-node-local-current-chip {
+.monaco-workbench .basehalf-node-local-slot {
 	padding: 2px 6px;
 	color: var(--vscode-descriptionForeground);
 	background: var(--vscode-badge-background);
@@ -1798,13 +2955,12 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-node-local-list,
-.monaco-workbench .basehalf-node-local-history {
+.monaco-workbench .basehalf-node-local-attempts {
 	margin-top: 8px;
 }
 
 .monaco-workbench .basehalf-node-local-input-row,
-.monaco-workbench .basehalf-node-local-history-row,
-.monaco-workbench .basehalf-node-local-current-row {
+.monaco-workbench .basehalf-node-local-attempt-row {
 	display: flex;
 	min-width: 0;
 	align-items: center;
@@ -1813,7 +2969,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-node-local-input-row + .basehalf-node-local-input-row,
-.monaco-workbench .basehalf-node-local-history-row + .basehalf-node-local-history-row {
+.monaco-workbench .basehalf-node-local-attempt-row + .basehalf-node-local-attempt-row {
 	border-top: 1px solid color-mix(in srgb, var(--vscode-widget-border) 72%, transparent);
 }
 
@@ -1822,15 +2978,13 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-node-local-input-text,
-.monaco-workbench .basehalf-node-local-history-text,
-.monaco-workbench .basehalf-node-local-current-text {
+.monaco-workbench .basehalf-node-local-attempt-text {
 	min-width: 0;
 	flex: 1;
 }
 
 .monaco-workbench .basehalf-node-local-input-name,
-.monaco-workbench .basehalf-node-local-history-title,
-.monaco-workbench .basehalf-node-local-current-value {
+.monaco-workbench .basehalf-node-local-attempt-title {
 	overflow: hidden;
 	color: var(--vscode-foreground);
 	font-size: 11px;
@@ -1840,8 +2994,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-node-local-input-meta,
-.monaco-workbench .basehalf-node-local-history-detail,
-.monaco-workbench .basehalf-node-local-current-source {
+.monaco-workbench .basehalf-node-local-attempt-detail {
 	overflow: hidden;
 	color: var(--vscode-descriptionForeground);
 	font-size: 10px;
@@ -1850,18 +3003,18 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: nowrap;
 }
 
-.monaco-workbench .basehalf-node-local-history-actions {
+.monaco-workbench .basehalf-node-local-attempt-actions {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	flex: 0 0 auto;
 }
 
-.monaco-workbench .basehalf-node-local-history-row {
+.monaco-workbench .basehalf-node-local-attempt-row {
 	flex-wrap: wrap;
 }
 
-.monaco-workbench .basehalf-node-local-history-disclosure {
+.monaco-workbench .basehalf-node-local-attempt-disclosure {
 	flex: 0 0 100%;
 	padding: 6px 8px;
 	box-sizing: border-box;
@@ -1976,7 +3129,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-card-preview.media-audio,
-.monaco-workbench .basehalf-canvas-node-current-media.media-audio {
+.monaco-workbench .basehalf-canvas-node-result-media.media-audio {
 	display: flex;
 	align-items: center;
 }
@@ -2520,23 +3673,17 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-handle {
-	width: 7px !important;
-	height: 7px !important;
+	/* Keep a generous hit target at normal and zoomed-out scales without
+	 * painting square controls outside the card's rounded silhouette. React
+	 * Flow retains the native diagonal resize cursor and gesture handling. */
+	width: 16px !important;
+	height: 16px !important;
 	box-sizing: border-box;
-	background: var(--bh-card-surface) !important;
-	border: 1px solid var(--bh-canvas-geometry) !important;
-	border-radius: 2px;
-}
-
-.monaco-workbench .basehalf-canvas-node-resizer-handle::before {
-	content: '';
-	position: absolute;
-	inset: -7px;
-}
-
-.monaco-workbench .basehalf-canvas-node-resizer-handle:hover,
-.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-node-resizer-handle {
-	border-color: var(--bh-canvas-geometry-strong) !important;
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 0;
+	box-shadow: none !important;
+	outline: none !important;
 }
 
 /* The workbench marks the Note as editing before the React scene commits its

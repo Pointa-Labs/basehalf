@@ -217,8 +217,12 @@ export class StorageDatabaseChannel extends Disposable implements IServerChannel
 	}
 
 	private validateApplicationItemRequest(request: ISerializableApplicationStorageItemRequest): void {
+		const isPluginState = typeof request.key === 'string' && request.key.startsWith('basehalf.plugins.');
+		const isModelCredential = typeof request.key === 'string'
+			&& (/^secret:\/\/basehalf\.modelConnections\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}\.[0-9a-fA-F-]{36}\.credentials$/.test(request.key)
+				|| /^secret:\/\/basehalf\.modelServices\.[a-z][a-z0-9.-]{0,63}\.apiKey$/.test(request.key));
 		if (typeof request.key !== 'string'
-			|| !request.key.startsWith('basehalf.plugins.')
+			|| (!isPluginState && !isModelCredential)
 			|| request.key.length > 512
 			|| (request.expected !== undefined && (typeof request.expected !== 'string' || Buffer.byteLength(request.expected, 'utf8') > 6 * 1024 * 1024))
 			|| (request.value !== undefined && (typeof request.value !== 'string' || Buffer.byteLength(request.value, 'utf8') > 6 * 1024 * 1024))) {

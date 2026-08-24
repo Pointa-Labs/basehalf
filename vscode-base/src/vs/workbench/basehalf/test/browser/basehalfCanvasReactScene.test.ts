@@ -6,6 +6,12 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
+	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
+	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
+	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP,
+	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+} from '../../common/basehalfCanvasScene.js';
+import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
@@ -20,10 +26,13 @@ import {
 	baseHalfCanvasTargetBlocksGraphShortcuts,
 	baseHalfCanvasTargetOwnsSelectionShortcuts,
 	baseHalfCanvasTargetOwnsSelectedEdgeShortcuts,
+	baseHalfCanvasVideoToolbarWidth,
 	captureBaseHalfCanvasNodeDragOrigins,
 	captureBaseHalfCanvasCardFocusPath,
 	filterBaseHalfCanvasCancelledNodeDragChanges,
 	resolveBaseHalfCanvasNoteSelectionPlacement,
+	resolveBaseHalfCanvasVideoComposerPlacement,
+	resolveBaseHalfCanvasVideoSelectionPlacement,
 	resolveBaseHalfCanvasSelectionToolbarPlacement,
 	resolveBaseHalfCanvasCardFocusPath,
 	restoreBaseHalfCanvasNodeDragOrigins
@@ -144,7 +153,11 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(centered.side, 'above');
 		assert.strictEqual(centered.width, 392);
 		assert.strictEqual(centered.height, 36);
-		assert.ok(centered.top + centered.height < 180);
+		assert.strictEqual(
+			(180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT)
+				- (centered.top + centered.height),
+			10
+		);
 
 		const highZoom = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 200,
@@ -158,7 +171,11 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(highZoom.side, 'above');
 		assert.strictEqual(highZoom.width, 392);
 		assert.strictEqual(highZoom.height, 36);
-		assert.ok(highZoom.top * 2 + highZoom.height <= 110);
+		assert.strictEqual(
+			((60 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 2)
+				- (highZoom.top * 2 + highZoom.height),
+			10
+		);
 
 		const bottomEdge = resolveBaseHalfCanvasNoteSelectionPlacement({
 			left: 740,
@@ -214,6 +231,175 @@ suite('BaseHalfCanvasReactScene', () => {
 			viewportHeight: 600
 		});
 		assert.strictEqual(offscreen.visible, false);
+	});
+
+	test('keeps the compact Video Result toolbar above the card in stable screen-space geometry', () => {
+		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['importResult']), 112);
+		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['copySettings', 'showDetails', 'more', 'openFullPreview']), 131);
+		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['importResult', 'showDetails']), 112);
+
+		const centered = resolveBaseHalfCanvasVideoSelectionPlacement({
+			left: 160,
+			top: 180,
+			right: 880,
+			bottom: 629,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 1100,
+			viewportHeight: 860,
+			toolbarWidth: 131
+		});
+		assert.strictEqual(centered.visible, true);
+		assert.strictEqual(centered.side, 'above');
+		assert.strictEqual(centered.width, 131);
+		assert.strictEqual(centered.height, 36);
+		assert.strictEqual(
+			(180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT)
+				- (centered.top + centered.height),
+			10
+		);
+
+		const zoomed = resolveBaseHalfCanvasVideoSelectionPlacement({
+			left: 160,
+			top: 180,
+			right: 880,
+			bottom: 629,
+			viewport: { x: -160, y: -180, zoom: 2 },
+			viewportWidth: 1100,
+			viewportHeight: 860,
+			toolbarWidth: 131
+		});
+		assert.strictEqual(zoomed.visible, true);
+		assert.strictEqual(zoomed.side, 'above');
+		assert.strictEqual(zoomed.width, centered.width);
+		assert.strictEqual(zoomed.height, centered.height);
+		assert.strictEqual(
+			((180 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 2 - 180)
+				- (zoomed.top * 2 - 180 + zoomed.height),
+			10
+		);
+
+		const zoomedOut = resolveBaseHalfCanvasVideoSelectionPlacement({
+			left: 160,
+			top: 600,
+			right: 880,
+			bottom: 1049,
+			viewport: { x: 0, y: 0, zoom: 0.2 },
+			viewportWidth: 1100,
+			viewportHeight: 860,
+			toolbarWidth: 131
+		});
+		assert.strictEqual(zoomedOut.visible, true);
+		assert.ok(Math.abs(
+			(600 - BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP - BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * 0.2
+				- (zoomedOut.top * 0.2 + zoomedOut.height)
+				- 10
+		) < 1e-9);
+
+		const narrow = resolveBaseHalfCanvasVideoSelectionPlacement({
+			left: -100,
+			top: 4,
+			right: 620,
+			bottom: 453,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 120,
+			viewportHeight: 680,
+			toolbarWidth: 131
+		});
+		assert.strictEqual(narrow.side, 'above');
+		assert.strictEqual(narrow.visible, false);
+		assert.strictEqual(narrow.width, 104);
+		assert.ok(narrow.left >= 8);
+		assert.ok(narrow.left + narrow.width <= 112);
+	});
+
+	test('keeps the Video Composer at the shared compact gap and fixed screen size', () => {
+		const centered = resolveBaseHalfCanvasVideoComposerPlacement({
+			left: 100,
+			top: 80,
+			right: 500,
+			bottom: 300,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 700,
+			screenWidth: 280,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+		assert.deepStrictEqual(centered, {
+			placement: 'below',
+			visible: true,
+			left: 160,
+			top: 316,
+			flowLeft: 160,
+			flowTop: 316,
+			screenWidth: 280,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+
+		const zoomedAndPanned = resolveBaseHalfCanvasVideoComposerPlacement({
+			left: 100,
+			top: 80,
+			right: 500,
+			bottom: 300,
+			viewport: { x: -100, y: -80, zoom: 2 },
+			viewportWidth: 1000,
+			viewportHeight: 900,
+			screenWidth: 280,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+		assert.strictEqual(zoomedAndPanned.visible, true);
+		assert.strictEqual(zoomedAndPanned.placement, 'below');
+		assert.strictEqual(zoomedAndPanned.left, 360);
+		assert.strictEqual(zoomedAndPanned.top, 536);
+		assert.strictEqual(zoomedAndPanned.flowLeft, 230);
+		assert.strictEqual(zoomedAndPanned.flowTop, 308);
+		assert.strictEqual(zoomedAndPanned.screenWidth, centered.screenWidth);
+		assert.strictEqual(zoomedAndPanned.screenHeight, centered.screenHeight);
+
+		const narrow = resolveBaseHalfCanvasVideoComposerPlacement({
+			left: 0,
+			top: 40,
+			right: 240,
+			bottom: 200,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 220,
+			viewportHeight: 520,
+			screenWidth: 640,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+		assert.strictEqual(narrow.visible, true);
+		assert.strictEqual(narrow.left, 8);
+		assert.strictEqual(narrow.top, 216);
+		assert.strictEqual(narrow.screenWidth, 204);
+
+		const partiallyClipped = resolveBaseHalfCanvasVideoComposerPlacement({
+			left: 100,
+			top: 400,
+			right: 500,
+			bottom: 620,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 700,
+			screenWidth: 280,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+		assert.strictEqual(partiallyClipped.visible, true);
+		assert.strictEqual(partiallyClipped.placement, 'below');
+		assert.strictEqual(partiallyClipped.top, 636);
+
+		const fullyBelowViewport = resolveBaseHalfCanvasVideoComposerPlacement({
+			left: 100,
+			top: 650,
+			right: 500,
+			bottom: 720,
+			viewport: { x: 0, y: 0, zoom: 1 },
+			viewportWidth: 800,
+			viewportHeight: 700,
+			screenWidth: 280,
+			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+		});
+		assert.strictEqual(fullyBelowViewport.visible, false);
+		assert.strictEqual(fullyBelowViewport.top, 736);
+		assert.strictEqual(centered.top - 300, BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP);
 	});
 
 	test('commits an allowed selection intent after preparation', async () => {
@@ -335,6 +521,14 @@ suite('BaseHalfCanvasReactScene', () => {
 		noteToolbar.classList.add('basehalf-canvas-note-toolbar');
 		const noteToolbarButton = document.createElement('button');
 		noteToolbar.append(noteToolbarButton);
+		const videoToolbar = document.createElement('div');
+		videoToolbar.classList.add('basehalf-video-context-toolbar', 'basehalf-video-result-toolbar');
+		const videoToolbarButton = document.createElement('button');
+		videoToolbar.append(videoToolbarButton);
+		const videoDraftToolbar = document.createElement('div');
+		videoDraftToolbar.classList.add('basehalf-video-context-toolbar', 'basehalf-video-draft-toolbar');
+		const videoDraftToolbarButton = document.createElement('button');
+		videoDraftToolbar.append(videoDraftToolbarButton);
 		const selectedEdge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 		selectedEdge.classList.add('react-flow__edge', 'selected', 'nopan');
 		card.append(editor, customInput, restingContent);
@@ -348,6 +542,8 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(selectedEdge), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectedEdgeShortcuts(restingContent), false);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(noteToolbarButton), true);
+		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(videoToolbarButton), true);
+		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(videoDraftToolbarButton), true);
 		assert.strictEqual(baseHalfCanvasTargetOwnsSelectionShortcuts(restingContent), false);
 	});
 

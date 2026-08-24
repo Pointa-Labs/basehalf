@@ -18,6 +18,7 @@ import {
 	BASEHALF_LEGACY_READING_MODE_SETTING,
 	BaseHalfSetting,
 	isBaseHalfAgentSessionKind,
+	migrateLegacyBaseHalfModelServices,
 	migrateLegacyBaseHalfReadingMode,
 	normalizeBaseHalfAgentDefaultSession,
 	normalizeBaseHalfCanvasZoom
@@ -52,10 +53,10 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].default, BASEHALF_CANVAS_DEFAULT_ZOOM);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].default, BASEHALF_AGENT_DEFAULT_SESSION);
-		assert.strictEqual(properties[BaseHalfSetting.ModelServices].scope, ConfigurationScope.APPLICATION);
-		assert.deepStrictEqual(properties[BaseHalfSetting.ModelServices].default, {});
-		assert.ok(properties[BaseHalfSetting.ModelServices].markdownDescription?.includes('command:basehalf.models.manage'));
-		assert.strictEqual(properties[BaseHalfSetting.ModelServices].markdownDescription?.includes('API keys are encrypted'), true);
+		// Official connection metadata is an internal machine record. The user
+		// configures it through BaseHalf Settings, never the
+		// stock JSON/object setting renderer.
+		assert.strictEqual(properties[BaseHalfSetting.ModelServices], undefined);
 
 		for (const key of keys) {
 			assert.strictEqual(key.startsWith('basehalf.git.'), false);
@@ -71,14 +72,15 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf/editor',
 			'basehalf/canvas',
 			'basehalf/agentArea',
-			'basehalf/modelServices'
+			'basehalf/models'
 		]);
 		assert.deepStrictEqual(basehalf?.children?.map(child => child.settings), [
 			['basehalf.editor.*'],
 			['basehalf.canvas.*'],
 			['basehalf.agent.*'],
-			['basehalf.models.*']
+			undefined
 		]);
+		assert.strictEqual(basehalf?.children?.at(-1)?.custom, true);
 	});
 
 	test('normalizes canvas default zoom using the product zoom range', () => {
@@ -112,5 +114,25 @@ suite('BaseHalfConfiguration', () => {
 			[BASEHALF_LEGACY_READING_MODE_SETTING, { value: undefined }]
 		]);
 		assert.deepStrictEqual(migrateLegacyBaseHalfReadingMode('yes', undefined), []);
+	});
+
+	test('deletes legacy model metadata from user settings after host-state migration', () => {
+		assert.deepStrictEqual(migrateLegacyBaseHalfModelServices({
+			legacy: {
+				label: 'Legacy',
+				endpoint: 'https://models.example.com/v1',
+				capabilities: ['video'],
+				authorization: 'bearer'
+			},
+			official: {
+				label: 'Official',
+				endpoint: 'https://models.example.com/v1',
+				providerId: 'example',
+				deploymentId: 'global',
+				region: 'global',
+				capabilities: ['video'],
+				authorization: 'bearer'
+			}
+		}), { value: undefined });
 	});
 });

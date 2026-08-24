@@ -13,14 +13,16 @@ import {
 	RiH1,
 	RiH2,
 	RiH3,
+	RiInformationLine,
 	RiItalic,
 	RiListOrdered,
 	RiListUnordered,
+	RiMoreLine,
 	RiSubtractLine,
 	RiText,
 } from 'react-icons/ri';
 
-// Keep Canvas Markdown actions on the same icon vocabulary as the rich editor.
+// Keep Canvas contextual actions on the same icon vocabulary as the rich editor.
 export const BaseHalfCanvasToolbarIcons = Object.freeze({
 	heading1: RiH1,
 	heading2: RiH2,
@@ -34,6 +36,8 @@ export const BaseHalfCanvasToolbarIcons = Object.freeze({
 	copy: RiFileCopyLine,
 	copied: RiCheckLine,
 	expand: RiFullscreenLine,
+	information: RiInformationLine,
+	more: RiMoreLine,
 });
 
 // Keep this façade explicit. The workbench loads this browser bundle by URL and

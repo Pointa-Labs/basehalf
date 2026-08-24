@@ -28,6 +28,7 @@ suite('BaseHalfCanvasTemplate', () => {
 				kind: 'image',
 				title: 'Frame',
 				role: 'storyboard',
+				prompt: 'A quiet station at night.',
 				recipe: {
 					recipeId: 'pointa.basehalf-ai-video.storyboard-frame',
 					parameters: { ratio: '9:16' },
@@ -42,6 +43,7 @@ suite('BaseHalfCanvasTemplate', () => {
 		}));
 
 		assert.strictEqual(template.nodes[0].recipe?.inputBindings[0].sourcePath, 'brief.md');
+		assert.strictEqual(template.nodes[0].prompt, 'A quiet station at night.');
 		assert.deepStrictEqual(template.references[0], {
 			from: 'brief.md',
 			to: 'frame.bhnode',
@@ -50,6 +52,19 @@ suite('BaseHalfCanvasTemplate', () => {
 		});
 		assert.strictEqual(Object.hasOwn(template.nodes[0], 'runs'), false);
 		assert.strictEqual(Object.hasOwn(template.nodes[0].recipe!, 'modelServiceId'), false);
+	});
+
+	test('bounds an optional host-owned node prompt', () => {
+		const source = (prompt: string) => JSON.stringify({
+			version: 1,
+			files: [],
+			nodes: [{ path: 'clip.bhnode', kind: 'video', title: 'Clip', role: 'clip', prompt }],
+			cards: [],
+			references: []
+		});
+		assert.strictEqual(parseBaseHalfCanvasTemplate(source('')).nodes[0].prompt, '');
+		assert.doesNotThrow(() => parseBaseHalfCanvasTemplate(source('x'.repeat(64 * 1024))));
+		assert.throws(() => parseBaseHalfCanvasTemplate(source('x'.repeat(64 * 1024 + 1))), /prompt.*no longer than/);
 	});
 
 	test('rejects traversal, reserved metadata paths, missing endpoints, and duplicate references', () => {

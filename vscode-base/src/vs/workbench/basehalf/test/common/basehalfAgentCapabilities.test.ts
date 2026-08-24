@@ -25,7 +25,7 @@ suite('BaseHalfAgentCapabilities', () => {
 			const descriptor = registry.getCapability('studio.workflow.sequence-capability');
 			assert.ok(descriptor);
 			assert.strictEqual(descriptor.extensionId, 'studio.workflow');
-			assert.strictEqual(descriptor.documents[0].pin?.mode, 'exact-result-version');
+			assert.strictEqual(descriptor.documents[0].kind, 'studio.workflow.sequence');
 			assert.strictEqual(Object.isFrozen(descriptor), true);
 			assert.strictEqual(Object.isFrozen(descriptor.documents), true);
 			assert.strictEqual(Object.isFrozen(descriptor.operations[0].parameters), true);
@@ -67,9 +67,9 @@ suite('BaseHalfAgentCapabilities', () => {
 			...validCapability(),
 			documents: [{
 				...validCapability().documents![0],
-				pin: { ...validCapability().documents![0].pin!, field: '../versionId' }
+				pin: { mode: 'exact-result-version' }
 			}]
-		}), /invalid pin field/);
+		} as unknown as IBaseHalfAgentCapabilityContribution), /unsupported fields/);
 		assert.throws(() => validateBaseHalfAgentCapabilityContribution('studio.workflow', {
 			id: 'studio.workflow.empty',
 			label: 'Empty'
@@ -142,24 +142,17 @@ function validCapability(): IBaseHalfAgentCapabilityContribution {
 	return {
 		id: 'studio.workflow.sequence-capability',
 		label: 'Sequence',
-		description: 'Basic playback order over exact local results.',
+		description: 'Basic playback order over sealed local results.',
 		documents: [{
 			kind: 'studio.workflow.sequence',
 			version: 1,
 			fileExtensions: ['.json'],
-			schemaSummary: 'A root object with version, kind, and ordered items.',
-			pin: {
-				mode: 'exact-result-version',
-				field: 'items[].versionId',
-				targetKinds: ['video'],
-				acceptedVersionStates: ['succeeded', 'imported'],
-				updatePolicy: 'explicit'
-			}
+			schemaSummary: 'A root object with version, kind, and ordered sealed Result node identities.'
 		}],
 		operations: [{
 			id: 'studio.workflow.sequence-inspect',
 			command: 'studio.workflow.inspectSequence',
-			description: 'Inspect exact pins.',
+			description: 'Inspect sealed Result identities.',
 			deterministic: true,
 			parameters: [{ name: 'sequence', type: 'uri', required: true, description: 'Sequence URI.' }],
 			returns: { type: 'object', description: 'Per-item state.' }

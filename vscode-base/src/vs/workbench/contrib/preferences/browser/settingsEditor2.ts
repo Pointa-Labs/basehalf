@@ -69,6 +69,7 @@ import { preferencesAiResultsIcon, preferencesClearInputIcon, preferencesFilterI
 import { SettingsTarget, SettingsTargetsWidget } from './preferencesWidgets.js';
 import { ISettingOverrideClickEvent } from './settingsEditorSettingIndicators.js';
 import { getCommonlyUsedData, ITOCEntry, tocData } from './settingsLayout.js';
+import { ISettingsCustomSection, ISettingsCustomSectionRequest, settingsCustomSectionRegistry } from './settingsCustomSections.js';
 import { SettingsSearchFilterDropdownMenuActionViewItem } from './settingsSearchMenu.js';
 import { AbstractSettingRenderer, createTocTreeForExtensionSettings, HeightChangeParams, ISettingLinkClickEvent, resolveConfiguredUntrustedSettings, resolveSettingsTree, SettingsTree, SettingTreeRenderers } from './settingsTree.js';
 import { ISettingsEditorViewState, parseQuery, SearchResultIdx, SearchResultModel, SettingsTreeElement, SettingsTreeGroupChild, SettingsTreeGroupElement, SettingsTreeModel, SettingsTreeSettingElement } from './settingsTreeModels.js';
@@ -184,6 +185,9 @@ export class SettingsEditor2 extends EditorPane {
 
 	private settingsTreeContainer!: HTMLElement;
 	private settingsTree!: SettingsTree;
+	private customSectionContainer!: HTMLElement;
+	private readonly activeCustomSection = this._register(new MutableDisposable<ISettingsCustomSection>());
+	private activeCustomSectionId: string | undefined;
 	private settingRenderers!: SettingTreeRenderers;
 	private tocTreeModel!: TOCTreeModel;
 	private readonly settingsTreeModel = this._register(new MutableDisposable<SettingsTreeModel>());
@@ -357,6 +361,7 @@ export class SettingsEditor2 extends EditorPane {
 			SettingsEditor2.SUGGESTIONS.push(`@${AGENTS_WINDOW_SETTING_TAG}`);
 		}
 		this.inputChangeListener = this._register(new MutableDisposable());
+		this._register(settingsCustomSectionRegistry.onDidRequest(request => this.tryOpenCustomSection(request)));
 	}
 
 	private async whenCurrentProfileChanged(): Promise<void> {
@@ -531,6 +536,7 @@ export class SettingsEditor2 extends EditorPane {
 
 			// Init TOC selection
 			this.updateTreeScrollSync();
+			this.tryOpenCustomSection(settingsCustomSectionRegistry.peekPendingRequest());
 		});
 
 		await this.refreshInstalledExtensionsList();
@@ -599,6 +605,7 @@ export class SettingsEditor2 extends EditorPane {
 	}
 
 	override clearInput(): void {
+		this.deactivateCustomSection();
 		this.inSettingsEditorContextKey.set(false);
 		super.clearInput();
 	}
@@ -622,6 +629,10 @@ export class SettingsEditor2 extends EditorPane {
 
 	override focus(): void {
 		super.focus();
+		if (this.activeCustomSection.value) {
+			this.activeCustomSection.value.focus();
+			return;
+		}
 
 		if (this._currentFocusContext === SettingsFocusContext.Search) {
 			if (!platform.isIOS) {
@@ -1055,6 +1066,8 @@ export class SettingsEditor2 extends EditorPane {
 
 		this.createTOC(this.tocTreeContainer);
 		this.createSettingsTree(this.settingsTreeContainer);
+		this.customSectionContainer = DOM.append(this.settingsTreeContainer, $('.settings-custom-section-container'));
+		this.customSectionContainer.hidden = true;
 
 		this.splitView = this._register(new SplitView(this.bodyContainer, {
 			orientation: Orientation.HORIZONTAL,
@@ -1079,6 +1092,7 @@ export class SettingsEditor2 extends EditorPane {
 			layout: (width, _, height) => {
 				this.settingsTreeContainer.style.width = `${width}px`;
 				this.settingsTree.layout(height, width);
+				this.activeCustomSection.value?.layout({ width, height: height ?? this.settingsTreeContainer.clientHeight });
 			}
 		}, Sizing.Distribute, undefined, true);
 		this._register(this.splitView.onDidSashReset(() => {
@@ -1131,6 +1145,15 @@ export class SettingsEditor2 extends EditorPane {
 
 			this.tocFocusedElement = element;
 			this.tocTree.setSelection(element ? [element] : []);
+			if (element?.customSection) {
+				const request = settingsCustomSectionRegistry.peekPendingRequest();
+				const input = request?.id === element.id ? request.input : undefined;
+				if (this.activateCustomSection(element.id, input) && request?.id === element.id) {
+					settingsCustomSectionRegistry.consumePendingRequest(request);
+				}
+			} else {
+				this.deactivateCustomSection();
+			}
 
 			// Filter to show only the selected category
 			if (this.viewState.categoryFilter !== element) {
@@ -1789,6 +1812,7 @@ export class SettingsEditor2 extends EditorPane {
 		if (this.isVisible()) {
 			this.tocTreeModel.update();
 			this.tocTree.setChildren(null, createTOCIterator(this.tocTreeModel, this.tocTree));
+			this.tryOpenCustomSection(settingsCustomSectionRegistry.peekPendingRequest());
 		}
 	}
 
@@ -1814,6 +1838,7 @@ export class SettingsEditor2 extends EditorPane {
 		const query = this.searchWidget.getValue().trim();
 		this.viewState.query = query;
 		if (query) {
+			this.deactivateCustomSection();
 			this.searchWidget.addToHistory();
 			this.updateSearchPlaceholder();
 			this.saveSearchHistory();
@@ -2241,6 +2266,85 @@ export class SettingsEditor2 extends EditorPane {
 				separatorBorder: firstViewVisible ? this.theme.getColor(settingsSashBorder)! : Color.transparent
 			});
 		}
+	}
+
+	private tryOpenCustomSection(request: ISettingsCustomSectionRequest | undefined): void {
+		if (!request || !this.isVisible() || !this.settingsTreeModel.value || !this.customSectionContainer) {
+			return;
+		}
+		const group = this.findSettingsGroup(this.settingsTreeModel.value.root, request.id);
+		if (!group?.customSection || !settingsCustomSectionRegistry.get(request.id)) {
+			return;
+		}
+		try {
+			this.tocTree.reveal(group);
+		} catch {
+			// The tree can be rebuilding while an extension contributes settings.
+		}
+		this.tocTree.setFocus([group]);
+		this.tocTree.setSelection([group]);
+		this.tocFocusedElement = group;
+		this.viewState.categoryFilter = group;
+		if (this.activateCustomSection(group.id, request.input)) {
+			settingsCustomSectionRegistry.consumePendingRequest(request);
+		}
+	}
+
+	private findSettingsGroup(root: SettingsTreeGroupElement, id: string): SettingsTreeGroupElement | undefined {
+		if (root.id === id) {
+			return root;
+		}
+		for (const child of root.children) {
+			if (child instanceof SettingsTreeGroupElement) {
+				const match = this.findSettingsGroup(child, id);
+				if (match) {
+					return match;
+				}
+			}
+		}
+		return undefined;
+	}
+
+	private activateCustomSection(id: string, input: string | undefined): boolean {
+		const descriptor = settingsCustomSectionRegistry.get(id);
+		if (!descriptor || !this.customSectionContainer) {
+			return false;
+		}
+		if (this.activeCustomSectionId !== id || !this.activeCustomSection.value) {
+			this.deactivateCustomSection();
+			const section = descriptor.create(this.instantiationService);
+			this.activeCustomSection.value = section;
+			this.activeCustomSectionId = id;
+			section.create(this.customSectionContainer);
+		}
+		this.settingsTree.getHTMLElement().hidden = true;
+		this.customSectionContainer.hidden = false;
+		this.rootElement.classList.add('custom-section-active');
+		this.activeCustomSection.value.setInput(input);
+		this.activeCustomSection.value.setVisible(true);
+		this.activeCustomSection.value.layout({
+			width: this.customSectionContainer.clientWidth,
+			height: this.customSectionContainer.clientHeight
+		});
+		queueMicrotask(() => this.activeCustomSection.value?.focus());
+		return true;
+	}
+
+	private deactivateCustomSection(): void {
+		const section = this.activeCustomSection.value;
+		if (section) {
+			section.setVisible(false);
+		}
+		this.activeCustomSection.clear();
+		this.activeCustomSectionId = undefined;
+		if (this.customSectionContainer) {
+			DOM.clearNode(this.customSectionContainer);
+			this.customSectionContainer.hidden = true;
+		}
+		if (this.settingsTree) {
+			this.settingsTree.getHTMLElement().hidden = false;
+		}
+		this.rootElement?.classList.remove('custom-section-active');
 	}
 
 	protected override saveState(): void {

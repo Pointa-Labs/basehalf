@@ -212,6 +212,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			kind: node.kind,
 			title: node.title,
 			role: node.role,
+			prompt: node.prompt ?? '',
 			...(node.recipe ? {
 				recipe: {
 					recipeId: node.recipe.recipeId,

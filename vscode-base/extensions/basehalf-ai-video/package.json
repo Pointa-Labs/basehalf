@@ -1,7 +1,7 @@
 {
 	"name": "basehalf-ai-video",
 	"displayName": "BaseHalf AI Video",
-	"description": "Thin video-domain pack for BaseHalf's main canvas: recipes, a starter template, Sequence projection, and bounded structural cleanup.",
+	"description": "Official BaseHalf video pack with reviewed model capabilities, provider-backed generation, planning recipes, and Sequence playback.",
 	"version": "0.6.0",
 	"publisher": "pointa",
 	"license": "Apache-2.0",
@@ -28,11 +28,23 @@
 	"capabilities": {
 		"untrustedWorkspaces": {
 			"supported": false,
-			"description": "Video workflow recipes may create user-approved local planning artifacts."
+			"description": "Video workflows may call configured model providers and create user-approved local artifacts."
 		},
 		"virtualWorkspaces": false
 	},
 	"contributes": {
+		"basehalfModelProviderCatalogs": [
+			{
+				"id": "pointa.basehalf-ai-video.official-providers",
+				"resource": "models/provider-connections.json"
+			}
+		],
+		"basehalfVideoModelCatalogs": [
+			{
+				"id": "pointa.basehalf-ai-video.official-models",
+				"resource": "models/video-models.json"
+			}
+		],
 		"basehalfCardProjections": [
 			{
 				"id": "pointa.basehalf-ai-video.sequence",
@@ -53,7 +65,7 @@
 			{
 				"id": "pointa.basehalf-ai-video.sequence-capability",
 				"label": "Video Workflow Documents",
-				"description": "Describe shots and arrange exact local clip results without adding another canvas, editor, or renderer.",
+				"description": "Describe shots and arrange sealed local Video Result nodes without adding another canvas, editor, or renderer.",
 				"documents": [
 					{
 						"kind": "pointa.basehalf-ai-video.shot",
@@ -65,35 +77,28 @@
 						"kind": "pointa.basehalf-ai-video.sequence",
 						"version": 1,
 						"fileExtensions": [".json"],
-						"schemaSummary": "A video-sequence.json root object with version 1, kind pointa.basehalf-ai-video.sequence, and ordered items. Every item requires a unique id, title, stable nodeId, videoNodePath ending in .bhnode relative to the directory containing video-sequence.json, and an exact versionId.",
-						"pin": {
-							"mode": "exact-result-version",
-							"field": "items[].versionId",
-							"targetKinds": ["video"],
-							"acceptedVersionStates": ["succeeded", "imported"],
-							"updatePolicy": "explicit"
-						}
+						"schemaSummary": "A video-sequence.json root object with version 1, kind pointa.basehalf-ai-video.sequence, and ordered items. Every item requires a unique id, title, stable nodeId, and videoNodePath ending in .bhnode relative to the directory containing video-sequence.json. The referenced node must be a sealed Video Result with one available Video artifact."
 					}
 				],
 				"operations": [
 					{
 						"id": "pointa.basehalf-ai-video.sequence-inspect",
 						"command": "pointa.basehalf-ai-video.inspectSequence",
-						"description": "Validate every exact clip pin and report explicit Current updates without modifying the Sequence.",
+						"description": "Validate every referenced node as a sealed Video Result with one available Video artifact without modifying the Sequence.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file in the open local workspace." }
 						],
-						"returns": { "type": "object", "description": "Validation status, update count, and per-item pin state." }
+						"returns": { "type": "object", "description": "Validation status and per-item Video Result state." }
 					},
 					{
 						"id": "pointa.basehalf-ai-video.sequence-add",
-						"command": "pointa.basehalf-ai-video.addSequenceItemFromCurrent",
-						"description": "Append one verified Video Current as an exact pinned Sequence item.",
+						"command": "pointa.basehalf-ai-video.addSequenceItemFromVideoResult",
+						"description": "Append one sealed Video Result node to playback order.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
-								{ "name": "videoNode", "type": "uri", "required": true, "description": "URI of a saved Video result node under the workflow root containing video-sequence.json." },
+							{ "name": "videoNode", "type": "uri", "required": true, "description": "URI of a saved Video result node under the workflow root containing video-sequence.json." },
 							{ "name": "itemId", "type": "string", "required": true, "description": "Unique stable id for the new Sequence item." },
 							{ "name": "title", "type": "string", "required": false, "description": "Optional human-readable clip title." }
 						],
@@ -102,7 +107,7 @@
 					{
 						"id": "pointa.basehalf-ai-video.sequence-move",
 						"command": "pointa.basehalf-ai-video.moveSequenceItem",
-						"description": "Move one pinned clip by one position in basic playback order.",
+						"description": "Move one Video Result reference by one position in basic playback order.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -112,20 +117,9 @@
 						"returns": { "type": "object", "description": "The saved Sequence document after the move." }
 					},
 					{
-						"id": "pointa.basehalf-ai-video.sequence-update",
-						"command": "pointa.basehalf-ai-video.updateSequenceItemToCurrent",
-						"description": "Explicitly replace one exact pin with that Video node's verified Current version.",
-						"deterministic": true,
-						"parameters": [
-							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
-							{ "name": "itemId", "type": "string", "required": true, "description": "Stable id of the Sequence item to update." }
-						],
-						"returns": { "type": "object", "description": "Fresh Sequence inspection after the explicit pin update." }
-					},
-					{
 						"id": "pointa.basehalf-ai-video.sequence-remove",
 						"command": "pointa.basehalf-ai-video.removeSequenceItem",
-						"description": "Remove one playback-order reference while preserving its Video node and local results.",
+						"description": "Remove one playback-order reference while preserving its Video Result node and artifact.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -136,7 +130,7 @@
 					{
 						"id": "pointa.basehalf-ai-video.sequence-repair-path",
 						"command": "pointa.basehalf-ai-video.repairSequenceItemPath",
-						"description": "Explicitly repair one moved clip path after a bounded stable-identity scan verifies one unique node and the exact pinned result.",
+						"description": "Explicitly repair one moved clip path after a bounded stable-identity scan verifies one unique sealed Video Result.",
 						"deterministic": true,
 						"parameters": [
 							{ "name": "sequence", "type": "uri", "required": true, "description": "URI of the existing Sequence JSON file." },
@@ -159,18 +153,13 @@
 				"category": "BaseHalf"
 			},
 			{
-				"command": "pointa.basehalf-ai-video.addSequenceItemFromCurrent",
-				"title": "Add Current Video to Sequence…",
+				"command": "pointa.basehalf-ai-video.addSequenceItemFromVideoResult",
+				"title": "Add Video Result to Sequence…",
 				"category": "BaseHalf"
 			},
 			{
 				"command": "pointa.basehalf-ai-video.moveSequenceItem",
 				"title": "Move Video Sequence Clip…",
-				"category": "BaseHalf"
-			},
-			{
-				"command": "pointa.basehalf-ai-video.updateSequenceItemToCurrent",
-				"title": "Update Video Sequence Clip to Current…",
 				"category": "BaseHalf"
 			},
 			{
@@ -188,7 +177,7 @@
 			{
 				"id": "pointa.basehalf-ai-video.storyboard-frame",
 				"label": "Storyboard Frame",
-				"description": "Create a labelled local SVG planning frame from shot instructions and references.",
+				"description": "Create a labelled local SVG planning frame from the node prompt and references.",
 				"icon": "file-media",
 				"inputs": [
 					{
@@ -214,14 +203,6 @@
 					}
 				],
 				"parameters": [
-					{
-						"id": "instructions",
-						"label": "Shot Instructions",
-						"type": "multiline",
-						"required": true,
-						"minLength": 1,
-						"maxLength": 16000
-					},
 					{
 						"id": "aspect-ratio",
 						"label": "Aspect Ratio",
@@ -310,14 +291,6 @@
 				],
 				"parameters": [
 					{
-						"id": "instructions",
-						"label": "Motion Instructions",
-						"type": "multiline",
-						"required": true,
-						"minLength": 1,
-						"maxLength": 16000
-					},
-					{
 						"id": "duration-seconds",
 						"label": "Duration",
 						"type": "number",
@@ -383,14 +356,6 @@
 				],
 				"parameters": [
 					{
-						"id": "instructions",
-						"label": "Audio Instructions",
-						"type": "multiline",
-						"required": true,
-						"minLength": 1,
-						"maxLength": 16000
-					},
-					{
 						"id": "purpose",
 						"label": "Purpose",
 						"type": "enum",
@@ -423,6 +388,54 @@
 						"id": "brief",
 						"kind": "file",
 						"extensions": [".md"],
+						"minItems": 1,
+						"maxItems": 1,
+						"primary": true
+					}
+				]
+			},
+			{
+				"id": "pointa.basehalf-ai-video.generate-video",
+				"label": "Generate Video",
+				"description": "Generate one provider-backed video from the selected reviewed model capability and seal it as a local MP4 Result.",
+				"icon": "device-camera-video",
+				"modelCapability": "video",
+				"videoModelCatalogId": "pointa.basehalf-ai-video.official-models",
+				"inputs": [
+					{
+						"id": "reference",
+						"label": "Reference Media",
+						"accepts": ["image", "video"],
+						"minItems": 0,
+						"maxItems": 8
+					},
+					{
+						"id": "first-frame",
+						"label": "First Frame",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 1
+					},
+					{
+						"id": "last-frame",
+						"label": "Last Frame",
+						"accepts": ["image"],
+						"minItems": 0,
+						"maxItems": 1
+					},
+					{
+						"id": "source-video",
+						"label": "Source Video",
+						"accepts": ["video"],
+						"minItems": 0,
+						"maxItems": 1
+					}
+				],
+				"outputs": [
+					{
+						"id": "video",
+						"kind": "video",
+						"extensions": [".mp4"],
 						"minItems": 1,
 						"maxItems": 1,
 						"primary": true

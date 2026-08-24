@@ -17,6 +17,7 @@ import { isMacintosh } from '../../../base/common/platform.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { safeIntl } from '../../../base/common/date.js';
 import { generateUuid } from '../../../base/common/uuid.js';
+import { equals as objectsEqual } from '../../../base/common/objects.js';
 import { toAction } from '../../../base/common/actions.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
@@ -45,6 +46,7 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { DEFAULT_EDITOR_ASSOCIATION, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
+import { SettingsEditor2Input } from '../../services/preferences/common/preferencesEditorInput.js';
 import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js';
 import { IPathService } from '../../services/path/common/pathService.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
@@ -107,19 +109,17 @@ import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/
 import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
+	BASEHALF_NODE_PROMPT_MAX_LENGTH,
 	BaseHalfNodeDocumentError,
 	BaseHalfNodeArtifactKind,
+	BaseHalfNodeJsonValue,
 	BaseHalfNodeKind,
 	createBaseHalfNodeDocument,
-	getBaseHalfNodeCurrentArtifacts,
-	getBaseHalfNodeCurrentPrimaryArtifact,
+	getBaseHalfNodeResultArtifact,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeImportedRevision,
 	IBaseHalfNodeInputBinding,
-	IBaseHalfNodeRunArtifact,
-	IBaseHalfNodeRunInput,
-	importBaseHalfNodeCurrent,
-	isBaseHalfNodeDocumentStale,
+	IBaseHalfNodeResultArtifact,
+	importBaseHalfNodeResult,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	serializeBaseHalfNodeDocument
@@ -137,10 +137,44 @@ import {
 	IBaseHalfCanvasRecipeRegistryService
 } from '../common/basehalfCanvasRecipes.js';
 import {
+	BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID,
 	BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID,
 	IBaseHalfModelServiceDescriptor,
-	IBaseHalfModelServiceService
+	IBaseHalfModelServiceService,
+	isBaseHalfPublicHttpsBearerModelServiceConfiguration
 } from '../common/basehalfModelServices.js';
+import {
+	IBaseHalfModelProviderCatalogService,
+	IBaseHalfRegisteredModelProviderConnectionSpec
+} from '../common/basehalfModelProviderCatalogs.js';
+import {
+	IBaseHalfModelConnectionCompletion,
+	IBaseHalfModelConnectionNavigationService
+} from '../common/basehalfModelConnectionNavigation.js';
+import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
+import {
+	BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID,
+	BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID,
+	BaseHalfVideoGenerationMode,
+	BaseHalfVideoInputKind,
+	BaseHalfVideoInputState,
+	BaseHalfVideoModelScalar,
+	BaseHalfVideoModelResolution,
+	BaseHalfVideoSettings,
+	BaseHalfVideoSettingsNormalization,
+	baseHalfVideoModelMatchesServiceScope,
+	createBaseHalfVideoModelRegistry,
+	createBaseHalfVideoModelSelectionSnapshot,
+	getBaseHalfVideoPromptMaxCharacters,
+	getBaseHalfVideoPromptProblem,
+	IBaseHalfSupportedVideoModelResolution,
+	IBaseHalfVideoModelDescriptor,
+	IBaseHalfVideoModelRegistry,
+	IBaseHalfVideoModelSelectionSnapshot,
+	parseBaseHalfVideoModelSelectionSnapshot,
+	resolveBaseHalfVideoModelSelectionSnapshot,
+	normalizeBaseHalfVideoSettings
+} from '../common/basehalfVideoModels.js';
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
@@ -169,7 +203,13 @@ import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHa
 import {
 	BaseHalfCanvasSceneContextMenuRequest,
 	BaseHalfCanvasSceneSelectionAction,
+	BaseHalfCanvasSceneCardControls,
+	BaseHalfCanvasSceneVideoAction,
 	BaseHalfCanvasNoteBackground,
+	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
+	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
+	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
+	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -182,6 +222,7 @@ import {
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
+	IBaseHalfCanvasSceneVideoComposerLayout,
 	IBaseHalfCanvasSceneViewport
 } from '../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../common/basehalfMarkdownFormatting.js';
@@ -193,9 +234,11 @@ import {
 	BaseHalfNodeParameterDraftValue,
 	baseHalfNodeArtifactUsesTextPreview,
 	baseHalfNodeCanImportContentKind,
+	baseHalfNodeAttemptHasCompleteRetrySnapshot,
 	baseHalfNodeImportActionLabel,
 	baseHalfNodeImportObjectLabel,
 	baseHalfNodeLocalPrimaryActionOpensSurface,
+	baseHalfNodeLocalStatusToken,
 	baseHalfNodeLocalSurfaceTargetOwnsEscape,
 	chooseBaseHalfNodeConnectionSlot,
 	configureBaseHalfNodeLocalSurfaceAccessibility,
@@ -203,24 +246,27 @@ import {
 	decodeBaseHalfNodeTextPreview,
 	getBaseHalfNodeAvailableInputSlots,
 	getBaseHalfNodeAssignableInputSlots,
-	getBaseHalfNodeInputCurrentVersionLabel,
+	getBaseHalfNodeInputResultLabel,
+	getBaseHalfNodeInputReadinessProblem,
 	getBaseHalfNodeInputStructureProblem,
 	getBaseHalfNodeInputRows,
 	getBaseHalfNodeCardStatusText,
-	getBaseHalfNodeHistoricalArtifactOpenProblem,
-	getBaseHalfNodeImportHistoryProblem,
+	getBaseHalfNodeResultArtifactOpenProblem,
+	getBaseHalfNodeImportProblem,
 	getBaseHalfNodeLocalState,
 	getBaseHalfNodeLocalExecutionState,
 	getBaseHalfNodeModelSelectionProblem,
-	getBaseHalfNodeRunDisclosureLines,
-	getBaseHalfNodeRunHistoryDetail,
+	getBaseHalfNodeAttemptDisclosureLines,
+	getBaseHalfNodeAttemptSummary,
 	resolveBaseHalfNodeLocalSurfacePlacement,
 	IBaseHalfNodeLocalConfigurationDraft,
+	IBaseHalfNodeInputResultIdentity,
 	isBaseHalfNodeCardStatusPositive,
 	mergeBaseHalfNodeLocalConfigurationDraft,
 	moveBaseHalfNodeInputBinding,
 	parseBaseHalfNodeParameterDraft,
 	resolveBaseHalfNodeLocalDraftExit,
+	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
 } from './basehalfNodeLocalSurface.js';
 import {
@@ -241,10 +287,7 @@ interface IBaseHalfCanvasMediaPreview {
 interface IBaseHalfNodeInboundSource {
 	readonly path: string;
 	readonly kind: BaseHalfCanvasContentKind;
-	readonly currentVersion?: {
-		readonly source: 'run' | 'imported';
-		readonly id: string;
-	};
+	readonly resultIdentity?: IBaseHalfNodeInputResultIdentity;
 }
 
 interface IBaseHalfNodeInboundState {
@@ -252,17 +295,275 @@ interface IBaseHalfNodeInboundState {
 	readonly problem?: string;
 }
 
+type BaseHalfVideoComposerOverlay = 'models' | 'settings' | 'inputs' | 'attempts';
+
+interface IBaseHalfVideoComposerModelState {
+	readonly registry: IBaseHalfVideoModelRegistry;
+	readonly inputs: BaseHalfVideoInputState;
+	readonly models: readonly IBaseHalfVideoModelDescriptor[];
+	readonly service?: IBaseHalfModelServiceDescriptor;
+	readonly descriptor?: IBaseHalfVideoModelDescriptor;
+	readonly mode?: BaseHalfVideoGenerationMode;
+	readonly resolution?: BaseHalfVideoModelResolution;
+	readonly normalization?: BaseHalfVideoSettingsNormalization;
+	readonly problem?: string;
+}
+
+const BASEHALF_VIDEO_COMPOSER_WIDTH_RATIO = 0.66;
+const BASEHALF_VIDEO_COMPOSER_MAX_WIDTH = 560;
+const BASEHALF_VIDEO_MODE_LABELS: Readonly<Record<BaseHalfVideoGenerationMode, string>> = Object.freeze({
+	'text-to-video': 'Text',
+	'first-frame-to-video': 'First frame',
+	'first-last-frame-to-video': 'First and last frames',
+	'reference-to-video': 'Reference',
+	'video-edit': 'Edit video',
+	'video-extension': 'Extend video'
+});
+
+function baseHalfVideoSettingsFromRecipeParameters(
+	parameters: Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined
+): BaseHalfVideoSettings {
+	if (!parameters) {
+		return Object.freeze({});
+	}
+	const settings: Record<string, BaseHalfVideoModelScalar> = {};
+	for (const [id, value] of Object.entries(parameters)) {
+		if (typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+			settings[id] = value;
+		}
+	}
+	return Object.freeze(settings);
+}
+
+/**
+ * Video settings keep their provider-neutral scalar types until save. The
+ * generic local-surface draft predates numeric capability settings, so this
+ * narrow adapter avoids converting numbers to lossy strings between renders.
+ */
+function baseHalfVideoSettingsAsParameterDraft(
+	settings: BaseHalfVideoSettings,
+	snapshot?: IBaseHalfVideoModelSelectionSnapshot
+): Record<string, BaseHalfNodeParameterDraftValue> {
+	return {
+		...settings,
+		...(snapshot ? { [BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: snapshot } : {})
+	} as unknown as Record<string, BaseHalfNodeParameterDraftValue>;
+}
+
+function baseHalfCanonicalVideoParameterDraft(
+	catalogId: string,
+	resolution: IBaseHalfSupportedVideoModelResolution,
+	normalization: Extract<BaseHalfVideoSettingsNormalization, { readonly status: 'ready' }>
+): Record<string, BaseHalfNodeParameterDraftValue> {
+	return baseHalfVideoSettingsAsParameterDraft(
+		normalization.values,
+		createBaseHalfVideoModelSelectionSnapshot(catalogId, resolution)
+	);
+}
+
+const EMPTY_BASEHALF_VIDEO_MODEL_REGISTRY = createBaseHalfVideoModelRegistry({ schemaVersion: 1, models: [] });
+
+function baseHalfVideoRegistryForRecipe(
+	service: IBaseHalfVideoModelCatalogService,
+	recipe: IBaseHalfCanvasRecipeDescriptor | undefined
+): IBaseHalfVideoModelRegistry {
+	return recipe?.modelCapability === 'video' && recipe.videoModelCatalogId
+		? service.getRegistry(recipe.videoModelCatalogId, recipe.extensionId)
+		: EMPTY_BASEHALF_VIDEO_MODEL_REGISTRY;
+}
+
+function baseHalfVideoSettingsFromParameterDraft(
+	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>
+): BaseHalfVideoSettings {
+	const settings: Record<string, BaseHalfVideoModelScalar> = {};
+	for (const [id, value] of Object.entries(draft as Readonly<Record<string, unknown>>)) {
+		if (typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+			settings[id] = value;
+		}
+	}
+	return Object.freeze(settings);
+}
+
+function baseHalfVideoSnapshotFromParameterDraft(
+	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>,
+	expectedCatalogId: string | undefined
+): IBaseHalfVideoModelSelectionSnapshot | undefined {
+	if (!expectedCatalogId) {
+		return undefined;
+	}
+	const value = (draft as Readonly<Record<string, unknown>>)[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
+	if (value === undefined) {
+		return undefined;
+	}
+	try {
+		return parseBaseHalfVideoModelSelectionSnapshot(value, expectedCatalogId);
+	} catch {
+		return undefined;
+	}
+}
+
+function baseHalfVideoModelKeyFromParameterDraft(
+	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>,
+	expectedCatalogId: string | undefined
+): IBaseHalfVideoModelDescriptor['key'] | undefined {
+	const snapshot = baseHalfVideoSnapshotFromParameterDraft(draft, expectedCatalogId);
+	return snapshot ? Object.freeze({
+		provider: snapshot.providerId,
+		deployment: snapshot.deploymentId,
+		region: snapshot.region,
+		modelId: snapshot.modelId,
+		revision: snapshot.revision
+	}) : undefined;
+}
+
+function baseHalfVideoParameterDraftFromRecipeParameters(
+	parameters: Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined,
+	expectedCatalogId: string | undefined
+): Record<string, BaseHalfNodeParameterDraftValue> {
+	const settings = baseHalfVideoSettingsFromRecipeParameters(parameters);
+	if (!parameters || !expectedCatalogId || parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID] === undefined) {
+		return baseHalfVideoSettingsAsParameterDraft(settings);
+	}
+	try {
+		return baseHalfVideoSettingsAsParameterDraft(
+			settings,
+			parseBaseHalfVideoModelSelectionSnapshot(parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID], expectedCatalogId)
+		);
+	} catch {
+		return baseHalfVideoSettingsAsParameterDraft(settings);
+	}
+}
+
+function baseHalfVideoInputState(
+	prompt: string,
+	bindings: readonly IBaseHalfNodeInputBinding[],
+	inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>
+): BaseHalfVideoInputState {
+	const counts: Partial<Record<BaseHalfVideoInputKind, number>> = { 'text-prompt': 1 };
+	const appendInput = (kind: BaseHalfVideoInputKind): void => {
+		counts[kind] = (counts[kind] ?? 0) + 1;
+	};
+	for (const binding of bindings) {
+		const slot = binding.slot.toLowerCase();
+		const contentKind = inputKinds.get(binding.sourcePath);
+		if (slot === 'first-frame') {
+			appendInput('first-frame');
+		} else if (slot === 'last-frame') {
+			appendInput('last-frame');
+		} else if (slot === 'source-video') {
+			appendInput('source-video');
+		} else if (slot === 'audio' || contentKind === 'audio') {
+			appendInput('audio');
+		} else if (contentKind === 'image') {
+			appendInput('reference-image');
+		} else if (contentKind === 'video') {
+			appendInput('reference-video');
+		}
+	}
+	// The field itself participates in mode selection so users can choose a
+	// model before writing. Required prompt content is checked separately.
+	void prompt;
+	return Object.freeze(counts);
+}
+
+function baseHalfVideoDocumentConfigurationProblem(
+	document: IBaseHalfNodeDocument,
+	recipe: IBaseHalfCanvasRecipeDescriptor | undefined,
+	modelServices: readonly IBaseHalfModelServiceDescriptor[],
+	registry: IBaseHalfVideoModelRegistry,
+	inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>
+): string | undefined {
+	if (document.kind !== 'video' || recipe?.modelCapability !== 'video' || !document.recipe) {
+		return undefined;
+	}
+	if (!recipe.videoModelCatalogId) {
+		return 'The selected video generator is not bound to a reviewed model catalog.';
+	}
+	const service = modelServices.find(candidate => candidate.id === document.recipe!.modelServiceId?.toLowerCase());
+	// The generic local-state projection owns missing/unconfigured connection
+	// messaging. Catalog validation begins only after an exact service exists.
+	if (!service?.configured) {
+		return undefined;
+	}
+	if (!isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)) {
+		return 'Reconnect this video model service with a public HTTPS endpoint and Bearer API key.';
+	}
+	const snapshotValue = document.recipe.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
+	if (snapshotValue === undefined || !document.recipe.modelId) {
+		return 'Choose a reviewed video model.';
+	}
+	let snapshot: IBaseHalfVideoModelSelectionSnapshot;
+	try {
+		snapshot = parseBaseHalfVideoModelSelectionSnapshot(snapshotValue, recipe.videoModelCatalogId);
+	} catch (error) {
+		return error instanceof Error ? error.message : 'The saved video model selection is invalid.';
+	}
+	if (snapshot.modelId !== document.recipe.modelId) {
+		return 'The saved video model selection does not match the selected model.';
+	}
+	const persisted = resolveBaseHalfVideoModelSelectionSnapshot(registry, recipe.videoModelCatalogId, service, snapshot);
+	if (persisted.status !== 'supported') {
+		return persisted.reason;
+	}
+	const currentInputs = baseHalfVideoInputState(document.prompt, document.recipe.inputBindings, inputKinds);
+	const current = registry.resolve({ ...persisted.descriptor.key, mode: snapshot.mode, inputs: currentInputs });
+	if (current.status !== 'supported') {
+		return current.reason;
+	}
+	const normalization = normalizeBaseHalfVideoSettings(current, baseHalfVideoSettingsFromRecipeParameters(document.recipe.parameters));
+	if (normalization.status !== 'ready') {
+		return normalization.reason;
+	}
+	const canonicalParameters = baseHalfCanonicalVideoParameterDraft(recipe.videoModelCatalogId, current, normalization);
+	if (!objectsEqual(document.recipe.parameters, canonicalParameters)) {
+		return 'Review the model settings and save this Draft again.';
+	}
+	return getBaseHalfVideoPromptProblem(current, document.prompt);
+}
+
+function layoutBaseHalfVideoComposerPopover(surface: HTMLElement, popover: HTMLElement, bounds?: DOMRect): void {
+	const surfaceWindow = surface.ownerDocument.defaultView ?? mainWindow;
+	const surfaceRect = surface.getBoundingClientRect();
+	const viewportMargin = 8;
+	const popoverGap = 6;
+	const upwardAnchor = surfaceRect.bottom - 48;
+	const downwardAnchor = surfaceRect.bottom + popoverGap;
+	const viewportTop = (bounds?.top ?? 0) + viewportMargin;
+	const viewportBottom = (bounds?.bottom ?? surfaceWindow.innerHeight) - viewportMargin;
+	const availableAbove = Math.max(0, upwardAnchor - viewportTop);
+	const availableBelow = Math.max(0, viewportBottom - downwardAnchor);
+	const desiredHeight = Math.min(popover.scrollHeight || 320, 420);
+	const prefersBelow = surface.dataset.placement === 'above';
+	const opensBelow = prefersBelow
+		? availableBelow >= Math.min(desiredHeight, 96) || availableBelow > availableAbove
+		: availableAbove < Math.min(desiredHeight, 160) && availableBelow > availableAbove;
+	const availableHeight = opensBelow ? availableBelow : availableAbove;
+	popover.dataset.popoverPlacement = opensBelow ? 'below' : 'above';
+	popover.style.setProperty('--basehalf-video-popover-max-height', `${Math.max(48, Math.floor(availableHeight))}px`);
+}
+
 interface IBaseHalfRenderedNodeChrome {
-	readonly currentLabel: string;
+	readonly card: HTMLElement;
+	readonly title: string;
 	readonly status?: HTMLElement;
 	readonly action?: HTMLButtonElement;
+	readonly progress?: HTMLElement;
+	readonly progressValue?: HTMLElement;
 }
 
 interface IBaseHalfActiveNodeLocalSurface {
+	readonly sceneKey: string;
 	readonly path: string;
+	readonly resource: URI;
+	readonly nodeId: string;
+	readonly nodeKind: IBaseHalfNodeDocument['kind'];
 	hasDraftChanges(): boolean;
+	prepareForImport(): Promise<boolean>;
 	closeForSwitch(): Promise<boolean>;
 	closeForShutdown(): Promise<boolean>;
+	closeTransientOverlay(): void;
+	showVideoDetails(): Promise<void>;
+	rebindScene(sceneKey: string, structuralEpoch: number): void;
 }
 
 interface IBaseHalfActiveCanvasNoteEditor {
@@ -394,16 +695,18 @@ type BaseHalfCanvasCardPreview =
 		readonly document: IBaseHalfNodeDocument;
 		readonly execution?: IBaseHalfNodeExecutionState;
 		readonly recipe?: IBaseHalfCanvasRecipeDescriptor;
+		readonly videoConfiguration?:
+			| { readonly valid: true }
+			| { readonly valid: false; readonly problem: string };
 		readonly matchingRecipeCount: number;
 		readonly modelServices: readonly IBaseHalfModelServiceDescriptor[];
-		readonly currentMedia?: IBaseHalfCanvasMediaPreview;
-		readonly currentOutputText?: string;
-		readonly currentOutputIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
+		readonly resultMedia?: IBaseHalfCanvasMediaPreview;
+		readonly resultOutputText?: string;
+		readonly resultIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
 		readonly inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>;
 		readonly directSourcePaths: readonly string[];
 		readonly directSourceProblems: ReadonlyMap<string, string>;
 		readonly graphProblem?: string;
-		readonly staleReason?: 'recipe' | 'inputs';
 		readonly verificationPending?: boolean;
 		readonly dirty: boolean;
 	}
@@ -442,6 +745,29 @@ export function baseHalfCanvasPendingSelectionIsReady(
 	return paths.length > 0 && paths.every(path => availablePaths.has(path));
 }
 
+/**
+ * Builds the narrow durable checkpoint used before a Draft leaves the canvas
+ * to unlock a model provider. Incomplete provider/model choices are never
+ * serialized: authored identity and prompt advance while the last valid saved
+ * recipe (or no recipe for a new node) remains the auditable configuration.
+ */
+export function baseHalfCanvasProvisionalVideoDraftDocument(
+	document: IBaseHalfNodeDocument,
+	title: string,
+	role: string,
+	prompt: string
+): IBaseHalfNodeDocument | undefined {
+	if (document.kind !== 'video' || document.result || document.attempts.length > 0) {
+		return undefined;
+	}
+	return {
+		...document,
+		title: title.trim(),
+		role: role.trim(),
+		prompt
+	};
+}
+
 interface IBaseHalfCanvasCardPreviewCacheEntry {
 	readonly item: IBaseHalfCanvasItem;
 	readonly preview: BaseHalfCanvasCardPreview;
@@ -474,7 +800,7 @@ function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
 	}
 }
 
-const nodeRunDateFormatter = safeIntl.DateTimeFormat(undefined, {
+const nodeAttemptDateFormatter = safeIntl.DateTimeFormat(undefined, {
 	month: 'short',
 	day: 'numeric',
 	hour: 'numeric',
@@ -592,8 +918,6 @@ type BaseHalfCanvasInlineEdit =
 		selectionPending: boolean;
 	};
 
-const OVERVIEW_LABEL_MIN_FLOW_PX = 12;
-const OVERVIEW_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const TEXT_PREVIEW_MAX_BYTES = BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES;
 const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 	'basehalf.canvas.note.fullEditorRequired',
@@ -602,6 +926,11 @@ const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 const BASEHALF_CANVAS_SELECTION_UNDO_FILE_SIZE = 5_000_000;
 const BASEHALF_CANVAS_UNDO_REDO_PRIORITY = 115;
 const BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY = 10_000;
+// Video is the authored object on this canvas, not a thumbnail inside a generic
+// result card. Its title is external chrome, so the node itself is a true 16:9
+// stage rather than a media frame plus an internal header.
+const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH = 720;
+const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -732,6 +1061,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly canvasNoteFocusLeaseOwner = new BaseHalfCanvasNoteFocusLeaseOwner();
 	private nodeLocalSurfaceOpenChain: Promise<void> = Promise.resolve();
 	private nodeLocalSurfaceIntent = 0;
+	private pendingVideoModelConnectionCompletion: IBaseHalfModelConnectionCompletion | undefined;
+	private videoModelConnectionResumeTimer: number | undefined;
+	private preparedSceneSelection: {
+		readonly sceneKey: string;
+		readonly structuralEpoch: number;
+		readonly paths: readonly string[];
+	} | undefined;
 	private disposed = false;
 
 	constructor(
@@ -765,6 +1101,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
 		@IBaseHalfCanvasRecipeRegistryService private readonly canvasRecipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
 		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService,
+		@IBaseHalfModelProviderCatalogService private readonly modelProviderCatalogService: IBaseHalfModelProviderCatalogService,
+		@IBaseHalfModelConnectionNavigationService private readonly modelConnectionNavigationService: IBaseHalfModelConnectionNavigationService,
+		@IBaseHalfVideoModelCatalogService private readonly videoModelCatalogService: IBaseHalfVideoModelCatalogService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfCardProjectionRegistryService private readonly cardProjectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@IBaseHalfCardDetailSurfaceRegistryService private readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
@@ -864,6 +1203,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			copyNote: (sceneKey, structuralEpoch, path) => this.copySceneNote(sceneKey, structuralEpoch, path),
 			setNoteBackground: (sceneKey, structuralEpoch, path, background) => this.setSceneNoteBackground(sceneKey, structuralEpoch, path, background),
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
+			invokeVideoAction: (sceneKey, structuralEpoch, path, action, anchor) => this.invokeSceneVideoAction(sceneKey, structuralEpoch, path, action, anchor),
 			showCreateMenu: (sceneKey, structuralEpoch, position) => this.showSceneContextMenu(
 				sceneKey,
 				structuralEpoch,
@@ -987,6 +1327,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.cardPreviewModelServicesPromise = undefined;
 			this.scheduleBackgroundRender();
 		}));
+		this._register(this.modelConnectionNavigationService.onDidComplete(completion => {
+			if (completion.intent.returnTarget?.kind !== 'videoModel') {
+				return;
+			}
+			this.pendingVideoModelConnectionCompletion = completion;
+			this.scheduleVideoModelConnectionResume();
+		}));
 		this._register(this.workingCopyService.onDidChangeDirty(workingCopy => {
 			const folder = this.getCurrentFolder();
 			if (folder && isEqualOrParent(workingCopy.resource, folder.workspaceFolder)) {
@@ -994,7 +1341,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
-		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
+		this._register(this.editorService.onDidActiveEditorChange(() => {
+			this.reconcileActiveEditor();
+			this.scheduleVideoModelConnectionResume();
+		}));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) {
 				void this.canvasNavigationService.closeCardDetail();
@@ -1118,6 +1468,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mainWindow.clearTimeout(this.backgroundRenderTimer);
 			this.backgroundRenderTimer = undefined;
 		}
+		if (this.videoModelConnectionResumeTimer !== undefined) {
+			mainWindow.clearTimeout(this.videoModelConnectionResumeTimer);
+			this.videoModelConnectionResumeTimer = undefined;
+		}
+		this.pendingVideoModelConnectionCompletion = undefined;
 		if (this.badgeInteractionReleaseTimer !== undefined) {
 			mainWindow.clearTimeout(this.badgeInteractionReleaseTimer);
 			this.badgeInteractionReleaseTimer = undefined;
@@ -1193,12 +1548,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const state = getBaseHalfNodeLocalExecutionState(execution);
 		const statusText = getBaseHalfNodeCardStatusText(state);
+		chrome.card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(state.status);
+		chrome.card.dataset.nodeLifecycle = 'attempt';
+		if (chrome.card.dataset.nodeKind === 'video') {
+			const progressLabel = execution.progress === undefined ? '' : ` ${Math.round(Math.max(0, Math.min(100, execution.progress)))} percent`;
+			chrome.card.setAttribute('aria-label', `${chrome.title}, Video, ${statusText}${progressLabel}`);
+		}
 		const status = chrome.status;
 		if (status) {
 			status.textContent = statusText;
 			status.title = state.message;
 			status.setAttribute('aria-label', `${state.status}: ${state.message}`);
 			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(state));
+			status.classList.add('executing');
 		}
 
 		const action = chrome.action;
@@ -1208,6 +1570,30 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			action.setAttribute('aria-disabled', String(execution.phase === 'cancelling'));
 			action.title = `${state.action.label}: ${state.message}`;
 			action.setAttribute('aria-label', action.title);
+		}
+
+		const progress = chrome.progress;
+		if (progress) {
+			const value = chrome.progressValue;
+			progress.hidden = false;
+			progress.classList.toggle('indeterminate', execution.progress === undefined);
+			progress.setAttribute('aria-label', `${state.status}: ${state.message}`);
+			if (execution.progress === undefined) {
+				progress.removeAttribute('aria-valuemin');
+				progress.removeAttribute('aria-valuemax');
+				progress.removeAttribute('aria-valuenow');
+				if (value) {
+					value.style.width = '36%';
+				}
+			} else {
+				const bounded = Math.max(0, Math.min(100, execution.progress));
+				progress.setAttribute('aria-valuemin', '0');
+				progress.setAttribute('aria-valuemax', '100');
+				progress.setAttribute('aria-valuenow', String(Math.round(bounded)));
+				if (value) {
+					value.style.width = `${bounded}%`;
+				}
+			}
 		}
 
 	}
@@ -1316,6 +1702,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
+			if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
+				return;
+			}
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
@@ -1356,8 +1745,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
+			if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
+				return;
+			}
 			this.cancelPendingCanvasNoteFormatCommands(pending => pending.sceneKey === this.sceneKey(folder));
-			if (!this.isRenderCurrent(seq)) {
+			if (!this.isRenderCurrent(seq)
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 				return;
 			}
 			if (this.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
@@ -1447,6 +1840,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 		}
+		const activeSurfaceBeforeModelUpdate = this.activeNodeLocalSurface;
+		const activeSurfaceItem = activeSurfaceBeforeModelUpdate
+			? items.find(item => item.path === activeSurfaceBeforeModelUpdate.path
+				&& this.uriIdentityService.extUri.isEqual(item.stat.resource, activeSurfaceBeforeModelUpdate.resource))
+			: undefined;
+		if (activeSurfaceBeforeModelUpdate
+			&& (activeSurfaceBeforeModelUpdate.sceneKey !== currentSceneKey
+				|| !activeSurfaceItem)) {
+			if (!await activeSurfaceBeforeModelUpdate.closeForSwitch()) {
+				return;
+			}
+			if (!this.isRenderCurrent(seq)
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
+		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
 		const retainedResultNodePaths: string[] = [];
 		for (const item of items) {
@@ -1465,6 +1874,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					? { kind: 'nodeLoading', text: 'Checking content…' }
 					: { kind: 'loading', text: 'Loading preview…' }
 			);
+		}
+		const activeSurfaceAfterPreview = this.activeNodeLocalSurface;
+		const retainedSurfacePreview = activeSurfaceAfterPreview ? previews.get(activeSurfaceAfterPreview.path) : undefined;
+		if (activeSurfaceAfterPreview && retainedSurfacePreview?.kind === 'node'
+			&& (retainedSurfacePreview.document.id !== activeSurfaceAfterPreview.nodeId
+				|| retainedSurfacePreview.document.kind !== activeSurfaceAfterPreview.nodeKind)) {
+			if (!await activeSurfaceAfterPreview.closeForSwitch()) {
+				return;
+			}
+			if (!this.isRenderCurrent(seq)
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
 		}
 		if (this.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
@@ -1538,6 +1960,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}
 		}
+		const activeSurfaceBeforeSelectionCommit = this.activeNodeLocalSurface;
+		if (pendingSelection && activeSurfaceBeforeSelectionCommit
+			&& !(pendingSelection.length === 1 && pendingSelection[0] === activeSurfaceBeforeSelectionCommit.path)) {
+			const closed = await activeSurfaceBeforeSelectionCommit.closeForSwitch();
+			if (!this.isRenderCurrent(seq)
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
+			if (!closed) {
+				this.pendingCanvasSelection = undefined;
+				pendingSelection = undefined;
+			}
+		}
 
 		clearNode(this.canvasOverlay);
 		clearNode(this.inlineEditLayer);
@@ -1578,6 +2013,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey)
 				? cached.element
 				: this.createCard(displayedItem, bounds, preview, structuralStamp, currentSceneKey);
+			const controls = this.sceneCardControls(displayedItem, preview);
 			const retainedActiveNote = this.activeCanvasNoteEditor;
 			if (retainedActiveNote?.path === item.path && retainedActiveNote.card === element) {
 				retainedActiveNote.chromeStale = baseHalfCanvasRetainedCardChromeIsStale(
@@ -1597,13 +2033,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return {
 				path: item.path,
 				kind: item.kind,
-				...(isBaseHalfMarkdownResource(item.stat.resource) ? {
-					controls: {
-						kind: 'note' as const,
-						formatState: this.canvasNoteFormatStates.get(this.uriIdentityService.extUri.getComparisonKey(item.stat.resource)) ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
-						background: this.renderedNoteBackgrounds.get(item.path) ?? 'default'
-					}
-				} : {}),
+				...(controls ? { controls } : {}),
 				...(item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) ? { renameChangesPathOnly: true as const } : {}),
 				...bounds,
 				element,
@@ -1642,6 +2072,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
+		const retainedSurface = this.activeNodeLocalSurface;
+		if (retainedSurface?.sceneKey === currentSceneKey
+			&& items.some(item => item.path === retainedSurface.path
+				&& this.uriIdentityService.extUri.isEqual(item.stat.resource, retainedSurface.resource))) {
+			retainedSurface.rebindScene(currentSceneKey, structuralStamp.structuralEpoch);
+		}
 		if (this.canvasNoteSurfacePath && !this.tryMountCanvasNoteEditor(this.canvasNoteSurfacePath)) {
 			// An editing intent is allowed to precede the first complete Markdown
 			// preview (notably for a freshly created empty Note). Queue that source
@@ -2020,6 +2456,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!target.node || !baseDocument?.recipe) {
 			return { kind: 'proceed' };
 		}
+		if (baseDocument.result || baseDocument.attempts.length > 0) {
+			throw new Error(`'${target.path}' already has an attempt or sealed Result. Copy its settings to a new Draft before changing recipe inputs.`);
+		}
 		const recipe = target.node.recipe;
 		if (!recipe) {
 			throw new Error(`Recipe '${baseDocument.recipe.recipeId}' for '${target.path}' is not installed. Choose an available recipe before connecting context.`);
@@ -2115,6 +2554,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
 		const nodeId = generateUuid();
 		const document = createBaseHalfCanvasConnectedNodeDocument(picked.choice.recipe, nodeId, drop.from, sourceKind, slot.id);
+		const targetSize = picked.choice.primaryOutput.kind === 'video'
+			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 		const contents = VSBuffer.fromString(serializeBaseHalfNodeDocument(document));
 		const edge: IBaseHalfCanvasEdge = {
 			from: drop.from,
@@ -2156,14 +2598,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const placement = this.avoidCanvasCreateOverlap({
 					canvasPosition: drop.position,
 					screenPosition: { x: 0, y: 0 }
-				}, 'resultNode', currentCanvas?.cards);
+				}, 'resultNode', currentCanvas?.cards, targetSize);
 				const card: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['next'] = {
 					path: targetPath,
 					kind: 'file',
 					x: roundCanvasPosition(placement.canvasPosition.x),
 					y: roundCanvasPosition(placement.canvasPosition.y),
-					width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
-					height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+					width: targetSize.width,
+					height: targetSize.height
 				};
 				canvasTransition = {
 					cards: [{ path: targetPath, expected: null, next: card }],
@@ -2429,7 +2871,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const content = await this.fileService.readFile(resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
 		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		if (document.runs.some(run => run.status === 'running')) {
+		if (document.attempts.some(attempt => attempt.status === 'running')) {
 			throw new Error(`Finish '${path}' active run before ${action} context.`);
 		}
 		const recipe = document.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
@@ -2714,6 +3156,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			const previousDocument = editableDocument(previousTarget);
 			if (previousDocument?.document.recipe) {
+				if (previousDocument.document.result || previousDocument.document.attempts.length > 0) {
+					throw new Error(`'${previousTarget.path}' already has an attempt or sealed Result. Its recipe inputs cannot be reconnected.`);
+				}
 				previousDocument.document = {
 					...previousDocument.document,
 					recipe: {
@@ -2918,17 +3363,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (edge.to.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			const resource = joinPath(queuedFolder.workspaceFolder, ...edge.to.split('/'));
 			if (this.workingCopyService.isDirty(resource) || this.nodeExecutionService.getActiveRun(resource)) {
-				this.queueCanvasWarning(`Save '${edge.to}' and finish its active run before removing this connection.`);
+					this.queueCanvasWarning(`Save '${edge.to}' and finish its active attempt before removing this connection.`);
 				this.requestRender();
 				return;
 			}
 			try {
 				const content = await this.fileService.readFile(resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
 				const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-				if (document.runs.some(run => run.status === 'running')) {
-					throw new Error(`Finish '${edge.to}' active run before removing this connection.`);
-				}
-				if (document.recipe?.inputBindings.some(binding => binding.sourcePath === edge.from)) {
+				if (document.attempts.some(attempt => attempt.status === 'running')) {
+						throw new Error(`Finish '${edge.to}' active attempt before removing this connection.`);
+					}
+					if (document.recipe?.inputBindings.some(binding => binding.sourcePath === edge.from)) {
+						if (document.result || document.attempts.length > 0) {
+							throw new Error(`'${edge.to}' already has an attempt or sealed Result. Its recipe inputs cannot be disconnected.`);
+						}
 					const inputBindings = normalizeNodeInputBindings(document.recipe.inputBindings.filter(binding => binding.sourcePath !== edge.from));
 					nodeUpdate = {
 						resource,
@@ -2939,9 +3387,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						}))
 					};
 				}
-			} catch (error) {
-				this.logService.warn(error);
-				this.queueCanvasWarning(`Open '${edge.to}' and repair it before removing this connection.`);
+				} catch (error) {
+					this.logService.warn(error);
+					this.queueCanvasWarning(error instanceof Error ? error.message : `Open '${edge.to}' and repair it before removing this connection.`);
 				this.requestRender();
 				return;
 			}
@@ -3051,9 +3499,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return false;
 		}
+		if (this.activeNodeLocalSurface && !(paths.length === 1 && paths[0] === this.activeNodeLocalSurface.path)) {
+			if (!await this.activeNodeLocalSurface.closeForSwitch()) {
+				return false;
+			}
+		}
+		if (!(paths.length === 1 && paths[0] === this.activeNodeLocalSurface?.path)) {
+			// Cancel an asynchronous file/model/input read that has not mounted its
+			// surface yet. A late open must never follow a selection that moved on.
+			this.nodeLocalSurfaceIntent++;
+		}
 		const notePath = this.canvasNoteSurfacePath ?? this.activeCanvasNoteEditor?.path;
 		const changesNote = notePath !== undefined && !(paths.length === 1 && paths[0] === notePath);
 		if (!changesNote) {
+			this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
 			return true;
 		}
 		const activeBeforeWait = this.activeCanvasNoteEditor;
@@ -3078,14 +3537,67 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (paths.length === 1 && paths[0] === active.path) {
 				return true;
 			}
-			return this.closeActiveCanvasNoteEditorAfterFormats();
+			const closed = await this.closeActiveCanvasNoteEditorAfterFormats();
+			if (closed) {
+				this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
+			}
+			return closed;
 		}
 		if (this.canvasNoteSurfacePath === notePath) {
 			this.clearPendingCanvasNoteFocus(notePath);
 			this.canvasNoteSurfacePath = undefined;
 			this.requestRender();
 		}
+		this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
 		return true;
+	}
+
+	private scheduleVideoComposerForSelection(sceneKey: string, structuralEpoch: number, paths: readonly string[]): void {
+		// Selection is accepted before React commits it. Remember that intent only
+		// while a Video preview is still hydrating; the scene-owned Composer portal
+		// itself is projected from the committed selection and needs no DOM polling.
+		const preparedSelection = {
+			sceneKey,
+			structuralEpoch,
+			paths: Object.freeze([...paths])
+		};
+		this.preparedSceneSelection = preparedSelection;
+		if (paths.length !== 1) {
+			return;
+		}
+		const path = paths[0];
+		const openWhenInteractionSettles = (): void => {
+			if (this.disposed || this.canvasNavigationService.state.cardDetail || this.preparedSceneSelection !== preparedSelection) {
+				return;
+			}
+			// A direct drag of an unselected Video accepts selection before the
+			// pointer is released. Keep the new Composer dormant until the gesture
+			// ends so adjacent chrome never appears underneath the pointer.
+			if (this.canvasScene.isInteracting()) {
+				mainWindow.requestAnimationFrame(openWhenInteractionSettles);
+				return;
+			}
+			const folder = this.getCurrentFolder();
+			const item = this.renderedItemsByPath.get(path);
+			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+			const card = this.renderedCardElementsByPath.get(path);
+			if (!folder || this.sceneKey(folder) !== sceneKey
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+				return;
+			}
+			if (!item || preview?.kind !== 'node' || preview.document.kind !== 'video' || !card) {
+				return;
+			}
+			void this.showNodeLocalSurface(item, card);
+		};
+		mainWindow.requestAnimationFrame(openWhenInteractionSettles);
+	}
+
+	private consumePreparedVideoComposer(path: string): void {
+		const preparedSelection = this.preparedSceneSelection;
+		if (preparedSelection?.paths.length === 1 && preparedSelection.paths[0] === path) {
+			this.preparedSceneSelection = undefined;
+		}
 	}
 
 	private async beginSceneNoteEdit(
@@ -4202,29 +4714,118 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const document = this.nodeExecutionService.getActiveRun(item.stat.resource)
 				? parseBaseHalfNodeDocumentBytesForActiveHost(content.value.buffer)
 				: parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(document);
-			if (document.current.source === 'empty' || !primary) {
+			const artifact = getBaseHalfNodeResultArtifact(document);
+			if (!artifact) {
 				await this.showNodeLocalSurface(item, anchor);
 				return;
 			}
-			const integrity = await Promise.all(getBaseHalfNodeCurrentArtifacts(document).map(artifact =>
-				this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact, { fresh: true })
-			));
-			const currentIntegrity = integrity.includes('missing') ? 'missing' : integrity.includes('changed') ? 'changed' : 'available';
-			if (currentIntegrity !== 'available') {
-				this.queueCanvasWarning(currentIntegrity === 'missing'
-					? `Current output '${primary.path}' is missing. Choose another version or add content.`
-					: `Current output '${primary.path}' changed outside BaseHalf. Choose another version or add content.`);
+			const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact, { fresh: true });
+			if (integrity !== 'available') {
+				this.queueCanvasWarning(getBaseHalfNodeResultArtifactOpenProblem(artifact.path, integrity) ?? 'The sealed Result cannot be opened.');
 				this.requestRender();
 				await this.showNodeLocalSurface(item, anchor);
 				return;
 			}
-			await this.openNodeArtifactPath(folder, primary.path);
+			await this.openNodeArtifactPath(folder, artifact.path);
 		} catch (error) {
 			this.logService.warn(error);
 			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 			this.requestRender();
 			await this.showNodeLocalSurface(item, anchor);
+		}
+	}
+
+	private async invokeSceneVideoAction(
+		sceneKey: string,
+		structuralEpoch: number,
+		path: string,
+		action: BaseHalfCanvasSceneVideoAction,
+		anchor: HTMLElement
+	): Promise<void> {
+		const frozenMoreAnchor = action === 'more'
+			? (() => {
+				const rect = anchor.getBoundingClientRect();
+				return { x: rect.left + rect.width / 2, y: rect.bottom };
+			})()
+			: undefined;
+		if (action === 'more') {
+			if (this.activeNodeLocalSurface?.path === path) {
+				this.activeNodeLocalSurface.closeTransientOverlay();
+			}
+			const folder = this.getCurrentFolder();
+			const item = this.renderedItemsByPath.get(path);
+			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+			const controls = item ? this.sceneCardControls(item, preview) : undefined;
+			if (!folder || this.sceneKey(folder) !== sceneKey
+				|| !item
+				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))
+				|| controls?.kind !== 'video'
+				|| !controls.actions.includes('more')) {
+				throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
+			}
+			this.markCanvasUserInteraction();
+			const request: BaseHalfCanvasSceneContextMenuRequest = {
+				kind: 'card',
+				path,
+				anchor: frozenMoreAnchor ?? { x: 0, y: 0 }
+			};
+			const context = await this.canvasActionContextService.capture(item.stat.resource, folder.workspaceFolder, item.path);
+			const latestFolder = this.getCurrentFolder();
+			const latestItem = this.renderedItemsByPath.get(path);
+			if (!latestFolder || this.sceneKey(latestFolder) !== sceneKey
+				|| !latestItem
+				|| !this.workspaceMutationCoordinator.isStampCurrent(latestFolder.workspaceFolder, this.sceneMutationStamp(latestFolder, structuralEpoch))
+				|| !this.uriIdentityService.extUri.isEqual(latestItem.stat.resource, item.stat.resource)) {
+				throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
+			}
+			this.lastCanvasContextMenu = { context, request };
+			mainWindow.setTimeout(() => {
+				const currentFolder = this.getCurrentFolder();
+				if (this.disposed || !currentFolder || this.sceneKey(currentFolder) !== sceneKey
+					|| !this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch))) {
+					return;
+				}
+				this.contextMenuService.showContextMenu({
+					menuId: BASEHALF_CANVAS_CARD_CONTEXT_MENU,
+					menuActionOptions: { arg: context },
+					getAnchor: () => request.anchor,
+					onHide: wasCancelled => {
+						if (wasCancelled) {
+							this.cards.focus({ preventScroll: true });
+						}
+					}
+				});
+			}, 0);
+			return;
+		}
+		const { folder, items } = await this.resolveSceneSelection(sceneKey, structuralEpoch, [path]);
+		const item = items[0];
+		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+		const controls = this.sceneCardControls(item, preview);
+		if (controls?.kind !== 'video' || !controls.actions.includes(action)) {
+			throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
+		}
+		this.markCanvasUserInteraction();
+		switch (action) {
+			case 'importResult':
+				if (this.activeNodeLocalSurface?.path === path
+					&& !await this.activeNodeLocalSurface.prepareForImport()) {
+					return;
+				}
+				await this.importCanvasNodeResult(item);
+				return;
+			case 'openFullPreview':
+				await this.openResultNodeContent(folder, item, anchor);
+				return;
+			case 'copySettings':
+				await this.copyCanvasNodeSettings(item);
+				return;
+			case 'showDetails':
+				await this.showNodeLocalSurface(item, anchor);
+				if (this.activeNodeLocalSurface?.path === path) {
+					await this.activeNodeLocalSurface.showVideoDetails();
+				}
+				return;
 		}
 	}
 
@@ -4440,6 +5041,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.markCanvasUserInteraction();
+		this.activeNodeLocalSurface?.closeTransientOverlay();
 		if (request.kind === 'edge') {
 			mainWindow.setTimeout(() => {
 				const current = this.getCurrentFolder();
@@ -4954,26 +5556,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const directSourceProblems = folder && verifyNodeState
 					? await this.readNodeDirectSourceProblems(folder, inbound.sources)
 					: new Map<string, string>();
-				const currentPreview = folder ? await this.readNodeCurrentPreview(folder, document, verifyNodeState) : {};
-				const stale = folder ? await this.readNodeStaleState(folder, document, verifyNodeState) : {};
+				const resultPreview = folder ? await this.readNodeResultPreview(folder, document, verifyNodeState) : {};
 				const recipe = document.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
 				const matchingRecipeCount = this.canvasRecipeRegistryService.getRecipes()
 					.filter(candidate => baseHalfCanvasRecipeMatchesNodeKind(candidate, document.kind)).length;
+				const videoConfigurationProblem = baseHalfVideoDocumentConfigurationProblem(
+					document,
+					recipe,
+					modelServices,
+					baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, recipe),
+					inputKinds
+				);
 				return {
 					kind: 'node',
 					document,
 					...(execution === undefined ? {} : { execution }),
 					...(recipe === undefined ? {} : { recipe }),
+					...(document.kind === 'video' && recipe?.modelCapability === 'video'
+						? { videoConfiguration: videoConfigurationProblem
+							? { valid: false as const, problem: videoConfigurationProblem }
+							: { valid: true as const } }
+						: {}),
 					matchingRecipeCount,
 					modelServices,
 					inputKinds,
 					directSourcePaths: Object.freeze(inbound.sources.map(source => source.path)),
 					directSourceProblems,
 					...(verifyNodeState ? {} : { verificationPending: true }),
-					...(inbound.problem ?? stale.problem ? { graphProblem: inbound.problem ?? stale.problem } : {}),
-					...(stale.reason === undefined ? {} : { staleReason: stale.reason }),
+					...(inbound.problem ? { graphProblem: inbound.problem } : {}),
 					dirty: this.workingCopyService.isDirty(item.stat.resource),
-					...currentPreview
+					...resultPreview
 				};
 			} catch (error) {
 				const reason = error instanceof BaseHalfNodeDocumentError
@@ -5186,6 +5798,55 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 	}
 
+	private sceneCardControls(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): BaseHalfCanvasSceneCardControls | undefined {
+		if (isBaseHalfMarkdownResource(item.stat.resource)) {
+			return {
+				kind: 'note',
+				formatState: this.canvasNoteFormatStates.get(this.uriIdentityService.extUri.getComparisonKey(item.stat.resource)) ?? BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
+				background: this.renderedNoteBackgrounds.get(item.path) ?? 'default'
+			};
+		}
+		if (preview?.kind === 'nodeLoading') {
+			return { kind: 'pending' };
+		}
+		if (preview?.kind !== 'node' || preview.document.kind !== 'video') {
+			return undefined;
+		}
+		if (!preview.document.result) {
+			const importAvailable = !this.nodeExecutionService.getActiveRun(item.stat.resource)
+				&& !preview.dirty
+				&& getBaseHalfNodeImportProblem(preview.document) === undefined;
+			return {
+				kind: 'video',
+				actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>(importAvailable ? ['importResult'] : [])
+			};
+		}
+		if (preview.verificationPending
+			|| preview.resultIntegrity
+			|| preview.resultMedia?.mediaKind !== 'video') {
+			return { kind: 'video', actions: Object.freeze([]) };
+		}
+		return {
+			kind: 'video',
+			actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>([
+				'copySettings',
+				'showDetails',
+				'more',
+				'openFullPreview'
+			])
+		};
+	}
+
+	private resolveLiveCanvasCard(path: string): HTMLElement | undefined {
+		const candidates = Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]'))
+			.filter(candidate => candidate.dataset.basehalfCardPath === path
+				&& candidate.isConnected
+				&& candidate.getClientRects().length > 0
+				&& candidate.closest('.react-flow__node') !== null);
+		return candidates.find(candidate => candidate.closest('.react-flow__node.selected') !== null)
+			?? candidates[candidates.length - 1];
+	}
+
 	private async hydrateCardPreviewItems(
 		folder: IBaseHalfCanvasFolderState,
 		items: readonly IBaseHalfCanvasItem[],
@@ -5281,8 +5942,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					sceneKey: hydrationBatch.sceneKey,
 					element
 				});
+				const controls = this.sceneCardControls(displayedItem, preview);
 				replacements.set(currentItem.path, {
 					...currentCard,
+					controls,
 					element,
 					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
 					...(this.openBadgeFaces.has(currentItem.path) || this.canvasNoteSurfacePath === currentItem.path ? { forceInteractive: true as const } : {}),
@@ -5292,68 +5955,67 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (replacements.size === 0) {
 				continue;
 			}
-			this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => replacements.get(card.path) ?? card));
-			this.canvasScene.update({
+				this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => replacements.get(card.path) ?? card));
+				this.canvasScene.update({
 				key: hydrationBatch.sceneKey,
 				structuralEpoch: structuralStamp.structuralEpoch,
 				revision: seq,
 				cards: this.renderedSceneCards,
-				edges: this.renderedSceneEdges
-			});
+					edges: this.renderedSceneEdges
+				});
+				const preparedSelection = this.preparedSceneSelection;
+				if (preparedSelection?.sceneKey === hydrationBatch.sceneKey
+					&& preparedSelection.structuralEpoch === structuralStamp.structuralEpoch
+					&& preparedSelection.paths.length === 1
+					&& replacements.has(preparedSelection.paths[0])) {
+					// React applies `.selected` to a replacement card in its layout
+					// effect. Re-arm the bounded retry from the accepted selection,
+					// instead of synchronously reading the not-yet-committed DOM.
+					this.scheduleVideoComposerForSelection(
+						hydrationBatch.sceneKey,
+						structuralStamp.structuralEpoch,
+						preparedSelection.paths
+					);
+				}
 		}
 		return true;
 	}
 
-	private async readNodeCurrentPreview(folder: IBaseHalfCanvasFolderState, document: IBaseHalfNodeDocument, verifyIntegrity: boolean): Promise<{
-		readonly currentMedia?: IBaseHalfCanvasMediaPreview;
-		readonly currentOutputText?: string;
-		readonly currentOutputIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
+	private async readNodeResultPreview(folder: IBaseHalfCanvasFolderState, document: IBaseHalfNodeDocument, verifyIntegrity: boolean): Promise<{
+		readonly resultMedia?: IBaseHalfCanvasMediaPreview;
+		readonly resultOutputText?: string;
+		readonly resultIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
 	}> {
-		const primaryArtifact = getBaseHalfNodeCurrentPrimaryArtifact(document);
-		const outputPath = primaryArtifact?.path ?? document.current.outputPaths[0];
-		if (!outputPath) {
+		const artifact = getBaseHalfNodeResultArtifact(document);
+		if (!artifact) {
 			return {};
 		}
 		if (!verifyIntegrity) {
 			return {};
 		}
+		const outputPath = artifact.path;
 		const resource = joinPath(folder.workspaceFolder, ...outputPath.split('/'));
-		const currentArtifacts = getBaseHalfNodeCurrentArtifacts(document);
-		if (currentArtifacts.length > 0) {
-			const integrity = await Promise.all(currentArtifacts.map(artifact =>
-				this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact)
-			));
-			if (integrity.includes('missing')) {
-				return { currentOutputIntegrity: 'missing' };
-			}
-			if (integrity.includes('changed')) {
-				return { currentOutputIntegrity: 'changed' };
-			}
+		const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact);
+		if (integrity !== 'available') {
+			return { resultIntegrity: integrity };
 		}
-		const media = primaryArtifact
-			? mediaPreviewFromArtifact(primaryArtifact.kind, primaryArtifact.label ?? baseHalfReferenceLabel(primaryArtifact.path))
-			: mediaPreview(outputPath);
+		const media = mediaPreviewFromArtifact(artifact.kind, artifact.label ?? baseHalfReferenceLabel(artifact.path));
 		if (media) {
 			let resolvedResource = resource;
 			try {
 				const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
-				if (primaryArtifact && stat.size !== primaryArtifact.size) {
-					return { currentOutputIntegrity: 'changed' };
+				if (stat.size !== artifact.size) {
+					return { resultIntegrity: 'changed' };
 				}
 				if (media.kind !== 'pdf') {
 					resolvedResource = resource.with({ query: `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}` });
 				}
 			} catch {
-				return {
-					currentOutputIntegrity: 'missing'
-				};
+				return { resultIntegrity: 'missing' };
 			}
-			return { currentMedia: { text: media.label, mediaKind: media.kind, resource: resolvedResource } };
+			return { resultMedia: { text: media.label, mediaKind: media.kind, resource: resolvedResource } };
 		}
-		const canPreviewArtifactText = primaryArtifact
-			? baseHalfNodeArtifactUsesTextPreview(primaryArtifact.kind, outputPath)
-			: false;
-		if (primaryArtifact && !canPreviewArtifactText) {
+		if (!baseHalfNodeArtifactUsesTextPreview(artifact.kind, outputPath)) {
 			return {};
 		}
 		try {
@@ -5365,37 +6027,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return {};
 			}
 			const text = markdownPreviewKind(outputPath) === 'markdown' ? raw : cleanCardPreviewText(outputPath, raw);
-			return text ? { currentOutputText: text } : {};
+			return text ? { resultOutputText: text } : {};
 		} catch {
-			return primaryArtifact ? {} : { currentOutputIntegrity: 'missing' };
-		}
-	}
-
-	private async readNodeStaleState(
-		folder: IBaseHalfCanvasFolderState,
-		document: IBaseHalfNodeDocument,
-		verifyInputs: boolean
-	): Promise<{ readonly reason?: 'recipe' | 'inputs'; readonly problem?: string }> {
-		if (document.current.source !== 'run' || !document.current.runId || !document.recipe) {
-			return {};
-		}
-		if (isBaseHalfNodeDocumentStale(document)) {
-			return { reason: 'recipe' };
-		}
-		if (!verifyInputs) {
-			return {};
-		}
-		try {
-			const inputs: IBaseHalfNodeRunInput[] = [];
-			for (const binding of document.recipe.inputBindings) {
-				inputs.push({
-					...binding,
-					revision: await this.nodeExecutionService.getInputRevision(folder.workspaceFolder, binding.sourcePath)
-				});
-			}
-			return isBaseHalfNodeDocumentStale(document, inputs) ? { reason: 'inputs' } : {};
-		} catch (error) {
-			return { problem: error instanceof Error ? error.message : String(error) };
+			return { resultIntegrity: 'missing' };
 		}
 	}
 
@@ -5508,8 +6142,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const initialPlacement = this.canvasCreatePlacement(placementContext ?? context);
+		const createSize = request.kind === 'create' && request.createKind === 'resultNode' && request.resultKind === 'video'
+			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
+			: undefined;
 		const placement = request.kind === 'create'
-			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind)
+			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind, [], createSize)
 			: initialPlacement;
 		if (request.kind === 'paste') {
 			const resources = await this.clipboardService.readResources();
@@ -5612,18 +6249,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private avoidCanvasCreateOverlap(
 		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind,
-		extraOccupied: readonly IBaseHalfCanvasBounds[] = []
+		extraOccupied: readonly IBaseHalfCanvasBounds[] = [],
+		sizeOverride?: { readonly width: number; readonly height: number }
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
 		const items = [...this.renderedItemsByPath.values()];
 		const occupied = [
 			...items.map((item, index) => baseHalfCanvasItemBounds(item, index, items.length)),
 			...extraOccupied
 		];
-		const size = kind === 'folder'
+		const size = sizeOverride ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
-			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
 		const surface = this.surface.getBoundingClientRect();
-		const viewportStart = this.canvasScene.screenToCanvasPosition(surface.left + 24, surface.top + 24);
+		const captionScreenFootprint = (BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * this.canvasZoom;
+		const viewportStart = this.canvasScene.screenToCanvasPosition(surface.left + 24, surface.top + 24 + captionScreenFootprint);
 		const viewportEnd = this.canvasScene.screenToCanvasPosition(surface.right - 24, surface.bottom - 24);
 		const viewport = {
 			x: viewportStart.x,
@@ -5746,7 +6385,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			contents: VSBuffer.fromString(serializeBaseHalfNodeDocument(document)),
-			postCreateOwner
+			postCreateOwner,
+			size: kind === 'video'
+				? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
+				: undefined
 		});
 	}
 
@@ -5930,8 +6572,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.uriIdentityService.extUri.isEqual(edit.resource, item.stat.resource)) {
 			return;
 		}
+		const identity = card.querySelector<HTMLElement>('.basehalf-canvas-card-caption-identity');
+		if (!identity) {
+			return;
+		}
 		card.classList.add('inline-editing');
-		const host = append(card, $('.basehalf-canvas-inline-name-editor'));
+		const host = append(identity, $('.basehalf-canvas-inline-name-editor'));
 		this.renderInlineNameInput(host, edit, item.kind === 'folder');
 	}
 
@@ -6159,6 +6805,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			readonly contents?: VSBuffer;
 			readonly select?: boolean;
 			readonly postCreateOwner?: IBaseHalfCanvasPostCreateOwner;
+			readonly size?: { readonly width: number; readonly height: number };
 		} = {}
 	): Promise<URI> {
 		const postCreateOwner = options.postCreateOwner ?? this.captureCanvasPostCreateOwner();
@@ -6178,14 +6825,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 
 		const path = canvasChildPath(folder.relativePath, name);
+		const size = options.size ?? (kind === 'folder'
+			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
 		try {
 			await this.canvasMirrorService.updateCardGeometry(folder, {
 				path,
 				kind,
 				x: canvasPosition.x,
 				y: canvasPosition.y,
-				width: kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH : BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
-				height: kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT : BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+				width: size.width,
+				height: size.height
 			});
 		} catch (error) {
 			this.logService.warn(error);
@@ -6348,7 +6998,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.classList.toggle('badge-open', badgeOpen);
 		card.setAttribute('aria-label', `${displayName} card`);
 		card.title = resultNode
-			? `${item.path} - click to select; double-click to open Current content`
+			? `${item.path} - click to select; double-click to open the sealed Result`
 			: item.kind === 'folder'
 			? `${item.path} - click to select; double-click to enter this folder`
 			: markdownNote
@@ -6356,15 +7006,31 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				: `${item.path} - click to select; double-click to open the editor`;
 
 		const type = preview?.kind === 'node' ? preview.document.kind : preview?.kind === 'nodeLoading' ? 'generic' : badgeType(item.name, item.kind === 'folder');
+		if (preview?.kind === 'node') {
+			card.dataset.nodeKind = preview.document.kind;
+			card.classList.add(`node-kind-${preview.document.kind}`);
+		}
 		const orphan = item.badge?.orphan === true;
 		const badgeRelationships = baseHalfCanvasBadgeRelationships(item.path, item.badge, this.renderedBadges, this.renderedBadgeProblems);
 		const badgeIssueCount = badgeRelationships.issues.length + (this.renderedBadgeProblems.has(item.path) ? 1 : 0);
 		card.classList.toggle('has-reference-issues', badgeIssueCount > 0);
 		card.dataset.referenceIssueCount = String(badgeIssueCount);
-		card.setAttribute('aria-label', `${displayName} card${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
-		const dirname = item.path.includes('/') ? item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1)) : '';
-		const content = append(card, $('.basehalf-canvas-card-content'));
+		card.setAttribute('aria-label', `${displayName} card${orphan ? ', missing' : ''}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
+		const caption = append(card, $('.basehalf-canvas-card-caption'));
+		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
+		const icon = append(captionIdentity, $('.basehalf-canvas-card-caption-icon'));
+		icon.setAttribute('aria-hidden', 'true');
+		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
+		const label = append(captionIdentity, $('.basehalf-canvas-card-label'));
+		label.textContent = displayName;
+		label.title = displayName;
+		label.classList.toggle('danger', orphan);
+		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
+		if (canShowBadgeFace) {
+			this.renderCardBadgeToggle(captionActions, item, badgeRelationships, badgeIssueCount, listeners);
+		}
+		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.renderInlineRenameEditor(card, item);
 		this.renderedCardElementsByPath.set(item.path, card);
 
@@ -6380,8 +7046,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (renderedHeight !== presentation.height) {
 				renderedHeight = presentation.height;
 				card.dataset.cardHeight = String(presentation.height);
-				const overviewLabelCapPx = Math.round(Math.max(OVERVIEW_LABEL_MIN_FLOW_PX, presentation.height * OVERVIEW_LABEL_CARD_HEIGHT_FRACTION));
-				card.style.setProperty('--bh-overview-label-cap', `${overviewLabelCapPx}px`);
 			}
 			if (renderedPresentation === presentationLevel) {
 				card.dataset.previewLevel = presentationLevel;
@@ -6397,42 +7061,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			clearNode(content);
 			this.renderedNodeChromeByPath.delete(item.path);
 			if (presentationLevel === 'shell') {
-				const shell = append(content, $('.basehalf-canvas-card-overview'));
-				this.renderCardOverview(shell, type, displayName, orphan, badgeIssueCount);
 				return;
 			}
 
 			const active = append(content, $('.basehalf-canvas-card-active'));
-			const header = append(active, $('.basehalf-canvas-card-header'));
-			const icon = append(header, $('.basehalf-canvas-card-icon'));
-			this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
-			const title = append(header, $('.basehalf-canvas-card-title'));
-			const titleRow = append(title, $('.basehalf-canvas-card-title-row'));
-			const label = append(titleRow, $('.basehalf-canvas-card-label'));
-			label.textContent = displayName;
-			if (preview?.kind === 'folder') {
-				const count = append(titleRow, $('.basehalf-canvas-card-kind-chip.folder'));
-				count.textContent = folderCountLabel(preview.total);
-			}
-			if (preview?.kind === 'node') {
-				const kind = append(titleRow, $('.basehalf-canvas-card-kind-chip'));
-				kind.textContent = nodeKindLabel(preview.document.kind);
-			}
-			if (canShowBadgeFace) {
-				this.renderCardBadgeToggle(titleRow, item, badgeRelationships, badgeIssueCount, nextListeners);
-			}
-			if (orphan) {
-				const missing = append(titleRow, $('.basehalf-canvas-card-kind-chip.danger'));
-				missing.textContent = 'Missing';
-			}
-			if (preview?.kind === 'node') {
-				const role = append(title, $('.basehalf-canvas-card-path'));
-				role.textContent = preview.document.role;
-			} else if (dirname) {
-				const path = append(title, $('.basehalf-canvas-card-path'));
-				path.textContent = `${dirname}/`;
-			}
-
 			const body = append(active, $('.basehalf-canvas-card-body'));
 			if (badgeOpen && canShowBadgeFace) {
 				this.renderCardBadgeFace(body, item, nextListeners);
@@ -6460,7 +7092,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				event.preventDefault();
 				if ((event.metaKey || event.ctrlKey) && resultNode && preview?.kind === 'node') {
 					const state = nodeLocalStateForCardPreview(preview);
-					if (state.ready && (state.action.kind === 'run' || state.action.kind === 'runAgain' || state.action.kind === 'retry')) {
+					if (state.ready && (state.action.kind === 'run' || state.action.kind === 'retry')) {
 						void this.runCanvasNode(item);
 					} else {
 						this.queueCanvasWarning(state.message);
@@ -6524,9 +7156,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						: undefined;
 					break;
 				case 'toggle':
-					target = card.dataset.previewLevel !== 'shell'
-						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-active .basehalf-canvas-card-badge-toggle')
-						: undefined;
+					target = card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-caption .basehalf-canvas-card-badge-toggle');
 					break;
 			}
 			if (!target) {
@@ -6549,24 +7179,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		item: IBaseHalfCanvasItem,
 		index: number,
 		total: number,
-		_preview: BaseHalfCanvasCardPreview | undefined
+		preview: BaseHalfCanvasCardPreview | undefined
 	): IBaseHalfCanvasBounds {
-		return baseHalfCanvasItemBounds(item, index, total);
-	}
-
-	private renderCardOverview(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, badgeIssueCount: number): void {
-		const flow = append(container, $('.basehalf-canvas-card-overview-flow'));
-		const icon = append(flow, $('.basehalf-canvas-card-overview-icon'));
-		this.renderGlyph(icon, type, glyphTone(type, orphan), '1.15em');
-		const label = append(flow, $('.basehalf-canvas-card-overview-label'));
-		label.textContent = name;
-		label.classList.toggle('danger', orphan);
-		if (badgeIssueCount > 0) {
-			const marker = append(label, $('span.basehalf-reference-issue-marker.overview'));
-			marker.setAttribute('data-testid', 'card-reference-issue-marker');
-			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
-			marker.setAttribute('aria-hidden', 'true');
+		const bounds = baseHalfCanvasItemBounds(item, index, total);
+		if (!item.card && preview?.kind === 'node' && preview.document.kind === 'video') {
+			return {
+				...bounds,
+				width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH,
+				height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT
+			};
 		}
+		return bounds;
 	}
 
 	private renderCardBadgeToggle(
@@ -6675,7 +7298,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		if (preview.kind === 'node') {
-			this.renderNodePreview(previewNode, item, preview, interactive, listeners);
+			this.renderNodePreview(previewNode, item, preview, interactive, listeners, card);
 			return;
 		}
 		if (preview.kind === 'invalidNode') {
@@ -6716,25 +7339,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		item: IBaseHalfCanvasItem,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
 		interactive: boolean,
-		listeners: DisposableStore
+		listeners: DisposableStore,
+		card: HTMLElement
 	): void {
-		const current = append(container, $('.basehalf-canvas-node-current'));
-		const currentLabel = append(current, $('.basehalf-canvas-node-current-label'));
-		const currentArtifacts = getBaseHalfNodeCurrentArtifacts(preview.document);
-		const currentOutputCount = currentArtifacts.length || preview.document.current.outputPaths.length;
-		const remainingOutputs = currentOutputCount - 1;
-		currentLabel.textContent = remainingOutputs > 0 ? `Current (+${remainingOutputs})` : 'Current';
-		if (preview.currentMedia) {
-			const media = append(current, $('.basehalf-canvas-node-current-media'));
-			this.renderMediaPreview(media, { kind: 'media', ...preview.currentMedia }, interactive, listeners);
+		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.attempts.length > 0 ? 'attempt' : 'draft';
+		if (preview.document.kind === 'video') {
+			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card);
+			return;
+		}
+		const result = append(container, $('.basehalf-canvas-node-result'));
+		const resultLabel = append(result, $('.basehalf-canvas-node-result-label'));
+		resultLabel.textContent = 'Result';
+		if (preview.resultMedia) {
+			const media = append(result, $('.basehalf-canvas-node-result-media'));
+			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
 		} else {
-			const currentValue = append(current, $('.basehalf-canvas-node-current-value'));
-			currentValue.textContent = nodePreviewCurrentLabel(preview);
-			currentValue.title = nodeCurrentTitle(preview.document, preview.currentOutputText);
+			const resultValue = append(result, $('.basehalf-canvas-node-result-value'));
+			resultValue.textContent = nodePreviewResultLabel(preview);
+			resultValue.title = nodeResultTitle(preview.document, preview.resultOutputText);
 		}
 
 		const activeExecution = this.nodeExecutionService.getActiveRun(item.stat.resource);
 		const localState = nodeLocalStateForCardPreview(activeExecution ? { ...preview, execution: activeExecution } : preview);
+		card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(localState.status);
 		let status: HTMLElement | undefined;
 		if (localState.message) {
 			status = append(container, $('.basehalf-canvas-node-status'));
@@ -6742,16 +7369,115 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			status.title = localState.message;
 			status.setAttribute('aria-label', `${localState.status}: ${localState.message}`);
 			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
+			status.classList.toggle('executing', !!activeExecution);
 			status.setAttribute('aria-live', 'polite');
 		}
+		const progress = append(container, $('.basehalf-canvas-node-progress'));
+		const progressValue = append(progress, $('.basehalf-canvas-node-progress-value'));
+		const executionProgress = activeExecution?.progress;
+		progress.hidden = !activeExecution;
+		progress.classList.toggle('indeterminate', activeExecution !== undefined && executionProgress === undefined);
+		progressValue.style.width = executionProgress === undefined ? '36%' : `${Math.max(0, Math.min(100, executionProgress))}%`;
+		progress.setAttribute('role', 'progressbar');
+		progress.setAttribute('aria-label', activeExecution ? `${localState.status}: ${localState.message}` : 'No active generation');
+		if (executionProgress !== undefined) {
+			progress.setAttribute('aria-valuemin', '0');
+			progress.setAttribute('aria-valuemax', '100');
+			progress.setAttribute('aria-valuenow', String(Math.round(Math.max(0, Math.min(100, executionProgress)))));
+		}
+		this.renderNodeActions(container, item, preview, localState, activeExecution, listeners, card, { status, progress, progressValue });
+	}
 
+	private renderVideoNodePreview(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
+		interactive: boolean,
+		listeners: DisposableStore,
+		card: HTMLElement
+	): void {
+		const activeExecution = this.nodeExecutionService.getActiveRun(item.stat.resource);
+		const localState = nodeLocalStateForCardPreview(activeExecution ? { ...preview, execution: activeExecution } : preview);
+		const emptyDraft = !preview.document.result && preview.document.attempts.length === 0 && !activeExecution;
+		card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(localState.status);
+		card.classList.toggle('empty-video-draft', emptyDraft);
+		card.setAttribute('aria-label', `${preview.document.title}, Video, ${getBaseHalfNodeCardStatusText(localState)}${activeExecution?.progress === undefined ? '' : ` ${Math.round(Math.max(0, Math.min(100, activeExecution.progress)))} percent`}`);
+
+		const stage = append(container, $('.basehalf-video-stage'));
+		stage.title = localState.message;
+		if (preview.resultMedia?.mediaKind === 'video' && !preview.resultIntegrity) {
+			const media = append(stage, $('.basehalf-video-stage-media'));
+			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
+		} else {
+			const empty = append(stage, $('.basehalf-video-stage-empty'));
+			empty.classList.toggle('simple', emptyDraft);
+			empty.setAttribute('aria-hidden', 'true');
+			const glyph = append(empty, $('.basehalf-video-stage-glyph'));
+			this.renderGlyph(glyph, 'video', 'var(--bh-card-text-ghost)', emptyDraft ? 42 : 30);
+			if (!emptyDraft) {
+				const hint = append(empty, $('.basehalf-video-stage-hint'));
+				hint.textContent = preview.verificationPending && preview.document.result
+					? localize('basehalf.canvas.videoStage.checking', "Checking the sealed video…")
+					: preview.document.recipe
+						? localize('basehalf.canvas.videoStage.configured', "Video Draft")
+						: localize('basehalf.canvas.videoStage.empty', "Video unavailable");
+			}
+		}
+
+		let status: HTMLElement | undefined;
+		if (!emptyDraft && (!preview.document.result || preview.resultIntegrity || preview.verificationPending || activeExecution)) {
+			status = append(stage, $('.basehalf-canvas-node-status.basehalf-video-state'));
+			status.textContent = getBaseHalfNodeCardStatusText(localState);
+			status.title = localState.message;
+			status.setAttribute('role', 'status');
+			status.setAttribute('aria-live', 'polite');
+			status.setAttribute('aria-label', `${localState.status}: ${localState.message}`);
+			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
+			status.classList.toggle('executing', !!activeExecution);
+		}
+
+		const progress = append(stage, $('.basehalf-canvas-node-progress.basehalf-video-progress'));
+		const progressValue = append(progress, $('.basehalf-canvas-node-progress-value'));
+		const executionProgress = activeExecution?.progress;
+		progress.hidden = !activeExecution;
+		progress.classList.toggle('indeterminate', activeExecution !== undefined && executionProgress === undefined);
+		progressValue.style.width = executionProgress === undefined ? '36%' : `${Math.max(0, Math.min(100, executionProgress))}%`;
+		progress.setAttribute('role', 'progressbar');
+		progress.setAttribute('aria-label', activeExecution ? `${localState.status}: ${localState.message}` : localize('basehalf.canvas.videoProgress.inactive', "No active video generation"));
+		if (executionProgress !== undefined) {
+			progress.setAttribute('aria-valuemin', '0');
+			progress.setAttribute('aria-valuemax', '100');
+			progress.setAttribute('aria-valuenow', String(Math.round(Math.max(0, Math.min(100, executionProgress)))));
+		}
+
+		this.renderedNodeChromeByPath.set(item.path, {
+			card,
+			title: preview.document.title,
+			...(status ? { status } : {}),
+			progress,
+			progressValue
+		});
+	}
+
+	private renderNodeActions(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
+		localState: ReturnType<typeof nodeLocalStateForCardPreview>,
+		activeExecution: IBaseHalfNodeExecutionState | undefined,
+		listeners: DisposableStore,
+		card: HTMLElement,
+		chrome: Omit<IBaseHalfRenderedNodeChrome, 'card' | 'title'>
+	): void {
 		const actions = append(container, $('.basehalf-canvas-node-actions'));
 		if (!baseHalfNodeLocalPrimaryActionOpensSurface(localState.action)) {
 			const edit = append(actions, $('button.basehalf-canvas-node-edit')) as HTMLButtonElement;
 			edit.classList.add('nodrag', 'nopan', 'nowheel');
 			edit.type = 'button';
-			edit.textContent = 'Edit';
-			edit.title = 'Edit this node and view its History';
+			edit.textContent = preview.document.attempts.length > 0 || preview.document.result ? 'Details' : 'Configure';
+			edit.title = preview.document.attempts.length > 0 || preview.document.result
+				? 'View this sealed node and its Attempts'
+				: 'Configure this Draft and view its Attempts';
 			edit.setAttribute('aria-label', edit.title);
 			listeners.add(this.addDisposableListener(edit, 'pointerdown', event => event.stopPropagation()));
 			listeners.add(this.addDisposableListener(edit, 'dblclick', event => {
@@ -6768,9 +7494,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const action = append(actions, $('button.basehalf-canvas-node-action')) as HTMLButtonElement;
 		action.classList.add('nodrag', 'nopan', 'nowheel');
 		action.type = 'button';
-		action.textContent = localState.action.label;
+		action.textContent = preview.document.kind === 'video' && preview.document.result && localState.action.kind === 'locate'
+			? localize('basehalf.canvas.video.open', "Open Video")
+			: localState.action.label;
 		action.dataset.nodeAction = localState.action.kind;
-		const isRunAction = localState.action.kind === 'run' || localState.action.kind === 'runAgain' || localState.action.kind === 'retry';
+		const isRunAction = localState.action.kind === 'run' || localState.action.kind === 'retry';
 		const actionUnavailable = (isRunAction && !localState.ready)
 			|| localState.action.kind === 'wait'
 			|| activeExecution?.phase === 'cancelling'
@@ -6778,8 +7506,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		action.setAttribute('aria-disabled', String(actionUnavailable));
 		action.title = `${localState.action.label}: ${localState.message}`;
 		action.setAttribute('aria-label', action.title);
-		if (actionUnavailable && status) {
-			const statusElement = status;
+		if (actionUnavailable && chrome.status) {
+			const statusElement = chrome.status;
 			listeners.add(this.addDisposableListener(action, 'focus', () => {
 				statusElement.textContent = localState.message;
 				statusElement.classList.add('explaining-action');
@@ -6790,9 +7518,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}));
 		}
 		this.renderedNodeChromeByPath.set(item.path, {
-			currentLabel: nodePreviewCurrentLabel(preview),
-			...(status ? { status } : {}),
-			action
+			card,
+			title: preview.document.title,
+			...(chrome.status ? { status: chrome.status } : {}),
+			action,
+			...(chrome.progress ? { progress: chrome.progress } : {}),
+			...(chrome.progressValue ? { progressValue: chrome.progressValue } : {})
 		});
 		listeners.add(this.addDisposableListener(action, 'pointerdown', event => event.stopPropagation()));
 		listeners.add(this.addDisposableListener(action, 'dblclick', event => {
@@ -6825,20 +7556,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					void this.showNodeLocalSurface(item, action);
 					return;
 				case 'import':
-					void this.importCanvasNodeCurrent(item);
+					void this.importCanvasNodeResult(item);
 					return;
 				case 'locate':
-					void this.locateNodeCurrent(item);
+					void this.locateNodeResult(item);
+					return;
+				case 'copy':
+					void this.copyCanvasNodeSettings(item);
 					return;
 				case 'recover':
 					void this.recoverInterruptedCanvasNode(item);
 					return;
 				case 'run':
-				case 'runAgain':
 				case 'retry':
 					void this.runCanvasNode(item);
 			}
 		}));
+	}
+
+	private async copyCanvasNodeSettings(item: IBaseHalfCanvasItem): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		try {
+			await this.performSceneSelectionAction(this.sceneKey(folder), this.renderedSceneStructuralEpoch, 'duplicate', [item.path]);
+		} catch (error) {
+			this.logService.warn(error);
+			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+			this.requestRender();
+		}
 	}
 
 	private async recoverInterruptedCanvasNode(item: IBaseHalfCanvasItem): Promise<void> {
@@ -6882,10 +7629,62 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
+	private scheduleVideoModelConnectionResume(): void {
+		if (!this.pendingVideoModelConnectionCompletion || this.videoModelConnectionResumeTimer !== undefined || this.disposed) {
+			return;
+		}
+		this.videoModelConnectionResumeTimer = mainWindow.setTimeout(() => {
+			this.videoModelConnectionResumeTimer = undefined;
+			void this.resumeVideoModelConnection();
+		}, 0);
+	}
+
+	private async resumeVideoModelConnection(): Promise<void> {
+		const completion = this.pendingVideoModelConnectionCompletion;
+		const target = completion?.intent.returnTarget;
+		if (!completion || target?.kind !== 'videoModel' || this.disposed) {
+			return;
+		}
+		// Completion fires immediately before Settings closes. Wait
+		// for its editor-change event so the Composer is mounted in the visible
+		// BaseHalf canvas rather than behind the settings editor.
+		if (this.editorService.activeEditor?.typeId === SettingsEditor2Input.ID) {
+			return;
+		}
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== target.sceneKey || this.canvasNavigationService.state.cardDetail) {
+			this.pendingVideoModelConnectionCompletion = undefined;
+			return;
+		}
+		const item = this.renderedItemsByPath.get(target.nodePath);
+		const anchor = this.renderedCardElementsByPath.get(target.nodePath);
+		if (!item || !anchor?.isConnected || this.activeNodeLocalSurface) {
+			this.pendingVideoModelConnectionCompletion = undefined;
+			return;
+		}
+		await this.showNodeLocalSurface(item, anchor);
+	}
+
 	private showNodeLocalSurface(item: IBaseHalfCanvasItem, anchor: HTMLElement): Promise<void> {
 		const intent = ++this.nodeLocalSurfaceIntent;
 		const open = async () => {
 			if (intent !== this.nodeLocalSurfaceIntent) {
+				return;
+			}
+			// Direct actions (notably keyboard Enter) can ask for a Video Composer
+			// before React Flow's asynchronous selection transaction has retired an
+			// inline Note editor. Keep one authoring owner: finish the Note's format
+			// and save barrier before mounting the Composer, then recheck this open
+			// intent because either wait may have been superseded.
+			if (this.activeCanvasNoteEditor
+				&& (!await this.closeActiveCanvasNoteEditorAfterFormats(false) || intent !== this.nodeLocalSurfaceIntent)) {
+				return;
+			}
+			// A Note surface may be accepted but not mounted yet while a format/open
+			// transaction owns it. Its normal selection continuation will either
+			// retire it and schedule this Composer, or retain it; do not create a
+			// second invisible authoring owner in the meantime.
+			if (this.canvasNoteSurfacePath && !this.activeCanvasNoteEditor) {
 				return;
 			}
 			const active = this.activeNodeLocalSurface;
@@ -6941,7 +7740,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		let inbound = await this.readNodeInboundSources(folder, item);
 		const currentFolder = this.getCurrentFolder();
-		const currentAnchor = this.renderedCardElementsByPath.get(item.path) ?? anchor;
+		const resolveLiveCardAnchor = (): HTMLElement => {
+			const mapped = this.renderedCardElementsByPath.get(item.path);
+			return this.resolveLiveCanvasCard(item.path)
+				?? (mapped?.isConnected ? mapped : anchor);
+		};
+		const currentAnchor = resolveLiveCardAnchor();
 		if (intent !== this.nodeLocalSurfaceIntent
 			|| this.canvasNavigationService.state.cardDetail
 			|| !currentFolder
@@ -6951,61 +7755,90 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		let inboundSources = inbound.sources;
 		let inputKinds = new Map(inboundSources.map(source => [source.path, source.kind]));
-		let inputCurrentVersions = new Map(inboundSources.flatMap(source => source.currentVersion
-			? [[source.path, source.currentVersion] as const]
+		let inputResultIdentities = new Map(inboundSources.flatMap(source => source.resultIdentity
+			? [[source.path, source.resultIdentity] as const]
 			: []));
 		let directSourcePaths = Object.freeze(inboundSources.map(source => source.path));
 		let directSourceProblems: ReadonlyMap<string, string> = new Map();
 		let recipes = this.canvasRecipeRegistryService.getRecipes()
 			.filter(recipe => baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind));
-		let selectedRecipeId = document.recipe?.recipeId ?? '';
-		let selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
+		const videoGeneratorRecipes = (): readonly IBaseHalfCanvasRecipeDescriptor[] => recipes;
+		const implicitVideoRecipe = resolveBaseHalfNodeImplicitVideoRecipe(document, recipes);
+		let selectedRecipeId = document.recipe?.recipeId ?? implicitVideoRecipe?.id ?? '';
+		let selectedRecipe = document.recipe
+			? this.canvasRecipeRegistryService.getRecipe(selectedRecipeId)
+			: implicitVideoRecipe;
 		if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
 			selectedRecipe = undefined;
 		}
-		let currentPreview: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeCurrentPreview']>> = {};
-		let stale: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeStaleState']>> = {};
+		let resultPreview: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeResultPreview']>> = {};
 		let verificationPending = true;
-		let draftParameters: Record<string, BaseHalfNodeParameterDraftValue> = selectedRecipe
-			? { ...createBaseHalfNodeParameterDraft(selectedRecipe, document.recipe?.parameters ?? {}) }
-			: {};
-		let draftModelServiceId = document.recipe?.modelServiceId;
-		let draftModelId = document.recipe?.modelId;
+		let draftParameters: Record<string, BaseHalfNodeParameterDraftValue> = selectedRecipe?.modelCapability === 'video'
+			? baseHalfVideoParameterDraftFromRecipeParameters(document.recipe?.parameters, selectedRecipe.videoModelCatalogId)
+			: selectedRecipe
+				? { ...createBaseHalfNodeParameterDraft(selectedRecipe, document.recipe?.parameters ?? {}) }
+				: {};
+		let localRecipeNeedsModelCleanup = !!selectedRecipe
+			&& selectedRecipe.modelCapability === undefined
+			&& !!(document.recipe?.modelServiceId || document.recipe?.modelId);
+		let draftModelServiceId = localRecipeNeedsModelCleanup ? undefined : document.recipe?.modelServiceId;
+		let draftModelId = localRecipeNeedsModelCleanup ? undefined : document.recipe?.modelId;
+		let draftVideoModelKey = selectedRecipe?.modelCapability === 'video'
+			? baseHalfVideoModelKeyFromParameterDraft(draftParameters, selectedRecipe.videoModelCatalogId)
+			: undefined;
 		let draftBindings = document.recipe?.inputBindings ?? [];
 		let draftTitle = document.title;
 		let draftRole = document.role;
-		let localSurfaceMode: 'edit' | 'history' = 'edit';
-		let historyVisibleCount = 50;
-		const expandedHistoryDisclosures = new Set<string>();
+		let draftPrompt = document.prompt;
+		const videoComposer = document.kind === 'video';
+		let localSurfaceMode: 'configure' | 'attempts' = document.kind === 'video'
+			? 'configure'
+			: document.result || document.attempts.length > 0 ? 'attempts' : 'configure';
+		let videoComposerOverlay: BaseHalfVideoComposerOverlay | undefined;
+		let videoComposerOverlayFocusKey: string | undefined;
+		let attemptsVisibleCount = 50;
+		const expandedAttemptDisclosures = new Set<string>();
 		const removedConnections = new Set<string>();
 		const configurationDraft = (): IBaseHalfNodeLocalConfigurationDraft => ({
 			title: draftTitle,
 			role: draftRole,
+			prompt: draftPrompt,
 			recipeId: selectedRecipeId,
 			parameters: draftParameters,
 			...(draftModelServiceId === undefined ? {} : { modelServiceId: draftModelServiceId }),
 			...(draftModelId === undefined ? {} : { modelId: draftModelId }),
 			inputBindings: draftBindings
 		});
-		const configurationDraftFromDocument = (candidate: IBaseHalfNodeDocument): IBaseHalfNodeLocalConfigurationDraft => {
-			const recipeId = candidate.recipe?.recipeId ?? '';
-			const recipe = this.canvasRecipeRegistryService.getRecipe(recipeId);
+		const configurationDraftFromDocument = (
+			candidate: IBaseHalfNodeDocument,
+			candidateRecipes: readonly IBaseHalfCanvasRecipeDescriptor[] = recipes
+		): IBaseHalfNodeLocalConfigurationDraft => {
+			const implicitRecipe = resolveBaseHalfNodeImplicitVideoRecipe(candidate, candidateRecipes);
+			const recipeId = candidate.recipe?.recipeId ?? implicitRecipe?.id ?? '';
+			const recipe = candidate.recipe
+				? this.canvasRecipeRegistryService.getRecipe(recipeId)
+				: implicitRecipe;
 			const matchingRecipe = recipe && baseHalfCanvasRecipeMatchesNodeKind(recipe, candidate.kind) ? recipe : undefined;
+			const preservesModelSelection = !matchingRecipe || matchingRecipe.modelCapability !== undefined;
 			return {
 				title: candidate.title,
 				role: candidate.role,
+				prompt: candidate.prompt,
 				recipeId,
-				parameters: matchingRecipe
-					? { ...createBaseHalfNodeParameterDraft(matchingRecipe, candidate.recipe?.parameters ?? {}) }
-					: {},
-				...(candidate.recipe?.modelServiceId === undefined ? {} : { modelServiceId: candidate.recipe.modelServiceId }),
-				...(candidate.recipe?.modelId === undefined ? {} : { modelId: candidate.recipe.modelId }),
+				parameters: matchingRecipe?.modelCapability === 'video'
+					? baseHalfVideoParameterDraftFromRecipeParameters(candidate.recipe?.parameters, matchingRecipe.videoModelCatalogId)
+					: matchingRecipe
+						? { ...createBaseHalfNodeParameterDraft(matchingRecipe, candidate.recipe?.parameters ?? {}) }
+						: {},
+				...(!preservesModelSelection || candidate.recipe?.modelServiceId === undefined ? {} : { modelServiceId: candidate.recipe.modelServiceId }),
+				...(!preservesModelSelection || candidate.recipe?.modelId === undefined ? {} : { modelId: candidate.recipe.modelId }),
 				inputBindings: candidate.recipe?.inputBindings ?? []
 			};
 		};
 		const applyConfigurationDraft = (draft: IBaseHalfNodeLocalConfigurationDraft): void => {
 			draftTitle = draft.title;
 			draftRole = draft.role;
+			draftPrompt = draft.prompt;
 			selectedRecipeId = draft.recipeId;
 			selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
 			if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
@@ -7014,11 +7847,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			draftParameters = { ...draft.parameters };
 			draftModelServiceId = draft.modelServiceId;
 			draftModelId = draft.modelId;
+			draftVideoModelKey = selectedRecipe?.modelCapability === 'video'
+				? baseHalfVideoModelKeyFromParameterDraft(draftParameters, selectedRecipe.videoModelCatalogId)
+				: undefined;
 			draftBindings = draft.inputBindings.map(binding => ({ ...binding }));
 		};
 		const documentConfigurationKey = (candidate: IBaseHalfNodeDocument): string => JSON.stringify({
 			title: candidate.title,
 			role: candidate.role,
+			prompt: candidate.prompt,
 			recipe: candidate.recipe ? {
 				recipeId: candidate.recipe.recipeId,
 				modelServiceId: candidate.recipe.modelServiceId,
@@ -7038,16 +7875,121 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let savedDocumentConfigurationKey = documentConfigurationKey(document);
 		let configurationConflict: readonly string[] | undefined;
 		let refreshFailure: string | undefined;
-		let savedDraftState = draftStateKey();
+		let savedDraftState = localRecipeNeedsModelCleanup
+			? `${draftStateKey()}\u0000legacy-model-selection`
+			: draftStateKey();
+		let modelConnectionResumeNotice: string | undefined;
+		const pendingModelConnection = this.pendingVideoModelConnectionCompletion;
+		const pendingModelTarget = pendingModelConnection?.intent.returnTarget;
+		if (pendingModelConnection && pendingModelTarget?.kind === 'videoModel'
+			&& pendingModelTarget.sceneKey === this.sceneKey(folder)
+			&& pendingModelTarget.nodePath === item.path) {
+			// The returned path now owns this one-shot completion. Consume it even
+			// when its immutable document identity has become stale so a path reused
+			// by a different node can never inherit the model choice later.
+			this.pendingVideoModelConnectionCompletion = undefined;
+			const targetRecipe = recipes.find(candidate => candidate.id === pendingModelTarget.recipeId
+				&& candidate.modelCapability === 'video'
+				&& baseHalfCanvasRecipeMatchesNodeKind(candidate, document.kind));
+			const spec = this.modelProviderCatalogService.getConnectionSpec(pendingModelConnection.intent.specId);
+			const service = modelServices.find(candidate => candidate.id === pendingModelConnection.serviceId);
+			const catalogId = targetRecipe?.videoModelCatalogId;
+			const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, targetRecipe);
+			const descriptor = registry.models.find(candidate =>
+				candidate.key.provider === pendingModelTarget.modelKey.provider
+				&& candidate.key.deployment === pendingModelTarget.modelKey.deployment
+				&& candidate.key.region === pendingModelTarget.modelKey.region
+				&& candidate.key.modelId === pendingModelTarget.modelKey.modelId
+				&& candidate.key.revision === pendingModelTarget.modelKey.revision);
+			const mutable = !document.result && document.attempts.length === 0 && !this.nodeExecutionService.getActiveRun(item.stat.resource);
+			if (pendingModelTarget.documentId === document.id
+				&& mutable
+				&& targetRecipe
+				&& targetRecipe.extensionId === spec?.extensionId
+				&& catalogId === pendingModelTarget.catalogId
+				&& spec.capabilities.includes('video')
+				&& spec.providerId === pendingModelTarget.modelKey.provider
+				&& spec.deploymentId === pendingModelTarget.modelKey.deployment
+				&& spec.region === pendingModelTarget.modelKey.region
+				&& service?.configured
+				&& service.specId === spec.id
+				&& isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)
+				&& descriptor
+				&& !descriptor.availability
+				&& baseHalfVideoModelMatchesServiceScope(descriptor, service)) {
+				if (selectedRecipe?.id !== targetRecipe.id) {
+					// Recipe is an implementation detail of the user-facing model choice.
+					// Crossing that owner boundary is a clean transition: no provider
+					// identity, snapshot, parameter, or role binding may leak across it.
+					selectedRecipeId = targetRecipe.id;
+					selectedRecipe = targetRecipe;
+					draftModelServiceId = undefined;
+					draftModelId = undefined;
+					draftVideoModelKey = undefined;
+					draftParameters = {};
+					draftBindings = [];
+					removedConnections.clear();
+					localRecipeNeedsModelCleanup = false;
+				}
+				draftModelServiceId = service.id;
+				draftModelId = descriptor.key.modelId;
+				draftVideoModelKey = descriptor.key;
+				const candidate = baseHalfVideoSettingsFromParameterDraft(draftParameters);
+				const savedMode = candidate[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
+				const preferredMode = typeof savedMode === 'string'
+					? descriptor.modes.find(capability => capability.mode === savedMode)?.mode
+					: undefined;
+				const orderedModes = [
+					...(preferredMode ? [preferredMode] : []),
+					...descriptor.modes.map(capability => capability.mode).filter(mode => mode !== preferredMode)
+				];
+				const inputs = baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds);
+				let applied = false;
+				for (const mode of orderedModes) {
+					const resolution = registry.resolve({ ...descriptor.key, mode, inputs });
+					if (resolution.status !== 'supported') {
+						continue;
+					}
+					const normalization = normalizeBaseHalfVideoSettings(resolution, candidate);
+					draftParameters = baseHalfVideoSettingsAsParameterDraft(
+						normalization.values,
+						createBaseHalfVideoModelSelectionSnapshot(catalogId, resolution)
+					);
+					applied = true;
+					break;
+				}
+				if (!applied) {
+					const mode = preferredMode ?? descriptor.modes[0]?.mode;
+					draftParameters = baseHalfVideoSettingsAsParameterDraft({
+						...candidate,
+						...(mode ? { [BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID]: mode } : {})
+					});
+				}
+				modelConnectionResumeNotice = localize(
+					'basehalf.canvas.videoComposer.modelUnlocked',
+					"{0} is ready. Review this Draft before generating.",
+					descriptor.label
+				);
+				videoComposerOverlay = 'settings';
+			} else {
+				modelConnectionResumeNotice = localize(
+					'basehalf.canvas.videoComposer.modelUnlockTargetStale',
+					"That model setup no longer matches this editable Draft. Choose the model again."
+				);
+				videoComposerOverlay = 'models';
+			}
+		}
 		let allowNextHide = false;
 		let restoreFocusAfterIntentionalHide = true;
+		let disposeMountedVideoComposer: ((restoreFocus: boolean) => void) | undefined;
+		let configurationCurrentlyMutable = !document.result && document.attempts.length === 0;
 		let saveDraftImplementation: () => Promise<boolean> = async () => false;
+		let saveLockedModelNavigationDraftImplementation: () => Promise<boolean> = async () => false;
 		let pendingDraftSave: Promise<boolean> | undefined;
-		const saveDraft = (): Promise<boolean> => {
+		const runDraftSave = (implementation: () => Promise<boolean>): Promise<boolean> => {
 			if (pendingDraftSave) {
 				return pendingDraftSave;
 			}
-			const implementation = saveDraftImplementation;
 			const pending = Promise.resolve().then(() => implementation());
 			pendingDraftSave = pending;
 			pending.then(
@@ -7064,21 +8006,42 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			);
 			return pending;
 		};
+		const saveDraft = (): Promise<boolean> => runDraftSave(saveDraftImplementation);
+		const saveLockedModelNavigationDraft = (): Promise<boolean> => runDraftSave(saveLockedModelNavigationDraftImplementation);
 		const draftExitCoordinator = new BaseHalfNodeLocalDraftExitCoordinator();
-		let revealEditMode = () => { };
+		let revealConfigureMode = () => { };
 		const hasDraftChanges = () => draftStateKey() !== savedDraftState;
 		const focusAnchor = () => {
-			const currentAnchor = this.renderedCardElementsByPath.get(item.path) ?? anchor;
-			if (currentAnchor.isConnected) {
-				currentAnchor.focus({ preventScroll: true });
+			const liveAnchor = resolveLiveCardAnchor();
+			if (liveAnchor.isConnected) {
+				liveAnchor.focus({ preventScroll: true });
+				return;
 			}
+			this.root.focus({ preventScroll: true });
 		};
-		const hideIntentionally = (restoreFocus = true) => {
+		const hideIntentionally = async (restoreFocus = true): Promise<void> => {
+			this.consumePreparedVideoComposer(item.path);
+			if (videoComposer) {
+				disposeMountedVideoComposer?.(restoreFocus);
+				return;
+			}
 			allowNextHide = true;
 			restoreFocusAfterIntentionalHide = restoreFocus;
 			this.contextViewService.hideContextView();
 		};
 		const chooseDraftExit = async (): Promise<'save' | 'discard' | 'keep'> => {
+			if (videoComposer) {
+				if (!configurationCurrentlyMutable) {
+					const { result } = await this.dialogService.prompt<'discard'>({
+						message: 'Generation started before these edits were saved.',
+						detail: 'This Attempt uses the last saved prompt and settings. Copy anything you need from the Composer, then discard these local edits or keep it open.',
+						buttons: [{ label: 'Discard local edits', run: () => 'discard' }],
+						cancelButton: 'Keep Composer open'
+					});
+					return result ?? 'keep';
+				}
+				return 'save';
+			}
 			const { result } = await this.dialogService.prompt<'save' | 'discard'>({
 				message: `Save changes to '${draftTitle.trim() || item.name}'?`,
 				detail: 'Title, recipe, model, parameters, and input choices stay local only after they are saved.',
@@ -7090,17 +8053,41 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			});
 			return result ?? 'keep';
 		};
-		const requestLeaveSurface = (after?: () => void | Promise<void>, restoreFocus = true): Promise<boolean> => {
+		const requestLeaveSurface = (
+			after?: () => void | Promise<void>,
+			restoreFocus = true,
+			saveForExit: () => Promise<boolean> = saveDraft
+		): Promise<boolean> => {
 			return draftExitCoordinator.request(async () => {
 				if (pendingDraftSave) {
 					await pendingDraftSave;
 				}
-				const accepted = await resolveBaseHalfNodeLocalDraftExit(hasDraftChanges(), chooseDraftExit, saveDraft);
+				let accepted = await resolveBaseHalfNodeLocalDraftExit(hasDraftChanges(), chooseDraftExit, saveForExit);
+				if (!accepted && videoComposer && configurationCurrentlyMutable && hasDraftChanges()) {
+					const { result } = await this.dialogService.prompt<'retry' | 'discard'>({
+						message: localize('basehalf.canvas.videoComposer.saveFailed', "The Video Draft could not be saved."),
+						detail: localize('basehalf.canvas.videoComposer.saveFailedDetail', "Fix the issue and retry, discard only the local Composer edits, or keep the Composer open."),
+						buttons: [
+							{ label: localize('basehalf.canvas.videoComposer.retrySave', "Retry Save"), run: () => 'retry' },
+							{ label: localize('basehalf.canvas.videoComposer.discardLocalEdits', "Discard Local Edits"), run: () => 'discard' }
+						],
+						cancelButton: localize('basehalf.canvas.videoComposer.keepOpen', "Keep Composer Open")
+					});
+					if (result === 'retry') {
+						accepted = await saveForExit();
+					} else if (result === 'discard') {
+						applyConfigurationDraft(configurationBaseline);
+						removedConnections.clear();
+						configurationConflict = undefined;
+						savedDraftState = draftStateKeyFor(configurationBaseline);
+						accepted = true;
+					}
+				}
 				if (!accepted) {
-					revealEditMode();
+					revealConfigureMode();
 					return false;
 				}
-				hideIntentionally(restoreFocus);
+				await hideIntentionally(restoreFocus);
 				await after?.();
 				return true;
 			});
@@ -7127,14 +8114,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					this.logService.warn(error);
 					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 				}
-				if (accepted) {
-					if (this.activeNodeLocalSurface === localSurfaceController) {
+					if (accepted) {
+						this.consumePreparedVideoComposer(item.path);
+						if (this.activeNodeLocalSurface === localSurfaceController) {
 						this.activeNodeLocalSurface = undefined;
 					}
 					focusAnchor();
 					return;
 				}
-				revealEditMode();
+			revealConfigureMode();
 				this.activeNodeLocalSurface = localSurfaceController;
 				if (!this.disposed) {
 					this.contextViewService.showContextView(delegate);
@@ -7172,13 +8160,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const nextInbound = await this.readNodeInboundSources(folder, item);
 			const nextInboundSources = nextInbound.sources;
 			const nextInputKinds = new Map(nextInboundSources.map(source => [source.path, source.kind]));
-			const nextInputCurrentVersions = new Map(nextInboundSources.flatMap(source => source.currentVersion
-				? [[source.path, source.currentVersion] as const]
+			const nextInputResultIdentities = new Map(nextInboundSources.flatMap(source => source.resultIdentity
+				? [[source.path, source.resultIdentity] as const]
 				: []));
-			const [nextDirectSourceProblems, nextCurrentPreview, nextStale] = await Promise.all([
+			const [nextDirectSourceProblems, nextResultPreview] = await Promise.all([
 				this.readNodeDirectSourceProblems(folder, nextInboundSources),
-				this.readNodeCurrentPreview(folder, nextDocument, true),
-				this.readNodeStaleState(folder, nextDocument, true)
+				this.readNodeResultPreview(folder, nextDocument, true)
 			]);
 			return {
 				content: nextContent,
@@ -7187,45 +8174,88 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				inbound: nextInbound,
 				inboundSources: nextInboundSources,
 				inputKinds: nextInputKinds,
-				inputCurrentVersions: nextInputCurrentVersions,
+				inputResultIdentities: nextInputResultIdentities,
 				directSourcePaths: Object.freeze(nextInboundSources.map(source => source.path)),
 				directSourceProblems: nextDirectSourceProblems,
 				recipes: this.canvasRecipeRegistryService.getRecipes()
 					.filter(recipe => baseHalfCanvasRecipeMatchesNodeKind(recipe, nextDocument.kind)),
-				currentPreview: nextCurrentPreview,
-				stale: nextStale
+				resultPreview: nextResultPreview
 			};
 		};
 
+		let showVideoDetails = async (): Promise<void> => { };
+		let closeVideoTransientOverlay = (): void => { };
+		let rebindVideoComposerScene = (_sceneKey: string, _structuralEpoch: number): void => { };
 		const localSurfaceController: IBaseHalfActiveNodeLocalSurface = {
+			sceneKey: this.sceneKey(folder),
 			path: item.path,
+			resource: item.stat.resource,
+			nodeId: document.id,
+			nodeKind: document.kind,
 			hasDraftChanges,
+			prepareForImport: () => hasDraftChanges() ? saveDraft() : Promise.resolve(true),
 			closeForSwitch: () => requestLeaveSurface(undefined, false),
-			closeForShutdown: () => requestLeaveSurface(undefined, false)
+			closeForShutdown: () => requestLeaveSurface(undefined, false),
+			closeTransientOverlay: () => closeVideoTransientOverlay(),
+			showVideoDetails: () => showVideoDetails(),
+			rebindScene: (sceneKey, structuralEpoch) => rebindVideoComposerScene(sceneKey, structuralEpoch)
 		};
 		let focusLocalSurface = () => { };
 		const anchorRect = currentAnchor.getBoundingClientRect();
 		const anchorWindow = currentAnchor.ownerDocument.defaultView ?? mainWindow;
+		const preferredLocalSurfaceWidth = videoComposer
+			? Math.min(BASEHALF_VIDEO_COMPOSER_MAX_WIDTH, Math.round(anchorRect.width * BASEHALF_VIDEO_COMPOSER_WIDTH_RATIO))
+			: 400;
+		const localSurfaceWidth = preferredLocalSurfaceWidth;
 		const placement = resolveBaseHalfNodeLocalSurfacePlacement(anchorRect, {
 			width: anchorWindow.innerWidth,
 			height: anchorWindow.innerHeight
 		});
+		const getLocalSurfaceAnchor = () => resolveLiveCardAnchor();
+		let renderedLocalSurface: HTMLElement | undefined;
+		const isNodeLocalSurfaceInteractionTarget = (target: EventTarget | null): boolean => {
+			if (!isHTMLElement(target) && !isSVGElement(target)) {
+				return false;
+			}
+			const videoToolbar = target.closest<HTMLElement>('.basehalf-video-context-toolbar');
+			const liveVideoCard = videoComposer ? resolveLiveCardAnchor() : undefined;
+			return renderedLocalSurface?.contains(target) === true
+				|| (videoComposer
+					&& (videoToolbar?.dataset.nodePath === item.path || liveVideoCard?.contains(target) === true));
+		};
 
-		const delegate: IContextViewDelegate = {
-			getAnchor: () => this.renderedCardElementsByPath.get(item.path) ?? anchor,
-			anchorAlignment: placement.anchorAlignment,
-			anchorAxisAlignment: placement.anchorAxisAlignment,
-			anchorPosition: placement.anchorPosition,
-			canRelayout: true,
-			focus: () => focusLocalSurface(),
-			render: contextContainer => {
+		const renderLocalSurface = (contextContainer: HTMLElement): IDisposable => {
 				const store = new DisposableStore();
 				const formListeners = new DisposableStore();
 				store.add(formListeners);
-				const surface = append(contextContainer, $('.basehalf-node-local-surface'));
-				surface.dataset.nodePath = item.path;
+					const surface = append(contextContainer, $('.basehalf-node-local-surface'));
+					renderedLocalSurface = surface;
+					store.add(toDisposable(() => {
+						if (renderedLocalSurface === surface) {
+							renderedLocalSurface = undefined;
+						}
+					}));
+					surface.dataset.nodePath = item.path;
+					if (videoComposer) {
+						surface.classList.add('basehalf-video-composer');
+						surface.style.setProperty('--basehalf-video-composer-width', `${localSurfaceWidth}px`);
+						surface.dataset.placement = 'below';
+					}
 				const closeForExternalInteraction = (event: Event): void => {
-					if (draftExitCoordinator.isPending || (isHTMLElement(event.target) && surface.contains(event.target))) {
+					if (draftExitCoordinator.isPending) {
+						return;
+					}
+					if (videoComposer) {
+						if (videoComposerOverlay && !isNodeLocalSurfaceInteractionTarget(event.target)) {
+							closeVideoComposerOverlay(false);
+						}
+						return;
+					}
+					if (isNodeLocalSurfaceInteractionTarget(event.target)) {
+						return;
+					}
+					if (videoComposerOverlay) {
+						closeVideoComposerOverlay(false);
 						return;
 					}
 					if (hasDraftChanges()) {
@@ -7234,18 +8264,53 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						void requestLeaveSurface(undefined, false);
 						return;
 					}
-					hideIntentionally(false);
+					void hideIntentionally(false);
 				};
 				store.add(this.addDisposableListener(surface.ownerDocument, 'pointerdown', closeForExternalInteraction, true));
-				store.add(this.addDisposableListener(surface.ownerDocument, 'keydown', event => {
-					if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || draftExitCoordinator.isPending
-						|| baseHalfNodeLocalSurfaceTargetOwnsEscape(event.target)) {
+				store.add(this.addDisposableListener(surface, 'pointerdown', event => {
+					if (!videoComposerOverlay || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
+						return;
+					}
+					if (event.target.closest('.basehalf-video-composer-popover')
+						|| event.target.closest('.basehalf-video-model-trigger, .basehalf-video-settings-trigger, .basehalf-video-attempts-trigger')) {
+						return;
+					}
+					closeVideoComposerOverlay(false);
+				}, true));
+				const onSurfaceEscape = (event: KeyboardEvent): void => {
+					if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || draftExitCoordinator.isPending) {
+						return;
+					}
+					if (videoComposer) {
+						event.preventDefault();
+						event.stopPropagation();
+						if (!closeVideoComposerOverlay(true)) {
+							focusAnchor();
+						}
+						return;
+					}
+					if (baseHalfNodeLocalSurfaceTargetOwnsEscape(event.target)) {
 						return;
 					}
 					event.preventDefault();
 					event.stopPropagation();
 					void requestLeaveSurface();
-				}));
+				};
+				if (videoComposer) {
+					store.add(this.addDisposableListener(surface, 'keydown', onSurfaceEscape));
+				} else {
+					store.add(this.addDisposableListener(surface.ownerDocument, 'keydown', onSurfaceEscape));
+				}
+					let runVideoDraftFromSurface = () => { };
+					store.add(this.addDisposableListener(surface, 'keydown', event => {
+						if (!videoComposer || event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)
+							|| event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+							return;
+						}
+						event.preventDefault();
+						event.stopPropagation();
+						runVideoDraftFromSurface();
+					}));
 				let liveExecutionRunId = this.nodeExecutionService.getActiveRun(item.stat.resource)?.runId;
 				let refreshSequence = 0;
 				let refreshDisposed = false;
@@ -7260,11 +8325,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					pendingAfterComposition = undefined;
 					pending?.();
 				}, true));
-				let refreshLiveExecutionPresentation = () => { };
-				let refreshWorkingCopyPresentation = () => { };
-				let queueSurfaceRefresh = () => { };
-				let renderedEditBody: HTMLElement | undefined;
-				let renderedHistoryBody: HTMLElement | undefined;
+					let refreshLiveExecutionPresentation = () => { };
+					let refreshWorkingCopyPresentation = () => { };
+					let refreshVideoSurfacePresentation = () => { };
+					let queueSurfaceRefresh = () => { };
+				let renderedConfigureBody: HTMLElement | undefined;
+				let renderedAttemptsBody: HTMLElement | undefined;
+				let stableVideoPromptInput: HTMLTextAreaElement | undefined;
+				let videoSettingsNotice: string | undefined = modelConnectionResumeNotice
+					?? (localRecipeNeedsModelCleanup
+						? localize('basehalf.canvas.videoComposer.localModelCleanup', "This local generator no longer uses the legacy model selection. Save the Draft to remove it.")
+						: undefined);
 				let renderedFocusTargets = new Map<string, HTMLElement>();
 				let renderedFocusKeys = new WeakMap<HTMLElement, string>();
 				const registerFocusTarget = <T extends HTMLElement>(element: T, key: string): T => {
@@ -7288,16 +8359,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						: undefined;
 					return {
 						focused,
-						editScrollTop: renderedEditBody?.scrollTop ?? 0,
-						historyScrollTop: renderedHistoryBody?.scrollTop ?? 0
+						configureScrollTop: renderedConfigureBody?.scrollTop ?? 0,
+						attemptsScrollTop: renderedAttemptsBody?.scrollTop ?? 0
 					};
 				};
 				const restoreSurfacePresentation = (presentation: ReturnType<typeof captureSurfacePresentation>) => {
-					if (renderedEditBody) {
-						renderedEditBody.scrollTop = presentation.editScrollTop;
+					if (renderedConfigureBody) {
+						renderedConfigureBody.scrollTop = presentation.configureScrollTop;
 					}
-					if (renderedHistoryBody) {
-						renderedHistoryBody.scrollTop = presentation.historyScrollTop;
+					if (renderedAttemptsBody) {
+						renderedAttemptsBody.scrollTop = presentation.attemptsScrollTop;
 					}
 					if (!presentation.focused?.key || !surface.isConnected) {
 						return;
@@ -7313,120 +8384,308 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						target.setSelectionRange(presentation.focused.selectionStart, presentation.focused.selectionEnd);
 					}
 				};
+				let showVideoComposerOverlay: (overlay: BaseHalfVideoComposerOverlay, focusKey?: string) => void = overlay => {
+					videoComposerOverlay = overlay;
+				};
+				let closeVideoComposerOverlay: (restoreFocus?: boolean) => boolean = () => false;
 
 				const renderSurface = () => {
 					const presentation = captureSurfacePresentation();
 					formListeners.clear();
 					clearNode(surface);
-					renderedEditBody = undefined;
-					renderedHistoryBody = undefined;
+					surface.dataset.view = videoComposer ? 'composer' : localSurfaceMode;
+					renderedConfigureBody = undefined;
+					renderedAttemptsBody = undefined;
 					renderedFocusTargets = new Map();
 					renderedFocusKeys = new WeakMap();
 					let refreshSaveState = () => { };
+					let refreshVideoPrimaryState = () => { };
 					const active = this.nodeExecutionService.getActiveRun(item.stat.resource);
-					const busy = !!active || document.runs.some(run => run.status === 'running');
-					const activeDirectSourcePaths = directSourcePaths.filter(path => !removedConnections.has(path));
-					const structuralProblem = selectedRecipe
-						? getBaseHalfNodeInputStructureProblem(selectedRecipe, draftBindings, inputKinds, activeDirectSourcePaths)
+					const busy = !!active || document.attempts.some(attempt => attempt.status === 'running');
+					const configurationMutable = !busy && !document.result && document.attempts.length === 0;
+					const emptyVideoComposer = videoComposer
+						&& configurationMutable
+						&& !document.recipe
+						&& !draftModelServiceId
+						&& !draftModelId;
+					configurationCurrentlyMutable = configurationMutable;
+					const readActiveDirectSourcePaths = () => directSourcePaths.filter(path => !removedConnections.has(path));
+					const readStructuralProblem = () => selectedRecipe
+						? getBaseHalfNodeInputStructureProblem(selectedRecipe, draftBindings, inputKinds, readActiveDirectSourcePaths())
 						: undefined;
+					const readVideoModelState = (): IBaseHalfVideoComposerModelState => {
+						const catalogId = selectedRecipe?.modelCapability === 'video' ? selectedRecipe.videoModelCatalogId : undefined;
+						const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, selectedRecipe);
+						// Catalog availability and credential availability are separate. The
+						// picker must remain useful before the first connection exists, so it
+						// always presents the recipe-owned reviewed catalog and marks models
+						// locked or available at render time.
+						const models = registry.models;
+						const service = modelServices.find(candidate => candidate.id === draftModelServiceId);
+						const inputs = baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds);
+						if (!catalogId) {
+							return { registry, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseGenerator', "Choose an installed video generator.") };
+						}
+						if (!service) {
+							return { registry, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseConnection', "Choose a video model connection.") };
+						}
+						if (!service.configured) {
+							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.connectionNeedsCredentials', "This video model connection needs credentials.") };
+						}
+						if (!isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)) {
+							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.connectionTransportUnsupported', "Reconnect this video model service with a public HTTPS endpoint and Bearer API key.") };
+						}
+						const matchingModels = registry.models.filter(model => baseHalfVideoModelMatchesServiceScope(model, service));
+						if (matchingModels.length === 0) {
+							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.noReviewedModels', "No reviewed video models match this connection.") };
+						}
+						const snapshot = baseHalfVideoSnapshotFromParameterDraft(draftParameters, catalogId);
+						if (!draftModelId) {
+							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
+						}
+						if (!snapshot) {
+							// A model can be chosen before its required image/video inputs exist.
+							// Preserve that exact in-memory catalog key so Settings can explain
+							// what is missing and can mint the immutable snapshot once the Draft
+							// becomes resolvable, without silently switching model revisions.
+							const descriptor = matchingModels.find(candidate => candidate.key.modelId === draftModelId
+								&& (!draftVideoModelKey
+									|| (candidate.key.provider === draftVideoModelKey.provider
+										&& candidate.key.deployment === draftVideoModelKey.deployment
+										&& candidate.key.region === draftVideoModelKey.region
+										&& candidate.key.revision === draftVideoModelKey.revision)));
+							if (!descriptor) {
+								return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
+							}
+							const settings = baseHalfVideoSettingsFromParameterDraft(draftParameters);
+							const requestedMode = settings[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
+							const mode = (typeof requestedMode === 'string'
+								? descriptor.modes.find(capability => capability.mode === requestedMode)?.mode
+								: undefined) ?? descriptor.modes[0]?.mode;
+							if (!mode) {
+								return { registry, service, inputs, models, descriptor, problem: localize('basehalf.canvas.videoComposer.noReviewedMode', "This reviewed model has no generation method.") };
+							}
+							const resolution = registry.resolve({ ...descriptor.key, mode, inputs });
+							if (resolution.status !== 'supported') {
+								return { registry, service, inputs, models, descriptor, mode, resolution, problem: resolution.reason };
+							}
+							const normalization = normalizeBaseHalfVideoSettings(resolution, settings);
+							const promptProblem = getBaseHalfVideoPromptProblem(resolution, draftPrompt);
+							return {
+								registry,
+								service,
+								inputs,
+								models,
+								descriptor,
+								mode,
+								resolution,
+								normalization,
+								...(normalization.status === 'unavailable'
+									? { problem: normalization.reason }
+									: promptProblem ? { problem: promptProblem } : {})
+							};
+						}
+						if (snapshot.modelId !== draftModelId) {
+							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
+						}
+						const persistedResolution = resolveBaseHalfVideoModelSelectionSnapshot(registry, catalogId, service, snapshot);
+						if (persistedResolution.status !== 'supported') {
+							return {
+								registry,
+								service,
+								inputs,
+								models,
+								...(persistedResolution.status === 'unavailable' ? { descriptor: persistedResolution.descriptor } : {}),
+								resolution: persistedResolution,
+								problem: persistedResolution.reason
+							};
+						}
+						const descriptor = persistedResolution.descriptor;
+						const settings = baseHalfVideoSettingsFromParameterDraft(draftParameters);
+						const mode = persistedResolution.selection.mode;
+						const resolution = registry.resolve({ ...descriptor.key, mode, inputs });
+						if (resolution.status !== 'supported') {
+							return { registry, service, inputs, models, descriptor, mode, resolution, problem: resolution.reason };
+						}
+						const normalization = normalizeBaseHalfVideoSettings(resolution, settings);
+						const promptProblem = getBaseHalfVideoPromptProblem(resolution, draftPrompt);
+						const canonicalProblem = normalization.status === 'ready'
+							&& selectedRecipe?.videoModelCatalogId
+							&& !objectsEqual(
+								draftParameters,
+								baseHalfCanonicalVideoParameterDraft(selectedRecipe.videoModelCatalogId, resolution, normalization)
+							)
+							? localize('basehalf.canvas.videoComposer.reviewCanonicalSettings', "Review the model settings and save this Draft again.")
+							: undefined;
+						return {
+							registry,
+							service,
+							inputs,
+							models,
+							descriptor,
+							mode,
+							resolution,
+							normalization,
+							...(normalization.status === 'unavailable'
+								? { problem: normalization.reason }
+								: promptProblem
+									? { problem: promptProblem }
+									: canonicalProblem
+										? { problem: canonicalProblem }
+										: {})
+						};
+					};
+					const readVideoCapabilityProblem = (): string | undefined => {
+						if (!videoComposer || selectedRecipe?.modelCapability !== 'video') {
+							return undefined;
+						}
+						return readVideoModelState().problem;
+					};
+					const readVideoRecipeParameters = (): Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined => {
+						if (selectedRecipe?.modelCapability === undefined) {
+							const parsed = selectedRecipe ? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters) : undefined;
+							return parsed?.valid ? parsed.parameters : undefined;
+						}
+						if (selectedRecipe.modelCapability !== 'video') {
+							return undefined;
+						}
+						const state = readVideoModelState();
+						const catalogId = selectedRecipe?.videoModelCatalogId;
+						if (!catalogId || state.normalization?.status !== 'ready' || state.resolution?.status !== 'supported') {
+							return undefined;
+						}
+						return {
+							...state.normalization.values,
+							[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: createBaseHalfVideoModelSelectionSnapshot(catalogId, state.resolution)
+						} as unknown as Readonly<Record<string, BaseHalfNodeJsonValue>>;
+					};
 					const readDraftLocalState = () => {
-						const parsed = selectedRecipe
+						const parsed = selectedRecipe && (!videoComposer || selectedRecipe.modelCapability === undefined)
 							? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters)
 							: undefined;
 						if (parsed && !parsed.valid) {
-							return { ready: false, status: 'Needs input' as const, message: parsed.message };
+							return {
+								ready: false,
+								status: 'Needs input' as const,
+								message: parsed.message,
+								action: { kind: 'configure' as const, label: 'Configure' }
+							};
 						}
 						const draftRecipe = resolveBaseHalfNodeRecipeDraft(
 							document,
 							selectedRecipeId,
 							selectedRecipe,
-							parsed?.valid ? parsed.parameters : undefined,
+							videoComposer && selectedRecipe?.modelCapability === 'video'
+								? readVideoRecipeParameters()
+								: parsed?.valid ? parsed.parameters : undefined,
 							draftModelServiceId,
 							draftModelId,
 							draftBindings
 						);
 						const draftDocument: IBaseHalfNodeDocument = { ...document, recipe: draftRecipe };
+						const videoConfigurationProblem = readVideoCapabilityProblem();
 						return getBaseHalfNodeLocalState(draftDocument, {
 							recipe: selectedRecipe,
+							...(videoComposer && selectedRecipe?.modelCapability === 'video'
+								? { videoConfiguration: videoConfigurationProblem
+									? { valid: false as const, problem: videoConfigurationProblem }
+									: { valid: true as const } }
+								: {}),
 							modelServices,
 							execution: this.nodeExecutionService.getActiveRun(item.stat.resource),
-							currentOutputIntegrity: currentPreview.currentOutputIntegrity,
+							resultIntegrity: resultPreview.resultIntegrity,
 							dirty: this.workingCopyService.isDirty(item.stat.resource),
-							graphProblem: inbound.problem ?? stale.problem,
-							directSourcePaths: activeDirectSourcePaths,
+							graphProblem: inbound.problem,
+							directSourcePaths: readActiveDirectSourcePaths(),
 							directSourceProblems,
-							staleReason: stale.reason,
 							verificationPending,
 							inputKinds,
 							matchingRecipeCount: recipes.length
 						});
 					};
 					const localState = readDraftLocalState();
+					const importProblem = getBaseHalfNodeImportProblem(document);
 
-					const header = append(surface, $('.basehalf-node-local-header'));
-					const heading = append(header, $('.basehalf-node-local-heading'));
-					const title = append(heading, $('.basehalf-node-local-title'));
-					title.textContent = draftTitle.trim() || 'Untitled';
-					configureBaseHalfNodeLocalSurfaceAccessibility(surface, title, document.id);
-					const role = append(heading, $('.basehalf-node-local-role'));
-					role.textContent = `${nodeKindLabel(document.kind)} · ${draftRole.trim() || 'Role required'}`;
-					const close = append(header, $('button.basehalf-node-local-close.codicon.codicon-close')) as HTMLButtonElement;
-					registerFocusTarget(close, 'close');
-					close.type = 'button';
-					close.title = 'Close';
-					close.setAttribute('aria-label', 'Close node details');
-					formListeners.add(this.addDisposableListener(close, 'click', () => void leaveSurface()));
-
-					const modeSwitch = append(surface, $('.basehalf-node-local-mode-switch'));
-					modeSwitch.setAttribute('role', 'tablist');
-					modeSwitch.setAttribute('aria-label', 'Node details');
-					const modeButtons = new Map<'edit' | 'history', HTMLButtonElement>();
+					const modeButtons = new Map<'configure' | 'attempts', HTMLButtonElement>();
 					let refreshModePresentation = () => { };
-					for (const candidate of ['edit', 'history'] as const) {
-						const modeButton = append(modeSwitch, $('button.basehalf-node-local-mode')) as HTMLButtonElement;
-						registerFocusTarget(modeButton, `mode:${candidate}`);
-						modeButtons.set(candidate, modeButton);
-						modeButton.type = 'button';
-						modeButton.dataset.nodeLocalMode = candidate;
-						modeButton.id = `basehalf-node-${candidate}-${document.id}`;
-						modeButton.setAttribute('aria-controls', `basehalf-node-${candidate}-panel-${document.id}`);
-						modeButton.textContent = candidate === 'edit' ? 'Edit' : 'History';
-						modeButton.classList.toggle('active', localSurfaceMode === candidate);
-						modeButton.classList.toggle('has-draft', candidate === 'edit' && hasDraftChanges());
-						modeButton.setAttribute('role', 'tab');
-						modeButton.setAttribute('aria-selected', String(localSurfaceMode === candidate));
-						modeButton.setAttribute('tabindex', localSurfaceMode === candidate ? '0' : '-1');
-						modeButton.setAttribute('aria-label', candidate === 'edit' && hasDraftChanges() ? 'Edit, unsaved changes' : modeButton.textContent);
-						formListeners.add(this.addDisposableListener(modeButton, 'click', () => {
-							if (localSurfaceMode === candidate) {
-								return;
-							}
-							localSurfaceMode = candidate;
-							renderSurface();
-						}));
-						formListeners.add(this.addDisposableListener(modeButton, 'keydown', event => {
-							if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') {
-								return;
-							}
-							event.preventDefault();
-							const next = event.key === 'ArrowLeft' || event.key === 'Home' ? 'edit' : 'history';
-							localSurfaceMode = next;
-							renderSurface();
-						}));
-					}
+					let title: HTMLElement;
+					let role: HTMLElement;
+					if (videoComposer) {
+						title = append(surface, $('span.basehalf-video-composer-accessible-title'));
+						title.id = `basehalf-video-composer-title-${document.id}`;
+						title.textContent = localize('basehalf.canvas.videoComposer.label', "Generate video for {0}", draftTitle.trim() || localize('basehalf.canvas.untitled', "Untitled"));
+						role = append(surface, $('span.basehalf-video-composer-accessible-title'));
+						role.textContent = draftRole.trim();
+						surface.setAttribute('role', 'region');
+						surface.removeAttribute('aria-modal');
+						surface.setAttribute('aria-labelledby', title.id);
+						refreshLiveExecutionPresentation = () => refreshVideoPrimaryState();
+					} else {
+						const header = append(surface, $('.basehalf-node-local-header'));
+						const heading = append(header, $('.basehalf-node-local-heading'));
+						title = append(heading, $('.basehalf-node-local-title'));
+						title.textContent = draftTitle.trim() || 'Untitled';
+						configureBaseHalfNodeLocalSurfaceAccessibility(surface, title, document.id);
+						role = append(heading, $('.basehalf-node-local-role'));
+						role.textContent = `${nodeKindLabel(document.kind)} · ${draftRole.trim() || 'Role required'}`;
+						const close = append(header, $('button.basehalf-node-local-close.codicon.codicon-close')) as HTMLButtonElement;
+						registerFocusTarget(close, 'close');
+						close.type = 'button';
+						close.title = 'Close';
+						close.setAttribute('aria-label', 'Close node details');
+						formListeners.add(this.addDisposableListener(close, 'click', () => void leaveSurface()));
 
-					const readiness = append(surface, $('.basehalf-node-local-readiness'));
-					readiness.setAttribute('aria-live', 'polite');
-					readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
-					const readinessDot = append(readiness, $('.basehalf-node-local-readiness-dot'));
-					readinessDot.setAttribute('aria-hidden', 'true');
-					const readinessText = append(readiness, $('.basehalf-node-local-readiness-text'));
-					readinessText.textContent = localState.message;
-					refreshLiveExecutionPresentation = () => {
-						const nextState = readDraftLocalState();
-						readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(nextState));
-						readinessText.textContent = nextState.message;
-					};
+						const modeSwitch = append(surface, $('.basehalf-node-local-mode-switch'));
+						modeSwitch.setAttribute('role', 'tablist');
+						modeSwitch.setAttribute('aria-label', 'Node details');
+						for (const candidate of ['configure', 'attempts'] as const) {
+							const modeButton = append(modeSwitch, $('button.basehalf-node-local-mode')) as HTMLButtonElement;
+							registerFocusTarget(modeButton, `mode:${candidate}`);
+							modeButtons.set(candidate, modeButton);
+							modeButton.type = 'button';
+							modeButton.dataset.nodeLocalMode = candidate;
+							modeButton.id = `basehalf-node-${candidate}-${document.id}`;
+							modeButton.setAttribute('aria-controls', `basehalf-node-${candidate}-panel-${document.id}`);
+							modeButton.textContent = candidate === 'configure'
+								? configurationMutable ? 'Configure' : 'Configuration'
+								: 'Attempts';
+							modeButton.classList.toggle('active', localSurfaceMode === candidate);
+							modeButton.classList.toggle('has-draft', candidate === 'configure' && hasDraftChanges());
+							modeButton.setAttribute('role', 'tab');
+							modeButton.setAttribute('aria-selected', String(localSurfaceMode === candidate));
+							modeButton.setAttribute('tabindex', localSurfaceMode === candidate ? '0' : '-1');
+							modeButton.setAttribute('aria-label', candidate === 'configure' && hasDraftChanges() ? 'Configure, unsaved changes' : modeButton.textContent);
+							formListeners.add(this.addDisposableListener(modeButton, 'click', () => {
+								if (localSurfaceMode === candidate) {
+									return;
+								}
+								localSurfaceMode = candidate;
+								renderSurface();
+							}));
+							formListeners.add(this.addDisposableListener(modeButton, 'keydown', event => {
+								if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') {
+									return;
+								}
+								event.preventDefault();
+								const next = event.key === 'ArrowLeft' || event.key === 'Home' ? 'configure' : 'attempts';
+								localSurfaceMode = next;
+								renderSurface();
+							}));
+						}
+
+						const readiness = append(surface, $('.basehalf-node-local-readiness'));
+						readiness.setAttribute('aria-live', 'polite');
+						readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
+						const readinessDot = append(readiness, $('.basehalf-node-local-readiness-dot'));
+						readinessDot.setAttribute('aria-hidden', 'true');
+						const readinessText = append(readiness, $('.basehalf-node-local-readiness-text'));
+						readinessText.textContent = localState.message;
+						refreshLiveExecutionPresentation = () => {
+							const nextState = readDraftLocalState();
+							readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(nextState));
+							readinessText.textContent = nextState.message;
+						};
+					}
 
 					if (configurationConflict?.length) {
 						const conflict = append(surface, $('.basehalf-node-local-conflict'));
@@ -7434,7 +8693,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						const conflictTitle = append(conflict, $('.basehalf-node-local-conflict-title'));
 						conflictTitle.textContent = 'Configuration changed elsewhere';
 						const conflictMessage = append(conflict, $('.basehalf-node-local-conflict-message'));
-						conflictMessage.textContent = `${configurationConflict.join(', ')} changed in both places. Current and History are refreshed, but your draft will not overwrite the saved configuration until you choose.`;
+						conflictMessage.textContent = `${configurationConflict.join(', ')} changed in both places. Result and Attempts are refreshed, but your draft will not overwrite the saved configuration until you choose.`;
 						const conflictActions = append(conflict, $('.basehalf-node-local-conflict-actions'));
 						const useSaved = append(conflictActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
 						registerFocusTarget(useSaved, 'conflict:use-saved');
@@ -7444,7 +8703,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						formListeners.add(this.addDisposableListener(useSaved, 'click', () => void (async () => {
 							const confirmation = await this.dialogService.confirm({
 								message: 'Replace your unsaved changes with the latest saved configuration?',
-								detail: 'Current and History are already up to date. Only the fields in Edit will be replaced.',
+								detail: 'Result and Attempts are already up to date. Only the fields in Configure will be replaced.',
 								primaryButton: 'Use saved configuration'
 							});
 							if (!confirmation.confirmed) {
@@ -7477,38 +8736,94 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					}
 
 					const body = append(surface, $('.basehalf-node-local-body'));
-					renderedEditBody = body;
-					body.id = `basehalf-node-edit-panel-${document.id}`;
-					body.setAttribute('role', 'tabpanel');
-					body.setAttribute('aria-labelledby', `basehalf-node-edit-${document.id}`);
-					body.classList.add('mode-edit');
+					renderedConfigureBody = body;
+					if (!videoComposer) {
+						body.id = `basehalf-node-configure-panel-${document.id}`;
+						body.setAttribute('role', 'tabpanel');
+						body.setAttribute('aria-labelledby', `basehalf-node-configure-${document.id}`);
+					}
+					body.classList.add('mode-configure');
+					body.classList.toggle('video-composer-body', videoComposer);
+
+					if (videoComposer) {
+						const promptSection = this.renderNodeLocalSection(body, 'Prompt');
+						promptSection.classList.add('basehalf-video-prompt-section');
+						const promptLabel = append(promptSection, $('label.basehalf-video-prompt-label')) as HTMLLabelElement;
+						promptLabel.textContent = localize('basehalf.canvas.videoComposer.prompt', "Video prompt");
+						if (configurationMutable) {
+							const promptInput = stableVideoPromptInput
+								?? $('textarea.basehalf-node-local-input.multiline.basehalf-video-prompt') as HTMLTextAreaElement;
+							stableVideoPromptInput = promptInput;
+							promptSection.appendChild(promptInput);
+							registerFocusTarget(promptInput, 'video:prompt');
+							promptInput.id = `basehalf-video-prompt-${document.id}`;
+							promptLabel.htmlFor = promptInput.id;
+							promptInput.value = draftPrompt;
+							promptInput.rows = 3;
+							promptInput.maxLength = BASEHALF_NODE_PROMPT_MAX_LENGTH;
+							promptInput.placeholder = localize('basehalf.canvas.videoComposer.promptPlaceholder', "Describe the video you want to create…");
+							promptInput.setAttribute('aria-label', promptLabel.textContent);
+							formListeners.add(this.addDisposableListener(promptInput, 'input', () => {
+								draftPrompt = promptInput.value;
+								refreshSaveState();
+								refreshLiveExecutionPresentation();
+							}));
+						} else {
+							promptLabel.remove();
+							const promptText = append(promptSection, $('.basehalf-video-prompt-copy'));
+							promptText.textContent = draftPrompt || localize('basehalf.canvas.videoComposer.noPrompt', "No prompt saved");
+							promptText.setAttribute('aria-label', `${localize('basehalf.canvas.videoComposer.prompt', "Video prompt")}: ${promptText.textContent}`);
+							if (hasDraftChanges()) {
+								promptText.classList.add('unsaved');
+								const unsavedNotice = append(promptSection, $('.basehalf-video-prompt-unsaved'));
+								unsavedNotice.textContent = localize('basehalf.canvas.videoComposer.unsavedFrozen', "Not included in the current Attempt");
+								unsavedNotice.setAttribute('role', 'status');
+							}
+						}
+					}
+					if (!videoComposer) {
 					const contentSection = this.renderNodeLocalSection(body, 'Content');
 					const contentDescription = append(contentSection, $('.basehalf-node-local-description'));
-					contentDescription.textContent = document.current.source === 'empty'
-						? 'Start from a local file or choose a recipe below.'
-						: `Current ${baseHalfNodeImportObjectLabel(document.kind)} stays in place until you replace it or run a recipe.`;
+					contentDescription.textContent = document.result
+						? `This ${baseHalfNodeImportObjectLabel(document.kind)} is the sealed Result. It cannot be replaced or reconfigured.`
+						: document.attempts.length > 0
+							? baseHalfNodeAttemptHasCompleteRetrySnapshot(document.attempts.at(-1)!)
+								? 'No Result was sealed. The configuration is locked; Retry uses the same saved settings.'
+								: 'No Result was sealed, and the last Attempt stopped before its complete execution snapshot was frozen. Copy settings into a new Draft.'
+							: document.recipe
+								? 'This Draft is configured. Run it once, or make changes before its first attempt.'
+								: 'Choose a recipe below, or import one local file as the Result.';
 					const contentActions = append(contentSection, $('.basehalf-node-local-content-actions'));
-					const importContent = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-					registerFocusTarget(importContent, 'content:import');
-					importContent.type = 'button';
-					importContent.textContent = baseHalfNodeImportActionLabel(document.kind, document.current.source !== 'empty');
-					const importProblem = getBaseHalfNodeImportHistoryProblem(document);
-					importContent.disabled = busy || this.workingCopyService.isDirty(item.stat.resource) || !!importProblem;
-					importContent.title = importProblem ?? (importContent.disabled
-						? 'Save this node and finish its active run first'
-						: `${importContent.textContent} and set it as Current`);
-					formListeners.add(this.addDisposableListener(importContent, 'click', () => {
-						if (!importContent.disabled) {
-							void leaveSurface(() => this.importCanvasNodeCurrent(item));
-						}
-					}));
-					const primary = getBaseHalfNodeCurrentPrimaryArtifact(document);
-					if (primary && !verificationPending && !currentPreview.currentOutputIntegrity) {
-						const openCurrent = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(openCurrent, 'content:open');
-						openCurrent.type = 'button';
-						openCurrent.textContent = `Open ${baseHalfNodeImportObjectLabel(document.kind)}`;
-						formListeners.add(this.addDisposableListener(openCurrent, 'click', () => void leaveSurface(() => this.locateNodeArtifact(primary))));
+					if (!importProblem) {
+						const importContent = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
+						registerFocusTarget(importContent, 'content:import');
+						importContent.type = 'button';
+						importContent.textContent = baseHalfNodeImportActionLabel(document.kind);
+						importContent.disabled = busy || this.workingCopyService.isDirty(item.stat.resource);
+						importContent.title = importContent.disabled
+							? 'Save this Draft and finish its active attempt first'
+							: `${importContent.textContent} as the sealed Result`;
+						formListeners.add(this.addDisposableListener(importContent, 'click', () => {
+							if (!importContent.disabled) {
+								void leaveSurface(() => this.importCanvasNodeResult(item));
+							}
+						}));
+					}
+					const artifact = getBaseHalfNodeResultArtifact(document);
+					if (artifact && !verificationPending && !resultPreview.resultIntegrity) {
+						const openResult = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
+						registerFocusTarget(openResult, 'content:open');
+						openResult.type = 'button';
+						openResult.textContent = `Open ${baseHalfNodeImportObjectLabel(document.kind)}`;
+						formListeners.add(this.addDisposableListener(openResult, 'click', () => void leaveSurface(() => this.locateNodeArtifact(artifact))));
+					}
+					if (document.result || document.attempts.length > 0) {
+						const copySettings = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
+						registerFocusTarget(copySettings, 'content:copy-settings');
+						copySettings.type = 'button';
+						copySettings.textContent = 'Copy settings to new Draft';
+						copySettings.title = 'Create an independent Draft with the same recipe settings and no inherited Result or input bindings';
+						formListeners.add(this.addDisposableListener(copySettings, 'click', () => void leaveSurface(() => this.copyCanvasNodeSettings(item))));
 					}
 
 					const recipeSection = this.renderNodeLocalSection(body, 'Recipe');
@@ -7530,13 +8845,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						option.textContent = recipe.label;
 					}
 					recipeSelect.value = selectedRecipeId;
-					recipeSelect.disabled = busy;
+					recipeSelect.disabled = !configurationMutable;
 					formListeners.add(this.addDisposableListener(recipeSelect, 'change', () => void (async () => {
 						const nextId = recipeSelect.value;
 						if (!nextId && selectedRecipeId && document.recipe) {
 							const confirmation = await this.dialogService.confirm({
 								message: `Remove the recipe from '${draftTitle.trim() || item.name}'?`,
-								detail: 'Current and History stay intact, but the node will not run again until a recipe is chosen.',
+								detail: 'This empty Draft will have no runnable recipe until another one is chosen.',
 								primaryButton: 'Remove recipe'
 							});
 							if (!confirmation.confirmed) {
@@ -7577,7 +8892,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							option.disabled = !service.configured;
 						}
 						modelSelect.value = draftModelServiceId ?? '';
-						modelSelect.disabled = busy;
+						modelSelect.disabled = !configurationMutable;
 						formListeners.add(this.addDisposableListener(modelSelect, 'change', () => {
 							draftModelServiceId = modelSelect.value || undefined;
 							renderSurface();
@@ -7592,7 +8907,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						modelIdInput.value = draftModelId ?? '';
 						modelIdInput.maxLength = 256;
 						modelIdInput.placeholder = 'Provider model identifier (optional)';
-						modelIdInput.disabled = busy;
+						modelIdInput.disabled = !configurationMutable;
 						modelIdInput.setAttribute('aria-label', 'Model ID');
 						formListeners.add(this.addDisposableListener(modelIdInput, 'input', () => {
 							draftModelId = modelIdInput.value;
@@ -7607,14 +8922,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						)));
 					}
 
-					if (selectedRecipe && selectedRecipe.parameters.length > 0) {
+					const standardParameters = selectedRecipe?.parameters ?? [];
+					if (selectedRecipe && standardParameters.length > 0) {
 						const parametersSection = this.renderNodeLocalSection(body, 'Parameters');
-						for (const parameter of selectedRecipe.parameters) {
+						for (const parameter of standardParameters) {
 							const parameterInput = this.renderNodeLocalParameter(parametersSection, parameter, draftParameters[parameter.id], value => {
 								draftParameters[parameter.id] = value;
 								refreshSaveState();
 								refreshLiveExecutionPresentation();
 							}, formListeners);
+							parameterInput.disabled = !configurationMutable;
 							registerFocusTarget(parameterInput, `parameter:${parameter.id}`);
 						}
 					}
@@ -7630,7 +8947,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							const chip = append(slotSummary, $('.basehalf-node-local-slot'));
 							chip.textContent = `${input.label} ${count} · ${input.minItems}-${input.maxItems}`;
 						}
-						const inputRows = getBaseHalfNodeInputRows(inputRecipe, draftBindings, inputKinds, inputCurrentVersions);
+						const inputRows = getBaseHalfNodeInputRows(inputRecipe, draftBindings, inputKinds, inputResultIdentities);
 						if (inputRows.length > 0) {
 							const list = append(inputsSection, $('.basehalf-node-local-list'));
 							for (const row of inputRows) {
@@ -7640,18 +8957,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								const inputName = append(inputText, $('.basehalf-node-local-input-name'));
 								inputName.textContent = row.sourcePath;
 								const inputMeta = append(inputText, $('.basehalf-node-local-input-meta'));
-								const currentVersionLabel = row.currentVersion
-									? getBaseHalfNodeInputCurrentVersionLabel(row.currentVersion)
+								const resultIdentityLabel = row.resultIdentity
+									? getBaseHalfNodeInputResultLabel(row.resultIdentity)
 									: undefined;
 								inputMeta.textContent = [
 									inputKinds.get(row.sourcePath) ?? 'missing',
-									currentVersionLabel,
+									resultIdentityLabel,
 									`position ${row.order + 1}`
 								].filter((value): value is string => value !== undefined).join(' · ');
-								if (row.currentVersion) {
-									const versionKind = row.currentVersion.source === 'run' ? 'run' : 'imported version';
-									inputMeta.title = `Selected Current ${versionKind}: ${row.currentVersion.id}`;
-									inputMeta.setAttribute('aria-label', `${inputMeta.textContent}. Exact Current ${versionKind} ${row.currentVersion.id}.`);
+								if (row.resultIdentity) {
+									const resultKind = row.resultIdentity.source === 'attempt' ? 'generated' : 'imported';
+									inputMeta.title = `Bound ${resultKind} Result: ${row.resultIdentity.id}`;
+									inputMeta.setAttribute('aria-label', `${inputMeta.textContent}. Exact ${resultKind} Result ${row.resultIdentity.id}.`);
 								}
 								const slotSelect = append(entry, $('select.basehalf-node-local-compact-select')) as HTMLSelectElement;
 								registerFocusTarget(slotSelect, `input:${row.sourcePath}:slot`);
@@ -7672,7 +8989,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 									option.textContent = slot.label;
 								}
 								slotSelect.value = row.slot;
-								slotSelect.disabled = busy;
+								slotSelect.disabled = !configurationMutable;
 								formListeners.add(this.addDisposableListener(slotSelect, 'change', () => {
 									draftBindings = normalizeNodeInputBindings(draftBindings.map(binding => binding.order === row.order
 										? { ...binding, slot: slotSelect.value }
@@ -7684,7 +9001,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								const moveUp = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-chevron-up')) as HTMLButtonElement;
 								registerFocusTarget(moveUp, `input:${row.sourcePath}:up`);
 								moveUp.type = 'button';
-								moveUp.disabled = busy || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex <= 0;
+								moveUp.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex <= 0;
 								moveUp.title = `Move ${row.sourcePath} earlier in ${row.slotLabel}`;
 								moveUp.setAttribute('aria-label', moveUp.title);
 								formListeners.add(this.addDisposableListener(moveUp, 'click', () => {
@@ -7694,7 +9011,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								const moveDown = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-chevron-down')) as HTMLButtonElement;
 								registerFocusTarget(moveDown, `input:${row.sourcePath}:down`);
 								moveDown.type = 'button';
-								moveDown.disabled = busy || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex < 0 || sameSlotIndex >= sameSlotRows.length - 1;
+								moveDown.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex < 0 || sameSlotIndex >= sameSlotRows.length - 1;
 								moveDown.title = `Move ${row.sourcePath} later in ${row.slotLabel}`;
 								moveDown.setAttribute('aria-label', moveDown.title);
 								formListeners.add(this.addDisposableListener(moveDown, 'click', () => {
@@ -7712,7 +9029,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								const remove = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-close')) as HTMLButtonElement;
 								registerFocusTarget(remove, `input:${row.sourcePath}:remove`);
 								remove.type = 'button';
-								remove.disabled = busy || this.workingCopyService.isDirty(item.stat.resource);
+								remove.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource);
 								remove.title = `Remove connection from ${row.sourcePath}`;
 								remove.setAttribute('aria-label', remove.title);
 								formListeners.add(this.addDisposableListener(remove, 'click', () => {
@@ -7736,7 +9053,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								option.value = `${candidate.source.path}\u0000${candidate.slot.id}`;
 								option.textContent = `${candidate.source.path} → ${candidate.slot.label}`;
 							}
-							addSelect.disabled = busy;
+							addSelect.disabled = !configurationMutable;
 							formListeners.add(this.addDisposableListener(addSelect, 'change', () => {
 								const [sourcePath, slot] = addSelect.value.split('\u0000');
 								if (sourcePath && slot) {
@@ -7764,7 +9081,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					titleLabel.htmlFor = titleInput.id;
 					titleInput.value = draftTitle;
 					titleInput.maxLength = 240;
-					titleInput.disabled = busy;
+					titleInput.disabled = !configurationMutable;
 					titleInput.setAttribute('aria-label', 'Node title');
 					formListeners.add(this.addDisposableListener(titleInput, 'input', () => {
 						draftTitle = titleInput.value;
@@ -7780,33 +9097,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					roleLabel.htmlFor = roleInput.id;
 					roleInput.value = draftRole;
 					roleInput.maxLength = 120;
-					roleInput.disabled = busy;
+					roleInput.disabled = !configurationMutable;
 					roleInput.setAttribute('aria-label', 'Node role');
 					formListeners.add(this.addDisposableListener(roleInput, 'input', () => {
 						draftRole = roleInput.value;
 						role.textContent = `${nodeKindLabel(document.kind)} · ${draftRole.trim() || 'Role required'}`;
 						refreshSaveState();
 					}));
+					}
 
-					const historyBody = append(surface, $('.basehalf-node-local-body.mode-history'));
-					renderedHistoryBody = historyBody;
-					historyBody.id = `basehalf-node-history-panel-${document.id}`;
-					historyBody.setAttribute('role', 'tabpanel');
-					historyBody.setAttribute('aria-labelledby', `basehalf-node-history-${document.id}`);
-					if (localSurfaceMode === 'history') {
-						this.renderNodeLocalCurrent(historyBody, item, document, currentPreview.currentOutputIntegrity, verificationPending, formListeners, leaveSurface, registerFocusTarget);
-						this.renderNodeLocalHistory(
-							historyBody,
-							item,
-							folder,
+					const attemptsBody = !videoComposer
+						? append(surface, $('.basehalf-node-local-body.mode-attempts'))
+						: undefined;
+					renderedAttemptsBody = attemptsBody;
+					if (attemptsBody) {
+						attemptsBody.id = `basehalf-node-attempts-panel-${document.id}`;
+						attemptsBody.setAttribute('role', 'tabpanel');
+						attemptsBody.setAttribute('aria-labelledby', `basehalf-node-attempts-${document.id}`);
+					}
+					if (attemptsBody && localSurfaceMode === 'attempts') {
+						this.renderNodeLocalAttempts(
+							attemptsBody,
 							document,
 							formListeners,
-							leaveSurface,
 							registerFocusTarget,
-							expandedHistoryDisclosures,
-							historyVisibleCount,
+							expandedAttemptDisclosures,
+							attemptsVisibleCount,
 							() => {
-								historyVisibleCount += 50;
+								attemptsVisibleCount += 50;
 								renderSurface();
 							}
 						);
@@ -7814,71 +9132,1020 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 					const footer = append(surface, $('.basehalf-node-local-footer'));
 					const footerMessage = append(footer, $('.basehalf-node-local-footer-message'));
-					const save = append(footer, $('button.basehalf-node-local-save')) as HTMLButtonElement;
-					registerFocusTarget(save, 'save');
-					save.type = 'button';
-					save.textContent = 'Save';
-					save.setAttribute('aria-label', 'Save node changes');
+					footerMessage.setAttribute('role', 'status');
+					footerMessage.setAttribute('aria-live', 'polite');
+					let videoModel: HTMLButtonElement | undefined;
+					let videoSettings: HTMLButtonElement | undefined;
+					let videoAttempts: HTMLButtonElement | undefined;
+					let videoPrimary: HTMLButtonElement | undefined;
+					let refreshVideoMetadata = () => { };
+					if (videoComposer) {
+						const metadata = append(footer, $('.basehalf-video-composer-metadata'));
+						videoModel = append(metadata, $('button.basehalf-video-model-trigger')) as HTMLButtonElement;
+						registerFocusTarget(videoModel, 'video:model');
+						videoModel.type = 'button';
+						videoModel.dataset.videoComposerTrigger = 'models';
+						videoModel.setAttribute('aria-haspopup', 'dialog');
+						videoModel.setAttribute('aria-controls', `basehalf-video-models-popover-${document.id}`);
+						formListeners.add(this.addDisposableListener(videoModel, 'click', () => {
+							if (videoComposerOverlay === 'models') {
+								closeVideoComposerOverlay(true);
+							} else {
+								showVideoComposerOverlay('models', 'video:model');
+							}
+						}));
+						videoSettings = append(metadata, $('button.basehalf-video-settings-trigger')) as HTMLButtonElement;
+						registerFocusTarget(videoSettings, 'video:settings');
+						videoSettings.type = 'button';
+						videoSettings.dataset.videoComposerTrigger = 'settings';
+						videoSettings.setAttribute('aria-haspopup', 'dialog');
+						videoSettings.setAttribute('aria-controls', `basehalf-video-settings-popover-${document.id}`);
+						formListeners.add(this.addDisposableListener(videoSettings, 'click', () => {
+							if (videoComposerOverlay === 'settings') {
+								closeVideoComposerOverlay(true);
+							} else {
+								showVideoComposerOverlay('settings', 'video:settings');
+							}
+						}));
+						const controls = append(footer, $('.basehalf-video-composer-controls'));
+						if (document.attempts.length > 0) {
+							videoAttempts = append(controls, $('button.basehalf-video-composer-control.basehalf-video-attempts-trigger.codicon.codicon-history')) as HTMLButtonElement;
+							registerFocusTarget(videoAttempts, 'video:attempts');
+							videoAttempts.type = 'button';
+							videoAttempts.dataset.videoComposerTrigger = 'attempts';
+							videoAttempts.title = localize('basehalf.canvas.videoComposer.showAttempts', "Show video attempts");
+							videoAttempts.setAttribute('aria-label', videoAttempts.title);
+							videoAttempts.setAttribute('aria-haspopup', 'dialog');
+							videoAttempts.setAttribute('aria-controls', `basehalf-video-attempts-popover-${document.id}`);
+							formListeners.add(this.addDisposableListener(videoAttempts, 'click', () => {
+								if (videoComposerOverlay === 'attempts') {
+									closeVideoComposerOverlay(true);
+								} else {
+									showVideoComposerOverlay('attempts', 'video:attempts');
+								}
+							}));
+						}
+						if (!document.result) {
+							videoPrimary = append(controls, $('button.basehalf-video-composer-primary.codicon')) as HTMLButtonElement;
+							registerFocusTarget(videoPrimary, 'video:primary');
+							videoPrimary.type = 'button';
+						}
+
+						const overlayRoot = append(surface, $('.basehalf-video-composer-overlay-root'));
+						overlayRoot.dataset.nodePath = item.path;
+						const videoModelTrigger = videoModel;
+						const videoSettingsTrigger = videoSettings;
+						const overlayListeners = new DisposableStore();
+						formListeners.add(overlayListeners);
+						const overlayTriggers = new Map<BaseHalfVideoComposerOverlay, HTMLButtonElement>([
+							['models', videoModel],
+							['settings', videoSettings],
+							...(videoAttempts ? [['attempts', videoAttempts] as const] : [])
+						]);
+						const syncOverlayTriggers = () => {
+							for (const [candidate, trigger] of overlayTriggers) {
+								const open = videoComposerOverlay === candidate;
+								trigger.classList.toggle('active', open);
+								trigger.setAttribute('aria-expanded', String(open));
+							}
+							videoModelTrigger.classList.toggle('active', videoComposerOverlay === 'models');
+							videoModelTrigger.setAttribute('aria-expanded', String(videoComposerOverlay === 'models'));
+							videoSettingsTrigger.classList.toggle('active', videoComposerOverlay === 'settings');
+						};
+						const appendPopoverHeading = (popover: HTMLElement, text: string, id: string): void => {
+							const heading = append(popover, $('.basehalf-video-popover-heading'));
+							heading.id = id;
+							heading.textContent = text;
+						};
+						const applyVideoNormalization = (
+							resolution: IBaseHalfSupportedVideoModelResolution,
+							candidate: unknown,
+							context?: string
+						) => {
+							const normalization = normalizeBaseHalfVideoSettings(resolution, candidate);
+							const catalogId = selectedRecipe?.videoModelCatalogId;
+							if (!catalogId) {
+								videoSettingsNotice = localize('basehalf.canvas.videoComposer.generatorCatalogUnavailable', "The selected video generator has no reviewed model catalog.");
+								return normalization;
+							}
+							draftParameters = baseHalfVideoSettingsAsParameterDraft(
+								normalization.values,
+								createBaseHalfVideoModelSelectionSnapshot(catalogId, resolution)
+							);
+							const adjusted = normalization.adjustments.filter(adjustment => adjustment.kind !== 'defaulted');
+							if (normalization.status === 'unavailable') {
+								videoSettingsNotice = normalization.reason;
+							} else if (adjusted.length > 0) {
+								const labels = adjusted.slice(0, 2).map(adjustment => normalization.parameters
+									.find(parameter => parameter.id === adjustment.parameterId)?.label ?? adjustment.parameterId);
+								videoSettingsNotice = `${context ? `${context} ` : ''}${localize('basehalf.canvas.videoComposer.settingsAdjusted', "Adjusted {0} to a valid value.", labels.join(', '))}`;
+							} else {
+								videoSettingsNotice = context;
+							}
+							return normalization;
+						};
+						const selectVideoGenerator = (nextRecipe: IBaseHalfCanvasRecipeDescriptor): void => {
+							if (nextRecipe.id === selectedRecipe?.id) {
+								return;
+							}
+							selectedRecipeId = nextRecipe.id;
+							selectedRecipe = nextRecipe;
+							// Catalog snapshots, provider/model identity, and input-slot
+							// assignments belong to the previous recipe. Never carry them
+							// across an owner boundary as a half-valid intermediate state.
+							draftModelServiceId = undefined;
+							draftModelId = undefined;
+							draftVideoModelKey = undefined;
+							draftParameters = nextRecipe.modelCapability === undefined
+								? { ...createBaseHalfNodeParameterDraft(nextRecipe, {}) }
+								: {};
+							draftBindings = [];
+							removedConnections.clear();
+							videoSettingsNotice = nextRecipe.modelCapability === 'video'
+								? localize('basehalf.canvas.videoComposer.generatorChangedChooseModel', "Generator changed to {0}. Choose a model.", nextRecipe.label)
+								: localize('basehalf.canvas.videoComposer.localGeneratorChanged', "Generator changed to {0}. Review its parameters and inputs.", nextRecipe.label);
+						};
+						const selectVideoDescriptor = (
+							registry: IBaseHalfVideoModelRegistry,
+							descriptor: IBaseHalfVideoModelDescriptor,
+							inputs: BaseHalfVideoInputState,
+							requestedMode?: BaseHalfVideoGenerationMode,
+							context?: string
+						): void => {
+							draftModelId = descriptor.key.modelId;
+							draftVideoModelKey = descriptor.key;
+							const candidate = baseHalfVideoSettingsFromParameterDraft(draftParameters);
+							const savedMode = candidate[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
+							const preferredMode = requestedMode
+								?? (typeof savedMode === 'string' ? descriptor.modes.find(capability => capability.mode === savedMode)?.mode : undefined);
+							const orderedModes = [
+								...(preferredMode ? [preferredMode] : []),
+								...descriptor.modes.map(capability => capability.mode).filter(mode => mode !== preferredMode)
+							];
+							for (const mode of orderedModes) {
+								const resolution = registry.resolve({ ...descriptor.key, mode, inputs });
+								if (resolution.status !== 'supported') {
+									continue;
+								}
+								applyVideoNormalization(resolution, candidate, context);
+								return;
+							}
+							const mode = preferredMode ?? descriptor.modes[0]?.mode;
+							draftParameters = baseHalfVideoSettingsAsParameterDraft({
+								...candidate,
+								...(mode ? { [BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID]: mode } : {})
+							});
+							const unavailable = mode ? registry.resolve({ ...descriptor.key, mode, inputs }) : undefined;
+							videoSettingsNotice = unavailable && unavailable.status !== 'supported'
+								? unavailable.reason
+								: context;
+						};
+						const renderVideoModelPicker = (
+							popover: HTMLElement,
+							headingId: string,
+							focusKey: string | undefined,
+							registerOverlayFocusTarget: <T extends HTMLElement>(element: T, key: string, preferred?: boolean) => T
+						): void => {
+							appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.modelsHeading', "Video models"), headingId);
+							if (videoSettingsNotice) {
+								const notice = append(popover, $('.basehalf-video-capability-status.basehalf-video-model-picker-notice'));
+								notice.setAttribute('role', 'status');
+								notice.setAttribute('aria-live', 'polite');
+								notice.textContent = videoSettingsNotice;
+							}
+							const list = append(popover, $('.basehalf-video-model-list'));
+							list.dataset.videoOverlayScrollKey = 'models';
+							const providerSpecs = this.modelProviderCatalogService.getConnectionSpecs();
+							const modelEntries: Array<{
+								readonly recipe: IBaseHalfCanvasRecipeDescriptor;
+								readonly registry: IBaseHalfVideoModelRegistry;
+								readonly descriptor: IBaseHalfVideoModelDescriptor;
+								readonly spec?: IBaseHalfRegisteredModelProviderConnectionSpec;
+								readonly service?: IBaseHalfModelServiceDescriptor;
+							}> = [];
+							for (const recipe of videoGeneratorRecipes().filter(candidate => candidate.modelCapability === 'video' && candidate.videoModelCatalogId)) {
+								const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, recipe);
+								const ownedSpecs = providerSpecs.filter(spec => spec.extensionId === recipe.extensionId && spec.capabilities.includes('video'));
+								for (const descriptor of registry.models) {
+									const spec = ownedSpecs.find(candidate => candidate.providerId === descriptor.key.provider
+										&& candidate.deploymentId === descriptor.key.deployment
+										&& candidate.region === descriptor.key.region);
+									const service = spec ? modelServices.find(candidate => candidate.specId === spec.id
+										&& candidate.configured
+										&& isBaseHalfPublicHttpsBearerModelServiceConfiguration(candidate)
+										&& baseHalfVideoModelMatchesServiceScope(descriptor, candidate)) : undefined;
+									modelEntries.push({ recipe, registry, descriptor, spec, service });
+								}
+							}
+							if (!modelEntries.length) {
+								const empty = append(list, $('.basehalf-video-popover-empty'));
+								empty.textContent = localize('basehalf.canvas.videoComposer.noReviewedModelsInstalled', "No reviewed video models are installed.");
+								return;
+							}
+
+							const providerGroups = new Map<string, typeof modelEntries>();
+							for (const entry of modelEntries) {
+								const providerId = entry.spec?.providerId ?? entry.descriptor.key.provider;
+								const group = providerGroups.get(providerId) ?? [];
+								group.push(entry);
+								providerGroups.set(providerId, group);
+							}
+							for (const [providerId, providerEntries] of providerGroups) {
+								const providerGroup = append(list, $('.basehalf-video-model-provider-group'));
+								providerGroup.dataset.providerId = providerId;
+								const providerHeading = append(providerGroup, $('.basehalf-video-model-provider-heading'));
+								providerHeading.textContent = providerEntries[0].spec?.providerLabel ?? providerId;
+								const specGroups = new Map<string, typeof modelEntries>();
+								for (const entry of providerEntries) {
+									const specId = entry.spec?.id ?? `${entry.descriptor.key.deployment}/${entry.descriptor.key.region}`;
+									const group = specGroups.get(specId) ?? [];
+									group.push(entry);
+									specGroups.set(specId, group);
+								}
+								for (const [specId, specEntries] of specGroups) {
+									const specGroup = append(providerGroup, $('.basehalf-video-model-spec-group'));
+									specGroup.dataset.specId = specId;
+									const specHeading = append(specGroup, $('.basehalf-video-model-spec-heading'));
+									specHeading.textContent = specEntries[0].spec?.label ?? specId;
+									for (const { recipe, registry, descriptor, spec, service } of specEntries) {
+										const locked = !service;
+										const selected = recipe.id === selectedRecipe?.id
+											&& service?.id === draftModelServiceId
+											&& descriptor.key.modelId === draftModelId
+											&& (!draftVideoModelKey
+												|| (descriptor.key.provider === draftVideoModelKey.provider
+													&& descriptor.key.deployment === draftVideoModelKey.deployment
+													&& descriptor.key.region === draftVideoModelKey.region
+													&& descriptor.key.revision === draftVideoModelKey.revision));
+										const focusToken = `${recipe.id}:${descriptor.key.provider}:${descriptor.key.deployment}:${descriptor.key.region}:${descriptor.key.modelId}:${descriptor.key.revision}`;
+										const row = registerOverlayFocusTarget(
+											append(specGroup, $('button.basehalf-video-model-option')) as HTMLButtonElement,
+											`model:${focusToken}`,
+											selected || focusKey === 'video:model'
+										);
+										row.type = 'button';
+										row.dataset.providerId = descriptor.key.provider;
+										row.dataset.modelId = descriptor.key.modelId;
+										row.dataset.connectionState = locked ? 'locked' : 'available';
+										if (spec) {
+											row.dataset.specId = spec.id;
+										}
+										row.classList.toggle('selected', selected);
+										row.setAttribute('aria-pressed', String(selected));
+										row.disabled = !!descriptor.availability || !configurationMutable;
+										const icon = append(row, $('.basehalf-video-model-option-icon.codicon.codicon-server-process'));
+										icon.setAttribute('aria-hidden', 'true');
+										const copy = append(row, $('.basehalf-video-model-option-copy'));
+										const label = append(copy, $('.basehalf-video-model-option-label'));
+										label.textContent = descriptor.label;
+										const meta = append(copy, $('.basehalf-video-model-option-meta'));
+										meta.textContent = descriptor.availability?.reason
+											?? (recipe.id === selectedRecipe?.id ? recipe.label : `${recipe.label} / ${descriptor.key.region}`);
+										const connectionState = append(row, $('.basehalf-video-model-option-state'));
+										const stateText = append(connectionState, $('.basehalf-video-model-option-state-text'));
+										stateText.textContent = locked
+											? spec ? localize('basehalf.canvas.videoComposer.addApiKey', "Add API key") : localize('basehalf.canvas.videoComposer.providerSetupUnavailable', "Setup unavailable")
+											: selected ? localize('basehalf.canvas.videoComposer.selected', "Selected") : localize('basehalf.canvas.videoComposer.available', "Available");
+										const stateIcon = append(connectionState, $(`.basehalf-video-model-option-state-icon.codicon.${locked ? 'codicon-lock' : selected ? 'codicon-check' : 'codicon-unlock'}`));
+										stateIcon.setAttribute('aria-hidden', 'true');
+										row.title = descriptor.availability?.reason ?? (locked
+											? spec
+												? localize('basehalf.canvas.videoComposer.configureProviderForModel', "Add an API key for {0} to use {1}.", spec.providerLabel, descriptor.label)
+												: localize('basehalf.canvas.videoComposer.noProviderContract', "No official connection setup is available for this model.")
+											: localize('basehalf.canvas.videoComposer.useModel', "Use {0}.", descriptor.label));
+										row.setAttribute('aria-label', row.title);
+										if (descriptor.availability) {
+											continue;
+										}
+										overlayListeners.add(this.addDisposableListener(row, 'click', () => {
+											if (service) {
+												selectVideoGenerator(recipe);
+												draftModelServiceId = service.id;
+												selectVideoDescriptor(registry, descriptor, baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds), undefined,
+													localize('basehalf.canvas.videoComposer.modelChanged', "Model changed to {0}.", descriptor.label));
+												refreshVideoMetadata();
+												refreshSaveState();
+												refreshLiveExecutionPresentation();
+												showVideoComposerOverlay('models', `model:${focusToken}`);
+												return;
+											}
+											if (!spec) {
+												return;
+											}
+											const target = {
+												kind: 'videoModel' as const,
+												sceneKey: localSurfaceController.sceneKey,
+												nodePath: item.path,
+												documentId: document.id,
+												recipeId: recipe.id,
+												catalogId: recipe.videoModelCatalogId!,
+												modelKey: { ...descriptor.key }
+											};
+											void requestLeaveSurface(async () => {
+												await this.commandService.executeCommand(BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID, {
+													specId: spec.id,
+													catalogId: target.catalogId,
+													recipeId: target.recipeId,
+													modelKey: target.modelKey,
+													nodePath: target.nodePath,
+													documentId: target.documentId,
+													sceneKey: target.sceneKey
+												});
+											}, false, saveLockedModelNavigationDraft).catch(error => {
+												this.logService.warn(error);
+												this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+												this.requestRender();
+											});
+										}));
+									}
+								}
+							}
+						};
+						const renderVideoComposerOverlay = (focusKey?: string): void => {
+							const activeBeforeRender = surface.ownerDocument.activeElement;
+							const previousOverlayFocusKey = isHTMLElement(activeBeforeRender) && overlayRoot.contains(activeBeforeRender)
+								? renderedFocusKeys.get(activeBeforeRender)
+								: undefined;
+							const previousScrollPositions = new Map<string, number>();
+							for (const element of overlayRoot.getElementsByTagName('*')) {
+								if (isHTMLElement(element) && element.dataset.videoOverlayScrollKey) {
+									previousScrollPositions.set(element.dataset.videoOverlayScrollKey, element.scrollTop);
+								}
+							}
+							overlayListeners.clear();
+							clearNode(overlayRoot);
+							syncOverlayTriggers();
+							if (!videoComposerOverlay) {
+								overlayRoot.hidden = true;
+								return;
+							}
+							overlayRoot.hidden = false;
+							overlayRoot.dataset.overlay = videoComposerOverlay;
+							const popover = append(overlayRoot, $(`.basehalf-video-composer-popover.${videoComposerOverlay}`));
+							popover.id = `basehalf-video-${videoComposerOverlay}-popover-${document.id}`;
+							popover.setAttribute('role', 'dialog');
+							popover.setAttribute('aria-modal', 'false');
+							const headingId = `${popover.id}-title`;
+							popover.setAttribute('aria-labelledby', headingId);
+							let firstOverlayFocusTarget: HTMLElement | undefined;
+							let preferredOverlayFocusTarget: HTMLElement | undefined;
+							const registerOverlayFocusTarget = <T extends HTMLElement>(element: T, key: string, preferred = false): T => {
+								registerFocusTarget(element, `video-overlay:${videoComposerOverlay}:${key}`);
+								firstOverlayFocusTarget ??= element;
+								if (preferred && !preferredOverlayFocusTarget) {
+									preferredOverlayFocusTarget = element;
+								}
+								return element;
+							};
+							if (videoComposerOverlay === 'models') {
+								renderVideoModelPicker(popover, headingId, focusKey, registerOverlayFocusTarget);
+							} else if (videoComposerOverlay === 'settings') {
+								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.settingsHeading', "Video generation"), headingId);
+								const scroll = append(popover, $('.basehalf-video-settings-scroll'));
+								scroll.dataset.videoOverlayScrollKey = 'settings';
+								const state = readVideoModelState();
+
+								if (selectedRecipe?.modelCapability === 'video') {
+								if (state.descriptor) {
+									const modeField = append(scroll, $('.basehalf-video-popover-field.basehalf-video-capability-field'));
+									const modeLabel = append(modeField, $('.basehalf-video-popover-label'));
+									modeLabel.textContent = localize('basehalf.canvas.videoComposer.generateMethod', "Generate method");
+									const modes = append(modeField, $('.basehalf-video-segmented.basehalf-video-mode-segmented'));
+									modes.setAttribute('role', 'radiogroup');
+									modes.setAttribute('aria-label', modeLabel.textContent);
+									for (const capability of state.descriptor.modes) {
+										const modeResolution = state.registry.resolve({ ...state.descriptor.key, mode: capability.mode, inputs: state.inputs });
+										const selected = state.mode === capability.mode;
+										const modeButton = registerOverlayFocusTarget(
+											append(modes, $('button.basehalf-video-segment')) as HTMLButtonElement,
+											`mode:${capability.mode}`,
+											focusKey === 'video:settings' && selected
+										);
+										modeButton.type = 'button';
+										modeButton.textContent = BASEHALF_VIDEO_MODE_LABELS[capability.mode];
+										modeButton.classList.toggle('selected', selected);
+										modeButton.setAttribute('role', 'radio');
+										modeButton.setAttribute('aria-checked', String(selected));
+										modeButton.disabled = !configurationMutable || modeResolution.status !== 'supported';
+										if (modeResolution.status !== 'supported') {
+											modeButton.title = modeResolution.reason;
+											modeButton.setAttribute('aria-description', modeResolution.reason);
+										}
+										overlayListeners.add(this.addDisposableListener(modeButton, 'click', () => {
+											if (modeResolution.status !== 'supported') {
+												return;
+											}
+											applyVideoNormalization(modeResolution, baseHalfVideoSettingsFromParameterDraft(draftParameters));
+											refreshVideoMetadata();
+											refreshSaveState();
+											refreshLiveExecutionPresentation();
+											showVideoComposerOverlay('settings', `mode:${capability.mode}`);
+										}));
+									}
+								}
+
+								if (state.resolution?.status === 'supported' && state.normalization) {
+									for (const parameter of state.normalization.parameters) {
+										if (!parameter.visible) {
+											continue;
+										}
+										const field = append(scroll, $('.basehalf-video-popover-field.basehalf-video-capability-field'));
+										field.classList.toggle('disabled', !parameter.enabled);
+										const label = append(field, $('.basehalf-video-popover-label'));
+										label.textContent = parameter.label;
+										if (parameter.description) {
+											const description = append(field, $('.basehalf-video-popover-description'));
+											description.textContent = parameter.description;
+										}
+										const commitValue = (value: BaseHalfVideoModelScalar, key: string): void => {
+											applyVideoNormalization(state.resolution as IBaseHalfSupportedVideoModelResolution, {
+												...state.normalization!.values,
+												[parameter.id]: value
+											});
+											refreshVideoMetadata();
+											refreshSaveState();
+											refreshLiveExecutionPresentation();
+											showVideoComposerOverlay('settings', key);
+										};
+										const selectedValue = state.normalization.values[parameter.id];
+										if (parameter.type === 'enum' && parameter.options) {
+											const segmented = append(field, $('.basehalf-video-segmented'));
+											segmented.setAttribute('role', 'radiogroup');
+											segmented.setAttribute('aria-label', parameter.label);
+											for (const option of parameter.options) {
+												const selected = selectedValue === option.value;
+												const key = `parameter:${parameter.id}:${typeof option.value}:${String(option.value)}`;
+												const button = registerOverlayFocusTarget(
+													append(segmented, $('button.basehalf-video-segment')) as HTMLButtonElement,
+													key,
+													selected
+												);
+												button.type = 'button';
+												button.textContent = option.label;
+												button.classList.toggle('selected', selected);
+												button.setAttribute('role', 'radio');
+												button.setAttribute('aria-checked', String(selected));
+												button.disabled = !configurationMutable || !parameter.enabled || !option.enabled;
+												if (option.unavailableReason) {
+													button.title = option.unavailableReason;
+												}
+												overlayListeners.add(this.addDisposableListener(button, 'click', () => commitValue(option.value, key)));
+											}
+										} else if (parameter.type === 'boolean') {
+											const segmented = append(field, $('.basehalf-video-segmented'));
+											segmented.setAttribute('role', 'radiogroup');
+											segmented.setAttribute('aria-label', parameter.label);
+											for (const option of [{ value: true, label: localize('basehalf.canvas.videoComposer.on', "On") }, { value: false, label: localize('basehalf.canvas.videoComposer.off', "Off") }]) {
+												const selected = selectedValue === option.value;
+												const key = `parameter:${parameter.id}:${String(option.value)}`;
+												const button = registerOverlayFocusTarget(
+													append(segmented, $('button.basehalf-video-segment')) as HTMLButtonElement,
+													key,
+													selected
+												);
+												button.type = 'button';
+												button.textContent = option.label;
+												button.classList.toggle('selected', selected);
+												button.setAttribute('role', 'radio');
+												button.setAttribute('aria-checked', String(selected));
+												button.disabled = !configurationMutable || !parameter.enabled;
+												overlayListeners.add(this.addDisposableListener(button, 'click', () => commitValue(option.value, key)));
+											}
+										} else if (parameter.type === 'range' && parameter.minimum !== undefined && parameter.maximum !== undefined && parameter.step !== undefined) {
+											const stepCount = Math.floor((parameter.maximum - parameter.minimum) / parameter.step) + 1;
+											if (stepCount <= 15) {
+												const segmented = append(field, $('.basehalf-video-segmented'));
+												segmented.setAttribute('role', 'radiogroup');
+												segmented.setAttribute('aria-label', parameter.label);
+												for (let index = 0; index < stepCount; index++) {
+													const value = Number((parameter.minimum + index * parameter.step).toPrecision(12));
+													const selected = selectedValue === value;
+													const key = `parameter:${parameter.id}:${value}`;
+													const button = registerOverlayFocusTarget(
+														append(segmented, $('button.basehalf-video-segment')) as HTMLButtonElement,
+														key,
+														selected
+													);
+													button.type = 'button';
+													button.textContent = parameter.label.toLowerCase().includes('duration') ? `${value}s` : String(value);
+													button.classList.toggle('selected', selected);
+													button.setAttribute('role', 'radio');
+													button.setAttribute('aria-checked', String(selected));
+													button.disabled = !configurationMutable || !parameter.enabled;
+													overlayListeners.add(this.addDisposableListener(button, 'click', () => commitValue(value, key)));
+												}
+											} else {
+												const rangeRow = append(field, $('.basehalf-video-range-row'));
+												const input = registerOverlayFocusTarget(
+													append(rangeRow, $('input.basehalf-video-range')) as HTMLInputElement,
+													`parameter:${parameter.id}`
+												);
+												const numericValue = typeof selectedValue === 'number' ? selectedValue : parameter.minimum;
+												input.type = 'range';
+												input.min = String(parameter.minimum);
+												input.max = String(parameter.maximum);
+												input.step = String(parameter.step);
+												input.value = String(numericValue);
+												input.disabled = !configurationMutable || !parameter.enabled;
+												const value = append(rangeRow, $('output.basehalf-video-range-value')) as HTMLOutputElement;
+											value.textContent = typeof selectedValue === 'number' ? String(selectedValue) : '-';
+												overlayListeners.add(this.addDisposableListener(input, 'change', () => commitValue(Number(input.value), `parameter:${parameter.id}`)));
+											}
+										}
+										if (parameter.unavailableReason) {
+											const reason = append(field, $('.basehalf-video-parameter-reason'));
+											reason.textContent = parameter.unavailableReason;
+										}
+									}
+								}
+
+								const statusText = videoSettingsNotice ?? state.problem;
+								if (statusText) {
+									const status = append(scroll, $('.basehalf-video-capability-status'));
+									status.setAttribute('role', 'status');
+									status.setAttribute('aria-live', 'polite');
+									status.textContent = statusText;
+								}
+									} else if (selectedRecipe && selectedRecipe.modelCapability === undefined) {
+									if (selectedRecipe.description) {
+										const description = append(scroll, $('.basehalf-video-popover-description'));
+										description.textContent = selectedRecipe.description;
+									}
+									for (const parameter of selectedRecipe.parameters) {
+										const input = this.renderNodeLocalParameter(
+											scroll,
+											parameter,
+											draftParameters[parameter.id],
+											value => {
+												draftParameters[parameter.id] = value;
+												refreshVideoMetadata();
+												refreshSaveState();
+												refreshLiveExecutionPresentation();
+											},
+											overlayListeners
+										);
+										input.disabled = !configurationMutable;
+										registerOverlayFocusTarget(input, `local-parameter:${parameter.id}`, focusKey === 'video:settings');
+									}
+									const parsed = parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters);
+									const statusText = videoSettingsNotice
+										?? (!parsed.valid ? parsed.message : readStructuralProblem());
+									if (statusText) {
+										const status = append(scroll, $('.basehalf-video-capability-status'));
+										status.setAttribute('role', 'status');
+										status.setAttribute('aria-live', 'polite');
+										status.textContent = statusText;
+									}
+									} else if (videoSettingsNotice) {
+										const status = append(scroll, $('.basehalf-video-capability-status'));
+										status.setAttribute('role', 'status');
+										status.setAttribute('aria-live', 'polite');
+										status.textContent = videoSettingsNotice;
+									}
+								} else if (videoComposerOverlay === 'inputs') {
+								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.inputsHeading', "Generation inputs"), headingId);
+								if (!selectedRecipe) {
+									const empty = append(popover, $('.basehalf-video-popover-empty'));
+									empty.textContent = localize('basehalf.canvas.videoComposer.chooseGeneratorForInputs', "Choose a generator to assign connected context.");
+								} else {
+									const rows = getBaseHalfNodeInputRows(selectedRecipe, draftBindings, inputKinds, inputResultIdentities);
+									const list = append(popover, $('.basehalf-video-popover-list'));
+									list.dataset.videoOverlayScrollKey = 'inputs';
+									for (const row of rows) {
+										const entry = append(list, $('.basehalf-video-popover-row'));
+										const text = append(entry, $('.basehalf-video-input-text'));
+										const name = append(text, $('.basehalf-video-popover-row-title'));
+										name.textContent = row.sourcePath;
+										const meta = append(text, $('.basehalf-video-popover-row-meta'));
+										meta.textContent = inputKinds.get(row.sourcePath) ?? localize('basehalf.canvas.videoComposer.missingInput', "Missing");
+										const slot = registerOverlayFocusTarget(
+											append(entry, $('select.basehalf-video-input-role')) as HTMLSelectElement,
+											`input:${row.sourcePath}:slot`
+										);
+										for (const candidate of getBaseHalfNodeAssignableInputSlots(selectedRecipe, draftBindings, row.sourcePath, inputKinds.get(row.sourcePath) ?? 'file')) {
+											const option = append(slot, $('option')) as HTMLOptionElement;
+											option.value = candidate.id;
+											option.textContent = candidate.label;
+										}
+										slot.value = row.slot;
+										slot.disabled = !configurationMutable;
+										overlayListeners.add(this.addDisposableListener(slot, 'change', () => {
+											draftBindings = normalizeNodeInputBindings(draftBindings.map(binding => binding.order === row.order ? { ...binding, slot: slot.value } : binding));
+											refreshSaveState();
+											showVideoComposerOverlay('inputs', 'video:inputs');
+										}));
+										const remove = registerOverlayFocusTarget(
+											append(entry, $('button.basehalf-video-input-remove.codicon.codicon-close')) as HTMLButtonElement,
+											`input:${row.sourcePath}:remove`
+										);
+										remove.type = 'button';
+										remove.disabled = !configurationMutable;
+										remove.title = localize('basehalf.canvas.videoComposer.removeInput', "Remove input");
+										remove.setAttribute('aria-label', remove.title);
+										overlayListeners.add(this.addDisposableListener(remove, 'click', () => {
+											removedConnections.add(row.sourcePath);
+											draftBindings = normalizeNodeInputBindings(draftBindings.filter(binding => binding.order !== row.order));
+											refreshSaveState();
+											showVideoComposerOverlay('inputs', 'video:inputs');
+										}));
+									}
+									const available = inboundSources.flatMap(source => getBaseHalfNodeAvailableInputSlots(selectedRecipe!, draftBindings, source.path, source.kind)
+										.map(slot => ({ source, slot })));
+									if (available.length > 0) {
+										const add = registerOverlayFocusTarget(
+											append(popover, $('select.basehalf-video-input-add')) as HTMLSelectElement,
+											'input:add'
+										);
+										const placeholder = append(add, $('option')) as HTMLOptionElement;
+										placeholder.value = '';
+										placeholder.textContent = localize('basehalf.canvas.videoComposer.addConnectedInput', "Add connected context…");
+										for (const candidate of available) {
+											const option = append(add, $('option')) as HTMLOptionElement;
+											option.value = `${candidate.source.path}\u0000${candidate.slot.id}`;
+											option.textContent = `${candidate.source.path} → ${candidate.slot.label}`;
+										}
+										add.disabled = !configurationMutable;
+										overlayListeners.add(this.addDisposableListener(add, 'change', () => {
+											const [sourcePath, slotId] = add.value.split('\u0000');
+											if (sourcePath && slotId) {
+												removedConnections.delete(sourcePath);
+												draftBindings = normalizeNodeInputBindings([...draftBindings, { sourcePath, slot: slotId, order: draftBindings.length }]);
+												refreshSaveState();
+												showVideoComposerOverlay('inputs', 'video:inputs');
+											}
+										}));
+									} else if (rows.length === 0) {
+										const empty = append(popover, $('.basehalf-video-popover-empty'));
+										empty.textContent = inboundSources.length === 0
+											? localize('basehalf.canvas.videoComposer.connectContext', "Connect context to this node to make inputs available.")
+											: localize('basehalf.canvas.videoComposer.noCompatibleContext', "Connected context is not compatible with this generator.");
+									}
+								}
+							} else {
+								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.attempts', "Video attempts"), headingId);
+								const attempts = append(popover, $('.basehalf-video-attempts-scroll'));
+								attempts.dataset.videoOverlayScrollKey = 'attempts';
+								this.renderNodeLocalAttempts(attempts, document, overlayListeners, registerFocusTarget, expandedAttemptDisclosures, attemptsVisibleCount, () => {
+									attemptsVisibleCount += 50;
+									showVideoComposerOverlay('attempts');
+								});
+								const newestAttempt = [...document.attempts]
+									.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
+								firstOverlayFocusTarget = newestAttempt
+									? renderedFocusTargets.get(`attempt:${newestAttempt.id}:details`)
+									: renderedFocusTargets.get('attempts:load-more');
+							}
+							for (const element of popover.getElementsByTagName('*')) {
+								if (isHTMLElement(element) && element.dataset.videoOverlayScrollKey) {
+									element.scrollTop = previousScrollPositions.get(element.dataset.videoOverlayScrollKey) ?? 0;
+								}
+							}
+							layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect());
+							const exactFocusTarget = previousOverlayFocusKey
+								? renderedFocusTargets.get(previousOverlayFocusKey)
+								: undefined;
+							const connectedExactFocusTarget = exactFocusTarget?.isConnected && popover.contains(exactFocusTarget)
+								? exactFocusTarget
+								: undefined;
+							const nextFocusTarget = connectedExactFocusTarget
+								?? (previousOverlayFocusKey || focusKey ? preferredOverlayFocusTarget ?? firstOverlayFocusTarget : undefined);
+							if (nextFocusTarget) {
+								anchorWindow.requestAnimationFrame(() => {
+									const target = nextFocusTarget.isConnected && popover.contains(nextFocusTarget)
+										? nextFocusTarget
+										: preferredOverlayFocusTarget?.isConnected && popover.contains(preferredOverlayFocusTarget)
+											? preferredOverlayFocusTarget
+											: firstOverlayFocusTarget?.isConnected && popover.contains(firstOverlayFocusTarget)
+												? firstOverlayFocusTarget
+												: undefined;
+									target?.focus({ preventScroll: true });
+								});
+							}
+						};
+							closeVideoComposerOverlay = (restoreFocus = false): boolean => {
+							if (!videoComposerOverlay) {
+								return false;
+							}
+							const focusKey = videoComposerOverlayFocusKey;
+							videoComposerOverlay = undefined;
+							videoComposerOverlayFocusKey = undefined;
+							renderVideoComposerOverlay();
+							if (restoreFocus && focusKey) {
+								renderedFocusTargets.get(focusKey)?.focus({ preventScroll: true });
+							}
+								return true;
+							};
+							closeVideoTransientOverlay = () => {
+								closeVideoComposerOverlay(false);
+							};
+						showVideoComposerOverlay = (overlay, focusKey) => {
+							const activeBeforeShow = surface.ownerDocument.activeElement;
+							const updatesOpenOverlay = videoComposerOverlay === overlay
+								&& isHTMLElement(activeBeforeShow)
+								&& overlayRoot.contains(activeBeforeShow);
+							if (overlay === 'settings' && selectedRecipe?.videoModelCatalogId) {
+								const state = readVideoModelState();
+								if (state.resolution?.status === 'supported' && state.normalization?.status === 'ready') {
+									const canonical = baseHalfCanonicalVideoParameterDraft(
+										selectedRecipe.videoModelCatalogId,
+										state.resolution,
+										state.normalization
+									);
+									if (!objectsEqual(draftParameters, canonical)) {
+										draftParameters = canonical;
+										videoSettingsNotice = localize(
+											'basehalf.canvas.videoComposer.reviewedCanonicalSettings',
+											"Updated this Draft to the current reviewed settings."
+										);
+									}
+								}
+							}
+							videoComposerOverlay = overlay;
+							// An in-popover choice may request a precise focus target after the
+							// schema-driven body is rebuilt. It must not replace the trigger that
+							// originally opened the popover, because Escape returns to that trigger.
+							if (!updatesOpenOverlay) {
+								videoComposerOverlayFocusKey = focusKey ?? videoComposerOverlayFocusKey;
+							}
+							renderVideoComposerOverlay(focusKey);
+							refreshVideoMetadata();
+							refreshSaveState();
+							refreshVideoPrimaryState();
+						};
+						refreshVideoMetadata = () => {
+							if (!videoModel || !videoSettings) {
+								return;
+							}
+							const state = readVideoModelState();
+							const promptMaximum = state.resolution?.status === 'supported'
+								? getBaseHalfVideoPromptMaxCharacters(state.resolution)
+								: undefined;
+							if (stableVideoPromptInput) {
+								stableVideoPromptInput.maxLength = promptMaximum ?? BASEHALF_NODE_PROMPT_MAX_LENGTH;
+								stableVideoPromptInput.title = promptMaximum === undefined
+									? ''
+									: localize('basehalf.canvas.videoComposer.promptLimit', "Up to {0} characters for the selected generation method", promptMaximum.toLocaleString('en-US'));
+							}
+							const localRecipe = selectedRecipe?.modelCapability === undefined ? selectedRecipe : undefined;
+							const modelLabel = localRecipe?.label
+								?? state.descriptor?.label
+								?? (!selectedRecipe
+									? localize('basehalf.canvas.videoComposer.chooseGeneratorAction', "Choose generator")
+									: localize('basehalf.canvas.videoComposer.chooseModel', "Choose model"));
+							clearNode(videoModel);
+							const modelIcon = append(videoModel, $('.codicon.codicon-server-process'));
+							modelIcon.setAttribute('aria-hidden', 'true');
+							const modelText = append(videoModel, $('.basehalf-video-trigger-label'));
+							modelText.textContent = modelLabel;
+							videoModel.title = modelLabel;
+							videoModel.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.modelTrigger', "Generator: {0}", modelLabel));
+							clearNode(videoSettings);
+							const settingValues: string[] = [];
+							if (localRecipe) {
+								for (const parameter of localRecipe.parameters) {
+									const value = draftParameters[parameter.id];
+									if (value === undefined || settingValues.length >= 4) {
+										continue;
+									}
+									settingValues.push(parameter.type === 'boolean'
+										? `${parameter.label} ${value ? localize('basehalf.canvas.videoComposer.on', "On") : localize('basehalf.canvas.videoComposer.off', "Off")}`
+										: String(value));
+								}
+							} else if (state.mode) {
+								settingValues.push(BASEHALF_VIDEO_MODE_LABELS[state.mode]);
+							}
+							if (!localRecipe && state.normalization) {
+								for (const parameter of state.normalization.parameters) {
+									if (!parameter.visible || !parameter.enabled || settingValues.length >= 4) {
+										continue;
+									}
+									const value = state.normalization.values[parameter.id];
+									if (value === undefined) {
+										continue;
+									}
+									const optionLabel = parameter.options?.find(option => option.value === value)?.label;
+									settingValues.push(optionLabel
+										?? (typeof value === 'boolean'
+											? `${parameter.label} ${value ? localize('basehalf.canvas.videoComposer.on', "On") : localize('basehalf.canvas.videoComposer.off', "Off")}`
+											: parameter.label.toLowerCase().includes('duration') ? `${value}s` : String(value)));
+								}
+							}
+							if (settingValues.length === 0) {
+								const empty = append(videoSettings, $('.basehalf-video-composer-metadata-empty'));
+								empty.textContent = localize('basehalf.canvas.videoComposer.settings', "Settings");
+							} else {
+								for (const value of settingValues) {
+									const entry = append(videoSettings, $('.basehalf-video-composer-metadata-item'));
+									entry.textContent = value;
+								}
+							}
+							videoSettings.title = settingValues.join(' · ') || localize('basehalf.canvas.videoComposer.settings', "Settings");
+							videoSettings.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.settingsTrigger', "Video settings: {0}", videoSettings.title));
+							syncOverlayTriggers();
+						};
+						refreshVideoMetadata();
+						renderVideoComposerOverlay();
+						refreshVideoSurfacePresentation = () => {
+							refreshVideoMetadata();
+							refreshSaveState();
+							if (videoComposerOverlay) {
+								renderVideoComposerOverlay();
+							}
+						};
+					}
+					const save = !videoComposer ? append(footer, $('button.basehalf-node-local-save')) as HTMLButtonElement : undefined;
+					if (save) {
+						registerFocusTarget(save, 'save');
+						save.type = 'button';
+						save.textContent = 'Save';
+						save.setAttribute('aria-label', 'Save node changes');
+					}
 					const recipeDraftIsValid = () => !selectedRecipe
-						|| (parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters).valid && !structuralProblem);
+						|| (videoComposer && selectedRecipe.modelCapability === 'video'
+							? !!readVideoRecipeParameters() && !readStructuralProblem()
+							: parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters).valid && !readStructuralProblem());
+					const readModelSelectionProblem = () => videoComposer && selectedRecipe?.modelCapability === 'video'
+						? readVideoCapabilityProblem()
+						: selectedRecipe?.modelCapability
+							? getBaseHalfNodeModelSelectionProblem(draftModelServiceId, draftModelId)
+							: undefined;
+					const activateVideoPrimary = async (): Promise<void> => {
+						const nextState = readDraftLocalState();
+						switch (nextState.action.kind) {
+							case 'run':
+							case 'retry':
+								if (hasDraftChanges() && !await saveDraft()) {
+									return;
+								}
+								if (nextState.action.kind === 'run' && !nextState.ready) {
+									footerMessage.textContent = nextState.message;
+									return;
+								}
+								await this.runCanvasNode(item);
+								return;
+							case 'cancel': {
+								const activeRun = this.nodeExecutionService.getActiveRun(item.stat.resource);
+								if (!activeRun || !this.nodeExecutionService.cancel(item.stat.resource, activeRun.runId)) {
+									footerMessage.textContent = 'That generation already changed; nothing was cancelled.';
+								}
+								return;
+							}
+							case 'locate':
+								await requestLeaveSurface(() => this.locateNodeResult(item), false);
+								return;
+							case 'copy':
+								await requestLeaveSurface(() => this.copyCanvasNodeSettings(item), false);
+								return;
+							case 'recover':
+								await this.recoverInterruptedCanvasNode(item);
+								return;
+							case 'import':
+								await requestLeaveSurface(() => this.importCanvasNodeResult(item), false);
+								return;
+							case 'add':
+							case 'configure': {
+								const needsGenerator = !selectedRecipe;
+								const needsModel = needsGenerator || nextState.status === 'Provider missing';
+							const inputReadinessProblem = selectedRecipe
+								? getBaseHalfNodeInputReadinessProblem(selectedRecipe, draftBindings, inputKinds, readActiveDirectSourcePaths())
+								: undefined;
+							const needsInputs = !!selectedRecipe && !needsModel && !!inputReadinessProblem;
+							const overlay: BaseHalfVideoComposerOverlay = needsInputs ? 'inputs' : needsModel ? 'models' : 'settings';
+								showVideoComposerOverlay(overlay, needsGenerator || needsModel ? 'video:model' : `video:${overlay}`);
+							return;
+							}
+							case 'wait':
+								footerMessage.textContent = nextState.message;
+						}
+					};
+					runVideoDraftFromSurface = () => {
+						const action = readDraftLocalState().action.kind;
+						if (action === 'run' || action === 'retry') {
+							void activateVideoPrimary();
+						}
+					};
+					refreshVideoPrimaryState = () => {
+						if (!videoPrimary) {
+							return;
+						}
+						const nextState = readDraftLocalState();
+						videoPrimary.dataset.nodeAction = nextState.action.kind;
+						videoPrimary.dataset.nodeStatus = baseHalfNodeLocalStatusToken(nextState.status);
+						const actionLabel = nextState.action.kind === 'locate'
+							? 'Open video'
+							: nextState.action.kind === 'copy'
+								? 'New Draft'
+								: nextState.action.kind === 'add' || nextState.action.kind === 'configure'
+									? 'Set up video'
+								: nextState.action.kind === 'cancel'
+									? 'Cancel'
+									: nextState.action.kind === 'recover'
+									? 'Check status'
+									: nextState.action.kind === 'retry' ? 'Retry' : 'Generate';
+						videoPrimary.textContent = '';
+						videoPrimary.classList.remove('codicon-arrow-up', 'codicon-debug-stop', 'codicon-play', 'codicon-add', 'codicon-refresh');
+						videoPrimary.classList.add(nextState.action.kind === 'cancel'
+							? 'codicon-debug-stop'
+							: nextState.action.kind === 'locate'
+								? 'codicon-play'
+								: nextState.action.kind === 'copy'
+									? 'codicon-add'
+									: nextState.action.kind === 'recover'
+										? 'codicon-refresh'
+										: 'codicon-arrow-up');
+						const editProblem = configurationConflict?.length || refreshFailure
+							|| baseHalfNodeIdentityProblem(draftTitle, draftRole)
+							|| readModelSelectionProblem()
+							|| !recipeDraftIsValid()
+							|| this.workingCopyService.isDirty(item.stat.resource);
+						videoPrimary.disabled = nextState.action.kind === 'wait'
+							|| nextState.status === 'Cancelling'
+							|| ((nextState.action.kind === 'run' || nextState.action.kind === 'retry') && (!nextState.ready || !!editProblem));
+						videoPrimary.title = `${actionLabel}: ${nextState.message}`;
+						videoPrimary.setAttribute('aria-label', videoPrimary.title);
+					};
+					if (videoPrimary) {
+						formListeners.add(this.addDisposableListener(videoPrimary, 'click', () => { void activateVideoPrimary(); }));
+					}
 					refreshModePresentation = () => {
-						body.hidden = localSurfaceMode !== 'edit';
-						historyBody.hidden = localSurfaceMode !== 'history';
-						footer.hidden = localSurfaceMode !== 'edit';
+						body.hidden = !videoComposer && localSurfaceMode !== 'configure';
+						if (attemptsBody) {
+							attemptsBody.hidden = localSurfaceMode !== 'attempts';
+						}
+						footer.hidden = !videoComposer && (localSurfaceMode !== 'configure' || !configurationMutable);
+						if (save) {
+							save.hidden = !configurationMutable;
+						}
 						for (const [candidate, modeButton] of modeButtons) {
 							const activeMode = localSurfaceMode === candidate;
-							const hasUnsavedDraft = candidate === 'edit' && hasDraftChanges();
+							const hasUnsavedDraft = candidate === 'configure' && hasDraftChanges();
 							modeButton.classList.toggle('active', activeMode);
 							modeButton.classList.toggle('has-draft', hasUnsavedDraft);
 							modeButton.setAttribute('aria-selected', String(activeMode));
 							modeButton.setAttribute('tabindex', activeMode ? '0' : '-1');
-							modeButton.setAttribute('aria-label', hasUnsavedDraft ? 'Edit, unsaved changes' : candidate === 'edit' ? 'Edit' : 'History');
+							modeButton.setAttribute('aria-label', hasUnsavedDraft
+								? 'Configure, unsaved changes'
+								: candidate === 'configure' ? configurationMutable ? 'Configure' : 'Configuration' : 'Attempts');
 						}
 					};
-					revealEditMode = () => {
-						localSurfaceMode = 'edit';
+					revealConfigureMode = () => {
+						if (videoComposer) {
+							showVideoComposerOverlay('settings', 'video:settings');
+							return;
+						}
+						localSurfaceMode = 'configure';
 						refreshModePresentation();
-						modeButtons.get('edit')?.focus();
+						modeButtons.get('configure')?.focus();
 					};
 					refreshSaveState = () => {
 						const dirty = this.workingCopyService.isDirty(item.stat.resource);
+						const nextState = readDraftLocalState();
 						const identityProblem = baseHalfNodeIdentityProblem(draftTitle, draftRole);
-						const modelSelectionProblem = selectedRecipe?.modelCapability
-							? getBaseHalfNodeModelSelectionProblem(draftModelServiceId, draftModelId)
-							: undefined;
+						const modelSelectionProblem = readModelSelectionProblem();
 						const unchanged = !hasDraftChanges();
 						footerMessage.textContent = configurationConflict?.length
 							? 'Resolve the saved-configuration conflict before saving.'
 							: refreshFailure
 								? 'Wait for this node to refresh before saving.'
-								: dirty
-									? 'Save the open source editor before changing this node.'
-									: identityProblem ?? modelSelectionProblem ?? structuralProblem ?? '';
-						save.disabled = unchanged || !!configurationConflict?.length || !!refreshFailure || !!identityProblem || !!modelSelectionProblem || !recipeDraftIsValid() || busy || dirty;
-						save.title = unchanged
-							? 'No changes to save'
-							: footerMessage.textContent || 'Save node changes';
+								: !configurationMutable && !unchanged
+									? 'Generation started before these edits were saved. They are not part of this Attempt.'
+									: dirty
+										? 'Save the open source editor before changing this node.'
+									: identityProblem ?? (emptyVideoComposer
+										? ''
+										: modelSelectionProblem ?? readStructuralProblem() ?? (!nextState.ready ? nextState.message : ''));
+						if (save) {
+							save.disabled = !configurationMutable || unchanged || !!configurationConflict?.length || !!refreshFailure || !!identityProblem || !!modelSelectionProblem || !recipeDraftIsValid() || dirty;
+							save.title = unchanged
+								? 'No changes to save'
+								: footerMessage.textContent || 'Save node changes';
+						}
+						refreshVideoPrimaryState();
 						refreshModePresentation();
 					};
 					refreshWorkingCopyPresentation = refreshSaveState;
 					refreshSaveState();
 					saveDraftImplementation = async () => {
 						if (baseHalfNodeIdentityProblem(draftTitle, draftRole)
-							|| (selectedRecipe?.modelCapability && getBaseHalfNodeModelSelectionProblem(draftModelServiceId, draftModelId))
+							|| readModelSelectionProblem()
 							|| !recipeDraftIsValid() || this.workingCopyService.isDirty(item.stat.resource)
-							|| !!configurationConflict?.length || !!refreshFailure || busy || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
+							|| !!configurationConflict?.length || !!refreshFailure || !configurationMutable || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
 							return false;
 						}
-						save.disabled = true;
+						if (save) {
+							save.disabled = true;
+						}
 						footerMessage.textContent = 'Saving...';
-						const latestParameters = selectedRecipe
+						const latestParameters = selectedRecipe && (!videoComposer || selectedRecipe.modelCapability === undefined)
 							? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters)
 							: undefined;
 						const nextRecipe = resolveBaseHalfNodeRecipeDraft(
 							document,
 							selectedRecipeId,
 							selectedRecipe,
-							latestParameters?.valid ? latestParameters.parameters : undefined,
+							videoComposer && selectedRecipe?.modelCapability === 'video'
+								? readVideoRecipeParameters()
+								: latestParameters?.valid ? latestParameters.parameters : undefined,
 							draftModelServiceId,
 							draftModelId,
 							draftBindings
@@ -7887,6 +10154,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							...document,
 							title: draftTitle.trim(),
 							role: draftRole.trim(),
+							prompt: draftPrompt,
 							recipe: nextRecipe
 						};
 						try {
@@ -7900,23 +10168,116 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 									(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
 								);
 							}
+							const persistedConfiguration = configurationDraftFromDocument(nextDocument);
+							document = nextDocument;
+							content = { ...content, value: transition.documents[0]?.next ?? content.value };
+							localRecipeNeedsModelCleanup = false;
+							videoSettingsNotice = undefined;
+							applyConfigurationDraft(persistedConfiguration);
+							configurationBaseline = persistedConfiguration;
+							latestExternalConfiguration = persistedConfiguration;
+							savedDocumentConfigurationKey = documentConfigurationKey(nextDocument);
+							configurationConflict = undefined;
 							savedDraftState = draftStateKey();
 							this.requestRender();
 							return true;
 						} catch (error) {
 							this.logService.warn(error);
 							footerMessage.textContent = 'This node changed while saving. Refreshing the saved configuration…';
-							save.disabled = false;
+							if (save) {
+								save.disabled = false;
+							}
 							queueSurfaceRefresh();
 							return false;
 						}
 					};
-					formListeners.add(this.addDisposableListener(save, 'click', async () => {
-						if (await saveDraft()) {
-							hideIntentionally();
+					saveLockedModelNavigationDraftImplementation = async () => {
+						if (baseHalfNodeIdentityProblem(draftTitle, draftRole)
+							|| this.workingCopyService.isDirty(item.stat.resource)
+							|| !!configurationConflict?.length || !!refreshFailure || !configurationMutable
+							|| this.nodeExecutionService.getActiveRun(item.stat.resource)) {
+							return false;
 						}
-					}));
+						// A complete Draft still uses the normal save, including its validated
+						// recipe and graph edits. Only an unresolved locked-provider choice
+						// takes the narrower prompt checkpoint below.
+						if (!readModelSelectionProblem() && recipeDraftIsValid()) {
+							return saveDraftImplementation();
+						}
+						const nextDocument = baseHalfCanvasProvisionalVideoDraftDocument(
+							document,
+							draftTitle,
+							draftRole,
+							draftPrompt
+						);
+						if (!nextDocument) {
+							return false;
+						}
+						if (save) {
+							save.disabled = true;
+						}
+						footerMessage.textContent = localize(
+							'basehalf.canvas.videoComposer.savingBeforeModelSetup',
+							"Saving this Draft before model setup..."
+						);
+						try {
+							// Incomplete recipe/model state and pending graph removals are not a
+							// valid disk contract. Preserve the last persisted recipe and write
+							// only the authored identity/prompt checkpoint.
+							const transition = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
+							if (canvasConnectionTransitionChangesAnything(transition)) {
+								this.pushCanvasUndoElement(
+									localize('basehalf.canvas.nodeEdit.undo', "Edit result node"),
+									folder,
+									transition.nodes,
+									transition.documents,
+									(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
+								);
+							}
+							const persistedConfiguration = configurationDraftFromDocument(nextDocument);
+							document = nextDocument;
+							content = { ...content, value: transition.documents[0]?.next ?? content.value };
+							applyConfigurationDraft(persistedConfiguration);
+							configurationBaseline = persistedConfiguration;
+							latestExternalConfiguration = persistedConfiguration;
+							savedDocumentConfigurationKey = documentConfigurationKey(nextDocument);
+							configurationConflict = undefined;
+							removedConnections.clear();
+							localRecipeNeedsModelCleanup = !!selectedRecipe
+								&& selectedRecipe.modelCapability === undefined
+								&& !!(nextDocument.recipe?.modelServiceId || nextDocument.recipe?.modelId);
+							videoSettingsNotice = undefined;
+							savedDraftState = localRecipeNeedsModelCleanup
+								? `${draftStateKey()}\u0000legacy-model-selection`
+								: draftStateKey();
+							this.requestRender();
+							return true;
+						} catch (error) {
+							this.logService.warn(error);
+							footerMessage.textContent = localize(
+								'basehalf.canvas.videoComposer.saveBeforeModelSetupFailed',
+								"This Draft changed before its prompt could be saved. Refreshing the saved configuration..."
+							);
+							if (save) {
+								save.disabled = false;
+							}
+							queueSurfaceRefresh();
+							return false;
+						}
+					};
+					if (save) {
+						formListeners.add(this.addDisposableListener(save, 'click', async () => {
+							if (await saveDraft()) {
+								await hideIntentionally();
+							}
+						}));
+					}
 					restoreSurfacePresentation(presentation);
+				};
+				showVideoDetails = () => {
+					const overlay: BaseHalfVideoComposerOverlay = document.result || document.attempts.length > 0 ? 'attempts' : 'settings';
+					showVideoComposerOverlay(overlay, `video:${overlay}`);
+					return Promise.resolve();
 				};
 
 				const changedBindingPaths = (
@@ -7932,10 +10293,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					return new Set([...baseByPath.keys(), ...localByPath.keys(), ...removedConnections]
 						.filter(path => baseByPath.get(path) !== localByPath.get(path) || removedConnections.has(path)));
 				};
-				const applyLatestSurfaceState = (latest: Awaited<ReturnType<typeof readLatestSurfaceState>>): void => {
-					const localBeforeRefresh = configurationDraft();
-					const hadDraftChanges = hasDraftChanges();
-					const nextExternalConfiguration = configurationDraftFromDocument(latest.document);
+					const applyLatestSurfaceState = (latest: Awaited<ReturnType<typeof readLatestSurfaceState>>): void => {
+						const localBeforeRefresh = configurationDraft();
+						const exactVideoModelKeyBeforeRefresh = draftVideoModelKey;
+						const hadDraftChanges = hasDraftChanges();
+					const previouslyNeededLocalModelCleanup = localRecipeNeedsModelCleanup;
+					const nextExternalConfiguration = configurationDraftFromDocument(latest.document, latest.recipes);
 					const nextDocumentConfigurationKey = documentConfigurationKey(latest.document);
 					const savedConfigurationChanged = nextDocumentConfigurationKey !== savedDocumentConfigurationKey;
 					const previousSourcePaths = new Set(directSourcePaths);
@@ -7949,12 +10312,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					inbound = latest.inbound;
 					inboundSources = latest.inboundSources;
 					inputKinds = latest.inputKinds;
-					inputCurrentVersions = latest.inputCurrentVersions;
+					inputResultIdentities = latest.inputResultIdentities;
 					directSourcePaths = latest.directSourcePaths;
 					directSourceProblems = latest.directSourceProblems;
 					recipes = latest.recipes;
-					currentPreview = latest.currentPreview;
-					stale = latest.stale;
+					resultPreview = latest.resultPreview;
 					verificationPending = false;
 					latestExternalConfiguration = nextExternalConfiguration;
 					refreshFailure = undefined;
@@ -7974,11 +10336,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						applyConfigurationDraft(nextExternalConfiguration);
 						configurationBaseline = nextExternalConfiguration;
 						savedDraftState = draftStateKeyFor(nextExternalConfiguration);
-					} else {
-						selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
+						} else {
+							selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
 						if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
 							selectedRecipe = undefined;
+							}
 						}
+						if (!draftVideoModelKey
+							&& exactVideoModelKeyBeforeRefresh
+							&& selectedRecipeId === localBeforeRefresh.recipeId
+							&& draftModelServiceId === localBeforeRefresh.modelServiceId
+							&& draftModelId === localBeforeRefresh.modelId) {
+							// A not-yet-resolvable model selection has no persisted snapshot yet.
+							// Preserve its exact revision across unrelated hydration (for example a
+							// title-only external write) instead of falling back to the first model
+							// sharing the same provider model id.
+							draftVideoModelKey = exactVideoModelKeyBeforeRefresh;
+						}
+						localRecipeNeedsModelCleanup = !!selectedRecipe
+						&& selectedRecipe.modelCapability === undefined
+						&& !!(document.recipe?.modelServiceId || document.recipe?.modelId);
+					if (localRecipeNeedsModelCleanup) {
+						if (!savedDraftState.endsWith('\u0000legacy-model-selection')) {
+							savedDraftState = `${savedDraftState}\u0000legacy-model-selection`;
+						}
+						videoSettingsNotice = localize('basehalf.canvas.videoComposer.localModelCleanup', "This local generator no longer uses the legacy model selection. Save the Draft to remove it.");
+					} else if (previouslyNeededLocalModelCleanup) {
+						videoSettingsNotice = undefined;
 					}
 
 					if (changedSourcePaths.size > 0) {
@@ -7987,18 +10371,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							configurationConflict = Object.freeze([...new Set([...(configurationConflict ?? []), 'Direct inputs'])]);
 						}
 					}
+					if (!videoComposer && (document.result || document.attempts.length > 0) && localSurfaceMode === 'configure' && !hasDraftChanges()) {
+						localSurfaceMode = 'attempts';
+					}
 					liveExecutionRunId = this.nodeExecutionService.getActiveRun(item.stat.resource)?.runId;
 				};
-				queueSurfaceRefresh = () => {
-					const sequence = ++refreshSequence;
-					void readLatestSurfaceState().then(latest => {
+					queueSurfaceRefresh = () => {
+						const sequence = ++refreshSequence;
+						void readLatestSurfaceState().then(latest => {
 						const apply = () => {
 							if (refreshDisposed || sequence !== refreshSequence) {
 								return;
 							}
-							applyLatestSurfaceState(latest);
-							renderSurface();
-						};
+							if (latest.document.id !== localSurfaceController.nodeId || latest.document.kind !== localSurfaceController.nodeKind) {
+								void requestLeaveSurface(undefined, false).then(accepted => {
+									if (accepted && !this.disposed) {
+										this.requestRender();
+									}
+								});
+								return;
+							}
+							const previousConfigurationKey = documentConfigurationKey(document);
+								const previousStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
+								applyLatestSurfaceState(latest);
+								const nextStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
+								if (videoComposer && previousConfigurationKey === documentConfigurationKey(document) && previousStructureKey === nextStructureKey) {
+									refreshVideoSurfacePresentation();
+								} else {
+									renderSurface();
+								}
+							};
 						if (surfaceComposing) {
 							pendingAfterComposition = apply;
 						} else {
@@ -8036,14 +10438,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}));
 				store.add(this.fileService.onDidFilesChange(event => {
 					const affectsDirectSource = directSourcePaths.some(path => event.affects(joinPath(folder.workspaceFolder, ...path.split('/'))));
-					const affectsCurrentArtifact = getBaseHalfNodeCurrentArtifacts(document)
-						.some(artifact => event.affects(joinPath(folder.workspaceFolder, ...artifact.path.split('/'))));
-					if (event.affects(item.stat.resource) || event.affects(badgeResource) || affectsDirectSource || affectsCurrentArtifact) {
+					const resultArtifact = getBaseHalfNodeResultArtifact(document);
+					const affectsResultArtifact = !!resultArtifact && event.affects(joinPath(folder.workspaceFolder, ...resultArtifact.path.split('/')));
+					if (event.affects(item.stat.resource) || event.affects(badgeResource) || affectsDirectSource || affectsResultArtifact) {
 						queueSurfaceRefresh();
 					}
 				}));
 				store.add(this.canvasRecipeRegistryService.onDidChange(() => queueSurfaceRefresh()));
 				store.add(this.modelServiceService.onDidChange(() => queueSurfaceRefresh()));
+				store.add(this.videoModelCatalogService.onDidChange(() => queueSurfaceRefresh()));
 				store.add(this.workingCopyService.onDidChangeDirty(workingCopy => {
 					if (this.uriIdentityService.extUri.isEqual(workingCopy.resource, item.stat.resource)) {
 						refreshWorkingCopyPresentation();
@@ -8052,56 +10455,154 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						queueSurfaceRefresh();
 					}
 				}));
-				store.add(toDisposable(() => {
+					store.add(toDisposable(() => {
 					refreshDisposed = true;
 					refreshSequence++;
 					pendingAfterComposition = undefined;
-					refreshLiveExecutionPresentation = () => { };
-					refreshWorkingCopyPresentation = () => { };
-					queueSurfaceRefresh = () => { };
-				}));
+						refreshLiveExecutionPresentation = () => { };
+						refreshWorkingCopyPresentation = () => { };
+						refreshVideoSurfacePresentation = () => { };
+							queueSurfaceRefresh = () => { };
+						runVideoDraftFromSurface = () => { };
+					}));
 
 				renderSurface();
 				focusLocalSurface = () => {
-					const target = renderedFocusTargets.get(`mode:${localSurfaceMode}`)
-						?? renderedFocusTargets.get('content:import')
-						?? renderedFocusTargets.get('recipe')
-						?? renderedFocusTargets.get('close');
+					const target = videoComposer
+						? (renderedFocusTargets.get('video:prompt')
+							?? renderedFocusTargets.get('video:primary')
+							?? renderedFocusTargets.get('video:settings'))
+						: (renderedFocusTargets.get(`mode:${localSurfaceMode}`)
+							?? renderedFocusTargets.get('content:import')
+							?? renderedFocusTargets.get('recipe')
+							?? renderedFocusTargets.get('close'));
 					target?.focus({ preventScroll: true });
 				};
-				store.add(toDisposable(() => {
-					focusLocalSurface = () => { };
-				}));
+					store.add(toDisposable(() => {
+						focusLocalSurface = () => { };
+						showVideoDetails = async () => { };
+						closeVideoTransientOverlay = () => { };
+					}));
 				queueSurfaceRefresh();
 				return store;
-			},
+			};
+		const delegate: IContextViewDelegate = {
+			getAnchor: getLocalSurfaceAnchor,
+			anchorAlignment: placement.anchorAlignment,
+			anchorAxisAlignment: placement.anchorAxisAlignment,
+			anchorPosition: placement.anchorPosition,
+			canRelayout: true,
+			focus: () => focusLocalSurface(),
+			render: renderLocalSurface,
 			onHide: () => {
-				if (allowNextHide) {
-					allowNextHide = false;
-					if (this.activeNodeLocalSurface === localSurfaceController) {
-						this.activeNodeLocalSurface = undefined;
-					}
-					if (restoreFocusAfterIntentionalHide) {
+						this.consumePreparedVideoComposer(item.path);
+						if (allowNextHide) {
+							allowNextHide = false;
+							if (this.activeNodeLocalSurface === localSurfaceController) {
+								this.activeNodeLocalSurface = undefined;
+							}
+							if (restoreFocusAfterIntentionalHide) {
+								focusAnchor();
+							}
+							return;
+						}
+						if (hasDraftChanges()) {
+							// Keep the controller reachable while the hidden surface's decision
+							// is pending. Shutdown and another surface switch join this promise.
+							retainImplicitDismiss();
+							return;
+						}
+						if (this.activeNodeLocalSurface === localSurfaceController) {
+							this.activeNodeLocalSurface = undefined;
+						}
 						focusAnchor();
-					}
-					return;
 				}
-				if (hasDraftChanges()) {
-					// Keep the controller reachable while the hidden surface's decision
-					// is pending. Shutdown and another surface switch join this promise.
-					retainImplicitDismiss();
-					return;
-				}
-				if (this.activeNodeLocalSurface === localSurfaceController) {
-					this.activeNodeLocalSurface = undefined;
-				}
-				focusAnchor();
-			}
 		};
 		if (intent !== this.nodeLocalSurfaceIntent || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		this.activeNodeLocalSurface = localSurfaceController;
+		// The prepared selection is an auto-open intent, not durable selection
+		// state. Consume it only after the surface has successfully mounted so later
+		// integrity/model hydration cannot replay the open and dismiss Composer.
+		this.consumePreparedVideoComposer(item.path);
+		if (videoComposer) {
+			const mount = $('.basehalf-video-composer-mount');
+			mount.dataset.nodePath = item.path;
+			const lifetime = this._register(new DisposableStore());
+			lifetime.add(renderLocalSurface(mount));
+			const navigationEditor: IBaseHalfActiveCanvasEditor = {
+				resource: item.stat.resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath: item.path,
+				supportsCanvasProjectionHandoff: false,
+				prepareToClose: () => requestLeaveSurface(undefined, false)
+			};
+			this.canvasNavigationService.setActiveCanvasEditor(navigationEditor);
+			lifetime.add(toDisposable(() => {
+				if (this.canvasNavigationService.activeCanvasEditor === navigationEditor) {
+					this.canvasNavigationService.setActiveCanvasEditor(undefined);
+				}
+			}));
+			let pendingInitialFocus = true;
+			const onPortalLayout = (event: Event) => {
+				const detail = (event as CustomEvent<IBaseHalfCanvasSceneVideoComposerLayout>).detail;
+				const surface = renderedLocalSurface;
+				if (!detail || !surface?.isConnected) {
+					return;
+				}
+				surface.dataset.placement = detail.placement;
+				surface.style.setProperty('--basehalf-video-composer-width', `${detail.screenWidth}px`);
+				const popover = surface.querySelector<HTMLElement>('.basehalf-video-composer-popover');
+				if (popover?.isConnected) {
+					layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect());
+				}
+				if (!detail.visible && surface.contains(surface.ownerDocument.activeElement)) {
+					focusAnchor();
+				}
+				if (pendingInitialFocus && detail.visible) {
+					pendingInitialFocus = false;
+					mainWindow.requestAnimationFrame(() => {
+						if (mounted && mount.isConnected && this.activeNodeLocalSurface === localSurfaceController) {
+							focusLocalSurface();
+						}
+					});
+				}
+			};
+			mount.addEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout);
+			lifetime.add(toDisposable(() => mount.removeEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout)));
+			let mounted = true;
+			const publishVideoComposerSurface = (sceneKey: string, structuralEpoch: number): void => {
+				if (!mounted) {
+					return;
+				}
+				this.canvasScene.setVideoComposerSurface({
+					sceneKey,
+					structuralEpoch,
+					path: item.path,
+					element: mount,
+					screenWidth: localSurfaceWidth,
+					screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+				});
+			};
+			rebindVideoComposerScene = publishVideoComposerSurface;
+			disposeMountedVideoComposer = restoreFocus => {
+				if (!mounted) {
+					return;
+				}
+				mounted = false;
+				this.canvasScene.clearVideoComposerSurface(mount);
+				lifetime.dispose();
+				if (this.activeNodeLocalSurface === localSurfaceController) {
+					this.activeNodeLocalSurface = undefined;
+				}
+				if (restoreFocus) {
+					focusAnchor();
+				}
+			};
+			publishVideoComposerSurface(this.sceneKey(folder), this.renderedSceneStructuralEpoch);
+			return;
+		}
 		this.contextViewService.showContextView(delegate);
 	}
 
@@ -8272,15 +10773,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!stat.isDirectory && path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			const source = await this.fileService.readFile(resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
 			const sourceDocument = parseBaseHalfNodeDocumentBytes(source.value.buffer);
-			const currentVersion = sourceDocument.current.source === 'run' && sourceDocument.current.runId
-				? { source: 'run' as const, id: sourceDocument.current.runId }
-				: sourceDocument.current.source === 'imported' && sourceDocument.current.revisionId
-					? { source: 'imported' as const, id: sourceDocument.current.revisionId }
+			const resultIdentity = sourceDocument.result?.source === 'attempt'
+				? { source: 'attempt' as const, id: sourceDocument.result.attemptId }
+				: sourceDocument.result?.source === 'imported'
+					? { source: 'imported' as const, id: sourceDocument.result.artifact.id }
 					: undefined;
 			return Object.freeze({
 				path,
 				kind: sourceDocument.kind,
-				...(currentVersion === undefined ? {} : { currentVersion: Object.freeze(currentVersion) })
+				...(resultIdentity === undefined ? {} : { resultIdentity: Object.freeze(resultIdentity) })
 			});
 		}
 		return Object.freeze({ path, kind: baseHalfCanvasContentKindForPath(path, stat.isDirectory) });
@@ -8384,240 +10885,89 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return input;
 	}
 
-	private renderNodeLocalHistory(
+	private renderNodeLocalAttempts(
 		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
-		folder: IBaseHalfCanvasFolderState,
 		document: IBaseHalfNodeDocument,
 		listeners: DisposableStore,
-		leaveSurface: (after?: () => void | Promise<void>) => Promise<void>,
 		registerFocusTarget: <T extends HTMLElement>(element: T, key: string) => T,
 		expandedDisclosures: Set<string>,
 		visibleCount: number,
 		onLoadMore: () => void
 	): void {
-		const canSelectCurrent = !this.workingCopyService.isDirty(item.stat.resource)
-			&& !this.nodeExecutionService.getActiveRun(item.stat.resource)
-			&& !document.runs.some(run => run.status === 'running');
-		const historySection = this.renderNodeLocalSection(container, 'History');
-		const history = [
-			...document.runs.map(run => {
-				const primary = run.artifacts.find(artifact => artifact.id === run.primaryArtifactId);
-				return {
-					kind: 'run' as const,
-					id: run.id,
-					createdAt: run.completedAt ?? run.startedAt ?? run.createdAt,
-					title: nodeRunStatusLabel(run.status),
-					detail: getBaseHalfNodeRunHistoryDetail(run, primary?.label ?? primary?.path),
-					primary,
-					run,
-					revision: undefined,
-					selectable: run.status === 'succeeded',
-					current: document.current.runId === run.id
-				};
-			}),
-			...document.revisions.map(revision => ({
-				kind: 'revision' as const,
-				id: revision.id,
-				createdAt: revision.createdAt,
-				title: 'Imported',
-				detail: revision.artifacts.find(artifact => artifact.id === revision.primaryArtifactId)?.label
-					?? revision.artifacts.find(artifact => artifact.id === revision.primaryArtifactId)?.path
-					?? 'Imported content',
-				primary: revision.artifacts.find(artifact => artifact.id === revision.primaryArtifactId),
-				run: undefined,
-				revision,
-				selectable: true,
-				current: document.current.revisionId === revision.id
-			}))
-		].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-		if (history.length === 0) {
-			const empty = append(historySection, $('.basehalf-node-local-empty'));
-			empty.textContent = 'No versions yet.';
+		const attemptsSection = this.renderNodeLocalSection(container, 'Attempts');
+		const attempts = [...document.attempts]
+			.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+		if (attempts.length === 0) {
+			const empty = append(attemptsSection, $('.basehalf-node-local-empty'));
+			empty.textContent = document.result?.source === 'imported'
+				? 'This Result was imported; no generation attempts were made.'
+				: 'No attempts yet.';
 			return;
 		}
-		const list = append(historySection, $('.basehalf-node-local-history'));
-		for (const version of history.slice(0, visibleCount)) {
-			const row = append(list, $('.basehalf-node-local-history-row'));
-			const text = append(row, $('.basehalf-node-local-history-text'));
-			const title = append(text, $('.basehalf-node-local-history-title'));
-			title.textContent = `${version.title} · ${formatNodeRunTime(version.createdAt)}`;
-			const detail = append(text, $('.basehalf-node-local-history-detail'));
-			const primary = version.primary;
-			detail.textContent = version.detail;
-			detail.title = version.detail;
-			const actions = append(row, $('.basehalf-node-local-history-actions'));
-			if (version.current) {
-				const current = append(actions, $('.basehalf-node-local-current-chip'));
-				current.textContent = 'Current';
-			} else if (version.selectable) {
-				const use = append(actions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-				registerFocusTarget(use, `history:${version.kind}:${version.id}:use`);
-				use.type = 'button';
-				use.textContent = 'Use';
-				use.disabled = !canSelectCurrent;
-				use.title = canSelectCurrent
-					? `Use this ${version.kind === 'run' ? 'successful run' : 'imported version'} as Current`
-					: 'Finish the active run or save the open source editor first';
-				listeners.add(this.addDisposableListener(use, 'click', () => void leaveSurface(async () => {
-					if (!canSelectCurrent) {
-						return;
-					}
-					try {
-						const transition = await this.nodeExecutionService.selectCurrentWithTransition({
-							resource: item.stat.resource,
-							workspaceFolder: folder.workspaceFolder,
-							relativePath: item.path
-						}, version.id);
-						this.pushNodeCurrentSelectionUndo(folder, item, transition.before, transition.after);
-						this.requestRender();
-					} catch (error) {
-						this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-						this.requestRender();
-					}
-				})));
-			}
-			if (primary) {
-				const locate = append(actions, $('button.basehalf-node-local-icon.codicon.codicon-go-to-file')) as HTMLButtonElement;
-				registerFocusTarget(locate, `history:${version.kind}:${version.id}:open`);
-				locate.type = 'button';
-				locate.title = `Open ${primary.path}`;
-				locate.setAttribute('aria-label', locate.title);
-				listeners.add(this.addDisposableListener(locate, 'click', () => void leaveSurface(() => this.locateNodeArtifact(primary))));
-			}
-			const disclosureLines = version.run
-				? getBaseHalfNodeRunDisclosureLines(version.run)
-				: version.revision
-					? getBaseHalfNodeRevisionDisclosureLines(version.revision)
-					: [];
-			if (disclosureLines.length > 0) {
-				const details = append(actions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-				registerFocusTarget(details, `history:${version.kind}:${version.id}:details`);
-				details.type = 'button';
-				details.textContent = 'Details';
-				const disclosure = append(row, $('.basehalf-node-local-history-disclosure'));
-				disclosure.hidden = !expandedDisclosures.has(`${version.kind}:${version.id}`);
+		const list = append(attemptsSection, $('.basehalf-node-local-attempts'));
+		for (const attempt of attempts.slice(0, visibleCount)) {
+			const resultArtifact = document.result?.source === 'attempt' && document.result.attemptId === attempt.id
+				? document.result.artifact
+				: undefined;
+			const row = append(list, $('.basehalf-node-local-attempt-row'));
+			const text = append(row, $('.basehalf-node-local-attempt-text'));
+			const title = append(text, $('.basehalf-node-local-attempt-title'));
+			title.textContent = `${nodeAttemptStatusLabel(attempt.status)} · ${formatNodeAttemptTime(attempt.completedAt ?? attempt.startedAt ?? attempt.createdAt)}`;
+			const detail = append(text, $('.basehalf-node-local-attempt-detail'));
+			detail.textContent = getBaseHalfNodeAttemptSummary(attempt, resultArtifact?.label ?? resultArtifact?.path);
+			detail.title = detail.textContent;
+			const actions = append(row, $('.basehalf-node-local-attempt-actions'));
+			const disclosureLines = getBaseHalfNodeAttemptDisclosureLines(attempt, resultArtifact);
+			const details = append(actions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
+			registerFocusTarget(details, `attempt:${attempt.id}:details`);
+			details.type = 'button';
+			details.textContent = 'Details';
+			const disclosure = append(row, $('.basehalf-node-local-attempt-disclosure'));
+			disclosure.hidden = !expandedDisclosures.has(attempt.id);
+			details.setAttribute('aria-expanded', String(!disclosure.hidden));
+			disclosure.textContent = disclosureLines.join('\n');
+			listeners.add(this.addDisposableListener(details, 'click', () => {
+				disclosure.hidden = !disclosure.hidden;
+				if (disclosure.hidden) {
+					expandedDisclosures.delete(attempt.id);
+				} else {
+					expandedDisclosures.add(attempt.id);
+				}
 				details.setAttribute('aria-expanded', String(!disclosure.hidden));
-				disclosure.textContent = disclosureLines.join('\n');
-				listeners.add(this.addDisposableListener(details, 'click', () => {
-					disclosure.hidden = !disclosure.hidden;
-					if (disclosure.hidden) {
-						expandedDisclosures.delete(`${version.kind}:${version.id}`);
-					} else {
-						expandedDisclosures.add(`${version.kind}:${version.id}`);
-					}
-					details.setAttribute('aria-expanded', String(!disclosure.hidden));
-				}));
-			}
+			}));
 		}
-		if (history.length > visibleCount) {
-			const loadMore = append(historySection, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-			registerFocusTarget(loadMore, 'history:load-more');
+		if (attempts.length > visibleCount) {
+			const loadMore = append(attemptsSection, $('button.basehalf-node-local-link')) as HTMLButtonElement;
+			registerFocusTarget(loadMore, 'attempts:load-more');
 			loadMore.type = 'button';
-			loadMore.textContent = `Load ${Math.min(50, history.length - visibleCount)} older versions`;
-			loadMore.setAttribute('aria-label', `${loadMore.textContent}; ${history.length - visibleCount} remain`);
+			loadMore.textContent = `Load ${Math.min(50, attempts.length - visibleCount)} older attempts`;
+			loadMore.setAttribute('aria-label', `${loadMore.textContent}; ${attempts.length - visibleCount} remain`);
 			listeners.add(this.addDisposableListener(loadMore, 'click', onLoadMore));
 		}
 	}
 
-	private pushNodeCurrentSelectionUndo(
-		folder: IBaseHalfCanvasFolderState,
-		item: IBaseHalfCanvasItem,
-		before: VSBuffer,
-		after: VSBuffer
-	): void {
-		const node = {
-			resource: item.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: item.path
-		};
-		const apply = async (expected: VSBuffer, next: VSBuffer): Promise<void> => {
-			await this.nodeExecutionService.transitionCurrent(node, expected, next);
-			this.scheduleBackgroundRender();
-		};
-		this.undoRedoService.pushElement({
-			type: UndoRedoElementType.Workspace,
-			resources: [item.stat.resource],
-			label: localize('basehalf.canvas.nodeCurrent.undo', "Choose Current result"),
-			code: 'basehalf.canvas.nodeCurrent',
-			undo: () => apply(after, before),
-			redo: () => apply(before, after)
-		}, undefined, this.canvasUndoRedoSource);
-	}
-
-	private renderNodeLocalCurrent(
-		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
-		document: IBaseHalfNodeDocument,
-		integrity: Exclude<BaseHalfNodeArtifactIntegrity, 'available'> | undefined,
-		verificationPending: boolean,
-		listeners: DisposableStore,
-		leaveSurface: (after?: () => void | Promise<void>) => Promise<void>,
-		registerFocusTarget: <T extends HTMLElement>(element: T, key: string) => T
-	): void {
-		const currentSection = this.renderNodeLocalSection(container, 'Current');
-		const row = append(currentSection, $('.basehalf-node-local-current-row'));
-		const text = append(row, $('.basehalf-node-local-current-text'));
-		const value = append(text, $('.basehalf-node-local-current-value'));
-		value.textContent = verificationPending && document.current.source !== 'empty'
-			? 'Checking Current…'
-			: integrity === 'missing'
-			? 'Recorded output is missing'
-			: integrity === 'changed'
-				? 'Recorded output changed outside BaseHalf'
-				: nodeCurrentLabel(document);
-		const source = append(text, $('.basehalf-node-local-current-source'));
-		const installedRecipe = document.recipe
-			? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId)
-			: undefined;
-		const canRunAgain = !!installedRecipe && baseHalfCanvasRecipeMatchesNodeKind(installedRecipe, document.kind);
-		const replaceLabel = baseHalfNodeImportActionLabel(document.kind, true);
-		const recovery = canRunAgain
-			? `Run again to create a ${integrity === 'changed' ? 'verified ' : ''}result. History is unchanged.`
-			: document.recipe
-				? `Choose an available recipe, or ${replaceLabel.toLowerCase()}. History is unchanged.`
-				: `${replaceLabel} to select a new Current. History is unchanged.`;
-		source.textContent = verificationPending && document.current.source !== 'empty'
-			? 'Verifying the recorded file before it can be opened or reused.'
-			: integrity === 'missing' || integrity === 'changed'
-			? recovery
-			: document.current.source === 'run' ? 'Selected successful run' : nodeCurrentSourceLabel(document.current.source);
-		const primary = getBaseHalfNodeCurrentPrimaryArtifact(document);
-		const path = primary?.path ?? document.current.outputPaths[0];
-		if (path && !verificationPending) {
-			const locate = append(row, $('button.basehalf-node-local-icon.codicon.codicon-go-to-file')) as HTMLButtonElement;
-			registerFocusTarget(locate, 'history:current:open');
-			locate.type = 'button';
-			locate.title = `Open ${path}`;
-			locate.setAttribute('aria-label', locate.title);
-			listeners.add(this.addDisposableListener(locate, 'click', () => void leaveSurface(
-				() => this.locateNodeCurrent(item)
-			)));
-		}
-	}
-
-	private async importCanvasNodeCurrent(item: IBaseHalfCanvasItem): Promise<void> {
+	private async importCanvasNodeResult(item: IBaseHalfCanvasItem): Promise<void> {
 		const folder = this.getCurrentFolder();
 		if (!folder || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		try {
 			if (this.workingCopyService.isDirty(item.stat.resource) || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-				throw new Error('Save this node and finish its active run before importing Current.');
+				throw new Error('Save this Draft and finish its active attempt before importing a Result.');
 			}
 			const content = await this.fileService.readFile(item.stat.resource, {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 			});
 			const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const importProblem = getBaseHalfNodeImportHistoryProblem(document);
+			const importProblem = getBaseHalfNodeImportProblem(document);
 			if (importProblem) {
 				throw new Error(importProblem);
 			}
-			if (document.runs.some(run => run.status === 'running')) {
-				throw new Error('Finish the active run before importing Current.');
+			if (document.attempts.some(attempt => attempt.status === 'running')) {
+				throw new Error('Finish the active attempt before importing a Result.');
 			}
-			await this.importNodeCurrent(folder, item, content.value, document);
+			await this.importNodeResult(folder, item, content.value, document);
 		} catch (error) {
 			this.logService.warn(error);
 			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
@@ -8625,20 +10975,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async importNodeCurrent(
+	private async importNodeResult(
 		folder: IBaseHalfCanvasFolderState,
 		item: IBaseHalfCanvasItem,
 		expectedContents: VSBuffer,
 		document: IBaseHalfNodeDocument
 	): Promise<void> {
-		const importProblem = getBaseHalfNodeImportHistoryProblem(document);
+		const importProblem = getBaseHalfNodeImportProblem(document);
 		if (importProblem) {
 			throw new Error(importProblem);
 		}
-		const replacing = document.current.source !== 'empty';
-		const importLabel = baseHalfNodeImportActionLabel(document.kind, replacing);
+		const importLabel = baseHalfNodeImportActionLabel(document.kind);
 		const resources = await this.fileDialogService.showOpenDialog({
-			title: `${importLabel} as Current`,
+			title: `${importLabel} as Result`,
 			openLabel: importLabel,
 			defaultUri: folder.resource,
 			canSelectFiles: true,
@@ -8651,7 +11000,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		try {
 			if (this.workingCopyService.isDirty(item.stat.resource) || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-				throw new Error('Save this node and finish its active run before importing Current.');
+				throw new Error('Save this Draft and finish its active attempt before importing a Result.');
 			}
 			const stat = await this.fileService.resolve(source, { resolveMetadata: true });
 			if (!stat.isFile || stat.isSymbolicLink) {
@@ -8673,16 +11022,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (!target) {
 				return;
 			}
-			const revision = await this.nodeExecutionService.copyImportedRevision(folder.workspaceFolder, source, target, document.kind);
+			const artifact = await this.nodeExecutionService.copyImportedResult(folder.workspaceFolder, source, target, document.kind);
 			try {
 				await this.fileService.writeFileWithExpectedContents(
 					item.stat.resource,
-					VSBuffer.fromString(serializeBaseHalfNodeDocument(importBaseHalfNodeCurrent(document, revision))),
+					VSBuffer.fromString(serializeBaseHalfNodeDocument(importBaseHalfNodeResult(document, artifact))),
 					expectedContents,
 					{ atomic: { postfix: '.basehalf-node-import-tmp' } }
 				);
 			} catch (error) {
-				throw new Error(`The node changed before the import could be saved. The copied file '${revision.artifacts[0].path}' was kept as ordinary project data.`, { cause: error });
+				throw new Error(`The node changed before the import could be saved. The copied file '${artifact.path}' was kept as ordinary project data.`, { cause: error });
 			}
 			this.contextViewService.hideContextView();
 			this.requestRender();
@@ -8693,7 +11042,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async locateNodeCurrent(item: IBaseHalfCanvasItem): Promise<void> {
+	private async locateNodeResult(item: IBaseHalfCanvasItem): Promise<void> {
 		try {
 			const content = await this.fileService.readFile(item.stat.resource, {
 				atomic: true,
@@ -8702,45 +11051,38 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const document = this.nodeExecutionService.getActiveRun(item.stat.resource)
 				? parseBaseHalfNodeDocumentBytesForActiveHost(content.value.buffer)
 				: parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(document);
-			const path = primary?.path ?? document.current.outputPaths[0];
-			if (path) {
-				await this.locateNodeArtifact(primary ?? path, 'current');
+			const artifact = getBaseHalfNodeResultArtifact(document);
+			if (artifact) {
+				await this.locateNodeArtifact(artifact);
 			}
 		} catch (error) {
 			this.logService.warn(error);
-			this.queueCanvasWarning('Current changed before it could be opened. Reopen the node and try again.');
+			this.queueCanvasWarning('The Result changed before it could be opened. Reopen the node and try again.');
 			this.requestRender();
 		}
 	}
 
 	private async locateNodeArtifact(
-		artifactOrPath: string | IBaseHalfNodeRunArtifact,
-		origin: 'current' | 'history' = 'history'
+		artifact: IBaseHalfNodeResultArtifact
 	): Promise<void> {
 		const folder = this.getCurrentFolder();
 		if (!folder) {
 			return;
 		}
-		const verifiedArtifact = typeof artifactOrPath === 'string' ? undefined : artifactOrPath;
-		const path = typeof artifactOrPath === 'string' ? artifactOrPath : artifactOrPath.path;
-		if (verifiedArtifact) {
-			try {
-				const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, verifiedArtifact, { fresh: true });
-				const problem = getBaseHalfNodeHistoricalArtifactOpenProblem(path, integrity, origin);
-				if (problem) {
-					this.queueCanvasWarning(problem);
-					this.requestRender();
-					return;
-				}
-			} catch (error) {
-				this.logService.warn(error);
-				this.queueCanvasWarning(origin === 'current'
-					? `Current could not be verified: '${path}'. Choose a verified version in History or run the node again.`
-					: `This historical output could not be verified: '${path}'. Choose another version in History or run the node again.`);
+		const path = artifact.path;
+		try {
+			const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact, { fresh: true });
+			const problem = getBaseHalfNodeResultArtifactOpenProblem(path, integrity);
+			if (problem) {
+				this.queueCanvasWarning(problem);
 				this.requestRender();
 				return;
 			}
+		} catch (error) {
+			this.logService.warn(error);
+			this.queueCanvasWarning(`The sealed Result could not be verified: '${path}'. Restore the original file or copy the settings into a new Draft.`);
+			this.requestRender();
+			return;
 		}
 		await this.openNodeArtifactPath(folder, path);
 	}
@@ -8781,20 +11123,26 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}, { once: true });
 			return;
 		}
-		if (preview.mediaKind === 'video') {
-			if (!interactive) {
-				this.renderMediaFallback(container, preview.text, 'video');
-				return;
-			}
-			const video = append(container, $('video.basehalf-canvas-card-media-visual')) as HTMLVideoElement;
+			if (preview.mediaKind === 'video') {
+				const video = append(container, $('video.basehalf-canvas-card-media-visual')) as HTMLVideoElement;
 			video.src = FileAccess.uriToBrowserUri(preview.resource).toString(true);
 			video.preload = 'metadata';
-			video.controls = true;
-			video.tabIndex = 0;
-			video.classList.add('nodrag', 'nopan', 'nowheel');
+			video.controls = interactive;
+			video.tabIndex = interactive ? 0 : -1;
+				if (interactive) {
+					video.classList.add('nodrag', 'nopan', 'nowheel');
+				}
 			video.playsInline = true;
+			if (interactive) {
+				video.setAttribute('aria-label', localize('basehalf.canvas.videoPreview.player', "Video player for {0}", preview.text));
+				} else {
+					video.setAttribute('aria-hidden', 'true');
+					video.style.pointerEvents = 'none';
+				}
 			listeners.add(toDisposable(() => releaseBaseHalfCanvasCardMedia(video)));
-			this.configureCardMediaTransport(video);
+			if (interactive) {
+				this.configureCardMediaTransport(video);
+			}
 			video.addEventListener('error', () => {
 				video.remove();
 				this.renderMediaFallback(container, preview.text, 'video', () => {
@@ -10248,17 +12596,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let nodeUpdate: IBaseHalfCanvasNodeDocumentTransition | undefined;
 		if (targetKind === 'file' && to.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			if (this.workingCopyService.isDirty(targetResource) || this.nodeExecutionService.getActiveRun(targetResource)) {
-				throw new Error(`Save '${to}' and finish its active run before removing this connection.`);
+					throw new Error(`Save '${to}' and finish its active attempt before removing this connection.`);
 			}
 			const content = await this.fileService.readFile(targetResource, {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 			});
 			const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			if (document.runs.some(run => run.status === 'running')) {
-				throw new Error(`Finish '${to}' active run before removing this connection.`);
-			}
-			if (document.recipe?.inputBindings.some(binding => binding.sourcePath === source.relativePath)) {
+			if (document.attempts.some(attempt => attempt.status === 'running')) {
+					throw new Error(`Finish '${to}' active attempt before removing this connection.`);
+				}
+				if (document.recipe?.inputBindings.some(binding => binding.sourcePath === source.relativePath)) {
+					if (document.result || document.attempts.length > 0) {
+						throw new Error(`'${to}' already has an attempt or sealed Result. Its recipe inputs cannot be disconnected.`);
+					}
 				const inputBindings = normalizeNodeInputBindings(document.recipe.inputBindings
 					.filter(binding => binding.sourcePath !== source.relativePath));
 				nodeUpdate = {
@@ -12071,12 +14422,8 @@ function edgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
 }
 
-function folderCountLabel(total: number): string {
-	return total === 0 ? 'empty' : total === 1 ? '1 item' : `${total} items`;
-}
-
 function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {
-	return preview?.kind === 'node' ? preview.document.title : preview?.kind === 'nodeLoading' ? 'Output' : item.name;
+	return preview?.kind === 'node' ? preview.document.title : item.name;
 }
 
 function baseHalfNodeIdentityProblem(title: string, role: string): string | undefined {
@@ -12099,7 +14446,7 @@ function nodeKindLabel(kind: IBaseHalfNodeDocument['kind']): string {
 	return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
 }
 
-function nodeRunStatusLabel(status: IBaseHalfNodeDocument['runs'][number]['status']): string {
+function nodeAttemptStatusLabel(status: IBaseHalfNodeDocument['attempts'][number]['status']): string {
 	switch (status) {
 		case 'running': return 'Running';
 		case 'succeeded': return 'Succeeded';
@@ -12109,75 +14456,38 @@ function nodeRunStatusLabel(status: IBaseHalfNodeDocument['runs'][number]['statu
 	}
 }
 
-function getBaseHalfNodeRevisionDisclosureLines(revision: IBaseHalfNodeImportedRevision): readonly string[] {
-	const lines = [
-		`Revision: ${revision.id}`,
-		`Created: ${revision.createdAt}`,
-		`Primary artifact: ${revision.primaryArtifactId}`,
-		`Artifacts: ${revision.artifacts.length}`
-	];
-	for (const artifact of revision.artifacts) {
-		lines.push(
-			`${artifact.id === revision.primaryArtifactId ? 'Primary' : 'Artifact'}: ${artifact.label ?? artifact.path}`,
-			`  Path: ${artifact.path}`,
-			`  Kind: ${artifact.kind}`,
-			`  Size: ${artifact.size} bytes`,
-			`  SHA-256: ${artifact.sha256}`
-		);
-	}
-	return Object.freeze(lines);
-}
-
-function nodeCurrentSourceLabel(source: IBaseHalfNodeDocument['current']['source']): string {
-	switch (source) {
-		case 'empty': return 'No selected content';
-		case 'imported': return 'Imported file';
-		case 'run': return 'Selected successful run';
-	}
-}
-
-function formatNodeRunTime(value: string): string {
+function formatNodeAttemptTime(value: string): string {
 	const time = Date.parse(value);
 	if (Number.isNaN(time)) {
 		return value;
 	}
-	return nodeRunDateFormatter.value.format(time);
+	return nodeAttemptDateFormatter.value.format(time);
 }
 
-function nodeCurrentLabel(document: IBaseHalfNodeDocument, outputText?: string): string {
+function nodeResultLabel(document: IBaseHalfNodeDocument, outputText?: string): string {
 	const text = outputText?.trim().replace(/\s+/g, ' ');
 	if (text) {
 		return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 	}
-	const paths = getBaseHalfNodeCurrentArtifacts(document).map(artifact => artifact.path);
-	const outputPaths = paths.length > 0 ? paths : document.current.outputPaths;
-	if (outputPaths.length > 0) {
-		const first = baseHalfReferenceLabel(outputPaths[0]);
-		const remaining = outputPaths.length - 1;
-		return remaining > 0 ? `${first} +${remaining}` : first;
+	const artifact = getBaseHalfNodeResultArtifact(document);
+	if (artifact) {
+		return baseHalfReferenceLabel(artifact.path);
 	}
-	return 'No current result';
+	return document.attempts.length > 0 ? 'No Result' : 'Empty Draft';
 }
 
-function nodePreviewCurrentLabel(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>): string {
-	const hasRecordedCurrent = getBaseHalfNodeCurrentArtifacts(preview.document).length > 0
-		|| preview.document.current.outputPaths.length > 0;
-	return preview.verificationPending && hasRecordedCurrent
-		? 'Checking Current…'
-		: nodeCurrentLabel(preview.document, preview.currentOutputText);
+function nodePreviewResultLabel(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>): string {
+	return preview.verificationPending && !!preview.document.result
+		? 'Checking Result…'
+		: nodeResultLabel(preview.document, preview.resultOutputText);
 }
 
-function nodeCurrentTitle(document: IBaseHalfNodeDocument, outputText?: string): string {
-	const currentText = outputText;
-	if (currentText?.trim()) {
-		const text = currentText.trim();
+function nodeResultTitle(document: IBaseHalfNodeDocument, outputText?: string): string {
+	if (outputText?.trim()) {
+		const text = outputText.trim();
 		return text.length > 1024 ? `${text.slice(0, 1021)}...` : text;
 	}
-	const paths = getBaseHalfNodeCurrentArtifacts(document).map(artifact => artifact.path);
-	const outputPaths = paths.length > 0 ? paths : document.current.outputPaths;
-	return outputPaths.length > 0
-		? outputPaths.join('\n')
-		: 'No current result';
+	return getBaseHalfNodeResultArtifact(document)?.path ?? (document.attempts.length > 0 ? 'No Result was produced' : 'Empty Draft');
 }
 
 function normalizeNodeInputBindings(bindings: readonly IBaseHalfNodeInputBinding[]): readonly IBaseHalfNodeInputBinding[] {
@@ -12190,15 +14500,15 @@ function normalizeNodeInputBindings(bindings: readonly IBaseHalfNodeInputBinding
 function nodeLocalStateForCardPreview(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>) {
 	return getBaseHalfNodeLocalState(preview.document, {
 		recipe: preview.recipe,
+		...(preview.videoConfiguration ? { videoConfiguration: preview.videoConfiguration } : {}),
 		modelServices: preview.modelServices,
 		execution: preview.execution,
-		currentOutputIntegrity: preview.currentOutputIntegrity,
+		resultIntegrity: preview.resultIntegrity,
 		dirty: preview.dirty,
 		graphProblem: preview.graphProblem,
 		directSourcePaths: preview.directSourcePaths,
 		directSourceProblems: preview.directSourceProblems,
-		staleReason: preview.staleReason,
-			verificationPending: preview.verificationPending,
+		verificationPending: preview.verificationPending,
 		inputKinds: preview.inputKinds,
 		matchingRecipeCount: preview.matchingRecipeCount
 	});

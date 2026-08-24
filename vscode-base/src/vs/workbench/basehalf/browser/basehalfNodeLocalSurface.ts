@@ -17,20 +17,20 @@ import { IBaseHalfModelServiceDescriptor } from '../common/basehalfModelServices
 import {
 	BaseHalfNodeArtifactKind,
 	BaseHalfNodeJsonValue,
-	BASEHALF_NODE_MAX_REVISIONS,
-	BASEHALF_NODE_MAX_RUNS,
+	BASEHALF_NODE_MAX_ATTEMPTS,
 	IBaseHalfNodeDocument,
 	IBaseHalfNodeInputBinding,
 	IBaseHalfNodeRecipe,
-	IBaseHalfNodeRun
+	IBaseHalfNodeAttempt,
+	IBaseHalfNodeResultArtifact
 } from '../common/basehalfNodeDocument.js';
 
 export type BaseHalfNodeLocalPrimaryActionKind =
 	| 'add'
 	| 'import'
 	| 'configure'
+	| 'copy'
 	| 'run'
-	| 'runAgain'
 	| 'retry'
 	| 'cancel'
 	| 'recover'
@@ -40,6 +40,7 @@ export type BaseHalfNodeLocalPrimaryActionKind =
 export interface IBaseHalfNodeLocalExecutionState {
 	readonly phase: 'preparing' | 'running' | 'cancelling';
 	readonly message?: string;
+	readonly progress?: number;
 }
 
 export interface IBaseHalfNodeLocalPrimaryAction {
@@ -52,15 +53,17 @@ export function baseHalfNodeLocalPrimaryActionOpensSurface(action: IBaseHalfNode
 }
 
 export type BaseHalfNodeLocalStatus =
-	| 'Empty'
+	| 'Draft'
 	| 'Needs input'
 	| 'Ready'
-	| 'Running'
+	| 'Preparing'
+	| 'Waiting'
+	| 'Generating'
 	| 'Cancelling'
-	| 'Current'
-	| 'Stale'
+	| 'Result'
 	| 'Failed'
 	| 'Cancelled'
+	| 'Interrupted'
 	| 'Provider missing'
 	| 'Output missing'
 	| 'Output changed';
@@ -73,12 +76,20 @@ export interface IBaseHalfNodeLocalState {
 	readonly action: IBaseHalfNodeLocalPrimaryAction;
 }
 
+const RETRY_CONFIGURATION_CHANGED_ERROR = 'Retry requires the unchanged frozen Recipe, inputs, and model connection.';
+
+/** Stable class-name fragment for the compact lifecycle state rendered on a node. */
+export function baseHalfNodeLocalStatusToken(status: BaseHalfNodeLocalStatus): string {
+	return status.toLowerCase().replace(/\s+/g, '-');
+}
+
 export type BaseHalfNodeParameterDraftValue = string | boolean | undefined;
 export type BaseHalfNodeParameterDraft = Readonly<Record<string, BaseHalfNodeParameterDraftValue>>;
 
 export interface IBaseHalfNodeLocalConfigurationDraft {
 	readonly title: string;
 	readonly role: string;
+	readonly prompt: string;
 	readonly recipeId: string;
 	readonly parameters: BaseHalfNodeParameterDraft;
 	readonly modelServiceId?: string;
@@ -89,6 +100,7 @@ export interface IBaseHalfNodeLocalConfigurationDraft {
 export type BaseHalfNodeLocalConfigurationConflict =
 	| 'Title'
 	| 'Role'
+	| 'Prompt'
 	| 'Recipe'
 	| 'Parameters'
 	| 'Model service'
@@ -100,8 +112,8 @@ export interface IBaseHalfNodeLocalConfigurationMerge {
 	readonly conflicts: readonly BaseHalfNodeLocalConfigurationConflict[];
 }
 
-export interface IBaseHalfNodeInputCurrentVersion {
-	readonly source: 'run' | 'imported';
+export interface IBaseHalfNodeInputResultIdentity {
+	readonly source: 'attempt' | 'imported';
 	readonly id: string;
 }
 
@@ -121,7 +133,8 @@ export function resolveBaseHalfNodeLocalSurfacePlacement(
 	anchor: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom'>,
 	viewport: { readonly width: number; readonly height: number },
 	surface = { width: 400, height: 640 },
-	margin = 16
+	margin = 16,
+	preferredSide?: IBaseHalfNodeLocalSurfacePlacement['side']
 ): IBaseHalfNodeLocalSurfacePlacement {
 	const usable = {
 		right: Math.max(0, viewport.width - anchor.right - margin) / Math.max(1, surface.width),
@@ -129,8 +142,10 @@ export function resolveBaseHalfNodeLocalSurfacePlacement(
 		below: Math.max(0, viewport.height - anchor.bottom - margin) / Math.max(1, surface.height),
 		above: Math.max(0, anchor.top - margin) / Math.max(1, surface.height)
 	};
-	const side = (Object.entries(usable) as Array<[IBaseHalfNodeLocalSurfacePlacement['side'], number]>)
-		.sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'right';
+	const side = preferredSide && usable[preferredSide] >= 1
+		? preferredSide
+		: (Object.entries(usable) as Array<[IBaseHalfNodeLocalSurfacePlacement['side'], number]>)
+			.sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'right';
 	if (side === 'right' || side === 'left') {
 		return Object.freeze({
 			side,
@@ -229,6 +244,7 @@ export function mergeBaseHalfNodeLocalConfigurationDraft(
 	const conflicts: BaseHalfNodeLocalConfigurationConflict[] = [];
 	const title = mergeConfigurationField(base.title, local.title, external.title, 'Title', conflicts);
 	const role = mergeConfigurationField(base.role, local.role, external.role, 'Role', conflicts);
+	const prompt = mergeConfigurationField(base.prompt, local.prompt, external.prompt, 'Prompt', conflicts);
 	const baseRecipe = recipeConfiguration(base);
 	const localRecipe = recipeConfiguration(local);
 	const externalRecipe = recipeConfiguration(external);
@@ -258,6 +274,7 @@ export function mergeBaseHalfNodeLocalConfigurationDraft(
 		draft: Object.freeze({
 			title,
 			role,
+			prompt,
 			recipeId,
 			parameters: Object.freeze({ ...parameters }),
 			...(modelServiceId === undefined ? {} : { modelServiceId }),
@@ -274,15 +291,22 @@ export type BaseHalfNodeParameterDraftResult =
 
 export interface IBaseHalfNodeLocalStateOptions {
 	readonly recipe?: IBaseHalfCanvasRecipeDescriptor;
+	/**
+	 * Video parameters are contributed by the reviewed model catalog rather
+	 * than by the static recipe manifest. Callers must prove that the exact
+	 * persisted model snapshot and its dynamic settings were revalidated.
+	 */
+	readonly videoConfiguration?:
+		| { readonly valid: true }
+		| { readonly valid: false; readonly problem: string };
 	readonly modelServices?: readonly IBaseHalfModelServiceDescriptor[];
 	readonly execution?: IBaseHalfNodeLocalExecutionState;
-	readonly currentOutputIntegrity?: 'missing' | 'changed';
+	readonly resultIntegrity?: 'missing' | 'changed';
 	readonly dirty?: boolean;
 	readonly graphProblem?: string;
 	readonly directSourcePaths?: readonly string[];
-	/** Actionable Current/integrity failures keyed by direct result-node path. */
+	/** Actionable sealed-result integrity failures keyed by direct result-node path. */
 	readonly directSourceProblems?: ReadonlyMap<string, string>;
-	readonly staleReason?: 'recipe' | 'inputs';
 	/** Expensive local artifact and direct-input checks are still running. */
 	readonly verificationPending?: boolean;
 	/** Number of installed recipes whose primary output matches this stable node kind. */
@@ -298,77 +322,137 @@ export function getBaseHalfNodeLocalState(
 	if (options.execution) {
 		return getBaseHalfNodeLocalExecutionState(options.execution);
 	}
-	if (options.verificationPending && document.current.source !== 'empty') {
-		return state('Needs input', false, 'Checking Current before this node can be used.', 'wait', 'Checking');
+	if (document.result) {
+		if (options.verificationPending) {
+			return state('Waiting', false, 'Checking the sealed result file.', 'wait', 'Checking');
+		}
+		if (options.resultIntegrity === 'missing') {
+			return state(
+				'Output missing',
+				true,
+				'The sealed result file is missing. Locate its project path to restore the original file, or copy the settings into a new Draft.',
+				'locate',
+				'Locate file'
+			);
+		}
+		if (options.resultIntegrity === 'changed') {
+			return state(
+				'Output changed',
+				true,
+				'The sealed result file changed outside BaseHalf. Restore the original bytes or copy the settings into a new Draft; this Result cannot be replaced.',
+				'locate',
+				'Locate file'
+			);
+		}
+		const source = document.result.source === 'imported' ? 'Imported' : 'Generated';
+		return state('Result', true, `${source} ${baseHalfNodeImportObjectLabel(document.kind)} is sealed and available.`, 'locate', 'Locate file');
+	}
+
+	const latest = document.attempts.at(-1);
+	if (latest?.status === 'running') {
+		return state(
+			'Waiting',
+			false,
+			'This saved attempt needs a status check. If another host still owns it, generation continues; an abandoned attempt can be marked interrupted.',
+			'recover',
+			'Check status'
+		);
+	}
+	if (latest && !baseHalfNodeAttemptHasCompleteRetrySnapshot(latest)) {
+		const status = latest.status === 'cancelled' ? 'Cancelled' : latest.status === 'interrupted' ? 'Interrupted' : 'Failed';
+		const reason = latest.status === 'cancelled'
+			? 'The attempt was cancelled before its complete execution snapshot was frozen.'
+			: latest.status === 'interrupted'
+				? 'The attempt was interrupted before its complete execution snapshot was frozen.'
+				: 'The attempt stopped before its complete execution snapshot was frozen.';
+		return state(
+			status,
+			true,
+			`${reason} BaseHalf cannot prove that a Retry would use the same model and inputs. Copy settings into a new Draft instead.`,
+			'copy',
+			'Copy settings'
+		);
+	}
+	if (document.attempts.length >= BASEHALF_NODE_MAX_ATTEMPTS) {
+		return state(
+			'Needs input',
+			true,
+			`This Draft has reached ${BASEHALF_NODE_MAX_ATTEMPTS} attempts. Copy its settings into a new Draft; every existing attempt stays unchanged.`,
+			'copy',
+			'Copy settings'
+		);
+	}
+	if (latest?.status === 'failed' && latest.error?.startsWith(RETRY_CONFIGURATION_CHANGED_ERROR) === true) {
+		return state(
+			'Failed',
+			true,
+			'The frozen Recipe, inputs, or model connection changed. This Attempt cannot be retried safely; copy its settings into a new Draft.',
+			'copy',
+			'Copy settings'
+		);
 	}
 
 	if (!document.recipe) {
-		if (document.current.source !== 'empty') {
-			if (options.currentOutputIntegrity === 'missing' || options.currentOutputIntegrity === 'changed') {
-				const importProblem = getBaseHalfNodeImportHistoryProblem(document);
-				if (importProblem) {
-					return state('Needs input', false, importProblem, 'wait', 'History full');
-				}
-				return state(
-					options.currentOutputIntegrity === 'missing' ? 'Output missing' : 'Output changed',
-					true,
-					`The selected ${baseHalfNodeImportObjectLabel(document.kind)} is ${options.currentOutputIntegrity}. Replace it to select a new Current; History keeps the original record.`,
-					'import',
-					baseHalfNodeImportActionLabel(document.kind, true)
-				);
-			}
-			return state('Current', true, `Current ${baseHalfNodeImportObjectLabel(document.kind)} is available. Add or change content, or choose a recipe.`, 'add', 'Set up');
-		}
-		const importProblem = getBaseHalfNodeImportHistoryProblem(document);
-		if (importProblem) {
-			return state('Needs input', false, importProblem, 'wait', 'History full');
-		}
+		const videoDraftMessage = options.matchingRecipeCount === 0
+			? 'Write the prompt now. Choose a video generator before submitting, or import an existing video.'
+			: 'Choose a video generator or import an existing video.';
 		return state(
-			'Empty',
+			'Draft',
 			true,
-			options.matchingRecipeCount === 0
-				? `Add existing ${baseHalfNodeImportObjectLabel(document.kind)} content. A recipe can be installed later.`
-				: `Add existing ${baseHalfNodeImportObjectLabel(document.kind)} content or choose a recipe.`,
+			document.kind === 'video'
+				? videoDraftMessage
+				: options.matchingRecipeCount === 0
+				? `Import an existing ${baseHalfNodeImportObjectLabel(document.kind)}. A generation recipe can be installed later.`
+				: `Import an existing ${baseHalfNodeImportObjectLabel(document.kind)} or choose a generation recipe.`,
 			'add',
 			'Add content'
 		);
 	}
 
+	const isFrozen = document.attempts.length > 0;
+	const blockedAction: IBaseHalfNodeLocalPrimaryAction = isFrozen
+		? Object.freeze({ kind: 'wait', label: 'Retry unavailable' })
+		: Object.freeze({ kind: 'configure', label: 'Configure' });
 	const recipe = options.recipe;
 	if (!recipe || recipe.id !== document.recipe.recipeId.toLowerCase()) {
-		if (document.current.source !== 'empty' && !options.currentOutputIntegrity) {
-			return state('Current', true, `Current ${baseHalfNodeImportObjectLabel(document.kind)} remains available. Recipe '${document.recipe.recipeId}' is not installed, so choose an available recipe to run again.`, 'configure', 'Configure');
-		}
-		return state('Needs input', false, `Recipe '${document.recipe.recipeId}' is not installed. Choose an available recipe.`, 'configure', 'Configure');
-	}
-	if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
-		if (document.current.source !== 'empty' && !options.currentOutputIntegrity) {
-			return state('Current', true, `Current ${baseHalfNodeImportObjectLabel(document.kind)} remains available. Recipe '${recipe.label}' no longer matches this node, so choose a matching recipe to run again.`, 'configure', 'Configure');
-		}
-		return state('Needs input', false, `Recipe '${recipe.label}' does not produce ${document.kind} content. Choose a matching recipe.`, 'configure', 'Configure');
-	}
-
-	const nextAction = restingRunAction(document);
-	const latest = document.runs.at(-1);
-	if (latest?.status === 'running') {
 		return state(
-			'Running',
+			'Needs input',
 			false,
-			'This saved run needs a status check. If another window is still working, nothing changes; an abandoned run can be marked interrupted.',
-			'recover',
-			'Check status'
+			isFrozen
+				? `Recipe '${document.recipe.recipeId}' is not installed. Restore that exact recipe to Retry; attempted settings are frozen.`
+				: `Recipe '${document.recipe.recipeId}' is not installed. Choose an available recipe.`,
+			blockedAction.kind,
+			blockedAction.label
 		);
 	}
-	if (document.runs.length >= BASEHALF_NODE_MAX_RUNS) {
-		return state('Needs input', false, `History has reached ${BASEHALF_NODE_MAX_RUNS} runs. Duplicate this node to begin a new history; this node and all local outputs stay unchanged.`, 'wait', 'History full');
+	if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
+		return state(
+			'Needs input',
+			false,
+			isFrozen
+				? `Recipe '${recipe.label}' no longer produces ${document.kind} content. Restore the compatible recipe to Retry; attempted settings are frozen.`
+				: `Recipe '${recipe.label}' does not produce ${document.kind} content. Choose a matching recipe.`,
+			blockedAction.kind,
+			blockedAction.label
+		);
 	}
 	if (options.dirty) {
-		return state('Needs input', false, 'Save this node before running it.', nextAction.kind, nextAction.label);
+		return state(
+			'Needs input',
+			false,
+			isFrozen ? 'Attempted settings are frozen. Discard local changes before Retry.' : 'Save this Draft before generating.',
+			isFrozen ? 'wait' : 'configure',
+			isFrozen ? 'Retry unavailable' : 'Configure'
+		);
 	}
 
-	const parameterProblem = getParameterReadinessProblem(recipe, document.recipe.parameters);
+	const parameterProblem = recipe.modelCapability === 'video'
+		? options.videoConfiguration?.valid === true
+			? undefined
+			: options.videoConfiguration?.problem ?? 'Video model settings have not been verified against the reviewed catalog.'
+		: getParameterReadinessProblem(recipe, document.recipe.parameters);
 	if (parameterProblem) {
-		return state('Needs input', false, parameterProblem, 'configure', 'Configure');
+		return state('Needs input', false, parameterProblem, blockedAction.kind, blockedAction.label);
 	}
 
 	if (recipe.modelCapability) {
@@ -376,31 +460,45 @@ export function getBaseHalfNodeLocalState(
 		const configured = (options.modelServices ?? [])
 			.filter(service => service.configured && service.capabilities.includes(modelCapability));
 		if (!document.recipe.modelServiceId) {
-			return state('Provider missing', false, configured.length > 0
-				? `Choose a configured ${modelCapability} model service.`
-				: `Add a configured ${modelCapability} model service in Settings.`, 'configure', 'Configure');
+			return state(
+				'Provider missing',
+				false,
+				configured.length > 0
+					? `Choose a configured ${modelCapability} model service.`
+					: `Add a configured ${modelCapability} model service in Settings.`,
+				blockedAction.kind,
+				blockedAction.label
+			);
 		}
 		const modelServiceId = document.recipe.modelServiceId.toLowerCase();
 		if (!configured.some(service => service.id === modelServiceId)) {
-			return state('Provider missing', false, `Model service '${document.recipe.modelServiceId}' is unavailable or needs a key.`, 'configure', 'Configure');
+			return state(
+				'Provider missing',
+				false,
+				isFrozen
+					? `Model service '${document.recipe.modelServiceId}' is unavailable. Restore it to Retry the frozen settings.`
+					: `Model service '${document.recipe.modelServiceId}' is unavailable or needs a key.`,
+				blockedAction.kind,
+				blockedAction.label
+			);
 		}
 	}
 
 	if (options.graphProblem) {
-		return state('Needs input', false, options.graphProblem, 'configure', 'Configure');
+		return state('Needs input', false, options.graphProblem, blockedAction.kind, blockedAction.label);
 	}
 	if (options.verificationPending) {
-		return state('Needs input', false, 'Checking Current and direct inputs before this node can run.', 'wait', 'Checking');
+		return state('Waiting', false, 'Checking direct inputs before this Draft can generate.', 'wait', 'Checking');
 	}
 
-	const inputProblem = getInputReadinessProblem(recipe, document.recipe.inputBindings, options.inputKinds, options.directSourcePaths);
+	const inputProblem = getBaseHalfNodeInputReadinessProblem(recipe, document.recipe.inputBindings, options.inputKinds, options.directSourcePaths);
 	if (inputProblem) {
 		return state(
 			'Needs input',
 			false,
 			inputProblem,
-			'configure',
-			inputProblem.startsWith('Assign connected context ') ? 'Assign input' : 'Configure'
+			isFrozen ? 'wait' : 'configure',
+			isFrozen ? 'Retry unavailable' : inputProblem.startsWith('Assign connected context ') ? 'Assign input' : 'Configure'
 		);
 	}
 	const directSourceProblem = getDirectSourceReadinessProblem(
@@ -409,42 +507,36 @@ export function getBaseHalfNodeLocalState(
 		options.directSourceProblems
 	);
 	if (directSourceProblem) {
-		return state('Needs input', false, directSourceProblem, 'wait', 'Run unavailable');
+		return state('Needs input', false, directSourceProblem, 'wait', isFrozen ? 'Retry unavailable' : 'Generate unavailable');
 	}
 
-	const previousCurrentProblem = options.currentOutputIntegrity === 'missing'
-		? ' The previous Current output is missing.'
-		: options.currentOutputIntegrity === 'changed'
-			? ' The previous Current output changed outside BaseHalf.'
-			: '';
 	if (latest?.status === 'failed') {
 		const error = boundedStatus(latest.error);
-		return state('Failed', true, `${error ? `The last run failed: ${error}` : 'The last run failed.'} Current is unchanged.${previousCurrentProblem}`, 'retry', 'Retry');
+		return state('Failed', true, `${error ? `Attempt failed: ${error}` : 'The attempt failed.'} Settings are frozen; Retry uses the same recipe and inputs.`, 'retry', 'Retry');
 	}
 	if (latest?.status === 'cancelled') {
-		return state('Cancelled', true, `The last run was cancelled. Current is unchanged.${previousCurrentProblem}`, 'run', 'Run');
+		return state('Cancelled', true, 'The attempt was cancelled. Settings are frozen; Retry uses the same recipe and inputs.', 'retry', 'Retry');
 	}
 	if (latest?.status === 'interrupted') {
-		return state('Failed', true, `The last run was interrupted. Current is unchanged.${previousCurrentProblem}`, 'retry', 'Retry');
+		const error = boundedStatus(latest.error);
+		return state('Interrupted', true, `${error ? `The attempt was interrupted: ${error}` : 'The attempt was interrupted.'} Settings are frozen; Retry uses the same recipe and inputs.`, 'retry', 'Retry');
 	}
 
-	if (options.currentOutputIntegrity === 'missing') {
-		return state('Output missing', true, 'Output missing. Run again to create a new result; History keeps the original record.', 'runAgain', 'Run again');
-	}
-	if (options.currentOutputIntegrity === 'changed') {
-		return state('Output changed', true, 'Output changed outside BaseHalf. Run again to create a verified result.', 'runAgain', 'Run again');
-	}
-	if (options.staleReason === 'recipe') {
-		return state('Stale', true, 'Recipe changed since Current was created. Run again to update it.', 'runAgain', 'Run again');
-	}
-	if (options.staleReason === 'inputs') {
-		return state('Stale', true, 'Direct inputs changed since Current was created. Run again to update it.', 'runAgain', 'Run again');
-	}
+	return state('Ready', true, 'Ready to generate.', 'run', 'Generate');
+}
 
-	if (document.current.source === 'run' || document.runs.some(run => run.status === 'succeeded')) {
-		return state('Current', true, 'Ready to create another result.', 'runAgain', 'Run again');
+/** Whether a terminal Attempt contains every immutable identity needed for an exact Retry. */
+export function baseHalfNodeAttemptHasCompleteRetrySnapshot(attempt: IBaseHalfNodeAttempt): boolean {
+	if (attempt.inputs.length !== attempt.recipe.inputBindings.length) {
+		return false;
 	}
-	return state('Ready', true, 'Ready to run.', 'run', 'Run');
+	if (attempt.recipe.modelServiceId === undefined) {
+		return attempt.model.source === 'local';
+	}
+	return attempt.model.source === 'service'
+		&& attempt.model.connection === 'resolved'
+		&& attempt.model.serviceId === attempt.recipe.modelServiceId.toLowerCase()
+		&& attempt.model.modelId === attempt.recipe.modelId;
 }
 
 /**
@@ -457,16 +549,27 @@ export function getBaseHalfNodeLocalExecutionState(execution: IBaseHalfNodeLocal
 	if (execution.phase === 'cancelling') {
 		return state('Cancelling', false, boundedStatus(execution.message) ?? 'Cancellation requested. Late results will not be accepted.', 'cancel', 'Cancelling…');
 	}
-	const message = execution.phase === 'preparing'
-		? 'Preparing this run.'
-		: boundedStatus(execution.message) ?? 'Running this node.';
-	return state('Running', false, message, 'cancel', 'Cancel');
+	if (execution.phase === 'preparing') {
+		return state('Preparing', false, boundedStatus(execution.message) ?? 'Preparing this attempt.', 'cancel', 'Cancel');
+	}
+	const message = boundedStatus(execution.message);
+	if (message || execution.progress !== undefined) {
+		const progress = execution.progress === undefined
+			? undefined
+			: Math.max(0, Math.min(100, Math.round(execution.progress)));
+		return state('Generating', false, message ?? `Generating ${progress}%.`, 'cancel', 'Cancel');
+	}
+	return state('Waiting', false, 'Waiting for the generation provider.', 'cancel', 'Cancel');
 }
 
-export function getBaseHalfNodeImportHistoryProblem(document: IBaseHalfNodeDocument): string | undefined {
-	return document.revisions.length >= BASEHALF_NODE_MAX_REVISIONS
-		? `Imported History has reached ${BASEHALF_NODE_MAX_REVISIONS} versions. Duplicate this node to begin a new history; this node and all local files stay unchanged.`
-		: undefined;
+export function getBaseHalfNodeImportProblem(document: IBaseHalfNodeDocument): string | undefined {
+	if (document.result) {
+		return 'A sealed Result cannot be replaced. Import into a new empty Draft.';
+	}
+	if (document.recipe || document.attempts.length > 0) {
+		return 'Import requires an empty Draft with no recipe or attempts.';
+	}
+	return undefined;
 }
 
 /**
@@ -479,11 +582,11 @@ export function getBaseHalfNodeCardStatusText(state: Pick<IBaseHalfNodeLocalStat
 }
 
 export function isBaseHalfNodeCardStatusPositive(state: Pick<IBaseHalfNodeLocalState, 'status'>): boolean {
-	return state.status === 'Ready' || state.status === 'Current';
+	return state.status === 'Ready' || state.status === 'Result';
 }
 
-export function baseHalfNodeImportActionLabel(kind: IBaseHalfNodeDocument['kind'], replacing = false): string {
-	return `${replacing ? 'Replace' : 'Import'} ${baseHalfNodeImportObjectLabel(kind)}`;
+export function baseHalfNodeImportActionLabel(kind: IBaseHalfNodeDocument['kind']): string {
+	return `Import ${baseHalfNodeImportObjectLabel(kind)}`;
 }
 
 export function getBaseHalfNodeModelSelectionProblem(modelServiceId: string | undefined, modelId: string | undefined): string | undefined {
@@ -517,6 +620,20 @@ export function createBaseHalfNodeModelSelection(
 	});
 }
 
+/** Resolves the only installed video generator for an unconfigured Video Draft.
+ * Zero or multiple candidates remain unresolved so the composer never guesses. */
+export function resolveBaseHalfNodeImplicitVideoRecipe(
+	document: Pick<IBaseHalfNodeDocument, 'kind' | 'recipe'>,
+	recipes: readonly IBaseHalfCanvasRecipeDescriptor[]
+): IBaseHalfCanvasRecipeDescriptor | undefined {
+	if (document.kind !== 'video' || document.recipe) {
+		return undefined;
+	}
+	const candidates = recipes.filter(recipe => recipe.modelCapability === 'video'
+		&& baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind));
+	return candidates.length === 1 ? candidates[0] : undefined;
+}
+
 /** Keeps a temporarily unavailable plugin recipe intact until the user
  * explicitly chooses the no-recipe option. */
 export function resolveBaseHalfNodeRecipeDraft(
@@ -531,7 +648,7 @@ export function resolveBaseHalfNodeRecipeDraft(
 	if (selectedRecipe && parameters) {
 		return {
 			recipeId: selectedRecipe.id,
-			...createBaseHalfNodeModelSelection(modelServiceId, modelId),
+			...(selectedRecipe.modelCapability === undefined ? {} : createBaseHalfNodeModelSelection(modelServiceId, modelId)),
 			parameters,
 			inputBindings
 		};
@@ -542,82 +659,79 @@ export function resolveBaseHalfNodeRecipeDraft(
 	return undefined;
 }
 
-export function getBaseHalfNodeHistoricalArtifactOpenProblem(
+export function getBaseHalfNodeResultArtifactOpenProblem(
 	path: string,
-	integrity: 'available' | 'missing' | 'changed',
-	origin: 'current' | 'history' = 'history'
+	integrity: 'available' | 'missing' | 'changed'
 ): string | undefined {
 	if (integrity === 'available') {
 		return undefined;
 	}
 	if (integrity === 'missing') {
-		return origin === 'current'
-			? `Current is missing: '${path}'. Choose a verified version in History or run the node again.`
-			: `This historical output is missing: '${path}'. Choose another version in History or run the node again.`;
+		return `The sealed Result file is missing: '${path}'. Restore the original file or copy the settings into a new Draft.`;
 	}
-	return origin === 'current'
-		? `Current changed on disk: '${path}'. Choose a verified version in History or run the node again.`
-		: `This historical output changed on disk: '${path}'. Choose another version in History or run the node again.`;
+	return `The sealed Result file changed on disk: '${path}'. Restore the original bytes or copy the settings into a new Draft.`;
 }
 
-export function getBaseHalfNodeRunHistoryDetail(run: IBaseHalfNodeRun, primaryLabel?: string): string {
-	const result = run.error ?? primaryLabel ?? run.recipe.recipeId;
-	const model = run.model.source === 'local'
+export function getBaseHalfNodeAttemptSummary(attempt: IBaseHalfNodeAttempt, resultLabel?: string): string {
+	const result = attempt.error ?? resultLabel ?? attempt.recipe.recipeId;
+	const model = attempt.model.source === 'local'
 		? 'Local'
-		: run.model.connection === 'resolved'
-			? `${run.model.serviceLabel}${run.model.modelId ? ` / ${run.model.modelId}` : ''}`
-			: `${run.model.serviceId ?? 'Model service'} unavailable${run.model.modelId ? ` / ${run.model.modelId}` : ''}`;
-	const cost = run.cost
-		? `${run.cost.currency} ${run.cost.amount}${run.cost.kind === 'estimated' ? ' estimated' : ''}`
+		: attempt.model.connection === 'resolved'
+			? `${attempt.model.serviceLabel}${attempt.model.modelId ? ` / ${attempt.model.modelId}` : ''}`
+			: `${attempt.model.serviceId ?? 'Model service'} unavailable${attempt.model.modelId ? ` / ${attempt.model.modelId}` : ''}`;
+	const cost = attempt.cost
+		? `${attempt.cost.currency} ${attempt.cost.amount}${attempt.cost.kind === 'estimated' ? ' estimated' : ''}`
 		: undefined;
 	return [result, model, cost].filter((value): value is string => !!value).join(' · ');
 }
 
-export function getBaseHalfNodeRunDisclosureLines(run: IBaseHalfNodeRun): readonly string[] {
+export function getBaseHalfNodeAttemptDisclosureLines(
+	attempt: IBaseHalfNodeAttempt,
+	resultArtifact?: IBaseHalfNodeResultArtifact
+): readonly string[] {
 	const lines: string[] = [
-		`Status: ${run.status.charAt(0).toUpperCase()}${run.status.slice(1)}`,
-		`Run: ${run.id}`,
-		`Recipe: ${run.recipe.recipeId}`
+		`Status: ${attempt.status.charAt(0).toUpperCase()}${attempt.status.slice(1)}`,
+		`Attempt: ${attempt.id}`,
+		`Recipe: ${attempt.recipe.recipeId}`
 	];
-	for (const [name, value] of Object.entries(run.recipe.parameters).sort(([left], [right]) => left.localeCompare(right))) {
-		lines.push(`Parameter ${name}: ${formatNodeRunDisclosureValue(value)}`);
+	for (const [name, value] of Object.entries(attempt.recipe.parameters).sort(([left], [right]) => left.localeCompare(right))) {
+		lines.push(`Parameter ${name}: ${formatNodeAttemptDisclosureValue(value)}`);
 	}
-	if (run.model.source === 'local') {
+	if (attempt.model.source === 'local') {
 		lines.push('Model service: Local');
-	} else if (run.model.connection === 'resolved') {
-		lines.push(`Model service: ${run.model.serviceLabel} (${run.model.serviceId})`);
-		if (run.model.modelId) {
-			lines.push(`Model: ${run.model.modelId}`);
+	} else if (attempt.model.connection === 'resolved') {
+		lines.push(`Model service: ${attempt.model.serviceLabel} (${attempt.model.serviceId})`);
+		if (attempt.model.modelId) {
+			lines.push(`Model: ${attempt.model.modelId}`);
 		}
-		lines.push(`Connection: ${run.model.connectionIdentity}`);
+		lines.push(`Connection: ${attempt.model.connectionIdentity}`);
 	} else {
-		lines.push(`Model service: Unavailable${run.model.serviceId ? ` (${run.model.serviceId})` : ''}`);
-		if (run.model.modelId) {
-			lines.push(`Model: ${run.model.modelId}`);
+		lines.push(`Model service: Unavailable${attempt.model.serviceId ? ` (${attempt.model.serviceId})` : ''}`);
+		if (attempt.model.modelId) {
+			lines.push(`Model: ${attempt.model.modelId}`);
 		}
 	}
-	for (const input of [...run.inputs].sort((left, right) => left.order - right.order)) {
+	for (const input of [...attempt.inputs].sort((left, right) => left.order - right.order)) {
 		lines.push(`Input ${input.order + 1}: ${input.sourcePath} → ${input.slot} · revision ${input.revision}`);
 	}
-	for (const [index, artifact] of run.artifacts.entries()) {
-		const primary = artifact.id === run.primaryArtifactId ? ' · Current candidate' : '';
-		lines.push(`Output ${index + 1}: ${artifact.path} · ${artifact.kind} · ${artifact.size} bytes · SHA-256 ${artifact.sha256}${primary}`);
+	if (resultArtifact) {
+		lines.push(`Result: ${resultArtifact.path} · ${resultArtifact.kind} · ${resultArtifact.size} bytes · SHA-256 ${resultArtifact.sha256}`);
 	}
-	lines.push(`Created: ${run.createdAt}`);
-	if (run.startedAt) {
-		lines.push(`Started: ${run.startedAt}`);
+	lines.push(`Created: ${attempt.createdAt}`);
+	if (attempt.startedAt) {
+		lines.push(`Started: ${attempt.startedAt}`);
 	}
-	if (run.completedAt) {
-		lines.push(`Completed: ${run.completedAt}`);
+	if (attempt.completedAt) {
+		lines.push(`Completed: ${attempt.completedAt}`);
 	}
-	if (run.error) {
-		lines.push(`Error: ${run.error}`);
+	if (attempt.error) {
+		lines.push(`Error: ${attempt.error}`);
 	}
-	if (run.providerRequestId) {
-		lines.push(`Request: ${run.providerRequestId}`);
+	if (attempt.providerRequestId) {
+		lines.push(`Request: ${attempt.providerRequestId}`);
 	}
-	if (run.usage) {
-		const usage = Object.entries(run.usage)
+	if (attempt.usage) {
+		const usage = Object.entries(attempt.usage)
 			.filter((entry): entry is [string, number] => typeof entry[1] === 'number')
 			.map(([key, value]) => `${key.replace(/([A-Z])/g, ' $1').toLowerCase()}: ${value}`)
 			.join(', ');
@@ -625,13 +739,13 @@ export function getBaseHalfNodeRunDisclosureLines(run: IBaseHalfNodeRun): readon
 			lines.push(`Usage: ${usage}`);
 		}
 	}
-	if (run.cost) {
-		lines.push(`Cost: ${run.cost.currency} ${run.cost.amount}${run.cost.kind === 'estimated' ? ' (estimated)' : ''}`);
+	if (attempt.cost) {
+		lines.push(`Cost: ${attempt.cost.currency} ${attempt.cost.amount}${attempt.cost.kind === 'estimated' ? ' (estimated)' : ''}`);
 	}
 	return Object.freeze(lines);
 }
 
-function formatNodeRunDisclosureValue(value: BaseHalfNodeJsonValue, depth = 0): string {
+function formatNodeAttemptDisclosureValue(value: BaseHalfNodeJsonValue, depth = 0): string {
 	if (value === null) {
 		return 'None';
 	}
@@ -650,11 +764,11 @@ function formatNodeRunDisclosureValue(value: BaseHalfNodeJsonValue, depth = 0): 
 		return Array.isArray(value) ? `${value.length} values` : `${Object.keys(value).length} fields`;
 	}
 	if (Array.isArray(value)) {
-		const shown = value.slice(0, 8).map(entry => formatNodeRunDisclosureValue(entry, depth + 1));
+		const shown = value.slice(0, 8).map(entry => formatNodeAttemptDisclosureValue(entry, depth + 1));
 		return `${value.length} values: ${shown.join('; ')}${value.length > shown.length ? '; …' : ''}`;
 	}
 	const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
-	const shown = entries.slice(0, 8).map(([name, entry]) => `${name} = ${formatNodeRunDisclosureValue(entry, depth + 1)}`);
+	const shown = entries.slice(0, 8).map(([name, entry]) => `${name} = ${formatNodeAttemptDisclosureValue(entry, depth + 1)}`);
 	return `${entries.length} fields: ${shown.join('; ')}${entries.length > shown.length ? '; …' : ''}`;
 }
 
@@ -762,34 +876,34 @@ export function getBaseHalfNodeInputRows(
 	recipe: IBaseHalfCanvasRecipeDescriptor,
 	bindings: readonly IBaseHalfNodeInputBinding[],
 	inputKinds?: ReadonlyMap<string, BaseHalfCanvasContentKind>,
-	currentVersions?: ReadonlyMap<string, IBaseHalfNodeInputCurrentVersion>
+	resultIdentities?: ReadonlyMap<string, IBaseHalfNodeInputResultIdentity>
 ): readonly {
 	readonly sourcePath: string;
 	readonly slot: string;
 	readonly slotLabel: string;
 	readonly order: number;
 	readonly accepted: boolean;
-	readonly currentVersion?: IBaseHalfNodeInputCurrentVersion;
+	readonly resultIdentity?: IBaseHalfNodeInputResultIdentity;
 }[] {
 	return bindings.map(binding => {
 		const slot = recipe.inputs.find(candidate => candidate.id === binding.slot);
-		const currentVersion = currentVersions?.get(binding.sourcePath);
+		const resultIdentity = resultIdentities?.get(binding.sourcePath);
 		return Object.freeze({
 			sourcePath: binding.sourcePath,
 			slot: binding.slot,
 			slotLabel: slot?.label ?? binding.slot,
 			order: binding.order,
 			accepted: !!slot && (inputKinds === undefined || (inputKinds.has(binding.sourcePath) && slot.accepts.includes(inputKinds.get(binding.sourcePath)!))),
-			...(currentVersion === undefined ? {} : { currentVersion })
+			...(resultIdentity === undefined ? {} : { resultIdentity })
 		});
 	}).sort((left, right) => left.order - right.order);
 }
 
-export function getBaseHalfNodeInputCurrentVersionLabel(version: IBaseHalfNodeInputCurrentVersion): string {
-	const compactId = version.id.length <= 16
-		? version.id
-		: `${version.id.slice(0, 8)}…${version.id.slice(-4)}`;
-	return `Current ${version.source === 'run' ? 'run' : 'import'} · ${compactId}`;
+export function getBaseHalfNodeInputResultLabel(result: IBaseHalfNodeInputResultIdentity): string {
+	const compactId = result.id.length <= 16
+		? result.id
+		: `${result.id.slice(0, 8)}…${result.id.slice(-4)}`;
+	return `${result.source === 'attempt' ? 'Generated' : 'Imported'} Result · ${compactId}`;
 }
 
 export function getBaseHalfNodeAvailableInputSlots(
@@ -969,7 +1083,7 @@ function getParameterReadinessProblem(
 	}
 }
 
-function getInputReadinessProblem(
+export function getBaseHalfNodeInputReadinessProblem(
 	recipe: IBaseHalfCanvasRecipeDescriptor,
 	bindings: readonly IBaseHalfNodeInputBinding[],
 	inputKinds?: ReadonlyMap<string, BaseHalfCanvasContentKind>,
@@ -1040,17 +1154,6 @@ function getDirectSourceReadinessProblem(
 		}
 	}
 	return undefined;
-}
-
-function restingRunAction(document: IBaseHalfNodeDocument): IBaseHalfNodeLocalPrimaryAction {
-	const latest = document.runs.at(-1);
-	if (latest?.status === 'failed' || latest?.status === 'interrupted') {
-		return Object.freeze({ kind: 'retry', label: 'Retry' });
-	}
-	if (document.current.source === 'run' || document.runs.some(run => run.status === 'succeeded')) {
-		return Object.freeze({ kind: 'runAgain', label: 'Run again' });
-	}
-	return Object.freeze({ kind: 'run', label: 'Run' });
 }
 
 function state(

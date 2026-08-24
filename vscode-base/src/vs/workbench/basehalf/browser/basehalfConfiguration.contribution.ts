@@ -10,6 +10,7 @@ import {
 	BASEHALF_CONFIGURATION_NODE,
 	BASEHALF_LEGACY_READING_MODE_SETTING,
 	BaseHalfSetting,
+	migrateLegacyBaseHalfModelServices,
 	migrateLegacyBaseHalfReadingMode
 } from '../common/basehalfConfiguration.js';
 
@@ -19,4 +20,7 @@ Registry.as<IConfigurationMigrationRegistry>(WorkbenchExtensions.ConfigurationMi
 	.registerConfigurationMigrations([{
 		key: BASEHALF_LEGACY_READING_MODE_SETTING,
 		migrateFn: (value, accessor) => migrateLegacyBaseHalfReadingMode(value, accessor(BaseHalfSetting.EditorReadingMode))
+	}, {
+		key: BaseHalfSetting.ModelServices,
+		migrateFn: value => migrateLegacyBaseHalfModelServices(value)
 	}]);

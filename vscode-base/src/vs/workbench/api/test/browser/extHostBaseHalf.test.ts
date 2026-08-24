@@ -10,7 +10,7 @@ import { mock } from '../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { ExtensionIdentifier, IExtensionDescription, TargetPlatform } from '../../../../platform/extensions/common/extensions.js';
 import { ExtHostBaseHalf } from '../../common/extHostBaseHalf.js';
-import { IBaseHalfCanvasNodeStateDto, IBaseHalfCanvasRecipeExecutionRequestDto, IBaseHalfExtensionIdentityDto, IBaseHalfModelServiceRunSnapshotDto, MainThreadBaseHalfShape } from '../../common/extHost.protocol.js';
+import { IBaseHalfCanvasNodeStateDto, IBaseHalfCanvasRecipeExecutionRequestDto, IBaseHalfExtensionIdentityDto, IBaseHalfModelServiceAttemptSnapshotDto, MainThreadBaseHalfShape, WebviewExtensionDescription } from '../../common/extHost.protocol.js';
 import { SingleProxyRPCProtocol } from '../common/testRPCProtocol.js';
 import type * as vscode from 'vscode';
 
@@ -30,7 +30,7 @@ suite('ExtHostBaseHalf', () => {
 		}));
 		const cancellation = disposables.add(new CancellationTokenSource());
 
-		const execution = extHost.$executeCanvasRecipe('run-1', 'reviewed.workflow.render', executionRequest(), cancellation.token);
+		const execution = extHost.$executeCanvasRecipe('attempt-1', 'reviewed.workflow.render', executionRequest(), cancellation.token);
 		let settled = false;
 		void execution.then(() => { settled = true; }, () => { settled = true; });
 		cancellation.cancel();
@@ -38,23 +38,22 @@ suite('ExtHostBaseHalf', () => {
 		assert.strictEqual(settled, false);
 		assert.ok(resolveExecutor);
 		resolveExecutor({
-			artifacts: [{ id: 'late', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/late.png') }],
-			primaryArtifactId: 'late'
+			artifact: { id: 'late', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/late.png') }
 		});
 		const result = await execution;
 		assert.strictEqual(settled, true);
-		assert.strictEqual(result.primaryArtifactId, 'late');
+		assert.strictEqual(result.artifact.id, 'late');
 	});
 
 	test('sends host-derived extension identity for model service access', async () => {
 		let received: IBaseHalfExtensionIdentityDto | undefined;
-		let receivedSnapshot: IBaseHalfModelServiceRunSnapshotDto | undefined;
+		let receivedSnapshot: IBaseHalfModelServiceAttemptSnapshotDto | undefined;
 		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
 			override $getModelServices(extensionIdentity: IBaseHalfExtensionIdentityDto): Promise<readonly never[]> {
 				received = extensionIdentity;
 				return Promise.resolve([]);
 			}
-			override $getModelServiceAccess(extensionIdentity: IBaseHalfExtensionIdentityDto, snapshot: IBaseHalfModelServiceRunSnapshotDto): Promise<undefined> {
+			override $getModelServiceAccess(extensionIdentity: IBaseHalfExtensionIdentityDto, snapshot: IBaseHalfModelServiceAttemptSnapshotDto): Promise<undefined> {
 				received = extensionIdentity;
 				receivedSnapshot = snapshot;
 				return Promise.resolve(undefined);
@@ -63,7 +62,7 @@ suite('ExtHostBaseHalf', () => {
 		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
 
 		await extHost.getModelServices(extension());
-		const snapshot: vscode.basehalf.ModelServiceRunSnapshot = {
+		const snapshot: vscode.basehalf.ModelServiceAttemptSnapshot = {
 			serviceId: 'studio.image',
 			serviceLabel: 'Studio image',
 			connectionIdentity: `sha256:${'A'.repeat(43)}`,
@@ -80,6 +79,31 @@ suite('ExtHostBaseHalf', () => {
 		assert.deepStrictEqual(receivedSnapshot, snapshot);
 	});
 
+	test('registers and invokes an exact manifest-owned model provider validator', async () => {
+		let registered: string | undefined;
+		let requestSeen: vscode.basehalf.ModelProviderConnectionValidationRequest | undefined;
+		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
+			override $registerModelProviderConnectionValidator(_extension: WebviewExtensionDescription, specId: string): void { registered = specId; }
+			override $unregisterModelProviderConnectionValidator(): void { }
+		};
+		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
+		disposables.add(extHost.registerModelProviderConnectionValidator(extension(), 'reviewed.workflow.provider', {
+			validate: request => { requestSeen = request; }
+		}));
+		const request = {
+			specId: 'reviewed.workflow.provider',
+			endpoint: 'https://api.example.com',
+			providerId: 'example',
+			deploymentId: 'global',
+			region: 'global',
+			publicValues: {},
+			credentialValues: { apiKey: 'secret' }
+		};
+		await extHost.$validateModelProviderConnection(request.specId, request, CancellationToken.None);
+		assert.strictEqual(registered, request.specId);
+		assert.deepStrictEqual(requestSeen, request);
+	});
+
 	test('revives a frozen model snapshot and returns structured execution disclosures', async () => {
 		let requestSeen: vscode.basehalf.CanvasRecipeExecutionRequest | undefined;
 		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
@@ -92,8 +116,7 @@ suite('ExtHostBaseHalf', () => {
 			execute: request => {
 				requestSeen = request;
 				return Promise.resolve({
-					artifacts: [{ id: 'image', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/run-1/image.png') }],
-					primaryArtifactId: 'image',
+					artifact: { id: 'image', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') },
 					providerRequestId: 'provider/request-1',
 					usage: { inputTokens: 10, images: 1 },
 					cost: { currency: 'USD', amount: '0.02', kind: 'actual' }
@@ -101,31 +124,95 @@ suite('ExtHostBaseHalf', () => {
 			}
 		}));
 
-		const result = await extHost.$executeCanvasRecipe('run-1', 'reviewed.workflow.render', executionRequest(), CancellationToken.None);
+		const result = await extHost.$executeCanvasRecipe('attempt-1', 'reviewed.workflow.render', executionRequest(), CancellationToken.None);
 
+		assert.strictEqual(requestSeen?.prompt, 'Render the reviewed image.');
 		assert.deepStrictEqual(requestSeen?.modelService, executionRequest().modelService);
 		assert.strictEqual(result.providerRequestId, 'provider/request-1');
 		assert.deepStrictEqual(result.usage, { inputTokens: 10, images: 1 });
 		assert.deepStrictEqual(result.cost, { currency: 'USD', amount: '0.02', kind: 'actual' });
 	});
 
-	test('revives inspected canvas node versions and artifact resources', async () => {
+	test('rejects legacy result arrays and undeclared executor fields before RPC', async () => {
+		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
+			override $registerCanvasRecipeExecutor(): void { }
+			override $unregisterCanvasRecipeExecutor(): void { }
+			override $reportCanvasRecipeProgress(): void { }
+		};
+		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
+		const artifact = { id: 'image', outputId: 'primary', kind: 'image' as const, resource: URI.file('/workspace/outputs/attempt-1/image.png') };
+		const legacy = extHost.registerCanvasRecipeExecutor(extension(), 'reviewed.workflow.render', {
+			execute: () => Promise.resolve({ artifacts: [artifact], primaryArtifactId: artifact.id } as unknown as vscode.basehalf.CanvasRecipeExecutionResult)
+		});
+		await assert.rejects(
+			() => extHost.$executeCanvasRecipe('attempt-1', 'reviewed.workflow.render', executionRequest(), CancellationToken.None),
+			/returned no result/
+		);
+		legacy.dispose();
+
+		disposables.add(extHost.registerCanvasRecipeExecutor(extension(), 'reviewed.workflow.render', {
+			execute: () => Promise.resolve({ artifact, artifacts: [artifact], primaryArtifactId: artifact.id } as unknown as vscode.basehalf.CanvasRecipeExecutionResult)
+		}));
+		await assert.rejects(
+			() => extHost.$executeCanvasRecipe('attempt-1', 'reviewed.workflow.render', executionRequest(), CancellationToken.None),
+			/unsupported property 'artifacts'/
+		);
+	});
+
+	test('rejects executor artifact ids that cannot be persisted in a node Result', async () => {
+		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
+			override $registerCanvasRecipeExecutor(): void { }
+			override $unregisterCanvasRecipeExecutor(): void { }
+			override $reportCanvasRecipeProgress(): void { }
+		};
+		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
+		let artifactId: unknown = 'image';
+		const registration = extHost.registerCanvasRecipeExecutor(extension(), 'reviewed.workflow.render', {
+			execute: () => Promise.resolve({
+				artifact: { id: artifactId as string, outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') }
+			})
+		});
+		try {
+			for (const invalidId of ['image/frame', 'image frame', '-image', `image${'x'.repeat(124)}`, 1, ' \t ']) {
+				artifactId = invalidId;
+				await assert.rejects(
+					() => extHost.$executeCanvasRecipe('attempt-1', 'reviewed.workflow.render', executionRequest(), CancellationToken.None),
+					/reviewed\.workflow\.render\.artifact\.id (contains unsupported characters|is too long|must be a string|cannot be empty)/
+				);
+			}
+		} finally {
+			registration.dispose();
+		}
+	});
+
+	test('revives an inspected canvas Result and immutable Attempts', async () => {
 		let receivedIdentity: IBaseHalfExtensionIdentityDto | undefined;
 		let receivedResource: URI | undefined;
-		let receivedOptions: vscode.basehalf.CanvasNodeInspectOptions | undefined;
 		const proxy = new class extends mock<MainThreadBaseHalfShape>() {
-			override $inspectCanvasNode(extensionIdentity: IBaseHalfExtensionIdentityDto, resource: UriComponents, options?: vscode.basehalf.CanvasNodeInspectOptions): Promise<IBaseHalfCanvasNodeStateDto> {
+			override $inspectCanvasNode(extensionIdentity: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfCanvasNodeStateDto> {
 				receivedIdentity = extensionIdentity;
 				receivedResource = URI.revive(resource);
-				receivedOptions = options;
 				return Promise.resolve({
 					id: 'clip-node',
 					kind: 'video',
-					currentVersionId: 'run-2',
-					versions: [{
+					lifecycle: 'result',
+					result: {
+						source: 'attempt',
+						attemptId: 'run-2',
+						artifact: {
+							id: 'clip',
+							outputId: 'video',
+							kind: 'video',
+							resource: URI.file('/workspace/outputs/clip.mp4'),
+							integrity: 'available'
+						}
+					},
+					attempts: [{
 						id: 'run-2',
 						status: 'succeeded',
 						createdAt: '2026-07-18T12:00:00Z',
+						startedAt: '2026-07-18T12:00:01Z',
+						completedAt: '2026-07-18T12:00:06Z',
 						model: {
 							source: 'service',
 							connection: 'resolved',
@@ -137,35 +224,26 @@ suite('ExtHostBaseHalf', () => {
 						},
 						providerRequestId: 'provider/request-2',
 						usage: { videoSeconds: 5 },
-						cost: { currency: 'USD', amount: '0.2', kind: 'actual' },
-						primaryArtifact: {
-							id: 'clip',
-							kind: 'video',
-							resource: URI.file('/workspace/outputs/clip.mp4'),
-							integrity: 'available'
-						}
+						cost: { currency: 'USD', amount: '0.2', kind: 'actual' }
 					}]
 				});
 			}
 		};
 		const extHost = disposables.add(new ExtHostBaseHalf(SingleProxyRPCProtocol(proxy), undefined!));
 
-		const state = await extHost.inspectCanvasNode(extension(), URI.file('/workspace/clip.bhnode'), {
-			versionIds: ['run-1'], includeCurrent: true
-		});
+		const state = await extHost.inspectCanvasNode(extension(), URI.file('/workspace/clip.bhnode'));
 
 		assert.strictEqual(receivedIdentity?.id.value, 'reviewed.workflow');
 		assert.strictEqual(receivedIdentity?.version, '1.2.3');
 		assert.strictEqual(receivedResource?.path, '/workspace/clip.bhnode');
-		assert.deepStrictEqual(receivedOptions, { versionIds: ['run-1'], includeCurrent: true });
 		assert.strictEqual(state?.id, 'clip-node');
-		assert.strictEqual(state?.currentVersionId, 'run-2');
-		assert.strictEqual(state?.versions[0].primaryArtifact?.resource.path, '/workspace/outputs/clip.mp4');
-		assert.strictEqual(state?.versions[0].primaryArtifact?.integrity, 'available');
-		assert.strictEqual(state?.versions[0].model?.source, 'service');
-		assert.strictEqual(state?.versions[0].providerRequestId, 'provider/request-2');
-		assert.deepStrictEqual(state?.versions[0].usage, { videoSeconds: 5 });
-		assert.deepStrictEqual(state?.versions[0].cost, { currency: 'USD', amount: '0.2', kind: 'actual' });
+		assert.strictEqual(state?.lifecycle, 'result');
+		assert.strictEqual(state?.result?.artifact.resource.path, '/workspace/outputs/clip.mp4');
+		assert.strictEqual(state?.result?.artifact.integrity, 'available');
+		assert.strictEqual(state?.attempts[0].model?.source, 'service');
+		assert.strictEqual(state?.attempts[0].providerRequestId, 'provider/request-2');
+		assert.deepStrictEqual(state?.attempts[0].usage, { videoSeconds: 5 });
+		assert.deepStrictEqual(state?.attempts[0].cost, { currency: 'USD', amount: '0.2', kind: 'actual' });
 	});
 
 	test('registers one structural cleanup provider and serializes exact transitions', async () => {
@@ -212,17 +290,19 @@ function extension(): IExtensionDescription {
 		isUnderDevelopment: false,
 		preRelease: false,
 		contributes: {
-			basehalfCanvasRecipes: [{ id: 'reviewed.workflow.render' }]
+			basehalfCanvasRecipes: [{ id: 'reviewed.workflow.render' }],
+			basehalfModelProviderCatalogs: [{ id: 'reviewed.workflow.providers', resource: 'models/providers.json' }]
 		} as IExtensionDescription['contributes']
 	};
 }
 
 function executionRequest(): IBaseHalfCanvasRecipeExecutionRequestDto {
 	return {
-		runId: 'run-1',
+		attemptId: 'attempt-1',
 		workspaceFolder: URI.file('/workspace'),
 		node: { id: 'node-1', path: 'image.bhnode', kind: 'image' },
 		recipeId: 'reviewed.workflow.render',
+		prompt: 'Render the reviewed image.',
 		parameters: {},
 		modelServiceId: 'studio.image',
 		modelService: {
@@ -233,6 +313,6 @@ function executionRequest(): IBaseHalfCanvasRecipeExecutionRequestDto {
 			modelId: 'image-v2'
 		},
 		inputs: [],
-		outputDirectory: URI.file('/workspace/outputs/run-1')
+		outputDirectory: URI.file('/workspace/outputs/attempt-1')
 	};
 }

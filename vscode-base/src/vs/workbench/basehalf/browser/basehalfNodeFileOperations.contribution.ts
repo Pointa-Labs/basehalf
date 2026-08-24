@@ -42,8 +42,8 @@ class BaseHalfNodeFileOperationsContribution extends Disposable implements IWork
 		const forked = await forkCopiedBaseHalfNodeTrees(this.fileService, plans, completedFiles);
 		if (forked.length > 0) {
 			this.notificationService.info(forked.length === 1
-				? 'Copied node settings. Connections, Current, and history start empty.'
-				: `Copied ${forked.length} node settings. Connections, Current, and history start empty.`);
+				? 'Copied node settings into a new Draft. Connections, Result, and Attempts start empty.'
+				: `Copied ${forked.length} node settings into new Drafts. Connections, Results, and Attempts start empty.`);
 		}
 	}
 

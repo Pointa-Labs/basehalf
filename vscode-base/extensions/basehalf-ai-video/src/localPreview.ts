@@ -7,7 +7,7 @@ import {
 	AUDIO_BRIEF_RECIPE_ID,
 	CLIP_BRIEF_RECIPE_ID,
 	STORYBOARD_FRAME_RECIPE_ID,
-	type AIVideoRecipeId,
+	type AIVideoLocalRecipeId,
 	type AIVideoRecipeInput,
 	parseAudioBriefParameters,
 	parseClipBriefParameters,
@@ -17,9 +17,10 @@ import {
 type RecipeValue = null | boolean | number | string | readonly RecipeValue[] | { readonly [key: string]: RecipeValue };
 
 export interface LocalPreviewRequest {
-	readonly recipeId: AIVideoRecipeId;
+	readonly recipeId: AIVideoLocalRecipeId;
 	readonly nodeTitle: string;
 	readonly nodePath: string;
+	readonly prompt: string;
 	readonly parameters: Readonly<Record<string, RecipeValue>>;
 	readonly inputs: readonly AIVideoRecipeInput[];
 }
@@ -79,7 +80,7 @@ function renderStoryboardPlanningFrame(request: LocalPreviewRequest, parameters:
 			: { width: 900, height: 1_600 };
 	const margin = Math.round(Math.min(size.width, size.height) * 0.055);
 	const promptText = request.inputs.map(input => input.source.text?.trim()).filter((value): value is string => Boolean(value)).join('\n\n');
-	const lines = wrapText([parameters.instructions.trim(), promptText].filter(Boolean).join('. ') || 'No shot instructions supplied.', parameters.aspectRatio === '9:16' ? 38 : 62).slice(0, 8);
+	const lines = wrapText([request.prompt.trim(), promptText].filter(Boolean).join('. ') || 'No shot prompt supplied.', parameters.aspectRatio === '9:16' ? 38 : 62).slice(0, 8);
 	const inputLines = request.inputs.slice(0, 6).map(input => `${input.slotId}: ${input.source.path}`);
 	const fontSize = Math.max(20, Math.round(Math.min(size.width, size.height) * 0.026));
 	const lineHeight = Math.round(fontSize * 1.45);
@@ -113,9 +114,9 @@ function renderClipBrief(request: LocalPreviewRequest, parameters: ReturnType<ty
 - Aspect ratio: ${parameters.aspectRatio}
 - Audio mode: ${parameters.audioMode}
 
-## Motion instructions
+## Motion prompt
 
-${parameters.instructions.trim() || '_No motion instructions supplied._'}
+${request.prompt.trim() || '_No motion prompt supplied._'}
 
 ## Direct inputs
 
@@ -135,9 +136,9 @@ function renderAudioBrief(request: LocalPreviewRequest, parameters: ReturnType<t
 - Duration: ${parameters.durationSeconds} seconds
 - Voice: ${parameters.voice}
 
-## Audio instructions
+## Audio prompt
 
-${parameters.instructions.trim() || '_No audio instructions supplied._'}
+${request.prompt.trim() || '_No audio prompt supplied._'}
 
 ## Direct inputs
 

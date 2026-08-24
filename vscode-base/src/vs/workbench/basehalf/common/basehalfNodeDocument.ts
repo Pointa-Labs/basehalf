@@ -7,24 +7,22 @@ import { isUUID } from '../../../base/common/uuid.js';
 
 export const BASEHALF_NODE_DOCUMENT_EXTENSION = '.bhnode';
 export const BASEHALF_CANVAS_RUN_NODE_COMMAND_ID = 'basehalf.canvas.runNode';
-export const BASEHALF_NODE_DOCUMENT_VERSION = 2;
+export const BASEHALF_NODE_DOCUMENT_VERSION = 3;
 export const BASEHALF_NODE_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 export const BASEHALF_NODE_MAX_ID_LENGTH = 128;
 export const BASEHALF_NODE_MAX_BINDINGS = 64;
-export const BASEHALF_NODE_MAX_ARTIFACTS = 64;
 export const BASEHALF_PROJECT_PATH_MAX_LENGTH = 1024;
 
 const MAX_ID_LENGTH = BASEHALF_NODE_MAX_ID_LENGTH;
 const MAX_TITLE_LENGTH = 240;
 const MAX_ROLE_LENGTH = 120;
+export const BASEHALF_NODE_PROMPT_MAX_LENGTH = 64 * 1024;
 const MAX_PATH_LENGTH = BASEHALF_PROJECT_PATH_MAX_LENGTH;
 const MAX_SLOT_LENGTH = 120;
 const MAX_MESSAGE_LENGTH = 16 * 1024;
 const MAX_TIMESTAMP_LENGTH = 64;
-export const BASEHALF_NODE_MAX_RUNS = 1024;
-export const BASEHALF_NODE_MAX_REVISIONS = 1024;
+export const BASEHALF_NODE_MAX_ATTEMPTS = 1024;
 const MAX_BINDINGS = BASEHALF_NODE_MAX_BINDINGS;
-const MAX_OUTPUT_PATHS = BASEHALF_NODE_MAX_ARTIFACTS;
 const MAX_INPUT_REVISION_LENGTH = 256;
 const MAX_MODEL_ID_LENGTH = 256;
 const MAX_COST_AMOUNT_LENGTH = 32;
@@ -35,6 +33,33 @@ const MAX_JSON_KEY_LENGTH = 128;
 const MAX_JSON_STRING_LENGTH = 16 * 1024;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/**
+ * Validates an identifier that will be persisted in a `.bhnode` document.
+ *
+ * Recipe executors are an extension boundary, so their returned artifact ids
+ * must obey this same contract before an Attempt can be sealed. Keep this in
+ * lockstep with {@link requiredId}, which validates persisted node fields.
+ */
+export function validateBaseHalfNodePersistentId(value: unknown, path: string): string {
+	if (typeof value !== 'string') {
+		throw new Error(`${path} must be a string.`);
+	}
+	if (value.length > BASEHALF_NODE_MAX_ID_LENGTH) {
+		throw new Error(`${path} is too long.`);
+	}
+	if (value.includes('\u0000')) {
+		throw new Error(`${path} cannot contain NUL.`);
+	}
+	const result = value.trim();
+	if (!result) {
+		throw new Error(`${path} cannot be empty.`);
+	}
+	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(result)) {
+		throw new Error(`${path} contains unsupported characters.`);
+	}
+	return result;
+}
 
 /** Returns whether a portable project path belongs to the host-owned output
  * tree. Ordinary folders named `outputs` below another project folder are
@@ -49,17 +74,17 @@ export function baseHalfIsReservedOutputTreePath(relativePath: string): boolean 
 
 const NODE_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
 const ARTIFACT_KINDS = NODE_KINDS;
-const CURRENT_SOURCES = ['empty', 'imported', 'run'] as const;
-const RUN_STATUSES = ['running', 'succeeded', 'failed', 'cancelled', 'interrupted'] as const;
+const RESULT_SOURCES = ['imported', 'attempt'] as const;
+const ATTEMPT_STATUSES = ['running', 'succeeded', 'failed', 'cancelled', 'interrupted'] as const;
 const MODEL_CAPABILITIES = ['text', 'image', 'video', 'audio'] as const;
 const COST_KINDS = ['actual', 'estimated'] as const;
 
 export type BaseHalfNodeKind = typeof NODE_KINDS[number];
 export type BaseHalfNodeArtifactKind = typeof ARTIFACT_KINDS[number];
-export type BaseHalfNodeCurrentSource = typeof CURRENT_SOURCES[number];
-export type BaseHalfNodeRunStatus = typeof RUN_STATUSES[number];
-export type BaseHalfNodeRunModelCapability = typeof MODEL_CAPABILITIES[number];
-export type BaseHalfNodeRunCostKind = typeof COST_KINDS[number];
+export type BaseHalfNodeResultSource = typeof RESULT_SOURCES[number];
+export type BaseHalfNodeAttemptStatus = typeof ATTEMPT_STATUSES[number];
+export type BaseHalfNodeAttemptModelCapability = typeof MODEL_CAPABILITIES[number];
+export type BaseHalfNodeAttemptCostKind = typeof COST_KINDS[number];
 
 export interface IBaseHalfNodeJsonObject {
 	readonly [key: string]: BaseHalfNodeJsonValue;
@@ -82,45 +107,45 @@ export interface IBaseHalfNodeRecipe {
 	readonly recipeId: string;
 	/** Omitted for deterministic local recipes that need no model connection. */
 	readonly modelServiceId?: string;
-	/** Optional provider model identifier selected for the next run. */
+	/** Optional provider model identifier selected for the first attempt. */
 	readonly modelId?: string;
 	readonly parameters: Readonly<Record<string, BaseHalfNodeJsonValue>>;
 	readonly inputBindings: readonly IBaseHalfNodeInputBinding[];
 }
 
-export interface IBaseHalfNodeRunInput extends IBaseHalfNodeInputBinding {
-	/** Opaque content revision captured by the host when the run starts. */
+export interface IBaseHalfNodeAttemptInput extends IBaseHalfNodeInputBinding {
+	/** Opaque content revision captured by the host when the attempt starts. */
 	readonly revision: string;
 }
 
-export interface IBaseHalfNodeRunLocalModel {
+export interface IBaseHalfNodeAttemptLocalModel {
 	readonly source: 'local';
 }
 
-export interface IBaseHalfNodeRunResolvedServiceModel {
+export interface IBaseHalfNodeAttemptResolvedServiceModel {
 	readonly source: 'service';
 	readonly connection: 'resolved';
 	readonly serviceId: string;
 	readonly serviceLabel: string;
 	/** SHA-256 identity of non-secret connection settings. The endpoint itself is not project data. */
 	readonly connectionIdentity: string;
-	readonly capability: BaseHalfNodeRunModelCapability;
+	readonly capability: BaseHalfNodeAttemptModelCapability;
 	readonly modelId?: string;
 }
 
 /** A selected model capability whose connection could not be resolved for this attempt. */
-export interface IBaseHalfNodeRunUnavailableServiceModel {
+export interface IBaseHalfNodeAttemptUnavailableServiceModel {
 	readonly source: 'service';
 	readonly connection: 'unavailable';
 	readonly serviceId?: string;
-	readonly capability: BaseHalfNodeRunModelCapability;
+	readonly capability: BaseHalfNodeAttemptModelCapability;
 	readonly modelId?: string;
 }
 
-/** Immutable identity of the execution backend selected before a run starts. */
-export type BaseHalfNodeRunModel = IBaseHalfNodeRunLocalModel | IBaseHalfNodeRunResolvedServiceModel | IBaseHalfNodeRunUnavailableServiceModel;
+/** Immutable identity of the execution backend selected for one attempt. */
+export type BaseHalfNodeAttemptModel = IBaseHalfNodeAttemptLocalModel | IBaseHalfNodeAttemptResolvedServiceModel | IBaseHalfNodeAttemptUnavailableServiceModel;
 
-export interface IBaseHalfNodeRunUsage {
+export interface IBaseHalfNodeAttemptUsage {
 	readonly inputTokens?: number;
 	readonly outputTokens?: number;
 	readonly cachedInputTokens?: number;
@@ -129,16 +154,16 @@ export interface IBaseHalfNodeRunUsage {
 	readonly audioSeconds?: number;
 }
 
-export interface IBaseHalfNodeRunCost {
+export interface IBaseHalfNodeAttemptCost {
 	/** Uppercase ISO-style three-letter currency identifier. */
 	readonly currency: string;
 	/** Canonical non-negative decimal string. */
 	readonly amount: string;
-	readonly kind: BaseHalfNodeRunCostKind;
+	readonly kind: BaseHalfNodeAttemptCostKind;
 }
 
-/** One immutable ordinary-file artifact accepted from a completed recipe run. */
-export interface IBaseHalfNodeRunArtifact {
+/** The single immutable ordinary-file artifact sealed into a result node. */
+export interface IBaseHalfNodeResultArtifact {
 	readonly id: string;
 	readonly outputId: string;
 	readonly kind: BaseHalfNodeArtifactKind;
@@ -149,42 +174,37 @@ export interface IBaseHalfNodeRunArtifact {
 	readonly label?: string;
 }
 
-/** One immutable, user-imported content version. Imports are revisions, never recipe runs. */
-export interface IBaseHalfNodeImportedRevision {
-	readonly id: string;
-	readonly source: 'imported';
-	readonly createdAt: string;
-	readonly artifacts: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId: string;
-}
+/** A result seals the node. It is either one imported file or the output of the
+ * node's unique successful attempt. */
+export type IBaseHalfNodeResult =
+	| {
+		readonly source: 'imported';
+		readonly artifact: IBaseHalfNodeResultArtifact;
+	}
+	| {
+		readonly source: 'attempt';
+		readonly attemptId: string;
+		readonly artifact: IBaseHalfNodeResultArtifact;
+	};
 
-export interface IBaseHalfNodeRun {
+export interface IBaseHalfNodeAttempt {
 	readonly id: string;
-	readonly status: BaseHalfNodeRunStatus;
+	readonly status: BaseHalfNodeAttemptStatus;
 	readonly createdAt: string;
 	readonly startedAt?: string;
 	readonly completedAt?: string;
-	/** Immutable recipe snapshot used by this run. */
+	/** Immutable host-owned generation intent used by this attempt. */
+	readonly prompt: string;
+	/** Immutable recipe snapshot used by this attempt. */
 	readonly recipe: IBaseHalfNodeRecipe;
 	/** Immutable local or external model-service identity selected before execution. */
-	readonly model: BaseHalfNodeRunModel;
-	/** Immutable direct-input snapshots used by this run. */
-	readonly inputs: readonly IBaseHalfNodeRunInput[];
-	/** Immutable accepted outputs. Artifact kind is the content truth. */
-	readonly artifacts: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId?: string;
+	readonly model: BaseHalfNodeAttemptModel;
+	/** Immutable direct-input snapshots used by this attempt. */
+	readonly inputs: readonly IBaseHalfNodeAttemptInput[];
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
-	readonly outputPaths: readonly string[];
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 	readonly error?: string;
-}
-
-export interface IBaseHalfNodeCurrent {
-	readonly source: BaseHalfNodeCurrentSource;
-	readonly runId?: string;
-	readonly revisionId?: string;
-	readonly outputPaths: readonly string[];
 }
 
 export interface IBaseHalfNodeDocument {
@@ -194,12 +214,13 @@ export interface IBaseHalfNodeDocument {
 	readonly kind: BaseHalfNodeKind;
 	readonly title: string;
 	readonly role: string;
-	readonly current: IBaseHalfNodeCurrent;
+	/** Host-owned generation intent, editable only while this node is a Draft. */
+	readonly prompt: string;
 	readonly recipe?: IBaseHalfNodeRecipe;
-	/** Append-only imported versions. Their files remain ordinary project data. */
-	readonly revisions: readonly IBaseHalfNodeImportedRevision[];
-	/** Append-only historical records. Selecting Current never mutates these records. */
-	readonly runs: readonly IBaseHalfNodeRun[];
+	/** Present exactly once after an import or the unique successful attempt. */
+	readonly result?: IBaseHalfNodeResult;
+	/** Append-only immutable execution attempts. */
+	readonly attempts: readonly IBaseHalfNodeAttempt[];
 }
 
 export interface ICreateBaseHalfNodeDocumentOptions {
@@ -207,10 +228,11 @@ export interface ICreateBaseHalfNodeDocumentOptions {
 	readonly kind: BaseHalfNodeKind;
 	readonly title: string;
 	readonly role: string;
-	readonly current?: IBaseHalfNodeCurrent;
+	/** Defaults to an empty Draft prompt. Persisted documents always contain the field. */
+	readonly prompt?: string;
 	readonly recipe?: IBaseHalfNodeRecipe;
-	readonly revisions?: readonly IBaseHalfNodeImportedRevision[];
-	readonly runs?: readonly IBaseHalfNodeRun[];
+	readonly result?: IBaseHalfNodeResult;
+	readonly attempts?: readonly IBaseHalfNodeAttempt[];
 }
 
 /**
@@ -223,13 +245,15 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 		id: '6f690fa8-04ab-49c1-a6c8-44df124dedf3',
 		kind: 'image',
 		title: 'Result',
-		role: 'Generated image'
+		role: 'Generated image',
+		prompt: ''
 	});
 	const configured = createBaseHalfNodeDocument({
 		id: '861a9f21-9d06-4ba2-9b0b-24ae31e25870',
 		kind: 'image',
 		title: 'Result',
 		role: 'Generated image',
+		prompt: 'Describe the intended result.',
 		recipe: {
 			recipeId: 'replace-with-installed-recipe-id',
 			parameters: {},
@@ -244,19 +268,14 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 			'$schema': 'https://json-schema.org/draft/2020-12/schema',
 			type: 'object',
 			additionalProperties: false,
-			required: ['version', 'id', 'kind', 'title', 'role', 'current', 'revisions', 'runs'],
+			required: ['version', 'id', 'kind', 'title', 'role', 'prompt', 'attempts'],
 			properties: {
 				version: { const: BASEHALF_NODE_DOCUMENT_VERSION },
 				id: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', minLength: 36, maxLength: 36 },
 				kind: { enum: [...NODE_KINDS] },
 				title: { type: 'string', minLength: 1, maxLength: MAX_TITLE_LENGTH },
 				role: { type: 'string', minLength: 1, maxLength: MAX_ROLE_LENGTH },
-				current: {
-					type: 'object',
-					additionalProperties: false,
-					required: ['source', 'outputPaths'],
-					properties: { source: { const: 'empty' }, outputPaths: { type: 'array', maxItems: 0 } }
-				},
+				prompt: { type: 'string', maxLength: BASEHALF_NODE_PROMPT_MAX_LENGTH },
 				recipe: {
 					type: 'object',
 					additionalProperties: false,
@@ -282,65 +301,62 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 						}
 					}
 				},
-				revisions: { type: 'array', maxItems: 0 },
-				runs: { type: 'array', maxItems: 0 }
+				result: false,
+				attempts: { type: 'array', maxItems: 0 }
 			}
 		},
 		examples: {
 			empty: validatedExample(empty),
 			configured: validatedExample(configured)
 		},
-		hostOwnedFields: ['current', 'revisions', 'runs'],
+		hostOwnedFields: ['result', 'attempts'],
 		rules: [
 			'Use only recipe, slot, parameter, and model service ids published for the open workspace.',
+			'Use prompt for the node-wide generation intent; do not duplicate it in recipe parameters.',
 			'Create reciprocal context references separately; each recipe binding must match one direct inbound reference.',
 			'Never author generated lifecycle state.'
 		]
 	});
 }
 
-export interface IBeginBaseHalfNodeRunOptions {
+export interface IBeginBaseHalfNodeAttemptOptions {
 	readonly id: string;
 	readonly createdAt: string;
 	readonly startedAt: string;
-	readonly model: BaseHalfNodeRunModel;
-	readonly inputs: readonly IBaseHalfNodeRunInput[];
+	readonly model: BaseHalfNodeAttemptModel;
+	readonly inputs: readonly IBaseHalfNodeAttemptInput[];
 }
 
-export interface ICompleteBaseHalfNodeRunOptions {
+export interface ICompleteBaseHalfNodeAttemptOptions {
 	readonly completedAt: string;
-	readonly artifacts: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId: string;
+	readonly artifact: IBaseHalfNodeResultArtifact;
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
-	/** Defaults to true. A false value records an accepted result without replacing Current. */
-	readonly selectCurrent?: boolean;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
-export interface IFailBaseHalfNodeRunOptions {
+export interface IFailBaseHalfNodeAttemptOptions {
 	readonly completedAt: string;
 	readonly error: string;
-	readonly artifacts?: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId?: string;
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
-export interface ICancelBaseHalfNodeRunOptions {
+export interface ICancelBaseHalfNodeAttemptOptions {
 	readonly completedAt: string;
 	readonly error?: string;
-	readonly artifacts?: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId?: string;
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
-export interface IInterruptBaseHalfNodeRunOptions {
+export interface IInterruptBaseHalfNodeAttemptOptions {
 	readonly completedAt?: string;
 	readonly error?: string;
+	readonly providerRequestId?: string;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
 export interface IBaseHalfNodeReadinessContext {
@@ -354,6 +370,7 @@ export type BaseHalfNodeReadinessCode =
 	| 'ready'
 	| 'notExecutable'
 	| 'busy'
+	| 'sealed'
 	| 'modelServiceUnavailable'
 	| 'sourceUnavailable';
 
@@ -386,7 +403,7 @@ export function parseBaseHalfNodeDocumentBytes(source: Uint8Array): IBaseHalfNod
 /**
  * Kept as the host-internal spelling at existing call sites. Both readers
  * preserve the exact persisted lifecycle state; the execution owner lease is
- * the sole authority allowed to recover an abandoned run.
+ * the sole authority allowed to recover an abandoned attempt.
  */
 export function parseBaseHalfNodeDocumentForActiveHost(source: string): IBaseHalfNodeDocument {
 	return parseNodeDocumentSource(source);
@@ -418,12 +435,12 @@ function parseNodeDocumentSource(source: string): IBaseHalfNodeDocument {
 	} catch {
 		throw invalid('The node document is not valid JSON.');
 	}
-	return normalizeDocument(value, false);
+	return normalizeDocument(value);
 }
 
-/** Serializes a validated document without changing an active in-memory run. */
+/** Serializes a validated document without changing an active in-memory attempt. */
 export function serializeBaseHalfNodeDocument(document: IBaseHalfNodeDocument): string {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
 	const serialized = `${JSON.stringify(normalized, null, '\t')}\n`;
 	if (utf8ByteLength(serialized) > BASEHALF_NODE_DOCUMENT_MAX_BYTES) {
 		throw invalid(`The node document exceeds ${BASEHALF_NODE_DOCUMENT_MAX_BYTES} bytes.`);
@@ -431,7 +448,7 @@ export function serializeBaseHalfNodeDocument(document: IBaseHalfNodeDocument): 
 	return serialized;
 }
 
-/** Creates a validated, deeply frozen v2 document. The caller supplies the stable UUID. */
+/** Creates a validated, deeply frozen v3 document. The caller supplies the stable UUID. */
 export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentOptions): IBaseHalfNodeDocument {
 	return normalizeDocument({
 		version: BASEHALF_NODE_DOCUMENT_VERSION,
@@ -439,25 +456,26 @@ export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentO
 		kind: options.kind,
 		title: options.title,
 		role: options.role,
-		current: options.current ?? { source: 'empty', outputPaths: [] },
+		prompt: options.prompt ?? '',
 		...(options.recipe ? { recipe: options.recipe } : {}),
-		revisions: options.revisions ?? [],
-		runs: options.runs ?? []
-	}, false);
+		...(options.result ? { result: options.result } : {}),
+		attempts: options.attempts ?? []
+	});
 }
 
 /**
  * Creates an independent node from a copied result container. A copy keeps the
  * authored setup, but receives a new stable identity and no inherited
- * connections, Current selection, imports, or run history.
+ * connections, sealed result, imports, or attempt history.
  */
 export function forkBaseHalfNodeDocument(document: IBaseHalfNodeDocument, id: string): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
 	return createBaseHalfNodeDocument({
 		id,
 		kind: normalized.kind,
 		title: normalized.title,
 		role: normalized.role,
+		prompt: normalized.prompt,
 		...(normalized.recipe ? {
 			recipe: {
 				...normalized.recipe,
@@ -467,131 +485,167 @@ export function forkBaseHalfNodeDocument(document: IBaseHalfNodeDocument, id: st
 	});
 }
 
-/** Starts one explicit run and appends its immutable running record. */
-export function beginBaseHalfNodeRun(
+/** Starts one explicit attempt and appends its immutable running record. */
+export function beginBaseHalfNodeAttempt(
 	document: IBaseHalfNodeDocument,
-	options: IBeginBaseHalfNodeRunOptions
+	options: IBeginBaseHalfNodeAttemptOptions
 ): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
+	if (normalized.result) {
+		throw invalid('A sealed result node cannot start another attempt.');
+	}
 	if (!normalized.recipe) {
-		throw invalid('A node without a recipe cannot start a run.');
+		throw invalid('A node without a recipe cannot start an attempt.');
 	}
-	if (normalized.runs.some(run => run.status === 'running')) {
-		throw invalid('The node already has an active run.');
+	if (normalized.attempts.some(attempt => attempt.status === 'running')) {
+		throw invalid('The node already has an active attempt.');
 	}
-	const id = requiredId(options.id, 'run.id');
-	if (normalized.runs.some(run => run.id === id)) {
-		throw invalid(`Run '${id}' already exists.`);
+	if (normalized.attempts.some(attempt => attempt.status === 'succeeded')) {
+		throw invalid('A successful attempt seals the node.');
+	}
+	if (normalized.attempts.length >= BASEHALF_NODE_MAX_ATTEMPTS) {
+		throw invalid(`The node cannot contain more than ${BASEHALF_NODE_MAX_ATTEMPTS} attempts.`);
+	}
+	const id = requiredId(options.id, 'attempt.id');
+	if (normalized.attempts.some(attempt => attempt.id === id)) {
+		throw invalid(`Attempt '${id}' already exists.`);
 	}
 	return normalizeDocument({
 		...normalized,
-		runs: [...normalized.runs, {
+		attempts: [...normalized.attempts, {
 			id,
 			status: 'running',
 			createdAt: options.createdAt,
-				startedAt: options.startedAt,
-				recipe: normalized.recipe,
+			startedAt: options.startedAt,
+			prompt: normalized.prompt,
+			recipe: normalized.recipe,
 				model: options.model,
-				inputs: options.inputs,
-			artifacts: [],
-			outputPaths: []
+				inputs: options.inputs
 		}]
-	}, false);
-}
-
-/** Freezes the provider connection snapshot after the explicit attempt is durable. */
-export function freezeBaseHalfNodeRunModel(
-	document: IBaseHalfNodeDocument,
-	runId: string,
-	model: BaseHalfNodeRunModel
-): IBaseHalfNodeDocument {
-	return replaceRunningRun(document, runId, run => ({ ...run, model }));
-}
-
-/** Freezes the direct-input revisions for a running record before its executor can start. */
-export function freezeBaseHalfNodeRunInputs(
-	document: IBaseHalfNodeDocument,
-	runId: string,
-	inputs: readonly IBaseHalfNodeRunInput[]
-): IBaseHalfNodeDocument {
-	return replaceRunningRun(document, runId, run => {
-		if (run.inputs.length > 0) {
-			throw invalid(`Run '${run.id}' already has frozen inputs.`);
-		}
-		return { ...run, inputs };
 	});
 }
 
-/** Completes a running record and selects its output as Current. */
-export function completeBaseHalfNodeRun(
+/** Freezes the provider connection snapshot after the explicit attempt is durable. */
+export function freezeBaseHalfNodeAttemptModel(
 	document: IBaseHalfNodeDocument,
-	runId: string,
-	options: ICompleteBaseHalfNodeRunOptions
+	attemptId: string,
+	model: BaseHalfNodeAttemptModel
 ): IBaseHalfNodeDocument {
-	const completed = replaceRunningRun(document, runId, run => ({
-		...run,
-		status: 'succeeded',
-		completedAt: options.completedAt,
-		artifacts: options.artifacts,
-		primaryArtifactId: options.primaryArtifactId,
-		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
-		...(options.usage !== undefined ? { usage: options.usage } : {}),
-		...(options.cost !== undefined ? { cost: options.cost } : {}),
-		outputPaths: options.artifacts.map(artifact => artifact.path)
-	}));
-	return options.selectCurrent === false ? completed : selectBaseHalfNodeCurrent(completed, runId);
+	return replaceRunningAttempt(document, attemptId, attempt => ({ ...attempt, model }));
 }
 
-/** Fails a running record while leaving the previous Current untouched. */
-export function failBaseHalfNodeRun(
+/** Freezes the direct-input revisions for a running record before its executor can start. */
+export function freezeBaseHalfNodeAttemptInputs(
 	document: IBaseHalfNodeDocument,
-	runId: string,
-	options: IFailBaseHalfNodeRunOptions
+	attemptId: string,
+	inputs: readonly IBaseHalfNodeAttemptInput[]
 ): IBaseHalfNodeDocument {
-	return replaceRunningRun(document, runId, run => ({
-		...run,
+	return replaceRunningAttempt(document, attemptId, attempt => {
+		if (attempt.inputs.length > 0) {
+			throw invalid(`Attempt '${attempt.id}' already has frozen inputs.`);
+		}
+		return { ...attempt, inputs };
+	});
+}
+
+/** Persists the provider's asynchronous task identity while the attempt is still running. */
+export function freezeBaseHalfNodeAttemptProviderRequestId(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	providerRequestId: string
+): IBaseHalfNodeDocument {
+	const normalizedId = auditIdentifier(providerRequestId, MAX_ID_LENGTH, 'attempt.providerRequestId');
+	return replaceRunningAttempt(document, attemptId, attempt => {
+		if (attempt.providerRequestId !== undefined && attempt.providerRequestId !== normalizedId) {
+			throw invalid(`Attempt '${attempt.id}' already has a different provider request id.`);
+		}
+		return attempt.providerRequestId === normalizedId ? attempt : { ...attempt, providerRequestId: normalizedId };
+	});
+}
+
+/** Replaces an inherited Retry task id after the provider proves that task is terminal and submits a new one. */
+export function replaceBaseHalfNodeAttemptProviderRequestId(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	expectedProviderRequestId: string,
+	providerRequestId: string
+): IBaseHalfNodeDocument {
+	const expectedId = auditIdentifier(expectedProviderRequestId, MAX_ID_LENGTH, 'attempt.expectedProviderRequestId');
+	const normalizedId = auditIdentifier(providerRequestId, MAX_ID_LENGTH, 'attempt.providerRequestId');
+	if (expectedId === normalizedId) {
+		return document;
+	}
+	return replaceRunningAttempt(document, attemptId, attempt => {
+		if (attempt.providerRequestId !== expectedId) {
+			throw invalid(`Attempt '${attempt.id}' no longer has the expected provider request id.`);
+		}
+		return { ...attempt, providerRequestId: normalizedId };
+	});
+}
+
+/** Completes the running attempt and atomically seals its single artifact. */
+export function completeBaseHalfNodeAttempt(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	options: ICompleteBaseHalfNodeAttemptOptions
+): IBaseHalfNodeDocument {
+	return replaceRunningAttempt(document, attemptId, attempt => ({
+		...attempt,
+		status: 'succeeded',
+		completedAt: options.completedAt,
+		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
+		...(options.usage !== undefined ? { usage: options.usage } : {}),
+		...(options.cost !== undefined ? { cost: options.cost } : {})
+	}), options.artifact);
+}
+
+/** Fails a running attempt without creating a result. */
+export function failBaseHalfNodeAttempt(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	options: IFailBaseHalfNodeAttemptOptions
+): IBaseHalfNodeDocument {
+	return replaceRunningAttempt(document, attemptId, attempt => ({
+		...attempt,
 		status: 'failed',
 		completedAt: options.completedAt,
-		artifacts: options.artifacts ?? [],
-		...(options.primaryArtifactId !== undefined ? { primaryArtifactId: options.primaryArtifactId } : {}),
 		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
 		...(options.usage !== undefined ? { usage: options.usage } : {}),
 		...(options.cost !== undefined ? { cost: options.cost } : {}),
-		outputPaths: (options.artifacts ?? []).map(artifact => artifact.path),
 		error: options.error
 	}));
 }
 
-/** Cancels a running record while leaving the previous Current untouched. */
-export function cancelBaseHalfNodeRun(
+/** Cancels a running attempt without creating a result. */
+export function cancelBaseHalfNodeAttempt(
 	document: IBaseHalfNodeDocument,
-	runId: string,
-	options: ICancelBaseHalfNodeRunOptions
+	attemptId: string,
+	options: ICancelBaseHalfNodeAttemptOptions
 ): IBaseHalfNodeDocument {
-	return replaceRunningRun(document, runId, run => ({
-		...run,
+	return replaceRunningAttempt(document, attemptId, attempt => ({
+		...attempt,
 		status: 'cancelled',
 		completedAt: options.completedAt,
-		artifacts: options.artifacts ?? [],
-		...(options.primaryArtifactId !== undefined ? { primaryArtifactId: options.primaryArtifactId } : {}),
 		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
 		...(options.usage !== undefined ? { usage: options.usage } : {}),
 		...(options.cost !== undefined ? { cost: options.cost } : {}),
-		outputPaths: (options.artifacts ?? []).map(artifact => artifact.path),
 		...(options.error !== undefined ? { error: options.error } : {})
 	}));
 }
 
-/** Records an executor or host interruption without changing Current. */
-export function interruptBaseHalfNodeRun(
+/** Records an executor or host interruption without creating a result. */
+export function interruptBaseHalfNodeAttempt(
 	document: IBaseHalfNodeDocument,
-	runId: string,
-	options: IInterruptBaseHalfNodeRunOptions = {}
+	attemptId: string,
+	options: IInterruptBaseHalfNodeAttemptOptions = {}
 ): IBaseHalfNodeDocument {
-	return replaceRunningRun(document, runId, run => ({
-		...run,
+	return replaceRunningAttempt(document, attemptId, attempt => ({
+		...attempt,
 		status: 'interrupted',
 		...(options.completedAt !== undefined ? { completedAt: options.completedAt } : {}),
+		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
+		...(options.usage !== undefined ? { usage: options.usage } : {}),
+		...(options.cost !== undefined ? { cost: options.cost } : {}),
 		...(options.error !== undefined ? { error: options.error } : {})
 	}));
 }
@@ -600,11 +654,14 @@ export function getBaseHalfNodeReadiness(
 	document: IBaseHalfNodeDocument,
 	context: IBaseHalfNodeReadinessContext = {}
 ): IBaseHalfNodeReadiness {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
+	if (normalized.result) {
+		return Object.freeze({ ready: false, code: 'sealed' });
+	}
 	if (!normalized.recipe) {
 		return Object.freeze({ ready: false, code: 'notExecutable' });
 	}
-	if (normalized.runs.some(run => run.status === 'running')) {
+	if (normalized.attempts.some(attempt => attempt.status === 'running')) {
 		return Object.freeze({ ready: false, code: 'busy' });
 	}
 
@@ -632,40 +689,28 @@ export function getBaseHalfNodeReadiness(
 	return Object.freeze({ ready: true, code: 'ready' });
 }
 
-/**
- * Returns whether the selected generated Current is older than the active
- * recipe or the caller-provided direct-input revisions. Imported Current
- * values are never marked stale by execution state.
- */
-export function isBaseHalfNodeDocumentStale(
+/** Replaces the host-owned generation intent only while the node is a Draft. */
+export function updateBaseHalfNodePrompt(
 	document: IBaseHalfNodeDocument,
-	currentInputs?: readonly IBaseHalfNodeRunInput[]
-): boolean {
-	const normalized = normalizeDocument(document, false);
-	if (normalized.current.source !== 'run' || !normalized.current.runId || !normalized.recipe) {
-		return false;
+	prompt: string
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	if (normalized.result || normalized.attempts.length > 0) {
+		throw invalid('The prompt is frozen after the first attempt or sealed result.');
 	}
-	const selectedRun = normalized.runs.find(run => run.id === normalized.current.runId);
-	if (!selectedRun) {
-		return false;
-	}
-	if (!recipesEqual(normalized.recipe, selectedRun.recipe)) {
-		return true;
-	}
-	if (currentInputs === undefined) {
-		return false;
-	}
-	const normalizedInputs = normalizeRunInputs(currentInputs, 'currentInputs');
-	return !runInputsEqual(selectedRun.inputs, normalizedInputs);
+	return normalizeDocument({
+		...normalized,
+		prompt: promptText(prompt, 'prompt')
+	});
 }
 
-/** Rewrites only the live recipe bindings after an explicit project move. Immutable run history is retained verbatim. */
+/** Rewrites recipe bindings only while the node is an unattempted draft. */
 export function remapBaseHalfNodeRecipeInputBindings(
 	document: IBaseHalfNodeDocument,
 	fromPath: string,
 	toPath: string
 ): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
 	if (!normalized.recipe) {
 		return document;
 	}
@@ -685,10 +730,11 @@ export function remapBaseHalfNodeRecipeInputBindings(
 	if (!changed) {
 		return document;
 	}
+	assertDraftRecipeIsMutable(normalized);
 	return normalizeDocument({
 		...normalized,
 		recipe: { ...normalized.recipe, inputBindings }
-	}, false);
+	});
 }
 
 /** Returns whether the live recipe directly references a file or descendant. */
@@ -696,7 +742,7 @@ export function baseHalfNodeRecipeReferencesPath(
 	document: IBaseHalfNodeDocument,
 	path: string
 ): boolean {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
 	const rootKey = baseHalfProjectPathKey(projectPath(path, 'path'));
 	return normalized.recipe?.inputBindings.some(binding => {
 		const sourceKey = baseHalfProjectPathKey(binding.sourcePath);
@@ -704,12 +750,12 @@ export function baseHalfNodeRecipeReferencesPath(
 	}) ?? false;
 }
 
-/** Removes only live recipe bindings whose source was explicitly deleted. */
+/** Removes recipe bindings only while the node is an unattempted draft. */
 export function removeBaseHalfNodeRecipeInputBindings(
 	document: IBaseHalfNodeDocument,
 	deletedPath: string
 ): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
+	const normalized = normalizeDocument(document);
 	if (!normalized.recipe) {
 		return document;
 	}
@@ -721,103 +767,67 @@ export function removeBaseHalfNodeRecipeInputBindings(
 	if (retained.length === normalized.recipe.inputBindings.length) {
 		return document;
 	}
+	assertDraftRecipeIsMutable(normalized);
 	const inputBindings = retained.map((binding, order) => ({ ...binding, order }));
 	return normalizeDocument({
 		...normalized,
 		recipe: { ...normalized.recipe, inputBindings }
-	}, false);
-}
-
-/** Selects a successful historical run as Current without changing History. */
-export function selectBaseHalfNodeCurrent(document: IBaseHalfNodeDocument, versionId: string): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
-	const normalizedRunId = requiredId(versionId, 'versionId');
-	const run = normalized.runs.find(candidate => candidate.id === normalizedRunId);
-	if (run) {
-		if (run.status !== 'succeeded') {
-			throw invalid(`Run '${normalizedRunId}' is not successful and cannot become Current.`);
-		}
-		return freezeDocument({
-			...normalized,
-			current: freezeCurrent({
-				source: 'run',
-				runId: run.id,
-				outputPaths: run.outputPaths
-			})
-		});
-	}
-	const revision = normalized.revisions.find(candidate => candidate.id === normalizedRunId);
-	if (!revision) {
-		throw invalid(`Version '${normalizedRunId}' does not exist.`);
-	}
-	return freezeDocument({
-		...normalized,
-		current: freezeCurrent({
-			source: 'imported',
-			revisionId: revision.id,
-			outputPaths: revision.artifacts.map(artifact => artifact.path)
-		})
 	});
 }
 
-/** Appends one immutable imported revision and selects it as Current. */
-export function importBaseHalfNodeCurrent(document: IBaseHalfNodeDocument, revision: IBaseHalfNodeImportedRevision): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
-	const next = normalizeDocument({
-		...normalized,
-		revisions: [...normalized.revisions, revision]
-	}, false);
-	return selectBaseHalfNodeCurrent(next, revision.id);
-}
-
-/** Returns the immutable artifacts selected by a generated or imported Current. */
-export function getBaseHalfNodeCurrentArtifacts(document: IBaseHalfNodeDocument): readonly IBaseHalfNodeRunArtifact[] {
-	const normalized = normalizeDocument(document, false);
-	if (normalized.current.source === 'run' && normalized.current.runId) {
-		return normalized.runs.find(run => run.id === normalized.current.runId)?.artifacts ?? Object.freeze([]);
-	}
-	if (normalized.current.source === 'imported' && normalized.current.revisionId) {
-		return normalized.revisions.find(revision => revision.id === normalized.current.revisionId)?.artifacts ?? Object.freeze([]);
-	}
-	return Object.freeze([]);
-}
-
-/** Returns the exact accepted artifact used as the generated or imported Current. */
-export function getBaseHalfNodeCurrentPrimaryArtifact(document: IBaseHalfNodeDocument): IBaseHalfNodeRunArtifact | undefined {
-	const normalized = normalizeDocument(document, false);
-	if (normalized.current.source === 'run' && normalized.current.runId) {
-		const run = normalized.runs.find(candidate => candidate.id === normalized.current.runId);
-		return run?.artifacts.find(artifact => artifact.id === run.primaryArtifactId);
-	}
-	if (normalized.current.source === 'imported' && normalized.current.revisionId) {
-		const revision = normalized.revisions.find(candidate => candidate.id === normalized.current.revisionId);
-		return revision?.artifacts.find(artifact => artifact.id === revision.primaryArtifactId);
-	}
-	return undefined;
-}
-
-function replaceRunningRun(
+/** Seals one imported ordinary-file artifact into a completely empty draft. */
+export function importBaseHalfNodeResult(
 	document: IBaseHalfNodeDocument,
-	runId: string,
-	update: (run: IBaseHalfNodeRun) => IBaseHalfNodeRun
+	artifact: IBaseHalfNodeResultArtifact
 ): IBaseHalfNodeDocument {
-	const normalized = normalizeDocument(document, false);
-	const normalizedRunId = requiredId(runId, 'runId');
-	const index = normalized.runs.findIndex(run => run.id === normalizedRunId);
-	if (index < 0) {
-		throw invalid(`Run '${normalizedRunId}' does not exist.`);
+	const normalized = normalizeDocument(document);
+	if (normalized.result) {
+		throw invalid('A sealed result cannot be replaced.');
 	}
-	if (normalized.runs[index].status !== 'running') {
-		throw invalid(`Run '${normalizedRunId}' is not running.`);
+	if (normalized.recipe || normalized.attempts.length > 0) {
+		throw invalid('An imported result requires an empty draft with no recipe or attempts.');
 	}
-	const runs = [...normalized.runs];
-	runs[index] = update(normalized.runs[index]);
-	return normalizeDocument({ ...normalized, runs }, false);
+	return normalizeDocument({ ...normalized, result: { source: 'imported', artifact } });
 }
 
-function normalizeDocument(value: unknown, recoverRunning: boolean): IBaseHalfNodeDocument {
+/** Returns the node's single sealed artifact, if one exists. */
+export function getBaseHalfNodeResultArtifact(document: IBaseHalfNodeDocument): IBaseHalfNodeResultArtifact | undefined {
+	return normalizeDocument(document).result?.artifact;
+}
+
+function replaceRunningAttempt(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	update: (attempt: IBaseHalfNodeAttempt) => IBaseHalfNodeAttempt,
+	sealArtifact?: IBaseHalfNodeResultArtifact
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	const normalizedAttemptId = requiredId(attemptId, 'attemptId');
+	const index = normalized.attempts.findIndex(attempt => attempt.id === normalizedAttemptId);
+	if (index < 0) {
+		throw invalid(`Attempt '${normalizedAttemptId}' does not exist.`);
+	}
+	if (normalized.attempts[index].status !== 'running') {
+		throw invalid(`Attempt '${normalizedAttemptId}' is not running.`);
+	}
+	const attempts = [...normalized.attempts];
+	attempts[index] = update(normalized.attempts[index]);
+	return normalizeDocument({
+		...normalized,
+		attempts,
+		...(sealArtifact ? { result: { source: 'attempt', attemptId: normalizedAttemptId, artifact: sealArtifact } } : {})
+	});
+}
+
+function assertDraftRecipeIsMutable(document: IBaseHalfNodeDocument): void {
+	if (document.result || document.attempts.length > 0) {
+		throw invalid('The recipe is frozen after the first attempt or sealed result.');
+	}
+}
+
+function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 	const candidate = record(value, 'document');
-	assertOnlyKeys(candidate, ['version', 'id', 'kind', 'title', 'role', 'current', 'recipe', 'revisions', 'runs'], 'document');
+	assertOnlyKeys(candidate, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'recipe', 'result', 'attempts'], 'document');
 	if (candidate.version !== BASEHALF_NODE_DOCUMENT_VERSION) {
 		throw invalid(`Unsupported node document version '${String(candidate.version)}'.`);
 	}
@@ -826,51 +836,53 @@ function normalizeDocument(value: unknown, recoverRunning: boolean): IBaseHalfNo
 	const kind = oneOf(candidate.kind, NODE_KINDS, 'document.kind');
 	const title = requiredString(candidate.title, MAX_TITLE_LENGTH, 'document.title');
 	const role = requiredString(candidate.role, MAX_ROLE_LENGTH, 'document.role');
+	const prompt = promptText(candidate.prompt, 'document.prompt');
 	const recipe = candidate.recipe === undefined ? undefined : normalizeRecipe(candidate.recipe, 'document.recipe');
-	const revisionsValue = array(candidate.revisions, 'document.revisions', BASEHALF_NODE_MAX_REVISIONS);
-	const revisions = revisionsValue.map((revision, index) => normalizeImportedRevision(revision, `document.revisions[${index}]`));
-	assertUnique(revisions.map(revision => revision.id), 'document.revisions ids');
-	const runsValue = array(candidate.runs, 'document.runs', BASEHALF_NODE_MAX_RUNS);
-	const runs = runsValue.map((run, index) => normalizeRun(run, `document.runs[${index}]`, recoverRunning));
-	assertUnique(runs.map(run => run.id), 'document.runs ids');
-	assertUnique([...revisions.map(revision => revision.id), ...runs.map(run => run.id)], 'document version ids');
-	if (runsValue.filter(run => hasRunStatus(run, 'running')).length > 1) {
-		throw invalid('document.runs cannot contain more than one active run.');
+	const attemptsValue = array(candidate.attempts, 'document.attempts', BASEHALF_NODE_MAX_ATTEMPTS);
+	const attempts = attemptsValue.map((attempt, index) => normalizeAttempt(attempt, `document.attempts[${index}]`));
+	assertUnique(attempts.map(attempt => attempt.id), 'document.attempts ids');
+
+	const running = attempts.filter(attempt => attempt.status === 'running');
+	if (running.length > 1) {
+		throw invalid('document.attempts cannot contain more than one running attempt.');
 	}
-	const current = normalizeCurrent(candidate.current, 'document.current');
-	for (const run of runs) {
-		if (run.status !== 'succeeded') {
-			continue;
-		}
-		const primary = run.artifacts.find(artifact => artifact.id === run.primaryArtifactId);
-		if (primary?.kind !== kind) {
-			throw invalid(`Run '${run.id}' primary artifact must match document.kind '${kind}'.`);
-		}
+	if (running.length === 1 && attempts[attempts.length - 1] !== running[0]) {
+		throw invalid('The running attempt must be the last attempt.');
 	}
-	for (const revision of revisions) {
-		const primary = revision.artifacts.find(artifact => artifact.id === revision.primaryArtifactId);
-		if (primary?.kind !== kind) {
-			throw invalid(`Revision '${revision.id}' primary artifact must match document.kind '${kind}'.`);
-		}
+	const succeeded = attempts.filter(attempt => attempt.status === 'succeeded');
+	if (succeeded.length > 1) {
+		throw invalid('document.attempts cannot contain more than one successful attempt.');
+	}
+	if (attempts.length > 0 && !recipe) {
+		throw invalid('document.recipe is required after the first attempt.');
+	}
+	if (attempts.some(attempt => attempt.prompt !== prompt)) {
+		throw invalid('document.prompt is frozen after the first attempt and must match every attempt snapshot.');
+	}
+	if (recipe && attempts.some(attempt => !recipesEqual(recipe, attempt.recipe))) {
+		throw invalid('document.recipe is frozen after the first attempt and must match every attempt snapshot.');
 	}
 
-	if (current.source === 'run') {
-		const selectedRun = runs.find(run => run.id === current.runId);
-		if (!selectedRun || selectedRun.status !== 'succeeded') {
-			throw invalid('document.current must point to a successful run.');
+	const result = candidate.result === undefined ? undefined : normalizeResult(candidate.result, 'document.result');
+	if (result && result.artifact.kind !== kind) {
+		throw invalid(`document.result.artifact.kind must match document.kind '${kind}'.`);
+	}
+	if (result?.source === 'imported' && (recipe || attempts.length > 0)) {
+		throw invalid('An imported result requires an empty draft with no recipe or attempts.');
+	}
+	if (result?.source === 'attempt') {
+		if (succeeded.length !== 1 || succeeded[0].id !== result.attemptId) {
+			throw invalid('An attempt result must point to the unique successful attempt.');
 		}
-		if (!stringArraysEqual(current.outputPaths, selectedRun.outputPaths)) {
-			throw invalid('document.current content must match its selected run output.');
+		if (attempts[attempts.length - 1] !== succeeded[0]) {
+			throw invalid('The successful attempt must be the last attempt.');
 		}
 	}
-	if (current.source === 'imported') {
-		const selectedRevision = revisions.find(revision => revision.id === current.revisionId);
-		if (!selectedRevision) {
-			throw invalid('document.current must point to an imported revision.');
-		}
-		if (!stringArraysEqual(current.outputPaths, selectedRevision.artifacts.map(artifact => artifact.path))) {
-			throw invalid('document.current content must match its selected imported revision.');
-		}
+	if (succeeded.length === 1 && result?.source !== 'attempt') {
+		throw invalid('A successful attempt requires its sealed attempt result.');
+	}
+	if (result && running.length > 0) {
+		throw invalid('A sealed result cannot coexist with a running attempt.');
 	}
 
 	return freezeDocument({
@@ -879,58 +891,11 @@ function normalizeDocument(value: unknown, recoverRunning: boolean): IBaseHalfNo
 		kind,
 		title,
 		role,
-		current,
+		prompt,
 		...(recipe ? { recipe } : {}),
-		revisions: Object.freeze(revisions),
-		runs: Object.freeze(runs)
+		...(result ? { result } : {}),
+		attempts: Object.freeze(attempts)
 	});
-}
-
-function normalizeCurrent(value: unknown, path: string): IBaseHalfNodeCurrent {
-	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['source', 'runId', 'revisionId', 'outputPaths'], path);
-	const source = oneOf(candidate.source, CURRENT_SOURCES, `${path}.source`);
-	const runId = candidate.runId === undefined ? undefined : requiredId(candidate.runId, `${path}.runId`);
-	const revisionId = candidate.revisionId === undefined ? undefined : requiredId(candidate.revisionId, `${path}.revisionId`);
-	const outputPaths = normalizeProjectPaths(candidate.outputPaths, `${path}.outputPaths`);
-
-	if (source === 'empty' && (runId !== undefined || revisionId !== undefined || outputPaths.length)) {
-		throw invalid(`${path} with source 'empty' cannot contain content.`);
-	}
-	if (source === 'run' && runId === undefined) {
-		throw invalid(`${path} with source 'run' requires runId.`);
-	}
-	if (source !== 'run' && runId !== undefined) {
-		throw invalid(`${path}.runId is only valid when source is 'run'.`);
-	}
-	if (source === 'imported' && revisionId === undefined) {
-		throw invalid(`${path} with source 'imported' requires revisionId.`);
-	}
-	if (source !== 'imported' && revisionId !== undefined) {
-		throw invalid(`${path}.revisionId is only valid when source is 'imported'.`);
-	}
-	return freezeCurrent({
-		source,
-		...(runId !== undefined ? { runId } : {}),
-		...(revisionId !== undefined ? { revisionId } : {}),
-		outputPaths
-	});
-}
-
-function normalizeImportedRevision(value: unknown, path: string): IBaseHalfNodeImportedRevision {
-	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['id', 'source', 'createdAt', 'artifacts', 'primaryArtifactId'], path);
-	const id = requiredId(candidate.id, `${path}.id`);
-	if (candidate.source !== 'imported') {
-		throw invalid(`${path}.source must be 'imported'.`);
-	}
-	const createdAt = timestamp(candidate.createdAt, `${path}.createdAt`);
-	const artifacts = normalizeRunArtifacts(candidate.artifacts, `${path}.artifacts`);
-	const primaryArtifactId = requiredId(candidate.primaryArtifactId, `${path}.primaryArtifactId`);
-	if (artifacts.length === 0 || !artifacts.some(artifact => artifact.id === primaryArtifactId)) {
-		throw invalid(`${path} requires a valid primaryArtifactId.`);
-	}
-	return freezeRevision({ id, source: 'imported', createdAt, artifacts, primaryArtifactId });
 }
 
 function normalizeRecipe(value: unknown, path: string): IBaseHalfNodeRecipe {
@@ -957,61 +922,56 @@ function normalizeRecipe(value: unknown, path: string): IBaseHalfNodeRecipe {
 	});
 }
 
-function normalizeRun(value: unknown, path: string, recoverRunning: boolean): IBaseHalfNodeRun {
+function normalizeAttempt(value: unknown, path: string): IBaseHalfNodeAttempt {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['id', 'status', 'createdAt', 'startedAt', 'completedAt', 'recipe', 'model', 'inputs', 'artifacts', 'primaryArtifactId', 'providerRequestId', 'usage', 'cost', 'outputPaths', 'error'], path);
+	assertOnlyKeys(candidate, ['id', 'status', 'createdAt', 'startedAt', 'completedAt', 'prompt', 'recipe', 'model', 'inputs', 'providerRequestId', 'usage', 'cost', 'error'], path);
 	const id = requiredId(candidate.id, `${path}.id`);
-	const persistedStatus = oneOf(candidate.status, RUN_STATUSES, `${path}.status`);
+	const status = oneOf(candidate.status, ATTEMPT_STATUSES, `${path}.status`);
 	const createdAt = timestamp(candidate.createdAt, `${path}.createdAt`);
 	const startedAt = candidate.startedAt === undefined ? undefined : timestamp(candidate.startedAt, `${path}.startedAt`);
 	const completedAt = candidate.completedAt === undefined ? undefined : timestamp(candidate.completedAt, `${path}.completedAt`);
+	const prompt = promptText(candidate.prompt, `${path}.prompt`);
 	const recipe = normalizeRecipe(candidate.recipe, `${path}.recipe`);
-	const model = normalizeRunModel(candidate.model, `${path}.model`);
-	validateRunModelRecipe(model, recipe, path);
-	const inputs = normalizeRunInputs(candidate.inputs, `${path}.inputs`);
+	const model = normalizeAttemptModel(candidate.model, `${path}.model`);
+	validateAttemptModelRecipe(model, recipe, path);
+	const inputs = normalizeAttemptInputs(candidate.inputs, `${path}.inputs`);
 	// The host lands a running record before fallible input preparation. An
 	// empty list therefore records that preparation never finished; once
 	// present, inputs must exactly match the immutable recipe snapshot.
 	if (inputs.length > 0 && !bindingsEqual(recipe.inputBindings, inputs)) {
-		throw invalid(`${path}.inputs must match the run recipe input bindings.`);
+		throw invalid(`${path}.inputs must match the attempt recipe input bindings.`);
 	}
-	if (persistedStatus === 'succeeded' && !bindingsEqual(recipe.inputBindings, inputs)) {
-		throw invalid(`${path}.inputs must match the run recipe input bindings.`);
+	if (status === 'succeeded' && !bindingsEqual(recipe.inputBindings, inputs)) {
+		throw invalid(`${path}.inputs must match the attempt recipe input bindings.`);
 	}
-	const artifacts = normalizeRunArtifacts(candidate.artifacts, `${path}.artifacts`);
-	const primaryArtifactId = candidate.primaryArtifactId === undefined ? undefined : requiredId(candidate.primaryArtifactId, `${path}.primaryArtifactId`);
 	const providerRequestId = candidate.providerRequestId === undefined ? undefined : auditIdentifier(candidate.providerRequestId, MAX_ID_LENGTH, `${path}.providerRequestId`);
-	const usage = candidate.usage === undefined ? undefined : normalizeRunUsage(candidate.usage, `${path}.usage`);
-	const cost = candidate.cost === undefined ? undefined : normalizeRunCost(candidate.cost, `${path}.cost`);
-	const outputPaths = normalizeProjectPaths(candidate.outputPaths, `${path}.outputPaths`);
+	const usage = candidate.usage === undefined ? undefined : normalizeAttemptUsage(candidate.usage, `${path}.usage`);
+	const cost = candidate.cost === undefined ? undefined : normalizeAttemptCost(candidate.cost, `${path}.cost`);
 	const error = candidate.error === undefined ? undefined : requiredString(candidate.error, MAX_MESSAGE_LENGTH, `${path}.error`);
 
-	validateRunLifecycle(persistedStatus, { createdAt, startedAt, completedAt, outputPaths, artifacts, primaryArtifactId, providerRequestId, usage, cost, error }, path);
-	if (persistedStatus === 'succeeded' && model.source === 'service' && model.connection !== 'resolved') {
-		throw invalid(`${path} successful runs require a resolved model connection.`);
+	validateAttemptLifecycle(status, { createdAt, startedAt, completedAt, providerRequestId, usage, cost, error }, path);
+	if (status === 'succeeded' && model.source === 'service' && model.connection !== 'resolved') {
+		throw invalid(`${path} successful attempts require a resolved model connection.`);
 	}
-	const status: BaseHalfNodeRunStatus = recoverRunning && persistedStatus === 'running' ? 'interrupted' : persistedStatus;
 
-	return freezeRun({
+	return freezeAttempt({
 		id,
 		status,
 		createdAt,
 		...(startedAt !== undefined ? { startedAt } : {}),
 		...(completedAt !== undefined ? { completedAt } : {}),
+		prompt,
 		recipe,
 		model,
 		inputs,
-		artifacts,
-		...(primaryArtifactId !== undefined ? { primaryArtifactId } : {}),
 		...(providerRequestId !== undefined ? { providerRequestId } : {}),
 		...(usage !== undefined ? { usage } : {}),
 		...(cost !== undefined ? { cost } : {}),
-		outputPaths,
 		...(error !== undefined ? { error } : {})
 	});
 }
 
-function normalizeRunModel(value: unknown, path: string): BaseHalfNodeRunModel {
+function normalizeAttemptModel(value: unknown, path: string): BaseHalfNodeAttemptModel {
 	const candidate = record(value, path);
 	const source = candidate.source;
 	if (source === 'local') {
@@ -1048,7 +1008,7 @@ function normalizeRunModel(value: unknown, path: string): BaseHalfNodeRunModel {
 	});
 }
 
-function validateRunModelRecipe(model: BaseHalfNodeRunModel, recipe: IBaseHalfNodeRecipe, path: string): void {
+function validateAttemptModelRecipe(model: BaseHalfNodeAttemptModel, recipe: IBaseHalfNodeRecipe, path: string): void {
 	if (model.source === 'local') {
 		if (recipe.modelServiceId !== undefined || recipe.modelId !== undefined) {
 			throw invalid(`${path}.model must identify the recipe's configured model service.`);
@@ -1060,7 +1020,7 @@ function validateRunModelRecipe(model: BaseHalfNodeRunModel, recipe: IBaseHalfNo
 	}
 }
 
-function normalizeRunUsage(value: unknown, path: string): IBaseHalfNodeRunUsage {
+function normalizeAttemptUsage(value: unknown, path: string): IBaseHalfNodeAttemptUsage {
 	const candidate = record(value, path);
 	const keys = ['inputTokens', 'outputTokens', 'cachedInputTokens', 'images', 'videoSeconds', 'audioSeconds'] as const;
 	assertOnlyKeys(candidate, keys, path);
@@ -1080,7 +1040,7 @@ function normalizeRunUsage(value: unknown, path: string): IBaseHalfNodeRunUsage 
 	return Object.freeze(result);
 }
 
-function normalizeRunCost(value: unknown, path: string): IBaseHalfNodeRunCost {
+function normalizeAttemptCost(value: unknown, path: string): IBaseHalfNodeAttemptCost {
 	const candidate = record(value, path);
 	assertOnlyKeys(candidate, ['currency', 'amount', 'kind'], path);
 	const currency = requiredString(candidate.currency, 3, `${path}.currency`);
@@ -1098,32 +1058,40 @@ function normalizeRunCost(value: unknown, path: string): IBaseHalfNodeRunCost {
 	});
 }
 
-function normalizeRunArtifacts(value: unknown, path: string): readonly IBaseHalfNodeRunArtifact[] {
-	const values = array(value, path, MAX_OUTPUT_PATHS);
-	const artifacts = values.map((entry, index) => {
-		const artifactPath = `${path}[${index}]`;
-		const candidate = record(entry, artifactPath);
-		assertOnlyKeys(candidate, ['id', 'outputId', 'kind', 'path', 'sha256', 'size', 'label'], artifactPath);
-		const sha256 = requiredString(candidate.sha256, 64, `${artifactPath}.sha256`);
-		if (!/^[A-Za-z0-9_-]{43}$/.test(sha256)) {
-			throw invalid(`${artifactPath}.sha256 must be an unpadded Base64 SHA-256 digest.`);
-		}
-		return Object.freeze({
-			id: requiredId(candidate.id, `${artifactPath}.id`),
-			outputId: requiredId(candidate.outputId, `${artifactPath}.outputId`),
-			kind: oneOf(candidate.kind, ARTIFACT_KINDS, `${artifactPath}.kind`),
-			path: projectPath(candidate.path, `${artifactPath}.path`),
-			sha256,
-			size: integer(candidate.size, 0, Number.MAX_SAFE_INTEGER, `${artifactPath}.size`),
-			...(candidate.label === undefined ? {} : { label: requiredString(candidate.label, 160, `${artifactPath}.label`) })
-		});
+function normalizeResult(value: unknown, path: string): IBaseHalfNodeResult {
+	const candidate = record(value, path);
+	const source = oneOf(candidate.source, RESULT_SOURCES, `${path}.source`);
+	if (source === 'imported') {
+		assertOnlyKeys(candidate, ['source', 'artifact'], path);
+		return Object.freeze({ source, artifact: normalizeResultArtifact(candidate.artifact, `${path}.artifact`) });
+	}
+	assertOnlyKeys(candidate, ['source', 'attemptId', 'artifact'], path);
+	return Object.freeze({
+		source,
+		attemptId: requiredId(candidate.attemptId, `${path}.attemptId`),
+		artifact: normalizeResultArtifact(candidate.artifact, `${path}.artifact`)
 	});
-	assertUnique(artifacts.map(artifact => artifact.id), `${path} ids`);
-	assertUnique(artifacts.map(artifact => baseHalfProjectPathKey(artifact.path)), `${path} paths`);
-	return Object.freeze(artifacts);
 }
 
-function normalizeRunInputs(value: unknown, path: string): readonly IBaseHalfNodeRunInput[] {
+function normalizeResultArtifact(value: unknown, path: string): IBaseHalfNodeResultArtifact {
+	const candidate = record(value, path);
+	assertOnlyKeys(candidate, ['id', 'outputId', 'kind', 'path', 'sha256', 'size', 'label'], path);
+	const sha256 = requiredString(candidate.sha256, 64, `${path}.sha256`);
+	if (!/^[A-Za-z0-9_-]{43}$/.test(sha256)) {
+		throw invalid(`${path}.sha256 must be an unpadded Base64 SHA-256 digest.`);
+	}
+	return Object.freeze({
+		id: requiredId(candidate.id, `${path}.id`),
+		outputId: requiredId(candidate.outputId, `${path}.outputId`),
+		kind: oneOf(candidate.kind, ARTIFACT_KINDS, `${path}.kind`),
+		path: projectPath(candidate.path, `${path}.path`),
+		sha256,
+		size: integer(candidate.size, 0, Number.MAX_SAFE_INTEGER, `${path}.size`),
+		...(candidate.label === undefined ? {} : { label: requiredString(candidate.label, 160, `${path}.label`) })
+	});
+}
+
+function normalizeAttemptInputs(value: unknown, path: string): readonly IBaseHalfNodeAttemptInput[] {
 	const values = array(value, path, MAX_BINDINGS);
 	const inputs = values.map((input, index) => {
 		const inputPath = `${path}[${index}]`;
@@ -1147,13 +1115,6 @@ function normalizeBinding(value: unknown, path: string, allowRevision = false): 
 		slot: requiredString(candidate.slot, MAX_SLOT_LENGTH, `${path}.slot`),
 		order: integer(candidate.order, 0, MAX_BINDINGS - 1, `${path}.order`)
 	});
-}
-
-function normalizeProjectPaths(value: unknown, path: string): readonly string[] {
-	const values = array(value, path, MAX_OUTPUT_PATHS);
-	const result = values.map((candidate, index) => projectPath(candidate, `${path}[${index}]`));
-	assertUnique(result.map(baseHalfProjectPathKey), path);
-	return Object.freeze(result);
 }
 
 function normalizeParameters(value: unknown, path: string): Readonly<Record<string, BaseHalfNodeJsonValue>> {
@@ -1205,9 +1166,9 @@ function normalizeJsonObject(value: Record<string, unknown>, path: string, depth
 	return Object.freeze(result);
 }
 
-function validateRunLifecycle(
-	status: BaseHalfNodeRunStatus,
-	value: Pick<IBaseHalfNodeRun, 'createdAt' | 'startedAt' | 'completedAt' | 'outputPaths' | 'artifacts' | 'primaryArtifactId' | 'providerRequestId' | 'usage' | 'cost' | 'error'>,
+function validateAttemptLifecycle(
+	status: BaseHalfNodeAttemptStatus,
+	value: Pick<IBaseHalfNodeAttempt, 'createdAt' | 'startedAt' | 'completedAt' | 'providerRequestId' | 'usage' | 'cost' | 'error'>,
 	path: string
 ): void {
 	const created = Date.parse(value.createdAt);
@@ -1217,43 +1178,29 @@ function validateRunLifecycle(
 		throw invalid(`${path}.startedAt cannot precede createdAt.`);
 	}
 	if (completed !== undefined && completed < (started ?? created)) {
-		throw invalid(`${path}.completedAt cannot precede the run start.`);
+		throw invalid(`${path}.completedAt cannot precede the attempt start.`);
 	}
 
 	if (status === 'running' && (value.startedAt === undefined || value.completedAt !== undefined)) {
-		throw invalid(`${path} running runs require startedAt and cannot have completedAt.`);
+		throw invalid(`${path} running attempts require startedAt and cannot have completedAt.`);
 	}
 	if ((status === 'succeeded' || status === 'failed') && (value.startedAt === undefined || value.completedAt === undefined)) {
-		throw invalid(`${path} ${status} runs require startedAt and completedAt.`);
+		throw invalid(`${path} ${status} attempts require startedAt and completedAt.`);
 	}
 	if (status === 'cancelled' && value.completedAt === undefined) {
-		throw invalid(`${path} cancelled runs require completedAt.`);
+		throw invalid(`${path} cancelled attempts require completedAt.`);
 	}
 	if (status === 'interrupted' && value.startedAt === undefined) {
-		throw invalid(`${path} interrupted runs require startedAt.`);
+		throw invalid(`${path} interrupted attempts require startedAt.`);
 	}
-	if (status === 'succeeded' && value.artifacts.length === 0) {
-		throw invalid(`${path} successful runs require a file artifact.`);
-	}
-	if (value.artifacts.length > 0) {
-		const primary = value.artifacts.find(artifact => artifact.id === value.primaryArtifactId);
-		if (!primary) {
-			throw invalid(`${path} runs with accepted artifacts require a valid primaryArtifactId.`);
-		}
-		if (!stringArraysEqual(value.outputPaths, value.artifacts.map(artifact => artifact.path))) {
-			throw invalid(`${path}.outputPaths must match the accepted artifact paths.`);
-		}
-	} else if (value.primaryArtifactId !== undefined || value.outputPaths.length > 0) {
-		throw invalid(`${path} runs without accepted artifacts cannot name a primary artifact or output path.`);
-	}
-	if (status === 'running' && (value.artifacts.length > 0 || value.providerRequestId !== undefined || value.usage !== undefined || value.cost !== undefined)) {
-		throw invalid(`${path} running runs cannot contain accepted output or a completed provider disclosure.`);
+	if (status === 'running' && (value.usage !== undefined || value.cost !== undefined)) {
+		throw invalid(`${path} running attempts cannot contain completed usage or cost.`);
 	}
 	if (status === 'failed' && value.error === undefined) {
-		throw invalid(`${path} failed runs require an error message.`);
+		throw invalid(`${path} failed attempts require an error message.`);
 	}
 	if ((status === 'running' || status === 'succeeded') && value.error !== undefined) {
-		throw invalid(`${path} ${status} runs cannot contain an error message.`);
+		throw invalid(`${path} ${status} attempts cannot contain an error message.`);
 	}
 }
 
@@ -1277,20 +1224,11 @@ function recipesEqual(left: IBaseHalfNodeRecipe, right: IBaseHalfNodeRecipe): bo
 		&& JSON.stringify(left.parameters) === JSON.stringify(right.parameters);
 }
 
-function runInputsEqual(left: readonly IBaseHalfNodeRunInput[], right: readonly IBaseHalfNodeRunInput[]): boolean {
-	return bindingsEqual(left, right)
-		&& left.every((input, index) => input.revision === right[index].revision);
-}
-
 function record(value: unknown, path: string): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw invalid(`${path} must be an object.`);
 	}
 	return value as Record<string, unknown>;
-}
-
-function hasRunStatus(value: unknown, status: BaseHalfNodeRunStatus): boolean {
-	return !!value && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>).status === status;
 }
 
 function array(value: unknown, path: string, maxLength: number): readonly unknown[] {
@@ -1304,11 +1242,11 @@ function array(value: unknown, path: string, maxLength: number): readonly unknow
 }
 
 function requiredId(value: unknown, path: string): string {
-	const result = requiredString(value, MAX_ID_LENGTH, path);
-	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(result)) {
-		throw invalid(`${path} contains unsupported characters.`);
+	try {
+		return validateBaseHalfNodePersistentId(value, path);
+	} catch (error) {
+		throw invalid(error instanceof Error ? error.message : `${path} is invalid.`);
 	}
-	return result;
 }
 
 function requiredNodeDocumentId(value: unknown): string {
@@ -1339,6 +1277,14 @@ function auditIdentifier(value: unknown, maxLength: number, path: string): strin
 	const result = requiredString(value, maxLength, path);
 	if (!/^[A-Za-z0-9][A-Za-z0-9._:/@+~-]*$/.test(result)) {
 		throw invalid(`${path} contains unsupported characters.`);
+	}
+	return result;
+}
+
+function promptText(value: unknown, path: string): string {
+	const result = boundedString(value, BASEHALF_NODE_PROMPT_MAX_LENGTH, path);
+	if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/.test(result)) {
+		throw invalid(`${path} cannot contain control characters other than tab or line breaks.`);
 	}
 	return result;
 }
@@ -1441,10 +1387,6 @@ function assertUnique(values: readonly string[], path: string): void {
 	}
 }
 
-function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
-	return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
 function consumeJsonBudget(budget: { nodes: number }, path: string): void {
 	budget.nodes--;
 	if (budget.nodes < 0) {
@@ -1468,29 +1410,34 @@ function deepFreezeJson(value: BaseHalfNodeJsonValue): BaseHalfNodeJsonValue {
 	return value;
 }
 
-function freezeCurrent(value: IBaseHalfNodeCurrent): IBaseHalfNodeCurrent {
-	return Object.freeze({ ...value, outputPaths: Object.freeze([...value.outputPaths]) });
-}
-
-function freezeRun(value: IBaseHalfNodeRun): IBaseHalfNodeRun {
+function freezeAttempt(value: IBaseHalfNodeAttempt): IBaseHalfNodeAttempt {
 	return Object.freeze({
 		...value,
+		recipe: Object.freeze({
+			...value.recipe,
+			parameters: deepFreezeJson(value.recipe.parameters as IBaseHalfNodeJsonObject) as Readonly<Record<string, BaseHalfNodeJsonValue>>,
+			inputBindings: Object.freeze([...value.recipe.inputBindings])
+		}),
 		inputs: Object.freeze([...value.inputs]),
-		artifacts: Object.freeze([...value.artifacts]),
-		outputPaths: Object.freeze([...value.outputPaths])
+		...(value.usage ? { usage: Object.freeze({ ...value.usage }) } : {}),
+		...(value.cost ? { cost: Object.freeze({ ...value.cost }) } : {})
 	});
-}
-
-function freezeRevision(value: IBaseHalfNodeImportedRevision): IBaseHalfNodeImportedRevision {
-	return Object.freeze({ ...value, artifacts: Object.freeze([...value.artifacts]) });
 }
 
 function freezeDocument(value: IBaseHalfNodeDocument): IBaseHalfNodeDocument {
 	return Object.freeze({
 		...value,
-		current: freezeCurrent(value.current),
-		revisions: Object.freeze(value.revisions.map(freezeRevision)),
-		runs: Object.freeze([...value.runs])
+		...(value.recipe ? {
+			recipe: Object.freeze({
+				...value.recipe,
+				parameters: deepFreezeJson(value.recipe.parameters as IBaseHalfNodeJsonObject) as Readonly<Record<string, BaseHalfNodeJsonValue>>,
+				inputBindings: Object.freeze([...value.recipe.inputBindings])
+			})
+		} : {}),
+		...(value.result ? {
+			result: Object.freeze({ ...value.result, artifact: Object.freeze({ ...value.result.artifact }) })
+		} : {}),
+		attempts: Object.freeze(value.attempts.map(freezeAttempt))
 	});
 }
 

@@ -122,12 +122,12 @@ export class SequenceProjectionNodePaths {
 }
 
 export interface SequenceProjectionArtifactBinding {
-	readonly pinKey: string;
+	readonly resultKey: string;
 	readonly verifiedResourceKey?: string;
 }
 
 /**
- * Playback of the saved order is available only when every exact Sequence pin
+ * Playback of the saved order is available only when every Video Result
  * resolves to a verified local artifact. Individual verified clips remain
  * previewable while an incomplete order is repaired.
  */
@@ -151,7 +151,7 @@ export interface SequenceProjectionPlaybackRestore {
 /**
  * Restores a refreshed projection by stable Sequence item identity. A changed
  * or missing artifact remains selected when possible, but playback resumes
- * only when the exact preview source is unchanged.
+	 * only when the sealed result source is unchanged.
  */
 export function resolveSequencePlaybackRestore(
 	playable: readonly SequenceProjectionPlayableItem[],
@@ -198,8 +198,8 @@ export interface SequencePreviewMediaElement {
 
 /**
  * Reloads only the already verified resource selected by the Sequence item.
- * The caller supplies that immutable pin's source instead of consulting node
- * Current state or asking an executor for another result.
+	 * The caller supplies that sealed node's source instead of asking an executor
+	 * for another result.
  */
 export function reloadSequencePreview(media: SequencePreviewMediaElement, verifiedSource: string | undefined): boolean {
 	if (!verifiedSource) {
@@ -213,42 +213,42 @@ export function reloadSequencePreview(media: SequencePreviewMediaElement, verifi
 }
 
 /**
- * Retains only the last verified artifact resource for each Sequence pin. An
- * unavailable pin keeps its prior path so replacing the file at that exact
+ * Retains only the last verified artifact resource for each Sequence result.
+ * An unavailable result keeps its prior path so replacing the file at that exact
  * location can trigger a fresh inspection.
  */
 export class SequenceProjectionArtifactPaths {
-	private byPin = new Map<string, string>();
+	private byResult = new Map<string, string>();
 	private resources = new Set<string>();
-	private readonly maximumPins: number;
+	private readonly maximumResults: number;
 
-	constructor(maximumPins: number) {
-		if (!Number.isInteger(maximumPins) || maximumPins < 1) {
-			throw new Error('The Sequence artifact watch limit must be a positive integer.');
+	constructor(maximumResults: number) {
+		if (!Number.isInteger(maximumResults) || maximumResults < 1) {
+			throw new Error('The Sequence result artifact watch limit must be a positive integer.');
 		}
-		this.maximumPins = maximumPins;
+		this.maximumResults = maximumResults;
 	}
 
 	reconcile(bindings: readonly SequenceProjectionArtifactBinding[]): void {
-		if (bindings.length > this.maximumPins) {
-			throw new Error(`Sequence has more than ${this.maximumPins} artifact paths to watch.`);
+		if (bindings.length > this.maximumResults) {
+			throw new Error(`Sequence has more than ${this.maximumResults} result artifact paths to watch.`);
 		}
 		const next = new Map<string, string>();
-		const seenPins = new Set<string>();
+		const seenResults = new Set<string>();
 		for (const binding of bindings) {
-			if (!binding.pinKey) {
-				throw new Error('A Sequence artifact watch binding is missing its pin identity.');
+			if (!binding.resultKey) {
+				throw new Error('A Sequence artifact watch binding is missing its result identity.');
 			}
-			if (seenPins.has(binding.pinKey)) {
-				throw new Error(`Sequence artifact pin '${binding.pinKey}' is duplicated.`);
+			if (seenResults.has(binding.resultKey)) {
+				throw new Error(`Sequence artifact result '${binding.resultKey}' is duplicated.`);
 			}
-			seenPins.add(binding.pinKey);
-			const resourceKey = binding.verifiedResourceKey || this.byPin.get(binding.pinKey);
+			seenResults.add(binding.resultKey);
+			const resourceKey = binding.verifiedResourceKey || this.byResult.get(binding.resultKey);
 			if (resourceKey) {
-				next.set(binding.pinKey, resourceKey);
+				next.set(binding.resultKey, resourceKey);
 			}
 		}
-		this.byPin = next;
+		this.byResult = next;
 		this.resources = new Set(next.values());
 	}
 
@@ -261,7 +261,7 @@ export class SequenceProjectionArtifactPaths {
 	}
 
 	clear(): void {
-		this.byPin.clear();
+		this.byResult.clear();
 		this.resources.clear();
 	}
 }

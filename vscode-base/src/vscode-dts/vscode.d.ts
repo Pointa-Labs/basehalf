@@ -21234,25 +21234,26 @@ declare module 'vscode' {
 		/** A model input or output family understood by the BaseHalf host. */
 		export type ModelCapability = 'text' | 'image' | 'video' | 'audio';
 
-		/** The credential transport used by a configured model service. */
-		export type ModelServiceAuthorization = 'bearer' | 'header' | 'none';
-
 		/** Public metadata for an application-global model connection. */
 		export interface ModelService {
 			/** Stable service identifier. */
 			readonly id: string;
 			/** User-facing service name. */
 			readonly label: string;
-			/** HTTPS endpoint configured by the user. */
+			/** Reviewed official HTTPS endpoint. */
 			readonly endpoint: string;
+			/** Stable provider namespace used to match reviewed model catalogs. */
+			readonly providerId: string;
+			/** Provider deployment whose capability and endpoint rules apply. */
+			readonly deploymentId: string;
+			/** Provider region used by the reviewed capability and endpoint contract. */
+			readonly region: string;
 			/** Digest of the non-secret connection settings used to identify this connection. */
 			readonly connectionIdentity: string;
 			/** Model families exposed by this service. */
 			readonly capabilities: readonly ModelCapability[];
 			/** Credential transport required by the service. */
-			readonly authorization: ModelServiceAuthorization;
-			/** Custom credential header when {@link authorization} is `header`. */
-			readonly headerName?: string;
+			readonly authorization: 'bearer';
 			/** Whether the user has stored a credential when one is required. */
 			readonly configured: boolean;
 		}
@@ -21261,25 +21262,46 @@ declare module 'vscode' {
 		 * A short-lived connection snapshot. Never persist credentials into project data.
 		 */
 		export interface ModelServiceAccess extends Omit<ModelService, 'configured'> {
-			/** Credential retrieved from application secret storage, when required. */
+			/** Credentials retrieved from application secret storage for the reviewed provider contract. */
+			readonly credentialValues: Readonly<Record<string, string>>;
+			/** Compatibility alias for providers whose reviewed credential field is `apiKey`. */
 			readonly apiKey?: string;
 		}
 
-		/** External model connection identity frozen by the host for one explicit run. */
-		export interface ModelServiceRunSnapshot {
+		/** External model connection identity frozen by the host for one explicit attempt. */
+		export interface ModelServiceAttemptSnapshot {
 			/** Stable identifier of the selected service. */
 			readonly serviceId: string;
-			/** User-facing name captured for this run. */
+			/** User-facing name captured for this attempt. */
 			readonly serviceLabel: string;
-			/** Digest of the non-secret connection settings captured for this run. */
+			/** Digest of the non-secret connection settings captured for this attempt. */
 			readonly connectionIdentity: string;
 			/** Model family requested by the recipe. */
 			readonly capability: ModelCapability;
 			/** Optional provider model identifier selected for this run. */
 			readonly modelId?: string;
-			/** Opaque short-lived grant supplied only to the executor handling this run. */
+			/** Opaque short-lived grant supplied only to the executor handling this attempt. */
 			readonly accessToken?: string;
 		}
+
+		/** Candidate official provider connection supplied only during an explicit user verification. */
+		export interface ModelProviderConnectionValidationRequest {
+			readonly specId: string;
+			readonly endpoint: string;
+			readonly providerId: string;
+			readonly deploymentId: string;
+			readonly region: string;
+			readonly publicValues: Readonly<Record<string, string>>;
+			readonly credentialValues: Readonly<Record<string, string>>;
+		}
+
+		/** Provider-owned, read-only credential probe run before the host stores a connection. */
+		export interface ModelProviderConnectionValidator {
+			validate(request: ModelProviderConnectionValidationRequest, token: CancellationToken): ProviderResult<void>;
+		}
+
+		/** Registers the validator for one connection spec declared by this extension's provider catalog. */
+		export function registerModelProviderConnectionValidator(specId: string, validator: ModelProviderConnectionValidator): Disposable;
 
 		/** An event that fires after the user's global model connections change. */
 		export const onDidChangeModelServices: Event<void>;
@@ -21295,10 +21317,10 @@ declare module 'vscode' {
 		/**
 		 * Resolves one model connection, including its short-lived credential snapshot.
 		 *
-		 * @param snapshot The exact immutable connection identity and grant supplied in the current run request.
+		 * @param snapshot The exact immutable connection identity and grant supplied in the current attempt request.
 		 * @returns The connection snapshot, or `undefined` when the configured connection no longer matches.
 		 */
-		export function getModelServiceAccess(snapshot: ModelServiceRunSnapshot): Thenable<ModelServiceAccess | undefined>;
+		export function getModelServiceAccess(snapshot: ModelServiceAttemptSnapshot): Thenable<ModelServiceAccess | undefined>;
 
 		/** A content family rendered by the BaseHalf canvas host. */
 		export type CanvasContentKind =
@@ -21324,12 +21346,44 @@ declare module 'vscode' {
 			| readonly CanvasRecipeValue[]
 			| { readonly [key: string]: CanvasRecipeValue };
 
-		/** One host-verified artifact copied into the immutable run snapshot. */
+		/** A reviewed provider mode frozen into a video recipe Attempt. */
+		export type VideoGenerationMode =
+			| 'text-to-video'
+			| 'first-frame-to-video'
+			| 'first-last-frame-to-video'
+			| 'reference-to-video'
+			| 'video-edit'
+			| 'video-extension';
+
+		/** Direct input families used to resolve one reviewed video capability. */
+		export type VideoInputKind =
+			| 'text-prompt'
+			| 'first-frame'
+			| 'last-frame'
+			| 'reference-image'
+			| 'reference-video'
+			| 'source-video'
+			| 'audio';
+
+		/** Exact host-owned value persisted in the reserved `videoModelSnapshot` recipe parameter. */
+		export interface VideoModelSelectionSnapshot {
+			readonly schemaVersion: 1;
+			readonly catalogId: string;
+			readonly providerId: string;
+			readonly deploymentId: string;
+			readonly region: string;
+			readonly modelId: string;
+			readonly revision: string;
+			readonly mode: VideoGenerationMode;
+			readonly inputs: Readonly<Partial<Record<VideoInputKind, number>>>;
+		}
+
+		/** One host-verified artifact copied into the immutable attempt snapshot. */
 		export interface CanvasArtifactSnapshot {
 			readonly id: string;
 			readonly kind: CanvasContentKind;
 			readonly resource: Uri;
-			readonly runId?: string;
+			readonly attemptId?: string;
 		}
 
 		/** The bounded node state supplied to one recipe execution. */
@@ -21339,7 +21393,7 @@ declare module 'vscode' {
 			readonly kind: CanvasContentKind;
 			/** Host-created immutable declaration or source snapshot for this node. */
 			readonly resource?: Uri;
-			readonly current?: CanvasArtifactSnapshot;
+			readonly result?: CanvasArtifactSnapshot;
 		}
 
 		/** A direct context edge bound to a recipe-local input slot. */
@@ -21352,19 +21406,25 @@ declare module 'vscode' {
 		}
 
 		/** Immutable inputs for one explicit canvas recipe execution. */
-		export interface CanvasRecipeExecutionRequest {
-			readonly runId: string;
-			readonly workspaceFolder: Uri;
-			readonly node: CanvasNodeSnapshot;
-			readonly recipeId: string;
-			readonly parameters: Readonly<Record<string, CanvasRecipeValue>>;
+			export interface CanvasRecipeExecutionRequest {
+				readonly attemptId: string;
+				readonly workspaceFolder: Uri;
+				readonly node: CanvasNodeSnapshot;
+				readonly recipeId: string;
+				/** Host-owned generation intent frozen into this Attempt. */
+				readonly prompt: string;
+				readonly parameters: Readonly<Record<string, CanvasRecipeValue>>;
 			/** Selected global model connection. Credentials remain available only through {@link getModelServiceAccess}. */
 			readonly modelServiceId?: string;
 			/** Host-frozen service identity. Pass this exact value to {@link getModelServiceAccess}. */
-			readonly modelService?: ModelServiceRunSnapshot;
+			readonly modelService?: ModelServiceAttemptSnapshot;
 			readonly inputs: readonly CanvasRecipeInput[];
-			/** Unique host-selected directory for ordinary local artifacts from this run. */
+			/** Unique host-selected directory for the ordinary local artifact from this attempt. */
 			readonly outputDirectory: Uri;
+			/** Existing durable remote task reused by an exact Retry. Do not submit a replacement task when present. */
+			readonly resumeProviderRequestId?: string;
+			/** Durably persist a newly submitted remote task id before polling or any other fallible work. */
+			acknowledgeProviderRequestId(providerRequestId: string): Thenable<void>;
 		}
 
 		/** Bounded progress reported by a canvas recipe executor. */
@@ -21375,6 +21435,7 @@ declare module 'vscode' {
 
 		/** One ordinary local file returned by a canvas recipe executor. */
 		export interface CanvasRecipeArtifact {
+			/** Host-normalized persistent `.bhnode` identifier: input is at most 128 characters; its trimmed value matches `[A-Za-z0-9][A-Za-z0-9._:-]*`. */
 			readonly id: string;
 			readonly outputId: string;
 			readonly kind: CanvasNodeKind;
@@ -21382,12 +21443,10 @@ declare module 'vscode' {
 			readonly label?: string;
 		}
 
-		/** Result candidates returned to the host after one recipe execution. */
+		/** The single Result file returned to the host after one recipe execution. */
 		export interface CanvasRecipeExecutionResult {
-			/** Ordinary local artifacts produced by the executor. */
-			readonly artifacts: readonly CanvasRecipeArtifact[];
-			/** Identifier of the artifact the host should select as the primary result. */
-			readonly primaryArtifactId?: string;
+			/** The ordinary local file produced by the executor. */
+			readonly artifact: CanvasRecipeArtifact;
 			/** Optional request identifier reported by the external provider. */
 			readonly providerRequestId?: string;
 			/** Optional bounded usage reported by the executor. */
@@ -21422,10 +21481,10 @@ declare module 'vscode' {
 			readonly kind: 'actual' | 'estimated';
 		}
 
-		/** Backend identity recorded for an immutable run, including unresolved explicit attempts. */
-		export type CanvasRunModel =
+		/** Backend identity recorded for an immutable attempt, including unresolved explicit attempts. */
+		export type CanvasAttemptModel =
 			| { readonly source: 'local' }
-			| ({ readonly source: 'service'; readonly connection: 'resolved' } & ModelServiceRunSnapshot)
+			| ({ readonly source: 'service'; readonly connection: 'resolved' } & ModelServiceAttemptSnapshot)
 			| {
 				readonly source: 'service';
 				readonly connection: 'unavailable';
@@ -21437,43 +21496,48 @@ declare module 'vscode' {
 		/** Availability of one immutable canvas-node artifact on local storage. */
 		export type CanvasArtifactIntegrity = 'available' | 'missing' | 'changed';
 
-		/** Lifecycle state of one immutable canvas-node version. */
-		export type CanvasNodeVersionStatus = 'imported' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+		/** Lifecycle state of one immutable execution attempt. */
+		export type CanvasNodeAttemptStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
-		/** Primary artifact selected by one successful or imported node version. */
-		export interface CanvasNodeVersionArtifact {
+		/** Stable product lifecycle of a result node. */
+		export type CanvasNodeLifecycle = 'draft' | 'running' | 'result' | 'failed' | 'cancelled' | 'interrupted';
+
+		/** The single ordinary local file sealed into a Result node. */
+		export interface CanvasNodeResultArtifact {
 			readonly id: string;
+			readonly outputId: string;
 			readonly kind: CanvasNodeKind;
 			readonly resource: Uri;
 			readonly integrity: CanvasArtifactIntegrity;
+			readonly label?: string;
 		}
 
-		/** Read-only history entry exposed for domain documents that pin exact results. */
-		export interface CanvasNodeVersion {
+		/** Read-only audit record for one immutable execution attempt. */
+		export interface CanvasNodeAttempt {
 			readonly id: string;
-			readonly status: CanvasNodeVersionStatus;
+			readonly status: CanvasNodeAttemptStatus;
 			readonly createdAt: string;
-			readonly primaryArtifact?: CanvasNodeVersionArtifact;
-			readonly model?: CanvasRunModel;
+			readonly startedAt?: string;
+			readonly completedAt?: string;
+			readonly model?: CanvasAttemptModel;
 			readonly providerRequestId?: string;
 			readonly usage?: CanvasRecipeUsage;
 			readonly cost?: CanvasRecipeCost;
+			readonly error?: string;
 		}
 
-		/** Stable identity and version state of one host-owned result node. */
+		/** The immutable file identity that seals a Result node. */
+		export type CanvasNodeResult =
+			| { readonly source: 'imported'; readonly artifact: CanvasNodeResultArtifact }
+			| { readonly source: 'attempt'; readonly attemptId: string; readonly artifact: CanvasNodeResultArtifact };
+
+		/** Stable identity, lifecycle, Result, and append-only Attempt audit for one node. */
 		export interface CanvasNodeState {
 			readonly id: string;
 			readonly kind: CanvasNodeKind;
-			readonly currentVersionId?: string;
-			readonly versions: readonly CanvasNodeVersion[];
-		}
-
-		/** Selects the bounded version view returned by {@link inspectCanvasNode}. */
-		export interface CanvasNodeInspectOptions {
-			/** Exact run or imported-revision ids to include. Missing ids are omitted. */
-			readonly versionIds?: readonly string[];
-			/** Also include the node's Current version, when it has one. */
-			readonly includeCurrent?: boolean;
+			readonly lifecycle: CanvasNodeLifecycle;
+			readonly result?: CanvasNodeResult;
+			readonly attempts: readonly CanvasNodeAttempt[];
 		}
 
 		/**
@@ -21481,13 +21545,11 @@ declare module 'vscode' {
 		 *
 		 * This is a read-only capability for reviewed domain plugins. It returns
 		 * `undefined` when the resource does not exist or is not a result-node document.
-		 * Dirty node documents must be saved before they can be inspected. Omitting
-		 * `options` preserves the legacy complete-history view. When `options` is
-		 * supplied, `versions` is a partial view containing only requested ids and,
-		 * when requested, Current; `currentVersionId` still identifies Current even
-		 * when its entry is not included.
+		 * Dirty node documents must be saved before they can be inspected. A Result
+		 * exposes exactly one integrity-checked ordinary local file; Attempts are
+		 * append-only audit records and are never alternate selectable results.
 		 */
-		export function inspectCanvasNode(resource: Uri, options?: CanvasNodeInspectOptions): Thenable<CanvasNodeState | undefined>;
+		export function inspectCanvasNode(resource: Uri): Thenable<CanvasNodeState | undefined>;
 
 		/**
 		 * Atomically replaces one saved ordinary project file only while its bytes
@@ -21525,9 +21587,9 @@ declare module 'vscode' {
 		/**
 		 * Registers the executor for one manifest-declared canvas recipe.
 		 *
-		 * The BaseHalf host continues to own references, layout, current selection,
-		 * and run history. The execution contract supplies frozen direct inputs and
-		 * validates returned ordinary local artifacts. Executable plugins remain
+		 * The BaseHalf host continues to own references, layout, the sealed Result,
+		 * and append-only Attempt audit. The execution contract supplies frozen direct inputs and
+		 * validates the returned ordinary local artifact. Executable plugins remain
 		 * trusted local software and are not an operating-system sandbox.
 		 */
 		export function registerCanvasRecipeExecutor(recipeId: string, executor: CanvasRecipeExecutor): Disposable;

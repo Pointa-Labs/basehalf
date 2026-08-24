@@ -3,7 +3,7 @@
 	"files": [
 		{
 			"path": "README.md",
-			"contents": "# Video workflow\n\nThis folder keeps the brief, script, shot plans, generated artifacts, and clip order as ordinary local files. Ask an Agent to expand or revise the workflow, or edit any file and node directly.\n\n## Clip order\n\n`video-sequence.json` is an ordered list of exact Video results. Each item keeps the Video node's relative path, stable node id, and one successful run or imported revision id. A later run does not silently change the arranged result. Use **BaseHalf: Add Current Video to Sequence…** to add an exact verified Current, **BaseHalf: Show Video Sequence Status…** to verify pins, **BaseHalf: Move Video Sequence Clip…** to change playback order, **BaseHalf: Update Video Sequence Clip to Current…** to accept a different verified Current explicitly, and **BaseHalf: Remove Video Sequence Clip…** to remove only the playback-order reference.\n"
+			"contents": "# Video workflow\n\nThis folder keeps the brief, script, shot plans, generated artifacts, and clip order as ordinary local files. Ask an Agent to expand or revise the workflow, or edit any file and node directly.\n\n## Clip order\n\n`video-sequence.json` is an ordered list of sealed Video Result nodes. Each item keeps the Video Result node's relative path and stable node id. Use **BaseHalf: Add Video Result to Sequence…** to add a sealed result, **BaseHalf: Show Video Sequence Status…** to verify its state and artifact, **BaseHalf: Move Video Sequence Clip…** to change playback order, and **BaseHalf: Remove Video Sequence Clip…** to remove only the playback-order reference.\n"
 		},
 		{
 			"path": "brief.md",
@@ -32,10 +32,10 @@
 			"kind": "image",
 			"title": "Shot 01 storyboard frame",
 			"role": "storyboard-frame",
+			"prompt": "Visualize the composition, subject, lighting, and mood described in the shot plan.",
 			"recipe": {
 				"recipeId": "pointa.basehalf-ai-video.storyboard-frame",
 				"parameters": {
-					"instructions": "Visualize the composition, subject, lighting, and mood described in the shot plan.",
 					"aspect-ratio": "9:16",
 					"shot-label": "Shot 01"
 				},
@@ -53,10 +53,10 @@
 			"kind": "file",
 			"title": "Shot 01 audio plan",
 			"role": "audio-plan",
+			"prompt": "Plan the dialogue delivery and timing described in the shot plan.",
 			"recipe": {
 				"recipeId": "pointa.basehalf-ai-video.audio-brief",
 				"parameters": {
-					"instructions": "Plan the dialogue delivery and timing described in the shot plan.",
 					"purpose": "voice",
 					"duration-seconds": 5,
 					"voice": "auto"
@@ -75,10 +75,10 @@
 			"kind": "file",
 			"title": "Shot 01 clip plan",
 			"role": "clip-plan",
+			"prompt": "Plan subject motion, camera movement, timing, and continuity for this shot.",
 			"recipe": {
 				"recipeId": "pointa.basehalf-ai-video.clip-brief",
 				"parameters": {
-					"instructions": "Plan subject motion, camera movement, timing, and continuity for this shot.",
 					"duration-seconds": 5,
 					"aspect-ratio": "9:16",
 					"audio-mode": "auto"
@@ -106,13 +106,15 @@
 			"path": "shots/shot-01/audio.bhnode",
 			"kind": "audio",
 			"title": "Shot 01 audio",
-			"role": "audio"
+			"role": "audio",
+			"prompt": ""
 		},
 		{
 			"path": "shots/shot-01/clip.bhnode",
 			"kind": "video",
 			"title": "Shot 01 clip",
-			"role": "clip"
+			"role": "clip",
+			"prompt": ""
 		}
 	],
 	"cards": [
@@ -123,8 +125,9 @@
 		{ "path": "shots/shot-01/storyboard-frame.bhnode", "x": 460, "y": 40, "width": 320, "height": 300 },
 		{ "path": "shots/shot-01/audio-plan.bhnode", "x": 460, "y": 400, "width": 320, "height": 240 },
 		{ "path": "shots/shot-01/clip-plan.bhnode", "x": 860, "y": 180, "width": 340, "height": 320 },
+		{ "path": "shots/shot-01/shot.json", "x": 1280, "y": 100, "width": 300, "height": 220 },
 		{ "path": "shots/shot-01/audio.bhnode", "x": 1280, "y": 420, "width": 320, "height": 220 },
-		{ "path": "shots/shot-01/clip.bhnode", "x": 1680, "y": 180, "width": 340, "height": 320 }
+		{ "path": "shots/shot-01/clip.bhnode", "x": 1680, "y": 180, "width": 720, "height": 405 }
 	],
 	"references": [
 		{ "from": "brief.md", "to": "script.md", "fromAnchor": "east", "toAnchor": "west" },
@@ -134,9 +137,6 @@
 		{ "from": "shots/shot-01/storyboard.md", "to": "shots/shot-01/clip-plan.bhnode", "fromAnchor": "east", "toAnchor": "west" },
 		{ "from": "shots/shot-01/storyboard-frame.bhnode", "to": "shots/shot-01/clip-plan.bhnode", "fromAnchor": "east", "toAnchor": "west" },
 		{ "from": "shots/shot-01/audio-plan.bhnode", "to": "shots/shot-01/clip-plan.bhnode", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/audio-plan.bhnode", "to": "shots/shot-01/audio.bhnode", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/storyboard-frame.bhnode", "to": "shots/shot-01/clip.bhnode", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/clip-plan.bhnode", "to": "shots/shot-01/clip.bhnode", "fromAnchor": "east", "toAnchor": "west" },
-		{ "from": "shots/shot-01/audio.bhnode", "to": "shots/shot-01/clip.bhnode", "fromAnchor": "east", "toAnchor": "west" }
+		{ "from": "shots/shot-01/audio-plan.bhnode", "to": "shots/shot-01/audio.bhnode", "fromAnchor": "east", "toAnchor": "west" }
 	]
 }

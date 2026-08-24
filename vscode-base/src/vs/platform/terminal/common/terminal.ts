@@ -303,7 +303,7 @@ export interface ITerminalLaunchResult {
 }
 
 export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
-export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 1;
+export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 2;
 
 export type BaseHalfNodeCommandOutcome = 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | 'rejected';
 
@@ -333,18 +333,17 @@ export interface IBaseHalfAgentCapabilityDiscoveryRequest {
 /** A single JSON request accepted from a BaseHalf-owned Agent Area terminal. */
 export type IBaseHalfNodeCommandRequest = IBaseHalfRunNodeCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest;
 
-export interface IBaseHalfNodeCommandRunResult {
+export interface IBaseHalfNodeCommandAttemptResult {
 	readonly id: string;
 	readonly status: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 	readonly completedAt?: string;
-	readonly outputPaths: readonly string[];
 	readonly error?: string;
 }
 
-export interface IBaseHalfNodeCommandCurrentResult {
-	readonly source: 'empty' | 'imported' | 'run';
-	readonly versionId?: string;
-	readonly outputPaths: readonly string[];
+export interface IBaseHalfNodeCommandSealedResult {
+	readonly source: 'attempt';
+	readonly attemptId: string;
+	readonly artifactPath: string;
 }
 
 export interface IBaseHalfRunNodeCommandResponse {
@@ -353,8 +352,8 @@ export interface IBaseHalfRunNodeCommandResponse {
 	readonly outcome: BaseHalfNodeCommandOutcome;
 	readonly type?: 'runNode';
 	readonly nodePath: string;
-	readonly run?: IBaseHalfNodeCommandRunResult;
-	readonly current?: IBaseHalfNodeCommandCurrentResult;
+	readonly attempt?: IBaseHalfNodeCommandAttemptResult;
+	readonly result?: IBaseHalfNodeCommandSealedResult;
 	readonly error?: string;
 }
 
@@ -383,8 +382,9 @@ export interface IBaseHalfAgentCapabilityDiscoveryNodeDocument {
 		readonly fields: readonly ['sourcePath', 'slot', 'order'];
 	};
 	readonly lifecycle: {
-		readonly current: 'host-owned';
-		readonly history: 'host-owned';
+		readonly attempts: 'host-owned';
+		readonly result: 'host-owned-single-file';
+		readonly retry: 'frozen-only';
 	};
 	readonly runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>';
 	readonly authoring: Readonly<Record<string, BaseHalfAgentCapabilityDiscoveryJsonValue>>;
@@ -394,7 +394,7 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 	readonly nodeDocument: IBaseHalfAgentCapabilityDiscoveryNodeDocument;
 	readonly contextEdge: {
 		readonly source: 'direct-content';
-		readonly resultNodeSource: 'selected-current';
+		readonly resultNodeSource: 'sealed-result';
 		readonly target: 'direct-context';
 		readonly autoRun: false;
 		readonly recursive: false;
@@ -451,17 +451,10 @@ export interface IBaseHalfAgentCapabilityDiscoveryRecipe {
 	readonly description?: string;
 	readonly icon?: string;
 	readonly modelCapability?: 'text' | 'image' | 'video' | 'audio';
+	readonly videoModelCatalogId?: string;
 	readonly inputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeInput[];
 	readonly parameters: readonly IBaseHalfAgentCapabilityDiscoveryRecipeParameter[];
 	readonly outputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeOutput[];
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryPin {
-	readonly mode: 'exact-result-version';
-	readonly field: string;
-	readonly targetKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
-	readonly acceptedVersionStates: readonly ('succeeded' | 'imported')[];
-	readonly updatePolicy: 'explicit';
 }
 
 export interface IBaseHalfAgentCapabilityDiscoveryDocument {
@@ -469,7 +462,6 @@ export interface IBaseHalfAgentCapabilityDiscoveryDocument {
 	readonly version: number;
 	readonly fileExtensions: readonly string[];
 	readonly schemaSummary: string;
-	readonly pin?: IBaseHalfAgentCapabilityDiscoveryPin;
 }
 
 export interface IBaseHalfAgentCapabilityDiscoveryParameter {

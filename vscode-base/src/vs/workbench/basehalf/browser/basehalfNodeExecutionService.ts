@@ -36,37 +36,47 @@ import {
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { createKeyedMutex } from '../common/basehalfKeyedMutex.js';
 import { baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
-import { IBaseHalfModelServiceDescriptor, IBaseHalfModelServiceRunSnapshot, IBaseHalfModelServiceService } from '../common/basehalfModelServices.js';
+import { IBaseHalfModelServiceAttemptSnapshot, IBaseHalfModelServiceDescriptor, IBaseHalfModelServiceService, isBaseHalfPublicHttpsBearerModelServiceConfiguration } from '../common/basehalfModelServices.js';
 import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	baseHalfIsReservedOutputTreePath,
+	BaseHalfNodeJsonValue,
 	BaseHalfNodeArtifactKind,
-	beginBaseHalfNodeRun,
-	cancelBaseHalfNodeRun,
-	completeBaseHalfNodeRun,
+	beginBaseHalfNodeAttempt,
+	cancelBaseHalfNodeAttempt,
+	completeBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
-	failBaseHalfNodeRun,
-	freezeBaseHalfNodeRunInputs,
-	freezeBaseHalfNodeRunModel,
+	failBaseHalfNodeAttempt,
+	freezeBaseHalfNodeAttemptInputs,
+	freezeBaseHalfNodeAttemptModel,
+	freezeBaseHalfNodeAttemptProviderRequestId,
+	replaceBaseHalfNodeAttemptProviderRequestId,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeImportedRevision,
+	IBaseHalfNodeAttempt,
 	IBaseHalfNodeInputBinding,
 	IBaseHalfNodeRecipe,
-	IBaseHalfNodeRunArtifact,
-	BaseHalfNodeRunModel,
-	IBaseHalfNodeRunCost,
-	IBaseHalfNodeRunInput,
-	IBaseHalfNodeRunUsage,
-	getBaseHalfNodeCurrentArtifacts,
-	getBaseHalfNodeCurrentPrimaryArtifact,
-	interruptBaseHalfNodeRun,
+	IBaseHalfNodeResultArtifact,
+	BaseHalfNodeAttemptModel,
+	IBaseHalfNodeAttemptCost,
+	IBaseHalfNodeAttemptInput,
+	IBaseHalfNodeAttemptUsage,
+	getBaseHalfNodeResultArtifact,
+	interruptBaseHalfNodeAttempt,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	baseHalfProjectPathProblem,
-	selectBaseHalfNodeCurrent,
 	serializeBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
+import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
+import {
+	BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID,
+	BaseHalfVideoInputState,
+	getBaseHalfVideoPromptProblem,
+	normalizeBaseHalfVideoSettings,
+	parseBaseHalfVideoModelSelectionSnapshot,
+	resolveBaseHalfVideoModelSelectionSnapshot
+} from '../common/basehalfVideoModels.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
 import { BaseHalfNodeRunLeaseStore, IBaseHalfNodeRunLeaseHandle } from './basehalfNodeRunLease.js';
@@ -120,14 +130,6 @@ export interface IBaseHalfNodeVerificationOptions {
 	readonly fresh?: boolean;
 }
 
-export interface IBaseHalfNodeCurrentSelectionTransition {
-	readonly document: IBaseHalfNodeDocument;
-	/** Canonical document bytes before the Current pointer changed. */
-	readonly before: VSBuffer;
-	/** Exact document bytes committed by the selection. */
-	readonly after: VSBuffer;
-}
-
 export const IBaseHalfNodeExecutionService = createDecorator<IBaseHalfNodeExecutionService>('baseHalfNodeExecutionService');
 
 export interface IBaseHalfNodeExecutionService {
@@ -138,12 +140,9 @@ export interface IBaseHalfNodeExecutionService {
 	run(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeDocument>;
 	cancel(resource: URI, expectedRunId: string): boolean;
 	recoverInterrupted(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeDocument>;
-	selectCurrent(node: IBaseHalfWorkspaceResource, versionId: string): Promise<IBaseHalfNodeDocument>;
-	selectCurrentWithTransition(node: IBaseHalfWorkspaceResource, versionId: string): Promise<IBaseHalfNodeCurrentSelectionTransition>;
-	transitionCurrent(node: IBaseHalfWorkspaceResource, expected: VSBuffer, next: VSBuffer): Promise<IBaseHalfNodeDocument>;
-	getArtifactIntegrity(workspaceFolder: URI, artifact: IBaseHalfNodeRunArtifact, options?: IBaseHalfNodeVerificationOptions): Promise<BaseHalfNodeArtifactIntegrity>;
+	getArtifactIntegrity(workspaceFolder: URI, artifact: IBaseHalfNodeResultArtifact, options?: IBaseHalfNodeVerificationOptions): Promise<BaseHalfNodeArtifactIntegrity>;
 	getInputRevision(workspaceFolder: URI, relativePath: string, options?: IBaseHalfNodeVerificationOptions): Promise<string>;
-	copyImportedRevision(workspaceFolder: URI, source: URI, target: URI, kind: BaseHalfNodeArtifactKind): Promise<IBaseHalfNodeImportedRevision>;
+	copyImportedResult(workspaceFolder: URI, source: URI, target: URI, kind: BaseHalfNodeArtifactKind): Promise<IBaseHalfNodeResultArtifact>;
 }
 
 interface IActiveRun {
@@ -156,6 +155,12 @@ interface IActiveRun {
 	leaseMutation: Promise<void>;
 	leaseClosing: boolean;
 	leaseLost: boolean;
+	/**
+	 * The synchronous linearization point between accepting a user cancellation
+	 * and publishing a sealed Result. Once set, cancel() must return false: the
+	 * Result commit owns the run and will finish through the exact-content CAS.
+	 */
+	resultCommitStarted: boolean;
 }
 
 interface INodeMutationLease {
@@ -166,20 +171,19 @@ interface INodeMutationLease {
 
 interface IResolvedInput {
 	readonly execution: IBaseHalfCanvasRecipeInput;
-	readonly history: IBaseHalfNodeRunInput;
+	readonly history: IBaseHalfNodeAttemptInput;
 }
 
-interface IAcceptedArtifacts {
-	readonly artifacts: readonly IBaseHalfNodeRunArtifact[];
-	readonly primaryArtifactId: string;
+interface IAcceptedArtifact {
+	readonly artifact: IBaseHalfNodeResultArtifact;
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
 interface IResolvedRunModel {
-	readonly history: BaseHalfNodeRunModel;
-	readonly execution?: IBaseHalfModelServiceRunSnapshot;
+	readonly history: BaseHalfNodeAttemptModel;
+	readonly execution?: IBaseHalfModelServiceAttemptSnapshot;
 	readonly preparationError?: string;
 }
 
@@ -235,6 +239,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		@IBaseHalfCanvasRecipeRegistryService private readonly recipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
 		@IBaseHalfCanvasRecipeRuntimeService private readonly recipeRuntimeService: IBaseHalfCanvasRecipeRuntimeService,
 		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService,
+		@IBaseHalfVideoModelCatalogService private readonly videoModelCatalogService: IBaseHalfVideoModelCatalogService,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IChecksumService private readonly checksumService: IChecksumService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService
@@ -286,7 +291,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		const snapshot = files.map(file => Object.freeze({ ...(file.source ? { source: file.source } : {}), target: file.target }));
 		const active = [...this.activeRuns.values()].find(run => baseHalfStructuralOperationAffectsResource(operation, snapshot, run.state.resource));
 		if (active) {
-			throw new Error('Wait for the active node run before moving or deleting this item.');
+			throw new Error('Wait for the active node Attempt before moving or deleting this item.');
 		}
 
 		const id = ++this.nextStructuralOperationBlock;
@@ -334,7 +339,8 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			userCancelled: false,
 			leaseMutation: Promise.resolve(),
 			leaseClosing: false,
-			leaseLost: false
+			leaseLost: false,
+			resultCommitStarted: false
 		};
 		active.state = { ...active.state, runId: active.runId };
 		this.activeRuns.set(key, active);
@@ -353,6 +359,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 	cancel(resource: URI, expectedRunId: string): boolean {
 		const active = this.activeRuns.get(resource.toString());
 		if (!active || active.runId !== expectedRunId) {
+			return false;
+		}
+		if (active.resultCommitStarted) {
 			return false;
 		}
 		if (active.userCancelled) {
@@ -379,7 +388,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			await this.awaitPendingStructuralLeaseReleases();
 			await this.assertSafeNodeResource(node);
 			const current = await this.readNode(node.resource, false);
-			const running = current.document.runs.find(run => run.status === 'running');
+			const running = current.document.attempts.find(attempt => attempt.status === 'running');
 			if (!running) {
 				return current.document;
 			}
@@ -406,73 +415,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		});
 	}
 
-	selectCurrent(node: IBaseHalfWorkspaceResource, versionId: string): Promise<IBaseHalfNodeDocument> {
-		return this.selectCurrentWithTransition(node, versionId).then(transition => transition.document);
-	}
-
-	selectCurrentWithTransition(node: IBaseHalfWorkspaceResource, versionId: string): Promise<IBaseHalfNodeCurrentSelectionTransition> {
-		const key = node.resource.toString();
-		if (this.activeRuns.has(key)) {
-			return Promise.reject(new Error('Wait for the active run before selecting a historical result.'));
-		}
-		return this.mutex.runExclusive(key, async () => {
-			await this.awaitPendingStructuralLeaseReleases();
-			const lease = await this.acquireNodeMutationLease(node, generateUuid(), true);
-			try {
-				return await this.selectCurrentVerified(node, versionId, lease.document, lease.handle);
-			} finally {
-				lease.heartbeat.dispose();
-				await this.runLeaseStore.release(lease.handle);
-			}
-		});
-	}
-
-	transitionCurrent(node: IBaseHalfWorkspaceResource, expected: VSBuffer, next: VSBuffer): Promise<IBaseHalfNodeDocument> {
-		const key = node.resource.toString();
-		if (this.activeRuns.has(key)) {
-			return Promise.reject(new Error('Wait for the active run before changing Current.'));
-		}
-		return this.mutex.runExclusive(key, async () => {
-			await this.awaitPendingStructuralLeaseReleases();
-			const lease = await this.acquireNodeMutationLease(node, generateUuid(), true);
-			try {
-				if (this.workingCopyService.isDirty(node.resource)) {
-					throw new Error('Save this node before changing Current.');
-				}
-				if (lease.document.document.runs.some(run => run.status === 'running')) {
-					throw new Error('Wait for the active run before changing Current.');
-				}
-				if (!lease.document.content.value.equals(expected)) {
-					throw new Error('Current changed before this history action could be applied.');
-				}
-				const expectedDocument = parseBaseHalfNodeDocumentBytesForActiveHost(expected.buffer);
-				const nextDocument = parseBaseHalfNodeDocumentBytesForActiveHost(next.buffer);
-				const currentOnly = serializeBaseHalfNodeDocument({ ...expectedDocument, current: nextDocument.current });
-				if (currentOnly !== serializeBaseHalfNodeDocument(nextDocument)) {
-					throw new Error('A history action may change only the Current selection.');
-				}
-				for (const artifact of getBaseHalfNodeCurrentArtifacts(nextDocument)) {
-					const integrity = await this.getArtifactIntegrity(node.workspaceFolder, artifact, { fresh: true });
-					if (integrity !== 'available') {
-						throw new Error(integrity === 'missing'
-							? `Output missing: '${artifact.path}'. The historical record is unchanged.`
-							: `Output changed: '${artifact.path}'. The historical record is unchanged.`);
-					}
-				}
-				if (!await this.runLeaseStore.heartbeat(lease.handle)) {
-					throw new Error('The node changed ownership before Current could be changed.');
-				}
-				return this.commitExact(node, lease.document.content.value, nextDocument);
-			} finally {
-				lease.heartbeat.dispose();
-				await this.runLeaseStore.release(lease.handle);
-			}
-		});
-	}
-
 	async getArtifactIntegrity(
 		workspaceFolder: URI,
-		artifact: IBaseHalfNodeRunArtifact,
+		artifact: IBaseHalfNodeResultArtifact,
 		options: IBaseHalfNodeVerificationOptions = {}
 	): Promise<BaseHalfNodeArtifactIntegrity> {
 		const resource = joinProjectPath(workspaceFolder, artifact.path);
@@ -507,36 +452,27 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
 		if (!stat.isDirectory && relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			const node = await this.readDirectInputNode(workspaceFolder, relativePath, resource);
-			if (node.document.current.source === 'empty') {
-				throw new Error(directResultNoCurrentMessage(relativePath));
+			const artifact = getBaseHalfNodeResultArtifact(node.document);
+			if (!artifact || !node.document.result) {
+				throw new Error(directResultMissingMessage(relativePath));
 			}
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(node.document);
-			if (!primary) {
-				throw new Error(directResultNoPrimaryMessage(relativePath));
+			if (this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, artifact.path))) {
+				throw new Error(`Save result file '${artifact.path}' from direct input '${relativePath}' before checking or running this node.`);
 			}
-			if (this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, primary.path))) {
-				throw new Error(`Save Current output '${primary.path}' from direct input '${relativePath}' before checking or running this node.`);
-			}
-			const integrity = await this.getArtifactIntegrity(workspaceFolder, primary, options);
+			const integrity = await this.getArtifactIntegrity(workspaceFolder, artifact, options);
 			if (integrity !== 'available') {
-				throw new Error(directResultIntegrityMessage(relativePath, primary.path, integrity));
+				throw new Error(directResultIntegrityMessage(relativePath, artifact.path, integrity));
 			}
-			const digest = primary.sha256;
-			assertDirectResultCurrentIdentity(node.document, relativePath, primary.id);
-
-			if (node.document.current.source === 'run' && node.document.current.runId) {
-				return runInputRevision(node.document.current.runId, primary.id, digest);
+			if (node.document.result.source === 'attempt') {
+				return attemptInputRevision(node.document.result.attemptId, artifact.id, artifact.sha256);
 			}
-			if (node.document.current.source === 'imported' && node.document.current.revisionId && primary) {
-				return revisionInputRevision(node.document.current.revisionId, primary.id, digest);
-			}
-			throw new Error(directResultNoIdentityMessage(relativePath));
+			return importedResultInputRevision(node.document.id, artifact.id, artifact.sha256);
 		}
 
 		return sourceInputRevision(relativePath, await this.fingerprintResource(workspaceFolder, resource, options.fresh === true, stat));
 	}
 
-	async copyImportedRevision(workspaceFolder: URI, source: URI, target: URI, kind: BaseHalfNodeArtifactKind): Promise<IBaseHalfNodeImportedRevision> {
+	async copyImportedResult(workspaceFolder: URI, source: URI, target: URI, kind: BaseHalfNodeArtifactKind): Promise<IBaseHalfNodeResultArtifact> {
 		if (!extUri.isEqualOrParent(target, workspaceFolder) || extUri.isEqual(target, workspaceFolder)) {
 			throw new Error('The imported file must remain inside this project.');
 		}
@@ -573,22 +509,14 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				|| targetAccepted.sha256 !== sourceBefore.sha256) {
 				throw new Error('The selected file changed while it was being imported. Try again.');
 			}
-			const revisionId = generateUuid();
-			const artifactId = generateUuid();
 			return Object.freeze({
-				id: revisionId,
-				source: 'imported',
-				createdAt: new Date().toISOString(),
-				artifacts: Object.freeze([Object.freeze({
-					id: artifactId,
-					outputId: 'imported',
-					kind,
-					path: targetPath,
-					sha256: targetAccepted.sha256,
-					size: targetAccepted.size,
-					label: basename(target)
-				})]),
-				primaryArtifactId: artifactId
+				id: generateUuid(),
+				outputId: 'imported',
+				kind,
+				path: targetPath,
+				sha256: targetAccepted.sha256,
+				size: targetAccepted.size,
+				label: basename(target)
 			});
 		} catch (error) {
 			if (await this.fileService.exists(target)) {
@@ -653,6 +581,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		let initial = await this.readNode(node.resource, false);
 		await baseHalfAssertUniqueNodeIdentity(this.fileService, node, initial.document.id, undefined, active.cancellation.token);
 		initial = await this.acquireRunLease(node, active, initial);
+		if (initial.document.result) {
+			throw new Error('A sealed result node cannot run again. Copy its settings into a new draft instead.');
+		}
 		const recipeState = initial.document.recipe;
 		if (!recipeState) {
 			throw new Error('Add a recipe before running this node.');
@@ -665,7 +596,10 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			throw new Error(`Recipe '${recipe.label}' cannot run on a ${initial.document.kind} node.`);
 		}
 
-		const parameters = resolveBaseHalfCanvasRecipeParameters(recipe, recipeState.parameters);
+		const parameters = await raceCancellationError(
+			this.resolveExecutionParameters(recipe, recipeState, initial.document.prompt),
+			active.cancellation.token
+		);
 		const normalizedRecipe: IBaseHalfNodeRecipe = {
 			recipeId: recipe.id,
 			...(recipe.modelCapability === undefined || recipeState.modelServiceId === undefined ? {} : { modelServiceId: recipeState.modelServiceId }),
@@ -674,7 +608,12 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			inputBindings: recipeState.inputBindings
 		};
 		const preparedDocument: IBaseHalfNodeDocument = { ...initial.document, recipe: normalizedRecipe };
-		const requestedModel = this.requestedRunModel(recipe, recipeState.modelServiceId, recipeState.modelId);
+		const retrySource = initial.document.attempts.at(-1);
+		if (retrySource && (!hasCompleteFrozenRetryConfiguration(recipe, retrySource)
+			|| !baseHalfNodeRetryConfigurationMatches(preparedDocument.prompt, normalizedRecipe, retrySource))) {
+			throw retryConfigurationChangedError();
+		}
+		const requestedModel = retrySource?.model ?? this.requestedRunModel(recipe, recipeState.modelServiceId, recipeState.modelId);
 		const runDirectory = URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, initial.document.id, active.runId);
 		const inputDirectory = URI.joinPath(runDirectory, INPUT_SNAPSHOT_DIRECTORY_NAME);
 		const outputDirectory = URI.joinPath(runDirectory, ARTIFACT_DIRECTORY_NAME);
@@ -684,19 +623,32 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		let expectedRunRealpath: URI | undefined;
 		let expectedOutputRealpath: URI | undefined;
 		let providerResult: IBaseHalfCanvasRecipeExecutionResult | undefined;
-		let accepted: IAcceptedArtifacts | undefined;
+		const inheritedProviderRequestId = retrySource?.providerRequestId;
+		let acknowledgedProviderRequestId = inheritedProviderRequestId;
+		let mayReplaceInheritedProviderRequestId = inheritedProviderRequestId !== undefined;
+		let providerRequestAcknowledgement = Promise.resolve();
+		let providerRequestAcknowledgementError: Error | undefined;
+		let accepted: IAcceptedArtifact | undefined;
 		try {
 			const now = new Date().toISOString();
-			const running = beginBaseHalfNodeRun(preparedDocument, {
+			const running = beginBaseHalfNodeAttempt(preparedDocument, {
 				id: active.runId,
 				createdAt: now,
 				startedAt: now,
 				model: requestedModel,
-				inputs: []
+				inputs: retrySource?.inputs ?? []
 			});
 			await this.assertRunLease(active);
 			await this.commitExact(node, initial.content.value, running);
 			persistedRun = true;
+			if (acknowledgedProviderRequestId) {
+				await this.assertRunLease(active);
+				await this.patchNode(node, true, current => freezeBaseHalfNodeAttemptProviderRequestId(
+					current,
+					active.runId,
+					acknowledgedProviderRequestId!
+				));
+			}
 			this.throwIfCancelled(active);
 			const runModel = await raceCancellationError(
 				this.resolveRunModel(recipe, recipeState.modelServiceId, recipeState.modelId),
@@ -704,15 +656,28 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			);
 			this.throwIfCancelled(active);
 			await this.assertRunLease(active);
-			await this.patchNode(node, true, document => freezeBaseHalfNodeRunModel(document, active.runId, runModel.history));
+			if (retrySource) {
+				if (!retryModelsEqual(retrySource.model, runModel.history)) {
+					throw retryConfigurationChangedError();
+				}
+			} else {
+				await this.patchNode(node, true, document => freezeBaseHalfNodeAttemptModel(document, active.runId, runModel.history));
+			}
 			this.throwIfCancelled(active);
 			if (runModel.preparationError) {
 				throw new Error(runModel.preparationError);
 			}
-			await raceCancellationError(
-				this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings),
-				active.cancellation.token
-			);
+			try {
+				await raceCancellationError(
+					this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings),
+					active.cancellation.token
+				);
+			} catch (error) {
+				if (retrySource && !isCancellationError(error)) {
+					throw retryConfigurationChangedError(error);
+				}
+				throw error;
+			}
 			this.throwIfCancelled(active);
 			await raceCancellationError(
 				this.extensionService.activateByEvent(`onBaseHalfCanvasRecipe:${recipe.id}`, ActivationKind.Normal),
@@ -722,10 +687,17 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			if (!this.recipeRuntimeService.hasExecutor(recipe.id)) {
 				throw new Error(`Recipe '${recipe.label}' is installed but its executor is unavailable.`);
 			}
-			await raceCancellationError(
-				this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, active),
-				active.cancellation.token
-			);
+			try {
+				await raceCancellationError(
+					this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, active),
+					active.cancellation.token
+				);
+			} catch (error) {
+				if (retrySource && !isCancellationError(error)) {
+					throw retryConfigurationChangedError(error);
+				}
+				throw error;
+			}
 			this.throwIfCancelled(active);
 			// Walk and verify every existing ancestor before creating the next
 			// directory. A pre-existing symbolic link must never receive run data.
@@ -737,7 +709,31 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			expectedOutputRealpath = await this.requireVerifiedDirectory(runDirectory, outputDirectory, 'artifact directory');
 			await this.fileService.createFile(guardResource, VSBuffer.fromString(guardValue), { overwrite: false });
 			await this.assertRunGuard(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath);
-			const inputs = await this.resolveInputs(node, recipe, normalizedRecipe.inputBindings, inputDirectory, active);
+			let inputs: readonly IResolvedInput[];
+			try {
+				inputs = await this.resolveInputs(node, recipe, normalizedRecipe.inputBindings, inputDirectory, active);
+			} catch (error) {
+				if (retrySource && !isCancellationError(error)) {
+					throw retryConfigurationChangedError(error);
+				}
+				throw error;
+			}
+			if (retrySource && !retryInputsEqual(retrySource.inputs, inputs.map(input => input.history))) {
+				throw retryConfigurationChangedError();
+			}
+			if (recipe.modelCapability === 'video') {
+				if (!recipe.videoModelCatalogId) {
+					throw new Error(`Video recipe '${recipe.label}' is not bound to a reviewed model catalog.`);
+				}
+				const snapshot = parseBaseHalfVideoModelSelectionSnapshot(
+					normalizedRecipe.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID],
+					recipe.videoModelCatalogId
+				);
+				const actualInputState = videoInputStateForExecution(preparedDocument.prompt, inputs);
+				if (!videoInputStatesEqual(snapshot.inputs, actualInputState)) {
+					throw new Error('The direct inputs no longer match the saved video model mode. Open Settings and save this Draft again.');
+				}
+			}
 			this.throwIfCancelled(active);
 			const frozenNodeResource = URI.joinPath(inputDirectory, 'node.bhnode');
 			const frozenDeclaration = createBaseHalfNodeDocument({
@@ -745,6 +741,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				kind: preparedDocument.kind,
 				title: preparedDocument.title,
 				role: preparedDocument.role,
+				prompt: preparedDocument.prompt,
 				recipe: normalizedRecipe
 			});
 			await this.fileService.createFile(
@@ -752,9 +749,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				VSBuffer.fromString(serializeBaseHalfNodeDocument(frozenDeclaration)),
 				{ overwrite: false }
 			);
-			if (inputs.length > 0) {
+			if (!retrySource && inputs.length > 0) {
 				await this.assertRunLease(active);
-				await this.patchNode(node, true, document => freezeBaseHalfNodeRunInputs(
+				await this.patchNode(node, true, document => freezeBaseHalfNodeAttemptInputs(
 					document,
 					active.runId,
 					inputs.map(input => input.history)
@@ -765,31 +762,77 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			this.updateActive(node.resource, active, { phase: 'running' });
 
 			const request = {
-				runId: active.runId,
+				attemptId: active.runId,
 				workspaceFolder: node.workspaceFolder,
 				node: this.toNodeSnapshot(node, running, frozenNodeResource),
 				recipeId: recipe.id,
+				prompt: running.attempts[running.attempts.length - 1].prompt,
 				parameters,
 				...(normalizedRecipe.modelServiceId === undefined ? {} : { modelServiceId: normalizedRecipe.modelServiceId }),
 				...(runModel.execution === undefined ? {} : { modelService: runModel.execution }),
 				inputs: inputs.map(input => input.execution),
-				outputDirectory
+				outputDirectory,
+				...(retrySource?.providerRequestId === undefined ? {} : { resumeProviderRequestId: retrySource.providerRequestId }),
+				acknowledgeProviderRequestId: async (providerRequestId: string): Promise<void> => {
+					const operation = providerRequestAcknowledgement.then(async () => {
+						if (acknowledgedProviderRequestId !== undefined) {
+							if (acknowledgedProviderRequestId === providerRequestId) {
+								return;
+							}
+							if (!mayReplaceInheritedProviderRequestId || inheritedProviderRequestId === undefined
+								|| acknowledgedProviderRequestId !== inheritedProviderRequestId) {
+								throw new Error('The video provider changed its request id more than once during one Attempt.');
+							}
+							await this.assertRunLease(active);
+							await this.patchNode(node, true, current => replaceBaseHalfNodeAttemptProviderRequestId(
+								current,
+								active.runId,
+								inheritedProviderRequestId,
+								providerRequestId
+							));
+							acknowledgedProviderRequestId = providerRequestId;
+							mayReplaceInheritedProviderRequestId = false;
+							return;
+						}
+						await this.assertRunLease(active);
+						await this.patchNode(node, true, current => freezeBaseHalfNodeAttemptProviderRequestId(current, active.runId, providerRequestId));
+						acknowledgedProviderRequestId = providerRequestId;
+					});
+					providerRequestAcknowledgement = operation.catch(error => {
+						providerRequestAcknowledgementError = error instanceof Error ? error : new Error(String(error));
+						active.cancellation.cancel();
+					});
+					return operation;
+				}
 			};
 			const progress: IProgress<IBaseHalfCanvasRecipeProgress> = {
-				report: value => this.reportProgress(node.resource, active, value)
+				report: value => {
+					this.reportProgress(node.resource, active, value);
+				}
 			};
 			providerResult = await raceCancellationError(
 				this.recipeRuntimeService.executeRecipe(recipe.id, request, progress, active.cancellation.token),
 				active.cancellation.token
 			);
+			await providerRequestAcknowledgement;
+			if (providerRequestAcknowledgementError) {
+				throw providerRequestAcknowledgementError;
+			}
+			if (providerResult.providerRequestId !== undefined
+				&& acknowledgedProviderRequestId === undefined) {
+				throw new Error('The recipe executor returned a request id without durably acknowledging it before polling.');
+			}
+			if (providerResult.providerRequestId !== undefined
+				&& providerResult.providerRequestId !== acknowledgedProviderRequestId) {
+				throw new Error('The video provider result does not match its submitted request id.');
+			}
 			await this.assertRunLease(active);
-			const acceptedResult = await this.validateArtifacts(node.workspaceFolder, outputDirectory, runDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath, providerResult);
+			const acceptedResult = await this.validateArtifact(node.workspaceFolder, initial.document.kind, outputDirectory, runDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath, providerResult);
 			this.throwIfCancelled(active);
 			accepted = acceptedResult;
 			await this.assertRunLease(active);
-			return await this.patchNode(node, true, document => active.cancellation.token.isCancellationRequested
-				? cancelBaseHalfNodeRun(document, active.runId, { completedAt: new Date().toISOString() })
-				: completeBaseHalfNodeRun(document, active.runId, {
+			this.beginResultCommit(node.resource, active);
+			return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
 					completedAt: new Date().toISOString(),
 					...acceptedResult
 				}));
@@ -800,28 +843,38 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			if (!persistedRun) {
 				throw error;
 			}
+			await providerRequestAcknowledgement;
+			const executionFailure = providerRequestAcknowledgementError ?? error;
 			await this.assertRunLease(active);
-			if (accepted && !active.cancellation.token.isCancellationRequested) {
+			if (accepted && active.resultCommitStarted) {
 				const acceptedResult = accepted;
-				return await this.patchNode(node, true, document => completeBaseHalfNodeRun(document, active.runId, {
+				return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
 					completedAt: new Date().toISOString(),
-					...acceptedResult,
-					selectCurrent: false
+					...acceptedResult
 				}));
 			}
 			const providerDisclosure = providerResult && !active.userCancelled ? {
-				...(providerResult.providerRequestId === undefined ? {} : { providerRequestId: providerResult.providerRequestId }),
+				...(acknowledgedProviderRequestId === undefined ? {} : { providerRequestId: acknowledgedProviderRequestId }),
 				...(providerResult.usage === undefined ? {} : { usage: providerResult.usage }),
 				...(providerResult.cost === undefined ? {} : { cost: providerResult.cost })
 			} : {};
-			if (isCancellationError(error) || active.cancellation.token.isCancellationRequested) {
-				return await this.patchNode(node, true, document => active.userCancelled
-					? cancelBaseHalfNodeRun(document, active.runId, { completedAt: new Date().toISOString(), ...providerDisclosure })
-					: interruptBaseHalfNodeRun(document, active.runId, { completedAt: new Date().toISOString(), error: executionErrorMessage(error) }));
+			if (active.userCancelled) {
+				return await this.patchNode(node, true, document => cancelBaseHalfNodeAttempt(
+					document,
+					active.runId,
+					{ completedAt: new Date().toISOString(), ...providerDisclosure }
+				));
 			}
-			return await this.patchNode(node, true, document => failBaseHalfNodeRun(document, active.runId, {
+			if (providerRequestAcknowledgementError === undefined
+				&& (isCancellationError(error) || active.cancellation.token.isCancellationRequested)) {
+				return await this.patchNode(node, true, document => interruptBaseHalfNodeAttempt(document, active.runId, {
+					completedAt: new Date().toISOString(),
+					error: executionErrorMessage(error)
+				}));
+			}
+			return await this.patchNode(node, true, document => failBaseHalfNodeAttempt(document, active.runId, {
 				completedAt: new Date().toISOString(),
-				error: executionErrorMessage(error),
+				error: executionErrorMessage(executionFailure),
 				...providerDisclosure
 			}));
 		}
@@ -832,7 +885,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		active: IActiveRun,
 		initial: IReadNodeDocumentResult
 	): Promise<IReadNodeDocumentResult> {
-		const persistedRunningRunId = initial.document.runs.find(run => run.status === 'running')?.id;
+		const persistedRunningRunId = initial.document.attempts.find(attempt => attempt.status === 'running')?.id;
 		const acquired = await this.runLeaseStore.acquire(
 			node.workspaceFolder,
 			initial.document.id,
@@ -867,7 +920,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		if (requireUniqueIdentity) {
 			await baseHalfAssertUniqueNodeIdentity(this.fileService, node, document.document.id);
 		}
-		const persistedRunningRunId = document.document.runs.find(run => run.status === 'running')?.id;
+		const persistedRunningRunId = document.document.attempts.find(attempt => attempt.status === 'running')?.id;
 		const acquired = await this.runLeaseStore.acquire(
 			node.workspaceFolder,
 			document.document.id,
@@ -877,7 +930,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			persistedRunningRunId
 		);
 		if (acquired.kind === 'busy') {
-			throw new Error('Wait for the active node run in the other window before changing this node.');
+			throw new Error('Wait for the active node Attempt in the other window before changing this node.');
 		}
 
 		let handle = acquired.handle;
@@ -900,15 +953,15 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		for (let attempt = 0; attempt < NODE_WRITE_MAX_ATTEMPTS; attempt++) {
 			await this.assertSafeNodeResource(node);
 			const current = await this.readNode(node.resource, false);
-			const run = current.document.runs.find(candidate => candidate.id === runId);
+			const run = current.document.attempts.find(candidate => candidate.id === runId);
 			if (!run || run.status !== 'running') {
-				const otherRunning = current.document.runs.find(candidate => candidate.status === 'running');
+				const otherRunning = current.document.attempts.find(candidate => candidate.status === 'running');
 				if (otherRunning) {
-					throw new Error('The active node run changed while its execution owner was being recovered.');
+					throw new Error('The active node Attempt changed while its execution owner was being recovered.');
 				}
 				return current;
 			}
-			const next = interruptBaseHalfNodeRun(current.document, runId, {
+			const next = interruptBaseHalfNodeAttempt(current.document, runId, {
 				completedAt: new Date().toISOString(),
 				error: 'The previous execution host stopped before this run completed.'
 			});
@@ -1115,36 +1168,6 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		throw new Error(`The workspace path is nested more than ${MAX_STRUCTURAL_SCAN_DEPTH} folders deep.`);
 	}
 
-	private async selectCurrentVerified(
-		node: IBaseHalfWorkspaceResource,
-		versionId: string,
-		current: IReadNodeDocumentResult,
-		lease: IBaseHalfNodeRunLeaseHandle
-	): Promise<IBaseHalfNodeCurrentSelectionTransition> {
-		if (this.workingCopyService.isDirty(node.resource)) {
-			throw new Error('Save this node before choosing a historical result.');
-		}
-		if (current.document.runs.some(run => run.status === 'running')) {
-			throw new Error('Wait for the active run before selecting a historical result.');
-		}
-		const next = selectBaseHalfNodeCurrent(current.document, versionId);
-		for (const artifact of getBaseHalfNodeCurrentArtifacts(next)) {
-			const integrity = await this.getArtifactIntegrity(node.workspaceFolder, artifact, { fresh: true });
-			if (integrity !== 'available') {
-				throw new Error(integrity === 'missing'
-					? `Output missing: '${artifact.path}'. The historical record is unchanged.`
-					: `Output changed: '${artifact.path}'. The historical record is unchanged.`);
-			}
-		}
-		if (!await this.runLeaseStore.heartbeat(lease)) {
-			throw new Error('The node changed ownership before its historical result could be selected.');
-		}
-		const before = VSBuffer.fromString(serializeBaseHalfNodeDocument(current.document));
-		const after = VSBuffer.fromString(serializeBaseHalfNodeDocument(next));
-		const document = await this.commitExact(node, current.content.value, next);
-		return { document, before, after };
-	}
-
 	private async stableRegularFileDigest(resource: URI, label: string): Promise<{ readonly realpath: URI; readonly etag: string; readonly size: number; readonly sha256: string }> {
 		const before = await this.fileService.resolve(resource, { resolveMetadata: true });
 		if (!before.isFile || before.isSymbolicLink) {
@@ -1175,7 +1198,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 
 	private async resourceArtifactIntegrity(
 		resource: URI,
-		artifact: IBaseHalfNodeRunArtifact,
+		artifact: IBaseHalfNodeResultArtifact,
 		fresh: boolean
 	): Promise<BaseHalfNodeArtifactIntegrity> {
 		try {
@@ -1212,6 +1235,79 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		}
 	}
 
+	private async resolveExecutionParameters(
+		recipe: IBaseHalfCanvasRecipeDescriptor,
+		recipeState: IBaseHalfNodeRecipe,
+		prompt: string
+	): Promise<Readonly<Record<string, BaseHalfNodeJsonValue>>> {
+		if (recipe.modelCapability !== 'video') {
+			if (recipe.modelCapability === undefined && (recipeState.modelServiceId !== undefined || recipeState.modelId !== undefined)) {
+				throw new Error(`Local recipe '${recipe.label}' cannot use a legacy model service or free-form Model ID. Open Settings and save this Draft again.`);
+			}
+			return resolveBaseHalfCanvasRecipeParameters(recipe, recipeState.parameters);
+		}
+		if (recipe.parameters.length !== 0) {
+			throw new Error(`Video recipe '${recipe.label}' must use the reviewed video model catalog instead of static recipe parameters.`);
+		}
+		if (!recipe.videoModelCatalogId) {
+			throw new Error(`Video recipe '${recipe.label}' is not bound to a reviewed model catalog.`);
+		}
+		if (!recipeState.modelServiceId || !recipeState.modelId) {
+			throw new Error(`Choose a reviewed video model before running '${recipe.label}'.`);
+		}
+		const snapshotValue = recipeState.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
+		if (snapshotValue === undefined) {
+			throw new Error('This Video Draft predates the reviewed model contract. Choose the video model again before running it.');
+		}
+		let services: readonly IBaseHalfModelServiceDescriptor[];
+		try {
+			services = await this.modelServiceService.getServices(undefined, 'video');
+		} catch {
+			throw new Error(`Video model connection '${recipeState.modelServiceId}' could not be checked.`);
+		}
+		const service = services.find(candidate => candidate.id === recipeState.modelServiceId?.toLowerCase());
+		if (!service) {
+			throw new Error(`Video model connection '${recipeState.modelServiceId}' is unavailable.`);
+		}
+		if (!isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)) {
+			throw new Error(`Video model connection '${recipeState.modelServiceId}' must use a public HTTPS endpoint and Bearer API key.`);
+		}
+		const registry = this.videoModelCatalogService.getRegistry(recipe.videoModelCatalogId, recipe.extensionId);
+		const resolution = resolveBaseHalfVideoModelSelectionSnapshot(registry, recipe.videoModelCatalogId, service, snapshotValue);
+		if (resolution.status !== 'supported') {
+			throw new Error(resolution.reason);
+		}
+		const snapshot = parseBaseHalfVideoModelSelectionSnapshot(snapshotValue, recipe.videoModelCatalogId);
+		if (snapshot.modelId !== recipeState.modelId) {
+			throw new Error('The saved video model identity does not match its reviewed capability snapshot. Choose the model again.');
+		}
+		const promptProblem = getBaseHalfVideoPromptProblem(resolution, prompt);
+		if (promptProblem) {
+			throw new Error(promptProblem);
+		}
+		const normalization = normalizeBaseHalfVideoSettings(resolution, recipeState.parameters);
+		if (normalization.status !== 'ready') {
+			throw new Error(normalization.reason);
+		}
+		const expectedKeys = new Set([
+			...Object.keys(normalization.values),
+			BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID
+		]);
+		const actualKeys = Object.keys(recipeState.parameters);
+		if (actualKeys.length !== expectedKeys.size || actualKeys.some(key => !expectedKeys.has(key))) {
+			throw new Error('The saved video settings are not canonical for the selected model. Open Settings and save this Draft again.');
+		}
+		for (const [key, value] of Object.entries(normalization.values)) {
+			if (recipeState.parameters[key] !== value) {
+				throw new Error(`The saved video setting '${key}' is no longer valid for the selected model. Open Settings and save this Draft again.`);
+			}
+		}
+		return Object.freeze({
+			...normalization.values,
+			[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: snapshot as unknown as BaseHalfNodeJsonValue
+		});
+	}
+
 	private async resolveRunModel(recipe: IBaseHalfCanvasRecipeDescriptor, modelServiceId: string | undefined, modelId: string | undefined): Promise<IResolvedRunModel> {
 		if (!recipe.modelCapability) {
 			if (modelServiceId !== undefined || modelId !== undefined) {
@@ -1244,14 +1340,14 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				preparationError: `Model service '${modelServiceId}' is unavailable.`
 			});
 		}
-		const snapshot: IBaseHalfModelServiceRunSnapshot = Object.freeze({
+		const snapshot: IBaseHalfModelServiceAttemptSnapshot = Object.freeze({
 			serviceId: service.id,
 			serviceLabel: service.label,
 			connectionIdentity: service.connectionIdentity,
 			capability: recipe.modelCapability,
 			...(modelId === undefined ? {} : { modelId })
 		});
-		const history: BaseHalfNodeRunModel = Object.freeze({ source: 'service', connection: 'resolved', ...snapshot });
+		const history: BaseHalfNodeAttemptModel = Object.freeze({ source: 'service', connection: 'resolved', ...snapshot });
 		if (!service.configured) {
 			return Object.freeze({
 				history,
@@ -1264,7 +1360,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		});
 	}
 
-	private requestedRunModel(recipe: IBaseHalfCanvasRecipeDescriptor, modelServiceId: string | undefined, modelId: string | undefined): BaseHalfNodeRunModel {
+	private requestedRunModel(recipe: IBaseHalfCanvasRecipeDescriptor, modelServiceId: string | undefined, modelId: string | undefined): BaseHalfNodeAttemptModel {
 		if (!recipe.modelCapability) {
 			return Object.freeze({ source: 'local' });
 		}
@@ -1288,9 +1384,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				continue;
 			}
 			const sourceNode = await this.readDirectInputNode(workspaceFolder, binding.sourcePath, source);
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(sourceNode.document);
-			if (primary && this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, primary.path))) {
-				dirty.add(`${binding.sourcePath} Current (${primary.path})`);
+			const artifact = getBaseHalfNodeResultArtifact(sourceNode.document);
+			if (artifact && this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, artifact.path))) {
+				dirty.add(`${binding.sourcePath} result (${artifact.path})`);
 			}
 		}
 		if (dirty.size === 0) {
@@ -1345,32 +1441,28 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
 		if (!stat.isDirectory && relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			const node = await this.readDirectInputNode(workspaceFolder, relativePath, resource);
-			if (node.document.current.source === 'empty') {
-				throw new Error(directResultNoCurrentMessage(relativePath));
+			const artifact = getBaseHalfNodeResultArtifact(node.document);
+			if (!artifact || !node.document.result) {
+				throw new Error(directResultMissingMessage(relativePath));
 			}
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(node.document);
-			if (!primary) {
-				throw new Error(directResultNoPrimaryMessage(relativePath));
+			const artifactResource = joinProjectPath(workspaceFolder, artifact.path);
+			if (this.workingCopyService.isDirty(artifactResource)) {
+				throw new Error(`Save result file '${artifact.path}' from direct input '${relativePath}' before running this node.`);
 			}
-			const primaryResource = joinProjectPath(workspaceFolder, primary.path);
-			if (this.workingCopyService.isDirty(primaryResource)) {
-				throw new Error(`Save Current output '${primary.path}' from direct input '${relativePath}' before running this node.`);
-			}
-			const integrity = await this.getArtifactIntegrity(workspaceFolder, primary, { fresh: true });
+			const integrity = await this.getArtifactIntegrity(workspaceFolder, artifact, { fresh: true });
 			if (integrity !== 'available') {
-				throw new Error(directResultIntegrityMessage(relativePath, primary.path, integrity));
+				throw new Error(directResultIntegrityMessage(relativePath, artifact.path, integrity));
 			}
-			assertDirectResultCurrentIdentity(node.document, relativePath, primary.id);
 			return {
 				id: node.document.id,
 				path: relativePath,
-				kind: primary.kind,
+				kind: artifact.kind,
 				resource,
-				current: {
-					id: `${node.document.id}:current`,
-					kind: primary.kind,
-					resource: primaryResource,
-					...(node.document.current.runId === undefined ? {} : { runId: node.document.current.runId })
+				result: {
+					id: `${node.document.id}:result`,
+					kind: artifact.kind,
+					resource: artifactResource,
+					...(node.document.result.source === 'attempt' ? { attemptId: node.document.result.attemptId } : {})
 				}
 			};
 		}
@@ -1381,7 +1473,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			path: relativePath,
 			kind,
 			resource,
-			current: { id: relativePath, kind, resource }
+			result: { id: relativePath, kind, resource }
 		};
 	}
 
@@ -1443,42 +1535,32 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
 		if (relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			const node = await this.readDirectInputNode(workspaceFolder, relativePath, resource);
-			if (node.document.current.source === 'empty') {
-				throw new Error(directResultNoCurrentMessage(relativePath));
+			const artifact = getBaseHalfNodeResultArtifact(node.document);
+			if (!artifact || !node.document.result) {
+				throw new Error(directResultMissingMessage(relativePath));
 			}
-			const primary = getBaseHalfNodeCurrentPrimaryArtifact(node.document);
-			if (!primary) {
-				throw new Error(directResultNoPrimaryMessage(relativePath));
+			const resultPath = artifact.path;
+			const resultKind = artifact.kind;
+			if (this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, resultPath))) {
+				throw new Error(`Save result file '${resultPath}' from direct input '${relativePath}' before running this node.`);
 			}
-			const currentPath = primary.path;
-			const currentKind = primary.kind;
-			if (this.workingCopyService.isDirty(joinProjectPath(workspaceFolder, currentPath))) {
-				throw new Error(`Save Current output '${currentPath}' from direct input '${relativePath}' before running this node.`);
-			}
-			const snapshotName = inputSnapshotName(binding.order, basename(URI.file(currentPath)));
-			const frozen = await this.snapshotResource(workspaceFolder, joinProjectPath(workspaceFolder, currentPath), URI.joinPath(inputDirectory, snapshotName), active, primary);
+			const snapshotName = inputSnapshotName(binding.order, basename(URI.file(resultPath)));
+			const frozen = await this.snapshotResource(workspaceFolder, joinProjectPath(workspaceFolder, resultPath), URI.joinPath(inputDirectory, snapshotName), active, artifact);
 			const frozenResource = frozen.resource;
-			let revision: string;
-			if (node.document.current.source === 'run' && node.document.current.runId) {
-				assertDirectResultCurrentIdentity(node.document, relativePath, primary.id);
-				revision = await runInputRevision(node.document.current.runId, primary.id, frozen.digest);
-			} else if (node.document.current.source === 'imported' && node.document.current.revisionId) {
-				assertDirectResultCurrentIdentity(node.document, relativePath, primary.id);
-				revision = await revisionInputRevision(node.document.current.revisionId, primary.id, frozen.digest);
-			} else {
-				throw new Error(directResultNoIdentityMessage(relativePath));
-			}
+			const revision = node.document.result.source === 'attempt'
+				? await attemptInputRevision(node.document.result.attemptId, artifact.id, frozen.digest)
+				: await importedResultInputRevision(node.document.id, artifact.id, frozen.digest);
 			return {
 				snapshot: {
 					id: node.document.id,
 					path: relativePath,
-					kind: currentKind,
+					kind: resultKind,
 					resource: frozenResource,
-					current: {
-						id: `${node.document.id}:current`,
-						kind: currentKind,
+					result: {
+						id: `${node.document.id}:result`,
+						kind: resultKind,
 						resource: frozenResource,
-						...(node.document.current.runId === undefined ? {} : { runId: node.document.current.runId })
+						...(node.document.result.source === 'attempt' ? { attemptId: node.document.result.attemptId } : {})
 					}
 				},
 				revision
@@ -1492,7 +1574,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				path: relativePath,
 				kind,
 				resource: frozen.resource,
-				current: { id: relativePath, kind, resource: frozen.resource }
+				result: { id: relativePath, kind, resource: frozen.resource }
 			},
 			revision: await sourceInputRevision(relativePath, frozen.digest)
 		};
@@ -1507,8 +1589,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		};
 	}
 
-	private async validateArtifacts(
+	private async validateArtifact(
 		workspaceFolder: URI,
+		nodeKind: BaseHalfNodeArtifactKind,
 		outputDirectory: URI,
 		runDirectory: URI,
 		guardResource: URI,
@@ -1516,49 +1599,41 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		expectedRunRealpath: URI,
 		expectedOutputRealpath: URI,
 		result: IBaseHalfCanvasRecipeExecutionResult
-	): Promise<IAcceptedArtifacts> {
+	): Promise<IAcceptedArtifact> {
 		await this.assertRunGuard(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath);
-		if (!result.primaryArtifactId) {
-			throw new Error('Recipe result did not identify one primary artifact.');
+		const artifactResult = result.artifact;
+		if (artifactResult.kind !== nodeKind) {
+			throw new Error(`Recipe output '${artifactResult.id}' is ${artifactResult.kind}, but this node requires one ${nodeKind} result.`);
 		}
-		const primary = result.artifacts.find(artifact => artifact.id === result.primaryArtifactId);
-		if (!primary) {
-			throw new Error('Recipe result primary artifact is missing.');
+		await this.assertNoSymbolicLinkComponents(outputDirectory, artifactResult.resource);
+		const stat = await this.fileService.resolve(artifactResult.resource, { resolveMetadata: true });
+		if (!stat.isFile || stat.isSymbolicLink) {
+			throw new Error(`Recipe output '${artifactResult.id}' must be a regular local file.`);
 		}
-		const ordered = [primary, ...result.artifacts.filter(artifact => artifact !== primary)];
-		const artifacts: IBaseHalfNodeRunArtifact[] = [];
-		for (const artifact of ordered) {
-			await this.assertNoSymbolicLinkComponents(outputDirectory, artifact.resource);
-			const stat = await this.fileService.resolve(artifact.resource, { resolveMetadata: true });
-			if (!stat.isFile || stat.isSymbolicLink) {
-				throw new Error(`Recipe output '${artifact.id}' must be a regular local file.`);
-			}
-			const realpath = await this.fileService.realpath(artifact.resource);
-			if (!realpath || !extUri.isEqualOrParent(realpath, expectedOutputRealpath) || extUri.isEqual(realpath, expectedOutputRealpath)) {
-				throw new Error(`Recipe output '${artifact.id}' resolves outside its verified run directory.`);
-			}
-			const relativePath = extUri.relativePath(workspaceFolder, artifact.resource);
-			if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
-				throw new Error(`Recipe output '${artifact.id}' is outside the project.`);
-			}
-			const sha256 = toUrlSafeChecksum(await this.checksumService.checksum(artifact.resource));
-			const verifiedStat = await this.fileService.resolve(artifact.resource, { resolveMetadata: true });
-			if (!verifiedStat.isFile || verifiedStat.isSymbolicLink || verifiedStat.etag !== stat.etag || verifiedStat.size !== stat.size) {
-				throw new Error(`Recipe output '${artifact.id}' changed while it was being accepted.`);
-			}
-			artifacts.push(Object.freeze({
-				id: artifact.id,
-				outputId: artifact.outputId,
-				kind: artifact.kind as BaseHalfNodeArtifactKind,
-				path: relativePath,
-				sha256,
-				size: stat.size,
-				...(artifact.label === undefined ? {} : { label: artifact.label })
-			}));
+		const realpath = await this.fileService.realpath(artifactResult.resource);
+		if (!realpath || !extUri.isEqualOrParent(realpath, expectedOutputRealpath) || extUri.isEqual(realpath, expectedOutputRealpath)) {
+			throw new Error(`Recipe output '${artifactResult.id}' resolves outside its verified run directory.`);
 		}
+		const relativePath = extUri.relativePath(workspaceFolder, artifactResult.resource);
+		if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
+			throw new Error(`Recipe output '${artifactResult.id}' is outside the project.`);
+		}
+		const sha256 = toUrlSafeChecksum(await this.checksumService.checksum(artifactResult.resource));
+		const verifiedStat = await this.fileService.resolve(artifactResult.resource, { resolveMetadata: true });
+		if (!verifiedStat.isFile || verifiedStat.isSymbolicLink || verifiedStat.etag !== stat.etag || verifiedStat.size !== stat.size) {
+			throw new Error(`Recipe output '${artifactResult.id}' changed while it was being accepted.`);
+		}
+		const artifact: IBaseHalfNodeResultArtifact = Object.freeze({
+			id: artifactResult.id,
+			outputId: artifactResult.outputId,
+			kind: artifactResult.kind,
+			path: relativePath,
+			sha256,
+			size: stat.size,
+			...(artifactResult.label === undefined ? {} : { label: artifactResult.label })
+		});
 		return Object.freeze({
-			artifacts: Object.freeze(artifacts),
-			primaryArtifactId: result.primaryArtifactId,
+			artifact,
 			...(result.providerRequestId === undefined ? {} : { providerRequestId: result.providerRequestId }),
 			...(result.usage === undefined ? {} : { usage: result.usage }),
 			...(result.cost === undefined ? {} : { cost: result.cost })
@@ -1570,7 +1645,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		source: URI,
 		target: URI,
 		active: IActiveRun,
-		expectedArtifact?: IBaseHalfNodeRunArtifact
+		expectedArtifact?: IBaseHalfNodeResultArtifact
 	): Promise<{ readonly resource: URI; readonly digest: string }> {
 		if (extUri.isEqualOrParent(target, source) || extUri.isEqualOrParent(source, target)) {
 			throw new Error('A direct input cannot contain its own immutable snapshot directory.');
@@ -1580,8 +1655,8 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			const integrity = await this.resourceArtifactIntegrity(source, expectedArtifact, true);
 			if (integrity !== 'available') {
 				throw new Error(integrity === 'missing'
-					? `Output missing: '${expectedArtifact.path}'. Choose another result or run the source again.`
-					: `Output changed: '${expectedArtifact.path}'. Choose another result or run the source again.`);
+					? `Output missing: '${expectedArtifact.path}'. Restore the sealed file or create a new Result.`
+					: `Output changed: '${expectedArtifact.path}'. Restore the sealed file or create a new Result.`);
 			}
 		}
 		const sourceRoot = await this.fileService.realpath(workspaceFolder);
@@ -1599,7 +1674,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				this.resourceArtifactIntegrity(target, expectedArtifact, true)
 			]);
 			if (sourceIntegrity !== 'available' || targetIntegrity !== 'available') {
-				throw new Error(`Output changed: '${expectedArtifact.path}'. Choose another result or run the source again.`);
+				throw new Error(`Output changed: '${expectedArtifact.path}'. Restore the sealed file or create a new Result.`);
 			}
 		}
 		const targetRoot = await this.fileService.realpath(dirname(target));
@@ -1611,7 +1686,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		const sourceAfter = { entries: 0, bytes: 0 };
 		const sourceAfterManifest = await this.snapshotTreeDigest(sourceRoot, source, source, sourceAfter, active, true);
 		if (beforeManifest !== sourceAfterManifest || beforeManifest !== targetManifest) {
-			throw new Error(`Direct input '${source.toString()}' changed while it was being frozen. Run again to retry.`);
+			throw new Error(`Direct input '${source.toString()}' changed while it was being frozen. Retry the unchanged Draft.`);
 		}
 		const digest = expectedArtifact?.sha256 ?? await sha256Text(targetManifest);
 		return Object.freeze({ resource: target, digest });
@@ -1769,6 +1844,24 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		}
 	}
 
+	private beginResultCommit(resource: URI, active: IActiveRun): void {
+		if (active.resultCommitStarted) {
+			return;
+		}
+		if (this.activeRuns.get(resource.toString()) !== active
+			|| active.userCancelled
+			|| active.cancellation.token.isCancellationRequested
+			|| active.leaseLost
+			|| active.leaseClosing) {
+			throw new CancellationError();
+		}
+		// No await is permitted between the checks above and this assignment.
+		// JavaScript execution therefore makes this flag and cancel() a single
+		// linearization boundary: either cancel() returned true first, or the
+		// exact-content Result commit owns completion and cancel() returns false.
+		active.resultCommitStarted = true;
+	}
+
 	private async readNode(resource: URI, activeHost: boolean): Promise<IReadNodeDocumentResult> {
 		const content = await this.fileService.readFile(resource, {
 			atomic: true,
@@ -1891,7 +1984,7 @@ function baseHalfAssertIdentityEntryUnique(
 	}
 	const visiblePaths = conflicts.slice(0, 3).map(path => `'${path}'`).join(', ');
 	const remaining = conflicts.length - 3;
-	throw new Error(`Node identity conflict: ${visiblePaths}${remaining > 0 ? ` and ${remaining} more` : ''} share one stable identity. Remove the accidental copy or recreate it with Duplicate before running, importing, or changing History.`);
+	throw new Error(`Node identity conflict: ${visiblePaths}${remaining > 0 ? ` and ${remaining} more` : ''} share one stable identity. Remove the accidental copy or recreate it with Duplicate before running or importing.`);
 }
 
 async function baseHalfScanWorkspaceNodeIdentities(
@@ -1943,10 +2036,10 @@ async function baseHalfScanWorkspaceNodeIdentities(
 					continue;
 				}
 				if (++entries > limits.maxEntries) {
-					throw new Error(`This project contains more than ${limits.maxEntries.toLocaleString()} entries. Reduce its size before running, importing, or changing node History.`);
+					throw new Error(`This project contains more than ${limits.maxEntries.toLocaleString()} entries. Reduce its size before running or importing.`);
 				}
 				if (current.depth >= limits.maxDepth) {
-					throw new Error(`This project is nested more than ${limits.maxDepth} folders deep. Reduce its nesting before running, importing, or changing node History.`);
+					throw new Error(`This project is nested more than ${limits.maxDepth} folders deep. Reduce its nesting before running or importing.`);
 				}
 				children.push(URI.joinPath(current.resource, name));
 			}
@@ -2048,10 +2141,8 @@ async function baseHalfIsFrozenNodeDeclaration(
 		&& isUUID(segments[2])
 		&& document.id === segments[1]
 		&& document.recipe !== undefined
-		&& document.current.source === 'empty'
-		&& document.current.outputPaths.length === 0
-		&& document.revisions.length === 0
-		&& document.runs.length === 0)) {
+		&& document.result === undefined
+		&& document.attempts.length === 0)) {
 		return false;
 	}
 	const guardResource = URI.joinPath(workspaceFolder, segments[0], segments[1], segments[2], RUN_GUARD_FILE_NAME);
@@ -2069,16 +2160,8 @@ function joinProjectPath(workspaceFolder: URI, relativePath: string): URI {
 	return URI.joinPath(workspaceFolder, ...relativePath.split('/'));
 }
 
-function directResultNoCurrentMessage(relativePath: string): string {
-	return `Direct input '${relativePath}' has no Current. Open it and import or create a result.`;
-}
-
-function directResultNoPrimaryMessage(relativePath: string): string {
-	return `Direct input '${relativePath}' has no usable Current. Open it and choose a verified version in History or create a result.`;
-}
-
-function directResultNoIdentityMessage(relativePath: string): string {
-	return `Current content for '${relativePath}' has no immutable version identity. Open it and choose a verified version in History.`;
+function directResultMissingMessage(relativePath: string): string {
+	return `Direct input '${relativePath}' is not a sealed Result. Generate or import its local file first.`;
 }
 
 function directResultIntegrityMessage(
@@ -2087,28 +2170,139 @@ function directResultIntegrityMessage(
 	integrity: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>
 ): string {
 	return integrity === 'missing'
-		? `Current output for direct input '${relativePath}' is missing: '${artifactPath}'. Open the source and choose a verified version in History or create a result.`
-		: `Current output for direct input '${relativePath}' changed on disk: '${artifactPath}'. Open the source and choose a verified version in History or create a result.`;
+		? `Result file for direct input '${relativePath}' is missing: '${artifactPath}'. Recreate a new Result from the source settings.`
+		: `Result file for direct input '${relativePath}' changed on disk: '${artifactPath}'. Restore the sealed file or create a new Result.`;
 }
 
-function assertDirectResultCurrentIdentity(
-	document: IBaseHalfNodeDocument,
-	relativePath: string,
-	primaryArtifactId: string
-): void {
-	if (document.current.source === 'run' && document.current.runId) {
-		const run = document.runs.find(candidate => candidate.id === document.current.runId);
-		if (run?.status === 'succeeded' && run.primaryArtifactId === primaryArtifactId) {
-			return;
+function retryConfigurationChangedError(cause?: unknown): Error {
+	const message = 'Retry requires the unchanged frozen Recipe, inputs, and model connection. Copy settings to a new Draft.';
+	return cause === undefined ? new Error(message) : new Error(message, { cause });
+}
+
+function videoInputStateForExecution(prompt: string, inputs: readonly IResolvedInput[]): BaseHalfVideoInputState {
+	const counts: Partial<Record<keyof BaseHalfVideoInputState, number>> = { 'text-prompt': 1 };
+	const append = (kind: keyof BaseHalfVideoInputState): void => {
+		counts[kind] = (counts[kind] ?? 0) + 1;
+	};
+	void prompt;
+	for (const input of inputs) {
+		const slot = input.execution.slotId.toLowerCase();
+		if (slot === 'first-frame') {
+			append('first-frame');
+		} else if (slot === 'last-frame') {
+			append('last-frame');
+		} else if (slot === 'source-video') {
+			append('source-video');
+		} else if (slot === 'audio' || input.execution.source.kind === 'audio') {
+			append('audio');
+		} else if (input.execution.source.kind === 'image') {
+			append('reference-image');
+		} else if (input.execution.source.kind === 'video') {
+			append('reference-video');
 		}
 	}
-	if (document.current.source === 'imported' && document.current.revisionId) {
-		const revision = document.revisions.find(candidate => candidate.id === document.current.revisionId);
-		if (revision?.primaryArtifactId === primaryArtifactId) {
-			return;
-		}
+	return Object.freeze(counts);
+}
+
+function videoInputStatesEqual(left: BaseHalfVideoInputState, right: BaseHalfVideoInputState): boolean {
+	const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+	return [...keys].every(key => (left[key as keyof BaseHalfVideoInputState] ?? 0) === (right[key as keyof BaseHalfVideoInputState] ?? 0));
+}
+
+function retryModelsEqual(left: BaseHalfNodeAttemptModel, right: BaseHalfNodeAttemptModel): boolean {
+	if (left.source !== right.source) {
+		return false;
 	}
-	throw new Error(directResultNoIdentityMessage(relativePath));
+	if (left.source === 'local' || right.source === 'local') {
+		return left.source === right.source;
+	}
+	return left.connection === right.connection
+		&& left.serviceId === right.serviceId
+		&& left.capability === right.capability
+		&& left.modelId === right.modelId
+		&& (left.connection !== 'resolved' || right.connection !== 'resolved'
+			? left.connection === right.connection
+			: left.serviceLabel === right.serviceLabel && left.connectionIdentity === right.connectionIdentity);
+}
+
+function hasCompleteFrozenRetryConfiguration(
+	recipe: IBaseHalfCanvasRecipeDescriptor,
+	attempt: { readonly model: BaseHalfNodeAttemptModel; readonly inputs: readonly IBaseHalfNodeAttemptInput[]; readonly recipe: IBaseHalfNodeRecipe }
+): boolean {
+	if (attempt.inputs.length !== attempt.recipe.inputBindings.length) {
+		return false;
+	}
+	return recipe.modelCapability === undefined
+		? attempt.model.source === 'local'
+		: attempt.model.source === 'service'
+			&& attempt.model.connection === 'resolved'
+				&& attempt.model.capability === recipe.modelCapability;
+}
+
+/**
+ * Compares the canonical execution configuration with the immutable Attempt
+ * snapshot before a Retry can create another Attempt. The document parser also
+ * enforces this invariant; keeping it at the execution boundary prevents a
+ * future normalization or alternate caller from silently changing a Retry.
+ */
+export function baseHalfNodeRetryConfigurationMatches(
+	prompt: string,
+	recipe: IBaseHalfNodeRecipe,
+	retrySource: Pick<IBaseHalfNodeAttempt, 'prompt' | 'recipe'>
+): boolean {
+	return prompt === retrySource.prompt
+		&& recipe.recipeId === retrySource.recipe.recipeId
+		&& recipe.modelServiceId === retrySource.recipe.modelServiceId
+		&& recipe.modelId === retrySource.recipe.modelId
+		&& retryRecipeBindingsEqual(recipe.inputBindings, retrySource.recipe.inputBindings)
+		&& retryJsonObjectsEqual(recipe.parameters, retrySource.recipe.parameters);
+}
+
+function retryRecipeBindingsEqual(left: readonly IBaseHalfNodeInputBinding[], right: readonly IBaseHalfNodeInputBinding[]): boolean {
+	return left.length === right.length && left.every((binding, index) => {
+		const candidate = right[index];
+		return binding.sourcePath === candidate.sourcePath
+			&& binding.slot === candidate.slot
+			&& binding.order === candidate.order;
+	});
+}
+
+function retryJsonObjectsEqual(
+	left: Readonly<Record<string, BaseHalfNodeJsonValue>>,
+	right: Readonly<Record<string, BaseHalfNodeJsonValue>>
+): boolean {
+	const leftKeys = Object.keys(left).sort();
+	const rightKeys = Object.keys(right).sort();
+	return leftKeys.length === rightKeys.length
+		&& leftKeys.every((key, index) => key === rightKeys[index] && retryJsonValuesEqual(left[key], right[key]));
+}
+
+function retryJsonValuesEqual(left: BaseHalfNodeJsonValue, right: BaseHalfNodeJsonValue): boolean {
+	if (Object.is(left, right)) {
+		return true;
+	}
+	if (Array.isArray(left) || Array.isArray(right)) {
+		return Array.isArray(left) && Array.isArray(right)
+			&& left.length === right.length
+			&& left.every((value, index) => retryJsonValuesEqual(value, right[index]));
+	}
+	if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+		return false;
+	}
+	return retryJsonObjectsEqual(
+		left as Readonly<Record<string, BaseHalfNodeJsonValue>>,
+		right as Readonly<Record<string, BaseHalfNodeJsonValue>>
+	);
+}
+
+function retryInputsEqual(left: readonly IBaseHalfNodeAttemptInput[], right: readonly IBaseHalfNodeAttemptInput[]): boolean {
+	return left.length === right.length && left.every((input, index) => {
+		const candidate = right[index];
+		return input.sourcePath === candidate.sourcePath
+			&& input.slot === candidate.slot
+			&& input.order === candidate.order
+			&& input.revision === candidate.revision;
+	});
 }
 
 function inputSnapshotName(order: number, value: string): string {
@@ -2129,15 +2323,15 @@ async function sourceInputRevision(identity: string, digest: string): Promise<st
 	return `v1;source=${await sha256Text(identity)};sha256=${digest}`;
 }
 
-async function runInputRevision(runId: string, primaryArtifactId: string, digest: string): Promise<string> {
-	return `v1;run=${await sha256Text(runId)};artifact=${await sha256Text(primaryArtifactId)};sha256=${digest}`;
+async function attemptInputRevision(attemptId: string, artifactId: string, digest: string): Promise<string> {
+	return `v1;attempt=${await sha256Text(attemptId)};artifact=${await sha256Text(artifactId)};sha256=${digest}`;
 }
 
-async function revisionInputRevision(revisionId: string, primaryArtifactId: string, digest: string): Promise<string> {
-	return `v1;revision=${await sha256Text(revisionId)};artifact=${await sha256Text(primaryArtifactId)};sha256=${digest}`;
+async function importedResultInputRevision(nodeId: string, artifactId: string, digest: string): Promise<string> {
+	return `v1;imported=${await sha256Text(nodeId)};artifact=${await sha256Text(artifactId)};sha256=${digest}`;
 }
 
-function artifactIntegrityCacheKey(resource: URI, artifact: IBaseHalfNodeRunArtifact): string {
+function artifactIntegrityCacheKey(resource: URI, artifact: IBaseHalfNodeResultArtifact): string {
 	return `${resource.toString()}\u0000${artifact.size}\u0000${artifact.sha256}`;
 }
 

@@ -9,9 +9,11 @@ import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../.
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	BaseHalfNodeLocalDraftExitCoordinator,
+	baseHalfNodeAttemptHasCompleteRetrySnapshot,
 	baseHalfNodeArtifactUsesTextPreview,
 	baseHalfNodeCanImportContentKind,
 	baseHalfNodeImportActionLabel,
+	baseHalfNodeLocalStatusToken,
 	baseHalfNodeLocalPrimaryActionOpensSurface,
 	baseHalfNodeLocalSurfaceTargetOwnsEscape,
 	chooseBaseHalfNodeConnectionSlot,
@@ -21,17 +23,17 @@ import {
 	decodeBaseHalfNodeTextPreview,
 	getBaseHalfNodeAvailableInputSlots,
 	getBaseHalfNodeAssignableInputSlots,
+	getBaseHalfNodeAttemptDisclosureLines,
+	getBaseHalfNodeAttemptSummary,
 	getBaseHalfNodeCardStatusText,
-	getBaseHalfNodeHistoricalArtifactOpenProblem,
-	getBaseHalfNodeImportHistoryProblem,
-	getBaseHalfNodeInputCurrentVersionLabel,
+	getBaseHalfNodeImportProblem,
+	getBaseHalfNodeInputResultLabel,
 	getBaseHalfNodeInputStructureProblem,
 	getBaseHalfNodeInputRows,
 	getBaseHalfNodeLocalExecutionState,
 	getBaseHalfNodeLocalState,
 	getBaseHalfNodeModelSelectionProblem,
-	getBaseHalfNodeRunDisclosureLines,
-	getBaseHalfNodeRunHistoryDetail,
+	getBaseHalfNodeResultArtifactOpenProblem,
 	isBaseHalfNodeCardStatusPositive,
 	IBaseHalfNodeLocalConfigurationDraft,
 	mergeBaseHalfNodeLocalConfigurationDraft,
@@ -39,17 +41,20 @@ import {
 	parseBaseHalfNodeParameterDraft,
 	resolveBaseHalfNodeLocalDraftExit,
 	resolveBaseHalfNodeLocalSurfacePlacement,
+	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
 } from '../../browser/basehalfNodeLocalSurface.js';
 import { IBaseHalfCanvasRecipeDescriptor } from '../../common/basehalfCanvasRecipes.js';
 import { IBaseHalfModelServiceDescriptor } from '../../common/basehalfModelServices.js';
 import {
-	beginBaseHalfNodeRun,
-	completeBaseHalfNodeRun,
+	beginBaseHalfNodeAttempt,
+	cancelBaseHalfNodeAttempt,
+	completeBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
-	failBaseHalfNodeRun,
+	failBaseHalfNodeAttempt,
 	IBaseHalfNodeDocument,
-	importBaseHalfNodeCurrent
+	importBaseHalfNodeResult,
+	interruptBaseHalfNodeAttempt
 } from '../../common/basehalfNodeDocument.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 
@@ -180,11 +185,41 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.strictEqual(above.anchorPosition, AnchorPosition.ABOVE);
 	});
 
+	test('prefers a requested surface side only when it can contain the surface', () => {
+		const preferredBelow = resolveBaseHalfNodeLocalSurfacePlacement(
+			{ left: 300, top: 100, right: 500, bottom: 300 },
+			{ width: 1400, height: 1100 },
+			{ width: 400, height: 640 },
+			16,
+			'below'
+		);
+		assert.strictEqual(preferredBelow.side, 'below');
+		assert.strictEqual(preferredBelow.anchorAxisAlignment, AnchorAxisAlignment.VERTICAL);
+		assert.strictEqual(preferredBelow.anchorPosition, AnchorPosition.BELOW);
+
+		const insufficientBelow = resolveBaseHalfNodeLocalSurfacePlacement(
+			{ left: 300, top: 100, right: 500, bottom: 500 },
+			{ width: 1400, height: 900 },
+			{ width: 400, height: 640 },
+			16,
+			'below'
+		);
+		assert.strictEqual(insufficientBelow.side, 'right');
+	});
+
+	test('projects lifecycle labels to stable CSS tokens', () => {
+		assert.strictEqual(baseHalfNodeLocalStatusToken('Draft'), 'draft');
+		assert.strictEqual(baseHalfNodeLocalStatusToken('Needs input'), 'needs-input');
+		assert.strictEqual(baseHalfNodeLocalStatusToken('Output changed'), 'output-changed');
+	});
+
 	test('keeps Edit explicit when the primary action performs work', () => {
 		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'add', label: 'Add content' }), true);
 		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'configure', label: 'Configure' }), true);
-		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'run', label: 'Run' }), false);
-		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'runAgain', label: 'Run again' }), false);
+		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'run', label: 'Generate' }), false);
+		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'retry', label: 'Retry' }), false);
+		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'copy', label: 'Copy settings' }), false);
+		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'locate', label: 'Locate file' }), false);
 		assert.strictEqual(baseHalfNodeLocalPrimaryActionOpensSurface({ kind: 'cancel', label: 'Cancel' }), false);
 	});
 
@@ -194,6 +229,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 		const external = {
 			...base,
 			role: 'external-role',
+			prompt: 'External prompt',
 			inputBindings: [{ sourcePath: 'reference.png', slot: 'reference', order: 0 }]
 		};
 
@@ -201,17 +237,19 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.deepStrictEqual(merged.conflicts, []);
 		assert.strictEqual(merged.draft.title, 'Local title');
 		assert.strictEqual(merged.draft.role, 'external-role');
+		assert.strictEqual(merged.draft.prompt, 'External prompt');
 		assert.deepStrictEqual(merged.draft.inputBindings, external.inputBindings);
 	});
 
 	test('reports overlapping external edits without replacing the local draft', () => {
 		const base = localConfigurationDraft();
-		const local = { ...base, title: 'Local title', modelId: 'local-model' };
-		const external = { ...base, title: 'External title', modelId: 'external-model' };
+		const local = { ...base, title: 'Local title', prompt: 'Local prompt', modelId: 'local-model' };
+		const external = { ...base, title: 'External title', prompt: 'External prompt', modelId: 'external-model' };
 
 		const merged = mergeBaseHalfNodeLocalConfigurationDraft(base, local, external);
-		assert.deepStrictEqual(merged.conflicts, ['Title', 'Model ID']);
+		assert.deepStrictEqual(merged.conflicts, ['Title', 'Prompt', 'Model ID']);
 		assert.strictEqual(merged.draft.title, 'Local title');
+		assert.strictEqual(merged.draft.prompt, 'Local prompt');
 		assert.strictEqual(merged.draft.modelId, 'local-model');
 	});
 
@@ -255,28 +293,19 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.deepStrictEqual(merged.draft.inputBindings, local.inputBindings);
 	});
 
-	test('blocks opening historical outputs whose recorded bytes are no longer available', () => {
+	test('explains sealed Result integrity failures without offering replacement', () => {
 		assert.strictEqual(
-			getBaseHalfNodeHistoricalArtifactOpenProblem('outputs/run/frame.png', 'available'),
+			getBaseHalfNodeResultArtifactOpenProblem('outputs/attempt/frame.png', 'available'),
 			undefined
 		);
 
-		const missing = getBaseHalfNodeHistoricalArtifactOpenProblem('outputs/run/frame.png', 'missing');
-		assert.match(missing ?? '', /historical output is missing/);
-		assert.match(missing ?? '', /another version in History/);
-		assert.match(missing ?? '', /run the node again/);
+		const missing = getBaseHalfNodeResultArtifactOpenProblem('outputs/attempt/frame.png', 'missing');
+		assert.match(missing ?? '', /sealed Result file is missing/);
+		assert.match(missing ?? '', /new Draft/);
 
-		const changed = getBaseHalfNodeHistoricalArtifactOpenProblem('outputs/run/frame.png', 'changed');
-		assert.match(changed ?? '', /historical output changed on disk/);
-		assert.match(changed ?? '', /another version in History/);
-		assert.match(changed ?? '', /run the node again/);
-	});
-
-	test('describes Current integrity failures as Current recovery', () => {
-		assert.strictEqual(
-			getBaseHalfNodeHistoricalArtifactOpenProblem('outputs/current/frame.png', 'changed', 'current'),
-			'Current changed on disk: \'outputs/current/frame.png\'. Choose a verified version in History or run the node again.'
-		);
+		const changed = getBaseHalfNodeResultArtifactOpenProblem('outputs/attempt/frame.png', 'changed');
+		assert.match(changed ?? '', /sealed Result file changed on disk/);
+		assert.match(changed ?? '', /new Draft/);
 	});
 
 	test('preserves an unavailable plugin recipe during identity-only edits', () => {
@@ -306,8 +335,66 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.strictEqual(resolveBaseHalfNodeRecipeDraft(document, '', undefined, undefined, undefined, undefined, []), undefined);
 	});
 
-	test('keeps model selection and cost visible in run history details', () => {
-		const running = beginBaseHalfNodeRun(withRecipe(createBaseHalfNodeDocument({
+	test('removes legacy model selection when an installed local video recipe is saved', () => {
+		const document = createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(1),
+			kind: 'video',
+			title: 'Local clip',
+			role: 'video-clip',
+			recipe: {
+				recipeId: localVideoRecipe.id,
+				modelServiceId: 'legacy.video',
+				modelId: 'free-form-model-id',
+				parameters: { fps: 24 },
+				inputBindings: []
+			}
+		});
+
+		assert.deepStrictEqual(resolveBaseHalfNodeRecipeDraft(
+			document,
+			localVideoRecipe.id,
+			localVideoRecipe,
+			{ fps: 30 },
+			'legacy.video',
+			'free-form-model-id',
+			[]
+		), {
+			recipeId: localVideoRecipe.id,
+			parameters: { fps: 30 },
+			inputBindings: []
+		});
+	});
+
+	test('keeps a unique installed video generator in an empty Draft composer session', () => {
+		const emptyVideoDraft = createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(1),
+			kind: 'video',
+			title: 'Video',
+			role: 'video-clip'
+		});
+		assert.strictEqual(resolveBaseHalfNodeImplicitVideoRecipe(emptyVideoDraft, [recipe, videoRecipe]), videoRecipe);
+		assert.strictEqual(resolveBaseHalfNodeImplicitVideoRecipe(emptyVideoDraft, [recipe]), undefined);
+		assert.strictEqual(resolveBaseHalfNodeImplicitVideoRecipe(emptyVideoDraft, [
+			videoRecipe,
+			{ ...videoRecipe, id: 'pointa.canvas.video-alternate' }
+		]), undefined);
+
+		const configuredVideoDraft = withRecipe(emptyVideoDraft, {
+			recipeId: videoRecipe.id,
+			parameters: {},
+			inputBindings: []
+		});
+		assert.strictEqual(resolveBaseHalfNodeImplicitVideoRecipe(configuredVideoDraft, [videoRecipe]), undefined);
+		assert.strictEqual(resolveBaseHalfNodeImplicitVideoRecipe(createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(2),
+			kind: 'image',
+			title: 'Image',
+			role: 'storyboard-frame'
+		}), [videoRecipe]), undefined);
+	});
+
+	test('keeps immutable model, input, cost, and Result provenance visible in attempt details', () => {
+		const running = beginBaseHalfNodeAttempt(withRecipe(createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
 			kind: 'image',
 			title: 'Frame',
@@ -319,7 +406,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 			parameters: { prompt: 'A frame', count: 1, transparent: false, style: 'natural' },
 			inputBindings: [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]
 		}), {
-			id: 'run-1',
+			id: 'attempt-1',
 			createdAt: '2026-07-18T10:00:00Z',
 			startedAt: '2026-07-18T10:00:00Z',
 			model: {
@@ -333,33 +420,31 @@ suite('BaseHalfNodeLocalSurface', () => {
 			},
 			inputs: [{ sourcePath: 'brief.md', slot: 'context', order: 0, revision: 'sha256:brief-v1' }]
 		});
-		const completed = completeBaseHalfNodeRun(running, 'run-1', {
+		const completed = completeBaseHalfNodeAttempt(running, 'attempt-1', {
 			completedAt: '2026-07-18T10:00:01Z',
-			artifacts: [{ id: 'image', outputId: 'image', kind: 'image', path: 'outputs/frame.png', sha256: 'B'.repeat(43), size: 12 }],
-			primaryArtifactId: 'image',
+			artifact: { id: 'image', outputId: 'image', kind: 'image', path: 'outputs/frame.png', sha256: 'B'.repeat(43), size: 12 },
 			cost: { currency: 'USD', amount: '0.04', kind: 'actual' }
 		});
 		assert.strictEqual(
-			getBaseHalfNodeRunHistoryDetail(completed.runs[0], 'frame.png'),
+			getBaseHalfNodeAttemptSummary(completed.attempts[0], 'frame.png'),
 			'frame.png · Studio Images / image-v2 · USD 0.04'
 		);
-		const disclosed = completeBaseHalfNodeRun(running, 'run-1', {
+		const disclosed = completeBaseHalfNodeAttempt(running, 'attempt-1', {
 			completedAt: '2026-07-18T10:00:01Z',
-			artifacts: [{ id: 'image', outputId: 'image', kind: 'image', path: 'outputs/frame.png', sha256: 'B'.repeat(43), size: 12 }],
-			primaryArtifactId: 'image',
+			artifact: { id: 'image', outputId: 'image', kind: 'image', path: 'outputs/frame.png', sha256: 'B'.repeat(43), size: 12 },
 			providerRequestId: 'request-42',
 			usage: { inputTokens: 12, images: 1 },
 			cost: { currency: 'USD', amount: '0.04', kind: 'actual' }
 		});
-		const disclosure = getBaseHalfNodeRunDisclosureLines(disclosed.runs[0]);
+		const disclosure = getBaseHalfNodeAttemptDisclosureLines(disclosed.attempts[0], disclosed.result?.artifact);
 		assert.ok(disclosure.includes('Status: Succeeded'));
-		assert.ok(disclosure.includes('Run: run-1'));
+		assert.ok(disclosure.includes('Attempt: attempt-1'));
 		assert.ok(disclosure.includes(`Recipe: ${recipe.id}`));
 		assert.ok(disclosure.includes('Parameter prompt: “A frame”'));
 		assert.ok(disclosure.includes('Model service: Studio Images (studio.images)'));
 		assert.ok(disclosure.includes('Model: image-v2'));
 		assert.ok(disclosure.includes('Input 1: brief.md → context · revision sha256:brief-v1'));
-		assert.ok(disclosure.some(line => line.startsWith('Output 1: outputs/frame.png · image · 12 bytes · SHA-256 ')));
+		assert.ok(disclosure.some(line => line.startsWith('Result: outputs/frame.png · image · 12 bytes · SHA-256 ')));
 		assert.ok(disclosure.includes('Created: 2026-07-18T10:00:00Z'));
 		assert.ok(disclosure.includes('Completed: 2026-07-18T10:00:01Z'));
 		assert.ok(disclosure.includes('Request: request-42'));
@@ -367,7 +452,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.ok(disclosure.includes('Cost: USD 0.04'));
 	});
 
-	test('uses one primary action for each resting lifecycle state', () => {
+	test('projects Draft, Attempt, and sealed Result into one honest primary action', () => {
 		const empty = createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
 			kind: 'image',
@@ -375,34 +460,33 @@ suite('BaseHalfNodeLocalSurface', () => {
 			role: 'storyboard-frame'
 		});
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(empty).action, { kind: 'add', label: 'Add content' });
+		assert.strictEqual(getBaseHalfNodeLocalState(empty).status, 'Draft');
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(empty, { matchingRecipeCount: 0 }).action, { kind: 'add', label: 'Add content' });
-		assert.match(getBaseHalfNodeLocalState(empty, { matchingRecipeCount: 0 }).message, /existing image content/);
-		const imported = importBaseHalfNodeCurrent(empty, {
-			id: 'import-1',
-			source: 'imported',
-			createdAt: '2026-07-18T09:00:00Z',
-			artifacts: [{ id: 'image-1', outputId: 'imported', kind: 'image', path: 'assets/frame.png', sha256: 'A'.repeat(43), size: 12 }],
-			primaryArtifactId: 'image-1'
+		assert.match(getBaseHalfNodeLocalState(empty, { matchingRecipeCount: 0 }).message, /existing image/);
+		const imported = importBaseHalfNodeResult(empty, {
+			id: 'image-1',
+			outputId: 'imported',
+			kind: 'image',
+			path: 'assets/frame.png',
+			sha256: 'A'.repeat(43),
+			size: 12
 		});
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(imported, { matchingRecipeCount: 0 }).action, { kind: 'add', label: 'Set up' });
-		assert.strictEqual(getBaseHalfNodeLocalState(imported, { matchingRecipeCount: 3 }).status, 'Current');
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(imported, { matchingRecipeCount: 3 }).action, { kind: 'add', label: 'Set up' });
+		assert.strictEqual(getBaseHalfNodeLocalState(imported).status, 'Result');
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(imported).action, { kind: 'locate', label: 'Locate file' });
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(imported, {
-			matchingRecipeCount: 3,
 			verificationPending: true
 		}), {
 			ready: false,
-			status: 'Needs input',
-			message: 'Checking Current before this node can be used.',
+			status: 'Waiting',
+			message: 'Checking the sealed result file.',
 			action: { kind: 'wait', label: 'Checking' }
 		});
 		const missingImported = getBaseHalfNodeLocalState(imported, {
-			matchingRecipeCount: 0,
-			currentOutputIntegrity: 'missing'
+			resultIntegrity: 'missing'
 		});
-		assert.deepStrictEqual(missingImported.action, { kind: 'import', label: 'Replace image' });
-		assert.match(missingImported.message, /selected image is missing/);
-		assert.match(missingImported.message, /History keeps the original record/);
+		assert.strictEqual(missingImported.status, 'Output missing');
+		assert.deepStrictEqual(missingImported.action, { kind: 'locate', label: 'Locate file' });
+		assert.match(missingImported.message, /sealed result file is missing/);
 
 		const incomplete = withRecipe(empty, {
 			recipeId: recipe.id,
@@ -427,7 +511,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 			parameters: { prompt: 'Quiet street', count: 1, transparent: false, style: 'natural' },
 			inputBindings: [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]
 		});
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(ready, { recipe, modelServices: [configuredModel] }).action, { kind: 'run', label: 'Run' });
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(ready, { recipe, modelServices: [configuredModel] }).action, { kind: 'run', label: 'Generate' });
 		assert.strictEqual(getBaseHalfNodeLocalState(ready, { recipe, modelServices: [configuredModel] }).status, 'Ready');
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(ready, {
 			recipe,
@@ -435,8 +519,8 @@ suite('BaseHalfNodeLocalSurface', () => {
 			verificationPending: true
 		}), {
 			ready: false,
-			status: 'Needs input',
-			message: 'Checking Current and direct inputs before this node can run.',
+			status: 'Waiting',
+			message: 'Checking direct inputs before this Draft can generate.',
 			action: { kind: 'wait', label: 'Checking' }
 		});
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(ready, {
@@ -448,7 +532,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 			recipe,
 			modelServices: [configuredModel],
 			execution: { phase: 'running' }
-		}).status, 'Running');
+		}).status, 'Waiting');
 		const cancelling = getBaseHalfNodeLocalState(ready, {
 			recipe,
 			modelServices: [configuredModel],
@@ -458,8 +542,8 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.strictEqual(cancelling.ready, false);
 		assert.deepStrictEqual(cancelling.action, { kind: 'cancel', label: 'Cancelling…' });
 
-		const running = beginBaseHalfNodeRun(ready, {
-			id: 'run-1',
+		const running = beginBaseHalfNodeAttempt(ready, {
+			id: 'attempt-1',
 			createdAt: '2026-07-18T10:00:00Z',
 			startedAt: '2026-07-18T10:00:00Z',
 			model: {
@@ -473,136 +557,228 @@ suite('BaseHalfNodeLocalSurface', () => {
 			inputs: [{ sourcePath: 'brief.md', slot: 'context', order: 0, revision: 'one' }]
 		});
 		const persistedRunning = getBaseHalfNodeLocalState(running, { recipe, modelServices: [configuredModel] });
-		assert.strictEqual(persistedRunning.status, 'Running');
+		assert.strictEqual(persistedRunning.status, 'Waiting');
 		assert.strictEqual(persistedRunning.ready, false);
 		assert.deepStrictEqual(persistedRunning.action, { kind: 'recover', label: 'Check status' });
 		assert.match(persistedRunning.message, /status check/);
-		const failed = failBaseHalfNodeRun(running, 'run-1', {
+		const failed = failBaseHalfNodeAttempt(running, 'attempt-1', {
 			completedAt: '2026-07-18T10:00:01Z',
 			error: 'Request failed'
 		});
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(failed, { recipe, modelServices: [configuredModel] }).action, { kind: 'retry', label: 'Retry' });
 		assert.strictEqual(getBaseHalfNodeLocalState(failed, { recipe, modelServices: [configuredModel] }).status, 'Failed');
-
-		const succeeded = completeBaseHalfNodeRun(running, 'run-1', {
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(failed).action, { kind: 'wait', label: 'Retry unavailable' });
+		assert.match(getBaseHalfNodeLocalState(failed).message, /exact recipe/);
+		const changedFrozenConfiguration = failBaseHalfNodeAttempt(running, 'attempt-1', {
 			completedAt: '2026-07-18T10:00:01Z',
-			artifacts: [{
+			error: 'Retry requires the unchanged frozen Recipe, inputs, and model connection. Copy settings to a new Draft.'
+		});
+		const changedFrozenConfigurationState = getBaseHalfNodeLocalState(changedFrozenConfiguration, {
+			recipe,
+			modelServices: [configuredModel]
+		});
+		assert.strictEqual(changedFrozenConfigurationState.status, 'Failed');
+		assert.deepStrictEqual(changedFrozenConfigurationState.action, { kind: 'copy', label: 'Copy settings' });
+		assert.match(changedFrozenConfigurationState.message, /cannot be retried safely/);
+
+		const succeeded = completeBaseHalfNodeAttempt(running, 'attempt-1', {
+			completedAt: '2026-07-18T10:00:01Z',
+			artifact: {
 				id: 'image-1',
 				outputId: 'image',
 				kind: 'image',
-				path: 'outputs/frame/run-1/frame.png',
+				path: 'outputs/frame/attempt-1/frame.png',
 				sha256: 'A'.repeat(43),
 				size: 12
-			}],
-			primaryArtifactId: 'image-1'
+			}
 		});
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(succeeded, { recipe, modelServices: [configuredModel] }).action, { kind: 'runAgain', label: 'Run again' });
-		assert.strictEqual(getBaseHalfNodeLocalState(succeeded, { recipe, modelServices: [configuredModel] }).status, 'Current');
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(succeeded).action, { kind: 'configure', label: 'Configure' });
-		assert.strictEqual(getBaseHalfNodeLocalState(succeeded).status, 'Current');
-		assert.deepStrictEqual(getBaseHalfNodeLocalState(succeeded, { recipe: { ...recipe, outputs: [{ ...recipe.outputs[0], kind: 'video' }] } }).action, { kind: 'configure', label: 'Configure' });
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(succeeded, { recipe, modelServices: [configuredModel] }).action, { kind: 'locate', label: 'Locate file' });
+		assert.strictEqual(getBaseHalfNodeLocalState(succeeded, { recipe, modelServices: [configuredModel] }).status, 'Result');
+		assert.strictEqual(getBaseHalfNodeLocalState(succeeded).status, 'Result');
+		assert.strictEqual(getBaseHalfNodeLocalState(succeeded, { recipe: { ...recipe, outputs: [{ ...recipe.outputs[0], kind: 'video' }] } }).status, 'Result');
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(succeeded, {
 			recipe,
 			modelServices: [configuredModel],
-			currentOutputIntegrity: 'missing'
-		}).action, { kind: 'runAgain', label: 'Run again' });
+			resultIntegrity: 'missing'
+		}).action, { kind: 'locate', label: 'Locate file' });
 		assert.match(getBaseHalfNodeLocalState(succeeded, {
 			recipe,
 			modelServices: [configuredModel],
-			currentOutputIntegrity: 'missing'
-		}).message, /History keeps the original record/);
-		assert.strictEqual(getBaseHalfNodeLocalState(succeeded, {
-			recipe,
-			modelServices: [configuredModel],
-			dirty: true
-		}).ready, false);
-		assert.match(getBaseHalfNodeLocalState(succeeded, {
-			recipe,
-			modelServices: [configuredModel],
-			dirty: true
-		}).message, /Save this node/);
-		assert.match(getBaseHalfNodeLocalState(succeeded, {
-			recipe,
-			modelServices: [configuredModel],
-			staleReason: 'inputs'
-		}).message, /Direct inputs changed/);
-		assert.strictEqual(getBaseHalfNodeLocalState(succeeded, {
-			recipe,
-			modelServices: [configuredModel],
-			staleReason: 'inputs'
-		}).status, 'Stale');
-
-		const retrying = beginBaseHalfNodeRun(succeeded, {
-			id: 'run-2',
-			createdAt: '2026-07-18T10:01:00Z',
-			startedAt: '2026-07-18T10:01:00Z',
-			model: {
-				source: 'service',
-				connection: 'resolved',
-				serviceId: configuredModel.id,
-				serviceLabel: configuredModel.label,
-				connectionIdentity: configuredModel.connectionIdentity,
-				capability: 'image'
-			},
-			inputs: [{ sourcePath: 'brief.md', slot: 'context', order: 0, revision: 'two' }]
-		});
-		const failedRetry = failBaseHalfNodeRun(retrying, 'run-2', {
-			completedAt: '2026-07-18T10:01:01Z',
-			error: 'Provider unavailable.'
-		});
-		const failedStaleState = getBaseHalfNodeLocalState(failedRetry, {
-			recipe,
-			modelServices: [configuredModel],
-			staleReason: 'inputs'
-		});
-		assert.strictEqual(failedStaleState.status, 'Failed');
-		assert.deepStrictEqual(failedStaleState.action, { kind: 'retry', label: 'Retry' });
-		assert.match(failedStaleState.message, /Provider unavailable/);
-		assert.match(failedStaleState.message, /Current is unchanged/);
-		const failedMissingState = getBaseHalfNodeLocalState(failedRetry, {
-			recipe,
-			modelServices: [configuredModel],
-			currentOutputIntegrity: 'missing'
-		});
-		assert.strictEqual(failedMissingState.status, 'Failed');
-		assert.match(failedMissingState.message, /Provider unavailable/);
-		assert.match(failedMissingState.message, /previous Current output is missing/);
+			resultIntegrity: 'missing'
+		}).message, /sealed result file is missing/);
 	});
 
-	test('blocks another import before immutable imported History reaches its schema limit', () => {
-		const full = createBaseHalfNodeDocument({
+	test('requires catalog validation instead of applying static recipe parameters to video settings', () => {
+		const video = createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(9),
+			kind: 'video',
+			title: 'Clip',
+			role: 'generated-video',
+			prompt: 'A quiet street at dusk',
+			recipe: {
+				recipeId: videoRecipe.id,
+				modelServiceId: configuredVideoModel.id,
+				modelId: 'video-v1',
+				parameters: {
+					generationMode: 'text-to-video',
+					durationSeconds: 5,
+					videoModelSnapshot: {
+						schemaVersion: 1,
+						catalogId: 'pointa.canvas.models',
+						providerId: 'example',
+						deploymentId: 'global',
+						region: 'global',
+						modelId: 'video-v1',
+						revision: '2026-08-01',
+						mode: 'text-to-video',
+						inputs: { 'text-prompt': 1 }
+					}
+				},
+				inputBindings: []
+			}
+		});
+
+		const unverified = getBaseHalfNodeLocalState(video, {
+			recipe: videoRecipe,
+			modelServices: [configuredVideoModel]
+		});
+		assert.strictEqual(unverified.ready, false);
+		assert.match(unverified.message, /not been verified/);
+
+		const invalid = getBaseHalfNodeLocalState(video, {
+			recipe: videoRecipe,
+			modelServices: [configuredVideoModel],
+			videoConfiguration: { valid: false, problem: 'The reviewed model revision is stale.' }
+		});
+		assert.strictEqual(invalid.ready, false);
+		assert.strictEqual(invalid.message, 'The reviewed model revision is stale.');
+
+		const ready = getBaseHalfNodeLocalState(video, {
+			recipe: videoRecipe,
+			modelServices: [configuredVideoModel],
+			videoConfiguration: { valid: true }
+		});
+		assert.strictEqual(ready.status, 'Ready');
+		assert.deepStrictEqual(ready.action, { kind: 'run', label: 'Generate' });
+	});
+
+	test('keeps cancelled and interrupted Attempts with complete snapshots distinct and Retry-only', () => {
+		const ready = readyNode();
+		const running = beginBaseHalfNodeAttempt(ready, attemptOptions('attempt-1'));
+		const cancelled = cancelBaseHalfNodeAttempt(running, 'attempt-1', {
+			completedAt: '2026-07-18T10:00:01Z'
+		});
+		assert.strictEqual(getBaseHalfNodeLocalState(cancelled, { recipe, modelServices: [configuredModel] }).status, 'Cancelled');
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(cancelled, { recipe, modelServices: [configuredModel] }).action, { kind: 'retry', label: 'Retry' });
+		const frozenProvider = getBaseHalfNodeLocalState(cancelled, { recipe, modelServices: [] });
+		assert.strictEqual(frozenProvider.status, 'Provider missing');
+		assert.deepStrictEqual(frozenProvider.action, { kind: 'wait', label: 'Retry unavailable' });
+		assert.match(frozenProvider.message, /frozen settings/);
+		const frozenDirty = getBaseHalfNodeLocalState(cancelled, { recipe, modelServices: [configuredModel], dirty: true });
+		assert.deepStrictEqual(frozenDirty.action, { kind: 'wait', label: 'Retry unavailable' });
+		assert.match(frozenDirty.message, /settings are frozen/i);
+
+		const interrupted = interruptBaseHalfNodeAttempt(running, 'attempt-1', { error: 'Host restarted.' });
+		assert.strictEqual(getBaseHalfNodeLocalState(interrupted, { recipe, modelServices: [configuredModel] }).status, 'Interrupted');
+		assert.deepStrictEqual(getBaseHalfNodeLocalState(interrupted, { recipe, modelServices: [configuredModel] }).action, { kind: 'retry', label: 'Retry' });
+		assert.match(getBaseHalfNodeLocalState(interrupted, { recipe, modelServices: [configuredModel] }).message, /Host restarted/);
+	});
+
+	test('offers Copy settings instead of a dead Retry when cancellation or interruption left an incomplete snapshot', () => {
+		const ready = readyNode();
+		const incompleteRunning = beginBaseHalfNodeAttempt(ready, {
+			id: 'attempt-1',
+			createdAt: '2026-07-18T10:00:00Z',
+			startedAt: '2026-07-18T10:00:00Z',
+			model: {
+				source: 'service',
+				connection: 'unavailable',
+				serviceId: configuredModel.id,
+				capability: 'image'
+			},
+			inputs: []
+		});
+		const cancelled = cancelBaseHalfNodeAttempt(incompleteRunning, 'attempt-1', {
+			completedAt: '2026-07-18T10:00:01Z'
+		});
+		const interrupted = interruptBaseHalfNodeAttempt(incompleteRunning, 'attempt-1', { error: 'Host restarted.' });
+
+		assert.strictEqual(baseHalfNodeAttemptHasCompleteRetrySnapshot(cancelled.attempts[0]), false);
+		for (const [document, expectedStatus] of [[cancelled, 'Cancelled'], [interrupted, 'Interrupted']] as const) {
+			const state = getBaseHalfNodeLocalState(document, { recipe, modelServices: [configuredModel] });
+			assert.deepStrictEqual({
+				status: state.status,
+				ready: state.ready,
+				action: state.action,
+				messageHasProofBoundary: /cannot prove that a Retry/.test(state.message),
+				messageOffersNewDraft: /Copy settings into a new Draft/.test(state.message)
+			}, {
+				status: expectedStatus,
+				ready: true,
+				action: { kind: 'copy', label: 'Copy settings' },
+				messageHasProofBoundary: true,
+				messageOffersNewDraft: true
+			});
+		}
+	});
+
+	test('allows import only on a completely empty Draft', () => {
+		const empty = createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
 			kind: 'image',
 			title: 'Frame',
-			role: 'storyboard-frame',
-			revisions: Array.from({ length: 1024 }, (_entry, index) => ({
-				id: `import-${index}`,
-				source: 'imported' as const,
-				createdAt: '2026-07-18T09:00:00Z',
-				artifacts: [{
-					id: `image-${index}`,
-					outputId: 'imported',
-					kind: 'image' as const,
-					path: `assets/frame-${index}.png`,
-					sha256: 'A'.repeat(43),
-					size: 12
-				}],
-				primaryArtifactId: `image-${index}`
+			role: 'storyboard-frame'
+		});
+		assert.strictEqual(getBaseHalfNodeImportProblem(empty), undefined);
+		assert.match(getBaseHalfNodeImportProblem(readyNode()) ?? '', /empty Draft/);
+		const failed = failBaseHalfNodeAttempt(
+			beginBaseHalfNodeAttempt(readyNode(), attemptOptions('attempt-1')),
+			'attempt-1',
+			{ completedAt: '2026-07-18T10:00:01Z', error: 'Failed.' }
+		);
+		assert.match(getBaseHalfNodeImportProblem(failed) ?? '', /no recipe or attempts/);
+		const imported = importBaseHalfNodeResult(empty, {
+			id: 'image-1', outputId: 'imported', kind: 'image', path: 'assets/frame.png', sha256: 'A'.repeat(43), size: 12
+		});
+		assert.match(getBaseHalfNodeImportProblem(imported) ?? '', /sealed Result cannot be replaced/);
+	});
+
+	test('stops Retry at the immutable Attempt limit', () => {
+		const configured = readyNode();
+		const full = createBaseHalfNodeDocument({
+			...configured,
+			attempts: Array.from({ length: 1024 }, (_entry, index) => ({
+				id: `attempt-${index}`,
+				status: 'interrupted' as const,
+				createdAt: '2026-07-18T10:00:00Z',
+				startedAt: '2026-07-18T10:00:00Z',
+				prompt: configured.prompt,
+				recipe: configured.recipe!,
+				model: {
+					source: 'service' as const,
+					connection: 'resolved' as const,
+					serviceId: configuredModel.id,
+					serviceLabel: configuredModel.label,
+					connectionIdentity: configuredModel.connectionIdentity,
+					capability: 'image' as const
+				},
+				inputs: [{ sourcePath: 'brief.md', slot: 'context', order: 0, revision: `brief-${index}` }]
 			}))
 		});
-		assert.match(getBaseHalfNodeImportHistoryProblem(full) ?? '', /1024 versions/);
-		const state = getBaseHalfNodeLocalState(full, { matchingRecipeCount: 0 });
-		assert.strictEqual(state.ready, false);
-		assert.deepStrictEqual(state.action, { kind: 'wait', label: 'History full' });
-		assert.match(state.message, /Duplicate this node/);
+		const state = getBaseHalfNodeLocalState(full, { recipe, modelServices: [configuredModel] });
+		assert.strictEqual(state.ready, true);
+		assert.strictEqual(state.status, 'Needs input');
+		assert.deepStrictEqual(state.action, { kind: 'copy', label: 'Copy settings' });
+		assert.match(state.message, /1024 attempts/);
+		assert.match(state.message, /new Draft/);
 	});
 
 	test('shows blockers and recovery reasons on the card without coloring them as success', () => {
 		const blocked = {
 			ready: false,
 			status: 'Needs input',
-			message: 'Save this node before running it.',
-			action: { kind: 'run', label: 'Run' }
+			message: 'Save this Draft before generating.',
+			action: { kind: 'configure', label: 'Configure' }
 		} as const;
 		assert.strictEqual(getBaseHalfNodeCardStatusText(blocked), 'Needs input');
 		assert.strictEqual(isBaseHalfNodeCardStatusPositive(blocked), false);
@@ -610,45 +786,54 @@ suite('BaseHalfNodeLocalSurface', () => {
 		const failed = {
 			ready: true,
 			status: 'Failed',
-			message: 'The last run failed. Current is unchanged.',
+			message: 'The attempt failed. Settings are frozen.',
 			action: { kind: 'retry', label: 'Retry' }
 		} as const;
 		assert.strictEqual(getBaseHalfNodeCardStatusText(failed), 'Failed');
 		assert.strictEqual(isBaseHalfNodeCardStatusPositive(failed), false);
 
-		const current = {
+		const result = {
 			ready: true,
-			status: 'Current',
-			message: 'Ready to create another result.',
-			action: { kind: 'runAgain', label: 'Run again' }
+			status: 'Result',
+			message: 'Generated image is sealed and available.',
+			action: { kind: 'locate', label: 'Locate file' }
 		} as const;
-		assert.strictEqual(getBaseHalfNodeCardStatusText(current), 'Current');
-		assert.strictEqual(isBaseHalfNodeCardStatusPositive(current), true);
+		assert.strictEqual(getBaseHalfNodeCardStatusText(result), 'Result');
+		assert.strictEqual(isBaseHalfNodeCardStatusPositive(result), true);
 	});
 
-	test('projects frequent live progress into a stable card action without document work', () => {
+	test('projects preparing, waiting, generating, and cancelling without document work', () => {
+		const preparing = getBaseHalfNodeLocalExecutionState({ phase: 'preparing' });
+		assert.strictEqual(preparing.status, 'Preparing');
+		assert.deepStrictEqual(preparing.action, { kind: 'cancel', label: 'Cancel' });
+
+		const waiting = getBaseHalfNodeLocalExecutionState({ phase: 'running' });
+		assert.strictEqual(waiting.status, 'Waiting');
+		assert.match(waiting.message, /provider/);
+
 		for (let progress = 0; progress < 100; progress++) {
 			const state = getBaseHalfNodeLocalExecutionState({
 				phase: 'running',
-				message: `Rendering ${progress + 1}%`
+				progress: progress + 1
 			});
-			assert.strictEqual(state.status, 'Running');
-			assert.strictEqual(state.message, `Rendering ${progress + 1}%`);
+			assert.strictEqual(state.status, 'Generating');
+			assert.strictEqual(state.message, `Generating ${progress + 1}%.`);
 			assert.deepStrictEqual(state.action, { kind: 'cancel', label: 'Cancel' });
 		}
+		assert.strictEqual(getBaseHalfNodeLocalExecutionState({ phase: 'running', message: 'Rendering frames' }).status, 'Generating');
 
 		const cancelling = getBaseHalfNodeLocalExecutionState({ phase: 'cancelling' });
 		assert.strictEqual(cancelling.status, 'Cancelling');
 		assert.deepStrictEqual(cancelling.action, { kind: 'cancel', label: 'Cancelling…' });
 	});
 
-	test('names direct import actions after the Current content they set', () => {
+	test('names one-time direct import actions after the sealed content they create', () => {
 		assert.strictEqual(baseHalfNodeImportActionLabel('image'), 'Import image');
 		assert.strictEqual(baseHalfNodeImportActionLabel('video'), 'Import video');
 		assert.strictEqual(baseHalfNodeImportActionLabel('audio'), 'Import audio');
 		assert.strictEqual(baseHalfNodeImportActionLabel('pdf'), 'Import PDF');
 		assert.strictEqual(baseHalfNodeImportActionLabel('presentation'), 'Import presentation');
-		assert.strictEqual(baseHalfNodeImportActionLabel('file', true), 'Replace file');
+		assert.strictEqual(baseHalfNodeImportActionLabel('file'), 'Import file');
 		assert.strictEqual(baseHalfNodeCanImportContentKind('file', 'text'), true);
 		assert.strictEqual(baseHalfNodeCanImportContentKind('file', 'code'), true);
 		assert.strictEqual(baseHalfNodeCanImportContentKind('file', 'image'), true);
@@ -704,18 +889,18 @@ suite('BaseHalfNodeLocalSurface', () => {
 			{ sourcePath: 'second.md', slot: 'context', order: 1 },
 			{ sourcePath: 'first.md', slot: 'retired-slot', order: 0 }
 		], undefined, new Map([
-			['second.md', { source: 'run', id: 'run-2' }]
+			['second.md', { source: 'attempt', id: 'attempt-2' }]
 		]));
 		assert.deepStrictEqual(rows.map(row => ({ path: row.sourcePath, slot: row.slotLabel, order: row.order, accepted: row.accepted })), [
 			{ path: 'first.md', slot: 'retired-slot', order: 0, accepted: false },
 			{ path: 'second.md', slot: 'Context', order: 1, accepted: true }
 		]);
-		assert.strictEqual(rows[0].currentVersion, undefined);
-		assert.deepStrictEqual(rows[1].currentVersion, { source: 'run', id: 'run-2' });
-		assert.strictEqual(getBaseHalfNodeInputCurrentVersionLabel(rows[1].currentVersion!), 'Current run · run-2');
+		assert.strictEqual(rows[0].resultIdentity, undefined);
+		assert.deepStrictEqual(rows[1].resultIdentity, { source: 'attempt', id: 'attempt-2' });
+		assert.strictEqual(getBaseHalfNodeInputResultLabel(rows[1].resultIdentity!), 'Generated Result · attempt-2');
 		assert.strictEqual(
-			getBaseHalfNodeInputCurrentVersionLabel({ source: 'imported', id: 'imported-version-123456789' }),
-			'Current import · imported…6789'
+			getBaseHalfNodeInputResultLabel({ source: 'imported', id: 'imported-result-123456789' }),
+			'Imported Result · imported…6789'
 		);
 		assert.deepStrictEqual(getBaseHalfNodeAvailableInputSlots(recipe, [], 'brief.md', 'text').map(slot => slot.id), ['context']);
 		assert.deepStrictEqual(getBaseHalfNodeAvailableInputSlots(recipe, [
@@ -724,7 +909,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.deepStrictEqual(getBaseHalfNodeAvailableInputSlots(recipe, [], 'reference.png', 'image'), []);
 	});
 
-	test('blocks Run on the first direct result source without a verified Current', () => {
+	test('blocks Generate on the first direct source without a verified Result', () => {
 		const mediaRecipe: IBaseHalfCanvasRecipeDescriptor = {
 			...recipe,
 			inputs: [{ id: 'context', label: 'Context', accepts: ['image'], minItems: 1, maxItems: 2 }]
@@ -749,7 +934,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 		]);
 		const problems = new Map([
 			['second.bhnode', 'second.bhnode changed.'],
-			['first.bhnode', 'first.bhnode has no usable Current.']
+			['first.bhnode', 'first.bhnode has no usable Result.']
 		]);
 		const blocked = getBaseHalfNodeLocalState(target, {
 			recipe: mediaRecipe,
@@ -761,8 +946,8 @@ suite('BaseHalfNodeLocalSurface', () => {
 
 		assert.strictEqual(blocked.ready, false);
 		assert.strictEqual(blocked.status, 'Needs input');
-		assert.deepStrictEqual(blocked.action, { kind: 'wait', label: 'Run unavailable' });
-		assert.match(blocked.message, /first\.bhnode.*no usable Current/);
+		assert.deepStrictEqual(blocked.action, { kind: 'wait', label: 'Generate unavailable' });
+		assert.match(blocked.message, /first\.bhnode.*no usable Result/);
 
 		const ready = getBaseHalfNodeLocalState(target, {
 			recipe: mediaRecipe,
@@ -772,7 +957,7 @@ suite('BaseHalfNodeLocalSurface', () => {
 			directSourceProblems: new Map()
 		});
 		assert.strictEqual(ready.ready, true);
-		assert.deepStrictEqual(ready.action, { kind: 'run', label: 'Run' });
+		assert.deepStrictEqual(ready.action, { kind: 'run', label: 'Generate' });
 	});
 
 	test('keeps model identity explicit and bounded independently from the service connection', () => {
@@ -925,11 +1110,65 @@ const recipe: IBaseHalfCanvasRecipeDescriptor = {
 
 const configuredModel: IBaseHalfModelServiceDescriptor = {
 	id: 'studio.images',
+	specId: 'pointa.images.studio',
 	label: 'Studio Images',
 	endpoint: 'https://models.example.test/v1',
+	providerId: 'example',
+	deploymentId: 'global',
+	region: 'global',
 	connectionIdentity: `sha256:${'A'.repeat(43)}`,
 	capabilities: ['image'],
 	authorization: 'bearer',
+	publicValues: {},
+	configured: true
+};
+
+const videoRecipe: IBaseHalfCanvasRecipeDescriptor = {
+	id: 'pointa.canvas.video',
+	extensionId: 'pointa.canvas',
+	label: 'Generate video',
+	modelCapability: 'video',
+	videoModelCatalogId: 'pointa.canvas.models',
+	inputs: [],
+	parameters: [],
+	outputs: [{
+		id: 'video',
+		kind: 'video',
+		extensions: ['.mp4'],
+		minItems: 1,
+		maxItems: 1,
+		primary: true
+	}]
+};
+
+const localVideoRecipe: IBaseHalfCanvasRecipeDescriptor = {
+	id: 'pointa.canvas.local-video',
+	extensionId: 'pointa.canvas',
+	label: 'Render local video',
+	inputs: [],
+	parameters: [{ id: 'fps', label: 'FPS', type: 'number', default: 24, minimum: 1, maximum: 60, step: 1 }],
+	outputs: [{
+		id: 'video',
+		kind: 'video',
+		extensions: ['.mp4'],
+		minItems: 1,
+		maxItems: 1,
+		primary: true
+	}]
+};
+
+const configuredVideoModel: IBaseHalfModelServiceDescriptor = {
+	id: 'studio.video',
+	specId: 'pointa.video.studio',
+	label: 'Studio Video',
+	endpoint: 'https://video.example.test/v1',
+	providerId: 'example',
+	deploymentId: 'global',
+	region: 'global',
+	connectionIdentity: `sha256:${'B'.repeat(43)}`,
+	capabilities: ['video'],
+	authorization: 'bearer',
+	publicValues: {},
 	configured: true
 };
 
@@ -937,6 +1176,7 @@ function localConfigurationDraft(): IBaseHalfNodeLocalConfigurationDraft {
 	return {
 		title: 'Frame',
 		role: 'storyboard-frame',
+		prompt: 'Quiet street',
 		recipeId: recipe.id,
 		parameters: { prompt: 'Quiet street' },
 		modelServiceId: 'studio.images',
@@ -957,6 +1197,38 @@ function node(): IBaseHalfNodeDocument {
 			inputBindings: []
 		}
 	});
+}
+
+function readyNode(): IBaseHalfNodeDocument {
+	return createBaseHalfNodeDocument({
+		id: baseHalfNodeTestId(2),
+		kind: 'image',
+		title: 'Frame',
+		role: 'storyboard-frame',
+		recipe: {
+			recipeId: recipe.id,
+			modelServiceId: configuredModel.id,
+			parameters: { prompt: 'Quiet street', count: 1, transparent: false, style: 'natural' },
+			inputBindings: [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]
+		}
+	});
+}
+
+function attemptOptions(id: string): Parameters<typeof beginBaseHalfNodeAttempt>[1] {
+	return {
+		id,
+		createdAt: '2026-07-18T10:00:00Z',
+		startedAt: '2026-07-18T10:00:00Z',
+		model: {
+			source: 'service',
+			connection: 'resolved',
+			serviceId: configuredModel.id,
+			serviceLabel: configuredModel.label,
+			connectionIdentity: configuredModel.connectionIdentity,
+			capability: 'image'
+		},
+		inputs: [{ sourcePath: 'brief.md', slot: 'context', order: 0, revision: 'sha256:brief-v1' }]
+	};
 }
 
 function withRecipe(document: IBaseHalfNodeDocument, recipeState: NonNullable<IBaseHalfNodeDocument['recipe']>): IBaseHalfNodeDocument {

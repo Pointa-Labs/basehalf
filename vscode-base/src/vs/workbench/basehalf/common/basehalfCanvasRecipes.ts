@@ -14,16 +14,16 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 import { IProgress } from '../../../platform/progress/common/progress.js';
 import { ActivationKind, IExtensionService } from '../../services/extensions/common/extensions.js';
 import {
-	BASEHALF_NODE_MAX_ARTIFACTS,
 	BASEHALF_NODE_MAX_BINDINGS,
 	BASEHALF_NODE_MAX_ID_LENGTH,
 	BaseHalfNodeKind,
 	createBaseHalfNodeDocument,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeRunCost,
-	IBaseHalfNodeRunUsage
+	IBaseHalfNodeAttemptCost,
+	IBaseHalfNodeAttemptUsage,
+	validateBaseHalfNodePersistentId
 } from './basehalfNodeDocument.js';
-import { IBaseHalfModelServiceRunSnapshot } from './basehalfModelServices.js';
+import { IBaseHalfModelServiceAttemptSnapshot } from './basehalfModelServices.js';
 
 const CONTRIBUTION_ID_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/;
 const LOCAL_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
@@ -31,7 +31,6 @@ const ICON_PATTERN = /^[a-z][a-z0-9-]*$/;
 const OUTPUT_EXTENSION_PATTERN = /^\.[a-z0-9][a-z0-9.-]{0,15}$/i;
 const MAX_INPUTS = 16;
 const MAX_PARAMETERS = 32;
-const MAX_OUTPUTS = 8;
 const MAX_ENUM_OPTIONS = 50;
 const NODE_OUTPUT_KINDS = new Set<BaseHalfNodeKind>(['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
 const DEFAULT_NODE_ROLES: Readonly<Record<BaseHalfNodeKind, string>> = Object.freeze({
@@ -129,6 +128,8 @@ export interface IBaseHalfCanvasRecipeContribution {
 	readonly description?: string;
 	readonly icon?: string;
 	readonly modelCapability?: BaseHalfCanvasRecipeModelCapability;
+	/** Exact reviewed catalog owned by this recipe's extension. Required only for video recipes. */
+	readonly videoModelCatalogId?: string;
 	readonly inputs?: readonly IBaseHalfCanvasRecipeInputDefinition[];
 	readonly parameters?: readonly IBaseHalfCanvasRecipeParameterDefinition[];
 	readonly outputs: readonly IBaseHalfCanvasRecipeOutputDefinition[];
@@ -324,7 +325,7 @@ export interface IBaseHalfCanvasArtifactSnapshot {
 	readonly id: string;
 	readonly kind: BaseHalfCanvasContentKind;
 	readonly resource: URI;
-	readonly runId?: string;
+	readonly attemptId?: string;
 }
 
 export interface IBaseHalfCanvasNodeSnapshot {
@@ -332,7 +333,7 @@ export interface IBaseHalfCanvasNodeSnapshot {
 	readonly path: string;
 	readonly kind: BaseHalfCanvasContentKind;
 	readonly resource?: URI;
-	readonly current?: IBaseHalfCanvasArtifactSnapshot;
+	readonly result?: IBaseHalfCanvasArtifactSnapshot;
 }
 
 export interface IBaseHalfCanvasRecipeInput {
@@ -343,16 +344,22 @@ export interface IBaseHalfCanvasRecipeInput {
 }
 
 export interface IBaseHalfCanvasRecipeExecutionRequest {
-	readonly runId: string;
+	readonly attemptId: string;
 	readonly workspaceFolder: URI;
 	readonly node: IBaseHalfCanvasNodeSnapshot;
 	readonly recipeId: string;
+	/** Host-owned generation intent frozen into this Attempt. */
+	readonly prompt: string;
 	readonly parameters: Readonly<Record<string, BaseHalfCanvasRecipeValue>>;
 	readonly modelServiceId?: string;
-	/** Host-frozen identity of the external service selected for this run. */
-	readonly modelService?: IBaseHalfModelServiceRunSnapshot;
+	/** Host-frozen identity of the external service selected for this attempt. */
+	readonly modelService?: IBaseHalfModelServiceAttemptSnapshot;
 	readonly inputs: readonly IBaseHalfCanvasRecipeInput[];
 	readonly outputDirectory: URI;
+	/** Existing durable remote task reused by an exact Retry; executors must not submit a replacement task. */
+	readonly resumeProviderRequestId?: string;
+	/** Persist a newly submitted remote task id before polling or any other fallible work. */
+	acknowledgeProviderRequestId(providerRequestId: string): Promise<void>;
 }
 
 export interface IBaseHalfCanvasRecipeProgress {
@@ -369,11 +376,10 @@ export interface IBaseHalfCanvasRecipeArtifact {
 }
 
 export interface IBaseHalfCanvasRecipeExecutionResult {
-	readonly artifacts: readonly IBaseHalfCanvasRecipeArtifact[];
-	readonly primaryArtifactId?: string;
+	readonly artifact: IBaseHalfCanvasRecipeArtifact;
 	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfNodeRunUsage;
-	readonly cost?: IBaseHalfNodeRunCost;
+	readonly usage?: IBaseHalfNodeAttemptUsage;
+	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
 export interface IBaseHalfCanvasRecipeRuntimeProvider {
@@ -498,6 +504,15 @@ export function validateBaseHalfCanvasRecipeContribution(extensionId: string, co
 	if (contribution.modelCapability !== undefined && !isModelCapability(contribution.modelCapability)) {
 		throw new Error(`BaseHalf canvas recipe '${id}' has an invalid model capability.`);
 	}
+	let videoModelCatalogId: string | undefined;
+	if (contribution.modelCapability === 'video') {
+		if (contribution.videoModelCatalogId === undefined) {
+			throw new Error(`BaseHalf video recipe '${id}' must declare its exact video model catalog.`);
+		}
+		videoModelCatalogId = normalizeContributionId(owner, contribution.videoModelCatalogId, 'video model catalog');
+	} else if (contribution.videoModelCatalogId !== undefined) {
+		throw new Error(`BaseHalf canvas recipe '${id}' cannot declare a video model catalog without video model capability.`);
+	}
 
 	const inputs = [...(contribution.inputs ?? [])];
 	if (inputs.length > MAX_INPUTS) {
@@ -515,22 +530,30 @@ export function validateBaseHalfCanvasRecipeContribution(extensionId: string, co
 	}
 	validateUniqueLocalIds(id, 'parameter', parameters);
 	const normalizedParameters = parameters.map(parameter => validateParameter(id, parameter));
+	if (contribution.modelCapability === 'video' && normalizedParameters.length > 0) {
+		throw new Error(`BaseHalf video recipe '${id}' must use reviewed catalog settings instead of static parameters.`);
+	}
 
 	const outputs = [...(contribution.outputs ?? [])];
-	if (outputs.length < 1 || outputs.length > MAX_OUTPUTS) {
-		throw new Error(`BaseHalf canvas recipe '${id}' must declare between 1 and ${MAX_OUTPUTS} outputs.`);
+	if (outputs.length !== 1) {
+		throw new Error(`BaseHalf canvas recipe '${id}' must declare exactly one output for one Result node.`);
 	}
 	validateUniqueLocalIds(id, 'output', outputs);
 	const normalizedOutputs = outputs.map(output => validateOutput(id, output));
-	if (normalizedOutputs.reduce((total, output) => total + output.maxItems, 0) > BASEHALF_NODE_MAX_ARTIFACTS) {
-		throw new Error(`BaseHalf canvas recipe '${id}' can return at most ${BASEHALF_NODE_MAX_ARTIFACTS} artifacts in total.`);
-	}
 	const primaryOutputs = normalizedOutputs.filter(output => output.primary === true);
 	if (primaryOutputs.length !== 1) {
 		throw new Error(`BaseHalf canvas recipe '${id}' must declare exactly one primary output.`);
 	}
 	if (primaryOutputs[0].minItems !== 1 || primaryOutputs[0].maxItems !== 1) {
 		throw new Error(`BaseHalf canvas recipe '${id}' primary output must produce exactly one artifact.`);
+	}
+	if (contribution.modelCapability === 'video' && primaryOutputs[0].kind !== 'video') {
+		throw new Error(`BaseHalf video recipe '${id}' must produce a video Result.`);
+	}
+	if (primaryOutputs[0].kind === 'video'
+		&& contribution.modelCapability !== undefined
+		&& contribution.modelCapability !== 'video') {
+		throw new Error(`BaseHalf local video recipe '${id}' must omit model capability, or use the reviewed video model capability.`);
 	}
 
 	return Object.freeze({
@@ -540,6 +563,7 @@ export function validateBaseHalfCanvasRecipeContribution(extensionId: string, co
 		...(description === undefined ? {} : { description }),
 		...(icon === undefined ? {} : { icon }),
 		...(contribution.modelCapability === undefined ? {} : { modelCapability: contribution.modelCapability }),
+		...(videoModelCatalogId === undefined ? {} : { videoModelCatalogId }),
 		inputs: Object.freeze(normalizedInputs),
 		parameters: Object.freeze(normalizedParameters),
 		outputs: Object.freeze(normalizedOutputs)
@@ -570,65 +594,46 @@ export function validateBaseHalfCanvasRecipeExecutionResult(
 	request: IBaseHalfCanvasRecipeExecutionRequest,
 	result: IBaseHalfCanvasRecipeExecutionResult
 ): IBaseHalfCanvasRecipeExecutionResult {
-	if (!result || !Array.isArray(result.artifacts)) {
+	if (!result || typeof result !== 'object' || Array.isArray(result) || !result.artifact || typeof result.artifact !== 'object' || Array.isArray(result.artifact)) {
 		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned an invalid result.`);
 	}
-	const maximumArtifacts = recipe.outputs.reduce((total, output) => total + output.maxItems, 0);
-	if (result.artifacts.length > maximumArtifacts) {
-		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned too many artifacts.`);
+	const unknownResultProperty = Object.keys(result).find(key => !['artifact', 'providerRequestId', 'usage', 'cost'].includes(key));
+	if (unknownResultProperty) {
+		throw new Error(`BaseHalf canvas recipe '${recipe.id}' result contains unsupported property '${unknownResultProperty}'.`);
 	}
-	const artifacts = result.artifacts.map(artifact => ({
-		id: boundedText(artifact.id, `${recipe.id}.artifact.id`, 128),
-		outputId: boundedText(artifact.outputId, `${recipe.id}.artifact.outputId`, 64),
-		kind: artifact.kind,
-		resource: URI.revive(artifact.resource),
-		...(artifact.label === undefined ? {} : { label: boundedText(artifact.label, `${recipe.id}.artifact.label`, 160) })
-	}));
-	const artifactIds = new Set<string>();
-	for (const artifact of artifacts) {
-		if (artifactIds.has(artifact.id)) {
-			throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned duplicate artifact id '${artifact.id}'.`);
-		}
-		artifactIds.add(artifact.id);
-		const output = recipe.outputs.find(candidate => candidate.id === artifact.outputId);
-		if (!output || output.kind !== artifact.kind) {
-			throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned artifact '${artifact.id}' for an incompatible output.`);
-		}
-		if (!extUri.isEqualOrParent(artifact.resource, request.outputDirectory) || extUri.isEqual(artifact.resource, request.outputDirectory)) {
-			throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned an artifact outside its output directory.`);
-		}
-		if (!output.extensions.includes(extname(artifact.resource).toLowerCase())) {
-			throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned artifact '${artifact.id}' with an unsupported extension.`);
-		}
+	const unknownArtifactProperty = Object.keys(result.artifact).find(key => !['id', 'outputId', 'kind', 'resource', 'label'].includes(key));
+	if (unknownArtifactProperty) {
+		throw new Error(`BaseHalf canvas recipe '${recipe.id}' artifact contains unsupported property '${unknownArtifactProperty}'.`);
 	}
-	for (const output of recipe.outputs) {
-		const count = artifacts.filter(artifact => artifact.outputId === output.id).length;
-		if (count < output.minItems || count > output.maxItems) {
-			throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned ${count} artifacts for output '${output.id}', expected ${output.minItems}-${output.maxItems}.`);
-		}
+	const artifact = Object.freeze({
+		id: validateBaseHalfNodePersistentId(result.artifact.id, `${recipe.id}.artifact.id`),
+		outputId: boundedText(result.artifact.outputId, `${recipe.id}.artifact.outputId`, 64),
+		kind: result.artifact.kind,
+		resource: URI.revive(result.artifact.resource),
+		...(result.artifact.label === undefined ? {} : { label: boundedText(result.artifact.label, `${recipe.id}.artifact.label`, 160) })
+	});
+	const output = recipe.outputs[0];
+	if (artifact.outputId !== output.id || artifact.kind !== output.kind) {
+		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned artifact '${artifact.id}' for an incompatible output.`);
 	}
-	const primaryOutput = recipe.outputs.find(output => output.primary === true)!;
-	const primaryCandidates = artifacts.filter(artifact => artifact.outputId === primaryOutput.id);
-	const primaryArtifactId = result.primaryArtifactId === undefined
-		? primaryCandidates[0]?.id
-		: boundedText(result.primaryArtifactId, `${recipe.id}.primaryArtifactId`, 128);
-	const primaryArtifact = artifacts.find(artifact => artifact.id === primaryArtifactId);
-	if (primaryCandidates.length !== 1 || !primaryArtifact || primaryArtifact.outputId !== primaryOutput.id) {
-		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned an invalid primary artifact.`);
+	if (!extUri.isEqualOrParent(artifact.resource, request.outputDirectory) || extUri.isEqual(artifact.resource, request.outputDirectory)) {
+		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned an artifact outside its output directory.`);
+	}
+	if (!output.extensions.includes(extname(artifact.resource).toLowerCase())) {
+		throw new Error(`BaseHalf canvas recipe '${recipe.id}' returned artifact '${artifact.id}' with an unsupported extension.`);
 	}
 	const providerRequestId = optionalAuditIdentifier(result.providerRequestId, `${recipe.id}.providerRequestId`, BASEHALF_NODE_MAX_ID_LENGTH);
 	const usage = result.usage === undefined ? undefined : validateExecutionUsage(result.usage, `${recipe.id}.usage`);
 	const cost = result.cost === undefined ? undefined : validateExecutionCost(result.cost, `${recipe.id}.cost`);
 	return Object.freeze({
-		artifacts: Object.freeze(artifacts),
-		primaryArtifactId,
+		artifact,
 		...(providerRequestId === undefined ? {} : { providerRequestId }),
 		...(usage === undefined ? {} : { usage }),
 		...(cost === undefined ? {} : { cost })
 	});
 }
 
-function validateExecutionUsage(value: IBaseHalfNodeRunUsage, path: string): IBaseHalfNodeRunUsage {
+function validateExecutionUsage(value: IBaseHalfNodeAttemptUsage, path: string): IBaseHalfNodeAttemptUsage {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`${path} must be an object.`);
 	}
@@ -655,7 +660,7 @@ function validateExecutionUsage(value: IBaseHalfNodeRunUsage, path: string): IBa
 	return Object.freeze(result);
 }
 
-function validateExecutionCost(value: IBaseHalfNodeRunCost, path: string): IBaseHalfNodeRunCost {
+function validateExecutionCost(value: IBaseHalfNodeAttemptCost, path: string): IBaseHalfNodeAttemptCost {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`${path} must be an object.`);
 	}

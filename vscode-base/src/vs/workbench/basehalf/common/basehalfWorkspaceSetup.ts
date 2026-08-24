@@ -198,10 +198,10 @@ const AGENT_HARNESS_FILES: ReadonlyArray<{ readonly relPath: string; readonly co
 			'## One canvas grammar',
 			'',
 			'- Ordinary text and code remain normal user files.',
-			'- A `.bhnode` is a stable result container. Author only the subset returned by',
-			'  capability discovery; Current and History are host-owned.',
+			'- A `.bhnode` starts as an editable Draft. Author only the subset returned by',
+			'  capability discovery; immutable Attempts and the single sealed Result are host-owned.',
 			'- A -> B means A\'s direct content is context for B; for a result node this',
-			'  is its selected Current. It never means run next, and execution never',
+			'  is its one sealed local file. It never means generate next, and execution never',
 			'  recursively runs upstream nodes.',
 			'- Input role and order belong to B\'s recipe binding, not to the edge.',
 			'- A context edge may exist before it is assigned to a recipe input. B cannot',
@@ -214,8 +214,9 @@ const AGENT_HARNESS_FILES: ReadonlyArray<{ readonly relPath: string; readonly co
 			'Use `basehalf --run-operation \'{"operationId":"returned.operation.id","parameters":{}}\'` only',
 			'for an operation',
 			'returned by capability discovery. Never invent a command id or write generated',
-			'lifecycle fields yourself. Each explicit run creates ordinary local results and',
-			'preserves prior successful versions.'
+			'lifecycle fields yourself. Each explicit submission creates an immutable Attempt;',
+			'the first success seals exactly one ordinary local file as the Result. Once the host',
+			'accepts a submission, closing or switching the Agent session does not cancel it.'
 		])
 	}
 ];

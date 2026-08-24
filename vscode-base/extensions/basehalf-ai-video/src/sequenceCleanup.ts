@@ -40,7 +40,7 @@ export class SequenceCleanupService implements vscode.Disposable {
 		if (!workspace || workspace.uri.scheme !== 'file') {
 			return [];
 		}
-		const node = await vscode.basehalf.inspectCanvasNode(resource, { versionIds: [], includeCurrent: false });
+		const node = await vscode.basehalf.inspectCanvasNode(resource);
 		if (!node || node.kind !== 'video') {
 			return [];
 		}

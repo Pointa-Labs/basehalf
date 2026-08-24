@@ -80,7 +80,6 @@ export class BaseHalfNodeCommandHandler {
 			return this.handleOperation(event.request, cancellationToken);
 		}
 
-		let cancellationListener: { dispose(): void } | undefined;
 		try {
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
@@ -90,22 +89,19 @@ export class BaseHalfNodeCommandHandler {
 				throw new CancellationError();
 			}
 			const execution = this.executionService.run(node);
-			const runId = this.executionService.getActiveRun(node.resource)?.runId;
-			if (!runId) {
+			const attemptId = this.executionService.getActiveRun(node.resource)?.runId;
+			if (!attemptId) {
 				await execution;
-				throw new Error('The node run did not enter the host execution lifecycle.');
+				throw new Error('The node submission did not enter the host Attempt lifecycle.');
 			}
-			const cancelRun = () => this.executionService.cancel(node.resource, runId);
-			cancellationListener = cancellationToken.onCancellationRequested(cancelRun);
-			if (cancellationToken.isCancellationRequested) {
-				cancelRun();
-			}
+			// Once accepted by the host, execution belongs to the durable canvas
+			// node. Closing or switching an Agent renderer may abandon this RPC wait,
+			// but it must never cancel a paid/provider task. Cancellation remains an
+			// explicit node action addressed by node + attempt id.
 			const document = await execution;
-			return responseForCompletedRun(node.relativePath, runId, document);
+			return responseForCompletedAttempt(node.relativePath, attemptId, document);
 		} catch (error) {
 			return rejectedResponse(event.request.relativePath, errorMessage(error));
-		} finally {
-			cancellationListener?.dispose();
 		}
 	}
 
@@ -161,13 +157,17 @@ export class BaseHalfNodeCommandHandler {
 							scope: 'direct-inbound-reference' as const,
 							fields: Object.freeze(['sourcePath', 'slot', 'order'] as const)
 						}),
-						lifecycle: Object.freeze({ current: 'host-owned' as const, history: 'host-owned' as const }),
+						lifecycle: Object.freeze({
+							attempts: 'host-owned' as const,
+							result: 'host-owned-single-file' as const,
+							retry: 'frozen-only' as const
+						}),
 						runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 						authoring: getBaseHalfNodeAgentAuthoringContract()
 					}),
 					contextEdge: Object.freeze({
 						source: 'direct-content' as const,
-						resultNodeSource: 'selected-current' as const,
+					resultNodeSource: 'sealed-result' as const,
 						target: 'direct-context' as const,
 						autoRun: false as const,
 						recursive: false as const,
@@ -390,34 +390,29 @@ export class BaseHalfNodeCommandHandler {
 	}
 }
 
-export function responseForCompletedRun(nodePath: string, runId: string, document: IBaseHalfNodeDocument): IBaseHalfRunNodeCommandResponse {
-	const run = document.runs.find(candidate => candidate.id === runId);
-	if (!run || run.status === 'running') {
-		return rejectedResponse(nodePath, 'The host did not return a completed record for this run.');
+export function responseForCompletedAttempt(nodePath: string, attemptId: string, document: IBaseHalfNodeDocument): IBaseHalfRunNodeCommandResponse {
+	const attempt = document.attempts.find(candidate => candidate.id === attemptId);
+	if (!attempt || attempt.status === 'running') {
+		return rejectedResponse(nodePath, 'The host did not return a completed record for this attempt.');
 	}
-	const currentVersionId = document.current.source === 'run'
-		? document.current.runId
-		: document.current.source === 'imported'
-			? document.current.revisionId
-			: undefined;
+	const result = document.result?.source === 'attempt' && document.result.attemptId === attempt.id
+		? document.result
+		: undefined;
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-		ok: run.status === 'succeeded',
-		outcome: run.status,
+		ok: attempt.status === 'succeeded' && result !== undefined,
+		outcome: attempt.status,
 		nodePath,
-		run: {
-			id: run.id,
-			status: run.status,
-			...(run.completedAt === undefined ? {} : { completedAt: run.completedAt }),
-			outputPaths: run.outputPaths,
-			...(run.error === undefined ? {} : { error: run.error })
+		attempt: {
+			id: attempt.id,
+			status: attempt.status,
+			...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
+			...(attempt.error === undefined ? {} : { error: attempt.error })
 		},
-		current: {
-			source: document.current.source,
-			...(currentVersionId === undefined ? {} : { versionId: currentVersionId }),
-			outputPaths: document.current.outputPaths
-		},
-		...(run.status === 'succeeded' || run.error === undefined ? {} : { error: run.error })
+		...(result === undefined ? {} : {
+			result: { source: 'attempt', attemptId: result.attemptId, artifactPath: result.artifact.path }
+		}),
+		...(attempt.status === 'succeeded' || attempt.error === undefined ? {} : { error: attempt.error })
 	};
 }
 
@@ -478,21 +473,12 @@ function capabilityDiscoveryExtension(
 		id: capability.id,
 		label: capability.label,
 		...(capability.description === undefined ? {} : { description: capability.description }),
-		documents: Object.freeze(capability.documents.map(document => Object.freeze({
-			kind: document.kind,
-			version: document.version,
-			fileExtensions: Object.freeze([...document.fileExtensions]),
-			schemaSummary: document.schemaSummary,
-			...(document.pin === undefined ? {} : {
-				pin: Object.freeze({
-					mode: document.pin.mode,
-					field: document.pin.field,
-					targetKinds: Object.freeze([...document.pin.targetKinds]),
-					acceptedVersionStates: Object.freeze([...document.pin.acceptedVersionStates]),
-					updatePolicy: document.pin.updatePolicy
-				})
-			})
-		}))),
+			documents: Object.freeze(capability.documents.map(document => Object.freeze({
+				kind: document.kind,
+				version: document.version,
+				fileExtensions: Object.freeze([...document.fileExtensions]),
+				schemaSummary: document.schemaSummary
+			}))),
 		operations: Object.freeze(capability.operations.map(operation => capabilityDiscoveryOperation(operation)))
 	});
 }
@@ -540,6 +526,7 @@ function capabilityDiscoveryRecipe(recipe: IBaseHalfCanvasRecipeDescriptor): IBa
 		...(recipe.description === undefined ? {} : { description: recipe.description }),
 		...(recipe.icon === undefined ? {} : { icon: recipe.icon }),
 		...(recipe.modelCapability === undefined ? {} : { modelCapability: recipe.modelCapability }),
+		...(recipe.videoModelCatalogId === undefined ? {} : { videoModelCatalogId: recipe.videoModelCatalogId }),
 		inputs: Object.freeze(recipe.inputs.map(input => Object.freeze({
 			id: input.id,
 			label: input.label,

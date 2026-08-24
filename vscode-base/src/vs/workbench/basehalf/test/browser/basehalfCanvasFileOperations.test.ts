@@ -24,19 +24,17 @@ suite('BaseHalfCanvasFileOperations', () => {
 
 	test('detects saved live bindings when a dirty malformed buffer hides the key', () => {
 		const saved = JSON.stringify({
-			version: 2,
+			version: 3,
 			id: '00000000-0000-4000-8000-000000000001',
 			kind: 'image',
 			title: 'Frame',
 			role: 'Generated image',
-			current: { source: 'empty', outputPaths: [] },
 			recipe: {
 				recipeId: 'image.generate',
 				parameters: {},
 				inputBindings: [{ sourcePath: 'references/style.png', slot: 'reference', order: 0 }]
 			},
-			revisions: [],
-			runs: []
+			attempts: []
 		});
 		assert.strictEqual(nodeTextMayReferencePath('{ "sourcePat', ['references']), false);
 		assert.strictEqual(nodeTextMayReferencePath(saved, ['references']), true);

@@ -108,46 +108,16 @@ suite('MainThreadBaseHalf', () => {
 		assert.strictEqual(existsCalls, 1);
 	});
 
-	test('validates bounded selective inspection options before touching storage', async () => {
-		let existsCalls = 0;
-		const admissionService = new class extends mock<IBaseHalfPluginAdmissionService>() {
-			override isAllowedContributor(): boolean { return true; }
-		};
-		const fileService = new class extends mock<IFileService>() {
-			override exists(): Promise<boolean> {
-				existsCalls++;
-				return Promise.resolve(true);
-			}
-		};
-		const mainThread = disposables.add(createMainThread(admissionService, fileService));
-
-		await assert.rejects(mainThread.$inspectCanvasNode(extensionIdentity(), URI.file('/workspace/clip.bhnode'), {
-			versionIds: Array.from({ length: 257 }, (_, index) => `run-${index}`)
-		}), /at most 256 ids/);
-		await assert.rejects(mainThread.$inspectCanvasNode(extensionIdentity(), URI.file('/workspace/clip.bhnode'), {
-			versionIds: ['run-1', 'run-1']
-		}), /duplicated/);
-		await assert.rejects(mainThread.$inspectCanvasNode(extensionIdentity(), URI.file('/workspace/clip.bhnode'), {
-			unknown: true
-		} as never), /not supported/);
-		assert.strictEqual(existsCalls, 0);
-	});
-
-	test('fresh-verifies only requested versions and Current instead of the full history', async () => {
+	test('returns one freshly verified sealed Result instead of selectable versions', async () => {
 		const resource = URI.file('/workspace/clip.bhnode');
-		const revisions = Array.from({ length: 40 }, (_, index) => ({
-			id: `revision-${index}`,
-			source: 'imported' as const,
-			createdAt: `2026-07-18T12:${String(index).padStart(2, '0')}:00.000Z`,
-			artifacts: [{
-				id: 'primary', outputId: 'primary', kind: 'video' as const,
-				path: `outputs/revision-${index}/clip.mp4`, sha256: 'A'.repeat(43), size: index + 1
-			}],
-			primaryArtifactId: 'primary'
-		}));
+		const artifact = {
+			id: 'clip', outputId: 'video', kind: 'video' as const,
+			path: 'assets/clip-node/clip.mp4', sha256: 'A'.repeat(43), size: 42,
+			label: 'Final clip'
+		};
 		const source = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip', revisions,
-			current: { source: 'imported', revisionId: 'revision-39', outputPaths: ['outputs/revision-39/clip.mp4'] }
+			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip',
+			result: { source: 'imported', artifact }
 		}));
 		const admissionService = new class extends mock<IBaseHalfPluginAdmissionService>() {
 			override isAllowedContributor(): boolean { return true; }
@@ -180,25 +150,14 @@ suite('MainThreadBaseHalf', () => {
 		};
 		const mainThread = disposables.add(createMainThread(admissionService, fileService, workspaceContextService, nodeExecutionService));
 
-		const identityOnly = await mainThread.$inspectCanvasNode(extensionIdentity(), resource, { versionIds: [], includeCurrent: false });
-		assert.deepStrictEqual(identityOnly?.versions, []);
-		assert.strictEqual(identityOnly?.currentVersionId, 'revision-39');
-		assert.strictEqual(verified.length, 0);
-
-		const selected = await mainThread.$inspectCanvasNode(extensionIdentity(), resource, {
-			versionIds: ['revision-3'], includeCurrent: true
-		});
-		assert.deepStrictEqual(selected?.versions.map(version => version.id), ['revision-3', 'revision-39']);
-		assert.deepStrictEqual(verified, [
-			{ path: 'outputs/revision-3/clip.mp4', fresh: true },
-			{ path: 'outputs/revision-39/clip.mp4', fresh: true }
-		]);
-
-		verified.length = 0;
-		const legacy = await mainThread.$inspectCanvasNode(extensionIdentity(), resource);
-		assert.strictEqual(legacy?.versions.length, 40);
-		assert.strictEqual(verified.length, 40);
-		assert.strictEqual(verified.every(entry => entry.fresh === undefined), true);
+		const inspected = await mainThread.$inspectCanvasNode(extensionIdentity(), resource);
+		assert.strictEqual(inspected?.lifecycle, 'result');
+		assert.strictEqual(inspected?.result?.source, 'imported');
+		assert.strictEqual(inspected?.result?.artifact.resource.path, '/workspace/assets/clip-node/clip.mp4');
+		assert.strictEqual(inspected?.result?.artifact.outputId, 'video');
+		assert.strictEqual(inspected?.result?.artifact.label, 'Final clip');
+		assert.deepStrictEqual(inspected?.attempts, []);
+		assert.deepStrictEqual(verified, [{ path: 'assets/clip-node/clip.mp4', fresh: true }]);
 	});
 
 	test('does not expose node bytes when the verified path changes during the read', async () => {
@@ -309,75 +268,6 @@ suite('MainThreadBaseHalf', () => {
 		assert.strictEqual(await mainThread.$inspectCanvasNode(extensionIdentity(), resource), undefined);
 	});
 
-	test('bounds the default large-history view and shares integrity-check concurrency across inspections', async () => {
-		const resource = URI.file('/workspace/clip.bhnode');
-		const recipe = { recipeId: 'reviewed.workflow.render', parameters: {}, inputBindings: [] };
-		const artifact = (prefix: string, index: number) => ({
-			id: 'primary', outputId: 'primary', kind: 'video' as const,
-			path: `outputs/${prefix}-${index}/clip.mp4`, sha256: 'A'.repeat(43), size: index + 1
-		});
-		const runs = Array.from({ length: 1024 }, (_, index) => {
-			const createdAt = new Date(Date.UTC(2026, 0, 1) + index * 1000).toISOString();
-			const primary = artifact('run', index);
-			return {
-				id: `run-${index}`, status: 'succeeded' as const, createdAt, startedAt: createdAt, completedAt: createdAt,
-				recipe, model: { source: 'local' as const }, inputs: [], artifacts: [primary],
-				primaryArtifactId: primary.id, outputPaths: [primary.path]
-			};
-		});
-		const revisions = Array.from({ length: 1024 }, (_, index) => {
-			const primary = artifact('revision', index);
-			return {
-				id: `revision-${index}`, source: 'imported' as const,
-				createdAt: new Date(Date.UTC(2026, 0, 1) + (1024 + index) * 1000).toISOString(),
-				artifacts: [primary], primaryArtifactId: primary.id
-			};
-		});
-		const source = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip', recipe, runs, revisions,
-			current: { source: 'run', runId: 'run-0', outputPaths: [runs[0].outputPaths[0]] }
-		}));
-		const fileService = new class extends mock<IFileService>() {
-			override exists(): Promise<boolean> { return Promise.resolve(true); }
-			override realpath(candidate: URI): Promise<URI> { return Promise.resolve(candidate); }
-			override stat(candidate: URI): Promise<IFileStatWithPartialMetadata> { return Promise.resolve(fileStat(candidate, source.length)); }
-			override readFile(candidate: URI): Promise<IFileContent> { return Promise.resolve(fileContent(candidate, source)); }
-		};
-		let integrityChecks = 0;
-		let activeIntegrityChecks = 0;
-		let peakIntegrityChecks = 0;
-		const nodeExecutionService = new class extends mock<IBaseHalfNodeExecutionService>() {
-			override getActiveRun(): undefined { return undefined; }
-			override getArtifactIntegrity(): Promise<'available'> {
-				integrityChecks++;
-				activeIntegrityChecks++;
-				peakIntegrityChecks = Math.max(peakIntegrityChecks, activeIntegrityChecks);
-				return Promise.resolve().then(() => {
-					activeIntegrityChecks--;
-					return 'available';
-				});
-			}
-		};
-		const mainThread = disposables.add(createMainThread(
-			new class extends mock<IBaseHalfPluginAdmissionService>() { override isAllowedContributor(): boolean { return true; } },
-			fileService,
-			workspaceContextService(),
-			nodeExecutionService
-		));
-
-		const [first, second] = await Promise.all([
-			mainThread.$inspectCanvasNode(extensionIdentity(), resource),
-			mainThread.$inspectCanvasNode(extensionIdentity(), resource)
-		]);
-		assert.strictEqual(first?.versions.length, 256);
-		assert.strictEqual(second?.versions.length, 256);
-		assert.strictEqual(first?.versions.some(version => version.id === 'run-0'), true);
-		assert.strictEqual(first?.versions.some(version => version.id === 'revision-1023'), true);
-		assert.strictEqual(integrityChecks, 512);
-		assert.strictEqual(activeIntegrityChecks, 0);
-		assert.strictEqual(peakIntegrityChecks, 8);
-	});
-
 	test('rejects a node whose resolved file escapes the workspace', async () => {
 		const admissionService = new class extends mock<IBaseHalfPluginAdmissionService>() {
 			override isAllowedContributor(): boolean { return true; }
@@ -417,18 +307,20 @@ suite('MainThreadBaseHalf', () => {
 	test('grants model credentials only to the matching active recipe execution', async () => {
 		let runtimeProvider: IBaseHalfCanvasRecipeRuntimeProvider | undefined;
 		let accessCalls = 0;
+		let artifactId: unknown = 'image';
 		let grantedSnapshot: Parameters<MainThreadBaseHalf['$getModelServiceAccess']>[1] | undefined;
 		const proxy = new class extends mock<ExtHostBaseHalfShape>() {
 			override $onDidChangeModelServices(): void { }
-			override async $executeCanvasRecipe(_runHandle: string, _recipeId: string, request: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2]): Promise<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']> extends Promise<infer TResult> ? TResult : never> {
-				assert.ok(request.modelService?.accessToken);
+				override async $executeCanvasRecipe(_attemptHandle: string, _recipeId: string, request: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2]): Promise<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']> extends Promise<infer TResult> ? TResult : never> {
+					assert.strictEqual(request.prompt, 'Render frame.');
+					assert.ok(request.modelService?.accessToken);
 				grantedSnapshot = request.modelService;
 				assert.ok(await mainThread.$getModelServiceAccess(extensionIdentity(), request.modelService));
 				assert.strictEqual(await mainThread.$getModelServiceAccess(
 					{ ...extensionIdentity(), id: new ExtensionIdentifier('other.workflow') },
 					request.modelService
 				), undefined);
-				return { artifacts: [], primaryArtifactId: undefined };
+				return { artifact: { id: artifactId as string, outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') } };
 			}
 		};
 		const recipeRegistry = new class extends mock<IBaseHalfCanvasRecipeRegistryService>() {
@@ -458,18 +350,35 @@ suite('MainThreadBaseHalf', () => {
 		mainThread.$registerCanvasRecipeExecutor({ id: { value: 'reviewed.workflow' } } as never, 'reviewed.workflow.render');
 		assert.ok(runtimeProvider);
 		await runtimeProvider.execute({
-			runId: 'run-1', workspaceFolder: URI.file('/workspace'),
+			attemptId: 'attempt-1', workspaceFolder: URI.file('/workspace'),
 			node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
-			recipeId: 'reviewed.workflow.render', parameters: {}, modelServiceId: 'studio.images',
+			recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
 			modelService: {
 				serviceId: 'studio.images', serviceLabel: 'Studio Images',
 				connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
 			},
-			inputs: [], outputDirectory: URI.file('/workspace/outputs/run-1')
+			inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-1'),
+			acknowledgeProviderRequestId: async () => undefined
 		}, { report() { } }, CancellationToken.None);
 		assert.strictEqual(accessCalls, 1);
 		assert.ok(grantedSnapshot);
 		assert.strictEqual(await mainThread.$getModelServiceAccess(extensionIdentity(), grantedSnapshot), undefined);
+
+		artifactId = 'image/frame';
+		await assert.rejects(
+			() => runtimeProvider!.execute({
+				attemptId: 'attempt-2', workspaceFolder: URI.file('/workspace'),
+				node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
+				recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
+				modelService: {
+					serviceId: 'studio.images', serviceLabel: 'Studio Images',
+					connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
+				},
+				inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-2'),
+				acknowledgeProviderRequestId: async () => undefined
+			}, { report() { } }, CancellationToken.None),
+			/reviewed\.workflow\.render\.artifact\.id contains unsupported characters/
+		);
 	});
 
 	test('retains an active model grant while a cancelled executor is still settling', async () => {
@@ -483,7 +392,7 @@ suite('MainThreadBaseHalf', () => {
 		const proxy = new class extends mock<ExtHostBaseHalfShape>() {
 			override $onDidChangeModelServices(): void { }
 			override $executeCanvasRecipe(
-				_runHandle: string,
+				_attemptHandle: string,
 				_recipeId: string,
 				request: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2],
 				cancellation: CancellationToken
@@ -520,14 +429,15 @@ suite('MainThreadBaseHalf', () => {
 		assert.ok(runtimeProvider);
 		const cancellation = disposables.add(new CancellationTokenSource());
 		const execution = runtimeProvider.execute({
-			runId: 'run-1', workspaceFolder: URI.file('/workspace'),
+			attemptId: 'attempt-1', workspaceFolder: URI.file('/workspace'),
 			node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
-			recipeId: 'reviewed.workflow.render', parameters: {}, modelServiceId: 'studio.images',
+			recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
 			modelService: {
 				serviceId: 'studio.images', serviceLabel: 'Studio Images',
 				connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
 			},
-			inputs: [], outputDirectory: URI.file('/workspace/outputs/run-1')
+			inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-1'),
+			acknowledgeProviderRequestId: async () => undefined
 		}, { report() { } }, cancellation.token);
 		let settled = false;
 		void execution.then(() => { settled = true; }, () => { settled = true; });
@@ -541,7 +451,7 @@ suite('MainThreadBaseHalf', () => {
 		assert.ok(await mainThread.$getModelServiceAccess(extensionIdentity(), requestSeen.modelService));
 
 		assert.ok(resolveExecutor);
-		resolveExecutor({ artifacts: [] });
+		resolveExecutor({ artifact: { id: 'image', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') } });
 		await execution;
 		assert.strictEqual(settled, true);
 		assert.strictEqual(await mainThread.$getModelServiceAccess(extensionIdentity(), requestSeen.modelService), undefined);

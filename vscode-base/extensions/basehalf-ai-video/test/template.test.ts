@@ -15,7 +15,6 @@ import {
 	REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 	REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID,
 	STARTER_TEMPLATE_ID,
-	UPDATE_SEQUENCE_ITEM_COMMAND_ID,
 	parseAIVideoSequenceDocument,
 	parseAIVideoShotDocument
 } from '../src/domain.ts';
@@ -30,11 +29,16 @@ test('contributes only reviewed host recipes, projections, cleanup, commands, an
 		INSPECT_SEQUENCE_COMMAND_ID,
 		ADD_SEQUENCE_ITEM_COMMAND_ID,
 		MOVE_SEQUENCE_ITEM_COMMAND_ID,
-		UPDATE_SEQUENCE_ITEM_COMMAND_ID,
 		REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
 	assert.deepEqual(manifest.contributes.basehalfCanvasRecipes.map((recipe: { id: string }) => recipe.id), AI_VIDEO_RECIPE_IDS);
+	const generateVideo = manifest.contributes.basehalfCanvasRecipes.find((recipe: { id: string }) => recipe.id === 'pointa.basehalf-ai-video.generate-video');
+	assert.ok(generateVideo);
+	assert.equal(generateVideo.inputs.some((input: { id: string }) => input.id === 'audio'), false);
+	assert.equal(generateVideo.videoModelCatalogId, manifest.contributes.basehalfVideoModelCatalogs[0].id);
+	assert.ok(manifest.contributes.basehalfCanvasRecipes.every((recipe: { parameters?: readonly { id: string }[] }) =>
+		!(recipe.parameters ?? []).some(parameter => parameter.id === 'instructions')));
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].id, STARTER_TEMPLATE_ID);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].resource, 'templates/starter-workflow.json');
 	assert.equal(manifest.contributes.basehalfAgentCapabilities.length, 1);
@@ -45,18 +49,11 @@ test('contributes only reviewed host recipes, projections, cleanup, commands, an
 		'pointa.basehalf-ai-video.sequence'
 	]);
 	const sequenceDocument = capability.documents.find((document: { kind: string }) => document.kind === 'pointa.basehalf-ai-video.sequence');
-	assert.deepEqual(sequenceDocument.pin, {
-		mode: 'exact-result-version',
-		field: 'items[].versionId',
-		targetKinds: ['video'],
-		acceptedVersionStates: ['succeeded', 'imported'],
-		updatePolicy: 'explicit'
-	});
+	assert.equal(sequenceDocument.pin, undefined);
 	assert.deepEqual(capability.operations.map((operation: { command: string }) => operation.command), [
 		INSPECT_SEQUENCE_COMMAND_ID,
 		ADD_SEQUENCE_ITEM_COMMAND_ID,
 		MOVE_SEQUENCE_ITEM_COMMAND_ID,
-		UPDATE_SEQUENCE_ITEM_COMMAND_ID,
 		REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
@@ -85,6 +82,8 @@ test('keeps the starter workflow declarative and inside host-owned primitives', 
 	const paths = [...template.files, ...template.nodes].map((entry: { path: string }) => entry.path);
 	assert.equal(new Set(paths).size, paths.length);
 	assert.equal(template.nodes.every((node: { path: string }) => node.path.endsWith('.bhnode')), true);
+	assert.equal(template.nodes.every((node: { prompt: unknown }) => typeof node.prompt === 'string'), true);
+	assert.equal(template.nodes.every((node: { recipe?: { parameters: Record<string, unknown> } }) => !node.recipe || !('instructions' in node.recipe.parameters)), true);
 	assert.equal(template.nodes.every((node: { recipe?: { recipeId: string } }) => !node.recipe || AI_VIDEO_RECIPE_IDS.includes(node.recipe.recipeId as never)), true);
 	assert.equal(template.cards.every((card: { path: string }) => paths.includes(card.path)), true);
 
@@ -118,11 +117,11 @@ test('starts with an empty, portable clip sequence rather than placeholder resul
 
 	const readme = template.files.find((file: { path: string }) => file.path === 'README.md');
 	assert.ok(readme);
-	assert.match(readme.contents, /ordered list of exact Video results/);
-	assert.match(readme.contents, /Add Current Video to Sequence/);
+	assert.match(readme.contents, /ordered list of sealed Video Result nodes/);
+	assert.match(readme.contents, /Add Video Result to Sequence/);
 	assert.match(readme.contents, /Show Video Sequence Status/);
 	assert.match(readme.contents, /Remove Video Sequence Clip/);
-	assert.match(readme.contents, /does not silently change/);
+	assert.doesNotMatch(readme.contents, /Current|run or imported revision|version/);
 });
 
 test('keeps planning outputs honest and reserves media nodes for real media', () => {
@@ -134,6 +133,11 @@ test('keeps planning outputs honest and reserves media nodes for real media', ()
 	assert.equal(nodes.get('shots/shot-01/audio.bhnode').recipe, undefined);
 	assert.equal(nodes.get('shots/shot-01/clip.bhnode').kind, 'video');
 	assert.equal(nodes.get('shots/shot-01/clip.bhnode').recipe, undefined);
+	assert.equal(template.references.some((reference: { to: string }) =>
+		reference.to === 'shots/shot-01/clip.bhnode'), false);
+	const clipCard = template.cards.find((card: { path: string }) => card.path === 'shots/shot-01/clip.bhnode');
+	assert.ok(clipCard);
+	assert.deepEqual({ width: clipCard.width, height: clipCard.height }, { width: 720, height: 405 });
 });
 
 function walkKeys(value: unknown, visitor: (key: string) => void): void {

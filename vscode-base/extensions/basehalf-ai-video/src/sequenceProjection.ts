@@ -10,7 +10,6 @@ import {
 	MOVE_SEQUENCE_ITEM_COMMAND_ID,
 	REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 	REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID,
-	UPDATE_SEQUENCE_ITEM_COMMAND_ID,
 	resolveAIVideoSequenceVideoNodePath,
 	type AIVideoSequenceItemInspection
 } from './domain';
@@ -37,7 +36,6 @@ type SequenceProjectionMessage =
 	| { readonly type: 'add' }
 	| { readonly type: 'navigate'; readonly itemId: string }
 	| { readonly type: 'move'; readonly itemId: string; readonly direction: 'up' | 'down' }
-	| { readonly type: 'update'; readonly itemId: string }
 	| { readonly type: 'repair'; readonly itemId: string }
 	| { readonly type: 'remove'; readonly itemId: string };
 
@@ -84,7 +82,7 @@ export async function resolveSequenceProjection(
 			}
 			nodePaths.reconcile(projection.nodeResourceKeys);
 			artifactPaths.reconcile(projection.items.map(item => ({
-				pinKey: sequencePinKey(item.inspection),
+				resultKey: sequenceResultKey(item.inspection),
 				...(item.mediaResource ? { verifiedResourceKey: item.mediaResource.toString() } : {})
 			})));
 			view.webview.html = sequenceDocument(view.webview, projection.items, projection.totalItems, projection.truncated);
@@ -218,8 +216,6 @@ export async function resolveSequenceProjection(
 			}
 			if (message.type === 'move') {
 				await vscode.commands.executeCommand(MOVE_SEQUENCE_ITEM_COMMAND_ID, { sequence: resource, itemId: message.itemId, direction: message.direction });
-			} else if (message.type === 'update') {
-				await vscode.commands.executeCommand(UPDATE_SEQUENCE_ITEM_COMMAND_ID, { sequence: resource, itemId: message.itemId });
 			} else if (message.type === 'repair') {
 				await vscode.commands.executeCommand(REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID, { sequence: resource, itemId: message.itemId });
 			} else {
@@ -275,7 +271,7 @@ async function readProjectionItems(
 		if (token.isCancellationRequested) {
 			throw new vscode.CancellationError();
 		}
-		const candidateResource = inspected.pinnedArtifact?.resource;
+		const candidateResource = inspected.artifact?.resource;
 		const mediaResource = candidateResource instanceof vscode.Uri ? candidateResource : undefined;
 		items.push(Object.freeze({ inspection: inspected, ...(mediaResource ? { mediaResource } : {}) }));
 	}
@@ -301,7 +297,7 @@ function parseProjectionMessage(value: unknown): SequenceProjectionMessage {
 	if (typeof record.itemId !== 'string' || !record.itemId || record.itemId.length > 128) {
 		throw new Error('The Sequence clip identity is invalid.');
 	}
-	if (record.type === 'navigate' || record.type === 'update' || record.type === 'repair' || record.type === 'remove') {
+	if (record.type === 'navigate' || record.type === 'repair' || record.type === 'remove') {
 		if (Object.keys(record).some(key => key !== 'type' && key !== 'itemId')) {
 			throw new Error('The Sequence action contains unsupported data.');
 		}
@@ -350,32 +346,25 @@ function sequenceDocument(webview: vscode.Webview, items: readonly SequenceProje
 				<button title="Open source node" data-action="navigate">Open</button>
 				<button title="Move earlier" data-action="move-up" ${index === 0 ? 'disabled' : ''}>↑</button>
 				<button title="Move later" data-action="move-down" ${index === totalItems - 1 ? 'disabled' : ''}>↓</button>
-				${item.inspection.state === 'updateAvailable' ? '<button data-action="update">Update</button>' : ''}
 				${item.inspection.repairCandidatePath ? '<button data-action="repair">Repair</button>' : ''}
 				<button class="quiet" title="Remove from playback order" data-action="remove">Remove</button>
 			</div>
 		</li>`;
 	}).join('');
 	const content = `<main>
-		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'} · exact saved results</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all title="${escapeAttribute(playAllLabel)}" aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
+		<header><div><h1>Sequence</h1><p>${totalItems} ${totalItems === 1 ? 'clip' : 'clips'} · sealed Video Results</p></div><div class="header-actions"><button data-add>Add clip</button><button class="primary" data-play-all title="${escapeAttribute(playAllLabel)}" aria-label="${escapeAttribute(playAllLabel)}" ${canPlayAll ? '' : 'disabled'}>Play all</button></div></header>
 		${truncated ? `<p class="limit-note">Showing the first ${items.length} clips. Open the local Sequence file to manage the remaining ${totalItems - items.length}.</p>` : ''}
 		<section class="player" aria-label="Active clip">
-			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden title="Reload this exact saved clip without running a model">Reload preview</button></div>` : '<div class="empty-player">No verified local clip is ready to play.</div>'}
+			${first ? `<video controls preload="metadata" src="${escapeAttribute(first.src)}"></video><div class="now"><div class="now-copy" aria-live="polite"><span>Now playing</span><strong>${escapeHtml(first.title)}</strong></div><button data-reload-preview hidden title="Reload this sealed Video Result without running a model">Reload preview</button></div>` : '<div class="empty-player">No sealed Video Result is ready to play.</div>'}
 		</section>
-		<section class="order"><h2>Playback order</h2>${totalItems > 0 ? `<ol>${rows}</ol>` : '<div class="empty-list">Add a Video Current to define playback order.</div>'}</section>
+		<section class="order"><h2>Playback order</h2>${totalItems > 0 ? `<ol>${rows}</ol>` : '<div class="empty-list">Add a Video Result to define playback order.</div>'}</section>
 	</main>`;
 	return shellDocument(webview, content, sequenceScript(playable, canPlayAll));
 }
 
 function stateLabel(item: AIVideoSequenceItemInspection): string {
-	if (item.state === 'current') {
-		return 'Current result';
-	}
-	if (item.state === 'pinned') {
-		return 'Pinned saved result';
-	}
-	if (item.state === 'updateAvailable') {
-		return 'Update available';
+	if (item.state === 'result') {
+		return 'Sealed Video Result';
 	}
 	return item.message;
 }
@@ -411,8 +400,8 @@ function sequenceScript(playable: readonly { readonly index: number; readonly it
 	if(active>=0){select(active,restored.shouldPlay,restored.currentTime);}`;
 }
 
-function sequencePinKey(item: AIVideoSequenceItemInspection): string {
-	return [item.item.id, item.item.nodeId, item.item.videoNodePath, item.item.versionId].join('\u0000');
+function sequenceResultKey(item: AIVideoSequenceItemInspection): string {
+	return [item.item.id, item.item.nodeId, item.item.videoNodePath].join('\u0000');
 }
 
 function styles(): string {

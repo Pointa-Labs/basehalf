@@ -9,6 +9,13 @@ import type { BaseHalfMarkdownFormatCommand, IBaseHalfMarkdownFormatState } from
 
 export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-focus';
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
+export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP = 8;
+export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT = 24;
+export const BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT = 'basehalf-video-composer-layout';
+export const BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP = 16;
+export const BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT = 172;
+export const BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP = 10;
+export const BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT = 36;
 
 export type IBaseHalfCanvasNoteFormatState = IBaseHalfMarkdownFormatState;
 
@@ -33,13 +40,45 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly height: number;
 }
 
-export type BaseHalfCanvasSceneCardControls = {
-	readonly kind: 'note';
-	readonly formatState?: IBaseHalfCanvasNoteFormatState;
-	readonly background?: BaseHalfCanvasNoteBackground;
-};
+export type BaseHalfCanvasSceneVideoAction = 'importResult' | 'openFullPreview' | 'copySettings' | 'showDetails' | 'more';
 
-export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'structural' | 'note';
+const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVideoAction[] = Object.freeze([
+	'copySettings',
+	'showDetails',
+	'more',
+	'openFullPreview'
+]);
+
+/**
+ * Keeps the selected-video surface state-specific. Import belongs exclusively
+ * to an empty Draft; a malformed projection must never mix that write action
+ * with sealed-Result actions in one toolbar.
+ */
+export function baseHalfCanvasSceneVideoSelectionActions(
+	actions: readonly BaseHalfCanvasSceneVideoAction[]
+): readonly BaseHalfCanvasSceneVideoAction[] {
+	if (actions.includes('importResult')) {
+		return Object.freeze<BaseHalfCanvasSceneVideoAction[]>(['importResult']);
+	}
+	const advertised = new Set(actions);
+	return Object.freeze(BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER.filter(action => advertised.has(action)));
+}
+
+export type BaseHalfCanvasSceneCardControls =
+	| {
+		readonly kind: 'pending';
+	}
+	| {
+		readonly kind: 'note';
+		readonly formatState?: IBaseHalfCanvasNoteFormatState;
+		readonly background?: BaseHalfCanvasNoteBackground;
+	}
+	| {
+		readonly kind: 'video';
+		readonly actions: readonly BaseHalfCanvasSceneVideoAction[];
+	};
+
+export type BaseHalfCanvasSceneSelectionSurface = 'none' | 'pending' | 'structural' | 'note' | 'video';
 
 export function baseHalfCanvasSceneSelectionSurface(
 	cards: readonly Pick<IBaseHalfCanvasSceneCard, 'controls'>[]
@@ -47,8 +86,11 @@ export function baseHalfCanvasSceneSelectionSurface(
 	if (cards.length === 0) {
 		return 'none';
 	}
-	if (cards.length === 1 && cards[0].controls?.kind === 'note') {
-		return 'note';
+	if (cards.length === 1) {
+		const controls = cards[0].controls;
+		if (controls?.kind === 'pending' || controls?.kind === 'note' || controls?.kind === 'video') {
+			return controls.kind;
+		}
 	}
 	return 'structural';
 }
@@ -96,6 +138,31 @@ export interface IBaseHalfCanvasSceneViewport {
 	readonly x: number;
 	readonly y: number;
 	readonly zoom: number;
+}
+
+/**
+ * Workbench-authored Video Composer content that the live scene positions next
+ * to one card. The workbench owns the element and every product interaction
+ * inside it; React Flow owns only mounting, visibility, and screen placement.
+ */
+export interface IBaseHalfCanvasSceneVideoComposerSurface {
+	readonly sceneKey: string;
+	readonly structuralEpoch: number;
+	readonly path: string;
+	readonly element: HTMLElement;
+	readonly screenWidth: number;
+	readonly screenHeight: number;
+}
+
+export interface IBaseHalfCanvasSceneVideoComposerLayout {
+	readonly placement: 'below';
+	readonly visible: boolean;
+	/** Screen-space offset from the live canvas host, not a document coordinate. */
+	readonly left: number;
+	/** Screen-space offset from the live canvas host, not a document coordinate. */
+	readonly top: number;
+	readonly screenWidth: number;
+	readonly screenHeight: number;
 }
 
 export interface IBaseHalfCanvasSceneSnapshot {
@@ -165,7 +232,7 @@ export type BaseHalfCanvasSceneSelectionAction = 'rename' | 'duplicate' | 'delet
 
 /**
  * The canvas selection surface is deliberately structural. It never mirrors
- * node-local Run, recipe, model, or history controls into a bulk toolbar.
+ * node-local Generate, recipe, model, Result, or Attempt controls into a bulk toolbar.
  */
 export function baseHalfCanvasSceneSelectionActions(cardCount: number): readonly BaseHalfCanvasSceneSelectionAction[] {
 	if (cardCount <= 0) {
@@ -214,6 +281,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	copyNote(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	setNoteBackground(sceneKey: string, structuralEpoch: number, path: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
+	invokeVideoAction(sceneKey: string, structuralEpoch: number, path: string, action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement): Promise<void>;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
@@ -224,6 +292,10 @@ export interface IBaseHalfCanvasSceneDelegate {
 
 export interface IBaseHalfCanvasSceneRenderer {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
+	setVideoComposerSurface(surface: IBaseHalfCanvasSceneVideoComposerSurface): void;
+	/** Clears only the surface that owns this exact element. This identity guard
+	 *  prevents a late close from an older session hiding a replacement surface. */
+	clearVideoComposerSurface(element: HTMLElement): void;
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;

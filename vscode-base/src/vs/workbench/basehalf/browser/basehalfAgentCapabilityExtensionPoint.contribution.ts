@@ -88,19 +88,7 @@ const baseHalfAgentCapabilitiesExtensionPoint = ExtensionsRegistry.registerExten
 								uniqueItems: true,
 								items: { type: 'string', pattern: '^\\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$' }
 							},
-							schemaSummary: { type: 'string', minLength: 1, maxLength: 2_000 },
-							pin: {
-								type: 'object',
-								additionalProperties: false,
-								properties: {
-									mode: { const: 'exact-result-version' },
-									field: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z][A-Za-z0-9_-]*(?:\\[\\])?(?:\\.[A-Za-z][A-Za-z0-9_-]*(?:\\[\\])?)*$' },
-									targetKinds: { type: 'array', minItems: 1, maxItems: 6, uniqueItems: true, items: { enum: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] } },
-									acceptedVersionStates: { type: 'array', minItems: 1, maxItems: 2, uniqueItems: true, items: { enum: ['succeeded', 'imported'] } },
-									updatePolicy: { const: 'explicit' }
-								},
-								required: ['mode', 'field', 'targetKinds', 'acceptedVersionStates', 'updatePolicy']
-							}
+							schemaSummary: { type: 'string', minLength: 1, maxLength: 2_000 }
 						},
 						required: ['kind', 'version', 'fileExtensions', 'schemaSummary']
 					}

@@ -140,7 +140,7 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 		try {
 			await backend.acceptBaseHalfNodeCommandResponse?.(event.requestId, response);
 		} catch (error) {
-			this.logService.error('BaseHalf could not return the node run result to its Agent Area terminal', error);
+			this.logService.error('BaseHalf could not return the node Attempt result to its Agent Area terminal', error);
 		}
 	}
 }

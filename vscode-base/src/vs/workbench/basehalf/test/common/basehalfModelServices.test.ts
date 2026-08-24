@@ -15,370 +15,509 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { TestSecretStorageService } from '../../../../platform/secrets/test/common/testSecretStorageService.js';
 import { InMemoryStorageService } from '../../../../platform/storage/common/storage.js';
+import { TestExtensionService } from '../../../test/common/workbenchTestServices.js';
 import { BASEHALF_CURATED_PLUGINS } from '../../common/basehalfPluginCatalog.js';
-import { BaseHalfPluginAdmissionService, hashBaseHalfPluginInstall, IBaseHalfPluginContributorIdentity } from '../../common/basehalfPluginAdmissionService.js';
+import { BaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../common/basehalfPluginAdmissionService.js';
+import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
+import { IBaseHalfPluginStateStore } from '../../common/basehalfPluginStateStore.js';
+import { BaseHalfModelProviderCatalogService, IBaseHalfModelProviderConnectionSpec } from '../../common/basehalfModelProviderCatalogs.js';
 import {
+	BASEHALF_MODEL_CONNECTION_STATE_STORAGE_KEY,
+	BASEHALF_MODEL_SERVICES_SCHEMA_VERSION,
 	BASEHALF_MODEL_SERVICES_SETTING,
 	BaseHalfModelServiceService,
+	baseHalfModelServiceCredentialKey,
 	baseHalfModelServiceSecretKey,
-	sanitizeBaseHalfModelServiceConfiguration,
-	sanitizeBaseHalfModelServicesConfiguration,
+	cleanBaseHalfModelServicesConfigurationForStorage,
+		sanitizeBaseHalfStoredModelConnections,
 } from '../../common/basehalfModelServices.js';
 
 suite('BaseHalfModelServices', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('normalizes global connection metadata without accepting a credential field', () => {
-		const services = sanitizeBaseHalfModelServicesConfiguration({
-			'STUDIO.API': {
-				label: ' Studio account ',
-				endpoint: 'https://models.example.com/v1/',
-				capabilities: ['video', 'image', 'video', 'unknown'],
-				authorization: 'bearer',
-				apiKey: 'must-not-enter-the-descriptor'
-			}
-		});
-
-		assert.deepStrictEqual(services, {
+	test('clean-breaks every unversioned user-authored connection shape', () => {
+		const legacy = {
 			'studio.api': {
-				id: 'studio.api',
-				label: 'Studio account',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['video', 'image'],
+				label: 'Studio',
+				endpoint: 'https://models.example.com',
+				providerId: 'example',
+				deploymentId: 'global',
+				region: 'global',
+				capabilities: ['video'],
 				authorization: 'bearer'
 			}
+		};
+		assert.deepStrictEqual(cleanBaseHalfModelServicesConfigurationForStorage(legacy), {
+			schemaVersion: BASEHALF_MODEL_SERVICES_SCHEMA_VERSION,
+			connections: {}
 		});
-		assert.strictEqual(Object.hasOwn(services['studio.api'], 'apiKey'), false);
 	});
 
-	test('allows local HTTP services but rejects unsafe remote endpoints and auth metadata', () => {
-		assert.ok(sanitizeBaseHalfModelServiceConfiguration('local.media', {
-			label: 'Local media',
-			endpoint: 'http://127.0.0.1:8188',
-			capabilities: ['image'],
-			authorization: 'none'
-		}));
-		assert.strictEqual(sanitizeBaseHalfModelServiceConfiguration('remote.media', {
-			label: 'Remote media',
-			endpoint: 'http://models.example.com',
-			capabilities: ['video'],
-			authorization: 'bearer'
-		}), undefined);
-		assert.strictEqual(sanitizeBaseHalfModelServiceConfiguration('remote.media', {
-			label: 'Remote\nmedia',
-			endpoint: 'https://models.example.com',
-			capabilities: ['video'],
-			authorization: 'bearer'
-		}), undefined);
-		assert.strictEqual(sanitizeBaseHalfModelServiceConfiguration('remote.media', {
-			label: 'Remote media',
-			endpoint: 'https://models.example.com/v1?key=secret',
-			capabilities: ['video'],
-			authorization: 'bearer'
-		}), undefined);
-		assert.strictEqual(sanitizeBaseHalfModelServiceConfiguration('remote.media', {
-			label: 'Remote media',
-			endpoint: 'https://models.example.com',
-			capabilities: ['video'],
-			authorization: 'header',
-			headerName: 'bad header'
-		}), undefined);
+	test('strictly parses only versioned spec-owned public metadata', () => {
+		const valid = {
+			schemaVersion: BASEHALF_MODEL_SERVICES_SCHEMA_VERSION,
+			connections: {
+				'pointa.test.wan': {
+					publicValues: { apiHost: 'https://dashscope-us.aliyuncs.com' },
+					credentialRef: '01234567-89ab-4cde-8fab-0123456789ab'
+				}
+			}
+		};
+		assert.deepStrictEqual(sanitizeBaseHalfStoredModelConnections(valid), valid);
+		assert.deepStrictEqual(sanitizeBaseHalfStoredModelConnections({
+			...valid,
+			connections: {
+				...valid.connections,
+				'pointa.test.bad': { ...valid.connections['pointa.test.wan'], secret: 'must not survive' }
+			}
+		}), {
+			schemaVersion: BASEHALF_MODEL_SERVICES_SCHEMA_VERSION,
+			connections: { 'pointa.test.wan': valid.connections['pointa.test.wan'] }
+		});
 	});
 
-	test('keeps credentials application-global and limits reads to admitted plugins', () => {
-		assert.strictEqual(baseHalfModelServiceSecretKey('Studio.API'), 'basehalf.modelServices.studio.api.apiKey');
-	});
-
-	test('stores the key outside configuration and exposes it only through admitted access', async () => {
-		const configurationService = new MutableTestConfigurationService();
-		const secretStorageService = new TestSecretStorageService();
-		const storageService = new InMemoryStorageService();
-		const files = fileService();
-		const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), files);
-		const sha256 = 'a'.repeat(64);
-		const extensionLocation = installedIdentity('community.workflow', '1.0.0').extensionLocation;
-		const installedContentSha256 = await hashBaseHalfPluginInstall(files, extensionLocation);
-		admissionService.replaceVerifiedPlugins([{ extensionId: 'community.workflow', versions: [{ version: '1.0.0', sha256, installedContentSha256 }] }]);
-		assert.ok(await admissionService.verifyAndRecordInstall({ extensionId: 'community.workflow', version: '1.0.0', sha256, extensionLocation, expectedInstalledContentSha256: installedContentSha256 }));
-		const service = new BaseHalfModelServiceService(configurationService, secretStorageService, admissionService);
+	test('stores credentials outside configuration and exposes them only to admitted plugins', async () => {
+		const harness = await createHarness();
 		try {
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Studio media',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['image', 'video'],
-				authorization: 'bearer'
-			}, 'secret-value');
-			await service.upsert({
-				id: 'local.audio',
-				label: 'Local audio',
-				endpoint: 'http://localhost:9000',
-				capabilities: ['audio'],
-				authorization: 'none'
-			});
+			const saved = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: ' secret-value ' });
+			assert.strictEqual(saved.specId, FIXED_SPEC.id);
+			assert.strictEqual(saved.endpoint, FIXED_SPEC.endpointPolicy.type === 'fixed' ? FIXED_SPEC.endpointPolicy.endpoint : '');
+			assert.strictEqual(saved.configured, true);
+			assert.deepStrictEqual(saved.publicValues, {});
 
-			const stored = configurationService.getValue<Record<string, Record<string, unknown>>>(BASEHALF_MODEL_SERVICES_SETTING)!;
-			assert.strictEqual(Object.hasOwn(stored['studio.media'], 'apiKey'), false);
-			assert.strictEqual(Object.hasOwn(stored['studio.media'], 'id'), false);
-			assert.strictEqual(Object.hasOwn(stored['local.audio'], 'id'), false);
-			assert.notStrictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey('studio.media')), 'secret-value');
-			const services = await service.getServices();
-			assert.strictEqual(services.every(candidate => candidate.configured), true);
-			const studio = services.find(candidate => candidate.id === 'studio.media')!;
-			assert.match(studio.connectionIdentity, /^sha256:[A-Za-z0-9_-]{43}$/);
+			const stored = connectionState(harness.pluginStateStore);
+			assert.strictEqual(stored.schemaVersion, 1);
+			assert.deepStrictEqual(stored.connections[FIXED_SPEC.id].publicValues, {});
+			assert.strictEqual(JSON.stringify(stored).includes('secret-value'), false);
+			const credentialKey = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, stored.connections[FIXED_SPEC.id].credentialRef);
+			assert.notStrictEqual(await harness.credentialStore.get(credentialKey), 'secret-value');
+
 			const snapshot = {
-				serviceId: studio.id,
-				serviceLabel: studio.label,
-				connectionIdentity: studio.connectionIdentity,
+				serviceId: saved.id,
+				serviceLabel: saved.label,
+				connectionIdentity: saved.connectionIdentity,
 				capability: 'video' as const
 			};
-			assert.strictEqual((await service.getAccess(bundledOfficialIdentity(), snapshot))?.apiKey, 'secret-value');
-			assert.strictEqual((await service.getAccess(installedIdentity('community.workflow', '1.0.0'), snapshot))?.apiKey, 'secret-value');
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), { ...snapshot, capability: 'audio' }), undefined);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), { ...snapshot, connectionIdentity: `sha256:${'A'.repeat(43)}` }), undefined);
-			await assert.rejects(() => service.getAccess(installedIdentity('pointa.basehalf-ai-video', '0.1.0'), snapshot), /not admitted/);
-			await assert.rejects(() => service.getAccess(installedIdentity('community.workflow', '1.0.1'), snapshot), /not admitted/);
-			await assert.rejects(() => service.getAccess(installedIdentity('unknown.extension', '1.0.0'), snapshot), /not admitted/);
-
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Studio media',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['image', 'video'],
-				authorization: 'bearer'
-			}, 'rotated-secret');
-			const rotated = (await service.getServices()).find(candidate => candidate.id === 'studio.media')!;
-			assert.strictEqual(rotated.connectionIdentity, snapshot.connectionIdentity);
-			assert.strictEqual((await service.getAccess(bundledOfficialIdentity(), snapshot))?.apiKey, 'rotated-secret');
-
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Renamed media',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['image', 'video', 'audio'],
-				authorization: 'bearer'
-			});
-			const renamed = (await service.getServices()).find(candidate => candidate.id === 'studio.media')!;
-			assert.strictEqual(renamed.connectionIdentity, snapshot.connectionIdentity);
-			assert.strictEqual(renamed.configured, true);
-			assert.strictEqual((await service.getAccess(bundledOfficialIdentity(), snapshot))?.apiKey, 'rotated-secret');
-
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Moved media',
-				endpoint: 'https://other.example.com/v1',
-				capabilities: ['image', 'video'],
-				authorization: 'bearer'
-			});
-			const moved = (await service.getServices()).find(candidate => candidate.id === 'studio.media')!;
-			assert.notStrictEqual(moved.connectionIdentity, snapshot.connectionIdentity);
-			assert.strictEqual(moved.configured, false);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), snapshot), undefined);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: moved.id,
-				serviceLabel: moved.label,
-				connectionIdentity: moved.connectionIdentity,
-				capability: 'video'
-			}), undefined);
-			assert.strictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey('studio.media')), undefined);
-
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Moved media',
-				endpoint: 'https://other.example.com/v1',
-				capabilities: ['image', 'video'],
-				authorization: 'bearer'
-			}, 'new-endpoint-secret');
-			await service.upsert({
-				id: 'studio.media',
-				label: 'Moved media',
-				endpoint: 'https://other.example.com/v1',
-				capabilities: ['image', 'video'],
-				authorization: 'header',
-				headerName: 'x-api-key'
-			});
-			const changedAuthorization = (await service.getServices()).find(candidate => candidate.id === 'studio.media')!;
-			assert.strictEqual(changedAuthorization.configured, false);
-			assert.strictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey('studio.media')), undefined);
-
-			await service.remove('studio.media');
-			assert.deepStrictEqual((await service.getServices()).map(candidate => candidate.id), ['local.audio']);
-			assert.strictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey('studio.media')), undefined);
+			const access = await harness.service.getAccess(bundledOfficialIdentity(), snapshot);
+			assert.strictEqual(access?.apiKey, 'secret-value');
+			assert.deepStrictEqual(access?.credentialValues, { apiKey: 'secret-value' });
+			assert.strictEqual(await harness.service.getAccess(bundledOfficialIdentity(), { ...snapshot, capability: 'audio' }), undefined);
+			assert.strictEqual(await harness.service.getAccess(bundledOfficialIdentity(), { ...snapshot, connectionIdentity: `sha256:${'A'.repeat(43)}` }), undefined);
+			await assert.rejects(() => harness.service.getAccess(installedIdentity('unknown.extension', '1.0.0'), snapshot), /not admitted/);
 		} finally {
-			service.dispose();
-			admissionService.dispose();
-			storageService.dispose();
-			secretStorageService.dispose();
-			configurationService.onDidChangeConfigurationEmitter.dispose();
+			await harness.dispose();
 		}
 	});
 
-	test('does not reuse an unbound legacy key or a key after settings change outside the service', async () => {
+	test('derives an exact reviewed scope from an allowlisted API Host', async () => {
+		const harness = await createHarness();
+		try {
+			const saved = await harness.service.saveConnection(WAN_SPEC.id, {
+				apiKey: 'wan-secret',
+				apiHost: 'https://dashscope-us.aliyuncs.com/'
+			});
+			assert.strictEqual(saved.endpoint, 'https://dashscope-us.aliyuncs.com');
+			assert.strictEqual(saved.providerId, 'alibaba-cloud');
+			assert.strictEqual(saved.deploymentId, 'us');
+			assert.strictEqual(saved.region, 'us-east-1');
+			assert.deepStrictEqual(saved.publicValues, { apiHost: 'https://dashscope-us.aliyuncs.com' });
+			await assert.rejects(() => harness.service.saveConnection(WAN_SPEC.id, {
+				apiKey: 'wan-secret',
+				apiHost: 'https://attacker.example.com'
+			}), /outside the endpoint allowlist/);
+			assert.strictEqual((await harness.service.getServices()).find(service => service.id === WAN_SPEC.id)?.configured, true);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('redacts an echoed credential when provider verification fails before storage', async () => {
+		const harness = await createHarness();
+		try {
+			const secret = 'provider-secret-123';
+			harness.providerCatalogService.setValidator(FIXED_SPEC.id, async () => {
+				throw new Error(`credential ${secret} rejected`);
+			});
+			await assert.rejects(
+				() => harness.service.saveConnection(FIXED_SPEC.id, { apiKey: secret }),
+				error => error instanceof Error && error.message === 'credential [REDACTED] rejected'
+			);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).connections, {});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('rotates a key without changing attempt identity and deletes the superseded credential', async () => {
+		const harness = await createHarness();
+		try {
+			const first = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'first-key' });
+			const firstStored = storedConnection(harness.pluginStateStore, FIXED_SPEC.id);
+			const firstKey = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, firstStored.credentialRef);
+			const second = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'second-key' });
+			assert.strictEqual(second.connectionIdentity, first.connectionIdentity);
+			assert.notStrictEqual(storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef, firstStored.credentialRef);
+			assert.strictEqual(await harness.credentialStore.get(firstKey), undefined);
+			const access = await harness.service.getAccess(bundledOfficialIdentity(), {
+				serviceId: first.id,
+				serviceLabel: first.label,
+				connectionIdentity: first.connectionIdentity,
+				capability: 'video'
+			});
+			assert.strictEqual(access?.apiKey, 'second-key');
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('durably stages a replacement before the Keychain write', async () => {
+		const credentialStore = new ObservingCredentialStore();
+		const harness = await createHarness(credentialStore);
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'first-key' });
+			credentialStore.observeNextSet(nextKey => {
+				assert.ok(connectionState(harness.pluginStateStore).stagedCredentials[nextKey]);
+			});
+
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'second-key' });
+			assert.strictEqual(credentialStore.didObserve, true);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('startup reconciliation preserves live metadata and deletes only confirmed orphan credentials', async () => {
+		const harness = await createHarness();
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'live-key' });
+			const original = storedConnection(harness.pluginStateStore, FIXED_SPEC.id);
+			const originalKey = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, original.credentialRef);
+			const credentialEnvelope = await harness.credentialStore.get(originalKey);
+			assert.ok(credentialEnvelope);
+			const orphanKey = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, '11111111-1111-4111-8111-111111111111');
+			await harness.credentialStore.set(orphanKey, credentialEnvelope);
+			const state = connectionState(harness.pluginStateStore);
+			harness.pluginStateStore.setRaw(BASEHALF_MODEL_CONNECTION_STATE_STORAGE_KEY, JSON.stringify({
+				...state,
+				pendingCredentialCleanup: [originalKey, orphanKey]
+			}));
+
+			harness.service.dispose();
+			harness.service = new BaseHalfModelServiceService(
+				harness.configurationService,
+				harness.secretStorageService,
+				harness.storageService,
+				harness.admissionService,
+				harness.providerCatalogService.service,
+				harness.pluginStateStore,
+				harness.credentialStore,
+				new TestExtensionService()
+			);
+			assert.strictEqual((await harness.service.getServices())[0]?.configured, true);
+			assert.ok(await harness.credentialStore.get(originalKey));
+			assert.strictEqual(await harness.credentialStore.get(orphanKey), undefined);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).pendingCredentialCleanup, []);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('does not replace a working connection when Keychain storage fails', async () => {
+		const credentialStore = new SetFailingCredentialStore();
+		const harness = await createHarness(credentialStore);
+		try {
+			const first = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'working-key' });
+			const originalRef = storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef;
+			credentialStore.failNextSet();
+			await assert.rejects(() => harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'replacement-key' }), /fixture secret storage failure/);
+			assert.strictEqual(storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef, originalRef);
+			const access = await harness.service.getAccess(bundledOfficialIdentity(), {
+				serviceId: first.id,
+				serviceLabel: first.label,
+				connectionIdentity: first.connectionIdentity,
+				capability: 'video'
+			});
+			assert.strictEqual(access?.apiKey, 'working-key');
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('keeps an undecryptable credential connection replaceable and removable', async () => {
+		const credentialStore = new GetFailingCredentialStore();
+		const harness = await createHarness(credentialStore);
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'secret' });
+			credentialStore.failReads = true;
+			const [descriptor] = await harness.service.getServices();
+			assert.strictEqual(descriptor.configured, false);
+			await harness.service.remove(FIXED_SPEC.id);
+			assert.deepStrictEqual(await harness.service.getServices(), []);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('removes metadata first and tombstones a temporarily undeletable credential', async () => {
+		const credentialStore = new DeleteFailingCredentialStore();
+		const harness = await createHarness(credentialStore);
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'secret' });
+			const ref = storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef;
+			const key = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, ref);
+			credentialStore.failNextDelete();
+			await harness.service.remove(FIXED_SPEC.id);
+			assert.deepStrictEqual(await harness.service.getServices(), []);
+			assert.strictEqual(await credentialStore.get(key) !== undefined, true);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).pendingCredentialCleanup, [key]);
+
+			harness.service.dispose();
+			harness.service = new BaseHalfModelServiceService(
+				harness.configurationService,
+				harness.secretStorageService,
+				harness.storageService,
+				harness.admissionService,
+				harness.providerCatalogService.service,
+				harness.pluginStateStore,
+				harness.credentialStore,
+				new TestExtensionService()
+			);
+			assert.deepStrictEqual(await harness.service.getServices(), []);
+			assert.strictEqual(await credentialStore.get(key), undefined);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).pendingCredentialCleanup, []);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('never writes the unregistered legacy setting while cleaning its secrets', async () => {
 		const configurationService = new MutableTestConfigurationService();
 		const secretStorageService = new TestSecretStorageService();
 		const storageService = new InMemoryStorageService();
 		const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), fileService());
-		const service = new BaseHalfModelServiceService(configurationService, secretStorageService, admissionService);
-		try {
-			const initial = {
-				id: 'studio.media',
-				label: 'Studio media',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['video'] as const,
-				authorization: 'bearer' as const
-			};
-			await service.upsert(initial, 'bound-secret');
-			await configurationService.updateValue(BASEHALF_MODEL_SERVICES_SETTING, {
-				'studio.media': {
-					label: initial.label,
-					endpoint: 'https://other.example.com/v1',
-					capabilities: ['video'],
-					authorization: 'bearer'
-				}
-			});
-			const moved = (await service.getServices())[0];
-			assert.strictEqual(moved.configured, false);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: moved.id,
-				serviceLabel: moved.label,
-				connectionIdentity: moved.connectionIdentity,
-				capability: 'video'
-			}), undefined);
+		const providerCatalogService = providerCatalog();
+		const pluginStateStore = new MemoryPluginStateStore();
+		const credentialStore = new DeleteFailingCredentialStore();
+		await configurationService.updateValue(BASEHALF_MODEL_SERVICES_SETTING, {
+			legacy: {
+				label: 'Legacy', endpoint: 'https://legacy.example.com', providerId: 'example', deploymentId: 'global', region: 'global',
+				capabilities: ['video'], authorization: 'bearer'
+			}
+		});
+		await credentialStore.set(baseHalfModelServiceSecretKey('legacy'), 'legacy-unbound-secret');
+		credentialStore.failNextDelete();
 
-			await secretStorageService.set(baseHalfModelServiceSecretKey(initial.id), 'legacy-unbound-secret');
-			assert.strictEqual((await service.getServices())[0].configured, false);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: moved.id,
-				serviceLabel: moved.label,
-				connectionIdentity: moved.connectionIdentity,
-				capability: 'video'
-			}), undefined);
-		} finally {
-			service.dispose();
-			admissionService.dispose();
-			storageService.dispose();
-			secretStorageService.dispose();
-			configurationService.onDidChangeConfigurationEmitter.dispose();
-		}
+		const first = new BaseHalfModelServiceService(configurationService, secretStorageService, storageService, admissionService, providerCatalogService.service, pluginStateStore, credentialStore, new TestExtensionService());
+		assert.deepStrictEqual(await first.getServices(), []);
+		assert.strictEqual(configurationService.updateCount, 1);
+		assert.ok(configurationService.getValue(BASEHALF_MODEL_SERVICES_SETTING));
+		assert.deepStrictEqual(connectionState(pluginStateStore).pendingLegacySecretCleanup, ['legacy']);
+		first.dispose();
+
+		const second = new BaseHalfModelServiceService(configurationService, secretStorageService, storageService, admissionService, providerCatalogService.service, pluginStateStore, credentialStore, new TestExtensionService());
+		assert.deepStrictEqual(await second.getServices(), []);
+		assert.strictEqual(await credentialStore.get(baseHalfModelServiceSecretKey('legacy')), undefined);
+		assert.deepStrictEqual(connectionState(pluginStateStore).pendingLegacySecretCleanup, []);
+		second.dispose();
+		providerCatalogService.dispose();
+		admissionService.dispose();
+		storageService.dispose();
+		secretStorageService.dispose();
+		configurationService.onDidChangeConfigurationEmitter.dispose();
 	});
 
-	test('does not hide a connection or reactivate its credential when secret deletion fails', async () => {
-		const configurationService = new MutableTestConfigurationService();
-		const secretStorageService = new DeleteFailingSecretStorageService();
-		const storageService = new InMemoryStorageService();
-		const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), fileService());
-		const service = new BaseHalfModelServiceService(configurationService, secretStorageService, admissionService);
-		const configuration = {
-			id: 'studio.media',
-			label: 'Studio media',
-			endpoint: 'https://models.example.com/v1',
-			capabilities: ['video'] as const,
-			authorization: 'bearer' as const
-		};
-		try {
-			await service.upsert(configuration, 'bound-secret');
-			const before = (await service.getServices())[0];
-			secretStorageService.failNextDelete();
-			await assert.rejects(() => service.remove(configuration.id), /fixture secret deletion failure/);
-
-			const afterFailedRemoval = (await service.getServices())[0];
-			assert.strictEqual(afterFailedRemoval.id, configuration.id);
-			assert.strictEqual(afterFailedRemoval.configured, true);
-			assert.strictEqual((await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: before.id,
-				serviceLabel: before.label,
-				connectionIdentity: before.connectionIdentity,
-				capability: 'video'
-			}))?.apiKey, 'bound-secret');
-
-			await service.remove(configuration.id);
-			assert.deepStrictEqual(await service.getServices(), []);
-			assert.strictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey(configuration.id)), undefined);
-
-			await service.upsert(configuration);
-			const readded = (await service.getServices())[0];
-			assert.strictEqual(readded.configured, false);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: readded.id,
-				serviceLabel: readded.label,
-				connectionIdentity: readded.connectionIdentity,
-				capability: 'video'
-			}), undefined);
-		} finally {
-			service.dispose();
-			admissionService.dispose();
-			storageService.dispose();
-			secretStorageService.dispose();
-			configurationService.onDidChangeConfigurationEmitter.dispose();
-		}
-	});
-
-	test('does not reactivate an old credential when storing its replacement fails', async () => {
-		const configurationService = new MutableTestConfigurationService();
-		const secretStorageService = new SetFailingSecretStorageService();
-		const storageService = new InMemoryStorageService();
-		const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), fileService());
-		const service = new BaseHalfModelServiceService(configurationService, secretStorageService, admissionService);
-		const original = {
-			id: 'studio.media',
-			label: 'Studio media',
-			endpoint: 'https://models.example.com/v1',
-			capabilities: ['video'] as const,
-			authorization: 'bearer' as const
-		};
-		try {
-			await service.upsert(original, 'old-secret');
-			secretStorageService.failNextSet();
-			await assert.rejects(() => service.upsert({
-				...original,
-				endpoint: 'https://other.example.com/v1'
-			}, 'replacement-secret'), /fixture secret storage failure/);
-
-			const moved = (await service.getServices())[0];
-			assert.strictEqual(moved.endpoint, 'https://other.example.com/v1');
-			assert.strictEqual(moved.configured, false);
-			assert.strictEqual(await secretStorageService.get(baseHalfModelServiceSecretKey(original.id)), undefined);
-
-			await service.upsert(original);
-			const restored = (await service.getServices())[0];
-			assert.strictEqual(restored.configured, false);
-			assert.strictEqual(await service.getAccess(bundledOfficialIdentity(), {
-				serviceId: restored.id,
-				serviceLabel: restored.label,
-				connectionIdentity: restored.connectionIdentity,
-				capability: 'video'
-			}), undefined);
-		} finally {
-			service.dispose();
-			admissionService.dispose();
-			storageService.dispose();
-			secretStorageService.dispose();
-			configurationService.onDidChangeConfigurationEmitter.dispose();
-		}
-	});
-
-	test('serializes global connection writes so concurrent additions do not overwrite each other', async () => {
-		const configurationService = new DelayedMutableTestConfigurationService();
-		const secretStorageService = new TestSecretStorageService();
-		const storageService = new InMemoryStorageService();
-		const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), fileService());
-		const service = new BaseHalfModelServiceService(configurationService, secretStorageService, admissionService);
+	test('two window services CAS-merge concurrent saves without losing either connection', async () => {
+		const harness = await createHarness();
+		const secondWindow = harness.createService();
 		try {
 			await Promise.all([
-				service.upsert({ id: 'studio.image', label: 'Studio image', endpoint: 'https://image.example.com', capabilities: ['image'], authorization: 'none' }),
-				service.upsert({ id: 'studio.video', label: 'Studio video', endpoint: 'https://video.example.com', capabilities: ['video'], authorization: 'none' }),
+				harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'byteplus' }),
+				secondWindow.saveConnection(WAN_SPEC.id, { apiKey: 'wan', apiHost: 'https://dashscope-us.aliyuncs.com' })
 			]);
-
-			assert.deepStrictEqual((await service.getServices()).map(candidate => candidate.id), ['studio.image', 'studio.video']);
+			assert.deepStrictEqual((await secondWindow.getServices()).map(service => service.id), [FIXED_SPEC.id, WAN_SPEC.id]);
 		} finally {
-			service.dispose();
-			admissionService.dispose();
-			storageService.dispose();
-			secretStorageService.dispose();
-			configurationService.onDidChangeConfigurationEmitter.dispose();
+			secondWindow.dispose();
+			await harness.dispose();
+		}
+	});
+
+	test('two window services safely interleave rotate, remove, and save commits', async () => {
+		const credentialStore = new PausingCredentialStore();
+		const harness = await createHarness(credentialStore);
+		const secondWindow = harness.createService();
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'initial-key' });
+			const initialKey = baseHalfModelServiceCredentialKey(
+				FIXED_SPEC.id,
+				storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef
+			);
+			const releaseRotation = credentialStore.pauseNextSetContaining('rotated-key');
+			const rotation = harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'rotated-key' });
+			await credentialStore.whenPaused;
+
+			await Promise.all([
+				secondWindow.remove(FIXED_SPEC.id),
+				secondWindow.saveConnection(WAN_SPEC.id, { apiKey: 'wan-key', apiHost: 'https://dashscope-us.aliyuncs.com' })
+			]);
+			releaseRotation();
+			await rotation;
+
+			assert.deepStrictEqual((await secondWindow.getServices()).map(service => service.id), [FIXED_SPEC.id, WAN_SPEC.id]);
+			assert.strictEqual(await credentialStore.get(initialKey), undefined);
+			assert.strictEqual((await secondWindow.getAccess(bundledOfficialIdentity(), {
+				serviceId: FIXED_SPEC.id,
+				serviceLabel: FIXED_SPEC.label,
+				connectionIdentity: (await secondWindow.getServices()).find(service => service.id === FIXED_SPEC.id)!.connectionIdentity,
+				capability: 'video'
+			}))?.apiKey, 'rotated-key');
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).pendingCredentialCleanup, []);
+		} finally {
+			secondWindow.dispose();
+			await harness.dispose();
+		}
+	});
+
+	test('keeps a stored connection fail-closed while its reviewed spec is unavailable', async () => {
+		const harness = await createHarness();
+		try {
+			await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'secret' });
+			harness.providerCatalogService.registration.dispose();
+			assert.deepStrictEqual(await harness.service.getServices(), []);
+			assert.ok(await harness.credentialStore.get(baseHalfModelServiceCredentialKey(FIXED_SPEC.id, storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef)));
+		} finally {
+			await harness.dispose();
 		}
 	});
 });
+
+const FIXED_SPEC: IBaseHalfModelProviderConnectionSpec = {
+	id: 'pointa.test.byteplus',
+	label: 'Seedance / BytePlus',
+	providerLabel: 'BytePlus',
+	helpUrl: 'https://www.byteplus.com/en/docs/ModelArk',
+	providerId: 'byteplus',
+	deploymentId: 'modelark',
+	region: 'global',
+	capabilities: ['video'],
+	authorization: 'bearer',
+	fields: [
+		{ id: 'apiKey', label: 'API Key', required: true, type: 'secret' },
+		{ id: 'accountToken', label: 'Account Token', required: false, type: 'secret' }
+	],
+	endpointPolicy: { type: 'fixed', endpoint: 'https://ark.ap-southeast.bytepluses.com' }
+};
+
+const WAN_SPEC: IBaseHalfModelProviderConnectionSpec = {
+	id: 'pointa.test.wan',
+	label: 'Wan (US)',
+	providerLabel: 'Alibaba Cloud',
+	helpUrl: 'https://www.alibabacloud.com/help/en/model-studio/get-api-key',
+	providerId: 'alibaba-cloud',
+	deploymentId: 'us',
+	region: 'us-east-1',
+	capabilities: ['video'],
+	authorization: 'bearer',
+	fields: [
+		{ id: 'apiKey', label: 'API Key', required: true, type: 'secret' },
+		{ id: 'apiHost', label: 'API Host', required: true, type: 'url', default: 'https://dashscope-us.aliyuncs.com' }
+	],
+	endpointPolicy: {
+		type: 'field',
+		fieldId: 'apiHost',
+		allowlist: { exact: ['https://dashscope-us.aliyuncs.com'], subdomains: [] }
+	}
+};
+
+interface ITestHarness {
+	service: BaseHalfModelServiceService;
+	readonly configurationService: MutableTestConfigurationService;
+	readonly secretStorageService: TestSecretStorageService;
+	readonly storageService: InMemoryStorageService;
+	readonly admissionService: BaseHalfPluginAdmissionService;
+	readonly providerCatalogService: ReturnType<typeof providerCatalog>;
+	readonly pluginStateStore: MemoryPluginStateStore;
+	readonly credentialStore: MemoryCredentialStore;
+	createService(): BaseHalfModelServiceService;
+	dispose(): Promise<void>;
+}
+
+async function createHarness(
+	credentialStore: MemoryCredentialStore = new MemoryCredentialStore(),
+	configurationService: MutableTestConfigurationService = new MutableTestConfigurationService(),
+	storageService: InMemoryStorageService = new InMemoryStorageService(),
+	pluginStateStore: MemoryPluginStateStore = new MemoryPluginStateStore()
+): Promise<ITestHarness> {
+	const secretStorageService = new TestSecretStorageService();
+	const admissionService = new BaseHalfPluginAdmissionService(storageService, environment(), fileService());
+	const providerCatalogService = providerCatalog();
+	const createService = () => new BaseHalfModelServiceService(
+		configurationService,
+		secretStorageService,
+		storageService,
+		admissionService,
+		providerCatalogService.service,
+		pluginStateStore,
+		credentialStore,
+		new TestExtensionService()
+	);
+	const service = createService();
+	const harness: ITestHarness = {
+		service,
+		configurationService,
+		secretStorageService,
+		storageService,
+		admissionService,
+		providerCatalogService,
+		pluginStateStore,
+		credentialStore,
+		createService,
+		async dispose() {
+			harness.service.dispose();
+			providerCatalogService.dispose();
+			admissionService.dispose();
+			storageService.dispose();
+			secretStorageService.dispose();
+			configurationService.onDidChangeConfigurationEmitter.dispose();
+		}
+	};
+	return harness;
+}
+
+function providerCatalog(): {
+	readonly service: BaseHalfModelProviderCatalogService;
+	readonly registration: { dispose(): void };
+	setValidator(specId: string, validate: () => Promise<void>): void;
+	dispose(): void;
+} {
+	const service = new BaseHalfModelProviderCatalogService();
+	const registration = service.registerCatalog('pointa.test', 'pointa.test.providers', {
+		schemaVersion: 1,
+		connections: [FIXED_SPEC, WAN_SPEC]
+	});
+	const validators = new Map<string, { dispose(): void }>();
+	const setValidator = (specId: string, validate: () => Promise<void>) => {
+		validators.get(specId)?.dispose();
+		validators.set(specId, service.registerConnectionValidator(specId, 'pointa.test', { validate }));
+	};
+	for (const spec of [FIXED_SPEC, WAN_SPEC]) {
+		setValidator(spec.id, async () => undefined);
+	}
+	return { service, registration, setValidator, dispose: () => { validators.forEach(validator => validator.dispose()); registration.dispose(); service.dispose(); } };
+}
+
+function storedConnection(pluginStateStore: MemoryPluginStateStore, specId: string): { publicValues: Record<string, string>; credentialRef: string } {
+	return connectionState(pluginStateStore).connections[specId];
+}
+
+function connectionState(pluginStateStore: MemoryPluginStateStore): {
+	schemaVersion: number;
+	connections: Record<string, { publicValues: Record<string, string>; credentialRef: string }>;
+	stagedCredentials: Record<string, number>;
+	pendingCredentialCleanup: string[];
+	pendingLegacySecretCleanup: string[];
+} {
+	return JSON.parse(pluginStateStore.getRaw(BASEHALF_MODEL_CONNECTION_STATE_STORAGE_KEY) ?? '{}');
+}
 
 function bundledOfficialIdentity(): IBaseHalfPluginContributorIdentity {
 	const plugin = BASEHALF_CURATED_PLUGINS[0];
@@ -419,25 +558,24 @@ function fileService(): IFileService {
 }
 
 class MutableTestConfigurationService extends TestConfigurationService {
+	updateCount = 0;
 	override async updateValue(key: string, value: unknown): Promise<void> {
+		this.updateCount++;
 		await this.setUserConfiguration(key, value);
 	}
 }
 
-class DelayedMutableTestConfigurationService extends MutableTestConfigurationService {
-	override async updateValue(key: string, value: unknown): Promise<void> {
-		await new Promise(resolve => setTimeout(resolve, 5));
-		await super.updateValue(key, value);
-	}
+class MemoryCredentialStore implements IBaseHalfModelCredentialStore {
+	declare readonly _serviceBrand: undefined;
+	protected readonly values = new Map<string, string>();
+	async get(key: string): Promise<string | undefined> { return this.values.get(key); }
+	async set(key: string, value: string): Promise<void> { this.values.set(key, value); }
+	async delete(key: string): Promise<void> { this.values.delete(key); }
 }
 
-class DeleteFailingSecretStorageService extends TestSecretStorageService {
+class DeleteFailingCredentialStore extends MemoryCredentialStore {
 	private remainingDeleteFailures = 0;
-
-	failNextDelete(): void {
-		this.remainingDeleteFailures++;
-	}
-
+	failNextDelete(): void { this.remainingDeleteFailures++; }
 	override async delete(key: string): Promise<void> {
 		if (this.remainingDeleteFailures > 0) {
 			this.remainingDeleteFailures--;
@@ -447,18 +585,96 @@ class DeleteFailingSecretStorageService extends TestSecretStorageService {
 	}
 }
 
-class SetFailingSecretStorageService extends TestSecretStorageService {
-	private remainingSetFailures = 0;
-
-	failNextSet(): void {
-		this.remainingSetFailures++;
+class GetFailingCredentialStore extends MemoryCredentialStore {
+	failReads = false;
+	override async get(key: string): Promise<string | undefined> {
+		if (this.failReads) {
+			throw new Error('fixture credential decrypt failure');
+		}
+		return super.get(key);
 	}
+}
 
+class SetFailingCredentialStore extends MemoryCredentialStore {
+	private remainingSetFailures = 0;
+	failNextSet(): void { this.remainingSetFailures++; }
 	override async set(key: string, value: string): Promise<void> {
 		if (this.remainingSetFailures > 0) {
 			this.remainingSetFailures--;
 			throw new Error('fixture secret storage failure');
 		}
 		await super.set(key, value);
+	}
+}
+
+class ObservingCredentialStore extends MemoryCredentialStore {
+	private observer: ((key: string) => void) | undefined;
+	didObserve = false;
+	observeNextSet(observer: (key: string) => void): void { this.observer = observer; }
+	override async set(key: string, value: string): Promise<void> {
+		const observer = this.observer;
+		this.observer = undefined;
+		if (observer) {
+			observer(key);
+			this.didObserve = true;
+		}
+		await super.set(key, value);
+	}
+}
+
+class PausingCredentialStore extends MemoryCredentialStore {
+	private match: string | undefined;
+	private resume: (() => void) | undefined;
+	private paused: (() => void) | undefined;
+	whenPaused: Promise<void> = Promise.resolve();
+
+	pauseNextSetContaining(match: string): () => void {
+		this.match = match;
+		this.whenPaused = new Promise(resolve => this.paused = resolve);
+		return () => {
+			this.resume?.();
+			this.resume = undefined;
+		};
+	}
+
+	override async set(key: string, value: string): Promise<void> {
+		if (this.match && value.includes(this.match)) {
+			this.match = undefined;
+			const resumed = new Promise<void>(resolve => this.resume = resolve);
+			this.paused?.();
+			this.paused = undefined;
+			await resumed;
+		}
+		await super.set(key, value);
+	}
+}
+
+class MemoryPluginStateStore implements IBaseHalfPluginStateStore {
+	declare readonly _serviceBrand: undefined;
+	private readonly values = new Map<string, string>();
+
+	async read(key: string): Promise<string | undefined> {
+		return this.values.get(key);
+	}
+
+	async compareAndSwap(key: string, expected: string | undefined, value: string | undefined): Promise<{ swapped: boolean; current?: string }> {
+		const current = this.values.get(key);
+		if (current !== expected) {
+			return { swapped: false, current };
+		}
+		if (value === undefined) {
+			this.values.delete(key);
+		} else {
+			this.values.set(key, value);
+		}
+		return { swapped: true, current: value };
+	}
+
+	getRaw(key: string): string | undefined {
+		return this.values.get(key);
+	}
+
+	setRaw(key: string, value: string): void {
+		this.values.set(key, value);
 	}
 }

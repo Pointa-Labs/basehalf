@@ -15,7 +15,8 @@ test('renders a deterministic storyboard planning asset without claiming model o
 		recipeId: STORYBOARD_FRAME_RECIPE_ID,
 		nodeTitle: 'Opening frame',
 		nodePath: 'video-workflow/shot-01/storyboard-frame.bhnode',
-		parameters: { instructions: 'A paper boat & rain <night>.', 'aspect-ratio': '16:9', 'shot-label': 'Shot <01>' },
+		prompt: 'A paper boat & rain <night>.',
+		parameters: { 'aspect-ratio': '16:9', 'shot-label': 'Shot <01>' },
 		inputs: [{ edgeId: 'edge-1', slotId: 'prompt', order: 0, source: { kind: 'text', path: 'video-workflow/shot-01/storyboard.md', text: 'A red umbrella crosses the frame.' } }]
 	});
 	const source = decode(artifact.bytes);
@@ -35,7 +36,8 @@ test('renders a clip handoff as a Markdown file and states that it is not genera
 		recipeId: CLIP_BRIEF_RECIPE_ID,
 		nodeTitle: 'Opening clip',
 		nodePath: 'video-workflow/shot-01/clip.bhnode',
-		parameters: { instructions: 'Slow push in.', 'duration-seconds': 7, 'aspect-ratio': '9:16', 'audio-mode': 'auto' },
+		prompt: 'Slow push in.',
+		parameters: { 'duration-seconds': 7, 'aspect-ratio': '9:16', 'audio-mode': 'auto' },
 		inputs: [
 			{ edgeId: 'edge-1', slotId: 'prompt', order: 0, source: { kind: 'text', path: 'video-workflow/shot-01/storyboard.md', text: 'The character hesitates before entering.' } },
 			{ edgeId: 'edge-2', slotId: 'first-frame', order: 1, source: { kind: 'image', path: 'video-workflow/shot-01/storyboard-frame.bhnode' } }
@@ -47,6 +49,7 @@ test('renders a clip handoff as a Markdown file and states that it is not genera
 	assert.match(source, /not generated video/);
 	assert.match(source, /no video model was called/);
 	assert.match(source, /Duration: 7 seconds/);
+	assert.match(source, /Slow push in/);
 	assert.match(source, /first-frame: `video-workflow\/shot-01\/storyboard-frame\.bhnode`/);
 	assert.match(source, /character hesitates before entering/);
 	assert.doesNotMatch(source, /\.mp4/);
@@ -57,7 +60,8 @@ test('renders an audio handoff as a Markdown file and states that it is not gene
 		recipeId: AUDIO_BRIEF_RECIPE_ID,
 		nodeTitle: 'Opening voice',
 		nodePath: 'video-workflow/shot-01/voice.bhnode',
-		parameters: { instructions: 'Whispered delivery.', purpose: 'voice', 'duration-seconds': 5, voice: 'auto' },
+		prompt: 'Whispered delivery.',
+		parameters: { purpose: 'voice', 'duration-seconds': 5, voice: 'auto' },
 		inputs: []
 	});
 	const source = decode(artifact.bytes);
@@ -65,5 +69,6 @@ test('renders an audio handoff as a Markdown file and states that it is not gene
 	assert.equal(artifact.kind, 'file');
 	assert.match(source, /not generated audio/);
 	assert.match(source, /no audio model was called/);
+	assert.match(source, /Whispered delivery/);
 	assert.match(source, /No direct inputs connected/);
 });

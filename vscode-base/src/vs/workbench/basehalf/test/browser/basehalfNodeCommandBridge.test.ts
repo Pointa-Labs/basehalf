@@ -15,16 +15,16 @@ import { BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentOperationCommandReq
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { BaseHalfNodeCommandBackendGeneration } from '../../browser/basehalfNodeCommandBridge.contribution.js';
-import { BaseHalfNodeCommandHandler, responseForCompletedRun } from '../../browser/basehalfNodeCommandHandler.js';
+import { BaseHalfNodeCommandHandler, responseForCompletedAttempt } from '../../browser/basehalfNodeCommandHandler.js';
 import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
 import { IBaseHalfAgentAreaService } from '../../common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../../common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasRecipeRegistryService } from '../../common/basehalfCanvasRecipes.js';
 import {
-	beginBaseHalfNodeRun,
-	cancelBaseHalfNodeRun,
-	completeBaseHalfNodeRun,
+	beginBaseHalfNodeAttempt,
+	completeBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
+	failBaseHalfNodeAttempt,
 	IBaseHalfNodeDocument
 } from '../../common/basehalfNodeDocument.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
@@ -58,8 +58,9 @@ suite('BaseHalfNodeCommandBridge', () => {
 			throw new Error('Expected a node-run response.');
 		}
 		assert.strictEqual(response?.nodePath, 'scenes/shot.bhnode');
-		assert.strictEqual(response?.run?.id, 'run-1');
-		assert.strictEqual(response?.current?.versionId, 'run-1');
+		assert.strictEqual(response?.attempt?.id, 'run-1');
+		assert.strictEqual(response?.result?.attemptId, 'run-1');
+		assert.strictEqual(response?.result?.artifactPath, 'outputs/shot/run-1/artifacts/shot.mp4');
 	});
 
 	test('ignores unknown processes but promptly rejects a released Agent Area process', async () => {
@@ -90,16 +91,16 @@ suite('BaseHalfNodeCommandBridge', () => {
 		}
 	});
 
-	test('reports a completed failed run without changing its outcome to a rejection', () => {
+	test('reports a completed failed attempt without changing its outcome to a rejection', () => {
 		const document = completedDocument('failed');
-		const response = responseForCompletedRun('shot.bhnode', 'run-1', document);
+		const response = responseForCompletedAttempt('shot.bhnode', 'run-1', document);
 		assert.strictEqual(response.ok, false);
 		assert.strictEqual(response.outcome, 'failed');
-		assert.strictEqual(response.run?.status, 'failed');
-		assert.strictEqual(response.current?.source, 'empty');
+		assert.strictEqual(response.attempt?.status, 'failed');
+		assert.strictEqual(response.result, undefined);
 	});
 
-	test('cancels only the run claimed by a disconnected bridge request and waits for settlement', async () => {
+	test('keeps a host-owned attempt running when the Agent bridge disconnects', async () => {
 		let settleRun: ((document: IBaseHalfNodeDocument) => void) | undefined;
 		const runPromise = new Promise<IBaseHalfNodeDocument>(resolve => settleRun = resolve);
 		const harness = createHarness({ runPromise });
@@ -108,14 +109,14 @@ suite('BaseHalfNodeCommandBridge', () => {
 			const responsePromise = harness.handler.handle(requestEvent('/work', 'shot.bhnode'), cancellation.token);
 			await harness.runStarted;
 			cancellation.cancel();
-			assert.deepStrictEqual(harness.cancelCalls.map(call => call.runId), ['run-1']);
-			settleRun?.(cancelledDocumentWithPriorCurrent());
+			assert.deepStrictEqual(harness.cancelCalls, []);
+			settleRun?.(completedDocument('succeeded'));
 			const response = await responsePromise;
 			if (!response || response.type === 'runOperation' || response.type === 'listCapabilities') {
 				throw new Error('Expected a node-run response.');
 			}
-			assert.strictEqual(response?.outcome, 'cancelled');
-			assert.strictEqual(response?.current?.versionId, 'run-0');
+			assert.strictEqual(response?.outcome, 'succeeded');
+			assert.strictEqual(response?.result?.attemptId, 'run-1');
 		} finally {
 			cancellation.dispose();
 		}
@@ -160,12 +161,17 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.deepStrictEqual(response.host?.nodeDocument.resultKinds, ['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
 		assert.deepStrictEqual(response.host?.contextEdge, {
 			source: 'direct-content',
-			resultNodeSource: 'selected-current',
+			resultNodeSource: 'sealed-result',
 			target: 'direct-context',
 			autoRun: false,
 			recursive: false,
 			roleAndOrderOwner: 'target-recipe-binding',
 			label: 'none'
+		});
+		assert.deepStrictEqual(response.host?.nodeDocument.lifecycle, {
+			attempts: 'host-owned',
+			result: 'host-owned-single-file',
+			retry: 'frozen-only'
 		});
 		assert.strictEqual(response.host?.operations.length, 1);
 		assert.deepStrictEqual(response.host?.templates, [{ id: 'studio.workflow.starter', label: 'starter' }]);
@@ -507,7 +513,7 @@ function completedDocument(status: 'succeeded' | 'failed'): IBaseHalfNodeDocumen
 		role: 'result',
 		recipe: { recipeId: 'basehalf.test.create-video', parameters: {}, inputBindings: [] }
 	});
-	const running = beginBaseHalfNodeRun(initial, {
+	const running = beginBaseHalfNodeAttempt(initial, {
 		id: 'run-1',
 		createdAt: '2026-07-18T00:00:00.000Z',
 		startedAt: '2026-07-18T00:00:00.000Z',
@@ -515,63 +521,20 @@ function completedDocument(status: 'succeeded' | 'failed'): IBaseHalfNodeDocumen
 		inputs: []
 	});
 	if (status === 'failed') {
-		return {
-			...running,
-			runs: [{
-				...running.runs[0],
-				status: 'failed',
-				completedAt: '2026-07-18T00:00:01.000Z',
-				error: 'generation failed'
-			}]
-		};
+		return failBaseHalfNodeAttempt(running, 'run-1', {
+			completedAt: '2026-07-18T00:00:01.000Z',
+			error: 'generation failed'
+		});
 	}
-	return completeBaseHalfNodeRun(running, 'run-1', {
+	return completeBaseHalfNodeAttempt(running, 'run-1', {
 		completedAt: '2026-07-18T00:00:01.000Z',
-		artifacts: [{
+		artifact: {
 			id: 'artifact-1',
 			outputId: 'video',
 			kind: 'video',
 			path: 'outputs/shot/run-1/artifacts/shot.mp4',
 			sha256: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
 			size: 1
-		}],
-		primaryArtifactId: 'artifact-1'
+		}
 	});
-}
-
-function cancelledDocumentWithPriorCurrent(): IBaseHalfNodeDocument {
-	const initial = createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(1),
-		kind: 'video',
-		title: 'Shot',
-		role: 'result',
-		recipe: { recipeId: 'basehalf.test.create-video', parameters: {}, inputBindings: [] }
-	});
-	const previousRunning = beginBaseHalfNodeRun(initial, {
-		id: 'run-0',
-		createdAt: '2026-07-18T00:00:00.000Z',
-		startedAt: '2026-07-18T00:00:00.000Z',
-		model: { source: 'local' },
-		inputs: []
-	});
-	const previous = completeBaseHalfNodeRun(previousRunning, 'run-0', {
-		completedAt: '2026-07-18T00:00:01.000Z',
-		artifacts: [{
-			id: 'artifact-0',
-			outputId: 'video',
-			kind: 'video',
-			path: 'outputs/shot/run-0/artifacts/shot.mp4',
-			sha256: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-			size: 1
-		}],
-		primaryArtifactId: 'artifact-0'
-	});
-	const running = beginBaseHalfNodeRun(previous, {
-		id: 'run-1',
-		createdAt: '2026-07-18T00:00:02.000Z',
-		startedAt: '2026-07-18T00:00:02.000Z',
-		model: { source: 'local' },
-		inputs: []
-	});
-	return cancelBaseHalfNodeRun(running, 'run-1', { completedAt: '2026-07-18T00:00:03.000Z' });
 }

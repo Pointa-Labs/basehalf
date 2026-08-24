@@ -12,7 +12,6 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 const CONTRIBUTION_ID_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/;
 const COMMAND_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PARAMETER_NAME_PATTERN = /^[a-z][A-Za-z0-9]{0,63}$/;
-const JSON_FIELD_PATH_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*(?:\[\])?(?:\.[A-Za-z][A-Za-z0-9_-]*(?:\[\])?)*$/;
 const FILE_EXTENSION_PATTERN = /^\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$/;
 
 const MAX_CAPABILITY_BYTES = 64 * 1024;
@@ -27,26 +26,11 @@ export type BaseHalfAgentOperationParameterType = typeof BASEHALF_AGENT_OPERATIO
 export const BASEHALF_AGENT_OPERATION_RETURN_TYPES = ['object', 'array', 'string', 'number', 'boolean', 'void'] as const;
 export type BaseHalfAgentOperationReturnType = typeof BASEHALF_AGENT_OPERATION_RETURN_TYPES[number];
 
-export const BASEHALF_AGENT_PIN_TARGET_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
-export type BaseHalfAgentPinTargetKind = typeof BASEHALF_AGENT_PIN_TARGET_KINDS[number];
-
-export const BASEHALF_AGENT_PIN_VERSION_STATES = ['succeeded', 'imported'] as const;
-export type BaseHalfAgentPinVersionState = typeof BASEHALF_AGENT_PIN_VERSION_STATES[number];
-
-export interface IBaseHalfAgentExactVersionPinContribution {
-	readonly mode: 'exact-result-version';
-	readonly field: string;
-	readonly targetKinds: readonly BaseHalfAgentPinTargetKind[];
-	readonly acceptedVersionStates: readonly BaseHalfAgentPinVersionState[];
-	readonly updatePolicy: 'explicit';
-}
-
 export interface IBaseHalfAgentDocumentFormatContribution {
 	readonly kind: string;
 	readonly version: number;
 	readonly fileExtensions: readonly string[];
 	readonly schemaSummary: string;
-	readonly pin?: IBaseHalfAgentExactVersionPinContribution;
 }
 
 export interface IBaseHalfAgentOperationParameterContribution {
@@ -273,7 +257,7 @@ function validateDocuments(
 	const kinds = new Set<string>();
 	return Object.freeze(documents.map((document, index) => {
 		assertRecord(document, `${capabilityId}.documents[${index}]`);
-		assertOnlyKeys(document, ['kind', 'version', 'fileExtensions', 'schemaSummary', 'pin'], `${capabilityId}.documents[${index}]`);
+		assertOnlyKeys(document, ['kind', 'version', 'fileExtensions', 'schemaSummary'], `${capabilityId}.documents[${index}]`);
 		const kind = ownedId(document.kind, owner, 'Document kind');
 		if (kinds.has(kind)) {
 			throw new Error(`BaseHalf Agent capability '${capabilityId}' declares document kind '${kind}' more than once.`);
@@ -290,36 +274,13 @@ function validateDocuments(
 			throw new Error(`BaseHalf Agent document '${kind}' has duplicate file extensions.`);
 		}
 		const schemaSummary = boundedText(document.schemaSummary, `${kind}.schemaSummary`, 2_000);
-		const pin = document.pin === undefined ? undefined : validatePin(kind, document.pin);
 		return Object.freeze({
 			kind,
 			version,
 			fileExtensions: Object.freeze(extensions),
-			schemaSummary,
-			...(pin === undefined ? {} : { pin })
+			schemaSummary
 		});
 	}));
-}
-
-function validatePin(kind: string, value: IBaseHalfAgentExactVersionPinContribution): IBaseHalfAgentExactVersionPinContribution {
-	assertRecord(value, `${kind}.pin`);
-	assertOnlyKeys(value, ['mode', 'field', 'targetKinds', 'acceptedVersionStates', 'updatePolicy'], `${kind}.pin`);
-	if (value.mode !== 'exact-result-version' || value.updatePolicy !== 'explicit') {
-		throw new Error(`BaseHalf Agent document '${kind}' must use an explicit exact-result-version pin.`);
-	}
-	const field = boundedText(value.field, `${kind}.pin.field`, 200);
-	if (!JSON_FIELD_PATH_PATTERN.test(field)) {
-		throw new Error(`BaseHalf Agent document '${kind}' has an invalid pin field path.`);
-	}
-	const targetKinds = requiredEnumArray(value.targetKinds, BASEHALF_AGENT_PIN_TARGET_KINDS, `${kind}.pin.targetKinds`);
-	const acceptedVersionStates = requiredEnumArray(value.acceptedVersionStates, BASEHALF_AGENT_PIN_VERSION_STATES, `${kind}.pin.acceptedVersionStates`);
-	return Object.freeze({
-		mode: 'exact-result-version',
-		field,
-		targetKinds,
-		acceptedVersionStates,
-		updatePolicy: 'explicit'
-	});
 }
 
 function validateOperations(
@@ -478,14 +439,6 @@ function requiredArray(value: unknown, field: string, minimum: number, maximum: 
 		throw new Error(`${field} must be an array with ${minimum}-${maximum} items.`);
 	}
 	return value;
-}
-
-function requiredEnumArray<const T extends readonly string[]>(value: unknown, allowed: T, field: string): readonly T[number][] {
-	const entries = requiredArray(value, field, 1, allowed.length);
-	if (entries.some(entry => typeof entry !== 'string' || !allowed.includes(entry)) || new Set(entries).size !== entries.length) {
-		throw new Error(`${field} contains invalid or duplicate values.`);
-	}
-	return Object.freeze(entries as T[number][]);
 }
 
 registerSingleton(IBaseHalfAgentCapabilityRegistryService, BaseHalfAgentCapabilityRegistryService, InstantiationType.Delayed);

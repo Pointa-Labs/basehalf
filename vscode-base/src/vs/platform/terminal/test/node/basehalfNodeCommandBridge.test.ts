@@ -29,8 +29,8 @@ suite('BaseHalfNodeCommandServer', () => {
 				ok: true,
 				outcome: 'succeeded',
 				nodePath: request.relativePath,
-				run: { id: 'run-1', status: 'succeeded', outputPaths: [] },
-				current: { source: 'run', versionId: 'run-1', outputPaths: [] }
+				attempt: { id: 'attempt-1', status: 'succeeded' },
+				result: { source: 'attempt', attemptId: 'attempt-1', artifactPath: 'outputs/node/attempt-1/video.mp4' }
 			};
 		}, new NullLogService());
 
@@ -68,8 +68,10 @@ suite('BaseHalfNodeCommandServer', () => {
 				ok: outcome === 'succeeded',
 				outcome,
 				nodePath: request.type === 'runNode' ? request.relativePath : '',
-				run: { id: 'run-1', status: outcome, outputPaths: [] },
-				current: { source: outcome === 'succeeded' ? 'run' : 'empty', ...(outcome === 'succeeded' ? { versionId: 'run-1' } : {}), outputPaths: [] }
+				attempt: { id: 'attempt-1', status: outcome },
+				...(outcome === 'succeeded'
+					? { result: { source: 'attempt' as const, attemptId: 'attempt-1', artifactPath: 'outputs/node/attempt-1/video.mp4' } }
+					: {})
 			}), new NullLogService());
 			try {
 				await server.start();
@@ -382,8 +384,7 @@ suite('BaseHalfNodeCommandServer', () => {
 						ok: false,
 						outcome: 'cancelled',
 						nodePath: request.relativePath,
-						run: { id: 'run-1', status: 'cancelled', outputPaths: [] },
-						current: { source: 'empty', outputPaths: [] }
+						attempt: { id: 'run-1', status: 'cancelled' }
 					});
 				});
 			}).finally(() => listener?.dispose());
@@ -440,22 +441,22 @@ function capabilityDiscoveryResponse(options: {
 		host: {
 			nodeDocument: {
 				fileExtension: '.bhnode',
-				documentVersion: 2,
+				documentVersion: 3,
 				resultKinds: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'],
 				inputBinding: { scope: 'direct-inbound-reference', fields: ['sourcePath', 'slot', 'order'] },
-				lifecycle: { current: 'host-owned', history: 'host-owned' },
+				lifecycle: { attempts: 'host-owned', result: 'host-owned-single-file', retry: 'frozen-only' },
 				runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 				authoring: {
 					contractVersion: 1,
 					schema: { type: 'object' },
 					examples: {},
-					hostOwnedFields: ['current', 'revisions', 'runs'],
+					hostOwnedFields: ['result', 'attempts'],
 					rules: ['Write only the published authorable fields.']
 				}
 			},
 			contextEdge: {
 				source: 'direct-content',
-				resultNodeSource: 'selected-current',
+				resultNodeSource: 'sealed-result',
 				target: 'direct-context',
 				autoRun: false,
 				recursive: false,

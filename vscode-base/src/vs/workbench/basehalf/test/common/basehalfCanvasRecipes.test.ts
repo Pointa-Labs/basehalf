@@ -18,6 +18,7 @@ import {
 	getBaseHalfCanvasDefaultNodeRole,
 	IBaseHalfCanvasRecipeContribution,
 	IBaseHalfCanvasRecipeExecutionRequest,
+	IBaseHalfCanvasRecipeExecutionResult,
 	validateBaseHalfCanvasRecipeInputs,
 	validateBaseHalfCanvasRecipeContribution,
 	validateBaseHalfCanvasTemplateContribution
@@ -36,6 +37,53 @@ suite('BaseHalfCanvasRecipes', () => {
 		assert.deepStrictEqual(recipe.outputs[0].extensions, ['.mp4']);
 		assert.strictEqual(Object.isFrozen(recipe), true);
 		assert.strictEqual(Object.isFrozen(recipe.inputs), true);
+	});
+
+	test('keeps reviewed video settings out of the static recipe schema', () => {
+		assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			modelCapability: 'video',
+			videoModelCatalogId: 'studio.workflow.video-models'
+		}), /reviewed catalog settings instead of static parameters/);
+
+		const reviewedVideoRecipe = validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			modelCapability: 'video',
+			videoModelCatalogId: 'studio.workflow.video-models',
+			parameters: []
+		});
+		assert.strictEqual(reviewedVideoRecipe.modelCapability, 'video');
+		assert.strictEqual(reviewedVideoRecipe.videoModelCatalogId, 'studio.workflow.video-models');
+		assert.deepStrictEqual(reviewedVideoRecipe.parameters, []);
+
+		assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			modelCapability: 'video',
+			parameters: []
+		}), /must declare its exact video model catalog/);
+		assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			modelCapability: 'video',
+			videoModelCatalogId: 'other.workflow.video-models',
+			parameters: []
+		}), /must be prefixed/);
+		assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			videoModelCatalogId: 'studio.workflow.video-models'
+		}), /cannot declare a video model catalog/);
+		assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...recipeContribution(),
+			modelCapability: 'video',
+			videoModelCatalogId: 'studio.workflow.video-models',
+			parameters: [],
+			outputs: [{ ...recipeContribution().outputs[0], kind: 'image', extensions: ['.png'] }]
+		}), /must produce a video Result/);
+		for (const modelCapability of ['text', 'image', 'audio'] as const) {
+			assert.throws(() => validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+				...recipeContribution(),
+				modelCapability
+			}), /local video recipe.*must omit model capability/);
+		}
 	});
 
 	test('rejects contributions outside their extension namespace', () => {
@@ -113,7 +161,7 @@ suite('BaseHalfCanvasRecipes', () => {
 				{ ...recipeContribution().outputs[0], maxItems: 1 },
 				{ id: 'extras', kind: 'file', extensions: ['.bin'], minItems: 0, maxItems: 64 }
 			]
-		}), /at most 64 artifacts/);
+		}), /exactly one output/);
 		assert.throws(() => validateBaseHalfCanvasTemplateContribution('studio.workflow', URI.file('/extensions/studio.workflow'), {
 			id: 'studio.workflow.storyboard',
 			label: 'Storyboard',
@@ -121,19 +169,46 @@ suite('BaseHalfCanvasRecipes', () => {
 		}), /canonical relative JSON path/);
 	});
 
-	test('derives the sole declared primary artifact and rejects ambiguous primary results', async () => {
+	test('returns the sole declared artifact without a primary selector', async () => {
 		const registry = new BaseHalfCanvasRecipeRegistryService();
 		const recipeRegistration = registry.registerRecipe('studio.workflow', recipeContribution());
 		const runtime = new BaseHalfCanvasRecipeRuntimeService(registry, new TestExtensionService());
 		const executor = runtime.registerExecutor(recipeContribution().id, {
 			extensionId: 'studio.workflow',
 			execute: async () => ({
-				artifacts: [{ id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/workspace/outputs/node/run/clip.mp4') }]
+				artifact: { id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/workspace/outputs/node/run/clip.mp4') }
 			})
 		});
 		try {
 			const result = await runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None);
-			assert.strictEqual(result.primaryArtifactId, 'clip');
+			assert.strictEqual(result.artifact.id, 'clip');
+		} finally {
+			executor.dispose();
+			runtime.dispose();
+			recipeRegistration.dispose();
+			registry.dispose();
+		}
+	});
+
+	test('rejects executor artifact ids that cannot be persisted in a node Result', async () => {
+		const registry = new BaseHalfCanvasRecipeRegistryService();
+		const recipeRegistration = registry.registerRecipe('studio.workflow', recipeContribution());
+		const runtime = new BaseHalfCanvasRecipeRuntimeService(registry, new TestExtensionService());
+		let artifactId: unknown = 'clip';
+		const executor = runtime.registerExecutor(recipeContribution().id, {
+			extensionId: 'studio.workflow',
+			execute: async () => ({
+				artifact: { id: artifactId as string, outputId: 'primary', kind: 'video', resource: URI.file('/workspace/outputs/node/run/clip.mp4') }
+			})
+		});
+		try {
+			for (const invalidId of ['clip/frame', 'clip frame', '-clip', `clip${'x'.repeat(125)}`, 1, ' \t ']) {
+				artifactId = invalidId;
+				await assert.rejects(
+					() => runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None),
+					/studio\.workflow\.generate-video\.artifact\.id (contains unsupported characters|is too long|must be a string|cannot be empty)/
+				);
+			}
 		} finally {
 			executor.dispose();
 			runtime.dispose();
@@ -177,7 +252,7 @@ suite('BaseHalfCanvasRecipes', () => {
 		try {
 			assert.throws(() => runtime.registerExecutor(recipeContribution().id, {
 				extensionId: 'other.workflow',
-				execute: async () => ({ artifacts: [] })
+				execute: async () => ({ artifact: { id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/workspace/outputs/node/run/clip.mp4') } })
 			}), /cannot be executed/);
 
 			const executor = runtime.registerExecutor(recipeContribution().id, {
@@ -185,24 +260,23 @@ suite('BaseHalfCanvasRecipes', () => {
 				execute: async (_request, progress) => {
 					progress.report({ message: 'Generating', increment: 50 });
 					return {
-						artifacts: [{
+						artifact: {
 							id: 'clip',
 							outputId: 'primary',
 							kind: 'video',
 							resource: URI.file('/workspace/outputs/node/run/clip.mp4')
-						}],
-						primaryArtifactId: 'clip'
+						}
 					};
 				}
 			});
 			assert.throws(() => runtime.registerExecutor(recipeContribution().id, {
 				extensionId: 'studio.workflow',
-				execute: async () => ({ artifacts: [] })
+				execute: async () => ({ artifact: { id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/workspace/outputs/node/run/clip.mp4') } })
 			}), /already registered/);
 
 			const progress: unknown[] = [];
 			const result = await runtime.executeRecipe(recipeContribution().id, executionRequest(), { report: value => progress.push(value) }, CancellationToken.None);
-			assert.strictEqual(result.primaryArtifactId, 'clip');
+			assert.strictEqual(result.artifact.id, 'clip');
 			assert.deepStrictEqual(progress, [{ message: 'Generating', increment: 50 }]);
 
 			executor.dispose();
@@ -227,13 +301,12 @@ suite('BaseHalfCanvasRecipes', () => {
 				executorRegistration ??= runtime.registerExecutor(recipeContribution().id, {
 					extensionId: 'studio.workflow',
 					execute: async () => ({
-						artifacts: [{
+						artifact: {
 							id: 'clip',
 							outputId: 'primary',
 							kind: 'video',
 							resource: URI.file('/workspace/outputs/node/run/clip.mp4')
-						}],
-						primaryArtifactId: 'clip'
+						}
 					})
 				});
 			}
@@ -241,7 +314,7 @@ suite('BaseHalfCanvasRecipes', () => {
 		runtime = new BaseHalfCanvasRecipeRuntimeService(registry, extensionService);
 		try {
 			const result = await runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None);
-			assert.strictEqual(result.primaryArtifactId, 'clip');
+			assert.strictEqual(result.artifact.id, 'clip');
 			assert.deepStrictEqual(activationEvents, [`onBaseHalfCanvasRecipe:${recipeContribution().id}`]);
 		} finally {
 			executorRegistration?.dispose();
@@ -293,8 +366,7 @@ suite('BaseHalfCanvasRecipes', () => {
 		const executor = runtime.registerExecutor(recipeContribution().id, {
 			extensionId: 'studio.workflow',
 			execute: async () => ({
-				artifacts: [{ id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/outside/clip.mp4') }],
-				primaryArtifactId: 'clip'
+				artifact: { id: 'clip', outputId: 'primary', kind: 'video', resource: URI.file('/outside/clip.mp4') }
 			})
 		});
 		try {
@@ -321,8 +393,7 @@ suite('BaseHalfCanvasRecipes', () => {
 			const valid = runtime.registerExecutor(recipeContribution().id, {
 				extensionId: 'studio.workflow',
 				execute: async () => ({
-					artifacts: [artifact],
-					primaryArtifactId: artifact.id,
+					artifact,
 					providerRequestId: 'provider/request-1',
 					usage: { inputTokens: 12, outputTokens: 3, videoSeconds: 5.5 },
 					cost: { currency: 'USD', amount: '0.12', kind: 'estimated' }
@@ -344,11 +415,43 @@ suite('BaseHalfCanvasRecipes', () => {
 			for (const disclosure of invalidResults) {
 				const executor = runtime.registerExecutor(recipeContribution().id, {
 					extensionId: 'studio.workflow',
-					execute: async () => ({ artifacts: [artifact], primaryArtifactId: artifact.id, ...disclosure })
+					execute: async () => ({ artifact, ...disclosure })
 				});
 				await assert.rejects(() => runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None));
 				executor.dispose();
 			}
+		} finally {
+			runtime.dispose();
+			recipeRegistration.dispose();
+			registry.dispose();
+		}
+	});
+
+	test('rejects legacy result arrays and undeclared result fields', async () => {
+		const registry = new BaseHalfCanvasRecipeRegistryService();
+		const recipeRegistration = registry.registerRecipe('studio.workflow', recipeContribution());
+		const runtime = new BaseHalfCanvasRecipeRuntimeService(registry, new TestExtensionService());
+		const artifact = { id: 'clip', outputId: 'primary', kind: 'video' as const, resource: URI.file('/workspace/outputs/node/run/clip.mp4') };
+		try {
+			const legacy = runtime.registerExecutor(recipeContribution().id, {
+				extensionId: 'studio.workflow',
+				execute: async () => ({ artifacts: [artifact], primaryArtifactId: artifact.id } as unknown as IBaseHalfCanvasRecipeExecutionResult)
+			});
+			await assert.rejects(
+				() => runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None),
+				/returned an invalid result/
+			);
+			legacy.dispose();
+
+			const extra = runtime.registerExecutor(recipeContribution().id, {
+				extensionId: 'studio.workflow',
+				execute: async () => ({ artifact, artifacts: [artifact], primaryArtifactId: artifact.id } as unknown as IBaseHalfCanvasRecipeExecutionResult)
+			});
+			await assert.rejects(
+				() => runtime.executeRecipe(recipeContribution().id, executionRequest(), { report() { } }, CancellationToken.None),
+				/unsupported property 'artifacts'/
+			);
+			extra.dispose();
 		} finally {
 			runtime.dispose();
 			recipeRegistration.dispose();
@@ -411,8 +514,8 @@ suite('BaseHalfCanvasRecipes', () => {
 		assert.deepStrictEqual(document.recipe?.inputBindings, [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]);
 		assert.strictEqual(document.recipe?.modelServiceId, undefined);
 		assert.strictEqual(document.recipe?.modelId, undefined);
-		assert.deepStrictEqual(document.runs, []);
-		assert.deepStrictEqual(document.revisions, []);
+		assert.deepStrictEqual(document.attempts, []);
+		assert.strictEqual(document.result, undefined);
 		assert.throws(
 			() => createBaseHalfCanvasConnectedNodeDocument(recipe, 'other-id', 'sound.wav', 'audio', 'context'),
 			/cannot bind input role/
@@ -475,7 +578,6 @@ function recipeContribution(): IBaseHalfCanvasRecipeContribution {
 		label: 'Generate video',
 		description: 'Generate one local video artifact.',
 		icon: 'device-camera-video',
-		modelCapability: 'video',
 		inputs: [{
 			id: 'context',
 			label: 'Context',
@@ -504,10 +606,11 @@ function recipeContribution(): IBaseHalfCanvasRecipeContribution {
 
 function executionRequest(): IBaseHalfCanvasRecipeExecutionRequest {
 	return {
-		runId: 'run-1',
+		attemptId: 'attempt-1',
 		workspaceFolder: URI.file('/workspace'),
 		node: { id: 'node-1', path: 'clip.mp4', kind: 'video' },
 		recipeId: recipeContribution().id,
+		prompt: 'A calm orbit around the product.',
 		parameters: { seconds: 5 },
 		modelServiceId: 'studio.video',
 		inputs: [{
@@ -516,6 +619,7 @@ function executionRequest(): IBaseHalfCanvasRecipeExecutionRequest {
 			order: 0,
 			source: { id: 'node-0', path: 'prompt.md', kind: 'text', resource: URI.file('/workspace/prompt.md') }
 		}],
-		outputDirectory: URI.file('/workspace/outputs/node/run')
+		outputDirectory: URI.file('/workspace/outputs/node/run'),
+		acknowledgeProviderRequestId: async () => undefined
 	};
 }

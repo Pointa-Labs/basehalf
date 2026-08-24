@@ -78,9 +78,10 @@ suite('BaseHalfWorkspaceSetup', () => {
 		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('basehalf --list-capabilities'));
 		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('A\'s direct content is context for B'));
 		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('for a result node this'));
-		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('is its selected Current'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('is its one sealed local file'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('closing or switching the Agent session does not cancel it'));
 		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('never means'));
-		assert.ok(!fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('A\'s selected Current is direct context'));
+		assert.ok(!fs.files.get('/work/.bh/agent-harness/scenarios/canvas-workflows.md')?.includes('selected Current'));
 		assert.strictEqual(fs.files.has('/work/.bh/cache/canvas-capabilities.json'), false);
 		assert.strictEqual([...fs.files.values()].some(content => content.includes('canvas-capabilities.json')), false);
 		assert.strictEqual(fs.files.has('/work/.gitignore'), false);

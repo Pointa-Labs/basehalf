@@ -6,7 +6,7 @@
 import { localize } from '../../../nls.js';
 import { ConfigurationScope, IConfigurationNode } from '../../../platform/configuration/common/configurationRegistry.js';
 import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from './basehalfAgentArea.js';
-import { BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID, BASEHALF_MODEL_CAPABILITIES, BASEHALF_MODEL_SERVICES_SETTING } from './basehalfModelServices.js';
+import { BASEHALF_MODEL_SERVICES_SETTING } from './basehalfModelServices.js';
 
 export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
@@ -61,35 +61,6 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			enumDescriptions: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.description),
 			scope: ConfigurationScope.WINDOW,
 			description: localize('basehalf.agent.defaultSession', 'Controls which Agent Area session is created when the Agent Area is opened with no active sessions.')
-		},
-		[BaseHalfSetting.ModelServices]: {
-			type: 'object',
-			default: {},
-			scope: ConfigurationScope.APPLICATION,
-			order: 100,
-			tags: ['usesOnlineServices'],
-			markdownDescription: localize(
-				'basehalf.models.services',
-				'Global model-service connections shared by every reviewed BaseHalf plugin. Connection metadata is stored here; API keys are encrypted in application credential storage and never written to settings or project files. [Manage Model Services](command:{0})',
-				BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID
-			),
-			additionalProperties: {
-				type: 'object',
-				required: ['label', 'endpoint', 'capabilities', 'authorization'],
-				additionalProperties: false,
-				properties: {
-					label: { type: 'string', minLength: 1, maxLength: 80 },
-					endpoint: { type: 'string', format: 'uri' },
-					capabilities: {
-						type: 'array',
-						minItems: 1,
-						uniqueItems: true,
-						items: { type: 'string', enum: [...BASEHALF_MODEL_CAPABILITIES] }
-					},
-					authorization: { type: 'string', enum: ['bearer', 'header', 'none'] },
-					headerName: { type: 'string' }
-				}
-			}
 		}
 	}
 };
@@ -130,4 +101,8 @@ export function migrateLegacyBaseHalfReadingMode(value: unknown, existingReading
 	}
 	next.push([BASEHALF_LEGACY_READING_MODE_SETTING, { value: undefined }]);
 	return next;
+}
+
+export function migrateLegacyBaseHalfModelServices(value: unknown): BaseHalfConfigurationMigrationValue {
+	return { value: undefined };
 }

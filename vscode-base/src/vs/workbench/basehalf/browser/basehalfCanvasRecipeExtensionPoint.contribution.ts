@@ -51,12 +51,33 @@ const baseHalfCanvasRecipesExtensionPoint = ExtensionsRegistry.registerExtension
 		items: {
 			type: 'object',
 			additionalProperties: false,
+			allOf: [{
+				if: { properties: { modelCapability: { const: 'video' } }, required: ['modelCapability'] },
+				then: {
+					required: ['videoModelCatalogId'],
+					properties: {
+						outputs: {
+							items: { properties: { kind: { const: 'video' } }, required: ['kind'] }
+						}
+					}
+				},
+				else: { not: { required: ['videoModelCatalogId'] } }
+			}, {
+				if: {
+					properties: {
+						outputs: { items: { properties: { kind: { const: 'video' } }, required: ['kind'] } }
+					},
+					required: ['outputs']
+				},
+				then: { properties: { modelCapability: { const: 'video' } } }
+			}],
 			properties: {
 				id: { ...contributionIdSchema, description: nls.localize('contributes.basehalfCanvasRecipes.id', 'Globally unique recipe identifier prefixed by the extension id.') },
 				label: labelSchema,
 				description: { type: 'string', minLength: 1, maxLength: 500 },
 				icon: { type: 'string', minLength: 1, maxLength: 64, pattern: '^[a-z][a-z0-9-]*$' },
 				modelCapability: { enum: ['text', 'image', 'video', 'audio'] },
+				videoModelCatalogId: { ...contributionIdSchema, description: nls.localize('contributes.basehalfCanvasRecipes.videoModelCatalogId', 'Exact reviewed video model catalog owned by this recipe extension. Required for video recipes and forbidden otherwise.') },
 				inputs: {
 					type: 'array',
 					maxItems: 16,
@@ -143,7 +164,7 @@ const baseHalfCanvasRecipesExtensionPoint = ExtensionsRegistry.registerExtension
 				outputs: {
 					type: 'array',
 					minItems: 1,
-					maxItems: 8,
+					maxItems: 1,
 					items: {
 						type: 'object',
 						additionalProperties: false,
@@ -151,11 +172,11 @@ const baseHalfCanvasRecipesExtensionPoint = ExtensionsRegistry.registerExtension
 							id: localIdSchema,
 							kind: { enum: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] },
 							extensions: { type: 'array', minItems: 1, maxItems: 16, uniqueItems: true, items: { type: 'string', pattern: '^\\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$' } },
-							minItems: { type: 'integer', minimum: 0, maximum: 64 },
-							maxItems: { type: 'integer', minimum: 1, maximum: 64 },
-							primary: { type: 'boolean' }
+							minItems: { type: 'integer', const: 1 },
+							maxItems: { type: 'integer', const: 1 },
+							primary: { type: 'boolean', const: true }
 						},
-						required: ['id', 'kind', 'extensions', 'minItems', 'maxItems']
+						required: ['id', 'kind', 'extensions', 'minItems', 'maxItems', 'primary']
 					}
 				}
 			},

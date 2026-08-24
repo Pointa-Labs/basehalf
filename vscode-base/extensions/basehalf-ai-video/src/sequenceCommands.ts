@@ -15,17 +15,16 @@ import {
 	parseAIVideoSequenceDocument,
 	portableDescendantVideoNodePath,
 	removeAIVideoSequenceItem,
-	resolveAIVideoSequenceCurrentPin,
+	resolveAIVideoSequenceVideoResult,
 	resolveAIVideoSequenceVideoNodePath,
 	SEQUENCE_INSPECTION_CONCURRENCY,
 	serializeAIVideoSequenceDocument,
 	updateAIVideoSequenceItemPath,
-	updateAIVideoSequenceItemVersion,
 	type AIVideoSequenceDocument,
 	type AIVideoSequenceInspection,
 	type AIVideoSequenceItem,
 	type AIVideoSequenceItemInspection,
-	type AIVideoSequenceNodeInspectRequest,
+	type AIVideoSequenceNodeState,
 	type AIVideoSequenceNodeRelocation
 } from './domain';
 import { readFileWithinLimit } from './boundedFileRead';
@@ -62,7 +61,6 @@ interface SequenceVideoCandidate {
 	readonly resource: vscode.Uri;
 	readonly videoNodePath: string;
 	readonly nodeId: string;
-	readonly versionId: string;
 	readonly suggestedTitle: string;
 }
 
@@ -86,7 +84,7 @@ export async function inspectSequenceCommand(argument?: unknown, token?: vscode.
 			if (choice === REPAIR_PATH_ACTION) {
 				const repaired = await repairSequenceItemPathCommand({ sequence: resource, itemId: selected.item.id });
 				if (repaired) {
-					void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its exact version pin was kept.`);
+					void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its sealed Video Result reference was kept.`);
 				}
 				return repaired;
 			}
@@ -95,18 +93,18 @@ export async function inspectSequenceCommand(argument?: unknown, token?: vscode.
 	return inspection;
 }
 
-export async function addSequenceItemFromCurrentCommand(argument?: unknown, token?: vscode.CancellationToken): Promise<AIVideoSequenceEditCommandResult | undefined> {
+export async function addSequenceItemFromVideoResultCommand(argument?: unknown, token?: vscode.CancellationToken): Promise<AIVideoSequenceEditCommandResult | undefined> {
 	throwIfCommandCancelled(token);
 	const args = commandArguments(argument);
 	requireStructuredArguments(argument, args, ['sequence', 'videoNode', 'itemId']);
-	return addSequenceItemFromCurrent(args, argument === undefined, token);
+	return addSequenceItemFromVideoResult(args, argument === undefined, token);
 }
 
 export function addSequenceItemFromProjection(resource: vscode.Uri): Promise<AIVideoSequenceEditCommandResult | undefined> {
-	return addSequenceItemFromCurrent({ sequence: resource }, true);
+	return addSequenceItemFromVideoResult({ sequence: resource }, true);
 }
 
-async function addSequenceItemFromCurrent(
+async function addSequenceItemFromVideoResult(
 	args: SequenceCommandArguments,
 	interactive: boolean,
 	token?: vscode.CancellationToken
@@ -135,8 +133,7 @@ async function addSequenceItemFromCurrent(
 		id: args.itemId ?? uniqueSequenceItemId(loaded.sequence),
 		title,
 		nodeId: candidate.nodeId,
-		videoNodePath: candidate.videoNodePath,
-		versionId: candidate.versionId
+		videoNodePath: candidate.videoNodePath
 	});
 	const updated = addAIVideoSequenceItem(loaded.sequence, item);
 	const saved = await saveSequence(loaded, updated, token);
@@ -189,44 +186,6 @@ export async function moveSequenceItemCommand(argument?: unknown, token?: vscode
 	}
 	const updated = moveAIVideoSequenceItem(loaded.sequence, itemId, direction);
 	return (await saveSequence(loaded, updated, token)).sequence;
-}
-
-export async function updateSequenceItemToCurrentCommand(argument?: unknown, token?: vscode.CancellationToken): Promise<AIVideoSequenceInspection | undefined> {
-	throwIfCommandCancelled(token);
-	const args = commandArguments(argument);
-	requireStructuredArguments(argument, args, ['sequence', 'itemId']);
-	const resource = await resolveSequenceResource(args.sequence);
-	if (!resource) {
-		return undefined;
-	}
-	const initial = await loadSequence(resource);
-	const initialInspection = await inspectLoadedSequence(initial);
-	const candidates = initialInspection.items.filter(item => item.state === 'updateAvailable');
-	if (candidates.length === 0) {
-		if (argument === undefined) {
-			void vscode.window.showInformationMessage('Every valid clip already uses its selected Current.');
-		}
-		return initialInspection;
-	}
-	const itemId = args.itemId ?? await pickSequenceInspection(candidates, 'Choose a clip to update');
-	if (!itemId) {
-		return undefined;
-	}
-
-	// Re-read both the sequence and node Current after user interaction so the
-	// explicit update never writes a version that stopped being Current meanwhile.
-	const loaded = await loadSequence(resource);
-	const inspection = await inspectLoadedSequence(loaded);
-	const selected = inspection.items.find(item => item.item.id === itemId);
-	if (!selected) {
-		throw new Error(`Sequence item '${itemId}' no longer exists.`);
-	}
-	if (selected.state !== 'updateAvailable' || !selected.availableCurrentVersionId) {
-		throw new Error(`Sequence item '${itemId}' no longer has a different verified Current.`);
-	}
-	const updated = updateAIVideoSequenceItemVersion(loaded.sequence, itemId, selected.availableCurrentVersionId);
-	await saveSequence(loaded, updated, token);
-	return inspectLoadedSequence(await loadSequence(resource));
 }
 
 export async function removeSequenceItemCommand(argument?: unknown, token?: vscode.CancellationToken): Promise<AIVideoSequenceEditCommandResult | undefined> {
@@ -291,7 +250,7 @@ export async function repairSequenceItemPathCommand(argument?: unknown, token?: 
 		return undefined;
 	}
 
-	// Re-read and re-verify the stable identity and pinned artifact immediately
+	// Re-read and re-verify the stable identity and sealed result immediately
 	// before the compare-and-save edit. Discovery never edits Sequence by itself.
 	const loaded = await loadSequence(resource);
 	const inspection = await inspectLoadedSequence(loaded);
@@ -306,7 +265,7 @@ export async function repairSequenceItemPathCommand(argument?: unknown, token?: 
 	const saved = await saveSequence(loaded, updated, token);
 	const result = await inspectLoadedSequence(saved);
 	if (argument === undefined) {
-		void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its exact version pin was kept.`);
+		void vscode.window.showInformationMessage(`Repaired the saved path for '${selected.item.title}'. Its sealed Video Result reference was kept.`);
 	}
 	return result;
 }
@@ -436,28 +395,25 @@ async function readSequenceSource(resource: vscode.Uri): Promise<string> {
 
 export async function inspectLoadedSequence(loaded: LoadedSequence, token?: vscode.CancellationToken): Promise<AIVideoSequenceInspection> {
 	const workflowRoot = parentUri(loaded.resource);
-	const inspectNode = (resource: vscode.Uri, request: AIVideoSequenceNodeInspectRequest) => sequenceInspectionLimiter.run(async () => {
+	const inspectNode = (resource: vscode.Uri) => sequenceInspectionLimiter.run(async () => {
 		throwIfCommandCancelled(token);
-		const result = await vscode.basehalf.inspectCanvasNode(resource, request);
+		const result = await inspectVideoResultNode(resource);
 		throwIfCommandCancelled(token);
 		return result;
 	});
-	return inspectAIVideoSequence(loaded.sequence, async (videoNodePath, request) => {
+	return inspectAIVideoSequence(loaded.sequence, async videoNodePath => {
 		const resource = vscode.Uri.file(resolveAIVideoSequenceVideoNodePath(loaded.resource.fsPath, videoNodePath));
-		return inspectNode(resource, request);
+		return inspectNode(resource);
 	}, createMovedNodeLocator(workflowRoot, inspectNode, token), () => throwIfCommandCancelled(token));
 }
 
 function createMovedNodeLocator(
 	workflowRoot: vscode.Uri,
-	inspectNode: (resource: vscode.Uri, request: AIVideoSequenceNodeInspectRequest) => Promise<vscode.basehalf.CanvasNodeState | undefined>,
+	inspectNode: (resource: vscode.Uri) => Promise<AIVideoSequenceNodeState | undefined>,
 	token?: vscode.CancellationToken
-): (
-	item: AIVideoSequenceItem,
-	request: AIVideoSequenceNodeInspectRequest
-) => Promise<AIVideoSequenceNodeRelocation | undefined> {
+): (item: AIVideoSequenceItem) => Promise<AIVideoSequenceNodeRelocation | undefined> {
 	let index: Promise<{ readonly truncated: boolean; readonly byId: ReadonlyMap<string, readonly vscode.Uri[]> }> | undefined;
-	return async (item, request) => {
+	return async item => {
 		throwIfCommandCancelled(token);
 		index ??= buildSequenceNodeIdentityIndex(workflowRoot, inspectNode, token);
 		const result = await index;
@@ -474,7 +430,7 @@ function createMovedNodeLocator(
 		}
 		const resource = matches[0];
 		const videoNodePath = portableDescendantVideoNodePath(workflowRoot.fsPath, resource.fsPath);
-		const node = await inspectNode(resource, request);
+		const node = await inspectNode(resource);
 		if (!node || node.id !== item.nodeId) {
 			return undefined;
 		}
@@ -484,7 +440,7 @@ function createMovedNodeLocator(
 
 async function buildSequenceNodeIdentityIndex(
 	workflowRoot: vscode.Uri,
-	inspectNode: (resource: vscode.Uri, request: AIVideoSequenceNodeInspectRequest) => Promise<vscode.basehalf.CanvasNodeState | undefined>,
+	inspectNode: (resource: vscode.Uri) => Promise<AIVideoSequenceNodeState | undefined>,
 	token?: vscode.CancellationToken
 ): Promise<{ readonly truncated: boolean; readonly byId: ReadonlyMap<string, readonly vscode.Uri[]> }> {
 	throwIfCommandCancelled(token);
@@ -508,7 +464,7 @@ async function buildSequenceNodeIdentityIndex(
 			throwIfCommandCancelled(token);
 			const resource = resources[next++];
 			try {
-				const node = await inspectNode(resource, { versionIds: [], includeCurrent: false });
+				const node = await inspectNode(resource);
 				if (node) {
 					const matches = byId.get(node.id) ?? [];
 					matches.push(resource);
@@ -564,12 +520,12 @@ async function pickVideoCandidate(workflowRoot: vscode.Uri): Promise<SequenceVid
 		try {
 			candidates.push(await loadVideoCandidate(workflowRoot, resource));
 		} catch {
-			// Only saved Video nodes with a verified Current can enter Sequence.
+			// Only sealed Video Result nodes can enter Sequence.
 		}
 	}
 	candidates.sort((left, right) => left.videoNodePath.localeCompare(right.videoNodePath));
 	if (candidates.length === 0) {
-		void vscode.window.showInformationMessage('No saved Video node has a verified Current result to add.');
+		void vscode.window.showInformationMessage('No sealed Video Result is available to add.');
 		return undefined;
 	}
 	if (candidates.length === 1) {
@@ -579,7 +535,7 @@ async function pickVideoCandidate(workflowRoot: vscode.Uri): Promise<SequenceVid
 		label: candidate.suggestedTitle,
 		description: candidate.videoNodePath,
 		candidate
-	})), { placeHolder: 'Choose a Video Current to add to playback order' });
+	})), { placeHolder: 'Choose a Video Result to add to playback order' });
 	return selected?.candidate;
 }
 
@@ -593,23 +549,26 @@ async function loadVideoCandidate(workflowRoot: vscode.Uri, resource: vscode.Uri
 		throw new Error('The Video node and Sequence must belong to the same open workspace folder.');
 	}
 	const videoNodePath = portableDescendantVideoNodePath(workflowRoot.fsPath, resource.fsPath);
-	const node = await vscode.basehalf.inspectCanvasNode(resource, { versionIds: [], includeCurrent: true });
+	const node = await inspectVideoResultNode(resource);
 	if (!node) {
 		throw new Error(`'${videoNodePath}' is not a saved result node.`);
 	}
-	const pin = resolveAIVideoSequenceCurrentPin(node);
+	const result = resolveAIVideoSequenceVideoResult(node);
 	return Object.freeze({
 		resource,
 		videoNodePath,
-		nodeId: pin.nodeId,
-		versionId: pin.versionId,
+		nodeId: result.nodeId,
 		suggestedTitle: suggestedSequenceTitle(videoNodePath)
 	});
 }
 
+async function inspectVideoResultNode(resource: vscode.Uri): Promise<AIVideoSequenceNodeState | undefined> {
+	return vscode.basehalf.inspectCanvasNode(resource);
+}
+
 async function promptForSequenceTitle(suggestedTitle: string): Promise<string | undefined> {
 	return vscode.window.showInputBox({
-		title: 'Add Video Current to Sequence',
+		title: 'Add Video Result to Sequence',
 		prompt: 'Name this clip in playback order',
 		value: suggestedTitle,
 		validateInput: value => {
@@ -680,8 +639,8 @@ async function showSequenceInspection(inspection: AIVideoSequenceInspection): Pr
 		item
 	})), {
 		placeHolder: inspection.valid
-			? inspection.updatesAvailable > 0 ? `${inspection.updatesAvailable} clip update available` : 'All pinned clips are available'
-			: 'One or more pinned clips need attention'
+			? 'All Video Results are available'
+			: 'One or more Video Results need attention'
 	});
 	return selected?.item;
 }
@@ -718,18 +677,14 @@ async function pickMoveDirection(index: number, total: number): Promise<'up' | '
 
 function sequenceStateIcon(item: AIVideoSequenceItemInspection): string {
 	switch (item.state) {
-		case 'current': return '$(check)';
-		case 'pinned': return '$(pin)';
-		case 'updateAvailable': return '$(arrow-up)';
+		case 'result': return '$(check)';
 		case 'invalid': return '$(error)';
 	}
 }
 
 function sequenceStateLabel(item: AIVideoSequenceItemInspection): string {
 	switch (item.state) {
-		case 'current': return 'Current';
-		case 'pinned': return 'Pinned history';
-		case 'updateAvailable': return 'Different Current available';
+		case 'result': return 'Video Result';
 		case 'invalid': return 'Unavailable';
 	}
 }

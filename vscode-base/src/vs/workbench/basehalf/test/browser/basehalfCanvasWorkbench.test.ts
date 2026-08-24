@@ -5,7 +5,8 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
 
 suite('BaseHalfCanvasWorkbench', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -55,6 +56,52 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['new-note.md'], new Set(['existing.md', 'new-note.md'])), true);
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['a.md', 'b.md'], new Set(['a.md'])), false);
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['a.md', 'b.md'], new Set(['a.md', 'b.md'])), true);
+	});
+
+	test('checkpoints prompt-first Video Drafts before locked model setup without persisting incomplete model state', () => {
+		const draft = createBaseHalfNodeDocument({
+			id: '4ab3f61b-08bf-40d7-870d-f98f3673c966',
+			kind: 'video',
+			title: 'Video',
+			role: 'Generated video'
+		});
+		const checkpoint = baseHalfCanvasProvisionalVideoDraftDocument(
+			draft,
+			'  Product reveal  ',
+			'  Generated video  ',
+			'A brushed-metal speaker rotates slowly in warm studio light.'
+		);
+
+		assert.ok(checkpoint);
+		assert.strictEqual(checkpoint.id, draft.id);
+		assert.strictEqual(checkpoint.title, 'Product reveal');
+		assert.strictEqual(checkpoint.role, 'Generated video');
+		assert.strictEqual(checkpoint.prompt, 'A brushed-metal speaker rotates slowly in warm studio light.');
+		assert.strictEqual(checkpoint.recipe, undefined);
+		assert.deepStrictEqual(checkpoint.attempts, []);
+		const persisted = JSON.parse(serializeBaseHalfNodeDocument(checkpoint));
+		assert.strictEqual(persisted.id, draft.id);
+		assert.strictEqual(persisted.prompt, checkpoint.prompt);
+		assert.strictEqual(persisted.recipe, undefined);
+
+		const configured = createBaseHalfNodeDocument({
+			id: '19fc2d97-feb4-4762-bf7e-660a80d45bce',
+			kind: 'video',
+			title: 'Existing video',
+			role: 'Generated video',
+			recipe: {
+				recipeId: 'studio.video',
+				modelServiceId: 'official.connection',
+				modelId: 'reviewed-model',
+				parameters: { duration: 5 },
+				inputBindings: []
+			}
+		});
+		const configuredCheckpoint = baseHalfCanvasProvisionalVideoDraftDocument(configured, configured.title, configured.role, 'Updated prompt');
+		assert.ok(configuredCheckpoint);
+		assert.strictEqual(configuredCheckpoint.recipe, configured.recipe);
+		assert.strictEqual(configuredCheckpoint.prompt, 'Updated prompt');
+		assert.strictEqual(baseHalfCanvasProvisionalVideoDraftDocument({ ...draft, attempts: [{} as never] }, draft.title, draft.role, 'Blocked'), undefined);
 	});
 
 	test('invalidates post-create presentation when interaction or navigation ownership changes', () => {

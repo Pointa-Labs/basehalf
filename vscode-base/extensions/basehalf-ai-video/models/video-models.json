@@ -1,0 +1,751 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "key": {
+        "provider": "byteplus",
+        "deployment": "modelark",
+        "region": "global",
+        "modelId": "dreamina-seedance-2-0-mini-260615",
+        "revision": "2026-06-15"
+      },
+      "label": "Seedance 2.0 Mini",
+      "source": {
+        "url": "https://docs.byteplus.com/en/docs/modelark/1520757",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "text-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 16000 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio",
+              "label": "Aspect Ratio",
+              "type": "enum",
+              "default": "16:9",
+              "options": [
+                { "value": "16:9", "label": "16:9" },
+                { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" },
+                { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" },
+                { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution",
+              "label": "Resolution",
+              "type": "enum",
+              "default": "720p",
+              "options": [
+                { "value": "480p", "label": "480p" },
+                { "value": "720p", "label": "720p" }
+              ]
+            },
+            {
+              "id": "durationSeconds",
+              "label": "Duration",
+              "type": "enum",
+              "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" },
+                { "value": 4, "label": "4s" },
+                { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" },
+                { "value": 7, "label": "7s" },
+                { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" },
+                { "value": 10, "label": "10s" },
+                { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" },
+                { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" },
+                { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        },
+        {
+          "mode": "first-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio",
+              "label": "Aspect Ratio",
+              "type": "enum",
+              "default": "adaptive",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution",
+              "label": "Resolution",
+              "type": "enum",
+              "default": "720p",
+              "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }, { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" }, { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        },
+        {
+          "mode": "first-last-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 },
+            { "kind": "last-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "adaptive",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }, { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" }, { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        },
+        {
+          "mode": "reference-to-video",
+          "availability": {
+            "status": "unavailable",
+            "reason": "Local reference-media upload is not available in this executor yet."
+          },
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "reference-image", "minItems": 1, "maxItems": 9 },
+            { "kind": "reference-video", "minItems": 0, "maxItems": 3 },
+            { "kind": "audio", "minItems": 0, "maxItems": 3 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "adaptive",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }, { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" }, { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        },
+        {
+          "mode": "video-edit",
+          "availability": {
+            "status": "unavailable",
+            "reason": "Local source-video upload is not available in this executor yet."
+          },
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "source-video", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }, { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" }, { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        },
+        {
+          "mode": "video-extension",
+          "availability": {
+            "status": "unavailable",
+            "reason": "Local source-video upload is not available in this executor yet."
+          },
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "source-video", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }, { "value": 13, "label": "13s" },
+                { "value": 14, "label": "14s" }, { "value": 15, "label": "15s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "byteplus",
+        "deployment": "modelark",
+        "region": "global",
+        "modelId": "seedance-1-5-pro-251215",
+        "revision": "2025-12-15"
+      },
+      "label": "Seedance 1.5 Pro",
+      "source": {
+        "url": "https://docs.byteplus.com/en/docs/modelark/1520757",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "text-to-video",
+          "inputs": [{ "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 16000 }],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "16:9",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [
+                { "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" },
+                { "value": "1080p", "label": "1080p" }
+              ]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" },
+                { "value": 5, "label": "5s" }, { "value": 6, "label": "6s" },
+                { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" },
+                { "value": 11, "label": "11s" }, { "value": 12, "label": "12s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true },
+            { "id": "cameraFixed", "label": "Fixed Camera", "type": "boolean", "default": false }
+          ]
+        },
+        {
+          "mode": "first-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "adaptive",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [
+                { "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" },
+                { "value": "1080p", "label": "1080p" }
+              ]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true },
+            { "id": "cameraFixed", "label": "Fixed Camera", "type": "boolean", "default": false }
+          ]
+        },
+        {
+          "mode": "first-last-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 16000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 },
+            { "kind": "last-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "adaptive",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "4:3", "label": "4:3" },
+                { "value": "1:1", "label": "1:1" }, { "value": "3:4", "label": "3:4" },
+                { "value": "9:16", "label": "9:16" }, { "value": "21:9", "label": "21:9" },
+                { "value": "adaptive", "label": "Adaptive" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "720p",
+              "options": [
+                { "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" },
+                { "value": "1080p", "label": "1080p" }
+              ]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": -1, "label": "Auto" }, { "value": 4, "label": "4s" }, { "value": 5, "label": "5s" },
+                { "value": 6, "label": "6s" }, { "value": 7, "label": "7s" }, { "value": 8, "label": "8s" },
+                { "value": 9, "label": "9s" }, { "value": 10, "label": "10s" }, { "value": 11, "label": "11s" },
+                { "value": 12, "label": "12s" }
+              ]
+            },
+            { "id": "generateAudio", "label": "Generate Audio", "type": "boolean", "default": true },
+            { "id": "cameraFixed", "label": "Fixed Camera", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "minimax",
+        "deployment": "international",
+        "region": "global",
+        "modelId": "MiniMax-Hailuo-02",
+        "revision": "2026-08-16"
+      },
+      "label": "MiniMax Hailuo-02",
+      "source": {
+        "url": "https://platform.minimax.io/docs/api-reference/video-generation-t2v",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "text-to-video",
+          "inputs": [{ "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 2000 }],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "768P",
+              "options": [{ "value": "768P", "label": "768P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 6,
+              "options": [{ "value": 6, "label": "6s" }, { "value": 10, "label": "10s" }]
+            },
+            { "id": "promptOptimizer", "label": "Prompt Optimizer", "type": "boolean", "default": true }
+          ],
+          "constraints": [
+            {
+              "id": "resolutionDuration1080", "targetParameterId": "durationSeconds",
+              "when": { "kind": "parameter", "parameterId": "resolution", "operator": "equals", "value": "1080P" },
+              "allowed": { "kind": "values", "values": [6] },
+              "reason": "MiniMax Hailuo-02 supports 1080P output only at 6 seconds."
+            }
+          ]
+        },
+        {
+          "mode": "first-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 2000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "768P",
+              "options": [
+                { "value": "512P", "label": "512P" }, { "value": "768P", "label": "768P" },
+                { "value": "1080P", "label": "1080P" }
+              ]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 6,
+              "options": [{ "value": 6, "label": "6s" }, { "value": 10, "label": "10s" }]
+            },
+            { "id": "promptOptimizer", "label": "Prompt Optimizer", "type": "boolean", "default": true }
+          ],
+          "constraints": [
+            {
+              "id": "resolutionDuration1080", "targetParameterId": "durationSeconds",
+              "when": { "kind": "parameter", "parameterId": "resolution", "operator": "equals", "value": "1080P" },
+              "allowed": { "kind": "values", "values": [6] },
+              "reason": "MiniMax Hailuo-02 supports 1080P output only at 6 seconds."
+            }
+          ]
+        },
+        {
+          "mode": "first-last-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 2000 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 },
+            { "kind": "last-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "768P",
+              "options": [{ "value": "768P", "label": "768P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 6,
+              "options": [{ "value": 6, "label": "6s" }, { "value": 10, "label": "10s" }]
+            },
+            { "id": "promptOptimizer", "label": "Prompt Optimizer", "type": "boolean", "default": true }
+          ],
+          "constraints": [
+            {
+              "id": "resolutionDuration1080", "targetParameterId": "durationSeconds",
+              "when": { "kind": "parameter", "parameterId": "resolution", "operator": "equals", "value": "1080P" },
+              "allowed": { "kind": "values", "values": [6] },
+              "reason": "MiniMax Hailuo-02 supports 1080P output only at 6 seconds."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "alibaba-cloud",
+        "deployment": "international",
+        "region": "ap-southeast-1",
+        "modelId": "wan2.6-t2v",
+        "revision": "2.6"
+      },
+      "label": "Wan 2.6 Text to Video",
+      "source": {
+        "url": "https://www.alibabacloud.com/help/en/model-studio/legacy-wan-text-to-video-api-reference",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "text-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 1500 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "16:9",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "9:16", "label": "9:16" },
+                { "value": "1:1", "label": "1:1" }, { "value": "4:3", "label": "4:3" },
+                { "value": "3:4", "label": "3:4" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
+              "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1 },
+            {
+              "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
+              "options": [
+                { "value": "generate", "label": "Generate" },
+                {
+                  "value": "custom",
+                  "label": "Custom Audio",
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": "Local audio upload is not available in this executor yet."
+                  }
+                }
+              ]
+            },
+            { "id": "promptExtend", "label": "Prompt Enhancement", "type": "boolean", "default": true },
+            {
+              "id": "shotType", "label": "Shot Type", "type": "enum", "default": "single",
+              "enabledWhen": {
+                "condition": { "kind": "parameter", "parameterId": "promptExtend", "operator": "equals", "value": true },
+                "reason": "Shot type requires prompt enhancement."
+              },
+              "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]
+            },
+            { "id": "watermark", "label": "Watermark", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "alibaba-cloud",
+        "deployment": "international",
+        "region": "ap-southeast-1",
+        "modelId": "wan2.6-i2v",
+        "revision": "2.6"
+      },
+      "label": "Wan 2.6 Image to Video",
+      "source": {
+        "url": "https://www.alibabacloud.com/help/en/model-studio/legacy-image-to-video-api-reference/",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "first-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 1500 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
+              "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1 },
+            {
+              "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
+              "options": [
+                { "value": "generate", "label": "Generate" },
+                {
+                  "value": "custom",
+                  "label": "Custom Audio",
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": "Local audio upload is not available in this executor yet."
+                  }
+                }
+              ]
+            },
+            { "id": "promptExtend", "label": "Prompt Enhancement", "type": "boolean", "default": true },
+            {
+              "id": "shotType", "label": "Shot Type", "type": "enum", "default": "single",
+              "enabledWhen": {
+                "condition": { "kind": "parameter", "parameterId": "promptExtend", "operator": "equals", "value": true },
+                "reason": "Shot type requires prompt enhancement."
+              },
+              "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]
+            },
+            { "id": "watermark", "label": "Watermark", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "alibaba-cloud",
+        "deployment": "international",
+        "region": "ap-southeast-1",
+        "modelId": "wan2.6-r2v",
+        "revision": "2.6"
+      },
+      "label": "Wan 2.6 Reference to Video",
+      "source": {
+        "url": "https://www.alibabacloud.com/help/en/model-studio/legacy-wan-reference-to-video-api-reference",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "reference-to-video",
+          "availability": {
+            "status": "unavailable",
+            "reason": "Local reference-media upload is not available in this executor yet."
+          },
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 1500 },
+            { "kind": "reference-image", "minItems": 0, "maxItems": 5 },
+            { "kind": "reference-video", "minItems": 0, "maxItems": 3 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "16:9",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "9:16", "label": "9:16" },
+                { "value": "1:1", "label": "1:1" }, { "value": "4:3", "label": "4:3" },
+                { "value": "3:4", "label": "3:4" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
+              "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 10, "step": 1 },
+            {
+              "id": "shotType", "label": "Shot Type", "type": "enum", "default": "multi",
+              "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]
+            },
+            { "id": "watermark", "label": "Watermark", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "alibaba-cloud",
+        "deployment": "us",
+        "region": "us-east-1",
+        "modelId": "wan2.6-t2v-us",
+        "revision": "2.6"
+      },
+      "label": "Wan 2.6 Text to Video (US)",
+      "source": {
+        "url": "https://www.alibabacloud.com/help/en/model-studio/legacy-wan-text-to-video-api-reference",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "text-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 1, "maxItems": 1, "maxCharacters": 1500 }
+          ],
+          "parameters": [
+            {
+              "id": "aspectRatio", "label": "Aspect Ratio", "type": "enum", "default": "16:9",
+              "options": [
+                { "value": "16:9", "label": "16:9" }, { "value": "9:16", "label": "9:16" },
+                { "value": "1:1", "label": "1:1" }, { "value": "4:3", "label": "4:3" },
+                { "value": "3:4", "label": "3:4" }
+              ]
+            },
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
+              "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": 5, "label": "5s" }, { "value": 10, "label": "10s" }
+              ]
+            },
+            {
+              "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
+              "options": [
+                { "value": "generate", "label": "Generate" },
+                {
+                  "value": "custom",
+                  "label": "Custom Audio",
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": "Local audio upload is not available in this executor yet."
+                  }
+                }
+              ]
+            },
+            { "id": "promptExtend", "label": "Prompt Enhancement", "type": "boolean", "default": true },
+            {
+              "id": "shotType", "label": "Shot Type", "type": "enum", "default": "single",
+              "enabledWhen": {
+                "condition": { "kind": "parameter", "parameterId": "promptExtend", "operator": "equals", "value": true },
+                "reason": "Shot type requires prompt enhancement."
+              },
+              "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]
+            },
+            { "id": "watermark", "label": "Watermark", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    },
+    {
+      "key": {
+        "provider": "alibaba-cloud",
+        "deployment": "us",
+        "region": "us-east-1",
+        "modelId": "wan2.6-i2v-us",
+        "revision": "2.6"
+      },
+      "label": "Wan 2.6 Image to Video (US)",
+      "source": {
+        "url": "https://www.alibabacloud.com/help/en/model-studio/legacy-image-to-video-api-reference/",
+        "verifiedAt": "2026-08-16"
+      },
+      "modes": [
+        {
+          "mode": "first-frame-to-video",
+          "inputs": [
+            { "kind": "text-prompt", "minItems": 0, "maxItems": 1, "maxCharacters": 1500 },
+            { "kind": "first-frame", "minItems": 1, "maxItems": 1 }
+          ],
+          "parameters": [
+            {
+              "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
+              "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
+            },
+            {
+              "id": "durationSeconds", "label": "Duration", "type": "enum", "default": 5,
+              "options": [
+                { "value": 5, "label": "5s" }, { "value": 10, "label": "10s" },
+                { "value": 15, "label": "15s" }
+              ]
+            },
+            {
+              "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
+              "options": [
+                { "value": "generate", "label": "Generate" },
+                {
+                  "value": "custom",
+                  "label": "Custom Audio",
+                  "availability": {
+                    "status": "unavailable",
+                    "reason": "Local audio upload is not available in this executor yet."
+                  }
+                }
+              ]
+            },
+            { "id": "promptExtend", "label": "Prompt Enhancement", "type": "boolean", "default": true },
+            {
+              "id": "shotType", "label": "Shot Type", "type": "enum", "default": "single",
+              "enabledWhen": {
+                "condition": { "kind": "parameter", "parameterId": "promptExtend", "operator": "equals", "value": true },
+                "reason": "Shot type requires prompt enhancement."
+              },
+              "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]
+            },
+            { "id": "watermark", "label": "Watermark", "type": "boolean", "default": false }
+          ]
+        }
+      ]
+    }
+  ]
+}

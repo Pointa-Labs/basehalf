@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "connections": [
+    {
+      "id": "pointa.basehalf-ai-video.byteplus-modelark",
+      "label": "Seedance via BytePlus ModelArk",
+      "providerLabel": "BytePlus",
+      "helpUrl": "https://docs.byteplus.com/en/docs/modelark/1520757",
+      "providerId": "byteplus",
+      "deploymentId": "modelark",
+      "region": "global",
+      "capabilities": ["video"],
+      "authorization": "bearer",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API Key",
+          "description": "BytePlus ModelArk API key.",
+          "placeholder": "Paste your BytePlus API key",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "endpointPolicy": {
+        "type": "fixed",
+        "endpoint": "https://ark.ap-southeast.bytepluses.com"
+      }
+    },
+    {
+      "id": "pointa.basehalf-ai-video.minimax-international",
+      "label": "MiniMax International",
+      "providerLabel": "MiniMax",
+      "helpUrl": "https://platform.minimax.io/docs/api-reference/video-generation-t2v",
+      "providerId": "minimax",
+      "deploymentId": "international",
+      "region": "global",
+      "capabilities": ["video"],
+      "authorization": "bearer",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API Key",
+          "description": "MiniMax international platform API key.",
+          "placeholder": "Paste your MiniMax API key",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "endpointPolicy": {
+        "type": "fixed",
+        "endpoint": "https://api.minimax.io"
+      }
+    },
+    {
+      "id": "pointa.basehalf-ai-video.wan-international",
+      "label": "Wan International",
+      "providerLabel": "Alibaba Cloud",
+      "helpUrl": "https://www.alibabacloud.com/help/en/model-studio/legacy-wan-text-to-video-api-reference",
+      "providerId": "alibaba-cloud",
+      "deploymentId": "international",
+      "region": "ap-southeast-1",
+      "capabilities": ["video"],
+      "authorization": "bearer",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API Key",
+          "description": "Model Studio API key created for the international deployment.",
+          "placeholder": "Paste your Model Studio API key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "id": "apiHost",
+          "label": "API Host",
+          "description": "International Model Studio host documented for this key.",
+          "placeholder": "https://dashscope-intl.aliyuncs.com",
+          "required": true,
+          "type": "url",
+          "default": "https://dashscope-intl.aliyuncs.com"
+        }
+      ],
+      "endpointPolicy": {
+        "type": "field",
+        "fieldId": "apiHost",
+        "allowlist": {
+          "exact": ["https://dashscope-intl.aliyuncs.com"],
+          "subdomains": []
+        }
+      }
+    },
+    {
+      "id": "pointa.basehalf-ai-video.wan-us",
+      "label": "Wan United States",
+      "providerLabel": "Alibaba Cloud",
+      "helpUrl": "https://www.alibabacloud.com/help/en/model-studio/legacy-wan-text-to-video-api-reference",
+      "providerId": "alibaba-cloud",
+      "deploymentId": "us",
+      "region": "us-east-1",
+      "capabilities": ["video"],
+      "authorization": "bearer",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API Key",
+          "description": "Model Studio API key created for the United States deployment.",
+          "placeholder": "Paste your Model Studio API key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "id": "apiHost",
+          "label": "API Host",
+          "description": "United States Model Studio host documented for this key.",
+          "placeholder": "https://dashscope-us.aliyuncs.com",
+          "required": true,
+          "type": "url",
+          "default": "https://dashscope-us.aliyuncs.com"
+        }
+      ],
+      "endpointPolicy": {
+        "type": "field",
+        "fieldId": "apiHost",
+        "allowlist": {
+          "exact": ["https://dashscope-us.aliyuncs.com"],
+          "subdomains": []
+        }
+      }
+    }
+  ]
+}

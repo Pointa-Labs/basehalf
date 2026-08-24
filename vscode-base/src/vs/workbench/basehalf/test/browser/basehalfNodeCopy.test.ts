@@ -12,12 +12,10 @@ import { InMemoryFileSystemProvider } from '../../../../platform/files/common/in
 import { NullLogService } from '../../../../platform/log/common/log.js';
 import { BASEHALF_NODE_COPY_MAX_CANDIDATES, forkCopiedBaseHalfNodeTrees, forkPartiallyCopiedBaseHalfNodeTrees, prepareBaseHalfNodeCopyPlans } from '../../browser/basehalfNodeCopy.js';
 import {
-	beginBaseHalfNodeRun,
+	beginBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
-	failBaseHalfNodeRun,
+	failBaseHalfNodeAttempt,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeImportedRevision,
-	importBaseHalfNodeCurrent,
 	parseBaseHalfNodeDocument,
 	serializeBaseHalfNodeDocument
 } from '../../common/basehalfNodeDocument.js';
@@ -74,9 +72,9 @@ suite('BaseHalfNodeCopy', () => {
 		assert.strictEqual(copied.kind, 'image');
 		assert.strictEqual(copied.title, 'Hero frame');
 		assert.strictEqual(copied.role, 'Key visual');
-		assert.deepStrictEqual(copied.current, { source: 'empty', outputPaths: [] });
-		assert.deepStrictEqual(copied.revisions, []);
-		assert.deepStrictEqual(copied.runs, []);
+		assert.strictEqual(copied.prompt, 'A warm editorial hero frame.');
+		assert.strictEqual(copied.result, undefined);
+		assert.deepStrictEqual(copied.attempts, []);
 		assert.deepStrictEqual(copied.recipe, {
 			recipeId: 'official.image.generate',
 			modelServiceId: 'studio.image',
@@ -162,7 +160,7 @@ suite('BaseHalfNodeCopy', () => {
 		const retained = parseBaseHalfNodeDocument((await fileService.readFile(targetNode)).value.toString());
 		assert.strictEqual(retained.id, baseHalfNodeTestId(1));
 		assert.strictEqual(retained.title, 'Hero frame');
-		assert.notDeepStrictEqual(retained.current, { source: 'empty', outputPaths: [] });
+		assert.strictEqual(retained.attempts.length, 1);
 	});
 
 	test('keeps a newly materialized target unchanged when an unobserved late source disappeared', async () => {
@@ -244,7 +242,7 @@ suite('BaseHalfNodeCopy', () => {
 		const retained = parseBaseHalfNodeDocument((await fileService.readFile(target)).value.toString());
 		assert.strictEqual(retained.id, original.id);
 		assert.strictEqual(retained.title, 'Edited copied node');
-		assert.deepStrictEqual(retained.current, original.current);
+		assert.deepStrictEqual(retained.attempts, original.attempts);
 	});
 
 	test('bounds the number of result declarations inspected before a copy', async () => {
@@ -284,32 +282,19 @@ suite('BaseHalfNodeCopy', () => {
 
 		assert.deepStrictEqual(forked.map(resource => resource.toString()), [targetCopied.toString()]);
 		assert.strictEqual(separated.id, baseHalfNodeTestId(7));
-		assert.deepStrictEqual(separated.current, { source: 'empty', outputPaths: [] });
-		assert.deepStrictEqual(separated.runs, []);
+		assert.strictEqual(separated.result, undefined);
+		assert.deepStrictEqual(separated.attempts, []);
 		assert.strictEqual(retained.id, baseHalfNodeTestId(6));
 		assert.strictEqual(retained.title, 'Existing');
 	});
 
 	function nodeWithHistory(): IBaseHalfNodeDocument {
-		const revision: IBaseHalfNodeImportedRevision = {
-			id: 'revision-1',
-			source: 'imported',
-			createdAt: '2026-07-18T10:00:00Z',
-			artifacts: [{
-				id: 'artifact-1',
-				outputId: 'imported',
-				kind: 'image',
-				path: 'assets/original/reference.png',
-				sha256: 'A'.repeat(43),
-				size: 100
-			}],
-			primaryArtifactId: 'artifact-1'
-		};
 		let document = createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
 			kind: 'image',
 			title: 'Hero frame',
 			role: 'Key visual',
+			prompt: 'A warm editorial hero frame.',
 			recipe: {
 				recipeId: 'official.image.generate',
 				modelServiceId: 'studio.image',
@@ -318,8 +303,7 @@ suite('BaseHalfNodeCopy', () => {
 				inputBindings: [{ sourcePath: 'brief.md', slot: 'prompt', order: 0 }]
 			}
 		});
-		document = importBaseHalfNodeCurrent(document, revision);
-		document = beginBaseHalfNodeRun(document, {
+		document = beginBaseHalfNodeAttempt(document, {
 			id: 'run-1',
 			createdAt: '2026-07-18T10:01:00Z',
 			startedAt: '2026-07-18T10:01:00Z',
@@ -332,7 +316,7 @@ suite('BaseHalfNodeCopy', () => {
 			},
 			inputs: []
 		});
-		return failBaseHalfNodeRun(document, 'run-1', {
+		return failBaseHalfNodeAttempt(document, 'run-1', {
 			completedAt: '2026-07-18T10:01:01Z',
 			error: 'Stopped'
 		});
