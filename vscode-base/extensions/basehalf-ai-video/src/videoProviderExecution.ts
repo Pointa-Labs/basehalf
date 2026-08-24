@@ -29,6 +29,7 @@ const DEFAULT_MAXIMUM_POLL_ATTEMPTS = 180;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 const REMOTE_CANCEL_TIMEOUT_MS = 10_000;
 const MAX_SAFE_READ_RETRIES = 3;
+const MAX_HTTP_REDIRECTS = 5;
 
 export interface VideoProviderExecutionAccess {
 	readonly endpoint: string;
@@ -326,16 +327,25 @@ export async function executeSerializedVideoProviderRequest(
 	}
 }
 
-export function createNodeVideoHttpClient(): VideoHttpClient {
-	return async (request, cancellation) => requestWithRedirects(request, cancellation, request.maximumRedirects ?? 0);
+export function createNodeVideoHttpClient(rawRequest: VideoHttpClient = requestOnce): VideoHttpClient {
+	return async (request, cancellation) => requestWithRedirects(
+		request,
+		cancellation,
+		boundedInteger(request.maximumRedirects ?? 0, 0, MAX_HTTP_REDIRECTS, 'HTTP redirect limit'),
+		rawRequest
+	);
 }
 
 async function requestWithRedirects(
 	request: VideoHttpRequest,
 	cancellation: VideoExecutionCancellation,
-	redirectsRemaining: number
+	redirectsRemaining: number,
+	rawRequest: VideoHttpClient
 ): Promise<VideoHttpResponse> {
-	const response = await requestOnce(request, cancellation);
+	const response = await rawRequest(request, cancellation);
+	if (response.body.byteLength > request.maximumResponseBytes) {
+		throw new VideoProviderProtocolError(`HTTP response exceeds the ${request.maximumResponseBytes}-byte limit.`);
+	}
 	if (![301, 302, 303, 307, 308].includes(response.status)) {
 		return response;
 	}
@@ -353,7 +363,7 @@ async function requestWithRedirects(
 		headers,
 		...(response.status === 303 ? { method: 'GET', body: undefined } : {}),
 		maximumRedirects: redirectsRemaining - 1
-	}, cancellation, redirectsRemaining - 1);
+	}, cancellation, redirectsRemaining - 1, rawRequest);
 }
 
 function requestOnce(request: VideoHttpRequest, cancellation: VideoExecutionCancellation): Promise<VideoHttpResponse> {

@@ -243,15 +243,40 @@ suite('BaseHalfNodeDocument', () => {
 			() => freezeBaseHalfNodeAttemptProviderRequestId(submitted, 'attempt-1', 'provider/task-43'),
 			/already has a different provider request id/
 		);
-		const resubmitted = replaceBaseHalfNodeAttemptProviderRequestId(
+		assert.throws(() => replaceBaseHalfNodeAttemptProviderRequestId(
 			submitted,
 			'attempt-1',
 			'provider/task-42',
 			'provider/task-43'
+		), /has no authorization to replace/);
+		const source = interruptBaseHalfNodeAttempt(submitted, 'attempt-1', {
+			completedAt: '2026-08-13T08:01:00.000Z',
+			error: 'Provider polling stopped.'
+		});
+		let retry = beginBaseHalfNodeAttempt(source, {
+			...beginOptions('attempt-2'),
+			createdAt: '2026-08-13T08:02:00.000Z',
+			startedAt: '2026-08-13T08:02:00.000Z'
+		});
+		retry = freezeBaseHalfNodeAttemptProviderRequestId(retry, 'attempt-2', 'provider/task-42');
+		retry = freezeBaseHalfNodeAttemptExecution(retry, 'attempt-2', {
+			requestFingerprint: `v1:${'A'.repeat(43)}`,
+			intent: {
+				kind: 'exact-retry',
+				sourceAttemptId: 'attempt-1',
+				providerRequestId: 'provider/task-42',
+				replacementAuthorized: true
+			}
+		});
+		const resubmitted = replaceBaseHalfNodeAttemptProviderRequestId(
+			retry,
+			'attempt-2',
+			'provider/task-42',
+			'provider/task-43'
 		);
-		assert.strictEqual(resubmitted.attempts[0].providerRequestId, 'provider/task-43');
+		assert.strictEqual(resubmitted.attempts[1].providerRequestId, 'provider/task-43');
 		assert.throws(
-			() => replaceBaseHalfNodeAttemptProviderRequestId(resubmitted, 'attempt-1', 'provider/task-42', 'provider/task-44'),
+			() => replaceBaseHalfNodeAttemptProviderRequestId(resubmitted, 'attempt-2', 'provider/task-42', 'provider/task-44'),
 			/no longer has the expected provider request id/
 		);
 		const failed = failBaseHalfNodeAttempt(submitted, 'attempt-1', {
@@ -293,6 +318,24 @@ suite('BaseHalfNodeDocument', () => {
 			() => normalizeBaseHalfNodeAttemptFailure({ kind: 'submission-ambiguous', retry: 'fresh-submit' }),
 			/retry must be 'blocked'/
 		);
+		assert.throws(
+			() => normalizeBaseHalfNodeAttemptFailure({ kind: 'remote-failed', retry: 'blocked' }),
+			/providerRequestId is required/
+		);
+		assert.throws(() => interruptBaseHalfNodeAttempt(authorized, 'attempt-1', {
+			completedAt: '2026-08-13T08:01:00.000Z',
+			error: 'Rejected before acceptance.',
+			failure: { kind: 'submission-rejected', retry: 'fresh-submit' }
+		}), /requires terminal status 'failed'/);
+		assert.throws(() => failBaseHalfNodeAttempt(acknowledged, 'attempt-1', {
+			completedAt: '2026-08-13T08:01:00.000Z',
+			error: 'Polling stopped.',
+			failure: {
+				kind: 'poll-interrupted',
+				retry: 'resume-existing',
+				providerRequestId: 'provider/task-42'
+			}
+		}), /requires terminal status 'interrupted'/);
 	});
 
 	test('round-trips the durable Attempt snapshot manifest and keeps legacy v3 Attempts readable', () => {

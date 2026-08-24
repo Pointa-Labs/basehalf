@@ -75,6 +75,38 @@ suite('BaseHalfNodeExecutionService', () => {
 		});
 	});
 
+	test('sanitizes extension progress before exposing active host state', async () => {
+		const harness = await createHarness(imageRecipe());
+		const visibleMessages: string[] = [];
+		const listener = harness.service.onDidChange(event => {
+			if (event.state?.message) {
+				visibleMessages.push(event.state.message);
+			}
+		});
+		try {
+			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode'));
+			const secret = 'progress-secret-that-must-not-be-visible';
+			harness.registerExecutor(async (request, progress) => {
+				progress.report({
+					message: `Working\u0000\nhttps://provider.example/task?token=${secret} Authorization: Bearer ${secret}`,
+					increment: 25
+				});
+				const artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('frame'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+
+			await harness.service.run(harness.node('frame.bhnode'));
+			assert.ok(visibleMessages.some(message => message.startsWith('Working')));
+			assert.strictEqual(visibleMessages.some(message => message.includes(secret)), false);
+			assert.strictEqual(visibleMessages.some(message => /[\u0000-\u001F\u007F-\u009F]/.test(message)), false);
+			assert.strictEqual(visibleMessages.some(message => message.includes('provider.example')), false);
+		} finally {
+			listener.dispose();
+			await harness.dispose();
+		}
+	});
+
 	test('seals the first successful attempt as exactly one local Result file', async () => {
 		const harness = await createHarness(imageRecipe());
 		try {
@@ -129,6 +161,39 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
+	test('serializes repeated Generate into one active lease and one Attempt', async () => {
+		const harness = await createHarness(imageRecipe());
+		try {
+			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode'));
+			let started!: () => void;
+			const didStart = new Promise<void>(resolve => { started = resolve; });
+			let release!: () => void;
+			const released = new Promise<void>(resolve => { release = resolve; });
+			let calls = 0;
+			harness.registerExecutor(async request => {
+				calls++;
+				started();
+				await released;
+				const artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('frame'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+
+			const first = harness.service.run(harness.node('frame.bhnode'));
+			await didStart;
+			await assert.rejects(() => harness.service.run(harness.node('frame.bhnode')), /already has an active run/);
+			release();
+			const completed = await first;
+			assert.deepStrictEqual({ calls, attempts: completed.attempts.length, status: completed.attempts[0].status }, {
+				calls: 1,
+				attempts: 1,
+				status: 'succeeded'
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	test('retries an acknowledged remote task by resuming the same provider id', async () => {
 		const harness = await createHarness(imageRecipe());
 		try {
@@ -168,7 +233,7 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
-	test('records one replacement task id when a resumed provider task is terminal', async () => {
+	test('rejects replacement of a resumed task id without an exact Retry authorization', async () => {
 		const harness = await createHarness(imageRecipe());
 		try {
 			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode'));
@@ -193,11 +258,21 @@ suite('BaseHalfNodeExecutionService', () => {
 			const result = await harness.service.run(harness.node('frame.bhnode'));
 			assert.deepStrictEqual(result.attempts.map(attempt => ({
 				status: attempt.status,
-				providerRequestId: attempt.providerRequestId
+				providerRequestId: attempt.providerRequestId,
+				failure: attempt.failure
 			})), [
-				{ status: 'failed', providerRequestId: 'provider/task-terminal' },
-				{ status: 'succeeded', providerRequestId: 'provider/task-replacement' }
+				{ status: 'failed', providerRequestId: 'provider/task-terminal', failure: undefined },
+				{
+					status: 'interrupted',
+					providerRequestId: 'provider/task-terminal',
+					failure: {
+						kind: 'remote-id-uncommitted',
+						retry: 'blocked',
+						uncommittedProviderRequestId: 'provider/task-replacement'
+					}
+				}
 			]);
+			assert.strictEqual(result.result, undefined);
 		} finally {
 			await harness.dispose();
 		}
@@ -335,6 +410,59 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
+	test('does not acknowledge or poll a new provider task after an acknowledgement CAS conflict', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let continuedAfterAcknowledgement = false;
+			harness.registerExecutor(async request => {
+				await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+				await request.acknowledgeProviderRequestId('provider/video-uncommitted');
+				continuedAfterAcknowledgement = true;
+				throw new Error('A conflicted acknowledgement must stop provider polling.');
+			});
+			let conflicted = false;
+			harness.setConditionalWriteHook(async (resource, contents) => {
+				if (conflicted || !resource.path.endsWith('/frame.bhnode')) {
+					return;
+				}
+				const candidate = JSON.parse(contents.toString()) as IBaseHalfNodeDocument;
+				if (candidate.attempts.at(-1)?.providerRequestId !== 'provider/video-uncommitted') {
+					return;
+				}
+				conflicted = true;
+				const current = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+				await harness.writeNode('frame.bhnode', { ...current, title: 'Externally renamed before acknowledgement' });
+			});
+
+			const result = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+			assert.deepStrictEqual({
+				conflicted,
+				continuedAfterAcknowledgement,
+				title: result.title,
+				status: result.attempts[0].status,
+				providerRequestId: result.attempts[0].providerRequestId,
+				failure: result.attempts[0].failure,
+				result: result.result
+			}, {
+				conflicted: true,
+				continuedAfterAcknowledgement: false,
+				title: 'Externally renamed before acknowledgement',
+				status: 'interrupted',
+				providerRequestId: undefined,
+				failure: {
+					kind: 'remote-id-uncommitted',
+					retry: 'blocked',
+					uncommittedProviderRequestId: 'provider/video-uncommitted'
+				},
+				result: undefined
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	test('rejects a provider result id that was not durably acknowledged', async () => {
 		const harness = await createHarness(imageRecipe());
 		try {
@@ -417,6 +545,68 @@ suite('BaseHalfNodeExecutionService', () => {
 			);
 			assert.strictEqual(providerCalls, 0);
 			assert.strictEqual((JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 0);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('records post-commit input drift before any provider create or executor handoff', async () => {
+		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
+		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
+			const sourceBytes = 'stable-preflight-image';
+			await harness.fileService.createFolder(harness.resource('assets/source'));
+			await harness.write('assets/source/reference.png', sourceBytes);
+			await harness.writeNode('source.bhnode', importBaseHalfNodeResult(createBaseHalfNodeDocument({
+				id: baseHalfNodeTestId(2),
+				kind: 'image',
+				title: 'Source',
+				role: 'first-frame'
+			}), {
+				id: 'source-artifact',
+				outputId: 'imported',
+				kind: 'image',
+				path: 'assets/source/reference.png',
+				sha256: await sha256(sourceBytes),
+				size: new TextEncoder().encode(sourceBytes).byteLength
+			}));
+			await harness.writeNode('clip.bhnode', videoFirstFrameNodeDocument('2026-08-16'));
+			let executorCalls = 0;
+			harness.registerExecutor(async () => {
+				executorCalls++;
+				throw new Error('Input drift must stop before executor handoff.');
+			});
+			const options = await harness.providerRunOptions('clip.bhnode');
+			let changed = false;
+			harness.setConditionalWriteHook(async (resource, contents) => {
+				if (changed || !resource.path.endsWith('/clip.bhnode')) {
+					return;
+				}
+				const candidate = JSON.parse(contents.toString()) as IBaseHalfNodeDocument;
+				if (candidate.attempts.at(-1)?.status !== 'running') {
+					return;
+				}
+				changed = true;
+				await harness.write('assets/source/reference.png', 'changed-after-attempt-commit');
+			});
+
+			const result = await harness.service.run(harness.node('clip.bhnode'), options);
+			assert.deepStrictEqual({
+				changed,
+				executorCalls,
+				attempts: result.attempts.length,
+				status: result.attempts[0].status,
+				failure: result.attempts[0].failure,
+				result: result.result
+			}, {
+				changed: true,
+				executorCalls: 0,
+				attempts: 1,
+				status: 'failed',
+				failure: { kind: 'preparation', retry: 'fresh-submit' },
+				result: undefined
+			});
 		} finally {
 			await harness.dispose();
 		}
@@ -1763,6 +1953,51 @@ suite('BaseHalfNodeExecutionService', () => {
 				status: 'succeeded',
 				artifactId: 'frame',
 				persisted: result
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('fails a Result seal closed on one exact-content CAS conflict', async () => {
+		const harness = await createHarness(imageRecipe());
+		try {
+			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode'));
+			let artifact: URI | undefined;
+			harness.registerExecutor(async request => {
+				artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('candidate-result'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+			let conflicted = false;
+			harness.setConditionalWriteHook(async (resource, contents) => {
+				if (conflicted || !resource.path.endsWith('/frame.bhnode')) {
+					return;
+				}
+				const candidate = JSON.parse(contents.toString()) as IBaseHalfNodeDocument;
+				if (!candidate.result) {
+					return;
+				}
+				conflicted = true;
+				const current = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+				await harness.writeNode('frame.bhnode', { ...current, title: 'Externally renamed while sealing' });
+			});
+
+			const result = await harness.service.run(harness.node('frame.bhnode'));
+			assert.deepStrictEqual({
+				conflicted,
+				title: result.title,
+				status: result.attempts[0].status,
+				failure: result.attempts[0].failure,
+				result: result.result,
+				artifactRemoved: artifact !== undefined && !await harness.fileService.exists(artifact)
+			}, {
+				conflicted: true,
+				title: 'Externally renamed while sealing',
+				status: 'interrupted',
+				failure: { kind: 'artifact-commit', retry: 'blocked' },
+				result: undefined,
+				artifactRemoved: true
 			});
 		} finally {
 			await harness.dispose();

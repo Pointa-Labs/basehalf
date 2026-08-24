@@ -74,6 +74,10 @@ import {
 } from '../common/basehalfNodeDocument.js';
 import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
 import {
+	createBaseHalfProviderCreateAuthorizationGrant,
+	createBaseHalfProviderRequestFingerprint
+} from '../common/basehalfProviderAuthorization.js';
+import {
 	BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID,
 	BaseHalfVideoInputState,
 	getBaseHalfVideoPromptProblem,
@@ -264,16 +268,6 @@ interface IInputFingerprintCacheEntry {
 	readonly size: number;
 	readonly isDirectory: boolean;
 	readonly digest: string;
-}
-
-interface IBaseHalfProviderFingerprintInput {
-	readonly nodeId: string;
-	readonly nodePath: string;
-	readonly recipe: IBaseHalfNodeRecipe;
-	readonly prompt: string;
-	readonly model?: IBaseHalfModelServiceAttemptSnapshot;
-	readonly inputs: readonly IBaseHalfNodeAttemptInput[];
-	readonly intent: BaseHalfCanvasProviderTaskIntent;
 }
 
 type BaseHalfProviderCreateTaskIntent = Extract<BaseHalfCanvasProviderTaskIntent, { readonly kind: 'new' | 'exact-retry' }>;
@@ -965,6 +959,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		await this.preflightRunDirectory(node.workspaceFolder, runDirectory);
 		this.throwIfCancelled(active);
 		await this.assertRunLease(active);
+		const providerCreateAuthorizationGrant = providerRequestFingerprint !== undefined && providerCreateAuthorizationKind !== undefined
+			? createBaseHalfProviderCreateAuthorizationGrant(providerRequestFingerprint, active.runId, providerCreateAuthorizationKind)
+			: undefined;
 		let persistedRun = false;
 		let expectedRunRealpath: URI | undefined;
 		let expectedOutputRealpath: URI | undefined;
@@ -975,7 +972,6 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		let providerRequestAcknowledgementError: Error | undefined;
 		let uncommittedProviderRequestId: string | undefined;
 		let reportedProviderFailure: IBaseHalfNodeAttemptFailure | undefined;
-		let providerCreateAuthorizationConsumed = false;
 		let executorInvoked = false;
 		let executorExecution: Promise<IBaseHalfCanvasRecipeExecutionResult> | undefined;
 		let runDirectoryOwned = false;
@@ -1059,8 +1055,12 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			}
 			if (recipe.modelCapability === 'video') {
 				const snapshotManifest = await this.createAttemptSnapshotManifest(node, recipe, frozenNodeResource, inputs);
-				running = await this.patchNode(node, true, current =>
-					freezeBaseHalfNodeAttemptSnapshotManifest(current, active.runId, snapshotManifest));
+				const manifested = freezeBaseHalfNodeAttemptSnapshotManifest(running, active.runId, snapshotManifest);
+				running = await this.commitExact(
+					node,
+					VSBuffer.fromString(serializeBaseHalfNodeDocument(running)),
+					manifested
+				);
 			}
 			this.throwIfCancelled(active);
 			await this.assertRunLease(active);
@@ -1084,18 +1084,17 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 					: { resumeProviderRequestId: retrySource.providerRequestId }),
 				...(providerRequestFingerprint === undefined || providerCreateAuthorizationKind === undefined ? {} : {
 					consumeProviderCreateAuthorization: async (fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void> => {
-						if (fingerprint !== providerRequestFingerprint || attemptId !== active.runId
-							|| kind !== providerCreateAuthorizationKind) {
-							throw new Error('The provider create authorization does not match this immutable Attempt.');
-						}
-						if (providerCreateAuthorizationConsumed) {
-							throw new Error('The provider create authorization has already been consumed.');
+						if (!providerCreateAuthorizationGrant) {
+							throw new Error('The provider create authorization is unavailable.');
 						}
 						if (active.cancellation.token.isCancellationRequested || active.leaseLost || active.leaseClosing) {
 							throw new Error('The provider create authorization is no longer active.');
 						}
-						providerCreateAuthorizationConsumed = true;
 						await this.assertRunLease(active);
+						if (active.cancellation.token.isCancellationRequested || active.leaseLost || active.leaseClosing) {
+							throw new Error('The provider create authorization is no longer active.');
+						}
+						providerCreateAuthorizationGrant.consume(fingerprint, attemptId, kind);
 					}
 				}),
 				...(providerTaskIntent === undefined ? {} : {
@@ -1122,25 +1121,35 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 								|| acknowledgedProviderRequestId !== inheritedProviderRequestId) {
 								throw new Error('The video provider changed its request id more than once during one Attempt.');
 							}
-							if (providerTaskIntent?.kind === 'exact-retry' && !providerCreateAuthorizationConsumed) {
+							if (providerTaskIntent?.kind === 'exact-retry' && providerCreateAuthorizationGrant?.state !== 'consumed') {
 								throw new Error('The provider replacement task was not covered by this Attempt authorization.');
 							}
 							await this.assertRunLease(active);
-							await this.patchNode(node, true, current => replaceBaseHalfNodeAttemptProviderRequestId(
-								current,
+							const acknowledged = replaceBaseHalfNodeAttemptProviderRequestId(
+								running,
 								active.runId,
 								inheritedProviderRequestId,
 								providerRequestId
-							));
+							);
+							running = await this.commitExact(
+								node,
+								VSBuffer.fromString(serializeBaseHalfNodeDocument(running)),
+								acknowledged
+							);
 							acknowledgedProviderRequestId = providerRequestId;
 							mayReplaceInheritedProviderRequestId = false;
 							return;
 						}
-						if (providerTaskIntent?.kind === 'new' && !providerCreateAuthorizationConsumed) {
+						if (providerTaskIntent?.kind === 'new' && providerCreateAuthorizationGrant?.state !== 'consumed') {
 							throw new Error('The provider task was not covered by this Attempt authorization.');
 						}
 						await this.assertRunLease(active);
-						await this.patchNode(node, true, current => freezeBaseHalfNodeAttemptProviderRequestId(current, active.runId, providerRequestId));
+						const acknowledged = freezeBaseHalfNodeAttemptProviderRequestId(running, active.runId, providerRequestId);
+						running = await this.commitExact(
+							node,
+							VSBuffer.fromString(serializeBaseHalfNodeDocument(running)),
+							acknowledged
+						);
 						acknowledgedProviderRequestId = providerRequestId;
 					});
 					providerRequestAcknowledgement = operation.catch(error => {
@@ -1183,19 +1192,30 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			accepted = acceptedResult;
 			await this.assertRunLease(active);
 			this.beginResultCommit(node.resource, active);
-			return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
+			const sealed = completeBaseHalfNodeAttempt(running, active.runId, {
 				completedAt: new Date().toISOString(),
 				...acceptedResult
-			}));
+			});
+			providerCreateAuthorizationGrant?.invalidate();
+			return await this.commitExact(node, VSBuffer.fromString(serializeBaseHalfNodeDocument(running)), sealed);
 		} catch (error) {
+			providerCreateAuthorizationGrant?.invalidate();
 			if (!persistedRun) {
 				throw error;
 			}
 			await providerRequestAcknowledgement;
 			const executionFailure = providerRequestAcknowledgementError ?? error;
-			const preserveSealedCandidate = accepted !== undefined && active.resultCommitStarted && !active.leaseLost;
+			if (reportedProviderFailure === undefined && accepted !== undefined && active.resultCommitStarted) {
+				reportedProviderFailure = normalizeBaseHalfNodeAttemptFailure(acknowledgedProviderRequestId === undefined
+					? { kind: 'artifact-commit', retry: 'blocked' }
+					: {
+						kind: 'artifact-commit',
+						retry: 'resume-existing',
+						providerRequestId: acknowledgedProviderRequestId
+					});
+			}
 			let provisionalCleanupRetained = false;
-			if (!preserveSealedCandidate && runDirectoryOwned && expectedRunRealpath && expectedOutputRealpath) {
+			if (runDirectoryOwned && expectedRunRealpath && expectedOutputRealpath) {
 				if (executorExecution) {
 					// Preserve the guard and verified output directory until a
 					// non-cooperative executor settles. Removing that ownership
@@ -1236,7 +1256,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 						expectedOutputRealpath
 					);
 				}
-			} else if (!preserveSealedCandidate && await this.fileService.exists(runDirectory)) {
+			} else if (await this.fileService.exists(runDirectory)) {
 				// Without this invocation's verified guard capability, even a path
 				// under the reserved output tree is not safe to delete recursively.
 				provisionalCleanupRetained = true;
@@ -1265,22 +1285,6 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 					});
 			}
 			await this.assertRunLease(active);
-			if (accepted && active.resultCommitStarted) {
-				const acceptedResult = accepted;
-				try {
-					return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
-						completedAt: new Date().toISOString(),
-						...acceptedResult
-					}));
-				} catch (commitError) {
-					const cleaned = runDirectoryOwned && expectedRunRealpath && expectedOutputRealpath
-						? await (recipe.modelCapability === 'video'
-							? this.cleanupOwnedRunContents(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath)
-							: this.cleanupOwnedRunDirectory(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath))
-						: false;
-					throw new Error(`The verified Result could not be committed and was not sealed.${cleaned ? '' : ' Unsealed run data was retained because safe cleanup could not be proven.'}`, { cause: commitError });
-				}
-			}
 			const providerDisclosure = providerResult && !active.userCancelled ? {
 				...(acknowledgedProviderRequestId === undefined ? {} : { providerRequestId: acknowledgedProviderRequestId }),
 				...(providerResult.usage === undefined ? {} : { usage: providerResult.usage }),
@@ -1402,23 +1406,20 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			accepted = acceptedResult;
 			await this.assertRunLease(active);
 			this.beginResultCommit(node.resource, active);
-			return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
+			const sealed = completeBaseHalfNodeAttempt(context.document, active.runId, {
 				completedAt: new Date().toISOString(),
 				...acceptedResult
-			}));
+			});
+			return await this.commitExact(node, initial.content.value, sealed);
 		} catch (error) {
 			if (active.leaseLost) {
 				throw new Error('Recovery lost execution ownership before it could accept a Result.', { cause: error });
 			}
-			if (accepted && active.resultCommitStarted) {
-				try {
-					return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
-						completedAt: new Date().toISOString(),
-						...accepted!
-					}));
-				} catch (commitError) {
-					throw new Error('The recovered Result could not be committed and was not sealed.', { cause: commitError });
-				}
+			if (reportedProviderFailure === undefined && accepted !== undefined && active.resultCommitStarted) {
+				const providerRequestId = initial.document.attempts.find(attempt => attempt.id === active.runId)?.providerRequestId;
+				reportedProviderFailure = normalizeBaseHalfNodeAttemptFailure(providerRequestId === undefined
+					? { kind: 'artifact-commit', retry: 'blocked' }
+					: { kind: 'artifact-commit', retry: 'resume-existing', providerRequestId });
 			}
 			let retainedRunData = false;
 			if (context) {
@@ -1452,7 +1453,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				return await this.patchNode(node, true, document => cancelBaseHalfNodeAttempt(document, active.runId, {
 					completedAt: new Date().toISOString(),
 					error: terminalError,
-					...(reportedProviderFailure === undefined ? {} : { failure: reportedProviderFailure })
+					...(reportedProviderFailure?.kind === 'remote-cancelled' ? { failure: reportedProviderFailure } : {})
 				}));
 			}
 			if (reportedProviderFailure?.kind === 'remote-failed') {
@@ -2538,6 +2539,13 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			|| sha256 !== firstSha256) {
 			throw new Error(`Recipe output '${artifactResult.id}' changed while it was being accepted.`);
 		}
+		await this.assertNoSymbolicLinkComponents(outputDirectory, artifactResult.resource);
+		const verifiedRealpath = await this.fileService.realpath(artifactResult.resource);
+		if (!verifiedRealpath || !extUri.isEqual(verifiedRealpath, realpath)
+			|| !extUri.isEqualOrParent(verifiedRealpath, expectedOutputRealpath)
+			|| extUri.isEqual(verifiedRealpath, expectedOutputRealpath)) {
+			throw new Error(`Recipe output '${artifactResult.id}' changed its verified path while it was being accepted.`);
+		}
 		const artifact: IBaseHalfNodeResultArtifact = Object.freeze({
 			id: artifactResult.id,
 			outputId: artifactResult.outputId,
@@ -2881,7 +2889,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			: Math.max(0, Math.min(100, (active.state.progress ?? 0) + progress.increment));
 		this.updateActive(resource, active, {
 			phase: 'running',
-			...(progress.message === undefined ? {} : { message: progress.message }),
+			...(progress.message === undefined ? {} : { message: baseHalfSafeExecutionErrorMessage(progress.message) }),
 			...(nextProgress === undefined ? {} : { progress: nextProgress })
 		});
 	}
@@ -3388,44 +3396,6 @@ function createProviderTaskIntent(
 			...(retrySource.failure === undefined ? {} : { sourceFailure: retrySource.failure }),
 			replacementAuthorized
 		};
-}
-
-async function createBaseHalfProviderRequestFingerprint(input: IBaseHalfProviderFingerprintInput): Promise<string> {
-	const material = canonicalProviderFingerprintValue({
-		schemaVersion: 1,
-		nodeId: input.nodeId,
-		nodePath: input.nodePath,
-		recipe: input.recipe,
-		promptSha256: await sha256Text(input.prompt),
-		model: input.model ?? null,
-		inputs: input.inputs,
-		operation: input.intent.kind === 'new'
-			? { kind: 'generate' }
-			: input.intent.kind === 'recover'
-				? { kind: 'recover', providerRequestId: input.intent.providerRequestId }
-				: {
-				kind: input.intent.kind,
-				sourceAttemptId: input.intent.sourceAttemptId,
-				providerRequestId: input.intent.providerRequestId ?? null
-				}
-	});
-	return `v1:${await sha256Text(JSON.stringify(material))}`;
-}
-
-function canonicalProviderFingerprintValue(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(canonicalProviderFingerprintValue);
-	}
-	if (value !== null && typeof value === 'object') {
-		return Object.fromEntries(Object.entries(value as Readonly<Record<string, unknown>>)
-			.filter(([, item]) => item !== undefined)
-			.sort(([left], [right]) => left.localeCompare(right))
-			.map(([key, item]) => [key, canonicalProviderFingerprintValue(item)]));
-	}
-	if (typeof value === 'number' && Object.is(value, -0)) {
-		return 0;
-	}
-	return value;
 }
 
 async function sourceInputRevision(identity: string, digest: string): Promise<string> {

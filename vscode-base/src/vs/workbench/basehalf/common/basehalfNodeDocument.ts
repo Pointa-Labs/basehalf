@@ -694,6 +694,11 @@ export function replaceBaseHalfNodeAttemptProviderRequestId(
 		if (attempt.providerRequestId !== expectedId) {
 			throw invalid(`Attempt '${attempt.id}' no longer has the expected provider request id.`);
 		}
+		if (attempt.execution?.intent.kind !== 'exact-retry'
+			|| !attempt.execution.intent.replacementAuthorized
+			|| attempt.execution.intent.providerRequestId !== expectedId) {
+			throw invalid(`Attempt '${attempt.id}' has no authorization to replace its provider request id.`);
+		}
 		return { ...attempt, providerRequestId: normalizedId };
 	});
 }
@@ -1077,6 +1082,7 @@ function normalizeAttempt(value: unknown, path: string): IBaseHalfNodeAttempt {
 	}
 
 	validateAttemptLifecycle(status, { createdAt, startedAt, completedAt, providerRequestId, usage, cost, error, failure }, path);
+	validateAttemptFailureStatus(status, failure, path);
 	if (status === 'succeeded' && model.source === 'service' && model.connection !== 'resolved') {
 		throw invalid(`${path} successful attempts require a resolved model connection.`);
 	}
@@ -1114,6 +1120,13 @@ export function normalizeBaseHalfNodeAttemptFailure(value: unknown, path = 'atte
 		: auditIdentifier(candidate.uncommittedProviderRequestId, MAX_ID_LENGTH, `${path}.uncommittedProviderRequestId`);
 	if (providerRequestId !== undefined && uncommittedProviderRequestId !== undefined) {
 		throw invalid(`${path} cannot contain both durable and uncommitted provider request ids.`);
+	}
+	if (providerRequestId !== undefined
+		&& (kind === 'preparation' || kind === 'submission-rejected' || kind === 'submission-ambiguous' || kind === 'remote-id-uncommitted')) {
+		throw invalid(`${path}.providerRequestId is not allowed for '${kind}'.`);
+	}
+	if ((kind === 'remote-failed' || kind === 'remote-cancelled') && providerRequestId === undefined) {
+		throw invalid(`${path}.providerRequestId is required for '${kind}'.`);
 	}
 	const expectedRetry = baseHalfNodeAttemptRetryPolicy(kind, providerRequestId !== undefined);
 	if (retry !== expectedRetry) {
@@ -1495,6 +1508,33 @@ function validateAttemptLifecycle(
 	}
 	if ((status === 'running' || status === 'succeeded') && value.failure !== undefined) {
 		throw invalid(`${path} ${status} attempts cannot contain failure evidence.`);
+	}
+}
+
+function validateAttemptFailureStatus(
+	status: BaseHalfNodeAttemptStatus,
+	failure: IBaseHalfNodeAttemptFailure | undefined,
+	path: string
+): void {
+	if (!failure) {
+		// Failure evidence is additive in version 3. Legacy terminal Attempts stay
+		// readable and receive conservative Retry behavior from the execution host.
+		return;
+	}
+	const expectedStatus: Exclude<BaseHalfNodeAttemptStatus, 'running' | 'succeeded'> =
+		failure.kind === 'remote-cancelled'
+			? 'cancelled'
+			: failure.kind === 'remote-id-uncommitted'
+				|| failure.kind === 'poll-interrupted'
+				|| failure.kind === 'poll-window-exhausted'
+				|| failure.kind === 'protocol'
+				|| failure.kind === 'download'
+				|| failure.kind === 'artifact-commit'
+				|| failure.kind === 'execution-ownership'
+				? 'interrupted'
+				: 'failed';
+	if (status !== expectedStatus) {
+		throw invalid(`${path}.failure kind '${failure.kind}' requires terminal status '${expectedStatus}'.`);
 	}
 }
 

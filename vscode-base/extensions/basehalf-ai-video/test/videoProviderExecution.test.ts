@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
 	VideoProviderCancelledError,
 	VideoProviderExecutionFailure,
+	createNodeVideoHttpClient,
 	executeSerializedVideoProviderRequest,
 	type VideoExecutionCancellation,
 	type VideoHttpClient,
@@ -324,6 +325,30 @@ test('does not cancel a durable resumed task after a transient polling failure',
 	assert.equal(http.requests.filter(request => request.method === 'POST').length, 0);
 });
 
+test('terminates the finite polling window without cancelling or replacing the durable task', async () => {
+	const http = scriptedHttp([
+		json(200, { status: 'running' }),
+		json(200, { status: 'running' })
+	]);
+	await assert.rejects(() => executeSerializedVideoProviderRequest(
+		serialized('byteplus', '/api/v3/contents/generations/tasks'),
+		access('byteplus'),
+		{
+			httpClient: http.client,
+			cancellation: new MutableCancellation(),
+			taskIntent: { kind: 'recover', providerRequestId: 'task-window' },
+			acknowledgeProviderRequestId: async () => undefined,
+			wait: async () => undefined,
+			pollIntervalMilliseconds: 0,
+			maximumPollAttempts: 2
+		}
+	), error => error instanceof VideoProviderExecutionFailure
+		&& error.evidence.kind === 'poll-window-exhausted'
+		&& error.evidence.retry === 'resume-existing'
+		&& error.evidence.providerRequestId === 'task-window');
+	assert.deepEqual(http.requests.map(request => request.method), ['GET', 'GET']);
+});
+
 test('does not cancel an inherited durable task when its repeat acknowledgement fails', async () => {
 	const http = scriptedHttp([]);
 	await assert.rejects(() => executeSerializedVideoProviderRequest(
@@ -605,6 +630,64 @@ test('rejects credential-free and custom-header connections before transport', a
 		), expected);
 		assert.equal(http.requests.length, 0);
 	}
+});
+
+test('bounds redirects and response bytes while stripping cross-origin credentials', async () => {
+	const redirected = scriptedHttp([
+		response(302, new Uint8Array(), { location: 'https://cdn.example/video.mp4' }),
+		response(200, mp4)
+	]);
+	const client = createNodeVideoHttpClient(redirected.client);
+	const result = await client({
+		method: 'GET',
+		url: 'https://provider.example/output',
+		headers: {
+			Accept: 'video/mp4',
+			Authorization: 'Bearer must-not-cross-origin',
+			'X-Provider-Key': 'must-not-cross-origin'
+		},
+		maximumResponseBytes: 32,
+		maximumRedirects: 1,
+		timeoutMilliseconds: 1234
+	}, new MutableCancellation());
+	assert.deepEqual(result.body, mp4);
+	assert.equal(redirected.requests.length, 2);
+	assert.equal(redirected.requests[1].url, 'https://cdn.example/video.mp4');
+	assert.deepEqual(redirected.requests[1].headers, { Accept: 'video/mp4' });
+	assert.equal(redirected.requests[1].timeoutMilliseconds, 1234);
+
+	const refused = scriptedHttp([
+		response(302, new Uint8Array(), { location: 'https://cdn.example/video.mp4' })
+	]);
+	await assert.rejects(() => createNodeVideoHttpClient(refused.client)({
+		method: 'GET',
+		url: 'https://provider.example/output',
+		headers: { Accept: 'video/mp4' },
+		maximumResponseBytes: 32,
+		maximumRedirects: 0
+	}, new MutableCancellation()), /unexpected redirect/);
+	assert.equal(refused.requests.length, 1);
+
+	const oversized = scriptedHttp([response(200, new Uint8Array(33))]);
+	await assert.rejects(() => createNodeVideoHttpClient(oversized.client)({
+		method: 'GET',
+		url: 'https://cdn.example/video.mp4',
+		headers: { Accept: 'video/mp4' },
+		maximumResponseBytes: 32
+	}, new MutableCancellation()), /exceeds the 32-byte limit/);
+
+	let unboundedCalls = 0;
+	await assert.rejects(() => createNodeVideoHttpClient(async () => {
+		unboundedCalls++;
+		return response(200, mp4);
+	})({
+		method: 'GET',
+		url: 'https://cdn.example/video.mp4',
+		headers: { Accept: 'video/mp4' },
+		maximumResponseBytes: 32,
+		maximumRedirects: 6
+	}, new MutableCancellation()), /redirect limit.*reviewed range/);
+	assert.equal(unboundedCalls, 0);
 });
 
 function serialized(provider: string, endpointPath: string): SerializedVideoProviderRequest {
