@@ -46,7 +46,8 @@ confirmation and then continues automatically.
 
 The generated plugin extends BaseHalf's existing canvas; it does not ship a
 separate workflow editor. Its Recipe receives only the direct input snapshots
-frozen for an explicit node run and writes ordinary local artifacts into the
-host-provided run directory. BaseHalf owns Run/Cancel, Current, History, and
-credential storage. Use a card-detail Projection only for a proprietary file
+frozen for an explicit Attempt and writes exactly one ordinary local artifact
+into the host-provided attempt directory. BaseHalf owns cancellation, the
+append-only Attempt audit, the sealed Result, and credential storage. Use a
+card-detail Projection only for a proprietary file
 format that needs a dedicated renderer.

@@ -3,10 +3,10 @@
 ## Product boundary
 
 A reviewed plugin extends the one BaseHalf canvas. The normal contribution is a
-**Recipe** that teaches an existing canvas node how to run, optionally paired
+**Recipe** that teaches an editable Draft how to generate, optionally paired
 with a **Template** that creates a useful starter arrangement. BaseHalf keeps
-ownership of nodes, cards, direct references, input bindings, Run/Cancel,
-Current, and History.
+ownership of nodes, cards, direct references, input bindings, immutable
+Attempts, cancellation, and the single sealed Result.
 
 A plugin may also publish bounded domain document and deterministic command
 contracts to Agent sessions, contribute commands, settings, ordinary VS Code extension
@@ -42,9 +42,9 @@ document stores exact references that must be updated before a matching result
 container is deleted.
 
 `basehalfAgentCapabilities` is manifest-only discovery metadata. It may publish
-owned ordinary document formats and schema summaries, explicit exact-version
-pin semantics, and deterministic owned commands with bounded parameter and
-return contracts. Only admitted declarations reach live Agent Area capability
+owned ordinary document formats and schema summaries, and deterministic owned
+commands with bounded parameter and return contracts. Only admitted
+declarations reach live Agent Area capability
 discovery. They do not add a second canvas, execute code, carry credentials, or
 contain project data.
 
@@ -142,9 +142,10 @@ const registration = vscode.basehalf.registerCanvasRecipeExecutor(
   {
     async execute(request, progress, token) {
       // request.inputs contains only the direct, explicitly bound input
-      // snapshots frozen by BaseHalf for this run.
+      // snapshots frozen by BaseHalf for this Attempt.
       const result = vscode.Uri.joinPath(request.outputDirectory, 'result.png');
       await createImage({
+		prompt: request.prompt,
         inputs: request.inputs,
         parameters: request.parameters,
         result,
@@ -152,15 +153,12 @@ const registration = vscode.basehalf.registerCanvasRecipeExecutor(
         token,
       });
       return {
-        artifacts: [
-          {
-            id: `${request.runId}:image`,
-            outputId: 'image',
-            kind: 'image',
-            resource: result,
-          },
-        ],
-        primaryArtifactId: `${request.runId}:image`,
+        artifact: {
+          id: `${request.attemptId}:image`,
+          outputId: 'image',
+          kind: 'image',
+          resource: result,
+        },
       };
     },
   },
@@ -168,14 +166,29 @@ const registration = vscode.basehalf.registerCanvasRecipeExecutor(
 context.subscriptions.push(registration);
 ```
 
-The executor receives one immutable run request. Its `inputs` are the direct
+Video recipes use one additional clean-break binding: set
+`modelCapability` to `video`, set `videoModelCatalogId` to the exact full id of
+a `basehalfVideoModelCatalogs` contribution owned by the same extension, and
+declare no static Recipe parameters. The reviewed catalog is the only source of
+model modes, inputs, settings, and constraints. BaseHalf persists that catalog
+id in the host-owned `videoModelSnapshot` and revalidates it before every
+Attempt; non-video recipes cannot declare `videoModelCatalogId`.
+
+The executor receives one immutable Attempt request. `request.prompt` is the
+node-wide generation intent frozen by the host; plugins must not duplicate it
+as a Recipe parameter. Its `inputs` are the direct
 references the user or Agent explicitly bound to Recipe slots, in saved order;
 the executor must not recursively walk the graph or infer hidden dependencies.
-It writes artifacts only inside `request.outputDirectory` and returns their
-ordinary local file URIs. BaseHalf validates those artifacts, records the run,
-selects Current, retains earlier results in History, and restores state after an
-Extension Host restart. The plugin must not maintain a second Current/History
-database.
+The artifact `id` is an audit identifier: it starts with an ASCII letter or
+digit and contains only letters, digits, `.`, `_`, `:`, or `-`.
+It writes its artifact only inside `request.outputDirectory` and returns the
+ordinary local file URI. BaseHalf validates exactly one file, records the
+Attempt, and atomically seals it as the node's Result. The same node cannot
+produce another success. Failed, cancelled, or interrupted Attempts remain
+append-only audit records. An Attempt with a complete frozen model-and-input
+snapshot may Retry only that exact configuration. If preparation stopped before
+the snapshot was complete, or if any setting changed, the user copies settings
+into a new Draft. The plugin must not maintain a second lifecycle database.
 
 Recipe inputs may accept `text` and `code`, but Recipe outputs and `.bhnode`
 containers use only `file`, `image`, `video`, `audio`, `pdf`, or
@@ -188,10 +201,10 @@ across file moves and renames.
 
 ## Contribute a Template
 
-A Template is inert starter content, not a saved run. It may create ordinary
+A Template is inert starter content, not a saved Attempt. It may create ordinary
 UTF-8 text or source files, result-container documents, card geometry, direct
-references, and Recipe input bindings. It cannot include results,
-Current/History state, credentials, absolute paths, private extension data,
+references, and Recipe input bindings. It cannot include Results or Attempts,
+credentials, absolute paths, private extension data,
 binary executable payloads, or install hooks. Instantiation writes declared
 files but never executes them.
 
@@ -221,7 +234,7 @@ direct references, slot bindings, and accepted input kinds.
 Model connections and credentials are global host capabilities configured once
 by the user. A manifest Recipe declares only the capability it needs. The node's
 Recipe stores the stable service id and optional explicit model id selected by
-the user or Agent. For every explicit run, BaseHalf freezes the service label,
+the user or Agent. For every explicit Attempt, BaseHalf freezes the service label,
 capability, model id, and a digest of the non-secret request-affecting connection
 settings before the executor starts.
 
@@ -236,7 +249,7 @@ if (!access) {
 ```
 
 The executor must pass the exact host-frozen `request.modelService` snapshot.
-If the endpoint or authorization settings changed after the run started, access
+If the endpoint or authorization settings changed after the Attempt started, access
 fails closed instead of silently sending the request through a different
 connection. Rotating only the secret keeps the non-secret connection identity
 stable. The digest keeps the endpoint itself out of project history; it is an
@@ -244,15 +257,19 @@ audit identity, not a credential.
 
 Never put an API key in the manifest, Recipe parameters, Template, project
 files, logs, output metadata, webview messages, or extension storage. A plugin
-may use the granted connection only for the current explicit run. It owns its
+may use the granted connection only for the current explicit Attempt. It owns its
 provider request, cancellation, errors, usage disclosure, and billing behavior;
 BaseHalf owns credential storage and access policy.
 
-When the provider returns them, the executor should report a bounded
-`providerRequestId`, structured `usage`, and decimal-string `cost` in its result.
-BaseHalf stores those fields only on the immutable successful Run. A failed or
-cancelled Run keeps its frozen model selection and leaves the previous Current
-unchanged.
+After a provider accepts an asynchronous task, the executor must await
+`request.acknowledgeProviderRequestId(id)` before its first poll or any other
+fallible work. An exact Retry receives `request.resumeProviderRequestId` so it
+can inspect or resume the durable task instead of blindly creating another paid
+request. The executor may return that acknowledged `providerRequestId`,
+structured `usage`, and decimal-string `cost` in its result. BaseHalf stores
+those fields on the immutable Attempt. A failed or cancelled Attempt keeps its
+frozen model selection and cannot bind a Result; a successful Attempt seals the
+node to exactly one local file.
 
 ## Opt in to a card-detail Projection
 
@@ -314,8 +331,8 @@ browsable as ordinary project data.
 
 ## Keep domain references coherent on deletion
 
-Some ordinary domain documents pin a host result node and an exact immutable
-version. If deleting that result node would leave stale entries, declare the
+Some ordinary domain documents reference a sealed host Result node. If deleting
+that Result would leave stale entries, declare the
 deleted resource suffix and register one cleanup provider for the plugin:
 
 ```json

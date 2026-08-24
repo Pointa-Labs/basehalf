@@ -682,3 +682,43 @@ remain unchanged. Visual Group/Ungroup is not simulated with folder moves or
 private canvas rows: it remains absent until a portable, user-owned grouping
 document and its delete/undo semantics are defined. Selection UI exposes only
 structural actions that have a complete persisted meaning today.
+
+## D34 — Executable media nodes seal one local result after immutable attempts (NEW, 2026-08-13)
+
+**Decision.** Executable media nodes use a `Draft → Attempt → Result`
+lifecycle. A Draft owns editable Recipe settings. Every explicit submission
+freezes one immutable Attempt. The first successful Attempt seals the same
+canvas node as a Result bound to exactly one ordinary local file. A sealed
+Result cannot edit its generation Recipe, replace its media, run again, or
+switch between successful files. A failed, cancelled, or interrupted Attempt
+may retry on the same node only when its model and input snapshot finished
+freezing; Retry must reproduce that exact configuration. If preparation stopped
+before the snapshot was complete, or if model, parameters, or inputs changed,
+the user copies the settings into a new Draft instead.
+
+The node owns one host-level `prompt` independently of any installed Recipe.
+It remains editable and persistable before a Recipe is chosen, then freezes
+into each Attempt beside the Recipe, model, and direct-input snapshots.
+Executors receive it as a dedicated request field; Recipe parameters do not
+duplicate it.
+
+Attempt is durable audit data, not another canvas card. Copying settings creates
+a new Draft without a context edge. Using an existing result as provider input
+creates a named input binding and the ordinary explicit `A → B` context edge.
+Task status is host-owned node state and does not depend on an Agent renderer or
+conversation remaining open. This lifecycle supersedes D33's `Current` selector
+and multi-success History behavior while preserving its single-canvas, Recipe,
+executor, local-file, and reference-edge boundaries.
+
+**Why.** A local file has an identity users can play, move, reference, diff,
+and delete. Letting one card silently point at different successful files makes
+that identity unstable and makes a context edge ambiguous. Sealing one file per
+result keeps the graph truthful while immutable Attempts retain cost, provider,
+input, and failure evidence.
+
+**Consequences.** `.bhnode` takes a clean schema-version break; the previous
+multi-version format is rejected rather than migrated. One node submission
+accepts exactly one output file. A future multi-output control must pre-create
+one result slot per requested file and share batch provenance; until that host
+orchestration exists, recipes that return multiple files are rejected. A batch
+is not a referenceable canvas node or a simulated persistent Group.

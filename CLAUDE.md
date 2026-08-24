@@ -136,6 +136,7 @@ Current public decision index:
 - D31 — Plugin portal and signed registry use separate subdomains.
 - D32 — Publishing is one front-stage action; installed lifecycle stays VS Code-native.
 - D33 — Main canvas unifies content and optional execution; domain plugins contribute recipes.
+- D34 — Executable media nodes use immutable Attempts and seal one local file per Result.
 
 Current private decision index:
 
@@ -231,8 +232,9 @@ that point instead of relying on this guide.
 - **One primary content/execution canvas.** Text, code, files, folders, images,
   video, audio, PDF, and presentations use the BaseHalf main-canvas model.
   Text and code keep their normal file editors; executable result containers
-  use only file/image/video/audio/PDF/presentation kinds. Recipe, Run, Current,
-  and History are optional host capabilities on those result containers.
+  use only file/image/video/audio/PDF/presentation kinds. Executable media nodes
+  follow Draft → immutable Attempt(s) → one sealed local-file Result. A sealed
+  Result never switches files or runs again; changed settings create a new Draft.
   Domain plugins add reviewed recipes, templates, input roles, validation, and executors; they do
   not duplicate the main canvas, node/edge truth, or execution lifecycle.
 - **Plugin output is user data.** Explicit user/Agent workflow runs may create

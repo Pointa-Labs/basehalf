@@ -1,7 +1,7 @@
 # BaseHalf plugin architecture
 
-Status: implemented platform and curated publishing path, 2026-07-18. This is
-the implementation map for decisions D25–D33. Product decisions in
+Status: implemented platform and curated publishing path, updated 2026-08-13.
+This is the implementation map for decisions D25–D34. Product decisions in
 [`decisions.md`](decisions.md) remain authoritative.
 
 ## Product contract
@@ -17,7 +17,7 @@ navigation, data, trust, and lifecycle contracts.
 | Center navigation | Owns Canvas, Card Detail, history, focus, and fallback | Contributes Recipes and Templates; may opt in to a file-specific Card Detail Projection |
 | File truth | Opens and observes ordinary workspace files | Uses ordinary files and may document additional local formats |
 | `.bh/mirror` | Owns derived context/focus state | Must not store domain truth there |
-| Content and execution | Owns the primary node graph plus Recipe, Run, Current, History, and direct-context semantics | Contributes domain recipes, templates, input roles, validation, and executors |
+| Content and execution | Owns the primary node graph plus Draft, immutable Attempt, sealed Result, and direct-context semantics | Contributes domain recipes, templates, input roles, validation, and executors |
 | Agent decisions | Hosts user-selected Agents | May define a disclosed AI strategy |
 | Model credentials | Stores global connections and secrets | Requests reviewed capabilities at run time |
 | Billing and provider policy | Does not resell usage or decide policy | Makes the disclosed request with the user's account |
@@ -61,7 +61,7 @@ flowchart LR
   N --> H["Host-owned node execution"]
   H --> A["VS Code activation"]
   A --> X["Extension Host Recipe executor"]
-  X --> F["Ordinary project files and run outputs"]
+  X --> F["One ordinary project file per successful Result"]
   N --> P["Optional file-specific Projection"]
   P <--> X
 ```
@@ -70,21 +70,24 @@ Manifest metadata lets BaseHalf present Recipes, validate and create Templates,
 and select an optional Projection without activating plugin code. Recipe
 execution and Projection provider registration happen after activation.
 Disabling, uninstalling, or restarting the Extension Host disposes and
-reconnects registrations; user files and host-owned Current/History remain, and
+reconnects registrations; user files and host-owned Attempts/Results remain, and
 an unavailable Projection falls back to `source`.
 
-For an explicit node Run, the host writes the immutable running record before
+For an explicit node submission, the host writes an immutable running Attempt before
 fallible provider or input preparation. A local deterministic Recipe records
 `source: local`. A model-backed Recipe records its stable service id, explicit
 model id when supplied, capability, display label, and a digest of the
 non-secret request-affecting connection settings. If the selected connection
-cannot be resolved, History records an honest unavailable service attempt and
-the Run fails without invoking the executor. The endpoint and API key never
+cannot be resolved, the Attempt records an honest unavailable service and
+fails without invoking the executor. The endpoint and API key never
 enter project data. Changing connection settings after a resolved snapshot
 causes credential access to fail closed; rotating only the secret remains
-allowed. Successful Runs may additionally store a bounded provider request id,
-structured usage, and decimal-string cost. Failed, cancelled, and interrupted
-Runs keep their frozen model selection and never replace the prior Current.
+allowed. Attempts may additionally store a bounded provider request id,
+structured usage, and decimal-string cost. The first success seals exactly one
+ordinary local file as the Result. Failed, cancelled, and interrupted Attempts
+with a complete frozen model-and-input snapshot may Retry only that exact
+configuration. If preparation stopped before the snapshot was complete, or if
+anything changed, the user copies the settings into a new Draft.
 
 Relevant implementation:
 
@@ -96,19 +99,19 @@ Relevant implementation:
 - catalog: `src/vs/workbench/basehalf/common/basehalfPluginCatalog.ts`
 - lifecycle: `src/vs/workbench/basehalf/common/basehalfPluginManagementService.ts`
 
-### D33 implementation map
+### D34 implementation map
 
 The unified content-and-execution decision is implemented across narrow host
 boundaries rather than inside a domain plugin:
 
-- result document parsing and Current/History truth:
+- Draft, Attempt, and sealed Result document truth:
   `src/vs/workbench/basehalf/common/basehalfNodeDocument.ts`;
 - Recipe and Template registries:
   `src/vs/workbench/basehalf/common/basehalfCanvasRecipes.ts` and
   `src/vs/workbench/basehalf/common/basehalfCanvasTemplate.ts`;
-- host-owned Run, cancellation, integrity, and recovery:
+- host-owned Attempt execution, cancellation, integrity, and recovery:
   `src/vs/workbench/basehalf/browser/basehalfNodeExecutionService.ts`;
-- card state and temporary Edit/History surface:
+- card state and temporary Configuration/Attempts surface:
   `src/vs/workbench/basehalf/browser/basehalfCanvasWorkbench.contribution.ts`
   and `src/vs/workbench/basehalf/browser/basehalfNodeLocalSurface.ts`;
 - reviewed extension metadata and executor registration:
@@ -348,10 +351,11 @@ useful, static starter Templates:
 ```
 
 Owned contribution IDs must be prefixed by the full extension ID. A Recipe
-executor receives the target node, parameters, and only the direct input
-snapshots frozen and bound by the host for that explicit run. It writes ordinary
-artifacts to the host-provided run directory; BaseHalf owns Run/Cancel,
-Current/History, geometry, references, and binding storage.
+executor receives the target node, the host-frozen node prompt, Recipe-specific
+parameters, and only the direct input
+snapshots frozen and bound by the host for that explicit Attempt. It writes one
+ordinary artifact to the host-provided attempt directory; BaseHalf owns
+Attempt/Cancel, the sealed Result, geometry, references, and binding storage.
 
 `text` and `code` are input kinds, not executable result kinds. Markdown, source
 code, and other authored text remain ordinary file cards with their normal
@@ -372,8 +376,8 @@ second canvas or execution lifecycle. The complete contract is mirrored by
 Global model connections are another host capability. A Recipe declares
 its required capability; the node Recipe stores a stable service ID and optional
 explicit model ID. BaseHalf passes the frozen non-secret service snapshot into
-the run request, and the executor must use that exact snapshot to request access
-for that explicit run. Keys remain in application-global encrypted secret
+the Attempt request, and the executor must use that exact snapshot to request access
+for that explicit Attempt. Keys remain in application-global encrypted secret
 storage and must never enter Recipe parameters, Templates, project data, logs,
 webview messages, or plugin persistence.
 
@@ -384,17 +388,17 @@ actions may write them; background discovery/rendering must not. Use portable
 relative paths and conflict-check before overwriting external changes.
 Extension-private storage is only for disposable caches and UI state.
 
-First-class TUI Agent sessions can start one explicit host-owned run with
+First-class TUI Agent sessions can start one explicit host-owned Attempt with
 `basehalf --run-node '<workspace-relative-.bhnode-path>'` from any directory
 inside the selected open local workspace folder. The command accepts no
 arbitrary workbench command or provider identifier. It verifies the terminal
 session, workspace identity, portable path, real path, symbolic-link boundary,
 suffix, and dirty state, then delegates to the same node execution service used
 by the canvas. It prints one versioned JSON result containing the final outcome
-plus Run and Current identity; exit code 0 is reserved for a successful run.
-Interrupting the client requests cancellation of that exact Run. The host keeps
-the Run active until the executor actually settles, preserves the previous
-Current, and does not present a disconnect as proof that a paid request stopped.
+plus Attempt and sealed Result identity; exit code 0 is reserved for a successful
+Attempt. Once accepted, the task belongs to the node: closing or switching the
+Agent renderer does not cancel it. Cancellation is a separate explicit node
+action, and the host keeps the Attempt active until the executor actually settles.
 
 The same private Agent Area bridge exposes the live, admission-filtered canvas
 contract without writing a capability cache into the workspace:
@@ -425,7 +429,7 @@ Agent Area terminal for the matching open workspace.
 
 The BaseHalf canvas is the only node-and-edge truth. `A → B` means A's direct
 content is explicitly provided to B as context; for a result node, that content
-is its selected Current. It does not imply recursive execution, playback order,
+is its single sealed local file. It does not imply recursive execution, playback order,
 or an editable relationship description.
 Plugins may contribute recipes and bindings over this graph, but cannot infer
 new references, create a second hidden graph, or silently change recipe settings
