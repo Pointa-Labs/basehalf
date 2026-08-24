@@ -8,19 +8,35 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import type { BaseHalfCanvasContentKind, IBaseHalfCanvasRecipeInputDefinition } from '../../common/basehalfCanvasRecipes.js';
 import { createBaseHalfNodeDocument, IBaseHalfNodeInputBinding } from '../../common/basehalfNodeDocument.js';
 import {
+	acceptBaseHalfVideoCanvasPickSelection,
 	applyBaseHalfVideoInputMutationToDocument,
 	baseHalfVideoInputBindingIntegrity,
+	beginBaseHalfVideoCanvasPick,
 	BaseHalfVideoInputMutationError,
 	BaseHalfVideoInputMutationProblemKind,
+	cancelBaseHalfVideoCanvasPick,
+	completeBaseHalfVideoCanvasPick,
+	consumeBaseHalfVideoCanvasPickDeferredFocus,
+	createBaseHalfVideoCanvasPickState,
+	createBaseHalfVideoDocumentWriteAcknowledgement,
 	createBaseHalfVideoInputsPresentation,
+	getBaseHalfVideoCanvasPickInteraction,
+	getBaseHalfVideoInputsExecutionGate,
+	IBaseHalfVideoCanvasPickRequest,
 	IBaseHalfVideoInputMutationContext,
 	IBaseHalfVideoInputSourceState,
+	markBaseHalfVideoCanvasPickCommitting,
+	markBaseHalfVideoCanvasPickReady,
+	markBaseHalfVideoCanvasPickRevalidating,
+	observeBaseHalfVideoDocumentVersion,
 	planBaseHalfVideoFrameSwap,
 	planBaseHalfVideoInputPick,
 	planBaseHalfVideoInputRemove,
 	planBaseHalfVideoInputReorder,
 	planBaseHalfVideoInputReplace,
-	planBaseHalfVideoInputRoleChange
+	planBaseHalfVideoInputRoleChange,
+	settleBaseHalfVideoDocumentWriteAcknowledgement,
+	updateBaseHalfVideoCanvasPickViewport
 } from '../../common/basehalfVideoInputs.js';
 import type {
 	BaseHalfVideoGenerationMode,
@@ -498,6 +514,239 @@ suite('BaseHalfVideoInputs', () => {
 		assert.deepStrictEqual(plan.graph, { addSourcePaths: [], removeSourcePaths: [] });
 		assertMutationKind(() => planBaseHalfVideoInputReorder({ ...context, sourcePath: 'refs/a.bhnode', direction: -1 }), 'move-unavailable');
 	});
+
+	test('fails unknown roles and source kinds closed without contaminating readable siblings', () => {
+		const bindings = [
+			binding('frames/missing.bhnode', 'first-frame', 0),
+			binding('frames/end.bhnode', 'last-frame', 1),
+			binding('refs/unknown-role.bhnode', 'future-role', 2),
+			binding('refs/unknown-kind.bhnode', 'reference-image', 3)
+		];
+		const presentation = createBaseHalfVideoInputsPresentation({
+			capability: capability('first-last-frame-to-video', ['reference-image']),
+			recipeInputs: recipeInputs(),
+			bindings,
+			sources: [
+				source('frames/end.bhnode'),
+				source('refs/unknown-role.bhnode'),
+				source('refs/unknown-kind.bhnode', { kind: undefined })
+			],
+			inputEvaluation: evaluation({
+				'text-prompt': 1,
+				'first-frame': 1,
+				'last-frame': 1,
+				'reference-image': 1
+			})
+		});
+
+		assert.deepStrictEqual(presentation.bindings.map(row => [row.binding.sourcePath, row.status]), [
+			['frames/missing.bhnode', 'source-missing'],
+			['frames/end.bhnode', 'active'],
+			['refs/unknown-role.bhnode', 'incompatible'],
+			['refs/unknown-kind.bhnode', 'incompatible']
+		]);
+		assert.strictEqual(presentation.frameSlots[1].source?.sourcePath, 'frames/end.bhnode');
+		assert.strictEqual(presentation.frameSlots[1].problem, undefined);
+		assert.strictEqual(presentation.needsReview.length, 3);
+	});
+
+	test('orders current missing frame blockers before retained binding review and exposes a strict execution gate', () => {
+		const presentation = createBaseHalfVideoInputsPresentation({
+			capability: capability('first-last-frame-to-video'),
+			recipeInputs: recipeInputs(),
+			bindings: [binding('frames/end.bhnode', 'last-frame', 0)],
+			sources: [source('frames/end.bhnode', { integrity: 'changed' })],
+			inputEvaluation: evaluation(
+				{ 'text-prompt': 1, 'last-frame': 1 },
+				problem('too-few', 'first-frame', 0, 1, 1)
+			)
+		});
+
+		assert.deepStrictEqual(presentation.readinessProblems.map(candidate => candidate.kind), [
+			'missing-start-frame',
+			'source-changed'
+		]);
+		assert.deepStrictEqual(getBaseHalfVideoInputsExecutionGate(presentation), {
+			ready: false,
+			problem: presentation.readinessProblems[0]
+		});
+
+		const ready = createBaseHalfVideoInputsPresentation({
+			capability: capability('first-last-frame-to-video'),
+			recipeInputs: recipeInputs(),
+			bindings: [
+				binding('frames/start.bhnode', 'first-frame', 0),
+				binding('frames/end.bhnode', 'last-frame', 1)
+			],
+			sources: [source('frames/start.bhnode'), source('frames/end.bhnode')],
+			inputEvaluation: evaluation({ 'text-prompt': 1, 'first-frame': 1, 'last-frame': 1 })
+		});
+		assert.deepStrictEqual(getBaseHalfVideoInputsExecutionGate(ready), { ready: true });
+	});
+
+	test('keeps canvas-pick epoch stable across pan and zoom and accepts one selection', () => {
+		const idle = createBaseHalfVideoCanvasPickState();
+		const preflighting = beginBaseHalfVideoCanvasPick(idle, canvasPickRequest());
+		assert.strictEqual(preflighting.phase, 'preflighting');
+		assert.strictEqual(preflighting.epoch, 1);
+		assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(preflighting), {
+			viewportNavigationAllowed: false,
+			nodeGeometryGesturesDisabled: true,
+			acceptsSelection: false,
+			cancelAllowed: true
+		});
+
+		const ready = markBaseHalfVideoCanvasPickReady(preflighting, preflighting.epoch);
+		const panned = updateBaseHalfVideoCanvasPickViewport(ready, ready.epoch, false);
+		const zoomed = updateBaseHalfVideoCanvasPickViewport(panned, panned.epoch, true);
+		assert.strictEqual(zoomed.epoch, ready.epoch);
+		assert.strictEqual(zoomed.request, ready.request);
+		assert.strictEqual(zoomed.candidateLayoutRevision, ready.candidateLayoutRevision + 2);
+		assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(zoomed), {
+			viewportNavigationAllowed: true,
+			nodeGeometryGesturesDisabled: true,
+			acceptsSelection: true,
+			cancelAllowed: true
+		});
+
+		const accepting = acceptBaseHalfVideoCanvasPickSelection(zoomed, zoomed.epoch);
+		assert.strictEqual(accepting.phase, 'accepting');
+		assert.strictEqual(acceptBaseHalfVideoCanvasPickSelection(accepting, accepting.epoch), accepting);
+		assert.strictEqual(updateBaseHalfVideoCanvasPickViewport(accepting, accepting.epoch, false), accepting);
+		assert.strictEqual(markBaseHalfVideoCanvasPickReady(accepting, accepting.epoch), accepting);
+	});
+
+	test('defers off-screen pick focus for the exact selected target and consumes it once', () => {
+		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), canvasPickRequest());
+		const epoch = state.epoch;
+		state = markBaseHalfVideoCanvasPickReady(state, epoch);
+		state = updateBaseHalfVideoCanvasPickViewport(state, epoch, false);
+		state = acceptBaseHalfVideoCanvasPickSelection(state, epoch);
+		state = markBaseHalfVideoCanvasPickRevalidating(state, epoch);
+		state = markBaseHalfVideoCanvasPickCommitting(state, epoch);
+
+		assert.strictEqual(cancelBaseHalfVideoCanvasPick(state, epoch), state);
+		assert.strictEqual(completeBaseHalfVideoCanvasPick(state, epoch, false).state, state);
+		const completed = completeBaseHalfVideoCanvasPick(state, epoch, true);
+		assert.strictEqual(completed.state.phase, 'idle');
+		assert.strictEqual(completed.reopenInputs, false);
+		assert.strictEqual(completed.focusKey, undefined);
+		assert.strictEqual(completed.state.deferredFocus?.epoch, epoch);
+
+		const wrongTarget = consumeBaseHalfVideoCanvasPickDeferredFocus(completed.state, {
+			sceneKey: 'scene-a',
+			targetNodePath: 'shots/other.bhnode',
+			targetNodeId: 'node-a',
+			selected: true,
+			visible: true
+		});
+		assert.strictEqual(wrongTarget.state, completed.state);
+		assert.strictEqual(wrongTarget.focusKey, undefined);
+
+		const restored = consumeBaseHalfVideoCanvasPickDeferredFocus(completed.state, {
+			sceneKey: 'scene-a',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'node-a',
+			selected: true,
+			visible: true
+		});
+		assert.strictEqual(restored.focusKey, 'video:input:first-frame');
+		assert.strictEqual(restored.state.deferredFocus, undefined);
+		assert.strictEqual(consumeBaseHalfVideoCanvasPickDeferredFocus(restored.state, {
+			sceneKey: 'scene-a',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'node-a',
+			selected: true,
+			visible: true
+		}).focusKey, undefined);
+	});
+
+	test('cancellation and re-entry allocate a fresh epoch and ignore stale continuations', () => {
+		const first = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), canvasPickRequest());
+		const cancelled = cancelBaseHalfVideoCanvasPick(first, first.epoch);
+		assert.strictEqual(cancelled.phase, 'idle');
+		const second = beginBaseHalfVideoCanvasPick(cancelled, canvasPickRequest({ requestedRole: 'last-frame' }));
+		assert.strictEqual(second.epoch, first.epoch + 1);
+		assert.strictEqual(second.request?.requestedRole, 'last-frame');
+		assert.strictEqual(markBaseHalfVideoCanvasPickReady(second, first.epoch), second);
+		assert.strictEqual(cancelBaseHalfVideoCanvasPick(second, first.epoch), second);
+		assert.strictEqual(markBaseHalfVideoCanvasPickReady(second, second.epoch).phase, 'ready');
+	});
+
+	test('distinguishes own intermediate versions, expected durable acknowledgement, and external revisions', () => {
+		let acknowledgement = createBaseHalfVideoDocumentWriteAcknowledgement(
+			'configuration:expected',
+			{ configurationKey: 'configuration:previous', etag: 'etag:1' }
+		);
+		const intermediate = observeBaseHalfVideoDocumentVersion(
+			acknowledgement,
+			{ configurationKey: 'configuration:intermediate', etag: 'etag:2' },
+			false
+		);
+		assert.strictEqual(intermediate.classification, 'own-intermediate');
+		assert.strictEqual(intermediate.rereadRequired, true);
+		acknowledgement = intermediate.acknowledgement;
+
+		const watcherExpected = observeBaseHalfVideoDocumentVersion(
+			acknowledgement,
+			{ configurationKey: 'configuration:expected', etag: 'etag:3' },
+			false
+		);
+		assert.strictEqual(watcherExpected.classification, 'own-intermediate');
+		assert.strictEqual(watcherExpected.acknowledgement.phase, 'pending-write');
+
+		const durableExpected = observeBaseHalfVideoDocumentVersion(
+			watcherExpected.acknowledgement,
+			{ configurationKey: 'configuration:expected', etag: 'etag:3' },
+			true
+		);
+		assert.strictEqual(durableExpected.classification, 'expected');
+		assert.strictEqual(durableExpected.acknowledgement.phase, 'observed-expected');
+		assert.strictEqual(durableExpected.rereadRequired, false);
+
+		const oldEcho = observeBaseHalfVideoDocumentVersion(
+			durableExpected.acknowledgement,
+			{ configurationKey: 'configuration:intermediate', etag: 'etag:2' },
+			false
+		);
+		assert.strictEqual(oldEcho.classification, 'own-echo');
+		const rewrittenPrevious = observeBaseHalfVideoDocumentVersion(
+			durableExpected.acknowledgement,
+			{ configurationKey: 'configuration:previous', etag: 'etag:4' },
+			true
+		);
+		assert.strictEqual(rewrittenPrevious.classification, 'external');
+		const rewrittenExpected = observeBaseHalfVideoDocumentVersion(
+			durableExpected.acknowledgement,
+			{ configurationKey: 'configuration:expected', etag: 'etag:5' },
+			true
+		);
+		assert.strictEqual(rewrittenExpected.classification, 'external');
+
+		const settled = settleBaseHalfVideoDocumentWriteAcknowledgement(durableExpected.acknowledgement);
+		assert.strictEqual(settled.phase, 'settled');
+		assert.strictEqual(Object.isFrozen(settled.ownVersions), true);
+
+		const sameConfiguration = createBaseHalfVideoDocumentWriteAcknowledgement(
+			'configuration:same',
+			{ configurationKey: 'configuration:same', etag: 'etag:old' }
+		);
+		const staleDurableRead = observeBaseHalfVideoDocumentVersion(
+			sameConfiguration,
+			{ configurationKey: 'configuration:same', etag: 'etag:old' },
+			true
+		);
+		assert.strictEqual(staleDurableRead.classification, 'own-echo');
+		assert.strictEqual(staleDurableRead.rereadRequired, true);
+		assert.strictEqual(staleDurableRead.acknowledgement.phase, 'pending-write');
+		const rewrittenSameConfiguration = observeBaseHalfVideoDocumentVersion(
+			staleDurableRead.acknowledgement,
+			{ configurationKey: 'configuration:same', etag: 'etag:new' },
+			true
+		);
+		assert.strictEqual(rewrittenSameConfiguration.classification, 'expected');
+		assert.strictEqual(rewrittenSameConfiguration.acknowledgement.phase, 'observed-expected');
+	});
 });
 
 function capability(
@@ -592,6 +841,27 @@ function mutationContext(
 	sources: readonly IBaseHalfVideoInputSourceState[]
 ): IBaseHalfVideoInputMutationContext {
 	return { capability: capability(mode), recipeInputs: recipeInputs(), bindings, sources };
+}
+
+function canvasPickRequest(overrides: Partial<{
+	readonly sceneKey: string;
+	readonly targetNodePath: string;
+	readonly targetNodeId: string;
+	readonly expectedDraftRevision: string;
+	readonly recipeId: string;
+	readonly requestedRole: string;
+	readonly returnFocusKey: string;
+}> = {}): Omit<IBaseHalfVideoCanvasPickRequest, 'epoch'> {
+	return {
+		sceneKey: 'scene-a',
+		targetNodePath: 'shots/video.bhnode',
+		targetNodeId: 'node-a',
+		expectedDraftRevision: 'etag:draft',
+		recipeId: 'video.generate',
+		requestedRole: 'first-frame',
+		returnFocusKey: 'video:input:first-frame',
+		...overrides
+	};
 }
 
 function assertMutationKind(block: () => unknown, kind: BaseHalfVideoInputMutationProblemKind): void {

@@ -155,6 +155,99 @@ export interface IBaseHalfVideoInputPickRequest extends IBaseHalfVideoInputMutat
 	readonly edgeState: BaseHalfVideoDirectEdgeState;
 }
 
+export interface IBaseHalfVideoCanvasPickRequest {
+	readonly sceneKey: string;
+	readonly targetNodePath: string;
+	readonly targetNodeId: string;
+	readonly expectedDraftRevision: string;
+	readonly recipeId: string;
+	readonly requestedRole: string;
+	readonly returnFocusKey: string;
+	readonly epoch: number;
+}
+
+export type BaseHalfVideoCanvasPickPhase =
+	| 'idle'
+	| 'preflighting'
+	| 'ready'
+	| 'accepting'
+	| 'revalidating'
+	| 'committing';
+
+export interface IBaseHalfVideoCanvasPickDeferredFocus {
+	readonly sceneKey: string;
+	readonly targetNodePath: string;
+	readonly targetNodeId: string;
+	readonly returnFocusKey: string;
+	readonly epoch: number;
+}
+
+/**
+ * Pure, transient role-specific pick state. `epoch` is the latest allocated
+ * request epoch and therefore remains monotonic after a request returns idle.
+ */
+export interface IBaseHalfVideoCanvasPickState {
+	readonly phase: BaseHalfVideoCanvasPickPhase;
+	readonly epoch: number;
+	readonly candidateLayoutRevision: number;
+	readonly targetVisible: boolean;
+	readonly request?: IBaseHalfVideoCanvasPickRequest;
+	readonly deferredFocus?: IBaseHalfVideoCanvasPickDeferredFocus;
+}
+
+export interface IBaseHalfVideoCanvasPickInteraction {
+	readonly viewportNavigationAllowed: boolean;
+	readonly nodeGeometryGesturesDisabled: boolean;
+	readonly acceptsSelection: boolean;
+	readonly cancelAllowed: boolean;
+}
+
+export interface IBaseHalfVideoCanvasPickCompletion {
+	readonly state: IBaseHalfVideoCanvasPickState;
+	readonly reopenInputs: boolean;
+	readonly focusKey?: string;
+}
+
+export interface IBaseHalfVideoCanvasPickFocusContext {
+	readonly sceneKey: string;
+	readonly targetNodePath: string;
+	readonly targetNodeId: string;
+	readonly selected: boolean;
+	readonly visible: boolean;
+}
+
+export interface IBaseHalfVideoCanvasPickFocusConsumption {
+	readonly state: IBaseHalfVideoCanvasPickState;
+	readonly focusKey?: string;
+}
+
+export interface IBaseHalfVideoDocumentVersion {
+	readonly configurationKey: string;
+	readonly etag: string;
+}
+
+export type BaseHalfVideoDocumentWriteAcknowledgementPhase = 'pending-write' | 'observed-expected' | 'settled';
+
+export interface IBaseHalfVideoDocumentWriteAcknowledgement {
+	readonly phase: BaseHalfVideoDocumentWriteAcknowledgementPhase;
+	readonly expectedConfigurationKey: string;
+	readonly replacedVersion: IBaseHalfVideoDocumentVersion;
+	readonly ownVersions: readonly IBaseHalfVideoDocumentVersion[];
+}
+
+export type BaseHalfVideoDocumentVersionClassification = 'own-intermediate' | 'own-echo' | 'expected' | 'external';
+
+export interface IBaseHalfVideoDocumentVersionObservation {
+	readonly acknowledgement: IBaseHalfVideoDocumentWriteAcknowledgement;
+	readonly classification: BaseHalfVideoDocumentVersionClassification;
+	readonly rereadRequired: boolean;
+}
+
+export interface IBaseHalfVideoInputsExecutionGate {
+	readonly ready: boolean;
+	readonly problem?: IBaseHalfVideoInputPresentationProblem;
+}
+
 export interface IBaseHalfVideoInputReplaceRequest extends IBaseHalfVideoInputMutationContext {
 	readonly sourcePath: string;
 	readonly replacementSourcePath: string;
@@ -285,7 +378,7 @@ export function createBaseHalfVideoInputsPresentation(
 	const mappedEvaluationProblems = request.inputEvaluation.problems
 		.map(problem => mapEvaluationProblem(problem))
 		.filter(problem => !isMisleadingMissingFrameProblem(problem, bindings));
-	const readinessProblems = deduplicateProblems([...rowProblems, ...mappedEvaluationProblems]);
+	const readinessProblems = orderReadinessProblems(rowProblems, mappedEvaluationProblems, capabilityIndex);
 	const frameSlots = createFrameSlots(request.capability, rows, readinessProblems);
 	const activeBindings = Object.freeze(rows.filter(row => row.status === 'active'));
 	const ordinaryChips = Object.freeze(activeBindings.filter(row => !isFrameRole(row.binding.slot)));
@@ -301,6 +394,248 @@ export function createBaseHalfVideoInputsPresentation(
 		canSwapFrames: canSwapFrames(request.capability, rows),
 		readinessProblems
 	});
+}
+
+/** Derives the strict input gate consumed before an immutable Attempt is created. */
+export function getBaseHalfVideoInputsExecutionGate(
+	presentation: IBaseHalfVideoInputsPresentation
+): IBaseHalfVideoInputsExecutionGate {
+	const problem = presentation.readinessProblems[0]
+		?? presentation.needsReview.find(candidate => candidate.problem)?.problem;
+	return Object.freeze({
+		ready: !problem && presentation.needsReview.length === 0,
+		...(problem ? { problem } : {})
+	});
+}
+
+/** Creates an idle role-specific canvas-pick state. */
+export function createBaseHalfVideoCanvasPickState(): IBaseHalfVideoCanvasPickState {
+	return freezeCanvasPickState({
+		phase: 'idle',
+		epoch: 0,
+		candidateLayoutRevision: 0,
+		targetVisible: false
+	});
+}
+
+/** Starts a fresh request and invalidates every continuation from an older epoch. */
+export function beginBaseHalfVideoCanvasPick(
+	state: IBaseHalfVideoCanvasPickState,
+	request: Omit<IBaseHalfVideoCanvasPickRequest, 'epoch'>
+): IBaseHalfVideoCanvasPickState {
+	validateCanvasPickRequest(request);
+	const epoch = state.epoch + 1;
+	return freezeCanvasPickState({
+		phase: 'preflighting',
+		epoch,
+		candidateLayoutRevision: state.candidateLayoutRevision,
+		targetVisible: true,
+		request: { ...request, epoch }
+	});
+}
+
+/** Marks the durable configuration checkpoint and candidate preflight complete. */
+export function markBaseHalfVideoCanvasPickReady(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	return transitionCanvasPickPhase(state, epoch, 'preflighting', 'ready');
+}
+
+/** Accepts the first selection synchronously; repeated events for the epoch are ignored. */
+export function acceptBaseHalfVideoCanvasPickSelection(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	return transitionCanvasPickPhase(state, epoch, 'ready', 'accepting');
+}
+
+export function markBaseHalfVideoCanvasPickRevalidating(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	return transitionCanvasPickPhase(state, epoch, 'accepting', 'revalidating');
+}
+
+export function markBaseHalfVideoCanvasPickCommitting(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	return transitionCanvasPickPhase(state, epoch, 'revalidating', 'committing');
+}
+
+/**
+ * Records a pan/zoom layout pass without restarting pick or changing its epoch.
+ * The revision tells the surface to recompute candidate hit regions.
+ */
+export function updateBaseHalfVideoCanvasPickViewport(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number,
+	targetVisible: boolean
+): IBaseHalfVideoCanvasPickState {
+	if (!isCurrentCanvasPick(state, epoch) || state.phase !== 'ready') {
+		return state;
+	}
+	return freezeCanvasPickState({
+		...state,
+		candidateLayoutRevision: state.candidateLayoutRevision + 1,
+		targetVisible
+	});
+}
+
+/** Interaction policy for the active request; node move/resize stays disabled until exit. */
+export function getBaseHalfVideoCanvasPickInteraction(
+	state: IBaseHalfVideoCanvasPickState
+): IBaseHalfVideoCanvasPickInteraction {
+	const active = state.phase !== 'idle';
+	return Object.freeze({
+		viewportNavigationAllowed: state.phase === 'ready',
+		nodeGeometryGesturesDisabled: active,
+		acceptsSelection: state.phase === 'ready',
+		cancelAllowed: active && state.phase !== 'committing'
+	});
+}
+
+/**
+ * Completes only after the refreshed presentation proves the requested role is
+ * filled. Hidden targets retain one exact deferred focus key without reopening
+ * Inputs or moving the viewport.
+ */
+export function completeBaseHalfVideoCanvasPick(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number,
+	filledRoleVisibleInPresentation: boolean
+): IBaseHalfVideoCanvasPickCompletion {
+	if (!isCurrentCanvasPick(state, epoch) || state.phase !== 'committing' || !filledRoleVisibleInPresentation || !state.request) {
+		return Object.freeze({ state, reopenInputs: false });
+	}
+	const deferredFocus = canvasPickDeferredFocus(state.request);
+	if (state.targetVisible) {
+		return Object.freeze({
+			state: idleCanvasPickState(state),
+			reopenInputs: true,
+			focusKey: state.request.returnFocusKey
+		});
+	}
+	return Object.freeze({
+		state: idleCanvasPickState(state, deferredFocus),
+		reopenInputs: false
+	});
+}
+
+/** Cancels an active request before commit; stale epochs and committing requests are ignored. */
+export function cancelBaseHalfVideoCanvasPick(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	if (!isCurrentCanvasPick(state, epoch) || state.phase === 'committing') {
+		return state;
+	}
+	return idleCanvasPickState(state);
+}
+
+/** Exits a failed preflight/revalidation/rolled-back commit without scheduling focus. */
+export function failBaseHalfVideoCanvasPick(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number
+): IBaseHalfVideoCanvasPickState {
+	if (!isCurrentCanvasPick(state, epoch)) {
+		return state;
+	}
+	return idleCanvasPickState(state);
+}
+
+/** Consumes deferred focus once, and only for the exact selected visible target. */
+export function consumeBaseHalfVideoCanvasPickDeferredFocus(
+	state: IBaseHalfVideoCanvasPickState,
+	context: IBaseHalfVideoCanvasPickFocusContext
+): IBaseHalfVideoCanvasPickFocusConsumption {
+	const deferred = state.deferredFocus;
+	if (!deferred
+		|| !context.selected
+		|| !context.visible
+		|| deferred.sceneKey !== context.sceneKey
+		|| baseHalfProjectPathKey(deferred.targetNodePath) !== baseHalfProjectPathKey(context.targetNodePath)
+		|| deferred.targetNodeId !== context.targetNodeId) {
+		return Object.freeze({ state });
+	}
+	const { deferredFocus: _deferredFocus, ...remainingState } = state;
+	return Object.freeze({
+		state: freezeCanvasPickState(remainingState),
+		focusKey: deferred.returnFocusKey
+	});
+}
+
+/** Begins one own-write acknowledgement with the exact version it replaces. */
+export function createBaseHalfVideoDocumentWriteAcknowledgement(
+	expectedConfigurationKey: string,
+	previousVersion: IBaseHalfVideoDocumentVersion
+): IBaseHalfVideoDocumentWriteAcknowledgement {
+	validateDocumentVersion(previousVersion);
+	if (!expectedConfigurationKey) {
+		throw mutationError('invalid-binding-set', 'Expected Video configuration key must not be empty.');
+	}
+	return freezeDocumentWriteAcknowledgement({
+		phase: 'pending-write',
+		expectedConfigurationKey,
+		replacedVersion: previousVersion,
+		ownVersions: [previousVersion]
+	});
+}
+
+/**
+ * Classifies one watcher/read observation. Before the expected durable version
+ * is observed, exact intermediate versions are recorded and force a reread.
+ * Afterwards, any unknown configuration/etag pair is an external revision.
+ */
+export function observeBaseHalfVideoDocumentVersion(
+	acknowledgement: IBaseHalfVideoDocumentWriteAcknowledgement,
+	version: IBaseHalfVideoDocumentVersion,
+	durableRead: boolean
+): IBaseHalfVideoDocumentVersionObservation {
+	validateDocumentVersion(version);
+	if (acknowledgement.phase === 'pending-write'
+		&& durableRead
+		&& version.configurationKey === acknowledgement.expectedConfigurationKey
+		&& !documentVersionsEqual(version, acknowledgement.replacedVersion)) {
+		const ownVersions = hasDocumentVersion(acknowledgement.ownVersions, version)
+			? acknowledgement.ownVersions
+			: [...acknowledgement.ownVersions, version];
+		return Object.freeze({
+			acknowledgement: freezeDocumentWriteAcknowledgement({
+				...acknowledgement,
+				phase: 'observed-expected',
+				ownVersions
+			}),
+			classification: 'expected',
+			rereadRequired: false
+		});
+	}
+	if (hasDocumentVersion(acknowledgement.ownVersions, version)) {
+		return Object.freeze({
+			acknowledgement,
+			classification: 'own-echo',
+			rereadRequired: acknowledgement.phase === 'pending-write'
+		});
+	}
+	if (acknowledgement.phase !== 'pending-write') {
+		return Object.freeze({ acknowledgement, classification: 'external', rereadRequired: false });
+	}
+	const ownVersions = [...acknowledgement.ownVersions, version];
+	return Object.freeze({
+		acknowledgement: freezeDocumentWriteAcknowledgement({ ...acknowledgement, ownVersions }),
+		classification: 'own-intermediate',
+		rereadRequired: true
+	});
+}
+
+/** Retains exact own-version evidence while ending the pending acknowledgement. */
+export function settleBaseHalfVideoDocumentWriteAcknowledgement(
+	acknowledgement: IBaseHalfVideoDocumentWriteAcknowledgement
+): IBaseHalfVideoDocumentWriteAcknowledgement {
+	return acknowledgement.phase === 'observed-expected'
+		? freezeDocumentWriteAcknowledgement({ ...acknowledgement, phase: 'settled' })
+		: acknowledgement;
 }
 
 /** Plan canvas pick: one new target binding and one new direct graph pair. */
@@ -776,6 +1111,28 @@ function problemForStatus(
 	});
 }
 
+function orderReadinessProblems(
+	bindingProblems: readonly IBaseHalfVideoInputPresentationProblem[],
+	evaluationProblems: readonly IBaseHalfVideoInputPresentationProblem[],
+	capabilityInputs: ReadonlyMap<string, IBaseHalfVideoModeCapability['inputs'][number]>
+): readonly IBaseHalfVideoInputPresentationProblem[] {
+	const isActiveRole = (problem: IBaseHalfVideoInputPresentationProblem): boolean => {
+		const definition = problem.input ? capabilityInputs.get(problem.input) : undefined;
+		return !!definition && definition.kind !== 'text-prompt' && definition.maxItems > 0;
+	};
+	const missingStart = evaluationProblems.filter(problem => problem.kind === 'missing-start-frame');
+	const missingEnd = evaluationProblems.filter(problem => problem.kind === 'missing-end-frame');
+	const otherEvaluation = evaluationProblems.filter(problem => problem.kind !== 'missing-start-frame' && problem.kind !== 'missing-end-frame');
+	return deduplicateProblems([
+		...missingStart,
+		...missingEnd,
+		...bindingProblems.filter(isActiveRole),
+		...otherEvaluation.filter(isActiveRole),
+		...bindingProblems.filter(problem => !isActiveRole(problem)),
+		...otherEvaluation.filter(problem => !isActiveRole(problem))
+	]);
+}
+
 function deduplicateProblems(problems: readonly IBaseHalfVideoInputPresentationProblem[]): readonly IBaseHalfVideoInputPresentationProblem[] {
 	const result: IBaseHalfVideoInputPresentationProblem[] = [];
 	const keys = new Set<string>();
@@ -928,6 +1285,107 @@ function freezePlan(value: {
 			removeSourcePaths: Object.freeze([...value.graph.removeSourcePaths])
 		}),
 		...(value.focusSourcePath === undefined ? {} : { focusSourcePath: value.focusSourcePath })
+	});
+}
+
+function validateCanvasPickRequest(request: Omit<IBaseHalfVideoCanvasPickRequest, 'epoch'>): void {
+	const targetPathProblem = baseHalfProjectPathProblem(request.targetNodePath);
+	if (!request.sceneKey
+		|| targetPathProblem
+		|| !request.targetNodeId
+		|| !request.expectedDraftRevision
+		|| !request.recipeId
+		|| !request.requestedRole
+		|| !request.returnFocusKey) {
+		throw mutationError('invalid-binding-set', 'Canvas-pick request identity and revision fields must not be empty.');
+	}
+}
+
+function isCurrentCanvasPick(state: IBaseHalfVideoCanvasPickState, epoch: number): boolean {
+	return state.phase !== 'idle' && state.epoch === epoch && state.request?.epoch === epoch;
+}
+
+function transitionCanvasPickPhase(
+	state: IBaseHalfVideoCanvasPickState,
+	epoch: number,
+	expected: BaseHalfVideoCanvasPickPhase,
+	next: BaseHalfVideoCanvasPickPhase
+): IBaseHalfVideoCanvasPickState {
+	if (!isCurrentCanvasPick(state, epoch) || state.phase !== expected) {
+		return state;
+	}
+	return freezeCanvasPickState({ ...state, phase: next });
+}
+
+function canvasPickDeferredFocus(request: IBaseHalfVideoCanvasPickRequest): IBaseHalfVideoCanvasPickDeferredFocus {
+	return Object.freeze({
+		sceneKey: request.sceneKey,
+		targetNodePath: request.targetNodePath,
+		targetNodeId: request.targetNodeId,
+		returnFocusKey: request.returnFocusKey,
+		epoch: request.epoch
+	});
+}
+
+function idleCanvasPickState(
+	state: IBaseHalfVideoCanvasPickState,
+	deferredFocus?: IBaseHalfVideoCanvasPickDeferredFocus
+): IBaseHalfVideoCanvasPickState {
+	return freezeCanvasPickState({
+		phase: 'idle',
+		epoch: state.epoch,
+		candidateLayoutRevision: state.candidateLayoutRevision,
+		targetVisible: false,
+		...(deferredFocus ? { deferredFocus } : {})
+	});
+}
+
+function freezeCanvasPickState(value: {
+	readonly phase: BaseHalfVideoCanvasPickPhase;
+	readonly epoch: number;
+	readonly candidateLayoutRevision: number;
+	readonly targetVisible: boolean;
+	readonly request?: IBaseHalfVideoCanvasPickRequest;
+	readonly deferredFocus?: IBaseHalfVideoCanvasPickDeferredFocus;
+}): IBaseHalfVideoCanvasPickState {
+	return Object.freeze({
+		phase: value.phase,
+		epoch: value.epoch,
+		candidateLayoutRevision: value.candidateLayoutRevision,
+		targetVisible: value.targetVisible,
+		...(value.request ? { request: Object.isFrozen(value.request) ? value.request : Object.freeze({ ...value.request }) } : {}),
+		...(value.deferredFocus ? { deferredFocus: Object.isFrozen(value.deferredFocus) ? value.deferredFocus : Object.freeze({ ...value.deferredFocus }) } : {})
+	});
+}
+
+function validateDocumentVersion(version: IBaseHalfVideoDocumentVersion): void {
+	if (!version.configurationKey || !version.etag) {
+		throw mutationError('invalid-binding-set', 'Video document versions require a configuration key and etag.');
+	}
+}
+
+function hasDocumentVersion(
+	versions: readonly IBaseHalfVideoDocumentVersion[],
+	candidate: IBaseHalfVideoDocumentVersion
+): boolean {
+	return versions.some(version => documentVersionsEqual(version, candidate));
+}
+
+function documentVersionsEqual(left: IBaseHalfVideoDocumentVersion, right: IBaseHalfVideoDocumentVersion): boolean {
+	return left.configurationKey === right.configurationKey && left.etag === right.etag;
+}
+
+function freezeDocumentWriteAcknowledgement(value: {
+	readonly phase: BaseHalfVideoDocumentWriteAcknowledgementPhase;
+	readonly expectedConfigurationKey: string;
+	readonly replacedVersion: IBaseHalfVideoDocumentVersion;
+	readonly ownVersions: readonly IBaseHalfVideoDocumentVersion[];
+}): IBaseHalfVideoDocumentWriteAcknowledgement {
+	return Object.freeze({
+		phase: value.phase,
+		expectedConfigurationKey: value.expectedConfigurationKey,
+		replacedVersion: Object.freeze({ ...value.replacedVersion }),
+		ownVersions: Object.freeze(value.ownVersions.map(version => Object.freeze({ ...version })))
 	});
 }
 
