@@ -1,13 +1,50 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Companion guide:** [`CLAUDE.md`](CLAUDE.md). Both root guides carry the same
-> current product rules and decision indexes for their respective coding-agent
-> entry points. This file is for developing BaseHalf itself, not the workspace
-> hint that BaseHalf installs into a user's project folder.
+> **Companion guides:** `AGENTS.md` and `CLAUDE.md` are intentionally kept in
+> sync as equivalent coding-agent entry points. Both are for developing
+> BaseHalf itself, not the workspace hint that BaseHalf installs into a user's
+> project folder.
 >
 > Product and architecture decisions are indexed below. For subsystem-specific
 > details, read the relevant decision/spec instead of copying workspace-agent
 > protocol rules into this guide.
+
+## Development protocol: spec first
+
+BaseHalf development is specification-driven. For every substantive product,
+architecture, protocol, schema, persistence, security, UI-state, or cross-module
+change, read and update the owning specification before editing implementation
+source. Follow [the spec-driven development workflow](docs/specs/spec-driven-development.md):
+
+`Spec -> Review -> Plan -> Implementation -> Verification -> Commit`
+
+A conversation summary, task plan, or code diff is not the specification.
+Decision documents record why a direction was chosen; specifications define the
+current required behavior and acceptance criteria. If implementation discoveries
+change the contract, update the specification rather than letting code become the
+only source of truth.
+
+## Source-tree boundary: never initialize this repository
+
+The repository root and `vscode-base/` are BaseHalf implementation source trees,
+not user workspaces. Their tracked `.basehalf-no-workspace-setup` markers must
+remain in place. Never run or accept product workspace initialization against
+either directory.
+
+In these source trees:
+
+- do not create or update `.bh/`, `.bh/mirror/`, `.bh/current_focus.yaml`, or
+  `.bh/agent-harness/`;
+- do not append generated BaseHalf workspace-hint sections to `AGENTS.md` or
+  `CLAUDE.md`;
+- do not create product-generated agent guides or modify `.gitignore` for
+  `.bh/cache/`;
+- do not read or follow any `.bh/` YAML found here as development context.
+
+Any such YAML or generated hint is accidental contamination, not product truth.
+Use disposable fixture workspaces for development hosts, smoke tests, and
+workspace-setup tests. Normal user workspaces without the opt-out marker retain
+the product's existing YAML protocol.
 
 Migration baseline: this branch starts from commit
 `41639435d6510d3d87a195f5498e88cd8ea80600` (`feat(editor): code files
@@ -277,8 +314,8 @@ that point instead of relying on this guide.
 - **Maintainers (including agents working for them) push `main` directly —
   no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on
   direct pushes by allowlisted logins, so the old "CLAAssistant stuck on
-  Expected" problem is gone. The quality gate moved EARLIER: lint + typecheck
-  + the full test suite must be green BEFORE every push (CI still runs on
+  Expected" problem is gone. The quality gate moved EARLIER: lint, typecheck
+  and the full test suite must be green BEFORE every push (CI still runs on
   main but a red run won't block an already-landed push), and substantive
   changes get an in-session adversarial review (there's no PR-time codex
   review on this path). External contributors are unchanged: branch → PR →

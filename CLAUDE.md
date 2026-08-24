@@ -1,16 +1,50 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** BaseHalf is being migrated onto a real VS Code base. The old
-> `@basehalf/core` modules (`workspace`, `badges`, `canvas`, `focus`, `adhd`,
-> `search`, plus the internal watcher) are historical source material for the
-> original product semantics, not the required center of the new desktop
-> architecture.
+> **Companion guides:** `AGENTS.md` and `CLAUDE.md` are intentionally kept in
+> sync as equivalent coding-agent entry points. Both are for developing
+> BaseHalf itself, not the workspace hint that BaseHalf installs into a user's
+> project folder.
 >
-> This guide is for developing BaseHalf itself, not the workspace hint that
-> BaseHalf installs into a user's project folder. Product and architecture
-> decisions are indexed below; for subsystem-specific details, read the relevant
-> decision/spec instead of copying workspace-agent protocol rules into this
-> guide.
+> Product and architecture decisions are indexed below. For subsystem-specific
+> details, read the relevant decision/spec instead of copying workspace-agent
+> protocol rules into this guide.
+
+## Development protocol: spec first
+
+BaseHalf development is specification-driven. For every substantive product,
+architecture, protocol, schema, persistence, security, UI-state, or cross-module
+change, read and update the owning specification before editing implementation
+source. Follow [the spec-driven development workflow](docs/specs/spec-driven-development.md):
+
+`Spec -> Review -> Plan -> Implementation -> Verification -> Commit`
+
+A conversation summary, task plan, or code diff is not the specification.
+Decision documents record why a direction was chosen; specifications define the
+current required behavior and acceptance criteria. If implementation discoveries
+change the contract, update the specification rather than letting code become the
+only source of truth.
+
+## Source-tree boundary: never initialize this repository
+
+The repository root and `vscode-base/` are BaseHalf implementation source trees,
+not user workspaces. Their tracked `.basehalf-no-workspace-setup` markers must
+remain in place. Never run or accept product workspace initialization against
+either directory.
+
+In these source trees:
+
+- do not create or update `.bh/`, `.bh/mirror/`, `.bh/current_focus.yaml`, or
+  `.bh/agent-harness/`;
+- do not append generated BaseHalf workspace-hint sections to `AGENTS.md` or
+  `CLAUDE.md`;
+- do not create product-generated agent guides or modify `.gitignore` for
+  `.bh/cache/`;
+- do not read or follow any `.bh/` YAML found here as development context.
+
+Any such YAML or generated hint is accidental contamination, not product truth.
+Use disposable fixture workspaces for development hosts, smoke tests, and
+workspace-setup tests. Normal user workspaces without the opt-out marker retain
+the product's existing YAML protocol.
 
 Migration baseline: this branch starts from commit
 `41639435d6510d3d87a195f5498e88cd8ea80600` (`feat(editor): code files
@@ -149,6 +183,7 @@ Current private decision index:
 - [block-editor-blocknote.md](private-docs/decisions/block-editor-blocknote.md) — block editor uses BlockNote.
 - [blocknote-confirmed-for-notion-parity.md](private-docs/decisions/blocknote-confirmed-for-notion-parity.md) — BlockNote supports Notion-level editing goals.
 - [brief-freshness-calibration.md](private-docs/decisions/brief-freshness-calibration.md) — agents should compare annotation/file freshness dates.
+- [canvas-creation-stays-on-canvas.md](private-docs/decisions/canvas-creation-stays-on-canvas.md) — creating any node stays on the canvas; New Note enters its inline editor and Card Detail requires explicit open intent.
 - [canvas-lib-react-flow.md](private-docs/decisions/canvas-lib-react-flow.md) — canvas uses React Flow.
 - [clean-slate-delete-old-src.md](private-docs/decisions/clean-slate-delete-old-src.md) — old `src/` reference implementation was deleted cleanly.
 - [containers-renamed-to-badges.md](private-docs/decisions/containers-renamed-to-badges.md) — containers renamed to badges.
@@ -187,14 +222,11 @@ Current private decision index:
 
 ## Recording why decisions were made (internal team workflow)
 
-This project's own architecture / product decisions are kept as MD files
-under `private-docs/decisions/<slug>.md` (one decision per file, with a
-YAML frontmatter block plus a rationale body). Grep / read them directly;
-there's no CLI wrapper.
-
-For agents helping us build BaseHalf: when you encounter "why did we…"
-questions about architecture or product direction, look in
-`private-docs/decisions/` first. The corpus README at
+This project's own architecture / product decisions are kept as MD files under
+`private-docs/decisions/<slug>.md` (one decision per file, with a YAML
+frontmatter block plus a rationale body). Grep / read them directly; there's no
+CLI wrapper. When you encounter "why did we…" questions about architecture or
+product direction, look in `private-docs/decisions/` first. The corpus README at
 `private-docs/decisions/README.md` explains the conventions. If you are working
 on the `.bh` mirror/focus subsystem, read `private-docs/focus_mode_spec/` at
 that point instead of relying on this guide.

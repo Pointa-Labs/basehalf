@@ -1,0 +1,5 @@
+This is the BaseHalf source repository, not a product workspace.
+
+Development and smoke runs use sandbox workspaces. Keeping this tracked marker
+prevents a development host from appending generated workspace hints or creating
+the managed agent harness in the canonical source tree.
