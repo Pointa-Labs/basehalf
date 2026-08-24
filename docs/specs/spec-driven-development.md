@@ -60,7 +60,7 @@ specification.
 
 - Public product and engineering specifications live under `docs/specs/`.
 - Project-development guidance that applies across specifications lives under
-  `docs/development/`. This directory is the BaseHalf development harness: its
+  `docs/harness/`. This directory is the BaseHalf development harness: its
   index routes a task to the relevant specifications, decisions, architecture
   constraints, verification commands, and delivery rules.
 - Internal specifications may live under an appropriate directory in
@@ -118,7 +118,7 @@ repository root or `vscode-base/`.
 The development context has four distinct layers:
 
 1. Root `AGENTS.md` and `CLAUDE.md` are the always-loaded entry points.
-2. `docs/development/` is the public project-development harness and routing
+2. `docs/harness/` is the public project-development harness and routing
    layer.
 3. `docs/specs/` defines current required behavior and acceptance criteria.
 4. `docs/decisions.md` and `private-docs/decisions/` record why directions were
@@ -177,9 +177,9 @@ contracts.
   work through the spec-first sequence.
 - The root guides do not enumerate the complete decision corpus or duplicate
   subsystem contracts.
-- `docs/development/README.md` routes architecture, product-surface, plugin,
+- `docs/harness/README.md` routes architecture, product-surface, plugin,
   protocol, and delivery work to the documents that own those topics.
-- Development-only guidance lives in `docs/development/`; the generated
+- Development-only guidance lives in `docs/harness/`; the generated
   `.bh/agent-harness/` remains exclusively a normal-user-workspace feature.
 - Normal user workspaces without the opt-out marker retain the existing BaseHalf
   initialization behavior.

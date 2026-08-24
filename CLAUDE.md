@@ -9,7 +9,7 @@ BaseHalf uses specification-driven development. For every substantive product,
 architecture, protocol, schema, persistence, security, UI-state, or cross-module
 change:
 
-1. Open the [development harness](docs/development/README.md) and read the
+1. Open the [development harness](docs/harness/README.md) and read the
    documents routed for the task.
 2. Create or update the owning Markdown specification before implementation.
 3. Review the specification, derive the plan, implement within its boundary,
@@ -39,7 +39,7 @@ must remain in place.
 - Use disposable fixture workspaces for development hosts, smoke tests, and
   workspace-setup tests.
 
-The public development harness is `docs/development/`; the generated
+The public development harness is `docs/harness/`; the generated
 `.bh/agent-harness/` belongs only to normal user workspaces.
 
 ## Universal product boundaries
@@ -61,11 +61,11 @@ The public development harness is `docs/development/`; the generated
   interactions, tests, and explicit verification—never placeholder dead ends.
 
 Load the detailed constraints only when relevant from
-[architecture-invariants.md](docs/development/architecture-invariants.md).
+[architecture-invariants.md](docs/harness/architecture-invariants.md).
 
 ## Delivery
 
-Follow [verification-and-delivery.md](docs/development/verification-and-delivery.md).
+Follow [verification-and-delivery.md](docs/harness/verification-and-delivery.md).
 Maintainers work directly on `main` and do not open PRs; external contributors
 use branch → PR → CLA/checks → merge. Before a maintainer push, lint, typecheck,
 and the full test suite must be green, and substantive changes require

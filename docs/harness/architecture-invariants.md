@@ -1,6 +1,7 @@
 # Repository-wide architecture invariants
 
-These are the cross-cutting boundaries that implementation work must preserve.
+This harness document defines the cross-cutting boundaries that implementation
+work must preserve.
 They summarize current direction for development; the linked specifications and
 decision records own the full behavior and rationale.
 

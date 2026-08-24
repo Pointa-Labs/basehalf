@@ -1,6 +1,6 @@
 # BaseHalf development harness
 
-This directory is the progressive-disclosure entry point for developing
+`docs/harness/` is the progressive-disclosure entry point for developing
 BaseHalf itself. Start here after reading the short root `AGENTS.md` or
 `CLAUDE.md`, then load only the documents that own the task at hand.
 
@@ -11,7 +11,7 @@ BaseHalf's source tree is protected from that initialization.
 ## Context layers
 
 1. `AGENTS.md` / `CLAUDE.md`: universal safety, workflow, and product boundaries.
-2. `docs/development/`: task routing, cross-cutting architecture, verification,
+2. `docs/harness/`: task routing, cross-cutting architecture, verification,
    and delivery rules.
 3. `docs/specs/`: current required behavior and observable acceptance criteria.
 4. `docs/decisions.md` and `private-docs/decisions/`: why a direction was chosen

@@ -1,8 +1,9 @@
 # Verification and delivery
 
-Verification follows the owning specification's acceptance criteria. Choose
-checks by the affected boundary, record anything that remains manual, and do not
-describe a change as complete when a required check has not run or is failing.
+This harness document follows the owning specification's acceptance criteria.
+Choose checks by the affected boundary, record anything that remains manual,
+and do not describe a change as complete when a required check has not run or is
+failing.
 
 ## Scoped verification
 

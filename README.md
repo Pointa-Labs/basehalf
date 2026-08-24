@@ -239,7 +239,7 @@ vscode-base/                         current desktop product source
   BASEHALF_UPSTREAM.md               VS Code import baseline
 
 docs/                                public specs, decisions, and policies
-  development/                       BaseHalf's progressive development harness
+  harness/                           BaseHalf's progressive development harness
 private-docs/                        private product/architecture decision corpus
 packages/                            historical BaseHalf core/desktop material
 ```
