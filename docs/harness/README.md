@@ -10,7 +10,7 @@ BaseHalf's source tree is protected from that initialization.
 
 ## Context layers
 
-1. `AGENTS.md` / `CLAUDE.md`: universal safety, workflow, and product boundaries.
+1. `AGENTS.md` / `CLAUDE.md`: development indexes and source-tree safety warning.
 2. `docs/harness/`: task routing, cross-cutting architecture, verification,
    and delivery rules.
 3. `docs/specs/`: current required behavior and observable acceptance criteria.

@@ -124,18 +124,19 @@ The development context has four distinct layers:
 4. `docs/decisions.md` and `private-docs/decisions/` record why directions were
    chosen and preserve historical alternatives.
 
-The root entry points must contain only guidance that every coding task needs:
+The root entry points are indexes, not copies of the development rules. They
+must contain only what an agent needs to reach the authoritative context:
 
-- repository identity and the source-tree initialization prohibition;
-- the spec-first sequence;
-- a link to the development harness;
-- a compact set of repository-wide architectural invariants;
-- the maintainer delivery gate.
+- repository identity and guide-equivalence notice;
+- the non-deferrable source-tree initialization prohibition;
+- a mandatory route through the development-harness index;
+- direct links to the spec workflow, architecture invariants, verification and
+  delivery rules, roadmap, and decision corpora.
 
 They must not contain the complete public or private decision index, migration
-history, subsystem specifications, long definitions of done, or commands that
-only one task family needs. Those belong in the lower layers and are loaded
-through the development-harness index when relevant.
+history, subsystem specifications, product architecture summaries, delivery
+rules, long definitions of done, or task-specific commands. Those belong in the
+lower layers and are loaded through the development-harness index when relevant.
 
 The development harness must provide task-oriented routing rather than copying
 the full contents of specifications and decisions. At minimum it owns:
@@ -157,13 +158,13 @@ source tree.
 
 The root `AGENTS.md` and `CLAUDE.md` are human-maintained development entry
 points. They must remain semantically equivalent, follow the same compact
-structure, and carry the same specification workflow, universal invariants,
-source-tree boundary, and development-harness route. Product workspace setup
-must never inject generated workspace-protocol instructions into either file.
+index structure, and carry the same source-tree warning and development-harness
+routes. Product workspace setup must never inject generated workspace-protocol
+instructions into either file.
 
-Subsystem details belong in their owning specification. The root guides should
-contain durable routing and safety rules, not duplicate entire subsystem
-contracts.
+Development rules belong in the harness, and subsystem details belong in their
+owning specification. The root guides contain durable routing and the minimum
+source-tree safety warning, not duplicated rule bodies.
 
 ## Acceptance criteria
 
@@ -173,10 +174,10 @@ contracts.
   workspace-hint block, or a `.gitignore` edit.
 - Coding agents use this repository's specifications and decisions as context,
   never the product's YAML focus protocol.
-- `AGENTS.md` and `CLAUDE.md` remain semantically identical and route substantive
-  work through the spec-first sequence.
+- `AGENTS.md` and `CLAUDE.md` remain semantically identical indexes and route
+  substantive work through the harness to the spec-first sequence.
 - The root guides do not enumerate the complete decision corpus or duplicate
-  subsystem contracts.
+  architecture, delivery, or subsystem contracts.
 - `docs/harness/README.md` routes architecture, product-surface, plugin,
   protocol, and delivery work to the documents that own those topics.
 - Development-only guidance lives in `docs/harness/`; the generated
