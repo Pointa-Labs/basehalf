@@ -6,6 +6,7 @@ export const BASEHALF_CANVAS_TEMPLATE_MAX_BYTES = 512 * 1024;
 const MAX_ENTRIES = 100;
 const MAX_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_NODE_PROMPT_LENGTH = 64 * 1024;
 const MAX_PARAMETERS = 128;
 const MAX_PARAMETER_DEPTH = 12;
 const MAX_CONTRIBUTION_ID_LENGTH = 128;
@@ -57,6 +58,7 @@ export interface BaseHalfCanvasTemplateNode {
   readonly kind: BaseHalfCanvasTemplateNodeKind;
   readonly title: string;
   readonly role: string;
+  readonly prompt?: string;
   readonly recipe?: BaseHalfCanvasTemplateRecipe;
 }
 
@@ -234,7 +236,7 @@ function parseTextFile(value: unknown, path: string): BaseHalfCanvasTemplateText
 
 function parseNode(value: unknown, path: string): BaseHalfCanvasTemplateNode {
   const candidate = record(value, path);
-  assertOnlyKeys(candidate, ['path', 'kind', 'title', 'role', 'recipe'], path);
+  assertOnlyKeys(candidate, ['path', 'kind', 'title', 'role', 'prompt', 'recipe'], path);
   const kind = text(candidate.kind, `${path}.kind`, 16) as BaseHalfCanvasTemplateNodeKind;
   if (!NODE_KINDS.has(kind)) {
     throw invalid(`${path}.kind must be a supported executable result kind.`);
@@ -246,6 +248,9 @@ function parseNode(value: unknown, path: string): BaseHalfCanvasTemplateNode {
     kind,
     title: text(candidate.title, `${path}.title`, 240),
     role: text(candidate.role, `${path}.role`, 120),
+    ...(candidate.prompt === undefined
+      ? {}
+      : { prompt: text(candidate.prompt, `${path}.prompt`, MAX_NODE_PROMPT_LENGTH, true) }),
     ...(recipe ? { recipe } : {}),
   });
 }

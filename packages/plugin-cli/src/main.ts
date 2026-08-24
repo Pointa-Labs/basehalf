@@ -34,6 +34,7 @@ const MAX_PLUGIN_PACKAGE_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
 const MAX_PLUGIN_PACKAGE_ENTRIES = 4_096;
 const MAX_PLUGIN_PACKAGE_ENTRY_BYTES = 128 * 1024 * 1024;
 const MAX_PLUGIN_MANIFEST_BYTES = 1024 * 1024;
+const MAX_MODEL_PROVIDER_CATALOG_BYTES = 128 * 1024;
 const MAX_RELEASE_NOTES_BYTES = 100_000;
 
 interface ParsedArguments {
@@ -296,12 +297,18 @@ async function assertPackagedPlugin(
   ) {
     throw new Error(`Packaged VSIX must be no larger than ${MAX_PLUGIN_PACKAGE_BYTES} bytes.`);
   }
-  const templateArchivePaths = new Set(
-    (sourceManifest.contributes.basehalfCanvasTemplates ?? []).map(
+  const inspectedResourceArchivePaths = new Set([
+    ...(sourceManifest.contributes.basehalfCanvasTemplates ?? []).map(
       (template) => `extension/${template.resource}`,
     ),
-  );
-  const inspection = await inspectPluginArchive(vsixPath, templateArchivePaths);
+    ...(sourceManifest.contributes.basehalfModelProviderCatalogs ?? []).map(
+      (catalog) => `extension/${catalog.resource}`,
+    ),
+    ...(sourceManifest.contributes.basehalfVideoModelCatalogs ?? []).map(
+      (catalog) => `extension/${catalog.resource}`,
+    ),
+  ]);
+  const inspection = await inspectPluginArchive(vsixPath, inspectedResourceArchivePaths);
   const packagedManifest = inspection.manifest;
   validateBaseHalfPluginManifest(packagedManifest);
   for (const field of [
@@ -329,6 +336,12 @@ async function assertPackagedPlugin(
     ...(sourceManifest.contributes.basehalfCanvasTemplates ?? []).map(
       (template) => `extension/${template.resource}`,
     ),
+    ...(sourceManifest.contributes.basehalfModelProviderCatalogs ?? []).map(
+      (catalog) => `extension/${catalog.resource}`,
+    ),
+    ...(sourceManifest.contributes.basehalfVideoModelCatalogs ?? []).map(
+      (catalog) => `extension/${catalog.resource}`,
+    ),
     ...(sourceManifest.contributes.jsonValidation ?? []).map(
       (validator) => `extension/${validator.url}`,
     ),
@@ -353,6 +366,35 @@ async function assertPackagedPlugin(
       );
     }
   }
+  for (const catalog of sourceManifest.contributes.basehalfVideoModelCatalogs ?? []) {
+    const archivePath = `extension/${catalog.resource}`;
+    const bytes = inspection.contents.get(archivePath);
+    if (!bytes) {
+      throw new Error(`Packaged VSIX is missing '${archivePath}' or uses different casing.`);
+    }
+    try {
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      JSON.parse(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source);
+    } catch (error) {
+      throw new Error(
+        `Packaged video model catalog is not valid UTF-8 JSON: ${catalog.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
+  for (const catalog of sourceManifest.contributes.basehalfModelProviderCatalogs ?? []) {
+    const archivePath = `extension/${catalog.resource}`;
+    const bytes = inspection.contents.get(archivePath);
+    if (!bytes) {
+      throw new Error(`Packaged VSIX is missing '${archivePath}' or uses different casing.`);
+    }
+    try {
+      parseUtf8JsonResource(bytes, MAX_MODEL_PROVIDER_CATALOG_BYTES);
+    } catch (error) {
+      throw new Error(
+        `Packaged model provider catalog failed validation: ${catalog.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
   if (!hasArchiveFile(inspection.files, 'extension/readme.md')) {
     throw new Error('Packaged VSIX is missing README.md.');
   }
@@ -368,6 +410,14 @@ async function assertPackagedPlugin(
 function hasArchiveFile(files: ReadonlySet<string>, wanted: string): boolean {
   const canonical = wanted.normalize('NFC').toLowerCase();
   return [...files].some((file) => file.normalize('NFC').toLowerCase() === canonical);
+}
+
+function parseUtf8JsonResource(bytes: Uint8Array, maximumBytes: number): unknown {
+  if (bytes.byteLength > maximumBytes) {
+    throw new Error(`Resource exceeds ${maximumBytes} bytes.`);
+  }
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return JSON.parse(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source);
 }
 
 function inspectPluginArchive(
@@ -684,6 +734,33 @@ async function assertPublishFiles(
       }
       throw new Error(
         `Canvas template failed validation: ${template.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
+  for (const catalog of manifest.contributes.basehalfVideoModelCatalogs ?? []) {
+    const catalogPath = path.resolve(directory, catalog.resource);
+    try {
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(catalogPath));
+      JSON.parse(source.charCodeAt(0) === 0xfeff ? source.slice(1) : source);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Required video model catalog is missing: ${catalog.resource}`);
+      }
+      throw new Error(
+        `Video model catalog is not valid UTF-8 JSON: ${catalog.resource}: ${(error as Error).message}`,
+      );
+    }
+  }
+  for (const catalog of manifest.contributes.basehalfModelProviderCatalogs ?? []) {
+    const catalogPath = path.resolve(directory, catalog.resource);
+    try {
+      parseUtf8JsonResource(await readFile(catalogPath), MAX_MODEL_PROVIDER_CATALOG_BYTES);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Required model provider catalog is missing: ${catalog.resource}`);
+      }
+      throw new Error(
+        `Model provider catalog failed validation: ${catalog.resource}: ${(error as Error).message}`,
       );
     }
   }

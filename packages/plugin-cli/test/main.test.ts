@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { run } from '../src/main.js';
 import { scaffoldPlugin } from '../src/scaffold.js';
@@ -66,6 +67,19 @@ describe('plugin init command', () => {
 });
 
 describe('plugin package command', () => {
+  it('validates the official AI Video provider catalog fixture', async () => {
+    const directory = fileURLToPath(
+      new URL('../../../vscode-base/extensions/basehalf-ai-video/', import.meta.url),
+    );
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await run(['validate', directory]);
+
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/^Validated pointa\.basehalf-ai-video@.+\.$/),
+    );
+  });
+
   it('creates the exact local VSIX without publishing it', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-package-'));
     temporary.push(root);
@@ -260,6 +274,116 @@ describe('plugin package command', () => {
       'extension/out/extension.js',
     );
     await expect(stat(output)).rejects.toThrow();
+  });
+
+  it('keeps a declared model provider catalog in the VSIX', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-provider-catalog-'));
+    temporary.push(root);
+    const directory = path.join(root, 'storyboard');
+    const output = path.join(root, 'storyboard.vsix');
+    await scaffoldPlugin({
+      directory,
+      publisher: 'studio',
+      name: 'storyboard',
+      displayName: 'Storyboard',
+      repository: 'https://github.com/studio/storyboard',
+      fileExtension: 'storyboard',
+    });
+    await mkdir(path.join(directory, 'out'), { recursive: true });
+    await writeFile(path.join(directory, 'out/extension.js'), 'exports.activate = () => {};\n');
+    await mkdir(path.join(directory, 'models'), { recursive: true });
+    const officialCatalog = fileURLToPath(
+      new URL(
+        '../../../vscode-base/extensions/basehalf-ai-video/models/provider-connections.json',
+        import.meta.url,
+      ),
+    );
+    await writeFile(
+      path.join(directory, 'models/provider-connections.json'),
+      await readFile(officialCatalog),
+    );
+    const manifestPath = path.join(directory, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.contributes.basehalfModelProviderCatalogs = [
+      {
+        id: 'studio.storyboard.official-providers',
+        resource: 'models/provider-connections.json',
+      },
+    ];
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await run(['validate', directory]);
+    await run(['package', directory, '--out', output]);
+
+    expect((await stat(output)).size).toBeGreaterThan(100);
+  });
+
+  it('rejects a VSIX when ignore rules remove its declared model provider catalog', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-excluded-provider-'));
+    temporary.push(root);
+    const directory = path.join(root, 'storyboard');
+    const output = path.join(root, 'storyboard.vsix');
+    await scaffoldPlugin({
+      directory,
+      publisher: 'studio',
+      name: 'storyboard',
+      displayName: 'Storyboard',
+      repository: 'https://github.com/studio/storyboard',
+      fileExtension: 'storyboard',
+    });
+    await mkdir(path.join(directory, 'out'), { recursive: true });
+    await writeFile(path.join(directory, 'out/extension.js'), 'exports.activate = () => {};\n');
+    await mkdir(path.join(directory, 'models'), { recursive: true });
+    await writeFile(
+      path.join(directory, 'models/provider-connections.json'),
+      '{"schemaVersion":1,"connections":[]}\n',
+    );
+    const manifestPath = path.join(directory, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.contributes.basehalfModelProviderCatalogs = [
+      {
+        id: 'studio.storyboard.official-providers',
+        resource: 'models/provider-connections.json',
+      },
+    ];
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    await writeFile(path.join(directory, '.vscodeignore'), 'models/**\n');
+
+    await expect(run(['package', directory, '--out', output])).rejects.toThrow(
+      "missing 'extension/models/provider-connections.json'",
+    );
+    await expect(stat(output)).rejects.toThrow();
+  });
+
+  it('rejects malformed model provider catalog JSON before packaging', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'bh-plugin-invalid-provider-'));
+    temporary.push(root);
+    const directory = path.join(root, 'storyboard');
+    await scaffoldPlugin({
+      directory,
+      publisher: 'studio',
+      name: 'storyboard',
+      displayName: 'Storyboard',
+      repository: 'https://github.com/studio/storyboard',
+      fileExtension: 'storyboard',
+    });
+    await mkdir(path.join(directory, 'out'), { recursive: true });
+    await writeFile(path.join(directory, 'out/extension.js'), 'exports.activate = () => {};\n');
+    await mkdir(path.join(directory, 'models'), { recursive: true });
+    await writeFile(path.join(directory, 'models/provider-connections.json'), '{');
+    const manifestPath = path.join(directory, 'package.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    manifest.contributes.basehalfModelProviderCatalogs = [
+      {
+        id: 'studio.storyboard.official-providers',
+        resource: 'models/provider-connections.json',
+      },
+    ];
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    await expect(run(['validate', directory])).rejects.toThrow(
+      'Model provider catalog failed validation: models/provider-connections.json',
+    );
   });
 
   it('revalidates the manifest produced by the package lifecycle', async () => {

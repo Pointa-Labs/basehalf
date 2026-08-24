@@ -174,7 +174,7 @@ export async function scaffoldPlugin(options: ScaffoldOptions): Promise<void> {
     'test-workspace/README.md': `# ${displayName} test workspace\n\nFiles created while running the plugin development host stay in this folder.\n`,
     'README.md': `# ${displayName}\n\nDescribe what this plugin lets people build in BaseHalf and which ordinary project files it owns.\n\n${
       kind === 'recipe'
-        ? 'This project contributes one host-owned canvas recipe and one starter template. Its executor receives direct input snapshots and writes results only to the run directory selected by BaseHalf.\n\n'
+        ? 'This project contributes one host-owned canvas recipe and one starter template. Its executor receives direct input snapshots and writes its one result file only to the Attempt directory supplied by BaseHalf.\n\n'
         : 'This project contributes a card-detail projection for its project file extension.\n\n'
     }## Development\n\n- Run \`npm install\`.\n- Open this folder in BaseHalf and press F5.\n- Run \`npm run check\` before publishing.\n- Run \`npm run package\` to inspect the exact VSIX locally.\n- Run \`npm run publish\` to confirm your BaseHalf account and submit a version for review.\n`,
     'CHANGELOG.md': `# Changelog\n\n## 0.1.0\n\n- ${
@@ -236,21 +236,20 @@ async function executeRecipe(
   throwIfCancelled(token);
   progress.report({ message: 'Saved result', increment: 80 });
 
-  const artifactId = \`\${request.runId}:document\`;
+  const artifactId = \`\${request.attemptId}:document\`;
   return {
-    artifacts: [{
+    artifact: {
       id: artifactId,
       outputId: 'document',
       kind: 'file',
       resource,
       label: heading,
-    }],
-    primaryArtifactId: artifactId,
+    },
   };
 }
 
 async function readDirectInput(input: vscode.basehalf.CanvasRecipeInput): Promise<{ path: string; contents: string }> {
-  const resource = input.source.current?.resource ?? input.source.resource;
+  const resource = input.source.result?.resource ?? input.source.resource;
   if (!resource || input.source.kind === 'folder') {
     return { path: input.source.path, contents: '_Input is available by reference only._' };
   }

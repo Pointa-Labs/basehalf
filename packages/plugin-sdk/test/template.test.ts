@@ -15,6 +15,7 @@ const validTemplate = {
       kind: 'file',
       title: 'Result',
       role: 'result',
+      prompt: 'Write a concise result.',
       recipe: {
         recipeId: 'studio.writer.create-document',
         parameters: { heading: 'Result' },

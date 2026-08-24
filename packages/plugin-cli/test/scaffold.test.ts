@@ -103,6 +103,13 @@ describe('plugin scaffold', () => {
     const source = await readFile(path.join(directory, 'src/extension.ts'), 'utf8');
     expect(source).toContain('vscode.basehalf.registerCanvasRecipeExecutor');
     expect(source).not.toContain('registerCardProjectionProvider');
+    expect(source).toContain('request.attemptId');
+    expect(source).toContain('artifact: {');
+    expect(source).not.toContain('artifacts:');
+    expect(source).not.toContain('primaryArtifactId');
+    expect(source).toContain('input.source.result?.resource');
+    expect(source).not.toContain('request.runId');
+    expect(source).not.toContain('input.source.current');
     const inputStat = source.indexOf('vscode.workspace.fs.stat(resource)');
     const inputRead = source.indexOf('vscode.workspace.fs.readFile(resource)');
     expect(inputStat).toBeGreaterThan(-1);
@@ -112,6 +119,9 @@ describe('plugin scaffold', () => {
     expect(source).not.toContain('bytes.slice(0, maximumInputBytes)');
     expect(await readFile(path.join(directory, 'CHANGELOG.md'), 'utf8')).toContain(
       'Initial canvas Recipe and starter Template.',
+    );
+    expect(await readFile(path.join(directory, 'README.md'), 'utf8')).toContain(
+      'one result file only to the Attempt directory',
     );
     expect(source).toContain("'basehalf.canvas.createFromTemplate'");
 

@@ -105,21 +105,14 @@ const agentCapabilityValid = {
             kind: 'studio.storyboard.sequence',
             version: 1,
             fileExtensions: ['.json'],
-            schemaSummary: 'A versioned root object with ordered items.',
-            pin: {
-              mode: 'exact-result-version',
-              field: 'items[].versionId',
-              targetKinds: ['video'],
-              acceptedVersionStates: ['succeeded', 'imported'],
-              updatePolicy: 'explicit',
-            },
+            schemaSummary: 'A versioned root object with ordered result-node identities.',
           },
         ],
         operations: [
           {
             id: 'studio.storyboard.sequence-inspect',
             command: 'studio.storyboard.inspectSequence',
-            description: 'Inspect exact pins without modifying the document.',
+            description: 'Inspect result-node identities without modifying the document.',
             deterministic: true,
             parameters: [
               {
@@ -224,7 +217,7 @@ describe('BaseHalf plugin manifest contract', () => {
     ).not.toThrow();
   });
 
-  it('validates Agent capability ownership, exact pins, and declared commands', () => {
+  it('validates Agent capability ownership and declared commands while rejecting version pins', () => {
     expect(() => validateBaseHalfPluginManifest(agentCapabilityValid)).not.toThrow();
     expect(() =>
       validateBaseHalfPluginManifest({
@@ -256,18 +249,14 @@ describe('BaseHalf plugin manifest contract', () => {
               documents: [
                 {
                   ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0].documents[0],
-                  pin: {
-                    ...agentCapabilityValid.contributes.basehalfAgentCapabilities[0].documents[0]
-                      .pin,
-                    field: '../versionId',
-                  },
+                  pin: { mode: 'exact-result-version' },
                 },
               ],
             },
           ],
         },
       }),
-    ).toThrow('invalid pin field');
+    ).toThrow('unsupported fields');
     expect(() =>
       validateBaseHalfPluginManifest({
         ...agentCapabilityValid,
@@ -350,7 +339,7 @@ describe('BaseHalf plugin manifest contract', () => {
         contributes: { commands: valid.contributes.commands },
       }),
     ).toThrow(
-      'Agent capability, card projection, canvas recipe, canvas template, or structural cleanup',
+      'Agent capability, card projection, canvas recipe, canvas template, model provider catalog, video model catalog, or structural cleanup',
     );
   });
 
@@ -445,6 +434,172 @@ describe('BaseHalf plugin manifest contract', () => {
         },
       }),
     ).toThrow('canonical relative JSON path');
+  });
+
+  it('accepts only owned resource envelopes for model provider catalogs', () => {
+    const contribution = {
+      id: 'studio.storyboard.official-providers',
+      resource: 'models/provider-connections.json',
+    } as const;
+    const manifest = {
+      ...valid,
+      contributes: {
+        ...valid.contributes,
+        basehalfModelProviderCatalogs: [contribution],
+      },
+    } as const;
+    expect(() => validateBaseHalfPluginManifest(manifest)).not.toThrow();
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...manifest,
+        contributes: {
+          ...manifest.contributes,
+          basehalfModelProviderCatalogs: [
+            { ...contribution, id: 'another.plugin.official-providers' },
+          ],
+        },
+      }),
+    ).toThrow("must start with 'studio.storyboard.'");
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...manifest,
+        contributes: {
+          ...manifest.contributes,
+          basehalfModelProviderCatalogs: [
+            { ...contribution, resource: '../provider-connections.json' },
+          ],
+        },
+      }),
+    ).toThrow('canonical relative JSON path');
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...manifest,
+        contributes: {
+          ...manifest.contributes,
+          basehalfModelProviderCatalogs: [{ ...contribution, connections: [] }],
+        },
+      }),
+    ).toThrow('unsupported fields: connections');
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...manifest,
+        contributes: {
+          ...manifest.contributes,
+          basehalfModelProviderCatalogs: [contribution, contribution],
+        },
+      }),
+    ).toThrow('declared more than once');
+  });
+
+  it('requires every video recipe to bind one declared owner catalog', () => {
+    const catalogId = 'studio.storyboard.video-models';
+    const videoRecipe = {
+      ...recipeValid.contributes.basehalfCanvasRecipes[0],
+      modelCapability: 'video',
+      videoModelCatalogId: catalogId,
+      parameters: [],
+      outputs: [
+        {
+          ...recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+          kind: 'video',
+          extensions: ['.mp4'],
+        },
+      ],
+    } as const;
+    const videoManifest = {
+      ...recipeValid,
+      contributes: {
+        ...recipeValid.contributes,
+        basehalfCanvasRecipes: [videoRecipe],
+        basehalfVideoModelCatalogs: [{ id: catalogId, resource: 'models/video-models.json' }],
+      },
+    } as const;
+    expect(() => validateBaseHalfPluginManifest(videoManifest)).not.toThrow();
+
+    const { videoModelCatalogId: _missing, ...withoutCatalog } = videoRecipe;
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...videoManifest,
+        contributes: { ...videoManifest.contributes, basehalfCanvasRecipes: [withoutCatalog] },
+      }),
+    ).toThrow(/video model catalog/);
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...videoManifest,
+        contributes: {
+          ...videoManifest.contributes,
+          basehalfCanvasRecipes: [
+            { ...videoRecipe, videoModelCatalogId: 'another.plugin.video-models' },
+          ],
+        },
+      }),
+    ).toThrow("must start with 'studio.storyboard.'");
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...videoManifest,
+        contributes: {
+          ...videoManifest.contributes,
+          basehalfCanvasRecipes: [
+            { ...videoRecipe, videoModelCatalogId: 'studio.storyboard.missing-models' },
+          ],
+        },
+      }),
+    ).toThrow(/references undeclared video model catalog/);
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...videoManifest,
+        contributes: {
+          ...videoManifest.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              videoModelCatalogId: catalogId,
+            },
+          ],
+        },
+      }),
+    ).toThrow(/cannot declare a video model catalog/);
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...videoManifest,
+        contributes: {
+          ...videoManifest.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...videoRecipe,
+              outputs: [{ ...videoRecipe.outputs[0], kind: 'image', extensions: ['.png'] }],
+            },
+          ],
+        },
+      }),
+    ).toThrow(/must produce a video Result/);
+
+    expect(() =>
+      validateBaseHalfPluginManifest({
+        ...recipeValid,
+        contributes: {
+          ...recipeValid.contributes,
+          basehalfCanvasRecipes: [
+            {
+              ...recipeValid.contributes.basehalfCanvasRecipes[0],
+              modelCapability: 'image',
+              outputs: [
+                {
+                  ...recipeValid.contributes.basehalfCanvasRecipes[0].outputs[0],
+                  kind: 'video',
+                  extensions: ['.mp4'],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow(/Local video recipe.*must omit model capability/);
   });
 
   it('rejects invalid parameter declarations and undeclared recipe fields', () => {
@@ -577,7 +732,7 @@ describe('BaseHalf plugin manifest contract', () => {
     }
   });
 
-  it('caps total recipe bindings and artifacts at host limits', () => {
+  it('caps total recipe bindings and requires one output per Result node', () => {
     expect(() =>
       validateBaseHalfPluginManifest({
         ...recipeValid,
@@ -618,7 +773,7 @@ describe('BaseHalf plugin manifest contract', () => {
           ],
         },
       }),
-    ).toThrow('no more than 64 artifacts in total');
+    ).toThrow('exactly one output for one Result node');
   });
 
   it('accepts only bounded settings owned by the plugin namespace', () => {

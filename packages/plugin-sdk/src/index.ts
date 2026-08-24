@@ -48,6 +48,8 @@ export const BASEHALF_ALLOWED_CONTRIBUTION_POINTS = [
   'basehalfStructuralCleanups',
   'basehalfCanvasRecipes',
   'basehalfCanvasTemplates',
+  'basehalfModelProviderCatalogs',
+  'basehalfVideoModelCatalogs',
 ] as const;
 
 export const BASEHALF_CANVAS_CONTENT_KINDS = [
@@ -96,6 +98,21 @@ export interface BaseHalfCardProjectionContribution {
 export interface BaseHalfStructuralCleanupContribution {
   readonly id: string;
   readonly extensions: readonly string[];
+}
+
+export interface BaseHalfVideoModelCatalogContribution {
+  readonly id: string;
+  readonly resource: string;
+}
+
+/**
+ * Points at a host-validated, versioned provider connection catalog shipped in
+ * the extension. Connection fields and credential rules never live inline in
+ * package.json.
+ */
+export interface BaseHalfModelProviderCatalogContribution {
+  readonly id: string;
+  readonly resource: string;
 }
 
 export interface BaseHalfCanvasRecipeInputContribution {
@@ -168,6 +185,8 @@ export interface BaseHalfCanvasRecipeContribution {
   readonly description?: string;
   readonly icon?: string;
   readonly modelCapability?: BaseHalfModelCapability;
+  /** Exact reviewed catalog owned by this extension. Required only for video recipes. */
+  readonly videoModelCatalogId?: string;
   readonly inputs?: readonly BaseHalfCanvasRecipeInputContribution[];
   readonly parameters?: readonly BaseHalfCanvasRecipeParameterContribution[];
   readonly outputs: readonly BaseHalfCanvasRecipeOutputContribution[];
@@ -188,20 +207,11 @@ export type BaseHalfAgentOperationParameterType =
   | 'boolean'
   | 'enum';
 
-export interface BaseHalfAgentExactVersionPinContribution {
-  readonly mode: 'exact-result-version';
-  readonly field: string;
-  readonly targetKinds: readonly BaseHalfCanvasOutputKind[];
-  readonly acceptedVersionStates: readonly ('succeeded' | 'imported')[];
-  readonly updatePolicy: 'explicit';
-}
-
 export interface BaseHalfAgentDocumentFormatContribution {
   readonly kind: string;
   readonly version: number;
   readonly fileExtensions: readonly string[];
   readonly schemaSummary: string;
-  readonly pin?: BaseHalfAgentExactVersionPinContribution;
 }
 
 export interface BaseHalfAgentOperationParameterContribution {
@@ -262,6 +272,8 @@ export interface BaseHalfPluginManifest {
     readonly basehalfStructuralCleanups?: readonly BaseHalfStructuralCleanupContribution[];
     readonly basehalfCanvasRecipes?: readonly BaseHalfCanvasRecipeContribution[];
     readonly basehalfCanvasTemplates?: readonly BaseHalfCanvasTemplateContribution[];
+    readonly basehalfModelProviderCatalogs?: readonly BaseHalfModelProviderCatalogContribution[];
+    readonly basehalfVideoModelCatalogs?: readonly BaseHalfVideoModelCatalogContribution[];
     readonly commands?: readonly {
       readonly command: string;
       readonly title: string;
@@ -369,6 +381,14 @@ export function validateBaseHalfPluginManifest(
     contributes.basehalfCanvasTemplates,
     'basehalfCanvasTemplates',
   );
+  const videoModelCatalogs = contributionArray(
+    contributes.basehalfVideoModelCatalogs,
+    'basehalfVideoModelCatalogs',
+  );
+  const modelProviderCatalogs = contributionArray(
+    contributes.basehalfModelProviderCatalogs,
+    'basehalfModelProviderCatalogs',
+  );
   const agentCapabilities = contributionArray(
     contributes.basehalfAgentCapabilities,
     'basehalfAgentCapabilities',
@@ -377,18 +397,22 @@ export function validateBaseHalfPluginManifest(
     projections.length +
       recipes.length +
       templates.length +
+      modelProviderCatalogs.length +
+      videoModelCatalogs.length +
       agentCapabilities.length +
       structuralCleanups.length ===
     0
   ) {
     throw new Error(
-      'Plugin manifest must contribute a BaseHalf Agent capability, card projection, canvas recipe, canvas template, or structural cleanup.',
+      'Plugin manifest must contribute a BaseHalf Agent capability, card projection, canvas recipe, canvas template, model provider catalog, video model catalog, or structural cleanup.',
     );
   }
   validateAgentCapabilities(extensionId, agentCapabilities, commands);
   const projectionIds = validateProjections(extensionId, projections);
   const structuralCleanupIds = validateStructuralCleanups(extensionId, structuralCleanups);
-  const recipeIds = validateRecipes(extensionId, recipes);
+  validateModelProviderCatalogs(extensionId, modelProviderCatalogs);
+  const videoModelCatalogIds = validateVideoModelCatalogs(extensionId, videoModelCatalogs);
+  const recipeIds = validateRecipes(extensionId, recipes, videoModelCatalogIds);
   validateTemplates(extensionId, templates);
   validateActivationEvents(
     manifest.activationEvents,
@@ -866,7 +890,11 @@ function validateProjections(extensionId: string, values: readonly unknown[]): R
   return ids;
 }
 
-function validateRecipes(extensionId: string, values: readonly unknown[]): ReadonlySet<string> {
+function validateRecipes(
+  extensionId: string,
+  values: readonly unknown[],
+  videoModelCatalogIds: ReadonlySet<string>,
+): ReadonlySet<string> {
   if (values.length > 64) {
     throw new Error('basehalfCanvasRecipes cannot contain more than 64 recipes.');
   }
@@ -875,7 +903,17 @@ function validateRecipes(extensionId: string, values: readonly unknown[]): Reado
     const recipe = record(value, 'basehalfCanvasRecipes[]');
     assertOnlyKeys(
       recipe,
-      ['id', 'label', 'description', 'icon', 'modelCapability', 'inputs', 'parameters', 'outputs'],
+      [
+        'id',
+        'label',
+        'description',
+        'icon',
+        'modelCapability',
+        'videoModelCatalogId',
+        'inputs',
+        'parameters',
+        'outputs',
+      ],
       'basehalfCanvasRecipes[]',
     );
     const id = ownedContributionId(recipe.id, extensionId, ids, 'Canvas recipe');
@@ -892,9 +930,48 @@ function validateRecipes(extensionId: string, values: readonly unknown[]): Reado
     ) {
       throw new Error(`Canvas recipe '${id}' has an invalid model capability.`);
     }
+    if (recipe.modelCapability === 'video') {
+      const catalogId = ownedContributionId(
+        recipe.videoModelCatalogId,
+        extensionId,
+        new Set<string>(),
+        `Canvas recipe '${id}' video model catalog`,
+      );
+      if (!videoModelCatalogIds.has(catalogId)) {
+        throw new Error(
+          `Canvas recipe '${id}' references undeclared video model catalog '${catalogId}'.`,
+        );
+      }
+    } else if (recipe.videoModelCatalogId !== undefined) {
+      throw new Error(
+        `Canvas recipe '${id}' cannot declare a video model catalog without video model capability.`,
+      );
+    }
     validateRecipeInputs(id, contributionArray(recipe.inputs, `${id}.inputs`));
-    validateRecipeParameters(id, contributionArray(recipe.parameters, `${id}.parameters`));
-    validateRecipeOutputs(id, contributionArray(recipe.outputs, `${id}.outputs`, true));
+    const parameters = contributionArray(recipe.parameters, `${id}.parameters`);
+    validateRecipeParameters(id, parameters);
+    if (recipe.modelCapability === 'video' && parameters.length > 0) {
+      throw new Error(
+        `Video recipe '${id}' must use reviewed catalog settings instead of static parameters.`,
+      );
+    }
+    const outputs = contributionArray(recipe.outputs, `${id}.outputs`, true);
+    validateRecipeOutputs(id, outputs);
+    if (
+      recipe.modelCapability === 'video' &&
+      record(outputs[0], `${id}.outputs[0]`).kind !== 'video'
+    ) {
+      throw new Error(`Video recipe '${id}' must produce a video Result.`);
+    }
+    if (
+      record(outputs[0], `${id}.outputs[0]`).kind === 'video' &&
+      recipe.modelCapability !== undefined &&
+      recipe.modelCapability !== 'video'
+    ) {
+      throw new Error(
+        `Local video recipe '${id}' must omit model capability, or use the reviewed video model capability.`,
+      );
+    }
   }
   return ids;
 }
@@ -1090,12 +1167,12 @@ function validateEnumParameter(
 }
 
 function validateRecipeOutputs(recipeId: string, values: readonly unknown[]): void {
-  if (values.length > 8) {
-    throw new Error(`Canvas recipe '${recipeId}' must declare between 1 and 8 outputs.`);
+  if (values.length !== 1) {
+    throw new Error(
+      `Canvas recipe '${recipeId}' must declare exactly one output for one Result node.`,
+    );
   }
   const ids = new Set<string>();
-  let primaryCount = 0;
-  let maximumItems = 0;
   for (const value of values) {
     const output = record(value, `${recipeId}.outputs[]`);
     assertOnlyKeys(
@@ -1124,17 +1201,17 @@ function validateRecipeOutputs(recipeId: string, values: readonly unknown[]): vo
       throw new Error(`Canvas recipe '${recipeId}' output '${id}' has invalid file extensions.`);
     }
     validateItemRange(output.minItems, output.maxItems, `${recipeId}.output.${id}`);
-    maximumItems += output.maxItems as number;
     if (output.primary !== undefined && typeof output.primary !== 'boolean') {
       throw new Error(`Canvas recipe '${recipeId}' output '${id}' has invalid primary state.`);
     }
-    if (output.primary === true) primaryCount += 1;
-  }
-  if (primaryCount !== 1) {
-    throw new Error(`Canvas recipe '${recipeId}' must declare exactly one primary output.`);
-  }
-  if (maximumItems > 64) {
-    throw new Error(`Canvas recipe '${recipeId}' can produce no more than 64 artifacts in total.`);
+    if (output.primary !== true) {
+      throw new Error(`Canvas recipe '${recipeId}' must declare exactly one primary output.`);
+    }
+    if (output.minItems !== 1 || output.maxItems !== 1) {
+      throw new Error(
+        `Canvas recipe '${recipeId}' primary output must produce exactly one artifact.`,
+      );
+    }
   }
   const primary = values.find((value) => isRecord(value) && value.primary === true) as
     | Record<string, unknown>
@@ -1169,6 +1246,56 @@ function validateTemplates(extensionId: string, values: readonly unknown[]): voi
       });
     } catch {
       throw new Error(`Canvas template '${id}' resource must be a canonical relative JSON path.`);
+    }
+  }
+}
+
+function validateVideoModelCatalogs(
+  extensionId: string,
+  values: readonly unknown[],
+): ReadonlySet<string> {
+  if (values.length > 8) {
+    throw new Error('basehalfVideoModelCatalogs cannot contain more than 8 catalogs.');
+  }
+  const ids = new Set<string>();
+  for (const value of values) {
+    const catalog = record(value, 'basehalfVideoModelCatalogs[]');
+    assertOnlyKeys(catalog, ['id', 'resource'], 'basehalfVideoModelCatalogs[]');
+    const id = ownedContributionId(catalog.id, extensionId, ids, 'Video model catalog');
+    try {
+      portableRelativePath(catalog.resource, `${id}.resource`, {
+        maximumLength: 500,
+        requireExtension: '.json',
+        reserveBaseHalfState: true,
+      });
+    } catch {
+      throw new Error(
+        `Video model catalog '${id}' resource must be a canonical relative JSON path.`,
+      );
+    }
+  }
+  return ids;
+}
+
+function validateModelProviderCatalogs(extensionId: string, values: readonly unknown[]): void {
+  if (values.length > 8) {
+    throw new Error('basehalfModelProviderCatalogs cannot contain more than 8 catalogs.');
+  }
+  const ids = new Set<string>();
+  for (const value of values) {
+    const catalog = record(value, 'basehalfModelProviderCatalogs[]');
+    assertOnlyKeys(catalog, ['id', 'resource'], 'basehalfModelProviderCatalogs[]');
+    const id = ownedContributionId(catalog.id, extensionId, ids, 'Model provider catalog');
+    try {
+      portableRelativePath(catalog.resource, `${id}.resource`, {
+        maximumLength: 500,
+        requireExtension: '.json',
+        reserveBaseHalfState: true,
+      });
+    } catch {
+      throw new Error(
+        `Model provider catalog '${id}' resource must be a canonical relative JSON path.`,
+      );
     }
   }
 }
@@ -1226,7 +1353,7 @@ function validateAgentDocuments(
     const document = record(value, `${capabilityId}.documents[]`);
     assertOnlyKeys(
       document,
-      ['kind', 'version', 'fileExtensions', 'schemaSummary', 'pin'],
+      ['kind', 'version', 'fileExtensions', 'schemaSummary'],
       `${capabilityId}.documents[]`,
     );
     const kind = ownedContributionId(document.kind, extensionId, kinds, 'Agent document kind');
@@ -1244,38 +1371,7 @@ function validateAgentDocuments(
       throw new Error(`Agent document '${kind}' must declare valid file extensions.`);
     }
     boundedText(document.schemaSummary, `${kind}.schemaSummary`, 2_000);
-    if (document.pin !== undefined) {
-      validateAgentPin(kind, document.pin);
-    }
   }
-}
-
-function validateAgentPin(documentKind: string, value: unknown): void {
-  const pin = record(value, `${documentKind}.pin`);
-  assertOnlyKeys(
-    pin,
-    ['mode', 'field', 'targetKinds', 'acceptedVersionStates', 'updatePolicy'],
-    `${documentKind}.pin`,
-  );
-  if (pin.mode !== 'exact-result-version' || pin.updatePolicy !== 'explicit') {
-    throw new Error(
-      `Agent document '${documentKind}' must use an explicit exact-result-version pin.`,
-    );
-  }
-  const field = boundedText(pin.field, `${documentKind}.pin.field`, 200);
-  if (!/^[A-Za-z][A-Za-z0-9_-]*(?:\[\])?(?:\.[A-Za-z][A-Za-z0-9_-]*(?:\[\])?)*$/.test(field)) {
-    throw new Error(`Agent document '${documentKind}' has an invalid pin field path.`);
-  }
-  validateAgentEnumArray(
-    pin.targetKinds,
-    BASEHALF_CANVAS_OUTPUT_KINDS,
-    `${documentKind}.pin.targetKinds`,
-  );
-  validateAgentEnumArray(
-    pin.acceptedVersionStates,
-    ['succeeded', 'imported'] as const,
-    `${documentKind}.pin.acceptedVersionStates`,
-  );
 }
 
 function validateAgentOperations(
@@ -1377,21 +1473,6 @@ function validateAgentParameters(operationId: string, values: readonly unknown[]
         `Agent operation '${operationId}' parameter '${name}' can only use values for enum.`,
       );
     }
-  }
-}
-
-function validateAgentEnumArray<const T extends readonly string[]>(
-  value: unknown,
-  allowed: T,
-  field: string,
-): void {
-  const entries = contributionArray(value, field, true);
-  if (
-    entries.length > allowed.length ||
-    new Set(entries).size !== entries.length ||
-    entries.some((entry) => typeof entry !== 'string' || !allowed.includes(entry))
-  ) {
-    throw new Error(`${field} contains invalid or duplicate values.`);
   }
 }
 

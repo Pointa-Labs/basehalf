@@ -11,39 +11,63 @@ import type {
 declare module 'vscode' {
   export namespace basehalf {
     export type ModelCapability = 'text' | 'image' | 'video' | 'audio';
-    export type ModelServiceAuthorization = 'bearer' | 'header' | 'none';
 
     export interface ModelService {
       readonly id: string;
       readonly label: string;
       readonly endpoint: string;
+      readonly providerId: string;
+      readonly deploymentId: string;
+      readonly region: string;
       readonly connectionIdentity: string;
       readonly capabilities: readonly ModelCapability[];
-      readonly authorization: ModelServiceAuthorization;
-      readonly headerName?: string;
+      readonly authorization: 'bearer';
       readonly configured: boolean;
     }
 
     export interface ModelServiceAccess extends Omit<ModelService, 'configured'> {
+      readonly credentialValues: Readonly<Record<string, string>>;
       readonly apiKey?: string;
     }
 
-    export interface ModelServiceRunSnapshot {
+    export interface ModelServiceAttemptSnapshot {
       readonly serviceId: string;
       readonly serviceLabel: string;
       readonly connectionIdentity: string;
       readonly capability: ModelCapability;
       readonly modelId?: string;
-      /** Opaque short-lived grant supplied only to the executor handling this run. */
+      /** Opaque short-lived grant supplied only to the executor handling this attempt. */
       readonly accessToken?: string;
     }
+
+    export interface ModelProviderConnectionValidationRequest {
+      readonly specId: string;
+      readonly endpoint: string;
+      readonly providerId: string;
+      readonly deploymentId: string;
+      readonly region: string;
+      readonly publicValues: Readonly<Record<string, string>>;
+      readonly credentialValues: Readonly<Record<string, string>>;
+    }
+
+    export interface ModelProviderConnectionValidator {
+      validate(
+        request: ModelProviderConnectionValidationRequest,
+        token: CancellationToken,
+      ): ProviderResult<void>;
+    }
+
+    export function registerModelProviderConnectionValidator(
+      specId: string,
+      validator: ModelProviderConnectionValidator,
+    ): Disposable;
 
     export const onDidChangeModelServices: Event<void>;
     export function getModelServices(
       capability?: ModelCapability,
     ): Thenable<readonly ModelService[]>;
     export function getModelServiceAccess(
-      snapshot: ModelServiceRunSnapshot,
+      snapshot: ModelServiceAttemptSnapshot,
     ): Thenable<ModelServiceAccess | undefined>;
 
     export type CanvasContentKind =
@@ -67,11 +91,41 @@ declare module 'vscode' {
       | readonly CanvasRecipeValue[]
       | { readonly [key: string]: CanvasRecipeValue };
 
+    export type VideoGenerationMode =
+      | 'text-to-video'
+      | 'first-frame-to-video'
+      | 'first-last-frame-to-video'
+      | 'reference-to-video'
+      | 'video-edit'
+      | 'video-extension';
+
+    export type VideoInputKind =
+      | 'text-prompt'
+      | 'first-frame'
+      | 'last-frame'
+      | 'reference-image'
+      | 'reference-video'
+      | 'source-video'
+      | 'audio';
+
+    /** Exact host-owned value persisted in the reserved `videoModelSnapshot` recipe parameter. */
+    export interface VideoModelSelectionSnapshot {
+      readonly schemaVersion: 1;
+      readonly catalogId: string;
+      readonly providerId: string;
+      readonly deploymentId: string;
+      readonly region: string;
+      readonly modelId: string;
+      readonly revision: string;
+      readonly mode: VideoGenerationMode;
+      readonly inputs: Readonly<Partial<Record<VideoInputKind, number>>>;
+    }
+
     export interface CanvasArtifactSnapshot {
       readonly id: string;
       readonly kind: CanvasContentKind;
       readonly resource: Uri;
-      readonly runId?: string;
+      readonly attemptId?: string;
     }
 
     export interface CanvasNodeSnapshot {
@@ -79,7 +133,7 @@ declare module 'vscode' {
       readonly path: string;
       readonly kind: CanvasContentKind;
       readonly resource?: Uri;
-      readonly current?: CanvasArtifactSnapshot;
+      readonly result?: CanvasArtifactSnapshot;
     }
 
     export interface CanvasRecipeInput {
@@ -90,15 +144,19 @@ declare module 'vscode' {
     }
 
     export interface CanvasRecipeExecutionRequest {
-      readonly runId: string;
+      readonly attemptId: string;
       readonly workspaceFolder: Uri;
       readonly node: CanvasNodeSnapshot;
       readonly recipeId: string;
+      /** Host-owned generation intent frozen into this Attempt. */
+      readonly prompt: string;
       readonly parameters: Readonly<Record<string, CanvasRecipeValue>>;
       readonly modelServiceId?: string;
-      readonly modelService?: ModelServiceRunSnapshot;
+      readonly modelService?: ModelServiceAttemptSnapshot;
       readonly inputs: readonly CanvasRecipeInput[];
       readonly outputDirectory: Uri;
+      readonly resumeProviderRequestId?: string;
+      acknowledgeProviderRequestId(providerRequestId: string): Thenable<void>;
     }
 
     export interface CanvasRecipeProgress {
@@ -115,8 +173,7 @@ declare module 'vscode' {
     }
 
     export interface CanvasRecipeExecutionResult {
-      readonly artifacts: readonly CanvasRecipeArtifact[];
-      readonly primaryArtifactId?: string;
+      readonly artifact: CanvasRecipeArtifact;
       readonly providerRequestId?: string;
       readonly usage?: CanvasRecipeUsage;
       readonly cost?: CanvasRecipeCost;
@@ -137,9 +194,12 @@ declare module 'vscode' {
       readonly kind: 'actual' | 'estimated';
     }
 
-    export type CanvasRunModel =
+    export type CanvasAttemptModel =
       | { readonly source: 'local' }
-      | ({ readonly source: 'service'; readonly connection: 'resolved' } & ModelServiceRunSnapshot)
+      | ({
+          readonly source: 'service';
+          readonly connection: 'resolved';
+        } & ModelServiceAttemptSnapshot)
       | {
           readonly source: 'service';
           readonly connection: 'unavailable';
@@ -149,52 +209,64 @@ declare module 'vscode' {
         };
 
     export type CanvasArtifactIntegrity = 'available' | 'missing' | 'changed';
-    export type CanvasNodeVersionStatus =
-      | 'imported'
+    export type CanvasNodeAttemptStatus =
       | 'running'
       | 'succeeded'
       | 'failed'
       | 'cancelled'
       | 'interrupted';
 
-    export interface CanvasNodeVersionArtifact {
+    export type CanvasNodeLifecycle =
+      | 'draft'
+      | 'running'
+      | 'result'
+      | 'failed'
+      | 'cancelled'
+      | 'interrupted';
+
+    export interface CanvasNodeResultArtifact {
       readonly id: string;
+      readonly outputId: string;
       readonly kind: CanvasNodeKind;
       readonly resource: Uri;
       readonly integrity: CanvasArtifactIntegrity;
+      readonly label?: string;
     }
 
-    export interface CanvasNodeVersion {
+    export interface CanvasNodeAttempt {
       readonly id: string;
-      readonly status: CanvasNodeVersionStatus;
+      readonly status: CanvasNodeAttemptStatus;
       readonly createdAt: string;
-      readonly primaryArtifact?: CanvasNodeVersionArtifact;
-      readonly model?: CanvasRunModel;
+      readonly startedAt?: string;
+      readonly completedAt?: string;
+      readonly model?: CanvasAttemptModel;
       readonly providerRequestId?: string;
       readonly usage?: CanvasRecipeUsage;
       readonly cost?: CanvasRecipeCost;
+      readonly error?: string;
     }
+
+    export type CanvasNodeResult =
+      | { readonly source: 'imported'; readonly artifact: CanvasNodeResultArtifact }
+      | {
+          readonly source: 'attempt';
+          readonly attemptId: string;
+          readonly artifact: CanvasNodeResultArtifact;
+        };
 
     export interface CanvasNodeState {
       readonly id: string;
       readonly kind: CanvasNodeKind;
-      readonly currentVersionId?: string;
-      readonly versions: readonly CanvasNodeVersion[];
-    }
-
-    export interface CanvasNodeInspectOptions {
-      readonly versionIds?: readonly string[];
-      readonly includeCurrent?: boolean;
+      readonly lifecycle: CanvasNodeLifecycle;
+      readonly result?: CanvasNodeResult;
+      readonly attempts: readonly CanvasNodeAttempt[];
     }
 
     /**
-     * Reads a saved result node. Omitting options preserves the complete-history
-     * view. Supplying options returns only requested versions and optional Current.
+     * Reads one saved result node through the host-owned document and integrity model.
+     * Attempts are append-only audit records, never alternate selectable results.
      */
-    export function inspectCanvasNode(
-      resource: Uri,
-      options?: CanvasNodeInspectOptions,
-    ): Thenable<CanvasNodeState | undefined>;
+    export function inspectCanvasNode(resource: Uri): Thenable<CanvasNodeState | undefined>;
 
     /**
      * Atomically replaces one saved ordinary project file only while its bytes

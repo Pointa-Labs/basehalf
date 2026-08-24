@@ -20,7 +20,7 @@ cd my-plugin
 npm install
 ```
 
-The default scaffold contributes one main-canvas recipe and one starter template. It registers a small deterministic executor, contains no Webview boilerplate, and keeps durable output in ordinary local project files. Its Markdown output is declared as a `file` result; ordinary Text and Code cards retain their normal editor interaction and are not executable containers.
+The default scaffold contributes one main-canvas recipe and one starter template. It registers a small deterministic executor, contains no Webview boilerplate, and returns one `artifact` backed by one ordinary local project file per submission. Its Markdown output is declared as a sealed `file` Result; ordinary Text and Code cards retain their normal editor interaction and are not executable containers.
 
 Use the projection mode only when a file format needs its own card-detail surface:
 
@@ -43,7 +43,7 @@ npm run check
 npm run package
 ```
 
-Validation checks the manifest, compiled entry point, README, license, and every declared canvas template resource before packaging. Template files must satisfy the complete public template v1 contract; valid JSON alone is not sufficient.
+Validation checks the manifest, compiled entry point, README, license, and every declared canvas template, model-provider catalog, and video-model catalog resource before packaging. Provider-catalog manifest entries remain strict `{ id, resource }` envelopes: the resource must be canonical UTF-8 JSON within the size bound, while BaseHalf's host-owned parser validates the versioned credential and endpoint contract during admission. Template files must satisfy the complete public template v1 contract; valid JSON alone is not sufficient.
 
 After packaging, the CLI reopens the exact VSIX and checks its identity, manifest, required resources, archive paths, expanded sizes, and CRCs. `validate`, `package`, and `publish` all begin with the same project validation path; publish cannot substitute an unrelated prebuilt VSIX.
 
