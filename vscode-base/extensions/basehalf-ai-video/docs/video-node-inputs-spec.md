@@ -354,16 +354,27 @@ card, Composer, prompt DOM, viewport, current bindings, and Draft values. A
 fixed banner names the requested role: **Select Start Frame Image** or **Select
 End Frame Image**. The banner includes Cancel.
 
-While the request is `ready`, canvas pan and zoom remain available so the user
-can reach off-screen sources. Those user-authored viewport changes do not
-restart the request and are not rolled back on success or cancellation. The
-fixed banner stays in screen space, candidate hit regions follow the canvas,
-and the Composer follows or suspends under the Composer-surface contract.
+While the request is active, canvas pan and zoom remain available so the user
+can reach off-screen sources, including while an accepted source is being
+revalidated or committed. Those user-authored viewport changes do not restart
+the request and are not rolled back on success or cancellation. The fixed
+banner stays in screen space, candidate hit regions follow the canvas, and the
+Composer follows or suspends under the Composer-surface contract.
 Target and candidate node move/resize gestures are disabled until pick exits;
 an eligible candidate click always means Select rather than drag.
+The scene consumes active-pick state for every phase, including `accepting`,
+`revalidating`, and `committing`; it must not rely only on the selection event
+handler to suppress React Flow drag or resize. Pane drag, scroll pan, wheel
+navigation, and pinch zoom remain enabled by that same scene policy.
 
 Only one canvas-pick request exists at a time. Starting a different child
 popover or selecting a different target cancels the request without mutation.
+The originating Inputs popover closes before the checkpoint's first await.
+Opening Models, Settings, Attempts, or Inputs during a cancellable phase first
+cancels that exact request and then opens the requested child; during
+`committing`, when cancellation is no longer allowed, child-popover opening is
+rejected. Generate and other primary execution entry points follow the same
+gate and remain disabled while an input transaction owns the Composer.
 
 Before creating the request, the host flushes the ordinary Draft-configuration
 save for the exact model, method, and canonical scalar settings that declare
@@ -403,6 +414,25 @@ Ineligible nodes are dimmed but retain their graph and selection state. Their
 reason is available to pointer and keyboard users. A source already bound as
 Start is ineligible for End, and vice versa; the UI does not duplicate the edge
 or move the role.
+
+The candidate set comes from the complete current canvas/document model, not a
+snapshot of mounted DOM cards. Eligibility is retained by source path so a
+card mounted after pan or zoom immediately receives its inspected state and is
+selectable without restarting the request. Preflight reuses one canvas-edge
+snapshot and inspects sources in bounded batches so large canvases do not cause
+unbounded parallel I/O; selection still performs fresh source, reference, edge,
+and target-revision checks before commit. Each animation frame collects mounted
+cards once and projects cached eligibility only onto that mounted subset; it
+must not scan mounted DOM separately for every model candidate.
+One request-scoped file-change listener covers the complete candidate revision
+dependency set, including unbound and off-screen source paths. For a node
+source, preflight projects both its node-document path and the sealed Result
+artifact path that contributes to `getInputRevision`; the dependency is
+registered before the fresh revision baseline is read. A source or Result
+artifact revision change after that baseline cancels the exact ready/preflight
+request immediately. A change before the dependency baseline is established is
+absorbed by the subsequent fresh read. The host does not wait for selection
+revalidation and does not install one watcher per candidate.
 
 ### 8.3 Commit and cancellation
 
@@ -448,6 +478,22 @@ cancellation is observed before the atomic commit point, it writes neither
 edge nor binding. Once the atomic commit point has begun, Cancel is no longer
 offered and the host completes or rolls back that one transition.
 
+The request lifetime, transaction release disposer, and canvas
+`video-input-pick-active` gesture gate are installed immediately after
+`begin`, before the configuration checkpoint's first await. That lifetime is
+owned by the selected Composer surface rather than one form render, so the
+checkpoint's own reviewed-configuration rerender does not cancel the request.
+Disposing or replacing the selected surface, or applying an unknown external
+target/source revision, cancels that exact epoch, clears its gesture gate and
+transaction-bound acknowledgement, and releases its transaction owner. A
+checkpoint continuation may create neither banner nor commit after that
+lifetime is gone, even when the deferred checkpoint later resolves.
+Every asynchronous failure path disposes only its captured request store. It
+may clear the shared pick-store owner only when that owner is still the exact
+captured store; after cancel and re-entry, a late rejection disposes its stale
+store locally and cannot clear the new request, acknowledgement, transaction
+owner, gesture gate, or banner.
+
 Exiting role-specific pick, whether by success, cancellation, target change,
 or failure, must not enter or reveal a generic graph-connection mode. One
 `Escape` cancels the request, removes its overlay/listeners, and returns focus;
@@ -464,6 +510,17 @@ recorded as an own version and cannot cancel the request. The checkpoint may
 enter `ready` only after an atomic read observes the expected normalized
 configuration at a durable revision.
 
+The Composer also owns one synchronous, non-reentrant input-transaction token.
+Pick/Replace, Remove, Swap, and explicit role conversion acquire a monotonically
+increasing transaction id before their first dialog, file read, or other await;
+all other input mutation controls become disabled immediately. A second action
+is rejected rather than queued against the same draft snapshot. Register,
+settle, restore, graph compensation, and final release all require that exact
+transaction id. A stale continuation cannot replace another transaction's
+acknowledgement or release its owner. The owner is released in every success,
+failure, and cancellation path, after which controls are restored from their
+current presentation state.
+
 An exact watcher echo of a recorded own version remains an acknowledgement,
 not an external edit. Before the expected durable revision has first been
 observed, another intermediate own version is recorded and re-read rather than
@@ -471,6 +528,14 @@ classified as external. After the expected revision has been observed, any
 unknown version or etag follows the ordinary external-change merge/conflict
 path. Thus rewriting the previous configuration produces a new etag and is
 not hidden as an old echo.
+
+After a graph/document transition returns, an atomic target read must still
+confirm the expected normalized configuration at a durable revision before the
+host installs the plan or reports success. A mismatch clears the pending
+acknowledgement and enters external merge. The host compensates only the exact
+reference/canvas states written by its transition and never overwrites the
+unknown external document; a compensation conflict requires an explicit
+reopen/repair diagnostic.
 
 ## 9. Input mutations and atomicity
 
@@ -880,6 +945,8 @@ target exposes the filled slot and consumes the deferred focus key exactly once.
 - explicit conversion eligibility and destination-capacity rejection;
 - Swap availability and role-only before/after plan;
 - Pick, Replace, Remove, Convert, and Reorder plan invariants;
+- rapid Start/End Remove acquisition proves one exact transaction owner, one
+  accepted plan, and rejection of the overlapping plan until release;
 - pan/zoom-stable pick epoch, disabled node geometry gestures, off-screen target
   success, and exactly-once deferred focus restoration;
 - Pick/Replace identity capture and changed/legacy revision classification;
@@ -899,6 +966,21 @@ target exposes the filled slot and consumes the deferred focus key exactly once.
   at most once per epoch;
 - cancellation before and after every asynchronous preflight/revalidation
   continuation produces zero input/graph writes;
+- a deferred configuration checkpoint survives its own Composer form rerender,
+  while disposing the selected surface before it resolves clears the gesture
+  gate and transaction owner and creates no banner or commit; an applied
+  external target/source revision cancels the same lifetime immediately;
+- cancel and re-enter before an old preflight/revalidation rejects; the old
+  rejection leaves the new request store, acknowledgement, owner, gesture gate,
+  and banner intact;
+- open Models or Settings during a slow checkpoint; the old request exits with
+  no banner or commit and the requested child opens, while committing rejects
+  the child action and Generate remains disabled;
+- modify an unbound off-screen candidate while pick is ready and verify the
+  request immediately exits and releases its gesture and transaction owners;
+- modify only a node candidate's sealed Result artifact after the ready
+  baseline and verify the same immediate cancellation without touching its
+  node document;
 - successful selection does not fall through to generic graph-connect mode and
   returns focus only after the filled slot renders;
 - pending writes, the first durable expected revision, and exact stale

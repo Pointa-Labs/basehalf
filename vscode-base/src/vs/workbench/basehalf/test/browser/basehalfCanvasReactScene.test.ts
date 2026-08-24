@@ -21,6 +21,7 @@ import {
 	baseHalfCanvasSceneNodeSize,
 	baseHalfCanvasSceneProjectsSelection,
 	baseHalfCanvasSceneShowsResizeControls,
+	baseHalfCanvasSceneVideoInputPickGesturePolicy,
 	baseHalfCanvasShouldOpenCreateMenu,
 	baseHalfCanvasSceneSelectionRenameLabel,
 	baseHalfCanvasTargetBlocksGraphShortcuts,
@@ -490,6 +491,17 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 2), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, true, 1), false);
 		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(false, false, 1), false);
+		assert.strictEqual(baseHalfCanvasSceneShowsResizeControls(true, false, 1, true), false);
+		assert.deepStrictEqual(baseHalfCanvasSceneVideoInputPickGesturePolicy(true), {
+			nodesDraggable: false,
+			nodesResizable: false,
+			viewportNavigationAllowed: true
+		});
+		assert.deepStrictEqual(baseHalfCanvasSceneVideoInputPickGesturePolicy(false), {
+			nodesDraggable: true,
+			nodesResizable: true,
+			viewportNavigationAllowed: true
+		});
 	});
 
 	test('seeds the resizer measured box from persisted card geometry', () => {

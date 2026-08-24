@@ -4,9 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasSetVideoInputPickActive, baseHalfCanvasVideoInputReadinessMessage, baseHalfCanvasVideoOverlayNextFocusTarget, baseHalfCanvasVideoPickCandidateBatches, baseHalfCanvasVideoPickCandidatePaths, baseHalfCanvasVideoPickCheckpointCanContinue, baseHalfCanvasVideoPickHasCandidateChange, baseHalfCanvasVideoPickMountedCandidatePaths, baseHalfCanvasVideoPickRevisionDependencyPaths, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, disposeBaseHalfCanvasVideoPickStore, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
 import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { acquireBaseHalfVideoInputTransaction, baseHalfVideoInputTransactionIsCurrent, beginBaseHalfVideoCanvasPick, cancelBaseHalfVideoCanvasPick, createBaseHalfVideoCanvasPickState, createBaseHalfVideoInputTransactionOwnerState, failBaseHalfVideoCanvasPick, getBaseHalfVideoCanvasPickInteraction, markBaseHalfVideoCanvasPickReady, releaseBaseHalfVideoInputTransaction } from '../../common/basehalfVideoInputs.js';
+import { createBaseHalfVideoMessagePrecedencePresentation } from '../../common/basehalfVideoModelSettingsPresentation.js';
 
 suite('BaseHalfCanvasWorkbench', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -56,6 +59,337 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['new-note.md'], new Set(['existing.md', 'new-note.md'])), true);
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['a.md', 'b.md'], new Set(['a.md'])), false);
 		assert.strictEqual(baseHalfCanvasPendingSelectionIsReady(['a.md', 'b.md'], new Set(['a.md', 'b.md'])), true);
+	});
+
+	test('derives Video pick candidates from the complete canvas model', () => {
+		assert.deepStrictEqual(baseHalfCanvasVideoPickCandidatePaths([
+			'shots/offscreen-start.png',
+			'shots/video.bhnode',
+			'shots/offscreen-end.png'
+		], 'shots/video.bhnode'), [
+			'shots/offscreen-start.png',
+			'shots/offscreen-end.png'
+		]);
+
+		const largeModel = [
+			...Array.from({ length: 129 }, (_, index) => `shots/source-${index}.png`),
+			'shots/video.bhnode'
+		];
+		const batches = baseHalfCanvasVideoPickCandidateBatches(largeModel, 'shots/video.bhnode', 16);
+		assert.strictEqual(batches.length, 9);
+		assert.strictEqual(batches.every(batch => batch.length <= 16), true);
+		assert.deepStrictEqual(batches.flat(), largeModel.slice(0, -1));
+		assert.strictEqual(Object.isFrozen(batches), true);
+		assert.throws(() => baseHalfCanvasVideoPickCandidateBatches(largeModel, 'shots/video.bhnode', 0));
+		assert.deepStrictEqual(baseHalfCanvasVideoPickMountedCandidatePaths([
+			'shots/unrelated.md',
+			'shots/source-128.png',
+			'shots/source-0.png'
+		], new Set(batches.flat())), [
+			'shots/source-128.png',
+			'shots/source-0.png'
+		]);
+	});
+
+	test('ends a deferred pick checkpoint when its surface lifetime is disposed', async () => {
+		const cards = document.createElement('div');
+		const surface = document.createElement('div');
+		cards.appendChild(surface);
+		document.body.appendChild(cards);
+		let owner = createBaseHalfVideoInputTransactionOwnerState();
+		const acquisition = acquireBaseHalfVideoInputTransaction(owner);
+		owner = acquisition.state;
+		const transactionId = acquisition.transactionId!;
+		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), {
+			sceneKey: 'scene',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'video',
+			expectedDraftRevision: 'etag-1',
+			recipeId: 'video.recipe',
+			requestedRole: 'first-frame',
+			returnFocusKey: 'video:input:first-frame'
+		});
+		const epoch = state.epoch;
+		let lifetimeIsCurrent = true;
+		let resolveCheckpoint!: () => void;
+		const checkpoint = new Promise<void>(resolve => resolveCheckpoint = resolve);
+		let bannerCreated = false;
+		let commitStarted = false;
+
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', true);
+		assert.strictEqual(cards.dataset.videoInputPickActive, 'shots/video.bhnode');
+		assert.strictEqual(surface.classList.contains('input-pick-active'), true);
+		assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(state), {
+			acceptsSelection: false,
+			cancelAllowed: true,
+			viewportNavigationAllowed: true,
+			nodeGeometryGesturesDisabled: true
+		});
+
+		const continuation = checkpoint.then(() => {
+			if (baseHalfCanvasVideoPickCheckpointCanContinue(
+				state,
+				epoch,
+				baseHalfVideoInputTransactionIsCurrent(owner, transactionId),
+				lifetimeIsCurrent,
+				surface.isConnected
+			)) {
+				bannerCreated = true;
+				commitStarted = true;
+			}
+		});
+
+		// A normal form rerender keeps the persistent pick lifetime and surface.
+		surface.replaceChildren();
+		assert.strictEqual(baseHalfCanvasVideoPickCheckpointCanContinue(
+			state,
+			epoch,
+			baseHalfVideoInputTransactionIsCurrent(owner, transactionId),
+			lifetimeIsCurrent,
+			surface.isConnected
+		), true);
+
+		lifetimeIsCurrent = false;
+		state = failBaseHalfVideoCanvasPick(state, epoch);
+		owner = releaseBaseHalfVideoInputTransaction(owner, transactionId);
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', false);
+		surface.remove();
+		resolveCheckpoint();
+		await continuation;
+
+		assert.strictEqual(bannerCreated, false);
+		assert.strictEqual(commitStarted, false);
+		assert.strictEqual(owner.activeTransactionId, undefined);
+		assert.strictEqual(cards.dataset.videoInputPickActive, undefined);
+		assert.strictEqual(surface.classList.contains('input-pick-active'), false);
+		cards.remove();
+	});
+
+	test('does not let an old rejected pick dispose a re-entered request', async () => {
+		const activeStore = new MutableDisposable<DisposableStore>();
+		const cards = document.createElement('div');
+		const surface = document.createElement('div');
+		cards.appendChild(surface);
+		document.body.appendChild(cards);
+		let newStoreDisposed = false;
+		try {
+			let owner = createBaseHalfVideoInputTransactionOwnerState();
+			const oldAcquisition = acquireBaseHalfVideoInputTransaction(owner);
+			owner = oldAcquisition.state;
+			const oldTransactionId = oldAcquisition.transactionId!;
+			let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), {
+				sceneKey: 'scene',
+				targetNodePath: 'shots/video.bhnode',
+				targetNodeId: 'video',
+				expectedDraftRevision: 'etag-1',
+				recipeId: 'video.recipe',
+				requestedRole: 'first-frame',
+				returnFocusKey: 'video:input:first-frame'
+			});
+			const oldEpoch = state.epoch;
+			const oldStore = new DisposableStore();
+			activeStore.value = oldStore;
+			let rejectOldPreflight!: (error: Error) => void;
+			const oldPreflight = new Promise<void>((_resolve, reject) => rejectOldPreflight = reject);
+			const oldContinuation = oldPreflight.catch(() => {
+				if (disposeBaseHalfCanvasVideoPickStore(activeStore, oldStore)) {
+					state = failBaseHalfVideoCanvasPick(state, oldEpoch);
+				}
+			});
+
+			state = cancelBaseHalfVideoCanvasPick(state, oldEpoch);
+			activeStore.clear();
+			owner = releaseBaseHalfVideoInputTransaction(owner, oldTransactionId);
+			const nextAcquisition = acquireBaseHalfVideoInputTransaction(owner);
+			owner = nextAcquisition.state;
+			const nextTransactionId = nextAcquisition.transactionId!;
+			state = beginBaseHalfVideoCanvasPick(state, {
+				sceneKey: 'scene',
+				targetNodePath: 'shots/video.bhnode',
+				targetNodeId: 'video',
+				expectedDraftRevision: 'etag-2',
+				recipeId: 'video.recipe',
+				requestedRole: 'last-frame',
+				returnFocusKey: 'video:input:last-frame'
+			});
+			const nextEpoch = state.epoch;
+			const nextStore = new DisposableStore();
+			nextStore.add(toDisposable(() => newStoreDisposed = true));
+			activeStore.value = nextStore;
+			baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', true);
+
+			rejectOldPreflight(new Error('old preflight failed'));
+			await oldContinuation;
+
+			assert.strictEqual(activeStore.value, nextStore);
+			assert.strictEqual(newStoreDisposed, false);
+			assert.strictEqual(baseHalfVideoInputTransactionIsCurrent(owner, nextTransactionId), true);
+			assert.strictEqual(state.epoch, nextEpoch);
+			assert.strictEqual(state.phase, 'preflighting');
+			assert.strictEqual(cards.dataset.videoInputPickActive, 'shots/video.bhnode');
+		} finally {
+			activeStore.dispose();
+			cards.remove();
+		}
+	});
+
+	test('cancels a slow checkpoint before opening a child popover', async () => {
+		const cards = document.createElement('div');
+		const surface = document.createElement('div');
+		cards.appendChild(surface);
+		document.body.appendChild(cards);
+		let owner = createBaseHalfVideoInputTransactionOwnerState();
+		const acquisition = acquireBaseHalfVideoInputTransaction(owner);
+		owner = acquisition.state;
+		const transactionId = acquisition.transactionId!;
+		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), {
+			sceneKey: 'scene',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'video',
+			expectedDraftRevision: 'etag-1',
+			recipeId: 'video.recipe',
+			requestedRole: 'first-frame',
+			returnFocusKey: 'video:input:first-frame'
+		});
+		const epoch = state.epoch;
+		let resolveCheckpoint!: () => void;
+		const checkpoint = new Promise<void>(resolve => resolveCheckpoint = resolve);
+		let overlay: 'inputs' | 'models' = 'inputs';
+		let bannerCreated = false;
+		const continuation = checkpoint.then(() => {
+			bannerCreated = baseHalfCanvasVideoPickCheckpointCanContinue(
+				state,
+				epoch,
+				baseHalfVideoInputTransactionIsCurrent(owner, transactionId),
+				true,
+				surface.isConnected
+			);
+		});
+
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', true);
+		state = cancelBaseHalfVideoCanvasPick(state, epoch);
+		owner = releaseBaseHalfVideoInputTransaction(owner, transactionId);
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', false);
+		overlay = 'models';
+		resolveCheckpoint();
+		await continuation;
+
+		assert.strictEqual(overlay, 'models');
+		assert.strictEqual(bannerCreated, false);
+		assert.strictEqual(owner.activeTransactionId, undefined);
+		assert.strictEqual(cards.dataset.videoInputPickActive, undefined);
+		cards.remove();
+	});
+
+	test('cancels a ready pick when an unbound candidate changes', () => {
+		const cards = document.createElement('div');
+		const surface = document.createElement('div');
+		cards.appendChild(surface);
+		document.body.appendChild(cards);
+		let owner = createBaseHalfVideoInputTransactionOwnerState();
+		const acquisition = acquireBaseHalfVideoInputTransaction(owner);
+		owner = acquisition.state;
+		const transactionId = acquisition.transactionId!;
+		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), {
+			sceneKey: 'scene',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'video',
+			expectedDraftRevision: 'etag-1',
+			recipeId: 'video.recipe',
+			requestedRole: 'last-frame',
+			returnFocusKey: 'video:input:last-frame'
+		});
+		const epoch = state.epoch;
+		state = markBaseHalfVideoCanvasPickReady(state, epoch, 'etag-1');
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', true);
+
+		const changed = baseHalfCanvasVideoPickHasCandidateChange(
+			['shots/offscreen-start.png', 'shots/offscreen-end.png'],
+			sourcePath => sourcePath === 'shots/offscreen-end.png'
+		);
+		if (changed) {
+			state = cancelBaseHalfVideoCanvasPick(state, epoch);
+			owner = releaseBaseHalfVideoInputTransaction(owner, transactionId);
+			baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', false);
+		}
+
+		assert.strictEqual(changed, true);
+		assert.strictEqual(state.phase, 'idle');
+		assert.strictEqual(owner.activeTransactionId, undefined);
+		assert.strictEqual(cards.dataset.videoInputPickActive, undefined);
+		cards.remove();
+	});
+
+	test('cancels a ready node-source pick when only its Result artifact changes', () => {
+		const cards = document.createElement('div');
+		const surface = document.createElement('div');
+		cards.appendChild(surface);
+		document.body.appendChild(cards);
+		let owner = createBaseHalfVideoInputTransactionOwnerState();
+		const acquisition = acquireBaseHalfVideoInputTransaction(owner);
+		owner = acquisition.state;
+		const transactionId = acquisition.transactionId!;
+		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), {
+			sceneKey: 'scene',
+			targetNodePath: 'shots/video.bhnode',
+			targetNodeId: 'video',
+			expectedDraftRevision: 'etag-1',
+			recipeId: 'video.recipe',
+			requestedRole: 'first-frame',
+			returnFocusKey: 'video:input:first-frame'
+		});
+		const epoch = state.epoch;
+		state = markBaseHalfVideoCanvasPickReady(state, epoch, 'etag-1');
+		baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', true);
+		const dependencies = new Set(baseHalfCanvasVideoPickRevisionDependencyPaths(
+			'shots/source.bhnode',
+			'shots/results/source-frame.png'
+		));
+
+		assert.deepStrictEqual([...dependencies], [
+			'shots/source.bhnode',
+			'shots/results/source-frame.png'
+		]);
+		const artifactChanged = baseHalfCanvasVideoPickHasCandidateChange(
+			dependencies,
+			dependencyPath => dependencyPath === 'shots/results/source-frame.png'
+		);
+		if (artifactChanged) {
+			state = cancelBaseHalfVideoCanvasPick(state, epoch);
+			owner = releaseBaseHalfVideoInputTransaction(owner, transactionId);
+			baseHalfCanvasSetVideoInputPickActive(cards, surface, 'shots/video.bhnode', false);
+		}
+
+		assert.strictEqual(artifactChanged, true);
+		assert.strictEqual(state.phase, 'idle');
+		assert.strictEqual(owner.activeTransactionId, undefined);
+		assert.strictEqual(cards.dataset.videoInputPickActive, undefined);
+		cards.remove();
+	});
+
+	test('keeps input readiness kind, action, and diagnostic ahead of settings adjustment', () => {
+		const missingStart = baseHalfCanvasVideoInputReadinessMessage({
+			kind: 'missing-start-frame',
+			input: 'first-frame'
+		});
+		const readiness = baseHalfCanvasVideoInputReadinessMessage({
+			kind: 'source-missing',
+			input: 'first-frame',
+			sourcePath: 'shots/missing-start.png'
+		});
+		const presentation = createBaseHalfVideoMessagePrecedencePresentation([
+			{ kind: 'settings-adjustment', message: 'A scalar setting changed.' },
+			readiness
+		]);
+		assert.strictEqual(missingStart.kind, 'input-readiness-problem');
+		assert.strictEqual(missingStart.message, 'Add Start Frame.');
+		assert.strictEqual(missingStart.action?.id, 'review-inputs');
+		assert.strictEqual(missingStart.action?.label, 'Add Start Frame.');
+		assert.strictEqual(readiness.kind, 'input-readiness-problem');
+		assert.strictEqual(readiness.action?.id, 'review-inputs');
+		assert.strictEqual(readiness.message.includes('shots/missing-start.png'), true);
+		assert.deepStrictEqual(presentation.primaryMessage, readiness);
+		assert.strictEqual(presentation.primaryAction?.id, 'review-inputs');
 	});
 
 	test('checkpoints prompt-first Video Drafts before locked model setup without persisting incomplete model state', () => {
@@ -113,6 +447,22 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 8, 11, navigationA), false);
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 7, 12, navigationA), false);
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 7, 11, navigationB), false);
+	});
+
+	test('moves stale model repair focus to the requested current row before exact restoration', () => {
+		const host = document.createElement('div');
+		const stale = document.createElement('button');
+		const current = document.createElement('button');
+		host.append(stale, current);
+		document.body.appendChild(host);
+		try {
+			stale.focus();
+			assert.strictEqual(document.activeElement, stale);
+			baseHalfCanvasVideoOverlayNextFocusTarget(current, stale, undefined, undefined)?.focus();
+			assert.strictEqual(document.activeElement, current);
+		} finally {
+			host.remove();
+		}
 	});
 
 	test('accepts bounded canvas zoom percentages without turning invalid input into reset', () => {

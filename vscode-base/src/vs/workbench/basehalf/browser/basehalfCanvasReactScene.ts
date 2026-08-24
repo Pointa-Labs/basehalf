@@ -636,8 +636,27 @@ export function baseHalfCanvasSceneProjectsSelection(selected: boolean, noteEdit
 	return selected && !noteEditing;
 }
 
-export function baseHalfCanvasSceneShowsResizeControls(selected: boolean, noteEditing: boolean, selectionSize: number): boolean {
-	return baseHalfCanvasSceneProjectsSelection(selected, noteEditing) && selectionSize === 1;
+export function baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive: boolean): {
+	readonly nodesDraggable: boolean;
+	readonly nodesResizable: boolean;
+	readonly viewportNavigationAllowed: boolean;
+} {
+	return Object.freeze({
+		nodesDraggable: !videoInputPickActive,
+		nodesResizable: !videoInputPickActive,
+		viewportNavigationAllowed: true
+	});
+}
+
+export function baseHalfCanvasSceneShowsResizeControls(
+	selected: boolean,
+	noteEditing: boolean,
+	selectionSize: number,
+	videoInputPickActive = false
+): boolean {
+	return baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive).nodesResizable
+		&& baseHalfCanvasSceneProjectsSelection(selected, noteEditing)
+		&& selectionSize === 1;
 }
 
 export function baseHalfCanvasInteractionOwnsEscape(event: Pick<KeyboardEvent, 'key' | 'isComposing' | 'keyCode'>): boolean {
@@ -1146,7 +1165,12 @@ function createCanvasSceneMount(
 		const note = data.card.controls?.kind === 'note';
 		const noteEditing = baseHalfCanvasSceneCardIsNoteEditing(data.card);
 		const structuralSelectionVisible = baseHalfCanvasSceneProjectsSelection(selected, noteEditing);
-		const resizeControlsVisible = baseHalfCanvasSceneShowsResizeControls(selected, noteEditing, selectionSize);
+		const resizeControlsVisible = baseHalfCanvasSceneShowsResizeControls(
+			selected,
+			noteEditing,
+			selectionSize,
+			!!host.dataset.videoInputPickActive
+		);
 		const presentation = noteEditing
 			? 'preview'
 			: baseHalfCanvasCardPresentation({
@@ -1171,7 +1195,7 @@ function createCanvasSceneMount(
 			active.end();
 		}, []);
 		const beginCardResize = vendor.useCallback((): void => {
-			if (activeResizeRef.current) {
+			if (activeResizeRef.current || host.dataset.videoInputPickActive) {
 				return;
 			}
 			const view = data.card.element.ownerDocument.defaultView;
@@ -1218,7 +1242,8 @@ function createCanvasSceneMount(
 		}, []);
 		const prepareCardResizeMeasurement = vendor.useCallback((event: globalThis.PointerEvent): void => {
 			const target = event.target;
-			if ((!isHTMLElement(target) && !isSVGElement(target))
+			if (host.dataset.videoInputPickActive
+				|| (!isHTMLElement(target) && !isSVGElement(target))
 				|| !target.closest('.react-flow__resize-control')) {
 				return;
 			}
@@ -2394,6 +2419,18 @@ function createCanvasSceneMount(
 			readonly phase: 'active' | 'settling';
 		} | undefined>(undefined);
 		const [viewportInteractionActive, setViewportInteractionActive] = vendor.useState(false);
+		const [videoInputPickActive, setVideoInputPickActive] = vendor.useState(!!host.dataset.videoInputPickActive);
+		vendor.useEffect(() => {
+			const MutationObserver = host.ownerDocument.defaultView?.MutationObserver;
+			if (!MutationObserver) {
+				return;
+			}
+			const update = () => setVideoInputPickActive(!!host.dataset.videoInputPickActive);
+			const observer = new MutationObserver(update);
+			observer.observe(host, { attributes: true, attributeFilter: ['data-video-input-pick-active'] });
+			update();
+			return () => observer.disconnect();
+		}, []);
 		const suppressNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			const activeElement = host.ownerDocument.activeElement;
 			if (activeElement instanceof Element && activeElement.closest('.basehalf-canvas-adjacent-chrome')) {
@@ -2480,6 +2517,9 @@ function createCanvasSceneMount(
 			}
 		}, [endInteraction]);
 		const beginNodeResize = vendor.useCallback((path: string): void => {
+			if (host.dataset.videoInputPickActive) {
+				return;
+			}
 			beginInteraction();
 			const token = ++videoComposerManipulationToken.current;
 			setVideoComposerManipulation({ token, path, kind: 'node-resize', phase: 'active' });
@@ -2991,6 +3031,9 @@ function createCanvasSceneMount(
 			delegate.reportViewport(sceneKey, next, final);
 		}, []);
 		const beginNodeDrag = vendor.useCallback((_event: MouseEvent | TouchEvent, node: BaseHalfCanvasFlowNode, draggedNodes: BaseHalfCanvasFlowNode[]) => {
+			if (host.dataset.videoInputPickActive) {
+				return;
+			}
 			const capturedSelection = nodeDragSelectionAtPointerDown.current;
 			nodeDragSelectionAtPointerDown.current = undefined;
 			const selectionAtStart = capturedSelection?.primaryPath === node.id
@@ -3692,6 +3735,7 @@ function createCanvasSceneMount(
 			};
 		}, [onPaneDoubleClick]);
 
+		const videoInputPickGesturePolicy = baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive);
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
 			nodes,
 			edges,
@@ -3762,20 +3806,21 @@ function createCanvasSceneMount(
 				}
 			},
 			connectionMode: vendor.ConnectionMode.Loose,
+			nodesDraggable: videoInputPickGesturePolicy.nodesDraggable,
 			connectOnClick: true,
 			connectionRadius: 48,
 			edgesReconnectable: false,
 			deleteKeyCode: null,
 			minZoom: BASEHALF_CANVAS_MIN_ZOOM,
 			maxZoom: BASEHALF_CANVAS_MAX_ZOOM,
-			panOnScroll: true,
+			panOnScroll: videoInputPickGesturePolicy.viewportNavigationAllowed,
 			panOnScrollSpeed: 1,
 			zoomOnScroll: false,
-			zoomOnPinch: true,
+			zoomOnPinch: videoInputPickGesturePolicy.viewportNavigationAllowed,
 			zoomOnDoubleClick: false,
 			selectionOnDrag: true,
 			selectionMode: vendor.SelectionMode.Partial,
-			panOnDrag: [1, 2],
+			panOnDrag: videoInputPickGesturePolicy.viewportNavigationAllowed ? [1, 2] : false,
 			multiSelectionKeyCode: 'Shift',
 			onlyRenderVisibleElements: nodes.length > CANVAS_NODE_CULL_THRESHOLD
 				&& !nodes.some(node => node.data.card.controls?.kind === 'note' && node.data.card.forceInteractive === true),

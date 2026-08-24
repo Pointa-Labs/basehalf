@@ -16,6 +16,7 @@ import {
 	baseHalfNodeLocalStatusToken,
 	baseHalfNodeLocalPrimaryActionOpensSurface,
 	baseHalfNodeLocalSurfaceTargetOwnsEscape,
+	BaseHalfNodeParameterDraft,
 	chooseBaseHalfNodeConnectionSlot,
 	configureBaseHalfNodeLocalSurfaceAccessibility,
 	createBaseHalfNodeModelSelection,
@@ -324,6 +325,31 @@ suite('BaseHalfNodeLocalSurface', () => {
 		const merged = mergeBaseHalfNodeLocalConfigurationDraft(base, local, external);
 		assert.deepStrictEqual(merged.conflicts, []);
 		assert.strictEqual(merged.draft.title, 'Shared title');
+	});
+
+	test('treats separately parsed canonical parameter objects as the same draft value', () => {
+		const parameters = {
+			generationMode: 'first-last-frame-to-video',
+			modelSnapshot: { revision: 'reviewed-1', inputs: { 'first-frame': 1, 'last-frame': 1 } }
+		} as unknown as BaseHalfNodeParameterDraft;
+		const base = {
+			...localConfigurationDraft(),
+			parameters
+		};
+		const local = {
+			...base,
+			parameters: JSON.parse(JSON.stringify(base.parameters))
+		};
+		const external = {
+			...base,
+			parameters: JSON.parse(JSON.stringify(base.parameters)),
+			inputBindings: [{ sourcePath: 'end.png', slot: 'last-frame', order: 0 }]
+		};
+
+		const merged = mergeBaseHalfNodeLocalConfigurationDraft(base, local, external);
+		assert.deepStrictEqual(merged.conflicts, []);
+		assert.deepStrictEqual(merged.draft.parameters, external.parameters);
+		assert.deepStrictEqual(merged.draft.inputBindings, external.inputBindings);
 	});
 
 	test('keeps local direct-input choices when the same binding changed elsewhere', () => {

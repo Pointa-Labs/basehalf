@@ -3803,6 +3803,7 @@ async function assertVideoNodeUI(page) {
 	const overlayRoot = composer.locator('.basehalf-video-composer-overlay-root');
 	const modelsPopover = composer.locator('.basehalf-video-composer-popover.models');
 	const settingsPopover = composer.locator('.basehalf-video-composer-popover.settings');
+	const inputsPopover = composer.locator('.basehalf-video-composer-popover.inputs');
 
 	await modelTrigger.click();
 	await modelsPopover.waitFor({ state: 'visible', timeout: 10_000 });
@@ -4094,10 +4095,71 @@ async function assertVideoNodeUI(page) {
 	const canvasBeforeCancelledPick = fs.readFileSync(canvasYamlPath, 'utf8');
 	await page.keyboard.press('Escape');
 	await inputPickBanner.waitFor({ state: 'detached', timeout: 10_000 });
+	await page.waitForFunction(targetPath => {
+		const slot = document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-frame-slot[data-frame-role="first-frame"]`
+		);
+		return document.activeElement === slot?.querySelector('.basehalf-video-frame-slot-open');
+	}, canvasPath, { timeout: 10_000 });
 	if (fs.readFileSync(nodePath, 'utf8') !== nodeBeforeCancelledPick
 		|| fs.readFileSync(canvasYamlPath, 'utf8') !== canvasBeforeCancelledPick) {
 		throw new Error('Cancelling Video input pick changed the target document or graph');
 	}
+
+	const addInputTrigger = composer.locator('.basehalf-video-input-add-trigger');
+	const addInputHit = await addInputTrigger.evaluate(button => {
+		const bounds = button.getBoundingClientRect();
+		const x = bounds.x + bounds.width / 2;
+		const y = bounds.y + bounds.height / 2;
+		const hit = document.elementFromPoint(x, y);
+		return {
+			bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+			hitsTrigger: hit === button || button.contains(hit),
+			hitStack: document.elementsFromPoint(x, y).slice(0, 6).map(element => ({
+				tag: element.tagName,
+				className: element.getAttribute('class'),
+				ariaLabel: element.getAttribute('aria-label')
+			}))
+		};
+	});
+	if (!addInputHit.hitsTrigger) {
+		throw new Error(`Add input pointer region was covered by another canvas control: ${JSON.stringify(addInputHit)}`);
+	}
+	await addInputTrigger.click();
+	const addInputAfterClick = await page.evaluate(targetPath => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		return {
+			expanded: surface?.querySelector('.basehalf-video-input-add-trigger')?.getAttribute('aria-expanded'),
+			popoverCount: surface?.querySelectorAll('.basehalf-video-composer-popover.inputs').length
+		};
+	}, canvasPath);
+	if (addInputAfterClick.expanded !== 'true' || addInputAfterClick.popoverCount !== 1) {
+		throw new Error(`Add input pointer activation did not open Inputs: ${JSON.stringify({ addInputHit, addInputAfterClick })}`);
+	}
+	await inputsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const startPickFromInputs = inputsPopover.getByRole('button', { name: 'Pick Start Frame from canvas', exact: true });
+	await startPickFromInputs.waitFor({ state: 'visible', timeout: 10_000 });
+	await startPickFromInputs.click();
+	await inputPickBanner.waitFor({ state: 'visible', timeout: 10_000 });
+	await inputPickBanner.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 10_000 });
+	await inputsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(targetPath => {
+		const popover = document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-composer-popover.inputs`
+		);
+		const origin = Array.from(popover?.querySelectorAll<HTMLButtonElement>('.basehalf-video-input-pick-action') ?? [])
+			.find(button => button.textContent?.trim() === 'Pick Start Frame from canvas');
+		return origin !== undefined && document.activeElement === origin;
+	}, canvasPath, { timeout: 10_000 });
+	await page.keyboard.press('Escape');
+	await inputsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(targetPath => {
+		const addInput = document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-add-trigger`
+		);
+		return document.activeElement === addInput;
+	}, canvasPath, { timeout: 10_000 });
 
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
 	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
@@ -4107,8 +4169,138 @@ async function assertVideoNodeUI(page) {
 			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent?.includes('Select a highlighted card') === true,
 	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	for (let attempt = 0; attempt < 5; attempt++) {
+		await zoomCanvas(page, 'in');
+	}
+	let offscreenPickReady = false;
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const geometry = await page.evaluate(({ sourcePath, targetPath }) => {
+			const canvas = document.querySelector<HTMLElement>('.basehalf-canvas-cards');
+			const source = document.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`);
+			const target = document.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(targetPath)}"]`);
+			const targetSurface = document.querySelector<HTMLElement>(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+			const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+			if (!canvas || !source || !target || !viewport) {
+				return undefined;
+			}
+			const canvasRect = canvas.getBoundingClientRect();
+			const sourceRect = source.getBoundingClientRect();
+			const targetRect = target.getBoundingClientRect();
+			return {
+				canvas: { x: canvasRect.x, y: canvasRect.y, width: canvasRect.width, height: canvasRect.height },
+				source: { x: sourceRect.x, y: sourceRect.y, width: sourceRect.width, height: sourceRect.height },
+				target: { x: targetRect.x, y: targetRect.y, width: targetRect.width, height: targetRect.height },
+				targetOffscreen: targetSurface?.dataset.visibility === 'anchor-offscreen',
+				viewportTransform: getComputedStyle(viewport).transform
+			};
+		}, { sourcePath: startFramePath, targetPath: canvasPath });
+		if (!geometry) {
+			throw new Error('Canvas pick geometry was unavailable while navigating to an eligible source');
+		}
+		const sourceCenterX = geometry.source.x + geometry.source.width / 2;
+		const sourceCenterY = geometry.source.y + geometry.source.height / 2;
+		const canvasCenterX = geometry.canvas.x + geometry.canvas.width / 2;
+		const canvasCenterY = geometry.canvas.y + geometry.canvas.height / 2;
+		const targetCenterX = geometry.target.x + geometry.target.width / 2;
+		const targetCenterY = geometry.target.y + geometry.target.height / 2;
+		const sourceVisible = geometry.source.x >= geometry.canvas.x
+			&& geometry.source.y >= geometry.canvas.y
+			&& geometry.source.x + geometry.source.width <= geometry.canvas.x + geometry.canvas.width
+			&& geometry.source.y + geometry.source.height <= geometry.canvas.y + geometry.canvas.height;
+		if (sourceVisible && geometry.targetOffscreen) {
+			offscreenPickReady = true;
+			break;
+		}
+		const desiredSourceCenterX = targetCenterX < sourceCenterX
+			? geometry.canvas.x + geometry.source.width / 2 + 24
+			: geometry.canvas.x + geometry.canvas.width - geometry.source.width / 2 - 24;
+		const desiredSourceCenterY = targetCenterY < sourceCenterY
+			? geometry.canvas.y + geometry.source.height / 2 + 24
+			: geometry.canvas.y + geometry.canvas.height - geometry.source.height / 2 - 24;
+		const deltaX = Math.max(-480, Math.min(480, sourceCenterX - (Number.isFinite(desiredSourceCenterX) ? desiredSourceCenterX : canvasCenterX)));
+		const deltaY = Math.max(-320, Math.min(320, sourceCenterY - (Number.isFinite(desiredSourceCenterY) ? desiredSourceCenterY : canvasCenterY)));
+		await page.mouse.move(geometry.canvas.x + 20, geometry.canvas.y + 20);
+		await page.mouse.wheel(deltaX, deltaY);
+		await page.waitForFunction(previous => {
+			const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+			return !!viewport && getComputedStyle(viewport).transform !== previous;
+		}, geometry.viewportTransform, { timeout: 10_000 });
+	}
+	if (!offscreenPickReady) {
+		throw new Error('Canvas pan/zoom could not expose the eligible source with the target Composer suspended');
+	}
+	const offscreenViewportBeforeCommit = await page.locator('.react-flow__viewport').evaluate(viewport => getComputedStyle(viewport).transform);
 	await startFrame.focus();
 	await page.keyboard.press('Enter');
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 15_000 });
+	const offscreenCommit = await page.evaluate(targetPath => {
+		const surface = document.querySelector<HTMLElement>(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+		return {
+			visibility: surface?.dataset.visibility,
+			inputsPopoverOpen: surface?.querySelector('.basehalf-video-composer-popover.inputs') !== null,
+			viewportTransform: viewport ? getComputedStyle(viewport).transform : undefined
+		};
+	}, canvasPath);
+	if (offscreenCommit.visibility !== 'anchor-offscreen'
+		|| offscreenCommit.inputsPopoverOpen
+		|| offscreenCommit.viewportTransform !== offscreenViewportBeforeCommit) {
+		throw new Error(`Off-screen input completion moved the viewport or focused a hidden surface: ${JSON.stringify({ offscreenCommit, offscreenViewportBeforeCommit })}`);
+	}
+	await zoomCanvas(page, 'reset');
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const geometry = await page.evaluate(targetPath => {
+			const canvas = document.querySelector<HTMLElement>('.basehalf-canvas-cards');
+			const target = document.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(targetPath)}"]`);
+			const surface = document.querySelector<HTMLElement>(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+			const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+			if (!canvas || !target || !viewport) {
+				return undefined;
+			}
+			const canvasRect = canvas.getBoundingClientRect();
+			const targetRect = target.getBoundingClientRect();
+			return {
+				visible: surface?.dataset.visibility !== 'anchor-offscreen',
+				canvas: { x: canvasRect.x, y: canvasRect.y, width: canvasRect.width, height: canvasRect.height },
+				target: { x: targetRect.x, y: targetRect.y, width: targetRect.width, height: targetRect.height },
+				viewportTransform: getComputedStyle(viewport).transform
+			};
+		}, canvasPath);
+		if (!geometry) {
+			throw new Error('Target geometry was unavailable while restoring deferred input focus');
+		}
+		if (geometry.visible) {
+			break;
+		}
+		const deltaX = Math.max(-480, Math.min(480,
+			geometry.target.x + geometry.target.width / 2 - (geometry.canvas.x + geometry.canvas.width / 2)));
+		const deltaY = Math.max(-320, Math.min(320,
+			geometry.target.y + geometry.target.height / 2 - (geometry.canvas.y + geometry.canvas.height / 2)));
+		await page.mouse.move(geometry.canvas.x + 20, geometry.canvas.y + 20);
+		await page.mouse.wheel(deltaX, deltaY);
+		await page.waitForFunction(previous => {
+			const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+			return !!viewport && getComputedStyle(viewport).transform !== previous;
+		}, geometry.viewportTransform, { timeout: 10_000 });
+	}
+	await page.waitForFunction(targetPath => {
+		const surface = document.querySelector<HTMLElement>(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const slot = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		return surface?.dataset.visibility !== 'anchor-offscreen'
+			&& !!slot
+			&& (document.activeElement === slot.querySelector('.basehalf-video-frame-slot-open'));
+	}, canvasPath, { timeout: 15_000 });
+	await settingsTrigger.focus();
+	const viewportBeforeDeferredFocusProbe = await page.locator('.react-flow__viewport').evaluate(viewport => getComputedStyle(viewport).transform);
+	await page.mouse.move(paneBox.x + 26, paneBox.y + 26);
+	await page.mouse.wheel(2, -1);
+	await page.waitForFunction(previous => {
+		const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+		return !!viewport && getComputedStyle(viewport).transform !== previous;
+	}, viewportBeforeDeferredFocusProbe, { timeout: 10_000 });
+	if (!await settingsTrigger.evaluate(element => document.activeElement === element)) {
+		throw new Error('A later viewport update replayed the already-consumed deferred input focus');
+	}
 	await page.waitForFunction(({ targetPath, sourcePath }) => {
 		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
 		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');

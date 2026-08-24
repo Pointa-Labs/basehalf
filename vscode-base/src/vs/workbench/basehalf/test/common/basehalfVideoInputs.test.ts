@@ -9,16 +9,22 @@ import type { BaseHalfCanvasContentKind, IBaseHalfCanvasRecipeInputDefinition } 
 import { createBaseHalfNodeDocument, IBaseHalfNodeInputBinding } from '../../common/basehalfNodeDocument.js';
 import {
 	acceptBaseHalfVideoCanvasPickSelection,
+	acquireBaseHalfVideoInputTransaction,
 	applyBaseHalfVideoInputMutationToDocument,
+	baseHalfVideoCanvasPickDraftRevisionIsCurrent,
+	baseHalfVideoCanvasPickSelectionIsActive,
+	baseHalfVideoInputTransactionIsCurrent,
 	baseHalfVideoInputBindingIntegrity,
 	beginBaseHalfVideoCanvasPick,
 	BaseHalfVideoInputMutationError,
 	BaseHalfVideoInputMutationProblemKind,
 	cancelBaseHalfVideoCanvasPick,
 	completeBaseHalfVideoCanvasPick,
+	confirmBaseHalfVideoDocumentWriteAcknowledgement,
 	consumeBaseHalfVideoCanvasPickDeferredFocus,
 	createBaseHalfVideoCanvasPickState,
 	createBaseHalfVideoDocumentWriteAcknowledgement,
+	createBaseHalfVideoInputTransactionOwnerState,
 	createBaseHalfVideoInputsPresentation,
 	getBaseHalfVideoCanvasPickInteraction,
 	getBaseHalfVideoInputsExecutionGate,
@@ -35,6 +41,7 @@ import {
 	planBaseHalfVideoInputReorder,
 	planBaseHalfVideoInputReplace,
 	planBaseHalfVideoInputRoleChange,
+	releaseBaseHalfVideoInputTransaction,
 	settleBaseHalfVideoDocumentWriteAcknowledgement,
 	updateBaseHalfVideoCanvasPickViewport
 } from '../../common/basehalfVideoInputs.js';
@@ -382,6 +389,42 @@ suite('BaseHalfVideoInputs', () => {
 		});
 	});
 
+	test('rejects a concurrent End removal while Start owns the input transaction', () => {
+		const bindings = [
+			binding('frames/start.bhnode', 'first-frame', 0),
+			binding('frames/end.bhnode', 'last-frame', 1)
+		];
+		const context = mutationContext('first-last-frame-to-video', bindings, [
+			source('frames/start.bhnode'),
+			source('frames/end.bhnode')
+		]);
+		let owner = createBaseHalfVideoInputTransactionOwnerState();
+		const start = acquireBaseHalfVideoInputTransaction(owner);
+		owner = start.state;
+		const end = acquireBaseHalfVideoInputTransaction(owner);
+
+		assert.strictEqual(start.transactionId, 1);
+		assert.strictEqual(end.transactionId, undefined);
+		assert.strictEqual(end.state, owner);
+		assert.strictEqual(baseHalfVideoInputTransactionIsCurrent(owner, start.transactionId!), true);
+
+		const startRemoval = planBaseHalfVideoInputRemove({
+			...context,
+			sourcePath: 'frames/start.bhnode',
+			edgeState: 'present'
+		});
+		assert.deepStrictEqual(startRemoval.afterBindings, [binding('frames/end.bhnode', 'last-frame', 0)]);
+		assert.deepStrictEqual(startRemoval.graph, {
+			addSourcePaths: [],
+			removeSourcePaths: ['frames/start.bhnode']
+		});
+
+		owner = releaseBaseHalfVideoInputTransaction(owner, start.transactionId!);
+		assert.strictEqual(baseHalfVideoInputTransactionIsCurrent(owner, start.transactionId!), false);
+		const endAfterStartSettles = acquireBaseHalfVideoInputTransaction(owner);
+		assert.strictEqual(endAfterStartSettles.transactionId, 2);
+	});
+
 	test('applies an input plan to the persisted binding slice only', () => {
 		const before = binding('frames/old.bhnode', 'first-frame', 0);
 		const document = createBaseHalfNodeDocument({
@@ -580,25 +623,30 @@ suite('BaseHalfVideoInputs', () => {
 			],
 			sources: [source('frames/start.bhnode'), source('frames/end.bhnode')],
 			inputEvaluation: evaluation({ 'text-prompt': 1, 'first-frame': 1, 'last-frame': 1 })
+			});
+			assert.deepStrictEqual(getBaseHalfVideoInputsExecutionGate(ready), { ready: true });
+			assert.strictEqual(baseHalfVideoCanvasPickSelectionIsActive(ready, 'frames/start.bhnode', 'first-frame'), true);
+			assert.strictEqual(baseHalfVideoCanvasPickSelectionIsActive(ready, 'frames/end.bhnode', 'first-frame'), false);
 		});
-		assert.deepStrictEqual(getBaseHalfVideoInputsExecutionGate(ready), { ready: true });
-	});
 
 	test('keeps canvas-pick epoch stable across pan and zoom and accepts one selection', () => {
 		const idle = createBaseHalfVideoCanvasPickState();
 		const preflighting = beginBaseHalfVideoCanvasPick(idle, canvasPickRequest());
-		assert.strictEqual(preflighting.phase, 'preflighting');
-		assert.strictEqual(preflighting.epoch, 1);
-		assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(preflighting), {
-			viewportNavigationAllowed: false,
-			nodeGeometryGesturesDisabled: true,
-			acceptsSelection: false,
-			cancelAllowed: true
-		});
+			assert.strictEqual(preflighting.phase, 'preflighting');
+			assert.strictEqual(preflighting.epoch, 1);
+			assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(preflighting), {
+				viewportNavigationAllowed: true,
+				nodeGeometryGesturesDisabled: true,
+				acceptsSelection: false,
+				cancelAllowed: true
+			});
 
-		const ready = markBaseHalfVideoCanvasPickReady(preflighting, preflighting.epoch);
-		const panned = updateBaseHalfVideoCanvasPickViewport(ready, ready.epoch, false);
-		const zoomed = updateBaseHalfVideoCanvasPickViewport(panned, panned.epoch, true);
+			const preflightPanned = updateBaseHalfVideoCanvasPickViewport(preflighting, preflighting.epoch, false);
+			assert.strictEqual(preflightPanned.targetVisible, false);
+			assert.strictEqual(preflightPanned.candidateLayoutRevision, preflighting.candidateLayoutRevision + 1);
+			const ready = markBaseHalfVideoCanvasPickReady(preflightPanned, preflightPanned.epoch);
+			const panned = updateBaseHalfVideoCanvasPickViewport(ready, ready.epoch, false);
+			const zoomed = updateBaseHalfVideoCanvasPickViewport(panned, panned.epoch, true);
 		assert.strictEqual(zoomed.epoch, ready.epoch);
 		assert.strictEqual(zoomed.request, ready.request);
 		assert.strictEqual(zoomed.candidateLayoutRevision, ready.candidateLayoutRevision + 2);
@@ -609,17 +657,52 @@ suite('BaseHalfVideoInputs', () => {
 			cancelAllowed: true
 		});
 
-		const accepting = acceptBaseHalfVideoCanvasPickSelection(zoomed, zoomed.epoch);
-		assert.strictEqual(accepting.phase, 'accepting');
-		assert.strictEqual(acceptBaseHalfVideoCanvasPickSelection(accepting, accepting.epoch), accepting);
-		assert.strictEqual(updateBaseHalfVideoCanvasPickViewport(accepting, accepting.epoch, false), accepting);
-		assert.strictEqual(markBaseHalfVideoCanvasPickReady(accepting, accepting.epoch), accepting);
+			const accepting = acceptBaseHalfVideoCanvasPickSelection(zoomed, zoomed.epoch);
+			assert.strictEqual(accepting.phase, 'accepting');
+			assert.strictEqual(acceptBaseHalfVideoCanvasPickSelection(accepting, accepting.epoch), accepting);
+			const acceptingOffscreen = updateBaseHalfVideoCanvasPickViewport(accepting, accepting.epoch, false);
+			assert.strictEqual(acceptingOffscreen.targetVisible, false);
+			assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(acceptingOffscreen), {
+				viewportNavigationAllowed: true,
+				nodeGeometryGesturesDisabled: true,
+				acceptsSelection: false,
+				cancelAllowed: true
+			});
+			const revalidating = markBaseHalfVideoCanvasPickRevalidating(acceptingOffscreen, acceptingOffscreen.epoch);
+			const revalidatingVisible = updateBaseHalfVideoCanvasPickViewport(revalidating, revalidating.epoch, true);
+			assert.strictEqual(revalidatingVisible.targetVisible, true);
+			const committing = markBaseHalfVideoCanvasPickCommitting(revalidatingVisible, revalidatingVisible.epoch);
+			const committingOffscreen = updateBaseHalfVideoCanvasPickViewport(committing, committing.epoch, false);
+			assert.strictEqual(committingOffscreen.targetVisible, false);
+			assert.deepStrictEqual(getBaseHalfVideoCanvasPickInteraction(committingOffscreen), {
+				viewportNavigationAllowed: true,
+				nodeGeometryGesturesDisabled: true,
+				acceptsSelection: false,
+				cancelAllowed: false
+			});
+			assert.strictEqual(markBaseHalfVideoCanvasPickReady(accepting, accepting.epoch), accepting);
+		});
+
+	test('captures the durable checkpoint revision only when pick becomes ready', () => {
+		const preflighting = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), canvasPickRequest({
+			expectedDraftRevision: 'etag:before-checkpoint'
+		}));
+		const ready = markBaseHalfVideoCanvasPickReady(preflighting, preflighting.epoch, 'etag:durable-checkpoint');
+		assert.strictEqual(ready.phase, 'ready');
+		assert.strictEqual(ready.request?.expectedDraftRevision, 'etag:durable-checkpoint');
+		assert.strictEqual(preflighting.request?.expectedDraftRevision, 'etag:before-checkpoint');
+		assert.strictEqual(baseHalfVideoCanvasPickDraftRevisionIsCurrent(ready, ready.epoch, 'etag:durable-checkpoint'), true);
+		assert.strictEqual(baseHalfVideoCanvasPickDraftRevisionIsCurrent(ready, ready.epoch, 'etag:same-configuration-new-write'), false);
+		assert.strictEqual(baseHalfVideoCanvasPickDraftRevisionIsCurrent(ready, ready.epoch + 1, 'etag:durable-checkpoint'), false);
 	});
 
 	test('defers off-screen pick focus for the exact selected target and consumes it once', () => {
-		let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), canvasPickRequest());
-		const epoch = state.epoch;
-		state = markBaseHalfVideoCanvasPickReady(state, epoch);
+			let state = beginBaseHalfVideoCanvasPick(createBaseHalfVideoCanvasPickState(), canvasPickRequest({
+				returnFocusKey: 'video-overlay:inputs:input:pick:first-frame'
+			}));
+			const epoch = state.epoch;
+			assert.strictEqual(state.request?.returnFocusKey, 'video-overlay:inputs:input:pick:first-frame');
+			state = markBaseHalfVideoCanvasPickReady(state, epoch);
 		state = updateBaseHalfVideoCanvasPickViewport(state, epoch, false);
 		state = acceptBaseHalfVideoCanvasPickSelection(state, epoch);
 		state = markBaseHalfVideoCanvasPickRevalidating(state, epoch);
@@ -627,7 +710,7 @@ suite('BaseHalfVideoInputs', () => {
 
 		assert.strictEqual(cancelBaseHalfVideoCanvasPick(state, epoch), state);
 		assert.strictEqual(completeBaseHalfVideoCanvasPick(state, epoch, false).state, state);
-		const completed = completeBaseHalfVideoCanvasPick(state, epoch, true);
+			const completed = completeBaseHalfVideoCanvasPick(state, epoch, true, 'video:input:first-frame');
 		assert.strictEqual(completed.state.phase, 'idle');
 		assert.strictEqual(completed.reopenInputs, false);
 		assert.strictEqual(completed.focusKey, undefined);
@@ -726,6 +809,13 @@ suite('BaseHalfVideoInputs', () => {
 		const settled = settleBaseHalfVideoDocumentWriteAcknowledgement(durableExpected.acknowledgement);
 		assert.strictEqual(settled.phase, 'settled');
 		assert.strictEqual(Object.isFrozen(settled.ownVersions), true);
+		const refreshedExpected = observeBaseHalfVideoDocumentVersion(
+			settled,
+			{ configurationKey: 'configuration:expected', etag: 'etag:3' },
+			true
+		);
+		assert.strictEqual(refreshedExpected.classification, 'expected');
+		assert.strictEqual(refreshedExpected.rereadRequired, false);
 
 		const sameConfiguration = createBaseHalfVideoDocumentWriteAcknowledgement(
 			'configuration:same',
@@ -746,6 +836,34 @@ suite('BaseHalfVideoInputs', () => {
 		);
 		assert.strictEqual(rewrittenSameConfiguration.classification, 'expected');
 		assert.strictEqual(rewrittenSameConfiguration.acknowledgement.phase, 'observed-expected');
+		const confirmedSameConfiguration = confirmBaseHalfVideoDocumentWriteAcknowledgement(
+			sameConfiguration,
+			{ configurationKey: 'configuration:same', etag: 'etag:new' }
+		);
+		assert.strictEqual(confirmedSameConfiguration.confirmed, true);
+		assert.strictEqual(confirmedSameConfiguration.acknowledgement?.phase, 'settled');
+		const durableMismatch = confirmBaseHalfVideoDocumentWriteAcknowledgement(
+			createBaseHalfVideoDocumentWriteAcknowledgement(
+				'configuration:expected',
+				{ configurationKey: 'configuration:previous', etag: 'etag:old' }
+			),
+			{ configurationKey: 'configuration:external', etag: 'etag:new' }
+		);
+		assert.strictEqual(durableMismatch.confirmed, false);
+		assert.strictEqual(durableMismatch.acknowledgement, undefined);
+
+		const nextWrite = createBaseHalfVideoDocumentWriteAcknowledgement(
+			'configuration:next',
+			{ configurationKey: 'configuration:expected', etag: 'etag:3' },
+			settled.ownVersions
+		);
+		const priorTransactionEcho = observeBaseHalfVideoDocumentVersion(
+			nextWrite,
+			{ configurationKey: 'configuration:intermediate', etag: 'etag:2' },
+			true
+		);
+		assert.strictEqual(priorTransactionEcho.classification, 'own-echo');
+		assert.strictEqual(priorTransactionEcho.rereadRequired, true);
 	});
 });
 

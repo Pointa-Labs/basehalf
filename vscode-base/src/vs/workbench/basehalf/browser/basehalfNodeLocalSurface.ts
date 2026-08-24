@@ -6,6 +6,7 @@
 import { isHTMLElement } from '../../../base/browser/dom.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../base/common/layout.js';
+import { equals as objectsEqual } from '../../../base/common/objects.js';
 import {
 	BaseHalfCanvasContentKind,
 	baseHalfCanvasContentKindForPath,
@@ -1123,7 +1124,7 @@ function sameParameterDraft(left: BaseHalfNodeParameterDraft, right: BaseHalfNod
 	const leftKeys = Object.keys(left).sort();
 	const rightKeys = Object.keys(right).sort();
 	return leftKeys.length === rightKeys.length
-		&& leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+		&& leftKeys.every((key, index) => key === rightKeys[index] && objectsEqual(left[key], right[key]));
 }
 
 function sameInputBindings(left: readonly IBaseHalfNodeInputBinding[], right: readonly IBaseHalfNodeInputBinding[]): boolean {
