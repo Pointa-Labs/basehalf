@@ -76,6 +76,7 @@ export interface IBaseHalfVideoModelRowPresentation {
 	readonly state: BaseHalfVideoModelRowState;
 	readonly action: BaseHalfVideoModelRowAction;
 	readonly repairSurface?: BaseHalfVideoModelRepairSurface;
+	readonly repairFocusLogicalKey?: string;
 	readonly disabledReason?: string;
 	readonly selected: boolean;
 	readonly searchText: string;
@@ -154,8 +155,38 @@ export interface IBaseHalfVideoModelSettingsPresentation {
 	readonly settingsSummary: readonly IBaseHalfVideoSettingsSummaryToken[];
 	readonly values: BaseHalfVideoSettings;
 	readonly adjustments: readonly IBaseHalfVideoSettingAdjustmentPresentation[];
-	readonly selectionProblem?: string;
+	readonly selectionProblem?: IBaseHalfVideoModelSelectionProblem;
 }
+
+export type BaseHalfVideoMessageKind =
+	| 'transaction-failure'
+	| 'attempt-problem'
+	| 'model-selection-problem'
+	| 'input-readiness-problem'
+	| 'settings-adjustment'
+	| 'information';
+
+export interface IBaseHalfVideoMessageAction {
+	readonly id: string;
+	readonly label: string;
+	readonly disabledReason?: string;
+}
+
+export interface IBaseHalfVideoMessage {
+	readonly kind: BaseHalfVideoMessageKind;
+	readonly message: string;
+	readonly action?: IBaseHalfVideoMessageAction;
+}
+
+export interface IBaseHalfVideoMessagePrecedencePresentation {
+	readonly messages: readonly IBaseHalfVideoMessage[];
+	readonly primaryMessage?: IBaseHalfVideoMessage;
+	readonly primaryAction?: IBaseHalfVideoMessageAction;
+}
+
+export type BaseHalfVideoModelPickerFocusTarget =
+	| { readonly kind: 'row'; readonly logicalKey: string }
+	| { readonly kind: 'search' };
 
 export type BaseHalfVideoModelSettingsReconciliation =
 	| {
@@ -182,10 +213,19 @@ export function createBaseHalfVideoModelPickerPresentation(
 	input: IBaseHalfVideoModelPickerPresentationInput
 ): IBaseHalfVideoModelPickerPresentation {
 	const selectedKey = input.selectedChoice ? baseHalfVideoModelChoiceLogicalKey(input.selectedChoice) : undefined;
-	const rows = input.entries.map(entry => createModelRow(entry, selectedKey));
+	const labelCounts = new Map<string, number>();
+	for (const entry of input.entries) {
+		const labelKey = normalizeSearch(entry.descriptor.label);
+		labelCounts.set(labelKey, (labelCounts.get(labelKey) ?? 0) + 1);
+	}
+	const rows = input.entries.map(entry => createModelRow(
+		entry,
+		selectedKey,
+		(labelCounts.get(normalizeSearch(entry.descriptor.label)) ?? 0) > 1
+	));
 	const staleKey = input.staleSelection ? baseHalfVideoModelChoiceLogicalKey(input.staleSelection.choice) : undefined;
 	const staleRow = input.staleSelection && staleKey === selectedKey && !rows.some(row => row.logicalKey === staleKey)
-		? createStaleModelRow(input.staleSelection)
+		? createStaleModelRow(input.staleSelection, rows.find(row => row.state !== 'unavailable')?.logicalKey)
 		: undefined;
 	const allRows = staleRow ? [staleRow, ...rows] : rows;
 	const showScopeHeadings = new Set(input.entries.map(entry => modelConnectionScopeKey(entry.choice))).size > 1;
@@ -230,9 +270,63 @@ export function createBaseHalfVideoModelSettingsPresentation(
 		settingsSummary: createSettingsSummary(resolution, normalization),
 		values: normalization.values,
 		adjustments: createBaseHalfVideoSettingAdjustmentPresentations(normalization.adjustments, parameters, previousParameters),
-		...(normalization.status === 'unavailable' ? { selectionProblem: normalization.reason } : {})
+		...(normalization.status === 'unavailable' ? {
+			selectionProblem: freeze({ reason: normalization.reason, repairSurface: 'settings' as const })
+		} : {})
 	};
 	return freeze(result);
+}
+
+/**
+ * Applies the parent Video-node precedence without parsing localized copy.
+ * Historical adjustments remain in the ordered detail list but cannot own the
+ * primary action.
+ */
+export function createBaseHalfVideoMessagePrecedencePresentation(
+	messages: readonly IBaseHalfVideoMessage[]
+): IBaseHalfVideoMessagePrecedencePresentation {
+	const ordered = messages.map((message, index) => ({ message: freezeMessage(message), index }))
+		.sort((left, right) => messageRank(left.message.kind) - messageRank(right.message.kind) || left.index - right.index)
+		.map(entry => entry.message);
+	const primaryMessage = ordered[0];
+	const primaryAction = primaryMessage && isBlockingMessage(primaryMessage.kind)
+		? primaryMessage.action
+		: undefined;
+	return freeze({
+		messages: freeze(ordered),
+		...(primaryMessage ? { primaryMessage } : {}),
+		...(primaryAction ? { primaryAction } : {})
+	});
+}
+
+/** Restores logical focus after filtering or a reviewed-registry refresh. */
+export function resolveBaseHalfVideoModelPickerFocus(
+	previousRows: readonly IBaseHalfVideoModelRowPresentation[],
+	nextRows: readonly IBaseHalfVideoModelRowPresentation[],
+	focusedLogicalKey: string | undefined,
+	showSearch: boolean
+): BaseHalfVideoModelPickerFocusTarget | undefined {
+	if (focusedLogicalKey) {
+		const exact = nextRows.find(row => row.logicalKey === focusedLogicalKey && row.state !== 'unavailable');
+		if (exact) {
+			return freeze({ kind: 'row', logicalKey: exact.logicalKey });
+		}
+	}
+	const previousIndex = focusedLogicalKey
+		? previousRows.findIndex(row => row.logicalKey === focusedLogicalKey)
+		: -1;
+	const startIndex = previousIndex >= 0
+		? Math.min(previousIndex, Math.max(0, nextRows.length - 1))
+		: 0;
+	for (let distance = 0; distance < nextRows.length; distance++) {
+		for (const index of distance === 0 ? [startIndex] : [startIndex + distance, startIndex - distance]) {
+			const candidate = nextRows[index];
+			if (candidate?.state !== 'unavailable') {
+				return freeze({ kind: 'row', logicalKey: candidate.logicalKey });
+			}
+		}
+	}
+	return showSearch ? freeze({ kind: 'search' }) : undefined;
 }
 
 export function createBaseHalfVideoSettingAdjustmentPresentations(
@@ -270,16 +364,13 @@ export function mergeBaseHalfVideoSettingAdjustments(
 	current: readonly IBaseHalfVideoSettingAdjustment[],
 	next: readonly IBaseHalfVideoSettingAdjustment[]
 ): readonly IBaseHalfVideoSettingAdjustment[] {
-	if (!next.length) {
-		return Object.isFrozen(current) ? current : freeze([...current]);
-	}
-	const merged = [...current];
+	const merged = current.map(adjustment => freeze({ ...adjustment }));
 	const indexByParameter = new Map(merged.map((adjustment, index) => [adjustment.parameterId, index]));
 	for (const adjustment of next) {
 		const index = indexByParameter.get(adjustment.parameterId);
 		if (index === undefined) {
 			indexByParameter.set(adjustment.parameterId, merged.length);
-			merged.push(adjustment);
+			merged.push(freeze({ ...adjustment }));
 			continue;
 		}
 		const previous = merged[index];
@@ -379,7 +470,8 @@ export function executableVideoModes(descriptor: IBaseHalfVideoModelDescriptor):
 
 function createModelRow(
 	entry: IBaseHalfVideoModelPresentationEntry,
-	selectedKey: string | undefined
+	selectedKey: string | undefined,
+	showDisambiguation: boolean
 ): IBaseHalfVideoModelRowPresentation {
 	const logicalKey = baseHalfVideoModelChoiceLogicalKey(entry.choice);
 	const selected = logicalKey === selectedKey;
@@ -416,7 +508,9 @@ function createModelRow(
 	}
 
 	const capabilityTokens = createCapabilityTokens(entry.descriptor);
-	const disambiguationLabel = [entry.providerLabel, entry.deploymentLabel].filter(Boolean).join(' · ') || undefined;
+	const scopeLabel = [entry.providerLabel, entry.deploymentLabel].filter(Boolean).join(' · ') || undefined;
+	const disambiguationLabel = showDisambiguation ? scopeLabel : undefined;
+	const groupLabel = entry.groupLabel ?? scopeLabel;
 	const searchText = normalizeSearch([
 		entry.descriptor.label,
 		entry.providerLabel,
@@ -428,7 +522,7 @@ function createModelRow(
 		choice: freeze({ ...entry.choice }),
 		label: entry.descriptor.label,
 		...(disambiguationLabel ? { disambiguationLabel } : {}),
-		...(entry.groupLabel ? { groupLabel: entry.groupLabel } : {}),
+		...(groupLabel ? { groupLabel } : {}),
 		capabilityTokens,
 		state,
 		action,
@@ -439,7 +533,10 @@ function createModelRow(
 	});
 }
 
-function createStaleModelRow(selection: IBaseHalfStaleVideoModelSelection): IBaseHalfVideoModelRowPresentation {
+function createStaleModelRow(
+	selection: IBaseHalfStaleVideoModelSelection,
+	repairFocusLogicalKey: string | undefined
+): IBaseHalfVideoModelRowPresentation {
 	return freeze({
 		logicalKey: baseHalfVideoModelChoiceLogicalKey(selection.choice),
 		choice: freeze({ ...selection.choice }),
@@ -448,6 +545,7 @@ function createStaleModelRow(selection: IBaseHalfStaleVideoModelSelection): IBas
 		state: 'needs-review',
 		action: 'repair',
 		repairSurface: 'models',
+		...(repairFocusLogicalKey ? { repairFocusLogicalKey } : {}),
 		disabledReason: selection.reason,
 		selected: true,
 		searchText: normalizeSearch(selection.label)
@@ -471,7 +569,7 @@ function createCapabilityTokens(descriptor: IBaseHalfVideoModelDescriptor): read
 			kind: 'duration',
 			minimum: duration.minimum,
 			maximum: duration.maximum,
-			label: duration.minimum === duration.maximum ? `${duration.maximum}s` : `${duration.minimum}–${duration.maximum}s`
+			label: duration.label
 		}));
 	}
 	if (modes.some(mode => supportsGeneratedAudio(mode))) {
@@ -512,22 +610,44 @@ function resolutionRank(label: string, value: string | number): number {
 	return match[2]?.toLowerCase() === 'k' ? amount * 1000 : amount;
 }
 
-function durationRange(modes: readonly IBaseHalfVideoModeCapability[]): { readonly minimum: number; readonly maximum: number } | undefined {
-	const values: number[] = [];
+function durationRange(modes: readonly IBaseHalfVideoModeCapability[]): {
+	readonly minimum: number;
+	readonly maximum: number;
+	readonly label: string;
+} | undefined {
+	const values: Array<{ readonly value: number; readonly label: string; readonly unit?: string }> = [];
 	for (const mode of modes) {
 		const parameter = mode.parameters.find(candidate => candidate.id === 'durationSeconds' || candidate.id === 'duration');
 		if (!parameter || parameter.availability) {
 			continue;
 		}
 		if (parameter.type === 'range') {
-			values.push(parameter.minimum, parameter.maximum);
+			values.push(
+				{ value: parameter.minimum, label: `${formatNumber(parameter.minimum)}${parameter.unit ?? ''}`, unit: parameter.unit },
+				{ value: parameter.maximum, label: `${formatNumber(parameter.maximum)}${parameter.unit ?? ''}`, unit: parameter.unit }
+			);
 		} else if (parameter.type === 'enum') {
 			values.push(...parameter.options
 				.filter(option => !option.availability && typeof option.value === 'number' && option.value > 0)
-				.map(option => option.value as number));
+				.map(option => ({ value: option.value as number, label: option.label })));
 		}
 	}
-	return values.length ? freeze({ minimum: Math.min(...values), maximum: Math.max(...values) }) : undefined;
+	if (!values.length) {
+		return undefined;
+	}
+	const ordered = [...values].sort((left, right) => left.value - right.value);
+	const minimum = ordered[0];
+	const maximum = ordered[ordered.length - 1];
+	const label = minimum.value === maximum.value
+		? maximum.label
+		: minimum.unit && minimum.unit === maximum.unit
+			? `${formatNumber(minimum.value)}–${formatNumber(maximum.value)}${minimum.unit}`
+			: `${minimum.label}–${maximum.label}`;
+	return freeze({
+		minimum: minimum.value,
+		maximum: maximum.value,
+		label
+	});
 }
 
 function supportsGeneratedAudio(mode: IBaseHalfVideoModeCapability): boolean {
@@ -677,6 +797,29 @@ function generationModeValueLabel(value: BaseHalfVideoModelScalar | undefined): 
 	].includes(value)
 		? baseHalfVideoGenerationModeLabel(value as BaseHalfVideoGenerationMode)
 		: value === undefined ? undefined : 'Previous generation method';
+}
+
+function messageRank(kind: BaseHalfVideoMessageKind): number {
+	switch (kind) {
+		case 'transaction-failure': return 0;
+		case 'attempt-problem': return 1;
+		case 'model-selection-problem': return 2;
+		case 'input-readiness-problem': return 3;
+		case 'settings-adjustment': return 4;
+		case 'information': return 5;
+	}
+}
+
+function isBlockingMessage(kind: BaseHalfVideoMessageKind): boolean {
+	return kind !== 'settings-adjustment' && kind !== 'information';
+}
+
+function freezeMessage(message: IBaseHalfVideoMessage): IBaseHalfVideoMessage {
+	return freeze({
+		kind: message.kind,
+		message: message.message,
+		...(message.action ? { action: freeze({ ...message.action }) } : {})
+	});
 }
 
 function formatNumber(value: number): string {

@@ -286,6 +286,44 @@ suite('BaseHalfModelServices', () => {
 		}
 	});
 
+	test('cleans staged credentials when the atomic metadata commit fails', async () => {
+		const credentialStore = new ObservingCredentialStore();
+		const pluginStateStore = new CompareAndSwapFailingPluginStateStore();
+		const harness = await createHarness(
+			credentialStore,
+			new MutableTestConfigurationService(),
+			new InMemoryStorageService(),
+			pluginStateStore
+		);
+		try {
+			const first = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'working-key' });
+			const originalRef = storedConnection(pluginStateStore, FIXED_SPEC.id).credentialRef;
+			let stagedKey: string | undefined;
+			credentialStore.observeNextSet(key => {
+				stagedKey = key;
+				pluginStateStore.failNextCompareAndSwap();
+			});
+
+			await assert.rejects(
+				() => harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'replacement-key' }),
+				/fixture connection-state commit failure/
+			);
+			assert.strictEqual(storedConnection(pluginStateStore, FIXED_SPEC.id).credentialRef, originalRef);
+			assert.ok(stagedKey);
+			assert.strictEqual(await credentialStore.get(stagedKey!), undefined);
+			assert.deepStrictEqual(connectionState(pluginStateStore).stagedCredentials, {});
+			assert.deepStrictEqual(connectionState(pluginStateStore).pendingCredentialCleanup, []);
+			assert.strictEqual((await harness.service.getAccess(bundledOfficialIdentity(), {
+				serviceId: first.id,
+				serviceLabel: first.label,
+				connectionIdentity: first.connectionIdentity,
+				capability: 'video'
+			}))?.apiKey, 'working-key');
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	test('keeps an undecryptable credential connection replaceable and removable', async () => {
 		const credentialStore = new GetFailingCredentialStore();
 		const harness = await createHarness(credentialStore);
@@ -720,5 +758,21 @@ class MemoryPluginStateStore implements IBaseHalfPluginStateStore {
 
 	setRaw(key: string, value: string): void {
 		this.values.set(key, value);
+	}
+}
+
+class CompareAndSwapFailingPluginStateStore extends MemoryPluginStateStore {
+	private failNext = false;
+
+	failNextCompareAndSwap(): void {
+		this.failNext = true;
+	}
+
+	override async compareAndSwap(key: string, expected: string | undefined, value: string | undefined): Promise<{ swapped: boolean; current?: string }> {
+		if (this.failNext) {
+			this.failNext = false;
+			throw new Error('fixture connection-state commit failure');
+		}
+		return super.compareAndSwap(key, expected, value);
 	}
 }

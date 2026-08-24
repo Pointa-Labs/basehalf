@@ -25,6 +25,7 @@ export const BASEHALF_MODEL_CONNECTIONS_SETTINGS_SECTION_ID = 'basehalf/models';
 
 type ModelConnectionFocusTarget = 'provider' | 'firstField';
 type ModelProviderConnectionState = 'connected' | 'attention' | 'locked';
+type ModelConnectionAnnouncementKind = 'progress' | 'success' | 'warning';
 
 interface IBaseHalfModelConnectionFieldControl {
 	readonly field: IBaseHalfModelProviderConnectionField;
@@ -49,6 +50,8 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 	private services: readonly IBaseHalfModelServiceDescriptor[] = [];
 	private selectedSpecId: string | undefined;
 	private announcement = '';
+	private announcementKind: ModelConnectionAnnouncementKind | undefined;
+	private detailError: { readonly specId: string; readonly message: string } | undefined;
 	private intentRequestId: string | undefined;
 	private renderGeneration = 0;
 	private busy = false;
@@ -205,6 +208,11 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		this.selectedProviderRow = undefined;
 		if (this.pageStatus) {
 			this.pageStatus.textContent = this.announcement;
+			if (this.announcementKind) {
+				this.pageStatus.dataset.state = this.announcementKind;
+			} else {
+				delete this.pageStatus.dataset.state;
+			}
 		}
 
 		if (!this.specs.length) {
@@ -258,7 +266,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 				this.selectedSpecId = selectedSpec?.id
 					?? group.specs.find(spec => this.serviceForSpec(spec.id)?.configured)?.id
 					?? group.specs[0].id;
-				this.announcement = '';
+				this.setAnnouncement('');
 				this.render('provider');
 			};
 			disposables.add(addDisposableListener(row, EventType.CLICK, selectProvider));
@@ -326,7 +334,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 				button.textContent = connectionScopeLabel(candidate);
 				disposables.add(addDisposableListener(button, EventType.CLICK, () => {
 					this.selectedSpecId = candidate.id;
-					this.announcement = '';
+					this.setAnnouncement('');
 					this.render('firstField');
 				}));
 			}
@@ -369,7 +377,12 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		const formError = append(form, $('.basehalf-model-connection-form-error'));
 		formError.setAttribute('role', 'alert');
 		formError.tabIndex = -1;
-		formError.hidden = true;
+		const pendingDetailError = this.detailError?.specId === spec.id ? this.detailError.message : undefined;
+		formError.hidden = !pendingDetailError;
+		formError.textContent = pendingDetailError ?? '';
+		if (pendingDetailError) {
+			queueMicrotask(() => formError.isConnected && formError.focus());
+		}
 
 		const help = append(form, $('a.basehalf-model-connection-help')) as HTMLAnchorElement;
 		help.href = spec.helpUrl;
@@ -491,7 +504,9 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		if (this.busy) {
 			return;
 		}
+		this.detailError = undefined;
 		formError.hidden = true;
+		this.setAnnouncement('');
 		const values: Record<string, string> = {};
 		let firstInvalid: HTMLInputElement | HTMLSelectElement | undefined;
 		for (const item of controls) {
@@ -513,6 +528,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			}
 		}
 		if (firstInvalid) {
+			this.setAnnouncement('Review the highlighted connection fields.', 'warning');
 			firstInvalid.focus();
 			return;
 		}
@@ -520,10 +536,11 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		const intentRequestId = this.intentRequestId;
 		this.setBusy(controls, save, test, remove, true);
 		setConnectionButtonLabel(save, 'Verifying…');
+		this.setAnnouncement('Verifying connection. This read-only check does not start generation.', 'progress');
 		try {
 			const descriptor = await this.modelService.saveConnection(spec.id, values);
 			this.clearSensitiveControls();
-			this.announcement = `${spec.providerLabel} connected.`;
+			this.setAnnouncement(`${spec.providerLabel} connected.`, 'success');
 			this.busy = false;
 			if (completeCapturedBaseHalfModelConnectionRequest(this.connectionNavigationService, intentRequestId, spec.id, descriptor.id)) {
 				await this.commandService.executeCommand('workbench.action.closeActiveEditor');
@@ -536,6 +553,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			setConnectionButtonLabel(save, configured ? 'Replace Key' : 'Verify & Connect');
 			formError.textContent = `Unable to connect: ${getErrorMessage(error)}`;
 			formError.hidden = false;
+			this.setAnnouncement('Connection verification failed.', 'warning');
 			formError.focus();
 		}
 	}
@@ -551,21 +569,21 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		if (this.busy) {
 			return;
 		}
+		this.detailError = undefined;
 		formError.hidden = true;
 		this.setBusy(controls, save, test, remove, true);
 		setConnectionButtonLabel(test, 'Testing…');
+		this.setAnnouncement('Testing the saved connection. This read-only check does not start generation.', 'progress');
 		try {
 			await this.modelService.testConnection(spec.id);
-			this.announcement = `${spec.providerLabel} connection verified.`;
+			this.setAnnouncement(`${spec.providerLabel} connection verified.`, 'success');
 			this.busy = false;
 			await this.reload('firstField');
 		} catch (error) {
 			this.busy = false;
-			this.setBusy(controls, save, test, remove, false);
-			setConnectionButtonLabel(test, 'Test connection');
-			formError.textContent = `Connection test failed: ${getErrorMessage(error)}`;
-			formError.hidden = false;
-			formError.focus();
+			this.detailError = { specId: spec.id, message: `Connection test failed: ${getErrorMessage(error)}` };
+			this.setAnnouncement('The saved connection needs attention.', 'warning');
+			await this.reload();
 		}
 	}
 
@@ -589,12 +607,14 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		if (!confirmation.confirmed) {
 			return;
 		}
+		this.detailError = undefined;
 		formError.hidden = true;
 		this.setBusy(controls, save, test, remove, true);
 		setConnectionButtonLabel(remove, 'Removing…');
+		this.setAnnouncement('Removing the saved connection from this device.', 'progress');
 		try {
 			await this.modelService.remove(descriptor.id);
-			this.announcement = 'Saved API key removed.';
+			this.setAnnouncement('Saved API key removed.', 'success');
 			this.busy = false;
 			await this.reload('firstField');
 		} catch (error) {
@@ -603,6 +623,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			setConnectionButtonLabel(remove, 'Remove');
 			formError.textContent = `Unable to remove this API key: ${getErrorMessage(error)}`;
 			formError.hidden = false;
+			this.setAnnouncement('The saved connection could not be removed.', 'warning');
 			formError.focus();
 		}
 	}
@@ -658,8 +679,20 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 
 	private modelsForSpec(spec: IBaseHalfRegisteredModelProviderConnectionSpec): readonly IBaseHalfVideoModelDescriptor[] {
 		return this.videoModelCatalogService.getRegistry().models
-			.filter(model => modelMatchesSpec(model, spec))
-			.sort((left, right) => left.label.localeCompare(right.label));
+			.filter(model => modelMatchesSpec(model, spec));
+	}
+
+	private setAnnouncement(message: string, kind?: ModelConnectionAnnouncementKind): void {
+		this.announcement = message;
+		this.announcementKind = message ? kind : undefined;
+		if (this.pageStatus) {
+			this.pageStatus.textContent = message;
+			if (this.announcementKind) {
+				this.pageStatus.dataset.state = this.announcementKind;
+			} else {
+				delete this.pageStatus.dataset.state;
+			}
+		}
 	}
 
 	private cancelPendingIntent(): void {
@@ -748,9 +781,6 @@ function connectionScopeLabel(spec: IBaseHalfRegisteredModelProviderConnectionSp
 	const providerLabel = spec.providerLabel.trim();
 	if (label.toLowerCase().startsWith(providerLabel.toLowerCase())) {
 		return label.slice(providerLabel.length).trim() || label;
-	}
-	if (spec.providerId === 'alibaba-cloud' && label.toLowerCase().startsWith('wan ')) {
-		return label.slice(4).trim() || label;
 	}
 	return label;
 }

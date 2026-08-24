@@ -53,9 +53,8 @@ export interface IBaseHalfModelConnectionNavigationService {
 	readonly onDidComplete: Event<IBaseHalfModelConnectionCompletion>;
 	readonly intent: IBaseHalfModelConnectionIntent | undefined;
 	begin(specId: string, returnTarget?: BaseHalfModelConnectionReturnTarget): IBaseHalfModelConnectionIntent;
-	complete(specId: string, serviceId: string, requestId?: string): boolean;
 	completeRequest(requestId: string, specId: string, serviceId: string): boolean;
-	cancel(requestId?: string): boolean;
+	cancel(requestId: string): boolean;
 }
 
 /**
@@ -101,27 +100,25 @@ export class BaseHalfModelConnectionNavigationService extends Disposable impleme
 		return intent;
 	}
 
-	complete(specId: string, serviceId: string, requestId?: string): boolean {
-		const intent = this.currentIntent;
-		return intent
-			? this.completeRequest(requestId ?? intent.requestId, specId, serviceId)
-			: false;
-	}
-
 	completeRequest(requestId: string, specId: string, serviceId: string): boolean {
 		const intent = this.currentIntent;
-		if (!intent || intent.requestId !== requestId || intent.specId !== specId.trim().toLowerCase()) {
+		const normalizedSpecId = specId.trim().toLowerCase();
+		const normalizedServiceId = serviceId.trim().toLowerCase();
+		if (!intent
+			|| intent.requestId !== requestId
+			|| intent.specId !== normalizedSpecId
+			|| intent.specId !== normalizedServiceId) {
 			return false;
 		}
 		this.currentIntent = undefined;
 		this._onDidChangeIntent.fire(undefined);
-		this._onDidComplete.fire(Object.freeze({ intent, serviceId: serviceId.trim().toLowerCase() }));
+		this._onDidComplete.fire(Object.freeze({ intent, serviceId: normalizedServiceId }));
 		return true;
 	}
 
-	cancel(requestId?: string): boolean {
+	cancel(requestId: string): boolean {
 		const intent = this.currentIntent;
-		if (!intent || (requestId !== undefined && intent.requestId !== requestId)) {
+		if (!intent || intent.requestId !== requestId) {
 			return false;
 		}
 		this.currentIntent = undefined;

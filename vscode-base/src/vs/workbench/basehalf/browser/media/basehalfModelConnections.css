@@ -36,7 +36,15 @@
 
 .basehalf-model-connections-heading .basehalf-model-connections-page-status {
 	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-model-connections-page-status[data-state='success'] {
 	color: var(--vscode-testing-iconPassed);
+}
+
+.basehalf-model-connections-page-status[data-state='warning'] {
+	color: var(--vscode-list-warningForeground, var(--vscode-editorWarning-foreground));
 }
 
 .basehalf-model-connections-page-status:empty,

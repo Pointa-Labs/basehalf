@@ -41,9 +41,10 @@ suite('BaseHalfModelConnectionNavigation', () => {
 		assert.ok(Object.isFrozen(intent));
 		assert.ok(Object.isFrozen(intent.returnTarget));
 		assert.ok(Object.isFrozen(intent.returnTarget?.modelKey));
-		assert.strictEqual(service.complete('pointa.basehalf-ai-video.minimax-international', 'ignored'), false);
+		assert.strictEqual(service.completeRequest(intent.requestId, 'pointa.test.other', intent.specId), false);
+		assert.strictEqual(service.completeRequest(intent.requestId, intent.specId, 'pointa.test.other'), false);
 		assert.strictEqual(service.intent, intent);
-		assert.strictEqual(service.complete(intent.specId, intent.specId), true);
+		assert.strictEqual(service.completeRequest(intent.requestId, intent.specId, intent.specId), true);
 		assert.strictEqual(service.intent, undefined);
 		assert.deepStrictEqual(changes, [intent.requestId, undefined]);
 		assert.deepStrictEqual(completions, [intent.specId]);
@@ -74,7 +75,7 @@ suite('BaseHalfModelConnectionNavigation', () => {
 		assert.strictEqual(service.intent, second);
 		assert.strictEqual(completeCapturedBaseHalfModelConnectionRequest(service, undefined, second.specId, second.specId), false);
 		assert.strictEqual(service.intent, second);
-		assert.strictEqual(service.complete(second.specId, second.specId, first.requestId), false);
+		assert.strictEqual(service.completeRequest(first.requestId, second.specId, second.specId), false);
 		assert.strictEqual(service.intent, second);
 		assert.strictEqual(completeCapturedBaseHalfModelConnectionRequest(service, second.requestId, second.specId, second.specId), true);
 		assert.strictEqual(service.intent, undefined);

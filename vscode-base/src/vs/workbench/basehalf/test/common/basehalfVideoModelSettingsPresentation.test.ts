@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	createBaseHalfVideoModelRegistry,
+	evaluateBaseHalfVideoInputs,
 	IBaseHalfSupportedVideoCapabilityResolution,
 	IBaseHalfVideoModelDescriptor,
 	normalizeBaseHalfVideoSettingsForCapability
@@ -14,11 +15,13 @@ import {
 import {
 	createBaseHalfVideoModelPickerPresentation,
 	createBaseHalfVideoModelSettingsPresentation,
+	createBaseHalfVideoMessagePrecedencePresentation,
 	IBaseHalfVideoModelChoice,
 	IBaseHalfVideoModelPresentationEntry,
 	mergeBaseHalfVideoSettingAdjustments,
 	reconcileBaseHalfVideoGenerationMethodSettings,
-	reconcileBaseHalfVideoModelSettings
+	reconcileBaseHalfVideoModelSettings,
+	resolveBaseHalfVideoModelPickerFocus
 } from '../../common/basehalfVideoModelSettingsPresentation.js';
 
 suite('BaseHalfVideoModelSettingsPresentation', () => {
@@ -63,6 +66,14 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		});
 		assert.strictEqual(configuredAndInvalid.rows[0].state, 'needs-review');
 		assert.strictEqual(configuredAndInvalid.rows[0].repairSurface, 'settings');
+
+		const selectedUnavailable = createBaseHalfVideoModelPickerPresentation({
+			entries: [entries[3]],
+			selectedChoice: choice(descriptors[3])
+		});
+		assert.strictEqual(selectedUnavailable.rows[0].state, 'unavailable');
+		assert.strictEqual(selectedUnavailable.rows[0].selected, true);
+		assert.strictEqual(selectedUnavailable.rows[0].action, 'none');
 	});
 
 	test('shows search above twelve rows and pins an exact selected row that does not match', () => {
@@ -92,11 +103,58 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 			entries: descriptors.slice(0, 12).map(descriptor => entry(descriptor, 'configured')),
 			selectedChoice: staleChoice,
 			staleSelection: { choice: staleChoice, label: 'Older reviewed model', reason: 'Choose a current revision.' },
-			query: 'model 1'
+			query: 'model 0'
 		});
 		assert.strictEqual(stale.showSearch, false);
 		assert.strictEqual(stale.pinnedSelectedRow?.state, 'needs-review');
 		assert.strictEqual(stale.pinnedSelectedRow?.repairSurface, 'models');
+		assert.strictEqual(stale.pinnedSelectedRow?.repairFocusLogicalKey, stale.rows[0].logicalKey);
+	});
+
+	test('preserves reviewed order, groups scopes, and disambiguates only duplicate labels', () => {
+		const [first, second, third] = descriptorsFrom([
+			model('first', 'Shared label'),
+			model('second', 'Unique label'),
+			model('third', 'Shared label')
+		]);
+		const secondScope = entry(third, 'configured');
+		const presentation = createBaseHalfVideoModelPickerPresentation({
+			entries: [entry(first, 'configured'), entry(second, 'configured'), {
+				...secondScope,
+				choice: { ...secondScope.choice, connectionSpecId: 'pointa.test.secondary' },
+				deploymentLabel: 'Secondary'
+			}]
+		});
+		assert.deepStrictEqual(presentation.rows.map(row => row.label), ['Shared label', 'Unique label', 'Shared label']);
+		assert.strictEqual(presentation.showScopeHeadings, true);
+		assert.strictEqual(presentation.rows[0].disambiguationLabel, 'Provider label · Global');
+		assert.strictEqual(presentation.rows[1].disambiguationLabel, undefined);
+		assert.strictEqual(presentation.rows[2].disambiguationLabel, 'Provider label · Secondary');
+		assert.strictEqual(presentation.rows.every(row => !!row.groupLabel), true);
+	});
+
+	test('restores focus by logical key, then reviewed proximity, then search', () => {
+		const descriptors = descriptorsFrom(Array.from({ length: 4 }, (_, index) => model(`focus-${index}`, `Focus ${index}`)));
+		const previous = createBaseHalfVideoModelPickerPresentation({
+			entries: descriptors.map(descriptor => entry(descriptor, 'configured'))
+		});
+		const focusedKey = previous.rows[1].logicalKey;
+		const exact = resolveBaseHalfVideoModelPickerFocus(previous.rows, previous.rows, focusedKey, true);
+		assert.deepStrictEqual(exact, { kind: 'row', logicalKey: focusedKey });
+
+		const unavailable = entry(descriptors[2], 'configured');
+		const next = createBaseHalfVideoModelPickerPresentation({
+			entries: [
+				entry(descriptors[0], 'configured'),
+				{ ...unavailable, descriptor: { ...unavailable.descriptor, availability: { status: 'unavailable', reason: 'Not reviewed.' } } },
+				entry(descriptors[3], 'configured')
+			]
+		});
+		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, next.rows, focusedKey, true), {
+			kind: 'row',
+			logicalKey: next.rows[2].logicalKey
+		});
+		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, [next.rows[1]], focusedKey, true), { kind: 'search' });
 	});
 
 	test('derives capability tokens only from executable reviewed modes', () => {
@@ -168,6 +226,10 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.strictEqual(presentation.parameters.some(parameter => parameter.parameterId === 'hiddenDetail'), false);
 		assert.strictEqual(presentation.parameters.find(parameter => parameter.parameterId === 'shotType')?.enabled, false);
 		assert.strictEqual(presentation.parameters.find(parameter => parameter.parameterId === 'shotType')?.disabledReason, 'Shot type requires generated audio.');
+		const resolutionParameter = presentation.parameters.find(parameter => parameter.parameterId === 'resolution');
+		assert.deepStrictEqual(resolutionParameter?.options?.find(option => option.value === '4K'), {
+			value: '4K', label: '4K', enabled: false, unavailableReason: 'Not available.'
+		});
 		assert.deepStrictEqual(presentation.settingsSummary.map(token => [token.kind, token.value]), [
 			['method', 'Text to Video'],
 			['aspect-ratio', '16:9'],
@@ -180,6 +242,7 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.ok(presentation.adjustments.some(adjustment => adjustment.parameterId === 'legacy' && adjustment.kind === 'removed'));
 		assert.strictEqual(Object.isFrozen(presentation), true);
 		assert.strictEqual(Object.isFrozen(presentation.parameters), true);
+		assert.strictEqual(presentation.values, normalization.values);
 	});
 
 	test('projects fixed parameters, catalog units, and display-safe adjustments', () => {
@@ -216,6 +279,43 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 			['resolution', '4K', '720p'],
 			['durationSeconds', undefined, 5]
 		]);
+		assert.strictEqual(Object.isFrozen(merged), true);
+		assert.strictEqual(merged.every(adjustment => Object.isFrozen(adjustment)), true);
+	});
+
+	test('keeps a declared frame method selected while input readiness fails', () => {
+		const [descriptor] = descriptorsFrom([model('frame-method', 'Frame method', [mode('first-frame-to-video')])]);
+		const resolution = capability(descriptor, 'first-frame-to-video');
+		const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, { 'text-prompt': 1 }, {});
+		const presentation = createBaseHalfVideoModelSettingsPresentation(resolution, normalization);
+		const readiness = evaluateBaseHalfVideoInputs(resolution, { 'text-prompt': 1 });
+		assert.strictEqual(presentation.methods.options[0].selected, true);
+		assert.strictEqual(presentation.methods.options[0].mode, 'first-frame-to-video');
+		assert.strictEqual(normalization.status, 'ready');
+		assert.strictEqual(readiness.ready, false);
+		assert.strictEqual(readiness.problems[0].input, 'first-frame');
+	});
+
+	test('uses semantic message precedence and never promotes an adjustment action', () => {
+		const presentation = createBaseHalfVideoMessagePrecedencePresentation([
+			{ kind: 'settings-adjustment', message: 'A setting changed.', action: { id: 'review-settings', label: 'Review settings' } },
+			{ kind: 'information', message: 'Reviewed source.' },
+			{ kind: 'input-readiness-problem', message: 'A frame is required.', action: { id: 'add-frame', label: 'Add frame' } },
+			{ kind: 'model-selection-problem', message: 'The model needs review.', action: { id: 'review-model', label: 'Review model' } }
+		]);
+		assert.deepStrictEqual(presentation.messages.map(message => message.kind), [
+			'model-selection-problem', 'input-readiness-problem', 'settings-adjustment', 'information'
+		]);
+		assert.strictEqual(presentation.primaryMessage?.kind, 'model-selection-problem');
+		assert.strictEqual(presentation.primaryAction?.id, 'review-model');
+		assert.strictEqual(presentation.messages.some(message => message.kind === 'settings-adjustment'), true);
+		assert.strictEqual(Object.isFrozen(presentation.primaryAction), true);
+
+		const adjustmentOnly = createBaseHalfVideoMessagePrecedencePresentation([
+			{ kind: 'settings-adjustment', message: 'A setting changed.', action: { id: 'ignored', label: 'Ignored' } }
+		]);
+		assert.strictEqual(adjustmentOnly.primaryMessage?.kind, 'settings-adjustment');
+		assert.strictEqual(adjustmentOnly.primaryAction, undefined);
 	});
 
 	test('reconciles model and method changes without inferring a method from inputs', () => {
@@ -287,6 +387,11 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.strictEqual(reconciliation.status, 'unavailable');
 		assert.ok(reconciliation.reason.includes('Only standard is permitted.'));
 		assert.strictEqual(reconciliation.normalization?.status, 'unavailable');
+		const resolution = capability(descriptor, 'text-to-video');
+		const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, { 'text-prompt': 1 }, {});
+		const presentation = createBaseHalfVideoModelSettingsPresentation(resolution, normalization);
+		assert.strictEqual(presentation.selectionProblem?.repairSurface, 'settings');
+		assert.strictEqual(presentation.selectionProblem?.reason, normalization.status === 'unavailable' ? normalization.reason : undefined);
 	});
 });
 
