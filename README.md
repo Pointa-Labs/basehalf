@@ -238,7 +238,8 @@ vscode-base/                         current desktop product source
   build/basehalf/                    macOS package, DMG, and update scripts
   BASEHALF_UPSTREAM.md               VS Code import baseline
 
-docs/                                public decisions and policies
+docs/                                public specs, decisions, and policies
+  development/                       BaseHalf's progressive development harness
 private-docs/                        private product/architecture decision corpus
 packages/                            historical BaseHalf core/desktop material
 ```
