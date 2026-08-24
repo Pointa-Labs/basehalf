@@ -29,7 +29,7 @@ import {
 	baseHalfModelServiceCredentialKey,
 	baseHalfModelServiceSecretKey,
 	cleanBaseHalfModelServicesConfigurationForStorage,
-		sanitizeBaseHalfStoredModelConnections,
+	sanitizeBaseHalfStoredModelConnections,
 } from '../../common/basehalfModelServices.js';
 
 suite('BaseHalfModelServices', () => {
@@ -144,6 +144,49 @@ suite('BaseHalfModelServices', () => {
 			);
 			assert.deepStrictEqual(connectionState(harness.pluginStateStore).connections, {});
 		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('revalidates a stored credential and durably blocks access while it needs attention', async () => {
+		const harness = await createHarness();
+		const secondWindow = harness.createService();
+		try {
+			const saved = await harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'stored-secret' });
+			const stored = storedConnection(harness.pluginStateStore, FIXED_SPEC.id);
+			const credentialKey = baseHalfModelServiceCredentialKey(FIXED_SPEC.id, stored.credentialRef);
+			const credentialBeforeTest = await harness.credentialStore.get(credentialKey);
+			harness.providerCatalogService.setValidator(FIXED_SPEC.id, async () => {
+				throw new Error('stored-secret was rejected');
+			});
+
+			await assert.rejects(
+				() => harness.service.testConnection(FIXED_SPEC.id),
+				error => error instanceof Error && error.message === '[REDACTED] was rejected'
+			);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).attentionConnections, [FIXED_SPEC.id]);
+			assert.strictEqual(await harness.credentialStore.get(credentialKey), credentialBeforeTest);
+			assert.strictEqual((await secondWindow.getServices())[0]?.configured, false);
+			assert.strictEqual(await secondWindow.getAccess(bundledOfficialIdentity(), {
+				serviceId: saved.id,
+				serviceLabel: saved.label,
+				connectionIdentity: saved.connectionIdentity,
+				capability: 'video'
+			}), undefined);
+
+			harness.providerCatalogService.setValidator(FIXED_SPEC.id, async () => undefined);
+			const verified = await secondWindow.testConnection(FIXED_SPEC.id);
+			assert.strictEqual(verified.configured, true);
+			assert.deepStrictEqual(connectionState(harness.pluginStateStore).attentionConnections, []);
+			assert.strictEqual((await harness.service.getServices())[0]?.configured, true);
+			assert.strictEqual((await harness.service.getAccess(bundledOfficialIdentity(), {
+				serviceId: saved.id,
+				serviceLabel: saved.label,
+				connectionIdentity: saved.connectionIdentity,
+				capability: 'video'
+			}))?.apiKey, 'stored-secret');
+		} finally {
+			secondWindow.dispose();
 			await harness.dispose();
 		}
 	});
@@ -512,6 +555,7 @@ function storedConnection(pluginStateStore: MemoryPluginStateStore, specId: stri
 function connectionState(pluginStateStore: MemoryPluginStateStore): {
 	schemaVersion: number;
 	connections: Record<string, { publicValues: Record<string, string>; credentialRef: string }>;
+	attentionConnections: string[];
 	stagedCredentials: Record<string, number>;
 	pendingCredentialCleanup: string[];
 	pendingLegacySecretCleanup: string[];

@@ -153,6 +153,17 @@ partial artifact; any file written before a final cancellation check is removed.
 
 ## Video node interaction
 
+The detailed desktop implementation contract is
+[`video-node-development-spec.md`](video-node-development-spec.md). It defines
+the complete model-selection, connection, settings, input, execution, recovery,
+and verification flow while this document remains authoritative for lifecycle
+and host/plugin ownership.
+
+Generation methods are capabilities of the selected exact model. Start frame
+and end frame are target-owned input roles required by specific methods, not
+global Video-node settings. Changing a model or method never silently relabels
+an existing input binding.
+
 A Video node has three distinct surfaces with non-overlapping responsibilities:
 
 - the card owns identity, playback, lifecycle status, and progress;

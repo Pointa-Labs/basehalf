@@ -7,6 +7,19 @@ import { request as httpsRequest } from 'node:https';
 import type { IncomingHttpHeaders } from 'node:http';
 import { isIP } from 'node:net';
 import type { SerializedVideoProviderRequest } from './videoProviderAdapters';
+import type {
+	VideoProviderExecutionFailureEvidence,
+	VideoProviderExecutionFailureKind,
+	VideoProviderRetryPolicy,
+	VideoProviderTaskIntent
+} from './videoProviderExecutionContract';
+
+export type {
+	VideoProviderExecutionFailureEvidence,
+	VideoProviderExecutionFailureKind,
+	VideoProviderRetryPolicy,
+	VideoProviderTaskIntent
+} from './videoProviderExecutionContract';
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_SUBMISSION_BYTES = 64 * 1024 * 1024;
@@ -58,10 +71,18 @@ export type VideoHttpClient = (
 export interface VideoProviderExecutionOptions {
 	readonly httpClient?: VideoHttpClient;
 	readonly cancellation: VideoExecutionCancellation;
-	/** Existing durable remote task for an exact host-validated Retry. */
+	/** Explicitly distinguishes a new task, restart recovery, and exact Retry. */
+	readonly taskIntent?: VideoProviderTaskIntent;
+	/**
+	 * Compatibility for hosts that cannot yet express an execution intent.
+	 * It is intentionally interpreted as recover-only and never authorizes a
+	 * replacement task.
+	 */
 	readonly resumeProviderRequestId?: string;
 	/** Must durably persist the remote id before the executor begins polling. */
 	readonly acknowledgeProviderRequestId: (providerRequestId: string) => PromiseLike<void>;
+	/** Consumes the host's exact one-use grant immediately before one create call. */
+	readonly consumeCreateAuthorization?: (kind: 'new' | 'replacement') => PromiseLike<void> | void;
 	readonly onStatus?: (message: string) => void;
 	readonly wait?: (milliseconds: number, cancellation: VideoExecutionCancellation) => Promise<void>;
 	readonly pollIntervalMilliseconds?: number;
@@ -77,6 +98,17 @@ export interface ExecutedVideoProviderRequest {
 	};
 }
 
+/** Runtime error shape mirrored by the pure host handoff contract. */
+export class VideoProviderExecutionFailure extends Error {
+	readonly evidence: VideoProviderExecutionFailureEvidence;
+
+	constructor(message: string, evidence: VideoProviderExecutionFailureEvidence) {
+		super(message.replace(/[\r\n\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 4_096) || 'Video provider execution failed.');
+		this.name = 'VideoProviderExecutionFailure';
+		this.evidence = Object.freeze({ ...evidence });
+	}
+}
+
 export class VideoProviderCancelledError extends Error {
 	constructor() {
 		super('Video generation was cancelled.');
@@ -84,9 +116,11 @@ export class VideoProviderCancelledError extends Error {
 	}
 }
 
-export class VideoProviderProtocolError extends Error {
-	constructor(message: string) {
-		super(message);
+export class VideoProviderProtocolError extends VideoProviderExecutionFailure {
+	constructor(message: string, providerRequestId?: string) {
+		super(message, videoProviderExecutionFailure('protocol', message, {
+			...(providerRequestId === undefined ? {} : { providerRequestId })
+		}).evidence);
 		this.name = 'VideoProviderProtocolError';
 	}
 }
@@ -132,6 +166,7 @@ export async function executeSerializedVideoProviderRequest(
 	const wait = options.wait ?? waitForCancellation;
 	const pollInterval = boundedInteger(options.pollIntervalMilliseconds ?? DEFAULT_POLL_INTERVAL_MS, 0, 60_000, 'poll interval');
 	const maximumPollAttempts = boundedInteger(options.maximumPollAttempts ?? DEFAULT_MAXIMUM_POLL_ATTEMPTS, 1, 10_000, 'maximum poll attempts');
+	const taskIntent = normalizeVideoProviderTaskIntent(options.taskIntent, options.resumeProviderRequestId);
 	const credentialSecrets = collectCredentialSecrets(access);
 	const reportStatus = (message: string): void => options.onStatus?.(redactCredentialSecrets(message, credentialSecrets));
 	const baseHeaders = authorizationHeaders(access);
@@ -142,43 +177,74 @@ export async function executeSerializedVideoProviderRequest(
 	const submitUrl = providerUrl(access.endpoint, serialized.endpointPath);
 	let providerRequestId: string | undefined;
 	let terminal = false;
-	let taskDurablyKnown = options.resumeProviderRequestId !== undefined;
-	let replacementSubmitted = false;
+	const inheritedProviderRequestId = taskIntent.kind === 'recover' || taskIntent.kind === 'exact-retry'
+		? taskIntent.providerRequestId
+		: undefined;
+	let taskDurablyKnown = inheritedProviderRequestId !== undefined;
+	let createSubmitted = false;
 	let durableAcknowledgementFailed = false;
-	const submitTask = async (): Promise<string> => {
+	const submitTask = async (kind: 'new' | 'replacement'): Promise<string> => {
+		if (createSubmitted) {
+			throw videoProviderExecutionFailure('protocol', 'Video execution attempted more than one provider create call.');
+		}
 		throwIfCancelled(options.cancellation);
-		reportStatus(replacementSubmitted ? 'Submitting replacement video generation' : 'Submitting video generation');
+		if (!options.consumeCreateAuthorization) {
+			throw videoProviderExecutionFailure('preparation', 'Video execution has no one-use provider create authorization.');
+		}
+		try {
+			await options.consumeCreateAuthorization(kind);
+		} catch (error) {
+			throw videoProviderExecutionFailure('preparation', errorMessage(error));
+		}
+		createSubmitted = true;
+		reportStatus(kind === 'replacement' ? 'Submitting replacement video generation' : 'Submitting video generation');
 		throwIfCancelled(options.cancellation);
-		const submitted = await requestJson(httpClient, {
-			method: 'POST',
-			url: submitUrl,
-			headers: {
-				...baseHeaders,
-				...serialized.headers,
-				'Content-Type': 'application/json',
-				Accept: 'application/json'
-			},
-			body: submitBody,
-			maximumResponseBytes: MAX_JSON_RESPONSE_BYTES
-		}, options.cancellation);
-		return parseSubmissionId(serialized.provider, submitted);
+		try {
+			const submitted = await requestJson(httpClient, {
+				method: 'POST',
+				url: submitUrl,
+				headers: {
+					...baseHeaders,
+					...serialized.headers,
+					'Content-Type': 'application/json',
+					Accept: 'application/json'
+				},
+				body: submitBody,
+				maximumResponseBytes: MAX_JSON_RESPONSE_BYTES
+			}, options.cancellation);
+			try {
+				return parseSubmissionId(serialized.provider, submitted);
+			} catch (error) {
+				throw videoProviderExecutionFailure('submission-ambiguous', errorMessage(error));
+			}
+		} catch (error) {
+			if (error instanceof VideoProviderCancelledError
+				|| (error instanceof VideoProviderExecutionFailure && error.evidence.kind === 'submission-ambiguous')) {
+				throw error;
+			}
+			throw classifySubmissionFailure(error);
+		}
 	};
 	const acknowledgeTask = async (taskId: string): Promise<void> => {
 		try {
 			await options.acknowledgeProviderRequestId(taskId);
 		} catch (error) {
 			durableAcknowledgementFailed = true;
-			throw error;
+			throw videoProviderExecutionFailure('remote-id-uncommitted', errorMessage(error), {
+				uncommittedProviderRequestId: taskId
+			});
 		}
 	};
 
 	try {
 		throwIfCancelled(options.cancellation);
-		if (options.resumeProviderRequestId !== undefined) {
-			providerRequestId = boundedIdentifier(options.resumeProviderRequestId, 'provider Retry task id');
-			reportStatus('Resuming existing video generation');
+		if (inheritedProviderRequestId !== undefined) {
+			providerRequestId = inheritedProviderRequestId;
+			reportStatus(taskIntent.kind === 'recover'
+				? 'Recovering existing video generation'
+				: 'Checking existing video generation');
 		} else {
-			providerRequestId = await submitTask();
+			providerRequestId = await submitTask(taskIntent.kind === 'new' ? 'new' : 'replacement');
 			taskDurablyKnown = false;
 		}
 		// Polling cannot begin until the host has durably frozen this identity into
@@ -192,7 +258,15 @@ export async function executeSerializedVideoProviderRequest(
 			throwIfCancelled(options.cancellation);
 			await wait(pollInterval, options.cancellation);
 			throwIfCancelled(options.cancellation);
-			const polled = await pollProvider(httpClient, serialized.provider, access, baseHeaders, providerRequestId, options.cancellation, wait);
+			let polled: ProviderPollResult;
+			try {
+				polled = await pollProvider(httpClient, serialized.provider, access, baseHeaders, providerRequestId, options.cancellation, wait);
+			} catch (error) {
+				if (error instanceof VideoProviderCancelledError) {
+					throw error;
+				}
+				throw durableTaskFailure(error, 'poll-interrupted', providerRequestId);
+			}
 			terminal = polled.kind !== 'pending';
 			reportStatus(polled.message);
 			throwIfCancelled(options.cancellation);
@@ -201,10 +275,9 @@ export async function executeSerializedVideoProviderRequest(
 				continue;
 			}
 			if (polled.kind === 'failed' || polled.kind === 'cancelled') {
-				if (options.resumeProviderRequestId !== undefined && !replacementSubmitted) {
+				if (taskIntent.kind === 'exact-retry' && taskIntent.replacementAuthorized && !createSubmitted) {
 					reportStatus('The previous remote task is terminal; retrying with a new generation');
-					replacementSubmitted = true;
-					providerRequestId = await submitTask();
+					providerRequestId = await submitTask('replacement');
 					terminal = false;
 					taskDurablyKnown = false;
 					await acknowledgeTask(providerRequestId);
@@ -212,22 +285,38 @@ export async function executeSerializedVideoProviderRequest(
 					attempt = 0;
 					continue;
 				}
-				throw new VideoProviderProtocolError(polled.message);
+				throw videoProviderExecutionFailure(
+					polled.kind === 'failed' ? 'remote-failed' : 'remote-cancelled',
+					polled.message,
+					{ providerRequestId }
+				);
 			}
 
-			const videoUrl = serialized.provider === 'minimax'
-				? await resolveMiniMaxDownloadUrl(httpClient, access, baseHeaders, requiredText(polled.fileId, 'MiniMax file id'), options.cancellation, wait)
-				: requiredText(polled.videoUrl, `${serialized.provider} output URL`);
-			throwIfCancelled(options.cancellation);
-			reportStatus('Downloading generated video');
-			const video = await downloadAndValidateMp4(httpClient, videoUrl, options.cancellation);
+			let video: Uint8Array;
+			try {
+				const videoUrl = serialized.provider === 'minimax'
+					? await resolveMiniMaxDownloadUrl(httpClient, access, baseHeaders, requiredText(polled.fileId, 'MiniMax file id'), options.cancellation, wait)
+					: requiredText(polled.videoUrl, `${serialized.provider} output URL`);
+				throwIfCancelled(options.cancellation);
+				reportStatus('Downloading generated video');
+				video = await downloadAndValidateMp4(httpClient, videoUrl, options.cancellation);
+			} catch (error) {
+				if (error instanceof VideoProviderCancelledError) {
+					throw error;
+				}
+				throw durableTaskFailure(error, 'download', providerRequestId);
+			}
 			return Object.freeze({
 				providerRequestId,
 				video,
 				...(polled.usage === undefined ? {} : { usage: polled.usage })
 			});
 		}
-		throw new VideoProviderProtocolError(`Provider task '${providerRequestId}' did not finish within the reviewed polling window.`);
+		throw videoProviderExecutionFailure(
+			'poll-window-exhausted',
+			`Provider task '${providerRequestId}' did not finish within the reviewed polling window.`,
+			{ providerRequestId }
+		);
 	} catch (error) {
 		if (providerRequestId && !terminal
 			&& ((!durableAcknowledgementFailed && options.cancellation.isCancellationRequested) || !taskDurablyKnown)) {
@@ -407,7 +496,7 @@ async function downloadAndValidateMp4(
 		|| response.body[5] !== 0x74
 		|| response.body[6] !== 0x79
 		|| response.body[7] !== 0x70) {
-		throw new VideoProviderProtocolError('The provider download is not a valid MP4 file.');
+		throw videoProviderExecutionFailure('artifact-invalid', 'The provider download is not a valid MP4 file.');
 	}
 	return response.body;
 }
@@ -522,8 +611,11 @@ function parseWanPoll(value: unknown): ProviderPollResult {
 			usage: wanUsage(body.usage)
 		};
 	}
-	if (status === 'FAILED' || status === 'UNKNOWN') {
+	if (status === 'FAILED') {
 		return { kind: 'failed', message: providerFailureMessage('Wan video generation failed', output) };
+	}
+	if (status === 'UNKNOWN') {
+		throw new VideoProviderProtocolError('Wan returned an unknown task status that is not terminal evidence.');
 	}
 	if (status === 'CANCELED' || status === 'CANCELLED') {
 		return { kind: 'cancelled', message: 'Wan video generation was cancelled.' };
@@ -651,7 +743,11 @@ function redactProviderExecutionError(error: unknown, secrets: readonly string[]
 	}
 	if (error instanceof VideoProviderProtocolError) {
 		const message = redactCredentialSecrets(error.message, secrets);
-		return message === error.message ? error : new VideoProviderProtocolError(message);
+		return message === error.message ? error : new VideoProviderProtocolError(message, error.evidence.providerRequestId);
+	}
+	if (error instanceof VideoProviderExecutionFailure) {
+		const message = redactCredentialSecrets(error.message, secrets);
+		return message === error.message ? error : withVideoProviderExecutionFailureMessage(error, message);
 	}
 	if (error instanceof Error) {
 		const message = redactCredentialSecrets(error.message, secrets);
@@ -807,6 +903,143 @@ function boundedInteger(value: number, minimum: number, maximum: number, label: 
 
 function isRetryableStatus(status: number): boolean {
 	return status === 408 || status === 429 || status >= 500;
+}
+
+function normalizeVideoProviderTaskIntent(
+	intent: VideoProviderTaskIntent | undefined,
+	legacyResumeProviderRequestId?: string
+): VideoProviderTaskIntent {
+	if (intent !== undefined && legacyResumeProviderRequestId !== undefined) {
+		throw new VideoProviderProtocolError('Execution cannot combine an explicit provider task intent with a legacy resume id.');
+	}
+	if (intent === undefined) {
+		if (legacyResumeProviderRequestId === undefined) {
+			throw new VideoProviderProtocolError('Execution requires an explicit provider task intent or a legacy resume id.');
+		}
+		return Object.freeze({
+			kind: 'recover',
+			providerRequestId: boundedIdentifier(legacyResumeProviderRequestId, 'legacy provider request id')
+		});
+	}
+	if (intent.kind === 'new') {
+		return Object.freeze({ kind: 'new' });
+	}
+	if (intent.kind === 'recover') {
+		return Object.freeze({
+			kind: 'recover',
+			providerRequestId: boundedIdentifier(intent.providerRequestId, 'recovery provider request id')
+		});
+	}
+	const sourceAttemptId = boundedIdentifier(intent.sourceAttemptId, 'source Attempt id');
+	const providerRequestId = intent.providerRequestId === undefined
+		? undefined
+		: boundedIdentifier(intent.providerRequestId, 'Retry provider request id');
+	if (typeof intent.replacementAuthorized !== 'boolean') {
+		throw new VideoProviderProtocolError('Exact Retry requires an explicit replacement-authorization decision.');
+	}
+	if (intent.sourceFailure !== undefined) {
+		const failure = intent.sourceFailure;
+		if (!isVideoProviderExecutionFailureKind(failure.kind)
+			|| failure.retry !== retryPolicyForFailure(failure.kind, failure.providerRequestId !== undefined)
+			|| (failure.kind === 'remote-id-uncommitted') !== (failure.uncommittedProviderRequestId !== undefined)) {
+			throw new VideoProviderProtocolError('Exact Retry source failure evidence is invalid.');
+		}
+	}
+	if (providerRequestId === undefined) {
+		if (intent.sourceFailure?.retry !== 'fresh-submit') {
+			throw new VideoProviderProtocolError('Exact Retry without a durable provider request id requires proof that the earlier submission was not accepted.');
+		}
+		if (!intent.replacementAuthorized) {
+			throw new VideoProviderProtocolError('Exact Retry cannot create a new provider task without replacement authorization.');
+		}
+	}
+	return Object.freeze({
+		kind: 'exact-retry',
+		sourceAttemptId,
+		...(providerRequestId === undefined ? {} : { providerRequestId }),
+		...(intent.sourceFailure === undefined ? {} : { sourceFailure: Object.freeze({ ...intent.sourceFailure }) }),
+		replacementAuthorized: intent.replacementAuthorized
+	});
+}
+
+function videoProviderExecutionFailure(
+	kind: VideoProviderExecutionFailureKind,
+	message: string,
+	options: { readonly providerRequestId?: string; readonly uncommittedProviderRequestId?: string } = {}
+): VideoProviderExecutionFailure {
+	const providerRequestId = options.providerRequestId === undefined
+		? undefined
+		: boundedIdentifier(options.providerRequestId, 'durable provider request id');
+	const uncommittedProviderRequestId = options.uncommittedProviderRequestId === undefined
+		? undefined
+		: boundedIdentifier(options.uncommittedProviderRequestId, 'uncommitted provider request id');
+	return new VideoProviderExecutionFailure(message, Object.freeze({
+		kind,
+		retry: retryPolicyForFailure(kind, providerRequestId !== undefined),
+		...(providerRequestId === undefined ? {} : { providerRequestId }),
+		...(uncommittedProviderRequestId === undefined ? {} : { uncommittedProviderRequestId })
+	}));
+}
+
+function retryPolicyForFailure(kind: VideoProviderExecutionFailureKind, hasDurableId: boolean): VideoProviderRetryPolicy {
+	if (kind === 'preparation' || kind === 'submission-rejected') {
+		return 'fresh-submit';
+	}
+	if (kind === 'remote-failed' || kind === 'remote-cancelled') {
+		return hasDurableId ? 'replace-after-terminal-proof' : 'blocked';
+	}
+	if (kind === 'poll-interrupted' || kind === 'poll-window-exhausted'
+		|| kind === 'protocol' || kind === 'download' || kind === 'artifact-invalid'
+		|| kind === 'artifact-commit' || kind === 'execution-ownership') {
+		return hasDurableId ? 'resume-existing' : 'blocked';
+	}
+	return 'blocked';
+}
+
+function isVideoProviderExecutionFailureKind(value: unknown): value is VideoProviderExecutionFailureKind {
+	return value === 'preparation' || value === 'submission-rejected'
+		|| value === 'submission-ambiguous' || value === 'remote-id-uncommitted'
+		|| value === 'poll-interrupted' || value === 'poll-window-exhausted'
+		|| value === 'remote-failed' || value === 'remote-cancelled'
+		|| value === 'protocol' || value === 'download'
+		|| value === 'artifact-invalid' || value === 'artifact-commit'
+		|| value === 'execution-ownership';
+}
+
+function withVideoProviderExecutionFailureMessage(
+	failure: VideoProviderExecutionFailure,
+	message: string
+): VideoProviderExecutionFailure {
+	return new VideoProviderExecutionFailure(message, failure.evidence);
+}
+
+function classifySubmissionFailure(error: unknown): VideoProviderExecutionFailure {
+	if (error instanceof VideoProviderHttpError
+		&& error.status >= 400 && error.status < 500
+		&& error.status !== 408 && error.status !== 409
+		&& error.status !== 425 && error.status !== 429) {
+		return videoProviderExecutionFailure('submission-rejected', error.message);
+	}
+	return videoProviderExecutionFailure('submission-ambiguous', errorMessage(error));
+}
+
+function durableTaskFailure(
+	error: unknown,
+	fallbackKind: 'poll-interrupted' | 'download',
+	providerRequestId: string
+): VideoProviderExecutionFailure {
+	if (error instanceof VideoProviderExecutionFailure) {
+		return videoProviderExecutionFailure(error.evidence.kind, error.message, { providerRequestId });
+	}
+	return videoProviderExecutionFailure(fallbackKind, errorMessage(error), { providerRequestId });
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error && error.message
+		? error.message
+		: typeof error === 'string' && error
+			? error
+			: 'Video provider execution failed.';
 }
 
 function throwIfCancelled(cancellation: VideoExecutionCancellation): void {

@@ -8,19 +8,26 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import {
 	BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID,
 	BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID,
+	BaseHalfVideoCapabilityResolution,
 	BaseHalfVideoModelResolution,
 	BaseHalfVideoModelContractError,
 	baseHalfVideoModelMatchesServiceScope,
 	createBaseHalfVideoModelRegistry,
 	createBaseHalfVideoModelSelectionSnapshot,
+	createBaseHalfVideoModelSelectionSnapshotFromCapability,
+	evaluateBaseHalfVideoInputs,
 	getBaseHalfVideoPromptMaxCharacters,
 	getBaseHalfVideoPromptProblem,
+	IBaseHalfSupportedVideoCapabilityResolution,
 	IBaseHalfSupportedVideoModelResolution,
 	normalizeBaseHalfVideoSettings,
+	normalizeBaseHalfVideoSettingsForCapability,
 	parseBaseHalfVideoModelCatalog,
+	parseBaseHalfVideoModelCapabilitySelection,
 	parseBaseHalfVideoModelSelection,
 	parseBaseHalfVideoModelSelectionSnapshot,
-	resolveBaseHalfVideoModelSelectionSnapshot
+	resolveBaseHalfVideoModelSelectionSnapshot,
+	resolveBaseHalfVideoModelSelectionSnapshotCapability
 } from '../../common/basehalfVideoModels.js';
 
 suite('BaseHalfVideoModels', () => {
@@ -99,6 +106,58 @@ suite('BaseHalfVideoModels', () => {
 		assert.match(resolutionReason(registry.resolve({ ...selection(), mode: 'video-edit' })), /does not support mode/);
 		assert.match(resolutionReason(registry.resolve({ ...selection(), inputs: {} })), /text-prompt.*between 1 and 1/);
 		assert.match(resolutionReason(registry.resolve({ ...selection(), inputs: { 'text-prompt': 1, audio: 1 } })), /does not support input 'audio'/);
+	});
+
+	test('separates reviewed method support from current Draft input readiness', () => {
+		const value = catalog();
+		value.models[0].modes = [mode(), startEndFrameMode()];
+		const registry = createBaseHalfVideoModelRegistry(value);
+		const capabilitySelection = {
+			provider: 'byteplus',
+			deployment: 'global',
+			region: 'ap-southeast-1',
+			modelId: 'seedance-1.5-pro',
+			revision: '2026-08-16',
+			mode: 'first-last-frame-to-video' as const
+		};
+		const resolution = registry.resolveCapability(capabilitySelection);
+
+		assert.strictEqual(resolution.status, 'supported');
+		const supported = resolution as IBaseHalfSupportedVideoCapabilityResolution;
+		const evaluation = evaluateBaseHalfVideoInputs(supported, { 'text-prompt': 1, 'first-frame': 1 });
+		assert.strictEqual(evaluation.ready, false);
+		assert.deepStrictEqual(evaluation.problems.map(problem => ({ kind: problem.kind, input: problem.input })), [
+			{ kind: 'too-few', input: 'last-frame' }
+		]);
+		assert.strictEqual(Object.isFrozen(evaluation), true);
+		assert.match(resolutionReason(registry.resolve({ ...selection(), mode: 'first-last-frame-to-video', inputs: { 'text-prompt': 1, 'first-frame': 1 } })), /last-frame.*between 1 and 1/);
+
+		const normalization = normalizeBaseHalfVideoSettingsForCapability(supported, { 'text-prompt': 1, 'first-frame': 1 }, {});
+		assert.strictEqual(normalization.status, 'ready');
+		assert.strictEqual(normalization.values.generationMode, 'first-last-frame-to-video');
+	});
+
+	test('persists and resolves an incomplete but valid method without weakening execution checks', () => {
+		const value = catalog();
+		value.models[0].modes = [mode(), startEndFrameMode()];
+		const registry = createBaseHalfVideoModelRegistry(value);
+		const resolution = registry.resolveCapability({
+			provider: 'byteplus',
+			deployment: 'global',
+			region: 'ap-southeast-1',
+			modelId: 'seedance-1.5-pro',
+			revision: '2026-08-16',
+			mode: 'first-last-frame-to-video'
+		});
+		assert.strictEqual(resolution.status, 'supported');
+		const supported = resolution as IBaseHalfSupportedVideoCapabilityResolution;
+		const catalogId = 'pointa.basehalf-ai-video.official-models';
+		const snapshot = createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, supported, { 'text-prompt': 1 });
+		const scope = { providerId: 'byteplus', deploymentId: 'global', region: 'ap-southeast-1' };
+
+		assert.deepStrictEqual(parseBaseHalfVideoModelCapabilitySelection(supported.selection), supported.selection);
+		assert.strictEqual(resolveBaseHalfVideoModelSelectionSnapshotCapability(registry, catalogId, scope, snapshot).status, 'supported');
+		assert.match(resolutionReason(resolveBaseHalfVideoModelSelectionSnapshot(registry, catalogId, scope, snapshot)), /first-frame.*between 1 and 1/);
 	});
 
 	test('distinguishes reviewed-but-unavailable capabilities from unsupported ones', () => {
@@ -272,7 +331,7 @@ function selection() {
 	};
 }
 
-function resolutionReason(resolution: BaseHalfVideoModelResolution): string {
+function resolutionReason(resolution: BaseHalfVideoModelResolution | BaseHalfVideoCapabilityResolution): string {
 	if (resolution.status === 'supported') {
 		assert.fail('Expected an unsupported or unavailable resolution.');
 	}
@@ -363,5 +422,26 @@ function mode(): any {
 				reason: 'Draft mode requires 480P.'
 			}
 		]
+	};
+}
+
+function startEndFrameMode(): any {
+	return {
+		mode: 'first-last-frame-to-video',
+		inputs: [
+			{ kind: 'text-prompt', minItems: 1, maxItems: 1, maxCharacters: 16_000 },
+			{ kind: 'first-frame', minItems: 1, maxItems: 1 },
+			{ kind: 'last-frame', minItems: 1, maxItems: 1 }
+		],
+		parameters: [
+			{
+				id: 'duration',
+				label: 'Duration',
+				type: 'enum',
+				default: 5,
+				options: [{ value: 5, label: '5s' }]
+			}
+		],
+		constraints: []
 	};
 }

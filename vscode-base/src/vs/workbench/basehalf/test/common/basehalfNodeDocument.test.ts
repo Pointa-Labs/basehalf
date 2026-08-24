@@ -22,14 +22,17 @@ import {
 	failBaseHalfNodeAttempt,
 	forkBaseHalfNodeDocument,
 	freezeBaseHalfNodeAttemptInputs,
+	freezeBaseHalfNodeAttemptExecution,
 	freezeBaseHalfNodeAttemptModel,
 	freezeBaseHalfNodeAttemptProviderRequestId,
+	freezeBaseHalfNodeAttemptSnapshotManifest,
 	replaceBaseHalfNodeAttemptProviderRequestId,
 	getBaseHalfNodeAgentAuthoringContract,
 	getBaseHalfNodeReadiness,
 	getBaseHalfNodeResultArtifact,
 	importBaseHalfNodeResult,
 	interruptBaseHalfNodeAttempt,
+	normalizeBaseHalfNodeAttemptFailure,
 	parseBaseHalfNodeDocument,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentForActiveHost,
@@ -63,6 +66,44 @@ suite('BaseHalfNodeDocument', () => {
 		assert.strictEqual(Object.isFrozen(parsed.recipe?.parameters), true);
 		assert.strictEqual(Object.isFrozen(parsed.recipe?.inputBindings), true);
 		assert.strictEqual(Object.isFrozen(parsed.attempts), true);
+	});
+
+	test('round-trips captured Draft input identity while preserving legacy bindings', () => {
+		const captured = createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(7),
+			kind: 'video',
+			title: 'Input identity',
+			role: 'Generated result',
+			recipe: {
+				...recipe(),
+				inputBindings: [{
+					sourcePath: 'frames/start.bhnode',
+					slot: 'first-frame',
+					order: 0,
+					sourceId: baseHalfNodeTestId(8),
+					sourceRevision: 'sha256:frame-v1'
+				}]
+			}
+		});
+		const roundTripped = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(captured));
+		assert.deepStrictEqual(roundTripped.recipe?.inputBindings, captured.recipe?.inputBindings);
+		assert.strictEqual(Object.isFrozen(roundTripped.recipe?.inputBindings[0]), true);
+
+		const legacy = parse({
+			...captured,
+			recipe: {
+				...captured.recipe,
+				inputBindings: [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0 }]
+			}
+		});
+		assert.deepStrictEqual(legacy.recipe?.inputBindings, [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0 }]);
+		assert.throws(() => parse({
+			...captured,
+			recipe: {
+				...captured.recipe,
+				inputBindings: [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0, sourceRevision: '' }]
+			}
+		}), /sourceRevision/);
 	});
 
 	test('rejects v2 and every retired lifecycle field without migration', () => {
@@ -218,6 +259,107 @@ suite('BaseHalfNodeDocument', () => {
 			error: 'provider failed after submission'
 		});
 		assert.strictEqual(failed.attempts[0].providerRequestId, 'provider/task-42');
+	});
+
+	test('round-trips immutable provider intent and structured Retry evidence', () => {
+		const fingerprint = `v1:${'A'.repeat(43)}`;
+		const authorized = freezeBaseHalfNodeAttemptExecution(start(configuredDraft()), 'attempt-1', {
+			requestFingerprint: fingerprint,
+			intent: { kind: 'new' }
+		});
+		const acknowledged = freezeBaseHalfNodeAttemptProviderRequestId(authorized, 'attempt-1', 'provider/task-42');
+		const interrupted = interruptBaseHalfNodeAttempt(acknowledged, 'attempt-1', {
+			completedAt: '2026-08-13T08:01:00.000Z',
+			error: 'Provider polling stopped.',
+			failure: {
+				kind: 'poll-interrupted',
+				retry: 'resume-existing',
+				providerRequestId: 'provider/task-42'
+			}
+		});
+		const parsed = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(interrupted));
+		assert.deepStrictEqual(parsed.attempts[0].execution, {
+			requestFingerprint: fingerprint,
+			intent: { kind: 'new' }
+		});
+		assert.deepStrictEqual(parsed.attempts[0].failure, {
+			kind: 'poll-interrupted',
+			retry: 'resume-existing',
+			providerRequestId: 'provider/task-42'
+		});
+		assert.strictEqual(Object.isFrozen(parsed.attempts[0].execution), true);
+		assert.strictEqual(Object.isFrozen(parsed.attempts[0].failure), true);
+		assert.throws(
+			() => normalizeBaseHalfNodeAttemptFailure({ kind: 'submission-ambiguous', retry: 'fresh-submit' }),
+			/retry must be 'blocked'/
+		);
+	});
+
+	test('round-trips the durable Attempt snapshot manifest and keeps legacy v3 Attempts readable', () => {
+		const draft = createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(2),
+			kind: 'video',
+			title: 'Input film',
+			role: 'Generated result',
+			recipe: recipeWithInput()
+		});
+		const running = beginBaseHalfNodeAttempt(draft, {
+			...beginOptions('attempt-input'),
+			inputs: [{
+				sourcePath: 'briefs/launch.md',
+				slot: 'brief',
+				order: 0,
+				revision: 'sha256:brief-v1'
+			}]
+		});
+		const runRoot = `outputs/${draft.id}/attempt-input`;
+		const manifest = {
+			version: 1 as const,
+			nodePath: 'film.bhnode',
+			frozenNodePath: `${runRoot}/inputs/node.bhnode`,
+			frozenNodeDigest: 'A'.repeat(43),
+			executorExtensionId: 'test.workflow',
+			videoModelCatalogId: 'test.workflow.models',
+			inputs: [{
+				edgeId: 'briefs/launch.md->film.bhnode',
+				slot: 'brief',
+				order: 0,
+				revision: 'sha256:brief-v1',
+				sourceId: 'briefs/launch.md',
+				sourcePath: 'briefs/launch.md',
+				sourceKind: 'text' as const,
+				snapshotPath: `${runRoot}/inputs/000-launch.md`,
+				snapshotDigest: 'B'.repeat(43),
+				resultId: 'briefs/launch.md',
+				resultKind: 'text' as const
+			}]
+		};
+		const frozen = freezeBaseHalfNodeAttemptSnapshotManifest(running, 'attempt-input', manifest);
+		const parsed = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(frozen));
+		assert.deepStrictEqual(parsed.attempts[0].snapshotManifest, manifest);
+		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest), true);
+		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest?.inputs), true);
+		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest?.inputs[0]), true);
+		assert.deepStrictEqual(
+			parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(running)).attempts[0].snapshotManifest,
+			undefined
+		);
+
+		assert.throws(() => freezeBaseHalfNodeAttemptSnapshotManifest(running, 'attempt-input', {
+			...manifest,
+			inputs: [{ ...manifest.inputs[0], revision: 'sha256:changed' }]
+		}), /must match the frozen Attempt input tuple/);
+		assert.throws(() => freezeBaseHalfNodeAttemptSnapshotManifest(frozen, 'attempt-input', {
+			...manifest,
+			frozenNodeDigest: 'C'.repeat(43)
+		}), /already has a different snapshot manifest/);
+		assert.throws(() => parse({
+			...frozen,
+			attempts: [{
+				...frozen.attempts[0],
+				snapshotManifest: { ...manifest, frozenNodePath: '../outside/node.bhnode' }
+			}]
+		}), /cannot contain empty, current, or parent path segments/);
 	});
 
 	test('retries in the same node with the exact frozen recipe snapshot', () => {

@@ -33,8 +33,10 @@ import {
 } from './videoGeneration';
 import {
 	VideoProviderCancelledError,
+	VideoProviderExecutionFailure,
 	executeSerializedVideoProviderRequest
 } from './videoProviderExecution';
+import { videoProviderPreparationFailureForIntent } from './videoProviderExecutionContract';
 import { OFFICIAL_VIDEO_PROVIDER_CONNECTION_SPEC_IDS, validateOfficialVideoProviderConnection } from './providerConnectionValidation';
 
 const MAX_FROZEN_TEXT_INPUT_BYTES = 1024 * 1024;
@@ -134,47 +136,89 @@ async function executeVideoGeneration(
 	if (request.recipeId !== GENERATE_VIDEO_RECIPE_ID) {
 		throw new Error(`Unsupported video generation recipe '${request.recipeId}'.`);
 	}
-	if (!request.modelService || !request.modelServiceId || request.modelService.serviceId !== request.modelServiceId
-		|| request.modelService.capability !== 'video') {
-		throw new Error('Video generation requires one host-frozen video model connection.');
+	const legacyRecovery = request.providerTaskIntent === undefined && request.resumeProviderRequestId !== undefined;
+	const providerTaskIntent = request.providerTaskIntent ?? (request.resumeProviderRequestId === undefined
+		? undefined
+		: { kind: 'recover' as const, providerRequestId: request.resumeProviderRequestId });
+	if (!providerTaskIntent) {
+		throw new Error('Video generation requires an explicit provider task intent.');
 	}
-	throwIfCancelled(token);
-	progress.report({ message: 'Validating reviewed model capability', increment: 5 });
-	const prepared = await prepareVideoProviderSubmission({
-		prompt: request.prompt,
-		parameters: request.parameters,
-		inputs: request.inputs
-	}, async resource => {
+	if (!legacyRecovery && (!request.providerRequestFingerprint || !request.reportProviderExecutionFailure)) {
+		throw new Error('Video generation requires a host-bound request fingerprint and failure reporter.');
+	}
+	if ((providerTaskIntent.kind === 'new'
+		|| (providerTaskIntent.kind === 'exact-retry' && providerTaskIntent.replacementAuthorized))
+		&& !request.consumeProviderCreateAuthorization) {
+		throw new Error('Video generation has no host create authorization.');
+	}
+	const prepareExecution = async () => {
+		if (!request.modelService || !request.modelServiceId || request.modelService.serviceId !== request.modelServiceId
+			|| request.modelService.capability !== 'video') {
+			throw new Error('Video generation requires one host-frozen video model connection.');
+		}
 		throwIfCancelled(token);
-		const bytes = await readFileWithinLimit(resource, MAX_PROVIDER_IMAGE_BYTES, {
-			stat: candidate => vscode.workspace.fs.stat(candidate),
-			readFile: candidate => vscode.workspace.fs.readFile(candidate)
-		}, 'Provider image input');
+		progress.report({ message: 'Validating reviewed model capability', increment: 5 });
+		const prepared = await prepareVideoProviderSubmission({
+			prompt: request.prompt,
+			parameters: request.parameters,
+			inputs: request.inputs
+		}, async resource => {
+			throwIfCancelled(token);
+			const bytes = await readFileWithinLimit(resource, MAX_PROVIDER_IMAGE_BYTES, {
+				stat: candidate => vscode.workspace.fs.stat(candidate),
+				readFile: candidate => vscode.workspace.fs.readFile(candidate)
+			}, 'Provider image input');
+			throwIfCancelled(token);
+			return bytes;
+		}, OFFICIAL_VIDEO_MODEL_CATALOG_ID);
+		if (request.modelService.modelId !== prepared.snapshot.modelId) {
+			throw new Error('The frozen model connection and video model selection use different model ids.');
+		}
+		const access = await vscode.basehalf.getModelServiceAccess(request.modelService);
 		throwIfCancelled(token);
-		return bytes;
-	}, OFFICIAL_VIDEO_MODEL_CATALOG_ID);
-	if (request.modelService.modelId !== prepared.snapshot.modelId) {
-		throw new Error('The frozen model connection and video model selection use different model ids.');
+		if (!access || access.id !== request.modelServiceId || access.connectionIdentity !== request.modelService.connectionIdentity
+			|| !access.capabilities.includes('video')) {
+			throw new Error('The selected video model connection is no longer available with the frozen identity.');
+		}
+		assertVideoServiceMatchesSnapshot(access, prepared.snapshot);
+		return Object.freeze({
+			access,
+			serialized: serializeVideoProviderRequest(catalog, prepared.submission)
+		});
+	};
+	let preparedExecution: Awaited<ReturnType<typeof prepareExecution>>;
+	try {
+		preparedExecution = await prepareExecution();
+	} catch (error) {
+		if (error instanceof vscode.CancellationError) {
+			throw error;
+		}
+		if (!legacyRecovery && request.reportProviderExecutionFailure) {
+			await request.reportProviderExecutionFailure(videoProviderPreparationFailureForIntent(providerTaskIntent));
+		}
+		throw error;
 	}
-	const access = await vscode.basehalf.getModelServiceAccess(request.modelService);
-	throwIfCancelled(token);
-	if (!access || access.id !== request.modelServiceId || access.connectionIdentity !== request.modelService.connectionIdentity
-		|| !access.capabilities.includes('video')) {
-		throw new Error('The selected video model connection is no longer available with the frozen identity.');
-	}
-	assertVideoServiceMatchesSnapshot(access, prepared.snapshot);
-	const serialized = serializeVideoProviderRequest(catalog, prepared.submission);
 	let executed: Awaited<ReturnType<typeof executeSerializedVideoProviderRequest>>;
 	try {
-		executed = await executeSerializedVideoProviderRequest(serialized, access, {
+		executed = await executeSerializedVideoProviderRequest(preparedExecution.serialized, preparedExecution.access, {
 			cancellation: token,
-			...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId }),
+			taskIntent: providerTaskIntent,
+			...(request.consumeProviderCreateAuthorization === undefined || request.providerRequestFingerprint === undefined ? {} : {
+				consumeCreateAuthorization: (kind: 'new' | 'replacement') => request.consumeProviderCreateAuthorization!(
+					request.providerRequestFingerprint!,
+					request.attemptId,
+					kind
+				)
+			}),
 			acknowledgeProviderRequestId: providerRequestId => request.acknowledgeProviderRequestId(providerRequestId),
 			onStatus: message => progress.report({ message })
 		});
 	} catch (error) {
 		if (error instanceof VideoProviderCancelledError) {
 			throw new vscode.CancellationError();
+		}
+		if (error instanceof VideoProviderExecutionFailure && !legacyRecovery && request.reportProviderExecutionFailure) {
+			await request.reportProviderExecutionFailure(error.evidence);
 		}
 		throw error;
 	}
@@ -207,6 +251,13 @@ async function executeVideoGeneration(
 				// The host also treats the unique run directory as unaccepted until
 				// this executor returns one complete artifact.
 			}
+		}
+		if (!(error instanceof vscode.CancellationError) && !legacyRecovery && request.reportProviderExecutionFailure) {
+			await request.reportProviderExecutionFailure({
+				kind: 'artifact-commit',
+				retry: 'resume-existing',
+				providerRequestId: executed.providerRequestId
+			});
 		}
 		throw error;
 	}

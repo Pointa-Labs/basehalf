@@ -45,7 +45,7 @@ The full workflow and source-tree isolation contract is
 | Agent Area, terminal, or agent extensions | [Agent bridge design](../agent-bridge-design.md), [architecture invariants](architecture-invariants.md) | Public decision D21 and `private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md` |
 | `.bh/mirror/`, focus, cursor, badge, or workspace protocol | `private-docs/focus_mode_spec/` | Public decisions D12–D14 and D19; relevant private decision records |
 | Plugin platform or plugin publishing | [Plugin architecture](../plugin-architecture.md), [plugin development](../plugin-development.md) | [Plugin docs](../plugins/), public decisions D25–D34 |
-| AI Video or executable media nodes | `vscode-base/extensions/basehalf-ai-video/docs/product-contract.md` | Public decisions D28 and D34, plus [plugin architecture](../plugin-architecture.md) |
+| AI Video or executable media nodes | `vscode-base/extensions/basehalf-ai-video/docs/product-contract.md` | [`video-node-development-spec.md`](../../vscode-base/extensions/basehalf-ai-video/docs/video-node-development-spec.md) routes the model/settings, input/frame-role, and execution/recovery work packages; public decisions D28 and D34; [plugin architecture](../plugin-architecture.md) |
 | Git, SCM, GitHub, or history graph | [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md) | Roadmap track 3 and public decision D22 |
 | Dependencies, licenses, or distribution | [Dependency policy](../dependency-policy.md) | [Trademark policy](../trademark-policy.md), public decisions D8–D11 |
 | Tests, commit, direct-main, or release checks | [Verification and delivery](verification-and-delivery.md) | [Contributing](../../CONTRIBUTING.md) for external contributors |

@@ -1208,6 +1208,24 @@ export interface IBaseHalfCanvasRecipeInputDto {
 	readonly source: IBaseHalfCanvasNodeSnapshotDto;
 }
 
+export type IBaseHalfCanvasProviderTaskIntentDto =
+	| { readonly kind: 'new' }
+	| { readonly kind: 'recover'; readonly providerRequestId: string }
+	| {
+		readonly kind: 'exact-retry';
+		readonly sourceAttemptId: string;
+		readonly providerRequestId?: string;
+		readonly sourceFailure?: IBaseHalfCanvasProviderExecutionFailureDto;
+		readonly replacementAuthorized: boolean;
+	};
+
+export interface IBaseHalfCanvasProviderExecutionFailureDto {
+	readonly kind: 'preparation' | 'submission-rejected' | 'submission-ambiguous' | 'remote-id-uncommitted' | 'poll-interrupted' | 'poll-window-exhausted' | 'remote-failed' | 'remote-cancelled' | 'protocol' | 'download' | 'artifact-invalid' | 'artifact-commit' | 'execution-ownership';
+	readonly retry: 'fresh-submit' | 'resume-existing' | 'replace-after-terminal-proof' | 'blocked';
+	readonly providerRequestId?: string;
+	readonly uncommittedProviderRequestId?: string;
+}
+
 export interface IBaseHalfCanvasRecipeExecutionRequestDto {
 	readonly attemptId: string;
 	readonly workspaceFolder: UriComponents;
@@ -1219,6 +1237,8 @@ export interface IBaseHalfCanvasRecipeExecutionRequestDto {
 	readonly modelService?: IBaseHalfModelServiceAttemptSnapshotDto;
 	readonly inputs: readonly IBaseHalfCanvasRecipeInputDto[];
 	readonly outputDirectory: UriComponents;
+	readonly providerTaskIntent?: IBaseHalfCanvasProviderTaskIntentDto;
+	readonly providerRequestFingerprint?: string;
 	readonly resumeProviderRequestId?: string;
 }
 
@@ -1315,6 +1335,8 @@ export interface MainThreadBaseHalfShape extends IDisposable {
 	$unregisterModelProviderConnectionValidator(specId: string): void;
 	$reportCanvasRecipeProgress(attemptHandle: string, progress: IBaseHalfCanvasRecipeProgressDto): void;
 	$acknowledgeCanvasRecipeProviderRequestId(attemptHandle: string, providerRequestId: string): Promise<void>;
+	$consumeCanvasRecipeProviderCreateAuthorization(attemptHandle: string, fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void>;
+	$reportCanvasRecipeProviderExecutionFailure(attemptHandle: string, failure: IBaseHalfCanvasProviderExecutionFailureDto): Promise<void>;
 	$inspectCanvasNode(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfCanvasNodeStateDto | undefined>;
 	$applyProjectFileTransition(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents, expected: VSBuffer, next: VSBuffer, label: string): Promise<void>;
 	$registerCanvasStructuralCleanupProvider(extension: IBaseHalfExtensionIdentityDto): void;

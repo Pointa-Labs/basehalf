@@ -107,6 +107,8 @@ export interface IBaseHalfVideoRangeParameter extends IBaseHalfVideoParameterBas
 	readonly minimum: number;
 	readonly maximum: number;
 	readonly step: number;
+	/** Short reviewed suffix such as `s` or `%`; omitted for unitless values. */
+	readonly unit?: string;
 }
 
 export interface IBaseHalfVideoBooleanParameter extends IBaseHalfVideoParameterBase {
@@ -161,6 +163,11 @@ export interface IBaseHalfVideoModelSelection extends IBaseHalfVideoModelKey {
 	readonly inputs: BaseHalfVideoInputState;
 }
 
+/** Exact reviewed capability identity, independent of the Draft's current inputs. */
+export interface IBaseHalfVideoModelCapabilitySelection extends IBaseHalfVideoModelKey {
+	readonly mode: BaseHalfVideoGenerationMode;
+}
+
 /** Structural subset of a configured model service used for exact catalog matching. */
 export interface IBaseHalfVideoModelServiceScope {
 	readonly providerId: string;
@@ -192,6 +199,13 @@ export interface IBaseHalfSupportedVideoModelResolution {
 	readonly selection: IBaseHalfVideoModelSelection;
 }
 
+export interface IBaseHalfSupportedVideoCapabilityResolution {
+	readonly status: 'supported';
+	readonly descriptor: IBaseHalfVideoModelDescriptor;
+	readonly capability: IBaseHalfVideoModeCapability;
+	readonly selection: IBaseHalfVideoModelCapabilitySelection;
+}
+
 export interface IBaseHalfUnsupportedVideoModelResolution {
 	readonly status: 'unsupported';
 	readonly reason: string;
@@ -208,6 +222,28 @@ export type BaseHalfVideoModelResolution =
 	| IBaseHalfSupportedVideoModelResolution
 	| IBaseHalfUnsupportedVideoModelResolution
 	| IBaseHalfUnavailableVideoModelResolution;
+
+export type BaseHalfVideoCapabilityResolution =
+	| IBaseHalfSupportedVideoCapabilityResolution
+	| IBaseHalfUnsupportedVideoModelResolution
+	| IBaseHalfUnavailableVideoModelResolution;
+
+export type BaseHalfVideoInputProblemKind = 'unsupported' | 'too-few' | 'too-many';
+
+export interface IBaseHalfVideoInputProblem {
+	readonly kind: BaseHalfVideoInputProblemKind;
+	readonly input: BaseHalfVideoInputKind;
+	readonly actualCount: number;
+	readonly minimum: number;
+	readonly maximum: number;
+	readonly reason: string;
+}
+
+export interface IBaseHalfVideoInputEvaluation {
+	readonly ready: boolean;
+	readonly inputs: BaseHalfVideoInputState;
+	readonly problems: readonly IBaseHalfVideoInputProblem[];
+}
 
 export interface IBaseHalfResolvedVideoEnumOption {
 	readonly value: string | number;
@@ -228,6 +264,7 @@ export interface IBaseHalfResolvedVideoParameter {
 	readonly minimum?: number;
 	readonly maximum?: number;
 	readonly step?: number;
+	readonly unit?: string;
 }
 
 export type BaseHalfVideoSettingAdjustmentKind = 'defaulted' | 'constrained' | 'removed';
@@ -261,18 +298,19 @@ export type BaseHalfVideoSettingsNormalization = IBaseHalfReadyVideoSettingsNorm
 
 export interface IBaseHalfVideoModelRegistry {
 	readonly models: readonly IBaseHalfVideoModelDescriptor[];
+	resolveCapability(selection: IBaseHalfVideoModelCapabilitySelection): BaseHalfVideoCapabilityResolution;
 	resolve(selection: IBaseHalfVideoModelSelection): BaseHalfVideoModelResolution;
 }
 
 export function getBaseHalfVideoPromptMaxCharacters(
-	resolution: IBaseHalfSupportedVideoModelResolution
+	resolution: { readonly capability: IBaseHalfVideoModeCapability }
 ): number | undefined {
 	return resolution.capability.inputs.find(input => input.kind === 'text-prompt')?.maxCharacters;
 }
 
 /** Validates the exact prompt representation sent by the provider adapters. */
 export function getBaseHalfVideoPromptProblem(
-	resolution: IBaseHalfSupportedVideoModelResolution,
+	resolution: { readonly capability: IBaseHalfVideoModeCapability },
 	prompt: string
 ): string | undefined {
 	const input = resolution.capability.inputs.find(candidate => candidate.kind === 'text-prompt');
@@ -336,38 +374,62 @@ export function parseBaseHalfVideoModelCatalog(value: unknown): IBaseHalfVideoMo
 export function createBaseHalfVideoModelRegistry(value: unknown): IBaseHalfVideoModelRegistry {
 	const catalog = parseBaseHalfVideoModelCatalog(value);
 	const index = new Map(catalog.models.map(model => [modelKey(model.key), model] as const));
+	const resolveCapability = (selection: IBaseHalfVideoModelCapabilitySelection): BaseHalfVideoCapabilityResolution => {
+		const normalizedSelection = normalizeCapabilitySelection(selection);
+		if (typeof normalizedSelection === 'string') {
+			return deepFreeze({ status: 'unsupported', reason: normalizedSelection });
+		}
+		const descriptor = index.get(modelKey(normalizedSelection));
+		if (!descriptor) {
+			return deepFreeze({
+				status: 'unsupported',
+				reason: `No reviewed capability matches ${formatModelKey(normalizedSelection)}.`
+			});
+		}
+		const capability = descriptor.modes.find(candidate => candidate.mode === normalizedSelection.mode);
+		if (!capability) {
+			return deepFreeze({
+				status: 'unsupported',
+				reason: `Model '${descriptor.label}' does not support mode '${normalizedSelection.mode}'.`
+			});
+		}
+		if (descriptor.availability) {
+			return deepFreeze({ status: 'unavailable', reason: descriptor.availability.reason, descriptor, capability });
+		}
+		if (capability.availability) {
+			return deepFreeze({ status: 'unavailable', reason: capability.availability.reason, descriptor, capability });
+		}
+		return deepFreeze({ status: 'supported', descriptor, capability, selection: normalizedSelection });
+	};
 	const registry: IBaseHalfVideoModelRegistry = {
 		models: catalog.models,
+		resolveCapability,
 		resolve(selection): BaseHalfVideoModelResolution {
 			const normalizedSelection = normalizeSelection(selection);
 			if (typeof normalizedSelection === 'string') {
 				return deepFreeze({ status: 'unsupported', reason: normalizedSelection });
 			}
-			const descriptor = index.get(modelKey(normalizedSelection));
-			if (!descriptor) {
-				return deepFreeze({
-					status: 'unsupported',
-					reason: `No reviewed capability matches ${formatModelKey(normalizedSelection)}.`
-				});
+			const capabilityResolution = resolveCapability({
+				provider: normalizedSelection.provider,
+				deployment: normalizedSelection.deployment,
+				region: normalizedSelection.region,
+				modelId: normalizedSelection.modelId,
+				revision: normalizedSelection.revision,
+				mode: normalizedSelection.mode
+			});
+			if (capabilityResolution.status !== 'supported') {
+				return capabilityResolution;
 			}
-			const capability = descriptor.modes.find(candidate => candidate.mode === normalizedSelection.mode);
-			if (!capability) {
-				return deepFreeze({
-					status: 'unsupported',
-					reason: `Model '${descriptor.label}' does not support mode '${normalizedSelection.mode}'.`
-				});
+			const inputEvaluation = evaluateBaseHalfVideoInputs(capabilityResolution, normalizedSelection.inputs);
+			if (!inputEvaluation.ready) {
+				return deepFreeze({ status: 'unsupported', reason: inputEvaluation.problems[0].reason });
 			}
-			if (descriptor.availability) {
-				return deepFreeze({ status: 'unavailable', reason: descriptor.availability.reason, descriptor, capability });
-			}
-			if (capability.availability) {
-				return deepFreeze({ status: 'unavailable', reason: capability.availability.reason, descriptor, capability });
-			}
-			const inputProblem = validateCurrentInputs(capability, normalizedSelection.inputs);
-			if (inputProblem) {
-				return deepFreeze({ status: 'unsupported', reason: inputProblem });
-			}
-			return deepFreeze({ status: 'supported', descriptor, capability, selection: normalizedSelection });
+			return deepFreeze({
+				status: 'supported',
+				descriptor: capabilityResolution.descriptor,
+				capability: capabilityResolution.capability,
+				selection: normalizedSelection
+			});
 		}
 	};
 	return Object.freeze(registry);
@@ -388,6 +450,23 @@ export function parseBaseHalfVideoModelSelection(value: unknown): IBaseHalfVideo
 		fail('selection.mode is not a supported generation mode.');
 	}
 	return deepFreeze({ ...key, mode: candidate.mode, inputs: parseInputState(candidate.inputs, 'selection.inputs') });
+}
+
+/** Parse an exact model/method selection without conflating missing Draft inputs with support. */
+export function parseBaseHalfVideoModelCapabilitySelection(value: unknown): IBaseHalfVideoModelCapabilitySelection {
+	const candidate = requiredObject(value, 'selection');
+	assertOnlyKeys(candidate, ['provider', 'deployment', 'region', 'modelId', 'revision', 'mode'], 'selection');
+	const key = parseModelKey({
+		provider: candidate.provider,
+		deployment: candidate.deployment,
+		region: candidate.region,
+		modelId: candidate.modelId,
+		revision: candidate.revision
+	}, 'selection');
+	if (!isGenerationMode(candidate.mode)) {
+		fail('selection.mode is not a supported generation mode.');
+	}
+	return deepFreeze({ ...key, mode: candidate.mode });
 }
 
 /** Parse the versioned, host-owned model selection persisted with a draft/attempt. */
@@ -423,6 +502,15 @@ export function createBaseHalfVideoModelSelectionSnapshot(
 	catalogId: string,
 	resolution: IBaseHalfSupportedVideoModelResolution
 ): IBaseHalfVideoModelSelectionSnapshot {
+	return createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, resolution, resolution.selection.inputs);
+}
+
+/** Persist a valid model/method choice even while required Draft inputs are incomplete. */
+export function createBaseHalfVideoModelSelectionSnapshotFromCapability(
+	catalogId: string,
+	resolution: IBaseHalfSupportedVideoCapabilityResolution,
+	inputs: BaseHalfVideoInputState
+): IBaseHalfVideoModelSelectionSnapshot {
 	return deepFreeze({
 		schemaVersion: BASEHALF_VIDEO_MODEL_SNAPSHOT_SCHEMA_VERSION,
 		catalogId: contributionIdentifier(catalogId, 'catalogId'),
@@ -432,7 +520,7 @@ export function createBaseHalfVideoModelSelectionSnapshot(
 		modelId: resolution.selection.modelId,
 		revision: resolution.selection.revision,
 		mode: resolution.selection.mode,
-		inputs: resolution.selection.inputs
+		inputs: parseInputState(inputs, 'inputs')
 	});
 }
 
@@ -488,6 +576,88 @@ export function resolveBaseHalfVideoModelSelectionSnapshot(
 	});
 }
 
+/** Resolve only the persisted reviewed capability; current Draft inputs are evaluated separately. */
+export function resolveBaseHalfVideoModelSelectionSnapshotCapability(
+	registry: IBaseHalfVideoModelRegistry,
+	expectedCatalogId: string,
+	scope: IBaseHalfVideoModelServiceScope,
+	value: unknown
+): BaseHalfVideoCapabilityResolution {
+	let snapshot: IBaseHalfVideoModelSelectionSnapshot;
+	try {
+		snapshot = parseBaseHalfVideoModelSelectionSnapshot(value, expectedCatalogId);
+	} catch (error) {
+		return deepFreeze({
+			status: 'unsupported',
+			reason: error instanceof BaseHalfVideoModelContractError ? error.message : 'The persisted video model selection is invalid.'
+		});
+	}
+	const normalizedScope = normalizeServiceScope(scope);
+	if (!normalizedScope) {
+		return deepFreeze({ status: 'unsupported', reason: 'The configured video model service has an invalid catalog scope.' });
+	}
+	if (snapshot.providerId !== normalizedScope.providerId
+		|| snapshot.deploymentId !== normalizedScope.deploymentId
+		|| snapshot.region !== normalizedScope.region) {
+		return deepFreeze({ status: 'unsupported', reason: 'The persisted video model selection does not match the configured service scope.' });
+	}
+	return registry.resolveCapability({
+		provider: snapshot.providerId,
+		deployment: snapshot.deploymentId,
+		region: snapshot.region,
+		modelId: snapshot.modelId,
+		revision: snapshot.revision,
+		mode: snapshot.mode
+	});
+}
+
+/** Pure readiness evaluation for the current Draft inputs of an already reviewed method. */
+export function evaluateBaseHalfVideoInputs(
+	resolution: IBaseHalfSupportedVideoCapabilityResolution,
+	inputs: BaseHalfVideoInputState
+): IBaseHalfVideoInputEvaluation {
+	const normalizedInputs = parseInputState(inputs, 'inputs');
+	const definitions = new Map(resolution.capability.inputs.map(input => [input.kind, input] as const));
+	const problems: IBaseHalfVideoInputProblem[] = [];
+	for (const kind of BASEHALF_VIDEO_INPUT_KINDS) {
+		const actualCount = normalizedInputs[kind] ?? 0;
+		const definition = definitions.get(kind);
+		if (!definition && actualCount > 0) {
+			problems.push({
+				kind: 'unsupported',
+				input: kind,
+				actualCount,
+				minimum: 0,
+				maximum: 0,
+				reason: `Mode '${resolution.capability.mode}' does not support input '${kind}'.`
+			});
+			continue;
+		}
+		if (definition && actualCount < definition.minItems) {
+			problems.push({
+				kind: 'too-few',
+				input: kind,
+				actualCount,
+				minimum: definition.minItems,
+				maximum: definition.maxItems,
+				reason: `Mode '${resolution.capability.mode}' requires '${kind}' count between ${definition.minItems} and ${definition.maxItems}; received ${actualCount}.`
+			});
+			continue;
+		}
+		if (definition && actualCount > definition.maxItems) {
+			problems.push({
+				kind: 'too-many',
+				input: kind,
+				actualCount,
+				minimum: definition.minItems,
+				maximum: definition.maxItems,
+				reason: `Mode '${resolution.capability.mode}' requires '${kind}' count between ${definition.minItems} and ${definition.maxItems}; received ${actualCount}.`
+			});
+		}
+	}
+	return deepFreeze({ ready: problems.length === 0, inputs: normalizedInputs, problems });
+}
+
 /**
  * Preserve compatible candidate values and deterministically repair every
  * incompatible value from schema defaults/declaration order. An impossible
@@ -497,7 +667,17 @@ export function normalizeBaseHalfVideoSettings(
 	resolution: IBaseHalfSupportedVideoModelResolution,
 	candidate: unknown
 ): BaseHalfVideoSettingsNormalization {
+	return normalizeBaseHalfVideoSettingsForCapability(resolution, resolution.selection.inputs, candidate);
+}
+
+/** Normalize settings for a valid method even when its required Draft inputs are incomplete. */
+export function normalizeBaseHalfVideoSettingsForCapability(
+	resolution: IBaseHalfSupportedVideoCapabilityResolution,
+	inputs: BaseHalfVideoInputState,
+	candidate: unknown
+): BaseHalfVideoSettingsNormalization {
 	const capability = resolution.capability;
+	const normalizedInputs = parseInputState(inputs, 'inputs');
 	const candidateValues = scalarRecord(candidate);
 	const working: Record<string, BaseHalfVideoModelScalar> = {};
 	for (const parameter of capability.parameters) {
@@ -512,11 +692,11 @@ export function normalizeBaseHalfVideoSettings(
 	for (let iteration = 0; iteration < iterationLimit; iteration++) {
 		let changed = false;
 		for (const parameter of capability.parameters) {
-			const state = basicParameterState(parameter, working, resolution.selection.inputs);
+			const state = basicParameterState(parameter, working, normalizedInputs);
 			if (!state.visible || !state.enabled) {
 				continue;
 			}
-			const constraints = activeConstraints(capability, parameter.id, working, resolution.selection.inputs);
+			const constraints = activeConstraints(capability, parameter.id, working, normalizedInputs);
 			if (isAllowed(parameter, working[parameter.id], constraints)) {
 				continue;
 			}
@@ -544,8 +724,8 @@ export function normalizeBaseHalfVideoSettings(
 	const parameterStates = capability.parameters.map(parameter => resolvedParameterState(
 		parameter,
 		working,
-		resolution.selection.inputs,
-		activeConstraints(capability, parameter.id, working, resolution.selection.inputs)
+		normalizedInputs,
+		activeConstraints(capability, parameter.id, working, normalizedInputs)
 	));
 	const values: Record<string, BaseHalfVideoModelScalar> = {
 		[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID]: resolution.selection.mode
@@ -697,15 +877,16 @@ function parseParameter(value: unknown, path: string): IBaseHalfVideoParameter {
 		return { ...common, type, default: defaultValue, options };
 	}
 	if (type === 'range') {
-		assertOnlyKeys(candidate, [...commonKeys, 'minimum', 'maximum', 'step'], path);
+		assertOnlyKeys(candidate, [...commonKeys, 'minimum', 'maximum', 'step', 'unit'], path);
 		const minimum = finiteNumber(candidate.minimum, `${path}.minimum`);
 		const maximum = finiteNumber(candidate.maximum, `${path}.maximum`);
 		const step = finiteNumber(candidate.step, `${path}.step`);
 		const defaultValue = finiteNumber(candidate.default, `${path}.default`);
+		const unit = candidate.unit === undefined ? undefined : boundedText(candidate.unit, `${path}.unit`, 16);
 		if (maximum < minimum || step <= 0 || (maximum - minimum) / step > MAX_RANGE_STEPS || !onRangeGrid(defaultValue, minimum, maximum, step)) {
 			fail(`${path} must declare a finite ordered range, at most ${MAX_RANGE_STEPS} steps, and an on-grid default.`);
 		}
-		return { ...common, type, default: defaultValue, minimum, maximum, step };
+		return { ...common, type, default: defaultValue, minimum, maximum, step, ...(unit ? { unit } : {}) };
 	}
 	if (type === 'boolean') {
 		assertOnlyKeys(candidate, commonKeys, path);
@@ -906,6 +1087,14 @@ function normalizeSelection(selection: IBaseHalfVideoModelSelection): IBaseHalfV
 	}
 }
 
+function normalizeCapabilitySelection(selection: IBaseHalfVideoModelCapabilitySelection): IBaseHalfVideoModelCapabilitySelection | string {
+	try {
+		return parseBaseHalfVideoModelCapabilitySelection(selection);
+	} catch (error) {
+		return error instanceof BaseHalfVideoModelContractError ? error.message : 'Video model capability selection is invalid.';
+	}
+}
+
 function parseInputState(value: unknown, path: string): BaseHalfVideoInputState {
 	const candidate = requiredObject(value, path);
 	const inputs: Partial<Record<BaseHalfVideoInputKind, number>> = {};
@@ -929,21 +1118,6 @@ function normalizeServiceScope(value: IBaseHalfVideoModelServiceScope): IBaseHal
 		return undefined;
 	}
 	return deepFreeze({ providerId: value.providerId, deploymentId: value.deploymentId, region: value.region });
-}
-
-function validateCurrentInputs(capability: IBaseHalfVideoModeCapability, inputs: BaseHalfVideoInputState): string | undefined {
-	const definitions = new Map(capability.inputs.map(input => [input.kind, input] as const));
-	for (const kind of BASEHALF_VIDEO_INPUT_KINDS) {
-		const count = inputs[kind] ?? 0;
-		const definition = definitions.get(kind);
-		if (!definition && count > 0) {
-			return `Mode '${capability.mode}' does not support input '${kind}'.`;
-		}
-		if (definition && (count < definition.minItems || count > definition.maxItems)) {
-			return `Mode '${capability.mode}' requires '${kind}' count between ${definition.minItems} and ${definition.maxItems}; received ${count}.`;
-		}
-	}
-	return undefined;
 }
 
 function basicParameterState(
@@ -1001,7 +1175,8 @@ function resolvedParameterState(
 			...common,
 			minimum: Math.max(parameter.minimum, ...ranges.map(range => range.minimum)),
 			maximum: Math.min(parameter.maximum, ...ranges.map(range => range.maximum)),
-			step: parameter.step
+			step: parameter.step,
+			...(parameter.unit ? { unit: parameter.unit } : {})
 		};
 	}
 	return common;

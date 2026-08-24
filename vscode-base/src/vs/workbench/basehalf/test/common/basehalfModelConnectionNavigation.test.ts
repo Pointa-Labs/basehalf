@@ -5,7 +5,10 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BaseHalfModelConnectionNavigationService } from '../../common/basehalfModelConnectionNavigation.js';
+import {
+	BaseHalfModelConnectionNavigationService,
+	completeCapturedBaseHalfModelConnectionRequest
+} from '../../common/basehalfModelConnectionNavigation.js';
 
 suite('BaseHalfModelConnectionNavigation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -58,6 +61,22 @@ suite('BaseHalfModelConnectionNavigation', () => {
 		assert.strictEqual(service.cancel(first.requestId), false);
 		assert.strictEqual(service.intent, second);
 		assert.strictEqual(service.cancel(second.requestId), true);
+		assert.strictEqual(service.intent, undefined);
+		service.dispose();
+	});
+
+	test('rejects a stale completion when a same-provider trip supersedes it', () => {
+		const service = new BaseHalfModelConnectionNavigationService();
+		const first = service.begin('pointa.basehalf-ai-video.byteplus-modelark');
+		const capturedRequestId = first.requestId;
+		const second = service.begin('pointa.basehalf-ai-video.byteplus-modelark');
+		assert.strictEqual(completeCapturedBaseHalfModelConnectionRequest(service, capturedRequestId, first.specId, first.specId), false);
+		assert.strictEqual(service.intent, second);
+		assert.strictEqual(completeCapturedBaseHalfModelConnectionRequest(service, undefined, second.specId, second.specId), false);
+		assert.strictEqual(service.intent, second);
+		assert.strictEqual(service.complete(second.specId, second.specId, first.requestId), false);
+		assert.strictEqual(service.intent, second);
+		assert.strictEqual(completeCapturedBaseHalfModelConnectionRequest(service, second.requestId, second.specId, second.specId), true);
 		assert.strictEqual(service.intent, undefined);
 		service.dispose();
 	});

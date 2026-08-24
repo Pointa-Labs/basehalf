@@ -284,7 +284,9 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 		const result = await Promise.resolve(entry.executor.execute(
 			reviveRecipeExecutionRequest(
 				request,
-				providerRequestId => this.proxy.$acknowledgeCanvasRecipeProviderRequestId(attemptHandle, providerRequestId)
+				providerRequestId => this.proxy.$acknowledgeCanvasRecipeProviderRequestId(attemptHandle, providerRequestId),
+				(fingerprint, attemptId, kind) => this.proxy.$consumeCanvasRecipeProviderCreateAuthorization(attemptHandle, fingerprint, attemptId, kind),
+				failure => this.proxy.$reportCanvasRecipeProviderExecutionFailure(attemptHandle, failure)
 			),
 			progress,
 			cancellation
@@ -386,7 +388,9 @@ function extensionDeclaresModelProviderCatalog(extension: IExtensionDescription)
 
 function reviveRecipeExecutionRequest(
 	request: extHostProtocol.IBaseHalfCanvasRecipeExecutionRequestDto,
-	acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>
+	acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>,
+	consumeProviderCreateAuthorization: (fingerprint: string, attemptId: string, kind: 'new' | 'replacement') => Promise<void>,
+	reportProviderExecutionFailure: (failure: extHostProtocol.IBaseHalfCanvasProviderExecutionFailureDto) => Promise<void>
 ): vscode.basehalf.CanvasRecipeExecutionRequest {
 	return {
 		attemptId: request.attemptId,
@@ -404,7 +408,11 @@ function reviveRecipeExecutionRequest(
 			source: reviveNodeSnapshot(input.source)
 		})),
 		outputDirectory: URI.revive(request.outputDirectory),
+		...(request.providerTaskIntent === undefined ? {} : { providerTaskIntent: request.providerTaskIntent }),
+		...(request.providerRequestFingerprint === undefined ? {} : { providerRequestFingerprint: request.providerRequestFingerprint }),
 		...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId }),
+		...(request.providerRequestFingerprint === undefined ? {} : { consumeProviderCreateAuthorization }),
+		reportProviderExecutionFailure,
 		acknowledgeProviderRequestId
 	};
 }

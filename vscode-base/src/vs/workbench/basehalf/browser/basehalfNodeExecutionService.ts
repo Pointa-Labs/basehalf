@@ -22,6 +22,7 @@ import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import {
 	baseHalfCanvasContentKindForPath,
+	BaseHalfCanvasProviderTaskIntent,
 	IBaseHalfCanvasNodeSnapshot,
 	IBaseHalfCanvasRecipeDescriptor,
 	IBaseHalfCanvasRecipeExecutionResult,
@@ -48,21 +49,24 @@ import {
 	completeBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
 	failBaseHalfNodeAttempt,
-	freezeBaseHalfNodeAttemptInputs,
-	freezeBaseHalfNodeAttemptModel,
+	freezeBaseHalfNodeAttemptExecution,
+	freezeBaseHalfNodeAttemptSnapshotManifest,
 	freezeBaseHalfNodeAttemptProviderRequestId,
 	replaceBaseHalfNodeAttemptProviderRequestId,
 	IBaseHalfNodeDocument,
 	IBaseHalfNodeAttempt,
+	IBaseHalfNodeAttemptFailure,
 	IBaseHalfNodeInputBinding,
 	IBaseHalfNodeRecipe,
 	IBaseHalfNodeResultArtifact,
 	BaseHalfNodeAttemptModel,
 	IBaseHalfNodeAttemptCost,
 	IBaseHalfNodeAttemptInput,
+	IBaseHalfNodeAttemptSnapshotManifest,
 	IBaseHalfNodeAttemptUsage,
 	getBaseHalfNodeResultArtifact,
 	interruptBaseHalfNodeAttempt,
+	normalizeBaseHalfNodeAttemptFailure,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	baseHalfProjectPathProblem,
@@ -90,6 +94,8 @@ const ARTIFACT_DIRECTORY_NAME = 'artifacts';
 const RUN_GUARD_FILE_NAME = '.basehalf-run-guard';
 const MAX_INPUT_SNAPSHOT_ENTRIES = 2048;
 const MAX_INPUT_SNAPSHOT_BYTES = 256 * 1024 * 1024;
+const MAX_RUN_CLEANUP_ENTRIES = 4096;
+const MAX_VIDEO_RESULT_BYTES = 256 * 1024 * 1024;
 const MAX_EXECUTION_ERROR_LENGTH = 1024;
 const MAX_EXECUTION_ERROR_INPUT_LENGTH = 16 * 1024;
 const MAX_ARTIFACT_INTEGRITY_CACHE_ENTRIES = 512;
@@ -130,6 +136,28 @@ export interface IBaseHalfNodeVerificationOptions {
 	readonly fresh?: boolean;
 }
 
+export interface IBaseHalfNodeRunOptions {
+	/** @deprecated A bare signal never authorizes a provider create. */
+	readonly newTaskAuthorized?: boolean;
+	/** @deprecated A bare signal never authorizes a provider replacement. */
+	readonly replacementAuthorized?: boolean;
+	/** Exact one-use scope returned by prepareProviderRun after current user confirmation. */
+	readonly providerAuthorization?: IBaseHalfNodeProviderRunAuthorization;
+}
+
+export type BaseHalfNodeProviderRunAuthorizationKind = 'new' | 'replacement';
+
+export interface IBaseHalfNodeProviderRunAuthorization {
+	readonly kind: BaseHalfNodeProviderRunAuthorizationKind;
+	readonly requestFingerprint: string;
+}
+
+export interface IBaseHalfNodeProviderRunPreflight {
+	readonly document: IBaseHalfNodeDocument;
+	readonly requestFingerprint: string;
+	readonly authorizationKind: BaseHalfNodeProviderRunAuthorizationKind;
+}
+
 export const IBaseHalfNodeExecutionService = createDecorator<IBaseHalfNodeExecutionService>('baseHalfNodeExecutionService');
 
 export interface IBaseHalfNodeExecutionService {
@@ -137,7 +165,8 @@ export interface IBaseHalfNodeExecutionService {
 	readonly onDidChange: Event<IBaseHalfNodeExecutionEvent>;
 	getActiveRun(resource: URI): IBaseHalfNodeExecutionState | undefined;
 	acquireStructuralOperation(operation: FileOperation, files: readonly SourceTargetPair[], cancellationToken?: CancellationToken): Promise<IDisposable>;
-	run(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeDocument>;
+	prepareProviderRun(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeProviderRunPreflight>;
+	run(node: IBaseHalfWorkspaceResource, options?: IBaseHalfNodeRunOptions): Promise<IBaseHalfNodeDocument>;
 	cancel(resource: URI, expectedRunId: string): boolean;
 	recoverInterrupted(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeDocument>;
 	getArtifactIntegrity(workspaceFolder: URI, artifact: IBaseHalfNodeResultArtifact, options?: IBaseHalfNodeVerificationOptions): Promise<BaseHalfNodeArtifactIntegrity>;
@@ -181,6 +210,36 @@ interface IAcceptedArtifact {
 	readonly cost?: IBaseHalfNodeAttemptCost;
 }
 
+interface IRecoveredAttemptContext {
+	readonly document: IBaseHalfNodeDocument;
+	readonly attempt: IBaseHalfNodeAttempt;
+	readonly recipe: IBaseHalfCanvasRecipeDescriptor;
+	readonly modelService: IBaseHalfModelServiceAttemptSnapshot;
+	readonly frozenNodeResource: URI;
+	readonly inputs: readonly IBaseHalfCanvasRecipeInput[];
+	readonly runDirectory: URI;
+	readonly outputDirectory: URI;
+	readonly guardResource: URI;
+	readonly guardValue: string;
+	readonly expectedRunRealpath: URI;
+	readonly expectedOutputRealpath: URI;
+}
+
+interface IVerifiedAttemptSnapshotPayload {
+	readonly attempt: IBaseHalfNodeAttempt;
+	readonly manifest: IBaseHalfNodeAttemptSnapshotManifest;
+	readonly frozenNodeResource: URI;
+	readonly inputs: readonly IBaseHalfCanvasRecipeInput[];
+	readonly runDirectory: URI;
+	readonly inputDirectory: URI;
+	readonly outputDirectory: URI;
+	readonly guardResource: URI;
+	readonly guardValue: string;
+	readonly expectedRunRealpath: URI;
+	readonly expectedInputRealpath: URI;
+	readonly expectedOutputRealpath: URI;
+}
+
 interface IResolvedRunModel {
 	readonly history: BaseHalfNodeAttemptModel;
 	readonly execution?: IBaseHalfModelServiceAttemptSnapshot;
@@ -205,6 +264,22 @@ interface IInputFingerprintCacheEntry {
 	readonly size: number;
 	readonly isDirectory: boolean;
 	readonly digest: string;
+}
+
+interface IBaseHalfProviderFingerprintInput {
+	readonly nodeId: string;
+	readonly nodePath: string;
+	readonly recipe: IBaseHalfNodeRecipe;
+	readonly prompt: string;
+	readonly model?: IBaseHalfModelServiceAttemptSnapshot;
+	readonly inputs: readonly IBaseHalfNodeAttemptInput[];
+	readonly intent: BaseHalfCanvasProviderTaskIntent;
+}
+
+type BaseHalfProviderCreateTaskIntent = Extract<BaseHalfCanvasProviderTaskIntent, { readonly kind: 'new' | 'exact-retry' }>;
+
+interface INormalizedBaseHalfNodeRunOptions {
+	readonly providerAuthorization?: IBaseHalfNodeProviderRunAuthorization;
 }
 
 export interface IBaseHalfNodeIdentityScanLimits {
@@ -283,6 +358,94 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		return this.activeRuns.get(resource.toString())?.state;
 	}
 
+	async prepareProviderRun(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeProviderRunPreflight> {
+		const key = node.resource.toString();
+		if ([...this.structuralOperationBlocks.values()].some(block => baseHalfStructuralOperationAffectsResource(block.operation, block.files, node.resource))) {
+			throw new Error('Wait for the current file operation before preparing this node.');
+		}
+		if (this.workingCopyService.isDirty(node.resource)) {
+			throw new Error('Save this node before preparing provider authorization.');
+		}
+		if (this.activeRuns.has(key)) {
+			throw new Error('This node already has an active run.');
+		}
+
+		return this.mutex.runExclusive(key, async () => {
+			await this.assertSafeNodeResource(node);
+			const initial = await this.readNode(node.resource, false);
+			await baseHalfAssertUniqueNodeIdentity(this.fileService, node, initial.document.id);
+			if (initial.document.result) {
+				throw new Error('A sealed result node cannot run again. Copy its settings into a new draft instead.');
+			}
+			if (initial.document.attempts.some(attempt => attempt.status === 'running')) {
+				throw new Error('Recover or interrupt the existing running Attempt before preparing another run.');
+			}
+			const recipeState = initial.document.recipe;
+			if (!recipeState) {
+				throw new Error('Add a recipe before preparing this node.');
+			}
+			const recipe = this.recipeRegistryService.getRecipe(recipeState.recipeId);
+			if (!recipe || recipe.modelCapability !== 'video' || !baseHalfCanvasRecipeMatchesNodeKind(recipe, initial.document.kind)) {
+				throw new Error('Only an installed reviewed video provider recipe needs provider authorization preflight.');
+			}
+			const parameters = await this.resolveExecutionParameters(recipe, recipeState, initial.document.prompt);
+			const normalizedRecipe: IBaseHalfNodeRecipe = {
+				recipeId: recipe.id,
+				...(recipeState.modelServiceId === undefined ? {} : { modelServiceId: recipeState.modelServiceId }),
+				...(recipeState.modelId === undefined ? {} : { modelId: recipeState.modelId }),
+				parameters,
+				inputBindings: recipeState.inputBindings
+			};
+			const preparedDocument: IBaseHalfNodeDocument = { ...initial.document, recipe: normalizedRecipe };
+			const retrySource = initial.document.attempts.at(-1);
+			this.assertProviderRetryPreflight(recipe, preparedDocument, normalizedRecipe, retrySource);
+			const runModel = await this.resolveRunModel(recipe, recipeState.modelServiceId, recipeState.modelId);
+			if (runModel.preparationError) {
+				throw new Error(runModel.preparationError);
+			}
+			if (retrySource && !retryModelsEqual(retrySource.model, runModel.history)) {
+				throw retryConfigurationChangedError();
+			}
+			await this.extensionService.activateByEvent(`onBaseHalfCanvasRecipe:${recipe.id}`, ActivationKind.Normal);
+			if (!this.recipeRuntimeService.hasExecutor(recipe.id)) {
+				throw new Error(`Recipe '${recipe.label}' is installed but its executor is unavailable.`);
+			}
+			let inputs: readonly IResolvedInput[];
+			if (retrySource) {
+				await this.verifyAttemptRequestFingerprint(node, initial.document, retrySource, runModel.execution);
+				const payload = await this.verifyAttemptSnapshotPayload(node, initial.document, retrySource, recipe);
+				inputs = this.resolvedInputsFromSnapshotPayload(retrySource, payload);
+			} else {
+				await this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings);
+				inputs = await this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, CancellationToken.None);
+			}
+			this.assertVideoInputPreflight(recipe, preparedDocument.prompt, normalizedRecipe, inputs);
+			const intent = createProviderTaskIntent(retrySource, false);
+			const requestFingerprint = await createBaseHalfProviderRequestFingerprint({
+				nodeId: preparedDocument.id,
+				nodePath: node.relativePath,
+				recipe: normalizedRecipe,
+				prompt: preparedDocument.prompt,
+				model: runModel.execution,
+				inputs: inputs.map(input => input.history),
+				intent
+			});
+			await this.preflightRunDirectory(
+				node.workspaceFolder,
+				URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, preparedDocument.id, generateUuid())
+			);
+			const finalRead = await this.readNode(node.resource, false);
+			if (!finalRead.content.value.equals(initial.content.value)) {
+				throw new Error('The node changed during provider preflight. Review the latest Draft and try again.');
+			}
+			return Object.freeze({
+				document: initial.document,
+				requestFingerprint,
+				authorizationKind: intent.kind === 'new' ? 'new' : 'replacement'
+			});
+		});
+	}
+
 	async acquireStructuralOperation(operation: FileOperation, files: readonly SourceTargetPair[], cancellationToken: CancellationToken = CancellationToken.None): Promise<IDisposable> {
 		if (operation !== FileOperation.MOVE && operation !== FileOperation.DELETE) {
 			return toDisposable(() => undefined);
@@ -320,7 +483,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		});
 	}
 
-	run(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfNodeDocument> {
+	run(node: IBaseHalfWorkspaceResource, options: IBaseHalfNodeRunOptions = {}): Promise<IBaseHalfNodeDocument> {
 		const key = node.resource.toString();
 		if ([...this.structuralOperationBlocks.values()].some(block => baseHalfStructuralOperationAffectsResource(block.operation, block.files, node.resource))) {
 			return Promise.reject(new Error('Wait for the current file operation before running this node.'));
@@ -346,7 +509,12 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		this.activeRuns.set(key, active);
 		this._onDidChange.fire({ resource: node.resource, state: active.state });
 
-		return this.mutex.runExclusive(key, () => this.execute(node, active)).finally(async () => {
+		const runOptions = Object.freeze({
+			...(options.providerAuthorization === undefined ? {} : {
+				providerAuthorization: Object.freeze({ ...options.providerAuthorization })
+			})
+		});
+		return this.mutex.runExclusive(key, () => this.execute(node, active, runOptions)).finally(async () => {
 			await this.closeRunLease(active);
 			if (this.activeRuns.get(key) === active) {
 				this.activeRuns.delete(key);
@@ -407,10 +575,33 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			if (acquired.kind !== 'recovery') {
 				throw new Error('The saved run status changed before it could be checked.');
 			}
+			const activated = await this.runLeaseStore.activateRecovered(acquired.handle, running.id);
+			if (!activated) {
+				throw new Error('Another window took ownership while the interrupted run was being recovered.');
+			}
+			const active: IActiveRun = {
+				runId: running.id,
+				cancellation: new CancellationTokenSource(),
+				state: { resource: node.resource, runId: running.id, phase: 'preparing' },
+				userCancelled: false,
+				lease: activated,
+				leaseMutation: Promise.resolve(),
+				leaseClosing: false,
+				leaseLost: false,
+				resultCommitStarted: false
+			};
+			this.activeRuns.set(key, active);
+			this.scheduleRunLeaseHeartbeat(node.resource, active);
+			this._onDidChange.fire({ resource: node.resource, state: active.state });
 			try {
-				return (await this.persistInterruptedRun(node, acquired.abandonedRunId)).document;
+				return await this.executeRecoveredAttempt(node, current, active);
 			} finally {
-				await this.runLeaseStore.release(acquired.handle);
+				await this.closeRunLease(active);
+				if (this.activeRuns.get(key) === active) {
+					this.activeRuns.delete(key);
+					active.cancellation.dispose();
+					this._onDidChange.fire({ resource: node.resource });
+				}
 			}
 		});
 	}
@@ -535,6 +726,72 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		return this.ensureContainedDirectory(workspaceFolder, directory, 'run directory');
 	}
 
+	private async preflightRunDirectory(workspaceFolder: URI, runDirectory: URI): Promise<void> {
+		if (await this.fileService.exists(runDirectory)) {
+			throw new Error('The generated run directory already exists. No Attempt was created.');
+		}
+		for (const directory of [URI.joinPath(workspaceFolder, OUTPUT_DIRECTORY_NAME), dirname(runDirectory)]) {
+			if (!await this.fileService.exists(directory)) {
+				continue;
+			}
+			await this.assertNoSymbolicLinkComponents(workspaceFolder, directory);
+			const stat = await this.fileService.resolve(directory, { resolveMetadata: true });
+			if (!stat.isDirectory || stat.isSymbolicLink) {
+				throw new Error('The project output path is not a regular local directory.');
+			}
+			const [workspaceRealpath, outputRealpath] = await Promise.all([
+				this.fileService.realpath(workspaceFolder),
+				this.fileService.realpath(directory)
+			]);
+			if (!workspaceRealpath || !outputRealpath || !extUri.isEqualOrParent(outputRealpath, workspaceRealpath)) {
+				throw new Error('The project output path cannot be verified inside this workspace.');
+			}
+		}
+	}
+
+	private assertProviderRetryPreflight(
+		recipe: IBaseHalfCanvasRecipeDescriptor,
+		preparedDocument: IBaseHalfNodeDocument,
+		normalizedRecipe: IBaseHalfNodeRecipe,
+		retrySource: IBaseHalfNodeAttempt | undefined
+	): void {
+		if (retrySource && (!hasCompleteFrozenRetryConfiguration(recipe, retrySource)
+			|| !baseHalfNodeRetryConfigurationMatches(preparedDocument.prompt, normalizedRecipe, retrySource))) {
+			throw retryConfigurationChangedError();
+		}
+		if (recipe.modelCapability !== 'video' || !retrySource) {
+			return;
+		}
+		if (retrySource.failure?.retry === 'blocked') {
+			throw new Error('This video Attempt has no safe automatic Retry path. Review its failure before starting a new task.');
+		}
+		if (retrySource.providerRequestId === undefined && retrySource.failure?.retry !== 'fresh-submit') {
+			throw new Error('This video Attempt has neither a durable provider task nor proof that a replacement submission is safe.');
+		}
+	}
+
+	private assertVideoInputPreflight(
+		recipe: IBaseHalfCanvasRecipeDescriptor,
+		prompt: string,
+		normalizedRecipe: IBaseHalfNodeRecipe,
+		inputs: readonly IResolvedInput[]
+	): void {
+		if (recipe.modelCapability !== 'video') {
+			return;
+		}
+		if (!recipe.videoModelCatalogId) {
+			throw new Error(`Video recipe '${recipe.label}' is not bound to a reviewed model catalog.`);
+		}
+		const snapshot = parseBaseHalfVideoModelSelectionSnapshot(
+			normalizedRecipe.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID],
+			recipe.videoModelCatalogId
+		);
+		const actualInputState = videoInputStateForExecution(prompt, inputs);
+		if (!videoInputStatesEqual(snapshot.inputs, actualInputState)) {
+			throw new Error('The direct inputs no longer match the saved video model mode. Open Settings and save this Draft again.');
+		}
+	}
+
 	private async ensureContainedDirectory(allowedRoot: URI, directory: URI, label: string): Promise<void> {
 		await ensureBaseHalfWorkspaceDirectory(this.fileService, allowedRoot, directory, label);
 	}
@@ -568,7 +825,11 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		super.dispose();
 	}
 
-	private async execute(node: IBaseHalfWorkspaceResource, active: IActiveRun): Promise<IBaseHalfNodeDocument> {
+	private async execute(
+		node: IBaseHalfWorkspaceResource,
+		active: IActiveRun,
+		options: INormalizedBaseHalfNodeRunOptions
+	): Promise<IBaseHalfNodeDocument> {
 		if (!node.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			throw new Error(`Only ${BASEHALF_NODE_DOCUMENT_EXTENSION} nodes can run recipes.`);
 		}
@@ -609,95 +870,144 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		};
 		const preparedDocument: IBaseHalfNodeDocument = { ...initial.document, recipe: normalizedRecipe };
 		const retrySource = initial.document.attempts.at(-1);
-		if (retrySource && (!hasCompleteFrozenRetryConfiguration(recipe, retrySource)
-			|| !baseHalfNodeRetryConfigurationMatches(preparedDocument.prompt, normalizedRecipe, retrySource))) {
-			throw retryConfigurationChangedError();
+		this.assertProviderRetryPreflight(recipe, preparedDocument, normalizedRecipe, retrySource);
+		const runModel = await raceCancellationError(
+			this.resolveRunModel(recipe, recipeState.modelServiceId, recipeState.modelId),
+			active.cancellation.token
+		);
+		this.throwIfCancelled(active);
+		if (retrySource) {
+			if (!retryModelsEqual(retrySource.model, runModel.history)) {
+				throw retryConfigurationChangedError();
+			}
 		}
-		const requestedModel = retrySource?.model ?? this.requestedRunModel(recipe, recipeState.modelServiceId, recipeState.modelId);
+		if (runModel.preparationError) {
+			throw new Error(runModel.preparationError);
+		}
+		await raceCancellationError(
+			this.extensionService.activateByEvent(`onBaseHalfCanvasRecipe:${recipe.id}`, ActivationKind.Normal),
+			active.cancellation.token
+		);
+		this.throwIfCancelled(active);
+		if (!this.recipeRuntimeService.hasExecutor(recipe.id)) {
+			throw new Error(`Recipe '${recipe.label}' is installed but its executor is unavailable.`);
+		}
+		let preflightInputs: readonly IResolvedInput[];
+		let retrySnapshotPayload: IVerifiedAttemptSnapshotPayload | undefined;
+		if (recipe.modelCapability === 'video' && retrySource) {
+			await this.verifyAttemptRequestFingerprint(node, initial.document, retrySource, runModel.execution);
+			retrySnapshotPayload = await raceCancellationError(
+				this.verifyAttemptSnapshotPayload(node, initial.document, retrySource, recipe),
+				active.cancellation.token
+			);
+			preflightInputs = this.resolvedInputsFromSnapshotPayload(retrySource, retrySnapshotPayload);
+		} else {
+			await raceCancellationError(
+				this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings),
+				active.cancellation.token
+			);
+			this.throwIfCancelled(active);
+			try {
+				preflightInputs = await raceCancellationError(
+					this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, active.cancellation.token),
+					active.cancellation.token
+				);
+			} catch (error) {
+				if (retrySource && !isCancellationError(error)) {
+					throw retryConfigurationChangedError(error);
+				}
+				throw error;
+			}
+			if (retrySource && !retryInputsEqual(retrySource.inputs, preflightInputs.map(input => input.history))) {
+				throw retryConfigurationChangedError();
+			}
+		}
+		this.assertVideoInputPreflight(recipe, preparedDocument.prompt, normalizedRecipe, preflightInputs);
+		this.throwIfCancelled(active);
+		await this.assertRunLease(active);
+		const inheritedProviderRequestId = retrySource?.providerRequestId;
+		const preflightProviderTaskIntent = recipe.modelCapability === 'video'
+			? createProviderTaskIntent(retrySource, false)
+			: undefined;
+		const providerRequestFingerprint = preflightProviderTaskIntent === undefined ? undefined : await createBaseHalfProviderRequestFingerprint({
+			nodeId: preparedDocument.id,
+			nodePath: node.relativePath,
+			recipe: normalizedRecipe,
+			prompt: preparedDocument.prompt,
+			model: runModel.execution,
+			inputs: preflightInputs.map(input => input.history),
+			intent: preflightProviderTaskIntent
+		});
+		const expectedAuthorizationKind: BaseHalfNodeProviderRunAuthorizationKind | undefined = preflightProviderTaskIntent?.kind === 'new'
+			? 'new'
+			: preflightProviderTaskIntent?.kind === 'exact-retry' ? 'replacement' : undefined;
+		const authorization = options.providerAuthorization;
+		const providerAuthorizationMatches = authorization !== undefined
+			&& authorization.kind === expectedAuthorizationKind
+			&& authorization.requestFingerprint === providerRequestFingerprint;
+		if (authorization !== undefined && !providerAuthorizationMatches) {
+			throw new Error('The provider authorization does not match the current immutable preflight fingerprint. Review the latest Draft and confirm again.');
+		}
+		if (preflightProviderTaskIntent?.kind === 'new' && !providerAuthorizationMatches) {
+			throw new Error('Starting a new video provider task requires its exact current preflight fingerprint and one-use user authorization.');
+		}
+		const providerTaskIntent = preflightProviderTaskIntent?.kind === 'exact-retry'
+			? { ...preflightProviderTaskIntent, replacementAuthorized: providerAuthorizationMatches }
+			: preflightProviderTaskIntent;
+		const providerCreateAuthorizationKind: 'new' | 'replacement' | undefined = providerAuthorizationMatches
+			? expectedAuthorizationKind
+			: undefined;
 		const runDirectory = URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, initial.document.id, active.runId);
 		const inputDirectory = URI.joinPath(runDirectory, INPUT_SNAPSHOT_DIRECTORY_NAME);
 		const outputDirectory = URI.joinPath(runDirectory, ARTIFACT_DIRECTORY_NAME);
 		const guardResource = URI.joinPath(runDirectory, RUN_GUARD_FILE_NAME);
 		const guardValue = generateUuid();
+		await this.preflightRunDirectory(node.workspaceFolder, runDirectory);
+		this.throwIfCancelled(active);
+		await this.assertRunLease(active);
 		let persistedRun = false;
 		let expectedRunRealpath: URI | undefined;
 		let expectedOutputRealpath: URI | undefined;
 		let providerResult: IBaseHalfCanvasRecipeExecutionResult | undefined;
-		const inheritedProviderRequestId = retrySource?.providerRequestId;
 		let acknowledgedProviderRequestId = inheritedProviderRequestId;
 		let mayReplaceInheritedProviderRequestId = inheritedProviderRequestId !== undefined;
 		let providerRequestAcknowledgement = Promise.resolve();
 		let providerRequestAcknowledgementError: Error | undefined;
+		let uncommittedProviderRequestId: string | undefined;
+		let reportedProviderFailure: IBaseHalfNodeAttemptFailure | undefined;
+		let providerCreateAuthorizationConsumed = false;
+		let executorInvoked = false;
+		let executorExecution: Promise<IBaseHalfCanvasRecipeExecutionResult> | undefined;
+		let runDirectoryOwned = false;
 		let accepted: IAcceptedArtifact | undefined;
 		try {
 			const now = new Date().toISOString();
-			const running = beginBaseHalfNodeAttempt(preparedDocument, {
+			let running = beginBaseHalfNodeAttempt(preparedDocument, {
 				id: active.runId,
 				createdAt: now,
 				startedAt: now,
-				model: requestedModel,
-				inputs: retrySource?.inputs ?? []
+				model: runModel.history,
+				inputs: preflightInputs.map(input => input.history)
 			});
+			if (acknowledgedProviderRequestId) {
+				running = freezeBaseHalfNodeAttemptProviderRequestId(running, active.runId, acknowledgedProviderRequestId);
+			}
+			if (providerTaskIntent !== undefined && providerRequestFingerprint !== undefined) {
+				running = freezeBaseHalfNodeAttemptExecution(running, active.runId, {
+					requestFingerprint: providerRequestFingerprint,
+					intent: providerTaskIntent.kind === 'new'
+						? { kind: 'new' }
+						: {
+							kind: 'exact-retry',
+							sourceAttemptId: providerTaskIntent.sourceAttemptId,
+							...(providerTaskIntent.providerRequestId === undefined ? {} : { providerRequestId: providerTaskIntent.providerRequestId }),
+							replacementAuthorized: providerTaskIntent.replacementAuthorized
+						}
+				});
+			}
 			await this.assertRunLease(active);
 			await this.commitExact(node, initial.content.value, running);
 			persistedRun = true;
-			if (acknowledgedProviderRequestId) {
-				await this.assertRunLease(active);
-				await this.patchNode(node, true, current => freezeBaseHalfNodeAttemptProviderRequestId(
-					current,
-					active.runId,
-					acknowledgedProviderRequestId!
-				));
-			}
-			this.throwIfCancelled(active);
-			const runModel = await raceCancellationError(
-				this.resolveRunModel(recipe, recipeState.modelServiceId, recipeState.modelId),
-				active.cancellation.token
-			);
-			this.throwIfCancelled(active);
-			await this.assertRunLease(active);
-			if (retrySource) {
-				if (!retryModelsEqual(retrySource.model, runModel.history)) {
-					throw retryConfigurationChangedError();
-				}
-			} else {
-				await this.patchNode(node, true, document => freezeBaseHalfNodeAttemptModel(document, active.runId, runModel.history));
-			}
-			this.throwIfCancelled(active);
-			if (runModel.preparationError) {
-				throw new Error(runModel.preparationError);
-			}
-			try {
-				await raceCancellationError(
-					this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings),
-					active.cancellation.token
-				);
-			} catch (error) {
-				if (retrySource && !isCancellationError(error)) {
-					throw retryConfigurationChangedError(error);
-				}
-				throw error;
-			}
-			this.throwIfCancelled(active);
-			await raceCancellationError(
-				this.extensionService.activateByEvent(`onBaseHalfCanvasRecipe:${recipe.id}`, ActivationKind.Normal),
-				active.cancellation.token
-			);
-			this.throwIfCancelled(active);
-			if (!this.recipeRuntimeService.hasExecutor(recipe.id)) {
-				throw new Error(`Recipe '${recipe.label}' is installed but its executor is unavailable.`);
-			}
-			try {
-				await raceCancellationError(
-					this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, active),
-					active.cancellation.token
-				);
-			} catch (error) {
-				if (retrySource && !isCancellationError(error)) {
-					throw retryConfigurationChangedError(error);
-				}
-				throw error;
-			}
 			this.throwIfCancelled(active);
 			// Walk and verify every existing ancestor before creating the next
 			// directory. A pre-existing symbolic link must never receive run data.
@@ -709,53 +1019,48 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			expectedOutputRealpath = await this.requireVerifiedDirectory(runDirectory, outputDirectory, 'artifact directory');
 			await this.fileService.createFile(guardResource, VSBuffer.fromString(guardValue), { overwrite: false });
 			await this.assertRunGuard(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath);
+			runDirectoryOwned = true;
 			let inputs: readonly IResolvedInput[];
-			try {
-				inputs = await this.resolveInputs(node, recipe, normalizedRecipe.inputBindings, inputDirectory, active);
-			} catch (error) {
-				if (retrySource && !isCancellationError(error)) {
-					throw retryConfigurationChangedError(error);
+			let frozenNodeResource: URI;
+			if (retrySnapshotPayload) {
+				const copied = await this.copyAttemptSnapshotPayload(node, retrySnapshotPayload, inputDirectory, active);
+				inputs = copied.inputs;
+				frozenNodeResource = copied.frozenNodeResource;
+			} else {
+				try {
+					inputs = await this.resolveInputs(node, recipe, normalizedRecipe.inputBindings, inputDirectory, active);
+				} catch (error) {
+					if (retrySource && !isCancellationError(error)) {
+						throw retryConfigurationChangedError(error);
+					}
+					throw error;
 				}
-				throw error;
+				if (!retryInputsEqual(preflightInputs.map(input => input.history), inputs.map(input => input.history))) {
+					throw new Error('A direct input changed after execution preflight. No provider task was created; review the input and try again.');
+				}
+				this.throwIfCancelled(active);
+				frozenNodeResource = URI.joinPath(inputDirectory, 'node.bhnode');
+				const frozenDeclaration = createBaseHalfNodeDocument({
+					id: preparedDocument.id,
+					kind: preparedDocument.kind,
+					title: preparedDocument.title,
+					role: preparedDocument.role,
+					prompt: preparedDocument.prompt,
+					recipe: normalizedRecipe
+				});
+				await this.fileService.createFile(
+					frozenNodeResource,
+					VSBuffer.fromString(serializeBaseHalfNodeDocument(frozenDeclaration)),
+					{ overwrite: false }
+				);
 			}
-			if (retrySource && !retryInputsEqual(retrySource.inputs, inputs.map(input => input.history))) {
-				throw retryConfigurationChangedError();
+			if (!retryInputsEqual(preflightInputs.map(input => input.history), inputs.map(input => input.history))) {
+				throw new Error('The frozen Retry payload changed after execution preflight. No provider task was created.');
 			}
 			if (recipe.modelCapability === 'video') {
-				if (!recipe.videoModelCatalogId) {
-					throw new Error(`Video recipe '${recipe.label}' is not bound to a reviewed model catalog.`);
-				}
-				const snapshot = parseBaseHalfVideoModelSelectionSnapshot(
-					normalizedRecipe.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID],
-					recipe.videoModelCatalogId
-				);
-				const actualInputState = videoInputStateForExecution(preparedDocument.prompt, inputs);
-				if (!videoInputStatesEqual(snapshot.inputs, actualInputState)) {
-					throw new Error('The direct inputs no longer match the saved video model mode. Open Settings and save this Draft again.');
-				}
-			}
-			this.throwIfCancelled(active);
-			const frozenNodeResource = URI.joinPath(inputDirectory, 'node.bhnode');
-			const frozenDeclaration = createBaseHalfNodeDocument({
-				id: preparedDocument.id,
-				kind: preparedDocument.kind,
-				title: preparedDocument.title,
-				role: preparedDocument.role,
-				prompt: preparedDocument.prompt,
-				recipe: normalizedRecipe
-			});
-			await this.fileService.createFile(
-				frozenNodeResource,
-				VSBuffer.fromString(serializeBaseHalfNodeDocument(frozenDeclaration)),
-				{ overwrite: false }
-			);
-			if (!retrySource && inputs.length > 0) {
-				await this.assertRunLease(active);
-				await this.patchNode(node, true, document => freezeBaseHalfNodeAttemptInputs(
-					document,
-					active.runId,
-					inputs.map(input => input.history)
-				));
+				const snapshotManifest = await this.createAttemptSnapshotManifest(node, recipe, frozenNodeResource, inputs);
+				running = await this.patchNode(node, true, current =>
+					freezeBaseHalfNodeAttemptSnapshotManifest(current, active.runId, snapshotManifest));
 			}
 			this.throwIfCancelled(active);
 			await this.assertRunLease(active);
@@ -772,7 +1077,41 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				...(runModel.execution === undefined ? {} : { modelService: runModel.execution }),
 				inputs: inputs.map(input => input.execution),
 				outputDirectory,
-				...(retrySource?.providerRequestId === undefined ? {} : { resumeProviderRequestId: retrySource.providerRequestId }),
+				...(providerTaskIntent === undefined ? {} : { providerTaskIntent }),
+				...(providerRequestFingerprint === undefined ? {} : { providerRequestFingerprint }),
+				...(recipe.modelCapability === 'video' || retrySource?.providerRequestId === undefined
+					? {}
+					: { resumeProviderRequestId: retrySource.providerRequestId }),
+				...(providerRequestFingerprint === undefined || providerCreateAuthorizationKind === undefined ? {} : {
+					consumeProviderCreateAuthorization: async (fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void> => {
+						if (fingerprint !== providerRequestFingerprint || attemptId !== active.runId
+							|| kind !== providerCreateAuthorizationKind) {
+							throw new Error('The provider create authorization does not match this immutable Attempt.');
+						}
+						if (providerCreateAuthorizationConsumed) {
+							throw new Error('The provider create authorization has already been consumed.');
+						}
+						if (active.cancellation.token.isCancellationRequested || active.leaseLost || active.leaseClosing) {
+							throw new Error('The provider create authorization is no longer active.');
+						}
+						providerCreateAuthorizationConsumed = true;
+						await this.assertRunLease(active);
+					}
+				}),
+				...(providerTaskIntent === undefined ? {} : {
+					reportProviderExecutionFailure: async (failure: IBaseHalfNodeAttemptFailure): Promise<void> => {
+						const normalizedFailure = normalizeBaseHalfNodeAttemptFailure(failure, 'providerFailure');
+						if (normalizedFailure.providerRequestId !== undefined
+							&& normalizedFailure.providerRequestId !== acknowledgedProviderRequestId) {
+							throw new Error('Provider failure evidence references a task that is not durable for this Attempt.');
+						}
+						if (reportedProviderFailure !== undefined
+							&& JSON.stringify(reportedProviderFailure) !== JSON.stringify(normalizedFailure)) {
+							throw new Error('Provider failure evidence changed during one Attempt.');
+						}
+						reportedProviderFailure = normalizedFailure;
+					}
+				}),
 				acknowledgeProviderRequestId: async (providerRequestId: string): Promise<void> => {
 					const operation = providerRequestAcknowledgement.then(async () => {
 						if (acknowledgedProviderRequestId !== undefined) {
@@ -782,6 +1121,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 							if (!mayReplaceInheritedProviderRequestId || inheritedProviderRequestId === undefined
 								|| acknowledgedProviderRequestId !== inheritedProviderRequestId) {
 								throw new Error('The video provider changed its request id more than once during one Attempt.');
+							}
+							if (providerTaskIntent?.kind === 'exact-retry' && !providerCreateAuthorizationConsumed) {
+								throw new Error('The provider replacement task was not covered by this Attempt authorization.');
 							}
 							await this.assertRunLease(active);
 							await this.patchNode(node, true, current => replaceBaseHalfNodeAttemptProviderRequestId(
@@ -794,12 +1136,16 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 							mayReplaceInheritedProviderRequestId = false;
 							return;
 						}
+						if (providerTaskIntent?.kind === 'new' && !providerCreateAuthorizationConsumed) {
+							throw new Error('The provider task was not covered by this Attempt authorization.');
+						}
 						await this.assertRunLease(active);
 						await this.patchNode(node, true, current => freezeBaseHalfNodeAttemptProviderRequestId(current, active.runId, providerRequestId));
 						acknowledgedProviderRequestId = providerRequestId;
 					});
 					providerRequestAcknowledgement = operation.catch(error => {
 						providerRequestAcknowledgementError = error instanceof Error ? error : new Error(String(error));
+						uncommittedProviderRequestId = providerRequestId;
 						active.cancellation.cancel();
 					});
 					return operation;
@@ -810,13 +1156,18 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 					this.reportProgress(node.resource, active, value);
 				}
 			};
+			executorInvoked = true;
+			executorExecution = this.recipeRuntimeService.executeRecipe(recipe.id, request, progress, active.cancellation.token);
 			providerResult = await raceCancellationError(
-				this.recipeRuntimeService.executeRecipe(recipe.id, request, progress, active.cancellation.token),
+				executorExecution,
 				active.cancellation.token
 			);
 			await providerRequestAcknowledgement;
 			if (providerRequestAcknowledgementError) {
 				throw providerRequestAcknowledgementError;
+			}
+			if (providerTaskIntent !== undefined && providerResult.providerRequestId === undefined) {
+				throw new Error('The video recipe executor returned no durable provider request id.');
 			}
 			if (providerResult.providerRequestId !== undefined
 				&& acknowledgedProviderRequestId === undefined) {
@@ -833,25 +1184,102 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			await this.assertRunLease(active);
 			this.beginResultCommit(node.resource, active);
 			return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
-					completedAt: new Date().toISOString(),
-					...acceptedResult
-				}));
+				completedAt: new Date().toISOString(),
+				...acceptedResult
+			}));
 		} catch (error) {
-			if (active.leaseLost) {
-				throw new Error('This run lost its execution ownership before it completed. Its result was not accepted.', { cause: error });
-			}
 			if (!persistedRun) {
 				throw error;
 			}
 			await providerRequestAcknowledgement;
 			const executionFailure = providerRequestAcknowledgementError ?? error;
+			const preserveSealedCandidate = accepted !== undefined && active.resultCommitStarted && !active.leaseLost;
+			let provisionalCleanupRetained = false;
+			if (!preserveSealedCandidate && runDirectoryOwned && expectedRunRealpath && expectedOutputRealpath) {
+				if (executorExecution) {
+					// Preserve the guard and verified output directory until a
+					// non-cooperative executor settles. Removing that ownership
+					// capability here would make a late write impossible to clean safely.
+					provisionalCleanupRetained = !await this.cleanupOwnedRunContents(
+						runDirectory,
+						outputDirectory,
+						guardResource,
+						guardValue,
+						expectedRunRealpath,
+						expectedOutputRealpath
+					);
+					const cleanupAfterExecutor = () => recipe.modelCapability === 'video'
+						? this.cleanupOwnedRunContents(
+							runDirectory,
+							outputDirectory,
+							guardResource,
+							guardValue,
+							expectedRunRealpath!,
+							expectedOutputRealpath!
+						)
+						: this.cleanupOwnedRunDirectory(
+							runDirectory,
+							outputDirectory,
+							guardResource,
+							guardValue,
+							expectedRunRealpath!,
+							expectedOutputRealpath!
+						);
+					void executorExecution.then(cleanupAfterExecutor, cleanupAfterExecutor);
+				} else {
+					provisionalCleanupRetained = !await this.cleanupOwnedRunDirectory(
+						runDirectory,
+						outputDirectory,
+						guardResource,
+						guardValue,
+						expectedRunRealpath,
+						expectedOutputRealpath
+					);
+				}
+			} else if (!preserveSealedCandidate && await this.fileService.exists(runDirectory)) {
+				// Without this invocation's verified guard capability, even a path
+				// under the reserved output tree is not safe to delete recursively.
+				provisionalCleanupRetained = true;
+			}
+			const terminalFailure = provisionalCleanupRetained
+				? new Error(`${executionErrorMessage(executionFailure)} Unsealed run data was retained because safe cleanup could not be proven.`, { cause: executionFailure })
+				: executionFailure;
+			if (active.leaseLost) {
+				throw new Error(`This run lost its execution ownership before it completed. Its result was not accepted.${provisionalCleanupRetained ? ' Unsealed run data was retained because safe cleanup could not be proven.' : ''}`, { cause: error });
+			}
+			if (reportedProviderFailure === undefined && uncommittedProviderRequestId !== undefined) {
+				reportedProviderFailure = normalizeBaseHalfNodeAttemptFailure({
+					kind: 'remote-id-uncommitted',
+					retry: 'blocked',
+					uncommittedProviderRequestId
+				});
+			}
+			if (reportedProviderFailure === undefined && recipe.modelCapability === 'video'
+				&& !executorInvoked && !active.userCancelled && !isCancellationError(error)) {
+				reportedProviderFailure = normalizeBaseHalfNodeAttemptFailure(acknowledgedProviderRequestId === undefined
+					? { kind: 'preparation', retry: 'fresh-submit' }
+					: {
+						kind: 'execution-ownership',
+						retry: 'resume-existing',
+						providerRequestId: acknowledgedProviderRequestId
+					});
+			}
 			await this.assertRunLease(active);
 			if (accepted && active.resultCommitStarted) {
 				const acceptedResult = accepted;
-				return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
-					completedAt: new Date().toISOString(),
-					...acceptedResult
-				}));
+				try {
+					return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
+						completedAt: new Date().toISOString(),
+						...acceptedResult
+					}));
+				} catch (commitError) {
+					const cleaned = runDirectoryOwned && expectedRunRealpath && expectedOutputRealpath
+						? await (recipe.modelCapability === 'video'
+							? this.cleanupOwnedRunContents(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath)
+							: this.cleanupOwnedRunDirectory(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath))
+						: false;
+					throw new Error(`The verified Result could not be committed and was not sealed.${cleaned ? '' : ' Unsealed run data was retained because safe cleanup could not be proven.'}`, { cause: commitError });
+				}
 			}
 			const providerDisclosure = providerResult && !active.userCancelled ? {
 				...(acknowledgedProviderRequestId === undefined ? {} : { providerRequestId: acknowledgedProviderRequestId }),
@@ -862,22 +1290,425 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				return await this.patchNode(node, true, document => cancelBaseHalfNodeAttempt(
 					document,
 					active.runId,
-					{ completedAt: new Date().toISOString(), ...providerDisclosure }
+					{
+						completedAt: new Date().toISOString(),
+						...(provisionalCleanupRetained ? { error: executionErrorMessage(terminalFailure) } : {}),
+						...providerDisclosure
+					}
 				));
 			}
-			if (providerRequestAcknowledgementError === undefined
-				&& (isCancellationError(error) || active.cancellation.token.isCancellationRequested)) {
+			if (reportedProviderFailure?.kind === 'remote-cancelled') {
+				return await this.patchNode(node, true, document => cancelBaseHalfNodeAttempt(document, active.runId, {
+					completedAt: new Date().toISOString(),
+					failure: reportedProviderFailure,
+					...(provisionalCleanupRetained ? { error: executionErrorMessage(terminalFailure) } : {}),
+					...providerDisclosure
+				}));
+			}
+			const interruptionFailure = reportedProviderFailure !== undefined && [
+				'remote-id-uncommitted',
+				'poll-interrupted',
+				'poll-window-exhausted',
+				'protocol',
+				'download',
+				'artifact-commit',
+				'execution-ownership'
+			].includes(reportedProviderFailure.kind);
+			if (interruptionFailure || (providerRequestAcknowledgementError === undefined
+				&& (isCancellationError(error) || active.cancellation.token.isCancellationRequested))) {
 				return await this.patchNode(node, true, document => interruptBaseHalfNodeAttempt(document, active.runId, {
 					completedAt: new Date().toISOString(),
-					error: executionErrorMessage(error)
+					error: executionErrorMessage(terminalFailure),
+					...(reportedProviderFailure === undefined ? {} : { failure: reportedProviderFailure })
 				}));
 			}
 			return await this.patchNode(node, true, document => failBaseHalfNodeAttempt(document, active.runId, {
 				completedAt: new Date().toISOString(),
-				error: executionErrorMessage(executionFailure),
+				error: executionErrorMessage(terminalFailure),
+				...(reportedProviderFailure === undefined ? {} : { failure: reportedProviderFailure }),
 				...providerDisclosure
 			}));
 		}
+	}
+
+	private async executeRecoveredAttempt(
+		node: IBaseHalfWorkspaceResource,
+		initial: IReadNodeDocumentResult,
+		active: IActiveRun
+	): Promise<IBaseHalfNodeDocument> {
+		let context: IRecoveredAttemptContext | undefined;
+		let providerResult: IBaseHalfCanvasRecipeExecutionResult | undefined;
+		let reportedProviderFailure: IBaseHalfNodeAttemptFailure | undefined;
+		let accepted: IAcceptedArtifact | undefined;
+		try {
+			context = await this.verifyRecoveredAttempt(node, initial, active);
+			this.throwIfCancelled(active);
+			await this.assertRunLease(active);
+			this.updateActive(node.resource, active, { phase: 'running' });
+			const providerRequestId = context.attempt.providerRequestId!;
+			const request = {
+				attemptId: active.runId,
+				workspaceFolder: node.workspaceFolder,
+				node: this.toNodeSnapshot(node, context.document, context.frozenNodeResource),
+				recipeId: context.recipe.id,
+				prompt: context.attempt.prompt,
+				parameters: context.attempt.recipe.parameters,
+				modelServiceId: context.modelService.serviceId,
+				modelService: context.modelService,
+				inputs: context.inputs,
+				outputDirectory: context.outputDirectory,
+				providerTaskIntent: { kind: 'recover' as const, providerRequestId },
+				providerRequestFingerprint: context.attempt.execution!.requestFingerprint,
+				reportProviderExecutionFailure: async (failure: IBaseHalfNodeAttemptFailure): Promise<void> => {
+					const normalized = normalizeBaseHalfNodeAttemptFailure(failure, 'providerFailure');
+					if (normalized.providerRequestId !== providerRequestId) {
+						throw new Error('Recovery failure evidence must reference the durable provider task.');
+					}
+					if (reportedProviderFailure !== undefined && JSON.stringify(reportedProviderFailure) !== JSON.stringify(normalized)) {
+						throw new Error('Provider recovery failure evidence changed during one Attempt.');
+					}
+					reportedProviderFailure = normalized;
+				},
+				acknowledgeProviderRequestId: async (acknowledgedId: string): Promise<void> => {
+					if (acknowledgedId !== providerRequestId) {
+						throw new Error('Recovery attempted to change the durable provider task id.');
+					}
+					await this.assertRunLease(active);
+				}
+			};
+			const progress: IProgress<IBaseHalfCanvasRecipeProgress> = {
+				report: value => this.reportProgress(node.resource, active, value)
+			};
+			providerResult = await raceCancellationError(
+				this.recipeRuntimeService.executeRecipe(context.recipe.id, request, progress, active.cancellation.token),
+				active.cancellation.token
+			);
+			if (providerResult.providerRequestId !== providerRequestId) {
+				throw new Error('Recovered provider output does not match the durable task id.');
+			}
+			await this.assertRunLease(active);
+			const acceptedResult = await this.validateArtifact(
+				node.workspaceFolder,
+				initial.document.kind,
+				context.outputDirectory,
+				context.runDirectory,
+				context.guardResource,
+				context.guardValue,
+				context.expectedRunRealpath,
+				context.expectedOutputRealpath,
+				providerResult
+			);
+			this.throwIfCancelled(active);
+			accepted = acceptedResult;
+			await this.assertRunLease(active);
+			this.beginResultCommit(node.resource, active);
+			return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
+				completedAt: new Date().toISOString(),
+				...acceptedResult
+			}));
+		} catch (error) {
+			if (active.leaseLost) {
+				throw new Error('Recovery lost execution ownership before it could accept a Result.', { cause: error });
+			}
+			if (accepted && active.resultCommitStarted) {
+				try {
+					return await this.patchNode(node, true, document => completeBaseHalfNodeAttempt(document, active.runId, {
+						completedAt: new Date().toISOString(),
+						...accepted!
+					}));
+				} catch (commitError) {
+					throw new Error('The recovered Result could not be committed and was not sealed.', { cause: commitError });
+				}
+			}
+			let retainedRunData = false;
+			if (context) {
+				retainedRunData = !await this.cleanupOwnedRunContents(
+					context.runDirectory,
+					context.outputDirectory,
+					context.guardResource,
+					context.guardValue,
+					context.expectedRunRealpath,
+					context.expectedOutputRealpath
+				);
+			} else {
+				const runDirectory = URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, initial.document.id, active.runId);
+				retainedRunData = await this.fileService.exists(runDirectory);
+			}
+			const providerRequestId = initial.document.attempts.find(attempt => attempt.id === active.runId)?.providerRequestId;
+			if (!active.userCancelled && reportedProviderFailure === undefined) {
+				reportedProviderFailure = normalizeBaseHalfNodeAttemptFailure(providerRequestId === undefined
+					? { kind: 'execution-ownership', retry: 'blocked' }
+					: {
+						kind: 'execution-ownership',
+						retry: 'resume-existing',
+						providerRequestId
+					});
+			}
+			const terminalError = `${executionErrorMessage(error)}${retainedRunData
+				? ' Unsealed run data was retained because recovery could not prove safe cleanup ownership.'
+				: ''}`;
+			await this.assertRunLease(active);
+			if (active.userCancelled || reportedProviderFailure?.kind === 'remote-cancelled') {
+				return await this.patchNode(node, true, document => cancelBaseHalfNodeAttempt(document, active.runId, {
+					completedAt: new Date().toISOString(),
+					error: terminalError,
+					...(reportedProviderFailure === undefined ? {} : { failure: reportedProviderFailure })
+				}));
+			}
+			if (reportedProviderFailure?.kind === 'remote-failed') {
+				return await this.patchNode(node, true, document => failBaseHalfNodeAttempt(document, active.runId, {
+					completedAt: new Date().toISOString(),
+					error: terminalError,
+					failure: reportedProviderFailure
+				}));
+			}
+			return await this.patchNode(node, true, document => interruptBaseHalfNodeAttempt(document, active.runId, {
+				completedAt: new Date().toISOString(),
+				error: terminalError,
+				...(reportedProviderFailure === undefined ? {} : { failure: reportedProviderFailure })
+			}));
+		}
+	}
+
+	private async verifyRecoveredAttempt(
+		node: IBaseHalfWorkspaceResource,
+		initial: IReadNodeDocumentResult,
+		active: IActiveRun
+	): Promise<IRecoveredAttemptContext> {
+		const attempt = initial.document.attempts.find(candidate => candidate.id === active.runId);
+		if (!attempt || attempt.status !== 'running') {
+			throw new Error('The abandoned Attempt changed before recovery verification.');
+		}
+		if (!attempt.providerRequestId || !attempt.execution || !attempt.snapshotManifest) {
+			throw new Error('The abandoned Attempt has no complete durable provider recovery payload.');
+		}
+		const recipe = this.recipeRegistryService.getRecipe(attempt.recipe.recipeId);
+		if (!recipe || recipe.modelCapability !== 'video' || !recipe.videoModelCatalogId
+			|| !baseHalfCanvasRecipeMatchesNodeKind(recipe, initial.document.kind)) {
+			throw new Error('The exact provider recipe needed for recovery is unavailable.');
+		}
+		if (attempt.model.source !== 'service' || attempt.model.connection !== 'resolved' || attempt.model.capability !== 'video') {
+			throw new Error('The abandoned Attempt has no resolved frozen video model identity.');
+		}
+		const runModel = await this.resolveRunModel(recipe, attempt.model.serviceId, attempt.model.modelId);
+		if (runModel.preparationError || !runModel.execution || !retryModelsEqual(attempt.model, runModel.history)) {
+			throw new Error(runModel.preparationError ?? 'The frozen model connection identity changed before recovery.');
+		}
+		await this.extensionService.activateByEvent(`onBaseHalfCanvasRecipe:${recipe.id}`, ActivationKind.Normal);
+		if (!this.recipeRuntimeService.hasExecutor(recipe.id)) {
+			throw new Error(`Recipe '${recipe.label}' is installed but its exact executor is unavailable.`);
+		}
+		await this.verifyAttemptRequestFingerprint(node, initial.document, attempt, runModel.execution);
+		const payload = await this.verifyAttemptSnapshotPayload(node, initial.document, attempt, recipe);
+		if (!await this.cleanupOwnedRunContents(
+			payload.runDirectory,
+			payload.outputDirectory,
+			payload.guardResource,
+			payload.guardValue,
+			payload.expectedRunRealpath,
+			payload.expectedOutputRealpath
+		)) {
+			throw new Error('The recovered run output could not be prepared safely.');
+		}
+		return Object.freeze({
+			document: initial.document,
+			attempt,
+			recipe,
+			modelService: runModel.execution,
+			frozenNodeResource: payload.frozenNodeResource,
+			inputs: payload.inputs,
+			runDirectory: payload.runDirectory,
+			outputDirectory: payload.outputDirectory,
+			guardResource: payload.guardResource,
+			guardValue: payload.guardValue,
+			expectedRunRealpath: payload.expectedRunRealpath,
+			expectedOutputRealpath: payload.expectedOutputRealpath
+		});
+	}
+
+	private async verifyAttemptRequestFingerprint(
+		node: IBaseHalfWorkspaceResource,
+		document: IBaseHalfNodeDocument,
+		attempt: IBaseHalfNodeAttempt,
+		modelService: IBaseHalfModelServiceAttemptSnapshot | undefined
+	): Promise<void> {
+		if (!attempt.execution || !attempt.snapshotManifest) {
+			throw new Error('The source Attempt has no complete durable provider execution payload.');
+		}
+		const originalIntent: BaseHalfCanvasProviderTaskIntent = attempt.execution.intent.kind === 'new'
+			? { kind: 'new' }
+			: attempt.execution.intent.kind === 'recover'
+				? { kind: 'recover', providerRequestId: attempt.execution.intent.providerRequestId }
+				: {
+					kind: 'exact-retry',
+					sourceAttemptId: attempt.execution.intent.sourceAttemptId,
+					...(attempt.execution.intent.providerRequestId === undefined ? {} : { providerRequestId: attempt.execution.intent.providerRequestId }),
+					replacementAuthorized: attempt.execution.intent.replacementAuthorized
+				};
+		const fingerprint = await createBaseHalfProviderRequestFingerprint({
+			nodeId: document.id,
+			nodePath: attempt.snapshotManifest.nodePath,
+			recipe: attempt.recipe,
+			prompt: attempt.prompt,
+			model: modelService,
+			inputs: attempt.inputs,
+			intent: originalIntent
+		});
+		if (attempt.snapshotManifest.nodePath !== node.relativePath
+			|| fingerprint !== attempt.execution.requestFingerprint) {
+			throw new Error('The durable provider request fingerprint no longer matches the frozen Attempt.');
+		}
+	}
+
+	private async verifyAttemptSnapshotPayload(
+		node: IBaseHalfWorkspaceResource,
+		document: IBaseHalfNodeDocument,
+		attempt: IBaseHalfNodeAttempt,
+		recipe: IBaseHalfCanvasRecipeDescriptor
+	): Promise<IVerifiedAttemptSnapshotPayload> {
+		const manifest = attempt.snapshotManifest;
+		if (!manifest) {
+			throw new Error('The source Attempt has no durable frozen snapshot manifest.');
+		}
+		if (manifest.nodePath !== node.relativePath) {
+			throw new Error('The node path changed after the provider request was frozen.');
+		}
+		if (!recipe.videoModelCatalogId || recipe.extensionId !== manifest.executorExtensionId
+			|| recipe.videoModelCatalogId !== manifest.videoModelCatalogId) {
+			throw new Error('The provider recipe or catalog owner changed after the Attempt was frozen.');
+		}
+		const runDirectory = URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, document.id, attempt.id);
+		const inputDirectory = URI.joinPath(runDirectory, INPUT_SNAPSHOT_DIRECTORY_NAME);
+		const outputDirectory = URI.joinPath(runDirectory, ARTIFACT_DIRECTORY_NAME);
+		const guardResource = URI.joinPath(runDirectory, RUN_GUARD_FILE_NAME);
+		const expectedRunRealpath = await this.requireVerifiedDirectory(node.workspaceFolder, runDirectory, 'frozen Attempt run directory');
+		const expectedInputRealpath = await this.requireVerifiedDirectory(runDirectory, inputDirectory, 'frozen Attempt input directory');
+		const expectedOutputRealpath = await this.requireVerifiedDirectory(runDirectory, outputDirectory, 'frozen Attempt artifact directory');
+		const guard = await this.fileService.readFile(guardResource, { limits: { size: 256 } });
+		const guardValue = guard.value.toString();
+		if (!guardValue || guardValue.length > 128) {
+			throw new Error('The frozen Attempt run guard is invalid.');
+		}
+		await this.assertRunGuard(runDirectory, outputDirectory, guardResource, guardValue, expectedRunRealpath, expectedOutputRealpath);
+		const frozenNodeResource = joinProjectPath(node.workspaceFolder, manifest.frozenNodePath);
+		if (!extUri.isEqual(frozenNodeResource, URI.joinPath(inputDirectory, 'node.bhnode'))
+			|| await this.fingerprintResource(node.workspaceFolder, frozenNodeResource, true) !== manifest.frozenNodeDigest) {
+			throw new Error('The frozen node declaration failed integrity verification.');
+		}
+		const frozenNode = parseBaseHalfNodeDocumentBytes((await this.fileService.readFile(frozenNodeResource, {
+			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
+		})).value.buffer);
+		if (frozenNode.id !== document.id || frozenNode.kind !== document.kind
+			|| frozenNode.prompt !== attempt.prompt || JSON.stringify(frozenNode.recipe) !== JSON.stringify(attempt.recipe)
+			|| frozenNode.attempts.length !== 0 || frozenNode.result !== undefined) {
+			throw new Error('The frozen node declaration no longer matches its Attempt.');
+		}
+		const inputs: IBaseHalfCanvasRecipeInput[] = [];
+		const seenSnapshots = new Set<string>();
+		for (const mapped of manifest.inputs) {
+			const snapshotResource = joinProjectPath(node.workspaceFolder, mapped.snapshotPath);
+			const snapshotRealpath = await this.fileService.realpath(snapshotResource);
+			if (!snapshotRealpath || !extUri.isEqualOrParent(snapshotRealpath, expectedInputRealpath)
+				|| extUri.isEqual(snapshotRealpath, expectedInputRealpath) || seenSnapshots.has(snapshotRealpath.toString())) {
+				throw new Error(`Frozen input '${mapped.sourcePath}' has an invalid snapshot path.`);
+			}
+			seenSnapshots.add(snapshotRealpath.toString());
+			await this.assertNoSymbolicLinkComponents(inputDirectory, snapshotResource);
+			if (await this.fingerprintResource(node.workspaceFolder, snapshotResource, true) !== mapped.snapshotDigest) {
+				throw new Error(`Frozen input '${mapped.sourcePath}' failed integrity verification.`);
+			}
+			inputs.push(Object.freeze({
+				edgeId: mapped.edgeId,
+				slotId: mapped.slot,
+				order: mapped.order,
+				source: Object.freeze({
+					id: mapped.sourceId,
+					path: mapped.sourcePath,
+					kind: mapped.sourceKind,
+					resource: snapshotResource,
+					result: Object.freeze({
+						id: mapped.resultId,
+						kind: mapped.resultKind,
+						resource: snapshotResource,
+						...(mapped.sourceAttemptId === undefined ? {} : { attemptId: mapped.sourceAttemptId })
+					})
+				})
+			}));
+		}
+		validateBaseHalfCanvasRecipeInputs(recipe, inputs);
+		return Object.freeze({
+			attempt,
+			manifest,
+			frozenNodeResource,
+			inputs: Object.freeze(inputs),
+			runDirectory,
+			inputDirectory,
+			outputDirectory,
+			guardResource,
+			guardValue,
+			expectedRunRealpath,
+			expectedInputRealpath,
+			expectedOutputRealpath
+		});
+	}
+
+	private resolvedInputsFromSnapshotPayload(
+		attempt: IBaseHalfNodeAttempt,
+		payload: IVerifiedAttemptSnapshotPayload
+	): readonly IResolvedInput[] {
+		if (!retryInputsEqual(attempt.inputs, payload.attempt.inputs) || attempt.inputs.length !== payload.inputs.length) {
+			throw new Error('The frozen Retry input history no longer matches its snapshot manifest.');
+		}
+		return Object.freeze(payload.inputs.map((execution, index) => Object.freeze({
+			execution,
+			history: attempt.inputs[index]
+		})));
+	}
+
+	private async copyAttemptSnapshotPayload(
+		node: IBaseHalfWorkspaceResource,
+		payload: IVerifiedAttemptSnapshotPayload,
+		inputDirectory: URI,
+		active: IActiveRun
+	): Promise<{ readonly frozenNodeResource: URI; readonly inputs: readonly IResolvedInput[] }> {
+		const frozenNodeResource = URI.joinPath(inputDirectory, 'node.bhnode');
+		const copiedNode = await this.snapshotResource(node.workspaceFolder, payload.frozenNodeResource, frozenNodeResource, active);
+		if (copiedNode.digest !== payload.manifest.frozenNodeDigest) {
+			throw new Error('The frozen Retry node declaration changed while it was being copied.');
+		}
+		const inputs: IResolvedInput[] = [];
+		for (let index = 0; index < payload.manifest.inputs.length; index++) {
+			const mapped = payload.manifest.inputs[index];
+			const sourceExecution = payload.inputs[index];
+			const sourceResource = sourceExecution.source.result?.resource;
+			if (!sourceResource) {
+				throw new Error(`Frozen input '${mapped.sourcePath}' has no exact Result snapshot.`);
+			}
+			const targetResource = URI.joinPath(inputDirectory, inputSnapshotName(mapped.order, basename(sourceResource)));
+			const copied = await this.snapshotResource(node.workspaceFolder, sourceResource, targetResource, active);
+			if (copied.digest !== mapped.snapshotDigest) {
+				throw new Error(`Frozen input '${mapped.sourcePath}' changed while it was being copied for Retry.`);
+			}
+			const execution: IBaseHalfCanvasRecipeInput = Object.freeze({
+				edgeId: mapped.edgeId,
+				slotId: mapped.slot,
+				order: mapped.order,
+				source: Object.freeze({
+					id: mapped.sourceId,
+					path: mapped.sourcePath,
+					kind: mapped.sourceKind,
+					resource: targetResource,
+					result: Object.freeze({
+						id: mapped.resultId,
+						kind: mapped.resultKind,
+						resource: targetResource,
+						...(mapped.sourceAttemptId === undefined ? {} : { attemptId: mapped.sourceAttemptId })
+					})
+				})
+			});
+			inputs.push(Object.freeze({ execution, history: payload.attempt.inputs[index] }));
+		}
+		return Object.freeze({ frozenNodeResource, inputs: Object.freeze(inputs) });
 	}
 
 	private async acquireRunLease(
@@ -961,9 +1792,22 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				}
 				return current;
 			}
+			const failure = normalizeBaseHalfNodeAttemptFailure({
+				kind: 'execution-ownership',
+				retry: run.providerRequestId === undefined ? 'blocked' : 'resume-existing',
+				...(run.providerRequestId === undefined ? {} : { providerRequestId: run.providerRequestId })
+			});
+			const abandonedRunDirectory = URI.joinPath(node.workspaceFolder, OUTPUT_DIRECTORY_NAME, current.document.id, runId);
+			const retainedRunData = await this.fileService.exists(abandonedRunDirectory);
+			const retainedSuffix = retainedRunData
+				? ' Unsealed run data was retained because restart cannot prove its in-memory ownership capability.'
+				: '';
 			const next = interruptBaseHalfNodeAttempt(current.document, runId, {
 				completedAt: new Date().toISOString(),
-				error: 'The previous execution host stopped before this run completed.'
+				error: run.inputs.length > 0
+					? `The previous execution host stopped, and its exact frozen input snapshot mapping cannot be rebuilt safely.${retainedSuffix}`
+					: `The previous execution host stopped before this run completed.${retainedSuffix}`,
+				failure
 			});
 			try {
 				await this.commitExact(node, current.content.value, next);
@@ -1360,19 +2204,6 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		});
 	}
 
-	private requestedRunModel(recipe: IBaseHalfCanvasRecipeDescriptor, modelServiceId: string | undefined, modelId: string | undefined): BaseHalfNodeAttemptModel {
-		if (!recipe.modelCapability) {
-			return Object.freeze({ source: 'local' });
-		}
-		return Object.freeze({
-			source: 'service',
-			connection: 'unavailable',
-			...(modelServiceId === undefined ? {} : { serviceId: modelServiceId }),
-			capability: recipe.modelCapability,
-			...(modelId === undefined ? {} : { modelId })
-		});
-	}
-
 	private async assertDirectInputsSaved(workspaceFolder: URI, bindings: readonly IBaseHalfNodeInputBinding[]): Promise<void> {
 		const dirty = new Set<string>();
 		for (const binding of bindings) {
@@ -1402,8 +2233,8 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		target: IBaseHalfWorkspaceResource,
 		recipe: IBaseHalfCanvasRecipeDescriptor,
 		bindings: readonly IBaseHalfNodeInputBinding[],
-		active: IActiveRun
-	): Promise<void> {
+		cancellationToken: CancellationToken
+	): Promise<readonly IResolvedInput[]> {
 		const targetNode: IBaseHalfBadgeNode = { ...target, kind: 'file' };
 		const neighborhood = await this.badgeGraphService.readBadgeNeighborhood(targetNode);
 		if (neighborhood.problems.length) {
@@ -1416,21 +2247,27 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			throw new Error(`Assign every direct context connection to this recipe before running. Unassigned: ${unassigned.join(', ')}.`);
 		}
 
-		const inputs: IBaseHalfCanvasRecipeInput[] = [];
+		const inputs: IResolvedInput[] = [];
 		for (const binding of bindings) {
-			this.throwIfCancelled(active);
+			throwIfNodeOperationCancelled(cancellationToken);
 			const sourceBadge = neighborhood.badges.get(binding.sourcePath);
 			if (!targetBadge?.referenced_by.includes(binding.sourcePath) || !sourceBadge?.references.includes(target.relativePath)) {
 				throw new Error(`'${binding.sourcePath}' is not a complete direct context reference into this node.`);
 			}
+			const source = await this.preflightSource(target.workspaceFolder, binding.sourcePath);
+			const revision = await this.getInputRevision(target.workspaceFolder, binding.sourcePath, { fresh: true });
 			inputs.push({
-				edgeId: `${binding.sourcePath}->${target.relativePath}`,
-				slotId: binding.slot,
-				order: binding.order,
-				source: await this.preflightSource(target.workspaceFolder, binding.sourcePath)
+				execution: {
+					edgeId: `${binding.sourcePath}->${target.relativePath}`,
+					slotId: binding.slot,
+					order: binding.order,
+					source
+				},
+				history: { ...binding, revision }
 			});
 		}
-		validateBaseHalfCanvasRecipeInputs(recipe, inputs);
+		validateBaseHalfCanvasRecipeInputs(recipe, inputs.map(input => input.execution));
+		return Object.freeze(inputs);
 	}
 
 	private async preflightSource(workspaceFolder: URI, relativePath: string): Promise<IBaseHalfCanvasNodeSnapshot> {
@@ -1589,6 +2426,56 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		};
 	}
 
+	private async createAttemptSnapshotManifest(
+		node: IBaseHalfWorkspaceResource,
+		recipe: IBaseHalfCanvasRecipeDescriptor,
+		frozenNodeResource: URI,
+		inputs: readonly IResolvedInput[]
+	): Promise<IBaseHalfNodeAttemptSnapshotManifest> {
+		if (!recipe.videoModelCatalogId) {
+			throw new Error(`Video recipe '${recipe.label}' has no durable catalog ownership.`);
+		}
+		const frozenNodePath = extUri.relativePath(node.workspaceFolder, frozenNodeResource);
+		if (!frozenNodePath) {
+			throw new Error('The frozen node snapshot is outside the project.');
+		}
+		const mappedInputs = await Promise.all(inputs.map(async input => {
+			const source = input.execution.source;
+			const result = source.result;
+			const snapshotResource = result?.resource ?? source.resource;
+			if (!snapshotResource || !result) {
+				throw new Error(`Frozen input '${input.history.sourcePath}' has no exact Result snapshot.`);
+			}
+			const snapshotPath = extUri.relativePath(node.workspaceFolder, snapshotResource);
+			if (!snapshotPath) {
+				throw new Error(`Frozen input '${input.history.sourcePath}' is outside the project.`);
+			}
+			return Object.freeze({
+				edgeId: input.execution.edgeId,
+				slot: input.history.slot,
+				order: input.history.order,
+				revision: input.history.revision,
+				sourceId: source.id,
+				sourcePath: source.path,
+				sourceKind: source.kind,
+				snapshotPath,
+				snapshotDigest: await this.fingerprintResource(node.workspaceFolder, snapshotResource, true),
+				resultId: result.id,
+				resultKind: result.kind,
+				...(result.attemptId === undefined ? {} : { sourceAttemptId: result.attemptId })
+			});
+		}));
+		return Object.freeze({
+			version: 1,
+			nodePath: node.relativePath,
+			frozenNodePath,
+			frozenNodeDigest: await this.fingerprintResource(node.workspaceFolder, frozenNodeResource, true),
+			executorExtensionId: recipe.extensionId,
+			videoModelCatalogId: recipe.videoModelCatalogId,
+			inputs: Object.freeze(mappedInputs)
+		});
+	}
+
 	private async validateArtifact(
 		workspaceFolder: URI,
 		nodeKind: BaseHalfNodeArtifactKind,
@@ -1605,22 +2492,50 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		if (artifactResult.kind !== nodeKind) {
 			throw new Error(`Recipe output '${artifactResult.id}' is ${artifactResult.kind}, but this node requires one ${nodeKind} result.`);
 		}
+		if (nodeKind === 'video' && !artifactResult.resource.path.toLowerCase().endsWith('.mp4')) {
+			throw new Error(`Recipe output '${artifactResult.id}' must use the .mp4 extension.`);
+		}
 		await this.assertNoSymbolicLinkComponents(outputDirectory, artifactResult.resource);
 		const stat = await this.fileService.resolve(artifactResult.resource, { resolveMetadata: true });
 		if (!stat.isFile || stat.isSymbolicLink) {
 			throw new Error(`Recipe output '${artifactResult.id}' must be a regular local file.`);
 		}
+		if (nodeKind === 'video') {
+			if (stat.size > MAX_VIDEO_RESULT_BYTES) {
+				throw new Error(`Recipe output '${artifactResult.id}' exceeds the 256 MiB video Result limit.`);
+			}
+			const header = await this.fileService.readFile(artifactResult.resource, {
+				position: 0,
+				length: 12,
+				limits: { size: MAX_VIDEO_RESULT_BYTES }
+			});
+			if (header.value.byteLength < 12
+				|| header.value.buffer[4] !== 0x66
+				|| header.value.buffer[5] !== 0x74
+				|| header.value.buffer[6] !== 0x79
+				|| header.value.buffer[7] !== 0x70) {
+				throw new Error(`Recipe output '${artifactResult.id}' is not a valid MP4 file.`);
+			}
+		}
 		const realpath = await this.fileService.realpath(artifactResult.resource);
 		if (!realpath || !extUri.isEqualOrParent(realpath, expectedOutputRealpath) || extUri.isEqual(realpath, expectedOutputRealpath)) {
 			throw new Error(`Recipe output '${artifactResult.id}' resolves outside its verified run directory.`);
 		}
+		await this.assertSingleArtifactFile(outputDirectory, artifactResult.resource);
 		const relativePath = extUri.relativePath(workspaceFolder, artifactResult.resource);
 		if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
 			throw new Error(`Recipe output '${artifactResult.id}' is outside the project.`);
 		}
+		const firstSha256 = toUrlSafeChecksum(await this.checksumService.checksum(artifactResult.resource));
+		const middleStat = await this.fileService.resolve(artifactResult.resource, { resolveMetadata: true });
+		if (!middleStat.isFile || middleStat.isSymbolicLink || middleStat.etag !== stat.etag || middleStat.size !== stat.size) {
+			throw new Error(`Recipe output '${artifactResult.id}' changed while it was being accepted.`);
+		}
 		const sha256 = toUrlSafeChecksum(await this.checksumService.checksum(artifactResult.resource));
 		const verifiedStat = await this.fileService.resolve(artifactResult.resource, { resolveMetadata: true });
-		if (!verifiedStat.isFile || verifiedStat.isSymbolicLink || verifiedStat.etag !== stat.etag || verifiedStat.size !== stat.size) {
+		if (!verifiedStat.isFile || verifiedStat.isSymbolicLink
+			|| verifiedStat.etag !== middleStat.etag || verifiedStat.size !== middleStat.size
+			|| sha256 !== firstSha256) {
 			throw new Error(`Recipe output '${artifactResult.id}' changed while it was being accepted.`);
 		}
 		const artifact: IBaseHalfNodeResultArtifact = Object.freeze({
@@ -1638,6 +2553,33 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			...(result.usage === undefined ? {} : { usage: result.usage }),
 			...(result.cost === undefined ? {} : { cost: result.cost })
 		});
+	}
+
+	private async assertSingleArtifactFile(outputDirectory: URI, artifact: URI): Promise<void> {
+		const pending = [outputDirectory];
+		let entries = 0;
+		let files = 0;
+		while (pending.length > 0) {
+			const current = pending.pop()!;
+			if (++entries > MAX_RUN_CLEANUP_ENTRIES) {
+				throw new Error('The recipe output directory contains too many entries.');
+			}
+			const stat = await this.fileService.resolve(current, { resolveMetadata: true });
+			if (stat.isSymbolicLink) {
+				throw new Error('The recipe output directory contains a symbolic-link component.');
+			}
+			if (stat.isDirectory) {
+				pending.push(...(stat.children ?? []).map(child => child.resource));
+				continue;
+			}
+			files++;
+			if (!extUri.isEqual(current, artifact)) {
+				throw new Error('The recipe output directory contains an unexpected extra file.');
+			}
+		}
+		if (files !== 1) {
+			throw new Error('The recipe output directory must contain exactly one artifact file.');
+		}
 	}
 
 	private async snapshotResource(
@@ -1803,6 +2745,117 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			throw new Error('The verified run directory changed during execution.');
 		}
 		await this.assertNoSymbolicLinkComponents(runDirectory, outputDirectory);
+	}
+
+	private async cleanupOwnedRunDirectory(
+		runDirectory: URI,
+		outputDirectory: URI,
+		guardResource: URI,
+		guardValue: string,
+		expectedRunRealpath: URI,
+		expectedOutputRealpath: URI
+	): Promise<boolean> {
+		try {
+			if (!await this.fileService.exists(runDirectory)) {
+				return true;
+			}
+			await this.assertRunGuard(
+				runDirectory,
+				outputDirectory,
+				guardResource,
+				guardValue,
+				expectedRunRealpath,
+				expectedOutputRealpath
+			);
+			await this.assertRunTreeSafeForCleanup(runDirectory);
+			await this.fileService.del(runDirectory, { recursive: true, useTrash: false, atomic: false });
+			return !await this.fileService.exists(runDirectory);
+		} catch {
+			return false;
+		}
+	}
+
+	private async cleanupOwnedRunContents(
+		runDirectory: URI,
+		outputDirectory: URI,
+		guardResource: URI,
+		guardValue: string,
+		expectedRunRealpath: URI,
+		expectedOutputRealpath: URI
+	): Promise<boolean> {
+		try {
+			await this.assertRunGuard(
+				runDirectory,
+				outputDirectory,
+				guardResource,
+				guardValue,
+				expectedRunRealpath,
+				expectedOutputRealpath
+			);
+			await this.assertRunTreeSafeForCleanup(runDirectory);
+			const output = await this.fileService.resolve(outputDirectory, { resolveMetadata: true });
+			const pending = [...(output.children ?? []).map(child => child.resource)];
+			const directories: URI[] = [];
+			let entries = 0;
+			while (pending.length > 0) {
+				const current = pending.pop()!;
+				if (++entries > MAX_RUN_CLEANUP_ENTRIES) {
+					throw new Error('The unsealed run contains too many artifact entries for safe cleanup.');
+				}
+				const stat = await this.fileService.resolve(current, { resolveMetadata: true });
+				if (stat.isSymbolicLink || !extUri.isEqualOrParent(current, outputDirectory) || extUri.isEqual(current, outputDirectory)) {
+					throw new Error('The unsealed run contains an unsafe artifact path.');
+				}
+				if (stat.isDirectory) {
+					directories.push(current);
+					for (const child of stat.children ?? []) {
+						pending.push(child.resource);
+					}
+					continue;
+				}
+				if (!stat.isFile) {
+					throw new Error('The unsealed run contains an unsupported artifact entry.');
+				}
+				await this.fileService.del(current, { recursive: false, useTrash: false, atomic: false });
+			}
+			for (const directory of directories.sort((left, right) => right.path.length - left.path.length)) {
+				await this.fileService.del(directory, { recursive: false, useTrash: false, atomic: false });
+			}
+			await this.assertRunGuard(
+				runDirectory,
+				outputDirectory,
+				guardResource,
+				guardValue,
+				expectedRunRealpath,
+				expectedOutputRealpath
+			);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	private async assertRunTreeSafeForCleanup(runDirectory: URI): Promise<void> {
+		const pending = [runDirectory];
+		let entries = 0;
+		while (pending.length > 0) {
+			const current = pending.pop()!;
+			if (++entries > MAX_RUN_CLEANUP_ENTRIES) {
+				throw new Error('The unsealed run contains too many entries for safe cleanup.');
+			}
+			const stat = await this.fileService.resolve(current, { resolveMetadata: true });
+			if (stat.isSymbolicLink) {
+				throw new Error('The unsealed run contains a symbolic link and cannot be safely removed.');
+			}
+			if (stat.isDirectory) {
+				for (const child of stat.children ?? []) {
+					if (!extUri.isEqualOrParent(child.resource, runDirectory) || extUri.isEqual(child.resource, runDirectory)) {
+						throw new Error('The unsealed run contains a path outside its owned directory.');
+					}
+					pending.push(child.resource);
+				}
+			}
+		}
 	}
 
 	private async assertNoSymbolicLinkComponents(root: URI, resource: URI): Promise<void> {
@@ -2227,9 +3280,12 @@ function retryModelsEqual(left: BaseHalfNodeAttemptModel, right: BaseHalfNodeAtt
 
 function hasCompleteFrozenRetryConfiguration(
 	recipe: IBaseHalfCanvasRecipeDescriptor,
-	attempt: { readonly model: BaseHalfNodeAttemptModel; readonly inputs: readonly IBaseHalfNodeAttemptInput[]; readonly recipe: IBaseHalfNodeRecipe }
+	attempt: Pick<IBaseHalfNodeAttempt, 'model' | 'inputs' | 'recipe' | 'execution' | 'snapshotManifest'>
 ): boolean {
 	if (attempt.inputs.length !== attempt.recipe.inputBindings.length) {
+		return false;
+	}
+	if (recipe.modelCapability === 'video' && (!attempt.execution || !attempt.snapshotManifest)) {
 		return false;
 	}
 	return recipe.modelCapability === undefined
@@ -2317,6 +3373,59 @@ function toUrlSafeChecksum(value: string): string {
 async function sha256Text(value: string): Promise<string> {
 	const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
 	return encodeBase64(VSBuffer.wrap(new Uint8Array(digest)), false, true);
+}
+
+function createProviderTaskIntent(
+	retrySource: IBaseHalfNodeAttempt | undefined,
+	replacementAuthorized: boolean
+): BaseHalfProviderCreateTaskIntent {
+	return retrySource === undefined
+		? { kind: 'new' }
+		: {
+			kind: 'exact-retry',
+			sourceAttemptId: retrySource.id,
+			...(retrySource.providerRequestId === undefined ? {} : { providerRequestId: retrySource.providerRequestId }),
+			...(retrySource.failure === undefined ? {} : { sourceFailure: retrySource.failure }),
+			replacementAuthorized
+		};
+}
+
+async function createBaseHalfProviderRequestFingerprint(input: IBaseHalfProviderFingerprintInput): Promise<string> {
+	const material = canonicalProviderFingerprintValue({
+		schemaVersion: 1,
+		nodeId: input.nodeId,
+		nodePath: input.nodePath,
+		recipe: input.recipe,
+		promptSha256: await sha256Text(input.prompt),
+		model: input.model ?? null,
+		inputs: input.inputs,
+		operation: input.intent.kind === 'new'
+			? { kind: 'generate' }
+			: input.intent.kind === 'recover'
+				? { kind: 'recover', providerRequestId: input.intent.providerRequestId }
+				: {
+				kind: input.intent.kind,
+				sourceAttemptId: input.intent.sourceAttemptId,
+				providerRequestId: input.intent.providerRequestId ?? null
+				}
+	});
+	return `v1:${await sha256Text(JSON.stringify(material))}`;
+}
+
+function canonicalProviderFingerprintValue(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(canonicalProviderFingerprintValue);
+	}
+	if (value !== null && typeof value === 'object') {
+		return Object.fromEntries(Object.entries(value as Readonly<Record<string, unknown>>)
+			.filter(([, item]) => item !== undefined)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, item]) => [key, canonicalProviderFingerprintValue(item)]));
+	}
+	if (typeof value === 'number' && Object.is(value, -0)) {
+		return 0;
+	}
+	return value;
 }
 
 async function sourceInputRevision(identity: string, digest: string): Promise<string> {

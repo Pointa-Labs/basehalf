@@ -53,8 +53,23 @@ export interface IBaseHalfModelConnectionNavigationService {
 	readonly onDidComplete: Event<IBaseHalfModelConnectionCompletion>;
 	readonly intent: IBaseHalfModelConnectionIntent | undefined;
 	begin(specId: string, returnTarget?: BaseHalfModelConnectionReturnTarget): IBaseHalfModelConnectionIntent;
-	complete(specId: string, serviceId: string): boolean;
+	complete(specId: string, serviceId: string, requestId?: string): boolean;
+	completeRequest(requestId: string, specId: string, serviceId: string): boolean;
 	cancel(requestId?: string): boolean;
+}
+
+/**
+ * Completes only the request captured before an asynchronous connection check.
+ * An absent capture must never fall through to whichever intent is current when
+ * the check finishes.
+ */
+export function completeCapturedBaseHalfModelConnectionRequest(
+	service: Pick<IBaseHalfModelConnectionNavigationService, 'completeRequest'>,
+	requestId: string | undefined,
+	specId: string,
+	serviceId: string
+): boolean {
+	return requestId !== undefined && service.completeRequest(requestId, specId, serviceId);
 }
 
 export class BaseHalfModelConnectionNavigationService extends Disposable implements IBaseHalfModelConnectionNavigationService {
@@ -86,9 +101,16 @@ export class BaseHalfModelConnectionNavigationService extends Disposable impleme
 		return intent;
 	}
 
-	complete(specId: string, serviceId: string): boolean {
+	complete(specId: string, serviceId: string, requestId?: string): boolean {
 		const intent = this.currentIntent;
-		if (!intent || intent.specId !== specId.trim().toLowerCase()) {
+		return intent
+			? this.completeRequest(requestId ?? intent.requestId, specId, serviceId)
+			: false;
+	}
+
+	completeRequest(requestId: string, specId: string, serviceId: string): boolean {
+		const intent = this.currentIntent;
+		if (!intent || intent.requestId !== requestId || intent.specId !== specId.trim().toLowerCase()) {
 			return false;
 		}
 		this.currentIntent = undefined;

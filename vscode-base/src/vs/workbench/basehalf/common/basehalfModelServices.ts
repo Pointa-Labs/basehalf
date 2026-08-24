@@ -65,6 +65,7 @@ interface IBaseHalfModelServiceCredential {
 interface IBaseHalfStoredModelConnectionState {
 	readonly schemaVersion: typeof BASEHALF_MODEL_CONNECTION_STATE_SCHEMA_VERSION;
 	readonly connections: Readonly<Record<string, IBaseHalfStoredModelConnection>>;
+	readonly attentionConnections: readonly string[];
 	readonly stagedCredentials: Readonly<Record<string, number>>;
 	readonly pendingCredentialCleanup: readonly string[];
 	readonly pendingLegacySecretCleanup: readonly string[];
@@ -120,6 +121,7 @@ export interface IBaseHalfModelServiceService {
 	getServices(consumer?: IBaseHalfPluginContributorIdentity, capability?: BaseHalfModelCapability): Promise<readonly IBaseHalfModelServiceDescriptor[]>;
 	getAccess(consumer: IBaseHalfPluginContributorIdentity, snapshot: IBaseHalfModelServiceAttemptSnapshot): Promise<IBaseHalfModelServiceAccess | undefined>;
 	saveConnection(specId: string, values: Readonly<Record<string, string>>): Promise<IBaseHalfModelServiceDescriptor>;
+	testConnection(specId: string): Promise<IBaseHalfModelServiceDescriptor>;
 	registerConnectionValidator(specId: string, extensionId: string, validator: IBaseHalfModelProviderConnectionValidator): IDisposable;
 	remove(serviceId: string): Promise<void>;
 }
@@ -189,7 +191,7 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 			descriptors.push(Object.freeze({
 				...resolved.configuration,
 				connectionIdentity: resolved.connectionIdentity,
-				configured: credential !== undefined
+				configured: credential !== undefined && !stored.attentionConnections.includes(specId)
 			}));
 		}
 		return Object.freeze(descriptors.sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id)));
@@ -202,8 +204,12 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 			return undefined;
 		}
 		const id = normalizeBaseHalfModelServiceId(snapshot.serviceId);
-		const stored = (await this.readConnectionState()).state.connections[id];
+		const state = (await this.readConnectionState()).state;
+		const stored = state.connections[id];
 		if (!stored) {
+			return undefined;
+		}
+		if (state.attentionConnections.includes(id)) {
 			return undefined;
 		}
 		const resolved = await this.resolveStoredConnection(id, stored);
@@ -277,6 +283,7 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 							...state.connections,
 							[configuration.id]: Object.freeze({ publicValues: resolved.publicValues, credentialRef })
 						},
+						attentionConnections: state.attentionConnections.filter(id => id !== configuration.id),
 						stagedCredentials,
 						pendingCredentialCleanup: previousCredentialKey && previousCredentialKey !== credentialKey
 							? uniqueStrings([...state.pendingCredentialCleanup, previousCredentialKey])
@@ -298,6 +305,40 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 		return descriptor;
 	}
 
+	async testConnection(specId: string): Promise<IBaseHalfModelServiceDescriptor> {
+		await this.initialLegacyCleanup;
+		const id = normalizeBaseHalfModelServiceId(specId);
+		const snapshot = (await this.readConnectionState()).state;
+		const stored = snapshot.connections[id];
+		if (!stored) {
+			throw new Error('This model connection is not configured.');
+		}
+		const connection = await this.resolveStoredConnection(id, stored);
+		if (!connection) {
+			await this.setConnectionAttention(id, stored.credentialRef, true);
+			throw new Error('This model connection no longer matches an installed reviewed provider.');
+		}
+		const credential = await this.readCredential(connection);
+		if (!credential) {
+			await this.setConnectionAttention(id, stored.credentialRef, true);
+			throw new Error('The stored model credential is unavailable. Replace the key or remove the connection.');
+		}
+		const values = { ...connection.configuration.publicValues, ...credential.values };
+		try {
+			const resolved = resolveBaseHalfModelProviderConnection(connection.spec, values);
+			await this.extensionService.activateByEvent(`onBaseHalfModelProviderCatalog:${connection.spec.catalogId}`, ActivationKind.Immediate);
+			await this.providerCatalogService.validateConnection(connection.spec.id, resolved, CancellationToken.None);
+		} catch (error) {
+			await this.setConnectionAttention(id, stored.credentialRef, true);
+			throw new Error(redactBaseHalfModelConnectionSecrets(getErrorMessage(error), credential.values));
+		}
+		const current = await this.setConnectionAttention(id, stored.credentialRef, false);
+		if (current.connections[id]?.credentialRef !== stored.credentialRef) {
+			throw new Error('The model connection changed while it was being tested.');
+		}
+		return Object.freeze({ ...connection.configuration, connectionIdentity: connection.connectionIdentity, configured: true });
+	}
+
 	async remove(serviceId: string): Promise<void> {
 		await this.initialLegacyCleanup;
 		const id = normalizeBaseHalfModelServiceId(serviceId);
@@ -312,6 +353,7 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 				return {
 					...state,
 					connections,
+					attentionConnections: state.attentionConnections.filter(candidate => candidate !== id),
 					pendingCredentialCleanup: uniqueStrings([
 						...state.pendingCredentialCleanup,
 						baseHalfModelServiceCredentialKey(id, previous.credentialRef)
@@ -320,6 +362,31 @@ export class BaseHalfModelServiceService extends Disposable implements IBaseHalf
 			});
 			await this.retryPendingCredentialCleanup();
 		});
+	}
+
+	private async setConnectionAttention(
+		id: string,
+		credentialRef: string,
+		needsAttention: boolean
+	): Promise<IBaseHalfStoredModelConnectionState> {
+		let result: IBaseHalfStoredModelConnectionState | undefined;
+		await this.mutationQueue.queue(async () => {
+			result = await this.updateConnectionState(state => {
+				if (state.connections[id]?.credentialRef !== credentialRef) {
+					return state;
+				}
+				return {
+					...state,
+					attentionConnections: needsAttention
+						? uniqueStrings([...state.attentionConnections, id])
+						: state.attentionConnections.filter(candidate => candidate !== id)
+				};
+			});
+		});
+		if (!result) {
+			throw new Error('The model connection attention state was not updated.');
+		}
+		return result;
 	}
 
 	private assertConsumer(consumer: IBaseHalfPluginContributorIdentity): void {
@@ -708,7 +775,7 @@ function sanitizeStoredModelConnectionState(raw: string | undefined): IBaseHalfS
 		const candidate = JSON.parse(raw) as Record<string, unknown>;
 		if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
 			|| candidate.schemaVersion !== BASEHALF_MODEL_CONNECTION_STATE_SCHEMA_VERSION
-			|| Object.keys(candidate).some(key => !['schemaVersion', 'connections', 'stagedCredentials', 'pendingCredentialCleanup', 'pendingLegacySecretCleanup'].includes(key))) {
+			|| Object.keys(candidate).some(key => !['schemaVersion', 'connections', 'attentionConnections', 'stagedCredentials', 'pendingCredentialCleanup', 'pendingLegacySecretCleanup'].includes(key))) {
 			return emptyStoredModelConnectionState();
 		}
 		const stored = sanitizeBaseHalfStoredModelConnections({
@@ -729,9 +796,13 @@ function sanitizeStoredModelConnectionState(raw: string | undefined): IBaseHalfS
 		const pendingLegacySecretCleanup = Array.isArray(candidate.pendingLegacySecretCleanup)
 			? candidate.pendingLegacySecretCleanup.filter((value): value is string => typeof value === 'string' && /^[a-z][a-z0-9.-]{0,63}$/.test(value)).slice(0, 4096)
 			: [];
+		const attentionConnections = Array.isArray(candidate.attentionConnections)
+			? candidate.attentionConnections.filter((value): value is string => typeof value === 'string' && isCompleteContributionId(value)).slice(0, 256)
+			: [];
 		return normalizeStoredModelConnectionState({
 			schemaVersion: BASEHALF_MODEL_CONNECTION_STATE_SCHEMA_VERSION,
 			connections: stored.connections,
+			attentionConnections,
 			stagedCredentials,
 			pendingCredentialCleanup,
 			pendingLegacySecretCleanup
@@ -755,9 +826,13 @@ function normalizeStoredModelConnectionState(state: IBaseHalfStoredModelConnecti
 	const pendingCredentialCleanup = uniqueStrings(state.pendingCredentialCleanup)
 		.filter(key => isCredentialStorageKey(key) && !live.has(key) && !staged.has(key))
 		.slice(0, 4096);
+	const attentionConnections = uniqueStrings(state.attentionConnections)
+		.filter(id => stored.connections[id] !== undefined)
+		.slice(0, 256);
 	return Object.freeze({
 		schemaVersion: BASEHALF_MODEL_CONNECTION_STATE_SCHEMA_VERSION,
 		connections: stored.connections,
+		attentionConnections: Object.freeze(attentionConnections),
 		stagedCredentials: Object.freeze(stagedCredentials),
 		pendingCredentialCleanup: Object.freeze(pendingCredentialCleanup),
 		pendingLegacySecretCleanup: Object.freeze(uniqueStrings(state.pendingLegacySecretCleanup).filter(id => /^[a-z][a-z0-9.-]{0,63}$/.test(id)).slice(0, 4096))
@@ -768,6 +843,7 @@ function emptyStoredModelConnectionState(): IBaseHalfStoredModelConnectionState 
 	return Object.freeze({
 		schemaVersion: BASEHALF_MODEL_CONNECTION_STATE_SCHEMA_VERSION,
 		connections: Object.freeze({}),
+		attentionConnections: Object.freeze([]),
 		stagedCredentials: Object.freeze({}),
 		pendingCredentialCleanup: Object.freeze([]),
 		pendingLegacySecretCleanup: Object.freeze([])

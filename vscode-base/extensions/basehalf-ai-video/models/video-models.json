@@ -490,7 +490,7 @@
               "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
               "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
             },
-            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1 },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1, "unit": "s" },
             {
               "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
               "options": [
@@ -544,7 +544,7 @@
               "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
               "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
             },
-            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1 },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 15, "step": 1, "unit": "s" },
             {
               "id": "audioMode", "label": "Audio", "type": "enum", "default": "generate",
               "options": [
@@ -611,7 +611,7 @@
               "id": "resolution", "label": "Resolution", "type": "enum", "default": "1080P",
               "options": [{ "value": "720P", "label": "720P" }, { "value": "1080P", "label": "1080P" }]
             },
-            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 10, "step": 1 },
+            { "id": "durationSeconds", "label": "Duration", "type": "range", "default": 5, "minimum": 2, "maximum": 10, "step": 1, "unit": "s" },
             {
               "id": "shotType", "label": "Shot Type", "type": "enum", "default": "multi",
               "options": [{ "value": "single", "label": "Single Shot" }, { "value": "multi", "label": "Multi Shot" }]

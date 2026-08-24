@@ -27,6 +27,8 @@ const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 const SMOKE_VIDEO_PROVIDER_SPEC_ID = 'pointa.basehalf-ai-video.byteplus-modelark';
 const SMOKE_VIDEO_MODEL_ID = 'dreamina-seedance-2-0-mini-260615';
 const SMOKE_VIDEO_MODEL_LABEL = 'Seedance 2.0 Mini';
+const SMOKE_VIDEO_ALTERNATE_MODEL_ID = 'seedance-1-5-pro-251215';
+const SMOKE_VIDEO_ALTERNATE_MODEL_LABEL = 'Seedance 1.5 Pro';
 const SMOKE_WINDOW_CONTENT_SIZE = Object.freeze({ width: 1280, height: 860 });
 const VIDEO_COMPOSER_SCREEN_GAP = 16;
 const VIDEO_COMPOSER_SCREEN_HEIGHT = 172;
@@ -3285,6 +3287,16 @@ async function assertVideoNodeUI(page) {
 	const relativeNodePath = 'shots/shot-01/clip.bhnode';
 	const canvasPath = `${workflowName}/${relativeNodePath}`;
 	const nodePath = path.join(workspacePath, workflowName, relativeNodePath);
+	const startFramePath = `${workflowName}/shots/shot-01/smoke-start-frame.svg`;
+	const endFramePath = `${workflowName}/shots/shot-01/smoke-end-frame.svg`;
+	for (const [relativePath, fill] of [[startFramePath, '#4f7cff'], [endFramePath, '#dc6b8a']]) {
+		fs.writeFileSync(path.join(workspacePath, relativePath), [
+			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">',
+			`  <rect width="320" height="180" fill="${fill}"/>`,
+			'</svg>',
+			''
+		].join('\n'), 'utf8');
+	}
 	const nodeDocument = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 	if (nodeDocument.version !== 3
 		|| nodeDocument.kind !== 'video'
@@ -3298,9 +3310,13 @@ async function assertVideoNodeUI(page) {
 	const clip = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${canvasPath}"]`);
 	const audio = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}/shots/shot-01/audio.bhnode"]`);
 	const shot = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}/shots/shot-01/shot.json"]`);
+	const startFrame = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${startFramePath}"]`);
+	const endFrame = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${endFramePath}"]`);
 	await clip.waitFor({ state: 'attached', timeout: 15_000 });
 	await audio.waitFor({ state: 'attached', timeout: 15_000 });
 	await shot.waitFor({ state: 'attached', timeout: 15_000 });
+	await startFrame.waitFor({ state: 'attached', timeout: 15_000 });
+	await endFrame.waitFor({ state: 'attached', timeout: 15_000 });
 	await zoomCanvas(page, 'reset');
 	await centerCanvasCards(page, [clip, audio]);
 	await page.waitForFunction(({ videoPath, audioPath }) => {
@@ -3775,7 +3791,489 @@ async function assertVideoNodeUI(page) {
 			canonicalSelection
 		})}`);
 	}
-	stableComposerContext = settingsOpenContext;
+	const startEndMethod = settingsPopover.getByRole('radio', { name: 'Start + End Frames', exact: true });
+	if (await startEndMethod.count() !== 1 || await startEndMethod.isDisabled()) {
+		throw new Error('The reviewed Start + End Frames method was hidden or disabled because its frame inputs are still empty');
+	}
+	await startEndMethod.click();
+	await page.waitForFunction(path => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(path)}"]`);
+		const selectedMethod = surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings [role="radio"][aria-checked="true"]');
+		const primary = surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary');
+		const status = surface?.querySelector<HTMLElement>('.basehalf-video-capability-status');
+		return selectedMethod?.textContent?.trim() === 'Start + End Frames'
+			&& primary?.dataset.nodeAction === 'configure'
+			&& !primary.disabled
+			&& primary.getAttribute('aria-label')?.includes('Add Start Frame.')
+			&& status?.textContent?.trim() === 'Add Start Frame.';
+	}, canvasPath, { timeout: 10_000 });
+	const incompleteFrameMethod = await settingsPopover.evaluate(popover => {
+		const surface = popover.closest('.basehalf-video-composer');
+		return {
+			mode: popover.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.textContent?.trim(),
+			status: popover.querySelector<HTMLElement>('.basehalf-video-capability-status')?.textContent?.trim(),
+			primaryDisabled: surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.disabled,
+			parameterFields: popover.querySelectorAll('.basehalf-video-capability-field').length,
+			frameRoles: [...(surface?.querySelectorAll<HTMLElement>('.basehalf-video-frame-slot') ?? [])].map(slot => slot.dataset.frameRole),
+			emptyFrameSlots: surface?.querySelectorAll('.basehalf-video-frame-slot.empty').length,
+			frameRemoveActions: surface?.querySelectorAll('.basehalf-video-frame-slot-remove').length,
+			frameSwapActions: surface?.querySelectorAll('.basehalf-video-frame-swap').length
+		};
+	});
+	if (incompleteFrameMethod.mode !== 'Start + End Frames'
+		|| incompleteFrameMethod.status !== 'Add Start Frame.'
+		|| incompleteFrameMethod.primaryDisabled !== false
+		|| incompleteFrameMethod.parameterFields < 2
+		|| incompleteFrameMethod.frameRoles.join(',') !== 'first-frame,last-frame'
+		|| incompleteFrameMethod.emptyFrameSlots !== 2
+		|| incompleteFrameMethod.frameRemoveActions !== 0
+		|| incompleteFrameMethod.frameSwapActions !== 0) {
+		throw new Error(`A valid incomplete frame method did not remain selected with its settings visible: ${JSON.stringify(incompleteFrameMethod)}`);
+	}
+	await page.keyboard.press('Escape');
+	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	const canvasYamlPath = path.join(workspacePath, '.bh', 'mirror', workflowName, 'shots', 'shot-01', 'canvas.yaml');
+	const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', ...canvasPath.split('/'), 'badge.yaml');
+	const startFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...startFramePath.split('/'), 'badge.yaml');
+	const endFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...endFramePath.split('/'), 'badge.yaml');
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	await startFrame.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
+		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
+	)?.classList.contains('basehalf-video-input-pick-eligible') === true
+		&& document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+		)?.textContent?.includes('Select a highlighted card') === true,
+	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	const checkpointedBeforeCancelledPick = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+	if (checkpointedBeforeCancelledPick.recipe?.recipeId !== 'pointa.basehalf-ai-video.generate-video'
+		|| checkpointedBeforeCancelledPick.recipe?.parameters?.generationMode !== 'first-last-frame-to-video'
+		|| checkpointedBeforeCancelledPick.recipe?.inputBindings?.length !== 0) {
+		throw new Error(`Canvas pick did not checkpoint the exact frame method before accepting an input: ${JSON.stringify(checkpointedBeforeCancelledPick.recipe)}`);
+	}
+	const nodeBeforeCancelledPick = fs.readFileSync(nodePath, 'utf8');
+	const canvasBeforeCancelledPick = fs.readFileSync(canvasYamlPath, 'utf8');
+	await page.keyboard.press('Escape');
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	if (fs.readFileSync(nodePath, 'utf8') !== nodeBeforeCancelledPick
+		|| fs.readFileSync(canvasYamlPath, 'utf8') !== canvasBeforeCancelledPick) {
+		throw new Error('Cancelling Video input pick changed the target document or graph');
+	}
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
+	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
+		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
+	)?.classList.contains('basehalf-video-input-pick-eligible') === true
+		&& document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+		)?.textContent?.includes('Select a highlighted card') === true,
+	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	await startFrame.focus();
+	await page.keyboard.press('Enter');
+	await page.waitForFunction(({ targetPath, sourcePath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		return start?.classList.contains('empty') === false
+			&& start?.textContent?.includes(sourcePath.split('/').at(-1) ?? sourcePath)
+			&& end?.classList.contains('empty') === true;
+	}, { targetPath: canvasPath, sourcePath: startFramePath }, { timeout: 15_000 });
+	const startOnlyNodeContents = fs.readFileSync(nodePath, 'utf8');
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="last-frame"] .basehalf-video-frame-slot-open').click();
+	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
+		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
+	)?.classList.contains('basehalf-video-input-pick-eligible') === true
+		&& document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+		)?.textContent?.includes('Select a highlighted card') === true,
+	{ sourcePath: endFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	await endFrame.focus();
+	await page.keyboard.press('Enter');
+	await page.waitForFunction(({ targetPath, startPath, endPath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		return start?.textContent?.includes(startPath.split('/').at(-1) ?? startPath)
+			&& end?.textContent?.includes(endPath.split('/').at(-1) ?? endPath)
+			&& surface?.querySelector('.basehalf-video-frame-swap') !== null;
+	}, { targetPath: canvasPath, startPath: startFramePath, endPath: endFramePath }, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const bindings = saved.recipe?.inputBindings ?? [];
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
+		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
+		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
+		return bindings.length === 2
+			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame' && typeof binding.sourceRevision === 'string')
+			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame' && typeof binding.sourceRevision === 'string')
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === 1
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === 1
+			&& canvas.split('\nedges:\n')[1]?.split(`to: "${canvasPath}"`).length === 3
+			&& targetBadge.includes(startFramePath)
+			&& targetBadge.includes(endFramePath)
+			&& startBadge.includes(canvasPath)
+			&& endBadge.includes(canvasPath);
+	}, 'Video Start and End bindings plus two graph edges to persist', 15_000);
+	const twoFrameNodeContents = fs.readFileSync(nodePath, 'utf8');
+	const twoFrameCanvasContents = fs.readFileSync(canvasYamlPath, 'utf8');
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="last-frame"] .basehalf-video-frame-slot-open').focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await page.waitForFunction(({ targetPath, startPath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		return start?.textContent?.includes(startPath.split('/').at(-1) ?? startPath) === true
+			&& end?.classList.contains('empty') === true;
+	}, { targetPath: canvasPath, startPath: startFramePath }, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const bindings = saved.recipe?.inputBindings ?? [];
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
+		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
+		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
+		return bindings.length === 1
+			&& bindings[0]?.sourcePath === startFramePath
+			&& bindings[0]?.slot === 'first-frame'
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === 1
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === undefined
+			&& canvas.includes(`from: "${startFramePath}"`)
+			&& !canvas.includes(`from: "${endFramePath}"`)
+			&& targetBadge.includes(startFramePath)
+			&& !targetBadge.includes(endFramePath)
+			&& startBadge.includes(canvasPath)
+			&& !endBadge.includes(canvasPath);
+	}, 'Undo to atomically remove the End binding, reciprocal reference, and canvas edge', 15_000);
+
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y');
+	await page.waitForFunction(({ targetPath, startPath, endPath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		return start?.textContent?.includes(startPath.split('/').at(-1) ?? startPath) === true
+			&& end?.textContent?.includes(endPath.split('/').at(-1) ?? endPath) === true;
+	}, { targetPath: canvasPath, startPath: startFramePath, endPath: endFramePath }, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const bindings = saved.recipe?.inputBindings ?? [];
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
+		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
+		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
+		return bindings.length === 2
+			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame')
+			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame')
+			&& canvas.includes(`from: "${startFramePath}"`)
+			&& canvas.includes(`from: "${endFramePath}"`)
+			&& targetBadge.includes(startFramePath)
+			&& targetBadge.includes(endFramePath)
+			&& startBadge.includes(canvasPath)
+			&& endBadge.includes(canvasPath);
+	}, 'Redo to atomically restore the End binding, reciprocal reference, and canvas edge', 15_000);
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
+	await page.waitForFunction(targetPath => {
+		const text = document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+		)?.textContent ?? '';
+		return text.includes('Press Escape to cancel') && !text.includes('Checking saved canvas sources');
+	}, canvasPath, { timeout: 15_000 });
+	fs.writeFileSync(nodePath, startOnlyNodeContents, 'utf8');
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 15_000 });
+	await page.waitForFunction(targetPath => {
+		const surface = document.querySelector<HTMLElement>(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`
+		);
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		const status = surface?.querySelector('.basehalf-node-local-footer-message')?.textContent ?? '';
+		return end?.classList.contains('empty') === true
+			&& status.trim() === 'Add End Frame.';
+	}, canvasPath, { timeout: 15_000 });
+	if (fs.readFileSync(nodePath, 'utf8') !== startOnlyNodeContents
+		|| fs.readFileSync(canvasYamlPath, 'utf8') !== twoFrameCanvasContents) {
+		throw new Error('An external old-configuration write was swallowed or mutated by the pending input pick');
+	}
+
+	fs.writeFileSync(nodePath, twoFrameNodeContents, 'utf8');
+	await page.waitForFunction(({ targetPath, startPath, endPath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		const end = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="last-frame"]');
+		return start?.textContent?.includes(startPath.split('/').at(-1) ?? startPath) === true
+			&& end?.textContent?.includes(endPath.split('/').at(-1) ?? endPath) === true;
+	}, { targetPath: canvasPath, startPath: startFramePath, endPath: endFramePath }, { timeout: 15_000 });
+
+	const preservedModelSwitchNode = fs.readFileSync(nodePath, 'utf8');
+	const preservedModelSwitchCanvas = fs.readFileSync(canvasYamlPath, 'utf8');
+	const preservedModelSwitchChrome = await captureVideoAttachedChrome(page, canvasPath);
+	await modelTrigger.click();
+	await modelsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const alternateModel = modelsPopover.locator(
+		`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_ALTERNATE_MODEL_ID}"]`
+	);
+	await alternateModel.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await alternateModel.getAttribute('data-connection-state') !== 'available'
+		|| await alternateModel.getAttribute('aria-pressed') !== 'false'
+		|| await alternateModel.isDisabled()) {
+		throw new Error(`The second exact model in the connected scope was not selectable: ${JSON.stringify({
+			connectionState: await alternateModel.getAttribute('data-connection-state'),
+			selected: await alternateModel.getAttribute('aria-pressed'),
+			disabled: await alternateModel.isDisabled()
+		})}`);
+	}
+	await alternateModel.click();
+	await page.waitForFunction(({ targetPath, modelId, label }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const selected = surface?.querySelector<HTMLElement>(
+			`.basehalf-video-composer-popover.models .basehalf-video-model-option[data-model-id="${CSS.escape(modelId)}"]`
+		);
+		return selected?.getAttribute('aria-pressed') === 'true'
+			&& surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
+	}, { targetPath: canvasPath, modelId: SMOKE_VIDEO_ALTERNATE_MODEL_ID, label: SMOKE_VIDEO_ALTERNATE_MODEL_LABEL }, { timeout: 10_000 });
+	const alternateModelInputPresentation = await composer.evaluate((surface, expected) => {
+		const slots = [...surface.querySelectorAll<HTMLElement>('.basehalf-video-frame-slot')].map(slot => ({
+			role: slot.dataset.frameRole,
+			empty: slot.classList.contains('empty'),
+			text: slot.textContent?.replace(/\s+/g, ' ').trim()
+		}));
+		return {
+			model: surface.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim(),
+			slots,
+			startMatches: slots[0]?.text?.includes(expected.startName),
+			endMatches: slots[1]?.text?.includes(expected.endName)
+		};
+	}, { startName: startFramePath.split('/').at(-1), endName: endFramePath.split('/').at(-1) });
+	const alternateModelChrome = await captureVideoAttachedChrome(page, canvasPath);
+	if (fs.readFileSync(nodePath, 'utf8') !== preservedModelSwitchNode
+		|| fs.readFileSync(canvasYamlPath, 'utf8') !== preservedModelSwitchCanvas
+		|| alternateModelInputPresentation.model !== SMOKE_VIDEO_ALTERNATE_MODEL_LABEL
+		|| alternateModelInputPresentation.slots.map(slot => slot.role).join(',') !== 'first-frame,last-frame'
+		|| alternateModelInputPresentation.slots.some(slot => slot.empty)
+		|| !alternateModelInputPresentation.startMatches
+		|| !alternateModelInputPresentation.endMatches
+		|| alternateModelChrome.promptValue !== preservedModelSwitchChrome.promptValue
+		|| alternateModelChrome.viewportTransform !== preservedModelSwitchChrome.viewportTransform) {
+		throw new Error(`Changing exact models rewrote inputs, graph, prompt, or viewport before review: ${JSON.stringify({
+			presentation: alternateModelInputPresentation,
+			promptBefore: preservedModelSwitchChrome.promptValue,
+			promptAfter: alternateModelChrome.promptValue,
+			viewportBefore: preservedModelSwitchChrome.viewportTransform,
+			viewportAfter: alternateModelChrome.viewportTransform,
+			nodeChanged: fs.readFileSync(nodePath, 'utf8') !== preservedModelSwitchNode,
+			canvasChanged: fs.readFileSync(canvasYamlPath, 'utf8') !== preservedModelSwitchCanvas
+		})}`);
+	}
+
+	await modelTrigger.click();
+	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	await settingsTrigger.click();
+	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const modelAdjustmentDetails = await settingsPopover.locator('.basehalf-video-settings-adjustments li').allTextContents();
+	if (modelAdjustmentDetails.length !== 1
+		|| !modelAdjustmentDetails[0].includes('Fixed Camera')
+		|| !modelAdjustmentDetails[0].includes('Off')
+		|| !modelAdjustmentDetails[0].includes('No compatible saved value was present.')) {
+		throw new Error(`The exact-model switch did not expose its complete scalar adjustment detail: ${JSON.stringify(modelAdjustmentDetails)}`);
+	}
+	await page.keyboard.press('Escape');
+	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-remove').click();
+	await page.waitForFunction(targetPath => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		return surface?.querySelector('.basehalf-video-frame-slot[data-frame-role="first-frame"]')?.classList.contains('empty') === true
+			&& surface?.querySelector('.basehalf-video-frame-slot[data-frame-role="last-frame"]')?.classList.contains('empty') === false;
+	}, canvasPath, { timeout: 15_000 });
+	await settingsTrigger.click();
+	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const blockerBeforeCheckpoint = await settingsPopover.locator('.basehalf-video-capability-status').textContent();
+	const adjustmentsBeforeCheckpoint = await settingsPopover.locator('.basehalf-video-settings-adjustments li').allTextContents();
+	if (blockerBeforeCheckpoint?.trim() !== 'Add Start Frame.'
+		|| JSON.stringify(adjustmentsBeforeCheckpoint) !== JSON.stringify(modelAdjustmentDetails)) {
+		throw new Error(`The missing-input blocker did not outrank the complete model adjustment detail: ${JSON.stringify({
+			blockerBeforeCheckpoint,
+			adjustmentsBeforeCheckpoint,
+			modelAdjustmentDetails
+		})}`);
+	}
+	await page.keyboard.press('Escape');
+	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Escape');
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		return saved.recipe?.modelId === SMOKE_VIDEO_ALTERNATE_MODEL_ID
+			&& saved.recipe?.inputBindings?.length === 1
+			&& saved.recipe.inputBindings[0]?.sourcePath === endFramePath
+			&& saved.recipe.inputBindings[0]?.slot === 'last-frame';
+	}, 'the alternate exact model checkpoint to persist before a cancelled Start pick', 15_000);
+	await settingsTrigger.click();
+	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const blockerAfterCheckpoint = await settingsPopover.locator('.basehalf-video-capability-status').textContent();
+	const adjustmentsAfterCheckpoint = await settingsPopover.locator('.basehalf-video-settings-adjustments li').allTextContents();
+	if (blockerAfterCheckpoint?.trim() !== 'Add Start Frame.'
+		|| JSON.stringify(adjustmentsAfterCheckpoint) !== JSON.stringify(modelAdjustmentDetails)) {
+		throw new Error(`Input checkpoint and Cancel lost the reviewable blocker or adjustment detail: ${JSON.stringify({
+			blockerAfterCheckpoint,
+			adjustmentsAfterCheckpoint,
+			modelAdjustmentDetails
+		})}`);
+	}
+	await page.keyboard.press('Escape');
+	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
+		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
+	)?.classList.contains('basehalf-video-input-pick-eligible') === true
+		&& document.querySelector(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+		)?.textContent?.includes('Select a highlighted card') === true,
+	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	await startFrame.focus();
+	await page.keyboard.press('Enter');
+	await page.waitForFunction(({ targetPath, sourcePath }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const start = surface?.querySelector<HTMLElement>('.basehalf-video-frame-slot[data-frame-role="first-frame"]');
+		return start?.classList.contains('empty') === false
+			&& start.textContent?.includes(sourcePath.split('/').at(-1) ?? sourcePath) === true;
+	}, { targetPath: canvasPath, sourcePath: startFramePath }, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const bindings = saved.recipe?.inputBindings ?? [];
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		return bindings.length === 2
+			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame')
+			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame')
+			&& canvas.split('\nedges:\n')[1]?.split(`to: "${canvasPath}"`).length === 3;
+	}, 'the Start binding and its graph edge to be restored after adjustment review', 15_000);
+
+	await modelTrigger.click();
+	await modelsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	const originalModel = modelsPopover.locator(
+		`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_MODEL_ID}"]`
+	);
+	await originalModel.click();
+	await page.waitForFunction(({ targetPath, modelId, label }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		const selected = surface?.querySelector<HTMLElement>(
+			`.basehalf-video-composer-popover.models .basehalf-video-model-option[data-model-id="${CSS.escape(modelId)}"]`
+		);
+		return selected?.getAttribute('aria-pressed') === 'true'
+			&& surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
+	}, { targetPath: canvasPath, modelId: SMOKE_VIDEO_MODEL_ID, label: SMOKE_VIDEO_MODEL_LABEL }, { timeout: 10_000 });
+	await modelTrigger.click();
+	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	const restoredModelCanvas = fs.readFileSync(canvasYamlPath, 'utf8');
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Escape');
+	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		return saved.recipe?.modelId === SMOKE_VIDEO_MODEL_ID
+			&& saved.recipe?.inputBindings?.length === 2
+			&& saved.recipe.inputBindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame')
+			&& saved.recipe.inputBindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame');
+	}, 'the original exact model to persist after a cancelled replacement pick', 15_000);
+	const restoredModelChrome = await captureVideoAttachedChrome(page, canvasPath);
+	const restoredModelSlots = await composer.locator('.basehalf-video-frame-slot').evaluateAll(slots => slots.map(slot => ({
+		role: (slot as HTMLElement).dataset.frameRole,
+		empty: slot.classList.contains('empty')
+	})));
+	if (fs.readFileSync(canvasYamlPath, 'utf8') !== restoredModelCanvas
+		|| restoredModelSlots.map(slot => slot.role).join(',') !== 'first-frame,last-frame'
+		|| restoredModelSlots.some(slot => slot.empty)
+		|| restoredModelChrome.promptValue !== preservedModelSwitchChrome.promptValue
+		|| restoredModelChrome.viewportTransform !== preservedModelSwitchChrome.viewportTransform) {
+		throw new Error(`Restoring the original exact model changed graph, slot roles, prompt, or viewport: ${JSON.stringify({
+			restoredModelSlots,
+			promptBefore: preservedModelSwitchChrome.promptValue,
+			promptAfter: restoredModelChrome.promptValue,
+			viewportBefore: preservedModelSwitchChrome.viewportTransform,
+			viewportAfter: restoredModelChrome.viewportTransform,
+			canvasChanged: fs.readFileSync(canvasYamlPath, 'utf8') !== restoredModelCanvas
+		})}`);
+	}
+
+	fs.rmSync(path.join(workspacePath, startFramePath));
+	await startFrame.waitFor({ state: 'detached', timeout: 15_000 });
+	await page.waitForFunction(({ targetPath, sourcePath }) => {
+		const surface = document.querySelector<HTMLElement>(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`
+		);
+		const slot = document.querySelector<HTMLElement>(
+			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-frame-slot[data-frame-role="first-frame"]`
+		);
+		const remove = slot?.querySelector<HTMLButtonElement>('.basehalf-video-frame-slot-remove');
+		const status = surface?.querySelector('.basehalf-node-local-footer-message')?.textContent ?? '';
+		return slot?.classList.contains('empty') === false
+			&& slot?.textContent?.includes(sourcePath.split('/').at(-1) ?? sourcePath) === true
+			&& remove?.disabled === false
+			&& status.includes(sourcePath)
+			&& status.includes('missing');
+	}, { targetPath: canvasPath, sourcePath: startFramePath }, { timeout: 15_000 });
+	const missingSourceBinding = JSON.parse(fs.readFileSync(nodePath, 'utf8')).recipe?.inputBindings
+		?.find(binding => binding.sourcePath === startFramePath);
+	if (missingSourceBinding?.slot !== 'first-frame') {
+		throw new Error('Deleting a bound Start source silently removed or relabelled its durable binding');
+	}
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-remove').click();
+	await page.waitForFunction(targetPath => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		return surface?.querySelector('.basehalf-video-frame-slot[data-frame-role="first-frame"]')?.classList.contains('empty') === true
+			&& surface?.querySelector('.basehalf-video-frame-slot[data-frame-role="last-frame"]')?.classList.contains('empty') === false;
+	}, canvasPath, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const bindings = saved.recipe?.inputBindings ?? [];
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
+		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
+		return bindings.length === 1
+			&& bindings[0]?.sourcePath === endFramePath
+			&& bindings[0]?.slot === 'last-frame'
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === undefined
+			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === 1
+			&& !canvas.includes(`from: "${startFramePath}"`)
+			&& canvas.includes(`from: "${endFramePath}"`)
+			&& !targetBadge.includes(startFramePath)
+			&& targetBadge.includes(endFramePath)
+			&& !startBadge.includes(canvasPath);
+	}, 'missing Video Start source removal to atomically clear its binding, reference pair, and canvas edge', 15_000);
+
+	await composer.locator('.basehalf-video-frame-slot[data-frame-role="last-frame"] .basehalf-video-frame-slot-remove').click();
+	await page.waitForFunction(targetPath => document.querySelector(
+		`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-frame-slot[data-frame-role="last-frame"]`
+	)?.classList.contains('empty') === true, canvasPath, { timeout: 15_000 });
+	await waitUntil(() => {
+		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		return (saved.recipe?.inputBindings?.length ?? 0) === 0
+			&& !canvas.split('\nedges:\n')[1]?.includes(`to: "${canvasPath}"`);
+	}, 'Video frame removals to clear both bindings and graph edges', 15_000);
+
+	await settingsTrigger.click();
+	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	await settingsPopover.getByRole('radio', { name: 'Text to Video', exact: true }).click();
+	await page.waitForFunction(path => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(path)}"]`);
+		return surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings [role="radio"][aria-checked="true"]')?.textContent?.trim() === 'Text to Video'
+			&& surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.disabled === false
+			&& surface.querySelector('.basehalf-video-frame-strip') === null;
+	}, canvasPath, { timeout: 10_000 });
+	stableComposerContext = await captureVideoAttachedChrome(page, canvasPath);
+	assertVideoComposerState(stableComposerContext, expectedDraftState, 'after returning the incomplete frame method to Text to Video');
+	assertVideoComposerBelowCard(stableComposerContext, 'after returning the incomplete frame method to Text to Video');
 
 	await page.keyboard.press('Escape');
 	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
@@ -3793,6 +4291,21 @@ async function assertVideoNodeUI(page) {
 	if (await composer.locator('.basehalf-video-composer-popover:visible').count() !== 0
 		|| await settingsTrigger.getAttribute('aria-expanded') !== 'false') {
 		throw new Error('The first Escape did not close only the Video settings popover');
+	}
+	const paidRunDialog = page.locator('.monaco-dialog-box', { hasText: 'The provider determines the exact charge.' }).first();
+	await composer.locator('.basehalf-video-composer-primary[data-node-action="run"]').click();
+	await paidRunDialog.waitFor({ state: 'visible', timeout: 20_000 });
+	const paidRunCopy = (await paidRunDialog.textContent())?.replace(/\s+/g, ' ').trim() ?? '';
+	if (!paidRunCopy.includes(SMOKE_VIDEO_MODEL_LABEL)
+		|| !paidRunCopy.includes('Method: Text to Video')
+		|| !paidRunCopy.includes('This action may create a paid provider task.')) {
+		throw new Error(`Video paid-run disclosure omitted request material: ${paidRunCopy}`);
+	}
+	await paidRunDialog.locator('.monaco-button', { hasText: /^Cancel$/ }).click();
+	await paidRunDialog.waitFor({ state: 'hidden', timeout: 10_000 });
+	const cancelledDisclosureDocument = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
+	if ((cancelledDisclosureDocument.attempts?.length ?? 0) !== 0 || cancelledDisclosureDocument.result !== undefined) {
+		throw new Error('Cancelling the paid-run disclosure created an Attempt or Result');
 	}
 	stableComposerContext = overlayClosedContext;
 
@@ -4432,6 +4945,10 @@ async function assertVideoWorkflowNodeRun(page) {
 		if (card) {
 			new MutationObserver(() => {
 				const current = card.querySelector<HTMLButtonElement>('.basehalf-canvas-node-action');
+				if (current?.dataset.nodeAction === 'cancel'
+					&& current.textContent?.trim() === 'Cancel') {
+					state.__basehalfSmokeSawNodeCancel = true;
+				}
 				if (state.__basehalfSmokeSawNodeCancel && current?.dataset.nodeAction === 'run') {
 					state.__basehalfSmokeNodeActionRegressed = true;
 				}

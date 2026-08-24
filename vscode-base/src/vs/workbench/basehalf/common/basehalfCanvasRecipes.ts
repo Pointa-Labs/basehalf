@@ -19,6 +19,7 @@ import {
 	BaseHalfNodeKind,
 	createBaseHalfNodeDocument,
 	IBaseHalfNodeDocument,
+	IBaseHalfNodeAttemptFailure,
 	IBaseHalfNodeAttemptCost,
 	IBaseHalfNodeAttemptUsage,
 	validateBaseHalfNodePersistentId
@@ -343,6 +344,17 @@ export interface IBaseHalfCanvasRecipeInput {
 	readonly source: IBaseHalfCanvasNodeSnapshot;
 }
 
+export type BaseHalfCanvasProviderTaskIntent =
+	| { readonly kind: 'new' }
+	| { readonly kind: 'recover'; readonly providerRequestId: string }
+	| {
+		readonly kind: 'exact-retry';
+		readonly sourceAttemptId: string;
+		readonly providerRequestId?: string;
+		readonly sourceFailure?: IBaseHalfNodeAttemptFailure;
+		readonly replacementAuthorized: boolean;
+	};
+
 export interface IBaseHalfCanvasRecipeExecutionRequest {
 	readonly attemptId: string;
 	readonly workspaceFolder: URI;
@@ -356,8 +368,16 @@ export interface IBaseHalfCanvasRecipeExecutionRequest {
 	readonly modelService?: IBaseHalfModelServiceAttemptSnapshot;
 	readonly inputs: readonly IBaseHalfCanvasRecipeInput[];
 	readonly outputDirectory: URI;
+	/** Explicit paid-task ownership semantics frozen by the host. */
+	readonly providerTaskIntent?: BaseHalfCanvasProviderTaskIntent;
+	/** Host-computed fingerprint bound to the immutable provider request. */
+	readonly providerRequestFingerprint?: string;
 	/** Existing durable remote task reused by an exact Retry; executors must not submit a replacement task. */
 	readonly resumeProviderRequestId?: string;
+	/** Consumes the exact one-use create grant immediately before a provider create call. */
+	consumeProviderCreateAuthorization?(fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void>;
+	/** Reports structured failure evidence before the executor rejects. */
+	reportProviderExecutionFailure?(failure: IBaseHalfNodeAttemptFailure): Promise<void>;
 	/** Persist a newly submitted remote task id before polling or any other fallible work. */
 	acknowledgeProviderRequestId(providerRequestId: string): Promise<void>;
 }

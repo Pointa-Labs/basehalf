@@ -33,6 +33,7 @@ import {
 	BASEHALF_NODE_MAX_ID_LENGTH,
 	IBaseHalfNodeDocument,
 	IBaseHalfNodeResultArtifact,
+	normalizeBaseHalfNodeAttemptFailure,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	validateBaseHalfNodePersistentId
@@ -149,6 +150,8 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 	private readonly recipeAttempts = new Map<string, {
 		readonly progress: IProgress<IBaseHalfCanvasRecipeProgress>;
 		readonly acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>;
+		readonly consumeProviderCreateAuthorization?: NonNullable<IBaseHalfCanvasRecipeExecutionRequest['consumeProviderCreateAuthorization']>;
+		readonly reportProviderExecutionFailure?: NonNullable<IBaseHalfCanvasRecipeExecutionRequest['reportProviderExecutionFailure']>;
 		readonly cancellation: CancellationTokenSource;
 		readonly extensionId: string;
 		readonly modelService?: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto;
@@ -287,6 +290,22 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			throw new Error('The video provider returned an invalid request id.');
 		}
 		await attempt.acknowledgeProviderRequestId(providerRequestId);
+	}
+
+	async $consumeCanvasRecipeProviderCreateAuthorization(attemptHandle: string, fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void> {
+		const attempt = this.recipeAttempts.get(attemptHandle);
+		if (!attempt?.consumeProviderCreateAuthorization) {
+			throw new Error('This canvas recipe Attempt has no provider create authorization.');
+		}
+		await attempt.consumeProviderCreateAuthorization(fingerprint, attemptId, kind);
+	}
+
+	async $reportCanvasRecipeProviderExecutionFailure(attemptHandle: string, failure: extHostProtocol.IBaseHalfCanvasProviderExecutionFailureDto): Promise<void> {
+		const attempt = this.recipeAttempts.get(attemptHandle);
+		if (!attempt?.reportProviderExecutionFailure) {
+			throw new Error('This canvas recipe Attempt cannot accept provider failure evidence.');
+		}
+		await attempt.reportProviderExecutionFailure(normalizeBaseHalfNodeAttemptFailure(failure, 'providerFailure'));
 	}
 
 	async $inspectCanvasNode(
@@ -477,6 +496,8 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.recipeAttempts.set(attemptHandle, {
 			progress,
 			acknowledgeProviderRequestId: request.acknowledgeProviderRequestId,
+			...(request.consumeProviderCreateAuthorization === undefined ? {} : { consumeProviderCreateAuthorization: request.consumeProviderCreateAuthorization }),
+			...(request.reportProviderExecutionFailure === undefined ? {} : { reportProviderExecutionFailure: request.reportProviderExecutionFailure }),
 			cancellation,
 			extensionId,
 			...(modelService === undefined ? {} : { modelService })
@@ -584,6 +605,8 @@ function toRecipeExecutionRequestDto(
 			source: toNodeSnapshotDto(input.source)
 		})),
 		outputDirectory: request.outputDirectory,
+		...(request.providerTaskIntent === undefined ? {} : { providerTaskIntent: request.providerTaskIntent }),
+		...(request.providerRequestFingerprint === undefined ? {} : { providerRequestFingerprint: request.providerRequestFingerprint }),
 		...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId })
 	};
 }

@@ -21405,6 +21405,24 @@ declare module 'vscode' {
 			readonly source: CanvasNodeSnapshot;
 		}
 
+		export type CanvasProviderTaskIntent =
+			| { readonly kind: 'new' }
+			| { readonly kind: 'recover'; readonly providerRequestId: string }
+			| {
+				readonly kind: 'exact-retry';
+				readonly sourceAttemptId: string;
+				readonly providerRequestId?: string;
+				readonly sourceFailure?: CanvasProviderExecutionFailure;
+				readonly replacementAuthorized: boolean;
+			};
+
+		export interface CanvasProviderExecutionFailure {
+			readonly kind: 'preparation' | 'submission-rejected' | 'submission-ambiguous' | 'remote-id-uncommitted' | 'poll-interrupted' | 'poll-window-exhausted' | 'remote-failed' | 'remote-cancelled' | 'protocol' | 'download' | 'artifact-invalid' | 'artifact-commit' | 'execution-ownership';
+			readonly retry: 'fresh-submit' | 'resume-existing' | 'replace-after-terminal-proof' | 'blocked';
+			readonly providerRequestId?: string;
+			readonly uncommittedProviderRequestId?: string;
+		}
+
 		/** Immutable inputs for one explicit canvas recipe execution. */
 			export interface CanvasRecipeExecutionRequest {
 				readonly attemptId: string;
@@ -21421,8 +21439,16 @@ declare module 'vscode' {
 			readonly inputs: readonly CanvasRecipeInput[];
 			/** Unique host-selected directory for the ordinary local artifact from this attempt. */
 			readonly outputDirectory: Uri;
+			/** Explicit paid-task ownership semantics frozen by the host. */
+			readonly providerTaskIntent?: CanvasProviderTaskIntent;
+			/** Host-computed fingerprint bound to this immutable provider request. */
+			readonly providerRequestFingerprint?: string;
 			/** Existing durable remote task reused by an exact Retry. Do not submit a replacement task when present. */
 			readonly resumeProviderRequestId?: string;
+			/** Consumes the host's exact one-use create grant immediately before the provider create call. */
+			consumeProviderCreateAuthorization?(fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Thenable<void>;
+			/** Persists structured retry evidence before rejecting execution. */
+			reportProviderExecutionFailure?(failure: CanvasProviderExecutionFailure): Thenable<void>;
 			/** Durably persist a newly submitted remote task id before polling or any other fallible work. */
 			acknowledgeProviderRequestId(providerRequestId: string): Thenable<void>;
 		}

@@ -9,6 +9,7 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import {
 	createBaseHalfVideoModelRegistry,
+	IBaseHalfVideoModelCapabilitySelection,
 	IBaseHalfVideoModelRegistry,
 	IBaseHalfVideoModelSelection,
 	parseBaseHalfVideoModelCatalog
@@ -125,6 +126,15 @@ export class BaseHalfVideoModelCatalogService extends Disposable implements IBas
 		const emptyRegistry = this.emptyRegistry;
 		this.registry = Object.freeze({
 			models: aggregateModels,
+			resolveCapability(selection: IBaseHalfVideoModelCapabilitySelection) {
+				return (owners.get(videoModelKey([
+					selection.provider,
+					selection.deployment,
+					selection.region,
+					selection.modelId,
+					selection.revision
+				])) ?? emptyRegistry).resolveCapability(selection);
+			},
 			resolve(selection: IBaseHalfVideoModelSelection) {
 				return (owners.get(videoModelKey([
 					selection.provider,

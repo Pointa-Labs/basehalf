@@ -78,6 +78,13 @@ const RESULT_SOURCES = ['imported', 'attempt'] as const;
 const ATTEMPT_STATUSES = ['running', 'succeeded', 'failed', 'cancelled', 'interrupted'] as const;
 const MODEL_CAPABILITIES = ['text', 'image', 'video', 'audio'] as const;
 const COST_KINDS = ['actual', 'estimated'] as const;
+const ATTEMPT_FAILURE_KINDS = [
+	'preparation', 'submission-rejected', 'submission-ambiguous', 'remote-id-uncommitted',
+	'poll-interrupted', 'poll-window-exhausted', 'remote-failed', 'remote-cancelled',
+	'protocol', 'download', 'artifact-invalid', 'artifact-commit', 'execution-ownership'
+] as const;
+const ATTEMPT_RETRY_POLICIES = ['fresh-submit', 'resume-existing', 'replace-after-terminal-proof', 'blocked'] as const;
+const SNAPSHOT_CONTENT_KINDS = ['text', 'code', 'file', 'folder', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
 
 export type BaseHalfNodeKind = typeof NODE_KINDS[number];
 export type BaseHalfNodeArtifactKind = typeof ARTIFACT_KINDS[number];
@@ -85,6 +92,9 @@ export type BaseHalfNodeResultSource = typeof RESULT_SOURCES[number];
 export type BaseHalfNodeAttemptStatus = typeof ATTEMPT_STATUSES[number];
 export type BaseHalfNodeAttemptModelCapability = typeof MODEL_CAPABILITIES[number];
 export type BaseHalfNodeAttemptCostKind = typeof COST_KINDS[number];
+export type BaseHalfNodeAttemptFailureKind = typeof ATTEMPT_FAILURE_KINDS[number];
+export type BaseHalfNodeAttemptRetryPolicy = typeof ATTEMPT_RETRY_POLICIES[number];
+export type BaseHalfNodeSnapshotContentKind = typeof SNAPSHOT_CONTENT_KINDS[number];
 
 export interface IBaseHalfNodeJsonObject {
 	readonly [key: string]: BaseHalfNodeJsonValue;
@@ -101,6 +111,10 @@ export interface IBaseHalfNodeInputBinding {
 	readonly slot: string;
 	/** Stable display and execution order within this recipe. */
 	readonly order: number;
+	/** Stable source/result identity captured when the binding is created, when available. */
+	readonly sourceId?: string;
+	/** Host-computed source revision captured when the binding is created. */
+	readonly sourceRevision?: string;
 }
 
 export interface IBaseHalfNodeRecipe {
@@ -162,6 +176,59 @@ export interface IBaseHalfNodeAttemptCost {
 	readonly kind: BaseHalfNodeAttemptCostKind;
 }
 
+export interface IBaseHalfNodeAttemptFailure {
+	readonly kind: BaseHalfNodeAttemptFailureKind;
+	readonly retry: BaseHalfNodeAttemptRetryPolicy;
+	/** A host-durable id that may be read by recovery. */
+	readonly providerRequestId?: string;
+	/** An accepted id that was not durably acknowledged and cannot authorize Retry. */
+	readonly uncommittedProviderRequestId?: string;
+}
+
+export type BaseHalfNodeAttemptExecutionIntent =
+	| { readonly kind: 'new' }
+	| {
+		readonly kind: 'recover';
+		readonly providerRequestId: string;
+	}
+	| {
+		readonly kind: 'exact-retry';
+		readonly sourceAttemptId: string;
+		readonly providerRequestId?: string;
+		readonly replacementAuthorized: boolean;
+	};
+
+export interface IBaseHalfNodeAttemptExecution {
+	readonly requestFingerprint: string;
+	readonly intent: BaseHalfNodeAttemptExecutionIntent;
+}
+
+export interface IBaseHalfNodeAttemptSnapshotManifestInput {
+	readonly edgeId: string;
+	readonly slot: string;
+	readonly order: number;
+	readonly revision: string;
+	readonly sourceId: string;
+	readonly sourcePath: string;
+	readonly sourceKind: BaseHalfNodeSnapshotContentKind;
+	readonly snapshotPath: string;
+	readonly snapshotDigest: string;
+	readonly resultId: string;
+	readonly resultKind: BaseHalfNodeSnapshotContentKind;
+	readonly sourceAttemptId?: string;
+}
+
+/** Durable, provider-neutral mapping from one Attempt to its exact immutable executor inputs. */
+export interface IBaseHalfNodeAttemptSnapshotManifest {
+	readonly version: 1;
+	readonly nodePath: string;
+	readonly frozenNodePath: string;
+	readonly frozenNodeDigest: string;
+	readonly executorExtensionId: string;
+	readonly videoModelCatalogId: string;
+	readonly inputs: readonly IBaseHalfNodeAttemptSnapshotManifestInput[];
+}
+
 /** The single immutable ordinary-file artifact sealed into a result node. */
 export interface IBaseHalfNodeResultArtifact {
 	readonly id: string;
@@ -205,6 +272,12 @@ export interface IBaseHalfNodeAttempt {
 	readonly usage?: IBaseHalfNodeAttemptUsage;
 	readonly cost?: IBaseHalfNodeAttemptCost;
 	readonly error?: string;
+	/** Host-frozen provider request identity and billing intent. */
+	readonly execution?: IBaseHalfNodeAttemptExecution;
+	/** Durable mapping needed to recover this exact running provider Attempt after restart. */
+	readonly snapshotManifest?: IBaseHalfNodeAttemptSnapshotManifest;
+	/** Structured terminal evidence; never inferred from localized error text. */
+	readonly failure?: IBaseHalfNodeAttemptFailure;
 }
 
 export interface IBaseHalfNodeDocument {
@@ -295,7 +368,9 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 								properties: {
 									sourcePath: { type: 'string', minLength: 1, maxLength: MAX_PATH_LENGTH, format: 'basehalf-project-relative-path' },
 									slot: { type: 'string', minLength: 1, maxLength: MAX_SLOT_LENGTH },
-									order: { type: 'integer', minimum: 0, maximum: MAX_BINDINGS - 1 }
+									order: { type: 'integer', minimum: 0, maximum: MAX_BINDINGS - 1 },
+									sourceId: { type: 'string', minLength: 1, maxLength: MAX_ID_LENGTH },
+									sourceRevision: { type: 'string', minLength: 1, maxLength: MAX_INPUT_REVISION_LENGTH }
 								}
 							}
 						}
@@ -341,6 +416,7 @@ export interface IFailBaseHalfNodeAttemptOptions {
 	readonly providerRequestId?: string;
 	readonly usage?: IBaseHalfNodeAttemptUsage;
 	readonly cost?: IBaseHalfNodeAttemptCost;
+	readonly failure?: IBaseHalfNodeAttemptFailure;
 }
 
 export interface ICancelBaseHalfNodeAttemptOptions {
@@ -349,6 +425,7 @@ export interface ICancelBaseHalfNodeAttemptOptions {
 	readonly providerRequestId?: string;
 	readonly usage?: IBaseHalfNodeAttemptUsage;
 	readonly cost?: IBaseHalfNodeAttemptCost;
+	readonly failure?: IBaseHalfNodeAttemptFailure;
 }
 
 export interface IInterruptBaseHalfNodeAttemptOptions {
@@ -357,6 +434,7 @@ export interface IInterruptBaseHalfNodeAttemptOptions {
 	readonly providerRequestId?: string;
 	readonly usage?: IBaseHalfNodeAttemptUsage;
 	readonly cost?: IBaseHalfNodeAttemptCost;
+	readonly failure?: IBaseHalfNodeAttemptFailure;
 }
 
 export interface IBaseHalfNodeReadinessContext {
@@ -548,6 +626,43 @@ export function freezeBaseHalfNodeAttemptInputs(
 	});
 }
 
+/** Freezes the exact provider execution fingerprint and intent before executor activation. */
+export function freezeBaseHalfNodeAttemptExecution(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	execution: IBaseHalfNodeAttemptExecution
+): IBaseHalfNodeDocument {
+	const normalizedExecution = normalizeAttemptExecution(execution, 'attempt.execution');
+	return replaceRunningAttempt(document, attemptId, attempt => {
+		if (attempt.execution !== undefined) {
+			if (JSON.stringify(attempt.execution) !== JSON.stringify(normalizedExecution)) {
+				throw invalid(`Attempt '${attempt.id}' already has different execution authorization.`);
+			}
+			return attempt;
+		}
+		return { ...attempt, execution: normalizedExecution };
+	});
+}
+
+/** Freezes the verified run-snapshot mapping before a provider executor can create a task. */
+export function freezeBaseHalfNodeAttemptSnapshotManifest(
+	document: IBaseHalfNodeDocument,
+	attemptId: string,
+	manifest: IBaseHalfNodeAttemptSnapshotManifest
+): IBaseHalfNodeDocument {
+	const normalizedManifest = normalizeAttemptSnapshotManifest(manifest, 'attempt.snapshotManifest');
+	return replaceRunningAttempt(document, attemptId, attempt => {
+		assertSnapshotManifestMatchesAttempt(normalizedManifest, attempt, 'attempt.snapshotManifest');
+		if (attempt.snapshotManifest !== undefined) {
+			if (JSON.stringify(attempt.snapshotManifest) !== JSON.stringify(normalizedManifest)) {
+				throw invalid(`Attempt '${attempt.id}' already has a different snapshot manifest.`);
+			}
+			return attempt;
+		}
+		return { ...attempt, snapshotManifest: normalizedManifest };
+	});
+}
+
 /** Persists the provider's asynchronous task identity while the attempt is still running. */
 export function freezeBaseHalfNodeAttemptProviderRequestId(
 	document: IBaseHalfNodeDocument,
@@ -612,6 +727,7 @@ export function failBaseHalfNodeAttempt(
 		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
 		...(options.usage !== undefined ? { usage: options.usage } : {}),
 		...(options.cost !== undefined ? { cost: options.cost } : {}),
+		...(options.failure !== undefined ? { failure: options.failure } : {}),
 		error: options.error
 	}));
 }
@@ -629,6 +745,7 @@ export function cancelBaseHalfNodeAttempt(
 		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
 		...(options.usage !== undefined ? { usage: options.usage } : {}),
 		...(options.cost !== undefined ? { cost: options.cost } : {}),
+		...(options.failure !== undefined ? { failure: options.failure } : {}),
 		...(options.error !== undefined ? { error: options.error } : {})
 	}));
 }
@@ -646,6 +763,7 @@ export function interruptBaseHalfNodeAttempt(
 		...(options.providerRequestId !== undefined ? { providerRequestId: options.providerRequestId } : {}),
 		...(options.usage !== undefined ? { usage: options.usage } : {}),
 		...(options.cost !== undefined ? { cost: options.cost } : {}),
+		...(options.failure !== undefined ? { failure: options.failure } : {}),
 		...(options.error !== undefined ? { error: options.error } : {})
 	}));
 }
@@ -924,7 +1042,7 @@ function normalizeRecipe(value: unknown, path: string): IBaseHalfNodeRecipe {
 
 function normalizeAttempt(value: unknown, path: string): IBaseHalfNodeAttempt {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['id', 'status', 'createdAt', 'startedAt', 'completedAt', 'prompt', 'recipe', 'model', 'inputs', 'providerRequestId', 'usage', 'cost', 'error'], path);
+	assertOnlyKeys(candidate, ['id', 'status', 'createdAt', 'startedAt', 'completedAt', 'prompt', 'recipe', 'model', 'inputs', 'providerRequestId', 'usage', 'cost', 'error', 'execution', 'snapshotManifest', 'failure'], path);
 	const id = requiredId(candidate.id, `${path}.id`);
 	const status = oneOf(candidate.status, ATTEMPT_STATUSES, `${path}.status`);
 	const createdAt = timestamp(candidate.createdAt, `${path}.createdAt`);
@@ -948,8 +1066,17 @@ function normalizeAttempt(value: unknown, path: string): IBaseHalfNodeAttempt {
 	const usage = candidate.usage === undefined ? undefined : normalizeAttemptUsage(candidate.usage, `${path}.usage`);
 	const cost = candidate.cost === undefined ? undefined : normalizeAttemptCost(candidate.cost, `${path}.cost`);
 	const error = candidate.error === undefined ? undefined : requiredString(candidate.error, MAX_MESSAGE_LENGTH, `${path}.error`);
+	const execution = candidate.execution === undefined ? undefined : normalizeAttemptExecution(candidate.execution, `${path}.execution`);
+	const snapshotManifest = candidate.snapshotManifest === undefined ? undefined : normalizeAttemptSnapshotManifest(candidate.snapshotManifest, `${path}.snapshotManifest`);
+	if (snapshotManifest !== undefined) {
+		assertSnapshotManifestMatchesAttempt(snapshotManifest, { id, inputs }, `${path}.snapshotManifest`);
+	}
+	const failure = candidate.failure === undefined ? undefined : normalizeBaseHalfNodeAttemptFailure(candidate.failure, `${path}.failure`);
+	if (failure?.providerRequestId !== undefined && failure.providerRequestId !== providerRequestId) {
+		throw invalid(`${path}.failure.providerRequestId must match the durable Attempt provider request id.`);
+	}
 
-	validateAttemptLifecycle(status, { createdAt, startedAt, completedAt, providerRequestId, usage, cost, error }, path);
+	validateAttemptLifecycle(status, { createdAt, startedAt, completedAt, providerRequestId, usage, cost, error, failure }, path);
 	if (status === 'succeeded' && model.source === 'service' && model.connection !== 'resolved') {
 		throw invalid(`${path} successful attempts require a resolved model connection.`);
 	}
@@ -967,8 +1094,168 @@ function normalizeAttempt(value: unknown, path: string): IBaseHalfNodeAttempt {
 		...(providerRequestId !== undefined ? { providerRequestId } : {}),
 		...(usage !== undefined ? { usage } : {}),
 		...(cost !== undefined ? { cost } : {}),
-		...(error !== undefined ? { error } : {})
+		...(error !== undefined ? { error } : {}),
+		...(execution !== undefined ? { execution } : {}),
+		...(snapshotManifest !== undefined ? { snapshotManifest } : {}),
+		...(failure !== undefined ? { failure } : {})
 	});
+}
+
+export function normalizeBaseHalfNodeAttemptFailure(value: unknown, path = 'attempt.failure'): IBaseHalfNodeAttemptFailure {
+	const candidate = record(value, path);
+	assertOnlyKeys(candidate, ['kind', 'retry', 'providerRequestId', 'uncommittedProviderRequestId'], path);
+	const kind = oneOf(candidate.kind, ATTEMPT_FAILURE_KINDS, `${path}.kind`);
+	const retry = oneOf(candidate.retry, ATTEMPT_RETRY_POLICIES, `${path}.retry`);
+	const providerRequestId = candidate.providerRequestId === undefined
+		? undefined
+		: auditIdentifier(candidate.providerRequestId, MAX_ID_LENGTH, `${path}.providerRequestId`);
+	const uncommittedProviderRequestId = candidate.uncommittedProviderRequestId === undefined
+		? undefined
+		: auditIdentifier(candidate.uncommittedProviderRequestId, MAX_ID_LENGTH, `${path}.uncommittedProviderRequestId`);
+	if (providerRequestId !== undefined && uncommittedProviderRequestId !== undefined) {
+		throw invalid(`${path} cannot contain both durable and uncommitted provider request ids.`);
+	}
+	const expectedRetry = baseHalfNodeAttemptRetryPolicy(kind, providerRequestId !== undefined);
+	if (retry !== expectedRetry) {
+		throw invalid(`${path}.retry must be '${expectedRetry}' for '${kind}'.`);
+	}
+	if ((kind === 'remote-id-uncommitted') !== (uncommittedProviderRequestId !== undefined)) {
+		throw invalid(`${path}.uncommittedProviderRequestId is required only for remote-id-uncommitted failures.`);
+	}
+	return Object.freeze({
+		kind,
+		retry,
+		...(providerRequestId === undefined ? {} : { providerRequestId }),
+		...(uncommittedProviderRequestId === undefined ? {} : { uncommittedProviderRequestId })
+	});
+}
+
+export function baseHalfNodeAttemptRetryPolicy(
+	kind: BaseHalfNodeAttemptFailureKind,
+	hasDurableProviderRequestId: boolean
+): BaseHalfNodeAttemptRetryPolicy {
+	if (kind === 'preparation' || kind === 'submission-rejected') {
+		return 'fresh-submit';
+	}
+	if (kind === 'remote-failed' || kind === 'remote-cancelled') {
+		return hasDurableProviderRequestId ? 'replace-after-terminal-proof' : 'blocked';
+	}
+	if (kind === 'poll-interrupted' || kind === 'poll-window-exhausted'
+		|| kind === 'protocol' || kind === 'download' || kind === 'artifact-invalid'
+		|| kind === 'artifact-commit' || kind === 'execution-ownership') {
+		return hasDurableProviderRequestId ? 'resume-existing' : 'blocked';
+	}
+	return 'blocked';
+}
+
+function normalizeAttemptExecution(value: unknown, path: string): IBaseHalfNodeAttemptExecution {
+	const candidate = record(value, path);
+	assertOnlyKeys(candidate, ['requestFingerprint', 'intent'], path);
+	const requestFingerprint = requiredString(candidate.requestFingerprint, 64, `${path}.requestFingerprint`);
+	if (!/^v1:[A-Za-z0-9_-]{43}$/.test(requestFingerprint)) {
+		throw invalid(`${path}.requestFingerprint must be a version 1 SHA-256 fingerprint.`);
+	}
+	const intentCandidate = record(candidate.intent, `${path}.intent`);
+	const kind = intentCandidate.kind;
+	let intent: BaseHalfNodeAttemptExecutionIntent;
+	if (kind === 'new') {
+		assertOnlyKeys(intentCandidate, ['kind'], `${path}.intent`);
+		intent = Object.freeze({ kind });
+	} else if (kind === 'recover') {
+		assertOnlyKeys(intentCandidate, ['kind', 'providerRequestId'], `${path}.intent`);
+		intent = Object.freeze({
+			kind,
+			providerRequestId: auditIdentifier(intentCandidate.providerRequestId, MAX_ID_LENGTH, `${path}.intent.providerRequestId`)
+		});
+	} else if (kind === 'exact-retry') {
+		assertOnlyKeys(intentCandidate, ['kind', 'sourceAttemptId', 'providerRequestId', 'replacementAuthorized'], `${path}.intent`);
+		if (typeof intentCandidate.replacementAuthorized !== 'boolean') {
+			throw invalid(`${path}.intent.replacementAuthorized must be a boolean.`);
+		}
+		intent = Object.freeze({
+			kind,
+			sourceAttemptId: requiredId(intentCandidate.sourceAttemptId, `${path}.intent.sourceAttemptId`),
+			...(intentCandidate.providerRequestId === undefined ? {} : {
+				providerRequestId: auditIdentifier(intentCandidate.providerRequestId, MAX_ID_LENGTH, `${path}.intent.providerRequestId`)
+			}),
+			replacementAuthorized: intentCandidate.replacementAuthorized
+		});
+	} else {
+		throw invalid(`${path}.intent.kind must be 'new', 'recover', or 'exact-retry'.`);
+	}
+	return Object.freeze({ requestFingerprint, intent });
+}
+
+function normalizeAttemptSnapshotManifest(value: unknown, path: string): IBaseHalfNodeAttemptSnapshotManifest {
+	const candidate = record(value, path);
+	assertOnlyKeys(candidate, ['version', 'nodePath', 'frozenNodePath', 'frozenNodeDigest', 'executorExtensionId', 'videoModelCatalogId', 'inputs'], path);
+	if (candidate.version !== 1) {
+		throw invalid(`${path}.version must be 1.`);
+	}
+	const values = array(candidate.inputs, `${path}.inputs`, MAX_BINDINGS);
+	const inputs = values.map((value, index) => {
+		const inputPath = `${path}.inputs[${index}]`;
+		const input = record(value, inputPath);
+		assertOnlyKeys(input, [
+			'edgeId', 'slot', 'order', 'revision', 'sourceId', 'sourcePath', 'sourceKind',
+			'snapshotPath', 'snapshotDigest', 'resultId', 'resultKind', 'sourceAttemptId'
+		], inputPath);
+		return Object.freeze({
+			edgeId: requiredString(input.edgeId, MAX_PATH_LENGTH * 2 + 2, `${inputPath}.edgeId`),
+			slot: requiredString(input.slot, MAX_SLOT_LENGTH, `${inputPath}.slot`),
+			order: integer(input.order, 0, MAX_BINDINGS - 1, `${inputPath}.order`),
+			revision: requiredString(input.revision, MAX_INPUT_REVISION_LENGTH, `${inputPath}.revision`),
+			sourceId: requiredString(input.sourceId, MAX_PATH_LENGTH, `${inputPath}.sourceId`),
+			sourcePath: projectPath(input.sourcePath, `${inputPath}.sourcePath`),
+			sourceKind: oneOf(input.sourceKind, SNAPSHOT_CONTENT_KINDS, `${inputPath}.sourceKind`),
+			snapshotPath: projectPath(input.snapshotPath, `${inputPath}.snapshotPath`),
+			snapshotDigest: snapshotDigest(input.snapshotDigest, `${inputPath}.snapshotDigest`),
+			resultId: requiredString(input.resultId, MAX_PATH_LENGTH, `${inputPath}.resultId`),
+			resultKind: oneOf(input.resultKind, SNAPSHOT_CONTENT_KINDS, `${inputPath}.resultKind`),
+			...(input.sourceAttemptId === undefined ? {} : {
+				sourceAttemptId: requiredId(input.sourceAttemptId, `${inputPath}.sourceAttemptId`)
+			})
+		});
+	}).sort((left, right) => left.order - right.order);
+	validateBindingSet(inputs, `${path}.inputs`);
+	return Object.freeze({
+		version: 1,
+		nodePath: projectPath(candidate.nodePath, `${path}.nodePath`),
+		frozenNodePath: projectPath(candidate.frozenNodePath, `${path}.frozenNodePath`),
+		frozenNodeDigest: snapshotDigest(candidate.frozenNodeDigest, `${path}.frozenNodeDigest`),
+		executorExtensionId: requiredId(candidate.executorExtensionId, `${path}.executorExtensionId`),
+		videoModelCatalogId: requiredId(candidate.videoModelCatalogId, `${path}.videoModelCatalogId`),
+		inputs: Object.freeze(inputs)
+	});
+}
+
+function assertSnapshotManifestMatchesAttempt(
+	manifest: IBaseHalfNodeAttemptSnapshotManifest,
+	attempt: Pick<IBaseHalfNodeAttempt, 'id' | 'inputs'>,
+	path: string
+): void {
+	if (manifest.inputs.length !== attempt.inputs.length) {
+		throw invalid(`${path}.inputs must map every frozen Attempt input exactly once.`);
+	}
+	for (let index = 0; index < attempt.inputs.length; index++) {
+		const frozen = attempt.inputs[index];
+		const mapped = manifest.inputs[index];
+		if (mapped.order !== frozen.order || mapped.slot !== frozen.slot || mapped.revision !== frozen.revision
+			|| mapped.sourcePath !== frozen.sourcePath) {
+			throw invalid(`${path}.inputs[${index}] must match the frozen Attempt input tuple.`);
+		}
+		if (mapped.edgeId !== `${frozen.sourcePath}->${manifest.nodePath}`) {
+			throw invalid(`${path}.inputs[${index}].edgeId must match the frozen source and node paths.`);
+		}
+	}
+}
+
+function snapshotDigest(value: unknown, path: string): string {
+	const digest = requiredString(value, 64, path);
+	if (!/^[A-Za-z0-9_-]{43}$/.test(digest)) {
+		throw invalid(`${path} must be an unpadded Base64 SHA-256 digest.`);
+	}
+	return digest;
 }
 
 function normalizeAttemptModel(value: unknown, path: string): BaseHalfNodeAttemptModel {
@@ -1109,11 +1396,15 @@ function normalizeAttemptInputs(value: unknown, path: string): readonly IBaseHal
 
 function normalizeBinding(value: unknown, path: string, allowRevision = false): IBaseHalfNodeInputBinding {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, allowRevision ? ['sourcePath', 'slot', 'order', 'revision'] : ['sourcePath', 'slot', 'order'], path);
+	assertOnlyKeys(candidate, allowRevision
+		? ['sourcePath', 'slot', 'order', 'sourceId', 'sourceRevision', 'revision']
+		: ['sourcePath', 'slot', 'order', 'sourceId', 'sourceRevision'], path);
 	return Object.freeze({
 		sourcePath: projectPath(candidate.sourcePath, `${path}.sourcePath`),
 		slot: requiredString(candidate.slot, MAX_SLOT_LENGTH, `${path}.slot`),
-		order: integer(candidate.order, 0, MAX_BINDINGS - 1, `${path}.order`)
+		order: integer(candidate.order, 0, MAX_BINDINGS - 1, `${path}.order`),
+		...(candidate.sourceId === undefined ? {} : { sourceId: auditIdentifier(candidate.sourceId, MAX_ID_LENGTH, `${path}.sourceId`) }),
+		...(candidate.sourceRevision === undefined ? {} : { sourceRevision: requiredString(candidate.sourceRevision, MAX_INPUT_REVISION_LENGTH, `${path}.sourceRevision`) })
 	});
 }
 
@@ -1168,7 +1459,7 @@ function normalizeJsonObject(value: Record<string, unknown>, path: string, depth
 
 function validateAttemptLifecycle(
 	status: BaseHalfNodeAttemptStatus,
-	value: Pick<IBaseHalfNodeAttempt, 'createdAt' | 'startedAt' | 'completedAt' | 'providerRequestId' | 'usage' | 'cost' | 'error'>,
+	value: Pick<IBaseHalfNodeAttempt, 'createdAt' | 'startedAt' | 'completedAt' | 'providerRequestId' | 'usage' | 'cost' | 'error' | 'failure'>,
 	path: string
 ): void {
 	const created = Date.parse(value.createdAt);
@@ -1202,6 +1493,9 @@ function validateAttemptLifecycle(
 	if ((status === 'running' || status === 'succeeded') && value.error !== undefined) {
 		throw invalid(`${path} ${status} attempts cannot contain an error message.`);
 	}
+	if ((status === 'running' || status === 'succeeded') && value.failure !== undefined) {
+		throw invalid(`${path} ${status} attempts cannot contain failure evidence.`);
+	}
 }
 
 function validateBindingSet(bindings: readonly IBaseHalfNodeInputBinding[], path: string): void {
@@ -1212,7 +1506,8 @@ function validateBindingSet(bindings: readonly IBaseHalfNodeInputBinding[], path
 function bindingsEqual(left: readonly IBaseHalfNodeInputBinding[], right: readonly IBaseHalfNodeInputBinding[]): boolean {
 	return left.length === right.length && left.every((binding, index) => {
 		const candidate = right[index];
-		return binding.sourcePath === candidate.sourcePath && binding.slot === candidate.slot && binding.order === candidate.order;
+		return binding.sourcePath === candidate.sourcePath && binding.slot === candidate.slot && binding.order === candidate.order
+			&& binding.sourceId === candidate.sourceId && binding.sourceRevision === candidate.sourceRevision;
 	});
 }
 
@@ -1420,7 +1715,15 @@ function freezeAttempt(value: IBaseHalfNodeAttempt): IBaseHalfNodeAttempt {
 		}),
 		inputs: Object.freeze([...value.inputs]),
 		...(value.usage ? { usage: Object.freeze({ ...value.usage }) } : {}),
-		...(value.cost ? { cost: Object.freeze({ ...value.cost }) } : {})
+		...(value.cost ? { cost: Object.freeze({ ...value.cost }) } : {}),
+		...(value.execution ? { execution: Object.freeze({ ...value.execution, intent: Object.freeze({ ...value.execution.intent }) }) } : {}),
+		...(value.snapshotManifest ? {
+			snapshotManifest: Object.freeze({
+				...value.snapshotManifest,
+				inputs: Object.freeze(value.snapshotManifest.inputs.map(input => Object.freeze({ ...input })))
+			})
+		} : {}),
+		...(value.failure ? { failure: Object.freeze({ ...value.failure }) } : {})
 	});
 }
 

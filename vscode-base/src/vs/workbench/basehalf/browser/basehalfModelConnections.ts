@@ -16,7 +16,7 @@ import {
 	IBaseHalfModelProviderConnectionField,
 	IBaseHalfRegisteredModelProviderConnectionSpec
 } from '../common/basehalfModelProviderCatalogs.js';
-import { IBaseHalfModelConnectionNavigationService } from '../common/basehalfModelConnectionNavigation.js';
+import { completeCapturedBaseHalfModelConnectionRequest, IBaseHalfModelConnectionNavigationService } from '../common/basehalfModelConnectionNavigation.js';
 import { IBaseHalfModelServiceDescriptor, IBaseHalfModelServiceService } from '../common/basehalfModelServices.js';
 import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
 import { IBaseHalfVideoModelDescriptor } from '../common/basehalfVideoModels.js';
@@ -299,6 +299,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 	): HTMLInputElement | HTMLSelectElement | undefined {
 		const detail = this.detail!;
 		const configured = descriptor?.configured === true;
+		const hasStoredConnection = descriptor !== undefined;
 		const needsAttention = descriptor !== undefined && !configured;
 		const unlocked = this.modelsForSpec(spec);
 		const hero = append(detail, $('.basehalf-model-connection-detail-hero'));
@@ -384,19 +385,23 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		}));
 
 		const actions = append(form, $('.basehalf-model-connection-actions'));
-		const save = connectionButton(actions, configured ? 'Replace Key' : 'Verify & Connect', 'codicon-plug', true);
+		const save = connectionButton(actions, hasStoredConnection ? 'Replace Key' : 'Verify & Connect', 'codicon-plug', true);
 		save.type = 'submit';
-		save.dataset.action = configured ? 'replace' : 'verify';
+		save.dataset.action = hasStoredConnection ? 'replace' : 'verify';
+		let test: HTMLButtonElement | undefined;
 		let remove: HTMLButtonElement | undefined;
 		if (descriptor) {
+			test = connectionButton(actions, 'Test connection', 'codicon-refresh');
+			test.dataset.action = 'test';
+			disposables.add(addDisposableListener(test, EventType.CLICK, () => void this.testConnection(spec, formError, controls, save, test!, remove)));
 			remove = connectionButton(actions, 'Remove', 'codicon-trash');
 			remove.classList.add('danger');
 			remove.dataset.action = 'remove';
-			disposables.add(addDisposableListener(remove, EventType.CLICK, () => void this.removeConnection(spec, descriptor, formError, controls, save, remove!)));
+			disposables.add(addDisposableListener(remove, EventType.CLICK, () => void this.removeConnection(spec, descriptor, formError, controls, save, test, remove!)));
 		}
 		disposables.add(addDisposableListener(form, EventType.SUBMIT, event => {
 			event.preventDefault();
-			void this.saveConnection(spec, configured, controls, formError, save, remove);
+			void this.saveConnection(spec, hasStoredConnection, controls, formError, save, test, remove);
 		}));
 
 		return controls[0]?.control;
@@ -480,6 +485,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		controls: readonly IBaseHalfModelConnectionFieldControl[],
 		formError: HTMLElement,
 		save: HTMLButtonElement,
+		test: HTMLButtonElement | undefined,
 		remove: HTMLButtonElement | undefined
 	): Promise<void> {
 		if (this.busy) {
@@ -511,24 +517,53 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			return;
 		}
 
-		this.setBusy(controls, save, remove, true);
+		const intentRequestId = this.intentRequestId;
+		this.setBusy(controls, save, test, remove, true);
 		setConnectionButtonLabel(save, 'Verifying…');
 		try {
 			const descriptor = await this.modelService.saveConnection(spec.id, values);
 			this.clearSensitiveControls();
 			this.announcement = `${spec.providerLabel} connected.`;
 			this.busy = false;
-			if (this.connectionNavigationService.complete(spec.id, descriptor.id)) {
-				this.intentRequestId = undefined;
+			if (completeCapturedBaseHalfModelConnectionRequest(this.connectionNavigationService, intentRequestId, spec.id, descriptor.id)) {
 				await this.commandService.executeCommand('workbench.action.closeActiveEditor');
 				return;
 			}
 			await this.reload('firstField');
 		} catch (error) {
 			this.busy = false;
-			this.setBusy(controls, save, remove, false);
+			this.setBusy(controls, save, test, remove, false);
 			setConnectionButtonLabel(save, configured ? 'Replace Key' : 'Verify & Connect');
 			formError.textContent = `Unable to connect: ${getErrorMessage(error)}`;
+			formError.hidden = false;
+			formError.focus();
+		}
+	}
+
+	private async testConnection(
+		spec: IBaseHalfRegisteredModelProviderConnectionSpec,
+		formError: HTMLElement,
+		controls: readonly IBaseHalfModelConnectionFieldControl[],
+		save: HTMLButtonElement,
+		test: HTMLButtonElement,
+		remove: HTMLButtonElement | undefined
+	): Promise<void> {
+		if (this.busy) {
+			return;
+		}
+		formError.hidden = true;
+		this.setBusy(controls, save, test, remove, true);
+		setConnectionButtonLabel(test, 'Testing…');
+		try {
+			await this.modelService.testConnection(spec.id);
+			this.announcement = `${spec.providerLabel} connection verified.`;
+			this.busy = false;
+			await this.reload('firstField');
+		} catch (error) {
+			this.busy = false;
+			this.setBusy(controls, save, test, remove, false);
+			setConnectionButtonLabel(test, 'Test connection');
+			formError.textContent = `Connection test failed: ${getErrorMessage(error)}`;
 			formError.hidden = false;
 			formError.focus();
 		}
@@ -540,6 +575,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 		formError: HTMLElement,
 		controls: readonly IBaseHalfModelConnectionFieldControl[],
 		save: HTMLButtonElement,
+		test: HTMLButtonElement | undefined,
 		remove: HTMLButtonElement
 	): Promise<void> {
 		if (this.busy) {
@@ -554,7 +590,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			return;
 		}
 		formError.hidden = true;
-		this.setBusy(controls, save, remove, true);
+		this.setBusy(controls, save, test, remove, true);
 		setConnectionButtonLabel(remove, 'Removing…');
 		try {
 			await this.modelService.remove(descriptor.id);
@@ -563,7 +599,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			await this.reload('firstField');
 		} catch (error) {
 			this.busy = false;
-			this.setBusy(controls, save, remove, false);
+			this.setBusy(controls, save, test, remove, false);
 			setConnectionButtonLabel(remove, 'Remove');
 			formError.textContent = `Unable to remove this API key: ${getErrorMessage(error)}`;
 			formError.hidden = false;
@@ -574,6 +610,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 	private setBusy(
 		controls: readonly IBaseHalfModelConnectionFieldControl[],
 		save: HTMLButtonElement,
+		test: HTMLButtonElement | undefined,
 		remove: HTMLButtonElement | undefined,
 		busy: boolean
 	): void {
@@ -582,6 +619,9 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 			item.control.disabled = busy;
 		}
 		save.disabled = busy;
+		if (test) {
+			test.disabled = busy;
+		}
 		if (remove) {
 			remove.disabled = busy;
 		}

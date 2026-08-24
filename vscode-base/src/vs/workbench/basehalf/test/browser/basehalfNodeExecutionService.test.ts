@@ -39,6 +39,9 @@ import { BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID } from '../../common/basehal
 import {
 	beginBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
+	freezeBaseHalfNodeAttemptExecution,
+	freezeBaseHalfNodeAttemptProviderRequestId,
+	freezeBaseHalfNodeAttemptSnapshotManifest,
 	getBaseHalfNodeResultArtifact,
 	IBaseHalfNodeDocument,
 	importBaseHalfNodeResult,
@@ -49,6 +52,7 @@ import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 suite('BaseHalfNodeExecutionService', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 	const frameNodeId = baseHalfNodeTestId(1);
+	const validMp4 = '\u0000\u0000\u0000\u000cftypisom';
 
 	test('persists only a bounded actionable summary of execution errors', () => {
 		const secret = 'sensitive-value-that-must-never-be-persisted';
@@ -222,14 +226,43 @@ suite('BaseHalfNodeExecutionService', () => {
 				status: result.attempts[0].status,
 				error: result.attempts[0].error,
 				result: result.result,
-				firstKept: await harness.fileService.exists(harness.resource(`outputs/${frameNodeId}/${result.attempts[0].id}/artifacts/first.png`)),
-				secondKept: await harness.fileService.exists(harness.resource(`outputs/${frameNodeId}/${result.attempts[0].id}/artifacts/second.png`))
+				firstRemoved: !await harness.fileService.exists(harness.resource(`outputs/${frameNodeId}/${result.attempts[0].id}/artifacts/first.png`)),
+				secondRemoved: !await harness.fileService.exists(harness.resource(`outputs/${frameNodeId}/${result.attempts[0].id}/artifacts/second.png`))
 			}, {
 				status: 'failed',
 				error: 'BaseHalf canvas recipe \'test.workflow.transform-image\' returned an invalid result.',
 				result: undefined,
-				firstKept: true,
-				secondKept: true
+				firstRemoved: true,
+				secondRemoved: true
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('removes unsealed output when an executor returns one artifact but writes an extra file', async () => {
+		const harness = await createHarness(imageRecipe());
+		try {
+			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode'));
+			harness.registerExecutor(async request => {
+				const artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('frame'), { overwrite: false });
+				await harness.fileService.createFile(URI.joinPath(request.outputDirectory, 'unexpected.tmp'), VSBuffer.fromString('extra'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+
+			const result = await harness.service.run(harness.node('frame.bhnode'));
+			const runDirectory = harness.resource(`outputs/${frameNodeId}/${result.attempts[0].id}`);
+			assert.deepStrictEqual({
+				status: result.attempts[0].status,
+				error: result.attempts[0].error,
+				result: result.result,
+				runRemoved: !await harness.fileService.exists(runDirectory)
+			}, {
+				status: 'failed',
+				error: 'The recipe output directory contains an unexpected extra file.',
+				result: undefined,
+				runRemoved: true
 			});
 		} finally {
 			await harness.dispose();
@@ -325,6 +358,101 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
+	test('requires the exact prepared fingerprint and rejects a bare authorization boolean before Attempt', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let providerCalls = 0;
+			harness.registerExecutor(async () => {
+				providerCalls++;
+				throw new Error('The provider must not run without current user authorization.');
+			});
+
+			for (const options of [{}, { newTaskAuthorized: true }]) {
+				await assert.rejects(
+					() => harness.service.run(harness.node('frame.bhnode'), options),
+					/exact current preflight fingerprint and one-use user authorization/
+				);
+			}
+			const preflight = await harness.service.prepareProviderRun(harness.node('frame.bhnode'));
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode'), {
+					providerAuthorization: {
+						kind: 'replacement',
+						requestFingerprint: preflight.requestFingerprint
+					}
+				}),
+				/does not match the current immutable preflight fingerprint/
+			);
+			assert.strictEqual(providerCalls, 0);
+			assert.strictEqual((JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 0);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('rejects a prepared provider authorization after the saved Draft drifts', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			const original = videoNodeDocument('2026-08-16');
+			await harness.writeNode('frame.bhnode', original);
+			let providerCalls = 0;
+			harness.registerExecutor(async () => {
+				providerCalls++;
+				throw new Error('A drifted authorization must not reach the provider.');
+			});
+			const preflight = await harness.service.prepareProviderRun(harness.node('frame.bhnode'));
+			await harness.writeNode('frame.bhnode', { ...original, prompt: 'Use a different approved camera move.' });
+
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode'), {
+					providerAuthorization: {
+						kind: preflight.authorizationKind,
+						requestFingerprint: preflight.requestFingerprint
+					}
+				}),
+				/does not match the current immutable preflight fingerprint/
+			);
+			assert.strictEqual(providerCalls, 0);
+			assert.strictEqual((JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 0);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('completes connection and executor preflight before creating a video Attempt', async () => {
+		const unavailableConnection = { ...videoModelServiceDescriptor(), configured: false };
+		const credentialHarness = await createHarness(videoRecipe(), [], [unavailableConnection]);
+		try {
+			credentialHarness.registerVideoCatalog(videoModelCatalog());
+			await credentialHarness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			await assert.rejects(
+				() => credentialHarness.service.prepareProviderRun(credentialHarness.node('frame.bhnode')),
+				/needs an API key/
+			);
+			assert.strictEqual((JSON.parse(await credentialHarness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 0);
+			assert.strictEqual(await credentialHarness.fileService.exists(credentialHarness.resource('outputs')), false);
+		} finally {
+			await credentialHarness.dispose();
+		}
+
+		const executorHarness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			executorHarness.registerVideoCatalog(videoModelCatalog());
+			await executorHarness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			await assert.rejects(
+				() => executorHarness.service.prepareProviderRun(executorHarness.node('frame.bhnode')),
+				/executor is unavailable/
+			);
+			assert.strictEqual((JSON.parse(await executorHarness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 0);
+			assert.strictEqual(await executorHarness.fileService.exists(executorHarness.resource('outputs')), false);
+		} finally {
+			await executorHarness.dispose();
+		}
+	});
+
 	test('revalidates canonical reviewed video settings before invoking the provider', async () => {
 		const descriptor = videoModelServiceDescriptor();
 		const harness = await createHarness(videoRecipe(), [], [descriptor]);
@@ -332,16 +460,69 @@ suite('BaseHalfNodeExecutionService', () => {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
 			let providerCalls = 0;
+			let preparedFingerprint: string | undefined;
 			let executorRequest: IBaseHalfCanvasRecipeExecutionRequest | undefined;
 			harness.registerExecutor(async request => {
 				providerCalls++;
 				executorRequest = request;
+				const committed = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+				assert.deepStrictEqual({
+					status: committed.attempts[0]?.status,
+					model: committed.attempts[0]?.model,
+					execution: committed.attempts[0]?.execution
+				}, {
+					status: 'running',
+					model: {
+						source: 'service',
+						connection: 'resolved',
+						serviceId: descriptor.id,
+						serviceLabel: descriptor.label,
+						connectionIdentity: descriptor.connectionIdentity,
+						capability: 'video',
+						modelId: 'seedance-1.5-pro'
+					},
+					execution: {
+						requestFingerprint: request.providerRequestFingerprint,
+						intent: { kind: 'new' }
+					}
+				});
+				assert.deepStrictEqual(request.providerTaskIntent, { kind: 'new' });
+				assert.strictEqual(request.providerRequestFingerprint, preparedFingerprint);
+				assert.match(request.providerRequestFingerprint ?? '', /^v1:[A-Za-z0-9_-]{43}$/);
+				assert.ok(request.consumeProviderCreateAuthorization);
+				await assert.rejects(
+					() => request.consumeProviderCreateAuthorization!('v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', request.attemptId, 'new'),
+					/does not match/
+				);
+				await request.consumeProviderCreateAuthorization(request.providerRequestFingerprint!, request.attemptId, 'new');
+				await assert.rejects(
+					() => request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new'),
+					/already been consumed/
+				);
+				await request.acknowledgeProviderRequestId('provider/video-1');
 				const artifact = URI.joinPath(request.outputDirectory, 'clip.mp4');
-				await harness.fileService.createFile(artifact, VSBuffer.fromString('generated-video'), { overwrite: false });
-				return { artifact: { id: 'clip', outputId: 'result', kind: 'video', resource: artifact } };
+				await harness.fileService.createFile(artifact, VSBuffer.fromString(validMp4), { overwrite: false });
+				return {
+					artifact: { id: 'clip', outputId: 'result', kind: 'video', resource: artifact },
+					providerRequestId: 'provider/video-1'
+				};
 			});
 
-			const result = await harness.service.run(harness.node('frame.bhnode'));
+			const preflight = await harness.service.prepareProviderRun(harness.node('frame.bhnode'));
+			preparedFingerprint = preflight.requestFingerprint;
+			assert.deepStrictEqual({
+				authorizationKind: preflight.authorizationKind,
+				document: preflight.document
+			}, {
+				authorizationKind: 'new',
+				document: JSON.parse(await harness.read('frame.bhnode'))
+			});
+			const result = await harness.service.run(harness.node('frame.bhnode'), {
+				providerAuthorization: {
+					kind: preflight.authorizationKind,
+					requestFingerprint: preflight.requestFingerprint
+				}
+			});
 			assert.strictEqual(providerCalls, 1);
 			assert.deepStrictEqual(executorRequest?.parameters, {
 				generationMode: 'text-to-video',
@@ -352,6 +533,7 @@ suite('BaseHalfNodeExecutionService', () => {
 			assert.deepStrictEqual({
 				status: result.attempts[0].status,
 				model: result.attempts[0].model,
+				execution: result.attempts[0].execution,
 				artifact: getBaseHalfNodeResultArtifact(result)
 			}, {
 				status: 'succeeded',
@@ -364,13 +546,17 @@ suite('BaseHalfNodeExecutionService', () => {
 					capability: 'video',
 					modelId: 'seedance-1.5-pro'
 				},
+				execution: {
+					requestFingerprint: executorRequest?.providerRequestFingerprint,
+					intent: { kind: 'new' }
+				},
 				artifact: {
 					id: 'clip',
 					outputId: 'result',
 					kind: 'video',
 					path: `outputs/${frameNodeId}/${result.attempts[0].id}/artifacts/clip.mp4`,
-					sha256: await sha256('generated-video'),
-					size: 15
+					sha256: await sha256(validMp4),
+					size: 12
 				}
 			});
 
@@ -405,6 +591,354 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
+	test('persists provider failure evidence and defaults exact Retry replacement authorization to false', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let calls = 0;
+			let firstFingerprint: string | undefined;
+			harness.registerExecutor(async request => {
+				calls++;
+				assert.strictEqual(request.resumeProviderRequestId, undefined);
+				if (calls === 1) {
+					assert.deepStrictEqual(request.providerTaskIntent, { kind: 'new' });
+					firstFingerprint = request.providerRequestFingerprint;
+					await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+					await request.acknowledgeProviderRequestId('provider/video-recover');
+					await request.reportProviderExecutionFailure!({
+						kind: 'poll-interrupted',
+						retry: 'resume-existing',
+						providerRequestId: 'provider/video-recover'
+					});
+					throw new Error('The provider read was interrupted.');
+				}
+				assert.deepStrictEqual(request.providerTaskIntent, {
+					kind: 'exact-retry',
+					sourceAttemptId: request.providerTaskIntent?.kind === 'exact-retry'
+						? request.providerTaskIntent.sourceAttemptId
+						: '',
+					providerRequestId: 'provider/video-recover',
+					sourceFailure: {
+						kind: 'poll-interrupted',
+						retry: 'resume-existing',
+						providerRequestId: 'provider/video-recover'
+					},
+					replacementAuthorized: false
+				});
+				assert.strictEqual(request.consumeProviderCreateAuthorization, undefined);
+				assert.notStrictEqual(request.providerRequestFingerprint, firstFingerprint);
+				await request.acknowledgeProviderRequestId('provider/video-recover');
+				const artifact = URI.joinPath(request.outputDirectory, 'clip.mp4');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString(validMp4), { overwrite: false });
+				return {
+					artifact: { id: 'clip', outputId: 'result', kind: 'video', resource: artifact },
+					providerRequestId: 'provider/video-recover'
+				};
+			});
+
+			const first = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+			assert.deepStrictEqual({
+				status: first.attempts[0].status,
+				providerRequestId: first.attempts[0].providerRequestId,
+				failure: first.attempts[0].failure
+			}, {
+				status: 'interrupted',
+				providerRequestId: 'provider/video-recover',
+				failure: {
+					kind: 'poll-interrupted',
+					retry: 'resume-existing',
+					providerRequestId: 'provider/video-recover'
+				}
+			});
+			const result = await harness.service.run(harness.node('frame.bhnode'));
+			assert.strictEqual(result.attempts[1].status, 'succeeded');
+			assert.deepStrictEqual(result.attempts[1].execution?.intent, {
+				kind: 'exact-retry',
+				sourceAttemptId: first.attempts[0].id,
+				providerRequestId: 'provider/video-recover',
+				replacementAuthorized: false
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('copies exact Retry inputs from the source Attempt manifest without reading a changed direct source', async () => {
+		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
+		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
+			const sourceBytes = 'retry-frozen-source-image';
+			await harness.fileService.createFolder(harness.resource('assets/source'));
+			await harness.write('assets/source/reference.png', sourceBytes);
+			const source = importBaseHalfNodeResult(createBaseHalfNodeDocument({
+				id: baseHalfNodeTestId(2),
+				kind: 'image',
+				title: 'Source',
+				role: 'first-frame'
+			}), {
+				id: 'source-artifact',
+				outputId: 'imported',
+				kind: 'image',
+				path: 'assets/source/reference.png',
+				sha256: await sha256(sourceBytes),
+				size: new TextEncoder().encode(sourceBytes).byteLength
+			});
+			await harness.writeNode('source.bhnode', source);
+			await harness.writeNode('clip.bhnode', videoFirstFrameNodeDocument('2026-08-16'));
+
+			let calls = 0;
+			const inputResources: URI[] = [];
+			harness.registerExecutor(async request => {
+				calls++;
+				const inputResource = request.inputs[0].source.result!.resource;
+				inputResources.push(inputResource);
+				assert.strictEqual((await harness.fileService.readFile(inputResource)).value.toString(), sourceBytes);
+				if (calls === 1) {
+					assert.deepStrictEqual(request.providerTaskIntent, { kind: 'new' });
+					await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+					await request.acknowledgeProviderRequestId('provider/exact-retry-source');
+					await request.reportProviderExecutionFailure!({
+						kind: 'poll-interrupted',
+						retry: 'resume-existing',
+						providerRequestId: 'provider/exact-retry-source'
+					});
+					throw new Error('Provider polling was interrupted.');
+				}
+				assert.strictEqual(request.providerTaskIntent?.kind, 'exact-retry');
+				assert.strictEqual(request.providerTaskIntent?.kind === 'exact-retry'
+					? request.providerTaskIntent.replacementAuthorized
+					: undefined, false);
+				assert.strictEqual(request.consumeProviderCreateAuthorization, undefined);
+				await request.acknowledgeProviderRequestId('provider/exact-retry-source');
+				const artifact = URI.joinPath(request.outputDirectory, 'retried.mp4');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString(validMp4), { overwrite: false });
+				return {
+					artifact: { id: 'retried', outputId: 'result', kind: 'video', resource: artifact },
+					providerRequestId: 'provider/exact-retry-source'
+				};
+			});
+
+			const first = await harness.service.run(harness.node('clip.bhnode'), await harness.providerRunOptions('clip.bhnode'));
+			assert.strictEqual(first.attempts[0].status, 'interrupted');
+			const sourceManifest = first.attempts[0].snapshotManifest!;
+			await harness.write('assets/source/reference.png', 'mutable-source-changed-after-first-attempt');
+			const retryPreflight = await harness.service.prepareProviderRun(harness.node('clip.bhnode'));
+			assert.strictEqual(retryPreflight.authorizationKind, 'replacement');
+			const retried = await harness.service.run(harness.node('clip.bhnode'));
+			const retryAttempt = retried.attempts[1];
+			const retryManifest = retryAttempt.snapshotManifest!;
+
+			assert.deepStrictEqual({
+				calls,
+				statuses: retried.attempts.map(attempt => attempt.status),
+				differentAttemptPaths: sourceManifest.frozenNodePath !== retryManifest.frozenNodePath
+					&& sourceManifest.inputs[0].snapshotPath !== retryManifest.inputs[0].snapshotPath,
+				sameFrozenDigests: sourceManifest.frozenNodeDigest === retryManifest.frozenNodeDigest
+					&& sourceManifest.inputs[0].snapshotDigest === retryManifest.inputs[0].snapshotDigest,
+				sameFrozenIdentity: {
+					edgeId: retryManifest.inputs[0].edgeId,
+					revision: retryManifest.inputs[0].revision,
+					sourceId: retryManifest.inputs[0].sourceId,
+					resultId: retryManifest.inputs[0].resultId
+				},
+				inputResourcesAreAttemptLocal: inputResources.length === 2
+					&& inputResources[0].toString() !== inputResources[1].toString()
+			}, {
+				calls: 2,
+				statuses: ['interrupted', 'succeeded'],
+				differentAttemptPaths: true,
+				sameFrozenDigests: true,
+				sameFrozenIdentity: {
+					edgeId: sourceManifest.inputs[0].edgeId,
+					revision: sourceManifest.inputs[0].revision,
+					sourceId: sourceManifest.inputs[0].sourceId,
+					resultId: sourceManifest.inputs[0].resultId
+				},
+				inputResourcesAreAttemptLocal: true
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('rejects a changed exact Retry manifest payload before a new Attempt or provider call', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let providerCalls = 0;
+			harness.registerExecutor(async request => {
+				providerCalls++;
+				await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+				await request.acknowledgeProviderRequestId('provider/tampered-retry');
+				await request.reportProviderExecutionFailure!({
+					kind: 'poll-interrupted',
+					retry: 'resume-existing',
+					providerRequestId: 'provider/tampered-retry'
+				});
+				throw new Error('Provider polling was interrupted.');
+			});
+
+			const first = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+			const frozenNodePath = first.attempts[0].snapshotManifest!.frozenNodePath;
+			await harness.write(frozenNodePath, 'changed frozen declaration');
+			await assert.rejects(
+				() => harness.service.prepareProviderRun(harness.node('frame.bhnode')),
+				/frozen node declaration failed integrity verification/
+			);
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode')),
+				/frozen node declaration failed integrity verification/
+			);
+			const persisted = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+			assert.deepStrictEqual({
+				providerCalls,
+				attempts: persisted.attempts.map(attempt => attempt.id),
+				statuses: persisted.attempts.map(attempt => attempt.status)
+			}, {
+				providerCalls: 1,
+				attempts: [first.attempts[0].id],
+				statuses: ['interrupted']
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('grants provider replacement only through the exact prepared retry fingerprint', async () => {
+			const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+			try {
+				harness.registerVideoCatalog(videoModelCatalog());
+				await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+				let calls = 0;
+				let replacementPreflightFingerprint: string | undefined;
+				harness.registerExecutor(async request => {
+					calls++;
+					if (calls === 1) {
+						await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+						await request.acknowledgeProviderRequestId('provider/video-terminal');
+						await request.reportProviderExecutionFailure!({
+							kind: 'remote-failed',
+							retry: 'replace-after-terminal-proof',
+							providerRequestId: 'provider/video-terminal'
+						});
+						throw new Error('The provider task failed.');
+					}
+					assert.deepStrictEqual(request.providerTaskIntent, {
+						kind: 'exact-retry',
+						sourceAttemptId: request.providerTaskIntent?.kind === 'exact-retry'
+							? request.providerTaskIntent.sourceAttemptId
+							: '',
+						providerRequestId: 'provider/video-terminal',
+						sourceFailure: {
+							kind: 'remote-failed',
+							retry: 'replace-after-terminal-proof',
+							providerRequestId: 'provider/video-terminal'
+						},
+						replacementAuthorized: true
+					});
+					assert.strictEqual(request.providerRequestFingerprint, replacementPreflightFingerprint);
+					await request.acknowledgeProviderRequestId('provider/video-terminal');
+					await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'replacement');
+					await request.acknowledgeProviderRequestId('provider/video-replacement');
+					const artifact = URI.joinPath(request.outputDirectory, 'clip.mp4');
+					await harness.fileService.createFile(artifact, VSBuffer.fromString(validMp4), { overwrite: false });
+					return {
+						artifact: { id: 'clip', outputId: 'result', kind: 'video', resource: artifact },
+						providerRequestId: 'provider/video-replacement'
+					};
+				});
+
+				const first = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+				assert.strictEqual(first.attempts[0].status, 'failed');
+				const retryPreflight = await harness.service.prepareProviderRun(harness.node('frame.bhnode'));
+				replacementPreflightFingerprint = retryPreflight.requestFingerprint;
+				assert.strictEqual(retryPreflight.authorizationKind, 'replacement');
+				const result = await harness.service.run(harness.node('frame.bhnode'), {
+					providerAuthorization: {
+						kind: retryPreflight.authorizationKind,
+						requestFingerprint: retryPreflight.requestFingerprint
+					}
+				});
+				assert.strictEqual(calls, 2);
+				assert.strictEqual(result.attempts[1].providerRequestId, 'provider/video-replacement');
+				assert.strictEqual(result.attempts[1].execution?.intent.kind, 'exact-retry');
+				assert.strictEqual(result.attempts[1].execution?.intent.kind === 'exact-retry'
+					? result.attempts[1].execution.intent.replacementAuthorized
+					: undefined, true);
+			} finally {
+				await harness.dispose();
+			}
+	});
+
+	test('fails closed after an ambiguous provider submission without a durable task id', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let calls = 0;
+			harness.registerExecutor(async request => {
+				calls++;
+				await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+				await request.reportProviderExecutionFailure!({ kind: 'submission-ambiguous', retry: 'blocked' });
+				throw new Error('The provider submission outcome is unknown.');
+			});
+
+			const first = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+			assert.deepStrictEqual(first.attempts[0].failure, { kind: 'submission-ambiguous', retry: 'blocked' });
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode')),
+				/no safe automatic Retry path/
+			);
+			assert.strictEqual(calls, 1);
+			assert.strictEqual((JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length, 1);
+		} finally {
+			await harness.dispose();
+			}
+	});
+
+	test('persists unknown provider status as an interrupted resumable Attempt', async () => {
+			const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+			try {
+				harness.registerVideoCatalog(videoModelCatalog());
+				await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+				harness.registerExecutor(async request => {
+					await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+					await request.acknowledgeProviderRequestId('provider/video-unknown');
+					await request.reportProviderExecutionFailure!({
+						kind: 'protocol',
+						retry: 'resume-existing',
+						providerRequestId: 'provider/video-unknown'
+					});
+					throw new Error('The provider returned an unknown non-terminal status.');
+				});
+
+				const result = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+				await new Promise(resolve => setTimeout(resolve, 0));
+				assert.deepStrictEqual({
+					status: result.attempts[0].status,
+					providerRequestId: result.attempts[0].providerRequestId,
+					failure: result.attempts[0].failure,
+					frozenPayloadRetained: result.attempts[0].snapshotManifest === undefined
+						? false
+						: await harness.fileService.exists(harness.resource(result.attempts[0].snapshotManifest.frozenNodePath))
+				}, {
+					status: 'interrupted',
+					providerRequestId: 'provider/video-unknown',
+					failure: {
+						kind: 'protocol',
+						retry: 'resume-existing',
+						providerRequestId: 'provider/video-unknown'
+					},
+					frozenPayloadRetained: true
+				});
+			} finally {
+				await harness.dispose();
+			}
+		});
+
 	test('never resolves a video recipe against another extension owner\'s catalog', async () => {
 		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
 		try {
@@ -414,7 +948,7 @@ suite('BaseHalfNodeExecutionService', () => {
 			harness.registerExecutor(async () => {
 				providerCalls++;
 				throw new Error('The provider must not see a foreign catalog selection.');
-			});
+	});
 
 			await assert.rejects(
 				() => harness.service.run(harness.node('frame.bhnode')),
@@ -444,7 +978,7 @@ suite('BaseHalfNodeExecutionService', () => {
 			});
 
 			await assert.rejects(
-				() => harness.service.run(harness.node('frame.bhnode')),
+				() => harness.service.prepareProviderRun(harness.node('frame.bhnode')),
 				/public HTTPS endpoint and Bearer API key/
 			);
 			assert.strictEqual(providerCalls, 0);
@@ -527,19 +1061,21 @@ suite('BaseHalfNodeExecutionService', () => {
 
 			const first = await harness.service.run(harness.node('frame.bhnode'));
 			await harness.write('brief.txt', 'changed brief');
-			const retried = await harness.service.run(harness.node('frame.bhnode'));
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode')),
+				/Retry requires the unchanged frozen Recipe, inputs, and model connection/
+			);
+			const persisted = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
 
 			assert.deepStrictEqual({
 				providerCalls,
-				statuses: retried.attempts.map(attempt => attempt.status),
-				frozenInputsEqual: JSON.stringify(retried.attempts[1].inputs) === JSON.stringify(first.attempts[0].inputs),
-				error: retried.attempts[1].error,
-				result: retried.result
+				statuses: persisted.attempts.map(attempt => attempt.status),
+				firstPreserved: JSON.stringify(persisted.attempts[0]) === JSON.stringify(first.attempts[0]),
+				result: persisted.result
 			}, {
 				providerCalls: 1,
-				statuses: ['failed', 'failed'],
-				frozenInputsEqual: true,
-				error: 'Retry requires the unchanged frozen Recipe, inputs, and model connection. Copy settings to a new Draft.',
+				statuses: ['failed'],
+				firstPreserved: true,
 				result: undefined
 			});
 		} finally {
@@ -572,19 +1108,21 @@ suite('BaseHalfNodeExecutionService', () => {
 
 			const first = await harness.service.run(harness.node('frame.bhnode'));
 			harness.setModelServices([modelServiceDescriptor('B')]);
-			const retried = await harness.service.run(harness.node('frame.bhnode'));
+			await assert.rejects(
+				() => harness.service.run(harness.node('frame.bhnode')),
+				/Retry requires the unchanged frozen Recipe, inputs, and model connection/
+			);
+			const persisted = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
 
 			assert.deepStrictEqual({
 				providerCalls,
-				statuses: retried.attempts.map(attempt => attempt.status),
-				frozenModelsEqual: JSON.stringify(retried.attempts[1].model) === JSON.stringify(first.attempts[0].model),
-				error: retried.attempts[1].error,
-				result: retried.result
+				statuses: persisted.attempts.map(attempt => attempt.status),
+				firstPreserved: JSON.stringify(persisted.attempts[0]) === JSON.stringify(first.attempts[0]),
+				result: persisted.result
 			}, {
 				providerCalls: 1,
-				statuses: ['failed', 'failed'],
-				frozenModelsEqual: true,
-				error: 'Retry requires the unchanged frozen Recipe, inputs, and model connection. Copy settings to a new Draft.',
+				statuses: ['failed'],
+				firstPreserved: true,
 				result: undefined
 			});
 		} finally {
@@ -634,6 +1172,40 @@ suite('BaseHalfNodeExecutionService', () => {
 				status: 'failed',
 				error: 'BaseHalf canvas recipe \'test.workflow.transform-image\' returned artifact \'wrong\' for an incompatible output.',
 				result: undefined
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('rejects and removes a video Result without a valid MP4 header', async () => {
+		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoModelCatalog());
+			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
+			let artifact: URI | undefined;
+			harness.registerExecutor(async request => {
+				await request.consumeProviderCreateAuthorization!(request.providerRequestFingerprint!, request.attemptId, 'new');
+				await request.acknowledgeProviderRequestId('provider/video-invalid-artifact');
+				artifact = URI.joinPath(request.outputDirectory, 'clip.mp4');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('not-an-mp4'), { overwrite: false });
+				return {
+					artifact: { id: 'clip', outputId: 'result', kind: 'video', resource: artifact },
+					providerRequestId: 'provider/video-invalid-artifact'
+				};
+			});
+
+			const result = await harness.service.run(harness.node('frame.bhnode'), await harness.providerRunOptions('frame.bhnode'));
+			assert.deepStrictEqual({
+				status: result.attempts[0].status,
+				error: result.attempts[0].error,
+				result: result.result,
+				artifactRemoved: artifact === undefined ? false : !await harness.fileService.exists(artifact)
+			}, {
+				status: 'failed',
+				error: "Recipe output 'clip' is not a valid MP4 file.",
+				result: undefined,
+				artifactRemoved: true
 			});
 		} finally {
 			await harness.dispose();
@@ -706,7 +1278,7 @@ suite('BaseHalfNodeExecutionService', () => {
 				const result = await harness.service.run(harness.node('frame.bhnode'));
 				assert.deepStrictEqual({ status: result.attempts[0].status, error: result.attempts[0].error, result: result.result }, {
 					status: 'failed',
-					error: 'A recipe path contains a symbolic-link component.',
+					error: 'A recipe path contains a symbolic-link component. Unsealed run data was retained because safe cleanup could not be proven.',
 					result: undefined
 				});
 			} finally {
@@ -760,12 +1332,12 @@ suite('BaseHalfNodeExecutionService', () => {
 				status: result.attempts[0].status,
 				error: result.attempts[0].error,
 				result: result.result,
-				bytes: artifact ? (await harness.fileService.readFile(artifact)).value.toString() : undefined
+				artifactRemoved: artifact ? !await harness.fileService.exists(artifact) : false
 			}, {
 				status: 'failed',
 				error: "Recipe output 'frame' changed while it was being accepted.",
 				result: undefined,
-				bytes: 'other'
+				artifactRemoved: true
 			});
 		} finally {
 			await harness.dispose();
@@ -897,14 +1469,176 @@ suite('BaseHalfNodeExecutionService', () => {
 			assert.deepStrictEqual({
 				status: recovered.attempts[0].status,
 				error: recovered.attempts[0].error,
+				failure: recovered.attempts[0].failure,
 				result: recovered.result
 			}, {
 				status: 'interrupted',
-				error: 'The previous execution host stopped before this run completed.',
+				error: 'The abandoned Attempt has no complete durable provider recovery payload.',
+				failure: { kind: 'execution-ownership', retry: 'blocked' },
 				result: undefined
 			});
 		} finally {
 			await interruptedHarness.dispose();
+		}
+
+		const frozenInputHarness = await createHarness(imageReferenceRecipe());
+		try {
+			let initial = beginBaseHalfNodeAttempt(nodeDocument('frame.bhnode', [
+				{ sourcePath: 'source.bhnode', slot: 'reference', order: 0 }
+			]), {
+				id: 'abandoned-input-attempt',
+				createdAt: '2026-08-13T00:00:00Z',
+				startedAt: '2026-08-13T00:00:00Z',
+				model: { source: 'local' },
+				inputs: [{ sourcePath: 'source.bhnode', slot: 'reference', order: 0, revision: 'frozen-input-revision' }]
+			});
+			initial = freezeBaseHalfNodeAttemptProviderRequestId(initial, 'abandoned-input-attempt', 'provider/frozen-input');
+			await frozenInputHarness.writeNode('frame.bhnode', initial);
+
+			const recovered = await frozenInputHarness.service.recoverInterrupted(frozenInputHarness.node('frame.bhnode'));
+			assert.deepStrictEqual({
+				status: recovered.attempts[0].status,
+				providerRequestId: recovered.attempts[0].providerRequestId,
+				error: recovered.attempts[0].error,
+				failure: recovered.attempts[0].failure,
+				result: recovered.result
+			}, {
+				status: 'interrupted',
+				providerRequestId: 'provider/frozen-input',
+				error: 'The abandoned Attempt has no complete durable provider recovery payload.',
+				failure: {
+					kind: 'execution-ownership',
+					retry: 'resume-existing',
+					providerRequestId: 'provider/frozen-input'
+				},
+				result: undefined
+			});
+		} finally {
+			await frozenInputHarness.dispose();
+		}
+	});
+
+	test('recovers the same video Attempt from its verified frozen snapshot without rescanning the source Draft', async () => {
+		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
+		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		try {
+			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
+			const sourceBytes = 'frozen-source-image';
+			await harness.fileService.createFolder(harness.resource('assets/source'));
+			await harness.write('assets/source/reference.png', sourceBytes);
+			const source = importBaseHalfNodeResult(createBaseHalfNodeDocument({
+				id: baseHalfNodeTestId(2),
+				kind: 'image',
+				title: 'Source',
+				role: 'first-frame'
+			}), {
+				id: 'source-artifact',
+				outputId: 'imported',
+				kind: 'image',
+				path: 'assets/source/reference.png',
+				sha256: await sha256(sourceBytes),
+				size: new TextEncoder().encode(sourceBytes).byteLength
+			});
+			await harness.writeNode('source.bhnode', source);
+			await harness.writeNode('clip.bhnode', videoFirstFrameNodeDocument('2026-08-16'));
+
+			let recoveredRequest: IBaseHalfCanvasRecipeExecutionRequest | undefined;
+			harness.registerExecutor(async request => {
+				recoveredRequest = request;
+				assert.strictEqual(request.attemptId, baseHalfNodeTestId(9));
+				assert.deepStrictEqual(request.providerTaskIntent, {
+					kind: 'recover',
+					providerRequestId: 'provider/restart-task'
+				});
+				assert.strictEqual(request.consumeProviderCreateAuthorization, undefined);
+				assert.strictEqual(request.inputs.length, 1);
+				assert.strictEqual(request.inputs[0].slotId, 'first-frame');
+				assert.strictEqual(
+					(await harness.fileService.readFile(request.inputs[0].source.result!.resource)).value.toString(),
+					sourceBytes
+				);
+				assert.strictEqual(await harness.fileService.exists(URI.joinPath(request.outputDirectory, 'provisional')), false);
+				await request.acknowledgeProviderRequestId('provider/restart-task');
+				const artifact = URI.joinPath(request.outputDirectory, 'recovered.mp4');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString(validMp4), { overwrite: false });
+				return {
+					artifact: { id: 'recovered', outputId: 'result', kind: 'video', resource: artifact },
+					providerRequestId: 'provider/restart-task'
+				};
+			});
+
+			const preflight = await harness.service.prepareProviderRun(harness.node('clip.bhnode'));
+			const inputRevision = await harness.service.getInputRevision(harness.workspaceFolder, 'source.bhnode', { fresh: true });
+			const attemptId = baseHalfNodeTestId(9);
+			const runRoot = `outputs/${preflight.document.id}/${attemptId}`;
+			const frozenNode = createBaseHalfNodeDocument({
+				id: preflight.document.id,
+				kind: preflight.document.kind,
+				title: preflight.document.title,
+				role: preflight.document.role,
+				prompt: preflight.document.prompt,
+				recipe: preflight.document.recipe
+			});
+			const frozenNodeBytes = serializeBaseHalfNodeDocument(frozenNode);
+			await harness.fileService.createFolder(harness.resource(`${runRoot}/inputs`));
+			await harness.fileService.createFolder(harness.resource(`${runRoot}/artifacts`));
+			await harness.write(`${runRoot}/.basehalf-run-guard`, baseHalfNodeTestId(8));
+			await harness.write(`${runRoot}/inputs/node.bhnode`, frozenNodeBytes);
+			await harness.write(`${runRoot}/inputs/000-reference.png`, sourceBytes);
+			await harness.fileService.createFolder(harness.resource(`${runRoot}/artifacts/provisional`));
+			await harness.write(`${runRoot}/artifacts/provisional/partial.mp4`, 'partial-provider-output');
+
+			let running = beginBaseHalfNodeAttempt(preflight.document, {
+				...videoAttemptOptions(),
+				id: attemptId,
+				inputs: [{
+					sourcePath: 'source.bhnode',
+					slot: 'first-frame',
+					order: 0,
+					revision: inputRevision
+				}]
+			});
+			running = freezeBaseHalfNodeAttemptExecution(running, attemptId, {
+				requestFingerprint: preflight.requestFingerprint,
+				intent: { kind: 'new' }
+			});
+			running = freezeBaseHalfNodeAttemptProviderRequestId(running, attemptId, 'provider/restart-task');
+			running = freezeBaseHalfNodeAttemptSnapshotManifest(running, attemptId, {
+				version: 1,
+				nodePath: 'clip.bhnode',
+				frozenNodePath: `${runRoot}/inputs/node.bhnode`,
+				frozenNodeDigest: await snapshotFileDigest(frozenNodeBytes),
+				executorExtensionId: 'test.workflow',
+				videoModelCatalogId: 'test.workflow.models',
+				inputs: [{
+					edgeId: 'source.bhnode->clip.bhnode',
+					slot: 'first-frame',
+					order: 0,
+					revision: inputRevision,
+					sourceId: source.id,
+					sourcePath: 'source.bhnode',
+					sourceKind: 'image',
+					snapshotPath: `${runRoot}/inputs/000-reference.png`,
+					snapshotDigest: await snapshotFileDigest(sourceBytes),
+					resultId: `${source.id}:result`,
+					resultKind: 'image'
+				}]
+			});
+			await harness.writeNode('clip.bhnode', running);
+
+			// The mutable source is corrupt before restart recovery. Recovery must use
+			// only the verified run snapshot and the durable provider task id.
+			await harness.write('assets/source/reference.png', 'changed-after-provider-ack');
+			const recovered = await harness.service.recoverInterrupted(harness.node('clip.bhnode'));
+			assert.ok(recoveredRequest);
+			assert.strictEqual(recovered.attempts.length, 1);
+			assert.strictEqual(recovered.attempts[0].id, attemptId);
+			assert.strictEqual(recovered.attempts[0].status, 'succeeded');
+			assert.strictEqual(recovered.attempts[0].providerRequestId, 'provider/restart-task');
+			assert.strictEqual(recovered.result?.source === 'attempt' ? recovered.result.attemptId : undefined, attemptId);
+			assert.strictEqual(getBaseHalfNodeResultArtifact(recovered)?.path, `${runRoot}/artifacts/recovered.mp4`);
+		} finally {
+			await harness.dispose();
 		}
 	});
 
@@ -927,8 +1661,11 @@ suite('BaseHalfNodeExecutionService', () => {
 					firstStarted();
 					await lateSuccess;
 					const artifact = URI.joinPath(request.outputDirectory, 'late.png');
-					await harness.fileService.createFile(artifact, VSBuffer.fromString('late-result'), { overwrite: false });
-					firstSettled();
+					try {
+						await harness.fileService.createFile(artifact, VSBuffer.fromString('late-result'), { overwrite: false });
+					} finally {
+						firstSettled();
+					}
 					return { artifact: { id: 'late', outputId: 'result', kind: 'image', resource: artifact } };
 				}
 				const artifact = URI.joinPath(request.outputDirectory, 'retry.png');
@@ -947,19 +1684,21 @@ suite('BaseHalfNodeExecutionService', () => {
 
 			resolveLateSuccess();
 			await firstDidSettle;
-			await Promise.resolve();
 			assert.ok(firstRequest);
 			const lateArtifact = URI.joinPath(firstRequest.outputDirectory, 'late.png');
+			for (let cleanupAttempt = 0; cleanupAttempt < 20 && await harness.fileService.exists(lateArtifact); cleanupAttempt++) {
+				await new Promise(resolve => setTimeout(resolve, 0));
+			}
 			assert.deepStrictEqual({
 				attempts: cancelled.attempts.map(attempt => attempt.status),
 				result: cancelled.result,
 				nodeUnchangedAfterLateSuccess: await harness.read('frame.bhnode') === nodeAfterCancel,
-				lateArtifactExistsButIsUnbound: await harness.fileService.exists(lateArtifact)
+				lateArtifactRemoved: !await harness.fileService.exists(lateArtifact)
 			}, {
 				attempts: ['cancelled'],
 				result: undefined,
 				nodeUnchangedAfterLateSuccess: true,
-				lateArtifactExistsButIsUnbound: true
+				lateArtifactRemoved: true
 			});
 
 			const retried = await harness.service.run(harness.node('frame.bhnode'));
@@ -1030,7 +1769,7 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
-	test('does not offer a false Retry after cancellation before the model snapshot was frozen', async () => {
+	test('creates zero Attempt when cancellation wins before the model snapshot is frozen', async () => {
 		const descriptor = modelServiceDescriptor('A');
 		const harness = await createHarness(modelImageRecipe(), [], [descriptor]);
 		try {
@@ -1069,22 +1808,29 @@ suite('BaseHalfNodeExecutionService', () => {
 			assert.strictEqual(harness.service.cancel(active.resource, active.runId), true);
 			await Promise.resolve();
 			resolveModelCheck([descriptor]);
-			const cancelled = await execution;
+			await assert.rejects(execution, /Canceled/);
 			harness.setModelServices([descriptor]);
 
-			await assert.rejects(
-				() => harness.service.run(harness.node('frame.bhnode')),
-				/Retry requires the unchanged frozen Recipe, inputs, and model connection\. Copy settings to a new Draft\./
-			);
+			const afterCancellation = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+			assert.strictEqual(afterCancellation.attempts.length, 0);
+			const completed = await harness.service.run(harness.node('frame.bhnode'));
 			assert.deepStrictEqual({
 				providerCalls,
-				attempts: cancelled.attempts.map(attempt => ({ status: attempt.status, model: attempt.model, inputs: attempt.inputs })),
+				attempts: completed.attempts.map(attempt => ({ status: attempt.status, model: attempt.model, inputs: attempt.inputs })),
 				persistedAttemptCount: (JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument).attempts.length
 			}, {
-				providerCalls: 0,
+				providerCalls: 1,
 				attempts: [{
-					status: 'cancelled',
-					model: { source: 'service', connection: 'unavailable', serviceId: descriptor.id, capability: 'image', modelId: 'image-v1' },
+					status: 'succeeded',
+					model: {
+						source: 'service',
+						connection: 'resolved',
+						serviceId: descriptor.id,
+						serviceLabel: descriptor.label,
+						connectionIdentity: descriptor.connectionIdentity,
+						capability: 'image',
+						modelId: 'image-v1'
+					},
 					inputs: []
 				}],
 				persistedAttemptCount: 1
@@ -1204,6 +1950,16 @@ class TestHarness {
 
 	node(relativePath: string): IBaseHalfWorkspaceResource {
 		return { resource: this.resource(relativePath), workspaceFolder: this.workspaceFolder, relativePath };
+	}
+
+	async providerRunOptions(relativePath: string): Promise<{ readonly providerAuthorization: { readonly kind: 'new' | 'replacement'; readonly requestFingerprint: string } }> {
+		const preflight = await this.service.prepareProviderRun(this.node(relativePath));
+		return Object.freeze({
+			providerAuthorization: Object.freeze({
+				kind: preflight.authorizationKind,
+				requestFingerprint: preflight.requestFingerprint
+			})
+		});
 	}
 
 	async write(path: string, content: string): Promise<void> {
@@ -1342,6 +2098,14 @@ function videoRecipe(): IBaseHalfCanvasRecipeContribution {
 	};
 }
 
+function videoFirstFrameRecipe(): IBaseHalfCanvasRecipeContribution {
+	return {
+		...videoRecipe(),
+		id: 'test.workflow.first-frame-video',
+		inputs: [{ id: 'first-frame', label: 'First frame', accepts: ['image'], minItems: 1, maxItems: 1 }]
+	};
+}
+
 function localVideoRecipe(): IBaseHalfCanvasRecipeContribution {
 	return {
 		id: 'test.workflow.render-local-video',
@@ -1370,6 +2134,32 @@ function videoNodeDocument(revision: string, id: string = baseHalfNodeTestId(1))
 				[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: videoModelSnapshot(revision)
 			},
 			inputBindings: []
+		}
+	});
+}
+
+function videoFirstFrameNodeDocument(revision: string): IBaseHalfNodeDocument {
+	return createBaseHalfNodeDocument({
+		id: baseHalfNodeTestId(1),
+		kind: 'video',
+		title: 'Clip',
+		role: 'result',
+		prompt: 'Create a cinematic camera move.',
+		recipe: {
+			recipeId: videoFirstFrameRecipe().id,
+			modelServiceId: 'studio.video',
+			modelId: 'seedance-1.5-pro',
+			parameters: {
+				generationMode: 'first-frame-to-video',
+				resolution: '720P',
+				duration: 5,
+				[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: {
+					...videoModelSnapshot(revision),
+					mode: 'first-frame-to-video',
+					inputs: { 'text-prompt': 1, 'first-frame': 1 }
+				}
+			},
+			inputBindings: [{ sourcePath: 'source.bhnode', slot: 'first-frame', order: 0 }]
 		}
 	});
 }
@@ -1423,6 +2213,24 @@ function videoModelCatalog() {
 				constraints: []
 			}]
 		}]
+	};
+}
+
+function videoFirstFrameModelCatalog() {
+	const catalog = videoModelCatalog();
+	return {
+		...catalog,
+		models: catalog.models.map(model => ({
+			...model,
+			modes: [{
+				...model.modes[0],
+				mode: 'first-frame-to-video',
+				inputs: [
+					{ kind: 'text-prompt', minItems: 1, maxItems: 1, maxCharacters: 1_500 },
+					{ kind: 'first-frame', minItems: 1, maxItems: 1 }
+				]
+			}]
+		}))
 	};
 }
 
@@ -1533,4 +2341,9 @@ async function createHarness(
 async function sha256(value: string): Promise<string> {
 	const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
 	return encodeBase64(VSBuffer.wrap(new Uint8Array(digest)), false, true);
+}
+
+async function snapshotFileDigest(value: string): Promise<string> {
+	const bytes = new TextEncoder().encode(value);
+	return sha256(`\u0000file\u0000${bytes.byteLength}\u0000${await sha256(value)}`);
 }
