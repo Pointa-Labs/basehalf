@@ -9,6 +9,8 @@ questions
 
 Parent specification: [Video node development specification](video-node-development-spec.md)
 
+Composer UI specification: [Video node Composer surface specification](video-node-composer-surface-spec.md)
+
 Owning domain contract: [AI Video domain contract](product-contract.md)
 
 ## 1. Authority and purpose
@@ -21,8 +23,10 @@ settings, input, and Composer rendering work.
 
 The domain contract remains authoritative for the universal Draft → Attempt →
 Result lifecycle and host/plugin ownership. The parent specification remains
-authoritative for shared vocabulary, the end-to-end user journey, surface
-behavior, and cross-package acceptance. This document owns the detailed paid
+authoritative for shared vocabulary, the end-to-end user journey, and
+cross-package acceptance. The Composer-surface specification owns the lower
+surface and Attempts-popover geometry, presentation, and event routing. This
+document owns the detailed paid
 authorization, remote-task correlation, recovery, error classification, and
 artifact-sealing contracts within those boundaries.
 
@@ -645,7 +649,7 @@ Smoke ownership:
 
 - execution-specific fake-provider seams and execution assertions in
   `vscode-base/scripts/basehalf-smoke.mts`, coordinated with the integration
-  owner because that file is shared.
+  owner defined by the Composer-surface specification because that file is shared.
 
 ### 15.2 Files this package must not touch independently
 

@@ -156,8 +156,11 @@ partial artifact; any file written before a final cancellation check is removed.
 The detailed desktop implementation contract is
 [`video-node-development-spec.md`](video-node-development-spec.md). It defines
 the complete model-selection, connection, settings, input, execution, recovery,
-and verification flow while this document remains authoritative for lifecycle
-and host/plugin ownership.
+and verification flow. The exact lower-Composer geometry, model/settings chrome,
+popover placement, and show/dismiss behavior are defined by
+[`video-node-composer-surface-spec.md`](video-node-composer-surface-spec.md),
+while this document remains authoritative for lifecycle and host/plugin
+ownership.
 
 Generation methods are capabilities of the selected exact model. Start frame
 and end frame are target-owned input roles required by specific methods, not
@@ -170,9 +173,9 @@ A Video node has three distinct surfaces with non-overlapping responsibilities:
 - the node-adjacent Composer owns the prompt and primary generation action;
   model, parameter, input, and Attempt controls open as one anchored child
   popover at a time without replacing or resizing the Composer. The compact
-  Composer stays centered beneath the card whenever that card/Composer pair can
-  physically fit in the canvas viewport; the initial selection may pan just
-  enough to preserve that relationship;
+  Composer is canonically centered beneath the card; initial selection may pan
+  within the bounded surface rule to preserve that relationship, while later
+  explicit geometry or viewport changes use below/above/clamped placement;
 - a contextual toolbar above a selected verified Video Result owns operations on
   that sealed video or its node.
 
@@ -191,6 +194,14 @@ part of the video temporarily; they scroll or clamp internally and never turn
 the Composer into a second inspector page or pan the canvas to make room. Only
 the first Composer mount may perform the bounded pan needed to keep the compact
 card/Composer pair visible.
+
+Moving or resizing the selected card closes its child popover while the main
+Composer remains visible, inert, fixed-size, and attached without unmounting
+its prompt. After the canvas commits the new card geometry, the same Composer
+resolves below, above, or clamped from the live card bounds without panning the
+canvas. Pan and zoom keep Composer dimensions fixed and update only its anchor
+position. A fully off-screen card has no floating Composer; the mounted surface
+may reappear only when the same selected card returns.
 
 ## Sequence document
 

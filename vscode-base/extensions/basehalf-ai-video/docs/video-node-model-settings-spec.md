@@ -1,10 +1,12 @@
 # Video node model selection and settings specification
 
-Status: active implementation work package, version 2
+Status: active implementation work package, version 3
 
 Last updated: 2026-08-24
 
 Parent specification: [Video node development specification](video-node-development-spec.md)
+
+Composer UI specification: [Video node Composer surface specification](video-node-composer-surface-spec.md)
 
 Owning product contract: [AI Video domain contract](product-contract.md)
 
@@ -16,18 +18,22 @@ that model through a schema-driven Settings popover. It is intended to be
 implemented in parallel with the input and execution work packages.
 
 The parent specification remains authoritative for shared vocabulary, the
-end-to-end Draft/Attempt/Result lifecycle, Composer geometry, input transactions,
-and acceptance wording. The domain contract remains authoritative for host,
-plugin, graph, credential, and artifact ownership. This document narrows those
-contracts into model/settings state, interfaces, file ownership, and tests; it
-does not redefine the shared lifecycle.
+end-to-end Draft/Attempt/Result lifecycle, input transactions, and integration
+acceptance wording. The Composer-surface specification owns exact trigger and
+popover geometry, density, placement, appearance, and show/dismiss behavior.
+The domain contract remains authoritative for host, plugin, graph, credential,
+and artifact ownership. This document narrows those contracts into semantic
+model/settings state, interfaces, file ownership, and tests; it does not
+redefine the shared lifecycle or surface chrome.
 
 When requirements overlap:
 
 1. the domain contract owns cross-product and host/plugin boundaries;
 2. the parent specification owns shared Video-node behavior;
-3. this work package owns model-picker, connection-return, and Settings details
-   inside those boundaries.
+3. this work package owns model-picker data, connection-return, Settings schema,
+   and model/settings mutations inside those boundaries;
+4. the Composer-surface specification owns how those projections are arranged
+   and interacted with in the lower Composer.
 
 There are no unresolved product questions in this work package. An
 implementation that satisfies the acceptance matrix in section 13 may proceed.
@@ -282,21 +288,25 @@ integration. Search preserves ordinary text-field key behavior.
 
 ### 7.4 Picker and Settings are separate surfaces
 
-The Composer exposes two adjacent but independent summary triggers:
+The Composer exposes two adjacent but independent summary triggers whose exact
+size, truncation, and visual states are owned by the Composer-surface
+specification:
 
 1. the model trigger shows the selected model identity and opens the model
    picker;
 2. the Settings trigger shows method, aspect ratio, resolution, duration, and
    other catalog-declared summary tokens and opens Settings.
 
-The model picker is an anchored, scrollable list above or beside the model
-trigger. Each row presents the model label, provider/deployment mark when
-needed for disambiguation, capability tokens, and its semantic row state.
+The model picker is an anchored, scrollable list above or below the model
+trigger using the Composer-surface placement algorithm. Each row presents the
+model label, provider/deployment mark when needed for disambiguation,
+capability tokens, and its semantic row state.
 Unavailable rows remain visible with a disabled reason; the selected row has
 both a non-color selection treatment and semantic selected state.
 
-Settings is a separate compact anchored popover. It is rebuilt from the newly
-selected exact model and method after a model transaction. A method with one
+Settings is a separate compact anchored popover. Its 256-pixel chrome and
+control density are owned by the Composer-surface specification. It is rebuilt
+from the newly selected exact model and method after a model transaction. A method with one
 executable choice, an enum with one declared choice, or a normalized numeric
 range with one legal value is `fixed`: it remains visible as labeled text with
 explanatory copy rather than disappearing or pretending to be selectable.
@@ -403,18 +413,21 @@ explanation. Cancelling setup never selects the locked model.
 
 ## 10. Settings schema and controls
 
-Settings renders in this fixed section order:
+Settings renders semantic content in this fixed section order:
 
-1. exact model heading and connection status;
+1. actionable connection/capability status when one exists;
 2. generation method;
 3. visible parameters in catalog order;
 4. complete adjustment notice;
 5. model/settings selection problem, if any;
-6. reviewed source URL and verification date in low-priority disclosure.
+6. one collapsed Model details disclosure containing the reviewed source URL
+   and verification date.
 
 That order is structural, not merely visual styling: reviewed-source disclosure
-must never be inserted before the current problem, and a supported exact model
-continues to show its heading and source when normalization needs review.
+must never be inserted before the current problem. A supported exact model
+continues to expose its identity through the adjacent model trigger and the
+Settings accessible name when normalization needs review. There is no redundant
+visible model title or healthy-connection row inside compact Settings.
 
 ### 10.1 Method control
 
@@ -523,8 +536,9 @@ following implementation files:
   `browser/media/basehalfModelConnections.css`, only for the generic connection
   form and its states.
 
-The following are integration-owned and must not be edited by this parallel
-lane:
+The following are owned by the
+[Composer-surface integration package](video-node-composer-surface-spec.md) and
+must not be edited by this parallel lane:
 
 - `basehalfCanvasWorkbench.contribution.ts`;
 - `browser/media/basehalfCanvasWorkbench.css`;

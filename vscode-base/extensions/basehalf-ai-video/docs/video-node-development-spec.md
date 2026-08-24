@@ -1,6 +1,6 @@
 # Video node development specification
 
-Status: active umbrella implementation specification, version 3
+Status: active umbrella implementation specification, version 5
 
 Last updated: 2026-08-24
 
@@ -10,16 +10,19 @@ Owning product contract: [AI Video domain contract](product-contract.md)
 
 Implementation work packages:
 
+- [Composer surface and child-popover UI](video-node-composer-surface-spec.md)
 - [Model selection and settings](video-node-model-settings-spec.md)
 - [Inputs and frame roles](video-node-inputs-spec.md)
 - [Execution, recovery, and Result sealing](video-node-execution-recovery-spec.md)
 
 This document owns the shared vocabulary, end-to-end journey, lifecycle,
-surface architecture, cross-package invariants, release gate, and integration
-acceptance scenarios. Each work-package specification owns the detailed
-behavior and implementation boundary named by its title. A work package may be
-implemented and verified independently, but it is not a separate product
-feature and must continue to consume the shared contracts defined here.
+surface responsibility split, cross-package invariants, release gate, and
+integration acceptance scenarios. The Composer-surface package owns exact
+screen-space geometry, chrome, appearance, placement, and dismissal. Each
+semantic work-package specification owns the detailed behavior and
+implementation boundary named by its title. A work package may be implemented
+and verified independently, but it is not a separate product feature and must
+continue to consume the shared contracts defined here.
 
 When documents appear to disagree, apply this authority order: the domain
 contract for lifecycle and durable ownership; this umbrella specification for
@@ -288,10 +291,15 @@ does not expose Draft settings as editable controls.
 
 ### 8.2 Node-adjacent Composer
 
+The exact dimensions, density, responsive exceptions, placement algorithm,
+appearance, and show/dismiss behavior are owned by the
+[Composer surface specification](video-node-composer-surface-spec.md).
+
 The Composer is fixed in screen space while the canvas zooms. Its compact
 anatomy is, from top to bottom:
 
-1. an input-chip strip with **Add input**;
+1. a compact input rail with **Add input** when the selected method declares
+   media roles or retained bindings need review;
 2. one stable multiline prompt field or frozen prompt copy;
 3. a footer containing the model trigger, settings summary trigger, Attempts
    trigger when Attempts exist, and one primary action.
@@ -308,11 +316,24 @@ visible. Opening or changing a child popover must preserve:
 - the prompt DOM node, value, selection, and IME composition;
 - the popover scroll position and focused logical option after a schema rerender.
 
-If the entire pair cannot fit, clamp the Composer horizontally inside the
-canvas and allow the card to be partially off-screen. Do not resize the card or
-pan the canvas merely to fit a popover.
+If the entire pair cannot fit within the bounded first-mount pan, or after an
+explicit node move, node resize, canvas pan/zoom, or viewport resize, resolve
+the Composer below, above, then clamped as defined by the surface package. Do
+not resize the card or perform a compensating canvas pan after a user-authored
+geometry/viewport change.
+
+Node move/resize closes the child popover but keeps the main Composer visible,
+inert, fixed-size, and attached without unmounting its prompt DOM. Pan and zoom
+update only the screen-space anchor and never recompute model, settings, input,
+pricing, or primary-action state. A selected card that is fully off-screen has
+no floating Composer.
 
 ### 8.3 Child popovers
+
+The Composer surface specification owns child-popover widths, maximum heights,
+above/below flipping, viewport clamping, stacking, and pointer/focus routing.
+The semantic sibling package continues to own the contents and mutations inside
+each popover.
 
 Exactly one of these Composer-owned child popovers may be open:
 
@@ -532,12 +553,17 @@ checkpoint remains saved.
 
 The popover renders, in this order:
 
-1. exact selected model heading and connection status;
+1. actionable connection/capability status when one exists;
 2. generation method;
 3. catalog parameters in declared order;
 4. full reconciliation notice;
 5. readiness problem relevant to model/settings;
-6. reviewed source link and verification date in a low-priority disclosure.
+6. a collapsed Model details disclosure containing the reviewed source and
+   verification date.
+
+There is no redundant visible title in the compact Settings popover. The exact
+model remains visible in the adjacent model trigger and participates in the
+popover's accessible name. A healthy connection consumes no settings row.
 
 Common parameter labels include Aspect ratio, Resolution, Duration, Generate
 audio, and provider-neutral advanced switches. The UI does not hard-code their
@@ -986,6 +1012,14 @@ Required cases:
 Required behavior:
 
 - exactly one Composer and one child popover;
+- canonical 512 by 160 Composer geometry, 10-pixel card gap, and fixed
+  screen-space size across canvas zoom;
+- 224-pixel Models and 256-pixel Settings surfaces with internal scrolling and
+  deterministic above/below flipping;
+- node move/resize keeps one visible, inert Composer attached without
+  unmounting the prompt, then resolves from committed card bounds without pan;
+- pan/zoom preserves fixed Composer geometry, follows only a visible anchor,
+  and does not rerun semantic projections;
 - prompt DOM/value/selection/IME survives model and settings changes;
 - selected/locked/unavailable model row semantics;
 - single-method fixed presentation and multi-method radio/listbox presentation;
@@ -1011,12 +1045,16 @@ provider seams. It exercises this complete path:
    missing-Start blocker;
 7. pick a Start frame and observe the missing-End blocker without losing Start;
 8. pick an End frame and verify two role bindings and two graph edges;
-9. change a setting and verify summary/persistence;
-10. approve the fake paid-run disclosure;
-11. save, create Attempt, receive fake progress, download a bounded fake MP4,
+9. move and resize the Draft near a viewport edge; verify child dismissal,
+   prompt DOM identity, fixed Composer size, and below/above/clamped placement;
+10. pan and zoom away and back; verify no floating off-screen Composer and the
+   same Draft when its exact card returns;
+11. change a setting and verify summary/persistence;
+12. approve the fake paid-run disclosure;
+13. save, create Attempt, receive fake progress, download a bounded fake MP4,
     and seal one Result;
-12. restart and verify playback identity and Attempt disclosure;
-13. copy settings to a new Draft and verify the old Result is unchanged.
+14. restart and verify playback identity and Attempt disclosure;
+15. copy settings to a new Draft and verify the old Result is unchanged.
 
 The fake seam is unavailable to normal launchers and packaged applications. It
 accepts only fixed non-secret markers and must exercise the same host state
@@ -1162,6 +1200,26 @@ a model that lacks that method, then the fallback is determined by reviewed
 catalog order, not by the two images. The notice names the old and new methods;
 both bindings remain unchanged until the user resolves them.
 
+### A20. Node geometry preserves one Composer Draft
+
+Given an editable Video Draft with an open child popover and an unsaved prompt,
+when the user moves or resizes the selected card, then the child closes and the
+main Composer remains visible, inert, fixed-size, and attached without
+unmounting its prompt. On commit, cancel, or lost capture, the same Composer
+resolves from the final exact card bounds and becomes interactive with the same
+prompt value, selection, native undo, and Draft. Its size remains 512 by 160 and
+geometry creates no configuration save or paid request.
+The canvas may persist its normal geometry/undo record; it must not save or
+normalize the Video Recipe merely because the card moved.
+
+### A21. Viewport changes never leave a floating editor
+
+Given a selected Video Draft, when the user pans, zooms, or resizes the canvas,
+then the Composer retains fixed screen-space dimensions and follows the card
+without semantic recomputation or compensating pan. It resolves below, above,
+then clamped. If the exact card becomes fully off-screen, the Composer is
+suspended; returning that same selected card reveals the same prompt DOM.
+
 ## 19. Implementation sequence
 
 ### Phase 1 — state and capability split
@@ -1183,6 +1241,19 @@ is represented as data.
 - add host service and smoke coverage.
 
 Exit: locked-model selection returns to the exact Draft without a paid call.
+
+### Phase 2a — Composer surface and popover chrome
+
+- replace card-ratio sizing with the canonical fixed screen-space geometry;
+- render the compact input rail, stable prompt, and one-row footer;
+- implement exact Models/Settings density, mutual exclusion, above/below
+  flipping, viewport clamping, and one-layer dismissal;
+- implement visible/inert live-follow move/resize and position-only pan/zoom
+  anchor updates with lost-capture and off-screen recovery;
+- add geometry, prompt-identity, pointer-routing, and edge-placement tests.
+
+Exit: the Composer-surface acceptance matrix passes while consuming fake
+semantic projections and creating no provider task.
 
 ### Phase 3 — settings and inputs
 

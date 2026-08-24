@@ -1,10 +1,12 @@
 # Video node inputs and temporal-frame specification
 
-Status: active implementation work package, version 2
+Status: active implementation work package, version 4
 
 Last updated: 2026-08-24
 
 Parent specification: [Video node development specification](video-node-development-spec.md)
+
+Composer UI specification: [Video node Composer surface specification](video-node-composer-surface-spec.md)
 
 Owning product contract: [AI Video domain contract](product-contract.md)
 
@@ -18,19 +20,23 @@ including named Start and End frame slots, ordinary bound inputs, canvas pick,
 input reconciliation, explicit role changes, and the graph/undo transactions
 that persist those operations.
 
-The parent specification owns shared vocabulary, the complete Composer and
-execution lifecycle, model and connection behavior, and cross-package
-acceptance. The domain contract remains authoritative for the one reference
-graph, target-owned input roles, host/plugin ownership, and sealed Results.
-Within that boundary, this document owns the detailed input state model and
-input mutations. It must not be used to create a second edge system or an
-input-only lifecycle store.
+The parent specification owns shared vocabulary, the complete execution
+lifecycle, model and connection behavior, and cross-package acceptance. The
+Composer-surface specification owns exact slot/chip density, lower-surface
+geometry, canvas-pick appearance, and show/dismiss behavior. The domain contract
+remains authoritative for the one reference graph, target-owned input roles,
+host/plugin ownership, and sealed Results. Within that boundary, this document
+owns the detailed input presentation data, state model, and input mutations. It
+must not be used to create a second edge system or an input-only lifecycle store.
 
 If the documents appear to conflict, use this priority:
 
 1. the domain contract for host/plugin, graph, and Result ownership;
 2. the parent specification for shared Video-node behavior;
-3. this work package for input presentation, reconciliation, and mutations.
+3. this work package for semantic input presentation, reconciliation, and
+   mutations;
+4. the Composer-surface specification for exact geometry, chrome, and event
+   routing.
 
 ## 2. Product decision: how Start and End relate to a model
 
@@ -270,7 +276,9 @@ localized reason strings.
 
 ### 7.1 Named temporal slots
 
-Named frame slots appear before the prompt and before ordinary chips:
+Named frame slots appear in the Composer's compact one-row input rail before
+the prompt. Their exact 32-pixel geometry and overflow behavior are owned by the
+Composer-surface specification:
 
 - Start Frame renders one Start slot;
 - Start + End Frames renders Start and End left-to-right with a non-color-only
@@ -282,8 +290,9 @@ Named frame slots appear before the prompt and before ordinary chips:
   every supported canvas scale; a real pointer click on either action must
   reach that action without interception by its sibling;
 - an empty required slot is an enabled pick target, not a disabled error card;
-- a filled slot shows source thumbnail or kind fallback, source title, and
-  integrity state;
+- a filled compact slot shows the source thumbnail or kind fallback, visible
+  role tag, and integrity badge; the full source title remains in its accessible
+  name, focus tooltip, and Inputs-popover row;
 - Replace and Remove are distinct actions and require no hover discovery.
 
 When only one of two slots is filled, the filled source remains stable while
@@ -292,13 +301,14 @@ popover must not recreate the prompt DOM or clear either slot.
 
 ### 7.2 Ordinary chips and Needs review
 
-Ordinary active inputs render in the Composer chip strip. Each chip exposes
-role, source identity, kind, problem state, and Remove. Multi-item roles also
-offer drag plus keyboard Move Earlier/Move Later; both paths execute the same
-mutation plan.
+Ordinary active inputs render in the Composer's one-row chip rail. Each chip
+exposes role, source identity, kind, problem state, and Remove. Multi-item roles
+also offer drag plus keyboard Move Earlier/Move Later; both paths execute the
+same mutation plan.
 
-Retained non-active bindings render under one visible **Needs review** heading
-after active slots and chips. Every row includes:
+Retained non-active bindings contribute one compact **Needs review (n)** chip to
+the rail. Activating it opens the Inputs popover, where every retained row
+includes:
 
 - original role and source identity;
 - one concise blocking reason;
@@ -343,6 +353,14 @@ Entering pick mode closes the Inputs popover but preserves the selected Video
 card, Composer, prompt DOM, viewport, current bindings, and Draft values. A
 fixed banner names the requested role: **Select Start Frame Image** or **Select
 End Frame Image**. The banner includes Cancel.
+
+While the request is `ready`, canvas pan and zoom remain available so the user
+can reach off-screen sources. Those user-authored viewport changes do not
+restart the request and are not rolled back on success or cancellation. The
+fixed banner stays in screen space, candidate hit regions follow the canvas,
+and the Composer follows or suspends under the Composer-surface contract.
+Target and candidate node move/resize gestures are disabled until pick exits;
+an eligible candidate click always means Select rather than drag.
 
 Only one canvas-pick request exists at a time. Starting a different child
 popover or selecting a different target cancels the request without mutation.
@@ -389,7 +407,11 @@ or move the role.
 ### 8.3 Commit and cancellation
 
 Selecting an eligible source plans and commits exactly one direct edge plus one
-target binding. The commit then reopens Inputs and focuses the new chip/slot.
+target binding. When the target remains visible, the commit reopens Inputs and
+focuses the new chip/slot. If the user panned the target fully off-screen, the
+commit closes the fixed banner, leaves Inputs closed, and defers the stable
+`returnFocusKey` until that exact selected target is visible again; it never
+auto-pans back or focuses a hidden surface.
 
 `Escape`, banner Cancel, blank-canvas cancellation, stale target, or failed
 revalidation creates neither edge nor binding. A transaction failure rolls
@@ -633,9 +655,10 @@ The pure module may import existing contracts but must not edit them to make a
 test pass. Any required shared-interface change is reported to the integration
 owner first.
 
-### 13.2 Integration owner
+### 13.2 Composer-surface integration owner
 
-The main integration task owns later changes to:
+The [Composer-surface integration package](video-node-composer-surface-spec.md)
+owns later changes to:
 
 - `vscode-base/src/vs/workbench/basehalf/browser/basehalfCanvasWorkbench.contribution.ts`;
 - `vscode-base/src/vs/workbench/basehalf/browser/media/basehalfCanvasWorkbench.css`;
@@ -834,6 +857,14 @@ complete adjustment list remains reviewable while the primary status and
 action are Add Start Frame. Saving or dismissing the adjustment does not change
 input readiness.
 
+### I19. Pick navigation does not become node manipulation
+
+Given an active role-specific pick, canvas pan and zoom retain the same request
+epoch and update candidate hit regions without moving or resizing any node.
+Selecting an eligible source still commits once. If the target is off-screen at
+commit, no automatic pan or hidden focus occurs; returning the same selected
+target exposes the filled slot and consumes the deferred focus key exactly once.
+
 ## 16. Required tests
 
 ### 16.1 Pure common tests
@@ -849,6 +880,8 @@ input readiness.
 - explicit conversion eligibility and destination-capacity rejection;
 - Swap availability and role-only before/after plan;
 - Pick, Replace, Remove, Convert, and Reorder plan invariants;
+- pan/zoom-stable pick epoch, disabled node geometry gestures, off-screen target
+  success, and exactly-once deferred focus restoration;
 - Pick/Replace identity capture and changed/legacy revision classification;
 - missing-source Remove with present, incomplete, and already-absent graph
   state;
