@@ -45,7 +45,6 @@ import {
 	IBaseHalfCanvasSceneRenderer,
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
-	IBaseHalfCanvasSceneVideoComposerLayout,
 	IBaseHalfCanvasSceneVideoComposerSurface,
 	IBaseHalfCanvasSceneViewport,
 	BaseHalfCanvasSceneVideoAction,
@@ -53,7 +52,6 @@ import {
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
 	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
@@ -63,6 +61,15 @@ import {
 	baseHalfCanvasSceneSelectionSurface,
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
+import {
+	BaseHalfVideoComposerDirectManipulation,
+	createBaseHalfVideoComposerManipulationLock,
+	followBaseHalfVideoComposerManipulation,
+	IBaseHalfVideoComposerLayout,
+	IBaseHalfVideoComposerManipulationLock,
+	resolveBaseHalfVideoComposerFirstMountPan,
+	resolveBaseHalfVideoComposerPlacement
+} from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
 import type {
 	Connection,
@@ -586,7 +593,7 @@ export function baseHalfCanvasVideoToolbarWidth(actions: readonly BaseHalfCanvas
 		+ (showDivider ? 5 : 0);
 }
 
-export interface IBaseHalfCanvasVideoComposerPlacement extends IBaseHalfCanvasSceneVideoComposerLayout {
+export interface IBaseHalfCanvasVideoComposerPlacement extends IBaseHalfVideoComposerLayout {
 	readonly flowLeft: number;
 	readonly flowTop: number;
 }
@@ -598,38 +605,18 @@ export function resolveBaseHalfCanvasVideoComposerPlacement(
 	}
 ): IBaseHalfCanvasVideoComposerPlacement {
 	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
-	const viewportWidth = Math.max(0, options.viewportWidth);
-	const viewportHeight = Math.max(0, options.viewportHeight);
 	const leftScreen = options.left * zoom + options.viewport.x;
 	const topScreen = options.top * zoom + options.viewport.y;
 	const rightScreen = options.right * zoom + options.viewport.x;
 	const bottomScreen = options.bottom * zoom + options.viewport.y;
-	const availableWidth = Math.max(0, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN * 2);
-	const requestedWidth = Number.isFinite(options.screenWidth) ? Math.max(0, options.screenWidth) : 0;
-	const screenWidth = Math.min(requestedWidth, availableWidth);
-	const screenHeight = Number.isFinite(options.screenHeight) ? Math.max(0, options.screenHeight) : 0;
-	const desiredLeft = ((leftScreen + rightScreen) / 2) - (screenWidth / 2);
-	const maximumLeft = Math.max(NOTE_CONTROLS_SCREEN_MARGIN, viewportWidth - NOTE_CONTROLS_SCREEN_MARGIN - screenWidth);
-	const composerLeftScreen = Math.min(maximumLeft, Math.max(NOTE_CONTROLS_SCREEN_MARGIN, desiredLeft));
-	const composerTopScreen = bottomScreen + BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP;
-	const cardIntersectsViewport = rightScreen >= 0
-		&& leftScreen <= viewportWidth
-		&& bottomScreen >= 0
-		&& topScreen <= viewportHeight;
-	const visible = cardIntersectsViewport
-		&& screenWidth > 0
-		&& screenHeight > 0
-		&& composerTopScreen < viewportHeight
-		&& composerTopScreen + screenHeight > 0;
+	const placement = resolveBaseHalfVideoComposerPlacement(
+		{ left: leftScreen, top: topScreen, right: rightScreen, bottom: bottomScreen },
+		{ width: options.viewportWidth, height: options.viewportHeight }
+	);
 	return {
-		placement: 'below',
-		visible,
-		left: composerLeftScreen,
-		top: composerTopScreen,
-		flowLeft: (composerLeftScreen - options.viewport.x) / zoom,
-		flowTop: (composerTopScreen - options.viewport.y) / zoom,
-		screenWidth,
-		screenHeight
+		...placement,
+		flowLeft: (placement.left - options.viewport.x) / zoom,
+		flowTop: (placement.top - options.viewport.y) / zoom
 	};
 }
 
@@ -1188,14 +1175,33 @@ function createCanvasSceneMount(
 				return;
 			}
 			const view = data.card.element.ownerDocument.defaultView;
-			const settleAtPointerBoundary = (): void => view?.queueMicrotask(() => finishCardResize());
+			let pointerBoundaryReached = false;
+			const settleAtPointerBoundary = (): void => {
+				pointerBoundaryReached = true;
+				view?.queueMicrotask(() => finishCardResize());
+			};
+			const settleAtLostPointerCapture = (event: globalThis.PointerEvent): void => {
+				// The resizer transfers capture to its window-level drag owner while
+				// the pointer gesture is still active. Ignore only that originating
+				// handle loss; a later loss from the active owner must settle exactly
+				// like pointer-up, cancel, or window blur.
+				const target = event.target;
+				const transferringFromHandle = event.buttons !== 0
+					&& (isHTMLElement(target) || isSVGElement(target))
+					&& !!target.closest('.react-flow__resize-control');
+				if (pointerBoundaryReached || !transferringFromHandle) {
+					settleAtPointerBoundary();
+				}
+			};
 			const removeBoundaryListeners = (): void => {
 				view?.removeEventListener('pointerup', settleAtPointerBoundary, true);
 				view?.removeEventListener('pointercancel', settleAtPointerBoundary, true);
+				view?.removeEventListener('lostpointercapture', settleAtLostPointerCapture, true);
 				view?.removeEventListener('blur', settleAtPointerBoundary, true);
 			};
 			view?.addEventListener('pointerup', settleAtPointerBoundary, true);
 			view?.addEventListener('pointercancel', settleAtPointerBoundary, true);
+			view?.addEventListener('lostpointercapture', settleAtLostPointerCapture, true);
 			view?.addEventListener('blur', settleAtPointerBoundary, true);
 			activeResizeRef.current = {
 				card: data.card,
@@ -1909,15 +1915,25 @@ function createCanvasSceneMount(
 	function VideoComposerAdjacentSurface({
 		node,
 		surface,
-		suppressed
+		manipulation,
+		viewportInteraction,
+		onFirstMountPan
 	}: {
 		readonly node: BaseHalfCanvasFlowNode;
 		readonly surface: IBaseHalfCanvasSceneVideoComposerSurface;
-		readonly suppressed: boolean;
+		readonly manipulation?: { readonly kind: BaseHalfVideoComposerDirectManipulation; readonly phase: 'active' | 'settling' };
+		readonly viewportInteraction: boolean;
+		readonly onFirstMountPan: (viewport: IBaseHalfCanvasSceneViewport) => void;
 	}): ReactElement {
 		const viewport = vendor.useViewport();
+		const flow = vendor.useReactFlow<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>();
 		const mountRef = vendor.useRef<HTMLDivElement>(null);
-		const latestLayout = vendor.useRef<IBaseHalfCanvasSceneVideoComposerLayout | undefined>(undefined);
+		const latestLayout = vendor.useRef<IBaseHalfVideoComposerLayout | undefined>(undefined);
+		const latestAnchor = vendor.useRef<{ readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } | undefined>(undefined);
+		const latestViewportSize = vendor.useRef<{ readonly width: number; readonly height: number } | undefined>(undefined);
+		const manipulationLock = vendor.useRef<IBaseHalfVideoComposerManipulationLock | undefined>(undefined);
+		const firstMountPanAttempted = vendor.useRef(false);
+		const layoutEpoch = vendor.useRef(0);
 		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
 		vendor.useEffect(() => {
 			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
@@ -1938,34 +1954,51 @@ function createCanvasSceneMount(
 
 		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
 		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
-		const placement = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: node.position.x,
-			top: node.position.y,
-			right: node.position.x + nodeWidth,
-			bottom: node.position.y + nodeHeight,
-			viewport,
-			viewportWidth: viewportSize.width,
-			viewportHeight: viewportSize.height,
-			screenWidth: surface.screenWidth,
-			screenHeight: surface.screenHeight
-		});
-		const effectivelyVisible = placement.visible && !suppressed;
-		const layout: IBaseHalfCanvasSceneVideoComposerLayout = {
-			placement: placement.placement,
-			visible: effectivelyVisible,
-			left: placement.left,
-			top: placement.top,
-			screenWidth: placement.screenWidth,
-			screenHeight: placement.screenHeight
+		const anchor = {
+			left: node.position.x * viewport.zoom + viewport.x,
+			top: node.position.y * viewport.zoom + viewport.y,
+			right: (node.position.x + nodeWidth) * viewport.zoom + viewport.x,
+			bottom: (node.position.y + nodeHeight) * viewport.zoom + viewport.y
 		};
+		const resolvedPlacement = resolveBaseHalfVideoComposerPlacement(anchor, viewportSize);
+		if (manipulation && !manipulationLock.current) {
+			manipulationLock.current = createBaseHalfVideoComposerManipulationLock(
+				latestAnchor.current ?? anchor,
+				latestLayout.current ?? resolvedPlacement
+			);
+		} else if (!manipulation) {
+			manipulationLock.current = undefined;
+		}
+		const layout = manipulation && manipulationLock.current
+			? followBaseHalfVideoComposerManipulation(anchor, manipulationLock.current)
+			: resolvedPlacement;
+		const effectivelyVisible = layout.visible;
 		latestLayout.current = layout;
+		const previousAnchor = latestAnchor.current;
+		const previousViewportSize = latestViewportSize.current;
+		const viewportResized = !!previousViewportSize
+			&& (previousViewportSize.width !== viewportSize.width || previousViewportSize.height !== viewportSize.height);
+		const anchorChanged = (!!previousAnchor && (previousAnchor.left !== anchor.left
+			|| previousAnchor.top !== anchor.top
+			|| previousAnchor.right !== anchor.right
+			|| previousAnchor.bottom !== anchor.bottom))
+			|| viewportResized;
+		latestAnchor.current = anchor;
+		latestViewportSize.current = viewportSize;
 
-		const dispatchLayout = vendor.useCallback((element: HTMLElement, detail: IBaseHalfCanvasSceneVideoComposerLayout): void => {
+		const dispatchLayout = vendor.useCallback((element: HTMLElement, detail: IBaseHalfVideoComposerLayout & {
+			readonly epoch: number;
+			readonly anchorChanged: boolean;
+			readonly viewportResized: boolean;
+			readonly viewportInteraction: boolean;
+			readonly manipulating?: BaseHalfVideoComposerDirectManipulation;
+		}): void => {
 			element.dataset.placement = detail.placement;
 			element.dataset.videoComposerVisible = String(detail.visible);
+			element.dataset.videoComposerState = detail.visibility;
 			const EventConstructor = element.ownerDocument.defaultView?.CustomEvent;
 			if (EventConstructor) {
-				element.dispatchEvent(new EventConstructor<IBaseHalfCanvasSceneVideoComposerLayout>(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, {
+				element.dispatchEvent(new EventConstructor(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, {
 					detail,
 					bubbles: false
 				}));
@@ -1978,11 +2011,19 @@ function createCanvasSceneMount(
 				return;
 			}
 			mount.replaceChildren(element);
-			element.dataset.placement = 'below';
+			element.dataset.placement = layout.placement;
 			return () => {
 				const previous = latestLayout.current;
 				if (previous) {
-					dispatchLayout(element, { ...previous, visible: false });
+					dispatchLayout(element, {
+						...previous,
+						visibility: 'anchor-offscreen',
+						visible: false,
+						epoch: ++layoutEpoch.current,
+						anchorChanged: false,
+						viewportResized: false,
+						viewportInteraction: false
+					});
 				}
 				if (element.parentElement === mount) {
 					element.remove();
@@ -1990,16 +2031,41 @@ function createCanvasSceneMount(
 			};
 		}, [dispatchLayout, surface.element]);
 		vendor.useLayoutEffect(() => {
-			dispatchLayout(surface.element, layout);
+			dispatchLayout(surface.element, {
+				...layout,
+				epoch: ++layoutEpoch.current,
+				anchorChanged,
+				viewportResized,
+				viewportInteraction,
+				...(manipulation ? { manipulating: manipulation.kind } : {})
+			});
 		}, [
+			anchorChanged,
 			dispatchLayout,
+			manipulation,
 			surface.element,
+			viewportInteraction,
+			viewportResized,
 			layout.visible,
+			layout.visibility,
+			layout.placement,
 			layout.left,
 			layout.top,
 			layout.screenWidth,
 			layout.screenHeight
 		]);
+		vendor.useLayoutEffect(() => {
+			if (firstMountPanAttempted.current || manipulation || viewportInteraction) {
+				return;
+			}
+			firstMountPanAttempted.current = true;
+			const pan = resolveBaseHalfVideoComposerFirstMountPan(anchor, viewportSize);
+			if (pan.x === 0 && pan.y === 0) {
+				return;
+			}
+			const next = { x: viewport.x + pan.x, y: viewport.y + pan.y, zoom: viewport.zoom };
+			void flow.setViewport(next, { duration: 0 }).then(() => onFirstMountPan(next));
+		}, [anchor, flow, manipulation, onFirstMountPan, viewport, viewportInteraction, viewportSize]);
 
 		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
 			event.stopPropagation();
@@ -2009,18 +2075,19 @@ function createCanvasSceneMount(
 				ref: mountRef,
 				className: 'basehalf-canvas-video-composer-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel',
 				'data-basehalf-card-path': surface.path,
-				'data-placement': 'below',
+				'data-placement': layout.placement,
 				'data-visible': String(effectivelyVisible),
-				'data-chrome-state': suppressed ? 'suppressed' : 'present',
-				'aria-hidden': String(!placement.visible || suppressed),
-				inert: suppressed || !placement.visible,
+				'data-chrome-state': manipulation ? 'manipulating' : effectivelyVisible ? 'present' : 'suspended',
+				'data-surface-state': layout.visibility,
+				'aria-hidden': String(!effectivelyVisible || !!manipulation),
+				inert: !!manipulation || !effectivelyVisible,
 				style: screenSpaceCanvasStyle(viewport.zoom, {
-					left: placement.flowLeft,
-					top: placement.flowTop,
-					width: placement.screenWidth,
-					height: placement.screenHeight,
-					visibility: placement.visible ? 'visible' : 'hidden',
-					pointerEvents: placement.visible && !suppressed ? 'auto' : 'none'
+					left: (layout.left - viewport.x) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom),
+					top: (layout.top - viewport.y) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom),
+					width: layout.screenWidth,
+					height: layout.screenHeight,
+					visibility: effectivelyVisible ? 'visible' : 'hidden',
+					pointerEvents: effectivelyVisible && !manipulation ? 'auto' : 'none'
 				}),
 				onPointerDown: stopEvent,
 				onClick: stopEvent,
@@ -2285,7 +2352,10 @@ function createCanvasSceneMount(
 		const viewportCommandKey = vendor.useRef<string | undefined>(undefined);
 		const viewportGestureSceneKey = vendor.useRef<string | undefined>(undefined);
 		const viewportCommandQueue = vendor.useRef<Promise<void>>(Promise.resolve());
-		const pendingGeometry = vendor.useRef(new Map<string, number>());
+		const pendingGeometry = vendor.useRef(new Map<string, {
+			readonly token: number;
+			readonly geometry: IBaseHalfCanvasSceneGeometry;
+		}>());
 		const pendingEdges = vendor.useRef(new Map<string, BaseHalfCanvasPendingEdgeMutation>());
 		const pendingSelectionChanges = vendor.useRef({
 			nodes: new Map<string, boolean>(),
@@ -2307,11 +2377,23 @@ function createCanvasSceneMount(
 		const nodeDragSelectionAtPointerDown = vendor.useRef<{ readonly primaryPath: string; readonly selection: readonly string[] } | undefined>(undefined);
 		const nodeDragToken = vendor.useRef(0);
 		const nodeDragChromeToken = vendor.useRef<number | undefined>(undefined);
+		const videoComposerManipulationToken = vendor.useRef(0);
+		const keyboardGeometryTimer = vendor.useRef<number | undefined>(undefined);
+		const keyboardGeometryInteractionActive = vendor.useRef(false);
+		const keyboardGeometryPath = vendor.useRef<string | undefined>(undefined);
+		const keyboardGeometryPosition = vendor.useRef<{ x: number; y: number } | undefined>(undefined);
 		const interacting = vendor.useRef(false);
 		const snapEnabledRef = vendor.useRef(true);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
 		const [nodeDragChromePhase, setNodeDragChromePhase] = vendor.useState<{ readonly token: number; readonly phase: 'dragging' | 'settling' } | undefined>(undefined);
 		const [videoComposerSurface, setVideoComposerSurfaceState] = vendor.useState<IBaseHalfCanvasSceneVideoComposerSurface | undefined>(undefined);
+		const [videoComposerManipulation, setVideoComposerManipulation] = vendor.useState<{
+			readonly token: number;
+			readonly path: string;
+			readonly kind: BaseHalfVideoComposerDirectManipulation;
+			readonly phase: 'active' | 'settling';
+		} | undefined>(undefined);
+		const [viewportInteractionActive, setViewportInteractionActive] = vendor.useState(false);
 		const suppressNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			const activeElement = host.ownerDocument.activeElement;
 			if (activeElement instanceof Element && activeElement.closest('.basehalf-canvas-adjacent-chrome')) {
@@ -2321,6 +2403,7 @@ function createCanvasSceneMount(
 			nodeDragChromeToken.current = drag.token;
 			host.dataset.nodeDragChrome = 'dragging';
 			setNodeDragChromePhase({ token: drag.token, phase: 'dragging' });
+			setVideoComposerManipulation({ token: drag.token, path: drag.primaryPath, kind: 'node-move', phase: 'active' });
 		}, []);
 		const settleNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			if (nodeDragChromeToken.current !== drag.token) {
@@ -2328,6 +2411,7 @@ function createCanvasSceneMount(
 			}
 			host.dataset.nodeDragChrome = 'settling';
 			setNodeDragChromePhase(current => current?.token === drag.token ? { token: drag.token, phase: 'settling' } : current);
+			setVideoComposerManipulation(current => current?.token === drag.token ? { ...current, phase: 'settling' } : current);
 		}, []);
 		const revealNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			if (nodeDragChromeToken.current !== drag.token) {
@@ -2336,9 +2420,13 @@ function createCanvasSceneMount(
 			nodeDragChromeToken.current = undefined;
 			delete host.dataset.nodeDragChrome;
 			setNodeDragChromePhase(current => current?.token === drag.token ? undefined : current);
+			setVideoComposerManipulation(current => current?.token === drag.token ? undefined : current);
 		}, []);
 		vendor.useEffect(() => () => {
 			delete host.dataset.nodeDragChrome;
+			if (keyboardGeometryTimer.current !== undefined) {
+				host.ownerDocument.defaultView?.clearTimeout(keyboardGeometryTimer.current);
+			}
 		}, []);
 		vendor.useEffect(() => {
 			const captureSelectionBeforeDrag = (event: PointerEvent): void => {
@@ -2383,15 +2471,43 @@ function createCanvasSceneMount(
 				delegate.didEndInteraction();
 			}
 		}, []);
+		vendor.useEffect(() => () => {
+			if (keyboardGeometryInteractionActive.current) {
+				keyboardGeometryInteractionActive.current = false;
+				keyboardGeometryPath.current = undefined;
+				keyboardGeometryPosition.current = undefined;
+				endInteraction();
+			}
+		}, [endInteraction]);
+		const beginNodeResize = vendor.useCallback((path: string): void => {
+			beginInteraction();
+			const token = ++videoComposerManipulationToken.current;
+			setVideoComposerManipulation({ token, path, kind: 'node-resize', phase: 'active' });
+		}, [beginInteraction]);
+		const endNodeResize = vendor.useCallback((path: string): void => {
+			endInteraction();
+			setVideoComposerManipulation(current => current?.path === path && current.kind === 'node-resize'
+				? { ...current, phase: 'settling' }
+				: current);
+			const view = host.ownerDocument.defaultView;
+			const settle = () => {
+				setVideoComposerManipulation(current => current?.path === path && current.kind === 'node-resize' ? undefined : current);
+			};
+			if (!view) {
+				settle();
+				return;
+			}
+			view.requestAnimationFrame(() => view.requestAnimationFrame(settle));
+		}, [endInteraction]);
 		const makeNode = vendor.useCallback((card: IBaseHalfCanvasSceneCard, sceneKey: string, structuralEpoch: number, selected = false): BaseHalfCanvasFlowNode => ({
 			id: card.path,
 			type: 'basehalf-card',
 			position: { x: card.x, y: card.y },
 			...baseHalfCanvasSceneNodeSize(card),
-			data: { card, sceneKey, structuralEpoch, beginResize: beginInteraction, endResize: endInteraction },
+			data: { card, sceneKey, structuralEpoch, beginResize: () => beginNodeResize(card.path), endResize: () => endNodeResize(card.path) },
 			deletable: false,
 			selected
-		}), [beginInteraction, endInteraction]);
+		}), [beginNodeResize, endNodeResize]);
 
 		const makeEdge = vendor.useCallback((edge: IBaseHalfCanvasSceneEdge, sceneKey: string, structuralEpoch: number, selected = false): BaseHalfCanvasFlowEdge => ({
 			id: edge.id,
@@ -2659,25 +2775,32 @@ function createCanvasSceneMount(
 		}, [cancelAllInteractions, cancelNodeDrag, cancelPendingConnection]);
 
 		const updateSnapshot = vendor.useCallback((snapshot: IBaseHalfCanvasSceneSnapshot) => {
-				const keyChanged = sceneKeyRef.current !== snapshot.key;
-				const structureChanged = structuralEpochRef.current !== snapshot.structuralEpoch;
-				const identityChanged = keyChanged || structureChanged;
-				const selectionControlledByHost = snapshot.selectedCardPaths !== undefined || snapshot.selectedEdgeId !== undefined;
+			const keyChanged = sceneKeyRef.current !== snapshot.key;
+			const structureChanged = structuralEpochRef.current !== snapshot.structuralEpoch;
+			const identityChanged = keyChanged || structureChanged;
+			const selectionControlledByHost = snapshot.selectedCardPaths !== undefined || snapshot.selectedEdgeId !== undefined;
 			if (!identityChanged && snapshot.revision < snapshotRef.current.revision) {
 				return;
 			}
 			sceneKeyRef.current = snapshot.key;
 			structuralEpochRef.current = snapshot.structuralEpoch;
 			snapshotRef.current = snapshot;
-				if (identityChanged || selectionControlledByHost) {
-					selectionIntents.current.invalidate();
-					pendingSelectionRequest.current = undefined;
-					pendingSelectionChanges.current.nodes.clear();
-					pendingSelectionChanges.current.edges.clear();
-					pendingSelectionChanges.current.lastPositive = undefined;
+			if (identityChanged || selectionControlledByHost) {
+				selectionIntents.current.invalidate();
+				pendingSelectionRequest.current = undefined;
+				pendingSelectionChanges.current.nodes.clear();
+				pendingSelectionChanges.current.edges.clear();
+				pendingSelectionChanges.current.lastPositive = undefined;
+			}
+			if (identityChanged) {
+				if (keyboardGeometryTimer.current !== undefined) {
+					host.ownerDocument.defaultView?.clearTimeout(keyboardGeometryTimer.current);
+					keyboardGeometryTimer.current = undefined;
 				}
-				if (identityChanged) {
-					pendingGeometry.current.clear();
+				keyboardGeometryInteractionActive.current = false;
+				keyboardGeometryPath.current = undefined;
+				keyboardGeometryPosition.current = undefined;
+				pendingGeometry.current.clear();
 				pendingEdges.current.clear();
 				interactionDepth.current = 0;
 				interacting.current = false;
@@ -2688,18 +2811,35 @@ function createCanvasSceneMount(
 				if (drag) {
 					revealNodeDragChrome(drag);
 				}
+				setVideoComposerManipulation(undefined);
+				setViewportInteractionActive(false);
 				setGuides([]);
 			}
 
 			const currentNodeById = new Map(nodesRef.current.map(node => [node.id, node]));
-				const selectedCards = selectionControlledByHost ? new Set(snapshot.selectedCardPaths ?? []) : undefined;
+			const selectedCards = selectionControlledByHost ? new Set(snapshot.selectedCardPaths ?? []) : undefined;
 			const nextNodes = snapshot.cards.map(card => {
 				const current = currentNodeById.get(card.path);
 				const selected = selectedCards ? selectedCards.has(card.path) : current?.selected ?? false;
-				if (!identityChanged && current && pendingGeometry.current.has(card.path)) {
+				const pending = pendingGeometry.current.get(card.path);
+				if (pending
+					&& pending.geometry.x === card.x
+					&& pending.geometry.y === card.y
+					&& pending.geometry.width === card.width
+					&& pending.geometry.height === card.height) {
+					pendingGeometry.current.delete(card.path);
+				}
+				if (!identityChanged && current
+					&& (pending !== undefined || keyboardGeometryPath.current === card.path)) {
 					return {
 						...current,
-						data: { card, sceneKey: snapshot.key, structuralEpoch: snapshot.structuralEpoch, beginResize: beginInteraction, endResize: endInteraction },
+						data: {
+							card,
+							sceneKey: snapshot.key,
+							structuralEpoch: snapshot.structuralEpoch,
+							beginResize: () => beginNodeResize(card.path),
+							endResize: () => endNodeResize(card.path)
+						},
 						selected
 					};
 				}
@@ -2734,7 +2874,7 @@ function createCanvasSceneMount(
 				}
 			}
 			setLiveEdges(nextEdges);
-		}, [beginInteraction, endInteraction, makeEdge, makeNode, revealNodeDragChrome, setLiveEdges, setLiveNodes]);
+		}, [beginNodeResize, endNodeResize, makeEdge, makeNode, revealNodeDragChrome, setLiveEdges, setLiveNodes]);
 
 		const commitFinalGeometry = vendor.useCallback((nextNodes: readonly BaseHalfCanvasFlowNode[], changes: readonly NodeChange<BaseHalfCanvasFlowNode>[]) => {
 			const finalIds = new Set<string>();
@@ -2775,24 +2915,15 @@ function createCanvasSceneMount(
 			}
 			const token = ++mutationSequence.current;
 			for (const geometry of geometries) {
-				pendingGeometry.current.set(geometry.path, token);
+				pendingGeometry.current.set(geometry.path, { token, geometry });
 			}
-			void delegate.commitGeometry(operationKey, operationEpoch, geometries).then(() => {
-				if (sceneKeyRef.current !== operationKey || structuralEpochRef.current !== operationEpoch) {
-					return;
-				}
-				for (const geometry of geometries) {
-					if (pendingGeometry.current.get(geometry.path) === token) {
-						pendingGeometry.current.delete(geometry.path);
-					}
-				}
-			}).catch(error => {
+			void delegate.commitGeometry(operationKey, operationEpoch, geometries).catch(error => {
 				if (sceneKeyRef.current !== operationKey || structuralEpochRef.current !== operationEpoch) {
 					return;
 				}
 				let shouldReconcile = false;
 				for (const geometry of geometries) {
-					if (pendingGeometry.current.get(geometry.path) === token) {
+					if (pendingGeometry.current.get(geometry.path)?.token === token) {
 						pendingGeometry.current.delete(geometry.path);
 						shouldReconcile = true;
 					}
@@ -2804,7 +2935,7 @@ function createCanvasSceneMount(
 			});
 		}, [updateSnapshot]);
 
-		const onNodesChange = vendor.useCallback((changes: NodeChange<BaseHalfCanvasFlowNode>[]) => {
+		const applyNodesChange = vendor.useCallback((changes: NodeChange<BaseHalfCanvasFlowNode>[], disableSnap: boolean) => {
 			const drag = nodeDragState.current;
 			const acceptedChanges = drag?.cancelled
 				? filterBaseHalfCanvasCancelledNodeDragChanges(changes, drag.origins)
@@ -2836,7 +2967,7 @@ function createCanvasSceneMount(
 			}
 			const snapped = snapBaseHalfCanvasFlowNodeChanges(nodesRef.current, nonSelectionChanges, {
 				threshold: BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom),
-				disabled: !snapEnabledRef.current,
+				disabled: disableSnap || !snapEnabledRef.current,
 				defaultWidth: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 				defaultHeight: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
@@ -2847,6 +2978,9 @@ function createCanvasSceneMount(
 			setLiveNodes(next);
 			commitFinalGeometry(next, snapped.changes);
 		}, [commitFinalGeometry, queueSelectionChanges, setLiveNodes]);
+		const onNodesChange = vendor.useCallback((changes: NodeChange<BaseHalfCanvasFlowNode>[]) => {
+			applyNodesChange(changes, false);
+		}, [applyNodesChange]);
 		const reportViewport = vendor.useCallback((sceneKey: string, viewport: Viewport, final: boolean) => {
 			if (sceneKeyRef.current !== sceneKey) {
 				return;
@@ -3199,6 +3333,75 @@ function createCanvasSceneMount(
 					return;
 				}
 				const selectedNodes = nodesRef.current.filter(node => node.selected);
+				if (!event.metaKey && !event.ctrlKey && !event.altKey
+					&& ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+					&& selectedNodes.length === 1
+					&& !host.dataset.videoInputPickActive) {
+					const selectedNode = selectedNodes[0];
+					const focusedCard = isCanvasElement(target)
+						? target.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')
+						: undefined;
+					if ((target === host || focusedCard?.dataset.basehalfCardPath === selectedNode.id)
+						&& !baseHalfCanvasTargetBlocksGraphShortcuts(target)) {
+						event.preventDefault();
+						event.stopPropagation();
+						const step = event.shiftKey ? 10 : 1;
+						const basePosition = keyboardGeometryPath.current === selectedNode.id
+							? keyboardGeometryPosition.current ?? selectedNode.position
+							: selectedNode.position;
+						const position = {
+							x: basePosition.x + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
+							y: basePosition.y + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0)
+						};
+						const token = videoComposerManipulation?.kind === 'keyboard-geometry' && videoComposerManipulation.path === selectedNode.id
+							? videoComposerManipulation.token
+							: ++videoComposerManipulationToken.current;
+						if (!keyboardGeometryInteractionActive.current) {
+							keyboardGeometryInteractionActive.current = true;
+							beginInteraction();
+						}
+						keyboardGeometryPath.current = selectedNode.id;
+						keyboardGeometryPosition.current = position;
+						setVideoComposerManipulation({ token, path: selectedNode.id, kind: 'keyboard-geometry', phase: 'active' });
+						applyNodesChange([{ id: selectedNode.id, type: 'position', position, dragging: true }], true);
+						const view = host.ownerDocument.defaultView;
+						if (view) {
+							if (keyboardGeometryTimer.current !== undefined) {
+								view.clearTimeout(keyboardGeometryTimer.current);
+							}
+							keyboardGeometryTimer.current = view.setTimeout(() => {
+								keyboardGeometryTimer.current = undefined;
+								const current = nodesRef.current.find(node => node.id === selectedNode.id);
+								const finalPosition = keyboardGeometryPath.current === selectedNode.id
+									? keyboardGeometryPosition.current
+									: undefined;
+								if (!current || !finalPosition) {
+									if (keyboardGeometryInteractionActive.current) {
+										keyboardGeometryInteractionActive.current = false;
+										keyboardGeometryPath.current = undefined;
+										keyboardGeometryPosition.current = undefined;
+										endInteraction();
+									}
+									setVideoComposerManipulation(state => state?.token === token ? undefined : state);
+									return;
+								}
+								setVideoComposerManipulation(state => state?.token === token ? { ...state, phase: 'settling' } : state);
+								applyNodesChange([{ id: current.id, type: 'position', position: finalPosition, dragging: false }], true);
+								keyboardGeometryPath.current = undefined;
+								keyboardGeometryPosition.current = undefined;
+								if (keyboardGeometryInteractionActive.current) {
+									keyboardGeometryInteractionActive.current = false;
+									endInteraction();
+								}
+								view.requestAnimationFrame(() => {
+									setVideoComposerManipulation(state => state?.token === token ? undefined : state);
+									current.data.card.element.focus({ preventScroll: true });
+								});
+							}, 100);
+						}
+						return;
+					}
+				}
 				if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'd' && selectedNodes.length > 0) {
 					event.preventDefault();
 					event.stopPropagation();
@@ -3226,9 +3429,9 @@ function createCanvasSceneMount(
 				setLiveEdges(edgesRef.current.filter(edge => !edge.selected));
 				removeEdges(selected);
 			};
-			host.addEventListener('keydown', onKeyDown);
-			return () => host.removeEventListener('keydown', onKeyDown);
-		}, [invokeSelectionAction, removeEdges, setLiveEdges]);
+			host.addEventListener('keydown', onKeyDown, true);
+			return () => host.removeEventListener('keydown', onKeyDown, true);
+		}, [applyNodesChange, beginInteraction, endInteraction, invokeSelectionAction, removeEdges, setLiveEdges, videoComposerManipulation]);
 
 		const runViewportCommand = vendor.useCallback(async (operation: () => Promise<void>): Promise<void> => {
 			const operationKey = sceneKeyRef.current;
@@ -3237,6 +3440,7 @@ function createCanvasSceneMount(
 					return;
 				}
 				viewportCommandKey.current = operationKey;
+				setViewportInteractionActive(true);
 				try {
 					await operation();
 					await new Promise<void>(resolve => host.ownerDocument.defaultView?.setTimeout(resolve, 0) ?? resolve());
@@ -3252,6 +3456,7 @@ function createCanvasSceneMount(
 					if (viewportCommandKey.current === operationKey) {
 						viewportCommandKey.current = undefined;
 					}
+					setViewportInteractionActive(false);
 				}
 			});
 			viewportCommandQueue.current = queued;
@@ -3534,6 +3739,7 @@ function createCanvasSceneMount(
 				}
 				delegate.didStartViewportInteraction();
 				viewportGestureSceneKey.current = sceneKeyRef.current;
+				setViewportInteractionActive(true);
 				beginInteraction();
 			},
 			onMove: (_event, viewport) => {
@@ -3552,6 +3758,7 @@ function createCanvasSceneMount(
 				if (!commandOwner && gestureOwner) {
 					viewportGestureSceneKey.current = undefined;
 					endInteraction();
+					setViewportInteractionActive(false);
 				}
 			},
 			connectionMode: vendor.ConnectionMode.Loose,
@@ -3599,7 +3806,16 @@ function createCanvasSceneMount(
 					}),
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
 					videoComposerNode && videoComposerSurface
-						? h(VideoComposerAdjacentSurface, { node: videoComposerNode, surface: videoComposerSurface, suppressed: adjacentChromeSuppressed })
+						? h(VideoComposerAdjacentSurface, {
+							key: videoComposerSurface.path,
+							node: videoComposerNode,
+							surface: videoComposerSurface,
+							manipulation: videoComposerManipulation?.path === videoComposerNode.id
+								? { kind: videoComposerManipulation.kind, phase: videoComposerManipulation.phase }
+								: undefined,
+							viewportInteraction: viewportInteractionActive,
+							onFirstMountPan: viewport => reportViewport(sceneKeyRef.current, viewport, true)
+						})
 						: null,
 					selectionSurface === 'note'
 						? h(NoteSelectionControls, { node: selectedNodes[0], suppressed: adjacentChromeSuppressed })

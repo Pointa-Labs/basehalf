@@ -521,8 +521,9 @@
 
 /*
  * Every node-adjacent surface follows one selection-chrome lifecycle. The
- * React Flow portal remains mounted while a card moves so local editor state
- * survives; only the peripheral UI retracts until the final selection settles.
+ * React Flow portals remain mounted while a card moves so local editor state
+ * survives. Generic chrome retracts; the Video Composer has its own inert
+ * live-follow state below.
  */
 @keyframes basehalf-canvas-adjacent-chrome-emerge {
 	from {
@@ -549,7 +550,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
-.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome {
+.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-composer-surface) {
 	opacity: 1;
 	visibility: hidden !important;
 	translate: 0 var(--basehalf-adjacent-chrome-retract-y, var(--basehalf-adjacent-chrome-travel, 6px));
@@ -569,7 +570,7 @@
 	}
 
 	.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
-	.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome {
+	.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-composer-surface) {
 		opacity: 1;
 		visibility: hidden !important;
 		translate: 0 0;
@@ -618,6 +619,14 @@
 
 .monaco-workbench .basehalf-canvas-video-composer-surface[data-visible="false"] {
 	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-video-composer-surface[data-chrome-state="manipulating"] {
+	opacity: 1;
+	visibility: visible !important;
+	pointer-events: none !important;
+	animation: none;
+	transition: none;
 }
 
 .monaco-workbench .basehalf-canvas-video-composer-surface > .basehalf-video-composer-mount {
@@ -1740,9 +1749,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 	isolation: isolate;
 	box-sizing: border-box;
-	width: min(var(--basehalf-video-composer-width, 520px), calc(100vw - 24px));
-	height: min(172px, calc(100vh - 24px));
-	max-height: min(172px, calc(100vh - 24px));
+	width: min(var(--basehalf-video-composer-width, 512px), calc(100vw - 24px));
+	height: min(var(--basehalf-video-composer-height, 160px), calc(100vh - 24px));
+	max-height: min(var(--basehalf-video-composer-height, 160px), calc(100vh - 24px));
 	flex-direction: column;
 	overflow: visible;
 	color: var(--vscode-foreground);
@@ -1778,7 +1787,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-composer-main {
 	flex: 1 1 auto;
 	min-height: 0;
-	padding: 10px 12px 0;
+	padding: 8px 10px 0;
 	overflow: hidden;
 	border-radius: 13px 13px 0 0;
 }
@@ -1822,13 +1831,15 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-model-trigger,
 .monaco-workbench .basehalf-video-settings-trigger,
 .monaco-workbench .basehalf-video-attempts-trigger {
-	height: 30px;
+	height: 28px;
 	min-width: 0;
 	border-radius: 8px;
 }
 
 .monaco-workbench .basehalf-video-model-trigger {
-	max-width: min(180px, 34%);
+	width: min(var(--basehalf-video-model-max-width, 152px), 38%);
+	min-width: min(72px, 22%);
+	max-width: var(--basehalf-video-model-max-width, 152px);
 	flex: 0 1 auto;
 	justify-content: flex-start;
 	gap: 6px;
@@ -1841,8 +1852,13 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: nowrap;
 }
 
+.monaco-workbench .basehalf-video-model-trigger > .codicon {
+	flex: 0 0 14px;
+	font-size: 14px;
+}
+
 .monaco-workbench .basehalf-video-settings-trigger {
-	min-width: 52px;
+	min-width: 0;
 	flex: 1 1 auto;
 	justify-content: flex-start;
 	gap: 6px;
@@ -1880,14 +1896,19 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-settings-trigger > span + span {
-	padding-left: 6px;
-	border-left: 1px solid color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
+	padding-left: 0;
+}
+
+.monaco-workbench .basehalf-video-settings-trigger > span + span::before {
+	content: "·";
+	padding-right: 6px;
+	color: var(--vscode-descriptionForeground);
 }
 
 .monaco-workbench .basehalf-video-attempts-trigger {
-	width: 30px;
-	min-width: 30px;
-	flex: 0 0 30px;
+	width: 28px;
+	min-width: 28px;
+	flex: 0 0 28px;
 	font-size: 13px;
 }
 
@@ -1922,30 +1943,39 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-video-composer-inputs {
 	display: flex;
+	height: 34px;
 	min-width: 0;
-	flex-direction: column;
-	gap: 6px;
-	margin-bottom: 8px;
+	min-height: 34px;
+	align-items: center;
+	gap: 5px;
+	margin-bottom: 4px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior: contain;
 }
 
 .monaco-workbench .basehalf-video-frame-strip {
 	display: flex;
-	min-width: 0;
-	align-items: stretch;
-	gap: 6px;
+	height: 32px;
+	min-width: max-content;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
 }
 
 .monaco-workbench .basehalf-video-frame-slot {
 	position: relative;
 	display: flex;
 	min-width: 0;
-	min-height: 62px;
-	flex: 1 1 0;
+	width: 88px;
+	height: 32px;
+	min-height: 32px;
+	flex: 0 0 88px;
 	align-items: stretch;
 	box-sizing: border-box;
 	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 54%, transparent);
 	border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 68%, transparent);
-	border-radius: 9px;
+	border-radius: 8px;
 }
 
 .monaco-workbench .basehalf-video-frame-slot.empty {
@@ -1965,8 +1995,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	align-items: flex-start;
 	justify-content: center;
 	box-sizing: border-box;
-	gap: 2px;
-	padding: 7px 28px 7px 9px;
+	gap: 0;
+	padding: 3px 54px 3px 7px;
 	color: inherit;
 	background: transparent;
 	border: 0;
@@ -2002,9 +2032,9 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-frame-slot-remove,
 .monaco-workbench .basehalf-video-frame-swap {
 	display: inline-flex;
-	width: 26px;
-	height: 26px;
-	min-width: 26px;
+	width: 24px;
+	height: 24px;
+	min-width: 24px;
 	align-items: center;
 	justify-content: center;
 	box-sizing: border-box;
@@ -2024,11 +2054,12 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-frame-slot-replace {
-	top: 4px;
+	top: 3px;
+	right: 29px;
 }
 
 .monaco-workbench .basehalf-video-frame-slot-remove {
-	bottom: 4px;
+	top: 3px;
 }
 
 .monaco-workbench .basehalf-video-frame-slot-replace:hover:not(:disabled),
@@ -2040,7 +2071,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-video-frame-connector {
 	display: inline-flex;
-	flex: 0 0 14px;
+	flex: 0 0 10px;
 	align-items: center;
 	justify-content: center;
 	color: var(--vscode-descriptionForeground);
@@ -2049,14 +2080,14 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-video-frame-swap {
 	align-self: center;
-	flex: 0 0 26px;
+	flex: 0 0 24px;
 }
 
 .monaco-workbench .basehalf-video-input-chip-strip {
 	display: flex;
-	min-width: 0;
+	min-width: max-content;
+	flex: 0 0 auto;
 	gap: 5px;
-	overflow-x: auto;
 }
 
 .monaco-workbench .basehalf-video-input-chip,
@@ -2078,8 +2109,31 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-input-review {
-	align-self: flex-start;
+	flex: 0 0 auto;
+	align-self: center;
 	color: var(--vscode-editorWarning-foreground);
+}
+
+.monaco-workbench .basehalf-video-input-add-trigger {
+	display: inline-flex;
+	width: 28px;
+	height: 28px;
+	min-width: 28px;
+	flex: 0 0 28px;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-video-input-add-trigger:hover {
+	color: var(--vscode-foreground);
+	background: var(--vscode-toolbar-hoverBackground);
 }
 
 .monaco-workbench .basehalf-video-frame-slot-open:focus-visible,
@@ -2087,7 +2141,8 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-frame-slot-remove:focus-visible,
 .monaco-workbench .basehalf-video-frame-swap:focus-visible,
 .monaco-workbench .basehalf-video-input-chip:focus-visible,
-.monaco-workbench .basehalf-video-input-review:focus-visible {
+.monaco-workbench .basehalf-video-input-review:focus-visible,
+.monaco-workbench .basehalf-video-input-add-trigger:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
 }
@@ -2100,13 +2155,13 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-input-pick-banner {
-	position: absolute;
-	top: calc(100% + 8px);
-	left: 0;
-	z-index: 4;
+	position: fixed;
+	top: 12px;
+	left: 50%;
+	z-index: 2500;
 	display: flex;
-	width: 100%;
-	min-height: 36px;
+	width: min(360px, calc(100vw - 24px));
+	min-height: 32px;
 	align-items: center;
 	justify-content: space-between;
 	box-sizing: border-box;
@@ -2117,6 +2172,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid var(--vscode-focusBorder);
 	border-radius: 9px;
 	box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+	transform: translateX(-50%);
 }
 
 .monaco-workbench .basehalf-video-input-pick-copy {
@@ -2153,6 +2209,21 @@ body.basehalf-canvas-edge-reconnecting * {
 	box-shadow: 0 0 0 2px var(--vscode-focusBorder);
 }
 
+.monaco-workbench .basehalf-canvas-card.basehalf-video-input-pick-eligible::after {
+	content: "Select";
+	position: absolute;
+	right: 6px;
+	bottom: 6px;
+	z-index: 3;
+	padding: 2px 6px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	border-radius: 5px;
+	font-size: 10px;
+	line-height: 1.4;
+	pointer-events: none;
+}
+
 .monaco-workbench .basehalf-canvas-card.basehalf-video-input-pick-ineligible,
 .monaco-workbench .basehalf-canvas-card.basehalf-video-input-pick-candidate.pending {
 	opacity: 0.38;
@@ -2181,6 +2252,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-family: inherit;
 	font-size: 13px;
 	line-height: 1.55;
+	overscroll-behavior: contain;
 	resize: none;
 }
 
@@ -2230,11 +2302,13 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-composer-footer {
 	position: relative;
 	display: flex;
-	min-height: 46px;
-	flex: 0 0 auto;
+	height: 38px;
+	min-height: 38px;
+	flex: 0 0 38px;
 	align-items: center;
-	gap: 8px;
-	padding: 3px 8px 8px 12px;
+	gap: 5px;
+	box-sizing: border-box;
+	padding: 3px 8px 3px 10px;
 	overflow: hidden;
 	border-top: 0;
 	border-radius: 0 0 13px 13px;
@@ -2261,7 +2335,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 	flex: 0 0 auto;
 	align-items: center;
-	gap: 2px;
+	gap: 3px;
 }
 
 .monaco-workbench .basehalf-video-composer-primary {
@@ -2326,14 +2400,27 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-composer .basehalf-node-local-footer:has(.basehalf-node-local-footer-message:not(:empty)) .basehalf-video-composer-metadata {
-	max-width: 42%;
-	flex: 0 1 42%;
+	max-width: 48%;
+	flex: 0 1 48%;
+}
+
+.monaco-workbench .basehalf-video-composer[data-footer-density="compact"] .basehalf-video-model-trigger,
+.monaco-workbench .basehalf-video-composer[data-footer-density="narrow"] .basehalf-video-model-trigger {
+	min-width: 0;
+	padding-inline: 5px;
+}
+
+.monaco-workbench .basehalf-video-composer[data-footer-density="narrow"] .basehalf-video-model-trigger .codicon {
+	display: none;
+}
+
+.monaco-workbench .basehalf-video-composer[data-footer-density="compact"] .basehalf-video-settings-trigger,
+.monaco-workbench .basehalf-video-composer[data-footer-density="narrow"] .basehalf-video-settings-trigger {
+	padding-inline: 5px;
 }
 
 .monaco-workbench .basehalf-video-composer-popover {
 	position: absolute;
-	top: auto;
-	bottom: 48px;
 	display: flex;
 	box-sizing: border-box;
 	max-width: calc(100vw - 16px);
@@ -2355,33 +2442,25 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-composer-popover.settings {
-	right: auto;
-	left: 8px;
-	width: min(336px, calc(100% - 16px), calc(100vw - 16px));
-	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
-	padding: 12px;
+	width: min(256px, calc(100vw - 16px));
+	max-height: min(360px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 10px;
 }
 
 .monaco-workbench .basehalf-video-composer-popover.models {
-	right: auto;
-	left: 8px;
-	width: min(360px, calc(100% - 16px), calc(100vw - 16px));
-	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
-	padding: 8px;
+	width: min(224px, calc(100vw - 16px));
+	max-height: min(320px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
+	padding: 6px;
 }
 
 .monaco-workbench .basehalf-video-composer-popover.inputs {
-	right: auto;
-	left: 8px;
-	width: min(340px, calc(100% - 16px), calc(100vw - 16px));
+	width: min(288px, calc(100vw - 16px));
 	max-height: min(360px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
 	padding: 8px;
 }
 
 .monaco-workbench .basehalf-video-composer-popover.attempts {
-	right: 8px;
-	left: auto;
-	width: min(380px, calc(100% - 16px), calc(100vw - 16px));
+	width: min(320px, calc(100vw - 16px));
 	min-height: 0;
 	max-height: min(420px, var(--basehalf-video-popover-max-height, calc(100vh - 16px)));
 	padding: 8px;
@@ -2415,6 +2494,17 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 11px;
 	font-weight: 600;
 	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-video-composer-popover.models > .basehalf-video-popover-heading,
+.monaco-workbench .basehalf-video-composer-popover.settings > .basehalf-video-popover-heading {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
 }
 
 .monaco-workbench .basehalf-video-model-list {
@@ -2471,6 +2561,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-model-option {
 	display: grid;
 	min-width: 0;
+	height: 48px;
 	min-height: 48px;
 	grid-template-columns: 20px minmax(0, 1fr) auto;
 	align-items: center;
@@ -2510,7 +2601,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-video-model-option-icon {
 	color: var(--vscode-descriptionForeground);
-	font-size: 13px;
+	font-size: 18px;
 }
 
 .monaco-workbench .basehalf-video-model-option-copy {
@@ -2562,6 +2653,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-model-option.needs-review {
+	height: auto;
 	border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground) 58%, transparent);
 }
 
@@ -2650,13 +2742,15 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-popover-field + .basehalf-video-popover-field {
-	margin-top: 12px;
+	margin-top: 10px;
 }
 
 .monaco-workbench .basehalf-video-popover-field > label,
 .monaco-workbench .basehalf-video-popover-field > .basehalf-video-popover-heading {
 	display: block;
 	margin-bottom: 6px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
 }
 
 .monaco-workbench .basehalf-video-popover-field > input,
@@ -2664,7 +2758,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-popover-field > textarea {
 	box-sizing: border-box;
 	width: 100%;
-	min-height: 32px;
+	min-height: 29px;
 	padding: 5px 8px;
 	color: var(--vscode-input-foreground);
 	background: var(--vscode-input-background);
@@ -2675,34 +2769,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-settings-scroll {
-	padding: 2px 1px 10px;
-}
-
-.monaco-workbench .basehalf-video-settings-model {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin-bottom: 12px;
-	padding: 8px 9px;
-	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 54%, transparent);
-	border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 64%, transparent);
-	border-radius: 8px;
-}
-
-.monaco-workbench .basehalf-video-settings-model-name {
-	min-width: 0;
-	overflow: hidden;
-	font-size: 11px;
-	font-weight: 600;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.monaco-workbench .basehalf-video-settings-connection-state {
-	flex: 0 0 auto;
-	color: var(--vscode-testing-iconPassed);
-	font-size: 10px;
+	padding: 1px 0 6px;
 }
 
 .monaco-workbench .basehalf-video-capability-field.disabled {
@@ -2710,7 +2777,7 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench select.basehalf-video-capability-select {
-	height: 34px;
+	height: 29px;
 	color: var(--vscode-dropdown-foreground);
 	background: color-mix(in srgb, var(--vscode-dropdown-background) 88%, var(--bh-card-surface));
 	border-color: color-mix(in srgb, var(--vscode-widget-border) 82%, transparent);
@@ -2723,18 +2790,18 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-video-mode-segmented .basehalf-video-segment {
-	height: auto;
+	height: 29px;
 	min-width: 0;
-	min-height: 28px;
-	padding-block: 5px;
+	min-height: 29px;
+	padding-block: 3px;
 	line-height: 1.15;
 	white-space: normal;
 }
 
 .monaco-workbench .basehalf-video-mode-segmented {
 	display: grid;
-	height: auto;
-	min-height: 34px;
+	height: 29px;
+	min-height: 29px;
 	grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
 	overflow: visible;
 }
@@ -2742,15 +2809,16 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-video-fixed-method,
 .monaco-workbench .basehalf-video-fixed-parameter {
 	display: flex;
-	min-height: 34px;
+	height: 29px;
+	min-height: 29px;
 	align-items: center;
 	box-sizing: border-box;
-	padding: 7px 10px;
+	padding: 4px 8px;
 	color: var(--vscode-foreground);
 	background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 54%, transparent);
 	border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 64%, transparent);
-	border-radius: 10px;
-	font-size: 12px;
+	border-radius: 8px;
+	font-size: 11px;
 }
 
 .monaco-workbench .basehalf-video-parameter-reason {
@@ -3097,6 +3165,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	.monaco-workbench .basehalf-video-frame-swap,
 	.monaco-workbench .basehalf-video-input-chip,
 	.monaco-workbench .basehalf-video-input-review,
+	.monaco-workbench .basehalf-video-input-add-trigger,
 	.monaco-workbench .basehalf-video-fixed-method,
 	.monaco-workbench .basehalf-video-fixed-parameter,
 	.monaco-workbench .basehalf-video-segmented,

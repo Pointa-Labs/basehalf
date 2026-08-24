@@ -24,6 +24,7 @@ import {
 	IBaseHalfNodeAttempt,
 	IBaseHalfNodeResultArtifact
 } from '../common/basehalfNodeDocument.js';
+import { BaseHalfVideoComposerPlacement, IBaseHalfVideoComposerRect } from '../common/basehalfVideoComposerPresentation.js';
 
 export type BaseHalfNodeLocalPrimaryActionKind =
 	| 'add'
@@ -122,6 +123,89 @@ export interface IBaseHalfNodeLocalSurfacePlacement {
 	readonly anchorAlignment: AnchorAlignment;
 	readonly anchorAxisAlignment: AnchorAxisAlignment;
 	readonly anchorPosition: AnchorPosition;
+}
+
+export type BaseHalfVideoComposerPopoverKind = 'models' | 'settings' | 'inputs' | 'attempts';
+export type BaseHalfVideoComposerPopoverAlignment = 'trigger-leading' | 'composer-leading' | 'trigger-trailing';
+
+export interface IBaseHalfVideoComposerPopoverPlacement {
+	readonly placement: 'above' | 'below';
+	/** Offset from the Composer's leading edge. */
+	readonly left: number;
+	/** Offset from the Composer's top edge. */
+	readonly top: number;
+	readonly width: number;
+	readonly maxHeight: number;
+}
+
+export const BASEHALF_VIDEO_COMPOSER_POPOVER_WIDTHS: Readonly<Record<BaseHalfVideoComposerPopoverKind, number>> = Object.freeze({
+	models: 224,
+	settings: 256,
+	inputs: 288,
+	attempts: 320
+});
+
+export const BASEHALF_VIDEO_COMPOSER_POPOVER_MAX_HEIGHTS: Readonly<Record<BaseHalfVideoComposerPopoverKind, number>> = Object.freeze({
+	models: 320,
+	settings: 360,
+	inputs: 360,
+	attempts: 420
+});
+
+/**
+ * Resolves one Composer child surface in screen space. The returned offsets are
+ * relative to the stable Composer so the popover never participates in its
+ * height or moves the canvas.
+ */
+export function resolveBaseHalfVideoComposerPopoverPlacement(options: {
+	readonly kind: BaseHalfVideoComposerPopoverKind;
+	readonly composerPlacement: BaseHalfVideoComposerPlacement;
+	readonly composer: IBaseHalfVideoComposerRect;
+	readonly trigger: IBaseHalfVideoComposerRect;
+	readonly viewport: IBaseHalfVideoComposerRect;
+	readonly desiredHeight: number;
+	readonly alignment: BaseHalfVideoComposerPopoverAlignment;
+}): IBaseHalfVideoComposerPopoverPlacement {
+	const viewportMargin = 8;
+	const gap = 6;
+	const canonicalWidth = BASEHALF_VIDEO_COMPOSER_POPOVER_WIDTHS[options.kind];
+	const maximumHeight = BASEHALF_VIDEO_COMPOSER_POPOVER_MAX_HEIGHTS[options.kind];
+	const viewportWidth = Math.max(0, options.viewport.right - options.viewport.left);
+	const width = Math.min(canonicalWidth, Math.max(0, viewportWidth - viewportMargin * 2));
+	const desiredHeight = Math.min(maximumHeight, Math.max(0, Number.isFinite(options.desiredHeight) ? options.desiredHeight : 0));
+	const availableAbove = Math.max(0, options.trigger.top - gap - options.viewport.top - viewportMargin);
+	const availableBelow = Math.max(0, options.viewport.bottom - viewportMargin - options.trigger.bottom - gap);
+	const prefersBelow = options.composerPlacement === 'above' || options.composerPlacement === 'clamped-above';
+	const preferredRoom = prefersBelow ? availableBelow : availableAbove;
+	const alternateRoom = prefersBelow ? availableAbove : availableBelow;
+	const flips = preferredRoom < Math.min(desiredHeight, 160) && alternateRoom > preferredRoom;
+	const placement: IBaseHalfVideoComposerPopoverPlacement['placement'] = prefersBelow !== flips ? 'below' : 'above';
+	const availableHeight = placement === 'below' ? availableBelow : availableAbove;
+	const maxHeight = Math.max(0, Math.min(maximumHeight, availableHeight));
+	const height = Math.min(desiredHeight, maxHeight);
+	const desiredLeft = options.alignment === 'composer-leading'
+		? options.composer.left + 10
+		: options.alignment === 'trigger-trailing'
+			? options.trigger.right - width
+			: options.trigger.left;
+	const absoluteLeft = Math.min(
+		options.viewport.right - viewportMargin - width,
+		Math.max(options.viewport.left + viewportMargin, desiredLeft)
+	);
+	const desiredTop = placement === 'below'
+		? options.trigger.bottom + gap
+		: options.trigger.top - gap - height;
+	const absoluteTop = Math.min(
+		options.viewport.bottom - viewportMargin - height,
+		Math.max(options.viewport.top + viewportMargin, desiredTop)
+	);
+	return Object.freeze({
+		placement,
+		left: absoluteLeft - options.composer.left,
+		top: absoluteTop - options.composer.top,
+		width,
+		maxHeight
+	});
 }
 
 /**

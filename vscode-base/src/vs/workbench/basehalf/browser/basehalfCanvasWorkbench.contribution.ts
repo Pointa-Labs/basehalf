@@ -241,7 +241,6 @@ import {
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
 	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -254,9 +253,15 @@ import {
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
-	IBaseHalfCanvasSceneVideoComposerLayout,
 	IBaseHalfCanvasSceneViewport
 } from '../common/basehalfCanvasScene.js';
+import {
+	BASEHALF_VIDEO_COMPOSER_HEIGHT,
+	BASEHALF_VIDEO_COMPOSER_WIDTH,
+	BaseHalfVideoComposerDirectManipulation,
+	createBaseHalfVideoComposerFooterPresentation,
+	IBaseHalfVideoComposerLayout
+} from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand } from '../common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
@@ -291,6 +296,7 @@ import {
 	getBaseHalfNodeAttemptDisclosureLines,
 	getBaseHalfNodeAttemptSummary,
 	resolveBaseHalfNodeLocalSurfacePlacement,
+	resolveBaseHalfVideoComposerPopoverPlacement,
 	IBaseHalfNodeLocalConfigurationDraft,
 	IBaseHalfNodeInputResultIdentity,
 	isBaseHalfNodeCardStatusPositive,
@@ -346,8 +352,6 @@ interface IBaseHalfVideoComposerModelState {
 	readonly problem?: string;
 }
 
-const BASEHALF_VIDEO_COMPOSER_WIDTH_RATIO = 0.66;
-const BASEHALF_VIDEO_COMPOSER_MAX_WIDTH = 560;
 const BASEHALF_VIDEO_MODE_LABELS: Readonly<Record<BaseHalfVideoGenerationMode, string>> = Object.freeze({
 	'text-to-video': 'Text to Video',
 	'first-frame-to-video': 'Start Frame',
@@ -606,25 +610,43 @@ function baseHalfVideoDocumentConfigurationProblem(
 	return getBaseHalfVideoPromptProblem(current, document.prompt);
 }
 
-function layoutBaseHalfVideoComposerPopover(surface: HTMLElement, popover: HTMLElement, bounds?: DOMRect): void {
-	const surfaceWindow = surface.ownerDocument.defaultView ?? mainWindow;
+function layoutBaseHalfVideoComposerPopover(surface: HTMLElement, popover: HTMLElement, bounds?: DOMRect): boolean {
 	const surfaceRect = surface.getBoundingClientRect();
-	const viewportMargin = 8;
-	const popoverGap = 6;
-	const upwardAnchor = surfaceRect.bottom - 48;
-	const downwardAnchor = surfaceRect.bottom + popoverGap;
-	const viewportTop = (bounds?.top ?? 0) + viewportMargin;
-	const viewportBottom = (bounds?.bottom ?? surfaceWindow.innerHeight) - viewportMargin;
-	const availableAbove = Math.max(0, upwardAnchor - viewportTop);
-	const availableBelow = Math.max(0, viewportBottom - downwardAnchor);
-	const desiredHeight = Math.min(popover.scrollHeight || 320, 420);
-	const prefersBelow = surface.dataset.placement === 'above';
-	const opensBelow = prefersBelow
-		? availableBelow >= Math.min(desiredHeight, 96) || availableBelow > availableAbove
-		: availableAbove < Math.min(desiredHeight, 160) && availableBelow > availableAbove;
-	const availableHeight = opensBelow ? availableBelow : availableAbove;
-	popover.dataset.popoverPlacement = opensBelow ? 'below' : 'above';
-	popover.style.setProperty('--basehalf-video-popover-max-height', `${Math.max(48, Math.floor(availableHeight))}px`);
+	const kind = (['models', 'settings', 'inputs', 'attempts'] as const).find(candidate => popover.classList.contains(candidate));
+	const trigger = kind ? (surface.querySelector<HTMLElement>(`[data-video-composer-trigger="${kind}"]`)
+		?? (kind === 'inputs' ? surface.querySelector<HTMLElement>('.basehalf-video-composer-inputs') : undefined)) : undefined;
+	if (!kind || !trigger) {
+		return false;
+	}
+	const surfaceWindow = surface.ownerDocument.defaultView ?? mainWindow;
+	const viewportRect = bounds ?? new DOMRect(0, 0, surfaceWindow.innerWidth, surfaceWindow.innerHeight);
+	const placement = resolveBaseHalfVideoComposerPopoverPlacement({
+		kind,
+		composerPlacement: surface.dataset.placement === 'above' || surface.dataset.placement === 'clamped-above'
+			? surface.dataset.placement
+			: surface.dataset.placement === 'clamped-below' ? 'clamped-below' : 'below',
+		composer: surfaceRect,
+		trigger: trigger.getBoundingClientRect(),
+		viewport: viewportRect,
+		desiredHeight: popover.scrollHeight || 160,
+		alignment: kind === 'inputs' ? 'composer-leading' : kind === 'attempts' ? 'trigger-trailing' : 'trigger-leading'
+	});
+	popover.dataset.popoverPlacement = placement.placement;
+	popover.style.left = `${Math.round(placement.left)}px`;
+	popover.style.top = `${Math.round(placement.top)}px`;
+	popover.style.right = 'auto';
+	popover.style.bottom = 'auto';
+	popover.style.width = `${Math.round(placement.width)}px`;
+	popover.style.setProperty('--basehalf-video-popover-max-height', `${Math.max(48, Math.floor(placement.maxHeight))}px`);
+	return placement.width >= 48 && placement.maxHeight >= 48;
+}
+
+interface IBaseHalfVideoComposerPortalLayout extends IBaseHalfVideoComposerLayout {
+	readonly epoch: number;
+	readonly anchorChanged: boolean;
+	readonly viewportResized: boolean;
+	readonly viewportInteraction: boolean;
+	readonly manipulating?: BaseHalfVideoComposerDirectManipulation;
 }
 
 interface IBaseHalfRenderedNodeChrome {
@@ -2501,6 +2523,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const geometry = geometryByPath.get(card.path);
 				return geometry ? { ...card, ...geometry } : card;
 			}));
+			this.canvasScene.update({
+				key: sceneKey,
+				structuralEpoch,
+				revision: this.renderSeq,
+				cards: this.renderedSceneCards,
+				edges: this.renderedSceneEdges
+			});
 		}
 		// React Flow already owns the optimistic live geometry. Rebuilding every
 		// card here used to replace hydrated contents with "Loading preview…"
@@ -7983,8 +8012,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
 			selectedRecipe = undefined;
 		}
-		let resultPreview: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeResultPreview']>> = {};
-		let verificationPending = true;
+		let resultPreview: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeResultPreview']>> = document.result
+			? await this.readNodeResultPreview(folder, document, true)
+			: {};
+		let verificationPending = false;
 		let draftParameters: Record<string, BaseHalfNodeParameterDraftValue> = selectedRecipe?.modelCapability === 'video'
 			? baseHalfVideoParameterDraftFromRecipeParameters(document.recipe?.parameters, selectedRecipe.videoModelCatalogId)
 			: selectedRecipe
@@ -8003,6 +8034,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let draftRole = document.role;
 		let draftPrompt = document.prompt;
 		const videoComposer = document.kind === 'video';
+		if (videoComposer && document.result && !resultPreview.resultIntegrity) {
+			this.consumePreparedVideoComposer(item.path);
+			return;
+		}
 		let localSurfaceMode: 'configure' | 'attempts' = document.kind === 'video'
 			? 'configure'
 			: document.result || document.attempts.length > 0 ? 'attempts' : 'configure';
@@ -8464,10 +8499,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let focusLocalSurface = () => { };
 		const anchorRect = currentAnchor.getBoundingClientRect();
 		const anchorWindow = currentAnchor.ownerDocument.defaultView ?? mainWindow;
-		const preferredLocalSurfaceWidth = videoComposer
-			? Math.min(BASEHALF_VIDEO_COMPOSER_MAX_WIDTH, Math.round(anchorRect.width * BASEHALF_VIDEO_COMPOSER_WIDTH_RATIO))
-			: 400;
-		const localSurfaceWidth = preferredLocalSurfaceWidth;
+		const localSurfaceWidth = videoComposer ? BASEHALF_VIDEO_COMPOSER_WIDTH : 400;
 		const placement = resolveBaseHalfNodeLocalSurfacePlacement(anchorRect, {
 			width: anchorWindow.innerWidth,
 			height: anchorWindow.innerHeight
@@ -8507,7 +8539,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						return;
 					}
 					if (videoComposer) {
-						if (videoComposerOverlay && !isNodeLocalSurfaceInteractionTarget(event.target)) {
+						if (videoComposerOverlay && !surface.contains(event.target as Node)) {
 							closeVideoComposerOverlay(false);
 						}
 						return;
@@ -8533,7 +8565,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						return;
 					}
 					if (event.target.closest('.basehalf-video-composer-popover')
-						|| event.target.closest('.basehalf-video-model-trigger, .basehalf-video-settings-trigger, .basehalf-video-attempts-trigger')) {
+						|| event.target.closest('.basehalf-video-model-trigger, .basehalf-video-settings-trigger, .basehalf-video-attempts-trigger, .basehalf-video-input-add-trigger')) {
 						return;
 					}
 					closeVideoComposerOverlay(false);
@@ -8659,7 +8691,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					formListeners.clear();
 					const canvasPickStore = new MutableDisposable<DisposableStore>();
 					formListeners.add(canvasPickStore);
-					clearNode(surface);
+					const retainedPrompt = stableVideoPromptInput && surface.contains(stableVideoPromptInput)
+						? stableVideoPromptInput
+						: undefined;
+					if (retainedPrompt) {
+						surface.appendChild(retainedPrompt);
+					}
+					for (const child of [...surface.children]) {
+						if (child !== retainedPrompt) {
+							child.remove();
+						}
+					}
 					surface.dataset.view = videoComposer ? 'composer' : localSurfaceMode;
 					renderedConfigureBody = undefined;
 					renderedAttemptsBody = undefined;
@@ -9039,7 +9081,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							: role === 'last-frame'
 								? localize('basehalf.canvas.videoComposer.endFrame', "End Frame")
 								: role;
-						const banner = append(surface, $('.basehalf-video-input-pick-banner'));
+						const bannerHost = surface.closest<HTMLElement>('.monaco-workbench') ?? surface.ownerDocument.body;
+						const banner = append(bannerHost, $('.basehalf-video-input-pick-banner'));
+						banner.dataset.targetNodePath = item.path;
+						this.cards.dataset.videoInputPickActive = item.path;
 						banner.setAttribute('role', 'status');
 						banner.setAttribute('aria-live', 'polite');
 						const bannerText = append(banner, $('.basehalf-video-input-pick-copy'));
@@ -9106,6 +9151,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						}
 						const restoreCards = () => {
 							surface.classList.remove('input-pick-active');
+							if (this.cards.dataset.videoInputPickActive === item.path) {
+								delete this.cards.dataset.videoInputPickActive;
+							}
 							banner.remove();
 							for (const sourcePath of candidatePaths) {
 								const currentCard = this.renderedCardElementsByPath.get(sourcePath);
@@ -9171,8 +9219,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 									event.preventDefault();
 									event.stopImmediatePropagation();
 									bannerText.textContent = localize('basehalf.canvas.videoComposer.checkingPickedInput', "Checking saved canvas sources…");
-								} else if (!surface.contains(event.target)) {
-									cancelPick(false);
 								}
 							}, true));
 							let currentEdgeState: BaseHalfVideoDirectEdgeState | undefined;
@@ -9325,14 +9371,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							}
 							const card = event.target.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]');
 							if (!card) {
-								if (!surface.contains(event.target)) {
-									cancelPick(false);
-								}
 								return;
 							}
 							event.preventDefault();
 							event.stopImmediatePropagation();
 							void acceptCard(card);
+						}, true));
+						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'click', event => {
+							if (!requestIsCurrent() || commitStarted || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
+								return;
+							}
+							if (event.target.closest('.react-flow__pane, .basehalf-canvas-cards')
+								&& !event.target.closest('.basehalf-canvas-card[data-basehalf-card-path]')) {
+								cancelPick(false);
+							}
 						}, true));
 						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'keydown', event => {
 							if (!requestIsCurrent() || commitStarted || event.defaultPrevented || event.isComposing || event.keyCode === 229) {
@@ -9571,9 +9623,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 					if (videoComposer) {
 						const videoInputs = readVideoInputsPresentation();
+						const hasVideoInputCapacity = !!videoInputs && videoInputs.capability.inputs.some(input => {
+							if (input.kind === 'text-prompt' || input.maxItems === 0) {
+								return false;
+							}
+							const recipeInput = selectedRecipe?.inputs.find(candidate => candidate.id === input.kind);
+							const count = draftBindings.filter(binding => binding.slot === input.kind).length;
+							return !!recipeInput && count < Math.min(input.maxItems, recipeInput.maxItems);
+						});
 						if (videoInputs && (videoInputs.presentation.frameSlots.length > 0
 							|| videoInputs.presentation.ordinaryChips.length > 0
-							|| videoInputs.presentation.needsReview.length > 0)) {
+							|| videoInputs.presentation.needsReview.length > 0
+							|| hasVideoInputCapacity)) {
 							const inputsRegion = append(body, $('.basehalf-video-composer-inputs'));
 							inputsRegion.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.inputsHeading', "Generation inputs"));
 							if (videoInputs.presentation.frameSlots.length > 0) {
@@ -9698,6 +9759,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								review.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.reviewInputsCount', "Review {0} video inputs", videoInputs.presentation.needsReview.length));
 								formListeners.add(this.addDisposableListener(review, 'click', () => showVideoComposerOverlay('inputs', 'video:inputs')));
 							}
+							if (hasVideoInputCapacity) {
+								const addInput = append(inputsRegion, $('button.basehalf-video-input-add-trigger.codicon.codicon-add')) as HTMLButtonElement;
+								registerFocusTarget(addInput, 'video:inputs');
+								addInput.type = 'button';
+								addInput.dataset.videoComposerTrigger = 'inputs';
+								addInput.title = localize('basehalf.canvas.videoComposer.addInput', "Add input");
+								addInput.setAttribute('aria-label', addInput.title);
+								addInput.setAttribute('aria-haspopup', 'dialog');
+								addInput.setAttribute('aria-controls', `basehalf-video-inputs-popover-${document.id}`);
+								formListeners.add(this.addDisposableListener(addInput, 'click', () => showVideoComposerOverlay('inputs', 'video:inputs')));
+							}
 						}
 						const promptSection = this.renderNodeLocalSection(body, 'Prompt');
 						promptSection.classList.add('basehalf-video-prompt-section');
@@ -9711,10 +9783,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							registerFocusTarget(promptInput, 'video:prompt');
 							promptInput.id = `basehalf-video-prompt-${document.id}`;
 							promptLabel.htmlFor = promptInput.id;
-							promptInput.value = draftPrompt;
+							if (promptInput.value !== draftPrompt) {
+								promptInput.value = draftPrompt;
+							}
 							promptInput.rows = 3;
 							promptInput.maxLength = BASEHALF_NODE_PROMPT_MAX_LENGTH;
-							promptInput.placeholder = localize('basehalf.canvas.videoComposer.promptPlaceholder', "Describe the video you want to create…");
+							promptInput.placeholder = localize('basehalf.canvas.videoComposer.promptPlaceholder', "Describe the video you want to generate. Use @ to reference canvas material.");
 							promptInput.setAttribute('aria-label', promptLabel.textContent);
 							formListeners.add(this.addDisposableListener(promptInput, 'input', () => {
 								draftPrompt = promptInput.value;
@@ -10153,6 +10227,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						const overlayTriggers = new Map<BaseHalfVideoComposerOverlay, HTMLButtonElement>([
 							['models', videoModel],
 							['settings', videoSettings],
+							...(surface.querySelector<HTMLButtonElement>('.basehalf-video-input-add-trigger')
+								? [['inputs', surface.querySelector<HTMLButtonElement>('.basehalf-video-input-add-trigger')!] as const]
+								: []),
 							...(videoAttempts ? [['attempts', videoAttempts] as const] : [])
 						]);
 						const syncOverlayTriggers = () => {
@@ -10702,23 +10779,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							if (videoComposerOverlay === 'models') {
 								renderVideoModelPicker(popover, headingId, focusKey, registerOverlayFocusTarget);
 							} else if (videoComposerOverlay === 'settings') {
-								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.settingsHeading', "Video generation"), headingId);
+								const state = readVideoModelState();
+								appendPopoverHeading(popover, state.descriptor
+									? localize('basehalf.canvas.videoComposer.settingsHeadingForModel', "Video generation settings for {0}", state.descriptor.label)
+									: localize('basehalf.canvas.videoComposer.settingsHeading', "Video generation settings"), headingId);
 								const scroll = append(popover, $('.basehalf-video-settings-scroll'));
 								scroll.dataset.videoOverlayScrollKey = 'settings';
-									const state = readVideoModelState();
 
 									if (selectedRecipe?.modelCapability === 'video') {
 									let reviewedSource: { readonly url: string; readonly verifiedAt: string } | undefined;
 									if (state.resolution?.status === 'supported' && state.normalization) {
 										const settingsPresentation = createBaseHalfVideoModelSettingsPresentation(state.resolution, state.normalization);
 										reviewedSource = settingsPresentation.source;
-									const modelField = append(scroll, $('.basehalf-video-settings-model'));
-									const modelName = append(modelField, $('.basehalf-video-settings-model-name'));
-									modelName.textContent = settingsPresentation.modelLabel;
-									const connectionState = append(modelField, $('.basehalf-video-settings-connection-state'));
-									connectionState.textContent = state.service?.configured
-										? localize('basehalf.canvas.videoComposer.connected', "Connected")
-										: localize('basehalf.canvas.videoComposer.needsAttention', "Needs attention");
 
 									const wireRadioButtons = (buttons: readonly HTMLButtonElement[]): void => {
 										for (const button of buttons) {
@@ -11237,10 +11309,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 										? nextFocusTarget
 										: preferredOverlayFocusTarget?.isConnected && popover.contains(preferredOverlayFocusTarget)
 											? preferredOverlayFocusTarget
-											: firstOverlayFocusTarget?.isConnected && popover.contains(firstOverlayFocusTarget)
-												? firstOverlayFocusTarget
-												: undefined;
-									target?.focus({ preventScroll: true });
+												: firstOverlayFocusTarget?.isConnected && popover.contains(firstOverlayFocusTarget)
+													? firstOverlayFocusTarget
+													: undefined;
+									if (target) {
+										target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+										target.focus({ preventScroll: true });
+									}
 								});
 							}
 						};
@@ -11312,9 +11387,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							const localRecipe = selectedRecipe?.modelCapability === undefined ? selectedRecipe : undefined;
 							const modelLabel = localRecipe?.label
 								?? state.descriptor?.label
-								?? (!selectedRecipe
-									? localize('basehalf.canvas.videoComposer.chooseGeneratorAction', "Choose generator")
-									: localize('basehalf.canvas.videoComposer.chooseModel', "Choose model"));
+								?? localize('basehalf.canvas.videoComposer.chooseModel', "Choose model");
 							clearNode(videoModel);
 							const modelIcon = append(videoModel, $('.codicon.codicon-server-process'));
 							modelIcon.setAttribute('aria-hidden', 'true');
@@ -11344,14 +11417,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							}
 							if (settingValues.length === 0) {
 								const empty = append(videoSettings, $('.basehalf-video-composer-metadata-empty'));
-								empty.textContent = localize('basehalf.canvas.videoComposer.settings', "Settings");
+								empty.textContent = localize('basehalf.canvas.videoComposer.chooseModelSettings', "Choose model settings");
 							} else {
 								for (const value of settingValues) {
 									const entry = append(videoSettings, $('.basehalf-video-composer-metadata-item'));
 									entry.textContent = value;
 								}
 							}
-							videoSettings.title = settingValues.join(' · ') || localize('basehalf.canvas.videoComposer.settings', "Settings");
+							videoSettings.title = settingValues.join(' · ') || localize('basehalf.canvas.videoComposer.chooseModelSettings', "Choose model settings");
 							videoSettings.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.settingsTrigger', "Video settings: {0}", videoSettings.title));
 							if (settingsNeedsReview && state.problem) {
 								videoSettings.setAttribute('aria-description', state.problem);
@@ -11972,6 +12045,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							const previousConfigurationKey = documentConfigurationKey(document);
 								const previousStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
 								applyLatestSurfaceState(latest);
+								if (videoComposer && document.result && !resultPreview.resultIntegrity) {
+									disposeMountedVideoComposer?.(false);
+									this.requestRender();
+									return;
+								}
 								const nextStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
 								if (videoComposer && previousConfigurationKey === documentConfigurationKey(document) && previousStructureKey === nextStructureKey) {
 									refreshVideoSurfacePresentation();
@@ -12123,27 +12201,58 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}));
 			let pendingInitialFocus = true;
+			let latestPortalLayoutEpoch = -1;
 			const onPortalLayout = (event: Event) => {
-				const detail = (event as CustomEvent<IBaseHalfCanvasSceneVideoComposerLayout>).detail;
+				const detail = (event as CustomEvent<IBaseHalfVideoComposerPortalLayout>).detail;
 				const surface = renderedLocalSurface;
-				if (!detail || !surface?.isConnected) {
+				if (!detail || !surface?.isConnected || detail.epoch < latestPortalLayoutEpoch) {
 					return;
 				}
+				latestPortalLayoutEpoch = detail.epoch;
 				surface.dataset.placement = detail.placement;
-				surface.style.setProperty('--basehalf-video-composer-width', `${detail.screenWidth}px`);
-				const popover = surface.querySelector<HTMLElement>('.basehalf-video-composer-popover');
-				if (popover?.isConnected) {
-					layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect());
+				surface.dataset.visibility = detail.visibility;
+				if (detail.manipulating) {
+					surface.dataset.directManipulation = detail.manipulating;
+				} else {
+					delete surface.dataset.directManipulation;
 				}
-				if (!detail.visible && surface.contains(surface.ownerDocument.activeElement)) {
+				surface.style.setProperty('--basehalf-video-composer-width', `${detail.screenWidth}px`);
+				surface.style.setProperty('--basehalf-video-composer-height', `${detail.screenHeight}px`);
+				const footerPresentation = createBaseHalfVideoComposerFooterPresentation(detail.screenWidth);
+				surface.dataset.footerDensity = footerPresentation.density;
+				surface.style.setProperty('--basehalf-video-model-max-width', `${footerPresentation.modelMaximumWidth}px`);
+				const popover = surface.querySelector<HTMLElement>('.basehalf-video-composer-popover');
+				const popoverFits = popover?.isConnected
+					? layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect())
+					: true;
+				const transientGeometryChange = detail.viewportInteraction
+					|| !!detail.manipulating
+					|| (detail.anchorChanged && !detail.viewportResized)
+					|| (detail.viewportResized && !popoverFits);
+				if (transientGeometryChange) {
+					closeVideoTransientOverlay();
+				}
+				if (detail.manipulating && surface.contains(surface.ownerDocument.activeElement)) {
 					focusAnchor();
 				}
-				if (pendingInitialFocus && detail.visible) {
+				if (detail.visibility === 'anchor-offscreen' && surface.contains(surface.ownerDocument.activeElement)) {
+					const pickBanner = [...surface.ownerDocument.querySelectorAll<HTMLElement>('.basehalf-video-input-pick-banner')]
+						.find(candidate => candidate.dataset.targetNodePath === item.path);
+					const pickCancel = pickBanner?.querySelector<HTMLButtonElement>('.basehalf-video-input-pick-cancel');
+					if (pickCancel?.isConnected) {
+						pickCancel.focus({ preventScroll: true });
+					} else {
+						this.root.focus({ preventScroll: true });
+					}
+				}
+				if (pendingInitialFocus && detail.visible && !detail.manipulating && !detail.viewportInteraction) {
 					pendingInitialFocus = false;
 					mainWindow.requestAnimationFrame(() => {
-						if (mounted && mount.isConnected && this.activeNodeLocalSurface === localSurfaceController) {
-							focusLocalSurface();
-						}
+						mainWindow.requestAnimationFrame(() => {
+							if (mounted && mount.isConnected && this.activeNodeLocalSurface === localSurfaceController) {
+								focusLocalSurface();
+							}
+						});
 					});
 				}
 			};
@@ -12160,7 +12269,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					path: item.path,
 					element: mount,
 					screenWidth: localSurfaceWidth,
-					screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+					screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT
 				});
 			};
 			rebindVideoComposerScene = publishVideoComposerSurface;

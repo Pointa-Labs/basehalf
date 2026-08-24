@@ -41,6 +41,7 @@ import {
 	parseBaseHalfNodeParameterDraft,
 	resolveBaseHalfNodeLocalDraftExit,
 	resolveBaseHalfNodeLocalSurfacePlacement,
+	resolveBaseHalfVideoComposerPopoverPlacement,
 	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
 } from '../../browser/basehalfNodeLocalSurface.js';
@@ -205,6 +206,57 @@ suite('BaseHalfNodeLocalSurface', () => {
 			'below'
 		);
 		assert.strictEqual(insufficientBelow.side, 'right');
+	});
+
+	test('places canonical Composer popovers beside their live triggers and flips at the viewport edge', () => {
+		const composer = { left: 244, top: 430, right: 756, bottom: 590 };
+		const viewport = { left: 0, top: 0, right: 1000, bottom: 800 };
+		const modelTrigger = { left: 254, top: 548, right: 390, bottom: 576 };
+		const models = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer,
+			trigger: modelTrigger,
+			viewport,
+			desiredHeight: 500,
+			alignment: 'trigger-leading'
+		});
+		assert.deepStrictEqual(models, {
+			placement: 'above',
+			left: 10,
+			top: -208,
+			width: 224,
+			maxHeight: 320
+		});
+
+		const topComposer = { left: 244, top: 12, right: 756, bottom: 172 };
+		const settingsTrigger = { left: 390, top: 130, right: 650, bottom: 158 };
+		const settings = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'settings',
+			composerPlacement: 'clamped-above',
+			composer: topComposer,
+			trigger: settingsTrigger,
+			viewport,
+			desiredHeight: 240,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(settings.placement, 'below');
+		assert.strictEqual(settings.width, 256);
+		assert.strictEqual(settings.top, 152);
+		assert.strictEqual(settings.maxHeight, 360);
+
+		const narrow = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'attempts',
+			composerPlacement: 'below',
+			composer: { left: 12, top: 240, right: 308, bottom: 400 },
+			trigger: { left: 240, top: 358, right: 268, bottom: 386 },
+			viewport: { left: 0, top: 0, right: 320, bottom: 480 },
+			desiredHeight: 420,
+			alignment: 'trigger-trailing'
+		});
+		assert.strictEqual(narrow.width, 304);
+		assert.strictEqual(narrow.left, -4);
+		assert.strictEqual(narrow.placement, 'above');
 	});
 
 	test('projects lifecycle labels to stable CSS tokens', () => {

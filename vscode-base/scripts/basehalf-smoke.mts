@@ -30,8 +30,10 @@ const SMOKE_VIDEO_MODEL_LABEL = 'Seedance 2.0 Mini';
 const SMOKE_VIDEO_ALTERNATE_MODEL_ID = 'seedance-1-5-pro-251215';
 const SMOKE_VIDEO_ALTERNATE_MODEL_LABEL = 'Seedance 1.5 Pro';
 const SMOKE_WINDOW_CONTENT_SIZE = Object.freeze({ width: 1280, height: 860 });
-const VIDEO_COMPOSER_SCREEN_GAP = 16;
-const VIDEO_COMPOSER_SCREEN_HEIGHT = 172;
+const VIDEO_COMPOSER_SCREEN_GAP = 10;
+const VIDEO_COMPOSER_SCREEN_WIDTH = 512;
+const VIDEO_COMPOSER_SCREEN_HEIGHT = 160;
+const VIDEO_COMPOSER_VIEWPORT_MARGIN = 12;
 const runRoot = opts.output ?? fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-smoke-'));
 const logsPath = path.join(runRoot, 'logs');
 const crashesPath = path.join(runRoot, 'crashes');
@@ -2559,13 +2561,20 @@ function assertAdjacentChromeSurfaceState(surface, expectedState, context) {
 }
 
 function assertVideoAdjacentChromeState(snapshot, expectedState, toolbarIdentity, context) {
-	assertAdjacentChromeSurfaceState(snapshot.portalChrome, expectedState, `${context} (Composer)`);
 	assertAdjacentChromeSurfaceState(snapshot.toolbarChrome, expectedState, `${context} (toolbar)`);
 	const suppressed = expectedState === 'suppressed';
+	const composerStateIsCorrect = snapshot.portalChrome
+		&& snapshot.portalChrome.state === (suppressed ? 'manipulating' : 'present')
+		&& snapshot.portalChrome.visible
+		&& snapshot.portalChrome.visibility === 'visible'
+		&& snapshot.portalChrome.pointerEvents === (suppressed ? 'none' : 'auto')
+		&& snapshot.portalChrome.ariaHidden === (suppressed ? 'true' : 'false')
+		&& snapshot.portalChrome.inert === suppressed;
 	if (snapshot.toolbarCount !== 1
 		|| snapshot.toolbarIdentity !== toolbarIdentity
 		|| snapshot.visibleToolbarCount !== (suppressed ? 0 : 1)
-		|| snapshot.visibleComposerCount !== (suppressed ? 0 : 1)
+		|| snapshot.visibleComposerCount !== 1
+		|| !composerStateIsCorrect
 		|| (suppressed
 			? snapshot.nodeDragChrome !== 'dragging' && snapshot.nodeDragChrome !== 'settling'
 			: snapshot.nodeDragChrome !== undefined)) {
@@ -2588,7 +2597,7 @@ async function waitForVideoAdjacentChromeState(page, canvasPath, expectedState) 
 			return false;
 		}
 		const suppressed = expected === 'suppressed';
-		const matches = element => {
+		const matchesToolbar = element => {
 			const style = getComputedStyle(element);
 			const translateNumbers = style.translate === 'none'
 				? []
@@ -2610,8 +2619,15 @@ async function waitForVideoAdjacentChromeState(page, canvasPath, expectedState) 
 				&& style.scale === 'none'
 				&& directionMatches;
 		};
-		return matches(toolbar)
-			&& matches(portal)
+		const portalStyle = getComputedStyle(portal);
+		const portalMatches = portal.dataset.chromeState === (suppressed ? 'manipulating' : 'present')
+			&& portal.dataset.visible === 'true'
+			&& portalStyle.visibility === 'visible'
+			&& portal.inert === suppressed
+			&& (suppressed ? portal.getAttribute('aria-hidden') === 'true' : portal.getAttribute('aria-hidden') === 'false')
+			&& (suppressed ? portalStyle.pointerEvents === 'none' : portalStyle.pointerEvents !== 'none');
+		return matchesToolbar(toolbar)
+			&& portalMatches
 			&& (suppressed
 				? node.classList.contains('dragging') && canvas.dataset.nodeDragChrome === 'dragging'
 				: !node.classList.contains('dragging') && canvas.dataset.nodeDragChrome === undefined);
@@ -2798,7 +2814,7 @@ async function markVideoAttachedChromeIdentity(page, canvasPath, prefix, promptV
 function assertVideoComposerState(snapshot, expected, context, expectedChromeState = 'present') {
 	const problems = [];
 	const suppressed = expectedChromeState === 'suppressed';
-	const expectedVisibleComposerCount = !suppressed && snapshot.portalDataVisible ? 1 : 0;
+	const expectedVisibleComposerCount = snapshot.portalDataVisible ? 1 : 0;
 	const expectedCaptionGap = 8 * snapshot.zoom;
 	const expectedCaptionHeight = 24 * snapshot.zoom;
 	if (Math.abs(snapshot.card.top - snapshot.caption.bottom - expectedCaptionGap) > 2
@@ -2839,14 +2855,24 @@ function assertVideoComposerBelowCard(snapshot, context, tolerance = 2) {
 	const cardCenter = (snapshot.card.left + snapshot.card.right) / 2;
 	const composerCenter = (snapshot.composer.left + snapshot.composer.right) / 2;
 	const composerHalfWidth = snapshot.composer.width / 2;
-	const minimumCenter = snapshot.canvas.left + 8 + composerHalfWidth;
-	const maximumCenter = snapshot.canvas.right - 8 - composerHalfWidth;
+	const minimumCenter = snapshot.canvas.left + VIDEO_COMPOSER_VIEWPORT_MARGIN + composerHalfWidth;
+	const maximumCenter = snapshot.canvas.right - VIDEO_COMPOSER_VIEWPORT_MARGIN - composerHalfWidth;
 	const expectedCenter = minimumCenter <= maximumCenter
 		? Math.min(maximumCenter, Math.max(minimumCenter, cardCenter))
 		: (snapshot.canvas.left + snapshot.canvas.right) / 2;
-	const gap = snapshot.composer.top - snapshot.card.bottom;
-	if (snapshot.placement !== 'below' || Math.abs(gap - VIDEO_COMPOSER_SCREEN_GAP) > tolerance || Math.abs(expectedCenter - composerCenter) > tolerance) {
-		throw new Error(`Video Composer detached from the card ${context}: ${JSON.stringify({ gap, cardCenter, composerCenter, expectedCenter, snapshot })}`);
+	const belowGap = snapshot.composer.top - snapshot.card.bottom;
+	const aboveGap = snapshot.card.top - snapshot.composer.bottom;
+	const verticalPlacementIsCorrect = snapshot.placement === 'below'
+		? Math.abs(belowGap - VIDEO_COMPOSER_SCREEN_GAP) <= tolerance
+		: snapshot.placement === 'above'
+			? Math.abs(aboveGap - VIDEO_COMPOSER_SCREEN_GAP) <= tolerance
+			: snapshot.placement === 'clamped-below'
+				? Math.abs(snapshot.composer.bottom - (snapshot.canvas.bottom - VIDEO_COMPOSER_VIEWPORT_MARGIN)) <= tolerance
+				: snapshot.placement === 'clamped-above'
+					? Math.abs(snapshot.composer.top - (snapshot.canvas.top + VIDEO_COMPOSER_VIEWPORT_MARGIN)) <= tolerance
+					: false;
+	if (!verticalPlacementIsCorrect || Math.abs(expectedCenter - composerCenter) > tolerance) {
+		throw new Error(`Video Composer detached from the card ${context}: ${JSON.stringify({ belowGap, aboveGap, cardCenter, composerCenter, expectedCenter, snapshot })}`);
 	}
 }
 
@@ -3084,6 +3110,7 @@ async function captureVideoEdgeDropState(page, canvasPath) {
 		const selected = Array.from(document.querySelectorAll('.react-flow__node.selected'));
 		return {
 			card: rect(card),
+			composer: rect(composer),
 			canvas: rect(canvas),
 			viewportTransform: getComputedStyle(viewport).transform,
 			nodeTransform: getComputedStyle(node).transform,
@@ -3098,6 +3125,8 @@ async function captureVideoEdgeDropState(page, canvasPath) {
 			toolbarCount: toolbars.length,
 			toolbarVisibility: toolbarStyle?.visibility,
 			composerDataVisible: portal.dataset.visible === 'true',
+			composerPlacement: portal.dataset.placement,
+			composerChromeState: portal.dataset.chromeState,
 			composerVisibility: portalStyle.visibility,
 			composerPointerEvents: portalStyle.pointerEvents,
 			composerAriaHidden: portal.getAttribute('aria-hidden'),
@@ -3215,11 +3244,18 @@ async function assertVideoEdgeDropDoesNotPanForAdjacentChrome(page, {
 			if (!(portal instanceof HTMLElement)) {
 				return false;
 			}
-			return chrome === 'top'
-				? toolbarCount === 0 && portal.dataset.visible === 'true' && getComputedStyle(portal).visibility === 'visible'
+			const placement = portal.dataset.placement;
+			const expectedSide = chrome === 'top'
+				? placement === 'below' || placement === 'clamped-below'
 				: chrome === 'bottom'
-					? toolbarCount === 1 && portal.dataset.visible === 'false' && getComputedStyle(portal).visibility === 'hidden'
-					: toolbarCount === 1 && portal.dataset.visible === 'true' && getComputedStyle(portal).visibility === 'visible';
+					? placement === 'above' || placement === 'clamped-above'
+					: placement === 'below' || placement === 'above' || placement === 'clamped-below' || placement === 'clamped-above';
+			return (chrome === 'top' ? toolbarCount === 0 : toolbarCount === 1)
+				&& expectedSide
+				&& portal.dataset.visible === 'true'
+				&& portal.dataset.chromeState === 'present'
+				&& getComputedStyle(portal).visibility === 'visible'
+				&& !portal.inert;
 		}, { path: canvasPath, chrome: expectedChrome }, { timeout: 10_000 });
 		await waitForAdjacentChromeAnimations(page);
 		const after = await captureVideoEdgeDropState(page, canvasPath);
@@ -3252,17 +3288,19 @@ async function assertVideoEdgeDropDoesNotPanForAdjacentChrome(page, {
 			|| !after.composerDataVisible
 			|| after.composerVisibility !== 'visible'
 			|| after.composerInert
-			|| after.composerAriaHidden === 'true')) {
+			|| after.composerAriaHidden === 'true'
+			|| (after.composerPlacement !== 'below' && after.composerPlacement !== 'clamped-below'))) {
 			throw new Error(`Video top-edge drop did not locally hide only the clipped upper chrome: ${JSON.stringify(after)}`);
 		}
 		if (expectedChrome === 'bottom' && (after.toolbarCount !== 1
 			|| after.toolbarVisibility !== 'visible'
-			|| after.composerDataVisible
-			|| after.composerVisibility !== 'hidden'
-			|| !after.composerInert
-			|| after.composerAriaHidden !== 'true'
-			|| after.composerPointerEvents !== 'none')) {
-			throw new Error(`Video bottom-edge drop did not locally hide the clipped Composer: ${JSON.stringify(after)}`);
+			|| !after.composerDataVisible
+			|| after.composerVisibility !== 'visible'
+			|| after.composerInert
+			|| after.composerAriaHidden === 'true'
+			|| after.composerPointerEvents === 'none'
+			|| (after.composerPlacement !== 'above' && after.composerPlacement !== 'clamped-above'))) {
+			throw new Error(`Video bottom-edge drop did not flip the Composer above the card: ${JSON.stringify(after)}`);
 		}
 		return after;
 	};
@@ -3280,6 +3318,152 @@ async function assertVideoEdgeDropDoesNotPanForAdjacentChrome(page, {
 		await snapToggle.click();
 		await page.waitForFunction(() => document.querySelector('.basehalf-canvas-snap-toggle')?.getAttribute('aria-pressed') === 'true');
 	}
+}
+
+async function assertVideoComposerResizeAndKeyboardGeometry(page, {
+	canvasPath,
+	canvasYamlPath,
+	card,
+	expected
+}) {
+	const node = page.locator('.react-flow__node').filter({ has: card }).first();
+	const resizeHandle = node.locator('.basehalf-canvas-node-resizer-handle.bottom.right');
+	await resizeHandle.waitFor({ state: 'visible', timeout: 10_000 });
+	const beforeResize = await captureVideoAttachedChrome(page, canvasPath);
+	const cardBeforeResize = await card.boundingBox();
+	const handleBeforeResize = await resizeHandle.boundingBox();
+	if (!cardBeforeResize || !handleBeforeResize) {
+		throw new Error('Could not measure the selected Video card before resize');
+	}
+	const canvasBeforeResize = fs.readFileSync(canvasYamlPath, 'utf8');
+	const resizeStart = {
+		x: handleBeforeResize.x + handleBeforeResize.width / 2,
+		y: handleBeforeResize.y + handleBeforeResize.height / 2
+	};
+	await page.evaluate(path => {
+		const state = window as typeof window & { __basehalfVideoResizeTimeline?: string[] };
+		state.__basehalfVideoResizeTimeline = [];
+		const record = () => {
+			const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`);
+			const portal = document.querySelector('.basehalf-canvas-video-composer-surface');
+			state.__basehalfVideoResizeTimeline?.push(`${card?.getAttribute('data-card-resizing') ?? '-'}:${portal?.getAttribute('data-chrome-state') ?? '-'}:${portal?.hasAttribute('inert') ? 'inert' : 'live'}`);
+		};
+		const observer = new MutationObserver(record);
+		for (const element of [
+			document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`),
+			document.querySelector('.basehalf-canvas-video-composer-surface')
+		]) {
+			if (element) {
+				observer.observe(element, { attributes: true, attributeFilter: ['data-card-resizing', 'data-chrome-state', 'inert'] });
+			}
+		}
+		window.setTimeout(() => observer.disconnect(), 12_000);
+		record();
+	}, canvasPath);
+	await page.mouse.move(resizeStart.x, resizeStart.y);
+	await page.mouse.down();
+	try {
+		await page.mouse.move(resizeStart.x + 44, resizeStart.y + 32, { steps: 8 });
+		await page.waitForFunction(() => (window as typeof window & { __basehalfVideoResizeTimeline?: string[] })
+			.__basehalfVideoResizeTimeline?.some(entry => entry.endsWith(':manipulating:inert')) === true,
+		null, { timeout: 10_000 });
+	} finally {
+		await page.mouse.up();
+	}
+	await page.waitForFunction(path => {
+		const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`);
+		const portal = document.querySelector('.basehalf-canvas-video-composer-surface');
+		return card?.dataset.cardResizing !== 'true' && portal?.getAttribute('data-chrome-state') === 'present';
+	}, canvasPath, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(canvasYamlPath, 'utf8') !== canvasBeforeResize, 'Video resize geometry to persist');
+	const afterResize = await captureVideoAttachedChrome(page, canvasPath);
+	const cardAfterResize = await card.boundingBox();
+	assertVideoComposerState(afterResize, expected, 'after live Video resize');
+	assertVideoComposerBelowCard(afterResize, 'after live Video resize');
+	if (!cardAfterResize
+		|| cardAfterResize.width < cardBeforeResize.width + 20
+		|| cardAfterResize.height < cardBeforeResize.height + 16
+		|| afterResize.composerIdentity !== beforeResize.composerIdentity
+		|| afterResize.promptIdentity !== beforeResize.promptIdentity) {
+		throw new Error(`Video resize lost live geometry or Composer identity: ${JSON.stringify({ cardBeforeResize, cardAfterResize, beforeResize, afterResize })}`);
+	}
+
+	const undoKey = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+	const redoKey = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
+	await card.focus();
+	await page.keyboard.press(undoKey);
+	await page.waitForFunction(({ path, width, height }) => {
+		const bounds = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect();
+		return !!bounds && Math.abs(bounds.width - width) <= 2 && Math.abs(bounds.height - height) <= 2;
+	}, { path: canvasPath, width: cardBeforeResize.width, height: cardBeforeResize.height }, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(canvasYamlPath, 'utf8') === canvasBeforeResize, 'Video resize undo to restore persisted geometry');
+	await page.keyboard.press(redoKey);
+	await page.waitForFunction(({ path, width, height }) => {
+		const bounds = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect();
+		return !!bounds && Math.abs(bounds.width - width) <= 2 && Math.abs(bounds.height - height) <= 2;
+	}, { path: canvasPath, width: cardAfterResize.width, height: cardAfterResize.height }, { timeout: 10_000 });
+	await page.keyboard.press(undoKey);
+	await page.waitForFunction(({ path, width, height }) => {
+		const bounds = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect();
+		return !!bounds && Math.abs(bounds.width - width) <= 2 && Math.abs(bounds.height - height) <= 2;
+	}, { path: canvasPath, width: cardBeforeResize.width, height: cardBeforeResize.height }, { timeout: 10_000 });
+
+	await waitUntil(() => fs.readFileSync(canvasYamlPath, 'utf8') === canvasBeforeResize, 'Video resize redo roundtrip to restore persisted geometry');
+	const beforeNudge = await captureVideoAttachedChrome(page, canvasPath);
+	const cardBeforeNudge = await card.boundingBox();
+	const canvasBeforeNudge = fs.readFileSync(canvasYamlPath, 'utf8');
+	if (!cardBeforeNudge) {
+		throw new Error('Could not measure the selected Video card before keyboard nudge');
+	}
+	await card.focus();
+	await page.keyboard.down('Shift');
+	await page.keyboard.down('ArrowRight');
+	try {
+		await page.waitForFunction(path => document.querySelector('.basehalf-canvas-video-composer-surface')?.getAttribute('data-chrome-state') === 'manipulating'
+			&& document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect().left !== undefined,
+		canvasPath, { timeout: 3_000 });
+		const duringNudge = await captureVideoAttachedChrome(page, canvasPath);
+		if (duringNudge.portalChrome?.state !== 'manipulating'
+			|| !duringNudge.portalChrome.inert
+			|| duringNudge.composerIdentity !== beforeNudge.composerIdentity
+			|| duringNudge.promptIdentity !== beforeNudge.promptIdentity) {
+			throw new Error(`Keyboard geometry did not preserve one inert Composer: ${JSON.stringify({ beforeNudge, duringNudge })}`);
+		}
+	} finally {
+		await page.keyboard.up('ArrowRight');
+		await page.keyboard.up('Shift');
+	}
+	await page.waitForFunction(path => {
+		const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`);
+		const portal = document.querySelector('.basehalf-canvas-video-composer-surface');
+		return portal?.getAttribute('data-chrome-state') === 'present'
+			&& card instanceof HTMLElement
+			&& (document.activeElement === card || card.contains(document.activeElement));
+	}, canvasPath, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(canvasYamlPath, 'utf8') !== canvasBeforeNudge, 'Video keyboard geometry to persist');
+	await page.waitForFunction(({ path, left }) => (document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect().left ?? Number.NEGATIVE_INFINITY) >= left + 5,
+		{ path: canvasPath, left: cardBeforeNudge.x }, { timeout: 10_000 });
+	const cardAfterNudge = await card.boundingBox();
+	const afterNudge = await captureVideoAttachedChrome(page, canvasPath);
+	if (!cardAfterNudge
+		|| cardAfterNudge.x < cardBeforeNudge.x + 5
+		|| afterNudge.composerIdentity !== beforeNudge.composerIdentity
+		|| afterNudge.promptIdentity !== beforeNudge.promptIdentity) {
+		throw new Error(`Keyboard nudge did not move the card and preserve Composer identity: ${JSON.stringify({ cardBeforeNudge, cardAfterNudge, beforeNudge, afterNudge })}`);
+	}
+	// The mirror write becomes observable just before its workspace undo element
+	// is published. Let that same commit continuation finish before invoking Undo.
+	await page.waitForTimeout(250);
+	await page.keyboard.press(undoKey);
+	await page.waitForFunction(({ path, left }) => Math.abs((document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY) - left) <= 2,
+	{ path: canvasPath, left: cardBeforeNudge.x }, { timeout: 10_000 });
+	await page.keyboard.press(redoKey);
+	await page.waitForFunction(({ path, left }) => Math.abs((document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY) - left) <= 2,
+	{ path: canvasPath, left: cardAfterNudge.x }, { timeout: 10_000 });
+	await page.keyboard.press(undoKey);
+	await page.waitForFunction(({ path, left }) => Math.abs((document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`)?.getBoundingClientRect().left ?? Number.POSITIVE_INFINITY) - left) <= 2,
+	{ path: canvasPath, left: cardBeforeNudge.x }, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(canvasYamlPath, 'utf8') === canvasBeforeNudge, 'Video keyboard undo to restore persisted geometry');
 }
 
 async function assertVideoNodeUI(page) {
@@ -3484,11 +3668,8 @@ async function assertVideoNodeUI(page) {
 		};
 	}, canvasPath);
 	const expectedComposerWidth = Math.min(
-		Math.max(220, Math.min(
-			Math.min(560, Math.round(compactComposerPresentation.cardWidth * 0.66)),
-			compactComposerPresentation.canvasWidth - 16
-		)),
-		compactComposerPresentation.viewportWidth - 24
+		VIDEO_COMPOSER_SCREEN_WIDTH,
+		compactComposerPresentation.canvasWidth - VIDEO_COMPOSER_VIEWPORT_MARGIN * 2
 	);
 	const composerCenter = (compactComposerPresentation.composerLeft + compactComposerPresentation.composerRight) / 2;
 	const cardCenter = (compactComposerPresentation.cardLeft + compactComposerPresentation.cardRight) / 2;
@@ -3508,7 +3689,6 @@ async function assertVideoNodeUI(page) {
 		|| compactComposerPresentation.referencesCount !== 0
 		|| compactComposerPresentation.addCount !== 0
 		|| compactComposerPresentation.promptCount !== 1
-		|| !compactComposerPresentation.promptFocused
 		|| compactComposerPresentation.promptResize !== 'none'
 		|| compactComposerPresentation.metadataCount !== 1
 		|| compactComposerPresentation.metadataDisplay === 'none'
@@ -3555,6 +3735,19 @@ async function assertVideoNodeUI(page) {
 		card: clip,
 		expected: expectedDraftState
 	});
+	await assertVideoEdgeDropDoesNotPanForAdjacentChrome(page, {
+		canvasPath,
+		canvasYamlPath: path.join(workspacePath, '.bh', 'mirror', workflowName, 'shots', 'shot-01', 'canvas.yaml'),
+		expected: expectedDraftState
+	});
+	stableComposerContext = await captureVideoAttachedChrome(page, canvasPath);
+	await assertVideoComposerResizeAndKeyboardGeometry(page, {
+		canvasPath,
+		canvasYamlPath: path.join(workspacePath, '.bh', 'mirror', workflowName, 'shots', 'shot-01', 'canvas.yaml'),
+		card: clip,
+		expected: expectedDraftState
+	});
+	stableComposerContext = await captureVideoAttachedChrome(page, canvasPath);
 
 	const pane = page.locator('.basehalf-canvas-cards .react-flow__pane');
 	const paneBox = await pane.boundingBox();
@@ -3621,6 +3814,7 @@ async function assertVideoNodeUI(page) {
 	const modelsPopoverIsLocal = await overlayRoot.locator('.basehalf-video-composer-popover.models').count() === 1;
 	const targetModel = modelsPopover.locator(`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_MODEL_ID}"]`);
 	await targetModel.waitFor({ state: 'visible', timeout: 10_000 });
+	const modelsPopoverBounds = await modelsPopover.boundingBox();
 	if (await composer.locator('.basehalf-video-composer-popover:visible').count() !== 1
 		|| await modelTrigger.getAttribute('aria-expanded') !== 'true'
 		|| await settingsTrigger.getAttribute('aria-expanded') !== 'false'
@@ -3635,16 +3829,29 @@ async function assertVideoNodeUI(page) {
 		|| !((await targetModel.textContent()) ?? '').includes('Add API key')
 		|| await targetModel.locator('.codicon-lock').count() !== 1
 		|| await modelsPopover.locator('select.basehalf-video-capability-select').count() !== 0
+		|| !modelsPopoverBounds
+		|| Math.abs(modelsPopoverBounds.width - 224) > 2
+		|| modelsPopoverBounds.height > 320.5
 		|| await page.locator('.quick-input-widget:visible').count() !== 0) {
 		throw new Error(`The empty Video Draft did not expose a clickable locked catalog model: ${JSON.stringify({
 			modelExpanded: await modelTrigger.getAttribute('aria-expanded'),
 			settingsExpanded: await settingsTrigger.getAttribute('aria-expanded'),
 			overlay: await overlayRoot.getAttribute('data-overlay'),
 			modelsPopoverIsLocal,
-			targetConnectionState: await targetModel.getAttribute('data-connection-state'),
-			targetText: (await targetModel.textContent())?.replace(/\s+/g, ' ').trim(),
-			popoverCount: await composer.locator('.basehalf-video-composer-popover:visible').count()
-		})}`);
+				targetConnectionState: await targetModel.getAttribute('data-connection-state'),
+				targetPressed: await targetModel.getAttribute('aria-pressed'),
+				targetDisabled: await targetModel.isDisabled(),
+				lockCount: await targetModel.locator('.codicon-lock').count(),
+				targetText: (await targetModel.textContent())?.replace(/\s+/g, ' ').trim(),
+				popoverCount: await composer.locator('.basehalf-video-composer-popover:visible').count(),
+				modelsPopoverBounds,
+				controls: await modelTrigger.getAttribute('aria-controls'),
+				popoverId: await modelsPopover.getAttribute('id'),
+				role: await modelsPopover.getAttribute('role'),
+				modal: await modelsPopover.getAttribute('aria-modal'),
+				genericSelects: await modelsPopover.locator('select.basehalf-video-capability-select').count(),
+				quickInputs: await page.locator('.quick-input-widget:visible').count()
+			})}`);
 	}
 	const modelPanBefore = await captureVideoAttachedChrome(page, canvasPath);
 	await page.mouse.move(paneBox.x + 22, paneBox.y + 22);
@@ -3655,12 +3862,15 @@ async function assertVideoNodeUI(page) {
 	}, modelPanBefore.viewportTransform, { timeout: 10_000 });
 	await waitForVideoChromeFrames(page);
 	const modelPanAfter = await captureVideoAttachedChrome(page, canvasPath);
-	assertVideoComposerState(modelPanAfter, expectedDraftState, 'while panning with the video model picker open');
-	assertVideoComposerBelowCard(modelPanAfter, 'while panning with the video model picker open');
-	assertVideoChromeTranslatedTogether(modelPanBefore, modelPanAfter, 'while panning with the video model picker open');
-	if (modelPanAfter.visiblePopoverCount !== 1 || !await modelsPopover.isVisible()) {
-		throw new Error('Panning the Canvas closed or duplicated the local Video model picker');
+	assertVideoComposerState(modelPanAfter, expectedDraftState, 'after panning from the video model picker');
+	assertVideoComposerBelowCard(modelPanAfter, 'after panning from the video model picker');
+	assertVideoChromeTranslatedTogether(modelPanBefore, modelPanAfter, 'while panning from the video model picker');
+	if (modelPanAfter.visiblePopoverCount !== 0 || await modelsPopover.isVisible()) {
+		throw new Error('Panning the Canvas did not close the local Video model picker');
 	}
+	await modelTrigger.click();
+	await modelsPopover.waitFor({ state: 'visible', timeout: 10_000 });
+	await targetModel.waitFor({ state: 'visible', timeout: 10_000 });
 
 	// A locked catalog row owns connection setup. It leaves the canvas, opens the
 	// BH Settings (never another picker), then returns to the exact Draft and
@@ -3755,6 +3965,7 @@ async function assertVideoNodeUI(page) {
 	assertVideoChromeLayoutUnchanged(stableComposerContext, settingsOpenContext, 'while opening model-specific video settings');
 	const settingsPopoverText = (await settingsPopover.textContent())?.replace(/\s+/g, ' ').trim() ?? '';
 	const settingsPopoverIsLocal = await overlayRoot.locator('.basehalf-video-composer-popover.settings').count() === 1;
+	const settingsPopoverBounds = await settingsPopover.boundingBox();
 	const canonicalSelection = await settingsPopover.evaluate(popover => {
 		const surface = popover.closest('.basehalf-video-composer');
 		return {
@@ -3774,6 +3985,10 @@ async function assertVideoNodeUI(page) {
 		|| await settingsPopover.getAttribute('aria-modal') !== 'false'
 		|| await overlayRoot.getAttribute('data-overlay') !== 'settings'
 		|| !settingsPopoverIsLocal
+		|| !settingsPopoverBounds
+		|| Math.abs(settingsPopoverBounds.width - 256) > 2
+		|| settingsPopoverBounds.height > 360.5
+		|| await settingsPopover.locator('.basehalf-video-settings-model').count() !== 0
 		|| !settingsPopoverText.includes('Video generation')
 		|| !settingsPopoverText.includes('Generate method')
 		|| canonicalSelection.model !== SMOKE_VIDEO_MODEL_LABEL
@@ -3785,10 +4000,16 @@ async function assertVideoNodeUI(page) {
 		throw new Error(`The selected model did not expose one schema-driven settings popover: ${JSON.stringify({
 			settingsPopoverText,
 			modelExpanded: await modelTrigger.getAttribute('aria-expanded'),
-			settingsExpanded: await settingsTrigger.getAttribute('aria-expanded'),
-			overlay: await overlayRoot.getAttribute('data-overlay'),
-			settingsPopoverIsLocal,
-			canonicalSelection
+				settingsExpanded: await settingsTrigger.getAttribute('aria-expanded'),
+				overlay: await overlayRoot.getAttribute('data-overlay'),
+				settingsPopoverIsLocal,
+				settingsPopoverBounds,
+				controls: await settingsTrigger.getAttribute('aria-controls'),
+				popoverId: await settingsPopover.getAttribute('id'),
+				role: await settingsPopover.getAttribute('role'),
+				modal: await settingsPopover.getAttribute('aria-modal'),
+				settingsModelCount: await settingsPopover.locator('.basehalf-video-settings-model').count(),
+				canonicalSelection
 		})}`);
 	}
 	const startEndMethod = settingsPopover.getByRole('radio', { name: 'Start + End Frames', exact: true });
@@ -3837,15 +4058,32 @@ async function assertVideoNodeUI(page) {
 	const startFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...startFramePath.split('/'), 'badge.yaml');
 	const endFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...endFramePath.split('/'), 'badge.yaml');
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	const inputPickBanner = page.locator(`.basehalf-video-input-pick-banner[data-target-node-path="${canvasPath}"]`);
+	await inputPickBanner.waitFor({ state: 'visible', timeout: 10_000 });
 	await startFrame.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
 		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
 	)?.classList.contains('basehalf-video-input-pick-eligible') === true
 		&& document.querySelector(
-			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent?.includes('Select a highlighted card') === true,
 	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
+	const pickPanBefore = await captureVideoAttachedChrome(page, canvasPath);
+	const bannerBeforePan = await inputPickBanner.boundingBox();
+	await page.mouse.move(paneBox.x + 26, paneBox.y + 26);
+	await page.mouse.wheel(24, -20);
+	await page.waitForFunction(previous => {
+		const viewport = document.querySelector('.react-flow__viewport');
+		return viewport instanceof HTMLElement && getComputedStyle(viewport).transform !== previous;
+	}, pickPanBefore.viewportTransform, { timeout: 10_000 });
+	const bannerAfterPan = await inputPickBanner.boundingBox();
+	if (!bannerBeforePan
+		|| !bannerAfterPan
+		|| Math.abs(bannerAfterPan.x - bannerBeforePan.x) > 1
+		|| Math.abs(bannerAfterPan.y - 12) > 1
+		|| await inputPickBanner.getAttribute('data-target-node-path') !== canvasPath) {
+		throw new Error(`Canvas pan did not preserve the fixed input-pick request banner: ${JSON.stringify({ bannerBeforePan, bannerAfterPan })}`);
+	}
 	const checkpointedBeforeCancelledPick = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 	if (checkpointedBeforeCancelledPick.recipe?.recipeId !== 'pointa.basehalf-ai-video.generate-video'
 		|| checkpointedBeforeCancelledPick.recipe?.parameters?.generationMode !== 'first-last-frame-to-video'
@@ -3855,7 +4093,7 @@ async function assertVideoNodeUI(page) {
 	const nodeBeforeCancelledPick = fs.readFileSync(nodePath, 'utf8');
 	const canvasBeforeCancelledPick = fs.readFileSync(canvasYamlPath, 'utf8');
 	await page.keyboard.press('Escape');
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 10_000 });
 	if (fs.readFileSync(nodePath, 'utf8') !== nodeBeforeCancelledPick
 		|| fs.readFileSync(canvasYamlPath, 'utf8') !== canvasBeforeCancelledPick) {
 		throw new Error('Cancelling Video input pick changed the target document or graph');
@@ -3866,7 +4104,7 @@ async function assertVideoNodeUI(page) {
 		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
 	)?.classList.contains('basehalf-video-input-pick-eligible') === true
 		&& document.querySelector(
-			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent?.includes('Select a highlighted card') === true,
 	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
 	await startFrame.focus();
@@ -3886,7 +4124,7 @@ async function assertVideoNodeUI(page) {
 		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
 	)?.classList.contains('basehalf-video-input-pick-eligible') === true
 		&& document.querySelector(
-			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent?.includes('Select a highlighted card') === true,
 	{ sourcePath: endFramePath, targetPath: canvasPath }, { timeout: 10_000 });
 	await endFrame.focus();
@@ -3978,12 +4216,12 @@ async function assertVideoNodeUI(page) {
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
 	await page.waitForFunction(targetPath => {
 		const text = document.querySelector(
-			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent ?? '';
 		return text.includes('Press Escape to cancel') && !text.includes('Checking saved canvas sources');
 	}, canvasPath, { timeout: 15_000 });
 	fs.writeFileSync(nodePath, startOnlyNodeContents, 'utf8');
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 15_000 });
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 15_000 });
 	await page.waitForFunction(targetPath => {
 		const surface = document.querySelector<HTMLElement>(
 			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`
@@ -4104,9 +4342,9 @@ async function assertVideoNodeUI(page) {
 	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 15_000 });
+	await inputPickBanner.waitFor({ state: 'visible', timeout: 15_000 });
 	await page.keyboard.press('Escape');
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 10_000 });
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		return saved.recipe?.modelId === SMOKE_VIDEO_ALTERNATE_MODEL_ID
@@ -4130,12 +4368,12 @@ async function assertVideoNodeUI(page) {
 	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	await inputPickBanner.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.waitForFunction(({ sourcePath, targetPath }) => document.querySelector(
 		`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(sourcePath)}"]`
 	)?.classList.contains('basehalf-video-input-pick-eligible') === true
 		&& document.querySelector(
-			`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"] .basehalf-video-input-pick-banner`
+			`.basehalf-video-input-pick-banner[data-target-node-path="${CSS.escape(targetPath)}"]`
 		)?.textContent?.includes('Select a highlighted card') === true,
 	{ sourcePath: startFramePath, targetPath: canvasPath }, { timeout: 10_000 });
 	await startFrame.focus();
@@ -4174,9 +4412,9 @@ async function assertVideoNodeUI(page) {
 	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 	const restoredModelCanvas = fs.readFileSync(canvasYamlPath, 'utf8');
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'visible', timeout: 15_000 });
+	await inputPickBanner.waitFor({ state: 'visible', timeout: 15_000 });
 	await page.keyboard.press('Escape');
-	await composer.locator('.basehalf-video-input-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await inputPickBanner.waitFor({ state: 'detached', timeout: 10_000 });
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		return saved.recipe?.modelId === SMOKE_VIDEO_MODEL_ID
@@ -4613,159 +4851,15 @@ async function assertVideoResultToolbar(page, { workflowName, canvasPath, nodePa
 		throw new Error(`The sealed Video Result toolbar contract is wrong: ${JSON.stringify({ labels, expectedLabels, role: await toolbar.getAttribute('role'), placement: await toolbar.getAttribute('data-placement') })}`);
 	}
 
-	const composer = page.locator(`.basehalf-video-composer[data-node-path="${canvasPath}"]`);
-	await page.waitForFunction(path => {
-		const toolbar = document.querySelector('.basehalf-video-result-toolbar');
-		const composer = document.querySelector(`.basehalf-video-composer[data-node-path="${path}"]`);
-		return toolbar instanceof HTMLElement && toolbar.offsetParent !== null
-			&& composer instanceof HTMLElement && composer.offsetParent !== null;
-	}, canvasPath, { timeout: 10_000 });
-	// Verified-result hydration may replace the card once. Require the paired
-	// upper/lower chrome to survive that commit instead of accepting a transient
-	// frame from the pre-verification selection.
+	await page.waitForFunction(path => document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(path)}"]`) === null
+		&& document.querySelector('.basehalf-canvas-video-composer-surface') === null,
+	canvasPath, { timeout: 15_000 });
 	await page.waitForTimeout(100);
 	await toolbar.waitFor({ state: 'visible', timeout: 15_000 });
-	await page.waitForFunction(path => {
-		const toolbar = document.querySelector('.basehalf-video-result-toolbar');
-		const composer = document.querySelector(`.basehalf-video-composer[data-node-path="${path}"]`);
-		return toolbar instanceof HTMLElement && toolbar.offsetParent !== null
-			&& composer instanceof HTMLElement && composer.offsetParent !== null;
-	}, canvasPath, { timeout: 15_000 });
-	await waitForAdjacentChromeAnimations(page, 2);
-	const resultIdentity = await markVideoAttachedChromeIdentity(page, canvasPath, 'basehalf-smoke-video-result');
-	let resultAttachedChrome = await captureVideoAttachedChrome(page, canvasPath);
-	const expectedResultState = {
-		...resultIdentity,
-		promptValue: resultAttachedChrome.promptValue
-	};
-	assertVideoComposerState(resultAttachedChrome, expectedResultState, 'before exercising the sealed Result chrome');
-	assertVideoComposerBelowCard(resultAttachedChrome, 'before exercising the sealed Result chrome');
-	assertVideoResultToolbarAboveCard(resultAttachedChrome, 'before exercising the sealed Result chrome');
-	const measureChrome = async () => {
-		await waitForAdjacentChromeAnimations(page);
-		return page.evaluate(path => {
-		const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`);
-		const caption = card?.querySelector('.basehalf-canvas-card-caption');
-		const toolbar = document.querySelector('.basehalf-video-result-toolbar');
-		const composer = document.querySelector(`.basehalf-video-composer[data-node-path="${path}"]`);
-		const composerPortal = composer?.closest('.basehalf-canvas-video-composer-surface');
-		const canvas = document.querySelector('.basehalf-canvas-cards');
-		const flowViewport = document.querySelector('.react-flow__viewport');
-		if (!(card instanceof HTMLElement) || !(caption instanceof HTMLElement) || !(composer instanceof HTMLElement) || !(composerPortal instanceof HTMLElement) || !(canvas instanceof HTMLElement)) {
-			throw new Error(`Missing paired Video Result chrome for ${path}: card=${card instanceof HTMLElement}, caption=${caption instanceof HTMLElement}, composer=${composer instanceof HTMLElement}, portal=${composerPortal instanceof HTMLElement}, canvas=${canvas instanceof HTMLElement}`);
-		}
-		const cardRect = card.getBoundingClientRect();
-		const captionRect = caption.getBoundingClientRect();
-		const toolbarRect = toolbar instanceof HTMLElement && toolbar.offsetParent !== null ? toolbar.getBoundingClientRect() : undefined;
-		const composerRect = composer.getBoundingClientRect();
-		const canvasRect = canvas.getBoundingClientRect();
-		const composerPortalStyle = getComputedStyle(composerPortal);
-		return {
-			viewport: { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight },
-			viewportTransform: flowViewport instanceof Element ? getComputedStyle(flowViewport).transform : '',
-			canvas: { left: canvasRect.left, top: canvasRect.top, right: canvasRect.right, bottom: canvasRect.bottom },
-			card: { left: cardRect.left, top: cardRect.top, right: cardRect.right, bottom: cardRect.bottom },
-			caption: { left: captionRect.left, top: captionRect.top, right: captionRect.right, bottom: captionRect.bottom, width: captionRect.width, height: captionRect.height },
-			toolbar: toolbarRect ? { left: toolbarRect.left, top: toolbarRect.top, right: toolbarRect.right, bottom: toolbarRect.bottom, width: toolbarRect.width, height: toolbarRect.height } : undefined,
-			composer: { left: composerRect.left, top: composerRect.top, right: composerRect.right, bottom: composerRect.bottom, width: composerRect.width, height: composerRect.height },
-			composerVisible: composerPortal.dataset.visible === 'true' && composerPortalStyle.visibility === 'visible',
-			composerAriaHidden: composerPortal.getAttribute('aria-hidden'),
-			composerInert: composerPortal.inert,
-			composerPointerEvents: composerPortalStyle.pointerEvents,
-			placement: toolbar instanceof HTMLElement ? toolbar.dataset.placement : undefined
-		};
-		}, canvasPath);
-	};
-	const waitForChromeLayout = async () => {
-		try {
-			await page.waitForFunction(({ path, composerGap }) => {
-				const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`);
-				const caption = card?.querySelector('.basehalf-canvas-card-caption');
-				const toolbar = document.querySelector('.basehalf-video-result-toolbar');
-				const composer = document.querySelector(`.basehalf-video-composer[data-node-path="${path}"]`);
-				const composerPortal = composer?.closest('.basehalf-canvas-video-composer-surface');
-				const canvas = document.querySelector('.basehalf-canvas-cards');
-				if (!(card instanceof HTMLElement) || !(caption instanceof HTMLElement) || !(composer instanceof HTMLElement) || !(composerPortal instanceof HTMLElement) || !(canvas instanceof HTMLElement)) {
-					return false;
-				}
-				const cardRect = card.getBoundingClientRect();
-				const captionRect = caption.getBoundingClientRect();
-				const composerRect = composer.getBoundingClientRect();
-				const canvasRect = canvas.getBoundingClientRect();
-				const composerHalfWidth = composerRect.width / 2;
-				const minimumCenter = canvasRect.left + 8 + composerHalfWidth;
-				const maximumCenter = canvasRect.right - 8 - composerHalfWidth;
-				const cardCenter = (cardRect.left + cardRect.right) / 2;
-				const expectedComposerCenter = minimumCenter <= maximumCenter
-					? Math.min(maximumCenter, Math.max(minimumCenter, cardCenter))
-					: (canvasRect.left + canvasRect.right) / 2;
-				const portalStyle = getComputedStyle(composerPortal);
-				const composerVisible = composerPortal.dataset.visible === 'true';
-				if (Math.abs(composerRect.top - cardRect.bottom - composerGap) > 1
-					|| Math.abs(expectedComposerCenter - (composerRect.left + composerRect.right) / 2) > 1
-					|| (composerVisible
-						? portalStyle.visibility !== 'visible' || composerPortal.inert || composerPortal.getAttribute('aria-hidden') === 'true'
-						: portalStyle.visibility !== 'hidden' || !composerPortal.inert || composerPortal.getAttribute('aria-hidden') !== 'true')) {
-					return false;
-				}
-				if (!(toolbar instanceof HTMLElement) || toolbar.offsetParent === null) {
-					return true;
-				}
-				const toolbarRect = toolbar.getBoundingClientRect();
-				return toolbar.dataset.placement === 'above'
-					&& Math.abs(captionRect.top - toolbarRect.bottom - 10) <= 1
-					&& toolbarRect.top >= canvasRect.top + 8 - 0.5;
-			}, { path: canvasPath, composerGap: VIDEO_COMPOSER_SCREEN_GAP }, { timeout: 3_000 });
-		} catch (error) {
-			throw new Error(`Video Result chrome did not settle into paired geometry: ${JSON.stringify(await measureChrome())}`, { cause: error });
-		}
-	};
-	await waitForChromeLayout();
-	resultAttachedChrome = await assertVideoAttachedChromeFollowsPointerDrag(page, {
-		canvasPath,
-		card: clip,
-		expected: expectedResultState,
-		includeToolbar: true
-	});
-	await waitForChromeLayout();
-	await assertVideoEdgeDropDoesNotPanForAdjacentChrome(page, {
-		canvasPath,
-		canvasYamlPath: path.join(workspacePath, '.bh', 'mirror', workflowName, 'shots', 'shot-01', 'canvas.yaml'),
-		expected: expectedResultState
-	});
-	await waitForChromeLayout();
-	const beforeZoom = await measureChrome();
-	assertVideoResultChromeGeometry(beforeZoom, 'at reset zoom');
-	// Exercise the canvas shortcut from the toolbar so focus remains inside the
-	// paired Result chrome throughout the screen-space zoom assertion.
-	for (let zoomStep = 1; zoomStep <= 3; zoomStep++) {
-		if (await toolbar.isVisible()) {
-			await toolbar.locator(':scope > button').first().focus();
-		} else {
-			await clip.focus();
-		}
-		if (!await zoomCanvas(page, 'in', { preserveFocus: true })) {
-			throw new Error(`Canvas refused Video Result zoom step ${zoomStep}`);
-		}
-		await waitForChromeLayout();
-		const afterZoom = await measureChrome();
-		const attachedAfterZoom = await captureVideoAttachedChrome(page, canvasPath);
-		assertVideoComposerState(attachedAfterZoom, expectedResultState, `after sealed Result zoom step ${zoomStep}`);
-		assertVideoComposerBelowCard(attachedAfterZoom, `after sealed Result zoom step ${zoomStep}`);
-		if (attachedAfterZoom.toolbar) {
-			assertVideoResultToolbarAboveCard(attachedAfterZoom, `after sealed Result zoom step ${zoomStep}`);
-		}
-		assertVideoResultChromeGeometry(afterZoom, `after zoom step ${zoomStep}`);
-		if ((afterZoom.toolbar && (Math.abs(afterZoom.toolbar.width - beforeZoom.toolbar.width) > 3
-			|| Math.abs(afterZoom.toolbar.height - beforeZoom.toolbar.height) > 3))
-			|| Math.abs(afterZoom.composer.width - beforeZoom.composer.width) > 3
-			|| Math.abs(afterZoom.composer.height - beforeZoom.composer.height) > 3) {
-			throw new Error(`Video Result chrome did not keep stable screen-space dimensions through zoom step ${zoomStep}: ${JSON.stringify({ beforeZoom, afterZoom })}`);
-		}
+	if (await page.locator(`.basehalf-video-composer[data-node-path="${canvasPath}"]`).count() !== 0
+		|| await page.locator('.basehalf-canvas-video-composer-surface').count() !== 0) {
+		throw new Error('A verified Video Result retained the lower Composer');
 	}
-	await clip.focus();
-	await zoomCanvas(page, 'reset', { preserveFocus: true });
-	await waitForChromeLayout();
 
 	const toolbarButtons = toolbar.locator(':scope > button');
 	const initialTabStops = await toolbarButtons.evaluateAll(buttons => buttons.map(button => button.tabIndex));
@@ -4791,64 +4885,23 @@ async function assertVideoResultToolbar(page, { workflowName, canvasPath, nodePa
 		return card instanceof HTMLElement && (document.activeElement === card || card.contains(document.activeElement));
 	}, canvasPath, { timeout: 10_000 });
 	await waitForVideoChromeFrames(page);
-	resultAttachedChrome = await captureVideoAttachedChrome(page, canvasPath);
-	assertVideoComposerState(resultAttachedChrome, expectedResultState, 'after toolbar Escape returned focus to the Result card');
-	assertVideoComposerBelowCard(resultAttachedChrome, 'after toolbar Escape returned focus to the Result card');
-	assertVideoResultToolbarAboveCard(resultAttachedChrome, 'after toolbar Escape returned focus to the Result card');
-
-	const beforeDetails = await measureChrome();
-	await toolbar.getByRole('button', { name: 'Show Details', exact: true }).click();
-	await composer.waitFor({ state: 'visible', timeout: 10_000 });
-	const attemptsPopover = composer.locator('.basehalf-video-composer-popover.attempts');
-	const attemptsTrigger = composer.locator('.basehalf-video-attempts-trigger');
-	await attemptsPopover.waitFor({ state: 'visible', timeout: 10_000 });
-	await waitForChromeLayout();
-	const detailsOpen = await measureChrome();
-	const attachedDetailsOpen = await captureVideoAttachedChrome(page, canvasPath);
-	assertVideoComposerState(attachedDetailsOpen, expectedResultState, 'while the Result details popover is open');
-	assertVideoComposerBelowCard(attachedDetailsOpen, 'while the Result details popover is open');
-	assertVideoResultToolbarAboveCard(attachedDetailsOpen, 'while the Result details popover is open');
-	assertVideoResultChromeGeometry(detailsOpen, 'with the local attempts popover');
-	const rectDrift = (left, right) => Math.max(...['left', 'top', 'right', 'bottom', 'width', 'height'].map(key => Math.abs(left[key] - right[key])));
-	const detailsPresentation = await composer.evaluate(surface => ({
-		hasExpandedClass: surface.classList.contains('expanded'),
-		overlay: surface.querySelector('.basehalf-video-composer-overlay-root')?.getAttribute('data-overlay'),
-		popoverCount: surface.querySelectorAll('.basehalf-video-composer-popover').length
-	}));
-	if (detailsPresentation.hasExpandedClass
-		|| detailsPresentation.overlay !== 'attempts'
-		|| detailsPresentation.popoverCount !== 1
-		|| Math.abs(detailsOpen.composer.height - VIDEO_COMPOSER_SCREEN_HEIGHT) > 3
-		|| rectDrift(beforeDetails.composer, detailsOpen.composer) > 1
-		|| rectDrift(beforeDetails.card, detailsOpen.card) > 1
-		|| detailsOpen.viewportTransform !== beforeDetails.viewportTransform
-		|| await attemptsTrigger.getAttribute('aria-expanded') !== 'true'
-		|| await attemptsPopover.getAttribute('role') !== 'dialog') {
-		throw new Error(`Show Details replaced or moved the fixed Video Composer instead of opening one local attempts popover: ${JSON.stringify({ beforeDetails, detailsOpen, detailsPresentation })}`);
+	if (await page.locator(`.basehalf-video-composer[data-node-path="${canvasPath}"]`).count() !== 0
+		|| await page.locator('.basehalf-canvas-video-composer-surface').count() !== 0) {
+		throw new Error('Result toolbar focus navigation remounted the lower Composer');
 	}
 
-	const beforeMore = await captureVideoAttachedChrome(page, canvasPath);
 	await toolbar.getByRole('button', { name: 'More Actions', exact: true }).click();
 	const contextMenu = page.locator('.context-view.monaco-menu-container:visible').last();
 	await contextMenu.waitFor({ state: 'visible', timeout: 10_000 });
-	await attemptsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
-	await waitForVideoChromeFrames(page);
-	const moreOpen = await captureVideoAttachedChrome(page, canvasPath);
-	assertVideoComposerState(moreOpen, expectedResultState, 'while the Result More menu is open');
-	assertVideoComposerBelowCard(moreOpen, 'while the Result More menu is open');
-	assertVideoResultToolbarAboveCard(moreOpen, 'while the Result More menu is open');
-	assertVideoChromeLayoutUnchanged(beforeMore, moreOpen, 'while opening the Result More menu', true);
 	if (await contextMenu.locator('[role="menuitem"], .action-label').count() === 0) {
 		throw new Error('More Actions opened an empty context menu');
 	}
 	await page.keyboard.press('Escape');
 	await contextMenu.waitFor({ state: 'hidden', timeout: 10_000 });
 	await waitForVideoChromeFrames(page);
-	const afterMore = await captureVideoAttachedChrome(page, canvasPath);
-	assertVideoComposerState(afterMore, expectedResultState, 'after Escape closed the Result More menu');
-	assertVideoComposerBelowCard(afterMore, 'after Escape closed the Result More menu');
-	assertVideoResultToolbarAboveCard(afterMore, 'after Escape closed the Result More menu');
-	assertVideoChromeLayoutUnchanged(beforeMore, afterMore, 'after closing the Result More menu', true);
+	if (await page.locator(`.basehalf-video-composer[data-node-path="${canvasPath}"]`).count() !== 0) {
+		throw new Error('Result More menu remounted the lower Composer');
+	}
 
 	// The graph node can legitimately sit beneath the Plugins sidebar after the
 	// preceding responsive-layout checks. Close that unrelated workbench chrome
@@ -4865,28 +4918,6 @@ async function assertVideoResultToolbar(page, { workflowName, canvasPath, nodePa
 		|| await page.locator('.basehalf-video-composer:visible').count() !== 0
 		|| await page.locator('.basehalf-canvas-video-composer-surface').count() !== 0) {
 		throw new Error('Multi-selection retained single-Video Result chrome instead of structural controls');
-	}
-}
-
-function assertVideoResultChromeGeometry(geometry, context) {
-	const cardCenter = (geometry.card.left + geometry.card.right) / 2;
-	const composerCenter = (geometry.composer.left + geometry.composer.right) / 2;
-	const composerHalfWidth = geometry.composer.width / 2;
-	const minimumCenter = geometry.canvas.left + 8 + composerHalfWidth;
-	const maximumCenter = geometry.canvas.right - 8 - composerHalfWidth;
-	const expectedComposerCenter = minimumCenter <= maximumCenter
-		? Math.min(maximumCenter, Math.max(minimumCenter, cardCenter))
-		: (geometry.canvas.left + geometry.canvas.right) / 2;
-	const toolbarGap = geometry.toolbar ? geometry.caption.top - geometry.toolbar.bottom : undefined;
-	if ((geometry.toolbar && (geometry.placement !== 'above'
-			|| Math.abs(toolbarGap - 10) > 1
-			|| geometry.toolbar.bottom >= geometry.composer.top))
-		|| Math.abs(geometry.composer.top - geometry.card.bottom - VIDEO_COMPOSER_SCREEN_GAP) > 1
-		|| Math.abs(expectedComposerCenter - composerCenter) > 1
-		|| (geometry.composerVisible
-			? geometry.composerInert || geometry.composerAriaHidden === 'true' || geometry.composerPointerEvents === 'none'
-			: !geometry.composerInert || geometry.composerAriaHidden !== 'true' || geometry.composerPointerEvents !== 'none')) {
-		throw new Error(`Video Result chrome did not project locally around the card ${context}: ${JSON.stringify(geometry)}`);
 	}
 }
 
