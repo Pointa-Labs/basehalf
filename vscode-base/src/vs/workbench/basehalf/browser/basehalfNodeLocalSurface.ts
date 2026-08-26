@@ -25,7 +25,11 @@ import {
 	IBaseHalfNodeAttempt,
 	IBaseHalfNodeResultArtifact
 } from '../common/basehalfNodeDocument.js';
-import { BaseHalfVideoComposerPlacement, IBaseHalfVideoComposerRect } from '../common/basehalfVideoComposerPresentation.js';
+import {
+	BaseHalfVideoComposerDirectManipulation,
+	BaseHalfVideoComposerPlacement,
+	IBaseHalfVideoComposerRect
+} from '../common/basehalfVideoComposerPresentation.js';
 
 export type BaseHalfNodeLocalPrimaryActionKind =
 	| 'add'
@@ -129,6 +133,11 @@ export interface IBaseHalfNodeLocalSurfacePlacement {
 export type BaseHalfVideoComposerPopoverKind = 'models' | 'settings' | 'inputs' | 'attempts';
 export type BaseHalfVideoComposerPopoverAlignment = 'trigger-leading' | 'composer-leading' | 'trigger-trailing';
 
+export const BASEHALF_VIDEO_COMPOSER_POPOVER_GAP = 6;
+export const BASEHALF_VIDEO_COMPOSER_POPOVER_VIEWPORT_MARGIN = 8;
+/** This threshold chooses a side; it is never a minimum rendered height. */
+export const BASEHALF_VIDEO_COMPOSER_POPOVER_PLACEMENT_VIABILITY_HEIGHT = 160;
+
 export interface IBaseHalfVideoComposerPopoverPlacement {
 	readonly placement: 'above' | 'below';
 	/** Offset from the Composer's leading edge. */
@@ -153,6 +162,43 @@ export const BASEHALF_VIDEO_COMPOSER_POPOVER_MAX_HEIGHTS: Readonly<Record<BaseHa
 	attempts: 420
 });
 
+export interface IBaseHalfVideoComposerPopoverGeometryEvent {
+	readonly anchorChanged: boolean;
+	readonly viewportResized: boolean;
+	readonly viewportInteraction: boolean;
+	readonly manipulating?: BaseHalfVideoComposerDirectManipulation;
+}
+
+export type BaseHalfVideoComposerPopoverGeometryDismissReason =
+	| BaseHalfVideoComposerDirectManipulation
+	| 'viewport-interaction'
+	| 'anchor-reflow'
+	| 'viewport-resize';
+
+/**
+ * Resolves the earliest geometry notification that consumes an open child.
+ * Callers close for a returned reason before applying the new anchor geometry.
+ * A fitting viewport-only resize may keep and remeasure the child.
+ */
+export function resolveBaseHalfVideoComposerPopoverGeometryDismissReason(
+	event: IBaseHalfVideoComposerPopoverGeometryEvent,
+	popoverFits: boolean
+): BaseHalfVideoComposerPopoverGeometryDismissReason | undefined {
+	if (event.manipulating) {
+		return event.manipulating;
+	}
+	if (event.viewportInteraction) {
+		return 'viewport-interaction';
+	}
+	if (event.anchorChanged && !event.viewportResized) {
+		return 'anchor-reflow';
+	}
+	if (event.viewportResized && !popoverFits) {
+		return 'viewport-resize';
+	}
+	return undefined;
+}
+
 /**
  * Resolves one Composer child surface in screen space. The returned offsets are
  * relative to the stable Composer so the popover never participates in its
@@ -167,8 +213,8 @@ export function resolveBaseHalfVideoComposerPopoverPlacement(options: {
 	readonly desiredHeight: number;
 	readonly alignment: BaseHalfVideoComposerPopoverAlignment;
 }): IBaseHalfVideoComposerPopoverPlacement {
-	const viewportMargin = 8;
-	const gap = 6;
+	const viewportMargin = BASEHALF_VIDEO_COMPOSER_POPOVER_VIEWPORT_MARGIN;
+	const gap = BASEHALF_VIDEO_COMPOSER_POPOVER_GAP;
 	const canonicalWidth = BASEHALF_VIDEO_COMPOSER_POPOVER_WIDTHS[options.kind];
 	const maximumHeight = BASEHALF_VIDEO_COMPOSER_POPOVER_MAX_HEIGHTS[options.kind];
 	const viewportWidth = Math.max(0, options.viewport.right - options.viewport.left);
@@ -179,7 +225,8 @@ export function resolveBaseHalfVideoComposerPopoverPlacement(options: {
 	const prefersBelow = options.composerPlacement === 'above' || options.composerPlacement === 'clamped-above';
 	const preferredRoom = prefersBelow ? availableBelow : availableAbove;
 	const alternateRoom = prefersBelow ? availableAbove : availableBelow;
-	const flips = preferredRoom < Math.min(desiredHeight, 160) && alternateRoom > preferredRoom;
+	const flips = preferredRoom < Math.min(desiredHeight, BASEHALF_VIDEO_COMPOSER_POPOVER_PLACEMENT_VIABILITY_HEIGHT)
+		&& alternateRoom > preferredRoom;
 	const placement: IBaseHalfVideoComposerPopoverPlacement['placement'] = prefersBelow !== flips ? 'below' : 'above';
 	const availableHeight = placement === 'below' ? availableBelow : availableAbove;
 	const maxHeight = Math.max(0, Math.min(maximumHeight, availableHeight));

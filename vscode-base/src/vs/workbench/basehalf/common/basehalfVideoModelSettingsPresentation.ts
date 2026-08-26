@@ -20,12 +20,10 @@ import {
 } from './basehalfVideoModels.js';
 
 const SHORT_OPTION_LABEL_LENGTH = 24;
-const SEARCH_THRESHOLD = 12;
 
-export type BaseHalfVideoModelRowState = 'selected' | 'available' | 'connect' | 'unavailable' | 'needs-review';
-export type BaseHalfVideoModelRowAction = 'none' | 'select' | 'connect' | 'repair';
-export type BaseHalfVideoModelRepairSurface = 'models' | 'connection' | 'settings';
-export type BaseHalfVideoModelConnectionState = 'configured' | 'missing' | 'needs-attention';
+export type BaseHalfVideoModelAvailability = 'available' | 'connection-required' | 'unavailable';
+export type BaseHalfVideoModelRowAction = 'none' | 'select' | 'connect';
+export type BaseHalfVideoModelConnectionState = 'configured' | 'missing' | 'needs-attention' | 'rebind-required' | 'unavailable';
 
 export interface IBaseHalfVideoModelChoice {
 	readonly recipeId: string;
@@ -45,11 +43,6 @@ export type BaseHalfVideoModelCapabilityToken =
 	| { readonly kind: 'duration'; readonly minimum: number; readonly maximum: number; readonly label: string }
 	| { readonly kind: 'audio'; readonly label: string };
 
-export interface IBaseHalfVideoModelSelectionProblem {
-	readonly reason: string;
-	readonly repairSurface: BaseHalfVideoModelRepairSurface;
-}
-
 export interface IBaseHalfVideoModelPresentationEntry {
 	readonly choice: IBaseHalfVideoModelChoice;
 	readonly descriptor: IBaseHalfVideoModelDescriptor;
@@ -57,7 +50,6 @@ export interface IBaseHalfVideoModelPresentationEntry {
 	readonly providerLabel?: string;
 	readonly deploymentLabel?: string;
 	readonly groupLabel?: string;
-	readonly selectionProblem?: IBaseHalfVideoModelSelectionProblem;
 }
 
 export interface IBaseHalfStaleVideoModelSelection {
@@ -73,27 +65,23 @@ export interface IBaseHalfVideoModelRowPresentation {
 	readonly disambiguationLabel?: string;
 	readonly groupLabel?: string;
 	readonly capabilityTokens: readonly BaseHalfVideoModelCapabilityToken[];
-	readonly state: BaseHalfVideoModelRowState;
+	readonly availability: BaseHalfVideoModelAvailability;
 	readonly action: BaseHalfVideoModelRowAction;
-	readonly repairSurface?: BaseHalfVideoModelRepairSurface;
-	readonly repairFocusLogicalKey?: string;
 	readonly disabledReason?: string;
 	readonly selected: boolean;
-	readonly searchText: string;
+	readonly typeaheadText: string;
 }
 
 export interface IBaseHalfVideoModelPickerPresentation {
 	readonly rows: readonly IBaseHalfVideoModelRowPresentation[];
-	readonly showSearch: boolean;
 	readonly showScopeHeadings: boolean;
-	readonly pinnedSelectedRow?: IBaseHalfVideoModelRowPresentation;
+	readonly pinnedUnavailableSelection?: IBaseHalfVideoModelRowPresentation;
 }
 
 export interface IBaseHalfVideoModelPickerPresentationInput {
 	readonly entries: readonly IBaseHalfVideoModelPresentationEntry[];
 	readonly selectedChoice?: IBaseHalfVideoModelChoice;
 	readonly staleSelection?: IBaseHalfStaleVideoModelSelection;
-	readonly query?: string;
 }
 
 export type BaseHalfVideoMethodControl = 'fixed' | 'segmented' | 'listbox';
@@ -103,6 +91,8 @@ export interface IBaseHalfVideoMethodPresentation {
 	readonly mode: BaseHalfVideoGenerationMode;
 	readonly label: string;
 	readonly selected: boolean;
+	readonly enabled: boolean;
+	readonly disabledReason?: string;
 }
 
 export interface IBaseHalfVideoParameterOptionPresentation {
@@ -155,7 +145,12 @@ export interface IBaseHalfVideoModelSettingsPresentation {
 	readonly settingsSummary: readonly IBaseHalfVideoSettingsSummaryToken[];
 	readonly values: BaseHalfVideoSettings;
 	readonly adjustments: readonly IBaseHalfVideoSettingAdjustmentPresentation[];
-	readonly selectionProblem?: IBaseHalfVideoModelSelectionProblem;
+	readonly availabilityMessage?: IBaseHalfVideoModelAvailabilityMessage;
+}
+
+export interface IBaseHalfVideoModelAvailabilityMessage {
+	readonly kind: 'settings-unavailable';
+	readonly message: string;
 }
 
 export type BaseHalfVideoMessageKind =
@@ -186,7 +181,7 @@ export interface IBaseHalfVideoMessagePrecedencePresentation {
 
 export type BaseHalfVideoModelPickerFocusTarget =
 	| { readonly kind: 'row'; readonly logicalKey: string }
-	| { readonly kind: 'search' };
+	| { readonly kind: 'trigger' };
 
 export type BaseHalfVideoModelSettingsReconciliation =
 	| {
@@ -215,33 +210,23 @@ export function createBaseHalfVideoModelPickerPresentation(
 	const selectedKey = input.selectedChoice ? baseHalfVideoModelChoiceLogicalKey(input.selectedChoice) : undefined;
 	const labelCounts = new Map<string, number>();
 	for (const entry of input.entries) {
-		const labelKey = normalizeSearch(entry.descriptor.label);
+		const labelKey = normalizeTypeaheadText(entry.descriptor.label);
 		labelCounts.set(labelKey, (labelCounts.get(labelKey) ?? 0) + 1);
 	}
 	const rows = input.entries.map(entry => createModelRow(
 		entry,
 		selectedKey,
-		(labelCounts.get(normalizeSearch(entry.descriptor.label)) ?? 0) > 1
+		(labelCounts.get(normalizeTypeaheadText(entry.descriptor.label)) ?? 0) > 1
 	));
 	const staleKey = input.staleSelection ? baseHalfVideoModelChoiceLogicalKey(input.staleSelection.choice) : undefined;
-	const staleRow = input.staleSelection && staleKey === selectedKey && !rows.some(row => row.logicalKey === staleKey)
-		? createStaleModelRow(input.staleSelection, rows.find(row => row.state !== 'unavailable')?.logicalKey)
+	const pinnedUnavailableSelection = input.staleSelection && staleKey === selectedKey && !rows.some(row => row.logicalKey === staleKey)
+		? createStaleModelRow(input.staleSelection)
 		: undefined;
-	const allRows = staleRow ? [staleRow, ...rows] : rows;
 	const showScopeHeadings = new Set(input.entries.map(entry => modelConnectionScopeKey(entry.choice))).size > 1;
-	const query = normalizeSearch(input.query ?? '');
-	if (!query) {
-		return freeze({ rows: freeze(allRows), showSearch: input.entries.length > SEARCH_THRESHOLD, showScopeHeadings });
-	}
-
-	const filteredRows = allRows.filter(row => row.searchText.includes(query));
-	const selectedRow = allRows.find(row => row.selected);
-	const pinnedSelectedRow = selectedRow && !filteredRows.includes(selectedRow) ? selectedRow : undefined;
 	return freeze({
-		rows: freeze(filteredRows),
-		showSearch: input.entries.length > SEARCH_THRESHOLD,
+		rows: freeze(rows),
 		showScopeHeadings,
-		...(pinnedSelectedRow ? { pinnedSelectedRow } : {})
+		...(pinnedUnavailableSelection ? { pinnedUnavailableSelection } : {})
 	});
 }
 
@@ -250,11 +235,12 @@ export function createBaseHalfVideoModelSettingsPresentation(
 	normalization: BaseHalfVideoSettingsNormalization,
 	previousParameters: readonly IBaseHalfVideoParameterPresentation[] = []
 ): IBaseHalfVideoModelSettingsPresentation {
-	const executableModes = executableVideoModes(resolution.descriptor);
-	const methodOptions = executableModes.map(capability => freeze({
+	const methodOptions = resolution.descriptor.modes.map(capability => freeze({
 		mode: capability.mode,
 		label: baseHalfVideoGenerationModeLabel(capability.mode),
-		selected: capability.mode === resolution.selection.mode
+		selected: capability.mode === resolution.selection.mode,
+		enabled: !capability.availability,
+		...(capability.availability ? { disabledReason: capability.availability.reason } : {})
 	}));
 	const parameters = normalization.parameters
 		.filter(parameter => parameter.visible)
@@ -271,7 +257,7 @@ export function createBaseHalfVideoModelSettingsPresentation(
 		values: normalization.values,
 		adjustments: createBaseHalfVideoSettingAdjustmentPresentations(normalization.adjustments, parameters, previousParameters),
 		...(normalization.status === 'unavailable' ? {
-			selectionProblem: freeze({ reason: normalization.reason, repairSurface: 'settings' as const })
+			availabilityMessage: freeze({ kind: 'settings-unavailable' as const, message: normalization.reason })
 		} : {})
 	};
 	return freeze(result);
@@ -299,15 +285,14 @@ export function createBaseHalfVideoMessagePrecedencePresentation(
 	});
 }
 
-/** Restores logical focus after filtering or a reviewed-registry refresh. */
+/** Restores logical focus after a reviewed-registry refresh. */
 export function resolveBaseHalfVideoModelPickerFocus(
 	previousRows: readonly IBaseHalfVideoModelRowPresentation[],
 	nextRows: readonly IBaseHalfVideoModelRowPresentation[],
-	focusedLogicalKey: string | undefined,
-	showSearch: boolean
-): BaseHalfVideoModelPickerFocusTarget | undefined {
+	focusedLogicalKey: string | undefined
+): BaseHalfVideoModelPickerFocusTarget {
 	if (focusedLogicalKey) {
-		const exact = nextRows.find(row => row.logicalKey === focusedLogicalKey && row.state !== 'unavailable');
+		const exact = nextRows.find(row => row.logicalKey === focusedLogicalKey && row.availability !== 'unavailable');
 		if (exact) {
 			return freeze({ kind: 'row', logicalKey: exact.logicalKey });
 		}
@@ -321,12 +306,12 @@ export function resolveBaseHalfVideoModelPickerFocus(
 	for (let distance = 0; distance < nextRows.length; distance++) {
 		for (const index of distance === 0 ? [startIndex] : [startIndex + distance, startIndex - distance]) {
 			const candidate = nextRows[index];
-			if (candidate?.state !== 'unavailable') {
+			if (candidate?.availability !== 'unavailable') {
 				return freeze({ kind: 'row', logicalKey: candidate.logicalKey });
 			}
 		}
 	}
-	return showSearch ? freeze({ kind: 'search' }) : undefined;
+	return freeze({ kind: 'trigger' });
 }
 
 export function createBaseHalfVideoSettingAdjustmentPresentations(
@@ -476,34 +461,30 @@ function createModelRow(
 	const logicalKey = baseHalfVideoModelChoiceLogicalKey(entry.choice);
 	const selected = logicalKey === selectedKey;
 	const executableModes = executableVideoModes(entry.descriptor);
-	let state: BaseHalfVideoModelRowState;
+	let availability: BaseHalfVideoModelAvailability;
 	let action: BaseHalfVideoModelRowAction;
-	let repairSurface: BaseHalfVideoModelRepairSurface | undefined;
 	let disabledReason: string | undefined;
 	if (entry.descriptor.availability || !executableModes.length) {
-		state = 'unavailable';
+		availability = 'unavailable';
 		action = 'none';
 		disabledReason = entry.descriptor.availability?.reason ?? 'This model has no executable reviewed generation method.';
-	} else if (selected && entry.connectionState !== 'configured') {
-		state = 'needs-review';
-		action = 'repair';
-		repairSurface = 'connection';
-		disabledReason = entry.connectionState === 'missing'
-			? 'This selected model no longer has a connection.'
-			: 'This model connection needs attention.';
-	} else if (selected && entry.selectionProblem) {
-		state = 'needs-review';
-		action = 'repair';
-		repairSurface = entry.selectionProblem.repairSurface;
-		disabledReason = entry.selectionProblem.reason;
-	} else if (selected) {
-		state = 'selected';
+	} else if (entry.connectionState === 'unavailable'
+		|| (entry.connectionState !== 'configured' && !entry.choice.connectionSpecId)) {
+		availability = 'unavailable';
 		action = 'none';
-	} else if (entry.connectionState === 'missing' || entry.connectionState === 'needs-attention') {
-		state = 'connect';
+		disabledReason = 'No connection setup is available for this model.';
+	} else if (entry.connectionState === 'rebind-required') {
+		availability = 'available';
+		action = 'select';
+	} else if (entry.connectionState !== 'configured') {
+		availability = 'connection-required';
 		action = 'connect';
+		disabledReason = connectionRequiredReason(entry.connectionState, selected);
+	} else if (selected) {
+		availability = 'available';
+		action = 'none';
 	} else {
-		state = 'available';
+		availability = 'available';
 		action = 'select';
 	}
 
@@ -511,11 +492,9 @@ function createModelRow(
 	const scopeLabel = [entry.providerLabel, entry.deploymentLabel].filter(Boolean).join(' · ') || undefined;
 	const disambiguationLabel = showDisambiguation ? scopeLabel : undefined;
 	const groupLabel = entry.groupLabel ?? scopeLabel;
-	const searchText = normalizeSearch([
+	const typeaheadText = normalizeTypeaheadText([
 		entry.descriptor.label,
-		entry.providerLabel,
-		entry.deploymentLabel,
-		...capabilityTokens.map(token => token.label)
+		disambiguationLabel
 	].filter((value): value is string => Boolean(value)).join(' '));
 	return freeze({
 		logicalKey,
@@ -524,32 +503,36 @@ function createModelRow(
 		...(disambiguationLabel ? { disambiguationLabel } : {}),
 		...(groupLabel ? { groupLabel } : {}),
 		capabilityTokens,
-		state,
+		availability,
 		action,
-		...(repairSurface ? { repairSurface } : {}),
 		...(disabledReason ? { disabledReason } : {}),
 		selected,
-		searchText
+		typeaheadText
 	});
 }
 
-function createStaleModelRow(
-	selection: IBaseHalfStaleVideoModelSelection,
-	repairFocusLogicalKey: string | undefined
-): IBaseHalfVideoModelRowPresentation {
+function createStaleModelRow(selection: IBaseHalfStaleVideoModelSelection): IBaseHalfVideoModelRowPresentation {
 	return freeze({
 		logicalKey: baseHalfVideoModelChoiceLogicalKey(selection.choice),
 		choice: freeze({ ...selection.choice }),
 		label: selection.label,
 		capabilityTokens: freeze([]),
-		state: 'needs-review',
-		action: 'repair',
-		repairSurface: 'models',
-		...(repairFocusLogicalKey ? { repairFocusLogicalKey } : {}),
+		availability: 'unavailable',
+		action: 'none',
 		disabledReason: selection.reason,
 		selected: true,
-		searchText: normalizeSearch(selection.label)
+		typeaheadText: normalizeTypeaheadText(selection.label)
 	});
+}
+
+function connectionRequiredReason(
+	state: Extract<BaseHalfVideoModelConnectionState, 'missing' | 'needs-attention'>,
+	selected: boolean
+): string {
+	if (state === 'missing') {
+		return selected ? 'Connect this model to continue.' : 'Connect this model before selecting it.';
+	}
+	return selected ? 'Reconnect this model to continue.' : 'Reconnect this model before selecting it.';
 }
 
 function createCapabilityTokens(descriptor: IBaseHalfVideoModelDescriptor): readonly BaseHalfVideoModelCapabilityToken[] {
@@ -868,8 +851,8 @@ function reconcileSettings(
 	});
 }
 
-function normalizeSearch(value: string): string {
-	return value.trim().toLowerCase();
+function normalizeTypeaheadText(value: string): string {
+	return value.trim().toLocaleLowerCase();
 }
 
 function freeze<T extends object>(value: T): Readonly<T> {

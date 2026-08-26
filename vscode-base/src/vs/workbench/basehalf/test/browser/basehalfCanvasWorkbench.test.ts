@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasSetVideoInputPickActive, baseHalfCanvasVideoInputReadinessMessage, baseHalfCanvasVideoOverlayNextFocusTarget, baseHalfCanvasVideoPickCandidateBatches, baseHalfCanvasVideoPickCandidatePaths, baseHalfCanvasVideoPickCheckpointCanContinue, baseHalfCanvasVideoPickHasCandidateChange, baseHalfCanvasVideoPickMountedCandidatePaths, baseHalfCanvasVideoPickRevisionDependencyPaths, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, disposeBaseHalfCanvasVideoPickStore, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasSetVideoInputPickActive, baseHalfCanvasVideoCanonicalAdjustmentState, baseHalfCanvasVideoConnectionBindingRequiresRebind, baseHalfCanvasVideoInputReadinessMessage, baseHalfCanvasVideoMethodControlState, baseHalfCanvasVideoModelCapabilitySummary, baseHalfCanvasVideoModelIsTypeaheadKey, baseHalfCanvasVideoModelNavigationIndex, baseHalfCanvasVideoModelProblemAction, baseHalfCanvasVideoModelTypeaheadIndex, baseHalfCanvasVideoOverlayNextFocusTarget, baseHalfCanvasVideoPickCandidateBatches, baseHalfCanvasVideoPickCandidatePaths, baseHalfCanvasVideoPickCheckpointCanContinue, baseHalfCanvasVideoPickHasCandidateChange, baseHalfCanvasVideoPickMountedCandidatePaths, baseHalfCanvasVideoPickRevisionDependencyPaths, baseHalfCanvasVideoRangeAccessibleNames, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, disposeBaseHalfCanvasVideoPickStore, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
 import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
 import { acquireBaseHalfVideoInputTransaction, baseHalfVideoInputTransactionIsCurrent, beginBaseHalfVideoCanvasPick, cancelBaseHalfVideoCanvasPick, createBaseHalfVideoCanvasPickState, createBaseHalfVideoInputTransactionOwnerState, failBaseHalfVideoCanvasPick, getBaseHalfVideoCanvasPickInteraction, markBaseHalfVideoCanvasPickReady, releaseBaseHalfVideoInputTransaction } from '../../common/basehalfVideoInputs.js';
 import { createBaseHalfVideoMessagePrecedencePresentation } from '../../common/basehalfVideoModelSettingsPresentation.js';
@@ -392,6 +392,72 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(presentation.primaryAction?.id, 'review-inputs');
 	});
 
+	test('projects model blockers into concrete user actions', () => {
+		const base = {
+			hasProblem: true,
+			hasSelectedModel: true,
+			hasConnection: true,
+			connectionConfigured: true,
+			connectionTransportSupported: true,
+			connectionSetupAvailable: true,
+			replacementConnectionAvailable: false,
+			hasPromptProblem: false
+		} as const;
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			hasSelectedModel: false
+		}), { id: 'choose-model', label: 'Choose a model' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			hasConnection: false
+		}), { id: 'connect-model', label: 'Connect' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			hasConnection: false,
+			connectionSetupAvailable: false
+		}), { id: 'choose-model', label: 'Choose another model' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			hasConnection: false,
+			replacementConnectionAvailable: true
+		}), { id: 'choose-model', label: 'Use available connection' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			connectionConfigured: false
+		}), { id: 'reconnect-model', label: 'Reconnect' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			capabilityStatus: 'unavailable'
+		}), { id: 'choose-model', label: 'Choose another model' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			capabilityStatus: 'supported',
+			settingsStatus: 'unavailable'
+		}), { id: 'adjust-settings', label: 'Adjust available settings' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			capabilityStatus: 'supported',
+			settingsStatus: 'ready',
+			hasPromptProblem: true
+		}), { id: 'edit-prompt', label: 'Edit prompt' });
+		assert.deepStrictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			capabilityStatus: 'supported',
+			settingsStatus: 'ready'
+		}), { id: 'apply-settings', label: 'Apply current settings' });
+		assert.strictEqual(baseHalfCanvasVideoModelProblemAction({
+			...base,
+			hasProblem: false
+		}), undefined);
+	});
+
+	test('rebinds an exact selected model whenever no saved service is currently resolvable', () => {
+		assert.strictEqual(baseHalfCanvasVideoConnectionBindingRequiresRebind(true, false, true), true);
+		assert.strictEqual(baseHalfCanvasVideoConnectionBindingRequiresRebind(true, true, true), false);
+		assert.strictEqual(baseHalfCanvasVideoConnectionBindingRequiresRebind(true, false, false), false);
+		assert.strictEqual(baseHalfCanvasVideoConnectionBindingRequiresRebind(false, false, true), false);
+	});
+
 	test('checkpoints prompt-first Video Drafts before locked model setup without persisting incomplete model state', () => {
 		const draft = createBaseHalfNodeDocument({
 			id: '4ab3f61b-08bf-40d7-870d-f98f3673c966',
@@ -449,7 +515,7 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 7, 11, navigationB), false);
 	});
 
-	test('moves stale model repair focus to the requested current row before exact restoration', () => {
+	test('prioritizes an explicit semantic model focus target before exact restoration', () => {
 		const host = document.createElement('div');
 		const stale = document.createElement('button');
 		const current = document.createElement('button');
@@ -463,6 +529,98 @@ suite('BaseHalfCanvasWorkbench', () => {
 		} finally {
 			host.remove();
 		}
+	});
+
+	test('uses the preferred model row on a fresh picker open without a restoration target', () => {
+		const preferred = document.createElement('button');
+		assert.strictEqual(
+			baseHalfCanvasVideoOverlayNextFocusTarget(undefined, undefined, undefined, preferred),
+			preferred
+		);
+	});
+
+	test('keeps model arrow navigation at list edges and supports Home and End', () => {
+		assert.strictEqual(baseHalfCanvasVideoModelNavigationIndex(4, 0, 'ArrowUp'), 0);
+		assert.strictEqual(baseHalfCanvasVideoModelNavigationIndex(4, 3, 'ArrowDown'), 3);
+		assert.strictEqual(baseHalfCanvasVideoModelNavigationIndex(4, 2, 'Home'), 0);
+		assert.strictEqual(baseHalfCanvasVideoModelNavigationIndex(4, 1, 'End'), 3);
+		assert.strictEqual(baseHalfCanvasVideoModelNavigationIndex(0, 0, 'Home'), undefined);
+	});
+
+	test('finds model rows by normalized prefix without filtering their order', () => {
+		const rows = [
+			{ typeaheadText: 'alpha cloud' },
+			{ typeaheadText: 'beta studio' },
+			{ typeaheadText: 'gamma' }
+		];
+		assert.strictEqual(baseHalfCanvasVideoModelTypeaheadIndex(rows, -1, 'BE'), 1);
+		assert.strictEqual(baseHalfCanvasVideoModelTypeaheadIndex(rows, 1, 'alpha'), 0);
+		assert.strictEqual(baseHalfCanvasVideoModelTypeaheadIndex(rows, 0, '  gamma  '), 2);
+		assert.strictEqual(baseHalfCanvasVideoModelTypeaheadIndex(rows, 0, 'missing'), undefined);
+		assert.deepStrictEqual(rows.map(row => row.typeaheadText), ['alpha cloud', 'beta studio', 'gamma']);
+	});
+
+	test('reserves Space for standard model button activation instead of typeahead', () => {
+		assert.strictEqual(baseHalfCanvasVideoModelIsTypeaheadKey(' ', false, false, false, false), false);
+		assert.strictEqual(baseHalfCanvasVideoModelIsTypeaheadKey('\t', false, false, false, false), false);
+		assert.strictEqual(baseHalfCanvasVideoModelIsTypeaheadKey('m', false, false, false, false), true);
+		assert.strictEqual(baseHalfCanvasVideoModelIsTypeaheadKey('m', false, false, true, false), false);
+	});
+
+	test('prioritizes compact model capabilities without truncating accessible details', () => {
+		const summary = baseHalfCanvasVideoModelCapabilitySummary([
+			{ kind: 'method', label: 'Text to video' },
+			{ kind: 'audio', label: 'Native audio' },
+			{ kind: 'resolution', label: 'Up to 1080p' },
+			{ kind: 'duration', label: '1–15s' },
+			{ kind: 'aspect-ratio', label: '16:9' }
+		], 'Cloud / Global');
+		assert.strictEqual(summary.visible, 'Cloud / Global · Up to 1080p · 1–15s');
+		assert.strictEqual(summary.accessible, 'Cloud / Global · Text to video · Native audio · Up to 1080p · 1–15s · 16:9');
+	});
+
+	test('keeps unavailable generation methods visible but disabled with their reason', () => {
+		assert.deepStrictEqual(baseHalfCanvasVideoMethodControlState({
+			enabled: false,
+			disabledReason: 'Requires an image input.'
+		}, true), {
+			disabled: true,
+			disabledReason: 'Requires an image input.'
+		});
+		assert.deepStrictEqual(baseHalfCanvasVideoMethodControlState({ enabled: true }, false), { disabled: true });
+		assert.deepStrictEqual(baseHalfCanvasVideoMethodControlState({ enabled: true }, true), { disabled: false });
+	});
+
+	test('retains every canonical adjustment when Settings opens after catalog constraints change', () => {
+		const openingParameters = [{
+			parameterId: 'resolution',
+			label: 'Resolution',
+			control: 'fixed' as const,
+			enabled: true,
+			value: '720p'
+		}];
+		const state = baseHalfCanvasVideoCanonicalAdjustmentState([{
+			parameterId: 'durationSeconds',
+			kind: 'constrained',
+			reason: 'Previous catalog constraint.',
+			previousValue: 12,
+			value: 8
+		}], [{
+			parameterId: 'resolution',
+			kind: 'constrained',
+			reason: 'Current catalog constraint.',
+			previousValue: '1080p',
+			value: '720p'
+		}], [], openingParameters);
+		assert.deepStrictEqual(state.adjustments.map(adjustment => adjustment.parameterId), ['durationSeconds', 'resolution']);
+		assert.strictEqual(state.previousParameters, openingParameters);
+	});
+
+	test('gives the Settings slider and exact number input distinct accessible names', () => {
+		assert.deepStrictEqual(baseHalfCanvasVideoRangeAccessibleNames('Duration'), {
+			slider: 'Duration slider',
+			exactValue: 'Duration exact value'
+		});
 	});
 
 	test('accepts bounded canvas zoom percentages without turning invalid input into reset', () => {

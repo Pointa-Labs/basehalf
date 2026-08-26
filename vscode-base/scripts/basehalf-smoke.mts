@@ -3816,6 +3816,25 @@ async function assertVideoNodeUI(page) {
 	const targetModel = modelsPopover.locator(`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_MODEL_ID}"]`);
 	await targetModel.waitFor({ state: 'visible', timeout: 10_000 });
 	const modelsPopoverBounds = await modelsPopover.boundingBox();
+	const modelPickerGeometry = await modelsPopover.evaluate(popover => {
+		const rows = [...popover.querySelectorAll<HTMLElement>('.basehalf-video-model-option')];
+		const ordinaryRows = rows.filter(row => !row.classList.contains('exceptional'));
+		const copy = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-copy');
+		const state = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-state');
+		const label = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-label');
+		const meta = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-meta');
+		const rects = rows.map(row => row.getBoundingClientRect());
+		return {
+			ordinaryRowHeights: ordinaryRows.map(row => row.getBoundingClientRect().height),
+			copyWidth: copy?.getBoundingClientRect().width,
+			stateWidth: state?.getBoundingClientRect().width,
+			labelWhiteSpace: label ? getComputedStyle(label).whiteSpace : undefined,
+			metaWhiteSpace: meta ? getComputedStyle(meta).whiteSpace : undefined,
+			overlaps: rects.some((rect, index) => index > 0 && rects[index - 1].bottom > rect.top + 0.5),
+			searchCount: popover.querySelectorAll('input, [role="searchbox"]').length,
+			horizontalOverflow: popover.scrollWidth > popover.clientWidth + 1
+		};
+	});
 	if (await composer.locator('.basehalf-video-composer-popover:visible').count() !== 1
 		|| await modelTrigger.getAttribute('aria-expanded') !== 'true'
 		|| await settingsTrigger.getAttribute('aria-expanded') !== 'false'
@@ -3824,22 +3843,30 @@ async function assertVideoNodeUI(page) {
 		|| await modelsPopover.getAttribute('aria-modal') !== 'false'
 		|| await overlayRoot.getAttribute('data-overlay') !== 'models'
 		|| !modelsPopoverIsLocal
-		|| await targetModel.getAttribute('data-connection-state') !== 'locked'
+		|| await targetModel.getAttribute('data-model-availability') !== 'connection-required'
 		|| await targetModel.getAttribute('aria-pressed') !== 'false'
 		|| await targetModel.isDisabled()
-		|| !((await targetModel.textContent()) ?? '').includes('Add API key')
+		|| !((await targetModel.getAttribute('aria-label')) ?? '').includes('Connect')
 		|| await targetModel.locator('.codicon-lock').count() !== 1
 		|| await modelsPopover.locator('select.basehalf-video-capability-select').count() !== 0
 		|| !modelsPopoverBounds
 		|| Math.abs(modelsPopoverBounds.width - 224) > 2
 		|| modelsPopoverBounds.height > 320.5
+		|| modelPickerGeometry.ordinaryRowHeights.some(height => Math.abs(height - 48) > 1)
+		|| (modelPickerGeometry.copyWidth ?? 0) < 120
+		|| (modelPickerGeometry.stateWidth ?? 17) > 16.5
+		|| modelPickerGeometry.labelWhiteSpace !== 'nowrap'
+		|| modelPickerGeometry.metaWhiteSpace !== 'nowrap'
+		|| modelPickerGeometry.overlaps
+		|| modelPickerGeometry.searchCount !== 0
+		|| modelPickerGeometry.horizontalOverflow
 		|| await page.locator('.quick-input-widget:visible').count() !== 0) {
 		throw new Error(`The empty Video Draft did not expose a clickable locked catalog model: ${JSON.stringify({
 			modelExpanded: await modelTrigger.getAttribute('aria-expanded'),
 			settingsExpanded: await settingsTrigger.getAttribute('aria-expanded'),
 			overlay: await overlayRoot.getAttribute('data-overlay'),
 			modelsPopoverIsLocal,
-				targetConnectionState: await targetModel.getAttribute('data-connection-state'),
+			targetAvailability: await targetModel.getAttribute('data-model-availability'),
 				targetPressed: await targetModel.getAttribute('aria-pressed'),
 				targetDisabled: await targetModel.isDisabled(),
 				lockCount: await targetModel.locator('.codicon-lock').count(),
@@ -3850,7 +3877,8 @@ async function assertVideoNodeUI(page) {
 				popoverId: await modelsPopover.getAttribute('id'),
 				role: await modelsPopover.getAttribute('role'),
 				modal: await modelsPopover.getAttribute('aria-modal'),
-				genericSelects: await modelsPopover.locator('select.basehalf-video-capability-select').count(),
+			genericSelects: await modelsPopover.locator('select.basehalf-video-capability-select').count(),
+			modelPickerGeometry,
 				quickInputs: await page.locator('.quick-input-widget:visible').count()
 			})}`);
 	}
@@ -3937,26 +3965,24 @@ async function assertVideoNodeUI(page) {
 		const selected = rows.filter(row => row.getAttribute('aria-pressed') === 'true');
 		const target = rows.find(row => row.dataset.specId === expected.specId && row.dataset.modelId === expected.modelId);
 		return {
-			targetState: target?.dataset.connectionState,
+			targetAvailability: target?.dataset.modelAvailability,
 			targetSelected: target?.getAttribute('aria-pressed'),
 			targetText: target?.textContent?.replace(/\s+/g, ' ').trim(),
 			selectedModels: selected.map(row => row.dataset.modelId),
-			availableOutsideConnection: rows.filter(row => row.dataset.connectionState === 'available' && row.dataset.specId !== expected.specId).map(row => row.dataset.modelId),
-			lockedOutsideConnection: rows.filter(row => row.dataset.specId !== expected.specId && row.dataset.connectionState === 'locked').length,
+			availableOutsideConnection: rows.filter(row => row.dataset.modelAvailability === 'available' && row.dataset.specId !== expected.specId).map(row => row.dataset.modelId),
+			connectionRequiredOutsideScope: rows.filter(row => row.dataset.specId !== expected.specId && row.dataset.modelAvailability === 'connection-required').length,
 			genericSelects: popover.querySelectorAll('select.basehalf-video-capability-select').length
 		};
 	}, { specId: SMOKE_VIDEO_PROVIDER_SPEC_ID, modelId: SMOKE_VIDEO_MODEL_ID });
-	if (connectedSelection.targetState !== 'available'
+	if (connectedSelection.targetAvailability !== 'available'
 		|| connectedSelection.targetSelected !== 'true'
 		|| connectedSelection.selectedModels.length !== 1
 		|| connectedSelection.selectedModels[0] !== SMOKE_VIDEO_MODEL_ID
 		|| connectedSelection.availableOutsideConnection.length !== 0
-		|| connectedSelection.lockedOutsideConnection < 1
+		|| connectedSelection.connectionRequiredOutsideScope < 1
 		|| connectedSelection.genericSelects !== 0) {
 		throw new Error(`The provider return did not unlock the exact connection scope and select only its target model: ${JSON.stringify(connectedSelection)}`);
 	}
-	await modelTrigger.click();
-	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 	await settingsTrigger.click();
 	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
 	await waitForVideoChromeFrames(page);
@@ -3969,9 +3995,12 @@ async function assertVideoNodeUI(page) {
 	const settingsPopoverBounds = await settingsPopover.boundingBox();
 	const canonicalSelection = await settingsPopover.evaluate(popover => {
 		const surface = popover.closest('.basehalf-video-composer');
+		const methodListbox = popover.querySelector<HTMLSelectElement>('select.basehalf-video-method-listbox');
 		return {
 			model: surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim(),
-			mode: popover.querySelector<HTMLElement>('.basehalf-video-mode-segmented [role="radio"][aria-checked="true"]')?.textContent?.trim(),
+			mode: popover.querySelector<HTMLElement>('.basehalf-video-mode-segmented [role="radio"][aria-checked="true"]')?.textContent?.trim()
+				?? methodListbox?.selectedOptions[0]?.textContent?.split(' — ', 1)[0]?.trim(),
+			methodControlCount: popover.querySelectorAll('.basehalf-video-mode-segmented, select.basehalf-video-method-listbox, .basehalf-video-fixed-method').length,
 			primaryAction: surface?.querySelector<HTMLElement>('.basehalf-video-composer-primary')?.dataset.nodeAction,
 			primaryDisabled: surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.disabled,
 			genericSelects: popover.querySelectorAll('select.basehalf-video-capability-select').length,
@@ -3994,6 +4023,7 @@ async function assertVideoNodeUI(page) {
 		|| !settingsPopoverText.includes('Generate method')
 		|| canonicalSelection.model !== SMOKE_VIDEO_MODEL_LABEL
 		|| !canonicalSelection.mode
+		|| canonicalSelection.methodControlCount !== 1
 		|| canonicalSelection.primaryAction !== 'run'
 		|| canonicalSelection.primaryDisabled !== false
 		|| canonicalSelection.genericSelects !== 0
@@ -4013,28 +4043,36 @@ async function assertVideoNodeUI(page) {
 				canonicalSelection
 		})}`);
 	}
+	const methodListbox = settingsPopover.locator('select.basehalf-video-method-listbox');
 	const startEndMethod = settingsPopover.getByRole('radio', { name: 'Start + End Frames', exact: true });
-	if (await startEndMethod.count() !== 1 || await startEndMethod.isDisabled()) {
-		throw new Error('The reviewed Start + End Frames method was hidden or disabled because its frame inputs are still empty');
+	if (await methodListbox.count() === 1) {
+		const startEndOption = methodListbox.locator('option[value="first-last-frame-to-video"]');
+		if (await startEndOption.count() !== 1 || await startEndOption.isDisabled()) {
+			throw new Error('The reviewed Start + End Frames method was hidden or disabled because its frame inputs are still empty');
+		}
+		await methodListbox.selectOption('first-last-frame-to-video');
+	} else {
+		if (await startEndMethod.count() !== 1 || await startEndMethod.isDisabled()) {
+			throw new Error('The reviewed Start + End Frames method was hidden or disabled because its frame inputs are still empty');
+		}
+		await startEndMethod.click();
 	}
-	await startEndMethod.click();
 	await page.waitForFunction(path => {
 		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(path)}"]`);
-		const selectedMethod = surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings [role="radio"][aria-checked="true"]');
-		const primary = surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary');
-		const status = surface?.querySelector<HTMLElement>('.basehalf-video-capability-status');
-		return selectedMethod?.textContent?.trim() === 'Start + End Frames'
-			&& primary?.dataset.nodeAction === 'configure'
-			&& !primary.disabled
-			&& primary.getAttribute('aria-label')?.includes('Add Start Frame.')
-			&& status?.textContent?.trim() === 'Add Start Frame.';
+		const popover = surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings');
+		const selectedMethod = popover?.querySelector<HTMLElement>('.basehalf-video-mode-segmented [role="radio"][aria-checked="true"]')?.textContent?.trim()
+			?? popover?.querySelector<HTMLSelectElement>('select.basehalf-video-method-listbox')?.value;
+		return selectedMethod === 'Start + End Frames' || selectedMethod === 'first-last-frame-to-video';
 	}, canvasPath, { timeout: 10_000 });
 	const incompleteFrameMethod = await settingsPopover.evaluate(popover => {
 		const surface = popover.closest('.basehalf-video-composer');
 		return {
-			mode: popover.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.textContent?.trim(),
+			mode: popover.querySelector<HTMLElement>('.basehalf-video-mode-segmented [role="radio"][aria-checked="true"]')?.textContent?.trim()
+				?? popover.querySelector<HTMLSelectElement>('select.basehalf-video-method-listbox')?.selectedOptions[0]?.textContent?.split(' — ', 1)[0]?.trim(),
 			status: popover.querySelector<HTMLElement>('.basehalf-video-capability-status')?.textContent?.trim(),
+			primaryAction: surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.dataset.nodeAction,
 			primaryDisabled: surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.disabled,
+			primaryLabel: surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.getAttribute('aria-label'),
 			parameterFields: popover.querySelectorAll('.basehalf-video-capability-field').length,
 			frameRoles: [...(surface?.querySelectorAll<HTMLElement>('.basehalf-video-frame-slot') ?? [])].map(slot => slot.dataset.frameRole),
 			emptyFrameSlots: surface?.querySelectorAll('.basehalf-video-frame-slot.empty').length,
@@ -4044,7 +4082,9 @@ async function assertVideoNodeUI(page) {
 	});
 	if (incompleteFrameMethod.mode !== 'Start + End Frames'
 		|| incompleteFrameMethod.status !== 'Add Start Frame.'
+		|| incompleteFrameMethod.primaryAction !== 'configure'
 		|| incompleteFrameMethod.primaryDisabled !== false
+		|| !incompleteFrameMethod.primaryLabel?.includes('Add Start Frame.')
 		|| incompleteFrameMethod.parameterFields < 2
 		|| incompleteFrameMethod.frameRoles.join(',') !== 'first-frame,last-frame'
 		|| incompleteFrameMethod.emptyFrameSlots !== 2
@@ -4446,24 +4486,21 @@ async function assertVideoNodeUI(page) {
 		`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_ALTERNATE_MODEL_ID}"]`
 	);
 	await alternateModel.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await alternateModel.getAttribute('data-connection-state') !== 'available'
+	if (await alternateModel.getAttribute('data-model-availability') !== 'available'
 		|| await alternateModel.getAttribute('aria-pressed') !== 'false'
 		|| await alternateModel.isDisabled()) {
 		throw new Error(`The second exact model in the connected scope was not selectable: ${JSON.stringify({
-			connectionState: await alternateModel.getAttribute('data-connection-state'),
+			availability: await alternateModel.getAttribute('data-model-availability'),
 			selected: await alternateModel.getAttribute('aria-pressed'),
 			disabled: await alternateModel.isDisabled()
 		})}`);
 	}
 	await alternateModel.click();
-	await page.waitForFunction(({ targetPath, modelId, label }) => {
+	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(({ targetPath, label }) => {
 		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
-		const selected = surface?.querySelector<HTMLElement>(
-			`.basehalf-video-composer-popover.models .basehalf-video-model-option[data-model-id="${CSS.escape(modelId)}"]`
-		);
-		return selected?.getAttribute('aria-pressed') === 'true'
-			&& surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
-	}, { targetPath: canvasPath, modelId: SMOKE_VIDEO_ALTERNATE_MODEL_ID, label: SMOKE_VIDEO_ALTERNATE_MODEL_LABEL }, { timeout: 10_000 });
+		return surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
+	}, { targetPath: canvasPath, label: SMOKE_VIDEO_ALTERNATE_MODEL_LABEL }, { timeout: 10_000 });
 	const alternateModelInputPresentation = await composer.evaluate((surface, expected) => {
 		const slots = [...surface.querySelectorAll<HTMLElement>('.basehalf-video-frame-slot')].map(slot => ({
 			role: slot.dataset.frameRole,
@@ -4498,8 +4535,6 @@ async function assertVideoNodeUI(page) {
 		})}`);
 	}
 
-	await modelTrigger.click();
-	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 	await settingsTrigger.click();
 	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
 	const modelAdjustmentDetails = await settingsPopover.locator('.basehalf-video-settings-adjustments li').allTextContents();
@@ -4592,16 +4627,11 @@ async function assertVideoNodeUI(page) {
 		`.basehalf-video-model-option[data-spec-id="${SMOKE_VIDEO_PROVIDER_SPEC_ID}"][data-model-id="${SMOKE_VIDEO_MODEL_ID}"]`
 	);
 	await originalModel.click();
-	await page.waitForFunction(({ targetPath, modelId, label }) => {
-		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
-		const selected = surface?.querySelector<HTMLElement>(
-			`.basehalf-video-composer-popover.models .basehalf-video-model-option[data-model-id="${CSS.escape(modelId)}"]`
-		);
-		return selected?.getAttribute('aria-pressed') === 'true'
-			&& surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
-	}, { targetPath: canvasPath, modelId: SMOKE_VIDEO_MODEL_ID, label: SMOKE_VIDEO_MODEL_LABEL }, { timeout: 10_000 });
-	await modelTrigger.click();
 	await modelsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(({ targetPath, label }) => {
+		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(targetPath)}"]`);
+		return surface?.querySelector('.basehalf-video-model-trigger .basehalf-video-trigger-label')?.textContent?.trim() === label;
+	}, { targetPath: canvasPath, label: SMOKE_VIDEO_MODEL_LABEL }, { timeout: 10_000 });
 	const restoredModelCanvas = fs.readFileSync(canvasYamlPath, 'utf8');
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
 	await inputPickBanner.waitFor({ state: 'visible', timeout: 15_000 });
@@ -4694,10 +4724,17 @@ async function assertVideoNodeUI(page) {
 
 	await settingsTrigger.click();
 	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
-	await settingsPopover.getByRole('radio', { name: 'Text to Video', exact: true }).click();
+	if (await settingsPopover.locator('select.basehalf-video-method-listbox').count() === 1) {
+		await settingsPopover.locator('select.basehalf-video-method-listbox').selectOption('text-to-video');
+	} else {
+		await settingsPopover.getByRole('radio', { name: 'Text to Video', exact: true }).click();
+	}
 	await page.waitForFunction(path => {
 		const surface = document.querySelector(`.basehalf-video-composer[data-node-path="${CSS.escape(path)}"]`);
-		return surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings [role="radio"][aria-checked="true"]')?.textContent?.trim() === 'Text to Video'
+		const popover = surface?.querySelector<HTMLElement>('.basehalf-video-composer-popover.settings');
+		const selectedMethod = popover?.querySelector<HTMLElement>('.basehalf-video-mode-segmented [role="radio"][aria-checked="true"]')?.textContent?.trim()
+			?? popover?.querySelector<HTMLSelectElement>('select.basehalf-video-method-listbox')?.value;
+		return (selectedMethod === 'Text to Video' || selectedMethod === 'text-to-video')
 			&& surface?.querySelector<HTMLButtonElement>('.basehalf-video-composer-primary')?.disabled === false
 			&& surface.querySelector('.basehalf-video-frame-strip') === null;
 	}, canvasPath, { timeout: 10_000 });

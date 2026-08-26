@@ -42,6 +42,7 @@ import {
 	parseBaseHalfNodeParameterDraft,
 	resolveBaseHalfNodeLocalDraftExit,
 	resolveBaseHalfNodeLocalSurfacePlacement,
+	resolveBaseHalfVideoComposerPopoverGeometryDismissReason,
 	resolveBaseHalfVideoComposerPopoverPlacement,
 	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
@@ -258,6 +259,123 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.strictEqual(narrow.width, 304);
 		assert.strictEqual(narrow.left, -4);
 		assert.strictEqual(narrow.placement, 'above');
+	});
+
+	test('uses the 160-pixel threshold only to choose a popover side', () => {
+		const composer = { left: 200, top: 173, right: 712, bottom: 333 };
+		const viewport = { left: 0, top: 0, right: 1000, bottom: 500 };
+		const atThreshold = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer,
+			trigger: { left: 210, top: 174, right: 346, bottom: 202 },
+			viewport,
+			desiredHeight: 320,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(atThreshold.placement, 'above');
+		assert.strictEqual(atThreshold.maxHeight, 160);
+		assert.strictEqual(atThreshold.width, 224);
+
+		const belowThreshold = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer,
+			trigger: { left: 210, top: 173, right: 346, bottom: 201 },
+			viewport,
+			desiredHeight: 320,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(belowThreshold.placement, 'below');
+		assert.strictEqual(belowThreshold.maxHeight, 285);
+
+		const shortNaturalSurface = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer,
+			trigger: { left: 210, top: 110, right: 346, bottom: 138 },
+			viewport,
+			desiredHeight: 96,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(shortNaturalSurface.placement, 'above');
+		assert.strictEqual(shortNaturalSurface.maxHeight, 96);
+		assert.strictEqual(shortNaturalSurface.width, 224);
+	});
+
+	test('clamps popovers to a translated viewport without compressing canonical width', () => {
+		const placement = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer: { left: 680, top: 430, right: 1192, bottom: 590 },
+			trigger: { left: 1110, top: 548, right: 1182, bottom: 576 },
+			viewport: { left: 100, top: 50, right: 1100, bottom: 850 },
+			desiredHeight: 500,
+			alignment: 'trigger-leading'
+		});
+		assert.deepStrictEqual(placement, {
+			placement: 'above',
+			left: 188,
+			top: -208,
+			width: 224,
+			maxHeight: 320
+		});
+		assert.strictEqual(680 + placement.left, 1100 - 8 - 224);
+
+		const panned = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer: { left: 717, top: 451, right: 1229, bottom: 611 },
+			trigger: { left: 1147, top: 569, right: 1219, bottom: 597 },
+			viewport: { left: 137, top: 71, right: 1137, bottom: 871 },
+			desiredHeight: 500,
+			alignment: 'trigger-leading'
+		});
+		assert.deepStrictEqual(panned, placement);
+	});
+
+	test('uses emergency popover width only when the viewport cannot hold canonical width and margins', () => {
+		const resolve = (viewportWidth: number) => resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer: { left: 8, top: 200, right: viewportWidth - 8, bottom: 360 },
+			trigger: { left: 18, top: 318, right: 130, bottom: 346 },
+			viewport: { left: 0, top: 0, right: viewportWidth, bottom: 600 },
+			desiredHeight: 320,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(resolve(241).width, 224);
+		assert.strictEqual(resolve(240).width, 224);
+		assert.strictEqual(resolve(239).width, 223);
+		assert.strictEqual(resolve(200).width, 184);
+	});
+
+	test('shrinks popover height internally while preserving its width and viewport margin', () => {
+		const placement = resolveBaseHalfVideoComposerPopoverPlacement({
+			kind: 'models',
+			composerPlacement: 'below',
+			composer: { left: 244, top: 126, right: 756, bottom: 286 },
+			trigger: { left: 254, top: 126, right: 390, bottom: 154 },
+			viewport: { left: 0, top: 0, right: 1000, bottom: 248 },
+			desiredHeight: 320,
+			alignment: 'trigger-leading'
+		});
+		assert.strictEqual(placement.placement, 'above');
+		assert.strictEqual(placement.top, -118);
+		assert.strictEqual(placement.maxHeight, 112);
+		assert.strictEqual(placement.width, 224);
+		assert.strictEqual(126 + placement.top, 8);
+	});
+
+	test('classifies geometry notifications that close an open Composer child', () => {
+		const stable = { anchorChanged: false, viewportResized: false, viewportInteraction: false };
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason(stable, true), undefined);
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, manipulating: 'node-move' }, true), 'node-move');
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, manipulating: 'node-resize' }, true), 'node-resize');
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, viewportInteraction: true }, true), 'viewport-interaction');
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, anchorChanged: true }, true), 'anchor-reflow');
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, anchorChanged: true, viewportResized: true }, true), undefined);
+		assert.strictEqual(resolveBaseHalfVideoComposerPopoverGeometryDismissReason({ ...stable, viewportResized: true }, false), 'viewport-resize');
 	});
 
 	test('projects lifecycle labels to stable CSS tokens', () => {

@@ -13,6 +13,7 @@ import {
 	normalizeBaseHalfVideoSettingsForCapability
 } from '../../common/basehalfVideoModels.js';
 import {
+	baseHalfVideoModelChoiceLogicalKey,
 	createBaseHalfVideoModelPickerPresentation,
 	createBaseHalfVideoModelSettingsPresentation,
 	createBaseHalfVideoMessagePrecedencePresentation,
@@ -27,67 +28,85 @@ import {
 suite('BaseHalfVideoModelSettingsPresentation', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('projects all five model row states without conflating missing inputs with selection', () => {
+	test('projects availability independently from selection and input readiness', () => {
 		const descriptors = descriptorsFrom(Array.from({ length: 5 }, (_, index) => model(`model-${index}`, `Model ${index}`)));
 		const selectedChoice = choice(descriptors[0]);
 		const entries: IBaseHalfVideoModelPresentationEntry[] = [
 			entry(descriptors[0], 'configured'),
 			entry(descriptors[1], 'configured'),
 			entry(descriptors[2], 'missing'),
-			entry(descriptors[3], 'configured', undefined, { status: 'unavailable', reason: 'Catalog rollout is unavailable.' }),
+			entry(descriptors[3], 'configured', { status: 'unavailable', reason: 'Catalog rollout is unavailable.' }),
 			entry(descriptors[4], 'needs-attention')
 		];
 		const presentation = createBaseHalfVideoModelPickerPresentation({ entries, selectedChoice });
-		assert.deepStrictEqual(presentation.rows.map(row => row.state), ['selected', 'available', 'connect', 'unavailable', 'connect']);
+		assert.deepStrictEqual(presentation.rows.map(row => row.availability), [
+			'available', 'available', 'connection-required', 'unavailable', 'connection-required'
+		]);
+		assert.deepStrictEqual(presentation.rows.map(row => row.action), ['none', 'select', 'connect', 'none', 'connect']);
 		assert.strictEqual(presentation.rows[0].selected, true);
 		assert.strictEqual(presentation.rows[0].disabledReason, undefined);
+		assert.strictEqual(presentation.rows[2].disabledReason, 'Connect this model before selecting it.');
 		assert.strictEqual(presentation.rows[3].disabledReason, 'Catalog rollout is unavailable.');
+		assert.strictEqual(presentation.rows[4].disabledReason, 'Reconnect this model before selecting it.');
 
-		const needsReview = createBaseHalfVideoModelPickerPresentation({ entries, selectedChoice: choice(descriptors[4]) });
-		assert.strictEqual(needsReview.rows[4].state, 'needs-review');
-		assert.strictEqual(needsReview.rows[4].repairSurface, 'connection');
-		assert.strictEqual(needsReview.rows[4].selected, true);
-		assert.strictEqual(Object.isFrozen(needsReview.rows[4]), true);
+		const selectedConnectionRequired = createBaseHalfVideoModelPickerPresentation({ entries, selectedChoice: choice(descriptors[4]) });
+		assert.strictEqual(selectedConnectionRequired.rows[4].availability, 'connection-required');
+		assert.strictEqual(selectedConnectionRequired.rows[4].action, 'connect');
+		assert.strictEqual(selectedConnectionRequired.rows[4].disabledReason, 'Reconnect this model to continue.');
+		assert.strictEqual(selectedConnectionRequired.rows[4].selected, true);
+		assert.strictEqual(Object.isFrozen(selectedConnectionRequired.rows[4]), true);
 
 		const missingSelected = createBaseHalfVideoModelPickerPresentation({ entries, selectedChoice: choice(descriptors[2]) });
-		assert.strictEqual(missingSelected.rows[2].state, 'needs-review');
-		assert.strictEqual(missingSelected.rows[2].repairSurface, 'connection');
-
-		const missingAndInvalid = createBaseHalfVideoModelPickerPresentation({
-			entries: [entry(descriptors[2], 'missing', { reason: 'Saved values need review.', repairSurface: 'settings' })],
-			selectedChoice: choice(descriptors[2])
-		});
-		assert.strictEqual(missingAndInvalid.rows[0].repairSurface, 'connection');
+		assert.strictEqual(missingSelected.rows[2].availability, 'connection-required');
+		assert.strictEqual(missingSelected.rows[2].action, 'connect');
+		assert.strictEqual(missingSelected.rows[2].disabledReason, 'Connect this model to continue.');
 		assert.strictEqual(missingSelected.rows[2].selected, true);
-
-		const configuredAndInvalid = createBaseHalfVideoModelPickerPresentation({
-			entries: [entry(descriptors[1], 'configured', { reason: 'Saved values need review.', repairSurface: 'settings' })],
-			selectedChoice: choice(descriptors[1])
-		});
-		assert.strictEqual(configuredAndInvalid.rows[0].state, 'needs-review');
-		assert.strictEqual(configuredAndInvalid.rows[0].repairSurface, 'settings');
 
 		const selectedUnavailable = createBaseHalfVideoModelPickerPresentation({
 			entries: [entries[3]],
 			selectedChoice: choice(descriptors[3])
 		});
-		assert.strictEqual(selectedUnavailable.rows[0].state, 'unavailable');
+		assert.strictEqual(selectedUnavailable.rows[0].availability, 'unavailable');
 		assert.strictEqual(selectedUnavailable.rows[0].selected, true);
 		assert.strictEqual(selectedUnavailable.rows[0].action, 'none');
 	});
 
-	test('shows search above twelve rows and pins an exact selected row that does not match', () => {
+	test('projects a model without connection setup as unavailable rather than connectable', () => {
+		const [descriptor] = descriptorsFrom([model('without-connection-setup', 'Without connection setup')]);
+		const presentation = createBaseHalfVideoModelPickerPresentation({
+			entries: [{
+				...entry(descriptor, 'missing'),
+				choice: { ...choice(descriptor), connectionSpecId: undefined }
+			}]
+		});
+		assert.strictEqual(presentation.rows[0].availability, 'unavailable');
+		assert.strictEqual(presentation.rows[0].action, 'none');
+		assert.strictEqual(presentation.rows[0].disabledReason, 'No connection setup is available for this model.');
+	});
+
+	test('keeps a selected model actionable when its saved connection must be rebound', () => {
+		const [descriptor] = descriptorsFrom([model('rebind-connection', 'Rebind connection')]);
+		const selectedChoice = choice(descriptor);
+		const presentation = createBaseHalfVideoModelPickerPresentation({
+			entries: [entry(descriptor, 'rebind-required')],
+			selectedChoice
+		});
+		assert.strictEqual(presentation.rows[0].selected, true);
+		assert.strictEqual(presentation.rows[0].availability, 'available');
+		assert.strictEqual(presentation.rows[0].action, 'select');
+		assert.strictEqual(presentation.rows[0].disabledReason, undefined);
+	});
+
+	test('keeps long catalogs unfiltered and pins a missing exact selection as unavailable', () => {
 		const descriptors = descriptorsFrom(Array.from({ length: 13 }, (_, index) => model(`model-${index}`, `Model ${index}`)));
 		const presentation = createBaseHalfVideoModelPickerPresentation({
 			entries: descriptors.map(descriptor => entry(descriptor, 'configured')),
-			selectedChoice: choice(descriptors[0]),
-			query: 'model 12'
+			selectedChoice: choice(descriptors[0])
 		});
-		assert.strictEqual(presentation.showSearch, true);
 		assert.strictEqual(presentation.showScopeHeadings, false);
-		assert.deepStrictEqual(presentation.rows.map(row => row.label), ['Model 12']);
-		assert.strictEqual(presentation.pinnedSelectedRow?.label, 'Model 0');
-		assert.strictEqual(presentation.pinnedSelectedRow?.selected, true);
+		assert.strictEqual(presentation.rows.length, 13);
+		assert.strictEqual(presentation.rows[12].typeaheadText, 'model 12');
+		assert.strictEqual(presentation.pinnedUnavailableSelection, undefined);
 
 		const secondScopeEntry = entry(descriptors[1], 'configured');
 		const multipleScopes = createBaseHalfVideoModelPickerPresentation({
@@ -102,13 +121,13 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		const stale = createBaseHalfVideoModelPickerPresentation({
 			entries: descriptors.slice(0, 12).map(descriptor => entry(descriptor, 'configured')),
 			selectedChoice: staleChoice,
-			staleSelection: { choice: staleChoice, label: 'Older reviewed model', reason: 'Choose a current revision.' },
-			query: 'model 0'
+			staleSelection: { choice: staleChoice, label: 'Older reviewed model', reason: 'This model is no longer available. Choose another model.' }
 		});
-		assert.strictEqual(stale.showSearch, false);
-		assert.strictEqual(stale.pinnedSelectedRow?.state, 'needs-review');
-		assert.strictEqual(stale.pinnedSelectedRow?.repairSurface, 'models');
-		assert.strictEqual(stale.pinnedSelectedRow?.repairFocusLogicalKey, stale.rows[0].logicalKey);
+		assert.strictEqual(stale.rows.length, 12);
+		assert.strictEqual(stale.pinnedUnavailableSelection?.availability, 'unavailable');
+		assert.strictEqual(stale.pinnedUnavailableSelection?.action, 'none');
+		assert.strictEqual(stale.pinnedUnavailableSelection?.selected, true);
+		assert.strictEqual(stale.pinnedUnavailableSelection?.disabledReason, 'This model is no longer available. Choose another model.');
 	});
 
 	test('preserves reviewed order, groups scopes, and disambiguates only duplicate labels', () => {
@@ -130,16 +149,37 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.strictEqual(presentation.rows[0].disambiguationLabel, 'Provider label · Global');
 		assert.strictEqual(presentation.rows[1].disambiguationLabel, undefined);
 		assert.strictEqual(presentation.rows[2].disambiguationLabel, 'Provider label · Secondary');
+		assert.strictEqual(presentation.rows[0].typeaheadText, 'shared label provider label · global');
+		assert.strictEqual(presentation.rows[1].typeaheadText, 'unique label');
+		assert.strictEqual(presentation.rows[2].typeaheadText, 'shared label provider label · secondary');
 		assert.strictEqual(presentation.rows.every(row => !!row.groupLabel), true);
 	});
 
-	test('restores focus by logical key, then reviewed proximity, then search', () => {
+	test('uses the complete reviewed model identity for logical selection keys', () => {
+		const [descriptor] = descriptorsFrom([model('identity', 'Identity')]);
+		const exactChoice = choice(descriptor);
+		const exactKey = baseHalfVideoModelChoiceLogicalKey(exactChoice);
+		for (const changed of [
+			{ ...exactChoice, recipeId: 'pointa.test.other-recipe' },
+			{ ...exactChoice, catalogId: 'pointa.test.other-catalog' },
+			{ ...exactChoice, providerId: 'other-provider' },
+			{ ...exactChoice, deploymentId: 'other-deployment' },
+			{ ...exactChoice, region: 'other-region' },
+			{ ...exactChoice, modelId: 'other-model' },
+			{ ...exactChoice, revision: 'other-revision' },
+			{ ...exactChoice, connectionSpecId: 'pointa.test.other-connection' }
+		]) {
+			assert.notStrictEqual(baseHalfVideoModelChoiceLogicalKey(changed), exactKey);
+		}
+	});
+
+	test('restores focus by logical key, then reviewed proximity, then the trigger', () => {
 		const descriptors = descriptorsFrom(Array.from({ length: 4 }, (_, index) => model(`focus-${index}`, `Focus ${index}`)));
 		const previous = createBaseHalfVideoModelPickerPresentation({
 			entries: descriptors.map(descriptor => entry(descriptor, 'configured'))
 		});
 		const focusedKey = previous.rows[1].logicalKey;
-		const exact = resolveBaseHalfVideoModelPickerFocus(previous.rows, previous.rows, focusedKey, true);
+		const exact = resolveBaseHalfVideoModelPickerFocus(previous.rows, previous.rows, focusedKey);
 		assert.deepStrictEqual(exact, { kind: 'row', logicalKey: focusedKey });
 
 		const unavailable = entry(descriptors[2], 'configured');
@@ -150,11 +190,11 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 				entry(descriptors[3], 'configured')
 			]
 		});
-		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, next.rows, focusedKey, true), {
+		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, next.rows, focusedKey), {
 			kind: 'row',
 			logicalKey: next.rows[2].logicalKey
 		});
-		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, [next.rows[1]], focusedKey, true), { kind: 'search' });
+		assert.deepStrictEqual(resolveBaseHalfVideoModelPickerFocus(previous.rows, [next.rows[1]], focusedKey), { kind: 'trigger' });
 	});
 
 	test('derives capability tokens only from executable reviewed modes', () => {
@@ -177,7 +217,7 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.strictEqual(row.capabilityTokens.find(token => token.kind === 'resolution')?.label, 'Up to 1080p');
 		assert.strictEqual(row.capabilityTokens.find(token => token.kind === 'duration')?.label, '1–15s');
 		assert.strictEqual(row.capabilityTokens.some(token => token.label.includes('8K')), false);
-		assert.ok(row.searchText.includes('start + end frames'));
+		assert.strictEqual(row.typeaheadText, 'capability model');
 	});
 
 	test('chooses fixed, segmented, and listbox method presentations from executable methods', () => {
@@ -193,10 +233,26 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 				mode('video-edit')
 			])
 		]);
-		assert.strictEqual(createBaseHalfVideoModelPickerPresentation({ entries: [entry(zero, 'configured')] }).rows[0].state, 'unavailable');
+		assert.strictEqual(createBaseHalfVideoModelPickerPresentation({ entries: [entry(zero, 'configured')] }).rows[0].availability, 'unavailable');
 		assert.strictEqual(settingsPresentation(fixed, 'text-to-video').methods.control, 'fixed');
 		assert.strictEqual(settingsPresentation(segmented, 'first-frame-to-video').methods.control, 'segmented');
 		assert.strictEqual(settingsPresentation(listbox, 'video-edit').methods.control, 'listbox');
+	});
+
+	test('keeps a declared unavailable method visible with its disabled reason', () => {
+		const [descriptor] = descriptorsFrom([model('method-availability', 'Method availability', [
+			mode('text-to-video'),
+			mode('first-frame-to-video', [], { status: 'unavailable', reason: 'Frame transport is not available.' })
+		])]);
+		const presentation = settingsPresentation(descriptor, 'text-to-video');
+		assert.deepStrictEqual(presentation.methods.options, [{
+			mode: 'text-to-video', label: 'Text to Video', selected: true, enabled: true
+		}, {
+			mode: 'first-frame-to-video', label: 'Start Frame', selected: false, enabled: false,
+			disabledReason: 'Frame transport is not available.'
+		}]);
+		assert.strictEqual(presentation.methods.control, 'segmented');
+		assert.strictEqual(Object.isFrozen(presentation.methods.options[1]), true);
 	});
 
 	test('projects schema controls, canonical summary, disabled reasons, and adjustments', () => {
@@ -240,6 +296,7 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.ok(presentation.adjustments.some(adjustment => adjustment.parameterId === 'resolution'
 			&& adjustment.previousValueLabel === '4K' && adjustment.valueLabel === '720p'));
 		assert.ok(presentation.adjustments.some(adjustment => adjustment.parameterId === 'legacy' && adjustment.kind === 'removed'));
+		assert.strictEqual(presentation.availabilityMessage, undefined);
 		assert.strictEqual(Object.isFrozen(presentation), true);
 		assert.strictEqual(Object.isFrozen(presentation.parameters), true);
 		assert.strictEqual(presentation.values, normalization.values);
@@ -270,9 +327,9 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 
 	test('merges ordinary normalization adjustments without losing the original reviewed value', () => {
 		const merged = mergeBaseHalfVideoSettingAdjustments([
-			{ parameterId: 'resolution', kind: 'constrained', reason: 'First repair.', previousValue: '4K', value: '1080p' }
+			{ parameterId: 'resolution', kind: 'constrained', reason: 'First normalization.', previousValue: '4K', value: '1080p' }
 		], [
-			{ parameterId: 'resolution', kind: 'constrained', reason: 'Second repair.', previousValue: '1080p', value: '720p' },
+			{ parameterId: 'resolution', kind: 'constrained', reason: 'Second normalization.', previousValue: '1080p', value: '720p' },
 			{ parameterId: 'durationSeconds', kind: 'defaulted', reason: 'Defaulted.', value: 5 }
 		]);
 		assert.deepStrictEqual(merged.map(adjustment => [adjustment.parameterId, adjustment.previousValue, adjustment.value]), [
@@ -301,13 +358,13 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 			{ kind: 'settings-adjustment', message: 'A setting changed.', action: { id: 'review-settings', label: 'Review settings' } },
 			{ kind: 'information', message: 'Reviewed source.' },
 			{ kind: 'input-readiness-problem', message: 'A frame is required.', action: { id: 'add-frame', label: 'Add frame' } },
-			{ kind: 'model-selection-problem', message: 'The model needs review.', action: { id: 'review-model', label: 'Review model' } }
+			{ kind: 'model-selection-problem', message: 'The selected model is unavailable.', action: { id: 'choose-model', label: 'Choose another model' } }
 		]);
 		assert.deepStrictEqual(presentation.messages.map(message => message.kind), [
 			'model-selection-problem', 'input-readiness-problem', 'settings-adjustment', 'information'
 		]);
 		assert.strictEqual(presentation.primaryMessage?.kind, 'model-selection-problem');
-		assert.strictEqual(presentation.primaryAction?.id, 'review-model');
+		assert.strictEqual(presentation.primaryAction?.id, 'choose-model');
 		assert.strictEqual(presentation.messages.some(message => message.kind === 'settings-adjustment'), true);
 		assert.strictEqual(Object.isFrozen(presentation.primaryAction), true);
 
@@ -318,7 +375,7 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.strictEqual(adjustmentOnly.primaryAction, undefined);
 	});
 
-	test('reconciles model and method changes without inferring a method from inputs', () => {
+	test('normalizes a model switch without inferring a method from inputs or mutating inputs', () => {
 		const [descriptor] = descriptorsFrom([model('ordered', 'Ordered', [
 			mode('first-frame-to-video', [{
 				id: 'resolution', label: 'Resolution', type: 'enum', default: '720p',
@@ -329,17 +386,20 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 				options: [{ value: '720p', label: '720p' }]
 			}])
 		])]);
+		const withoutFrameInputs = Object.freeze({ 'text-prompt': 1 } as const);
+		const withFrameInputs = Object.freeze({ 'text-prompt': 1, 'first-frame': 1, 'last-frame': 1 } as const);
+		const savedSettings = Object.freeze({ resolution: '1080p' } as const);
 		const withoutFrames = reconcileBaseHalfVideoModelSettings(
 			descriptor,
 			'first-last-frame-to-video',
-			{ resolution: '1080p' },
-			{ 'text-prompt': 1 }
+			savedSettings,
+			withoutFrameInputs
 		);
 		const withTwoFrames = reconcileBaseHalfVideoModelSettings(
 			descriptor,
 			'first-last-frame-to-video',
-			{ resolution: '1080p' },
-			{ 'text-prompt': 1, 'first-frame': 1, 'last-frame': 1 }
+			savedSettings,
+			withFrameInputs
 		);
 		assert.strictEqual(withoutFrames.status, 'ready');
 		assert.strictEqual(withTwoFrames.status, 'ready');
@@ -353,6 +413,9 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		assert.ok(withoutFrames.normalization.adjustments.some(adjustment => adjustment.parameterId === 'generationMode'
 			&& adjustment.previousValue === 'first-last-frame-to-video'
 			&& adjustment.value === 'first-frame-to-video'));
+		assert.deepStrictEqual(savedSettings, { resolution: '1080p' });
+		assert.deepStrictEqual(withoutFrameInputs, { 'text-prompt': 1 });
+		assert.deepStrictEqual(withFrameInputs, { 'text-prompt': 1, 'first-frame': 1, 'last-frame': 1 });
 
 		const explicit = reconcileBaseHalfVideoGenerationMethodSettings(
 			descriptor,
@@ -372,7 +435,7 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		).status, 'unavailable');
 	});
 
-	test('fails reconciliation closed when catalog constraints have no legal value', () => {
+	test('projects invalid saved configuration as deterministic values or an availability message', () => {
 		const [descriptor] = descriptorsFrom([model('impossible', 'Impossible', [mode('text-to-video', [{
 			id: 'quality', label: 'Quality', type: 'enum', default: 'standard',
 			options: [{ value: 'standard', label: 'Standard' }, { value: 'high', label: 'High' }]
@@ -390,8 +453,9 @@ suite('BaseHalfVideoModelSettingsPresentation', () => {
 		const resolution = capability(descriptor, 'text-to-video');
 		const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, { 'text-prompt': 1 }, {});
 		const presentation = createBaseHalfVideoModelSettingsPresentation(resolution, normalization);
-		assert.strictEqual(presentation.selectionProblem?.repairSurface, 'settings');
-		assert.strictEqual(presentation.selectionProblem?.reason, normalization.status === 'unavailable' ? normalization.reason : undefined);
+		assert.strictEqual(presentation.availabilityMessage?.kind, 'settings-unavailable');
+		assert.strictEqual(presentation.availabilityMessage?.message, normalization.status === 'unavailable' ? normalization.reason : undefined);
+		assert.strictEqual(Object.isFrozen(presentation.availabilityMessage), true);
 	});
 });
 
@@ -425,7 +489,6 @@ function capability(
 function entry(
 	descriptor: IBaseHalfVideoModelDescriptor,
 	connectionState: IBaseHalfVideoModelPresentationEntry['connectionState'],
-	selectionProblem?: IBaseHalfVideoModelPresentationEntry['selectionProblem'],
 	descriptorAvailability?: { status: 'unavailable'; reason: string }
 ): IBaseHalfVideoModelPresentationEntry {
 	const effectiveDescriptor = descriptorAvailability ? { ...descriptor, availability: descriptorAvailability } : descriptor;
@@ -434,8 +497,7 @@ function entry(
 		descriptor: effectiveDescriptor,
 		connectionState,
 		providerLabel: 'Provider label',
-		deploymentLabel: 'Global',
-		...(selectionProblem ? { selectionProblem } : {})
+		deploymentLabel: 'Global'
 	};
 }
 
