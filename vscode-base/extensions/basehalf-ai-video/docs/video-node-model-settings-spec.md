@@ -1,12 +1,14 @@
 # Video node model selection and settings specification
 
-Status: active implementation work package, version 3
+Status: active implementation work package, version 5
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 Parent specification: [Video node development specification](video-node-development-spec.md)
 
 Composer UI specification: [Video node Composer surface specification](video-node-composer-surface-spec.md)
+
+Model picker UI specification: [Video node model picker surface specification](video-node-model-picker-spec.md)
 
 Owning product contract: [AI Video domain contract](product-contract.md)
 
@@ -19,8 +21,10 @@ implemented in parallel with the input and execution work packages.
 
 The parent specification remains authoritative for shared vocabulary, the
 end-to-end Draft/Attempt/Result lifecycle, input transactions, and integration
-acceptance wording. The Composer-surface specification owns exact trigger and
-popover geometry, density, placement, appearance, and show/dismiss behavior.
+acceptance wording. The Composer-surface specification owns main-surface
+geometry plus generic popover placement and dismissal. The model-picker surface
+specification owns the Models trigger, Models-popover dimensions, internal
+   layout, scrolling, type-ahead, focus, appearance, and activation transitions.
 The domain contract remains authoritative for host, plugin, graph, credential,
 and artifact ownership. This document narrows those contracts into semantic
 model/settings state, interfaces, file ownership, and tests; it does not
@@ -32,8 +36,10 @@ When requirements overlap:
 2. the parent specification owns shared Video-node behavior;
 3. this work package owns model-picker data, connection-return, Settings schema,
    and model/settings mutations inside those boundaries;
-4. the Composer-surface specification owns how those projections are arranged
-   and interacted with in the lower Composer.
+4. the model-picker surface specification owns how model rows are arranged and
+   activated in Models;
+5. the Composer-surface specification owns the main Composer and generic child
+   placement/dismissal.
 
 There are no unresolved product questions in this work package. An
 implementation that satisfies the acceptance matrix in section 13 may proceed.
@@ -44,14 +50,15 @@ This package is complete when a developer can prove all of the following
 without a real credential or paid request:
 
 - the model picker presents every admitted reviewed model in a deterministic
-  order and exactly one of five semantic row states;
+  order with one availability state plus an independent selected trait;
 - model choice and model-specific settings are separate anchored surfaces with
   separate triggers; choosing a model never opens a second settings panel
   inside the picker;
-- selecting a model is an explicit in-memory reconciliation transaction;
+- selecting a model is an explicit in-memory reconciliation transaction that
+  closes Models after a successful available-model choice;
 - a generation method is selectable whenever the exact model declares it,
   even when the Draft is missing required inputs;
-- a locked model opens the one matching connection form and returns to the
+- a connection-required model opens the one matching connection form and returns to the
   exact initiating Draft after read-only verification;
 - Settings is rendered from the resolved model/method schema, updates without
   an Apply step, and explains every automatic value change;
@@ -64,8 +71,8 @@ without a real credential or paid request:
 
 ### 3.1 In scope
 
-- model-row projection, ordering, grouping, search, pinned selection, focus,
-  keyboard semantics, and the five row states;
+- model-row projection, ordering, grouping, type-ahead text, pinned unavailable
+  selection, stable logical keys, availability, and selection;
 - exact model choice identity and connection-scope projection;
 - model selection and generation-method reconciliation;
 - the connection editor entry, local validation, verification, replacement,
@@ -108,13 +115,13 @@ The following data is authoritative:
 | configured connection scopes | host model-service descriptors plus provider-connection catalog |
 | canonical setting values and adjustments | `normalizeBaseHalfVideoSettingsForCapability` result |
 | input counts and missing-input diagnostics | `evaluateBaseHalfVideoInputs` result |
-| transient selection, search, focus, and reconciliation notice | Composer memory |
+| transient selection, type-ahead, focus, and reconciliation notice | Composer memory |
 | persisted model/method identity and input counts | host-owned model snapshot in the `.bhnode` Draft |
 | credentials | system credential store only |
 
 The renderer must not derive capabilities from model ids, provider ids, labels,
-or current input count. Catalog display labels may be shown or searched but
-must never become execution identity.
+or current input count. Catalog display labels may be shown or matched by
+type-ahead, but they must never become execution identity.
 
 ## 5. Capability selection and input readiness are separate
 
@@ -135,7 +142,7 @@ The following invariants are normative:
 - a missing Start or End frame never makes a declared method unsupported;
 - current inputs never choose or downgrade a method;
 - Start Frame and Start + End Frames are distinct model-scoped methods;
-- a model row's Available/Selected state is not changed by missing inputs;
+- a model row's availability or selected trait is not changed by missing inputs;
 - input problems may contribute a footer blocker or reconciliation count, but
   the input work package owns their detailed actions and role transactions;
 - changing input counts may alter catalog-declared conditional parameter state,
@@ -152,12 +159,10 @@ may follow local conventions, but the observable shape must carry semantic
 state rather than localized sentence parsing:
 
 ```ts
-type VideoModelRowState =
-  | 'selected'
+type VideoModelAvailability =
   | 'available'
-  | 'connect'
-  | 'unavailable'
-  | 'needs-review';
+  | 'connection-required'
+  | 'unavailable';
 
 interface VideoModelRowPresentation {
   logicalKey: string;
@@ -165,18 +170,19 @@ interface VideoModelRowPresentation {
   label: string;
   disambiguationLabel?: string;
   capabilityTokens: readonly VideoCapabilityToken[];
-  state: VideoModelRowState;
-  action: 'none' | 'select' | 'connect' | 'repair';
-  repairSurface?: 'models' | 'connection' | 'settings';
+  availability: VideoModelAvailability;
+  action: 'none' | 'select' | 'connect';
   disabledReason?: string;
   selected: boolean;
-  searchText: string;
+  typeaheadText: string;
 }
 
 interface VideoMethodPresentation {
   mode: BaseHalfVideoGenerationMode;
   label: string;
   selected: boolean;
+  enabled: boolean;
+  disabledReason?: string;
 }
 
 interface VideoParameterPresentation {
@@ -202,9 +208,8 @@ interface VideoSettingAdjustmentPresentation {
 
 interface VideoModelSettingsPresentation {
   rows: readonly VideoModelRowPresentation[];
-  showSearch: boolean;
   showScopeHeadings: boolean;
-  pinnedSelectedRow?: VideoModelRowPresentation;
+  pinnedUnavailableSelection?: VideoModelRowPresentation;
   methods: {
     presentation: 'fixed' | 'segmented' | 'listbox';
     options: readonly VideoMethodPresentation[];
@@ -212,7 +217,7 @@ interface VideoModelSettingsPresentation {
   parameters: readonly VideoParameterPresentation[];
   settingsSummary: readonly VideoSettingsSummaryToken[];
   adjustments: readonly VideoSettingAdjustmentPresentation[];
-  selectionProblem?: VideoModelSelectionProblem;
+  availabilityMessage?: VideoModelAvailabilityMessage;
 }
 ```
 
@@ -227,31 +232,34 @@ storage, credential, command, dialog, graph, or execution services.
 
 ## 7. Model picker behavior
 
-### 7.1 Row-state precedence
+### 7.1 Availability and selection precedence
 
-Each catalog row has exactly one state, derived in this order:
+Availability and selection are separate so a current selection can truthfully
+become unavailable or require a connection without inventing a user-facing
+engineering task.
+
+Each catalog row derives one availability in this order:
 
 1. **Unavailable** when the descriptor is unavailable or has no executable
-   reviewed method. The row is disabled and includes the catalog reason.
-2. **Needs review** when it is the Draft's selected exact identity and its
-   connection needs attention or its saved configuration cannot normalize.
-3. **Selected** when it is the Draft's exact valid selection and the connection
-   is currently usable. Missing prompt or inputs do not change this state.
-4. **Connect** when the row is otherwise selectable but its exact connection
-   scope is not configured.
-5. **Available** when the row is selectable and its connection is usable.
+   reviewed method. The row is disabled and includes a concrete catalog reason.
+2. **Connection required** when the row is otherwise selectable but its exact
+   connection scope is missing or requires renewed verification. Its action is
+   **Connect** or **Reconnect**, chosen from connection state rather than UI
+   text.
+3. **Available** when the descriptor has an executable reviewed method and its
+   exact connection is usable.
+
+`selected` is then derived only by exact identity. Missing prompt or inputs do
+not change availability. An available selected row closes Models without a
+mutation; an unselected available row selects; a connection-required row opens
+the exact connection flow; an unavailable row has no row action.
 
 When a persisted exact identity no longer exists in the current catalog, add
-one synthetic pinned Needs review row for that saved identity; never pretend a
-current revision is selected. Its repair action keeps Models open and focuses
-the first current replacement candidate in reviewed order. It cannot be
-executed or saved again without an explicit current selection.
-
-Any row whose exact identity matches the Draft carries `selected: true`, even
-when its state is Unavailable or Needs review. The DOM integration uses both a
-check indicator and `aria-pressed="true"`. Unavailable is the only disabled
-catalog state. Connect and Needs review remain actionable and identify whether
-their repair surface is Models, Connection, or Settings.
+one synthetic pinned row for that saved identity. It remains selected, is
+Unavailable, and says **This model is no longer available. Choose another
+model.** It cannot execute or save again, never aliases to a similarly named
+revision, and has no generic corrective action. The user's product action is
+simply to select another available row.
 
 ### 7.2 Capability summary
 
@@ -269,27 +277,27 @@ Method labels are provider-neutral:
 
 Start + End Frames must not summarize a Start-Frame-only model.
 
-### 7.3 Ordering, grouping, and search
+### 7.3 Ordering, grouping, and type-ahead
 
 - Preserve catalog contribution order within each provider connection scope.
 - Group only when more than one provider/connection scope is present.
-- Show in-popover search only when the unfiltered row count is greater than 12.
-- Normalize the query by trimming and case-folding. Match model label,
-  display-only provider label, display-only deployment label, and executable
-  capability labels. Do not use secrets or endpoint values.
-- Filtering never changes the Draft or selection.
-- When the selected row does not match a non-empty query, render it once in a
-  pinned Selected section and omit its duplicate from filtered results.
+- The initial picker has no visible search field. It remains a direct,
+  internally scrolling list even for a long catalog.
+- Normalize printable-key type-ahead by trimming and locale-aware case-folding.
+  Match the model label and required display-only disambiguation label. Do not
+  use secrets, endpoint values, or raw execution identifiers.
+- Type-ahead moves focus only. It never filters the list or changes the Draft.
 - On registry refresh, restore focus by `logicalKey`; when that key vanished,
-  move to the closest enabled row in reviewed order, then the search field.
+  move to the closest enabled row in reviewed order, then the trigger.
 
 Rows implement Arrow Up/Down, Home, End, Enter, and Space through the workbench
-integration. Search preserves ordinary text-field key behavior.
+integration. The visible list order never changes while the user navigates it.
 
 ### 7.4 Picker and Settings are separate surfaces
 
-The Composer exposes two adjacent but independent summary triggers whose exact
-size, truncation, and visual states are owned by the Composer-surface
+The Composer exposes two adjacent but independent summary triggers. The model
+trigger and Models surface are owned by the model-picker surface specification;
+the Settings trigger and Settings chrome are owned by the Composer-surface
 specification:
 
 1. the model trigger shows the selected model identity and opens the model
@@ -298,18 +306,23 @@ specification:
    other catalog-declared summary tokens and opens Settings.
 
 The model picker is an anchored, scrollable list above or below the model
-trigger using the Composer-surface placement algorithm. Each row presents the
-model label, provider/deployment mark when needed for disambiguation,
-capability tokens, and its semantic row state.
-Unavailable rows remain visible with a disabled reason; the selected row has
-both a non-color selection treatment and semantic selected state.
+trigger using the Composer-surface placement algorithm and the dedicated
+model-picker geometry contract. Each row presents the model label,
+provider/deployment mark when needed for disambiguation, capability tokens,
+and its availability plus selected trait.
+Unavailable rows remain visible with a disabled reason; every selected row has
+a non-color selection treatment and semantic selected state. The trailing check
+is reserved for an available selected row so a selected unavailable row can use
+the same 16-pixel track for its unavailable icon.
 
 Settings is a separate compact anchored popover. Its 256-pixel chrome and
 control density are owned by the Composer-surface specification. It is rebuilt
-from the newly selected exact model and method after a model transaction. A method with one
-executable choice, an enum with one declared choice, or a normalized numeric
-range with one legal value is `fixed`: it remains visible as labeled text with
-explanatory copy rather than disappearing or pretending to be selectable.
+from the newly selected exact model and method after a model transaction. A
+method with one visible choice, an enum with one declared choice, or a
+normalized numeric range with one legal value is `fixed`: it remains visible as
+labeled text with explanatory copy rather than disappearing or pretending to
+be selectable. A declared but unavailable method remains visible only when the
+catalog supplies a user-readable disabled reason.
 Opening either surface closes the other without
 unmounting the Composer, recreating the prompt, changing a binding, or moving
 the canvas viewport.
@@ -317,6 +330,13 @@ the canvas viewport.
 Changing model may normalize the method and scalar settings, but it never
 removes an already bound source. The input package reclassifies each retained
 binding against the new method and makes unresolved roles explicit.
+
+A successful model choice closes Models and does not open Settings
+automatically. In the same semantic render it rebuilds the empty input-slot
+projection, Settings controls, summary tokens, readiness blocker, and reviewed
+price evidence for the new exact model. Changing an enabled setting keeps
+Settings open and updates the summary, readiness, and price evidence
+immediately. There is no Apply step.
 
 ## 8. Selection and method transactions
 
@@ -332,8 +352,8 @@ memory only:
 5. preserve the prompt, every graph edge, and every input binding/role;
 6. return all defaulted, constrained, and removed setting adjustments;
 7. return unresolved input-problem identities without changing them;
-8. mark the Composer Draft dirty and keep the picker open;
-9. focus the newly selected row and announce a compact semantic summary.
+8. mark the Composer Draft dirty and close Models;
+9. return focus to the model trigger and announce a compact semantic summary.
 
 No save, connection request, paid authorization, Attempt, or provider task is
 part of this transaction. If no executable method exists, the row must already
@@ -343,12 +363,32 @@ be Unavailable and the transaction must fail closed.
 
 Changing a method resolves that exact capability and normalizes settings in
 one in-memory transaction. It updates visible Settings controls immediately,
-preserves graph/bindings verbatim, and records every repaired scalar value.
+preserves graph/bindings verbatim, and records every automatic scalar
+adjustment.
 
 Method fallback is allowed only when a model switch or catalog revalidation
 makes the previous method unavailable. It is never based on the number, kind,
 or order of inputs. The reconciliation data must identify both old and new
 methods so the integration can show an explicit notice.
+
+### 8.3 Invalid saved configuration
+
+The product never presents a generic engineering task to the user. Every
+invalid or outdated condition is projected into one of these concrete outcomes:
+
+- if legal values can be derived deterministically, normalize them in the same
+  model/method transaction and show the complete old-to-new adjustment list;
+- if the exact connection is missing or rejected, mark the row Connection
+  required and offer **Connect** or **Reconnect**;
+- if the exact model or revision is no longer admitted, keep the saved identity
+  selected and Unavailable and ask the user to choose another current model;
+- if catalog loading fails transiently, retain the last canonical summary,
+  block new activation, and offer **Retry** without changing the Draft;
+- if no executable reviewed method remains, mark the model Unavailable with the
+  catalog reason.
+
+The UI must not expose internal exception names, data migration terminology,
+implementation status, or a catch-all action whose effect is unclear.
 
 ## 9. Connection and verification loop
 
@@ -409,7 +449,7 @@ and presents the connection-review notice from the parent specification.
 
 On any mismatch, the connection remains saved but the model is not applied.
 The canvas returns without targeting a reused path and exposes the stale-target
-explanation. Cancelling setup never selects the locked model.
+explanation. Cancelling setup never selects the connection-required model.
 
 ## 10. Settings schema and controls
 
@@ -419,25 +459,32 @@ Settings renders semantic content in this fixed section order:
 2. generation method;
 3. visible parameters in catalog order;
 4. complete adjustment notice;
-5. model/settings selection problem, if any;
+5. current model availability message, if any;
 6. one collapsed Model details disclosure containing the reviewed source URL
    and verification date.
 
 That order is structural, not merely visual styling: reviewed-source disclosure
 must never be inserted before the current problem. A supported exact model
 continues to expose its identity through the adjacent model trigger and the
-Settings accessible name when normalization needs review. There is no redundant
+Settings accessible name when an adjustment notice exists. There is no redundant
 visible model title or healthy-connection row inside compact Settings.
 
 ### 10.1 Method control
 
 - zero executable methods: the model is Unavailable in the picker;
-- one executable method: render a fixed value with explanatory copy;
-- two to four short labels: segmented radio group;
+- one visible method: render a fixed value with explanatory copy;
+- two to four short labels: segmented radio group, including any
+  catalog-declared disabled method with its reason;
 - more or long labels: listbox.
 
 The selected method stays valid while required inputs are absent. The input
 package owns the corresponding Add Start/Add End action.
+
+Start + End Frames is not a global Video-node option. It appears only when the
+selected exact model declares that method. Another model may instead expose
+Text, Start Frame, References, or a different reviewed method family. Switching
+models rebuilds this section from the new descriptor; the UI must not preserve
+or enable a method merely because the previous model offered it.
 
 ### 10.2 Parameter controls
 
@@ -510,7 +557,7 @@ An incomplete Draft may save a valid exact model/method plus current input
 counts. It must not save:
 
 - credentials, secret references, endpoints, or connection form values;
-- transient search, focus, popover, row, or notice state;
+- transient type-ahead, focus, popover, row, or notice state;
 - a half-resolved model tuple;
 - numeric cost claims without a reviewed pricing contract.
 
@@ -537,8 +584,9 @@ following implementation files:
   form and its states.
 
 The following are owned by the
+[model-picker surface package](video-node-model-picker-spec.md) and the
 [Composer-surface integration package](video-node-composer-surface-spec.md) and
-must not be edited by this parallel lane:
+must not be edited by this semantic lane:
 
 - `basehalfCanvasWorkbench.contribution.ts`;
 - `browser/media/basehalfCanvasWorkbench.css`;
@@ -564,14 +612,14 @@ owned files. Do not duplicate shared types to bypass ownership.
 | locked selection checkpoints prompt and returns to exact Draft | A1 | connection-navigation service test plus Composer integration smoke |
 | deleted/reused connection target never receives the model | A2 | exact-target integration test |
 | frame method remains selected without its frame | A3 | pure presentation test using valid capability plus failed input readiness |
-| model switch reports every repaired setting and preserves input identities | A4, A7 | pure reconciliation test plus integration assertion that graph/bindings are unchanged |
+| model switch reports every automatic setting adjustment and preserves input identities | A4, A7 | pure reconciliation test plus integration assertion that graph/bindings are unchanged |
 | disabled parameter/option has visible semantic reason and does not mutate value | A5 | pure projection and DOM/component tests |
 | summary, saved scalars, snapshot, and strict preflight agree | A8 | serialization/preflight integration test |
 | failed stored-credential test retains credential and marks Needs attention | A14 | model-service test with fake credential store and validator |
 | Models/Settings changes preserve card, viewport, prompt DOM, selection, and IME | A15 | DOM/component test and Electron smoke |
 | exact model alone controls method set and fixed/multi presentation | A16 | pure presentation tests for zero, one, two-to-four, and long/many methods |
 | model fallback follows catalog order, never attached frames | A19 | pure reconciliation test with identical inputs and different catalog order |
-| model picker and Settings remain separate anchored surfaces | A15, A16 | DOM test for triggers, exclusive popovers, fixed controls, and prompt/viewport stability |
+| model picker and Settings remain separate anchored surfaces | A15, A16 | DOM test for triggers, exclusive popovers, model selection-close, fixed controls, and prompt/viewport stability |
 | input blocker outranks settings adjustment without losing its detail | A3, A4 | pure precedence test plus Composer DOM assertion |
 
 Cross-package acceptance is not complete until the integration owner supplies
@@ -582,7 +630,8 @@ the graph, Composer DOM, and smoke assertions named above.
 ### M1 — pure projection
 
 - add the immutable model/settings presentation module;
-- derive row states, executable capability tokens, search, pinned selection,
+- derive availability, selection, executable capability tokens, type-ahead text,
+  pinned unavailable selection,
   method control style, parameter control style, summary, and adjustments;
 - cover every derivation with data-level tests.
 
@@ -625,7 +674,7 @@ npm run test-node -- --run src/vs/workbench/basehalf/test/common/basehalfVideoMo
 npm run typecheck-client
 ```
 
-After Composer integration:
+After model-picker and Composer integration:
 
 ```bash
 npm run basehalf:smoke

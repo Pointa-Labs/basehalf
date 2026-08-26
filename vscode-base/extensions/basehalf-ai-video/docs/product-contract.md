@@ -156,11 +156,13 @@ partial artifact; any file written before a final cancellation check is removed.
 The detailed desktop implementation contract is
 [`video-node-development-spec.md`](video-node-development-spec.md). It defines
 the complete model-selection, connection, settings, input, execution, recovery,
-and verification flow. The exact lower-Composer geometry, model/settings chrome,
-popover placement, and show/dismiss behavior are defined by
-[`video-node-composer-surface-spec.md`](video-node-composer-surface-spec.md),
-while this document remains authoritative for lifecycle and host/plugin
-ownership.
+and verification flow. The exact lower-Composer geometry, generic
+child-popover placement, and show/dismiss behavior are defined by
+[`video-node-composer-surface-spec.md`](video-node-composer-surface-spec.md).
+The Models trigger, picker dimensions, row layout, overflow, and activation
+behavior are defined by
+[`video-node-model-picker-spec.md`](video-node-model-picker-spec.md). This
+document remains authoritative for lifecycle and host/plugin ownership.
 
 Generation methods are capabilities of the selected exact model. Start frame
 and end frame are target-owned input roles required by specific methods, not

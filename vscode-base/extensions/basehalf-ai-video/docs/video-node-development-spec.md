@@ -1,8 +1,8 @@
 # Video node development specification
 
-Status: active umbrella implementation specification, version 5
+Status: active umbrella implementation specification, version 7
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 Implementation readiness: reviewed; no blocking product or engineering questions
 
@@ -11,6 +11,7 @@ Owning product contract: [AI Video domain contract](product-contract.md)
 Implementation work packages:
 
 - [Composer surface and child-popover UI](video-node-composer-surface-spec.md)
+- [Model picker surface](video-node-model-picker-spec.md)
 - [Model selection and settings](video-node-model-settings-spec.md)
 - [Inputs and frame roles](video-node-inputs-spec.md)
 - [Execution, recovery, and Result sealing](video-node-execution-recovery-spec.md)
@@ -18,11 +19,13 @@ Implementation work packages:
 This document owns the shared vocabulary, end-to-end journey, lifecycle,
 surface responsibility split, cross-package invariants, release gate, and
 integration acceptance scenarios. The Composer-surface package owns exact
-screen-space geometry, chrome, appearance, placement, and dismissal. Each
-semantic work-package specification owns the detailed behavior and
-implementation boundary named by its title. A work package may be implemented
-and verified independently, but it is not a separate product feature and must
-continue to consume the shared contracts defined here.
+main-surface geometry and generic child-popover placement, stacking, and
+dismissal. The model-picker package owns the Models trigger, Models-popover
+geometry, internal layout, and activation transitions. Each semantic
+work-package specification owns the detailed behavior and implementation
+boundary named by its title. A work package may be implemented and verified
+independently, but it is not a separate product feature and must continue to
+consume the shared contracts defined here.
 
 When documents appear to disagree, apply this authority order: the domain
 contract for lifecycle and durable ownership; this umbrella specification for
@@ -55,7 +58,7 @@ The Video node is complete only when all of the following are true:
 1. A new Video Draft can preserve a prompt before a model or connection exists.
 2. The user chooses a reviewed model directly; Recipe and provider transport
    remain implementation details.
-3. A locked model routes to the one matching provider-connection form, verifies
+3. A connection-required model routes to the one matching provider-connection form, verifies
    the credential without creating a paid task, and returns to the same Draft
    with the same prompt and canvas context.
 4. Model, generation method, input roles, and parameters are derived from one
@@ -122,7 +125,7 @@ They must never appear as inert Result-toolbar controls.
 | credentials | BaseHalf host | system credential store |
 | provider request construction and polling | reviewed Recipe executor | immutable Attempt plus short-lived credential access |
 | generated MP4 | BaseHalf host | ordinary local project file sealed by the Result |
-| transient popover, search, hover, and pending reconciliation state | BaseHalf host | memory only |
+| transient popover, type-ahead, hover, and pending reconciliation state | BaseHalf host | memory only |
 
 The renderer must not maintain a second model matrix. The model picker, settings
 popover, readiness evaluator, persisted snapshot, execution preflight, and
@@ -143,8 +146,8 @@ executor must consume the same reviewed capability data.
   are reviewed for the selected connection.
 - **Input readiness**: whether the selected method currently has the required
   prompt and media inputs.
-- **Settings normalization**: deterministic preservation or repair of parameter
-  values under the selected capability matrix.
+- **Settings normalization**: deterministic preservation or adjustment of
+  parameter values under the selected capability matrix.
 - **Attempt**: one immutable submission snapshot.
 - **Result**: one sealed local Video artifact.
 
@@ -180,12 +183,16 @@ method.
    generic settings page.
 2. The popover lists reviewed models contributed by installed, admitted video
    generators, including models whose connection is not configured.
-3. Selecting an available model updates the in-memory Draft, keeps the popover
-   open, focuses the selected row, and exposes a concise reconciliation notice.
-4. Selecting a locked model starts the connection-return transaction in
-   section 10.
+3. Selecting an available model updates the in-memory Draft, closes Models,
+   returns focus to the model trigger, and exposes a concise reconciliation
+   notice in the Composer.
+4. Selecting a connection-required model starts the exact Connect or Reconnect
+   transaction in section 10.
 5. Selecting a catalog-unavailable model is impossible. The row stays visible
    and exposes the catalog reason on screen and through accessibility text.
+6. If the previously selected exact identity disappears, it remains pinned as
+   selected and unavailable until the user chooses another current model. The
+   product does not silently substitute a similarly named revision.
 
 ### 6.3 Configure generation
 
@@ -194,10 +201,13 @@ method.
 2. The generation-method choices are derived only from that exact model. The
    user may choose a method even when its required inputs are not present.
 3. Settings are rendered in catalog order and update the in-memory Draft
-   immediately. There is no nested Apply button.
-4. Any automatic repair is shown as an old-to-new adjustment before the notice
+   immediately while Settings remains open. There is no nested Apply button.
+4. Any automatic normalization is shown as an old-to-new adjustment before the notice
    can disappear.
 5. The Composer footer summary updates from the same canonical in-memory values.
+6. Switching models rebuilds model-owned empty input slots, method controls,
+   parameter controls, summary tokens, blockers, and reviewed price evidence in
+   one render while preserving already attached sources.
 
 The UI uses distinct user-facing labels for distinct semantics:
 
@@ -256,7 +266,7 @@ Result integrity. It must not infer lifecycle from transient button state.
 | State | Required presentation | Primary action |
 | --- | --- | --- |
 | empty Draft, no model | blank Video card; prompt remains editable | **Choose model** |
-| locked model intent | model row says connection required | **Connect provider** from the row |
+| connection-required model intent | model row says connection required | **Connect provider** from the row |
 | selected model, missing prompt/input | exact missing requirement is visible | **Add input** or **Write prompt** |
 | selected model, invalid setting matrix | adjustment/error notice is visible | **Review settings** |
 | ready with unsaved edits | card remains Draft; footer marks unsaved | **Generate**, which saves first |
@@ -291,9 +301,11 @@ does not expose Draft settings as editable controls.
 
 ### 8.2 Node-adjacent Composer
 
-The exact dimensions, density, responsive exceptions, placement algorithm,
+The exact main-surface dimensions, responsive exceptions, placement algorithm,
 appearance, and show/dismiss behavior are owned by the
-[Composer surface specification](video-node-composer-surface-spec.md).
+[Composer surface specification](video-node-composer-surface-spec.md). The
+[Model picker surface specification](video-node-model-picker-spec.md) owns the
+model trigger and Models-popover internals.
 
 The Composer is fixed in screen space while the canvas zooms. Its compact
 anatomy is, from top to bottom:
@@ -330,10 +342,11 @@ no floating Composer.
 
 ### 8.3 Child popovers
 
-The Composer surface specification owns child-popover widths, maximum heights,
-above/below flipping, viewport clamping, stacking, and pointer/focus routing.
-The semantic sibling package continues to own the contents and mutations inside
-each popover.
+The Composer surface specification owns generic above/below flipping, viewport
+clamping, stacking, and one-layer dismissal. The model-picker surface
+specification owns Models width, height, row geometry, type-ahead, scrolling,
+focus, and activation. Semantic sibling packages continue to own the data and
+mutations consumed by each popover.
 
 Exactly one of these Composer-owned child popovers may be open:
 
@@ -376,6 +389,12 @@ identity or a fresh missing/changed verdict removes Result-only controls.
 
 ## 9. Model picker
 
+The detailed Models trigger, popover, row width budget, overflow, focus,
+selection-close, responsive, and visual acceptance contract is defined by the
+[Model picker surface specification](video-node-model-picker-spec.md). This
+section remains authoritative for the shared model abstraction and semantic
+transaction.
+
 ### 9.1 User-facing model abstraction
 
 The user chooses a model, not a Recipe plus connection plus free-form model ID.
@@ -400,34 +419,43 @@ fields are typed manually in the Video Composer.
 
 ### 9.2 Row anatomy
 
-Every row shows:
+Every row communicates:
 
 - model label;
 - concise capability summary derived from executable modes, such as maximum
   resolution, duration range, native-audio support, and available method
   families such as Text, Start Frame, Start + End Frames, or References;
 - provider or deployment label only when it disambiguates identical names;
-- exactly one state: Selected, Available, Connect, Unavailable, or Needs review.
+- one availability: Available, Connection required, or Unavailable, plus an
+  independent exact-selected trait.
+
+An ordinary row communicates availability and selection through full-row treatment, one
+trailing state icon when required, and accessible text. It does not reserve a
+wide visible state-word column. Connection required and Unavailable may add bounded
+visible reason copy under the label as defined by the model-picker surface
+specification.
 
 The capability summary must not claim a value merely because it exists in an
 unavailable mode. It summarizes only executable reviewed capabilities.
 
-The selected row uses both a check state and `aria-pressed="true"`. Color alone
-does not communicate selection. Locked rows remain clickable because they own
-the connection flow. Catalog-unavailable rows are disabled and include the
+Every selected row uses a full-row treatment and `aria-pressed="true"`; an
+available selected row also uses a check. Color alone does not communicate
+selection. Connection-required rows remain clickable
+because they own the exact Connect or Reconnect flow. Catalog-unavailable rows are disabled and include the
 reason as visible secondary copy, `title`, and accessibility description.
 
-### 9.3 Ordering, grouping, and search
+### 9.3 Ordering, grouping, and type-ahead
 
 - Preserve catalog order within a provider deployment; this is reviewed product
   order, not alphabetical model-id order.
 - Group by provider and connection scope only when more than one scope is
   present.
-- When more than twelve models are visible, render an in-popover search field.
-  Search matches model, provider, deployment label, and executable capability
-  labels. Search is transient and does not change the Draft.
-- The selected model remains findable even if it no longer matches the current
-  search text; show it in a pinned Selected section until the query clears.
+- The first implementation has no visible search field; long catalogs scroll
+  inside the fixed popover.
+- Printable keys move focus by locale-aware model-label prefix and never filter
+  rows or change the Draft.
+- A selected identity missing from the current catalog remains pinned once as
+  selected and Unavailable until the user chooses another model.
 
 ### 9.4 Selection transaction
 
@@ -475,9 +503,9 @@ dismisses the notice, or successfully saves the reviewed configuration.
 
 ## 10. Connection and verification loop
 
-### 10.1 Entering setup from a locked model
+### 10.1 Entering setup from a connection-required model
 
-Clicking a locked row creates a one-shot return intent containing:
+Clicking a connection-required row creates a one-shot return intent containing:
 
 - scene key;
 - node path and immutable node id;
@@ -544,7 +572,7 @@ If the target changed, do not apply the model to another node or reused path.
 Return to the canvas, open Models for the current Draft when possible, and
 explain that the previous setup target is stale.
 
-Cancelling setup returns without selecting the locked model. The prompt
+Cancelling setup returns without selecting the connection-required model. The prompt
 checkpoint remains saved.
 
 ## 11. Settings popover
@@ -1028,7 +1056,7 @@ Required behavior:
 - reconciliation shows old and new values;
 - switching popovers preserves card/Composer/viewport bounds;
 - Escape and focus return order;
-- search threshold, filtering, pinned selected row, and keyboard navigation;
+- prefix type-ahead, pinned unavailable selection, and keyboard navigation;
 - 200% text zoom, reduced motion, narrow canvas, and high-contrast theme.
 
 ### 17.4 Electron smoke
@@ -1076,7 +1104,7 @@ or download behavior. A passing mock smoke does not substitute for this gate.
 ### A1. Prompt survives locked setup
 
 Given an empty Video Draft with an unsaved prompt, when the user chooses a
-locked model, verifies the matching provider credential, and returns, then the
+connection-required model, verifies the matching provider credential, and returns, then the
 same node is selected, the prompt is unchanged, the exact model is selected,
 Settings is open, and no paid task has been created.
 
@@ -1094,7 +1122,7 @@ selects Start Frame, then the method stays selected and settings remain
 editable. Generate is blocked with **Add Start Frame**, not “model
 unsupported.”
 
-### A4. Model switch reports repairs
+### A4. Model switch reports adjustments
 
 Given a Draft with a legal high-resolution, long-duration combination, when the
 user chooses a model that supports neither value, then the new model is selected,
@@ -1161,7 +1189,7 @@ id, the Attempt becomes Interrupted and does not guess.
 Given a previously connected provider, when Test connection is rejected, then
 no project file changes, the credential is not echoed or deleted, the
 connection becomes Needs attention, and affected Drafts are non-runnable until
-repair or a later successful test.
+the user reconnects or a later successful test.
 
 ### A15. Popover does not move the canvas
 
@@ -1230,12 +1258,13 @@ suspended; returning that same selected card reveals the same prompt DOM.
 - extract a testable Composer presentation model;
 - update catalog and model-layer tests.
 
-Exit: a valid incomplete method can persist and every automatic setting repair
+Exit: a valid incomplete method can persist and every automatic setting adjustment
 is represented as data.
 
 ### Phase 2 — model and connection loop
 
-- finish model-row capability summaries, state taxonomy, search, and focus;
+- finish model-row capability summaries, availability/selection projection,
+  type-ahead, and focus;
 - implement stored-credential Test connection and Needs attention state;
 - harden one-shot return behavior and cancellation;
 - add host service and smoke coverage.
@@ -1246,8 +1275,10 @@ Exit: locked-model selection returns to the exact Draft without a paid call.
 
 - replace card-ratio sizing with the canonical fixed screen-space geometry;
 - render the compact input rail, stable prompt, and one-row footer;
-- implement exact Models/Settings density, mutual exclusion, above/below
-  flipping, viewport clamping, and one-layer dismissal;
+- implement Settings density plus generic child-popover mutual exclusion,
+  above/below flipping, viewport clamping, and one-layer dismissal;
+- implement Models geometry, row width budget, overflow, focus, and
+  selection-close behavior through the model-picker package;
 - implement visible/inert live-follow move/resize and position-only pan/zoom
   anchor updates with lost-capture and off-screen recovery;
 - add geometry, prompt-identity, pointer-routing, and edge-placement tests.
@@ -1303,7 +1334,7 @@ Delete or do not reintroduce:
 - free-form model-service and model-id fields in the Video Composer;
 - provider/model branches in UI rendering;
 - mode selection disabled only because required inputs are not attached;
-- silent parameter repair or automatic edge deletion;
+- silent parameter normalization or automatic edge deletion;
 - Quick Input as the main model-picker or connection-return surface;
 - a second inspector, workflow Run, mutable Result selector, or multi-success
   history inside one node;

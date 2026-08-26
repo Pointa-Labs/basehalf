@@ -1,8 +1,8 @@
 # Video node Composer surface specification
 
-Status: active implementation work package, version 2
+Status: active implementation work package, version 4
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 Implementation readiness: reviewed; no blocking product or engineering questions
 
@@ -13,6 +13,7 @@ Owning product contract: [AI Video domain contract](product-contract.md)
 Sibling work packages:
 
 - [Model selection and settings](video-node-model-settings-spec.md)
+- [Model picker surface](video-node-model-picker-spec.md)
 - [Inputs and frame roles](video-node-inputs-spec.md)
 - [Execution, recovery, and Result sealing](video-node-execution-recovery-spec.md)
 
@@ -20,8 +21,10 @@ Sibling work packages:
 
 This work package owns the desktop UI and interaction contract for the compact
 surface beneath a selected Video node. It defines the Composer's screen-space
-geometry, anatomy, appearance and dismissal, plus the anchoring and chrome of
-its Models, Settings, Inputs, and Attempts popovers.
+geometry, anatomy, appearance and dismissal, plus the generic anchoring and
+stacking of its Models, Settings, Inputs, and Attempts popovers. The dedicated
+model-picker specification owns the Models trigger, Models-popover dimensions,
+internal layout, focus, and activation.
 
 The parent specification remains authoritative for the shared Video-node
 journey and lifecycle. The sibling packages own semantic model rows, settings
@@ -35,8 +38,9 @@ When requirements overlap, apply this order:
 1. the domain contract owns host/plugin, graph, lifecycle, and Result boundaries;
 2. the parent specification owns shared Video-node behavior;
 3. the semantic sibling package owns the data and mutation for its control;
-4. this package owns Composer/popover geometry, visual density, disclosure,
-   focus routing, and show/dismiss behavior.
+4. the model-picker package owns Models trigger and picker internals;
+5. this package owns main Composer geometry plus generic child placement,
+   stacking, and show/dismiss behavior.
 
 The measurements in this document are product tokens and acceptance targets.
 They are not canvas coordinates and do not scale with canvas zoom.
@@ -53,7 +57,7 @@ This package is complete when a developer can prove all of the following:
   metadata, and primary action form one surface rather than stacked cards;
 - Models and Settings are visually distinct, adjacent triggers and mutually
   exclusive anchored popovers;
-- the model popover is a compact scrollable 224-pixel list and Settings is a
+- Models satisfies the dedicated 224-pixel picker contract and Settings is a
   compact 256-pixel schema surface that grows only upward or downward;
 - a popover flips above or below according to available viewport space without
   resizing the Composer, moving the selected node, or panning the canvas;
@@ -76,8 +80,9 @@ This package is complete when a developer can prove all of the following:
 - node-move, node-resize, canvas-pan, canvas-zoom, viewport-resize, and
   off-screen-anchor behavior;
 - main-surface anatomy, spacing, theme tokens, overflow, and responsive rules;
-- model and settings trigger density, summaries, truncation, and states;
-- Models, Settings, Inputs, and Attempts popover chrome and placement;
+- settings trigger density, summaries, truncation, and states;
+- Settings, Inputs, and Attempts popover chrome;
+- generic placement and stacking for Models, Settings, Inputs, and Attempts;
 - child-surface exclusivity, outside click, Escape, focus restoration, and IME;
 - the visible canvas-pick layer initiated by an input slot;
 - primary-action and trusted metadata placement in the footer;
@@ -122,7 +127,7 @@ interface VideoComposerSurfaceState {
 ```
 
 Only `sceneKey`, immutable node identity, and the current selection authorize a
-mounted surface. The child surface, focus key, hover, search, scroll position,
+mounted surface. The child surface, focus key, hover, type-ahead, scroll position,
 and placement are in-memory UI state. Prompt and configuration values remain in
 the existing Composer Draft model and normal saved node document.
 
@@ -371,6 +376,11 @@ reduced contrast. Its complete action and blocker are always present in
 
 ## 8. Model trigger and Models popover
 
+The [Model picker surface specification](video-node-model-picker-spec.md) is
+authoritative for this entire surface. The summary below preserves the
+Composer integration boundary and does not replace its exact width-budget,
+overflow, state, focus, and activation requirements.
+
 ### 8.1 Trigger
 
 The model trigger is the footer's leading control:
@@ -388,31 +398,36 @@ identity.
 ### 8.2 Models popover chrome
 
 The Models popover is 224 pixels wide and at most 320 pixels high. It has no
-redundant visible title or footer buttons. Search appears at the top only under
-the semantic package's more-than-twelve-row rule. Scope headings appear only
-when more than one scope must be disambiguated.
+redundant visible title, search field, or footer buttons. Scope headings appear
+only when more than one scope must be disambiguated. The list scrolls internally
+and supports prefix type-ahead without changing its visible rows.
 
 Each normal row is 48 pixels high and contains:
 
 1. an 18-pixel model/provider mark;
 2. a one-line model label;
 3. a compact second line of executable capability tokens;
-4. optional concise badge or lock/repair icon;
-5. a trailing check for the exact selected row.
+4. optional concise badge, lock, or unavailable icon;
+5. one trailing affordance: check for an available selected row, lock for a
+   connection-required row, or unavailable icon for a disabled row.
 
 Capability tokens are quiet metadata pills and may show resolution, duration,
 method family, or native-audio support. They come only from the semantic model
-projection. Long secondary reasons wrap inside an exceptional Unavailable or
-Needs review row; that row may grow, but ordinary rows remain 48 pixels.
+projection. Long secondary reasons wrap inside an exceptional
+Connection-required or Unavailable row; that row may grow, but ordinary rows
+remain 48 pixels.
 
-The selected row receives a full-row low-contrast fill plus the check. Hover
-uses a different fill. Locked rows remain actionable. Disabled rows retain a
+Every selected row receives a full-row low-contrast fill; an available selected
+row also receives the check. Hover uses a different fill.
+Connection-required rows remain actionable. Disabled rows retain a
 visible reason and cannot be activated.
 
 Opening Models scrolls the selected row fully into view. Arrow navigation may
 scroll the list but never the canvas. Selecting an available row updates the
-Draft immediately, keeps Models open, focuses the selected row, and updates the
-Settings summary. Connect and repair rows follow their semantic package flows.
+Draft immediately, closes Models, returns focus to the model trigger, and
+updates the Settings summary. Connection-required rows open their exact Connect
+or Reconnect flow. An unavailable current selection asks the user to choose
+another row; it does not expose a generic corrective action.
 
 ## 9. Settings trigger and Settings popover
 
@@ -449,13 +464,19 @@ Content uses this visual structure:
 - equal-width segments when their labels fit, otherwise a listbox;
 - 8-pixel control radius and a low-contrast selected segment;
 - inline disabled reason below the affected group when required;
-- adjustment/problem sections after controls;
+- adjustment and availability-message sections after controls;
 - one collapsed **Model details** disclosure for the reviewed source and date.
 
 The semantic Settings section order remains method, declared parameters,
-adjustments, current problem, then Model details. A method or parameter with one
+adjustments, current availability message, then Model details. A method or parameter with one
 legal value renders as a full-width fixed row. It looks selected but is not
 focusable as a fake choice.
+
+Generation methods are model-owned capabilities. Start + End Frames appears
+only for an exact model that declares it; it is not a global Composer option.
+When a catalog-declared method is visible but unavailable, the control is
+disabled and exposes its reason. Switching models rebuilds the method and
+parameter sections instead of carrying the previous model's controls forward.
 
 Selecting an enabled option commits to Composer memory immediately and keeps
 Settings open. The summary and conditional controls update in the same render
@@ -583,11 +604,12 @@ No animation delays focus, selection, saving, or pointer hit testing.
 ## 14. Failure and asynchronous update behavior
 
 - A failed model/settings projection leaves the last canonical summary visible,
-  adds one warning state, and routes to the owning repair action. It does not
-  render an empty popover or reset the Draft.
+  adds one warning state, and offers only a concrete action the user can
+  complete: retry loading, connect again, adjust an enabled setting, or choose
+  another model. It does not render an empty popover or reset the Draft.
 - A catalog refresh preserves the open popover and focused logical row when the
-  node and choice still exist. A vanished choice becomes Needs review through
-  the model package.
+  node and choice still exist. A vanished choice remains selected but
+  unavailable through the model package until the user chooses another model.
 - A settings schema refresh preserves popover placement and the Composer bounds.
 - Price/usage evidence clears to the reserved em dash before asynchronous
   recomputation. Late results are request-keyed and cannot overwrite a newer
@@ -648,6 +670,10 @@ This work package owns the integration files that compose the sibling packages:
   Composer, child popover, and canvas-pick selectors;
 - `scripts/basehalf-smoke.mts`, only for the cross-package Composer smoke.
 
+Within those shared integration files, Models trigger, row, type-ahead, overflow,
+focus, and activation changes are governed by the dedicated model-picker
+surface specification. This package must not add an alternate Models layout.
+
 Sibling lanes own their common semantic modules and tests. During parallel
 implementation they must not edit the integration files above. They expose the
 smallest immutable projection or typed intent required by this package. If a
@@ -672,7 +698,7 @@ geometry, card-width ratio sizing, or alternate popover widths as fallback UI.
 | C8 opening/switching popovers does not move card/canvas/Composer or recreate prompt | DOM identity and bounding-rect assertions |
 | C9 same trigger toggles, another switches, outside content closes one layer | pointer-routing component tests |
 | C10 Escape closes exactly pick, child, then Composer focus layer | keyboard propagation tests plus Electron smoke |
-| C11 model and setting choices update summary immediately and keep their popover open | cross-package component test |
+| C11 model choice updates summary and closes Models; setting choice updates summary and keeps Settings open | cross-package component test |
 | C12 disabled setting has reason and produces no mutation | settings integration DOM test |
 | C13 method change never silently relabels an existing input role | cross-package presentation/mutation assertion |
 | C14 canvas pick keeps Composer, dims only ineligible content, and cancels without mutation | DOM test plus Electron smoke |
@@ -718,7 +744,9 @@ Exit: C1, C4, C8, C15-C24 pass at component level.
 ### C3 — Models and Settings integration
 
 - render adjacent triggers from immutable sibling projections;
-- implement exact popover widths, row/control density, exclusive state,
+- consume the model-picker package for exact Models width, row density,
+  selection-close, and focus restoration;
+- implement Settings width, control density, exclusive state, generic
   above/below placement, internal scrolling, and focus restoration;
 - preserve prompt DOM and viewport through every choice and registry refresh.
 
