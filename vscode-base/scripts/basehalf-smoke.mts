@@ -3819,11 +3819,18 @@ async function assertVideoNodeUI(page) {
 	const modelPickerGeometry = await modelsPopover.evaluate(popover => {
 		const rows = [...popover.querySelectorAll<HTMLElement>('.basehalf-video-model-option')];
 		const ordinaryRows = rows.filter(row => !row.classList.contains('exceptional'));
+		const list = popover.querySelector<HTMLElement>('.basehalf-video-model-list');
 		const copy = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-copy');
 		const state = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-state');
 		const label = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-label');
 		const meta = ordinaryRows[0]?.querySelector<HTMLElement>('.basehalf-video-model-option-meta');
 		const rects = rows.map(row => row.getBoundingClientRect());
+		const listStyle = list ? getComputedStyle(list) : undefined;
+		const scrollbarStyle = list ? getComputedStyle(list, '::-webkit-scrollbar') : undefined;
+		const trackStyle = list ? getComputedStyle(list, '::-webkit-scrollbar-track') : undefined;
+		const thumbStyle = list ? getComputedStyle(list, '::-webkit-scrollbar-thumb') : undefined;
+		const buttonStyle = list ? getComputedStyle(list, '::-webkit-scrollbar-button') : undefined;
+		const cornerStyle = list ? getComputedStyle(list, '::-webkit-scrollbar-corner') : undefined;
 		return {
 			ordinaryRowHeights: ordinaryRows.map(row => row.getBoundingClientRect().height),
 			copyWidth: copy?.getBoundingClientRect().width,
@@ -3832,9 +3839,29 @@ async function assertVideoNodeUI(page) {
 			metaWhiteSpace: meta ? getComputedStyle(meta).whiteSpace : undefined,
 			overlaps: rects.some((rect, index) => index > 0 && rects[index - 1].bottom > rect.top + 0.5),
 			searchCount: popover.querySelectorAll('input, [role="searchbox"]').length,
-			horizontalOverflow: popover.scrollWidth > popover.clientWidth + 1
+			horizontalOverflow: popover.scrollWidth > popover.clientWidth + 1,
+			listHorizontalOverflow: list ? list.scrollWidth > list.clientWidth + 1 : undefined,
+			listHasVerticalOverflow: list ? list.scrollHeight > list.clientHeight + 1 : undefined,
+			listOverflowX: listStyle?.overflowX,
+			listOverflowY: listStyle?.overflowY,
+			scrollbarGutterWidth: list ? list.offsetWidth - list.clientWidth : undefined,
+			webkitScrollbarWidth: scrollbarStyle?.width,
+			webkitScrollbarHeight: scrollbarStyle?.height,
+			webkitTrackBackground: trackStyle?.backgroundColor,
+			webkitThumbBackground: thumbStyle?.backgroundColor,
+			webkitThumbMinHeight: thumbStyle?.minHeight,
+			webkitThumbBorderLeftWidth: thumbStyle?.borderLeftWidth,
+			webkitThumbBorderRightWidth: thumbStyle?.borderRightWidth,
+			webkitButtonDisplay: buttonStyle?.display,
+			webkitCornerBackground: cornerStyle?.backgroundColor
 		};
 	});
+	const scrollbarWidth = Number.parseFloat(modelPickerGeometry.webkitScrollbarWidth ?? 'NaN');
+	const scrollbarGutterWidth = modelPickerGeometry.scrollbarGutterWidth ?? Number.POSITIVE_INFINITY;
+	const visibleThumbWidth = scrollbarWidth
+		- Number.parseFloat(modelPickerGeometry.webkitThumbBorderLeftWidth ?? '0')
+		- Number.parseFloat(modelPickerGeometry.webkitThumbBorderRightWidth ?? '0');
+	const transparentScrollbarPaints = new Set(['transparent', 'rgba(0, 0, 0, 0)']);
 	if (await composer.locator('.basehalf-video-composer-popover:visible').count() !== 1
 		|| await modelTrigger.getAttribute('aria-expanded') !== 'true'
 		|| await settingsTrigger.getAttribute('aria-expanded') !== 'false'
@@ -3860,6 +3887,22 @@ async function assertVideoNodeUI(page) {
 		|| modelPickerGeometry.overlaps
 		|| modelPickerGeometry.searchCount !== 0
 		|| modelPickerGeometry.horizontalOverflow
+		|| modelPickerGeometry.listHorizontalOverflow !== false
+		|| modelPickerGeometry.listHasVerticalOverflow !== true
+		|| modelPickerGeometry.listOverflowX !== 'hidden'
+		|| modelPickerGeometry.listOverflowY !== 'auto'
+		|| !Number.isFinite(scrollbarWidth)
+		|| scrollbarWidth > 8.5
+		|| scrollbarWidth < 7.5
+		|| scrollbarGutterWidth > 8.5
+		|| scrollbarGutterWidth < 0
+		|| Math.abs(visibleThumbWidth - 6) > 0.5
+		|| modelPickerGeometry.webkitScrollbarHeight !== '0px'
+		|| !transparentScrollbarPaints.has(modelPickerGeometry.webkitTrackBackground ?? '')
+		|| transparentScrollbarPaints.has(modelPickerGeometry.webkitThumbBackground ?? '')
+		|| Number.parseFloat(modelPickerGeometry.webkitThumbMinHeight ?? '0') < 24
+		|| modelPickerGeometry.webkitButtonDisplay !== 'none'
+		|| !transparentScrollbarPaints.has(modelPickerGeometry.webkitCornerBackground ?? '')
 		|| await page.locator('.quick-input-widget:visible').count() !== 0) {
 		throw new Error(`The empty Video Draft did not expose a clickable locked catalog model: ${JSON.stringify({
 			modelExpanded: await modelTrigger.getAttribute('aria-expanded'),
@@ -3881,6 +3924,9 @@ async function assertVideoNodeUI(page) {
 			modelPickerGeometry,
 				quickInputs: await page.locator('.quick-input-widget:visible').count()
 			})}`);
+	}
+	if (opts.output) {
+		await modelsPopover.screenshot({ path: path.join(logsPath, 'video-model-picker-scrollbar.png') });
 	}
 	const modelPanBefore = await captureVideoAttachedChrome(page, canvasPath);
 	await page.mouse.move(paneBox.x + 22, paneBox.y + 22);

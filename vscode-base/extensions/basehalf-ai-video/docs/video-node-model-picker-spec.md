@@ -341,6 +341,33 @@ The model list owns vertical scrolling. It has no horizontal scrolling.
 panning or zooming the canvas. A non-overlay scrollbar may consume its reserved
 budget but may not reduce the copy track below the 120-pixel canonical minimum.
 
+### 9.1 Scrollbar presentation
+
+The scrollbar is a secondary navigation affordance, not a new visual column.
+In ordinary light and dark themes, the list uses this exact presentation:
+
+- the vertical scrollbar consumes at most 8 CSS pixels, including its reserved
+  gutter, and its visible thumb is approximately 6 pixels wide;
+- the track, track piece, and corner are transparent;
+- no increment or decrement buttons are visible;
+- the thumb uses the workbench scrollbar slider theme token, with the matching
+  hover and active tokens during pointer interaction;
+- the thumb has rounded ends and a minimum visible length of 24 pixels;
+- `overflow-y: auto` leaves no thumb or other scrollbar control visible when
+  the model list does not overflow; a transparent stable gutter may remain;
+- no horizontal scrollbar may appear at any viewport or text-zoom level.
+
+An implementation that exposes the platform's unstyled wide gray track is a
+contract failure even when every row remains usable. Engines without WebKit
+scrollbar pseudo-elements use their narrow native equivalent. Forced-colors
+mode may use a system-selected track, thumb, and width when needed for contrast;
+it must keep the thumb perceivable and the copy track at least 120 pixels wide.
+
+Wheel, trackpad, keyboard, selected-row reveal, and scroll-position restoration
+behavior are independent from scrollbar appearance. Styling the scrollbar must
+not hide vertical scrolling, forward contained scroll delta to the canvas, or
+reset the list's scroll position.
+
 ## 10. Open, focus, and selected-row reveal
 
 Opening Models performs one layout transaction:
@@ -623,6 +650,7 @@ or DOM code.
 | P20 underlying Composer/card text never bleeds through the opaque popover | light/dark/high-contrast screenshot test |
 | P21 opening, navigating, choosing, and closing preserve prompt DOM/value/selection/IME | DOM identity and composition test |
 | P22 loading, empty, error, and retry states use normal flow and leave no hidden focus target | state-cycle component test |
+| P23 ordinary themes use an at-most-8-pixel scrollbar gutter, transparent track, themed interaction states, and no buttons, corner, or horizontal scrollbar | computed-style and compiled Electron smoke plus always-show-scrollbars screenshot |
 
 Pairwise row-rect assertions must verify `row[n].bottom <= row[n + 1].top` for
 all visible rows. A screenshot comparison alone is not sufficient proof of no
@@ -657,6 +685,8 @@ Exit: P8-P16 and P21 pass without a provider credential or paid request.
 - close before move/resize/pan/zoom;
 - cover narrow canvas, 200% text zoom, non-overlay scrollbar, light, dark,
   high-contrast, reduced-motion, loading, empty, and error states;
+- assert scrollbar width, transparent ordinary-theme track, theme-token thumb,
+  absent buttons/corner, and preserved contained scrolling;
 - add compiled Electron screenshot and pointer smoke.
 
 Exit: every acceptance row has automated proof or a recorded manual check.
