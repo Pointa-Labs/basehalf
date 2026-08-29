@@ -147,7 +147,9 @@ the full contents of specifications and decisions. At minimum it owns:
   entry point but apply across multiple product specifications;
 - verification and delivery guidance, including scoped checks, the BaseHalf
   Electron smoke, commit expectations, and the maintainer/external-contributor
-  split.
+  split;
+- development-host guidance covering the watch-based hot-reload loop and the
+  disposable fixture workspace a development launch must open.
 
 The product-generated `.bh/agent-harness/` is a different system. It is
 installed into normal user workspaces and explains the user-facing `.bh`
@@ -182,6 +184,9 @@ source-tree safety warning, not duplicated rule bodies.
   protocol, and delivery work to the documents that own those topics.
 - Development-only guidance lives in `docs/harness/`; the generated
   `.bh/agent-harness/` remains exclusively a normal-user-workspace feature.
+- The harness documents a development-host launch that opens a disposable
+  fixture workspace, and that procedure never opens the repository root or
+  `vscode-base/` as a product workspace.
 - Normal user workspaces without the opt-out marker retain the existing BaseHalf
   initialization behavior.
 

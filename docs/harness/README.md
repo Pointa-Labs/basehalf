@@ -48,6 +48,7 @@ The full workflow and source-tree isolation contract is
 | AI Video or executable media nodes | `vscode-base/extensions/basehalf-ai-video/docs/product-contract.md` | [`video-node-development-spec.md`](../../vscode-base/extensions/basehalf-ai-video/docs/video-node-development-spec.md) routes the Composer-surface, model/settings, input/frame-role, and execution/recovery work packages; public decisions D28 and D34; [plugin architecture](../plugin-architecture.md) |
 | Git, SCM, GitHub, or history graph | [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md) | Roadmap track 3 and public decision D22 |
 | Dependencies, licenses, or distribution | [Dependency policy](../dependency-policy.md) | [Trademark policy](../trademark-policy.md), public decisions D8–D11 |
+| Running BaseHalf from source with hot reload | [Development host](development-host.md) | [Verification and delivery](verification-and-delivery.md); the fixture-workspace rule in [spec-driven development](../specs/spec-driven-development.md) |
 | Tests, commit, direct-main, or release checks | [Verification and delivery](verification-and-delivery.md) | [Contributing](../../CONTRIBUTING.md) for external contributors |
 | “Why did we choose this?” | [Public decisions](../decisions.md) | `private-docs/decisions/README.md`, then the relevant decision file |
 
