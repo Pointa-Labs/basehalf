@@ -70,11 +70,16 @@ basehalf --run-operation '{"operationId":"publisher.plugin.operation","parameter
 The operation id and every parameter must match the live discovery response.
 `uri` parameters are portable paths relative to the selected open workspace
 folder, not absolute paths or URI strings. The host rechecks terminal ownership,
-admission, parameter types, real paths, symbolic links, dirty working copies, and
-the declared JSON return type before printing one versioned JSON response. It
+admission, parameter types, and the declared JSON return type, and for `uri`
+parameters also real paths, symbolic links, and dirty working copies, before
+printing one versioned JSON response. It
 never accepts an arbitrary command id. Installed reviewed canvas Templates are
 available through the host operation listed in that response; it creates the new
-project below the command's current workspace directory.
+project below the command's current workspace directory. The response also
+always lists the host operation `basehalf.workspace.move`, which moves or
+renames a file or folder as the Explorer does (see
+[agent moves](../specs/reference-graph.md#agent-moves)). Host operation ids are
+reserved, and a plugin operation may not use one.
 
 The registered command receives `(parameters, cancellationToken)`. A mutating
 operation must check that token at its final commit boundary and use the host's

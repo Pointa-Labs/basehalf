@@ -88,6 +88,10 @@ listed A in `referenced_by`. That design had three problems:
    - template instantiation the user started;
    - a rename refactor the user confirmed, or pre-authorized with
      `basehalf.references.updateOnFileMove: always`;
+   - the rename refactor of an [agent move](#agent-moves), which an agent runs
+     in the Agent Area session the user opened, unless the setting is `never`.
+     It rewrites only entries that the agent could also edit as ordinary text
+     (Invariant 5);
    - a migration the user confirmed;
    - undo and redo of any of these.
 
@@ -724,9 +728,125 @@ paste-move. Undo and redo of a move are moves and follow the same rules.
   the move cascade is removed. So are the destructive binding cleanup on delete
   and every badge-graph rewrite of other badges. Bindings to a deleted source
   stay and show as a missing source.
-- **Outside the workbench.** Moves made outside it (terminal, agents, other
-  applications) are not refactored. Their entries become dangling and visible,
-  and **Relink Everywhere…** repairs them later.
+- **Outside the workbench.** Moves made outside it (terminal commands,
+  including an agent's own file tools, and other applications) are not
+  refactored. Their entries become dangling and visible, and
+  **Relink Everywhere…** repairs them later. Their BaseHalf metadata stays
+  behind: the description, appearance, reading aids, and a sidecar node's
+  `upstream.yaml` at the old mirror path, and the canvas layout row in the old
+  parent folder's `canvas.yaml`. At the next workspace open, a `badge.yaml`
+  whose node is gone is marked orphan, except in marked folders.
+
+### Agent moves
+
+The host operation `basehalf.workspace.move` makes an agent's move a workbench
+move, so nothing is left behind. Any Agent Area terminal session that has the
+node command bridge can run it, unless a sandbox denies the bridge socket, as
+Codex's default sandbox does. Claude Code sessions that receive the
+[agent launch context](agent-launch-context.md) are told to use it instead of
+`mv`; other agents are not told.
+
+```sh
+basehalf --run-operation '{"operationId":"basehalf.workspace.move","parameters":{"from":"branches/svd.md","to":"branches/singular-value-decomposition.md"}}'
+```
+
+- **Parameters.** `from` and `to` are required. Both are full paths relative
+  to the workspace folder that contains the command's current directory, never
+  relative to the current directory itself. `to` is the item's new path, not a
+  folder to move it into, so a `to` that ends in `/` is refused.
+  - Both must satisfy the [path grammar](#path-grammar), so any existing name
+    can be moved. A first segment equal to `.bh` in any case is refused.
+  - The segments the move creates (the new last segment and any missing
+    folders) must also satisfy the portable project-path grammar
+    (`baseHalfProjectPathProblem`), so a move never creates a name that a
+    binding or another platform rejects. Existing folders keep their names.
+  - Both paths must belong to that workspace folder and not to a workspace
+    folder nested inside it, whose own `.bh/` and marker rules would apply.
+- **Spelling.** Before the other checks, the host resolves `from`, and every
+  existing ancestor folder of `to`, segment by segment to the spelling its
+  parent folder lists: an exact match first, then a name that differs only in
+  Unicode normalization, then, on a case-insensitive file system, one that also
+  differs in case. The move, the mirror cascade, the refactor, and the result
+  all use those spellings. `to`'s new last segment is used as given, in NFC,
+  except that a case-only rename keeps the item's normalization form. A
+  segment that the parent does not list but that still reaches an existing
+  folder, such as a short 8.3 alias, is refused.
+- **Refused**, with nothing changed and a message that names the reason:
+  - `from` or `to` is the workspace root;
+  - `from` does not exist. When `to` exists, the message says the item may
+    already have been moved;
+  - `to` already exists, unless it is a case-only rename of `from`. A sibling
+    whose name equals the new name after NFC normalization, and after case
+    folding where case is ignored, counts as existing even when the file
+    system reports no conflict. The message says that `to` is the new path,
+    not a destination folder;
+  - `to` differs from `from` only in Unicode normalization;
+  - `to` lies inside `from`;
+  - a path component is a symbolic link, or a path resolves outside the
+    workspace folder;
+  - the workspace folder is [marked](#source-tree-guard);
+  - any precondition that refuses an Explorer move refuses this one with its
+    reason, for example a node with an active Attempt or a pending mirror
+    recovery.
+- **The move.** The host applies one `ResourceFileEdit(from, to)` with
+  overwrite off through `IExplorerService.applyBulkEdit`, as a canvas rename
+  does, in an undo group of its own. That is one `IWorkingCopyFileService` move
+  plus a file undo element labelled "Rename {0} to {1}" when the parent folder
+  is unchanged and "Move {0}" otherwise. The mirror cascade moves the item's
+  metadata as for any workbench move, open and unsaved documents follow it, and
+  missing parent folders of `to` are created by the move itself, after every
+  precondition has passed. Undo and redo of it are ordinary workbench moves.
+- **The entries.** The rename refactor recognizes the operation's source and
+  target in the prepare step, never while undoing, and answers that plan
+  itself. The bulk edit owns its undo group, so edits that extensions make when
+  a file is renamed join it as for an Explorer move.
+  - under `prompt` and `always` it updates as **Update** does, as one canvas
+    undo step;
+  - under `never` it does nothing.
+
+  The agent reports through the result, so the "Updated K items" notification
+  appears only when something was skipped or left alone, the update failed, or
+  the caller went away before the result. A plan never takes entries under the
+  old path of an earlier plan that is not settled yet. Those that the earlier
+  plan snapshotted follow it; others stay dangling until relinked. The result
+  lists both kinds. If the folder became marked after validation, the plan
+  prompts as in any marked folder.
+- **Cancellation.** Cancellation before the move starts refuses the operation
+  with nothing changed. Once the move starts, it and its plan complete. A
+  client that disconnected gets no result, and one whose terminal the Agent
+  Area released gets a "no longer owned" refusal although the move may have
+  completed.
+- **Result.** The operation returns after the plan settles. `updated` and
+  `skipped` are always present:
+
+  ```json
+  {
+    "from": "branches/svd.md",
+    "to": "branches/singular-value-decomposition.md",
+    "upstream": {
+      "updated": ["branches/pca-application.md", "diagrams/svd.png"],
+      "skipped": ["experiments/run.bhnode (this node is running)"]
+    }
+  }
+  ```
+
+  - `updated` lists the downstream nodes whose list changed, including nodes
+    whose list moved into their own file, by workspace-relative path.
+  - `skipped` lists, each with its path and reason: stores the update could not
+    write, entries it left alone, entries under an earlier unsettled plan's old
+    path, and failures after the item moved, including a later stage of the
+    move that failed. Such a failure is listed first and never turns into a
+    refusal, and the move itself is never reverted.
+  - `incomplete` appears when the reference index was partial, so stores it
+    could not read may still name the old path.
+  - `notUpdated` appears only when the update did not run, with `updated: []`:
+
+    ```json
+    { "updated": [], "skipped": [], "notUpdated": "basehalf.references.updateOnFileMove is never" }
+    ```
+
+  Each list holds at most 200 items; a longer list ends with "… and N more".
+  So a move is never reported as refused because its result was too large.
 
 ## Migration from legacy badge pairs
 
@@ -865,6 +985,11 @@ because both ends validate these literals.
   - role and order stay owned by the target's recipe binding.
 - The authoring rules state that each binding's source must be listed in the
   node's `upstream`.
+- `host.operations` always lists the [agent move](#agent-moves) operation,
+  alongside the template operation when templates are installed. Adding an
+  operation changes no literal, so the bridge version stays the same. Host
+  operation ids are reserved: a plugin capability that declares one is
+  rejected.
 
 ## Plugins
 
@@ -897,6 +1022,7 @@ In a marked folder:
   `canvas.yaml` anchor row, no `adhd.yaml`, and nothing else under `.bh/`. The
   edge is drawn with default anchors.
 - The rename refactor always prompts, even under `always`.
+- The agent move operation is refused.
 - The index still reads every store.
 
 ## Failure behavior
@@ -1015,7 +1141,23 @@ slice 4, or slice 5 without slice 3.
     the PDF → note edge appears with no other file written.
 16. ADHD ranges stay aligned after a connect, an agent frontmatter edit, and an
     undo. A legacy `adhd.yaml` is converted exactly once.
-17. The smoke covers these flows on an annotatable target:
+17. Agent moves:
+    - Discovery lists `basehalf.workspace.move`, and a plugin operation with
+      that id is rejected.
+    - A file move under `prompt` moves its badge (with `path` rewritten),
+      appearance, reading aids, sidecar, and card geometry; updates the
+      entries without a prompt or notification; returns them in `updated`;
+      and can be undone as an Explorer move.
+    - A folder move carries every descendant's metadata and remaps every entry
+      that names a path inside it.
+    - A `from` that differs from the disk name in case or normalization moves
+      all metadata, and the result reports the disk spelling.
+    - Under `never` the entries stay and the result has `notUpdated`.
+    - Every refusal in the list, including a precondition refusal such as a
+      running node, returns its reason and changes nothing.
+    - Cancellation before the move changes nothing; after it, the move and the
+      plan complete.
+18. The smoke covers these flows on an annotatable target:
     - connect, disconnect, and both reconnects;
     - canvas undo after closing the note;
     - the rename refactor notification;

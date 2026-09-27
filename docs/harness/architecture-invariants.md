@@ -62,7 +62,8 @@ See [roadmap.md](../roadmap.md) and public decisions D20–D23 in
 - Dangling and invalid upstream entries are shown as issues and never removed
   automatically. Only an explicit user action repairs or removes them.
 - BaseHalf changes an upstream value only through a reference operation that
-  the user started or confirmed, as listed in
+  the user started or confirmed, or through the rename refactor of an agent
+  move, as listed in
   [reference graph Invariant 4](../specs/reference-graph.md#invariants). Host
   lifecycle writes carry `upstream` through unchanged, and reviewed plugins may
   not change it.
@@ -72,13 +73,16 @@ See [roadmap.md](../roadmap.md) and public decisions D20–D23 in
   the user confirms, as in the removal of earlier BaseHalf sections from root
   agent files in
   [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md#confirmed-user-owned-root-files).
-  Agents use their own file tools.
+  Agents use their own file tools. Agent Area Claude Code sessions that
+  receive the launch context move and rename files through the host
+  [agent move](../specs/reference-graph.md#agent-moves) operation; other
+  agents' moves still leave BaseHalf metadata behind.
 - BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
   and no `.gitignore` edits into workspaces. Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
 
-See public decisions D12–D14, D24, and D35–D37, the
+See public decisions D12–D14, D24, and D35–D38, the
 [reference graph](../specs/reference-graph.md) and
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.

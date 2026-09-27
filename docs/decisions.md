@@ -8,8 +8,8 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D37 capture the current direction; D35–D37
-> (2026-09) revise parts of D12, D13, D14, D19, and D24 as noted inline.
+> (see notes inline). D12–D38 capture the current direction; D35–D38
+> (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -794,7 +794,8 @@ TUI, extension agents, and agents outside Agent Area receive no BaseHalf
 instruction. They see the `upstream` lists of Markdown files and `.bhnode`
 documents in the files themselves, but do not learn canvas workflows, card
 descriptions, or the upstream lists of non-Markdown nodes, which live under
-`.bh/`.
+`.bh/`. Refined by D38: the launch instruction now tells agents to move files
+through `basehalf.workspace.move`.
 
 ## D37 — References are stored once, by the downstream node (NEW, 2026-09-27)
 
@@ -834,3 +835,36 @@ Repair/Discard machinery built to reconcile them.
   through workbench moves.
 - `.bhnode` moves to version 4.
 - Reviewed plugins may not change `upstream` values.
+- Amended by D38: the rename refactor of an agent move also changes these
+  lists, without the user's confirmation.
+
+## D38 — Agents move files through BaseHalf (NEW, 2026-09-27)
+
+**Decision.** The host operation `basehalf.workspace.move` moves or renames a
+file or folder as the Explorer does, from any Agent Area terminal that has the
+node command bridge. The mirror cascade carries the item's description,
+appearance, reading aids, canvas layout, and sidecar upstream list, and the
+rename refactor updates the entries that name it without prompting unless the
+user chose `never`. Claude Code sessions that receive the launch context are
+told to use it instead of `mv`, never to fall back to a plain move when it
+refuses, and to fall back only when it is unavailable. See
+[reference graph](specs/reference-graph.md#agent-moves).
+
+**Why.** Testing the D36 launch context against real Claude Code sessions
+showed that agents kept upstream entries correct on a terminal move, but the
+metadata under `.bh/mirror/` stayed at the old path. Several of those files
+record their own path, and the parent folder's canvas layout names the item,
+so asking agents to rewrite them by hand is fragile. BaseHalf already owns that
+bookkeeping for Explorer moves.
+
+**Consequences.**
+- Refines D36: agents now receive one operation they may run without
+  discovery.
+- Amends D37 and reference graph Invariant 4: the rename refactor of an agent
+  move rewrites entries without the user's confirmation. It rewrites only
+  entries the agent could also edit as ordinary text, in the session the user
+  opened.
+- Codex TUI sessions in Agent Area are not told about the operation, and
+  Codex's default sandbox denies the bridge socket, so their moves, like
+  terminal moves and agents outside Agent Area, still leave metadata behind.
+- The operation is refused in marked source-tree folders.

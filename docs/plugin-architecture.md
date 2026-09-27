@@ -417,6 +417,10 @@ installed canvas Recipes, and extension-owned document formats and deterministic
 operations. It never exposes executor command ids, extension internals, secrets,
 or project content. When reviewed Templates are installed, the host section lists
 one real Template operation whose enum contains only those admitted Template ids.
+The host section also always lists `basehalf.workspace.move`, which moves or
+renames a file or folder as the Explorer does
+([agent moves](specs/reference-graph.md#agent-moves)). Host operation ids are
+reserved; a plugin capability that declares one is rejected.
 
 An Agent can then invoke one listed deterministic operation with a separate
 single-request command:
@@ -425,7 +429,7 @@ single-request command:
 basehalf --run-operation '{"operationId":"publisher.plugin.operation","parameters":{}}'
 ```
 
-The host resolves the operation from the same admission-filtered registry,
+For a plugin operation, the host resolves it from the same admission-filtered registry,
 validates every declared parameter, converts only verified workspace-relative
 `uri` paths, invokes only the reviewed command bound to that operation, and
 validates its bounded JSON return. A request cannot supply a command id. The

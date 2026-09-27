@@ -162,8 +162,11 @@ labels or notes.
 
 User files remain content truth. Automated BaseHalf services observe files and
 never modify them in the background; BaseHalf changes an upstream list only
-through an operation the user starts or confirms. Agents edit files with their
-own tools.
+through an operation the user starts or confirms, or when an agent in the Agent
+Area moves a file through BaseHalf. Agents edit files with their own tools.
+Claude Code sessions that receive BaseHalf's launch context (local macOS and
+Linux Agent Area sessions) move files through BaseHalf, so descriptions,
+layout, and references follow.
 
 ## What Works Today
 

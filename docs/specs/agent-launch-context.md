@@ -24,8 +24,14 @@ machine, on macOS and Linux. A session qualifies when
 
 These receive no launch context:
 - Codex TUI. Codex has no append-only instruction flag, and overriding
-  `developer_instructions` would replace the user's own value. Codex still sees
-  the `upstream` lists of Markdown and `.bhnode` files in the files themselves.
+  `developer_instructions` would replace the user's own value. Passing it only
+  when the user sets none is not safe yet either: Codex also takes that value
+  from `/etc/codex/config.toml`, from project `.codex/config.toml` files above
+  the workspace folder, and from a `CODEX_HOME` that only the terminal
+  environment may define. Its default sandbox also denies the `basehalf` bridge
+  socket, so the agent move the instruction relies on would be refused. Codex
+  still sees the `upstream` lists of Markdown and `.bhnode` files in the files
+  themselves.
 - VS Code extension agents.
 - Plain Terminal sessions.
 - Remote sessions.
@@ -49,6 +55,13 @@ within 5 seconds, before any user input, Agent Area relaunches it once without
 the argument. It logs the reason, and that session and its restarts continue
 without launch context. An installed Claude Code that rejects the argument
 therefore never makes the TUI unusable.
+
+When any terminal process exits with a non-zero code, the exit message that
+names its command line shows an argument that contains a line break and is
+longer than 200 characters by its first non-blank line followed by `…`. The
+instruction text therefore never floods the terminal after, for example, the
+user declines Claude Code's folder trust prompt. Shorter arguments, such as a
+multi-line shell task, stay unchanged.
 
 ## Content contract
 
@@ -91,9 +104,29 @@ The instruction covers the following, in this order.
    - When you rewrite or restructure a file, edit it in place and keep its
      frontmatter, including the upstream list, unchanged. Never delete and
      recreate it.
-   - When you move or rename a file or folder, update every `upstream` entry
-     that names its old path, or a path inside it. This keeps a relationship;
-     it does not change one.
+   - To move or rename a file or folder, use the
+     [agent move](reference-graph.md#agent-moves) operation
+     `basehalf.workspace.move` instead of `mv` or `git mv`, and show the
+     example command. `from` and `to` are full paths relative to the workspace
+     folder, not to the current directory, and `to` is the new path, not a
+     folder to move into. Say how to write a `'` inside the shell-quoted JSON.
+     BaseHalf moves the item's metadata with it and updates the `upstream`
+     entries that name it. Tell the user what the result lists under
+     `skipped`, `incomplete`, or `notUpdated`, and leave those entries as they
+     are.
+   - If the operation is refused, do not move the item: fix the request when
+     the error is about a path, and otherwise tell the user why. If it returned
+     no result, `cancelled`, or a refusal about the terminal, check whether
+     `from` still exists before doing anything else.
+   - Only if `basehalf` is not found, or it says Agent operations are
+     available only inside a BaseHalf TUI Agent session, move the item
+     yourself. Then update every `upstream` entry that names its old path, or a
+     path inside it, including those in `.bh/mirror/**/upstream.yaml`, which
+     is the one `.bh/` edit allowed without being asked. Tell the user that
+     its BaseHalf metadata stayed at the old path (for a folder or a file that
+     is not Markdown or `.bhnode`, that includes its own upstream list), and
+     that moving it back and renaming it in BaseHalf restores it.
+   - Moving keeps a relationship; it does not change one.
    - When the user asks you to create a note from other files, list those
      files under the new note's `upstream`. Otherwise add or remove entries
      only when the user asks.
@@ -101,11 +134,12 @@ The instruction covers the following, in this order.
      mentions `current_focus.yaml`, `references`, or `referenced_by` is out of
      date. Follow this instruction instead.
 4. **Canvas workflows.**
-   - Run `basehalf --list-capabilities` first. Its JSON is the only authority
-     for recipes, slots, parameters, document formats, and operations.
+   - Before any other canvas workflow, run `basehalf --list-capabilities`.
+     Its JSON is the only authority for recipes, slots, parameters, document
+     formats, and every operation except `basehalf.workspace.move`.
    - Use `basehalf --run-node <workspace-relative .bhnode>` for a saved node.
-   - Use `basehalf --run-operation '<json>'` only for operations that
-     discovery returned.
+   - Use `basehalf --run-operation '<json>'` only for
+     `basehalf.workspace.move` and for operations that discovery returned.
    - Never author attempts or results.
    - Accepted runs continue after the session closes.
    - These commands work only inside Agent Area terminals.
@@ -125,7 +159,14 @@ The instruction covers the following, in this order.
    - `relative to the workspace folder`
    - `keep its frontmatter, including the upstream list`
    - `update every \`upstream\` entry that names its old path`
+   - the move example command
+   - `not to your current directory`
+   - `do not move the item`
+   - `Only if \`basehalf\` is not found`
    - `Never delete or regenerate \`.bh/\``
    - `out of date`
    - `basehalf --list-capabilities`
    - the example block
+4. A unit test shows the terminal exit message for a long multi-line argument
+   by its first non-blank line and `…`, and leaves a short multi-line argument
+   unchanged.
