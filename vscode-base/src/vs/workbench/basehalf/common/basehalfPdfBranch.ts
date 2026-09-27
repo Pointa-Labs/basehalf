@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IBaseHalfPdfSelection } from './basehalfMediaViewState.js';
+import { planBaseHalfMarkdownUpstreamEdit } from './basehalfReferenceStore.js';
 
 function withoutPdfExtension(value: string): string {
 	return value.toLowerCase().endsWith('.pdf') ? value.slice(0, -4) : value;
@@ -37,8 +38,14 @@ function escapeMarkdownInline(value: string): string {
 	return value.replace(/([\\`*_\[\]<>])/g, '\\$1');
 }
 
-/** The selected passage is authored as a normal Markdown note, not hidden app state. */
-export function baseHalfPdfBranchMarkdown(sourceName: string, selection: IBaseHalfPdfSelection): string {
+/**
+ * The selected passage is authored as a normal Markdown note, not hidden app
+ * state. When `upstream` names the PDF's workspace-relative path, the note's
+ * first bytes carry that connection as an `upstream` frontmatter list (D37),
+ * so creating the note is the connection: there is no second write. The
+ * body's `Source:` link stays for navigation only.
+ */
+export function baseHalfPdfBranchMarkdown(sourceName: string, selection: IBaseHalfPdfSelection, upstream?: { readonly sourcePath: string; readonly notePath?: string }): string {
 	const displayName = sourceName.replace(/[\r\n]+/g, ' ');
 	const title = escapeMarkdownInline(baseHalfPdfBranchTitle(selection.text));
 	const quote = selection.text.trim().split(/\r\n?|\n/).map(line => line.length > 0 ? `> ${line}` : '>').join('\n');
@@ -46,5 +53,13 @@ export function baseHalfPdfBranchMarkdown(sourceName: string, selection: IBaseHa
 	const linkLabel = displayName.replace(/([\\\[\]])/g, '\\$1');
 	const encodedSourceName = encodeURIComponent(sourceName).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 	const linkTarget = `./${encodedSourceName}`;
-	return `# ${title}\n\n${quote}\n\nSource: [${linkLabel}](${linkTarget}), ${pageLabel}\n`;
+	const body = `# ${title}\n\n${quote}\n\nSource: [${linkLabel}](${linkTarget}), ${pageLabel}\n`;
+	if (!upstream) {
+		return body;
+	}
+	const plan = planBaseHalfMarkdownUpstreamEdit(body, { kind: 'add', entry: upstream.sourcePath }, { nodePath: upstream.notePath });
+	if (plan.kind !== 'edit') {
+		throw new Error(`The PDF branch note could not list '${upstream.sourcePath}' as upstream.`);
+	}
+	return plan.text;
 }

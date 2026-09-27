@@ -6,10 +6,12 @@
 import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileOperationError, FileOperationResult, FileType, IFileService, IFileStat } from '../../../../platform/files/common/files.js';
-import { BaseHalfBadgeMirrorCorrupt, BaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
+import { BaseHalfBadgeMirrorCorrupt, BaseHalfBadgeMirrorService, baseHalfLegacyBadgePathAccepted, baseHalfRenameLegacyBadgeItems, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
 
 suite('BaseHalfBadgeMirrorService', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
 	const workspaceFolder = URI.file('/work');
 
 	test('maps root, file, and nested folder nodes to badge.yaml resources', () => {
@@ -26,7 +28,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.strictEqual(await service.readBadge(node('docs/readme.md', 'file')), null);
 	});
 
-	test('reads and normalizes badge.yaml metadata', async () => {
+	test('reads badge.yaml metadata without the legacy reference keys', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/docs/readme.md/badge.yaml', [
 				'path: docs/readme.md',
@@ -46,13 +48,13 @@ suite('BaseHalfBadgeMirrorService', () => {
 			path: 'docs/readme.md',
 			kind: 'file',
 			description: 'Project overview',
-			references: ['docs/next.md'],
-			referenced_by: ['docs/index.md'],
 			orphan: true
 		});
+		const legacy = await service.readLegacyReferences(node('docs/readme.md', 'file'));
+		assert.deepStrictEqual([legacy?.references, legacy?.referencedBy], [['docs/next.md', 'docs/next.md'], ['docs/index.md']]);
 	});
 
-	test('defaults sparse reference arrays when fields are absent', async () => {
+	test('reads a badge that never had legacy keys', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/docs/badge.yaml', [
 				'path: docs',
@@ -65,10 +67,9 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.deepStrictEqual(await service.readBadge(node('docs', 'folder')), {
 			path: 'docs',
 			kind: 'folder',
-			description: 'Docs folder',
-			references: [],
-			referenced_by: []
+			description: 'Docs folder'
 		});
+		assert.strictEqual(await service.readLegacyReferences(node('docs', 'folder')), undefined);
 	});
 
 	test('throws a typed corrupt error for invalid YAML', async () => {
@@ -92,7 +93,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 		);
 	});
 
-	test('rejects non-canonical outbound reference paths and reports the current badge as corrupt', async () => {
+	test('legacy reference items the legacy grammar rejects never make the badge unreadable', async () => {
 		const invalidPaths = [
 			'../outside.md',
 			'/leading.md',
@@ -109,45 +110,8 @@ suite('BaseHalfBadgeMirrorService', () => {
 			files.set(`/work/.bh/mirror/${relativePath}/badge.yaml`, [
 				`path: ${relativePath}`,
 				'kind: file',
-				`references: [${JSON.stringify(invalidPaths[index])}]`,
-				'referenced_by: []',
-				''
-			].join('\n'));
-			nodes.push(node(relativePath, 'file'));
-		}
-		const service = createService(files);
-
-		for (const candidate of nodes) {
-			await assert.rejects(
-				() => service.readBadge(candidate),
-				error => error instanceof BaseHalfBadgeMirrorCorrupt
-					&& error.reason === 'references[0] must be a canonical workspace-relative path'
-			);
-		}
-		const result = await service.readBadges(nodes);
-		assert.strictEqual(result.badges.size, 0);
-		assert.strictEqual(result.problems.length, invalidPaths.length);
-		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
-	});
-
-	test('rejects non-canonical inbound reference paths and reports the current badge as corrupt', async () => {
-		const invalidPaths = [
-			'../outside.md',
-			'/leading.md',
-			'trailing.md/',
-			'docs//double.md',
-			'docs/./dot.md',
-			'docs/../parent.md',
-			'docs\\windows.md'
-		];
-		const files = new Map<string, string>();
-		const nodes: IBaseHalfBadgeNode[] = [];
-		for (let index = 0; index < invalidPaths.length; index++) {
-			const relativePath = `bad-backlink-${index}.md`;
-			files.set(`/work/.bh/mirror/${relativePath}/badge.yaml`, [
-				`path: ${relativePath}`,
-				'kind: file',
-				'references: []',
+				'description: Still readable',
+				`references: [${JSON.stringify(invalidPaths[index])}, "ok.md"]`,
 				`referenced_by: [${JSON.stringify(invalidPaths[index])}]`,
 				''
 			].join('\n'));
@@ -156,59 +120,46 @@ suite('BaseHalfBadgeMirrorService', () => {
 		const service = createService(files);
 
 		for (const candidate of nodes) {
-			await assert.rejects(
-				() => service.readBadge(candidate),
-				error => error instanceof BaseHalfBadgeMirrorCorrupt
-					&& error.reason === 'referenced_by[0] must be a canonical workspace-relative path'
-			);
+			const invalidPath = invalidPaths[nodes.indexOf(candidate)];
+			assert.deepStrictEqual(await service.readBadge(candidate), {
+				path: candidate.relativePath,
+				kind: 'file',
+				description: 'Still readable'
+			});
+			assert.deepStrictEqual((await service.readLegacyReferences(candidate))?.referencedBy, [invalidPath]);
+			assert.deepStrictEqual([baseHalfLegacyBadgePathAccepted(invalidPath, candidate.relativePath), baseHalfLegacyBadgePathAccepted('ok.md', candidate.relativePath)], [false, true]);
 		}
 		const result = await service.readBadges(nodes);
-		assert.strictEqual(result.badges.size, 0);
-		assert.strictEqual(result.problems.length, invalidPaths.length);
-		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
+		assert.strictEqual(result.badges.size, invalidPaths.length);
+		assert.strictEqual(result.problems.length, 0);
 	});
 
-	test('accepts the workspace root as a canonical reference endpoint', async () => {
+	test('a badge with only legacy keys is logically empty, and its legacy items stay readable for migration', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/a.md/badge.yaml', 'path: a.md\nkind: file\nreferences: [""]\nreferenced_by: [""]\n']
 		]));
 
-		assert.deepStrictEqual(await service.readBadge(node('a.md', 'file')), {
-			path: 'a.md',
-			kind: 'file',
-			references: [''],
-			referenced_by: ['']
-		});
+		assert.strictEqual(await service.readBadge(node('a.md', 'file')), null);
+		const legacy = await service.readLegacyReferences(node('a.md', 'file'));
+		assert.deepStrictEqual([legacy?.kind, legacy?.references, legacy?.referencedBy], ['file', [''], ['']]);
+		assert.strictEqual(baseHalfLegacyBadgePathAccepted('', 'a.md'), true);
 	});
 
-	test('reports outbound and inbound self-references as corrupt current badges', async () => {
+	test('keeps badges with legacy self-references readable', async () => {
 		const service = createService(new Map([
-			['/work/.bh/mirror/outbound.md/badge.yaml', 'path: outbound.md\nkind: file\nreferences: ["outbound.md"]\nreferenced_by: []\n'],
-			['/work/.bh/mirror/inbound.md/badge.yaml', 'path: inbound.md\nkind: file\nreferences: []\nreferenced_by: ["inbound.md"]\n']
+			['/work/.bh/mirror/outbound.md/badge.yaml', 'path: outbound.md\nkind: file\ndescription: Out\nreferences: ["outbound.md"]\nreferenced_by: []\n'],
+			['/work/.bh/mirror/inbound.md/badge.yaml', 'path: inbound.md\nkind: file\ndescription: In\nreferences: []\nreferenced_by: ["inbound.md"]\n']
 		]));
 
-		await assert.rejects(
-			() => service.readBadge(node('outbound.md', 'file')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt
-				&& error.reason === 'references[0] cannot reference its own badge path'
-		);
-		await assert.rejects(
-			() => service.readBadge(node('inbound.md', 'file')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt
-				&& error.reason === 'referenced_by[0] cannot reference its own badge path'
-		);
-		const result = await service.readBadges([
-			node('outbound.md', 'file'),
-			node('inbound.md', 'file')
-		]);
-		assert.strictEqual(result.badges.size, 0);
-		assert.strictEqual(result.problems.length, 2);
-		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
+		assert.deepStrictEqual(await service.readBadge(node('outbound.md', 'file')), { path: 'outbound.md', kind: 'file', description: 'Out' });
+		assert.deepStrictEqual(await service.readBadge(node('inbound.md', 'file')), { path: 'inbound.md', kind: 'file', description: 'In' });
+		assert.deepStrictEqual((await service.readLegacyReferences(node('outbound.md', 'file')))?.references, ['outbound.md']);
+		assert.strictEqual(baseHalfLegacyBadgePathAccepted('outbound.md', 'outbound.md'), false);
 	});
 
 	test('trusts the stored kind over the caller guess (a reference target defaults to file)', async () => {
 		const service = createService(new Map([
-			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: folder\nreferences: []\nreferenced_by: ["a.md"]\n']
+			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: folder\ndescription: Docs\nreferences: []\nreferenced_by: ["a.md"]\n']
 		]));
 
 		const badge = await service.readBadge(node('docs', 'file'));
@@ -226,26 +177,27 @@ suite('BaseHalfBadgeMirrorService', () => {
 	test('readBadges returns valid badges while collecting corrupt metadata problems', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/a.md/badge.yaml', 'path: a.md\nkind: file\ndescription: Alpha\nreferences: []\nreferenced_by: []\n'],
-			['/work/.bh/mirror/b.md/badge.yaml', 'path: b.md\nkind: file\nreferences: [1]\nreferenced_by: []\n']
+			['/work/.bh/mirror/b.md/badge.yaml', 'path: b.md\nkind: link\n'],
+			['/work/.bh/mirror/c.md/badge.yaml', 'path: c.md\nkind: file\ndescription: Gamma\nreferences: [1]\nreferenced_by: {bad: map}\n']
 		]));
 
 		const result = await service.readBadges([
 			node('a.md', 'file'),
 			node('b.md', 'file'),
+			node('c.md', 'file'),
 			node('missing.md', 'file')
 		]);
 
-		assert.deepStrictEqual([...result.badges.keys()], ['a.md']);
+		assert.deepStrictEqual([...result.badges.keys()], ['a.md', 'c.md']);
 		assert.deepStrictEqual(result.badges.get('a.md'), {
 			path: 'a.md',
 			kind: 'file',
-			description: 'Alpha',
-			references: [],
-			referenced_by: []
+			description: 'Alpha'
 		});
 		assert.strictEqual(result.problems.length, 1);
 		assert.strictEqual(result.problems[0].relativePath, 'b.md');
 		assert.strictEqual(result.problems[0].corrupt, true);
+		assert.deepStrictEqual((await service.readLegacyReferences(node('c.md', 'file')))?.malformed, ['references', 'referenced_by']);
 	});
 
 	test('replays an absent create race and merges the external badge', async () => {
@@ -265,7 +217,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 		const updated = await service.patchBadge(node('docs/readme.md', 'file'), current => {
 			updateCount++;
 			return {
-				...(current ?? { path: 'docs/readme.md', kind: 'file', references: [], referenced_by: [] }),
+				...(current ?? { path: 'docs/readme.md', kind: 'file' }),
 				description: 'Local note'
 			};
 		});
@@ -276,11 +228,10 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.deepStrictEqual(updated, {
 			path: 'docs/readme.md',
 			kind: 'file',
-			description: 'Local note',
-			references: ['external.md'],
-			referenced_by: []
+			description: 'Local note'
 		});
-		});
+		assert.strictEqual(fileService.files.get(badgePath), 'path: "docs/readme.md"\nkind: file\ndescription: "Local note"\nreferences:\n  - "external.md"\nreferenced_by: []\n');
+	});
 
 	test('replays an equal-length external rewrite detected by the exact-byte precommit check', async () => {
 		const badgePath = '/work/.bh/mirror/docs/readme.md/badge.yaml';
@@ -292,12 +243,12 @@ suite('BaseHalfBadgeMirrorService', () => {
 		const service = mirrorService(fileService);
 
 		await service.patchBadge(node('docs/readme.md', 'file'), current => ({
-			...(current ?? { path: 'docs/readme.md', kind: 'file', references: [], referenced_by: [] }),
-			references: ['mine.md']
+			...(current ?? { path: 'docs/readme.md', kind: 'file' }),
+			orphan: true
 		}));
 
 		assert.strictEqual((await service.readBadge(node('docs/readme.md', 'file')))?.description, 'BBBB');
-		assert.deepStrictEqual((await service.readBadge(node('docs/readme.md', 'file')))?.references, ['mine.md']);
+		assert.strictEqual((await service.readBadge(node('docs/readme.md', 'file')))?.orphan, true);
 		assert.strictEqual(fileService.writeCount, 2);
 	});
 
@@ -331,6 +282,103 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.strictEqual((await service.readBadge(node('a.md', 'file')))?.description, 'External latest');
 	});
 
+	test('writes the badge schema without references and keeps legacy keys verbatim through every write', async () => {
+		const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
+		const legacy = [
+			'references:   # from an earlier release',
+			'- "b.md"',
+			'  - weird: [indent',
+			'referenced_by: {not: a list}',
+			''
+		].join('\n');
+		const fileService = new TestFileService(new Map([[badgePath, `path: a.md\nkind: file\n${legacy}description: Old\n`]]));
+		const service = mirrorService(fileService);
+
+		assert.deepStrictEqual(await service.readBadge(node('a.md', 'file')), { path: 'a.md', kind: 'file', description: 'Old' });
+		await service.patchBadge(node('a.md', 'file'), current => ({ ...current!, description: 'New' }));
+		assert.strictEqual(fileService.files.get(badgePath), `path: "a.md"\nkind: file\ndescription: "New"\n${legacy}`);
+		assert.strictEqual(await service.patchBadge(node('a.md', 'file'), () => null), null);
+		assert.strictEqual(fileService.files.get(badgePath), `path: "a.md"\nkind: file\n${legacy}`);
+
+		const freshFiles = new TestFileService(new Map());
+		await mirrorService(freshFiles).patchBadge(node('new.md', 'file'), () => ({ path: 'new.md', kind: 'file', description: 'Only this' }));
+		assert.strictEqual(freshFiles.files.get('/work/.bh/mirror/new.md/badge.yaml'), 'path: "new.md"\nkind: file\ndescription: "Only this"\n');
+	});
+
+	test('lists legacy pairs for migration and removes migrated items and empty keys', async () => {
+		const fileService = new TestFileService(new Map([
+			['/work/.bh/mirror/a.md/badge.yaml', 'path: a.md\nkind: file\ndescription: A\nreferences:\n  - b.md\n  - c.md\nreferenced_by: []\n'],
+			['/work/.bh/mirror/b.md/badge.yaml', 'path: b.md\nkind: file\nreferences: []\nreferenced_by:\n  - a.md\n'],
+			['/work/.bh/mirror/c.md/badge.yaml', 'path: c.md\nkind: file\ndescription: plain\n']
+		]));
+		fileService.directories.set('/work/.bh/mirror', ['a.md', 'b.md', 'c.md']);
+		const service = mirrorService(fileService);
+
+		const listed = await service.listLegacyReferences(workspaceFolder);
+		assert.deepStrictEqual(listed.entries.map(entry => [entry.relativePath, entry.kind, entry.references, entry.referencedBy, entry.malformed]), [
+			['a.md', 'file', ['b.md', 'c.md'], [], []],
+			['b.md', 'file', [], ['a.md'], []]
+		]);
+
+		const remaining = await service.removeLegacyReferences(node('a.md', 'file'), { references: ['b.md'] });
+		assert.deepStrictEqual([remaining?.references, remaining?.referencedBy], [['c.md'], []]);
+		assert.strictEqual(fileService.files.get('/work/.bh/mirror/a.md/badge.yaml'), 'path: a.md\nkind: file\ndescription: A\nreferences:\n  - "c.md"\nreferenced_by: []\n');
+		await service.removeLegacyReferences(node('b.md', 'file'), { referencedBy: ['a.md'] });
+		assert.strictEqual(fileService.files.get('/work/.bh/mirror/b.md/badge.yaml'), 'path: b.md\nkind: file\nreferences: []\n');
+		assert.strictEqual(await service.removeLegacyReferences(node('c.md', 'file'), { references: ['x.md'] }), undefined);
+	});
+
+	test('renames legacy items that name a moved path and keeps every other byte verbatim', async () => {
+		const rename = (item: string) => item === 'docs' || item.startsWith('docs/') ? `archive${item.slice(4)}` : undefined;
+		const badge = [
+			'path: "notes.md"',
+			'kind: file',
+			'description: "keeps: this"',
+			'# a comment the legacy writer never wrote',
+			'references:',
+			'  - "docs/a.md"',
+			'  - other.md',
+			'  - "docs"',
+			'referenced_by:',
+			'  - "untouched.md"',
+			'orphan: true',
+			''
+		].join('\r\n');
+		const malformed = 'path: x.md\nkind: file\nreferences: docs/a.md\nreferenced_by:\n  - docs/a.md\n';
+		const fileService = new TestFileService(new Map([
+			['/work/.bh/mirror/notes.md/badge.yaml', badge],
+			['/work/.bh/mirror/plain.md/badge.yaml', 'path: plain.md\nkind: file\nreferences:\n  - other.md\n']
+		]));
+		const service = mirrorService(fileService);
+		assert.deepStrictEqual({
+			text: baseHalfRenameLegacyBadgeItems(badge, rename),
+			// A malformed key stays as it is; a well-formed one is renamed.
+			malformed: baseHalfRenameLegacyBadgeItems(malformed, rename),
+			unrelated: baseHalfRenameLegacyBadgeItems('path: y.md\nkind: file\nreferences:\n  - other.md # note\n', rename),
+			wrote: [await service.renameLegacyReferences(node('notes.md', 'file'), rename), await service.renameLegacyReferences(node('plain.md', 'file'), rename), await service.renameLegacyReferences(node('absent.md', 'file'), rename)],
+			written: fileService.files.get('/work/.bh/mirror/notes.md/badge.yaml') === baseHalfRenameLegacyBadgeItems(badge, rename)
+		}, {
+			text: [
+				'path: "notes.md"',
+				'kind: file',
+				'description: "keeps: this"',
+				'# a comment the legacy writer never wrote',
+				'references:',
+				'  - "archive/a.md"',
+				'  - "other.md"',
+				'  - "archive"',
+				'referenced_by:',
+				'  - "untouched.md"',
+				'orphan: true',
+				''
+			].join('\r\n'),
+			malformed: 'path: x.md\nkind: file\nreferences: docs/a.md\nreferenced_by:\n  - "archive/a.md"\n',
+			unrelated: 'path: y.md\nkind: file\nreferences:\n  - other.md # note\n',
+			wrote: [true, false, false],
+			written: true
+		});
+	});
+
 	function node(relativePath: string, kind: 'file' | 'folder'): IBaseHalfBadgeNode {
 		return {
 			resource: relativePath ? URI.joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder,
@@ -351,6 +399,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 
 class TestFileService {
 	readonly files: Map<string, string>;
+	readonly directories = new Map<string, string[]>();
 	private readonly revisions = new Map<string, number>();
 	private readonly externalCreates = new Map<string, string>();
 	private readonly externalWritesBeforeCommit = new Map<string, string>();
@@ -382,6 +431,29 @@ class TestFileService {
 		}
 		if ([...this.files.keys()].some(path => path.startsWith(`${resource.fsPath}/`))) {
 			return stat(resource, FileType.Directory);
+		}
+		throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+	}
+
+	async resolve(resource: URI): Promise<IFileStat> {
+		const children = this.directories.get(resource.fsPath);
+		if (children) {
+			return { ...stat(resource, FileType.Directory), children: children.map(name => stat(URI.joinPath(resource, name), FileType.Directory)) };
+		}
+		if ([...this.files.keys()].some(path => path.startsWith(`${resource.fsPath}/`))) {
+			const names = new Set<string>();
+			for (const path of this.files.keys()) {
+				if (path.startsWith(`${resource.fsPath}/`)) {
+					names.add(path.slice(resource.fsPath.length + 1).split('/')[0]);
+				}
+			}
+			return {
+				...stat(resource, FileType.Directory),
+				children: [...names].map(name => {
+					const child = URI.joinPath(resource, name);
+					return stat(child, this.files.has(child.fsPath) ? FileType.File : FileType.Directory);
+				})
+			};
 		}
 		throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
 	}

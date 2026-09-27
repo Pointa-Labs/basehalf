@@ -15,6 +15,8 @@ import {
 	baseHalfVideoCanvasPickSelectionIsActive,
 	baseHalfVideoInputTransactionIsCurrent,
 	baseHalfVideoInputBindingIntegrity,
+	baseHalfVideoInputEdgeState,
+	baseHalfVideoInputUpstreamCanTake,
 	beginBaseHalfVideoCanvasPick,
 	BaseHalfVideoInputMutationError,
 	BaseHalfVideoInputMutationProblemKind,
@@ -290,7 +292,7 @@ suite('BaseHalfVideoInputs', () => {
 		assert.strictEqual(baseHalfVideoInputBindingIntegrity(captured, undefined), 'missing');
 	});
 
-	test('plans canvas pick only for a saved eligible source and absent edge', () => {
+	test('plans canvas pick only for a saved eligible source that is not bound yet', () => {
 		const context = mutationContext('first-frame-to-video', [], [source('frames/start.bhnode')]);
 		const plan = planBaseHalfVideoInputPick({
 			...context,
@@ -304,11 +306,18 @@ suite('BaseHalfVideoInputs', () => {
 		assert.strictEqual(plan.afterBindings[0].sourceRevision, 'sha256:test');
 		assert.deepStrictEqual(plan.graph, { addSourcePaths: ['frames/start.bhnode'], removeSourcePaths: [] });
 
-		assertMutationKind(() => planBaseHalfVideoInputPick({
+		// A source the target already lists without a binding is bound in place.
+		assert.deepStrictEqual(planBaseHalfVideoInputPick({
 			...context,
 			sourcePath: 'frames/start.bhnode',
 			role: 'first-frame',
 			edgeState: 'present'
+		}).graph, plan.graph);
+		assertMutationKind(() => planBaseHalfVideoInputPick({
+			...context,
+			sourcePath: 'frames/start.bhnode',
+			role: 'first-frame',
+			edgeState: 'inconsistent'
 		}), 'edge-not-absent');
 
 		const unsaved = mutationContext('first-frame-to-video', [], [source('frames/draft.bhnode', { saved: false })]);
@@ -337,7 +346,7 @@ suite('BaseHalfVideoInputs', () => {
 		}), 'source-already-bound');
 	});
 
-	test('plans Replace and Remove with exact graph deltas and canonical order', () => {
+	test('plans Replace and Remove with exact upstream deltas and canonical order', () => {
 		const context = mutationContext('first-frame-to-video', [binding('frames/old.bhnode', 'first-frame', 3)], [
 			source('frames/old.bhnode'),
 			source('frames/new.bhnode')
@@ -371,6 +380,28 @@ suite('BaseHalfVideoInputs', () => {
 			currentEdgeState: 'present',
 			replacementEdgeState: 'absent'
 		}), 'same-source');
+		// A binding whose entry is missing can still be replaced; the write lists the replacement.
+		assert.deepStrictEqual(planBaseHalfVideoInputReplace({
+			...context,
+			sourcePath: 'frames/old.bhnode',
+			replacementSourcePath: 'frames/new.bhnode',
+			currentEdgeState: 'inconsistent',
+			replacementEdgeState: 'present'
+		}).graph, replaced.graph);
+		assertMutationKind(() => planBaseHalfVideoInputReplace({
+			...context,
+			sourcePath: 'frames/old.bhnode',
+			replacementSourcePath: 'frames/new.bhnode',
+			currentEdgeState: 'absent',
+			replacementEdgeState: 'absent'
+		}), 'edge-not-present');
+		assertMutationKind(() => planBaseHalfVideoInputReplace({
+			...context,
+			sourcePath: 'frames/old.bhnode',
+			replacementSourcePath: 'frames/new.bhnode',
+			currentEdgeState: 'present',
+			replacementEdgeState: 'inconsistent'
+		}), 'edge-not-absent');
 		const inconsistentRemoval = planBaseHalfVideoInputRemove({
 			...context,
 			sourcePath: 'frames/old.bhnode',
@@ -449,6 +480,7 @@ suite('BaseHalfVideoInputs', () => {
 		const updated = applyBaseHalfVideoInputMutationToDocument({ document, plan });
 
 		assert.deepStrictEqual(updated.recipe?.inputBindings, []);
+		assert.deepStrictEqual({ before: document.upstream, after: updated.upstream }, { before: ['frames/old.bhnode'], after: [] });
 		assert.strictEqual(updated.title, document.title);
 		assert.strictEqual(updated.role, document.role);
 		assert.strictEqual(updated.prompt, document.prompt);
@@ -474,6 +506,98 @@ suite('BaseHalfVideoInputs', () => {
 			}),
 			plan
 		}), 'target-not-editable');
+	});
+
+	test('derives edge state from the target\'s own upstream list and bindings', () => {
+		const document = createBaseHalfNodeDocument({
+			id: 'ecfae9de-f1c4-426d-92d6-b54ca0438f44',
+			kind: 'video',
+			title: 'Clip',
+			role: 'Clip',
+			upstream: ['frames/listed.bhnode', 'Frames/Bound.bhnode', 'folder/', 7],
+			recipe: {
+				recipeId: 'video.start-frame',
+				parameters: {},
+				inputBindings: [
+					binding('frames/bound.bhnode', 'first-frame', 0),
+					binding('frames/unlisted.bhnode', 'last-frame', 1)
+				]
+			}
+		});
+		assert.deepStrictEqual([
+			'frames/listed.bhnode',
+			'frames/bound.bhnode',
+			'folder',
+			'frames/unlisted.bhnode',
+			'frames/new.bhnode'
+		].map(path => baseHalfVideoInputEdgeState(document, path)), ['present', 'present', 'present', 'inconsistent', 'absent']);
+		const full = { upstream: Array.from({ length: 64 }, (_, index) => `frames/${index}.bhnode`) };
+		assert.deepStrictEqual({
+			listed: baseHalfVideoInputUpstreamCanTake(full, 'frames/3.bhnode'),
+			newEntry: baseHalfVideoInputUpstreamCanTake(full, 'frames/new.bhnode'),
+			room: baseHalfVideoInputUpstreamCanTake(document, 'frames/new.bhnode')
+		}, { listed: true, newEntry: false, room: true });
+	});
+
+	test('applies bindings and their upstream entries in one document change', () => {
+		const start = binding('frames/start.bhnode', 'first-frame', 0);
+		const document = createBaseHalfNodeDocument({
+			id: 'ecfae9de-f1c4-426d-92d6-b54ca0438f44',
+			kind: 'video',
+			title: 'Clip',
+			role: 'Clip',
+			upstream: ['brief.md', 'frames/start.bhnode', 42, 'frames/end.bhnode'],
+			recipe: {
+				recipeId: 'video.start-frame',
+				parameters: {},
+				inputBindings: [start]
+			}
+		});
+		const context = mutationContext('first-last-frame-to-video', [start], [
+			source('frames/start.bhnode'),
+			source('frames/end.bhnode'),
+			source('frames/other.bhnode')
+		]);
+		// Pick of a listed, unbound source binds it without listing it twice.
+		const picked = applyBaseHalfVideoInputMutationToDocument({
+			document,
+			plan: planBaseHalfVideoInputPick({ ...context, sourcePath: 'frames/end.bhnode', role: 'last-frame', edgeState: 'present' })
+		});
+		// Replace keeps the entry's position; unrelated and invalid items stay.
+		const replaced = applyBaseHalfVideoInputMutationToDocument({
+			document,
+			plan: planBaseHalfVideoInputReplace({
+				...context,
+				sourcePath: 'frames/start.bhnode',
+				replacementSourcePath: 'frames/other.bhnode',
+				currentEdgeState: 'present',
+				replacementEdgeState: 'absent'
+			})
+		});
+		// Remove of a binding whose entry is already absent is an idempotent cleanup.
+		const unlisted = createBaseHalfNodeDocument({ ...document, upstream: ['brief.md'] });
+		const removed = applyBaseHalfVideoInputMutationToDocument({
+			document: unlisted,
+			plan: planBaseHalfVideoInputRemove({ ...context, sourcePath: 'frames/start.bhnode', edgeState: 'inconsistent' })
+		});
+		assert.deepStrictEqual({
+			picked: { upstream: picked.upstream, bindings: picked.recipe?.inputBindings.map(candidate => candidate.sourcePath) },
+			replaced: { upstream: replaced.upstream, bindings: replaced.recipe?.inputBindings.map(candidate => candidate.sourcePath) },
+			removed: { upstream: removed.upstream, bindings: removed.recipe?.inputBindings }
+		}, {
+			picked: { upstream: ['brief.md', 'frames/start.bhnode', 42, 'frames/end.bhnode'], bindings: ['frames/start.bhnode', 'frames/end.bhnode'] },
+			replaced: { upstream: ['brief.md', 'frames/other.bhnode', 42, 'frames/end.bhnode'], bindings: ['frames/other.bhnode'] },
+			removed: { upstream: ['brief.md'], bindings: [] }
+		});
+
+		const full = createBaseHalfNodeDocument({
+			...document,
+			upstream: ['frames/start.bhnode', ...Array.from({ length: 63 }, (_, index) => `notes/${index}.md`)]
+		});
+		assertMutationKind(() => applyBaseHalfVideoInputMutationToDocument({
+			document: full,
+			plan: planBaseHalfVideoInputPick({ ...context, sourcePath: 'frames/end.bhnode', role: 'last-frame', edgeState: 'absent' })
+		}), 'upstream-full');
 	});
 
 	test('plans role conversion only as an explicit binding-only mutation', () => {

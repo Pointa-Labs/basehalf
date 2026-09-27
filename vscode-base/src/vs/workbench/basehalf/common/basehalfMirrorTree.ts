@@ -10,8 +10,8 @@ import { FileOperationResult, IFileService, toFileOperationResult } from '../../
 /**
  * Utilities for treating `<workspace>/.bh/mirror/` as a tree of per-node
  * directories. Every workspace file/folder `rel` owns the directory
- * `.bh/mirror/<rel>/`, holding up to five YAML files (badge / canvas / focus /
- * adhd / appearance). The workspace root maps to `.bh/mirror/` itself
+ * `.bh/mirror/<rel>/`, holding its YAML files (badge / canvas / adhd /
+ * appearance). The workspace root maps to `.bh/mirror/` itself
  * (`rel === ''`).
  *
  * The mirror is sparse: only annotated nodes have a directory, so operations
@@ -57,8 +57,28 @@ export async function baseHalfAssertMirrorPathComponentsNotSymbolicLink(
 		throw new Error(`Resource is outside the BaseHalf mirror tree: ${resource.toString()}`);
 	}
 
-	const candidates = [URI.joinPath(workspaceFolder, '.bh'), mirrorRoot];
-	let current = mirrorRoot;
+	await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, workspaceFolder, resource);
+}
+
+/**
+ * The same fail-closed guard for any resource under `<workspace>/.bh/`
+ * (for example legacy files directly under `.bh/` that cleanup removes):
+ * every existing component from `.bh` down to `resource`, the resource
+ * included, must not be a symbolic link.
+ */
+export async function baseHalfAssertBhPathComponentsNotSymbolicLink(
+	fileService: IFileService,
+	workspaceFolder: URI,
+	resource: URI
+): Promise<void> {
+	const bhRoot = URI.joinPath(workspaceFolder, '.bh');
+	const relative = getRelativePath(bhRoot, resource);
+	if (relative === undefined || relative === '..' || relative.startsWith('../')) {
+		throw new Error(`Resource is outside the BaseHalf .bh tree: ${resource.toString()}`);
+	}
+
+	const candidates = [bhRoot];
+	let current = bhRoot;
 	for (const segment of baseHalfMirrorPathSegments(relative)) {
 		current = URI.joinPath(current, segment);
 		candidates.push(current);

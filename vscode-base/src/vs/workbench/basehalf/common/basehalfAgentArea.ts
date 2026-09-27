@@ -5,7 +5,9 @@
 
 import { Event } from '../../../base/common/event.js';
 import { IDisposable } from '../../../base/common/lifecycle.js';
+import { OperatingSystem } from '../../../base/common/platform.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS, BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG } from './basehalfAgentLaunchInstructions.js';
 
 export const IBaseHalfAgentAreaService = createDecorator<IBaseHalfAgentAreaService>('baseHalfAgentAreaService');
 
@@ -170,11 +172,42 @@ export interface IBaseHalfAgentAreaSession {
 export interface IBaseHalfTuiSessionLaunchConfig {
 	readonly name: string;
 	readonly executable: string;
+	/** Launch-time context arguments; see {@link baseHalfTuiSessionLaunchConfig}. */
+	readonly args?: readonly string[];
 	readonly waitOnExit: string;
 	readonly hideFromUser: true;
 }
 
-export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind): IBaseHalfTuiSessionLaunchConfig | undefined {
+/** Where and how a TUI session would be launched. */
+export interface IBaseHalfTuiSessionLaunchContext {
+	/** The session runs through a remote connection. */
+	readonly isRemote: boolean;
+	/** The operating system that runs the session's process. */
+	readonly os: OperatingSystem;
+	/** Some workspace folder holds `.basehalf-no-workspace-setup` (or its
+	 *  presence could not be determined): development sessions on the BaseHalf
+	 *  source tree must not receive product instructions. */
+	readonly hasMarkedWorkspaceFolder: boolean;
+	/** False once this session relaunched without launch context because the
+	 *  installed CLI rejected the argument. */
+	readonly launchInstructions?: boolean;
+}
+
+/**
+ * Whether a session receives the BaseHalf launch instruction: only a local
+ * Claude Code TUI session (the one that gets the node-run bridge) on macOS or
+ * Linux, in a workspace without a marked folder. Codex, extension agents,
+ * plain terminals, remote sessions, and Windows receive none.
+ */
+export function baseHalfTuiSessionReceivesLaunchInstructions(kind: BaseHalfAgentSessionKind, context: IBaseHalfTuiSessionLaunchContext): boolean {
+	return kind === 'tui-claude'
+		&& baseHalfAgentSessionUsesLocalNodeRunBridge(kind, context.isRemote)
+		&& (context.os === OperatingSystem.Macintosh || context.os === OperatingSystem.Linux)
+		&& !context.hasMarkedWorkspaceFolder
+		&& context.launchInstructions !== false;
+}
+
+export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind, context: IBaseHalfTuiSessionLaunchContext): IBaseHalfTuiSessionLaunchConfig | undefined {
 	const choice = baseHalfAgentSessionChoiceForKind(kind);
 	if (!choice.terminalCommand) {
 		return undefined;
@@ -183,9 +216,84 @@ export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind): 
 	return {
 		name: choice.label,
 		executable: choice.terminalCommand,
+		...(baseHalfTuiSessionReceivesLaunchInstructions(kind, context)
+			? { args: [BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, BASEHALF_AGENT_LAUNCH_INSTRUCTIONS] }
+			: {}),
 		waitOnExit: `${choice.label} session ended. Press any key to close it, or restart it from its tab.`,
 		hideFromUser: true
 	};
+}
+
+/** Launch arguments with the BaseHalf launch instruction (flag and text) removed. */
+export function baseHalfStripAgentLaunchInstructions(args: readonly string[] | string | undefined): string[] | string | undefined {
+	if (!Array.isArray(args)) {
+		return typeof args === 'string' ? args : undefined;
+	}
+	const stripped: string[] = [];
+	for (let index = 0; index < args.length; index++) {
+		if (args[index] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && args[index + 1] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS) {
+			index++;
+			continue;
+		}
+		stripped.push(args[index]);
+	}
+	return stripped.length > 0 ? stripped : undefined;
+}
+
+/** Whether launch arguments carry the BaseHalf launch instruction. */
+export function baseHalfHasAgentLaunchInstructions(args: readonly string[] | string | undefined): boolean {
+	return Array.isArray(args) && args.some((arg, index) => arg === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && args[index + 1] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS);
+}
+
+/** An exit this soon after a launch with the argument, before any user input,
+ *  means the installed CLI most likely rejected the argument. */
+export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_EARLY_EXIT_MS = 5000;
+
+/**
+ * Tracks one Agent Area TUI session's launches so an installed Claude Code
+ * that rejects `--append-system-prompt` never makes the TUI unusable: an
+ * early non-zero exit before any user input relaunches the session once
+ * without the argument, and the session and its restarts then continue
+ * without launch context.
+ */
+export class BaseHalfAgentLaunchInstructionsMonitor {
+	private launchedAt: number | undefined;
+	private userInput = false;
+	private disabled = false;
+
+	constructor(private readonly now: () => number = Date.now) { }
+
+	/** Whether the next launch may carry the argument. */
+	get enabled(): boolean {
+		return !this.disabled;
+	}
+
+	didLaunch(withInstructions: boolean): void {
+		this.launchedAt = withInstructions && !this.disabled ? this.now() : undefined;
+		this.userInput = false;
+	}
+
+	didReceiveUserInput(): void {
+		this.userInput = true;
+	}
+
+	/**
+	 * True exactly once, for a non-zero exit of a launch that carried the
+	 * argument, within {@link BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_EARLY_EXIT_MS}
+	 * and before any user input. Launch context is then disabled for good.
+	 */
+	shouldRelaunchWithoutInstructions(exitCode: number | undefined): boolean {
+		const launchedAt = this.launchedAt;
+		this.launchedAt = undefined;
+		if (this.disabled || launchedAt === undefined || this.userInput || exitCode === undefined || exitCode === 0) {
+			return false;
+		}
+		if (this.now() - launchedAt > BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_EARLY_EXIT_MS) {
+			return false;
+		}
+		this.disabled = true;
+		return true;
+	}
 }
 
 export function baseHalfTuiSessionLaunchFailureGuidance(kind: BaseHalfAgentSessionKind): string | undefined {

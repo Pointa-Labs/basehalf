@@ -7,7 +7,12 @@ import {
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage
 } from './basehalfMarkdownRichWebviewProtocol.js';
-import { IBaseHalfMarkdownRichDisk } from './basehalfMarkdownRichSession.js';
+import {
+	baseHalfMarkdownRichBody,
+	composeBaseHalfMarkdownRichContent,
+	IBaseHalfMarkdownRichDisk,
+	writeBaseHalfMarkdownRichBody
+} from './basehalfMarkdownRichSession.js';
 
 export type BaseHalfMarkdownRichSaveRequestedMessage = Extract<BaseHalfMarkdownRichWebviewMessage, { readonly type: 'basehalf.markdownRich.saveRequested' }>;
 export type BaseHalfMarkdownRichSaveResultMessage = Extract<BaseHalfMarkdownRichHostMessage, { readonly type: 'basehalf.markdownRich.saveResult' }>;
@@ -24,67 +29,87 @@ export interface IBaseHalfMarkdownRichSaveSender {
 export interface IBaseHalfMarkdownRichSaveOutcome {
 	readonly result: BaseHalfMarkdownRichSaveResultKind;
 	readonly okToLeave: boolean;
+	/** The document text after a saved or no-op result. It carries the model's frontmatter. */
 	readonly content?: string;
 	readonly disk?: string;
 	readonly message?: string;
 }
 
+/**
+ * Host side of a rich save. The webview sends only its body; the text model
+ * owns the frontmatter. Every save and force-write therefore writes the
+ * model's current frontmatter with the rich body, and only a body divergence
+ * blocks a save as a conflict.
+ */
 export class BaseHalfMarkdownRichWebviewSaveCoordinator {
 	async handleSaveRequested(
 		message: BaseHalfMarkdownRichSaveRequestedMessage,
 		disk: IBaseHalfMarkdownRichDisk,
 		sender: IBaseHalfMarkdownRichSaveSender
 	): Promise<IBaseHalfMarkdownRichSaveOutcome> {
-		let current: string;
-		try {
-			current = await disk.read();
-		} catch (error) {
-			const outcome = this.writeFailed(error);
-			await sender.sendSaveResult(message.requestId, outcome.result, { message: outcome.message });
-			return outcome;
-		}
+		const result = await writeBaseHalfMarkdownRichBody(disk, {
+			body: message.body,
+			previousContent: message.previousContent,
+			forceWrite: message.forceWrite
+		});
 
-		if (!message.forceWrite && current !== message.previousContent) {
-			const outcome: IBaseHalfMarkdownRichSaveOutcome = {
-				result: 'blockedByConflict',
-				okToLeave: false,
-				disk: current
-			};
-			await sender.sendSaveResult(message.requestId, outcome.result, { disk: current });
-			return outcome;
+		let outcome: IBaseHalfMarkdownRichSaveOutcome;
+		switch (result.kind) {
+			case 'noop':
+			case 'saved':
+				outcome = { result: result.kind, okToLeave: true, content: result.content };
+				await sender.sendSaveResult(message.requestId, outcome.result, { content: result.content });
+				return outcome;
+			case 'blockedByConflict':
+				outcome = { result: 'blockedByConflict', okToLeave: false, disk: result.disk };
+				await sender.sendSaveResult(message.requestId, outcome.result, { disk: result.disk });
+				return outcome;
+			case 'writeFailed':
+				outcome = {
+					result: 'writeFailed',
+					okToLeave: false,
+					message: result.error instanceof Error ? result.error.message : String(result.error)
+				};
+				await sender.sendSaveResult(message.requestId, outcome.result, { message: outcome.message });
+				return outcome;
 		}
+	}
+}
 
-		if (!message.forceWrite && message.content === current) {
-			const outcome: IBaseHalfMarkdownRichSaveOutcome = {
-				result: 'noop',
-				okToLeave: true,
-				content: current
-			};
-			await sender.sendSaveResult(message.requestId, outcome.result, { content: current });
-			return outcome;
-		}
+export type BaseHalfMarkdownRichProjectionHandoffPlan =
+	| { readonly kind: 'conflict'; readonly disk: string }
+	| { readonly kind: 'apply'; readonly content: string; readonly changed: boolean };
 
-		try {
-			await disk.write(message.content);
-			const outcome: IBaseHalfMarkdownRichSaveOutcome = {
-				result: 'saved',
-				okToLeave: true,
-				content: message.content
-			};
-			await sender.sendSaveResult(message.requestId, outcome.result, { content: message.content });
-			return outcome;
-		} catch (error) {
-			const outcome = this.writeFailed(error);
-			await sender.sendSaveResult(message.requestId, outcome.result, { message: outcome.message });
-			return outcome;
+/**
+ * Plans the synchronous projection handoff write. A handoff does not wait for
+ * an earlier save round trip, so the webview's `previousContent` may lag a
+ * save the host already applied. Bodies the host accepted from this editor,
+ * or is still writing for it, therefore do not count as a divergence. The
+ * written text is always the model's current frontmatter with the rich body.
+ */
+export function planBaseHalfMarkdownRichProjectionHandoff(
+	current: string,
+	message: Pick<BaseHalfMarkdownRichSaveRequestedMessage, 'body' | 'previousContent' | 'forceWrite'>,
+	acceptedBodies: Iterable<string>
+): BaseHalfMarkdownRichProjectionHandoffPlan {
+	if (!message.forceWrite) {
+		const currentBody = baseHalfMarkdownRichBody(current);
+		if (currentBody !== message.body
+			&& currentBody !== baseHalfMarkdownRichBody(message.previousContent)
+			&& !includes(acceptedBodies, currentBody)) {
+			return { kind: 'conflict', disk: current };
 		}
 	}
 
-	private writeFailed(error: unknown): IBaseHalfMarkdownRichSaveOutcome {
-		return {
-			result: 'writeFailed',
-			okToLeave: false,
-			message: error instanceof Error ? error.message : String(error)
-		};
+	const content = composeBaseHalfMarkdownRichContent(current, message.body);
+	return { kind: 'apply', content, changed: content !== current };
+}
+
+function includes(values: Iterable<string>, value: string): boolean {
+	for (const candidate of values) {
+		if (candidate === value) {
+			return true;
+		}
 	}
+	return false;
 }

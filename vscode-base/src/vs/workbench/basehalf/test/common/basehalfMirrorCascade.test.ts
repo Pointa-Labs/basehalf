@@ -5,10 +5,13 @@
 
 import * as assert from 'assert';
 import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileOperation } from '../../../../platform/files/common/files.js';
-import { BaseHalfMirrorCascadeStageError, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfOrderCascadeStages, baseHalfPrepareStructuralDetail, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../../common/basehalfMirrorCascadeOperation.js';
+import { BaseHalfMirrorCascadeStageError, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfPrepareStructuralDetail, baseHalfRelocateBadgeText, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../../common/basehalfMirrorCascadeOperation.js';
 
 suite('BaseHalfMirrorCascadeOperation', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('failed batch maps only the explicit completed prefix', () => {
 		const first = { source: URI.file('/workspace/a.md'), target: URI.file('/workspace/a-moved.md') };
 		const unattempted = { source: URI.file('/workspace/b.md'), target: URI.file('/workspace/b-moved.md') };
@@ -118,17 +121,6 @@ suite('BaseHalfMirrorCascadeOperation', () => {
 		assert.deepStrictEqual(calls, [1, 3, 1]);
 	});
 
-	test('batch ordering keeps pair order inside projection and semantic phases', () => {
-		assert.deepStrictEqual(baseHalfOrderCascadeStages([
-			{ projectionStages: ['pair-1-canvas', 'pair-1-adhd'], semanticStages: ['pair-1-badge'] },
-			{ projectionStages: ['pair-2-canvas', 'pair-2-adhd'], semanticStages: ['pair-2-badge'] }
-		]), [
-			'pair-1-canvas', 'pair-1-adhd',
-			'pair-2-canvas', 'pair-2-adhd',
-			'pair-1-badge', 'pair-2-badge'
-		]);
-	});
-
 	test('persistent required-stage failure exposes an exact recovery cursor', async () => {
 		const calls = [0, 0, 0];
 		await assert.rejects(
@@ -144,7 +136,7 @@ suite('BaseHalfMirrorCascadeOperation', () => {
 		assert.deepStrictEqual(calls, [1, 3, 0]);
 	});
 
-	test('one batch cursor finishes every pair projection before any semantic owner', async () => {
+	test('one batch cursor resumes the failed stage and then drains the untouched suffix', async () => {
 		const order: string[] = [];
 		let blocked = true;
 		const stages = [
@@ -211,6 +203,38 @@ suite('BaseHalfMirrorCascadeOperation', () => {
 				&& error.attempts === 3
 		);
 		assert.strictEqual(laterStageCalls, 0);
+	});
+
+	test('a relocated badge gets its new path and keeps every other byte, legacy keys included', () => {
+		const badge = [
+			'path: "notes/a.md"',
+			'kind: file',
+			'description: "Trunk note"',
+			'references:',
+			'  - "notes/b.md"',
+			'referenced_by:',
+			'- "intro.md"',
+			'orphan: true',
+			''
+		].join('\r\n');
+		assert.deepStrictEqual([
+			baseHalfRelocateBadgeText(badge, 'archive/a.md'),
+			baseHalfRelocateBadgeText('path: >-\n  notes/a.md\nkind: file', 'b.md'),
+			baseHalfRelocateBadgeText('kind: file\n', 'b.md')
+		], [
+			[
+				'path: "archive/a.md"',
+				'kind: file',
+				'description: "Trunk note"',
+				'references:',
+				'  - "notes/b.md"',
+				'referenced_by:',
+				'- "intro.md"',
+				''
+			].join('\r\n'),
+			'path: "b.md"\nkind: file',
+			undefined
+		]);
 	});
 
 	test('recovery prompt republishes only after an unsuppressed user close', () => {

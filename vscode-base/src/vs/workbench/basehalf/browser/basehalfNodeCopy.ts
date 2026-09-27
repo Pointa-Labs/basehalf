@@ -91,8 +91,11 @@ export async function prepareBaseHalfNodeCopyPlans(
 
 /**
  * Separates every valid result container in the completed prefix of one
- * working-copy COPY. Ordinary files and malformed `.bhnode` files remain
- * byte-for-byte copies.
+ * working-copy COPY. A forked node receives a new identity and starts with
+ * `upstream: []` and no bindings (D37: its connections lived in the copied
+ * bytes, so they are cleared rather than inherited). Ordinary files,
+ * including Markdown notes with their `upstream` frontmatter, and malformed
+ * `.bhnode` files remain byte-for-byte copies.
  */
 export async function forkCopiedBaseHalfNodeTrees(
 	fileService: IFileService,

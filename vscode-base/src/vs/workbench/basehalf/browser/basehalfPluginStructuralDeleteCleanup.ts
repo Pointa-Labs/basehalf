@@ -84,9 +84,12 @@ export interface IBaseHalfPluginStructuralDeleteCleanupService {
 }
 
 /**
- * Prepares plugin-owned reference cleanup for every DELETE entry before disk IO.
- * The caller owns the surrounding file-operation transaction and decides which
- * staged transitions commit, roll back, or join the file operation's undo group.
+ * Prepares plugin-owned domain-reference cleanup for every DELETE entry before
+ * disk IO. The caller owns the surrounding file-operation transaction and
+ * decides which staged transitions commit, roll back, or join the file
+ * operation's undo group. Staging applies the upstream guard (D37): a cleanup
+ * that would change any upstream value is rejected, because deleting a node
+ * never changes another node's store.
  */
 export class BaseHalfPluginStructuralDeleteCleanupService implements IBaseHalfPluginStructuralDeleteCleanupService {
 	declare readonly _serviceBrand: undefined;

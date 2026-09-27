@@ -48,12 +48,86 @@ suite('BaseHalfAdhdMirrorService', () => {
 			].join('\n')]
 		]));
 
+		// No `line_base`, and the document has no frontmatter: the absolute
+		// lines are already body lines.
 		assert.deepStrictEqual(await service.readAdhd(file('docs/readme.md')), {
 			path: 'docs/readme.md',
 			kind: 'file',
+			line_base: 'body',
 			highlight_keywords: ['Cost', '边际成本'],
 			read_paragraphs: [[1, 6]]
 		});
+	});
+
+	test('converts a file without line_base by subtracting the current frontmatter line count, without writing', async () => {
+		const mirrorPath = '/work/.bh/mirror/doc.md/adhd.yaml';
+		const legacy = 'path: doc.md\nkind: file\nread_paragraphs:\n  - [2, 3]\n  - [5, 7]\n';
+		const fileService = new TestFileService(new Map([
+			[mirrorPath, legacy],
+			['/work/doc.md', '---\nupstream:\n  - a.md\n---\n# Doc\n\npara one\n']
+		]));
+		const service = mirrorService(fileService as unknown as IFileService);
+
+		assert.deepStrictEqual({
+			disk: (await service.readAdhd(file('doc.md')))?.read_paragraphs,
+			model: (await service.readAdhd(file('doc.md'), { frontmatterLines: 1 }))?.read_paragraphs,
+			unchanged: fileService.files.get(mirrorPath) === legacy
+		}, {
+			// Lines 2–3 lie in the four frontmatter lines; 5–7 are body lines 1–3.
+			disk: [[1, 3]],
+			model: [[1, 2], [4, 6]],
+			unchanged: true
+		});
+	});
+
+	test('persists the conversion exactly once and stores body-relative ranges on every later write', async () => {
+		const mirrorPath = '/work/.bh/mirror/doc.md/adhd.yaml';
+		const fileService = new TestFileService(new Map([
+			[mirrorPath, 'path: doc.md\nkind: file\nhighlight_keywords:\n  - Cost\nread_paragraphs:\n  - [5, 5]\n'],
+			['/work/other.md', 'x'],
+			['/work/.bh/mirror/other.md/adhd.yaml', 'path: other.md\nkind: file\nread_paragraphs:\n  - [3, 3]\n']
+		]));
+		const service = mirrorService(fileService as unknown as IFileService);
+
+		const first = await service.persistBodyLineBase(file('doc.md'), 3);
+		const converted = fileService.files.get(mirrorPath);
+		const second = await service.persistBodyLineBase(file('doc.md'), 0);
+		await service.markRead(file('other.md'), 7, 7, undefined, { frontmatterLines: 2 });
+
+		assert.deepStrictEqual({
+			first,
+			second,
+			converted,
+			unchangedBySecond: fileService.files.get(mirrorPath) === converted,
+			other: fileService.files.get('/work/.bh/mirror/other.md/adhd.yaml'),
+			missing: await service.persistBodyLineBase(file('missing.md'), 4)
+		}, {
+			first: true,
+			second: false,
+			converted: 'path: "doc.md"\nkind: file\nline_base: body\nhighlight_keywords:\n  - "Cost"\nread_paragraphs:\n  - [2, 2]\n',
+			unchangedBySecond: true,
+			// The legacy range [3, 3] became body line 1 before the new range joined it.
+			other: 'path: "other.md"\nkind: file\nline_base: body\nread_paragraphs:\n  - [1, 1]\n  - [7, 7]\n',
+			missing: false
+		});
+	});
+
+	test('rejects an unknown line_base and relocates a legacy file against the moved document', async () => {
+		const corrupt = createService(new Map([
+			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: bad.md\nkind: file\nline_base: file\n']
+		]));
+		await assert.rejects(
+			() => corrupt.readAdhd(file('bad.md')),
+			error => error instanceof BaseHalfAdhdMirrorCorrupt && error.reason === 'line_base must be body'
+		);
+
+		const fileService = new TestFileService(new Map([
+			['/work/.bh/mirror/a.md/adhd.yaml', 'path: a.md\nkind: file\nread_paragraphs:\n  - [4, 4]\n'],
+			['/work/b.md', '---\ntitle: B\n---\nbody\n']
+		]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		await service.relocateAdhd(file('a.md'), file('b.md'));
+		assert.strictEqual(fileService.files.get('/work/.bh/mirror/b.md/adhd.yaml'), 'path: "b.md"\nkind: file\nline_base: body\nread_paragraphs:\n  - [1, 1]\n');
 	});
 
 	test('throws typed corrupt errors for invalid YAML, path, kind, and ranges', async () => {
@@ -99,6 +173,7 @@ suite('BaseHalfAdhdMirrorService', () => {
 		}), [
 			'path: "docs/readme.md"',
 			'kind: file',
+			'line_base: body',
 			'highlight_keywords:',
 			'  - "Cost"',
 			'  - "边际成本"',

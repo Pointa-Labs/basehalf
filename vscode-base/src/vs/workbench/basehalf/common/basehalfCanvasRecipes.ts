@@ -155,12 +155,15 @@ export interface IBaseHalfCanvasConnectedRecipeChoice {
 	readonly slots: readonly IBaseHalfCanvasRecipeInputDefinition[];
 }
 
+/**
+ * The durable layers of a connected-node creation. Since D37 the reference
+ * lives in the created document's own `upstream` list, so discarding the file
+ * also discards the connection: only the canvas row and the file remain.
+ */
 export interface IBaseHalfCanvasConnectedCreateCompensation {
 	readonly canvasApplied: boolean;
-	readonly referenceApplied: boolean;
 	readonly fileCreated: boolean;
 	rollbackCanvas(): Promise<void>;
-	rollbackReference(): Promise<void>;
 	discardFile(): Promise<void>;
 }
 
@@ -269,7 +272,9 @@ export function getBaseHalfCanvasRecipeDefaultParameters(
 
 /** Builds the initial local document after the user has chosen one compatible
  *  operation and input role. The stable identity is supplied once and no model
- *  selection or non-default parameter is inferred from the connection. */
+ *  selection or non-default parameter is inferred from the connection. The
+ *  source is listed in `upstream` and bound in the same initial document
+ *  (Create from Connection), so no second write connects it. */
 export function createBaseHalfCanvasConnectedNodeDocument(
 	recipe: IBaseHalfCanvasRecipeDescriptor,
 	nodeId: string,
@@ -289,6 +294,7 @@ export function createBaseHalfCanvasConnectedNodeDocument(
 		kind: primaryOutput.kind,
 		title: recipe.label,
 		role: getBaseHalfCanvasDefaultNodeRole(primaryOutput.kind),
+		upstream: [sourcePath],
 		recipe: {
 			recipeId: recipe.id,
 			parameters: getBaseHalfCanvasRecipeDefaultParameters(recipe),
@@ -307,7 +313,6 @@ export async function compensateBaseHalfCanvasConnectedNodeCreate(
 	const errors: unknown[] = [];
 	for (const [applied, rollback] of [
 		[compensation.canvasApplied, compensation.rollbackCanvas],
-		[compensation.referenceApplied, compensation.rollbackReference],
 		[compensation.fileCreated, compensation.discardFile]
 	] as const) {
 		if (!applied) {

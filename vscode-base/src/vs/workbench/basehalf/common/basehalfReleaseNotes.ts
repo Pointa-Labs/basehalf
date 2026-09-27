@@ -25,6 +25,19 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - Curated plugin updates use VS Code's native extension runtime state, including Reload Window, Restart Extensions, and Restart to Update when required.
 - Visible editor tabs and VS Code breadcrumbs are hidden by default so BaseHalf navigation remains canvas-first.
 
+## Connections
+
+- Connecting two cards saves the connection in the card it points to: an \`upstream\` list in a Markdown note's frontmatter, a \`.bhnode\`'s \`upstream\` field, or \`.bh/mirror/<path>/upstream.yaml\` for PDFs, folders, and other files. The list is visible in git, in the Source view, and in other Markdown tools, and agents read it when they open the note. Deleting it removes the connection.
+- The badge edits a card's Upstream list. Downstream shows what draws on it.
+- Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.
+- Connections from earlier versions move into your files after you confirm.
+
+## Workspace Files
+
+- BaseHalf removes its old focus and harness files from \`.bh/\`, which may delete tracked files in git. It offers to remove the sections it added to \`CLAUDE.md\` and \`AGENTS.md\`, and keeps canvas viewports per machine.
+- BaseHalf no longer edits \`.gitignore\`. We recommend ignoring \`.bh/cache/\`.
+- Folders that ignore all of \`.bh/\` do not share the upstream lists of non-Markdown nodes through git.
+
 ## Current Product Shape
 
 BaseHalf keeps the left sidebar focused on Files, Git, Search, and the curated Plugins library. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.

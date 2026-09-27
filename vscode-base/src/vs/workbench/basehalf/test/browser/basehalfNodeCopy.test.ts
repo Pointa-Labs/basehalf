@@ -99,6 +99,7 @@ suite('BaseHalfNodeCopy', () => {
 			kind: 'video',
 			title: 'Changed before copy',
 			role: 'Motion',
+			upstream: ['frame.bhnode', 'notes/brief.md'],
 			recipe: {
 				recipeId: 'official.video.generate',
 				modelServiceId: 'studio.video',
@@ -115,6 +116,8 @@ suite('BaseHalfNodeCopy', () => {
 		assert.strictEqual(copied.id, baseHalfNodeTestId(5));
 		assert.strictEqual(copied.kind, 'video');
 		assert.strictEqual(copied.title, 'Changed before copy');
+		// The copy starts with no upstream list: its connections are not inherited.
+		assert.deepStrictEqual(copied.upstream, []);
 		assert.deepStrictEqual(copied.recipe, {
 			recipeId: 'official.video.generate',
 			modelServiceId: 'studio.video',

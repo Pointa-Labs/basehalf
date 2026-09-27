@@ -10,88 +10,12 @@ import {
 	baseHalfBadgeDraftFailureDisposition,
 	baseHalfCopyRetainedBadgeDraft,
 	baseHalfDiscardRetainedBadgeDraft,
-	baseHalfPersistedCanvasEdgeRemoval,
 	baseHalfShouldVetoForBadgeDrafts,
-	baseHalfTransitionBadgeDraftIdentity,
-	removeCompleteBaseHalfCanvasReference
+	baseHalfTransitionBadgeDraftIdentity
 } from '../../browser/basehalfCanvasConnectionTransaction.js';
-import { IBaseHalfReferenceState } from '../../common/basehalfBadgeGraph.js';
 
 suite('BaseHalf canvas connection transactions', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
-
-	for (const concurrentState of [
-		{ forward: true, backlink: false },
-		{ forward: false, backlink: true }
-	] as const) {
-		test(`restores a concurrent ${concurrentState.forward ? 'forward' : 'backlink'}-only reference before rejecting a node save`, async () => {
-			let truth: IBaseHalfReferenceState = concurrentState;
-			let undoElements = 0;
-
-			await assert.rejects(async () => {
-				await removeCompleteBaseHalfCanvasReference(
-					async () => {
-						const before = truth;
-						truth = { forward: false, backlink: false };
-						return { removed: before.forward, before, after: truth };
-					},
-					async transition => {
-						assert.deepStrictEqual(truth, transition.after);
-						truth = transition.before;
-					},
-					'The reference changed before the save completed.'
-				);
-				undoElements++;
-			}, /changed before the save completed/);
-
-			assert.deepStrictEqual(truth, concurrentState);
-			assert.strictEqual(undoElements, 0);
-		});
-	}
-
-	test('removes a complete reciprocal reference as one recoverable transition', async () => {
-		let truth: IBaseHalfReferenceState = { forward: true, backlink: true };
-		const transition = await removeCompleteBaseHalfCanvasReference(
-			async () => {
-				const before = truth;
-				truth = { forward: false, backlink: false };
-				return { removed: true, before, after: truth };
-			},
-			async () => assert.fail('A complete reference must not be restored during removal.'),
-			'The reference changed.'
-		);
-
-		assert.deepStrictEqual(transition.before, { forward: true, backlink: true });
-		assert.deepStrictEqual(truth, { forward: false, backlink: false });
-	});
-
-	test('explicit binding cleanup can recover when reciprocal graph metadata is already absent', async () => {
-		const truth: IBaseHalfReferenceState = { forward: false, backlink: false };
-		let restored = false;
-		const transition = await removeCompleteBaseHalfCanvasReference(
-			async () => ({ removed: false, before: truth, after: truth }),
-			async () => { restored = true; },
-			'The reference changed.',
-			true
-		);
-
-		assert.deepStrictEqual(transition.before, { forward: false, backlink: false });
-		assert.strictEqual(restored, false);
-	});
-
-	test('derived semantic edges without persisted anchors have no style deletion CAS', () => {
-		assert.deepStrictEqual(baseHalfPersistedCanvasEdgeRemoval([], 'brief.md', 'frame.bhnode'), []);
-		const persisted = {
-			from: 'brief.md',
-			from_anchor: 'east' as const,
-			to: 'frame.bhnode',
-			to_anchor: 'west' as const
-		};
-		assert.deepStrictEqual(
-			baseHalfPersistedCanvasEdgeRemoval([persisted], 'brief.md', 'frame.bhnode'),
-			[{ from: 'brief.md', to: 'frame.bhnode', expected: persisted, next: null }]
-		);
-	});
 
 	test('keeps the rendered card stable through a pointer gesture and flushes one queued refresh', () => {
 		const gate = new BaseHalfCanvasInteractionRenderGate();

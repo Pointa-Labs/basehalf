@@ -512,6 +512,7 @@ suite('BaseHalfCanvasRecipes', () => {
 		assert.strictEqual(document.recipe?.recipeId, recipe.id);
 		assert.deepStrictEqual(document.recipe?.parameters, { seconds: 5 });
 		assert.deepStrictEqual(document.recipe?.inputBindings, [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]);
+		assert.deepStrictEqual(document.upstream, ['brief.md']);
 		assert.strictEqual(document.recipe?.modelServiceId, undefined);
 		assert.strictEqual(document.recipe?.modelId, undefined);
 		assert.deepStrictEqual(document.attempts, []);
@@ -541,22 +542,20 @@ suite('BaseHalfCanvasRecipes', () => {
 	});
 
 	test('removes every created layer when connected-node creation fails before commit', async () => {
+		// The connection lives in the created file's `upstream`, so discarding
+		// the file also discards it: only the canvas row and the file remain.
 		const residual = {
 			target: true,
-			mirror: { reference: true, card: true, edge: true },
+			mirror: { card: true, edge: true },
 			cache: [] as string[]
 		};
 
 		const errors = await compensateBaseHalfCanvasConnectedNodeCreate({
 			canvasApplied: true,
-			referenceApplied: true,
 			fileCreated: true,
 			rollbackCanvas: async () => {
 				residual.mirror.card = false;
 				residual.mirror.edge = false;
-			},
-			rollbackReference: async () => {
-				residual.mirror.reference = false;
 			},
 			discardFile: async () => {
 				residual.target = false;
@@ -566,7 +565,7 @@ suite('BaseHalfCanvasRecipes', () => {
 		assert.deepStrictEqual(errors, []);
 		assert.deepStrictEqual(residual, {
 			target: false,
-			mirror: { reference: false, card: false, edge: false },
+			mirror: { card: false, edge: false },
 			cache: []
 		});
 	});

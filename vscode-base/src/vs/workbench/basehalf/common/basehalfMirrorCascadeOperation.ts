@@ -7,6 +7,7 @@ import { URI } from '../../../base/common/uri.js';
 import { isEqualOrParent } from '../../../base/common/resources.js';
 import { IDisposable } from '../../../base/common/lifecycle.js';
 import { FileOperation } from '../../../platform/files/common/files.js';
+import { IBaseHalfCanvasViewportStateService } from './basehalfCanvasViewportState.js';
 import { IBaseHalfCompletedStructuralMutation } from './basehalfWorkspaceMutation.js';
 
 export interface IBaseHalfMirrorCascadeFilePair {
@@ -17,11 +18,6 @@ export interface IBaseHalfMirrorCascadeFilePair {
 export interface IBaseHalfRequiredCascadeStage {
 	readonly label: string;
 	run(): Promise<void>;
-}
-
-export interface IBaseHalfCascadeStageGroup<T> {
-	readonly projectionStages: readonly T[];
-	readonly semanticStages: readonly T[];
 }
 
 export interface IBaseHalfCascadeRecoveryPromptState {
@@ -43,19 +39,9 @@ export function baseHalfShouldRepublishCascadeRecoveryPrompt(state: IBaseHalfCas
 		&& !state.closeWasSuppressed;
 }
 
-/** Preserve physical batch-pair order within each phase while making semantic
- * owners the batch-wide commit point. Pair 1's canonical Badge graph must not
- * become visible before pair 2's Canvas/ADHD/focus projections can succeed. */
-export function baseHalfOrderCascadeStages<T>(groups: readonly IBaseHalfCascadeStageGroup<T>[]): T[] {
-	return [
-		...groups.flatMap(group => group.projectionStages),
-		...groups.flatMap(group => group.semanticStages)
-	];
-}
-
 /** Identifies the exact stage a physical file operation still needs. Callers
- * can resume from `stageIndex` without replaying already-committed graph or
- * mirror stages whose verbs are intentionally not general inverses. */
+ * can resume from `stageIndex` without replaying already-committed mirror
+ * stages whose verbs are intentionally not general inverses. */
 export class BaseHalfMirrorCascadeStageError extends Error {
 	override readonly name = 'BaseHalfMirrorCascadeStageError';
 
@@ -182,5 +168,60 @@ export async function baseHalfPrepareStructuralDetail(
 	} catch (error) {
 		fence.dispose();
 		throw error;
+	}
+}
+
+/**
+ * The text of a `badge.yaml` that a workbench move relocates to
+ * `relativePath`: its top-level `path` is rewritten, and a top-level `orphan`
+ * flag is dropped because the node exists at its new path. Every other byte
+ * is kept verbatim, including `description`, comments, line endings, and the
+ * legacy `references` and `referenced_by` blocks that a migration has not
+ * removed yet (D37). Returns `undefined` when the text has no top-level
+ * `path` key.
+ */
+export function baseHalfRelocateBadgeText(text: string, relativePath: string): string | undefined {
+	const lines = text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g)?.filter(line => line !== '') ?? [];
+	let result = '';
+	let replaced = false;
+	let skippingContinuation = false;
+	for (const line of lines) {
+		const content = line.replace(/(?:\r\n|\n|\r)$/, '');
+		if (skippingContinuation && /^[ \t]/.test(content)) {
+			continue;
+		}
+		skippingContinuation = false;
+		if (!replaced && /^path[ \t]*:/.test(content)) {
+			result += `path: ${JSON.stringify(relativePath)}${line.slice(content.length)}`;
+			replaced = true;
+			skippingContinuation = true;
+			continue;
+		}
+		if (/^orphan[ \t]*:/.test(content)) {
+			skippingContinuation = true;
+			continue;
+		}
+		result += line;
+	}
+	return replaced ? result : undefined;
+}
+
+/**
+ * Canvas viewports are per-machine UI state keyed by folder resource. A
+ * workbench move or delete forgets the viewport of the moved or deleted folder
+ * and of every folder below it; a move also forgets whatever its destination
+ * held before. This is plain storage, not a lease-guarded projection stage, so
+ * it cannot fail a cascade.
+ */
+export function baseHalfForgetCanvasViewportsForStructuralChange(
+	viewportState: Pick<IBaseHalfCanvasViewportStateService, 'forgetSubtree'>,
+	operation: FileOperation.MOVE | FileOperation.DELETE,
+	files: readonly { readonly source?: URI; readonly target: URI }[]
+): void {
+	for (const pair of files) {
+		if (operation === FileOperation.MOVE && pair.source) {
+			viewportState.forgetSubtree(pair.source);
+		}
+		viewportState.forgetSubtree(pair.target);
 	}
 }

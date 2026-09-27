@@ -5,10 +5,20 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasSceneSelectionActions, baseHalfCanvasSceneSelectionSurface, baseHalfCanvasSceneVideoSelectionActions, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
+import { baseHalfCanvasSceneConnectionRefusal, baseHalfCanvasSceneSelectionActions, baseHalfCanvasSceneSelectionSurface, baseHalfCanvasSceneVideoSelectionActions, resolveBaseHalfCanvasSceneConnectionDrop } from '../../common/basehalfCanvasScene.js';
 
 suite('BaseHalfCanvasScene', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('refuses connections into cards that cannot receive upstream, except a reconnect that keeps its target', () => {
+		const sealed = { path: 'result.mp4', upstreamRefusal: 'result.mp4 cannot receive upstream context.' };
+		assert.deepStrictEqual([
+			baseHalfCanvasSceneConnectionRefusal(sealed),
+			baseHalfCanvasSceneConnectionRefusal(sealed, 'other.md'),
+			baseHalfCanvasSceneConnectionRefusal(sealed, 'result.mp4'),
+			baseHalfCanvasSceneConnectionRefusal({ path: 'note.md' })
+		], [sealed.upstreamRefusal, sealed.upstreamRefusal, undefined, undefined]);
+	});
 
 	test('emits a create intent only when a source connection ends on empty canvas', () => {
 		const source = { from: 'brief.md', fromKind: 'file' as const, fromAnchor: 'east' as const };

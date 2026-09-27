@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { parseBaseHalfCanvasTemplate } from '../../common/basehalfCanvasTemplate.js';
+import { materializeBaseHalfCanvasTemplateUpstream, parseBaseHalfCanvasTemplate } from '../../common/basehalfCanvasTemplate.js';
 
 suite('BaseHalfCanvasTemplate', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -224,6 +224,92 @@ suite('BaseHalfCanvasTemplate', () => {
 			references: [incomingReference]
 		}));
 		assert.deepStrictEqual(contentOnly.references, [incomingReference]);
+	});
+
+	test('rejects template frontmatter upstream keys and targets that cannot be downstream', () => {
+		const source = (brief: string, references: readonly { from: string; to: string }[] = []) => JSON.stringify({
+			version: 1,
+			files: [
+				{ path: 'brief.md', contents: brief },
+				{ path: 'outputs/run.md', contents: '# Run\n' },
+				{ path: 'notes.txt', contents: '---\nupstream: x\n---\n' }
+			],
+			nodes: [],
+			cards: [],
+			references: references.map(reference => ({ ...reference, fromAnchor: 'east', toAnchor: 'west' }))
+		});
+		for (const brief of [
+			'---\nupstream:\n  - other.md\n---\n# Brief\n',
+			'---\nupstream:\n---\n',
+			'\ufeff---\r\ntitle: Brief\r\nupstream: []\r\n---\r\n',
+			'---\nupstream: a\nupstream: b\n---\n',
+			'+++\nupstream: x\n+++\n'
+		]) {
+			assert.throws(() => parseBaseHalfCanvasTemplate(source(brief)), /cannot declare an 'upstream' key/, brief);
+		}
+		assert.doesNotThrow(() => parseBaseHalfCanvasTemplate(source('---\ntitle: Brief\n---\n# Brief\n')));
+		assert.throws(
+			() => parseBaseHalfCanvasTemplate(source('# Brief\n', [{ from: 'brief.md', to: 'outputs/run.md' }])),
+			/reserved outputs tree/
+		);
+		assert.throws(
+			() => parseBaseHalfCanvasTemplate(source('+++\ntitle = "Brief"\n+++\n', [{ from: 'notes.txt', to: 'brief.md' }])),
+			/cannot receive its upstream list/
+		);
+	});
+
+	test('materializes references into each target\'s own store, rebased under the project folder', () => {
+		const template = parseBaseHalfCanvasTemplate(JSON.stringify({
+			version: 1,
+			files: [
+				{ path: 'brief.md', contents: '# Brief\n' },
+				{ path: 'shots/script.md', contents: '---\r\ntitle: Script # keep\r\n---\r\nBody\r\n' },
+				{ path: 'shots/shot.json', contents: '{}\n' }
+			],
+			nodes: [
+				{
+					path: 'shots/frame.bhnode',
+					kind: 'image',
+					title: 'Frame',
+					role: 'frame',
+					recipe: {
+						recipeId: 'studio.test.frame',
+						parameters: {},
+						inputBindings: [{ sourcePath: 'shots/script.md', slot: 'prompt', order: 0 }]
+					}
+				},
+				{ path: 'shots/audio.bhnode', kind: 'audio', title: 'Audio', role: 'audio' }
+			],
+			cards: [],
+			references: [
+				{ from: 'brief.md', to: 'shots/script.md', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'shots/script.md', to: 'shots/frame.bhnode', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'brief.md', to: 'shots/frame.bhnode', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'shots/frame.bhnode', to: 'shots/audio.bhnode', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'brief.md', to: 'shots/shot.json', fromAnchor: 'east', toAnchor: 'west' }
+			]
+		}));
+		const upstream = materializeBaseHalfCanvasTemplateUpstream(template, 'Projects/My Film');
+		assert.deepStrictEqual({
+			files: Object.fromEntries(upstream.files),
+			nodes: Object.fromEntries(upstream.nodes),
+			sidecars: upstream.sidecars
+		}, {
+			files: {
+				'brief.md': '# Brief\n',
+				'shots/script.md': '---\r\ntitle: Script # keep\r\nupstream:\r\n  - Projects/My Film/brief.md\r\n---\r\nBody\r\n',
+				'shots/shot.json': '{}\n'
+			},
+			nodes: {
+				'shots/frame.bhnode': ['Projects/My Film/shots/script.md', 'Projects/My Film/brief.md'],
+				'shots/audio.bhnode': ['Projects/My Film/shots/frame.bhnode']
+			},
+			sidecars: [{ path: 'Projects/My Film/shots/shot.json', entries: ['Projects/My Film/brief.md'] }]
+		});
+		assert.strictEqual(
+			materializeBaseHalfCanvasTemplateUpstream(template, '').files.get('shots/script.md'),
+			'---\r\ntitle: Script # keep\r\nupstream:\r\n  - brief.md\r\n---\r\nBody\r\n'
+		);
 	});
 
 	test('counts parameter object keys and scalar values with the public SDK complexity budget', () => {

@@ -340,6 +340,36 @@ suite('BaseHalfNodeCommandServer', () => {
 		}
 	});
 
+	test('rejects discovery responses that describe the pre-D37 reference storage', async () => {
+		const current = capabilityDiscoveryResponse();
+		const host = current.host!;
+		const legacyContextEdge: Record<string, unknown> = { ...host.contextEdge };
+		for (const key of ['storedBy', 'markdownFrontmatterKey', 'nodeDocumentField']) {
+			delete legacyContextEdge[key];
+		}
+		const variants = [
+			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, inputBinding: { ...host.nodeDocument.inputBinding, scope: 'direct-inbound-reference' } } } },
+			{ ...current, host: { ...host, contextEdge: legacyContextEdge } },
+			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, storedBy: 'both-ends' } } }
+		];
+		const outcomes: string[] = [];
+		for (const variant of variants) {
+			const server = new BaseHalfNodeCommandServer(async () => variant as unknown as IBaseHalfNodeCommandResponse, new NullLogService());
+			try {
+				await server.start();
+				const response = await requestBaseHalfNodeCommand(server.ipcHandlePath, {
+					version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+					type: 'listCapabilities',
+					cwd: '/work'
+				});
+				outcomes.push(`${response.outcome}: ${response.error}`);
+			} finally {
+				server.dispose();
+			}
+		}
+		assert.deepStrictEqual(outcomes, variants.map(() => 'rejected: Command response does not match the supported protocol.'));
+	});
+
 	test('releases an in-flight request promptly when terminal ownership ends', async () => {
 		let notifyStarted: (() => void) | undefined;
 		const started = new Promise<void>(resolve => notifyStarted = resolve);
@@ -441,13 +471,13 @@ function capabilityDiscoveryResponse(options: {
 		host: {
 			nodeDocument: {
 				fileExtension: '.bhnode',
-				documentVersion: 3,
+				documentVersion: 4,
 				resultKinds: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'],
-				inputBinding: { scope: 'direct-inbound-reference', fields: ['sourcePath', 'slot', 'order'] },
+				inputBinding: { scope: 'node-upstream', fields: ['sourcePath', 'slot', 'order'] },
 				lifecycle: { attempts: 'host-owned', result: 'host-owned-single-file', retry: 'frozen-only' },
 				runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 				authoring: {
-					contractVersion: 1,
+					contractVersion: 2,
 					schema: { type: 'object' },
 					examples: {},
 					hostOwnedFields: ['result', 'attempts'],
@@ -460,6 +490,9 @@ function capabilityDiscoveryResponse(options: {
 				target: 'direct-context',
 				autoRun: false,
 				recursive: false,
+				storedBy: 'downstream',
+				markdownFrontmatterKey: 'upstream',
+				nodeDocumentField: 'upstream',
 				roleAndOrderOwner: 'target-recipe-binding',
 				label: 'none'
 			},

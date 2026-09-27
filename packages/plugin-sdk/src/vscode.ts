@@ -273,6 +273,13 @@ declare module 'vscode' {
      * still equal `expected`, and records the change as one BaseHalf project
      * undo step. The host rejects dirty files, symbolic links, and paths outside
      * the current workspace.
+     *
+     * A transition may not change any BaseHalf `upstream` value: the
+     * `upstream` frontmatter key of a Markdown file or the `upstream` field of
+     * a `.bhnode` document. The host reads the upstream state of `expected`
+     * and `next` (either unreadable, or the ordered raw entries) and rejects
+     * the transition unless both are identical, including a change that
+     * breaks or repairs a Markdown frontmatter fence.
      */
     export function applyProjectFileTransition(
       resource: Uri,
@@ -281,7 +288,10 @@ declare module 'vscode' {
       label: string,
     ): Thenable<void>;
 
-    /** One exact ordinary-project-file transition proposed for structural cleanup. */
+    /**
+     * One exact ordinary-project-file transition proposed for structural cleanup.
+     * The upstream rule of `applyProjectFileTransition` applies.
+     */
     export interface ProjectFileTransition {
       readonly resource: Uri;
       readonly expected: Uint8Array;

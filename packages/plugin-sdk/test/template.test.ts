@@ -270,6 +270,67 @@ describe('canvas template v1 contract', () => {
     ).toThrow('binding order must be contiguous from zero');
   });
 
+  it('leaves upstream to the host: rejects frontmatter upstream keys and targets that cannot be downstream', () => {
+    const withBrief = (contents: string) =>
+      JSON.stringify({ ...validTemplate, files: [{ path: 'brief.md', contents }] });
+    for (const contents of [
+      '---\nupstream:\n  - other.md\n---\n# Brief\n',
+      '﻿---\r\ntitle: Brief\r\nupstream: []\r\n---\r\n# Brief\r\n',
+      '---\n"upstream": other.md\n---\n# Brief\n',
+      '+++\nupstream: other.md\n+++\n# Brief\n',
+    ]) {
+      expect(() => parseBaseHalfCanvasTemplate(withBrief(contents))).toThrow(
+        "cannot declare an 'upstream' key",
+      );
+    }
+    for (const contents of [
+      '---\ntitle: Brief\n---\n# Brief\n',
+      '---\nmeta:\n  upstream: nested.md\n---\n# Brief\n',
+      '# Brief\n\nupstream: body text is not frontmatter\n',
+      '---\nupstream: never closed\n# Brief\n',
+    ]) {
+      expect(() => parseBaseHalfCanvasTemplate(withBrief(contents))).not.toThrow();
+    }
+    expect(() =>
+      parseBaseHalfCanvasTemplate(
+        JSON.stringify({
+          ...validTemplate,
+          files: [
+            ...validTemplate.files,
+            { path: 'upstream-notes.txt', contents: '---\nupstream: other.md\n---\n' },
+          ],
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      parseBaseHalfCanvasTemplate(
+        JSON.stringify({
+          ...validTemplate,
+          files: [...validTemplate.files, { path: 'Outputs/run.md', contents: '# Run\n' }],
+          references: [
+            ...validTemplate.references,
+            { from: 'brief.md', to: 'Outputs/run.md', fromAnchor: 'east', toAnchor: 'west' },
+          ],
+        }),
+      ),
+    ).toThrow('reserved outputs tree');
+    expect(() =>
+      parseBaseHalfCanvasTemplate(
+        JSON.stringify({
+          ...validTemplate,
+          files: [
+            ...validTemplate.files,
+            { path: 'notes.md', contents: '+++\ntitle = "x"\n+++\n' },
+          ],
+          references: [
+            ...validTemplate.references,
+            { from: 'brief.md', to: 'notes.md', fromAnchor: 'east', toAnchor: 'west' },
+          ],
+        }),
+      ),
+    ).toThrow('cannot receive its upstream list');
+  });
+
   it('enforces source size and JSON parameter complexity limits', () => {
     expect(() => parseBaseHalfCanvasTemplate(' '.repeat(512 * 1024 + 1))).toThrow('no larger than');
     expect(() =>

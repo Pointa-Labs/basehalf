@@ -15,6 +15,7 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from './basehalfCanvasEditing.js';
 import { baseHalfProjectPathProblem } from './basehalfNodeDocument.js';
+import { baseHalfTransitionChangesUpstream } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
 export const BASEHALF_PROJECT_FILE_TRANSITION_MAX_BYTES = 4 * 1024 * 1024;
@@ -24,6 +25,12 @@ export interface IBaseHalfProjectFileTransition {
 	readonly expected: VSBuffer;
 	readonly next: VSBuffer;
 	readonly label: string;
+	/**
+	 * Set only by host code for a host-originated operation, which is exempt
+	 * from the upstream guard. Transitions built from reviewed-plugin input
+	 * (project file transitions and structural cleanups) never carry it.
+	 */
+	readonly origin?: 'host';
 }
 
 export const IBaseHalfProjectFileTransitionService = createDecorator<IBaseHalfProjectFileTransitionService>('baseHalfProjectFileTransitionService');
@@ -129,6 +136,14 @@ export class BaseHalfProjectFileTransitionService implements IBaseHalfProjectFil
 		}
 		if (this.workingCopyService.isDirty(transition.resource)) {
 			throw new Error(`Save '${basename(transition.resource)}' before changing this project document.`);
+		}
+		// D37: a reviewed plugin may not change any upstream value. Compare the
+		// upstream state (unreadable, or the ordered raw entries) of the expected
+		// and next bytes; any difference, including one that makes the store
+		// readable or unreadable, is rejected. Undo and redo replay exactly these
+		// validated bytes, so they never change an upstream value either.
+		if (transition.origin !== 'host' && baseHalfTransitionChangesUpstream(relativePath, transition.expected.toString(), transition.next.toString())) {
+			throw new Error(`Project file transitions cannot change the upstream list of '${relativePath}'. BaseHalf changes upstream entries only through explicit user actions.`);
 		}
 		await this.assertSafeResource(workspace.uri, transition.resource, relativePath);
 		return {

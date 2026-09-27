@@ -153,6 +153,52 @@ suite('BaseHalfProjectFileTransitionService', () => {
 		await assert.rejects(() => transaction.rollback(), /already been completed/);
 	});
 
+	test('rejects plugin transitions that change an upstream value, and exempts only host-originated ones', async () => {
+		const note = '---\ntitle: Note\nupstream:\n  - brief.md\n  - notes/a.md\n---\n# Note\n';
+		const node = (upstream: readonly unknown[]) => JSON.stringify({ version: 4, id: 'x', kind: 'file', title: 'T', role: 'r', prompt: '', upstream, attempts: [] });
+		const cases: readonly { readonly name: string; readonly path: string; readonly before: string; readonly after: string }[] = [
+			{ name: 'body edit', path: 'note.md', before: note, after: note.replace('# Note', '# Renamed') },
+			{ name: 'other key', path: 'note.md', before: note, after: note.replace('title: Note', 'title: Other') },
+			{ name: 'add entry', path: 'note.md', before: note, after: note.replace('  - notes/a.md\n', '  - notes/a.md\n  - c.md\n') },
+			{ name: 'remove entry', path: 'note.md', before: note, after: note.replace('  - brief.md\n', '') },
+			{ name: 'reorder entries', path: 'note.md', before: note, after: '---\ntitle: Note\nupstream:\n  - notes/a.md\n  - brief.md\n---\n# Note\n' },
+			{ name: 'break the fence', path: 'note.md', before: note, after: note.replace('---\n# Note', '# Note') },
+			{ name: 'make readable', path: 'note.md', before: '---\nupstream: *a\n---\n', after: '---\nupstream: []\n---\n' },
+			{ name: 'node upstream', path: 'node.bhnode', before: node(['brief.md']), after: node([]) },
+			{ name: 'node other field', path: 'node.bhnode', before: node(['brief.md']), after: node(['brief.md']).replace('"title":"T"', '"title":"U"') },
+			{ name: 'unknown format', path: 'sequence.json', before: '{"upstream":["a"]}', after: '{"upstream":[]}' }
+		];
+		const outcomes: Record<string, string> = {};
+		for (const { name, path, before, after } of cases) {
+			const resource = URI.file(`/workspace/${path}`);
+			const files = new TestFileService(resource, before);
+			try {
+				await createService(files, new TestUndoRedoService()).apply({ resource, expected: VSBuffer.fromString(before), next: VSBuffer.fromString(after), label: 'Plugin edit' });
+				outcomes[name] = files.contents.toString() === after ? 'applied' : 'unchanged';
+			} catch (error) {
+				outcomes[name] = files.contents.toString() === before && /cannot change the upstream list/.test(String(error)) ? 'rejected' : `error: ${error}`;
+			}
+		}
+		const resource = URI.file('/workspace/note.md');
+		const hostFiles = new TestFileService(resource, note);
+		await createService(hostFiles, new TestUndoRedoService()).apply({ resource, expected: VSBuffer.fromString(note), next: VSBuffer.fromString(''), label: 'Host edit', origin: 'host' });
+		outcomes['host origin'] = hostFiles.contents.toString() === '' ? 'applied' : 'unchanged';
+
+		assert.deepStrictEqual(outcomes, {
+			'body edit': 'applied',
+			'other key': 'applied',
+			'add entry': 'rejected',
+			'remove entry': 'rejected',
+			'reorder entries': 'rejected',
+			'break the fence': 'rejected',
+			'make readable': 'rejected',
+			'node upstream': 'rejected',
+			'node other field': 'applied',
+			'unknown format': 'applied',
+			'host origin': 'applied'
+		});
+	});
+
 	test('stages under an owned structural lease and replays in the caller undo group', async () => {
 		const resource = URI.file('/workspace/node.bhnode');
 		const files = new TestFileService(resource, 'with binding');

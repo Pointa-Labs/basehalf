@@ -8,6 +8,7 @@ import {
 	BaseHalfMarkdownRichSession,
 	BaseHalfMarkdownRichSessionRegistry,
 	IBaseHalfMarkdownRichDisk,
+	IBaseHalfMarkdownRichDiskWriteOptions,
 	IBaseHalfMarkdownRichDocument,
 	IBaseHalfMarkdownRichView
 } from '../../common/basehalfMarkdownRichSession.js';
@@ -81,20 +82,56 @@ suite('BaseHalfMarkdownRichSession', () => {
 		assert.strictEqual(session.snapshot.writeFailed, false);
 	});
 
-	test('still attempts the write when the pre-save drift read fails', async () => {
+	test('keeps local edits pending and never falls back to cached frontmatter when the document cannot be read', async () => {
 		const { session, document } = createSession();
-		await session.seedFromContent('Alpha\n');
+		await session.seedFromContent('---\ntitle: A\n---\nAlpha\n');
 		(document.blocks[0] as { markdown: string }).markdown = 'Local';
 		session.markEdited();
 
-		const disk = new TestDisk('Alpha\n');
+		const disk = new TestDisk('---\ntitle: A\n---\nAlpha\n');
 		disk.failReads = true;
 		const result = await session.save(disk);
 
-		assert.strictEqual(result.kind, 'saved');
-		assert.deepStrictEqual(disk.writes, ['Local\n']);
-		assert.strictEqual(session.snapshot.pendingEdits, false);
+		assert.strictEqual(result.kind, 'writeFailed');
+		assert.deepStrictEqual(disk.writes, []);
+		assert.strictEqual(session.snapshot.pendingEdits, true);
+		assert.strictEqual(session.snapshot.writeFailed, true);
 		assert.strictEqual(session.snapshot.conflict, false);
+	});
+
+	test('saves local body edits under a frontmatter changed outside the editor', async () => {
+		const { session, document } = createSession();
+		await session.seedFromContent('---\ntitle: A\n---\nAlpha\n');
+		(document.blocks[0] as { markdown: string }).markdown = 'Local';
+		session.markEdited();
+
+		const disk = new TestDisk('---\ntitle: A\nupstream:\n  - a.md\n---\nAlpha\n');
+		const result = await session.save(disk);
+
+		assert.deepStrictEqual(result, { kind: 'saved', content: '---\ntitle: A\nupstream:\n  - a.md\n---\nLocal\n' });
+		assert.deepStrictEqual(disk.writes, ['---\ntitle: A\nupstream:\n  - a.md\n---\nLocal\n']);
+		assert.strictEqual(session.snapshot.conflict, false);
+		assert.strictEqual(session.snapshot.frontmatter, '---\ntitle: A\nupstream:\n  - a.md\n---\n');
+		assert.strictEqual(session.snapshot.lastDisk, '---\ntitle: A\nupstream:\n  - a.md\n---\nLocal\n');
+	});
+
+	test('adopts a frontmatter-only external change without a conflict while edits are pending', async () => {
+		const { session, document } = createSession();
+		await session.seedFromContent('---\ntitle: A\n---\nAlpha\n');
+		(document.blocks[0] as { markdown: string }).markdown = 'Local';
+		session.markEdited();
+
+		assert.deepStrictEqual(
+			await session.handleExternalContent('---\ntitle: A\nupstream: a.md\n---\nAlpha\n'),
+			{ kind: 'frontmatterUpdated' }
+		);
+		assert.strictEqual(session.snapshot.conflict, false);
+		assert.strictEqual(session.snapshot.pendingEdits, true);
+		assert.strictEqual(session.snapshot.frontmatter, '---\ntitle: A\nupstream: a.md\n---\n');
+		assert.deepStrictEqual(document.blocks.map(block => (block as { markdown?: string }).markdown), ['Local']);
+
+		const disk = new TestDisk('---\ntitle: A\nupstream: a.md\n---\nAlpha\n');
+		assert.deepStrictEqual(await session.save(disk), { kind: 'saved', content: '---\ntitle: A\nupstream: a.md\n---\nLocal\n' });
 	});
 
 	test('blocks save on disk drift until the user keeps local content explicitly', async () => {
@@ -115,10 +152,28 @@ suite('BaseHalfMarkdownRichSession', () => {
 		const kept = await session.keepLocalContent(keepDisk);
 
 		assert.strictEqual(kept.kind, 'saved');
-		assert.deepStrictEqual(keepDisk.reads, 0);
+		// Keeping local edits reads the document only for its current frontmatter.
+		assert.deepStrictEqual(keepDisk.reads, 1);
 		assert.deepStrictEqual(keepDisk.writes, ['Local\n']);
 		assert.strictEqual(session.snapshot.conflict, false);
 		assert.strictEqual(session.snapshot.pendingEdits, false);
+	});
+
+	test('Keep my edits keeps the local body with the frontmatter the document holds now', async () => {
+		const { session, document } = createSession();
+		await session.seedFromContent('---\ntitle: A\n---\nAlpha\n');
+		(document.blocks[0] as { markdown: string }).markdown = 'Local';
+		session.markEdited();
+
+		const external = '---\ntitle: A\nupstream: a.md\n---\nAgent body\n';
+		assert.deepStrictEqual(await session.save(new TestDisk(external)), { kind: 'blockedByConflict', disk: external });
+
+		const keepDisk = new TestDisk(external);
+		const kept = await session.keepLocalContent(keepDisk);
+
+		assert.deepStrictEqual(kept, { kind: 'saved', content: '---\ntitle: A\nupstream: a.md\n---\nLocal\n' });
+		assert.deepStrictEqual(keepDisk.writes, ['---\ntitle: A\nupstream: a.md\n---\nLocal\n']);
+		assert.strictEqual(session.snapshot.frontmatter, '---\ntitle: A\nupstream: a.md\n---\n');
 	});
 
 	test('reloads external content when clean and conflicts when local edits are pending', async () => {
@@ -251,10 +306,11 @@ class TestDisk implements IBaseHalfMarkdownRichDisk {
 		return this.content;
 	}
 
-	async write(content: string): Promise<void> {
+	async write(content: string, options: IBaseHalfMarkdownRichDiskWriteOptions = {}): Promise<void> {
 		if (this.failWrites) {
 			throw new Error('disk full');
 		}
+		assert.strictEqual(this.content, options.expected, 'every rich write is a compare-and-swap');
 		this.writes.push(content);
 		this.content = content;
 	}

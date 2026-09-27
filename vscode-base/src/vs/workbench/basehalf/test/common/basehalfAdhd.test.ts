@@ -6,6 +6,8 @@
 import * as assert from 'assert';
 import {
 	baseHalfAdhdKeywordHits,
+	buildBaseHalfAdhdFile,
+	convertBaseHalfAdhdLegacyRanges,
 	dedupeBaseHalfAdhdKeywords,
 	mergeBaseHalfAdhdRange,
 	normalizeBaseHalfAdhdRanges,
@@ -27,6 +29,21 @@ suite('BaseHalfAdhd', () => {
 		assert.deepStrictEqual(mergeBaseHalfAdhdRange([[1, 2], [6, 8]], 3, 5), [[1, 8]]);
 		assert.deepStrictEqual(subtractBaseHalfAdhdRange([[1, 10]], 4, 6), [[1, 3], [7, 10]]);
 		assert.deepStrictEqual(subtractBaseHalfAdhdRange([[1, 3], [7, 10]], 2, 8), [[1, 1], [9, 10]]);
+	});
+
+	test('converts absolute legacy ranges to body lines and marks built ranges as body-relative', () => {
+		assert.deepStrictEqual({
+			shifted: convertBaseHalfAdhdLegacyRanges([[1, 2], [3, 5], [8, 9]], 4),
+			none: convertBaseHalfAdhdLegacyRanges([[2, 3]], 0),
+			withRanges: buildBaseHalfAdhdFile('a.md', ['k'], [[1, 1]]),
+			keywordsOnly: buildBaseHalfAdhdFile('a.md', ['k'], [])
+		}, {
+			// Lines inside the four frontmatter lines are not body lines.
+			shifted: [[1, 1], [4, 5]],
+			none: [[2, 3]],
+			withRanges: { path: 'a.md', kind: 'file', line_base: 'body', highlight_keywords: ['k'], read_paragraphs: [[1, 1]] },
+			keywordsOnly: { path: 'a.md', kind: 'file', highlight_keywords: ['k'] }
+		});
 	});
 
 	test('dedupes trimmed keywords while preserving casing and order', () => {

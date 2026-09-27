@@ -14,6 +14,7 @@ import { FileService } from '../../../../platform/files/common/fileService.js';
 import { FileSystemProviderCapabilities, FileType, IFileService, IFileStatWithMetadata, IStat, IWriteFileWithExpectedContentsOptions } from '../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
+import { UriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { TestExtensionService } from '../../../test/common/workbenchTestServices.js';
 import {
@@ -22,8 +23,6 @@ import {
 	baseHalfNodeImportedAssetDirectory,
 	baseHalfSafeExecutionErrorMessage
 } from '../../browser/basehalfNodeExecutionService.js';
-import { IBaseHalfBadgeGraphService } from '../../common/basehalfBadgeGraph.js';
-import { IBaseHalfBadgeFile } from '../../common/basehalfBadgeMirror.js';
 import {
 	BaseHalfCanvasRecipeRegistryService,
 	BaseHalfCanvasRecipeRuntimeService,
@@ -37,6 +36,7 @@ import { IBaseHalfModelServiceDescriptor, IBaseHalfModelServiceService } from '.
 import { BaseHalfVideoModelCatalogService } from '../../common/basehalfVideoModelCatalogs.js';
 import { BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID } from '../../common/basehalfVideoModels.js';
 import {
+	BaseHalfNodeJsonValue,
 	beginBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
 	freezeBaseHalfNodeAttemptExecution,
@@ -411,7 +411,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('does not acknowledge or poll a new provider task after an acknowledgement CAS conflict', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -487,7 +487,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('requires the exact prepared fingerprint and rejects a bare authorization boolean before Attempt', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -521,7 +521,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('rejects a prepared provider authorization after the saved Draft drifts', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			const original = videoNodeDocument('2026-08-16');
@@ -551,8 +551,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('records post-commit input drift before any provider create or executor handoff', async () => {
-		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
-		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoFirstFrameRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
 			const sourceBytes = 'stable-preflight-image';
@@ -614,7 +613,7 @@ suite('BaseHalfNodeExecutionService', () => {
 
 	test('completes connection and executor preflight before creating a video Attempt', async () => {
 		const unavailableConnection = { ...videoModelServiceDescriptor(), configured: false };
-		const credentialHarness = await createHarness(videoRecipe(), [], [unavailableConnection]);
+		const credentialHarness = await createHarness(videoRecipe(), [unavailableConnection]);
 		try {
 			credentialHarness.registerVideoCatalog(videoModelCatalog());
 			await credentialHarness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -628,7 +627,7 @@ suite('BaseHalfNodeExecutionService', () => {
 			await credentialHarness.dispose();
 		}
 
-		const executorHarness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const executorHarness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			executorHarness.registerVideoCatalog(videoModelCatalog());
 			await executorHarness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -645,7 +644,7 @@ suite('BaseHalfNodeExecutionService', () => {
 
 	test('revalidates canonical reviewed video settings before invoking the provider', async () => {
 		const descriptor = videoModelServiceDescriptor();
-		const harness = await createHarness(videoRecipe(), [], [descriptor]);
+		const harness = await createHarness(videoRecipe(), [descriptor]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -782,7 +781,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('persists provider failure evidence and defaults exact Retry replacement authorization to false', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -855,8 +854,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('copies exact Retry inputs from the source Attempt manifest without reading a changed direct source', async () => {
-		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
-		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoFirstFrameRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
 			const sourceBytes = 'retry-frozen-source-image';
@@ -954,7 +952,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('rejects a changed exact Retry manifest payload before a new Attempt or provider call', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -998,7 +996,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('grants provider replacement only through the exact prepared retry fingerprint', async () => {
-			const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+			const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 			try {
 				harness.registerVideoCatalog(videoModelCatalog());
 				await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1064,7 +1062,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('fails closed after an ambiguous provider submission without a durable task id', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1090,7 +1088,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('persists unknown provider status as an interrupted resumable Attempt', async () => {
-			const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+			const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 			try {
 				harness.registerVideoCatalog(videoModelCatalog());
 				await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1130,7 +1128,7 @@ suite('BaseHalfNodeExecutionService', () => {
 		});
 
 	test('never resolves a video recipe against another extension owner\'s catalog', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog(), 'other.workflow');
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1157,7 +1155,7 @@ suite('BaseHalfNodeExecutionService', () => {
 			endpoint: 'http://127.0.0.1:8787',
 			configured: true
 		};
-		const harness = await createHarness(videoRecipe(), [], [descriptor]);
+		const harness = await createHarness(videoRecipe(), [descriptor]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1236,8 +1234,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('rejects Retry before provider invocation when a frozen direct input revision changed', async () => {
-		const references = [{ source: 'brief.txt', target: 'frame.bhnode' }];
-		const harness = await createHarness(textReferenceRecipe(), references);
+		const harness = await createHarness(textReferenceRecipe());
 		try {
 			await harness.write('brief.txt', 'first brief');
 			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode', [
@@ -1273,9 +1270,126 @@ suite('BaseHalfNodeExecutionService', () => {
 		}
 	});
 
+	test('blocks Draft submission on the node\'s own upstream list: unbound, unlisted, dangling, and invalid entries', async () => {
+		const harness = await createHarness(textReferenceRecipe());
+		try {
+			await harness.write('brief.txt', 'brief');
+			await harness.write('notes.txt', 'notes');
+			let providerCalls = 0;
+			harness.registerExecutor(async () => {
+				providerCalls++;
+				throw new Error('The executor must not run.');
+			});
+			const draft = (upstream: readonly BaseHalfNodeJsonValue[], sourcePath = 'brief.txt') => createBaseHalfNodeDocument({
+				...nodeDocument('frame.bhnode', [{ sourcePath, slot: 'reference', order: 0 }]),
+				upstream
+			});
+			const failures: string[] = [];
+			for (const document of [
+				draft(['brief.txt', 'notes.txt']),
+				draft([]),
+				draft(['missing.txt'], 'missing.txt'),
+				draft(['brief.txt', 42]),
+				draft(['brief.txt', 'frame.bhnode'])
+			]) {
+				await harness.writeNode('frame.bhnode', document);
+				try {
+					await harness.service.run(harness.node('frame.bhnode'));
+					failures.push('ran');
+				} catch (error) {
+					failures.push(error instanceof Error ? error.message : String(error));
+				}
+			}
+			const persisted = JSON.parse(await harness.read('frame.bhnode')) as IBaseHalfNodeDocument;
+			assert.deepStrictEqual({ failures, providerCalls, attempts: persisted.attempts.length }, {
+				failures: [
+					'Assign every upstream connection to this recipe before running. Unassigned: notes.txt.',
+					'Every bound input must be listed in this node\'s upstream before running. Not listed: brief.txt.',
+					'Upstream source \'missing.txt\' no longer exists. Relink or remove it before running this node.',
+					'Fix or remove the invalid upstream entries of this node before running it: \'42\'.',
+					'Fix or remove the invalid upstream entries of this node before running it: \'frame.bhnode\'.'
+				],
+				providerCalls: 0,
+				attempts: 0
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('reads a version 3 Draft with upstream derived from its bindings and writes version 4', async () => {
+		const harness = await createHarness(textReferenceRecipe());
+		try {
+			await harness.write('brief.txt', 'brief');
+			const legacy = JSON.parse(serializeBaseHalfNodeDocument(nodeDocument('frame.bhnode', [
+				{ sourcePath: 'brief.txt', slot: 'reference', order: 0 }
+			]))) as Record<string, unknown>;
+			delete legacy.upstream;
+			legacy.version = 3;
+			await harness.write('frame.bhnode', JSON.stringify(legacy));
+			harness.registerExecutor(async request => {
+				const artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('frame-result'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+
+			await harness.service.run(harness.node('frame.bhnode'));
+			const persisted = JSON.parse(await harness.read('frame.bhnode')) as { version: number; upstream: unknown; result?: unknown };
+			assert.deepStrictEqual({ version: persisted.version, upstream: persisted.upstream, sealed: persisted.result !== undefined }, {
+				version: 4,
+				upstream: ['brief.txt'],
+				sealed: true
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	test('retries from the frozen Attempt without reading the current upstream list', async () => {
+		const harness = await createHarness(textReferenceRecipe());
+		try {
+			await harness.write('brief.txt', 'brief');
+			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode', [
+				{ sourcePath: 'brief.txt', slot: 'reference', order: 0 }
+			]));
+			let providerCalls = 0;
+			harness.registerExecutor(async request => {
+				providerCalls++;
+				if (providerCalls === 1) {
+					throw new Error('Provider unavailable.');
+				}
+				const artifact = URI.joinPath(request.outputDirectory, 'frame.png');
+				await harness.fileService.createFile(artifact, VSBuffer.fromString('frame-result'), { overwrite: false });
+				return { artifact: { id: 'frame', outputId: 'result', kind: 'image', resource: artifact } };
+			});
+
+			await harness.service.run(harness.node('frame.bhnode'));
+			// An agent edits the attempted node's upstream: an unbound entry and a
+			// dangling one. Neither blocks nor alters the exact Retry.
+			const edited = JSON.parse(await harness.read('frame.bhnode')) as Record<string, unknown>;
+			edited.upstream = [...edited.upstream as string[], 'notes.txt', 'gone.txt'];
+			await harness.write('frame.bhnode', JSON.stringify(edited));
+			const retried = await harness.service.run(harness.node('frame.bhnode'));
+
+			assert.deepStrictEqual({
+				providerCalls,
+				statuses: retried.attempts.map(attempt => attempt.status),
+				frozenInputs: retried.attempts[1].inputs.map(input => input.sourcePath),
+				upstream: retried.upstream
+			}, {
+				providerCalls: 2,
+				statuses: ['failed', 'succeeded'],
+				frozenInputs: ['brief.txt'],
+				upstream: ['brief.txt', 'notes.txt', 'gone.txt']
+			});
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	test('rejects Retry before provider invocation when the frozen model connection changed', async () => {
 		const firstConnection = modelServiceDescriptor('A');
-		const harness = await createHarness(modelImageRecipe(), [], [firstConnection]);
+		const harness = await createHarness(modelImageRecipe(), [firstConnection]);
 		try {
 			await harness.writeNode('frame.bhnode', createBaseHalfNodeDocument({
 				id: frameNodeId,
@@ -1369,7 +1483,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('rejects and removes a video Result without a valid MP4 header', async () => {
-		const harness = await createHarness(videoRecipe(), [], [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoModelCatalog());
 			await harness.writeNode('frame.bhnode', videoNodeDocument('2026-08-16'));
@@ -1535,8 +1649,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('freezes a direct generated Result and records its Attempt source identity', async () => {
-		const references = [{ source: 'source.bhnode', target: 'frame.bhnode' }];
-		const harness = await createHarness(imageReferenceRecipe(), references);
+		const harness = await createHarness(imageReferenceRecipe());
 		try {
 			await harness.writeNode('source.bhnode', nodeDocument('source.bhnode', []));
 			await harness.writeNode('frame.bhnode', nodeDocument('frame.bhnode', [
@@ -1580,8 +1693,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('reads an imported direct Result with an imported source identity', async () => {
-		const references = [{ source: 'source.bhnode', target: 'frame.bhnode' }];
-		const harness = await createHarness(imageReferenceRecipe(), references);
+		const harness = await createHarness(imageReferenceRecipe());
 		try {
 			await harness.fileService.createFolder(harness.resource('assets/source'));
 			await harness.write('assets/source/reference.png', 'imported-source');
@@ -1709,8 +1821,7 @@ suite('BaseHalfNodeExecutionService', () => {
 	});
 
 	test('recovers the same video Attempt from its verified frozen snapshot without rescanning the source Draft', async () => {
-		const references = [{ source: 'source.bhnode', target: 'clip.bhnode' }];
-		const harness = await createHarness(videoFirstFrameRecipe(), references, [videoModelServiceDescriptor()]);
+		const harness = await createHarness(videoFirstFrameRecipe(), [videoModelServiceDescriptor()]);
 		try {
 			harness.registerVideoCatalog(videoFirstFrameModelCatalog());
 			const sourceBytes = 'frozen-source-image';
@@ -2006,7 +2117,7 @@ suite('BaseHalfNodeExecutionService', () => {
 
 	test('creates zero Attempt when cancellation wins before the model snapshot is frozen', async () => {
 		const descriptor = modelServiceDescriptor('A');
-		const harness = await createHarness(modelImageRecipe(), [], [descriptor]);
+		const harness = await createHarness(modelImageRecipe(), [descriptor]);
 		try {
 			await harness.writeNode('frame.bhnode', createBaseHalfNodeDocument({
 				id: frameNodeId,
@@ -2136,7 +2247,6 @@ class TestHarness {
 
 	constructor(
 		private readonly recipe: IBaseHalfCanvasRecipeContribution,
-		references: readonly { source: string; target: string }[],
 		modelServices: readonly IBaseHalfModelServiceDescriptor[]
 	) {
 		this.modelServices = modelServices;
@@ -2158,7 +2268,7 @@ class TestHarness {
 		const modelServicesService = { getServices: () => this.modelServicesResolver() } as Partial<IBaseHalfModelServiceService> as IBaseHalfModelServiceService;
 		this.service = this.disposables.add(new BaseHalfNodeExecutionService(
 			this.fileService,
-			badgeGraphService(references),
+			this.disposables.add(new UriIdentityService(fileService)),
 			this.registry,
 			this.runtime,
 			modelServicesService,
@@ -2258,30 +2368,6 @@ class TestFileService extends FileService {
 		await this.conditionalWriteHook?.(resource, contents);
 		return super.writeFileWithExpectedContents(resource, contents, expectedContents, options);
 	}
-}
-
-function badgeGraphService(references: readonly { source: string; target: string }[]): IBaseHalfBadgeGraphService {
-	return {
-		readBadgeNeighborhood: async node => {
-			const paths = new Set([node.relativePath]);
-			for (const reference of references) {
-				if (reference.source === node.relativePath || reference.target === node.relativePath) {
-					paths.add(reference.source);
-					paths.add(reference.target);
-				}
-			}
-			const badges = new Map<string, IBaseHalfBadgeFile>();
-			for (const path of paths) {
-				badges.set(path, {
-					path,
-					kind: 'file',
-					references: references.filter(reference => reference.source === path).map(reference => reference.target),
-					referenced_by: references.filter(reference => reference.target === path).map(reference => reference.source)
-				});
-			}
-			return { badges, problems: [] };
-		}
-	} as Partial<IBaseHalfBadgeGraphService> as IBaseHalfBadgeGraphService;
 }
 
 function nodeDocument(
@@ -2565,10 +2651,9 @@ class TestFileSystemProvider extends InMemoryFileSystemProvider {
 
 async function createHarness(
 	recipe: IBaseHalfCanvasRecipeContribution,
-	references: readonly { source: string; target: string }[] = [],
 	modelServices: readonly IBaseHalfModelServiceDescriptor[] = []
 ): Promise<TestHarness> {
-	const harness = new TestHarness(recipe, references, modelServices);
+	const harness = new TestHarness(recipe, modelServices);
 	await harness.initialize();
 	return harness;
 }

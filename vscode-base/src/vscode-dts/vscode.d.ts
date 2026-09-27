@@ -21582,10 +21582,22 @@ declare module 'vscode' {
 		 * still equal `expected`, and records the change as one BaseHalf project
 		 * undo step. The host rejects dirty files, symbolic links, and paths outside
 		 * the current workspace.
+		 *
+		 * A transition may not change any BaseHalf `upstream` value: the
+		 * `upstream` frontmatter key of a Markdown file or the `upstream` field of
+		 * a `.bhnode` document. The host reads the upstream state of `expected`
+		 * and `next` (either unreadable, or the ordered raw entries) and rejects
+		 * the transition unless both are identical, including a change that
+		 * breaks or repairs a Markdown frontmatter fence. Upstream entries change
+		 * only through explicit user actions in BaseHalf.
 		 */
 		export function applyProjectFileTransition(resource: Uri, expected: Uint8Array, next: Uint8Array, label: string): Thenable<void>;
 
-		/** One exact ordinary-project-file transition proposed for a structural cleanup. */
+		/**
+		 * One exact ordinary-project-file transition proposed for a structural
+		 * cleanup. The upstream rule of {@link applyProjectFileTransition}
+		 * applies: a cleanup never changes an `upstream` value.
+		 */
 		export interface ProjectFileTransition {
 			readonly resource: Uri;
 			readonly expected: Uint8Array;
@@ -21613,7 +21625,8 @@ declare module 'vscode' {
 		/**
 		 * Registers the executor for one manifest-declared canvas recipe.
 		 *
-		 * The BaseHalf host continues to own references, layout, the sealed Result,
+		 * The BaseHalf host continues to own references (stored once, in each
+		 * target node's `upstream` list), layout, the sealed Result,
 		 * and append-only Attempt audit. The execution contract supplies frozen direct inputs and
 		 * validates the returned ordinary local artifact. Executable plugins remain
 		 * trusted local software and are not an operating-system sandbox.

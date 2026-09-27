@@ -22,6 +22,32 @@ assertProductIdentity();
 const opts = parseArgs(process.argv.slice(2));
 const runsNewWindowWelcome = !opts.zoomOnly && !opts.canvasOnly && !opts.contentOnly && !opts.pluginOnly && !opts.settingsOnly;
 const AGENT_CREATED_CARD_PATH = 'agent-angle.md';
+const AGENT_CREATED_CARD_CONTENT = [
+	'# Agent angle',
+	'',
+	'Created externally as another context-consuming document.',
+	''
+].join('\n');
+const FAR_FIXTURE_CONTENT = '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n';
+const LEGACY_REFERENCES_RECORD_PATH = path.join('.bh', 'legacy-references.yaml');
+// A complete legacy pair from a release before D37: guide.md's badge lists
+// far.md under `references`, and far.md's badge lists guide.md under
+// `referenced_by`.
+const LEGACY_GUIDE_BADGE = [
+	'path: "docs/guide.md"',
+	'kind: file',
+	'description: "Guide badge"',
+	'references:',
+	'  - "docs/far.md"',
+	''
+].join('\n');
+const LEGACY_FAR_BADGE = [
+	'path: "docs/far.md"',
+	'kind: file',
+	'referenced_by:',
+	'  - "docs/guide.md"',
+	''
+].join('\n');
 const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 const SMOKE_VIDEO_PROVIDER_SPEC_ID = 'pointa.basehalf-ai-video.byteplus-modelark';
@@ -69,6 +95,8 @@ if (opts.verifyUninstalled || opts.verifyInstalled) {
 	createFixtureWorkspace(workspacePath);
 	prepareExternalPluginFixture();
 }
+// What the fixture holds under .bh/ before BaseHalf first opens it.
+const bhTreeBeforeLaunch = readBhTree();
 
 const electronPath = getDevElectronPath();
 
@@ -147,6 +175,7 @@ try {
 	}
 	if (!opts.settingsOnly && !opts.pluginOnly) {
 		await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
+		await step('first-canvas-render-writes-nothing-under-bh', () => assertFirstCanvasRenderWritesNothingUnderBh(page));
 		await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 		await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 	}
@@ -228,6 +257,7 @@ try {
 					workspace: workspacePath,
 					checks: [
 						'fresh-canvas-framed',
+						'first-canvas-render-writes-nothing-under-bh',
 						'root-titlebar-breadcrumb',
 						'canvas-grid-scoped-to-canvas',
 						'canvas-zoom-controls',
@@ -238,11 +268,14 @@ try {
 			} else if (opts.canvasOnly) {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
-			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+			await step('agent-creates-card', () => assertAgentCreatesCard(page));
+			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
+			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', AGENT_CREATED_CARD_PATH));
+			await step('canvas-undo-after-closing-note', () => assertCanvasUndoAfterClosingNote(page));
 			await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
 			await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
-			await step('agent-creates-card', () => assertAgentCreatesCard(page));
-			await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+			await step('agent-upstream-edit-draws-edge', () => assertAgentUpstreamEditDrawsEdge(page));
+			await step('badge-editor-upstream-downstream', () => assertBadgeEditorUpstreamDownstream(page));
 			await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 			await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
@@ -252,6 +285,7 @@ try {
 			workspace: workspacePath,
 			checks: [
 				'fresh-canvas-framed',
+				'first-canvas-render-writes-nothing-under-bh',
 				'root-titlebar-breadcrumb',
 				'canvas-grid-scoped-to-canvas',
 				'canvas-double-click-create-menu',
@@ -260,11 +294,14 @@ try {
 				'canvas-note-selection-controls',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
+				'agent-creates-card',
+				'canvas-connect-into-note',
 				'canvas-derived-edge-visible',
+				'canvas-undo-after-closing-note',
 				'canvas-edge-follows-card-drag-live',
 				'canvas-edge-half-reconnect',
-				'agent-creates-card',
-					'agent-reference-draws-edge',
+					'agent-upstream-edit-draws-edge',
+					'badge-editor-upstream-downstream',
 					'edge-delete-scoped-to-canvas',
 					'edge-delete-removes-reference',
 					'canvas-zoom-controls',
@@ -289,11 +326,14 @@ try {
 		await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
-		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+		await step('agent-creates-card', () => assertAgentCreatesCard(page));
+		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
+		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', AGENT_CREATED_CARD_PATH));
+		await step('canvas-undo-after-closing-note', () => assertCanvasUndoAfterClosingNote(page));
 		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
 		await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
-		await step('agent-creates-card', () => assertAgentCreatesCard(page));
-		await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+		await step('agent-upstream-edit-draws-edge', () => assertAgentUpstreamEditDrawsEdge(page));
+		await step('badge-editor-upstream-downstream', () => assertBadgeEditorUpstreamDownstream(page));
 		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
@@ -324,7 +364,7 @@ try {
 	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
 	await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
-	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
+	await step('workspace-open-installs-nothing', () => assertWorkspaceOpenInstallsNothing());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
 	await step('badge-quick-access-note-search', () => assertBadgeQuickAccessFindsNote(page));
 	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, ''));
@@ -352,13 +392,14 @@ try {
 	await step('video-workflow-node-run', () => assertVideoWorkflowNodeRun(page));
 
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
+	// The reveal highlight is transient, so assert it right after navigation.
+	await step('quick-text-search-readme-reveals-routing-line', () => assertMarkdownRichRevealsText(page, 'needle-basehalf-routing'));
 	await step('quick-text-search-readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('quick-text-search-readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
-	await step('quick-text-search-readme-focus-routing-line', () => assertFocusLine('README.md', lineNumberForText('README.md', 'needle-basehalf-routing')));
 	await step('quick-text-search-readme-second', () => quickOpen(page, '%needle-basehalf-second'));
+	await step('quick-text-search-readme-reveals-second-line', () => assertMarkdownRichRevealsText(page, 'needle-basehalf-second'));
 	await step('quick-text-search-readme-second-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('quick-text-search-readme-second-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
-	await step('quick-text-search-readme-focus-second-line', () => assertFocusLine('README.md', lineNumberForText('README.md', 'needle-basehalf-second')));
 	await step('quick-text-search-app-side', () => quickOpen(page, '%needleSymbol', 'Alt+Enter'));
 	await step('quick-text-search-app-card-detail', () => assertCardDetail(page, 'app.ts'));
 	await step('quick-text-search-app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
@@ -378,10 +419,15 @@ try {
 		await assertCanvasFolder(page, 'docs');
 		await assertCanvasContainsCard(page, 'docs/guide.md');
 	});
+	await step('migration-moves-seeded-legacy-pair', () => assertMigrationMovesSeededLegacyPair(page));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
+	// Viewing, editing, and navigating never write focus state into the
+	// workspace, and nothing installs agent guides, a harness, or a
+	// .gitignore later in the session either.
+	await step('nothing-installed-after-session', () => assertWorkspaceOpenInstallsNothing());
 
 	const summary = {
 		ok: true,
@@ -391,6 +437,7 @@ try {
 			'canvas-visible',
 			'new-window-basehalf-welcome',
 			'fresh-canvas-framed',
+			'first-canvas-render-writes-nothing-under-bh',
 			'root-titlebar-breadcrumb',
 			'canvas-grid-scoped-to-canvas',
 			'canvas-create-result-node-submenu',
@@ -409,12 +456,17 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
-			'canvas-derived-edge-visible',
-			'canvas-edge-follows-card-drag-live',
 			'agent-creates-card',
-			'agent-reference-draws-edge',
+			'canvas-connect-into-note',
+			'canvas-derived-edge-visible',
+			'canvas-undo-after-closing-note',
+			'canvas-edge-follows-card-drag-live',
+			'canvas-edge-half-reconnect',
+			'agent-upstream-edit-draws-edge',
+			'badge-editor-upstream-downstream',
 			'edge-delete-scoped-to-canvas',
 			'edge-delete-removes-reference',
+			'migration-moves-seeded-legacy-pair',
 			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
 			'card-detail-covers-scrolled-canvas',
@@ -430,7 +482,7 @@ try {
 			'markdown-rich-undo-stops-at-load',
 			'markdown-rich-menu-undo-single-trigger',
 			'markdown-rich-composition-queues-single-undo',
-			'workspace-setup-agent-protocol-files',
+			'workspace-open-installs-nothing',
 			'card-detail-badge-zone',
 			'badge-quick-access-note-search',
 			'initial-native-back-root-canvas',
@@ -454,7 +506,8 @@ try {
 			'folder-quick-open-canvas',
 			'settings-basehalf-category',
 			'badge-closes-on-rich-editor-activation',
-			'release-notes-system-page'
+			'release-notes-system-page',
+			'nothing-installed-after-session'
 		]
 	};
 	if (opts.keep || opts.output) {
@@ -751,14 +804,12 @@ function createFixtureWorkspace(workspace) {
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'textbook.pdf'), createMinimalPdfFixture());
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
-	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n', 'utf8');
+	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), FAR_FIXTURE_CONTENT, 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'badge.yaml'), [
 		'path: "README.md"',
 		'kind: file',
 		'description: "Smoke file badge"',
-		'references: []',
-		'referenced_by: []',
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'adhd.yaml'), [
@@ -2204,9 +2255,12 @@ async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {
 	throw new Error(`PDF projection webview did not render the local fixture: ${diagnostic}`);
 }
 
+// Each branch note is created with the PDF in its `upstream` frontmatter, in
+// its first saved bytes (D37): the PDF → note edge appears and nothing else is
+// written for the connection.
 async function assertPdfGrowsThreeBranches(page) {
 	const sourcePath = path.join(workspacePath, 'docs', 'textbook.pdf');
-	const sourceBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'textbook.pdf', 'badge.yaml');
+	const sourceMirrorPath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'textbook.pdf');
 	const branchNames = ['textbook-note.md', 'textbook-note-2.md', 'textbook-note-3.md'];
 
 	for (let index = 0; index < branchNames.length; index++) {
@@ -2232,13 +2286,19 @@ async function assertPdfGrowsThreeBranches(page) {
 		if (!markdown.includes('> BaseHalf PDF') || !markdown.includes('Source: [textbook.pdf](./textbook.pdf), page 1')) {
 			throw new Error(`${name} did not preserve the selected passage and source page as ordinary Markdown`);
 		}
-
-		const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', name, 'badge.yaml');
-		await waitUntil(() => fs.existsSync(sourceBadgePath) && fs.existsSync(targetBadgePath), `${name} badge endpoints to be written`, 15_000);
-		const sourceBadge = fs.readFileSync(sourceBadgePath, 'utf8');
-		const targetBadge = fs.readFileSync(targetBadgePath, 'utf8');
-		if (!sourceBadge.includes(`docs/${name}`) || !targetBadge.includes('docs/textbook.pdf')) {
-			throw new Error(`${name} did not persist the two-sided PDF context-flow reference`);
+		if (!markdown.startsWith('---\nupstream:\n  - docs/textbook.pdf\n---\n')) {
+			throw new Error(`${name} did not list the PDF as upstream in its first bytes: ${JSON.stringify(markdown.slice(0, 120))}`);
+		}
+		await assertCanvasEdgeVisible(page, 'docs/textbook.pdf', `docs/${name}`);
+		for (const mirrorPath of [
+			path.join(sourceMirrorPath, 'badge.yaml'),
+			path.join(sourceMirrorPath, 'upstream.yaml'),
+			path.join(workspacePath, '.bh', 'mirror', 'docs', name, 'badge.yaml'),
+			path.join(workspacePath, '.bh', 'mirror', 'docs', name, 'upstream.yaml')
+		]) {
+			if (fs.existsSync(mirrorPath)) {
+				throw new Error(`Growing ${name} wrote ${path.relative(workspacePath, mirrorPath)}; the connection belongs only in the note`);
+			}
 		}
 		await page.keyboard.press('Escape');
 		await branchEditor.host.waitFor({ state: 'detached', timeout: 10_000 });
@@ -2353,11 +2413,21 @@ async function assertVideoWorkflowTemplate(page) {
 		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}/shots/shot-01/${relativePath}"]`).waitFor({ state: 'attached', timeout: 15_000 });
 	}
 	const frameNode = JSON.parse(fs.readFileSync(path.join(workflowRoot, 'shots/shot-01/storyboard-frame.bhnode'), 'utf8'));
-	if (frameNode.version !== 3
+	if (frameNode.version !== 4
 		|| frameNode.kind !== 'image'
+		|| JSON.stringify(frameNode.upstream) !== JSON.stringify([`${workflowName}/shots/shot-01/storyboard.md`])
 		|| frameNode.recipe?.recipeId !== 'pointa.basehalf-ai-video.storyboard-frame'
 		|| frameNode.recipe?.inputBindings?.[0]?.sourcePath !== `${workflowName}/shots/shot-01/storyboard.md`) {
 		throw new Error(`The starter workflow did not produce a host-owned executable node: ${JSON.stringify(frameNode)}`);
+	}
+	// Template references are stored once, in each target: a Markdown target
+	// keeps them in its frontmatter, merged by the planner.
+	const script = fs.readFileSync(path.join(workflowRoot, 'script.md'), 'utf8');
+	if (!script.startsWith(`---\nupstream:\n  - ${workflowName}/brief.md\n---\n# Script\n`)) {
+		throw new Error(`The starter workflow did not store the brief → script connection in script.md: ${JSON.stringify(script.slice(0, 120))}`);
+	}
+	if (fs.existsSync(path.join(workspacePath, '.bh', 'mirror', workflowName, 'brief.md', 'badge.yaml'))) {
+		throw new Error('The starter workflow wrote a badge for a template connection');
 	}
 }
 
@@ -3482,7 +3552,8 @@ async function assertVideoNodeUI(page) {
 		].join('\n'), 'utf8');
 	}
 	const nodeDocument = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
-	if (nodeDocument.version !== 3
+	if (nodeDocument.version !== 4
+		|| JSON.stringify(nodeDocument.upstream) !== '[]'
 		|| nodeDocument.kind !== 'video'
 		|| nodeDocument.recipe !== undefined
 		|| nodeDocument.result !== undefined
@@ -4141,9 +4212,9 @@ async function assertVideoNodeUI(page) {
 	await page.keyboard.press('Escape');
 	await settingsPopover.waitFor({ state: 'hidden', timeout: 10_000 });
 	const canvasYamlPath = path.join(workspacePath, '.bh', 'mirror', workflowName, 'shots', 'shot-01', 'canvas.yaml');
-	const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', ...canvasPath.split('/'), 'badge.yaml');
-	const startFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...startFramePath.split('/'), 'badge.yaml');
-	const endFrameBadgePath = path.join(workspacePath, '.bh', 'mirror', ...endFramePath.split('/'), 'badge.yaml');
+	// Since D37 the Video node's own `upstream` list holds its input
+	// connections, written in the same document write as the bindings.
+	const savedUpstream = saved => Array.isArray(saved.upstream) ? saved.upstream : [];
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-open').click();
 	const inputPickBanner = page.locator(`.basehalf-video-input-pick-banner[data-target-node-path="${canvasPath}"]`);
 	await inputPickBanner.waitFor({ state: 'visible', timeout: 10_000 });
@@ -4418,21 +4489,24 @@ async function assertVideoNodeUI(page) {
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		const bindings = saved.recipe?.inputBindings ?? [];
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
-		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
-		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
-		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
-		return bindings.length === 2
+		const upstream = savedUpstream(saved);
+		return saved.version === 4
+			&& bindings.length === 2
 			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame' && typeof binding.sourceRevision === 'string')
 			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame' && typeof binding.sourceRevision === 'string')
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === 1
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === 1
-			&& canvas.split('\nedges:\n')[1]?.split(`to: "${canvasPath}"`).length === 3
-			&& targetBadge.includes(startFramePath)
-			&& targetBadge.includes(endFramePath)
-			&& startBadge.includes(canvasPath)
-			&& endBadge.includes(canvasPath);
-	}, 'Video Start and End bindings plus two graph edges to persist', 15_000);
+			&& upstream.length === 2
+			&& upstream.includes(startFramePath)
+			&& upstream.includes(endFramePath);
+	}, 'Video Start and End bindings and their upstream entries to persist in one document write', 15_000);
+	await assertCanvasEdgeVisible(page, startFramePath, canvasPath);
+	await assertCanvasEdgeVisible(page, endFramePath, canvasPath);
+	for (const sourcePath of [startFramePath, endFramePath]) {
+		if (fs.existsSync(path.join(workspacePath, '.bh', 'mirror', ...sourcePath.split('/'), 'badge.yaml'))) {
+			throw new Error(`A Video input pick wrote a badge for ${sourcePath}; the connection belongs only in the node document`);
+		}
+	}
 	const twoFrameNodeContents = fs.readFileSync(nodePath, 'utf8');
 	const twoFrameCanvasContents = fs.readFileSync(canvasYamlPath, 'utf8');
 
@@ -4448,22 +4522,15 @@ async function assertVideoNodeUI(page) {
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		const bindings = saved.recipe?.inputBindings ?? [];
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
-		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
-		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
-		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
+		const upstream = savedUpstream(saved);
 		return bindings.length === 1
 			&& bindings[0]?.sourcePath === startFramePath
 			&& bindings[0]?.slot === 'first-frame'
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === 1
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === undefined
-			&& canvas.includes(`from: "${startFramePath}"`)
-			&& !canvas.includes(`from: "${endFramePath}"`)
-			&& targetBadge.includes(startFramePath)
-			&& !targetBadge.includes(endFramePath)
-			&& startBadge.includes(canvasPath)
-			&& !endBadge.includes(canvasPath);
-	}, 'Undo to atomically remove the End binding, reciprocal reference, and canvas edge', 15_000);
+			&& upstream.includes(startFramePath)
+			&& !upstream.includes(endFramePath);
+	}, 'Undo to atomically remove the End binding and its upstream entry', 15_000);
 
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y');
 	await page.waitForFunction(({ targetPath, startPath, endPath }) => {
@@ -4476,20 +4543,13 @@ async function assertVideoNodeUI(page) {
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		const bindings = saved.recipe?.inputBindings ?? [];
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
-		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
-		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
-		const endBadge = fs.existsSync(endFrameBadgePath) ? fs.readFileSync(endFrameBadgePath, 'utf8') : '';
+		const upstream = savedUpstream(saved);
 		return bindings.length === 2
 			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame')
 			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame')
-			&& canvas.includes(`from: "${startFramePath}"`)
-			&& canvas.includes(`from: "${endFramePath}"`)
-			&& targetBadge.includes(startFramePath)
-			&& targetBadge.includes(endFramePath)
-			&& startBadge.includes(canvasPath)
-			&& endBadge.includes(canvasPath);
-	}, 'Redo to atomically restore the End binding, reciprocal reference, and canvas edge', 15_000);
+			&& upstream.includes(startFramePath)
+			&& upstream.includes(endFramePath);
+	}, 'Redo to atomically restore the End binding and its upstream entry', 15_000);
 
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="first-frame"] .basehalf-video-frame-slot-replace').click();
 	await page.waitForFunction(targetPath => {
@@ -4660,12 +4720,13 @@ async function assertVideoNodeUI(page) {
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		const bindings = saved.recipe?.inputBindings ?? [];
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
+		const upstream = savedUpstream(saved);
 		return bindings.length === 2
 			&& bindings.some(binding => binding.sourcePath === startFramePath && binding.slot === 'first-frame')
 			&& bindings.some(binding => binding.sourcePath === endFramePath && binding.slot === 'last-frame')
-			&& canvas.split('\nedges:\n')[1]?.split(`to: "${canvasPath}"`).length === 3;
-	}, 'the Start binding and its graph edge to be restored after adjustment review', 15_000);
+			&& upstream.includes(startFramePath)
+			&& upstream.includes(endFramePath);
+	}, 'the Start binding and its upstream entry to be restored after adjustment review', 15_000);
 
 	await modelTrigger.click();
 	await modelsPopover.waitFor({ state: 'visible', timeout: 10_000 });
@@ -4742,20 +4803,15 @@ async function assertVideoNodeUI(page) {
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
 		const bindings = saved.recipe?.inputBindings ?? [];
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
-		const targetBadge = fs.existsSync(targetBadgePath) ? fs.readFileSync(targetBadgePath, 'utf8') : '';
-		const startBadge = fs.existsSync(startFrameBadgePath) ? fs.readFileSync(startFrameBadgePath, 'utf8') : '';
+		const upstream = savedUpstream(saved);
 		return bindings.length === 1
 			&& bindings[0]?.sourcePath === endFramePath
 			&& bindings[0]?.slot === 'last-frame'
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['first-frame'] === undefined
 			&& saved.recipe?.parameters?.videoModelSnapshot?.inputs?.['last-frame'] === 1
-			&& !canvas.includes(`from: "${startFramePath}"`)
-			&& canvas.includes(`from: "${endFramePath}"`)
-			&& !targetBadge.includes(startFramePath)
-			&& targetBadge.includes(endFramePath)
-			&& !startBadge.includes(canvasPath);
-	}, 'missing Video Start source removal to atomically clear its binding, reference pair, and canvas edge', 15_000);
+			&& !upstream.includes(startFramePath)
+			&& upstream.includes(endFramePath);
+	}, 'missing Video Start source removal to atomically clear its binding and upstream entry', 15_000);
 
 	await composer.locator('.basehalf-video-frame-slot[data-frame-role="last-frame"] .basehalf-video-frame-slot-remove').click();
 	await page.waitForFunction(targetPath => document.querySelector(
@@ -4763,10 +4819,11 @@ async function assertVideoNodeUI(page) {
 	)?.classList.contains('empty') === true, canvasPath, { timeout: 15_000 });
 	await waitUntil(() => {
 		const saved = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
-		const canvas = fs.readFileSync(canvasYamlPath, 'utf8');
 		return (saved.recipe?.inputBindings?.length ?? 0) === 0
-			&& !canvas.split('\nedges:\n')[1]?.includes(`to: "${canvasPath}"`);
-	}, 'Video frame removals to clear both bindings and graph edges', 15_000);
+			&& savedUpstream(saved).length === 0;
+	}, 'Video frame removals to clear both bindings and upstream entries', 15_000);
+	await assertCanvasEdgeGone(page, startFramePath, canvasPath);
+	await assertCanvasEdgeGone(page, endFramePath, canvasPath);
 
 	await settingsTrigger.click();
 	await settingsPopover.waitFor({ state: 'visible', timeout: 10_000 });
@@ -5183,7 +5240,8 @@ async function assertVideoResultToolbar(page, { workflowName, canvasPath, nodePa
 	// before the real Shift-click; allowing Playwright to scroll a transformed
 	// React Flow node into view would move the graph without updating its model.
 	const primarySidebar = page.locator('.part.sidebar');
-	if (await primarySidebar.isVisible().catch(() => false)) {
+	const hidSidebar = await primarySidebar.isVisible().catch(() => false);
+	if (hidSidebar) {
 		await runCommand(page, 'Toggle Primary Side Bar Visibility');
 		await page.locator('.part.sidebar').waitFor({ state: 'hidden', timeout: 10_000 });
 	}
@@ -5193,6 +5251,12 @@ async function assertVideoResultToolbar(page, { workflowName, canvasPath, nodePa
 		|| await page.locator('.basehalf-video-composer:visible').count() !== 0
 		|| await page.locator('.basehalf-canvas-video-composer-surface').count() !== 0) {
 		throw new Error('Multi-selection retained single-Video Result chrome instead of structural controls');
+	}
+	// Leave the workbench chrome as this check found it: later steps of the
+	// full smoke navigate through the Explorer in the primary side bar.
+	if (hidSidebar) {
+		await runCommand(page, 'Toggle Primary Side Bar Visibility');
+		await page.locator('.part.sidebar').waitFor({ state: 'visible', timeout: 10_000 });
 	}
 }
 
@@ -5407,30 +5471,95 @@ async function assertCardDetailCompactHeader(page) {
 	}
 }
 
-// Workspace setup ran on open: the agent-protocol pointers exist on disk —
-// hint sections in CLAUDE.md/AGENTS.md, the agent-harness index, and the
-// .bh/cache/ gitignore line appended to the fixture's existing .gitignore.
-async function assertWorkspaceSetupAgentProtocolFiles() {
-	const deadline = Date.now() + 20_000;
-	for (; ;) {
-		try {
-			for (const rel of ['CLAUDE.md', 'AGENTS.md']) {
-				const content = fs.readFileSync(path.join(workspacePath, rel), 'utf8');
-				if (!content.includes('<!-- bh:workspace-hint -->') || !content.includes('.bh/current_focus.yaml')) {
-					throw new Error(`${rel} is missing the BaseHalf workspace hint`);
-				}
-			}
-			const index = fs.readFileSync(path.join(workspacePath, '.bh/agent-harness/index.md'), 'utf8');
-			if (!index.startsWith('<!-- bh:agent-harness managed')) {
-				throw new Error('.bh/agent-harness/index.md is missing the managed sentinel');
-			}
-			return;
-		} catch (error) {
-			if (Date.now() > deadline) {
-				throw error;
-			}
-			await new Promise(resolve => setTimeout(resolve, 500));
+// Opening a workspace installs nothing: BaseHalf creates no agent guide, no
+// .bh/agent-harness, and no .gitignore (the fixture has none of them), and no
+// focus mirror file exists.
+async function assertWorkspaceOpenInstallsNothing() {
+	for (const rel of ['CLAUDE.md', 'AGENTS.md', '.github/copilot-instructions.md', '.gitignore', '.bh/agent-harness']) {
+		if (lstatOrUndefined(path.join(workspacePath, rel))) {
+			throw new Error(`Opening the workspace must not create ${rel}`);
 		}
+	}
+	assertNoFocusMirrorFiles();
+}
+
+// Opening the workspace and rendering its first canvas write nothing under
+// .bh/. Every seeded file keeps its bytes and nothing is added: no focus
+// file, no harness, and no canvas.yaml for a folder nobody arranged. A fresh
+// folder therefore still has no .bh/ after its first canvas render. The wait
+// outlasts the viewport persist debounce and the bounded legacy-import wait,
+// so a delayed writer has run by the time the tree is compared.
+async function assertFirstCanvasRenderWritesNothingUnderBh(page) {
+	await page.waitForTimeout(1_000);
+	const after = readBhTree();
+	const changed = [...new Set([...Object.keys(bhTreeBeforeLaunch), ...Object.keys(after)])]
+		.filter(rel => bhTreeBeforeLaunch[rel] !== after[rel])
+		.sort();
+	if (changed.length > 0) {
+		throw new Error(`Opening the workspace and rendering its first canvas must not write under .bh/: ${changed.join(', ')}`);
+	}
+}
+
+// Every entry under the workspace's .bh/, keyed by workspace-relative path:
+// directories end with '/', symbolic links map to their target, and files map
+// to a hash of their bytes.
+function readBhTree() {
+	const tree = {};
+	const pending = [path.join(workspacePath, '.bh')];
+	while (pending.length > 0) {
+		const directory = pending.pop();
+		let entries;
+		try {
+			entries = fs.readdirSync(directory, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const entryPath = path.join(directory, entry.name);
+			const rel = path.relative(workspacePath, entryPath).split(path.sep).join('/');
+			if (entry.isSymbolicLink()) {
+				tree[rel] = `link:${fs.readlinkSync(entryPath)}`;
+			} else if (entry.isDirectory()) {
+				tree[`${rel}/`] = 'directory';
+				pending.push(entryPath);
+			} else {
+				tree[rel] = createHash('sha256').update(fs.readFileSync(entryPath)).digest('hex');
+			}
+		}
+	}
+	return tree;
+}
+
+// Neither the retired current-focus link nor any per-node focus file exists.
+function assertNoFocusMirrorFiles() {
+	if (lstatOrUndefined(path.join(workspacePath, '.bh', 'current_focus.yaml'))) {
+		throw new Error('.bh/current_focus.yaml must not be written');
+	}
+	const pending = [path.join(workspacePath, '.bh', 'mirror')];
+	while (pending.length > 0) {
+		const directory = pending.pop();
+		let entries;
+		try {
+			entries = fs.readdirSync(directory, { withFileTypes: true });
+		} catch {
+			continue;
+		}
+		for (const entry of entries) {
+			const entryPath = path.join(directory, entry.name);
+			if (entry.isDirectory()) {
+				pending.push(entryPath);
+			} else if (entry.name === 'focus.yaml') {
+				throw new Error(`Focus mirror file must not be written: ${path.relative(workspacePath, entryPath)}`);
+			}
+		}
+	}
+}
+
+function lstatOrUndefined(filePath) {
+	try {
+		return fs.lstatSync(filePath);
+	} catch {
+		return undefined;
 	}
 }
 
@@ -5944,6 +6073,13 @@ async function assertCanvasZoomControls(page) {
 async function assertNativeForwardOpensCardDetail(page, title, options = {}) {
 	await clickCommandCenterNavigationButton(page, 'arrow-right', 'Go Forward');
 	if (options.coldRichQuickInputQuery) {
+		// The probe opens Quick Input while the cold rich generation boots, before
+		// its first frame. Wait until that generation's iframe exists: a Quick
+		// Input that is already open when the surface mounts pauses the boot
+		// before any iframe is created, which is a different path and would make
+		// this probe race the navigation itself.
+		await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich-webview iframe')
+			.first().waitFor({ state: 'attached', timeout: 20_000 });
 		const focusBeforeQuickInput = await page.evaluate(() => {
 			const active = document.activeElement;
 			return active instanceof HTMLElement ? {
@@ -8440,7 +8576,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		|| longPromptLayout.outlineStyle !== 'none') {
 		throw new Error(`Long canvas Badge prompt did not expand to its complete content: ${JSON.stringify(longPromptLayout)}`);
 	}
-	const addReferenceVisibleAfterLongPrompt = await readme.locator('.basehalf-canvas-card-add-reference').evaluate(button => {
+	const lastBadgeActionVisibleAfterLongPrompt = await readme.locator('[data-testid="badge-add-downstream"]').evaluate(button => {
 		const card = button.closest('.basehalf-canvas-card');
 		const body = button.closest('.basehalf-canvas-card-badge-scroll');
 		if (!(card instanceof HTMLElement) || !(body instanceof HTMLElement)) {
@@ -8451,8 +8587,8 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		const cardBox = card.getBoundingClientRect();
 		return buttonBox.top >= cardBox.top && buttonBox.bottom <= cardBox.bottom;
 	});
-	if (!addReferenceVisibleAfterLongPrompt) {
-		throw new Error('The canvas Badge body could not scroll from a complete prompt to Add reference');
+	if (!lastBadgeActionVisibleAfterLongPrompt) {
+		throw new Error('The canvas Badge body could not scroll from a complete prompt to its last action, Add Downstream');
 	}
 	const canvasBadgeDraft = 'Canvas Badge prompt survives refresh and zoom';
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
@@ -8557,40 +8693,141 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	if (visibleReadmeHandles !== 4) {
 		throw new Error(`Expected all four React Flow handles on card hover, got ${visibleReadmeHandles}`);
 	}
+}
 
-	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
-	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
-	for (let attempt = 0; attempt < 8 && (!await docs.isVisible() || !await src.isVisible()); attempt++) {
+// The agent-created note with an `upstream` frontmatter list naming `entries`,
+// exactly as the BaseHalf planner writes it; with no entries, the note's own
+// bytes (the planner removes an emptied block together with its fences).
+function agentNoteWithUpstream(entries) {
+	return entries.length === 0
+		? AGENT_CREATED_CARD_CONTENT
+		: `---\nupstream:\n${entries.map(entry => `  - ${entry}\n`).join('')}---\n${AGENT_CREATED_CARD_CONTENT}`;
+}
+
+function readWorkspaceFile(relativePath) {
+	const filePath = path.join(workspacePath, ...relativePath.split('/'));
+	return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : undefined;
+}
+
+// Paths under .bh/ whose bytes differ from `before` (a readBhTree() snapshot).
+// Machine-local runtime state under .bh/cache/ is not project metadata.
+function bhTreeChangesSince(before) {
+	const after = readBhTree();
+	return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+		.filter(rel => before[rel] !== after[rel] && !rel.startsWith('.bh/cache/'))
+		.sort();
+}
+
+// Notification toasts never render under --enable-smoke-test-driver (the
+// stock NotificationsToasts skips them so they cannot cover smoke targets), so
+// the smoke reads notifications from the notification center, opened from the
+// status bar bell. The center lists every notification that is still open.
+async function showNotificationsCenter(page) {
+	const center = page.locator('.notifications-center.visible');
+	if (!(await center.isVisible().catch(() => false))) {
+		await page.locator('#status\\.notifications .statusbar-item-label').click();
+	}
+	await center.waitFor({ state: 'visible', timeout: 10_000 });
+	return center;
+}
+
+async function hideNotificationsCenter(page) {
+	const center = page.locator('.notifications-center.visible');
+	if (await center.isVisible().catch(() => false)) {
+		await page.locator('#status\\.notifications .statusbar-item-label').click();
+		await center.waitFor({ state: 'hidden', timeout: 10_000 });
+	}
+}
+
+// Waits for the open notification whose message contains `message` (a string
+// or a RegExp) and returns its row in the notification center, which stays open.
+async function waitForNotification(page, message, timeout = 15_000) {
+	const center = await showNotificationsCenter(page);
+	const item = center.locator('.notification-list-item', { hasText: message }).first();
+	await item.waitFor({ state: 'visible', timeout });
+	return item;
+}
+
+// Waits for a notification, checks it, and clears it so later lookups of the
+// same message never match it; then closes the notification center.
+async function expectNotification(page, message, timeout = 15_000) {
+	const item = await waitForNotification(page, message, timeout);
+	await item.locator('.action-label.codicon-notifications-clear').evaluate(action => action.click());
+	await item.waitFor({ state: 'hidden', timeout: 10_000 });
+	await hideNotificationsCenter(page);
+}
+
+// Clicks an action button of the notification whose message contains
+// `message`, then closes the notification center.
+async function clickNotificationAction(page, message, action, timeout = 15_000) {
+	const item = await waitForNotification(page, message, timeout);
+	await item.locator('.notification-list-item-buttons-container .monaco-button', { hasText: action }).first().click();
+	await item.waitFor({ state: 'hidden', timeout: 10_000 });
+	await hideNotificationsCenter(page);
+}
+
+// Zooms out to at most 50% and centers `cards`, so every card and its
+// connection handles are inside the visible canvas.
+async function frameCanvasCardsForConnection(page, cards) {
+	for (let attempt = 0; attempt < 16; attempt++) {
+		const zoom = await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom').then(Number);
+		if (zoom <= 0.5) {
+			break;
+		}
 		if (!await zoomCanvas(page, 'out')) {
 			break;
 		}
 		await page.waitForTimeout(50);
 	}
-	await docs.waitFor({ state: 'visible', timeout: 10_000 });
-	await src.waitFor({ state: 'visible', timeout: 10_000 });
-	await centerCanvasCards(page, [docs, src]);
-	await zoomCanvas(page, 'reset');
-	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
-	await docs.locator('.basehalf-canvas-folder-preview-label', { hasText: 'guide.md' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await src.locator('.basehalf-canvas-folder-preview-label', { hasText: 'app.ts' }).waitFor({ state: 'visible', timeout: 10_000 });
+	for (const card of cards) {
+		await card.waitFor({ state: 'visible', timeout: 10_000 });
+	}
+	for (let attempt = 0; attempt < 4; attempt++) {
+		await centerCanvasCards(page, cards);
+		const canvasBounds = await page.locator('.basehalf-canvas-cards').boundingBox();
+		const cardBounds = await Promise.all(cards.map(card => card.boundingBox()));
+		if (canvasBounds && cardBounds.every(bounds => bounds
+			&& bounds.x >= canvasBounds.x - 1
+			&& bounds.y >= canvasBounds.y - 1
+			&& bounds.x + bounds.width <= canvasBounds.x + canvasBounds.width + 1
+			&& bounds.y + bounds.height <= canvasBounds.y + canvasBounds.height + 1)) {
+			return;
+		}
+		if (!await zoomCanvas(page, 'out')) {
+			break;
+		}
+		await page.waitForTimeout(50);
+	}
+	throw new Error('Connection fixture cards are not fully inside the visible canvas viewport');
+}
+
+// Connecting a card into an annotatable Markdown note stores the connection
+// once, in the downstream note (D37): its first bytes gain an `upstream`
+// frontmatter list, canvas.yaml gains only the anchor row, and nothing else
+// under .bh/ changes. The first frontmatter BaseHalf adds is announced once.
+async function assertCanvasConnectIntoNote(page) {
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const note = AGENT_CREATED_CARD_PATH;
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	const noteCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${note}"]`);
+	await frameCanvasCardsForConnection(page, [docs, noteCard]);
 	const docsNode = page.locator('.react-flow__node', { has: docs });
-	const srcNode = page.locator('.react-flow__node', { has: src });
+	const noteNode = page.locator('.react-flow__node', { has: noteCard });
 	const docsEast = docsNode.locator(':scope > .basehalf-canvas-card-connect-handle.east');
-	const srcWest = srcNode.locator(':scope > .basehalf-canvas-card-connect-handle.west');
+	const noteWest = noteNode.locator(':scope > .basehalf-canvas-card-connect-handle.west');
 	await page.locator('.basehalf-canvas-cards').focus();
 	await page.keyboard.press('Escape');
 	await docs.click();
 	await docs.hover();
 	await page.waitForFunction(() => getComputedStyle(document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east')).pointerEvents !== 'none', null, { timeout: 10_000 });
 	const sourceBox = await docsEast.boundingBox();
-	const targetBox = await srcWest.boundingBox();
-	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
-	if (!sourceBox || !targetBox || !canvasBox) {
+	if (!sourceBox) {
 		throw new Error('Missing React Flow connection geometry');
 	}
 
-	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
-	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
+	if (readWorkspaceFile(note) !== AGENT_CREATED_CARD_CONTENT) {
+		throw new Error(`${note} must start without frontmatter`);
+	}
 	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
 	const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
 	let connectionStarted = false;
@@ -8623,22 +8860,23 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	if (!connectionStarted) {
 		throw new Error(`Connection gesture did not start from the visible handle: ${JSON.stringify(connectionStartState)}`);
 	}
-	await page.mouse.move(canvasBox.x + canvasBox.width - 30, canvasBox.y + canvasBox.height - 80, { steps: 8 });
+	const blank = await canvasReconnectBlankPoint(page, sourcePoint);
+	await page.mouse.move(blank.x, blank.y, { steps: 8 });
 	await page.mouse.up();
 	await page.waitForTimeout(150);
-	const afterCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
-	if (afterCancelCanvas !== beforeCancelCanvas) {
-		throw new Error('Expected blank connection release to cancel without changing canvas.yaml');
+	if (fs.readFileSync(canvasPath, 'utf8') !== beforeCancelCanvas || readWorkspaceFile(note) !== AGENT_CREATED_CARD_CONTENT) {
+		throw new Error('Expected blank connection release to cancel without changing canvas.yaml or the note');
 	}
 	const draftCountAfterCancel = await page.locator('.react-flow__connection-path').count();
 	if (draftCountAfterCancel !== 0) {
 		throw new Error(`Expected connection draft to be removed after cancel, got ${draftCountAfterCancel}`);
 	}
 
+	const bhBeforeConnect = readBhTree();
 	await docs.hover();
 	await page.waitForFunction(() => getComputedStyle(document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east')).pointerEvents !== 'none', null, { timeout: 10_000 });
 	const freshSourceBox = await docsEast.boundingBox();
-	const freshTargetBox = await srcWest.boundingBox();
+	const freshTargetBox = await noteWest.boundingBox();
 	if (!freshSourceBox || !freshTargetBox) {
 		throw new Error('Missing React Flow handles after cancelled connection');
 	}
@@ -8648,15 +8886,54 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
 	await page.mouse.up();
 
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs']), `the connection to be saved as the upstream frontmatter of ${note}`);
 	await waitUntil(() => {
 		const canvas = fs.readFileSync(canvasPath, 'utf8');
 		return canvas.includes('from: "docs"')
 			&& canvas.includes('from_anchor: east')
-			&& canvas.includes('to: "src"')
+			&& canvas.includes(`to: "${note}"`)
 			&& canvas.includes('to_anchor: west');
-	}, 'canvas.yaml to persist a four-side edge');
-	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
-	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
+	}, 'canvas.yaml to persist the four-side anchor row');
+	await clickNotificationAction(page, `Saved this connection at the top of ${note} as`, 'OK');
+	const bhChanges = bhTreeChangesSince(bhBeforeConnect);
+	if (bhChanges.some(rel => rel !== '.bh/mirror/canvas.yaml')) {
+		throw new Error(`Connecting into a note may change only its bytes and the canvas.yaml anchor row, but .bh/ also changed: ${bhChanges.join(', ')}`);
+	}
+}
+
+// Canvas undo of a connection after the note was opened and closed again:
+// the undo step re-resolves the note and removes exactly its entry, leaving the
+// note's original bytes; redo writes the entry back. The anchor row stays.
+async function assertCanvasUndoAfterClosingNote(page) {
+	const note = AGENT_CREATED_CARD_PATH;
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const connected = agentNoteWithUpstream(['docs']);
+	if (readWorkspaceFile(note) !== connected) {
+		throw new Error(`${note} must hold the docs connection before canvas undo`);
+	}
+	await openExplorerRow(page, note);
+	await assertCardDetail(page, note);
+	await closeCardDetailIfOpen(page);
+	await assertCanvasFolder(page, '');
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	await docs.waitFor({ state: 'visible', timeout: 10_000 });
+	const undoKey = process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z';
+	const redoKey = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+Y';
+	await docs.focus();
+	await page.keyboard.press(undoKey);
+	await waitUntil(() => readWorkspaceFile(note) === AGENT_CREATED_CARD_CONTENT, `canvas undo to remove the docs entry from ${note} after it was closed`, 15_000);
+	await assertCanvasEdgeGone(page, 'docs', note);
+	if (!fs.readFileSync(canvasPath, 'utf8').includes(`to: "${note}"`)) {
+		throw new Error('Canvas undo of a connection removed its anchor row');
+	}
+	await docs.focus();
+	await page.keyboard.press(redoKey);
+	await waitUntil(() => readWorkspaceFile(note) === connected, `canvas redo to write the docs entry back into ${note}`, 15_000);
+	await assertCanvasEdgeVisible(page, 'docs', note);
+	// Leave docs centered at 100%, where the card drag and resize checks run.
+	await zoomCanvas(page, 'reset');
+	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
+	await centerCanvasCards(page, [docs]);
 }
 
 async function assertCanvasInlineRename(page) {
@@ -9358,11 +9635,13 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 		throw new Error(`Selected docs card did not expose four corner resize hit targets before drag: ${JSON.stringify(activeBeforeDrag)}`);
 	}
 	const canvasBefore = fs.readFileSync(canvasPath, 'utf8');
-	const before = await page.evaluate(() => {
+	// The docs → note connection made by the connect step.
+	const connectedEdgeId = `docs${String.fromCharCode(0)}${AGENT_CREATED_CARD_PATH}`;
+	const before = await page.evaluate(edgeId => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 		const node = card?.closest('.react-flow__node');
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
-			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		if (!(card instanceof HTMLElement) || !(node instanceof HTMLElement) || !(edge instanceof SVGPathElement)) {
 			return undefined;
 		}
@@ -9373,9 +9652,9 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 			edgePath: edge.getAttribute('d'),
 			nodeTransform: getComputedStyle(node).transform
 		};
-	});
+	}, connectedEdgeId);
 	if (!before?.edgePath) {
-		throw new Error('Missing docs→src live edge geometry');
+		throw new Error('Missing docs→note live edge geometry');
 	}
 	await page.evaluate(() => {
 		const cards = document.querySelector('.basehalf-canvas-cards');
@@ -9408,23 +9687,23 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	await page.mouse.move(before.startX, before.startY);
 	await page.mouse.down();
 	await page.mouse.move(before.startX + 64, before.startY + 37, { steps: 10 });
-	await page.waitForFunction(({ edgePath, nodeTransform }) => {
+	await page.waitForFunction(({ edgeId, edgePath, nodeTransform }) => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 		const node = card?.closest('.react-flow__node');
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
-			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return node instanceof HTMLElement
 			&& edge instanceof SVGPathElement
 			&& getComputedStyle(node).transform !== nodeTransform
 			&& edge.getAttribute('d') !== edgePath;
-	}, { edgePath: before.edgePath, nodeTransform: before.nodeTransform }, { timeout: 10_000 });
+	}, { edgeId: connectedEdgeId, edgePath: before.edgePath, nodeTransform: before.nodeTransform }, { timeout: 10_000 });
 
-	const endpointDistance = await page.evaluate(() => {
+	const endpointDistance = await page.evaluate(edgeId => {
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 		const node = card?.closest('.react-flow__node');
 		const handle = node?.querySelector(':scope > .basehalf-canvas-card-connect-handle.east');
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
-			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		if (!(handle instanceof HTMLElement) || !(edge instanceof SVGPathElement)) {
 			return Number.POSITIVE_INFINITY;
 		}
@@ -9436,7 +9715,7 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 		const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
 		const handleRect = handle.getBoundingClientRect();
 		return Math.hypot(screen.x - (handleRect.left + handleRect.width / 2), screen.y - (handleRect.top + handleRect.height / 2));
-	});
+	}, connectedEdgeId);
 	if (endpointDistance > 3) {
 		throw new Error(`Live edge endpoint drifted ${endpointDistance}px from the dragged card handle`);
 	}
@@ -9629,41 +9908,29 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 // half owns the source endpoint and its second half owns the target endpoint.
 // Each preview must keep the opposite endpoint pinned. The target reconnect is
 // then committed through the real semantic graph and canvas style mirrors.
+// Both ends of a connection reconnect by dragging one half of its edge. The
+// source end replaces the entry in the note's `upstream` list in place; the
+// target end moves the entry to another card's store, here the src folder's
+// .bh/mirror/src/upstream.yaml. Escape, a blank release, and a release on the
+// excluded opposite card cancel without writing.
 async function assertCanvasEdgeHalfReconnect(page) {
+	const note = AGENT_CREATED_CARD_PATH;
+	const connected = agentNoteWithUpstream(['docs']);
+	const connectedEdgeId = `docs${String.fromCharCode(0)}${note}`;
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-	for (let attempt = 0; attempt < 16; attempt++) {
-		const zoom = await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom').then(Number);
-		if (zoom <= 0.5) {
-			break;
-		}
-		if (!await zoomCanvas(page, 'out')) {
-			break;
-		}
-		await page.waitForTimeout(50);
+	const noteCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${note}"]`);
+	await frameCanvasCardsForConnection(page, [docs, src, readme, noteCard]);
+	if (readWorkspaceFile(note) !== connected) {
+		throw new Error(`${note} must hold the docs connection before reconnecting`);
 	}
-	await docs.waitFor({ state: 'visible', timeout: 10_000 });
-	await src.waitFor({ state: 'visible', timeout: 10_000 });
-	await readme.waitFor({ state: 'visible', timeout: 10_000 });
-	await centerCanvasCards(page, [docs, src, readme]);
-	const canvasBounds = await page.locator('.basehalf-canvas-cards').boundingBox();
-	const cardBounds = await Promise.all([docs.boundingBox(), src.boundingBox(), readme.boundingBox()]);
-	if (!canvasBounds || cardBounds.some(bounds => !bounds || bounds.x < canvasBounds.x - 1 || bounds.y < canvasBounds.y - 1
-		|| bounds.x + bounds.width > canvasBounds.x + canvasBounds.width + 1
-		|| bounds.y + bounds.height > canvasBounds.y + canvasBounds.height + 1)) {
-		throw new Error('Edge reconnect fixture cards are not fully inside the visible canvas viewport');
-	}
-
-	const readmeWest = page.locator('.react-flow__node', { has: readme }).locator(':scope > .basehalf-canvas-card-connect-handle.west');
-	const reconnectTarget = await readmeWest.boundingBox();
-	if (!reconnectTarget) {
-		throw new Error('Missing endpoint handles for edge half reconnect smoke');
-	}
+	const handle = (card, side) => page.locator('.react-flow__node', { has: card }).locator(`:scope > .basehalf-canvas-card-connect-handle.${side}`);
+	const srcUpstreamPath = path.join(workspacePath, '.bh', 'mirror', 'src', 'upstream.yaml');
 
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const canvasBeforeEscape = fs.readFileSync(canvasPath, 'utf8');
-	const beforeSource = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	const beforeSource = await canvasEdgeGestureGeometry(page, 'docs', note);
 	const sourceBlank = await canvasReconnectBlankPoint(page, beforeSource.firstHalf);
 	await page.mouse.move(beforeSource.firstHalf.x, beforeSource.firstHalf.y);
 	await page.mouse.down();
@@ -9672,8 +9939,8 @@ async function assertCanvasEdgeHalfReconnect(page) {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
-	const sourcePreview = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	}, connectedEdgeId, { timeout: 10_000 });
+	const sourcePreview = await canvasEdgeGestureGeometry(page, 'docs', note, { exposed: false });
 	if (pointDistance(sourcePreview.source, beforeSource.source) < 8) {
 		throw new Error('First-half drag did not move the source endpoint preview');
 	}
@@ -9689,23 +9956,23 @@ async function assertCanvasEdgeHalfReconnect(page) {
 	// and the subsequent physical pointer-up has no semantic effect.
 	await page.keyboard.press('Escape');
 	await page.mouse.up();
-	await assertCanvasEdgeVisible(page, 'docs', 'src');
+	await assertCanvasEdgeVisible(page, 'docs', note);
 	await page.waitForFunction(edgeId => {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === undefined;
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
-	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeEscape) {
+	}, connectedEdgeId, { timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeEscape || readWorkspaceFile(note) !== connected) {
 		throw new Error('Escape committed an edge reconnect instead of cancelling it');
 	}
 
 	// A no-drag click selects only. Reference edges have no relationship-label
 	// DOM at all, and their sole keyboard/screen-reader affordance is React
 	// Flow's focusable edge wrapper.
-	const clickGeometry = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	const clickGeometry = await canvasEdgeGestureGeometry(page, 'docs', note);
 	await page.mouse.click(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y);
 	await page.waitForFunction(edgeId => Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit.selected'))
-		.some(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId), `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+		.some(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId), connectedEdgeId, { timeout: 10_000 });
 	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
 		throw new Error('A single reference-edge click opened Quick Input');
 	}
@@ -9720,7 +9987,7 @@ async function assertCanvasEdgeHalfReconnect(page) {
 			roleDescription: wrapper.getAttribute('aria-roledescription'),
 			ariaLabel: wrapper.getAttribute('aria-label')
 		} : undefined;
-	}, `docs${String.fromCharCode(0)}src`);
+	}, connectedEdgeId);
 	if (!edgeAccessibility || edgeAccessibility.labelElementCount !== 0) {
 		throw new Error('A reference edge rendered a relationship-label element');
 	}
@@ -9730,7 +9997,7 @@ async function assertCanvasEdgeHalfReconnect(page) {
 	if (!edgeAccessibility.ariaLabel
 		|| !/^Context flows from /i.test(edgeAccessibility.ariaLabel)
 		|| !edgeAccessibility.ariaLabel.includes('docs')
-		|| !edgeAccessibility.ariaLabel.includes('src')
+		|| !edgeAccessibility.ariaLabel.includes(note)
 		|| /label|note|why/i.test(edgeAccessibility.ariaLabel)) {
 		throw new Error(`Reference edge has the wrong accessible name: ${edgeAccessibility.ariaLabel ?? '<missing>'}`);
 	}
@@ -9758,13 +10025,13 @@ async function assertCanvasEdgeHalfReconnect(page) {
 			throw new Error('Missing keyboard-focusable reference edge wrapper');
 		}
 		wrapper.focus();
-	}, `docs${String.fromCharCode(0)}src`);
+	}, connectedEdgeId);
 	await page.keyboard.press('Escape');
 	await page.waitForFunction(edgeId => {
 		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return hit?.closest('.react-flow__edge')?.classList.contains('selected') === false;
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	}, connectedEdgeId, { timeout: 10_000 });
 	await page.evaluate(edgeId => {
 		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
@@ -9773,7 +10040,7 @@ async function assertCanvasEdgeHalfReconnect(page) {
 			throw new Error('Missing reference edge wrapper for keyboard selection');
 		}
 		wrapper.focus();
-	}, `docs${String.fromCharCode(0)}src`);
+	}, connectedEdgeId);
 	await page.keyboard.press('Enter');
 	await page.waitForFunction(edgeId => {
 		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
@@ -9782,7 +10049,7 @@ async function assertCanvasEdgeHalfReconnect(page) {
 		return wrapper instanceof SVGElement
 			&& document.activeElement === wrapper
 			&& wrapper.classList.contains('selected');
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	}, connectedEdgeId, { timeout: 10_000 });
 	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
 		throw new Error('Keyboard-selecting a reference edge opened Quick Input');
 	}
@@ -9792,32 +10059,83 @@ async function assertCanvasEdgeHalfReconnect(page) {
 
 	// Releasing the source endpoint on its excluded opposite card is invalid,
 	// not blank. It cancels and preserves the semantic edge.
-	const invalidGeometry = await canvasEdgeGestureGeometry(page, 'docs', 'src');
-	const srcBounds = await src.boundingBox();
-	if (!srcBounds) {
-		throw new Error('Missing src card bounds for invalid reconnect smoke');
+	const invalidGeometry = await canvasEdgeGestureGeometry(page, 'docs', note);
+	const oppositeBounds = await noteCard.boundingBox();
+	if (!oppositeBounds) {
+		throw new Error('Missing note card bounds for invalid reconnect smoke');
 	}
 	const canvasBeforeInvalidCard = fs.readFileSync(canvasPath, 'utf8');
 	await page.mouse.move(invalidGeometry.firstHalf.x, invalidGeometry.firstHalf.y);
 	await page.mouse.down();
-	await page.mouse.move(srcBounds.x + srcBounds.width / 2, srcBounds.y + srcBounds.height / 2, { steps: 8 });
+	await page.mouse.move(oppositeBounds.x + oppositeBounds.width / 2, oppositeBounds.y + oppositeBounds.height / 2, { steps: 8 });
 	await page.waitForFunction(edgeId => {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	}, connectedEdgeId, { timeout: 10_000 });
 	await page.mouse.up();
-	await assertCanvasEdgeVisible(page, 'docs', 'src');
+	await assertCanvasEdgeVisible(page, 'docs', note);
 	await page.waitForFunction(edgeId => {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === undefined;
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
-	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeInvalidCard) {
+	}, connectedEdgeId, { timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeInvalidCard || readWorkspaceFile(note) !== connected) {
 		throw new Error('Releasing on the excluded opposite card deleted or reconnected the edge');
 	}
 
-	const beforeTarget = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	// Source end: dropping it on README replaces the note's entry in place. Only
+	// the note is written; README keeps its bytes.
+	const readmeBefore = readWorkspaceFile('README.md');
+	const sourceReconnectTarget = await handle(readme, 'east').boundingBox();
+	if (!sourceReconnectTarget) {
+		throw new Error('Missing README east handle for the source-end reconnect');
+	}
+	const beforeSourceReconnect = await canvasEdgeGestureGeometry(page, 'docs', note);
+	await page.mouse.move(beforeSourceReconnect.firstHalf.x, beforeSourceReconnect.firstHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(sourceReconnectTarget.x + sourceReconnectTarget.width / 2, sourceReconnectTarget.y + sourceReconnectTarget.height / 2, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
+	}, connectedEdgeId, { timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.classList.contains('connection-target') === true, null, { timeout: 10_000 });
+	await page.mouse.up();
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['README.md']), 'the source-end reconnect to replace the note\'s upstream entry in place');
+	await assertCanvasEdgeGone(page, 'docs', note);
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	if (readWorkspaceFile('README.md') !== readmeBefore) {
+		throw new Error('A source-end reconnect changed the new upstream card instead of only the note');
+	}
+
+	// Restore the docs source with the same real first-half gesture.
+	const restoreSourceTarget = await handle(docs, 'east').boundingBox();
+	if (!restoreSourceTarget) {
+		throw new Error('Missing docs east handle while restoring the source-end reconnect');
+	}
+	const beforeSourceRestore = await canvasEdgeGestureGeometry(page, 'README.md', note);
+	await page.mouse.move(beforeSourceRestore.firstHalf.x, beforeSourceRestore.firstHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(restoreSourceTarget.x + restoreSourceTarget.width / 2, restoreSourceTarget.y + restoreSourceTarget.height / 2, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
+	}, `README.md${String.fromCharCode(0)}${note}`, { timeout: 10_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.classList.contains('connection-target') === true, null, { timeout: 10_000 });
+	await page.mouse.up();
+	await waitUntil(() => readWorkspaceFile(note) === connected, 'the restored source-end reconnect to name docs again');
+	await assertCanvasEdgeGone(page, 'README.md', note);
+	await assertCanvasEdgeVisible(page, 'docs', note);
+
+	// Target end: the preview moves only the target endpoint, and dropping it on
+	// the src folder moves the entry into src's sidecar store.
+	const reconnectTarget = await handle(src, 'west').boundingBox();
+	if (!reconnectTarget) {
+		throw new Error('Missing src west handle for the target-end reconnect');
+	}
+	const beforeTarget = await canvasEdgeGestureGeometry(page, 'docs', note);
 	const targetBlank = await canvasReconnectBlankPoint(page, beforeTarget.secondHalf);
 	await page.mouse.move(beforeTarget.secondHalf.x, beforeTarget.secondHalf.y);
 	await page.mouse.down();
@@ -9826,8 +10144,8 @@ async function assertCanvasEdgeHalfReconnect(page) {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'target';
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
-	const targetPreview = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	}, connectedEdgeId, { timeout: 10_000 });
+	const targetPreview = await canvasEdgeGestureGeometry(page, 'docs', note, { exposed: false });
 	if (pointDistance(targetPreview.source, beforeTarget.source) > 3) {
 		throw new Error('Second-half drag moved the opposite source endpoint');
 	}
@@ -9840,38 +10158,30 @@ async function assertCanvasEdgeHalfReconnect(page) {
 
 	await page.mouse.move(reconnectTarget.x + reconnectTarget.width / 2, reconnectTarget.y + reconnectTarget.height / 2, { steps: 8 });
 	await page.waitForFunction(() => {
-		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 		const node = card?.closest('.react-flow__node');
 		return card?.classList.contains('connection-target')
 			&& card.classList.contains('west')
 			&& node?.querySelector(':scope > .basehalf-canvas-card-connect-handle.west')?.classList.contains('connection-target');
 	}, null, { timeout: 10_000 });
 	await page.mouse.up();
-	await assertCanvasEdgeGone(page, 'docs', 'src');
-	await assertCanvasEdgeVisible(page, 'docs', 'README.md');
-
-	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
-	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
-	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	await assertCanvasEdgeGone(page, 'docs', note);
+	await assertCanvasEdgeVisible(page, 'docs', 'src');
 	await waitUntil(() => {
 		const canvas = fs.readFileSync(canvasPath, 'utf8');
 		return canvas.includes('from: "docs"')
-			&& canvas.includes('to: "README.md"')
+			&& canvas.includes('to: "src"')
 			&& canvas.includes('to_anchor: west');
-	}, 'target-half reconnect styling to persist in canvas.yaml');
-	await waitUntil(() => fs.readFileSync(docsBadgePath, 'utf8').includes('- "README.md"')
-		&& !fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'target-half reconnect to replace the source reference');
-	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'target-half reconnect inbound reference to persist');
-	await waitUntil(() => !fs.existsSync(srcBadgePath) || !fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'old target inbound reference to be removed');
+	}, 'target-half reconnect anchors to persist in canvas.yaml');
+	await waitUntil(() => fs.existsSync(srcUpstreamPath) && fs.readFileSync(srcUpstreamPath, 'utf8') === 'upstream:\n  - docs\n', 'the target-end reconnect to add docs to the src folder\'s upstream.yaml');
+	await waitUntil(() => readWorkspaceFile(note) === AGENT_CREATED_CARD_CONTENT, 'the target-end reconnect to remove the entry, and its emptied frontmatter, from the note');
 
-	// Restore the fixture with the same real second-half gesture so later smoke
-	// steps do not inherit a reverse docs↔README pair or altered graph topology.
-	const srcWest = page.locator('.react-flow__node', { has: src }).locator(':scope > .basehalf-canvas-card-connect-handle.west');
-	const restoreTarget = await srcWest.boundingBox();
+	// Restore the note as the target with the same real second-half gesture.
+	const restoreTarget = await handle(noteCard, 'west').boundingBox();
 	if (!restoreTarget) {
-		throw new Error('Missing src west handle while restoring the reconnect fixture');
+		throw new Error('Missing note west handle while restoring the reconnect fixture');
 	}
-	const beforeRestore = await canvasEdgeGestureGeometry(page, 'docs', 'README.md');
+	const beforeRestore = await canvasEdgeGestureGeometry(page, 'docs', 'src');
 	await page.mouse.move(beforeRestore.secondHalf.x, beforeRestore.secondHalf.y);
 	await page.mouse.down();
 	await page.mouse.move(restoreTarget.x + restoreTarget.width / 2, restoreTarget.y + restoreTarget.height / 2, { steps: 8 });
@@ -9879,24 +10189,28 @@ async function assertCanvasEdgeHalfReconnect(page) {
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'target';
-	}, `docs${String.fromCharCode(0)}README.md`, { timeout: 10_000 });
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
 	await page.mouse.up();
-	await assertCanvasEdgeGone(page, 'docs', 'README.md');
-	await assertCanvasEdgeVisible(page, 'docs', 'src');
-	await waitUntil(() => {
-		const canvas = fs.readFileSync(canvasPath, 'utf8');
-		return canvas.includes('from: "docs"') && canvas.includes('to: "src"') && canvas.includes('to_anchor: west');
-	}, 'restored target-half reconnect styling to persist');
-	await waitUntil(() => fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"')
-		&& !fs.readFileSync(docsBadgePath, 'utf8').includes('- "README.md"'), 'restored docs reference to persist');
-	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'restored src inbound reference to persist');
-	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'temporary README inbound reference to be removed');
+	await assertCanvasEdgeGone(page, 'docs', 'src');
+	await assertCanvasEdgeVisible(page, 'docs', note);
+	await waitUntil(() => readWorkspaceFile(note) === connected, 'the restored target-end reconnect to write the note\'s upstream list again');
+	await waitUntil(() => !fs.existsSync(srcUpstreamPath), 'the emptied src upstream.yaml to be removed');
 }
 
-async function canvasEdgeGestureGeometry(page, from, to) {
+// The screen geometry of the `from`→`to` edge. `firstHalf` and `secondHalf`
+// are where a gesture grabs the source or the target end. Edges render beneath
+// cards, so an edge between two cards that are not neighbours can pass under a
+// third card; each half point is therefore the exposed point of that half
+// nearest its quarter mark, where the edge's own hit path is the topmost
+// element. Pass `exposed: false` to read only the path and its endpoints, for
+// example during a drag preview.
+async function canvasEdgeGestureGeometry(page, from, to, { exposed = true } = {}) {
 	const geometry = await page.evaluate(([source, target]) => {
+		const edgeId = `${source}${String.fromCharCode(0)}${target}`;
 		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
-			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `${source}${String.fromCharCode(0)}${target}`);
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
 		if (!(edge instanceof SVGPathElement)) {
 			return undefined;
 		}
@@ -9910,18 +10224,41 @@ async function canvasEdgeGestureGeometry(page, from, to) {
 			const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
 			return { x: screen.x, y: screen.y };
 		};
+		const exposedPoint = (preferred, low, high) => {
+			for (let offset = 0; offset <= 0.25; offset += 0.01) {
+				for (const ratio of offset === 0 ? [preferred] : [preferred - offset, preferred + offset]) {
+					if (ratio < low || ratio > high) {
+						continue;
+					}
+					const point = screenPoint(ratio);
+					if (hit && document.elementFromPoint(point.x, point.y) === hit) {
+						return point;
+					}
+				}
+			}
+			return undefined;
+		};
 		return {
 			path: edge.getAttribute('d'),
 			source: screenPoint(0),
 			target: screenPoint(1),
 			firstHalf: screenPoint(0.25),
-			secondHalf: screenPoint(0.75)
+			secondHalf: screenPoint(0.75),
+			exposedFirstHalf: exposedPoint(0.25, 0.02, 0.45),
+			exposedSecondHalf: exposedPoint(0.75, 0.55, 0.98)
 		};
 	}, [from, to]);
 	if (!geometry?.path) {
 		throw new Error(`Could not inspect ${from}→${to} edge geometry`);
 	}
-	return geometry;
+	const { exposedFirstHalf, exposedSecondHalf, ...result } = geometry;
+	if (!exposed) {
+		return result;
+	}
+	if (!exposedFirstHalf || !exposedSecondHalf) {
+		throw new Error(`Cards cover the ${exposedFirstHalf ? 'target' : 'source'} half of the ${from}→${to} edge, so no gesture can grab it`);
+	}
+	return { ...result, firstHalf: exposedFirstHalf, secondHalf: exposedSecondHalf };
 }
 
 async function canvasReconnectBlankPoint(page, origin) {
@@ -9959,229 +10296,159 @@ function pointDistance(a, b) {
 // An AGENT creates a user file with its own tools. BaseHalf observes the real
 // file and projects it as a card without requiring a canvas.yaml geometry row.
 async function assertAgentCreatesCard(page) {
-	fs.writeFileSync(path.join(workspacePath, AGENT_CREATED_CARD_PATH), [
-		'# Agent angle',
-		'',
-		'Created externally as another context-consuming document.',
-		''
-	].join('\n'), 'utf8');
+	fs.writeFileSync(path.join(workspacePath, AGENT_CREATED_CARD_PATH), AGENT_CREATED_CARD_CONTENT, 'utf8');
 
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${AGENT_CREATED_CARD_PATH}"]`)
 		.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-// An AGENT (external process) writes one badge endpoint for an explicit
-// reference, without a canvas.yaml edge. The incomplete pair stays out of the
-// graph but remains discoverable and recoverable from the Badge UI: Repair
-// writes the reciprocal endpoint, while Discard scrubs the abandoned half.
-async function assertAgentReferenceDrawsEdge(page) {
-	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
-	const targetBadgeDirectory = path.join(workspacePath, '.bh', 'mirror', AGENT_CREATED_CARD_PATH);
-	const targetBadgePath = path.join(targetBadgeDirectory, 'badge.yaml');
-	fs.writeFileSync(readmeBadgePath, [
-		'path: "README.md"',
-		'kind: file',
-		'description: "Agent source write observed"',
-		'references:',
-		`  - "${AGENT_CREATED_CARD_PATH}"`,
-		'referenced_by: []',
-		''
-	].join('\n'), 'utf8');
-	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-	await readme.waitFor({ state: 'attached', timeout: 10_000 });
-	await centerCanvasCards(page, [readme]);
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-preview-level') !== 'shell', null, { timeout: 10_000 });
-	const sourceIssueMarker = readme.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]:visible');
-	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await sourceIssueMarker.getAttribute('data-reference-issue-count') !== '1') {
-		throw new Error('The source-only Agent write did not expose exactly one card-level reference issue');
-	}
-	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
-	const prompt = readme.locator('.basehalf-canvas-card-badge-prompt');
-	await page.waitForFunction(() => {
-		const input = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-prompt');
-		return input instanceof HTMLTextAreaElement && input.value === 'Agent source write observed';
-	}, null, { timeout: 10_000 });
-	if (await readme.locator('.basehalf-canvas-card-badge-row').count() !== 0) {
-		throw new Error('The badge face exposed a one-sided Agent reference as a real relationship');
-	}
-	const repairIssue = readme.locator(`[data-testid="reference-issue"][data-reference-from="README.md"][data-reference-to="${AGENT_CREATED_CARD_PATH}"]`);
-	await repairIssue.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await repairIssue.getAttribute('data-reference-reason') !== 'incomplete'
-		|| await repairIssue.getAttribute('data-reference-direction') !== 'outbound') {
-		throw new Error('The source-only Agent write rendered the wrong reference issue state');
-	}
-	if (await repairIssue.locator('[data-testid="reference-issue-repair"]').getAttribute('aria-label') !== `Repair reference README.md to ${AGENT_CREATED_CARD_PATH}`) {
-		throw new Error('The source-only Agent write did not expose the expected Repair action');
-	}
-	if (await page.evaluate(edgeId => Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
-		.some(edge => edge.getAttribute('data-edge-id') === edgeId), `README.md${String.fromCharCode(0)}${AGENT_CREATED_CARD_PATH}`)) {
-		throw new Error('A one-sided Agent reference was drawn before its reciprocal backlink existed');
-	}
-
-	await repairIssue.locator('[data-testid="reference-issue-repair"]').evaluate(button => button.click());
-	await waitUntil(() => fs.existsSync(targetBadgePath)
-		&& fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${AGENT_CREATED_CARD_PATH}"`)
-		&& fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), 'Repair to persist both reciprocal reference endpoints');
-	await repairIssue.waitFor({ state: 'detached', timeout: 10_000 });
-	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
-	const repairedReferenceRow = readme.locator('.basehalf-canvas-card-badge-row', { hasText: AGENT_CREATED_CARD_PATH });
-	await repairedReferenceRow.waitFor({ state: 'visible', timeout: 10_000 });
-	const restingRemoveOpacity = Number(await repairedReferenceRow.locator('.basehalf-canvas-card-badge-remove').evaluate(button => getComputedStyle(button).opacity));
-	if (restingRemoveOpacity < 0.35) {
-		throw new Error(`Reference remove action was undiscoverable without hover, opacity=${restingRemoveOpacity}`);
-	}
-	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-
-	// Manufacture another source-only pair while keeping the repaired relation.
-	// Discard must scrub either possible half without disturbing valid neighbors.
-	await page.locator('.react-flow__pane').click({ position: { x: 16, y: 16 } });
-	fs.writeFileSync(readmeBadgePath, [
-		'path: "README.md"',
-		'kind: file',
-		'description: "Agent source write observed"',
-		'references:',
-		`  - "${AGENT_CREATED_CARD_PATH}"`,
-		'  - "docs"',
-		'referenced_by: []',
-		''
-	].join('\n'), 'utf8');
-	const discardIssue = readme.locator('[data-testid="reference-issue"][data-reference-from="README.md"][data-reference-to="docs"]');
-	await discardIssue.waitFor({ state: 'visible', timeout: 10_000 });
-	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
-	await assertCanvasEdgeGone(page, 'README.md', 'docs');
-	await discardIssue.locator('[data-testid="reference-issue-discard"]').evaluate(button => button.click());
-	await waitUntil(() => {
-		const readmeBadge = fs.readFileSync(readmeBadgePath, 'utf8');
-		const docsBadge = fs.existsSync(docsBadgePath) ? fs.readFileSync(docsBadgePath, 'utf8') : '';
-		return !readmeBadge.includes('- "docs"')
-			&& !docsBadge.includes('- "README.md"')
-			&& readmeBadge.includes(`- "${AGENT_CREATED_CARD_PATH}"`);
-	}, 'Discard to scrub both possible halves while preserving the repaired reference');
-	await discardIssue.waitFor({ state: 'detached', timeout: 10_000 });
-	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
-	await assertCanvasEdgeGone(page, 'README.md', 'docs');
-	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
-	await prompt.waitFor({ state: 'detached', timeout: 10_000 });
-
-	// Remove the target half again, then keep the prospective TARGET detail open
-	// across an external reciprocal write. The collapsed toggle itself remains
-	// focused while its summary refreshes, so a background Agent write neither
-	// leaks an incomplete edge nor strands keyboard focus on a detached button.
-	fs.mkdirSync(targetBadgeDirectory, { recursive: true });
-	fs.writeFileSync(targetBadgePath, [
-		`path: "${AGENT_CREATED_CARD_PATH}"`,
-		'kind: file',
-		'references: []',
-		'referenced_by: []',
-		''
-	].join('\n'), 'utf8');
-	await assertCanvasEdgeGone(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await openExplorerRow(page, AGENT_CREATED_CARD_PATH);
-	await assertCardDetail(page, AGENT_CREATED_CARD_PATH);
-	await page.locator('[data-testid="card-detail-badge-toggle"]').waitFor({ state: 'visible', timeout: 10_000 });
-	const initialDetailBadge = await page.evaluate(() => {
-		const detail = document.querySelector('.basehalf-card-detail.visible');
-		const toggle = detail?.querySelector('[data-testid="card-detail-badge-toggle"]');
-		const summary = toggle?.querySelector('.basehalf-card-detail-badge-summary');
-		const glyph = toggle?.querySelector('.basehalf-file-glyph');
-		return {
-			expanded: toggle?.getAttribute('aria-expanded'),
-			bodyCount: detail?.querySelectorAll('.basehalf-card-detail-badge-body').length ?? -1,
-			summary: summary?.textContent?.trim(),
-			summaryEmpty: summary?.classList.contains('empty'),
-			glyphTone: glyph instanceof SVGElement ? glyph.style.color : undefined
-		};
-	});
-	if (initialDetailBadge.expanded !== 'false'
-		|| initialDetailBadge.bodyCount !== 0
-		|| initialDetailBadge.summary !== 'What agents should know about this file'
-		|| initialDetailBadge.summaryEmpty !== true
-		|| !initialDetailBadge.glyphTone?.includes('--basehalf-detail-badge-ghost')) {
-		throw new Error(`Open target detail exposed a one-sided Agent reference: ${JSON.stringify(initialDetailBadge)}`);
-	}
-
-	const detailBadgeToggle = page.locator('[data-testid="card-detail-badge-toggle"]');
-	await detailBadgeToggle.focus();
-	fs.writeFileSync(targetBadgePath, [
-		`path: "${AGENT_CREATED_CARD_PATH}"`,
-		'kind: file',
-		'references: []',
-		'referenced_by:',
-		'  - "README.md"',
-		''
-	].join('\n'), 'utf8');
-
-	// The same still-open detail must receive the reciprocal write through its
-	// live badge refresh path: collapsed summary/glyph become relational without
-	// a navigation round trip and focus returns to the replacement toggle.
-	await page.waitForFunction(expectedTitle => {
-		const detail = document.querySelector('.basehalf-card-detail.visible');
-		const title = detail?.querySelector('.basehalf-card-detail-title')?.textContent ?? '';
-		const toggle = detail?.querySelector('[data-testid="card-detail-badge-toggle"]');
-		const summary = toggle?.querySelector('.basehalf-card-detail-badge-summary');
-		const glyph = toggle?.querySelector('.basehalf-file-glyph');
-		return title.includes(expectedTitle)
-			&& toggle?.getAttribute('aria-expanded') === 'false'
-			&& detail?.querySelector('.basehalf-card-detail-badge-body') === null
-			&& summary?.textContent?.trim() === '0 references · ← 1'
-			&& !summary.classList.contains('empty')
-			&& toggle?.getAttribute('data-reference-issue-count') === '0'
-			&& document.activeElement === toggle
-			&& glyph instanceof SVGElement
-			&& glyph.style.color.includes('--vscode-textLink-foreground');
-	}, AGENT_CREATED_CARD_PATH, { timeout: 10_000 });
-	await detailBadgeToggle.click();
-	const detailBadgeBody = page.locator('.basehalf-card-detail-badge-body');
-	await detailBadgeBody.waitFor({ state: 'visible', timeout: 10_000 });
-	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-badge-prompt'), null, { timeout: 10_000 });
-	const inboundToggle = detailBadgeBody.locator('.basehalf-canvas-card-inbound-toggle', { hasText: '← 1 referenced by' });
-	await inboundToggle.waitFor({ state: 'visible', timeout: 10_000 });
-
-	// A background Agent write must not rebuild the Badge zone while keyboard
-	// focus Tabs among its controls. The explicit inbound action that follows
-	// must still force an immediate render and restore focus to its new button.
-	const detailPrompt = detailBadgeBody.locator('.basehalf-canvas-card-badge-prompt');
-	await detailPrompt.focus();
-	fs.writeFileSync(targetBadgePath, [
-		`path: "${AGENT_CREATED_CARD_PATH}"`,
-		'kind: file',
-		'description: "Agent refresh while Badge controls are focused"',
-		'references: []',
-		'referenced_by:',
-		'  - "README.md"',
-		''
-	].join('\n'), 'utf8');
-	await page.waitForTimeout(500);
-	await page.keyboard.press('Tab');
-	await page.waitForFunction(() => {
-		const active = document.activeElement;
-		const prompt = document.querySelector('.basehalf-card-detail.visible .basehalf-canvas-card-badge-prompt');
-		return active?.classList.contains('basehalf-canvas-card-add-reference')
-			&& prompt instanceof HTMLTextAreaElement
-			&& prompt.value === '';
-	}, null, { timeout: 10_000 });
-	await page.keyboard.press('Tab');
-	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-inbound-toggle'), null, { timeout: 10_000 });
-	await page.keyboard.press('Enter');
-	const reciprocalRow = detailBadgeBody.locator('.basehalf-canvas-card-badge-row', { hasText: 'README.md' });
-	await reciprocalRow.waitFor({ state: 'visible', timeout: 10_000 });
-	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-inbound-toggle'), null, { timeout: 10_000 });
-	if (await reciprocalRow.locator('.basehalf-canvas-card-badge-direction').textContent() !== '←') {
-		throw new Error('The reciprocal target detail rendered the Agent relationship with the wrong direction');
-	}
-	await detailBadgeToggle.click();
-	await detailBadgeBody.waitFor({ state: 'detached', timeout: 10_000 });
-	await closeCardDetailIfOpen(page);
-	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-dot:visible')
-		.waitFor({ state: 'visible', timeout: 10_000 });
+// Opens the badge face of a canvas card and waits for its Upstream section.
+async function openCanvasBadgeFace(card) {
+	await card.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
+	await card.locator('[data-testid="badge-upstream"]').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-// Select the agent-drawn edge with the mouse and delete it with the keyboard:
-// the semantic reference is scrubbed from badge.yaml and the line disappears.
+async function closeCanvasBadgeFace(card) {
+	await card.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
+	await card.locator('[data-testid="badge-upstream"]').waitFor({ state: 'detached', timeout: 10_000 });
+}
+
+// The Upstream rows of a canvas card's badge face, in list order, as
+// `status:path` (a valid row names its target, an issue row its entry text).
+async function canvasBadgeUpstreamRows(card) {
+	return card.locator('[data-testid="badge-upstream-row"]').evaluateAll(rows => rows.map(row => {
+		const name = row.querySelector('.basehalf-canvas-card-badge-link, .basehalf-canvas-card-badge-entry-text')?.getAttribute('title');
+		return `${row.getAttribute('data-upstream-status')}:${name}`;
+	}));
+}
+
+// An AGENT edits the note's `upstream` list as ordinary text (D37). The index
+// picks up the saved file: a new entry draws its edge, and an entry that names
+// nothing is one dangling issue on the card and an inline row in its badge
+// editor, where Remove repairs it by explicit action. An open Card Detail
+// refreshes its collapsed summary in place, keeping keyboard focus.
+async function assertAgentUpstreamEditDrawsEdge(page) {
+	const note = AGENT_CREATED_CARD_PATH;
+	const notePath = path.join(workspacePath, note);
+	const noteCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${note}"]`);
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	await frameCanvasCardsForConnection(page, [readme, docs, noteCard]);
+	fs.writeFileSync(notePath, agentNoteWithUpstream(['docs', 'README.md', 'missing-source.md']), 'utf8');
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	await assertCanvasEdgeVisible(page, 'docs', note);
+	const issueMarker = noteCard.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]:visible');
+	await issueMarker.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await issueMarker.getAttribute('data-reference-issue-count') !== '1') {
+		throw new Error('The dangling upstream entry did not expose exactly one card-level issue');
+	}
+
+	await openCanvasBadgeFace(noteCard);
+	await page.waitForFunction(path => {
+		const rows = Array.from(document.querySelectorAll(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"] [data-testid="badge-upstream-row"]`));
+		return rows.map(row => row.getAttribute('data-upstream-status')).join(',') === 'valid,valid,dangling';
+	}, note, { timeout: 10_000 });
+	const rows = await canvasBadgeUpstreamRows(noteCard);
+	if (JSON.stringify(rows) !== JSON.stringify(['valid:docs', 'valid:README.md', 'dangling:missing-source.md'])) {
+		throw new Error(`The badge editor did not list the note's own upstream entries in file order: ${JSON.stringify(rows)}`);
+	}
+	await noteCard.locator('[data-testid="badge-downstream-empty"]', { hasText: 'Nothing draws on this card yet.' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="dangling"] [data-testid="badge-upstream-remove"]').click();
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md']), 'Remove to delete only the dangling entry from the note');
+	await issueMarker.waitFor({ state: 'detached', timeout: 10_000 });
+	await closeCanvasBadgeFace(noteCard);
+
+	// The same edit reaches an open Card Detail through its live refresh: the
+	// collapsed summary changes in place and focus stays on the toggle.
+	await openExplorerRow(page, note);
+	await assertCardDetail(page, note);
+	const detailBadgeToggle = page.locator('[data-testid="card-detail-badge-toggle"]');
+	await detailBadgeToggle.waitFor({ state: 'visible', timeout: 10_000 });
+	const detailSummaryIs = expected => page.waitForFunction(text => {
+		const toggle = document.querySelector('.basehalf-card-detail.visible [data-testid="card-detail-badge-toggle"]');
+		return toggle?.getAttribute('aria-expanded') === 'false'
+			&& toggle.querySelector('.basehalf-card-detail-badge-summary')?.textContent?.trim() === text
+			&& toggle.getAttribute('data-reference-issue-count') === '0';
+	}, expected, { timeout: 10_000 });
+	await detailSummaryIs('↑2 upstream · ↓0 downstream');
+	await detailBadgeToggle.focus();
+	fs.writeFileSync(notePath, agentNoteWithUpstream(['docs']), 'utf8');
+	await detailSummaryIs('↑1 upstream · ↓0 downstream');
+	await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'card-detail-badge-toggle', null, { timeout: 10_000 });
+	fs.writeFileSync(notePath, agentNoteWithUpstream(['docs', 'README.md']), 'utf8');
+	await detailSummaryIs('↑2 upstream · ↓0 downstream');
+	await closeCardDetailIfOpen(page);
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	await assertCanvasEdgeVisible(page, 'docs', note);
+}
+
+// The badge editor edits a card's own Upstream list and shows its derived
+// Downstream list. Add Upstream picks from the whole workspace folder (here a
+// file in another folder) and writes only the note; × removes the entry.
+// Downstream × and Add Downstream write the other card's list exactly as a
+// canvas disconnect or connect would.
+async function assertBadgeEditorUpstreamDownstream(page) {
+	const note = AGENT_CREATED_CARD_PATH;
+	const noteCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${note}"]`);
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	await frameCanvasCardsForConnection(page, [readme, docs, noteCard]);
+	if (readWorkspaceFile(note) !== agentNoteWithUpstream(['docs', 'README.md'])) {
+		throw new Error(`${note} must list docs and README.md before the badge editor checks`);
+	}
+	const readmeBefore = readWorkspaceFile('README.md');
+	const pickFromQuickInput = async (title, query, rowText) => {
+		const widget = page.locator('.quick-input-widget:visible');
+		await widget.locator('.quick-input-title', { hasText: title }).waitFor({ state: 'visible', timeout: 10_000 });
+		await visibleQuickInput(page).fill(query);
+		const row = widget.locator('.quick-input-list .monaco-list-row[role="option"]', { hasText: rowText }).first();
+		await row.waitFor({ state: 'visible', timeout: 15_000 });
+		await row.click();
+		await widget.waitFor({ state: 'hidden', timeout: 10_000 });
+	};
+
+	await openCanvasBadgeFace(noteCard);
+	const helper = await noteCard.locator('[data-testid="badge-upstream"] .basehalf-canvas-card-badge-helper').textContent();
+	if (!helper?.includes('Saved in this file\'s `upstream` list')) {
+		throw new Error(`The note's Upstream helper does not name its own store: ${JSON.stringify(helper)}`);
+	}
+	await noteCard.locator('[data-testid="badge-add-upstream"]').click();
+	await pickFromQuickInput(`Add upstream to ${note}`, 'app.ts', 'src/app.ts');
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md', 'src/app.ts']), 'Add Upstream to append the picked workspace file to the note');
+	const appRow = noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="valid"]', { hasText: 'app.ts' });
+	await appRow.waitFor({ state: 'visible', timeout: 10_000 });
+	const appRemove = appRow.locator('.basehalf-canvas-card-badge-remove');
+	if (await appRemove.getAttribute('aria-label') !== 'Remove src/app.ts from upstream') {
+		throw new Error(`The Upstream × has the wrong accessible name: ${await appRemove.getAttribute('aria-label')}`);
+	}
+	await appRemove.click();
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md']), 'Upstream × to remove only that entry from the note');
+	await closeCanvasBadgeFace(noteCard);
+
+	await openCanvasBadgeFace(readme);
+	const readmeDownstream = readme.locator(`[data-testid="badge-downstream-row"][data-downstream-path="${note}"]`);
+	await readmeDownstream.waitFor({ state: 'visible', timeout: 10_000 });
+	const downstreamRemove = readmeDownstream.locator('.basehalf-canvas-card-badge-remove');
+	if (await downstreamRemove.getAttribute('title') !== `Remove from the upstream of ${note}`) {
+		throw new Error(`The Downstream × tooltip does not name the file it writes: ${await downstreamRemove.getAttribute('title')}`);
+	}
+	await downstreamRemove.click();
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs']), 'Downstream × to remove README.md from the note\'s upstream list');
+	await assertCanvasEdgeGone(page, 'README.md', note);
+	await readme.locator('[data-testid="badge-downstream-empty"]').waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('[data-testid="badge-add-downstream"]').click();
+	await pickFromQuickInput('Add downstream of README.md', 'agent-angle', note);
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md']), 'Add Downstream to add README.md to the note\'s upstream list');
+	await readmeDownstream.waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	await closeCanvasBadgeFace(readme);
+	if (readWorkspaceFile('README.md') !== readmeBefore) {
+		throw new Error('Downstream edits on README changed README itself instead of the downstream note');
+	}
+}
+
+// Select the agent-drawn edge with the mouse and press Delete while focus is
+// outside the canvas: nothing changes.
 async function assertEdgeDeleteScopedToCanvas(page, target) {
 	const point = await edgeScreenMidpoint(page, 'README.md', target);
 	await page.mouse.click(point.x, point.y);
@@ -10199,13 +10466,14 @@ async function assertEdgeDeleteScopedToCanvas(page, target) {
 	});
 	await page.keyboard.press('Delete');
 	await page.waitForTimeout(200);
-	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	if (!fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${target}"`)) {
-		throw new Error('Delete outside the canvas removed the selected semantic edge');
+	if (readWorkspaceFile(target) !== agentNoteWithUpstream(['docs', 'README.md'])) {
+		throw new Error('Delete outside the canvas removed the selected connection');
 	}
 	await assertCanvasEdgeVisible(page, 'README.md', target);
 }
 
+// Disconnect: Delete on the focused edge removes README.md from the target's
+// own upstream list and nothing else; the line disappears.
 async function assertEdgeDeleteRemovesReference(page, target) {
 	const point = await edgeScreenMidpoint(page, 'README.md', target);
 
@@ -10227,13 +10495,15 @@ async function assertEdgeDeleteRemovesReference(page, target) {
 			throw new Error('Selected edge wrapper did not accept keyboard focus');
 		}
 	}, `README.md${String.fromCharCode(0)}${target}`);
+	const readmeBefore = readWorkspaceFile('README.md');
 	await page.keyboard.press('Delete');
 
-	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', target, 'badge.yaml');
-	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${target}"`), `README badge reference to ${target} to be removed`);
-	await waitUntil(() => !fs.existsSync(targetBadgePath) || !fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), `${target} backlink to README to be removed`);
+	await waitUntil(() => readWorkspaceFile(target) === agentNoteWithUpstream(['docs']), `disconnect to remove README.md from the upstream list of ${target}`);
 	await assertCanvasEdgeGone(page, 'README.md', target);
+	await assertCanvasEdgeVisible(page, 'docs', target);
+	if (readWorkspaceFile('README.md') !== readmeBefore) {
+		throw new Error('Disconnecting changed the upstream card instead of only the downstream note');
+	}
 	if (target === AGENT_CREATED_CARD_PATH) {
 		fs.rmSync(path.join(workspacePath, target));
 		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${target}"]`)
@@ -10241,6 +10511,8 @@ async function assertEdgeDeleteRemovesReference(page, target) {
 	}
 }
 
+// The exposed point of the `from`→`to` edge nearest its middle: edges render
+// beneath cards, so the middle itself can lie under a card between the ends.
 async function edgeScreenMidpoint(page, from, to) {
 	const point = await page.evaluate(([source, target]) => {
 		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
@@ -10248,77 +10520,136 @@ async function edgeScreenMidpoint(page, from, to) {
 		if (!(hit instanceof SVGPathElement)) {
 			return undefined;
 		}
-		const mid = hit.getPointAtLength(hit.getTotalLength() / 2);
 		const ctm = hit.getScreenCTM();
-		return ctm ? new DOMPoint(mid.x, mid.y).matrixTransform(ctm) : undefined;
+		const total = hit.getTotalLength();
+		if (!ctm || total <= 0) {
+			return undefined;
+		}
+		for (let offset = 0; offset <= 0.45; offset += 0.01) {
+			for (const ratio of offset === 0 ? [0.5] : [0.5 - offset, 0.5 + offset]) {
+				const along = hit.getPointAtLength(total * ratio);
+				const screen = new DOMPoint(along.x, along.y).matrixTransform(ctm);
+				if (document.elementFromPoint(screen.x, screen.y) === hit) {
+					return { x: screen.x, y: screen.y };
+				}
+			}
+		}
+		return undefined;
 	}, [from, to]);
 	if (!point) {
-		throw new Error(`Could not locate the ${from}→${to} edge hit path`);
+		throw new Error(`Could not locate an exposed point on the ${from}→${to} edge hit path`);
 	}
 	return point;
 }
 
-// Rename an annotated file through the Explorer: the badge follows the file,
-// the graph rewrites on both sides, and the derived edge keeps drawing at the
-// new path. Renames back at the end so later steps see the original fixture.
+// A legacy badge pair draws no edge until the user moves it. The migration
+// prompt appears once the seeded badges are detected; Move Connections writes
+// the downstream note's `upstream` frontmatter, records the pair in
+// .bh/legacy-references.yaml, and keeps the legacy keys until a later session.
+async function assertMigrationMovesSeededLegacyPair(page) {
+	const guideBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide.md', 'badge.yaml');
+	const farBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'far.md', 'badge.yaml');
+	const recordPath = path.join(workspacePath, LEGACY_REFERENCES_RECORD_PATH);
+	if (readWorkspaceFile('docs/far.md') !== FAR_FIXTURE_CONTENT || fs.existsSync(recordPath)) {
+		throw new Error('The migration fixture must start with the original far.md and no legacy connection record');
+	}
+	fs.mkdirSync(path.dirname(guideBadgePath), { recursive: true });
+	fs.mkdirSync(path.dirname(farBadgePath), { recursive: true });
+	fs.writeFileSync(guideBadgePath, LEGACY_GUIDE_BADGE, 'utf8');
+	fs.writeFileSync(farBadgePath, LEGACY_FAR_BADGE, 'utf8');
+
+	// We are on the docs canvas (previous step). A legacy pair is not a
+	// connection: no edge until it is moved into far.md.
+	await assertCanvasEdgeGone(page, 'docs/guide.md', 'docs/far.md');
+	await clickNotificationAction(page, 'Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move 1 connections?', 'Move Connections', 20_000);
+	await waitUntil(() => readWorkspaceFile('docs/far.md') === `---\nupstream:\n  - docs/guide.md\n---\n${FAR_FIXTURE_CONTENT}`, 'Move Connections to write the pair into far.md\'s upstream frontmatter', 20_000);
+	await waitUntil(() => {
+		const record = fs.existsSync(recordPath) ? fs.readFileSync(recordPath, 'utf8') : '';
+		return record.includes('docs/guide.md') && record.includes('docs/far.md') && /\bmigrated\b/.test(record);
+	}, 'the moved pair to be recorded in .bh/legacy-references.yaml', 15_000);
+	await expectNotification(page, 'Moved 1 connections into 1 files.');
+	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
+	// Keys are removed only by a later detection, in a later session.
+	if (fs.readFileSync(guideBadgePath, 'utf8') !== LEGACY_GUIDE_BADGE || fs.readFileSync(farBadgePath, 'utf8') !== LEGACY_FAR_BADGE) {
+		throw new Error('The migration removed legacy badge keys in the session that moved them');
+	}
+}
+
+// Rename a connected file through the Explorer. Its badge (description and
+// legacy text) follows the file, and so does the legacy `referenced_by` item
+// of the unmigrated pair. The rename refactor prompt offers to update far.md's
+// upstream entry: Skip leaves the entry naming the old path, dangling and
+// drawing no edge; Update rewrites it in place and the edge follows the file.
+// The step then restores the fixture bytes.
 async function assertExplorerRenameCascadesMirror(page) {
 	const guideBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide.md');
 	const farBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'far.md');
-	fs.mkdirSync(guideBadgeDir, { recursive: true });
-	fs.mkdirSync(farBadgeDir, { recursive: true });
-	fs.writeFileSync(path.join(guideBadgeDir, 'badge.yaml'), [
-		'path: "docs/guide.md"',
-		'kind: file',
-		'description: "Guide badge"',
-		'references:',
-		'  - "docs/far.md"',
-		'referenced_by: []',
-		''
-	].join('\n'), 'utf8');
-	fs.writeFileSync(path.join(farBadgeDir, 'badge.yaml'), [
-		'path: "docs/far.md"',
-		'kind: file',
-		'references: []',
-		'referenced_by:',
-		'  - "docs/guide.md"',
-		''
-	].join('\n'), 'utf8');
-
-	// We are on the docs canvas (previous step) — the seeded edge draws.
+	const renamedBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide-renamed.md', 'badge.yaml');
+	const farBadgePath = path.join(farBadgeDir, 'badge.yaml');
+	const farConnected = readWorkspaceFile('docs/far.md');
+	const farRenamed = farConnected.replace('  - docs/guide.md\n', '  - docs/guide-renamed.md\n');
+	const legacyFarRenamed = LEGACY_FAR_BADGE.replace('  - "docs/guide.md"', '  - "docs/guide-renamed.md"');
+	const renamedBadge = LEGACY_GUIDE_BADGE.replace('path: "docs/guide.md"', 'path: "docs/guide-renamed.md"');
+	if (farRenamed === farConnected) {
+		throw new Error('The rename fixture must start with far.md listing docs/guide.md as upstream');
+	}
 	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
 
+	// Skip: far.md keeps the old path, which dangles and draws no edge.
 	await renameExplorerEntry(page, 'guide.md', 'guide-renamed.md');
-	await waitUntil(() => {
-		const moved = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide-renamed.md', 'badge.yaml');
-		return fs.existsSync(moved) && fs.readFileSync(moved, 'utf8').includes('path: "docs/guide-renamed.md"');
-	}, 'badge.yaml to follow the renamed file');
+	await waitUntil(() => fs.existsSync(renamedBadgePath) && fs.readFileSync(renamedBadgePath, 'utf8') === renamedBadge, 'badge.yaml to follow the renamed file with its description and legacy text');
 	await waitUntil(() => badgeMirrorIsAbsentOrCanonicalEmpty(path.join(guideBadgeDir, 'badge.yaml')), 'old badge.yaml to be absent or a canonical empty tombstone');
-	await waitUntil(() => fs.readFileSync(path.join(farBadgeDir, 'badge.yaml'), 'utf8').includes('- "docs/guide-renamed.md"'), 'inbound reference to be rewritten');
+	await waitUntil(() => fs.readFileSync(farBadgePath, 'utf8') === legacyFarRenamed, 'the unmigrated pair\'s legacy referenced_by item to follow the rename');
+	await clickNotificationAction(page, 'guide.md moved to docs/guide-renamed.md.', 'Skip', 20_000);
+	await assertCanvasEdgeGone(page, 'docs/guide.md', 'docs/far.md');
+	await assertCanvasEdgeGone(page, 'docs/guide-renamed.md', 'docs/far.md');
+	if (readWorkspaceFile('docs/far.md') !== farConnected) {
+		throw new Error('Skip changed another note\'s upstream list');
+	}
+
+	// Rename back: nothing names the new path, so nothing is offered; the
+	// entry resolves again and the badges return home.
+	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
+	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml'))
+		&& fs.readFileSync(path.join(guideBadgeDir, 'badge.yaml'), 'utf8') === LEGACY_GUIDE_BADGE, 'badge.yaml to follow the rename back');
+	await waitUntil(() => fs.readFileSync(farBadgePath, 'utf8') === LEGACY_FAR_BADGE, 'the legacy referenced_by item to follow the rename back');
+	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
+
+	// Update: far.md's entry is rewritten in place and the edge follows the file.
+	await renameExplorerEntry(page, 'guide.md', 'guide-renamed.md');
+	await clickNotificationAction(page, 'guide.md moved to docs/guide-renamed.md.', 'Update', 20_000);
+	await waitUntil(() => readWorkspaceFile('docs/far.md') === farRenamed, 'Update to rewrite far.md\'s upstream entry in place', 20_000);
+	await expectNotification(page, /Updated \d+ items?\./);
 	await assertCanvasEdgeVisible(page, 'docs/guide-renamed.md', 'docs/far.md');
 
-	// Restore the fixture: rename back and let the cascade carry it home.
+	// Rename back with Update: far.md returns to its exact bytes.
 	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
-	await waitUntil(() => {
-		const restored = path.join(guideBadgeDir, 'badge.yaml');
-		if (!fs.existsSync(restored)) {
-			return false;
-		}
-		const contents = fs.readFileSync(restored, 'utf8');
-		return contents.includes('path: "docs/guide.md"')
-			&& contents.includes('description: "Guide badge"')
-			&& contents.includes('- "docs/far.md"');
-	}, 'badge.yaml to reuse the target tombstone and follow the rename back');
+	await clickNotificationAction(page, 'guide-renamed.md moved to docs/guide.md.', 'Update', 20_000);
+	await waitUntil(() => readWorkspaceFile('docs/far.md') === farConnected, 'Update to rewrite far.md\'s upstream entry back', 20_000);
+	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml'))
+		&& fs.readFileSync(path.join(guideBadgeDir, 'badge.yaml'), 'utf8') === LEGACY_GUIDE_BADGE
+		&& fs.readFileSync(farBadgePath, 'utf8') === LEGACY_FAR_BADGE, 'the badges to follow the second rename back');
+	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
+
+	// Restore the fixture. The legacy badges go first, so no later detection
+	// offers the pair again once far.md loses its entry; then far.md's bytes
+	// and the migration record.
+	fs.rmSync(path.join(guideBadgeDir, 'badge.yaml'), { force: true });
+	fs.rmSync(farBadgePath, { force: true });
+	await page.waitForTimeout(1_500);
+	fs.writeFileSync(path.join(workspacePath, 'docs', 'far.md'), FAR_FIXTURE_CONTENT, 'utf8');
+	fs.rmSync(path.join(workspacePath, LEGACY_REFERENCES_RECORD_PATH), { force: true });
+	await assertCanvasEdgeGone(page, 'docs/guide.md', 'docs/far.md');
 }
 
+// A retired badge is either gone or keeps no description; legacy reference
+// text, when present, is kept verbatim until a migration removes it.
 function badgeMirrorIsAbsentOrCanonicalEmpty(file) {
 	if (!fs.existsSync(file)) {
 		return true;
 	}
 	const contents = fs.readFileSync(file, 'utf8');
-	return !/^description:/m.test(contents)
-		&& /^references:\s*\[\]\s*$/m.test(contents)
-		&& /^referenced_by:\s*\[\]\s*$/m.test(contents)
-		&& !/^\s+-\s+/m.test(contents);
+	return !/^description:/m.test(contents) && !/^orphan:/m.test(contents);
 }
 
 async function renameExplorerEntry(page, currentName, nextName) {
@@ -11189,18 +11520,15 @@ async function assertMarkdownRichPassthroughEditInSource(page) {
 	// The card reopens in the source projection with the island's line selected.
 	const sourceEditor = page.locator('.basehalf-card-detail-source-editor .monaco-editor');
 	await sourceEditor.waitFor({ state: 'visible', timeout: 15_000 });
-	// The whole block tile is selected; the recorded cursor sits at the
-	// selection end, which may include the tile's trailing blank line.
+	// The whole block tile is selected; the cursor sits at the selection end,
+	// which may include the tile's trailing blank line. Monaco marks the
+	// cursor's line number as the active one.
 	const islandLine = lineNumberForText('README.md', 'smoke-raw-island');
-	const focusPath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'focus.yaml');
-	await waitUntil(() => {
-		if (!fs.existsSync(focusPath)) {
-			return false;
-		}
-		const content = fs.readFileSync(focusPath, 'utf8');
-		const line = Number(/^ {2}line: (\d+)$/m.exec(content)?.[1] ?? NaN);
-		return content.includes('projection: source') && line >= islandLine && line <= islandLine + 1;
-	}, `focus.yaml to record the source selection at the raw island (line ${islandLine})`);
+	await page.waitForFunction(({ first, last }) => {
+		const active = document.querySelector('.basehalf-card-detail-source-editor .line-numbers.active-line-number');
+		const line = Number(active?.textContent?.trim() ?? NaN);
+		return line >= first && line <= last;
+	}, { first: islandLine, last: islandLine + 1 }, { timeout: 15_000 });
 
 	// Projection changes are view state, not location history. Return through
 	// the in-card projection control so Back remains reserved for visited places.
@@ -11328,17 +11656,12 @@ async function assertSourceCardSaveActionHidden(page) {
 	}
 }
 
-async function assertFocusLine(relativePath, line) {
-	const focusPath = path.join(workspacePath, '.bh', 'mirror', ...relativePath.split('/'), 'focus.yaml');
-	await waitUntil(() => {
-		if (!fs.existsSync(focusPath)) {
-			return false;
-		}
-		const content = fs.readFileSync(focusPath, 'utf8');
-		return content.includes('projection: rich')
-			&& content.includes('cursor:')
-			&& content.includes(`  line: ${line}`);
-	}, `focus.yaml for ${relativePath} to point at line ${line}`);
+// Search navigation reveals the matched block in the rich projection: the
+// block holding the needle carries the transient reveal highlight.
+async function assertMarkdownRichRevealsText(page, needle) {
+	const frame = await activeMarkdownRichFrame(page);
+	await frame.waitForFunction(text => Array.from(document.querySelectorAll('.basehalf-markdown-rich-selection-reveal'))
+		.some(block => block.textContent?.includes(text)), needle, { timeout: 10_000 });
 }
 
 function lineNumberForText(relativePath, needle) {

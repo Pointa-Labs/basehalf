@@ -6,6 +6,7 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown, baseHalfPdfBranchTitle } from '../../common/basehalfPdfBranch.js';
+import { readBaseHalfMarkdownUpstream } from '../../common/basehalfReferenceStore.js';
 
 suite('BaseHalfPdfBranch', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -30,6 +31,27 @@ suite('BaseHalfPdfBranch', () => {
 			'Source: [Learning Systems.pdf](./Learning%20Systems.pdf), pages 2, 3',
 			''
 		].join('\n'));
+	});
+
+	test('lists the PDF as upstream in the note\'s first bytes', () => {
+		const markdown = baseHalfPdfBranchMarkdown('2024.pdf', { text: 'Passage', pages: [1] }, {
+			sourcePath: 'sources/2024.pdf',
+			notePath: 'sources/2024-note.md'
+		});
+		assert.strictEqual(markdown, [
+			'---',
+			'upstream:',
+			'  - sources/2024.pdf',
+			'---',
+			'# Passage',
+			'',
+			'> Passage',
+			'',
+			'Source: [2024.pdf](./2024.pdf), page 1',
+			''
+		].join('\n'));
+		const read = readBaseHalfMarkdownUpstream(markdown, { nodePath: 'sources/2024-note.md' });
+		assert.deepStrictEqual(read.items.map(item => item.path), ['sources/2024.pdf']);
 	});
 
 	test('uses the selected idea as a concise, canvas-scannable title', () => {

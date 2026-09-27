@@ -33,7 +33,6 @@ import { IWebviewService, IWebviewElement, WebviewContentPurpose } from '../../.
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
-import { IBaseHalfFileFocusFields, IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 import { baseHalfMarkdownRichColdFlushResult, baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
 import {
@@ -42,9 +41,12 @@ import {
 	IBaseHalfMarkdownRichLiveDocumentHandle
 } from '../../common/basehalfMarkdownRichLiveDocument.js';
 import {
+	applyBaseHalfMarkdownRichTextModelContent,
 	BaseHalfMarkdownRichTextModelDisk,
+	BaseHalfMarkdownRichTextModelWriteGate,
 	IBaseHalfMarkdownRichTextFileService
 } from '../../common/basehalfMarkdownRichTextModel.js';
+import { baseHalfMarkdownRichBodiesDiffer, baseHalfMarkdownRichBody } from '../../common/basehalfMarkdownRichSession.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
@@ -58,12 +60,14 @@ import {
 import { BaseHalfMarkdownRichWebviewBridge } from '../../common/basehalfMarkdownRichWebviewBridge.js';
 import {
 	BaseHalfMarkdownRichSaveRequestedMessage,
-	BaseHalfMarkdownRichWebviewSaveCoordinator
+	BaseHalfMarkdownRichWebviewSaveCoordinator,
+	planBaseHalfMarkdownRichProjectionHandoff
 } from '../../common/basehalfMarkdownRichWebviewSaveCoordinator.js';
 import { IBaseHalfAdhdCommand } from '../../common/basehalfAdhd.js';
-import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
+import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdownAttachment.js';
+import { baseHalfMarkdownFrontmatterLineCount } from '../../common/basehalfMarkdownProjection.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 
@@ -237,11 +241,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
 	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number; readonly handoff?: true }>();
-	private readonly pendingEditorSaveContents = new Set<string>();
+	/** Bodies of rich saves the host is writing now. */
+	private readonly pendingEditorSaveBodies: string[] = [];
 	private pendingStructuralFreeze: { readonly requestId: string; readonly frozen: boolean; readonly promise: DeferredPromise<boolean>; readonly timer: number } | undefined;
 
 	private state: IBaseHalfCardDetailState | undefined;
-	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
+	/** Structural stamp of the open resource. ADHD reading-aid commands run
+	 *  as resource mutations against it, so a command issued after the file
+	 *  moved or was deleted is refused instead of landing on a stale path. */
+	private resourceStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private model: ITextModel | undefined;
 	private resourceKey: string | undefined;
 	private documentKey: string | undefined;
@@ -251,10 +259,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private dirty = false;
 	private lastSentContent: string | undefined;
 	private lastAcceptedEditorContent: string | undefined;
-	private writingTextModel = 0;
+	/** Rich writes suppress the model listener; changes by others are replayed after them. */
+	private readonly modelWriteGate = new BaseHalfMarkdownRichTextModelWriteGate(() => this.handleModelContentChanged());
 	private disposed = false;
 	private visible = false;
 	private pendingModelSync = false;
+	/** The frontmatter line count of the model when ADHD state was last sent. */
+	private adhdFrontmatterLines: number | undefined;
 	private structuralFrozen = false;
 	private acknowledgedStructuralFrozen = false;
 	private editorReady = false;
@@ -279,7 +290,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ICommandService private readonly commandService: ICommandService,
@@ -322,7 +332,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
-		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
+		this.resourceStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.documentKey = baseHalfMarkdownRichDocumentKey(state.workspaceFolder, state.relativePath);
 		this.setSaveStatus('saving');
@@ -401,13 +411,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	/**
 	 * Re-entry hook for a retained (hidden) surface becoming the visible
 	 * projection again: adopt the latest navigation state and re-reveal its
-	 * selection. Focus mirroring self-heals on the webview's next focus event.
+	 * selection.
 	 */
 	activate(state: IBaseHalfCardDetailState): void {
 		this.state = state;
 		if (state.selection) {
 			void this.bridge?.sendRevealSelection(state.selection);
-			this.writeSelectionFocus(state);
 		}
 	}
 
@@ -532,7 +541,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		void this.bridge?.sendRevealSelection(selection);
-		this.writeSelectionFocus(this.state);
 		this.updateStatus();
 	}
 
@@ -750,16 +758,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				break;
 			case 'basehalf.markdownRich.editorActivated':
 				this.onEditorFocus?.();
-				break;
-			case 'basehalf.markdownRich.focusChanged':
-				// Mirror bookkeeping only. Focus-field updates also fire on
-				// autosave settle and decoration refreshes, so they must not
-				// count as user activation (editorActivated handles that) —
-				// otherwise the badge zone closes underneath the user.
-				this.writeFileFocus(state, {
-					projection: 'rich',
-					...message.fields
-				});
 				break;
 			case 'basehalf.markdownRich.workbenchCommand':
 				await this.handleWorkbenchCommand(message.command);
@@ -979,20 +977,22 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private runAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand) {
-		const stamp = this.focusStamp;
+		const stamp = this.resourceStamp;
 		if (!stamp) {
 			return Promise.reject(new Error('The card detail resource is no longer current.'));
 		}
+		// Read spans from the webview are body-relative lines.
+		const options = this.adhdDocumentOptions();
 		return this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease => {
 			switch (command.command) {
 				case 'addKeyword':
-					return this.adhdMirrorService.addKeyword(state, command.keyword, lease);
+					return this.adhdMirrorService.addKeyword(state, command.keyword, lease, options);
 				case 'removeKeyword':
-					return this.adhdMirrorService.removeKeyword(state, command.keyword, lease);
+					return this.adhdMirrorService.removeKeyword(state, command.keyword, lease, options);
 				case 'markRead':
-					return this.adhdMirrorService.markRead(state, command.start, command.end, lease);
+					return this.adhdMirrorService.markRead(state, command.start, command.end, lease, options);
 				case 'markUnread':
-					return this.adhdMirrorService.markUnread(state, command.start, command.end, lease);
+					return this.adhdMirrorService.markUnread(state, command.start, command.end, lease, options);
 			}
 		});
 	}
@@ -1000,39 +1000,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
 		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), this.surface, state.selection);
-		this.writeSelectionFocus(state);
 		await this.sendAdhdState(state);
 	}
 
 	private webviewBaseUri(resource: URI): string {
 		const directory = dirname(resource);
 		return asWebviewUri(directory.with({ path: `${directory.path.replace(/\/$/, '')}/` })).toString(true);
-	}
-
-	private writeSelectionFocus(state: IBaseHalfCardDetailState): void {
-		if (!state.selection) {
-			return;
-		}
-
-		this.writeFileFocus(state, {
-			projection: state.projection,
-			visible_lines: { start: state.selection.startLineNumber },
-			cursor: {
-				line: state.selection.startLineNumber,
-				column: state.selection.startColumn,
-				line_precision: 'exact'
-			}
-		});
-	}
-
-	private writeFileFocus(state: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields): void {
-		const stamp = this.focusStamp;
-		if (!stamp) {
-			return;
-		}
-		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
-			this.focusMirrorService.writeFileFocus(state, fields, lease)
-		).catch(error => this.logService.error(error));
 	}
 
 	private async sendAdhdState(state: IBaseHalfCardDetailState): Promise<void> {
@@ -1043,7 +1016,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		try {
-			const adhd = await this.adhdMirrorService.readAdhd(state);
+			const options = this.adhdDocumentOptions();
+			this.adhdFrontmatterLines = options.frontmatterLines;
+			const adhd = await this.adhdMirrorService.readAdhd(state, options);
 			await this.bridge?.sendAdhdState({ readingModeEnabled, adhd });
 		} catch (error) {
 			const message = adhdErrorMessage(error);
@@ -1068,38 +1043,46 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		this.setSaveStatus('saving');
-		this.writingTextModel++;
-		this.pendingEditorSaveContents.add(message.content);
+		this.pendingEditorSaveBodies.push(message.body);
 		try {
-			const outcome = await this.coordinator.handleSaveRequested(
-				message,
-				new BaseHalfMarkdownRichTextModelDisk(model, this.textFileAdapter()),
-				bridge
-			);
-			if (outcome.result === 'saved' || outcome.result === 'noop') {
-				this.lastSentContent = outcome.content ?? model.getValue();
-				this.lastAcceptedEditorContent = this.lastSentContent;
-				this.dirty = false;
-				if (!this.textFileService.isDirty(model.uri)) {
-					this.projectionSaveFailed = false;
-					if (this.documentKey) {
-						markdownRichProjectionSaves.delete(this.documentKey);
+			await this.modelWriteGate.run(async () => {
+				const outcome = await this.coordinator.handleSaveRequested(
+					message,
+					new BaseHalfMarkdownRichTextModelDisk(model, this.textFileAdapter()),
+					bridge
+				);
+				if (outcome.result === 'saved' || outcome.result === 'noop') {
+					this.lastSentContent = outcome.content ?? model.getValue();
+					this.lastAcceptedEditorContent = this.lastSentContent;
+					this.dirty = false;
+					if (!this.textFileService.isDirty(model.uri)) {
+						this.projectionSaveFailed = false;
+						if (this.documentKey) {
+							markdownRichProjectionSaves.delete(this.documentKey);
+						}
 					}
 				}
-			}
-			const pending = this.pendingFlushes.get(message.requestId);
-			if (pending) {
-				this.pendingFlushes.delete(message.requestId);
-				mainWindow.clearTimeout(pending.timer);
-				pending.resolve(outcome.okToLeave);
-			}
+				const pending = this.pendingFlushes.get(message.requestId);
+				if (pending) {
+					this.pendingFlushes.delete(message.requestId);
+					mainWindow.clearTimeout(pending.timer);
+					pending.resolve(outcome.okToLeave);
+				}
+			});
 		} finally {
-			this.pendingEditorSaveContents.delete(message.content);
-			this.writingTextModel--;
+			const index = this.pendingEditorSaveBodies.indexOf(message.body);
+			if (index >= 0) {
+				this.pendingEditorSaveBodies.splice(index, 1);
+			}
 			this.updateStatus();
 		}
 	}
 
+	/**
+	 * Hands the rich body to the shared text model synchronously, under the
+	 * model's current frontmatter, and starts the durable save in the
+	 * background.
+	 */
 	private async handleProjectionHandoff(
 		message: BaseHalfMarkdownRichSaveRequestedMessage,
 		model: ITextModel,
@@ -1108,33 +1091,25 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	): Promise<void> {
 		let ok = false;
 		this.setSaveStatus('saving');
-		this.writingTextModel++;
 		try {
-			const current = model.getValue();
-			if (!message.forceWrite
-				&& current !== message.previousContent
-				&& current !== message.content
-				&& current !== this.lastAcceptedEditorContent
-				&& !this.pendingEditorSaveContents.has(current)) {
-				await bridge.sendSaveResult(message.requestId, 'blockedByConflict', { disk: current });
-				return;
-			}
-			if (current !== message.content) {
-				model.pushEditOperations(null, [{
-					range: model.getFullModelRange(),
-					text: message.content
-				}], () => null);
-			}
-			this.lastSentContent = message.content;
-			this.lastAcceptedEditorContent = message.content;
-			this.dirty = false;
-			this.pendingProjectionSave = this.startProjectionSave(model);
-			await bridge.sendSaveResult(message.requestId, current === message.content ? 'noop' : 'saved', { content: message.content });
-			ok = true;
+			await this.modelWriteGate.run(async () => {
+				const current = model.getValue();
+				const plan = planBaseHalfMarkdownRichProjectionHandoff(current, message, this.acceptedEditorBodies());
+				if (plan.kind === 'conflict') {
+					await bridge.sendSaveResult(message.requestId, 'blockedByConflict', { disk: plan.disk });
+					return;
+				}
+				const content = plan.changed ? applyBaseHalfMarkdownRichTextModelContent(model, plan.content) : current;
+				this.lastSentContent = content;
+				this.lastAcceptedEditorContent = content;
+				this.dirty = false;
+				this.pendingProjectionSave = this.startProjectionSave(model);
+				await bridge.sendSaveResult(message.requestId, content === current ? 'noop' : 'saved', { content });
+				ok = true;
+			});
 		} catch (error) {
 			await bridge.sendSaveResult(message.requestId, 'writeFailed', { message: toErrorMessage(error) });
 		} finally {
-			this.writingTextModel--;
 			if (this.pendingFlushes.get(message.requestId) === pending) {
 				this.pendingFlushes.delete(message.requestId);
 				mainWindow.clearTimeout(pending.timer);
@@ -1142,6 +1117,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			}
 			this.updateStatus();
 		}
+	}
+
+	/** Bodies this editor wrote or is writing, which a lagging handoff baseline may not reflect yet. */
+	private acceptedEditorBodies(): string[] {
+		const bodies = [...this.pendingEditorSaveBodies];
+		if (this.lastAcceptedEditorContent !== undefined) {
+			bodies.push(baseHalfMarkdownRichBody(this.lastAcceptedEditorContent));
+		}
+		return bodies;
 	}
 
 	private startProjectionSave(model: ITextModel): Promise<boolean> {
@@ -1224,17 +1208,38 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private handleModelContentChanged(): void {
-		if (!this.model || this.writingTextModel > 0) {
+		if (!this.model || !this.modelWriteGate.acceptChange()) {
 			return;
 		}
 
 		this.updateStatus();
+		this.refreshAdhdOnFrontmatterChange();
 		if (!this.visible) {
 			// Reconciled once in setVisible(true).
 			this.pendingModelSync = true;
 			return;
 		}
 		this.forwardModelContent();
+	}
+
+	/**
+	 * Read ranges are body-relative, so a frontmatter change never moves them.
+	 * An `adhd.yaml` from an earlier release is converted against the current
+	 * frontmatter line count, and a reference operation may have just persisted
+	 * that conversion: resend the reading aids when the count changes.
+	 */
+	private refreshAdhdOnFrontmatterChange(): void {
+		const state = this.state;
+		if (!state || this.adhdFrontmatterLines === undefined || !this.isReadingModeEnabled(state)) {
+			return;
+		}
+		if (this.adhdDocumentOptions().frontmatterLines !== this.adhdFrontmatterLines) {
+			void this.sendAdhdState(state);
+		}
+	}
+
+	private adhdDocumentOptions(): IBaseHalfAdhdDocumentOptions {
+		return this.model ? { frontmatterLines: baseHalfMarkdownFrontmatterLineCount(this.model.getValue()) } : {};
 	}
 
 	private forwardModelContent(): void {
@@ -1244,7 +1249,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 		const content = model.getValue();
-		if (this.dirty || content === this.lastSentContent) {
+		if (content === this.lastSentContent) {
+			return;
+		}
+		// Local rich edits keep their body; a body divergence is the save
+		// conflict path's job. A frontmatter-only change leaves the body alone,
+		// so a dirty editor still adopts it.
+		if (this.dirty && (this.lastSentContent === undefined || baseHalfMarkdownRichBodiesDiffer(content, this.lastSentContent))) {
 			return;
 		}
 

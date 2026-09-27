@@ -17,18 +17,18 @@ import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { FileSystemProviderCapabilities, IFileService } from '../../../platform/files/common/files.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
+import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput/common/quickInput.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IUndoRedoService, UndoRedoElementType } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
+import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService, IBaseHalfCanvasPostCreateIntent } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { IBaseHalfCanvasMirrorService, IBaseHalfCanvasStateTransition } from '../common/basehalfCanvasMirror.js';
-import { IBaseHalfBadgeGraphService, IBaseHalfReferenceStateTransition } from '../common/basehalfBadgeGraph.js';
-import { IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import {
 	BaseHalfCanvasContentKind,
 	IBaseHalfCanvasRecipeInput,
@@ -37,9 +37,19 @@ import {
 	resolveBaseHalfCanvasRecipeParameters,
 	validateBaseHalfCanvasRecipeInputs
 } from '../common/basehalfCanvasRecipes.js';
-import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID, IBaseHalfCanvasCreateFromTemplateCommandArguments, IBaseHalfCanvasCreateFromTemplateCommandResult, IBaseHalfCanvasTemplate, parseBaseHalfCanvasTemplate } from '../common/basehalfCanvasTemplate.js';
+import {
+	BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID,
+	IBaseHalfCanvasCreateFromTemplateCommandArguments,
+	IBaseHalfCanvasCreateFromTemplateCommandResult,
+	IBaseHalfCanvasTemplate,
+	IBaseHalfCanvasTemplateSidecarUpstream,
+	materializeBaseHalfCanvasTemplateUpstream,
+	parseBaseHalfCanvasTemplate
+} from '../common/basehalfCanvasTemplate.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
+import { IBaseHalfReferenceEditService } from '../common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../contrib/files/browser/fileConstants.js';
@@ -66,7 +76,14 @@ const BASEHALF_CANVAS_CUT_COMMAND_ID = 'basehalf.canvas.cut';
 const BASEHALF_CANVAS_COPY_COMMAND_ID = 'basehalf.canvas.copy';
 const BASEHALF_CANVAS_RESUME_TEMPLATE_SETUP_COMMAND_ID = 'basehalf.canvas.resumeTemplateSetup';
 const MAX_UNDO_FILE_SIZE = 5_000_000;
-const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
+/**
+ * Version 2 (D37): created Markdown and `.bhnode` files carry their `upstream`
+ * list in the recorded digests, and sidecar targets are written through the
+ * reference edit service. Version 1 records came from the badge-pair model and
+ * cannot be finished; they are discarded with a warning that names each setup.
+ */
+const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v2';
+const LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
 const MAX_PENDING_TEMPLATE_SETUPS = 32;
 const MAX_PENDING_TEMPLATE_FILES = 200;
 
@@ -103,9 +120,14 @@ interface IBaseHalfTemplateCanvasMutation {
 	readonly transition: IBaseHalfCanvasStateTransition;
 }
 
+/**
+ * The canvas metadata of a template setup: card geometry and same-folder
+ * anchor rows. References are not metadata: Markdown and `.bhnode` targets
+ * carry their `upstream` list in their initial bytes, and sidecar targets are
+ * written separately through the reference edit service.
+ */
 interface IBaseHalfTemplateMetadataPlan {
 	readonly canvases: readonly IBaseHalfTemplateCanvasMutation[];
-	readonly references: readonly IBaseHalfReferenceStateTransition[];
 }
 
 interface IBaseHalfTemplateMetadataClassification extends IBaseHalfTemplateMetadataPlan {
@@ -169,7 +191,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		const editing = accessor.get(IBaseHalfCanvasEditingService);
 		const postCreateIntent = editing.beginPostCreateIntent();
 		const canvasMirror = accessor.get(IBaseHalfCanvasMirrorService);
-		const badgeGraph = accessor.get(IBaseHalfBadgeGraphService);
+		const referenceEditService = accessor.get(IBaseHalfReferenceEditService);
 		const configurationService = accessor.get(IConfigurationService);
 		const storageService = accessor.get(IStorageService);
 		const dialogService = accessor.get(IDialogService);
@@ -207,12 +229,24 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		throwIfTemplateCreationCancelled(cancellationToken);
 		const projectResource = joinPath(currentFolder.resource, projectName);
 		const projectRelativePath = joinCanvasPath(currentFolder.relativePath, projectName);
+		// Each template reference is stored once, in its target's own store,
+		// rebased under the new project folder.
+		const upstream = materializeBaseHalfCanvasTemplateUpstream(template, projectRelativePath);
+		if (upstream.sidecars.length > 0 && await baseHalfIsWorkspaceFolderMarked(fileService, currentFolder.workspaceFolder)) {
+			throw new Error(localize(
+				'basehalf.canvas.template.markedFolder',
+				"'{0}' connects into files that keep their upstream list in BaseHalf metadata, which BaseHalf doesn't write in this folder.",
+				descriptor.label
+			));
+		}
+		throwIfTemplateCreationCancelled(cancellationToken);
 		const nodeDocuments = new Map(template.nodes.map(node => [node.path, serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 			id: generateUuid(),
 			kind: node.kind,
 			title: node.title,
 			role: node.role,
 			prompt: node.prompt ?? '',
+			upstream: upstream.nodes.get(node.path) ?? [],
 			...(node.recipe ? {
 				recipe: {
 					recipeId: node.recipe.recipeId,
@@ -225,7 +259,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			} : {})
 		}))]));
 		const allFiles: readonly IBaseHalfTemplateProjectFile[] = [
-			...template.files.map(file => ({ path: file.path, contents: VSBuffer.fromString(file.contents) })),
+			...template.files.map(file => ({ path: file.path, contents: VSBuffer.fromString(upstream.files.get(file.path) ?? file.contents) })),
 			...template.nodes.map(node => ({ path: node.path, contents: VSBuffer.fromString(nodeDocuments.get(node.path)!) }))
 		];
 		const directories = templateDirectories(allFiles.map(file => file.path));
@@ -249,7 +283,8 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			workspaceFolder: currentFolder.workspaceFolder,
 			projectResource,
 			canvasMirror,
-			badgeGraph,
+			referenceEditService,
+			sidecars: upstream.sidecars,
 			navigation,
 			editing,
 			postCreateIntent,
@@ -275,6 +310,9 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 				await assertTemplateProjectPathSafe(fileService, currentFolder.workspaceFolder, projectResource);
 				await applyPendingTemplateMetadata(runtime, lease, cancellationToken);
 			});
+			// Outside the structural lease: the reference edit service takes its
+			// own workspace mutation lease for every write.
+			await applyTemplateSidecarUpstream(runtime);
 		} catch (error) {
 			if (isCancellationError(error)) {
 				try {
@@ -361,13 +399,15 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		const recipes = accessor.get(IBaseHalfCanvasRecipeRegistryService);
 		const fileService = accessor.get(IFileService);
 		const canvasMirror = accessor.get(IBaseHalfCanvasMirrorService);
-		const badgeGraph = accessor.get(IBaseHalfBadgeGraphService);
+		const referenceEditService = accessor.get(IBaseHalfReferenceEditService);
 		const navigation = accessor.get(IBaseHalfCanvasNavigationService);
 		const editing = accessor.get(IBaseHalfCanvasEditingService);
 		const workspaceMutationCoordinator = accessor.get(IBaseHalfWorkspaceMutationCoordinator);
 		const undoRedoService = accessor.get(IUndoRedoService);
 		const workingCopyService = accessor.get(IWorkingCopyService);
+		const notificationService = accessor.get(INotificationService);
 		const confirmBeforeUndo = accessor.get(IConfigurationService).getValue<IFilesConfiguration>().explorer.confirmUndo === UndoConfirmLevel.Verbose;
+		discardLegacyBaseHalfPendingTemplateSetups(storageService, notificationService);
 		const pending = readPendingTemplateSetups(storageService);
 		if (pending.length === 0) {
 			await dialogService.info(
@@ -426,7 +466,8 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			workspaceFolder,
 			projectResource,
 			canvasMirror,
-			badgeGraph,
+			referenceEditService,
+			sidecars: materializeBaseHalfCanvasTemplateUpstream(template, setup.projectRelativePath).sidecars,
 			navigation,
 			editing,
 			postCreateIntent,
@@ -826,7 +867,9 @@ interface IBaseHalfTemplateSetupRuntime {
 	readonly workspaceFolder: URI;
 	readonly projectResource: URI;
 	readonly canvasMirror: IBaseHalfCanvasMirrorService;
-	readonly badgeGraph: IBaseHalfBadgeGraphService;
+	readonly referenceEditService: IBaseHalfReferenceEditService;
+	/** Created sidecar-store targets and their workspace-relative entries. */
+	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
 	readonly navigation: IBaseHalfCanvasNavigationService;
 	readonly editing: IBaseHalfCanvasEditingService;
 	readonly postCreateIntent: IBaseHalfCanvasPostCreateIntent;
@@ -885,6 +928,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 			try {
 				await runtime.workspaceMutationCoordinator.runExclusive(runtime.workspaceFolder, lease => applyPendingTemplateMetadata(runtime, lease, CancellationToken.None, allowPartialRecovery));
 				allowPartialRecovery = false;
+				await applyTemplateSidecarUpstream(runtime);
 				const files = await readExactTemplateProjectFiles(runtime);
 				removePendingTemplateSetup(runtime.storageService, runtime.pending.id);
 				pushTemplateCreationUndo(runtime, files);
@@ -945,7 +989,8 @@ async function canStopPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntim
 	try {
 		return await runtime.workspaceMutationCoordinator.runExclusive(runtime.workspaceFolder, async () => {
 			const plan = createTemplateMetadataPlan(runtime);
-			return (await classifyTemplateMetadataState(runtime, plan.canvases, plan.references)).state === 'expected';
+			return (await classifyTemplateMetadataState(runtime, plan.canvases)).state === 'expected'
+				&& await templateSidecarUpstreamIsEmpty(runtime);
 		});
 	} catch {
 		return false;
@@ -963,7 +1008,7 @@ async function applyPendingTemplateMetadata(
 	throwIfTemplateCreationCancelled(cancellationToken);
 	const plan = createTemplateMetadataPlan(runtime);
 	if (!allowPartialRecovery
-		&& (await classifyTemplateMetadataState(runtime, plan.canvases, plan.references)).state === 'mixed') {
+		&& (await classifyTemplateMetadataState(runtime, plan.canvases)).state === 'mixed') {
 		throw new BaseHalfTemplatePartialMetadataError();
 	}
 	await applyTemplateMetadataPlan(runtime, plan, 'forward', lease, cancellationToken);
@@ -1040,22 +1085,15 @@ function createTemplateMetadataPlan(runtime: IBaseHalfTemplateSetupRuntime): IBa
 		transitionFor(parent).cards.push({ path: next.path, expected: null, next });
 	}
 
-	const references: IBaseHalfReferenceStateTransition[] = [];
+	// `canvas.yaml` edge rows are anchor memory only: the reference itself is
+	// already in the target's store.
 	for (const reference of runtime.template.references) {
-		const from = templateBadgeNode(runtime.workspaceFolder, runtime.projectResource, runtime.pending.projectRelativePath, reference.from);
-		const to = templateBadgeNode(runtime.workspaceFolder, runtime.projectResource, runtime.pending.projectRelativePath, reference.to);
-		references.push({
-			source: from,
-			target: to,
-			expected: { forward: false, backlink: false },
-			next: { forward: true, backlink: true }
-		});
 		const parent = templateParentPath(reference.from);
 		if (parent === templateParentPath(reference.to)) {
 			const next = {
-				from: from.relativePath,
+				from: joinCanvasPath(runtime.pending.projectRelativePath, reference.from),
 				from_anchor: reference.fromAnchor,
-				to: to.relativePath,
+				to: joinCanvasPath(runtime.pending.projectRelativePath, reference.to),
 				to_anchor: reference.toAnchor
 			};
 			transitionFor(parent).edges.push({ from: next.from, to: next.to, expected: null, next });
@@ -1068,9 +1106,47 @@ function createTemplateMetadataPlan(runtime: IBaseHalfTemplateSetupRuntime): IBa
 			.map(([parent, transition]) => ({
 				folder: templateFolderState(projectFolder, runtime.projectResource, runtime.pending.projectRelativePath, parent),
 				transition
-			})),
-		references: Object.freeze(references)
+			}))
 	};
+}
+
+/**
+ * Writes the `upstream.yaml` of every created sidecar-store target through the
+ * reference edit service. Each store is one idempotent transition from an
+ * empty list, so a resumed setup skips stores that already hold their entries
+ * and refuses stores that changed. Template instantiation is not a canvas undo
+ * step, and undoing the project creation keeps these files like a trash
+ * delete does.
+ */
+async function applyTemplateSidecarUpstream(runtime: IBaseHalfTemplateSetupRuntime): Promise<void> {
+	for (const sidecar of runtime.sidecars) {
+		await runtime.referenceEditService.apply([{
+			node: {
+				resource: joinProjectPath(runtime.workspaceFolder, sidecar.path),
+				workspaceFolder: runtime.workspaceFolder,
+				relativePath: sidecar.path
+			},
+			operation: {
+				kind: 'transition',
+				from: { items: [] },
+				to: { items: sidecar.entries.map(text => ({ text, scalar: true })) }
+			}
+		}], { label: localize('basehalf.canvas.template.upstreamLabel', "Create {0}", runtime.pending.templateLabel) });
+	}
+}
+
+async function templateSidecarUpstreamIsEmpty(runtime: IBaseHalfTemplateSetupRuntime): Promise<boolean> {
+	for (const sidecar of runtime.sidecars) {
+		const snapshot = await runtime.referenceEditService.readSnapshot({
+			resource: joinProjectPath(runtime.workspaceFolder, sidecar.path),
+			workspaceFolder: runtime.workspaceFolder,
+			relativePath: sidecar.path
+		});
+		if (!snapshot || snapshot.items.length > 0) {
+			return false;
+		}
+	}
+	return true;
 }
 
 type BaseHalfTemplateTransitionDirection = 'forward' | 'reverse';
@@ -1087,37 +1163,22 @@ async function applyTemplateMetadataPlan(
 		folder: change.folder,
 		transition: direction === 'forward' ? change.transition : reverseTemplateCanvasTransition(change.transition)
 	}));
-	const references = direction === 'forward' ? plan.references : plan.references.map(reverseTemplateReferenceTransition);
-	const classification = await classifyTemplateMetadataState(runtime, canvases, references);
+	const classification = await classifyTemplateMetadataState(runtime, canvases);
 	if (classification.state === 'next') {
 		return;
 	}
 	const pendingCanvases = classification.canvases;
-	const pendingReferences = classification.references;
 
 	const appliedCanvases: IBaseHalfTemplateCanvasMutation[] = [];
-	let referencesApplied = false;
 	try {
 		for (const change of pendingCanvases) {
 			throwIfTemplateCreationCancelled(cancellationToken);
 			await runtime.canvasMirror.transitionCanvasState(change.folder, change.transition, lease);
 			appliedCanvases.push(change);
 		}
-		if (pendingReferences.length > 0) {
-			throwIfTemplateCreationCancelled(cancellationToken);
-			await runtime.badgeGraph.transitionReferenceStates(pendingReferences, lease);
-			referencesApplied = true;
-		}
 		throwIfTemplateCreationCancelled(cancellationToken);
 	} catch (error) {
 		const rollbackErrors: unknown[] = [];
-		if (referencesApplied) {
-			try {
-				await runtime.badgeGraph.transitionReferenceStates(pendingReferences.map(reverseTemplateReferenceTransition), lease);
-			} catch (rollbackError) {
-				rollbackErrors.push(rollbackError);
-			}
-		}
 		for (const change of appliedCanvases.reverse()) {
 			try {
 				await runtime.canvasMirror.transitionCanvasState(change.folder, reverseTemplateCanvasTransition(change.transition), lease);
@@ -1133,8 +1194,7 @@ async function applyTemplateMetadataPlan(
 
 async function classifyTemplateMetadataState(
 	runtime: IBaseHalfTemplateSetupRuntime,
-	canvases: readonly IBaseHalfTemplateCanvasMutation[],
-	references: readonly IBaseHalfReferenceStateTransition[]
+	canvases: readonly IBaseHalfTemplateCanvasMutation[]
 ): Promise<IBaseHalfTemplateMetadataClassification> {
 	let sawExpected = false;
 	let sawNext = false;
@@ -1183,38 +1243,9 @@ async function classifyTemplateMetadataState(
 			});
 		}
 	}
-	const badges = new Map<string, Awaited<ReturnType<IBaseHalfBadgeGraphService['readBadge']>>>();
-	const pendingReferences: IBaseHalfReferenceStateTransition[] = [];
-	for (const reference of references) {
-		const read = async (node: IBaseHalfBadgeNode) => {
-			if (!badges.has(node.relativePath)) {
-				badges.set(node.relativePath, await runtime.badgeGraph.readBadge(node));
-			}
-			return badges.get(node.relativePath) ?? null;
-		};
-		const source = await read(reference.source);
-		const target = await read(reference.target);
-		const actual = {
-			forward: source?.references.includes(reference.target.relativePath) ?? false,
-			backlink: target?.referenced_by.includes(reference.source.relativePath) ?? false
-		};
-		const state = templateReferenceStateEqual(actual, reference.expected) ? 'expected'
-			: templateReferenceStateEqual(actual, reference.next) ? 'next'
-				: undefined;
-		if (!state) {
-			throw new Error(`The reference '${reference.source.relativePath}' → '${reference.target.relativePath}' changed after setup began. No metadata was changed.`);
-		}
-		if (state === 'expected') {
-			sawExpected = true;
-			pendingReferences.push(reference);
-		} else {
-			sawNext = true;
-		}
-	}
 	return {
 		state: sawExpected ? sawNext ? 'mixed' : 'expected' : sawNext ? 'next' : 'expected',
-		canvases: Object.freeze(pendingCanvases),
-		references: Object.freeze(pendingReferences)
+		canvases: Object.freeze(pendingCanvases)
 	};
 }
 
@@ -1223,10 +1254,6 @@ function reverseTemplateCanvasTransition(transition: IBaseHalfCanvasStateTransit
 		cards: transition.cards?.map(card => ({ ...card, expected: card.next, next: card.expected })),
 		edges: transition.edges?.map(edge => ({ ...edge, expected: edge.next, next: edge.expected }))
 	};
-}
-
-function reverseTemplateReferenceTransition(transition: IBaseHalfReferenceStateTransition): IBaseHalfReferenceStateTransition {
-	return { ...transition, expected: transition.next, next: transition.expected };
 }
 
 function templateCanvasCardEqual(left: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['expected'], right: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['expected']): boolean {
@@ -1240,10 +1267,6 @@ function templateCanvasEdgeEqual(left: NonNullable<IBaseHalfCanvasStateTransitio
 	return left === right || !!left && !!right
 		&& left.from === right.from && left.from_anchor === right.from_anchor
 		&& left.to === right.to && left.to_anchor === right.to_anchor;
-}
-
-function templateReferenceStateEqual(left: { readonly forward: boolean; readonly backlink: boolean }, right: { readonly forward: boolean; readonly backlink: boolean }): boolean {
-	return left.forward === right.forward && left.backlink === right.backlink;
 }
 
 async function createTemplateProjectFiles(
@@ -1357,8 +1380,7 @@ function pushTemplateCreationUndo(runtime: IBaseHalfTemplateSetupRuntime, files:
 	const resources = new Map<string, URI>();
 	for (const resource of [
 		runtime.projectResource,
-		...plan.canvases.map(change => runtime.canvasMirror.canvasResource(change.folder)),
-		...plan.references.flatMap(reference => [reference.source.resource, reference.target.resource])
+		...plan.canvases.map(change => runtime.canvasMirror.canvasResource(change.folder))
 	]) {
 		resources.set(resource.toString(), resource);
 	}
@@ -1444,7 +1466,7 @@ async function assertTemplateMetadataState(
 	expected: 'expected' | 'next',
 	consequence: string
 ): Promise<void> {
-	const classification = await classifyTemplateMetadataState(runtime, plan.canvases, plan.references);
+	const classification = await classifyTemplateMetadataState(runtime, plan.canvases);
 	if (classification.state !== expected) {
 		throw new Error(`The canvas setup metadata changed after this history action was recorded. ${consequence}`);
 	}
@@ -1596,6 +1618,46 @@ async function templateBytesDigest(bytes: Uint8Array): Promise<string> {
 	return [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Discards the version 1 pending template setups of an older build. Their
+ * references were pending as badge pairs and their digests exclude the
+ * `upstream` lists this build writes, so they cannot be finished. Each
+ * discarded setup is named in a warning; its project files are kept.
+ */
+export function discardLegacyBaseHalfPendingTemplateSetups(
+	storageService: IStorageService,
+	notificationService: INotificationService
+): readonly IBaseHalfPendingTemplateSetup[] {
+	const raw = storageService.get(LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE);
+	if (raw === undefined) {
+		return [];
+	}
+	storageService.remove(LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE);
+	const discarded = parseBaseHalfPendingTemplateSetups(raw);
+	for (const setup of discarded) {
+		notificationService.warn(localize(
+			'basehalf.canvas.template.legacySetupDiscarded',
+			"The incomplete canvas setup '{0}' in '{1}' was started by an earlier BaseHalf version and can't be finished. Its files were kept; connect them again on the canvas if needed.",
+			setup.templateLabel,
+			setup.projectRelativePath
+		));
+	}
+	return discarded;
+}
+
+class BaseHalfLegacyPendingTemplateSetupsContribution implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.basehalfLegacyPendingTemplateSetups';
+
+	constructor(
+		@IStorageService storageService: IStorageService,
+		@INotificationService notificationService: INotificationService
+	) {
+		discardLegacyBaseHalfPendingTemplateSetups(storageService, notificationService);
+	}
+}
+
+registerWorkbenchContribution2(BaseHalfLegacyPendingTemplateSetupsContribution.ID, BaseHalfLegacyPendingTemplateSetupsContribution, WorkbenchPhase.Eventually);
+
 function readPendingTemplateSetups(storageService: IStorageService): readonly IBaseHalfPendingTemplateSetup[] {
 	return parseBaseHalfPendingTemplateSetups(storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE));
 }
@@ -1693,13 +1755,4 @@ function templateFolderState(
 		relativePath: joinCanvasPath(projectRelativePath, parent),
 		source: 'api'
 	} : projectFolder;
-}
-
-function templateBadgeNode(workspaceFolder: URI, projectResource: URI, projectRelativePath: string, path: string): IBaseHalfBadgeNode {
-	return {
-		resource: joinProjectPath(projectResource, path),
-		workspaceFolder,
-		relativePath: joinCanvasPath(projectRelativePath, path),
-		kind: 'file'
-	};
 }

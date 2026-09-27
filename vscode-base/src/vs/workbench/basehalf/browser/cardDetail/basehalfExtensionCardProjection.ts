@@ -14,7 +14,6 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ActivationKind, IExtensionService } from '../../../services/extensions/common/extensions.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
-import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { IBaseHalfCardDetailSurfaceInstance } from './basehalfCardDetailSurface.js';
 
@@ -110,7 +109,6 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 		private readonly projectionId: string,
 		@IExtensionService private readonly extensionService: IExtensionService,
 		@IBaseHalfExtensionCardProjectionRuntimeService private readonly runtimeService: IBaseHalfExtensionCardProjectionRuntimeService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IBaseHalfEditorFlushService editorFlushService: IBaseHalfEditorFlushService,
 		@ILogService private readonly logService: ILogService
 	) {
@@ -164,9 +162,6 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 			this.session.value = session;
 			session.setVisible(this.visible);
 			await session.open();
-			if (!this.disposed && generation === this.connectionGeneration) {
-				this.writeFocus();
-			}
 		} catch (error) {
 			if (!this.disposed && generation === this.connectionGeneration) {
 				this.session.clear();
@@ -184,7 +179,6 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 
 	activate(state: IBaseHalfCardDetailState): void {
 		this.state = state;
-		this.writeFocus();
 	}
 
 	applySelection(_selection: ITextEditorSelection | undefined): void { }
@@ -192,9 +186,6 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 	setVisible(visible: boolean): void {
 		this.visible = visible;
 		this.session.value?.setVisible(visible);
-		if (visible) {
-			this.writeFocus();
-		}
 	}
 
 	focus(): void {
@@ -220,16 +211,6 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 				}
 			}));
 		}
-	}
-
-	private writeFocus(): void {
-		const state = this.state;
-		if (!state || !this.visible) {
-			return;
-		}
-		void this.focusMirrorService.writeFileFocus(state, { projection: state.projection }).catch(error => {
-			this.logService.error('[BaseHalf] extension projection focus mirror write failed', error);
-		});
 	}
 }
 

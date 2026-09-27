@@ -9,14 +9,17 @@ import { matchesFuzzy } from '../../../base/common/filters.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
 import { joinPath } from '../../../base/common/resources.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
-import { localize } from '../../../nls.js';
+import { localize, localize2 } from '../../../nls.js';
+import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
+import { IInstantiationService, ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { IPickerQuickAccessItem, PickerQuickAccessProvider } from '../../../platform/quickinput/browser/pickerQuickAccess.js';
 import { Extensions, IQuickAccessRegistry } from '../../../platform/quickinput/common/quickAccess.js';
 import { IQuickPickSeparator } from '../../../platform/quickinput/common/quickInput.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
-import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
+import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
+import { BaseHalfUpstreamActions } from './basehalfUpstreamActions.js';
 
 /**
  * `badge ` quick access: find files and folders by the human-authored badge
@@ -29,7 +32,7 @@ export class BaseHalfBadgeQuickAccessProvider extends PickerQuickAccessProvider<
 	static readonly PREFIX = 'badge ';
 
 	constructor(
-		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
+		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
@@ -44,7 +47,7 @@ export class BaseHalfBadgeQuickAccessProvider extends PickerQuickAccessProvider<
 	protected async _getPicks(filter: string, _disposables: DisposableStore, token: CancellationToken): Promise<Array<IPickerQuickAccessItem | IQuickPickSeparator>> {
 		const picks: IPickerQuickAccessItem[] = [];
 		for (const folder of this.contextService.getWorkspace().folders) {
-			const { badges } = await this.badgeGraphService.listBadges(folder.uri);
+			const { badges } = await this.badgeMirrorService.listBadges(folder.uri);
 			if (token.isCancellationRequested) {
 				return [];
 			}
@@ -85,4 +88,27 @@ Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessPro
 	prefix: BaseHalfBadgeQuickAccessProvider.PREFIX,
 	placeholder: localize('basehalf.badgeQuickAccess.placeholder', "Search files and folders by their badge note."),
 	helpEntries: [{ description: localize('basehalf.badgeQuickAccess.help', "Search Badge Notes") }]
+});
+
+/** Command id of **BaseHalf: Show Upstream Issues**. */
+export const BASEHALF_SHOW_UPSTREAM_ISSUES_COMMAND_ID = 'basehalf.references.showIssues';
+
+registerAction2(class BaseHalfShowUpstreamIssuesAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_SHOW_UPSTREAM_ISSUES_COMMAND_ID,
+			title: localize2('basehalf.references.showIssues', 'Show Upstream Issues'),
+			category: localize2('basehalf.category', 'BaseHalf'),
+			f1: true
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const actions = accessor.get(IInstantiationService).createInstance(BaseHalfUpstreamActions);
+		try {
+			await actions.showIssues();
+		} finally {
+			actions.dispose();
+		}
+	}
 });

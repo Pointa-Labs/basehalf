@@ -796,7 +796,7 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 	}),
 	moduleTrack({
 		id: 'bh-mirror-integration',
-		title: '.bh mirror, focus, badge, ADHD, and canvas metadata',
+		title: '.bh mirror, badge, ADHD, and canvas metadata',
 		vscodeSources: [
 			'src/vs/platform/files',
 			'src/vs/workbench/services/files',
@@ -805,8 +805,8 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 			'src/vs/workbench/contrib/webview/browser/webview.ts'
 		],
 		baselineSources: ['packages/core/src/badges', 'packages/core/src/canvas', 'packages/core/src/focus', 'packages/core/src/adhd', 'packages/desktop/src/renderer/src/components/AdhdControls.tsx'],
-		keep: ['.bh/mirror YAML model', 'current_focus symlink contract', 'mutexed read-modify-write behavior', 'ADHD keyword and read-paragraph interactions in the rich editor'],
-		deleteOrHide: ['old CLI/inbound/proposals/focus.md machinery']
+		keep: ['.bh/mirror YAML model', 'mutexed read-modify-write behavior', 'ADHD keyword and read-paragraph interactions in the rich editor'],
+		deleteOrHide: ['old CLI/inbound/proposals/focus.md machinery', 'workspace focus mirror files and link (removed by D35)']
 	}),
 	moduleTrack({
 		id: 'theming-layout',

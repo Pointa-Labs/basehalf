@@ -146,10 +146,10 @@ import './services/chat/common/chatEntitlementService.js';
 import './services/agentHost/common/agentHostResourceService.js';
 import '../platform/agentHost/browser/agentHostConnectionsService.js';
 import './services/log/common/defaultLogLevels.js';
-import '../platform/basehalf/browser/basehalfMirrorLinkService.js';
 import './basehalf/common/basehalfCanvasNavigationService.js';
-import './basehalf/common/basehalfFocusMirrorService.js';
-import './basehalf/common/basehalfBadgeGraph.js';
+import './basehalf/common/basehalfCanvasViewportState.js';
+import './basehalf/common/basehalfBadgeMirror.js';
+import './basehalf/common/basehalfReferenceIndex.js';
 
 import { InstantiationType, registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { GlobalExtensionEnablementService } from '../platform/extensionManagement/common/extensionEnablementService.js';
@@ -496,7 +496,9 @@ import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';
 import './basehalf/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/browser/basehalfNodeFileOperations.contribution.js';
 import './basehalf/browser/basehalfBadgeQuickAccess.contribution.js';
-import './basehalf/browser/basehalfWorkspaceSetup.contribution.js';
+import './basehalf/browser/basehalfReferences.contribution.js';
+import './basehalf/browser/basehalfReferenceMigration.contribution.js';
+import './basehalf/browser/basehalfLegacyCleanup.contribution.js';
 import './basehalf/browser/basehalfAgentArea.contribution.js';
 import './basehalf/browser/basehalfNodeCommandBridge.contribution.js';
 

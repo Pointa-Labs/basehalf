@@ -9,10 +9,11 @@ import './basehalfAgentAreaView.js';
 import { $, append, clearNode, Dimension, trackFocus } from '../../../base/browser/dom.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import { Separator, toAction } from '../../../base/common/actions.js';
+import { disposableTimeout } from '../../../base/common/async.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
-import { isMacintosh } from '../../../base/common/platform.js';
+import { isMacintosh, OS } from '../../../base/common/platform.js';
 import { hasKey, isObject } from '../../../base/common/types.js';
 import { localize2 } from '../../../nls.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
@@ -20,6 +21,7 @@ import { IConfigurationService } from '../../../platform/configuration/common/co
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
 import { IExtensionGalleryService } from '../../../platform/extensionManagement/common/extensionManagement.js';
+import { IFileService } from '../../../platform/files/common/files.js';
 import { areSameExtensions } from '../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { ExtensionIdentifier } from '../../../platform/extensions/common/extensions.js';
 import { IInstantiationService, ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
@@ -28,6 +30,7 @@ import { KeybindingWeight } from '../../../platform/keybinding/common/keybinding
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { ProgressLocation } from '../../../platform/progress/common/progress.js';
+import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../platform/workspace/common/workspaceTrust.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { type IShellLaunchConfig, type ITerminalEnvironment, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
@@ -76,6 +79,9 @@ import {
 	baseHalfAgentSessionChoiceForKind,
 	baseHalfAgentSessionCanRequestNodeRuns,
 	baseHalfAgentSessionUsesLocalNodeRunBridge,
+	BaseHalfAgentLaunchInstructionsMonitor,
+	baseHalfHasAgentLaunchInstructions,
+	baseHalfStripAgentLaunchInstructions,
 	baseHalfTuiSessionLaunchConfig,
 	baseHalfTuiSessionLaunchFailureGuidance,
 	IBaseHalfAgentAreaService,
@@ -85,6 +91,7 @@ import {
 	IBaseHalfExtensionAgentProvider,
 	IBaseHalfExtensionAgentProviderResult
 } from '../common/basehalfAgentArea.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import {
 	BaseHalfFocusDir,
 	BaseHalfSplitDir,
@@ -142,6 +149,81 @@ const BASEHALF_GHOSTTY_TERMINAL_ENV: ITerminalEnvironment = {
 	CLICOLOR_FORCE: null
 };
 
+/**
+ * The launch configuration of an Agent Area terminal. Launch arguments of a
+ * plain shell launch configuration (such as a TUI session's launch
+ * instruction) pass through unchanged.
+ */
+export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean): ICreateTerminalOptions['config'] {
+	const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
+	const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
+	if (!config) {
+		return { name: label, env: createAgentAreaTerminalEnv(), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
+	}
+
+	if (hasKey(config, { extensionIdentifier: true })) {
+		return config;
+	}
+
+	if (hasKey(config, { profileName: true }) && config.path) {
+		const profile = config;
+		return {
+			executable: profile.path,
+			args: profile.args,
+			env: createAgentAreaTerminalEnv(profile.env),
+			icon: profile.icon,
+			color: profile.color,
+			name: profile.overrideName ? profile.profileName : label,
+			hideFromUser: true,
+			baseHalfAgentAreaNodeCommandBridge,
+			isTransient
+		};
+	}
+
+	const shellLaunchConfig = config as IShellLaunchConfig;
+	return {
+		...shellLaunchConfig,
+		env: createAgentAreaTerminalEnv(shellLaunchConfig.env),
+		name: shellLaunchConfig.name ?? label,
+		hideFromUser: true,
+		baseHalfAgentAreaNodeCommandBridge,
+		isTransient: isTransient ?? shellLaunchConfig.isTransient
+	};
+}
+
+function createAgentAreaTerminalEnv(env?: ITerminalEnvironment): ITerminalEnvironment {
+	return {
+		...BASEHALF_GHOSTTY_TERMINAL_ENV,
+		...env
+	};
+}
+
+/**
+ * Relaunch `terminal` with `shellLaunchConfig` after VS Code finished handling
+ * the process exit that asked for it. A terminal fires `onExit` first and
+ * only then, in a microtask, writes its exit and wait-on-exit messages,
+ * disables input, and attaches its "press any key to close" listener.
+ * `reuseTerminal` removes that listener and enables input again, so it must
+ * run after them. A relaunch started inside `onExit` leaves the listener
+ * attached, and the relaunched session's first keystroke closes it.
+ *
+ * The relaunch is skipped when the terminal was disposed or `isCurrent`
+ * returns false by then. Disposing `store` cancels a pending relaunch.
+ */
+export function baseHalfRelaunchTerminalAfterExit(
+	terminal: Pick<ITerminalInstance, 'isDisposed' | 'reuseTerminal'>,
+	shellLaunchConfig: IShellLaunchConfig,
+	options: { readonly isCurrent: () => boolean; readonly onError: (error: unknown) => void },
+	store: DisposableStore
+): void {
+	disposableTimeout(() => {
+		if (terminal.isDisposed || !options.isCurrent()) {
+			return;
+		}
+		terminal.reuseTerminal(shellLaunchConfig).catch(options.onError);
+	}, 0, store);
+}
+
 interface IBaseHalfRuntimeAgentSession {
 	id: string;
 	kind: BaseHalfAgentSessionKind;
@@ -159,6 +241,9 @@ interface IBaseHalfRuntimeAgentSession {
 	disposables: DisposableStore;
 	terminal?: ITerminalInstance;
 	terminalPersistentProcessId?: number;
+	/** Tracks whether launches carry the BaseHalf launch instruction and falls
+	 *  back once when the installed CLI rejects it. */
+	readonly launchInstructions: BaseHalfAgentLaunchInstructionsMonitor;
 	extensionSetVisible?: (visible: boolean) => void;
 	extensionLayout?: () => void;
 	extensionFocus?: () => void | Promise<void>;
@@ -358,7 +443,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
 		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IHostService private readonly hostService: IHostService,
-		@IRemoteAgentService private readonly remoteAgentService: IRemoteAgentService
+		@IRemoteAgentService private readonly remoteAgentService: IRemoteAgentService,
+		@IFileService private readonly fileService: IFileService,
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService
 	) {
 		super();
 
@@ -678,6 +765,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			session.detail = 'Restarting';
 			this.clearSessionStatePanel(session);
 			this.render();
+			// A relaunch reuses the launch configuration, so it keeps (or, after
+			// a fallback, keeps omitting) the launch instruction.
+			session.launchInstructions.didLaunch(baseHalfHasAgentLaunchInstructions(session.terminal.shellLaunchConfig.args));
 			session.terminal.relaunch();
 			await this.focusSession(session.id);
 			return;
@@ -1153,8 +1243,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private async initializeTerminalPane(session: IBaseHalfRuntimeAgentSession, options: IBaseHalfCreateAgentTerminalOptions): Promise<void> {
 		try {
-			const terminalOptions = this.createTerminalOptions(session.kind, session.label, options);
+			const hasMarkedWorkspaceFolder = session.kind === 'tui-claude' ? await this.hasMarkedWorkspaceFolder() : false;
+			const terminalOptions = this.createTerminalOptions(session.kind, session.label, options, {
+				hasMarkedWorkspaceFolder,
+				launchInstructions: session.launchInstructions.enabled
+			});
 			const terminal = await this.terminalService.createTerminal(terminalOptions);
+			session.launchInstructions.didLaunch(baseHalfHasAgentLaunchInstructions(terminal.shellLaunchConfig.args));
 			await this.attachTerminalToSession(session, terminal, options.command ?? baseHalfAgentSessionChoiceForKind(session.kind).terminalCommand);
 		} catch (error) {
 			this.markSessionFailed(session, error);
@@ -1181,6 +1276,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.disposables.add(terminal.onData(() => {
 			this.mutateTabs(state => markAgentPaneActivity(state, session.id));
 		}));
+		session.disposables.add(terminal.onDidInputData(() => session.launchInstructions.didReceiveUserInput()));
 		session.disposables.add(terminal.onProcessIdReady(() => {
 			this.rememberTerminalProcess(session, terminal);
 			this.clearSessionStatePanel(session);
@@ -1229,7 +1325,8 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			grabHandle: append(host, $('.basehalf-agent-pane-handle')),
 			dropZone: append(host, $('.basehalf-agent-pane-dropzone')),
 			dropPreview: $('.basehalf-agent-pane-drop-preview'),
-			disposables: new DisposableStore()
+			disposables: new DisposableStore(),
+			launchInstructions: new BaseHalfAgentLaunchInstructionsMonitor()
 		};
 		session.host.setAttribute('role', 'tabpanel');
 		session.host.setAttribute('aria-label', label);
@@ -1918,61 +2015,61 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		return normalizeBaseHalfAgentDefaultSession(this.configurationService.getValue(BaseHalfSetting.AgentDefaultSession));
 	}
 
-	private createTerminalOptions(kind: BaseHalfAgentSessionKind, label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
-		const usesNodeRunBridge = baseHalfAgentSessionUsesLocalNodeRunBridge(kind, !!this.remoteAgentService.getConnection());
-		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind);
+	private createTerminalOptions(
+		kind: BaseHalfAgentSessionKind,
+		label: string,
+		options: IBaseHalfCreateAgentTerminalOptions,
+		launch: { readonly hasMarkedWorkspaceFolder: boolean; readonly launchInstructions: boolean }
+	): ICreateTerminalOptions | undefined {
+		const isRemote = !!this.remoteAgentService.getConnection();
+		const usesNodeRunBridge = baseHalfAgentSessionUsesLocalNodeRunBridge(kind, isRemote);
+		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind, { isRemote, os: OS, ...launch });
 		if (tuiConfig) {
-			return { config: this.createAgentAreaTerminalConfig(label, { ...tuiConfig, name: label }, usesNodeRunBridge) };
+			return {
+				config: baseHalfCreateAgentAreaTerminalConfig(label, {
+					...tuiConfig,
+					args: tuiConfig.args ? [...tuiConfig.args] : undefined,
+					name: label
+				}, usesNodeRunBridge)
+			};
 		}
 
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
-		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config, usesNodeRunBridge);
+		terminalOptions.config = baseHalfCreateAgentAreaTerminalConfig(label, terminalOptions.config, usesNodeRunBridge);
 		return terminalOptions;
 	}
 
-	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean): ICreateTerminalOptions['config'] {
-		const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
-		const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
-		if (!config) {
-			return { name: label, env: this.createAgentAreaTerminalEnv(), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
-		}
-
-		if (hasKey(config, { extensionIdentifier: true })) {
-			return config;
-		}
-
-		if (hasKey(config, { profileName: true }) && config.path) {
-			const profile = config;
-			return {
-				executable: profile.path,
-				args: profile.args,
-				env: this.createAgentAreaTerminalEnv(profile.env),
-				icon: profile.icon,
-				color: profile.color,
-				name: profile.overrideName ? profile.profileName : label,
-				hideFromUser: true,
-				baseHalfAgentAreaNodeCommandBridge,
-				isTransient
-			};
-		}
-
-		const shellLaunchConfig = config as IShellLaunchConfig;
-		return {
-			...shellLaunchConfig,
-			env: this.createAgentAreaTerminalEnv(shellLaunchConfig.env),
-			name: shellLaunchConfig.name ?? label,
-			hideFromUser: true,
-			baseHalfAgentAreaNodeCommandBridge,
-			isTransient: isTransient ?? shellLaunchConfig.isTransient
-		};
+	/** Development sessions on the BaseHalf source tree must not receive
+	 *  product instructions; an undeterminable marker counts as present. */
+	private async hasMarkedWorkspaceFolder(): Promise<boolean> {
+		const markers = await Promise.all(this.workspaceContextService.getWorkspace().folders.map(folder => baseHalfIsWorkspaceFolderMarked(this.fileService, folder.uri)));
+		return markers.some(marked => marked);
 	}
 
-	private createAgentAreaTerminalEnv(env?: ITerminalEnvironment): ITerminalEnvironment {
-		return {
-			...BASEHALF_GHOSTTY_TERMINAL_ENV,
-			...env
+	/**
+	 * An installed Claude Code that rejects the launch-instruction argument
+	 * exits right away. Relaunch that session once without the argument; it
+	 * and its restarts then continue without launch context. Called from the
+	 * terminal's `onExit`, so the relaunch waits for the terminal's own exit
+	 * handling (see {@link baseHalfRelaunchTerminalAfterExit}).
+	 */
+	private relaunchWithoutLaunchInstructions(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance, exitCode: number): void {
+		this.logService.warn(`[BaseHalf] ${session.label} exited with code ${exitCode} right after launch with the BaseHalf launch instruction; relaunching this session without it.`);
+		session.state = 'starting';
+		session.detail = 'Restarting without BaseHalf launch context';
+		this.clearSessionStatePanel(session);
+		this.render();
+		const shellLaunchConfig: IShellLaunchConfig = {
+			...terminal.shellLaunchConfig,
+			args: baseHalfStripAgentLaunchInstructions(terminal.shellLaunchConfig.args)
 		};
+		delete shellLaunchConfig.attachPersistentProcess;
+		session.launchInstructions.didLaunch(false);
+		baseHalfRelaunchTerminalAfterExit(terminal, shellLaunchConfig, {
+			isCurrent: () => !session.closing && session.state !== 'disposed' && session.terminal === terminal,
+			onError: error => this.markSessionFailed(session, error)
+		}, session.disposables);
 	}
 
 	private setActiveTerminalForVsCodeCompatibility(terminal: ITerminalInstance): void {
@@ -1993,6 +2090,11 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private markTerminalProcessExited(session: IBaseHalfRuntimeAgentSession, exit: number | ITerminalLaunchError | undefined): void {
 		if (session.closing || session.state === 'disposed') {
+			return;
+		}
+
+		if (typeof exit === 'number' && session.terminal && !session.terminal.isDisposed && session.launchInstructions.shouldRelaunchWithoutInstructions(exit)) {
+			this.relaunchWithoutLaunchInstructions(session, session.terminal, exit);
 			return;
 		}
 

@@ -22,6 +22,7 @@ import { FileService } from '../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
+import { INotificationService } from '../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../platform/notification/test/common/testNotificationService.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -37,16 +38,16 @@ import {
 	BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
 	BASEHALF_CANVAS_PANE_CONTEXT_MENU,
 	baseHalfTemplateFolderBaseName,
+	discardLegacyBaseHalfPendingTemplateSetups,
 	parseBaseHalfPendingTemplateSetups
 } from '../../browser/basehalfCanvasContextMenu.js';
-import { IBaseHalfBadgeGraphService, BaseHalfBadgeGraphService } from '../../common/basehalfBadgeGraph.js';
-import { BaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
 import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.js';
-import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasRecipeRegistryService, IBaseHalfCanvasRecipeRegistryService } from '../../common/basehalfCanvasRecipes.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../common/basehalfCanvasTemplate.js';
 import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, createBaseHalfNodeDocument, parseBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalf canvas context menu', () => {
@@ -165,7 +166,7 @@ suite('BaseHalf canvas context menu', () => {
 		assert.strictEqual(baseHalfTemplateFolderBaseName('Cafe\u0301'), 'Café');
 	});
 
-	test('creates one reversible template transaction with stable files, node identity, canvas, and references', async () => {
+	test('creates one reversible template transaction with stable files, node identity, canvas, and upstream lists', async () => {
 		const harness = await createTemplateHarness(disposables);
 		await harness.create();
 
@@ -173,6 +174,12 @@ suite('BaseHalf canvas context menu', () => {
 		assert.deepStrictEqual(harness.undoRedo.getElements(harness.projectResource).past.length, 1);
 		const created = await readCreatedTemplateState(harness);
 		assert.ok(created.nodeId);
+		// The reference is stored once, in the target's own document.
+		assert.deepStrictEqual({ upstream: created.upstream, brief: created.brief }, {
+			upstream: ['Starter/brief.md'],
+			brief: '# Brief\n\nKeep the subject centered.\n'
+		});
+		assert.strictEqual(await harness.fileService.exists(joinPath(harness.workspaceFolder, '.bh', 'mirror', 'Starter', 'brief.md', 'badge.yaml')), false);
 		assert.deepStrictEqual(created.canvas?.cards, [
 			{ path: 'Starter/brief.md', kind: 'file', x: 40, y: 80, width: 240, height: 140 },
 			{ path: 'Starter/frame.bhnode', kind: 'file', x: 380, y: 80, width: 260, height: 180 }
@@ -183,15 +190,12 @@ suite('BaseHalf canvas context menu', () => {
 			to: 'Starter/frame.bhnode',
 			to_anchor: 'west'
 		}]);
-		assert.deepStrictEqual(created.sourceBadge?.references, ['Starter/frame.bhnode']);
-		assert.deepStrictEqual(created.targetBadge?.referenced_by, ['Starter/brief.md']);
 		assert.deepStrictEqual(harness.selections, [{ folder: harness.workspaceFolder, resources: [harness.projectResource] }]);
+		assert.deepStrictEqual(harness.referenceEdits, []);
 
 		await harness.undoRedo.undo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
 		assert.strictEqual(await harness.fileService.exists(harness.projectResource), false);
 		assert.strictEqual(await harness.canvasMirror.readCanvas(harness.projectFolder), null);
-		assert.strictEqual(await harness.badgeGraph.readBadge(harness.sourceBadgeNode), null);
-		assert.strictEqual(await harness.badgeGraph.readBadge(harness.targetBadgeNode), null);
 		assert.deepStrictEqual(harness.undoRedo.getElements(harness.projectResource).future.length, 1);
 
 		await harness.undoRedo.redo(BASEHALF_CANVAS_UNDO_REDO_SOURCE);
@@ -213,7 +217,7 @@ suite('BaseHalf canvas context menu', () => {
 	});
 
 	test('refuses template undo before writing when any owned file or metadata row changed', async () => {
-		for (const change of ['file', 'extra-file', 'card', 'edge', 'reference'] as const) {
+		for (const change of ['file', 'extra-file', 'card', 'edge', 'upstream'] as const) {
 			const harness = await createTemplateHarness(disposables);
 			await harness.create();
 			await changeCreatedTemplateState(harness, change);
@@ -227,7 +231,7 @@ suite('BaseHalf canvas context menu', () => {
 	});
 
 	test('refuses incomplete setup recovery before writing after files or metadata were changed', async () => {
-		for (const change of ['file', 'card', 'edge', 'reference', 'card-and-edge'] as const) {
+		for (const change of ['file', 'card', 'edge', 'upstream', 'card-and-edge'] as const) {
 			const harness = await createTemplateHarness(disposables);
 			await harness.create();
 			await storeRecoveryRecord(harness);
@@ -257,7 +261,6 @@ suite('BaseHalf canvas context menu', () => {
 			cards: created.canvas.cards.map(card => ({ path: card.path, expected: card, next: null })),
 			edges: created.canvas.edges.map(edge => ({ from: edge.from, to: edge.to, expected: edge, next: null }))
 		});
-		assert.strictEqual(await harness.badgeGraph.removeReference(harness.sourceBadgeNode, harness.targetBadgeNode), true);
 		clearCapturedUndo(harness);
 		await storeRecoveryRecord(harness);
 
@@ -302,6 +305,94 @@ suite('BaseHalf canvas context menu', () => {
 		assert.strictEqual(harness.promptLabels[0].some(label => label.includes('Stop Setup')), false);
 	});
 
+	test('materializes Markdown targets in their first bytes and sidecar targets through the reference edit service', async () => {
+		const templateSource = JSON.stringify({
+			version: 1,
+			files: [
+				{ path: 'brief.md', contents: '---\ntitle: Brief\n---\n# Brief\n' },
+				{ path: 'script.md', contents: '# Script\n' },
+				{ path: 'shot.json', contents: '{}\n' }
+			],
+			nodes: [{ path: 'frame.bhnode', kind: 'image', title: 'Frame', role: 'Storyboard frame' }],
+			cards: [],
+			references: [
+				{ from: 'script.md', to: 'brief.md', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'brief.md', to: 'script.md', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'brief.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'script.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' },
+				{ from: 'shot.json', to: 'frame.bhnode', fromAnchor: 'east', toAnchor: 'west' }
+			]
+		});
+		const harness = await createTemplateHarness(disposables, { templateSource });
+		await harness.create();
+
+		const read = async (path: string) => (await harness.fileService.readFile(joinPath(harness.projectResource, path))).value.toString();
+		assert.deepStrictEqual({
+			brief: await read('brief.md'),
+			script: await read('script.md'),
+			shot: await read('shot.json'),
+			frameUpstream: parseBaseHalfNodeDocument(await read('frame.bhnode')).upstream,
+			referenceEdits: harness.referenceEdits,
+			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
+		}, {
+			brief: '---\ntitle: Brief\nupstream:\n  - Starter/script.md\n---\n# Brief\n',
+			script: '---\nupstream:\n  - Starter/brief.md\n---\n# Script\n',
+			shot: '{}\n',
+			frameUpstream: ['Starter/shot.json'],
+			referenceEdits: [{
+				node: 'Starter/shot.json',
+				operation: {
+					kind: 'transition',
+					from: { items: [] },
+					to: { items: [{ text: 'Starter/brief.md', scalar: true }, { text: 'Starter/script.md', scalar: true }] }
+				}
+			}],
+			pending: undefined
+		});
+	});
+
+	test('refuses a template with sidecar targets in a marked folder before creating anything', async () => {
+		const templateSource = JSON.stringify({
+			version: 1,
+			files: [{ path: 'brief.md', contents: '# Brief\n' }, { path: 'shot.json', contents: '{}\n' }],
+			nodes: [],
+			cards: [],
+			references: [{ from: 'brief.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' }]
+		});
+		const harness = await createTemplateHarness(disposables, { templateSource, marked: true });
+		await assert.rejects(() => harness.create(), /doesn't write in this folder/);
+		assert.deepStrictEqual({
+			project: await harness.fileService.exists(harness.projectResource),
+			referenceEdits: harness.referenceEdits,
+			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
+		}, { project: false, referenceEdits: [], pending: undefined });
+	});
+
+	test('discards version 1 pending setups with a warning that names each setup', async () => {
+		const harness = await createTemplateHarness(disposables);
+		harness.storageService.store(LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY, JSON.stringify([{
+			id: 'legacy-setup',
+			templateId: TEMPLATE_ID,
+			templateLabel: 'Starter',
+			templateDigest: 'a'.repeat(64),
+			files: [{ path: 'brief.md', digest: 'b'.repeat(64) }],
+			workspaceFolder: harness.workspaceFolder.toString(),
+			projectRelativePath: 'Starter',
+			createdAt: '2026-07-18T10:00:00.000Z'
+		}]), StorageScope.WORKSPACE, StorageTarget.MACHINE);
+		const warnings: string[] = [];
+		const notificationService = { warn: (message: string) => { warnings.push(message); } } as unknown as INotificationService;
+
+		const discarded = discardLegacyBaseHalfPendingTemplateSetups(harness.storageService, notificationService);
+
+		assert.deepStrictEqual({
+			discarded: discarded.map(setup => setup.id),
+			legacy: harness.storageService.get(LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE),
+			warnings: warnings.map(warning => warning.includes('\'Starter\' in \'Starter\'')),
+			again: discardLegacyBaseHalfPendingTemplateSetups(harness.storageService, notificationService).length
+		}, { discarded: ['legacy-setup'], legacy: undefined, warnings: [true], again: 0 });
+	});
+
 	test('keeps only bounded, portable template setup recovery records', () => {
 		const valid = {
 			id: 'setup-1',
@@ -328,7 +419,8 @@ suite('BaseHalf canvas context menu', () => {
 	});
 });
 
-const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
+const PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v2';
+const LEGACY_PENDING_TEMPLATE_SETUPS_STORAGE_KEY = 'basehalf.canvas.pendingTemplateSetups.v1';
 const RESUME_TEMPLATE_SETUP_COMMAND_ID = 'basehalf.canvas.resumeTemplateSetup';
 const TEMPLATE_ID = 'studio.test.starter';
 
@@ -337,13 +429,12 @@ interface ITemplateHarness {
 	readonly storageService: TestStorageService;
 	readonly undoRedo: CountingUndoRedoService;
 	readonly canvasMirror: BaseHalfCanvasMirrorService;
-	readonly badgeGraph: BaseHalfBadgeGraphService;
 	readonly workspaceFolder: URI;
 	readonly projectResource: URI;
 	readonly projectFolder: IBaseHalfCanvasFolderState;
-	readonly sourceBadgeNode: IBaseHalfBadgeNode;
-	readonly targetBadgeNode: IBaseHalfBadgeNode;
 	readonly templateSource: string;
+	/** Every store edit the template asked the reference edit service for. */
+	readonly referenceEdits: readonly { readonly node: string; readonly operation: IBaseHalfReferenceStoreEdit['operation'] }[];
 	readonly promptLabels: readonly (readonly string[])[];
 	readonly selections: readonly { readonly folder: URI; readonly resources: readonly URI[] }[];
 	create(): Promise<void>;
@@ -360,9 +451,37 @@ class CountingUndoRedoService extends UndoRedoService {
 	}
 }
 
+/**
+ * Records the reference edits of template instantiation. A `transition` from
+ * an empty list succeeds once; the snapshot then holds the target list.
+ */
+class RecordingReferenceEditService {
+	readonly edits: { readonly node: string; readonly operation: IBaseHalfReferenceStoreEdit['operation'] }[] = [];
+	private readonly snapshots = new Map<string, IBaseHalfUpstreamStoreSnapshot>();
+
+	async apply(edits: readonly IBaseHalfReferenceStoreEdit[]): Promise<{ readonly stores: readonly never[]; readonly changed: boolean }> {
+		for (const edit of edits) {
+			this.edits.push({ node: edit.node.relativePath, operation: edit.operation });
+			if (edit.operation.kind === 'transition') {
+				this.snapshots.set(edit.node.relativePath, edit.operation.to);
+			}
+		}
+		return { stores: [], changed: edits.length > 0 };
+	}
+
+	async readSnapshot(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfUpstreamStoreSnapshot> {
+		return this.snapshots.get(node.relativePath) ?? { items: [] };
+	}
+}
+
 async function createTemplateHarness(
 	disposables: Pick<DisposableStore, 'add'>,
-	options: { readonly selectStopIfOffered?: boolean; readonly selectContinueIfOffered?: boolean } = {}
+	options: {
+		readonly selectStopIfOffered?: boolean;
+		readonly selectContinueIfOffered?: boolean;
+		readonly templateSource?: string;
+		readonly marked?: boolean;
+	} = {}
 ): Promise<ITemplateHarness> {
 	const scheme = 'basehalf-template-test';
 	const fileService = disposables.add(new FileService(new NullLogService()));
@@ -371,8 +490,11 @@ async function createTemplateHarness(
 	const extensionLocation = URI.from({ scheme, path: '/extension' });
 	await fileService.createFolder(workspaceFolder);
 	await fileService.createFolder(extensionLocation);
+	if (options.marked) {
+		await fileService.createFile(joinPath(workspaceFolder, '.basehalf-no-workspace-setup'), VSBuffer.fromString(''));
+	}
 
-	const templateSource = JSON.stringify({
+	const templateSource = options.templateSource ?? JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n\nKeep the subject centered.\n' }],
 		nodes: [{
@@ -409,7 +531,7 @@ async function createTemplateHarness(
 
 	const mutationCoordinator = new BaseHalfWorkspaceMutationCoordinator();
 	const canvasMirror = new BaseHalfCanvasMirrorService(fileService, mutationCoordinator);
-	const badgeGraph = new BaseHalfBadgeGraphService(new BaseHalfBadgeMirrorService(fileService), fileService, mutationCoordinator);
+	const referenceEditService = new RecordingReferenceEditService();
 	const storageService = disposables.add(new TestStorageService());
 	const dialogService = new TestDialogService(undefined, { result: undefined });
 	const promptLabels: string[][] = [];
@@ -477,7 +599,8 @@ async function createTemplateHarness(
 		[IBaseHalfCanvasNavigationService, navigation],
 		[IBaseHalfCanvasEditingService, editing],
 		[IBaseHalfCanvasMirrorService, canvasMirror],
-		[IBaseHalfBadgeGraphService, badgeGraph],
+		[IBaseHalfReferenceEditService, referenceEditService],
+		[INotificationService, new TestNotificationService()],
 		[IConfigurationService, configurationService],
 		[IStorageService, storageService],
 		[IDialogService, dialogService],
@@ -505,13 +628,11 @@ async function createTemplateHarness(
 		storageService,
 		undoRedo,
 		canvasMirror,
-		badgeGraph,
 		workspaceFolder,
 		projectResource,
 		projectFolder,
-		sourceBadgeNode: templateBadgeNode(workspaceFolder, projectResource, 'brief.md'),
-		targetBadgeNode: templateBadgeNode(workspaceFolder, projectResource, 'frame.bhnode'),
 		templateSource,
+		referenceEdits: referenceEditService.edits,
 		promptLabels,
 		selections,
 		create: async () => createCommand.handler(accessor, TEMPLATE_ID),
@@ -527,19 +648,19 @@ async function createTemplateHarness(
 async function readCreatedTemplateState(harness: ITemplateHarness) {
 	const brief = (await harness.fileService.readFile(joinPath(harness.projectResource, 'brief.md'))).value.toString();
 	const node = (await harness.fileService.readFile(joinPath(harness.projectResource, 'frame.bhnode'))).value.toString();
+	const document = parseBaseHalfNodeDocument(node);
 	return {
 		brief,
 		node,
-		nodeId: parseBaseHalfNodeDocument(node).id,
-		canvas: await harness.canvasMirror.readCanvas(harness.projectFolder),
-		sourceBadge: await harness.badgeGraph.readBadge(harness.sourceBadgeNode),
-		targetBadge: await harness.badgeGraph.readBadge(harness.targetBadgeNode)
+		nodeId: document.id,
+		upstream: document.upstream,
+		canvas: await harness.canvasMirror.readCanvas(harness.projectFolder)
 	};
 }
 
 async function changeCreatedTemplateState(
 	harness: ITemplateHarness,
-	change: 'file' | 'extra-file' | 'card' | 'edge' | 'reference'
+	change: 'file' | 'extra-file' | 'card' | 'edge' | 'upstream'
 ): Promise<void> {
 	switch (change) {
 		case 'file':
@@ -561,8 +682,13 @@ async function changeCreatedTemplateState(
 				to: 'Starter/frame.bhnode'
 			});
 			return;
-		case 'reference':
-			assert.strictEqual(await harness.badgeGraph.removeReference(harness.sourceBadgeNode, harness.targetBadgeNode), true);
+		case 'upstream': {
+			// An agent edits the node's own upstream list after creation.
+			const resource = joinPath(harness.projectResource, 'frame.bhnode');
+			const document = JSON.parse((await harness.fileService.readFile(resource)).value.toString()) as Record<string, unknown>;
+			document.upstream = [];
+			await harness.fileService.writeFile(resource, VSBuffer.fromString(JSON.stringify(document)));
+		}
 	}
 }
 
@@ -608,15 +734,6 @@ async function snapshotWorkspace(fileService: IFileService, root: URI): Promise<
 	};
 	await visit(root);
 	return entries;
-}
-
-function templateBadgeNode(workspaceFolder: URI, projectResource: URI, path: string): IBaseHalfBadgeNode {
-	return {
-		resource: joinPath(projectResource, path),
-		workspaceFolder,
-		relativePath: `Starter/${path}`,
-		kind: 'file'
-	};
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {

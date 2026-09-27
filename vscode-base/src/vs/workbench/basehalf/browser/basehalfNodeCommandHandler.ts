@@ -154,7 +154,7 @@ export class BaseHalfNodeCommandHandler {
 						documentVersion: BASEHALF_NODE_DOCUMENT_VERSION,
 						resultKinds: Object.freeze(['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const),
 						inputBinding: Object.freeze({
-							scope: 'direct-inbound-reference' as const,
+							scope: 'node-upstream' as const,
 							fields: Object.freeze(['sourcePath', 'slot', 'order'] as const)
 						}),
 						lifecycle: Object.freeze({
@@ -165,12 +165,17 @@ export class BaseHalfNodeCommandHandler {
 						runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 						authoring: getBaseHalfNodeAgentAuthoringContract()
 					}),
+					// D37: the downstream node stores each edge once, in its own
+					// `upstream` list; the reverse direction is derived by the host.
 					contextEdge: Object.freeze({
 						source: 'direct-content' as const,
-					resultNodeSource: 'sealed-result' as const,
+						resultNodeSource: 'sealed-result' as const,
 						target: 'direct-context' as const,
 						autoRun: false as const,
 						recursive: false as const,
+						storedBy: 'downstream' as const,
+						markdownFrontmatterKey: 'upstream' as const,
+						nodeDocumentField: 'upstream' as const,
 						roleAndOrderOwner: 'target-recipe-binding' as const,
 						label: 'none' as const
 					}),

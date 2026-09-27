@@ -5,30 +5,16 @@
 
 import { BASEHALF_RAW_PASSTHROUGH_BLOCK, IBaseHalfMarkdownReuseEntry } from './basehalfMarkdownProjection.js';
 
-export interface IBaseHalfMarkdownFocusBlock {
+/**
+ * Source-line mapping for rich-editor blocks: which Markdown source lines a
+ * rendered block occupies. ADHD reading aids (read spans and read-block
+ * projection) and selection reveal use it.
+ */
+export interface IBaseHalfMarkdownBlockNode {
 	readonly id: string;
 	readonly type?: string;
 	readonly props?: { readonly raw?: string };
-	readonly children?: readonly IBaseHalfMarkdownFocusBlock[];
-}
-
-export type BaseHalfMarkdownLinePrecision = 'exact' | 'block_start' | 'estimated';
-
-export interface IBaseHalfMarkdownCursorInput {
-	readonly blockId: string;
-	readonly column: number;
-	readonly codeWithinOffset?: number | null;
-}
-
-export interface IBaseHalfMarkdownFocusFields {
-	readonly visible_lines?: { readonly start: number };
-	readonly visible_blocks?: { readonly start: number };
-	readonly cursor?: {
-		readonly line: number;
-		readonly column: number;
-		readonly line_precision: BaseHalfMarkdownLinePrecision;
-		readonly block?: number;
-	};
+	readonly children?: readonly IBaseHalfMarkdownBlockNode[];
 }
 
 const LIST_ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
@@ -44,7 +30,7 @@ export function countBaseHalfMarkdownNewlines(source: string): number {
 }
 
 export function baseHalfMarkdownBlockFileLine(
-	blocks: readonly IBaseHalfMarkdownFocusBlock[],
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	targetId: string,
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
 	frontmatterLines: number
@@ -61,30 +47,10 @@ export function baseHalfMarkdownBlockFileLine(
 	return null;
 }
 
-export function baseHalfMarkdownBlockOrdinal(blocks: readonly IBaseHalfMarkdownFocusBlock[], targetId: string): number | null {
-	let seen = 0;
-	const walk = (list: readonly IBaseHalfMarkdownFocusBlock[]): number | null => {
-		for (const block of list) {
-			seen++;
-			if (block.id === targetId) {
-				return seen;
-			}
-			if (block.children) {
-				const found = walk(block.children);
-				if (found !== null) {
-					return found;
-				}
-			}
-		}
-		return null;
-	};
-	return walk(blocks);
-}
-
 export function baseHalfMarkdownTopLevelBlockOf(
-	blocks: readonly IBaseHalfMarkdownFocusBlock[],
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	targetId: string
-): { readonly block: IBaseHalfMarkdownFocusBlock; readonly direct: boolean } | null {
+): { readonly block: IBaseHalfMarkdownBlockNode; readonly direct: boolean } | null {
 	for (const block of blocks) {
 		if (block.id === targetId) {
 			return { block, direct: true };
@@ -104,28 +70,8 @@ export function baseHalfMarkdownTileSourceNewlines(entry: IBaseHalfMarkdownReuse
 	);
 }
 
-export function refineBaseHalfMarkdownCursorLine(args: {
-	readonly blockStart: number;
-	readonly hasEntry: boolean;
-	readonly blockSourceNewlines: number;
-	readonly directHit: boolean;
-	readonly codeWithinOffset: number | null;
-}): { readonly line: number; readonly precision: BaseHalfMarkdownLinePrecision } {
-	const { blockStart, hasEntry, blockSourceNewlines, directHit, codeWithinOffset } = args;
-	if (!hasEntry) {
-		return { line: blockStart, precision: 'estimated' };
-	}
-	if (blockSourceNewlines === 0) {
-		return { line: blockStart, precision: 'exact' };
-	}
-	if (directHit && codeWithinOffset !== null) {
-		return { line: blockStart + 1 + codeWithinOffset, precision: 'exact' };
-	}
-	return { line: blockStart, precision: 'block_start' };
-}
-
 export function baseHalfMarkdownBlockSourceSpan(
-	blocks: readonly IBaseHalfMarkdownFocusBlock[],
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	targetId: string,
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
 	frontmatterLines: number
@@ -141,7 +87,7 @@ export function baseHalfMarkdownBlockSourceSpan(
 }
 
 export function baseHalfMarkdownBlockReadSpan(
-	blocks: readonly IBaseHalfMarkdownFocusBlock[],
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	targetId: string,
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
 	frontmatterLines: number
@@ -171,7 +117,7 @@ export function baseHalfMarkdownBlockReadSpan(
 }
 
 export function baseHalfMarkdownLinesToBlockIds(
-	blocks: readonly IBaseHalfMarkdownFocusBlock[],
+	blocks: readonly IBaseHalfMarkdownBlockNode[],
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
 	frontmatterLines: number,
 	ranges: readonly (readonly [number, number])[]
@@ -195,57 +141,8 @@ export function baseHalfMarkdownLinesToBlockIds(
 	return ids;
 }
 
-export function buildBaseHalfMarkdownFocusFields(args: {
-	readonly blocks: readonly IBaseHalfMarkdownFocusBlock[];
-	readonly byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>;
-	readonly frontmatterLines: number;
-	readonly cursor?: IBaseHalfMarkdownCursorInput;
-	readonly visibleBlockId?: string;
-}): IBaseHalfMarkdownFocusFields {
-	const fields: {
-		visible_lines?: { start: number };
-		visible_blocks?: { start: number };
-		cursor?: { line: number; column: number; line_precision: BaseHalfMarkdownLinePrecision; block?: number };
-	} = {};
-
-	if (args.cursor) {
-		const topLevel = baseHalfMarkdownTopLevelBlockOf(args.blocks, args.cursor.blockId);
-		const blockStart = baseHalfMarkdownBlockFileLine(args.blocks, args.cursor.blockId, args.byId, args.frontmatterLines);
-		if (topLevel && blockStart !== null) {
-			const entry = topLevel.block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK ? undefined : args.byId.get(topLevel.block.id);
-			const refined = refineBaseHalfMarkdownCursorLine({
-				blockStart,
-				hasEntry: entry !== undefined,
-				blockSourceNewlines: entry ? baseHalfMarkdownTileSourceNewlines(entry) : 0,
-				directHit: topLevel.direct,
-				codeWithinOffset: args.cursor.codeWithinOffset ?? null
-			});
-			const ordinal = baseHalfMarkdownBlockOrdinal(args.blocks, args.cursor.blockId);
-			fields.cursor = {
-				line: refined.line,
-				column: args.cursor.column,
-				line_precision: refined.precision,
-				...(ordinal !== null ? { block: ordinal } : {})
-			};
-		}
-	}
-
-	if (args.visibleBlockId) {
-		const line = baseHalfMarkdownBlockFileLine(args.blocks, args.visibleBlockId, args.byId, args.frontmatterLines);
-		if (line !== null) {
-			fields.visible_lines = { start: line };
-		}
-		const ordinal = baseHalfMarkdownBlockOrdinal(args.blocks, args.visibleBlockId);
-		if (ordinal !== null) {
-			fields.visible_blocks = { start: ordinal };
-		}
-	}
-
-	return fields;
-}
-
 function baseHalfMarkdownTileNewlines(
-	block: IBaseHalfMarkdownFocusBlock,
+	block: IBaseHalfMarkdownBlockNode,
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
 ): number {
 	if (block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
@@ -258,7 +155,7 @@ function baseHalfMarkdownTileNewlines(
 	return LIST_ITEM_TYPES.has(block.type ?? '') ? 1 : 2;
 }
 
-function baseHalfMarkdownSubtreeHasId(block: IBaseHalfMarkdownFocusBlock, targetId: string): boolean {
+function baseHalfMarkdownSubtreeHasId(block: IBaseHalfMarkdownBlockNode, targetId: string): boolean {
 	if (block.id === targetId) {
 		return true;
 	}

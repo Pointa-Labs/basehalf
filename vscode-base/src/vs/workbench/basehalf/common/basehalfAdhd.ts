@@ -5,9 +5,22 @@
 
 export type IBaseHalfAdhdLineRange = readonly [start: number, end: number];
 
+/**
+ * How `read_paragraphs` count lines. `body`: from the first body line after
+ * the frontmatter the BaseHalf recognizer accepts, or from line 1 when there
+ * is none, so upstream edits in the frontmatter never shift read ranges. A
+ * file without `line_base` holds absolute file lines from earlier releases.
+ */
+export type BaseHalfAdhdLineBase = 'body';
+
+/** The `line_base` every ADHD write records. */
+export const BASEHALF_ADHD_LINE_BASE: BaseHalfAdhdLineBase = 'body';
+
 export interface IBaseHalfAdhdFile {
 	readonly path: string;
 	readonly kind: 'file';
+	/** Present (as `body`) whenever `read_paragraphs` is: the ranges are body-relative. */
+	readonly line_base?: BaseHalfAdhdLineBase;
 	readonly highlight_keywords?: readonly string[];
 	readonly read_paragraphs?: readonly IBaseHalfAdhdLineRange[];
 }
@@ -101,6 +114,10 @@ export function dedupeBaseHalfAdhdKeywords(keywords: readonly string[]): string[
 	return out;
 }
 
+/**
+ * Builds an ADHD file whose `read_paragraphs` are body-relative. Every
+ * range-carrying file records `line_base: body`.
+ */
 export function buildBaseHalfAdhdFile(
 	path: string,
 	keywords: readonly string[] | undefined,
@@ -111,9 +128,30 @@ export function buildBaseHalfAdhdFile(
 	return {
 		path,
 		kind: 'file',
+		...(normalizedRanges.length > 0 ? { line_base: BASEHALF_ADHD_LINE_BASE } : {}),
 		...(normalizedKeywords.length > 0 ? { highlight_keywords: normalizedKeywords } : {}),
 		...(normalizedRanges.length > 0 ? { read_paragraphs: normalizedRanges } : {})
 	};
+}
+
+/**
+ * Converts the absolute file-line ranges of an `adhd.yaml` without
+ * `line_base` (earlier releases) into body-relative ranges by subtracting the
+ * document's current frontmatter line count. Lines inside the frontmatter
+ * are not body lines: a range that ends there is dropped, and one that starts
+ * there begins at body line 1.
+ */
+export function convertBaseHalfAdhdLegacyRanges(ranges: readonly IBaseHalfAdhdLineRange[], frontmatterLines: number): IBaseHalfAdhdLineRange[] {
+	const shift = Math.max(0, Math.floor(frontmatterLines));
+	const out: [number, number][] = [];
+	for (const [start, end] of ranges) {
+		const nextEnd = end - shift;
+		if (nextEnd < 1) {
+			continue;
+		}
+		out.push([Math.max(1, start - shift), nextEnd]);
+	}
+	return normalizeBaseHalfAdhdRanges(out);
 }
 
 export function isBaseHalfAdhdEmpty(file: IBaseHalfAdhdFile): boolean {
@@ -167,6 +205,7 @@ export function isBaseHalfAdhdFile(value: unknown): value is IBaseHalfAdhdFile {
 	const file = value as Partial<IBaseHalfAdhdFile>;
 	return typeof file.path === 'string'
 		&& file.kind === 'file'
+		&& (file.line_base === undefined || file.line_base === BASEHALF_ADHD_LINE_BASE)
 		&& (file.highlight_keywords === undefined || isStringArray(file.highlight_keywords))
 		&& (file.read_paragraphs === undefined || isRangeArray(file.read_paragraphs));
 }

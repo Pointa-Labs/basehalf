@@ -3,9 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { IBaseHalfReferenceRemoveTransition } from '../common/basehalfBadgeGraph.js';
-import { IBaseHalfCanvasEdge } from '../common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasEdgeStateTransition } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResourceMutationStamp } from '../common/basehalfWorkspaceMutation.js';
 
 export type BaseHalfBadgeDraftFailureDisposition = 'archive-missing' | 'archive-replaced' | 'retry' | 'retain';
@@ -105,40 +102,4 @@ export class BaseHalfCanvasInteractionRenderGate {
 		this.active = false;
 		this.queued = false;
 	}
-}
-
-export function baseHalfPersistedCanvasEdgeRemoval(
-	edges: readonly IBaseHalfCanvasEdge[],
-	from: string,
-	to: string
-): readonly IBaseHalfCanvasEdgeStateTransition[] {
-	const persisted = edges.find(edge => edge.from === from && edge.to === to);
-	return persisted ? [{ from, to, expected: persisted, next: null }] : [];
-}
-
-/**
- * A guarded canvas edit may remove only a complete two-sided reference. The
- * graph operation itself intentionally normalizes either state to absent, so a
- * concurrent one-sided state must be restored before the edit reports failure.
- */
-export async function removeCompleteBaseHalfCanvasReference(
-	remove: () => Promise<IBaseHalfReferenceRemoveTransition>,
-	restore: (transition: IBaseHalfReferenceRemoveTransition) => Promise<void>,
-	changedMessage: string,
-	allowIncompleteRecovery = false
-): Promise<IBaseHalfReferenceRemoveTransition> {
-	const transition = await remove();
-	if ((transition.before.forward && transition.before.backlink) || allowIncompleteRecovery) {
-		return transition;
-	}
-
-	try {
-		await restore(transition);
-	} catch (restoreError) {
-		throw new AggregateError([
-			new Error(changedMessage),
-			restoreError
-		], 'The connection changed and its exact state could not be restored. Reopen the project before continuing.');
-	}
-	throw new Error(changedMessage);
 }

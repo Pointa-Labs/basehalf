@@ -6,8 +6,15 @@
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
+	addBaseHalfNodeUpstreamEntry,
+	analyzeBaseHalfNodeUpstream,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_DOCUMENT_VERSION,
+	BaseHalfNodeUpstreamEditError,
+	extractBaseHalfNodeUpstreamLenient,
+	removeBaseHalfNodeUpstreamEntry,
+	replaceBaseHalfNodeUpstreamEntry,
+	setBaseHalfNodeUpstream,
 	BASEHALF_NODE_PROMPT_MAX_LENGTH,
 	BaseHalfNodeDocumentError,
 	IBaseHalfNodeDocument,
@@ -46,7 +53,7 @@ import { baseHalfNodeTestId } from './basehalfNodeTestFixtures.js';
 suite('BaseHalfNodeDocument', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('creates and round-trips the small deeply frozen v3 document', () => {
+	test('creates and round-trips the small deeply frozen v4 document', () => {
 		const document = createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
 			kind: 'video',
@@ -57,11 +64,13 @@ suite('BaseHalfNodeDocument', () => {
 		const serialized = serializeBaseHalfNodeDocument(document);
 		const parsed = parseBaseHalfNodeDocument(serialized);
 
-		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 3);
-		assert.deepStrictEqual(Object.keys(parsed), ['version', 'id', 'kind', 'title', 'role', 'prompt', 'recipe', 'attempts']);
+		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 4);
+		assert.deepStrictEqual(Object.keys(parsed), ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'recipe', 'attempts']);
 		assert.deepStrictEqual(parsed, document);
+		assert.deepStrictEqual(parsed.upstream, parsed.recipe?.inputBindings.map(binding => binding.sourcePath));
 		assert.ok(serialized.endsWith('\n'));
 		assert.strictEqual(Object.isFrozen(parsed), true);
+		assert.strictEqual(Object.isFrozen(parsed.upstream), true);
 		assert.strictEqual(Object.isFrozen(parsed.recipe), true);
 		assert.strictEqual(Object.isFrozen(parsed.recipe?.parameters), true);
 		assert.strictEqual(Object.isFrozen(parsed.recipe?.inputBindings), true);
@@ -120,16 +129,20 @@ suite('BaseHalfNodeDocument', () => {
 			readonly required: readonly string[];
 			readonly properties: Readonly<Record<string, unknown>>;
 		};
-		assert.deepStrictEqual(schema.required, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'attempts']);
+		assert.deepStrictEqual(schema.required, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'attempts']);
 		assert.strictEqual((schema.properties.result as boolean), false);
 		assert.deepStrictEqual(contract.hostOwnedFields, ['result', 'attempts']);
+		assert.strictEqual(contract.contractVersion, 2);
+		assert.ok((contract.rules as readonly string[]).some(rule => /sourcePath must be listed in the node's upstream/.test(rule)));
 		const examples = contract.examples as Readonly<Record<string, unknown>>;
 		for (const example of Object.values(examples)) {
 			const parsed = parse(example);
-			assert.strictEqual(parsed.version, 3);
+			assert.strictEqual(parsed.version, 4);
 			assert.deepStrictEqual(parsed.attempts, []);
 			assert.strictEqual(parsed.result, undefined);
+			assert.deepStrictEqual(getBaseHalfNodeReadiness(parsed, { nodePath: 'result.bhnode' }).code === 'upstreamInvalid', false);
 		}
+		assert.deepStrictEqual((examples.configured as { upstream: unknown }).upstream, ['brief.md']);
 	});
 
 	test('requires a caller-supplied canonical UUID and a supported result kind', () => {
@@ -634,6 +647,152 @@ suite('BaseHalfNodeDocument', () => {
 		assert.throws(() => parseBaseHalfNodeDocumentBytes(new Uint8Array([0xC3, 0x28])), /valid UTF-8/);
 		const bytes = new TextEncoder().encode(serializeBaseHalfNodeDocument(emptyDraft()));
 		assert.deepStrictEqual(parseBaseHalfNodeDocumentBytes(bytes), emptyDraft());
+	});
+});
+
+suite('BaseHalfNodeDocument upstream', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('reads version 3 with upstream derived from its bindings and writes version 4', () => {
+		const v3 = {
+			version: 3,
+			id: baseHalfNodeTestId(20),
+			kind: 'video',
+			title: 'Legacy',
+			role: 'Generated result',
+			prompt: '',
+			recipe: {
+				...recipe(),
+				inputBindings: [
+					{ sourcePath: 'b.md', slot: 'style', order: 1 },
+					{ sourcePath: 'a.md', slot: 'brief', order: 0 }
+				]
+			},
+			attempts: []
+		};
+		const parsed = parse(v3);
+		assert.strictEqual(parsed.version, 4);
+		assert.deepStrictEqual(parsed.upstream, ['a.md', 'b.md']);
+		const written = JSON.parse(serializeBaseHalfNodeDocument(parsed));
+		assert.deepStrictEqual([written.version, written.upstream], [4, ['a.md', 'b.md']]);
+		assert.throws(() => parse({ ...v3, upstream: [] }), /unsupported property 'upstream'/);
+	});
+
+	test('requires an upstream array and preserves every item verbatim', () => {
+		const draft = emptyDraft();
+		const withoutUpstream: Record<string, unknown> = { ...draft };
+		delete withoutUpstream.upstream;
+		assert.throws(() => parse(withoutUpstream), /document.upstream must be an array/);
+		assert.throws(() => parse({ ...draft, upstream: 'a.md' }), /document.upstream must be an array/);
+
+		const odd = [' spaced.md ', 42, { path: 'x' }, '', 'node.bhnode', 'a.md', 'A.md', 'docs/'];
+		const parsed = parse({ ...draft, upstream: odd });
+		assert.deepStrictEqual(parsed.upstream, odd);
+		assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(parsed)).upstream, odd);
+		assert.deepStrictEqual(analyzeBaseHalfNodeUpstream(parsed, 'node.bhnode').items.map(item => item.problem ?? item.path), [
+			' spaced.md ', 'notString', 'notString', 'empty', 'self', 'a.md', 'duplicate', 'docs'
+		]);
+	});
+
+	test('reports per-entry readiness problems that block submission while the node stays readable', () => {
+		const tooMany = Array.from({ length: 66 }, (_, index) => `n${index}.md`);
+		const invalid = parse({ ...configuredDraft(), upstream: ['a.md', 7, 'a.md'] });
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(invalid, { nodePath: 'x.bhnode' }).invalidUpstream?.map(item => item.problem), ['notString', 'duplicate']);
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(invalid).code, 'ready');
+		const overLimit = parse({ ...configuredDraft(), upstream: tooMany });
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(overLimit, { nodePath: 'x.bhnode' }).invalidUpstream?.map(item => item.index), [64, 65]);
+
+		const unlisted = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: [] });
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(unlisted, { nodePath: 'x.bhnode' }), {
+			ready: false, code: 'bindingNotInUpstream', unlistedBindingPaths: ['briefs/launch.md']
+		});
+		const unbound = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'extra.md'] });
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(unbound, { nodePath: 'x.bhnode' }), {
+			ready: false, code: 'upstreamUnbound', unboundUpstreamPaths: ['extra.md']
+		});
+		const bound = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md'] });
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(bound, { nodePath: 'x.bhnode', availableSourcePaths: [] }), {
+			ready: false, code: 'sourceUnavailable', missingSourcePaths: ['briefs/launch.md']
+		});
+		assert.deepStrictEqual(getBaseHalfNodeReadiness(bound, { nodePath: 'x.bhnode', availableSourcePaths: ['Briefs/Launch.md'] }), { ready: true, code: 'ready' });
+	});
+
+	test('adds an entry and its binding in one write and never lists an entry twice', () => {
+		const draft = configuredDraft();
+		const unbound = addBaseHalfNodeUpstreamEntry(draft, 'notes/a.md');
+		assert.deepStrictEqual([unbound.upstream, unbound.recipe?.inputBindings], [['notes/a.md'], []]);
+		assert.strictEqual(addBaseHalfNodeUpstreamEntry(unbound, 'notes/a.md'), unbound);
+		const bound = addBaseHalfNodeUpstreamEntry(unbound, 'notes/a.md', { slot: 'brief' });
+		assert.deepStrictEqual([bound.upstream, bound.recipe?.inputBindings], [['notes/a.md'], [{ sourcePath: 'notes/a.md', slot: 'brief', order: 0 }]]);
+		const second = addBaseHalfNodeUpstreamEntry(bound, 'frames/start.png/', { slot: 'first-frame' });
+		assert.deepStrictEqual([second.upstream, second.recipe?.inputBindings.map(binding => [binding.sourcePath, binding.order])], [
+			['notes/a.md', 'frames/start.png'],
+			[['notes/a.md', 0], ['frames/start.png', 1]]
+		]);
+		assert.throws(() => addBaseHalfNodeUpstreamEntry(emptyDraft(), 'x.md', { slot: 'brief' }), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'noDraftRecipe');
+	});
+
+	test('refuses a write past 64 entries', () => {
+		const full = parse({ ...emptyDraft(), upstream: Array.from({ length: 64 }, (_, index) => `n${index}.md`) });
+		assert.throws(() => addBaseHalfNodeUpstreamEntry(full, 'one-more.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'limit' && /already has 64 upstream entries/.test(error.message));
+		assert.strictEqual(addBaseHalfNodeUpstreamEntry(full, 'n3.md'), full);
+		assert.strictEqual(removeBaseHalfNodeUpstreamEntry(full, 'n3.md').upstream.length, 63);
+	});
+
+	test('disconnects unbound entries in every state and bound entries only in a Draft', () => {
+		const draft = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'loose.md'] });
+		const unboundRemoved = removeBaseHalfNodeUpstreamEntry(draft, 'loose.md');
+		assert.deepStrictEqual(unboundRemoved.upstream, ['briefs/launch.md']);
+		const boundRemoved = removeBaseHalfNodeUpstreamEntry(draft, 'briefs/launch.md');
+		assert.deepStrictEqual([boundRemoved.upstream, boundRemoved.recipe?.inputBindings], [['loose.md'], []]);
+
+		const attempted = start(draft);
+		assert.deepStrictEqual(removeBaseHalfNodeUpstreamEntry(attempted, 'loose.md').upstream, ['briefs/launch.md']);
+		assert.throws(() => addBaseHalfNodeUpstreamEntry(attempted, 'new.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'recipeFrozen');
+		assert.strictEqual(addBaseHalfNodeUpstreamEntry(attempted, 'loose.md'), attempted);
+		const imported = importBaseHalfNodeResult(emptyDraft(), { ...artifact(), kind: 'video' });
+		assert.deepStrictEqual(addBaseHalfNodeUpstreamEntry(imported, 'context.md').upstream, ['context.md']);
+		assert.throws(() => removeBaseHalfNodeUpstreamEntry(attempted, 'briefs/launch.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'boundOutsideDraft');
+		assert.throws(() => setBaseHalfNodeUpstream(attempted, attempted.upstream, []), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'boundOutsideDraft');
+		assert.strictEqual(removeBaseHalfNodeUpstreamEntry(attempted, 'never-listed.md'), attempted);
+	});
+
+	test('replaces an entry in place and carries its binding in a Draft', () => {
+		const draft = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['x.md', 'briefs/launch.md'] });
+		const replaced = replaceBaseHalfNodeUpstreamEntry(draft, 'briefs/launch.md', 'briefs/v2.md');
+		assert.deepStrictEqual([replaced.upstream, replaced.recipe?.inputBindings.map(binding => binding.sourcePath)], [['x.md', 'briefs/v2.md'], ['briefs/v2.md']]);
+		assert.deepStrictEqual(replaceBaseHalfNodeUpstreamEntry(draft, 'x.md', 'briefs/launch.md').upstream, ['briefs/launch.md']);
+		assert.throws(() => replaceBaseHalfNodeUpstreamEntry(draft, 'gone.md', 'new.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'entryMissing');
+	});
+
+	test('copy settings starts a Draft with upstream [] and no bindings', () => {
+		const source = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'loose.md'] });
+		const fork = forkBaseHalfNodeDocument(source, baseHalfNodeTestId(30));
+		assert.deepStrictEqual([fork.upstream, fork.recipe?.inputBindings], [[], []]);
+	});
+
+	test('extracts upstream leniently when other fields are malformed', () => {
+		const malformed = JSON.stringify({ version: 4, upstream: ['a.md', 3], attempts: 'broken', recipe: { inputBindings: [{ sourcePath: 'a.md', slot: 'brief', order: 0 }] }, result: { artifact: { path: 'outputs/x.png' } } });
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(malformed), {
+			readable: true,
+			version: 4,
+			upstream: ['a.md', 3],
+			bindings: [{ sourcePath: 'a.md', slot: 'brief', order: 0 }],
+			lifecycle: 'sealed',
+			resultArtifactPath: 'outputs/x.png',
+			hasRecipe: true
+		});
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 3, recipe: { inputBindings: [{ sourcePath: 'b.md', order: 1 }, { sourcePath: 'a.md', order: 0 }] }, attempts: [{}] })), {
+			readable: true,
+			version: 3,
+			upstream: ['a.md', 'b.md'],
+			bindings: [{ sourcePath: 'a.md', order: 0 }, { sourcePath: 'b.md', order: 1 }],
+			lifecycle: 'attempted',
+			hasRecipe: true
+		});
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient('{').readable, false);
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 4, upstream: 'a.md' })).readable, false);
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 9 })).readable, false);
 	});
 });
 

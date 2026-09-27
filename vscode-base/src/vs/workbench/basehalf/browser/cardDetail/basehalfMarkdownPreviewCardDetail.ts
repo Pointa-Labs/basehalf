@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
+import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
@@ -16,10 +16,8 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
-import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../common/basehalfMarkdownRichTextModel.js';
-import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
 export function baseHalfMarkdownPreviewBody(source: string): string {
@@ -35,10 +33,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private state: IBaseHalfCardDetailState | undefined;
 	private resourceKey: string | undefined;
 	private renderTimer: number | undefined;
-	private focusTimer: number | undefined;
-	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private selectionRevealTimer: number | undefined;
-	private lastFocusKey: string | undefined;
 	private disposed = false;
 	private visible = false;
 	private pendingRender = false;
@@ -50,8 +45,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
-		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -61,7 +54,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		this.previewContent = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-content'));
 		this.setSaveStatus('saving');
 
-		this._register(addDisposableListener(this.previewScroll, EventType.SCROLL, () => this.scheduleFocusWrite()));
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
 			if (this.model && isEqual(model.resource, this.model.uri)) {
 				this.updateStatus();
@@ -76,7 +68,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
-		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.setSaveStatus('saving');
 
@@ -92,7 +83,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(state.resource.toString(), options => this.flush(options)));
 			this.renderNow();
-			this.flushFocusWrite();
 		} catch (error) {
 			if (this.disposed) {
 				return;
@@ -107,10 +97,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			mainWindow.clearTimeout(this.renderTimer);
 			this.renderTimer = undefined;
 		}
-		if (this.focusTimer !== undefined) {
-			mainWindow.clearTimeout(this.focusTimer);
-			this.focusTimer = undefined;
-		}
 		if (this.selectionRevealTimer !== undefined) {
 			mainWindow.clearTimeout(this.selectionRevealTimer);
 			this.selectionRevealTimer = undefined;
@@ -120,17 +106,14 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	/**
 	 * Re-entry hook for a retained (hidden) surface becoming the visible
-	 * projection again: adopt the latest navigation state and re-assert this
-	 * projection in the focus mirror (the previous projection owned it while
-	 * this one was hidden).
+	 * projection again: adopt the latest navigation state and reveal its
+	 * selection.
 	 */
 	activate(state: IBaseHalfCardDetailState): void {
 		this.state = state;
 		if (state.selection) {
 			this.revealSelection();
 		}
-		this.lastFocusKey = undefined;
-		this.flushFocusWrite();
 	}
 
 	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
@@ -140,7 +123,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 		this.state = { ...this.state, selection };
 		this.revealSelection();
-		this.flushFocusWrite();
 	}
 
 	/**
@@ -223,7 +205,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		this.rendered.add(rendered);
 		this.updateStatus();
 		this.revealSelection();
-		this.scheduleFocusWrite(0);
 	}
 
 	private updateStatus(): void {
@@ -266,17 +247,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		node.textContent = message;
 	}
 
-	private scheduleFocusWrite(delay = 200): void {
-		if (this.focusTimer !== undefined) {
-			mainWindow.clearTimeout(this.focusTimer);
-		}
-
-		this.focusTimer = mainWindow.setTimeout(() => {
-			this.focusTimer = undefined;
-			this.flushFocusWrite();
-		}, delay);
-	}
-
 	private revealSelection(): void {
 		const selection = this.state?.selection;
 		const model = this.model;
@@ -300,7 +270,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 				this.selectionRevealTimer = undefined;
 				this.clearSelectionReveal();
 			}, 1800);
-			this.scheduleFocusWrite(0);
 		});
 	}
 
@@ -325,33 +294,5 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		for (const element of Array.from(this.previewContent.querySelectorAll<HTMLElement>('.basehalf-card-detail-markdown-preview-selection-reveal'))) {
 			element.classList.remove('basehalf-card-detail-markdown-preview-selection-reveal');
 		}
-	}
-
-	private flushFocusWrite(): void {
-		const state = this.state;
-		const stamp = this.focusStamp;
-		if (!state || !stamp) {
-			return;
-		}
-
-		const fields = state.selection
-			? {
-				projection: state.projection,
-				visible_lines: { start: state.selection.startLineNumber },
-				cursor: {
-					line: state.selection.startLineNumber,
-					column: state.selection.startColumn,
-					line_precision: 'exact' as const
-				}
-			}
-			: { projection: state.projection };
-		const key = `${stamp.structuralEpoch}:${JSON.stringify(fields)}`;
-		if (key === this.lastFocusKey) {
-			return;
-		}
-
-		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
-			this.focusMirrorService.writeFileFocus(state, fields, lease)
-		).then(() => this.lastFocusKey = key).catch(error => this.logService.error(error));
 	}
 }

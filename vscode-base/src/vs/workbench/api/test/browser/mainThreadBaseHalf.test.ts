@@ -79,6 +79,8 @@ suite('MainThreadBaseHalf', () => {
 		assert.strictEqual(received?.resource.path, '/workspace/sequence.json');
 		assert.strictEqual(received?.expected.toString(), 'before');
 		assert.strictEqual(received?.next.toString(), 'after');
+		// Plugin-originated: never exempt from the upstream guard (D37).
+		assert.strictEqual(received?.origin, undefined);
 	});
 
 	test('accepts only plain node resources inside the current workspace', async () => {

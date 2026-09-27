@@ -165,8 +165,24 @@ suite('BaseHalfNodeCommandBridge', () => {
 			target: 'direct-context',
 			autoRun: false,
 			recursive: false,
+			storedBy: 'downstream',
+			markdownFrontmatterKey: 'upstream',
+			nodeDocumentField: 'upstream',
 			roleAndOrderOwner: 'target-recipe-binding',
 			label: 'none'
+		});
+		assert.deepStrictEqual({
+			documentVersion: response.host?.nodeDocument.documentVersion,
+			inputBinding: response.host?.nodeDocument.inputBinding,
+			contractVersion: response.host?.nodeDocument.authoring.contractVersion,
+			upstreamRequired: ((response.host?.nodeDocument.authoring.schema as { required?: readonly string[] } | undefined)?.required ?? []).includes('upstream'),
+			bindingRule: (response.host?.nodeDocument.authoring.rules as readonly string[] | undefined)?.some(rule => rule.includes('must be listed in the node\'s upstream'))
+		}, {
+			documentVersion: 4,
+			inputBinding: { scope: 'node-upstream', fields: ['sourcePath', 'slot', 'order'] },
+			contractVersion: 2,
+			upstreamRequired: true,
+			bindingRule: true
 		});
 		assert.deepStrictEqual(response.host?.nodeDocument.lifecycle, {
 			attempts: 'host-owned',

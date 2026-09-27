@@ -99,8 +99,10 @@ export function baseHalfCanvasSceneSelectionSurface(
  * The narrow, service-free protocol between BaseHalf's VS Code workbench
  * controller and the in-document React Flow renderer island.
  *
- * The badge graph and canvas mirror remain persisted truth. These DTOs describe
- * only the live scene projection and user intents emitted from it.
+ * The downstream nodes' upstream lists (read through the reference index) and
+ * the canvas mirror remain persisted truth; `canvas.yaml` edge rows are anchor
+ * memory only. These DTOs describe only the live scene projection and user
+ * intents emitted from it.
  */
 export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	readonly path: string;
@@ -123,6 +125,24 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** Only the Markdown Note inline editor suppresses structural controls and
 	 *  retains the static preview beneath its live editing overlay. */
 	readonly noteEditing?: true;
+	/** Set when this card can never receive a connection right now (an
+	 *  upstream-only file, a running node, or a sidecar target in a folder where
+	 *  BaseHalf writes no metadata). The renderer refuses a connection or a
+	 *  target-end reconnect into it with this explanation instead of showing an
+	 *  optimistic edge. */
+	readonly upstreamRefusal?: string;
+}
+
+/**
+ * Why a connection into `target` is refused before any optimistic edge is
+ * shown, if it is. A reconnect that keeps its target (`previousTargetPath`)
+ * is never refused here: it does not add a connection into that card.
+ */
+export function baseHalfCanvasSceneConnectionRefusal(
+	target: Pick<IBaseHalfCanvasSceneCard, 'path' | 'upstreamRefusal'>,
+	previousTargetPath?: string
+): string | undefined {
+	return target.path === previousTargetPath ? undefined : target.upstreamRefusal;
 }
 
 export interface IBaseHalfCanvasSceneEdge extends IBaseHalfCanvasEdge {

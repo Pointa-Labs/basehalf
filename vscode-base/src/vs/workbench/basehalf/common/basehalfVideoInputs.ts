@@ -8,11 +8,15 @@
  *
  * The selected reviewed capability determines active roles. This module never
  * selects a model or method from attached inputs, and mutation plans describe
- * host-owned graph/document work without performing I/O themselves.
+ * host-owned node-document work without performing I/O themselves. Following
+ * the host reference graph (D37), the target stores each input edge once, in
+ * its own `upstream` list: a plan changes the bindings and their `upstream`
+ * entries together, in one document write.
  */
 
 import type { BaseHalfCanvasContentKind, IBaseHalfCanvasRecipeInputDefinition } from './basehalfCanvasRecipes.js';
-import { baseHalfProjectPathKey, baseHalfProjectPathProblem, type IBaseHalfNodeDocument, type IBaseHalfNodeInputBinding } from './basehalfNodeDocument.js';
+import { baseHalfProjectPathKey, baseHalfProjectPathProblem, type BaseHalfNodeJsonValue, type IBaseHalfNodeDocument, type IBaseHalfNodeInputBinding } from './basehalfNodeDocument.js';
+import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES, baseHalfNormalizeUpstreamEntry } from './basehalfReferenceEntries.js';
 import type {
 	BaseHalfVideoGenerationMode,
 	BaseHalfVideoInputKind,
@@ -58,6 +62,16 @@ export type BaseHalfVideoInputAction =
 	| 'move-later';
 
 export type BaseHalfVideoInputSourceIntegrity = 'available' | 'missing' | 'changed' | 'unverified';
+
+/**
+ * How one source relates to the target's own `upstream` list and bindings
+ * (see {@link baseHalfVideoInputEdgeState}). `canvas.yaml` rows are anchor
+ * memory only and never take part:
+ * - `absent`: no `upstream` entry names the source and no binding uses it;
+ * - `present`: an `upstream` entry names the source, bound or not;
+ * - `inconsistent`: a binding uses the source but no `upstream` entry lists
+ *   it (the readiness problem "binding not listed in upstream").
+ */
 export type BaseHalfVideoDirectEdgeState = 'absent' | 'present' | 'inconsistent';
 
 export interface IBaseHalfVideoInputSourceState {
@@ -129,6 +143,12 @@ export interface IBaseHalfVideoInputMutationContext {
 	readonly sources: readonly IBaseHalfVideoInputSourceState[];
 }
 
+/**
+ * The change a plan makes to the target's own `upstream` list. It is applied
+ * in the same document write as the bindings: an add never lists a source
+ * twice, and removing an entry that is already absent is an idempotent
+ * cleanup.
+ */
 export interface IBaseHalfVideoInputGraphDelta {
 	readonly addSourcePaths: readonly string[];
 	readonly removeSourcePaths: readonly string[];
@@ -140,6 +160,7 @@ export interface IBaseHalfVideoInputMutationPlan {
 	readonly operation: BaseHalfVideoInputMutationOperation;
 	readonly beforeBindings: readonly IBaseHalfNodeInputBinding[];
 	readonly afterBindings: readonly IBaseHalfNodeInputBinding[];
+	/** The target's `upstream` change, written together with `afterBindings`. */
 	readonly graph: IBaseHalfVideoInputGraphDelta;
 	readonly focusSourcePath?: string;
 }
@@ -300,6 +321,8 @@ export type BaseHalfVideoInputMutationProblemKind =
 	| 'role-full'
 	| 'edge-not-absent'
 	| 'edge-not-present'
+	/** The change would list more than 64 `upstream` entries. */
+	| 'upstream-full'
 	| 'same-source'
 	| 'same-role'
 	| 'swap-unavailable'
@@ -773,11 +796,44 @@ export function releaseBaseHalfVideoInputTransaction(
 	return Object.freeze({ lastTransactionId: state.lastTransactionId });
 }
 
-/** Plan canvas pick: one new target binding and one new direct graph pair. */
+/**
+ * Derives the edge state of one source from the target document's own
+ * `upstream` list and bindings (D37).
+ */
+export function baseHalfVideoInputEdgeState(
+	target: Pick<IBaseHalfNodeDocument, 'upstream' | 'recipe'>,
+	sourcePath: string
+): BaseHalfVideoDirectEdgeState {
+	const key = upstreamKey(sourcePath);
+	if (target.upstream.some(item => typeof item === 'string' && upstreamKey(item) === key)) {
+		return 'present';
+	}
+	return target.recipe?.inputBindings.some(binding => upstreamKey(binding.sourcePath) === key) ? 'inconsistent' : 'absent';
+}
+
+/**
+ * Whether the target's `upstream` list can take the source for a Pick or a
+ * Replace: a listed source is bound in place, never listed twice, and a new
+ * entry must stay within 64 entries.
+ */
+export function baseHalfVideoInputUpstreamCanTake(
+	target: Pick<IBaseHalfNodeDocument, 'upstream'>,
+	sourcePath: string
+): boolean {
+	const key = upstreamKey(sourcePath);
+	return target.upstream.some(item => typeof item === 'string' && upstreamKey(item) === key)
+		|| target.upstream.length < BASEHALF_UPSTREAM_MAX_NODE_ENTRIES;
+}
+
+/**
+ * Plan canvas pick: one new target binding and its `upstream` entry. A source
+ * the target already lists without a binding (`present`) is bound, never
+ * listed twice.
+ */
 export function planBaseHalfVideoInputPick(request: IBaseHalfVideoInputPickRequest): IBaseHalfVideoInputMutationPlan {
 	const context = validateMutationContext(request);
-	if (request.edgeState !== 'absent') {
-		throw mutationError('edge-not-absent', `Cannot pick '${request.sourcePath}' because its direct edge is not absent.`);
+	if (request.edgeState === 'inconsistent') {
+		throw mutationError('edge-not-absent', `Cannot pick '${request.sourcePath}' because it is already bound without an upstream entry.`);
 	}
 	const source = requireSource(context.sources, request.sourcePath);
 	assertSourceNotBound(context.bindings, source.sourcePath);
@@ -795,14 +851,19 @@ export function planBaseHalfVideoInputPick(request: IBaseHalfVideoInputPickReque
 	});
 }
 
-/** Plan replacement while preserving the role and display position. */
+/**
+ * Plan replacement while preserving the role and display position. The old
+ * source's `upstream` entry is removed (idempotently, when a binding was not
+ * listed) and the replacement is listed, or bound in place when the target
+ * already lists it without a binding.
+ */
 export function planBaseHalfVideoInputReplace(request: IBaseHalfVideoInputReplaceRequest): IBaseHalfVideoInputMutationPlan {
 	const context = validateMutationContext(request);
-	if (request.currentEdgeState !== 'present') {
-		throw mutationError('edge-not-present', `Cannot replace '${request.sourcePath}' because its direct edge is not present and consistent.`);
+	if (request.currentEdgeState === 'absent') {
+		throw mutationError('edge-not-present', `Cannot replace '${request.sourcePath}' because it is no longer an input of this node.`);
 	}
-	if (request.replacementEdgeState !== 'absent') {
-		throw mutationError('edge-not-absent', `Cannot use '${request.replacementSourcePath}' because its direct edge is not absent.`);
+	if (request.replacementEdgeState === 'inconsistent') {
+		throw mutationError('edge-not-absent', `Cannot use '${request.replacementSourcePath}' because it is already bound to this node.`);
 	}
 	const binding = requireBinding(context.bindings, request.sourcePath);
 	const replacement = requireSource(context.sources, request.replacementSourcePath);
@@ -823,7 +884,11 @@ export function planBaseHalfVideoInputReplace(request: IBaseHalfVideoInputReplac
 	});
 }
 
-/** Plan removal: the corresponding graph pair is part of the same host transaction. */
+/**
+ * Plan removal: the binding and its `upstream` entry are removed in the same
+ * document write. Remove works in every edge state, including a missing
+ * source file and an entry that is already absent.
+ */
 export function planBaseHalfVideoInputRemove(request: IBaseHalfVideoInputRemoveRequest): IBaseHalfVideoInputMutationPlan {
 	const context = validateMutationContext(request);
 	const binding = requireBinding(context.bindings, request.sourcePath);
@@ -837,8 +902,10 @@ export function planBaseHalfVideoInputRemove(request: IBaseHalfVideoInputRemoveR
 }
 
 /**
- * Applies only the binding portion of a plan to a fresh persisted Draft.
- * Composer-only prompt/model/setting edits must remain outside this snapshot.
+ * Applies the bindings and the `upstream` change of a plan to a fresh
+ * persisted Draft, so both land in one node-document write. Composer-only
+ * prompt/model/setting edits must remain outside this snapshot. Unrelated
+ * `upstream` items (including invalid ones) keep their text and position.
  */
 export function applyBaseHalfVideoInputMutationToDocument(
 	request: IBaseHalfVideoInputDocumentMutationRequest
@@ -853,13 +920,51 @@ export function applyBaseHalfVideoInputMutationToDocument(
 		throw mutationError('stale-binding-set', 'The persisted input bindings changed before this mutation could be applied.');
 	}
 	const afterBindings = copyAndValidateBindings(plan.afterBindings);
+	const upstream = applyUpstreamDelta(document.upstream, plan.graph);
 	return Object.freeze({
 		...document,
+		upstream,
 		recipe: Object.freeze({
 			...document.recipe,
 			inputBindings: afterBindings
 		})
 	});
+}
+
+function applyUpstreamDelta(upstream: readonly BaseHalfNodeJsonValue[], delta: IBaseHalfVideoInputGraphDelta): readonly BaseHalfNodeJsonValue[] {
+	const listedIndex = (sourcePath: string): number => {
+		const key = upstreamKey(sourcePath);
+		return upstream.findIndex(item => typeof item === 'string' && upstreamKey(item) === key);
+	};
+	if (delta.removeSourcePaths.length === 1 && delta.addSourcePaths.length === 1) {
+		// A Replace keeps the entry's position when the old source is listed
+		// once and the replacement is not listed yet.
+		const index = listedIndex(delta.removeSourcePaths[0]);
+		const removedKey = upstreamKey(delta.removeSourcePaths[0]);
+		const occurrences = upstream.filter(item => typeof item === 'string' && upstreamKey(item) === removedKey).length;
+		if (index >= 0 && occurrences === 1 && listedIndex(delta.addSourcePaths[0]) < 0) {
+			return Object.freeze(upstream.map((item, candidate) => candidate === index ? baseHalfNormalizeUpstreamEntry(delta.addSourcePaths[0]) : item));
+		}
+	}
+	const removed = new Set(delta.removeSourcePaths.map(upstreamKey));
+	const next: BaseHalfNodeJsonValue[] = upstream.filter(item => typeof item !== 'string' || !removed.has(upstreamKey(item)));
+	for (const sourcePath of delta.addSourcePaths) {
+		const key = upstreamKey(sourcePath);
+		if (next.some(item => typeof item === 'string' && upstreamKey(item) === key)) {
+			continue;
+		}
+		if (next.length >= BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
+			throw mutationError('upstream-full', `This node already has ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
+		}
+		next.push(baseHalfNormalizeUpstreamEntry(sourcePath));
+	}
+	return next.length === upstream.length && next.every((item, index) => item === upstream[index])
+		? upstream
+		: Object.freeze(next);
+}
+
+function upstreamKey(path: string): string {
+	return baseHalfProjectPathKey(baseHalfNormalizeUpstreamEntry(path));
 }
 
 /** Classifies a binding against one fresh source inspection. */
@@ -890,7 +995,7 @@ export function baseHalfVideoInputBindingIntegrity(
 	return binding.sourceRevision === source.revision ? 'available' : 'changed';
 }
 
-/** Plan an explicit target-owned role change. Graph state is intentionally unchanged. */
+/** Plan an explicit target-owned role change. The `upstream` list is intentionally unchanged. */
 export function planBaseHalfVideoInputRoleChange(request: IBaseHalfVideoInputRoleChangeRequest): IBaseHalfVideoInputMutationPlan {
 	const context = validateMutationContext(request);
 	const binding = requireBinding(context.bindings, request.sourcePath);

@@ -15,6 +15,11 @@ import { IBaseHalfProjectFileTransition } from './basehalfProjectFileTransitions
 
 export const BASEHALF_PLUGIN_STRUCTURAL_CLEANUP_MAX_TRANSITIONS = 256;
 
+/**
+ * A reviewed plugin's delete cleanup. Its transitions are plugin-originated:
+ * the project file transition service rejects any that changes an upstream
+ * value (D37), so a cleanup can never remove a dangling upstream entry.
+ */
 export interface IBaseHalfPluginStructuralCleanupProvider {
 	prepareDelete(resource: URI, token: CancellationToken): Promise<readonly IBaseHalfProjectFileTransition[]>;
 }
@@ -103,6 +108,8 @@ export class BaseHalfPluginStructuralCleanupService implements IBaseHalfPluginSt
 					throw new Error(`More than one structural cleanup change targeted '${transition.resource.path}'.`);
 				}
 				resources.add(key);
+				// Rebuilt field by field: a plugin transition never carries the
+				// host `origin` that would exempt it from the upstream guard.
 				transitions.push({
 					resource: transition.resource,
 					expected: transition.expected.clone(),

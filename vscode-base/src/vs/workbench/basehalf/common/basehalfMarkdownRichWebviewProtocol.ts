@@ -3,7 +3,6 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { IBaseHalfMarkdownFocusFields } from './basehalfMarkdownFocus.js';
 import { IBaseHalfAdhdCommand, IBaseHalfAdhdFile, isBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	isBaseHalfMarkdownFormatCommand,
@@ -66,7 +65,8 @@ export interface IBaseHalfMarkdownRichFileLink {
  * Channel ownership contract:
  * - The Markdown string channel (`init` / `saveRequested` / `saveResult`) is
  *   the authoritative content transport. The text file working copy stays the
- *   single content truth.
+ *   single content truth, and it alone owns the frontmatter: `saveRequested`
+ *   carries the rich body, and `saveResult` returns the composed document.
  * - The collaboration update channel (`applyYjsUpdate` / `yjsUpdate`) is the
  *   provider-ready replica stream. On `ready` the host replays its replica
  *   state so both sides share one history; after that the webview editor is
@@ -182,10 +182,14 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly update: ArrayBuffer | Uint8Array | readonly number[];
 	}
 	| {
+		/** A rich save carries the body only. The host writes it under the
+		 * text model's current frontmatter, so the webview's cached frontmatter
+		 * is never written. `previousContent` is the document text the webview
+		 * last observed; the host compares only its body. */
 		readonly type: 'basehalf.markdownRich.saveRequested';
 		readonly key: string;
 		readonly requestId: string;
-		readonly content: string;
+		readonly body: string;
 		readonly previousContent: string;
 		readonly forceWrite: boolean;
 	}
@@ -204,11 +208,6 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly key: string;
 		readonly requestId: string;
 		readonly frozen: boolean;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.focusChanged';
-		readonly key: string;
-		readonly fields: IBaseHalfMarkdownFocusFields;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.editorActivated';
@@ -346,7 +345,7 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 		case 'basehalf.markdownRich.saveRequested':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
-				&& typeof candidate.content === 'string'
+				&& typeof candidate.body === 'string'
 				&& typeof candidate.previousContent === 'string'
 				&& typeof candidate.forceWrite === 'boolean';
 		case 'basehalf.markdownRich.dirtyChanged':
@@ -361,8 +360,6 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
 		case 'basehalf.markdownRich.editorActivated':
 			return true;
-		case 'basehalf.markdownRich.focusChanged':
-			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
 		case 'basehalf.markdownRich.workbenchCommand':
 			return candidate.command === 'quickOpen' || candidate.command === 'showCommands';
 		case 'basehalf.markdownRich.canvasCommand':
@@ -443,33 +440,6 @@ function isBaseHalfMarkdownRichUpdatePayload(payload: unknown): payload is Array
 	return payload instanceof ArrayBuffer
 		|| payload instanceof Uint8Array
 		|| (Array.isArray(payload) && payload.every(value => Number.isInteger(value) && value >= 0 && value <= 255));
-}
-
-function isBaseHalfMarkdownRichFocusFields(value: unknown): value is IBaseHalfMarkdownFocusFields {
-	if (!isObject(value)) {
-		return false;
-	}
-
-	const fields = value as Partial<IBaseHalfMarkdownFocusFields>;
-	return (fields.visible_lines === undefined || isBaseHalfMarkdownRichStartField(fields.visible_lines))
-		&& (fields.visible_blocks === undefined || isBaseHalfMarkdownRichStartField(fields.visible_blocks))
-		&& (fields.cursor === undefined || isBaseHalfMarkdownRichCursor(fields.cursor));
-}
-
-function isBaseHalfMarkdownRichStartField(value: unknown): value is { readonly start: number } {
-	return isObject(value) && isPositiveInteger((value as { readonly start?: unknown }).start);
-}
-
-function isBaseHalfMarkdownRichCursor(value: unknown): value is NonNullable<IBaseHalfMarkdownFocusFields['cursor']> {
-	if (!isObject(value)) {
-		return false;
-	}
-
-	const cursor = value as Partial<NonNullable<IBaseHalfMarkdownFocusFields['cursor']>>;
-	return isPositiveInteger(cursor.line)
-		&& isPositiveInteger(cursor.column)
-		&& (cursor.line_precision === 'exact' || cursor.line_precision === 'block_start' || cursor.line_precision === 'estimated')
-		&& (cursor.block === undefined || isPositiveInteger(cursor.block));
 }
 
 function isBaseHalfMarkdownRichSelection(value: unknown): value is IBaseHalfMarkdownRichTextSelection {

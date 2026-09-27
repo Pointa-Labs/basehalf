@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { OperatingSystem } from '../../../../base/common/platform.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { DEFAULT_COMMANDS_TO_SKIP_SHELL, TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
 import {
@@ -24,9 +25,16 @@ import {
 	baseHalfAgentSessionCanRequestNodeRuns,
 	baseHalfAgentSessionUsesLocalNodeRunBridge,
 	baseHalfAgentSessionChoiceForKind,
+	BaseHalfAgentLaunchInstructionsMonitor,
+	type BaseHalfAgentSessionKind,
+	baseHalfHasAgentLaunchInstructions,
+	baseHalfStripAgentLaunchInstructions,
 	baseHalfTuiSessionLaunchConfig,
-	baseHalfTuiSessionLaunchFailureGuidance
+	baseHalfTuiSessionLaunchFailureGuidance,
+	baseHalfTuiSessionReceivesLaunchInstructions,
+	type IBaseHalfTuiSessionLaunchContext
 } from '../../common/basehalfAgentArea.js';
+import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
 import { isBaseHalfAgentExtensionSlot } from '../../common/basehalfWorkbenchProfile.js';
 
 suite('BaseHalfAgentArea', () => {
@@ -63,21 +71,115 @@ suite('BaseHalfAgentArea', () => {
 	});
 
 	test('launches TUI agent sessions as the terminal process itself', () => {
-		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-codex'), {
+		const local = { isRemote: false, os: OperatingSystem.Linux, hasMarkedWorkspaceFolder: false };
+		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-codex', local), {
 			name: 'Codex',
 			executable: 'codex',
 			waitOnExit: 'Codex session ended. Press any key to close it, or restart it from its tab.',
 			hideFromUser: true
 		});
-		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-claude'), {
+		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-claude', local), {
 			name: 'Claude Code',
 			executable: 'claude',
+			args: ['--append-system-prompt', BASEHALF_AGENT_LAUNCH_INSTRUCTIONS],
 			waitOnExit: 'Claude Code session ended. Press any key to close it, or restart it from its tab.',
 			hideFromUser: true
 		});
-		assert.strictEqual(baseHalfTuiSessionLaunchConfig('terminal'), undefined);
-		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-codex'), undefined);
-		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-claude'), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('terminal', local), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-codex', local), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-claude', local), undefined);
+	});
+
+	test('passes launch context only to local Claude Code TUI sessions on macOS and Linux in unmarked workspaces', () => {
+		const argsOf = (kind: BaseHalfAgentSessionKind, context: Partial<IBaseHalfTuiSessionLaunchContext> = {}) => baseHalfTuiSessionLaunchConfig(kind, {
+			isRemote: false,
+			os: OperatingSystem.Macintosh,
+			hasMarkedWorkspaceFolder: false,
+			...context
+		})?.args;
+		const withContext = ['--append-system-prompt', BASEHALF_AGENT_LAUNCH_INSTRUCTIONS];
+
+		assert.deepStrictEqual({
+			localMacClaude: argsOf('tui-claude'),
+			localLinuxClaude: argsOf('tui-claude', { os: OperatingSystem.Linux }),
+			// A restart builds its launch configuration with the same function.
+			restartedClaude: argsOf('tui-claude'),
+			remoteClaude: argsOf('tui-claude', { isRemote: true }),
+			windowsClaude: argsOf('tui-claude', { os: OperatingSystem.Windows }),
+			markedWorkspaceClaude: argsOf('tui-claude', { hasMarkedWorkspaceFolder: true }),
+			fallbackClaude: argsOf('tui-claude', { launchInstructions: false }),
+			codex: argsOf('tui-codex'),
+			terminal: argsOf('terminal'),
+			extensionClaude: argsOf('extension-claude'),
+			extensionCodex: argsOf('extension-codex')
+		}, {
+			localMacClaude: withContext,
+			localLinuxClaude: withContext,
+			restartedClaude: withContext,
+			remoteClaude: undefined,
+			windowsClaude: undefined,
+			markedWorkspaceClaude: undefined,
+			fallbackClaude: undefined,
+			codex: undefined,
+			terminal: undefined,
+			extensionClaude: undefined,
+			extensionCodex: undefined
+		});
+		assert.strictEqual(baseHalfTuiSessionReceivesLaunchInstructions('tui-claude', { isRemote: false, os: OperatingSystem.Linux, hasMarkedWorkspaceFolder: false }), true);
+		assert.strictEqual(baseHalfHasAgentLaunchInstructions(argsOf('tui-claude')), true);
+		assert.strictEqual(baseHalfStripAgentLaunchInstructions(argsOf('tui-claude')), undefined);
+		assert.deepStrictEqual(baseHalfStripAgentLaunchInstructions(['--model', 'opus', ...withContext]), ['--model', 'opus']);
+	});
+
+	test('relaunches once without launch context after an early non-zero exit before user input', () => {
+		let now = 1000;
+		const monitor = new BaseHalfAgentLaunchInstructionsMonitor(() => now);
+
+		// The installed CLI rejects the argument and exits at once.
+		monitor.didLaunch(true);
+		now += 800;
+		assert.strictEqual(monitor.shouldRelaunchWithoutInstructions(1), true);
+		assert.strictEqual(monitor.enabled, false);
+
+		// The session relaunched without the argument; a later early failure
+		// is not retried, and restarts keep the argument off.
+		monitor.didLaunch(false);
+		now += 100;
+		assert.strictEqual(monitor.shouldRelaunchWithoutInstructions(1), false);
+		monitor.didLaunch(true);
+		now += 100;
+		assert.strictEqual(monitor.shouldRelaunchWithoutInstructions(1), false);
+	});
+
+	test('keeps launch context after late, successful, or user-driven exits', () => {
+		let now = 0;
+		const exitAfter = (options: { readonly elapsed: number; readonly code: number | undefined; readonly input?: boolean; readonly withInstructions?: boolean }) => {
+			const monitor = new BaseHalfAgentLaunchInstructionsMonitor(() => now);
+			monitor.didLaunch(options.withInstructions ?? true);
+			if (options.input) {
+				monitor.didReceiveUserInput();
+			}
+			now += options.elapsed;
+			return { relaunch: monitor.shouldRelaunchWithoutInstructions(options.code), enabled: monitor.enabled };
+		};
+
+		assert.deepStrictEqual({
+			early: exitAfter({ elapsed: 4999, code: 2 }),
+			atLimit: exitAfter({ elapsed: 5000, code: 2 }),
+			late: exitAfter({ elapsed: 5001, code: 2 }),
+			success: exitAfter({ elapsed: 100, code: 0 }),
+			unknownCode: exitAfter({ elapsed: 100, code: undefined }),
+			afterInput: exitAfter({ elapsed: 100, code: 2, input: true }),
+			withoutArgument: exitAfter({ elapsed: 100, code: 2, withInstructions: false })
+		}, {
+			early: { relaunch: true, enabled: false },
+			atLimit: { relaunch: true, enabled: false },
+			late: { relaunch: false, enabled: true },
+			success: { relaunch: false, enabled: true },
+			unknownCode: { relaunch: false, enabled: true },
+			afterInput: { relaunch: false, enabled: true },
+			withoutArgument: { relaunch: false, enabled: true }
+		});
 	});
 
 	test('grants the local bridge only to Agent Area terminal-rendered sessions', () => {

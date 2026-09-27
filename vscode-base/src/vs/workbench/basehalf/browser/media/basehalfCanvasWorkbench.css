@@ -4056,10 +4056,6 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.35;
 }
 
-.monaco-workbench .basehalf-canvas-card-badge-list.inbound {
-	padding-left: 8px;
-}
-
 .monaco-workbench .basehalf-canvas-card-badge-row {
 	display: flex;
 	align-items: center;
@@ -4079,7 +4075,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-badge-link,
 .monaco-workbench .basehalf-canvas-card-add-reference,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle {
+.monaco-workbench .basehalf-canvas-card-add-downstream {
 	min-width: 0;
 	padding: 0;
 	overflow: hidden;
@@ -4095,38 +4091,35 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-badge-link:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-reference:focus-visible,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle:focus-visible,
+.monaco-workbench .basehalf-canvas-card-add-downstream:focus-visible,
 .monaco-workbench .basehalf-canvas-card-badge-remove:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder, var(--bh-card-accent));
 	outline-offset: 2px;
 }
 
 .monaco-workbench .basehalf-canvas-card-add-reference,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle {
+.monaco-workbench .basehalf-canvas-card-add-downstream {
 	align-self: flex-start;
 	color: var(--bh-card-text-ghost);
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 }
 
-.monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-reference {
+.monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-reference,
+.monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-downstream {
 	margin-top: 4px;
-}
-
-.monaco-workbench .basehalf-canvas-card-inbound-toggle {
-	align-self: flex-end;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-link:hover,
 .monaco-workbench .basehalf-canvas-card-add-reference:hover,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle:hover,
+.monaco-workbench .basehalf-canvas-card-add-downstream:hover,
 .monaco-workbench .basehalf-canvas-card-badge-link:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-reference:focus-visible,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle:focus-visible {
+.monaco-workbench .basehalf-canvas-card-add-downstream:focus-visible {
 	color: var(--bh-card-accent);
 }
 
 .monaco-workbench .basehalf-canvas-card-add-reference:disabled,
-.monaco-workbench .basehalf-canvas-card-inbound-toggle:disabled {
+.monaco-workbench .basehalf-canvas-card-add-downstream:disabled {
 	opacity: 0.55;
 	cursor: wait;
 }
@@ -4162,6 +4155,74 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-badge-row[aria-busy="true"] .basehalf-canvas-card-badge-link {
 	opacity: 0.62;
+}
+
+/* Upstream and Downstream sections of the badge editor (D37). */
+.monaco-workbench .basehalf-canvas-card-badge-section-title {
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-helper,
+.monaco-workbench .basehalf-canvas-card-badge-empty {
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-empty {
+	color: var(--bh-card-text-ghost);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue,
+.monaco-workbench .basehalf-canvas-card-badge-issue-row.upstream-issue {
+	flex-wrap: wrap;
+	padding: 4px 6px;
+	background: color-mix(in srgb, var(--bh-card-warning) 8%, transparent);
+	border: 1px solid color-mix(in srgb, var(--bh-card-warning) 32%, transparent);
+	border-radius: 6px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue .basehalf-canvas-card-badge-direction {
+	color: var(--bh-card-warning);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.historical {
+	flex-wrap: wrap;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-entry-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-primary);
+	font: 12px/18px "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.historical .basehalf-canvas-card-badge-entry-text {
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-role {
+	flex: none;
+	margin-left: auto;
+	color: var(--bh-card-text-tertiary);
+	font-size: 10px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	flex-basis: 100%;
+	padding-left: 19px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-relink-slot:empty {
+	display: none;
 }
 
 .monaco-workbench .basehalf-canvas-card-coverage {
@@ -4401,6 +4462,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	position: absolute;
 	left: 14px;
 	bottom: 58px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.monaco-workbench .basehalf-canvas-connections-status {
+	position: absolute;
+	left: 14px;
+	bottom: 78px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
 }
@@ -4794,7 +4863,11 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--vscode-editorWarning-foreground);
 }
 
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-message {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-message,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section-title,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-helper,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-empty,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-role {
 	color: var(--vscode-descriptionForeground);
 }
 
@@ -4806,7 +4879,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream {
 	color: var(--basehalf-detail-badge-ghost);
 }
 
@@ -4815,25 +4888,28 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--vscode-textLink-foreground);
 }
 
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream {
 	padding: 1px 7px;
 	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 58%, transparent);
 	border-radius: 999px;
 }
 
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:hover {
 	border-color: color-mix(in srgb, var(--vscode-foreground) 42%, transparent);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
 }
 
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:focus-visible {
 	border-color: color-mix(in srgb, var(--vscode-focusBorder) 65%, transparent);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
-.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle:hover {
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:hover {
 	color: var(--vscode-textLink-foreground);
 }
 

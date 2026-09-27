@@ -21,9 +21,7 @@ import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js'
 import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
 import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
-import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
-import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
@@ -32,11 +30,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly editorHost: HTMLElement;
 
 	private editor: CodeEditorWidget | undefined;
-	private state: IBaseHalfCardDetailState | undefined;
 	private resourceKey: string | undefined;
-	private focusTimer: number | undefined;
-	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
-	private lastFocusKey: string | undefined;
 	private saving = false;
 	private visible = false;
 	private disposed = false;
@@ -57,8 +51,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
-		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -105,8 +97,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	}
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
-		this.state = state;
-		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.setSaveStatus('saving');
 
@@ -125,13 +115,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
 			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
-			this._register(editor.onDidChangeCursorPosition(() => this.scheduleFocusWrite()));
-			this._register(editor.onDidScrollChange(() => this.scheduleFocusWrite()));
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
 			this.applySelection(state.selection, ScrollType.Immediate);
 			this.updateStatus();
-			this.flushFocusWrite();
 			// open() resolves at the first meaningful frame: wait for the
 			// layout pass so a projection swap held on this promise never
 			// reveals an unmeasured, unpainted editor.
@@ -149,25 +136,17 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
-		if (this.focusTimer !== undefined) {
-			mainWindow.clearTimeout(this.focusTimer);
-			this.focusTimer = undefined;
-		}
 		super.dispose();
 	}
 
 	/**
 	 * Re-entry hook for a retained (hidden) surface becoming the visible
 	 * projection again: adopt the latest navigation state, re-measure, and
-	 * re-assert this projection in the focus mirror (the previous projection
-	 * owned it while this one was hidden).
+	 * re-apply the navigation selection.
 	 */
 	activate(state: IBaseHalfCardDetailState): void {
-		this.state = state;
 		this.layout();
 		this.applySelection(state.selection, ScrollType.Immediate);
-		this.lastFocusKey = undefined;
-		this.flushFocusWrite();
 	}
 
 	setVisible(visible: boolean): void {
@@ -190,7 +169,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			selectionRevealType: TextEditorSelectionRevealType.CenterIfOutsideViewport,
 			selectionSource: TextEditorSelectionSource.NAVIGATION
 		}, this.editor, scrollType);
-		this.scheduleFocusWrite(0);
 	}
 
 	async save(): Promise<void> {
@@ -364,41 +342,5 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			width: Math.max(0, this.editorHost.clientWidth),
 			height: Math.max(0, this.editorHost.clientHeight)
 		});
-	}
-
-	private scheduleFocusWrite(delay = 200): void {
-		if (this.focusTimer !== undefined) {
-			mainWindow.clearTimeout(this.focusTimer);
-		}
-
-		this.focusTimer = mainWindow.setTimeout(() => {
-			this.focusTimer = undefined;
-			this.flushFocusWrite();
-		}, delay);
-	}
-
-	private flushFocusWrite(): void {
-		const state = this.state;
-		const stamp = this.focusStamp;
-		const editor = this.editor;
-		if (!state || !stamp || !editor?.hasModel()) {
-			return;
-		}
-
-		const position = editor.getPosition();
-		const firstVisibleLine = editor.getVisibleRanges()[0]?.startLineNumber ?? position?.lineNumber ?? 1;
-		const fields = {
-			projection: state.projection,
-			visible_lines: { start: firstVisibleLine },
-			...(position ? { cursor: { line: position.lineNumber, column: position.column, line_precision: 'exact' as const } } : {})
-		};
-		const key = `${stamp.structuralEpoch}:${JSON.stringify(fields)}`;
-		if (key === this.lastFocusKey) {
-			return;
-		}
-
-		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
-			this.focusMirrorService.writeFileFocus(state, fields, lease)
-		).then(() => this.lastFocusKey = key).catch(error => this.logService.error(error));
 	}
 }

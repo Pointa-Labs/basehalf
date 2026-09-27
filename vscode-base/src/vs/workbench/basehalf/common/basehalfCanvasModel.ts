@@ -5,7 +5,6 @@
 
 import { basename } from '../../../base/common/resources.js';
 import { IFileStat } from '../../../platform/files/common/files.js';
-import type { IBaseHalfBadgeReadProblem } from './basehalfBadgeMirror.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
 export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
@@ -66,30 +65,31 @@ export interface IBaseHalfCanvasCard {
 	readonly height: number;
 }
 
+/**
+ * The human-authored part of a node's `badge.yaml`: its one-line description
+ * and the orphan flag. References are not badge metadata (D37); they live in
+ * the downstream node's own upstream list.
+ */
 export interface IBaseHalfCanvasBadgeMetadata {
 	readonly description?: string;
-	readonly references: readonly string[];
-	readonly referenced_by: readonly string[];
 	readonly orphan?: boolean;
 }
 
-export interface IBaseHalfCanvasBadgeRelationships {
-	readonly references: readonly string[];
-	readonly referencedBy: readonly string[];
-	readonly issues: readonly IBaseHalfCanvasBadgeRelationshipIssue[];
-}
-
-export type BaseHalfCanvasBadgeRelationshipIssueDirection = 'outbound' | 'inbound';
-export type BaseHalfCanvasBadgeRelationshipIssueReason = 'incomplete' | 'unreadable';
-
-export interface IBaseHalfCanvasBadgeRelationshipIssue {
-	/** Direction relative to the badge passed to `baseHalfCanvasBadgeRelationships`. */
-	readonly direction: BaseHalfCanvasBadgeRelationshipIssueDirection;
-	readonly from: string;
-	readonly to: string;
-	readonly reason: BaseHalfCanvasBadgeRelationshipIssueReason;
-	/** Present when the missing reciprocal endpoint could not be read. */
-	readonly problem?: IBaseHalfBadgeReadProblem;
+/**
+ * A card's connections, derived from the reference index (D37). The canvas
+ * never stores them.
+ */
+export interface IBaseHalfCanvasItemRelationships {
+	/**
+	 * Workspace-relative paths of the nodes this card's valid, non-dangling
+	 * upstream entries name, in list order. An entry that names a sibling card
+	 * is spelled exactly like that card's path, so edges can be derived by path.
+	 */
+	readonly upstream: readonly string[];
+	/** Workspace-relative paths of the nodes whose upstream lists name this card. */
+	readonly downstream: readonly string[];
+	/** Warning rows of this card's Upstream list plus store-level issues. */
+	readonly issueCount: number;
 }
 
 export interface IBaseHalfCanvasEdge {
@@ -113,6 +113,8 @@ export interface IBaseHalfCanvasItem {
 	readonly stat: IFileStat;
 	readonly card?: IBaseHalfCanvasCard;
 	readonly badge?: IBaseHalfCanvasBadgeMetadata;
+	/** Present when the card has upstream or downstream connections or issues. */
+	readonly relationships?: IBaseHalfCanvasItemRelationships;
 }
 
 /**
@@ -186,7 +188,11 @@ export interface IBaseHalfCanvasModelOptions {
 	readonly rootLevel: boolean;
 	readonly folderRelativePath?: string;
 	readonly canvas?: IBaseHalfCanvasFile | null;
+	/** Badge descriptions by workspace-relative path. */
 	readonly badges?: ReadonlyMap<string, IBaseHalfCanvasBadgeMetadata>;
+	/** Connections by workspace-relative path, from the reference index. Edges
+	 *  are drawn only from these; omit them while the index is building. */
+	readonly relationships?: ReadonlyMap<string, IBaseHalfCanvasItemRelationships>;
 }
 
 export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
@@ -204,6 +210,32 @@ export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): bool
 	}
 
 	return !HIDDEN_FILE_NAMES.has(name);
+}
+
+/** Directory names the canvas never shows as cards (and never walks into). */
+export const BASEHALF_CANVAS_SKIP_NAMES: ReadonlySet<string> = SKIP_NAMES;
+
+/**
+ * Whether every segment of a workspace-relative path is one the canvas could
+ * show as a card, by name alone (the same rules as {@link isBaseHalfCanvasEntry}).
+ */
+export function isBaseHalfCanvasPathEligible(relativePath: string, isDirectory: boolean): boolean {
+	if (!relativePath) {
+		return false;
+	}
+	const segments = relativePath.split('/');
+	return segments.every((name, index) => {
+		if (!name) {
+			return false;
+		}
+		if (index < segments.length - 1 || isDirectory) {
+			return !SKIP_NAMES.has(name);
+		}
+		if (index === 0 && AGENT_HINT_FILES.has(name)) {
+			return false;
+		}
+		return !HIDDEN_FILE_NAMES.has(name);
+	});
 }
 
 export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHalfCanvasModelOptions): IBaseHalfCanvasFolderModel {
@@ -225,19 +257,21 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		const kind: BaseHalfCanvasItemKind = stat.isDirectory ? 'folder' : 'file';
 		const card = cardByPath.get(path);
 		const badge = options.badges?.get(path);
+		const relationships = options.relationships?.get(path);
 		return {
 			path,
 			name,
 			kind,
 			stat,
 			...(card ? { card } : {}),
-			...(badge ? { badge } : {})
+			...(badge ? { badge } : {}),
+			...(relationships && baseHalfCanvasRelationshipsArePresent(relationships) ? { relationships } : {})
 		};
 	});
 
 	// The child cap only ever cuts UN-annotated filler: a child the user has
-	// touched — described, linked, placed, or orphaned — is part of the curated
-	// set and always survives, no matter how large the flat folder is.
+	// touched — described, connected, placed, or orphaned — is part of the
+	// curated set and always survives, no matter how large the flat folder is.
 	let items = allItems;
 	if (allItems.length > BASEHALF_CANVAS_CHILD_LIMIT) {
 		const annotated = allItems.filter(item => isAnnotatedItem(item));
@@ -254,103 +288,50 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 
 	return {
 		items,
-		edges: deriveCanvasEdges(items, options.canvas?.edges ?? [], options.badges ?? new Map()),
+		edges: deriveCanvasEdges(items, options.canvas?.edges ?? []),
 		truncated: Math.max(0, allItems.length - items.length),
 		size: options.canvas?.size
 	};
 }
 
-/**
- * Resolve only fully recorded context-flow relationships for one badge. Agent
- * writes can update the two mirror files sequentially, so every product surface
- * must fail closed during the one-sided interval instead of presenting a
- * relationship that the canvas cannot draw.
- */
-export function baseHalfCanvasBadgeRelationships(
-	path: string,
-	badge: IBaseHalfCanvasBadgeMetadata | undefined,
-	badges: ReadonlyMap<string, IBaseHalfCanvasBadgeMetadata>,
-	problems?: ReadonlyMap<string, IBaseHalfBadgeReadProblem>
-): IBaseHalfCanvasBadgeRelationships {
-	const references: string[] = [];
-	const referencedBy: string[] = [];
-	const issues: IBaseHalfCanvasBadgeRelationshipIssue[] = [];
-	for (const to of new Set(badge?.references ?? [])) {
-		if (to === path) {
-			continue;
-		}
-		if (badges.get(to)?.referenced_by.includes(path)) {
-			references.push(to);
-			continue;
-		}
-		const problem = problems?.get(to);
-		issues.push({
-			direction: 'outbound',
-			from: path,
-			to,
-			reason: problem ? 'unreadable' : 'incomplete',
-			...(problem ? { problem } : {})
-		});
-	}
-	for (const from of new Set(badge?.referenced_by ?? [])) {
-		if (from === path) {
-			continue;
-		}
-		if (badges.get(from)?.references.includes(path)) {
-			referencedBy.push(from);
-			continue;
-		}
-		const problem = problems?.get(from);
-		issues.push({
-			direction: 'inbound',
-			from,
-			to: path,
-			reason: problem ? 'unreadable' : 'incomplete',
-			...(problem ? { problem } : {})
-		});
-	}
-	return {
-		references,
-		referencedBy,
-		issues
-	};
+/** Whether a card has any connection or connection issue worth keeping on the canvas. */
+export function baseHalfCanvasRelationshipsArePresent(relationships: IBaseHalfCanvasItemRelationships): boolean {
+	return relationships.upstream.length > 0 || relationships.downstream.length > 0 || relationships.issueCount > 0;
 }
 
 function isAnnotatedItem(item: IBaseHalfCanvasItem): boolean {
 	return item.card !== undefined
-		|| item.badge !== undefined; // badges are pruned when empty, so presence = authored content
+		|| item.badge !== undefined // badges are pruned when empty, so presence = authored content
+		|| item.relationships !== undefined; // a connected card is never cut by the child cap
 }
 
 /**
- * The edge set is DERIVED from the reference graph: an edge exists iff a child
- * REFERENCES a sibling child and that sibling records the reciprocal
- * REFERENCED_BY (both present on this canvas). A -> B means A's context flows
- * into B. The canvas.yaml `edges` supply only non-derivable anchor placement.
- * This keeps the drawing a strict visual projection of the
- * semantic graph: a reference an agent writes straight into badge.yaml draws
- * immediately (with default anchors), a reference removed anywhere never
- * leaves a phantom line, and a rename that rewrites the graph keeps its lines
- * even where the anchor placement went stale.
+ * The edge set is DERIVED from the downstream-owned upstream lists (D37): for
+ * each card `T` and each valid, non-dangling upstream entry `F` of `T` that is
+ * a sibling card, the canvas draws `F -> T` (context flows from F into T).
+ * `canvas.yaml` edge rows are anchor memory only: a row supplies the anchors
+ * of its pair when that pair is drawn, and a row with no live reference is
+ * ignored (and kept). Entries naming nodes outside this folder draw nothing;
+ * they appear in the badge editor and the toggle counts.
  */
 function deriveCanvasEdges(
 	items: readonly IBaseHalfCanvasItem[],
-	styled: readonly IBaseHalfCanvasEdge[],
-	badges: ReadonlyMap<string, IBaseHalfCanvasBadgeMetadata>
+	styled: readonly IBaseHalfCanvasEdge[]
 ): IBaseHalfCanvasEdge[] {
 	const itemPaths = new Set(items.map(item => item.path));
 	const boundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 	const styleByPair = new Map(styled.map(edge => [edgePairKey(edge.from, edge.to), edge]));
 	const edges: IBaseHalfCanvasEdge[] = [];
-	for (const item of items) {
-		for (const to of baseHalfCanvasBadgeRelationships(item.path, item.badge, badges).references) {
-			if (!itemPaths.has(to)) {
-				// Not a sibling on this canvas (e.g. a cross-folder reference):
-				// semantic-only, listed in the badge face, not drawable here.
+	const drawn = new Set<string>();
+	for (const target of items) {
+		for (const from of target.relationships?.upstream ?? []) {
+			const key = edgePairKey(from, target.path);
+			if (from === target.path || !itemPaths.has(from) || drawn.has(key)) {
 				continue;
 			}
-
-			const styledEdge = styleByPair.get(edgePairKey(item.path, to));
-			edges.push(styledEdge ?? baseHalfCanvasDefaultEdge(item.path, to, boundsByPath.get(item.path)!, boundsByPath.get(to)!));
+			drawn.add(key);
+			const styledEdge = styleByPair.get(key);
+			edges.push(styledEdge ?? baseHalfCanvasDefaultEdge(from, target.path, boundsByPath.get(from)!, boundsByPath.get(target.path)!));
 		}
 	}
 

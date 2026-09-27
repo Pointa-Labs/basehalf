@@ -4,10 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { isUUID } from '../../../base/common/uuid.js';
+import {
+	BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
+	baseHalfAnalyzeUpstreamItems,
+	baseHalfNormalizeUpstreamEntry,
+	IBaseHalfUpstreamIdentity,
+	IBaseHalfUpstreamItem,
+	IBaseHalfUpstreamItemValue
+} from './basehalfReferenceEntries.js';
 
 export const BASEHALF_NODE_DOCUMENT_EXTENSION = '.bhnode';
 export const BASEHALF_CANVAS_RUN_NODE_COMMAND_ID = 'basehalf.canvas.runNode';
-export const BASEHALF_NODE_DOCUMENT_VERSION = 3;
+/** Version 4 adds the required top-level `upstream` array (D37). Version 3
+ * documents are read with `upstream` derived from their bindings and are
+ * written as version 4 on the next host write. */
+export const BASEHALF_NODE_DOCUMENT_VERSION = 4;
+export const BASEHALF_NODE_DOCUMENT_LEGACY_VERSION = 3;
 export const BASEHALF_NODE_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 export const BASEHALF_NODE_MAX_ID_LENGTH = 128;
 export const BASEHALF_NODE_MAX_BINDINGS = 64;
@@ -289,6 +301,13 @@ export interface IBaseHalfNodeDocument {
 	readonly role: string;
 	/** Host-owned generation intent, editable only while this node is a Draft. */
 	readonly prompt: string;
+	/**
+	 * The node's upstream list, the only reference truth for this node. Items
+	 * are preserved verbatim: a non-string, invalid, self, duplicate, or
+	 * over-limit item is a readiness problem, never a parse error. Every
+	 * binding's `sourcePath` must be listed here (also a readiness problem).
+	 */
+	readonly upstream: readonly BaseHalfNodeJsonValue[];
 	readonly recipe?: IBaseHalfNodeRecipe;
 	/** Present exactly once after an import or the unique successful attempt. */
 	readonly result?: IBaseHalfNodeResult;
@@ -303,6 +322,9 @@ export interface ICreateBaseHalfNodeDocumentOptions {
 	readonly role: string;
 	/** Defaults to an empty Draft prompt. Persisted documents always contain the field. */
 	readonly prompt?: string;
+	/** Defaults to the distinct binding source paths in binding order, so a
+	 * created binding is always listed. */
+	readonly upstream?: readonly BaseHalfNodeJsonValue[];
 	readonly recipe?: IBaseHalfNodeRecipe;
 	readonly result?: IBaseHalfNodeResult;
 	readonly attempts?: readonly IBaseHalfNodeAttempt[];
@@ -327,6 +349,7 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 		title: 'Result',
 		role: 'Generated image',
 		prompt: 'Describe the intended result.',
+		upstream: ['brief.md'],
 		recipe: {
 			recipeId: 'replace-with-installed-recipe-id',
 			parameters: {},
@@ -336,12 +359,12 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 	const validatedExample = (document: IBaseHalfNodeDocument): BaseHalfNodeJsonValue =>
 		JSON.parse(serializeBaseHalfNodeDocument(document)) as BaseHalfNodeJsonValue;
 	return Object.freeze({
-		contractVersion: 1,
+		contractVersion: 2,
 		schema: {
 			'$schema': 'https://json-schema.org/draft/2020-12/schema',
 			type: 'object',
 			additionalProperties: false,
-			required: ['version', 'id', 'kind', 'title', 'role', 'prompt', 'attempts'],
+			required: ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'attempts'],
 			properties: {
 				version: { const: BASEHALF_NODE_DOCUMENT_VERSION },
 				id: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', minLength: 36, maxLength: 36 },
@@ -349,6 +372,12 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 				title: { type: 'string', minLength: 1, maxLength: MAX_TITLE_LENGTH },
 				role: { type: 'string', minLength: 1, maxLength: MAX_ROLE_LENGTH },
 				prompt: { type: 'string', maxLength: BASEHALF_NODE_PROMPT_MAX_LENGTH },
+				upstream: {
+					type: 'array',
+					maxItems: BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
+					uniqueItems: true,
+					items: { type: 'string', minLength: 1, maxLength: MAX_PATH_LENGTH, format: 'basehalf-workspace-relative-path' }
+				},
 				recipe: {
 					type: 'object',
 					additionalProperties: false,
@@ -388,7 +417,8 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 		rules: [
 			'Use only recipe, slot, parameter, and model service ids published for the open workspace.',
 			'Use prompt for the node-wide generation intent; do not duplicate it in recipe parameters.',
-			'Create reciprocal context references separately; each recipe binding must match one direct inbound reference.',
+			'List every node whose context flows into this node in upstream, as workspace-relative paths; the downstream node stores the connection.',
+			'Each recipe binding\'s sourcePath must be listed in the node\'s upstream; role and order stay owned by the binding.',
 			'Never author generated lifecycle state.'
 		]
 	});
@@ -440,8 +470,15 @@ export interface IInterruptBaseHalfNodeAttemptOptions {
 export interface IBaseHalfNodeReadinessContext {
 	/** Omit to perform structural readiness checks only. */
 	readonly availableModelServiceIds?: readonly string[];
-	/** Omit when direct source availability has not been resolved yet. */
+	/** Omit when direct source availability has not been resolved yet. Paths
+	 * are compared with `baseHalfProjectPathKey` unless `identity` is given. */
 	readonly availableSourcePaths?: readonly string[];
+	/** The node's workspace-relative path. Enables the upstream checks that
+	 * block submission of a Draft (per-entry problems, unbound entries, and
+	 * bindings whose source is not listed). */
+	readonly nodePath?: string;
+	/** Identity for upstream comparisons; defaults to `baseHalfProjectPathKey`. */
+	readonly identity?: IBaseHalfUpstreamIdentity;
 }
 
 export type BaseHalfNodeReadinessCode =
@@ -450,12 +487,25 @@ export type BaseHalfNodeReadinessCode =
 	| 'busy'
 	| 'sealed'
 	| 'modelServiceUnavailable'
+	/** An invalid upstream item (non-string, grammar, self, duplicate, past the 64th). */
+	| 'upstreamInvalid'
+	/** A binding whose source is not listed in `upstream`. */
+	| 'bindingNotInUpstream'
+	/** An upstream entry with no binding. */
+	| 'upstreamUnbound'
+	/** A bound or listed source that does not exist (a dangling entry). */
 	| 'sourceUnavailable';
 
 export interface IBaseHalfNodeReadiness {
 	readonly ready: boolean;
 	readonly code: BaseHalfNodeReadinessCode;
 	readonly missingSourcePaths?: readonly string[];
+	/** `upstreamInvalid`: the invalid items. */
+	readonly invalidUpstream?: readonly IBaseHalfUpstreamItem[];
+	/** `bindingNotInUpstream`: the binding source paths that are not listed. */
+	readonly unlistedBindingPaths?: readonly string[];
+	/** `upstreamUnbound`: the listed entries without a binding. */
+	readonly unboundUpstreamPaths?: readonly string[];
 }
 
 export class BaseHalfNodeDocumentError extends Error {
@@ -526,7 +576,7 @@ export function serializeBaseHalfNodeDocument(document: IBaseHalfNodeDocument): 
 	return serialized;
 }
 
-/** Creates a validated, deeply frozen v3 document. The caller supplies the stable UUID. */
+/** Creates a validated, deeply frozen v4 document. The caller supplies the stable UUID. */
 export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentOptions): IBaseHalfNodeDocument {
 	return normalizeDocument({
 		version: BASEHALF_NODE_DOCUMENT_VERSION,
@@ -535,6 +585,7 @@ export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentO
 		title: options.title,
 		role: options.role,
 		prompt: options.prompt ?? '',
+		upstream: options.upstream ?? upstreamFromBindings(options.recipe?.inputBindings ?? []),
 		...(options.recipe ? { recipe: options.recipe } : {}),
 		...(options.result ? { result: options.result } : {}),
 		attempts: options.attempts ?? []
@@ -544,7 +595,8 @@ export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentO
 /**
  * Creates an independent node from a copied result container. A copy keeps the
  * authored setup, but receives a new stable identity and no inherited
- * connections, sealed result, imports, or attempt history.
+ * connections (`upstream: []` and no bindings), sealed result, imports, or
+ * attempt history.
  */
 export function forkBaseHalfNodeDocument(document: IBaseHalfNodeDocument, id: string): IBaseHalfNodeDocument {
 	const normalized = normalizeDocument(document);
@@ -554,6 +606,7 @@ export function forkBaseHalfNodeDocument(document: IBaseHalfNodeDocument, id: st
 		title: normalized.title,
 		role: normalized.role,
 		prompt: normalized.prompt,
+		upstream: [],
 		...(normalized.recipe ? {
 			recipe: {
 				...normalized.recipe,
@@ -795,21 +848,418 @@ export function getBaseHalfNodeReadiness(
 		}
 	}
 
+	const identity = context.identity ?? BASEHALF_PROJECT_PATH_IDENTITY;
+	const analysis = context.nodePath !== undefined ? analyzeBaseHalfNodeUpstream(normalized, context.nodePath, identity) : undefined;
+	if (analysis) {
+		const invalidUpstream = analysis.items.filter(item => item.problem !== undefined);
+		if (invalidUpstream.length) {
+			return Object.freeze({ ready: false, code: 'upstreamInvalid', invalidUpstream: Object.freeze(invalidUpstream) });
+		}
+		if (analysis.unlistedBindingPaths.length) {
+			return Object.freeze({ ready: false, code: 'bindingNotInUpstream', unlistedBindingPaths: analysis.unlistedBindingPaths });
+		}
+		if (analysis.unboundPaths.length) {
+			return Object.freeze({ ready: false, code: 'upstreamUnbound', unboundUpstreamPaths: analysis.unboundPaths });
+		}
+	}
+
 	if (context.availableSourcePaths) {
-		const available = new Set(context.availableSourcePaths);
-		const missingSourcePaths = [...new Set(normalized.recipe.inputBindings
-			.map(binding => binding.sourcePath)
-			.filter(sourcePath => !available.has(sourcePath)))];
-		if (missingSourcePaths.length) {
+		const available = new Set(context.availableSourcePaths.map(path => identity.key(path)));
+		const candidates = [
+			...normalized.recipe.inputBindings.map(binding => binding.sourcePath),
+			...(analysis?.items.flatMap(item => item.path === undefined ? [] : [item.path]) ?? [])
+		];
+		const missing = new Map<string, string>();
+		for (const sourcePath of candidates) {
+			const key = identity.key(sourcePath);
+			if (!available.has(key) && !missing.has(key)) {
+				missing.set(key, sourcePath);
+			}
+		}
+		if (missing.size) {
 			return Object.freeze({
 				ready: false,
 				code: 'sourceUnavailable',
-				missingSourcePaths: Object.freeze(missingSourcePaths)
+				missingSourcePaths: Object.freeze([...missing.values()])
 			});
 		}
 	}
 
 	return Object.freeze({ ready: true, code: 'ready' });
+}
+
+/** Case-insensitive NFC identity of portable project paths. */
+export const BASEHALF_PROJECT_PATH_IDENTITY: IBaseHalfUpstreamIdentity = Object.freeze({
+	key: (path: string) => baseHalfProjectPathKey(path)
+});
+
+/** The upstream items of a node document, with per-entry problems. */
+export interface IBaseHalfNodeUpstreamAnalysis {
+	/** Every item, valid and invalid, in document order. Non-string items are
+	 * `notString`; items past the 64th are `overLimit`. */
+	readonly items: readonly IBaseHalfUpstreamItem[];
+	/** Recipe binding source paths that no valid entry lists. */
+	readonly unlistedBindingPaths: readonly string[];
+	/** Valid entries of a node with a recipe that no binding uses. */
+	readonly unboundPaths: readonly string[];
+	/** The binding for each item index, when that entry is bound. */
+	readonly bindingByIndex: ReadonlyMap<number, IBaseHalfNodeInputBinding>;
+}
+
+/** Converts `.bhnode` upstream items to store-independent item values. */
+export function baseHalfNodeUpstreamItemValues(upstream: readonly BaseHalfNodeJsonValue[]): IBaseHalfUpstreamItemValue[] {
+	return upstream.map(item => typeof item === 'string'
+		? { text: item, scalar: true }
+		: { text: safeJsonText(item), scalar: false });
+}
+
+/**
+ * Analyzes a node document's `upstream` for the node at `nodePath`. Every
+ * problem is per entry; the node's other fields stay readable.
+ */
+export function analyzeBaseHalfNodeUpstream(
+	document: IBaseHalfNodeDocument,
+	nodePath: string,
+	identity: IBaseHalfUpstreamIdentity = BASEHALF_PROJECT_PATH_IDENTITY
+): IBaseHalfNodeUpstreamAnalysis {
+	const items = baseHalfAnalyzeUpstreamItems(baseHalfNodeUpstreamItemValues(document.upstream), nodePath, identity, {
+		maxEntries: BASEHALF_UPSTREAM_MAX_NODE_ENTRIES,
+		nonScalarProblem: 'notString'
+	});
+	const bindings = document.recipe?.inputBindings ?? [];
+	const indexByKey = new Map<string, number>();
+	for (const item of items) {
+		if (item.path !== undefined) {
+			indexByKey.set(identity.key(item.path), item.index);
+		}
+	}
+	const bindingByIndex = new Map<number, IBaseHalfNodeInputBinding>();
+	const unlistedBindingPaths: string[] = [];
+	for (const binding of bindings) {
+		const index = indexByKey.get(identity.key(binding.sourcePath));
+		if (index === undefined) {
+			unlistedBindingPaths.push(binding.sourcePath);
+		} else {
+			bindingByIndex.set(index, binding);
+		}
+	}
+	const unboundPaths = document.recipe
+		? items.flatMap(item => item.path !== undefined && !bindingByIndex.has(item.index) ? [item.path] : [])
+		: [];
+	return Object.freeze({
+		items: Object.freeze(items),
+		unlistedBindingPaths: Object.freeze(unlistedBindingPaths),
+		unboundPaths: Object.freeze(unboundPaths),
+		bindingByIndex
+	});
+}
+
+/** Whether the node is a Draft: no Attempt and no sealed Result. */
+export function isBaseHalfNodeDraft(document: IBaseHalfNodeDocument): boolean {
+	return !document.result && document.attempts.length === 0;
+}
+
+export type BaseHalfNodeUpstreamEditRefusal =
+	/** A write that would exceed 64 entries. */
+	| 'limit'
+	/** A connect into a node with a recipe that has an Attempt or a Result. */
+	| 'recipeFrozen'
+	/** A bound entry or a binding can change only in a Draft. */
+	| 'boundOutsideDraft'
+	/** A binding was requested for a node without a Draft recipe. */
+	| 'noDraftRecipe'
+	/** The binding's order or slot conflicts with an existing binding. */
+	| 'bindingConflict'
+	/** A `replace` whose source entry is not listed. */
+	| 'entryMissing';
+
+export class BaseHalfNodeUpstreamEditError extends BaseHalfNodeDocumentError {
+	constructor(readonly refusal: BaseHalfNodeUpstreamEditRefusal, message: string) {
+		super(message);
+		this.name = 'BaseHalfNodeUpstreamEditError';
+	}
+}
+
+export interface IBaseHalfNodeUpstreamBindingRequest {
+	readonly slot: string;
+	/** Defaults to the next free order. */
+	readonly order?: number;
+	readonly sourceId?: string;
+	readonly sourceRevision?: string;
+}
+
+function entryKey(identity: IBaseHalfUpstreamIdentity, value: BaseHalfNodeJsonValue): string | undefined {
+	return typeof value === 'string' ? identity.key(baseHalfNormalizeUpstreamEntry(value)) : undefined;
+}
+
+/**
+ * Adds an upstream entry, optionally with its binding in the same write.
+ * An entry that is already listed is never listed twice: when a binding is
+ * requested for an unbound listed entry, that entry is bound. A node without
+ * a recipe accepts unbound entries in every state; a node with a recipe only
+ * while it is a Draft (`recipeFrozen` otherwise). Returns the input document
+ * when nothing changes.
+ */
+export function addBaseHalfNodeUpstreamEntry(
+	document: IBaseHalfNodeDocument,
+	entry: string,
+	binding?: IBaseHalfNodeUpstreamBindingRequest,
+	identity: IBaseHalfUpstreamIdentity = BASEHALF_PROJECT_PATH_IDENTITY
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	const path = baseHalfNormalizeUpstreamEntry(entry);
+	const key = identity.key(path);
+	const listed = normalized.upstream.some(item => entryKey(identity, item) === key);
+	const bindings = normalized.recipe?.inputBindings ?? [];
+	const bound = bindings.some(candidate => identity.key(candidate.sourcePath) === key);
+	if (listed && (!binding || bound)) {
+		return document;
+	}
+	if (!listed && normalized.recipe && !isBaseHalfNodeDraft(normalized)) {
+		throw new BaseHalfNodeUpstreamEditError('recipeFrozen', 'This node already has an attempt or sealed Result. Copy its settings to a new Draft before changing recipe inputs.');
+	}
+	if (!listed && normalized.upstream.length >= BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
+		throw new BaseHalfNodeUpstreamEditError('limit', `This node already has ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
+	}
+	const upstream = listed ? normalized.upstream : [...normalized.upstream, path];
+	if (!binding || bound) {
+		return normalizeDocument({ ...normalized, upstream });
+	}
+	if (!normalized.recipe || !isBaseHalfNodeDraft(normalized)) {
+		throw new BaseHalfNodeUpstreamEditError(normalized.recipe ? 'boundOutsideDraft' : 'noDraftRecipe', 'Inputs can be assigned only while this node is a Draft.');
+	}
+	const order = binding.order ?? bindings.reduce((next, candidate) => Math.max(next, candidate.order + 1), 0);
+	if (bindings.some(candidate => candidate.order === order)) {
+		throw new BaseHalfNodeUpstreamEditError('bindingConflict', `Input order ${order} is already assigned.`);
+	}
+	const inputBindings = [...bindings, {
+		sourcePath: path,
+		slot: binding.slot,
+		order,
+		...(binding.sourceId !== undefined ? { sourceId: binding.sourceId } : {}),
+		...(binding.sourceRevision !== undefined ? { sourceRevision: binding.sourceRevision } : {})
+	}];
+	return normalizeDocument({ ...normalized, upstream, recipe: { ...normalized.recipe, inputBindings } });
+}
+
+/**
+ * Removes every item naming the entry. An unbound entry can be removed in
+ * every state; removing a bound entry also removes its binding and is
+ * allowed only in a Draft. Returns the input document when nothing changes.
+ */
+export function removeBaseHalfNodeUpstreamEntry(
+	document: IBaseHalfNodeDocument,
+	entry: string,
+	identity: IBaseHalfUpstreamIdentity = BASEHALF_PROJECT_PATH_IDENTITY
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	const key = identity.key(baseHalfNormalizeUpstreamEntry(entry));
+	const upstream = normalized.upstream.filter(item => entryKey(identity, item) !== key);
+	const bindings = normalized.recipe?.inputBindings ?? [];
+	const retained = bindings.filter(binding => identity.key(binding.sourcePath) !== key);
+	if (upstream.length === normalized.upstream.length && retained.length === bindings.length) {
+		return document;
+	}
+	if (retained.length !== bindings.length && !isBaseHalfNodeDraft(normalized)) {
+		throw new BaseHalfNodeUpstreamEditError('boundOutsideDraft', 'A bound input can be disconnected only while this node is a Draft.');
+	}
+	return normalizeDocument({
+		...normalized,
+		upstream,
+		...(normalized.recipe && retained.length !== bindings.length ? {
+			recipe: { ...normalized.recipe, inputBindings: retained.map((binding, order) => ({ ...binding, order })) }
+		} : {})
+	});
+}
+
+/**
+ * Replaces the first item naming `from` in place. A bound entry's binding
+ * follows it, which is allowed only in a Draft. When `to` is already listed
+ * the `from` item is removed instead. Returns the input document when
+ * nothing changes.
+ */
+export function replaceBaseHalfNodeUpstreamEntry(
+	document: IBaseHalfNodeDocument,
+	from: string,
+	to: string,
+	identity: IBaseHalfUpstreamIdentity = BASEHALF_PROJECT_PATH_IDENTITY
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	const fromKey = identity.key(baseHalfNormalizeUpstreamEntry(from));
+	const toPath = baseHalfNormalizeUpstreamEntry(to);
+	const toKey = identity.key(toPath);
+	const index = normalized.upstream.findIndex(item => entryKey(identity, item) === fromKey);
+	const toListed = normalized.upstream.some(item => entryKey(identity, item) === toKey);
+	if (index < 0) {
+		if (toListed) {
+			return document;
+		}
+		throw new BaseHalfNodeUpstreamEditError('entryMissing', `'${from}' is no longer listed as upstream.`);
+	}
+	if (toListed && fromKey !== toKey) {
+		return removeBaseHalfNodeUpstreamEntry(normalized, from, identity);
+	}
+	if (normalized.upstream[index] === toPath) {
+		return document;
+	}
+	const upstream = normalized.upstream.map((item, candidate) => candidate === index ? toPath : item);
+	const bindings = normalized.recipe?.inputBindings ?? [];
+	const rebound = bindings.some(binding => identity.key(binding.sourcePath) === fromKey);
+	if (rebound && !isBaseHalfNodeDraft(normalized)) {
+		throw new BaseHalfNodeUpstreamEditError('boundOutsideDraft', 'A bound input can change only while this node is a Draft.');
+	}
+	return normalizeDocument({
+		...normalized,
+		upstream,
+		...(normalized.recipe && rebound ? {
+			recipe: {
+				...normalized.recipe,
+				inputBindings: bindings.map(binding => identity.key(binding.sourcePath) === fromKey ? { ...binding, sourcePath: toPath } : binding)
+			}
+		} : {})
+	});
+}
+
+/**
+ * Replaces the upstream items and bindings wholesale (canvas undo and redo,
+ * positional issue actions). Binding changes are allowed only in a Draft.
+ * Upstream changes above 64 items are refused unless they shrink the list.
+ */
+export function setBaseHalfNodeUpstream(
+	document: IBaseHalfNodeDocument,
+	upstream: readonly BaseHalfNodeJsonValue[],
+	inputBindings?: readonly IBaseHalfNodeInputBinding[]
+): IBaseHalfNodeDocument {
+	const normalized = normalizeDocument(document);
+	const bindings = normalized.recipe?.inputBindings ?? [];
+	const nextBindings = inputBindings ?? bindings;
+	const bindingsChanged = JSON.stringify(nextBindings) !== JSON.stringify(bindings);
+	const upstreamChanged = JSON.stringify(upstream) !== JSON.stringify(normalized.upstream);
+	if (!bindingsChanged && !upstreamChanged) {
+		return document;
+	}
+	if (upstream.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES && upstream.length > normalized.upstream.length) {
+		throw new BaseHalfNodeUpstreamEditError('limit', `This node already has ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
+	}
+	if (bindingsChanged) {
+		if (!normalized.recipe) {
+			throw new BaseHalfNodeUpstreamEditError('noDraftRecipe', 'This node has no recipe inputs.');
+		}
+		if (!isBaseHalfNodeDraft(normalized)) {
+			throw new BaseHalfNodeUpstreamEditError('boundOutsideDraft', 'Inputs can change only while this node is a Draft.');
+		}
+	}
+	return normalizeDocument({
+		...normalized,
+		upstream,
+		...(normalized.recipe && bindingsChanged ? { recipe: { ...normalized.recipe, inputBindings: nextBindings } } : {})
+	});
+}
+
+/** The lifecycle of a node document as far as reference edits care. */
+export type BaseHalfNodeUpstreamLifecycle = 'draft' | 'attempted' | 'sealed';
+
+/** What the lenient extractor could read from `.bhnode` text. */
+export type BaseHalfNodeUpstreamExtract =
+	| {
+		readonly readable: true;
+		readonly version: 3 | 4;
+		/** Upstream items verbatim (derived from bindings for version 3). */
+		readonly upstream: readonly BaseHalfNodeJsonValue[];
+		/** Bindings whose `sourcePath` is a string, in binding order. */
+		readonly bindings: readonly { readonly sourcePath: string; readonly slot?: string; readonly order?: number }[];
+		readonly lifecycle: BaseHalfNodeUpstreamLifecycle;
+		/** The sealed or imported Result artifact path, when one is recorded. */
+		readonly resultArtifactPath?: string;
+		readonly hasRecipe: boolean;
+	}
+	| { readonly readable: false; readonly reason: string };
+
+/**
+ * Reads the upstream state of `.bhnode` text without validating the rest of
+ * the document. The reference index and the plugin guard use this so a
+ * malformed unrelated field never hides a node's upstream list.
+ */
+export function extractBaseHalfNodeUpstreamLenient(source: string): BaseHalfNodeUpstreamExtract {
+	let value: unknown;
+	try {
+		value = JSON.parse(source.charCodeAt(0) === 0xFEFF ? source.slice(1) : source);
+	} catch {
+		return { readable: false, reason: 'The node document is not valid JSON.' };
+	}
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return { readable: false, reason: 'The node document must be an object.' };
+	}
+	const candidate = value as Record<string, unknown>;
+	const recipe = candidate.recipe && typeof candidate.recipe === 'object' && !Array.isArray(candidate.recipe)
+		? candidate.recipe as Record<string, unknown>
+		: undefined;
+	const rawBindings = Array.isArray(recipe?.inputBindings) ? recipe.inputBindings as unknown[] : [];
+	const bindings = rawBindings
+		.filter((binding): binding is Record<string, unknown> => !!binding && typeof binding === 'object' && typeof (binding as Record<string, unknown>).sourcePath === 'string')
+		.map(binding => ({
+			sourcePath: binding.sourcePath as string,
+			...(typeof binding.slot === 'string' ? { slot: binding.slot } : {}),
+			...(typeof binding.order === 'number' ? { order: binding.order } : {})
+		}))
+		.sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER));
+	let version: 3 | 4;
+	let upstream: readonly BaseHalfNodeJsonValue[];
+	if (candidate.version === BASEHALF_NODE_DOCUMENT_VERSION) {
+		if (!Array.isArray(candidate.upstream)) {
+			return { readable: false, reason: 'document.upstream must be an array.' };
+		}
+		version = 4;
+		upstream = candidate.upstream as BaseHalfNodeJsonValue[];
+	} else if (candidate.version === BASEHALF_NODE_DOCUMENT_LEGACY_VERSION) {
+		version = 3;
+		upstream = upstreamFromBindings(bindings);
+	} else {
+		return { readable: false, reason: `Unsupported node document version '${String(candidate.version)}'.` };
+	}
+	const attempts = Array.isArray(candidate.attempts) ? candidate.attempts : [];
+	const result = candidate.result && typeof candidate.result === 'object' ? candidate.result as Record<string, unknown> : undefined;
+	const artifact = result?.artifact && typeof result.artifact === 'object' ? result.artifact as Record<string, unknown> : undefined;
+	const resultArtifactPath = typeof artifact?.path === 'string' ? artifact.path : undefined;
+	return {
+		readable: true,
+		version,
+		upstream,
+		bindings,
+		lifecycle: result ? 'sealed' : attempts.length > 0 ? 'attempted' : 'draft',
+		...(resultArtifactPath !== undefined ? { resultArtifactPath } : {}),
+		hasRecipe: !!recipe
+	};
+}
+
+/** Version 3 compatibility: the distinct binding sources in binding order. */
+function upstreamFromBindings(bindings: readonly { readonly sourcePath: string; readonly order?: number }[]): string[] {
+	const seen = new Set<string>();
+	const upstream: string[] = [];
+	for (const binding of [...bindings].sort((left, right) => (left.order ?? 0) - (right.order ?? 0))) {
+		const key = baseHalfProjectPathKey(binding.sourcePath);
+		if (!seen.has(key)) {
+			seen.add(key);
+			upstream.push(binding.sourcePath);
+		}
+	}
+	return upstream;
+}
+
+/** The strict parser requires an array and keeps every item verbatim. */
+function upstreamItems(value: unknown): readonly BaseHalfNodeJsonValue[] {
+	if (!Array.isArray(value)) {
+		throw invalid('document.upstream must be an array.');
+	}
+	return value as BaseHalfNodeJsonValue[];
+}
+
+function safeJsonText(value: BaseHalfNodeJsonValue): string {
+	try {
+		return JSON.stringify(value) ?? String(value);
+	} catch {
+		return String(value);
+	}
 }
 
 /** Replaces the host-owned generation intent only while the node is a Draft. */
@@ -950,8 +1400,11 @@ function assertDraftRecipeIsMutable(document: IBaseHalfNodeDocument): void {
 
 function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 	const candidate = record(value, 'document');
-	assertOnlyKeys(candidate, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'recipe', 'result', 'attempts'], 'document');
-	if (candidate.version !== BASEHALF_NODE_DOCUMENT_VERSION) {
+	if (candidate.version === BASEHALF_NODE_DOCUMENT_LEGACY_VERSION) {
+		assertOnlyKeys(candidate, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'recipe', 'result', 'attempts'], 'document');
+	} else if (candidate.version === BASEHALF_NODE_DOCUMENT_VERSION) {
+		assertOnlyKeys(candidate, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'recipe', 'result', 'attempts'], 'document');
+	} else {
 		throw invalid(`Unsupported node document version '${String(candidate.version)}'.`);
 	}
 
@@ -986,6 +1439,10 @@ function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 		throw invalid('document.recipe is frozen after the first attempt and must match every attempt snapshot.');
 	}
 
+	const upstream = candidate.version === BASEHALF_NODE_DOCUMENT_LEGACY_VERSION
+		? upstreamFromBindings(recipe?.inputBindings ?? [])
+		: upstreamItems(candidate.upstream);
+
 	const result = candidate.result === undefined ? undefined : normalizeResult(candidate.result, 'document.result');
 	if (result && result.artifact.kind !== kind) {
 		throw invalid(`document.result.artifact.kind must match document.kind '${kind}'.`);
@@ -1015,6 +1472,7 @@ function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 		title,
 		role,
 		prompt,
+		upstream,
 		...(recipe ? { recipe } : {}),
 		...(result ? { result } : {}),
 		attempts: Object.freeze(attempts)
@@ -1770,6 +2228,7 @@ function freezeAttempt(value: IBaseHalfNodeAttempt): IBaseHalfNodeAttempt {
 function freezeDocument(value: IBaseHalfNodeDocument): IBaseHalfNodeDocument {
 	return Object.freeze({
 		...value,
+		upstream: Object.freeze([...value.upstream]),
 		...(value.recipe ? {
 			recipe: Object.freeze({
 				...value.recipe,

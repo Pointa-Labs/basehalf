@@ -303,7 +303,12 @@ export interface ITerminalLaunchResult {
 }
 
 export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
-export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 2;
+/**
+ * Version 3 (D37): capability discovery describes downstream-owned upstream
+ * lists (`inputBinding.scope: 'node-upstream'` and the `contextEdge` storage
+ * literals). Both ends validate these literals, so they change together.
+ */
+export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 3;
 
 export type BaseHalfNodeCommandOutcome = 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | 'rejected';
 
@@ -378,7 +383,8 @@ export interface IBaseHalfAgentCapabilityDiscoveryNodeDocument {
 	readonly documentVersion: number;
 	readonly resultKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
 	readonly inputBinding: {
-		readonly scope: 'direct-inbound-reference';
+		/** Every binding's `sourcePath` must be an entry of the node's own `upstream`. */
+		readonly scope: 'node-upstream';
 		readonly fields: readonly ['sourcePath', 'slot', 'order'];
 	};
 	readonly lifecycle: {
@@ -398,6 +404,12 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly target: 'direct-context';
 		readonly autoRun: false;
 		readonly recursive: false;
+		/** The edge is stored once, by its downstream (target) node. */
+		readonly storedBy: 'downstream';
+		/** A Markdown target lists its upstream in this frontmatter key. */
+		readonly markdownFrontmatterKey: 'upstream';
+		/** A `.bhnode` target lists its upstream in this top-level field. */
+		readonly nodeDocumentField: 'upstream';
 		readonly roleAndOrderOwner: 'target-recipe-binding';
 		readonly label: 'none';
 	};

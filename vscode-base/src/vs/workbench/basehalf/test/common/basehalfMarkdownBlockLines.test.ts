@@ -4,26 +4,26 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
-	IBaseHalfMarkdownFocusBlock,
+	IBaseHalfMarkdownBlockNode,
 	baseHalfMarkdownBlockFileLine,
-	baseHalfMarkdownBlockOrdinal,
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownBlockSourceSpan,
 	baseHalfMarkdownLinesToBlockIds,
 	baseHalfMarkdownTileSourceNewlines,
 	baseHalfMarkdownTopLevelBlockOf,
-	buildBaseHalfMarkdownFocusFields,
-	countBaseHalfMarkdownNewlines,
-	refineBaseHalfMarkdownCursorLine
-} from '../../common/basehalfMarkdownFocus.js';
+	countBaseHalfMarkdownNewlines
+} from '../../common/basehalfMarkdownBlockLines.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
 	IBaseHalfMarkdownReuseEntry,
 	segmentBaseHalfMarkdownBody
 } from '../../common/basehalfMarkdownProjection.js';
 
-suite('BaseHalfMarkdownFocus', () => {
+suite('BaseHalfMarkdownBlockLines', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	suite('countBaseHalfMarkdownNewlines', () => {
 		test('counts line breaks regardless of EOL style', () => {
 			assert.strictEqual(countBaseHalfMarkdownNewlines(''), 0);
@@ -67,7 +67,7 @@ suite('BaseHalfMarkdownFocus', () => {
 				['head', { key: '# Doc', raw: '# Doc\n\n', prefix: '', sep: '\n\n' }],
 				['body', { key: 'Body.', raw: 'Body.\n', prefix: '', sep: '\n' }]
 			]);
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [
+			const blocks: IBaseHalfMarkdownBlockNode[] = [
 				{ id: 'head', type: 'heading' },
 				{ id: 'cmt', type: BASEHALF_RAW_PASSTHROUGH_BLOCK, props: { raw: '<!-- a comment -->\n\n' } },
 				{ id: 'body', type: 'paragraph' }
@@ -99,7 +99,7 @@ suite('BaseHalfMarkdownFocus', () => {
 				['p0', { key: 'Intro.', raw: 'Intro.\n\n', prefix: '', sep: '\n\n' }],
 				['parent', { key: '- parent', raw: '- parent\n  - child\n', prefix: '', sep: '' }]
 			]);
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [
+			const blocks: IBaseHalfMarkdownBlockNode[] = [
 				{ id: 'p0', type: 'paragraph' },
 				{ id: 'parent', type: 'bulletListItem', children: [{ id: 'child', type: 'bulletListItem' }] }
 			];
@@ -115,24 +115,9 @@ suite('BaseHalfMarkdownFocus', () => {
 		});
 	});
 
-	suite('block ordinal and top-level resolution', () => {
-		test('counts nested blocks in rendered depth-first order', () => {
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [
-				{ id: 'p0' },
-				{ id: 'parent', children: [{ id: 'child1' }, { id: 'child2' }] },
-				{ id: 'after' }
-			];
-
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'p0'), 1);
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'parent'), 2);
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'child1'), 3);
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'child2'), 4);
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'after'), 5);
-			assert.strictEqual(baseHalfMarkdownBlockOrdinal(blocks, 'missing'), null);
-		});
-
+	suite('top-level resolution', () => {
 		test('resolves nested ids to top-level blocks', () => {
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [{ id: 'p0' }, { id: 'parent', children: [{ id: 'child' }] }];
+			const blocks: IBaseHalfMarkdownBlockNode[] = [{ id: 'p0' }, { id: 'parent', children: [{ id: 'child' }] }];
 
 			assert.deepStrictEqual(baseHalfMarkdownTopLevelBlockOf(blocks, 'p0'), { block: blocks[0], direct: true });
 			assert.deepStrictEqual(baseHalfMarkdownTopLevelBlockOf(blocks, 'child'), { block: blocks[1], direct: false });
@@ -140,7 +125,7 @@ suite('BaseHalfMarkdownFocus', () => {
 		});
 	});
 
-	suite('source spans and cursor precision', () => {
+	suite('source spans', () => {
 		test('counts only source bytes, excluding prefix and separator', () => {
 			assert.strictEqual(baseHalfMarkdownTileSourceNewlines({ key: 'a', raw: 'a\n\n', prefix: '', sep: '\n\n' }), 0);
 			assert.strictEqual(baseHalfMarkdownTileSourceNewlines({
@@ -156,7 +141,7 @@ suite('BaseHalfMarkdownFocus', () => {
 				['code', { key: '```', raw: '```\na\nb\n```\n\n', prefix: '', sep: '\n\n' }],
 				['parent', { key: '- parent', raw: '- parent\n  - child\n', prefix: '', sep: '\n' }]
 			]);
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [
+			const blocks: IBaseHalfMarkdownBlockNode[] = [
 				{ id: 'code', type: 'codeBlock' },
 				{ id: 'fresh', type: 'paragraph' },
 				{ id: 'parent', type: 'bulletListItem', children: [{ id: 'child', type: 'paragraph' }] }
@@ -166,40 +151,9 @@ suite('BaseHalfMarkdownFocus', () => {
 			assert.deepStrictEqual(baseHalfMarkdownBlockSourceSpan(blocks, 'fresh', byId, 0), { start: 6, end: 6 });
 			assert.deepStrictEqual(baseHalfMarkdownBlockSourceSpan(blocks, 'child', byId, 0), { start: 8, end: 9 });
 		});
-
-		test('refines cursor line precision', () => {
-			assert.deepStrictEqual(refineBaseHalfMarkdownCursorLine({
-				blockStart: 5,
-				hasEntry: false,
-				blockSourceNewlines: 0,
-				directHit: true,
-				codeWithinOffset: null
-			}), { line: 5, precision: 'estimated' });
-			assert.deepStrictEqual(refineBaseHalfMarkdownCursorLine({
-				blockStart: 5,
-				hasEntry: true,
-				blockSourceNewlines: 0,
-				directHit: true,
-				codeWithinOffset: null
-			}), { line: 5, precision: 'exact' });
-			assert.deepStrictEqual(refineBaseHalfMarkdownCursorLine({
-				blockStart: 10,
-				hasEntry: true,
-				blockSourceNewlines: 4,
-				directHit: true,
-				codeWithinOffset: 2
-			}), { line: 13, precision: 'exact' });
-			assert.deepStrictEqual(refineBaseHalfMarkdownCursorLine({
-				blockStart: 7,
-				hasEntry: true,
-				blockSourceNewlines: 3,
-				directHit: false,
-				codeWithinOffset: null
-			}), { line: 7, precision: 'block_start' });
-		});
 	});
 
-	suite('read ranges and focus fields', () => {
+	suite('read ranges', () => {
 		test('extends read spans through blank separators but not tight list lines', () => {
 			const paragraphs = indexBody('First.\n\nSecond.\n');
 			assert.deepStrictEqual(baseHalfMarkdownBlockReadSpan(paragraphs.blocks, 'b0', paragraphs.byId, 0), { start: 1, end: 2 });
@@ -217,37 +171,12 @@ suite('BaseHalfMarkdownFocus', () => {
 			assert.deepStrictEqual(baseHalfMarkdownLinesToBlockIds(blocks, byId, 0, [[8, 8]]), ['b2']);
 			assert.deepStrictEqual(baseHalfMarkdownLinesToBlockIds(blocks, byId, 0, []), []);
 		});
-
-		test('builds rich focus fields with source lines and visible block ordinals', () => {
-			const byId = new Map<string, IBaseHalfMarkdownReuseEntry>([
-				['intro', { key: 'Intro.', raw: 'Intro.\n\n', prefix: '', sep: '\n\n' }],
-				['code', { key: '```', raw: '```\na\nb\n```\n\n', prefix: '', sep: '\n\n' }],
-				['after', { key: 'After.', raw: 'After.\n', prefix: '', sep: '\n' }]
-			]);
-			const blocks: IBaseHalfMarkdownFocusBlock[] = [
-				{ id: 'intro', type: 'paragraph' },
-				{ id: 'code', type: 'codeBlock' },
-				{ id: 'after', type: 'paragraph' }
-			];
-
-			assert.deepStrictEqual(buildBaseHalfMarkdownFocusFields({
-				blocks,
-				byId,
-				frontmatterLines: 3,
-				cursor: { blockId: 'code', column: 2, codeWithinOffset: 1 },
-				visibleBlockId: 'after'
-			}), {
-				visible_lines: { start: 11 },
-				visible_blocks: { start: 3 },
-				cursor: { line: 8, column: 2, line_precision: 'exact', block: 2 }
-			});
-		});
 	});
 });
 
-function indexBody(body: string): { blocks: IBaseHalfMarkdownFocusBlock[]; byId: Map<string, IBaseHalfMarkdownReuseEntry> } {
+function indexBody(body: string): { blocks: IBaseHalfMarkdownBlockNode[]; byId: Map<string, IBaseHalfMarkdownReuseEntry> } {
 	const segments = segmentBaseHalfMarkdownBody(body);
-	const blocks: IBaseHalfMarkdownFocusBlock[] = [];
+	const blocks: IBaseHalfMarkdownBlockNode[] = [];
 	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
 	segments.forEach((segment, index) => {
 		const id = `b${index}`;

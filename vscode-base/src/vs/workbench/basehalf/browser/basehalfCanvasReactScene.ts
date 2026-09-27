@@ -35,6 +35,7 @@ import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
 	BaseHalfCanvasSceneSelectionAction,
+	baseHalfCanvasSceneConnectionRefusal,
 	baseHalfCanvasSceneSelectionActions,
 	baseHalfCanvasSceneVideoSelectionActions,
 	BaseHalfCanvasSceneContextMenuRequest,
@@ -1667,7 +1668,7 @@ function createCanvasSceneMount(
 		const metadata: Record<BaseHalfCanvasSceneSelectionAction, { readonly label: string; readonly icon: string }> = {
 			rename: { label: baseHalfCanvasSceneSelectionRenameLabel(nodes.length === 1 && nodes[0].data.card.renameChangesPathOnly === true), icon: 'edit' },
 			duplicate: { label: localize('basehalf.canvas.selection.duplicate', "Duplicate"), icon: 'files' },
-			copyReferences: { label: localize('basehalf.canvas.selection.copyReferences', "Copy references"), icon: 'copy' },
+			copyReferences: { label: localize('basehalf.canvas.selection.copyPaths', "Copy Paths"), icon: 'copy' },
 			delete: { label: localize('basehalf.canvas.selection.delete', "Delete"), icon: 'trash' }
 		};
 		const moveFocus = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
@@ -3126,6 +3127,11 @@ function createCanvasSceneMount(
 				|| targetNode?.data.sceneKey !== operationKey || targetNode.data.structuralEpoch !== operationEpoch) {
 				return;
 			}
+			const refusal = baseHalfCanvasSceneConnectionRefusal(targetNode.data.card);
+			if (refusal) {
+				delegate.reportError(new Error(refusal));
+				return;
+			}
 			const intent: IBaseHalfCanvasSceneConnection = {
 				from: connection.source,
 				fromKind: sourceNode.data.card.kind,
@@ -3230,6 +3236,11 @@ function createCanvasSceneMount(
 			const targetNode = nodesRef.current.find(node => node.id === connection.target);
 			if (sourceNode?.data.sceneKey !== operationKey || sourceNode.data.structuralEpoch !== operationEpoch
 				|| targetNode?.data.sceneKey !== operationKey || targetNode.data.structuralEpoch !== operationEpoch) {
+				return;
+			}
+			const refusal = baseHalfCanvasSceneConnectionRefusal(targetNode.data.card, previous.to);
+			if (refusal) {
+				delegate.reportError(new Error(refusal));
 				return;
 			}
 			const next: IBaseHalfCanvasSceneConnection = {

@@ -17,9 +17,8 @@ import { IChecksumService } from '../../../platform/checksum/common/checksumServ
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { IProgress } from '../../../platform/progress/common/progress.js';
+import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { ActivationKind, IExtensionService } from '../../services/extensions/common/extensions.js';
-import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
-import { IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import {
 	baseHalfCanvasContentKindForPath,
 	BaseHalfCanvasProviderTaskIntent,
@@ -39,6 +38,7 @@ import { createKeyedMutex } from '../common/basehalfKeyedMutex.js';
 import { baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
 import { IBaseHalfModelServiceAttemptSnapshot, IBaseHalfModelServiceDescriptor, IBaseHalfModelServiceService, isBaseHalfPublicHttpsBearerModelServiceConfiguration } from '../common/basehalfModelServices.js';
 import {
+	analyzeBaseHalfNodeUpstream,
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	baseHalfIsReservedOutputTreePath,
@@ -66,12 +66,14 @@ import {
 	IBaseHalfNodeAttemptUsage,
 	getBaseHalfNodeResultArtifact,
 	interruptBaseHalfNodeAttempt,
+	isBaseHalfNodeDraft,
 	normalizeBaseHalfNodeAttemptFailure,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	baseHalfProjectPathProblem,
 	serializeBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
+import { baseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
 import {
 	createBaseHalfProviderCreateAuthorizationGrant,
@@ -304,7 +306,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
-		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
+		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBaseHalfCanvasRecipeRegistryService private readonly recipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
 		@IBaseHalfCanvasRecipeRuntimeService private readonly recipeRuntimeService: IBaseHalfCanvasRecipeRuntimeService,
 		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService,
@@ -410,6 +412,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				const payload = await this.verifyAttemptSnapshotPayload(node, initial.document, retrySource, recipe);
 				inputs = this.resolvedInputsFromSnapshotPayload(retrySource, payload);
 			} else {
+				await this.assertDraftUpstreamReady(node, initial.document);
 				await this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings);
 				inputs = await this.preflightInputs(node, recipe, normalizedRecipe.inputBindings, CancellationToken.None);
 			}
@@ -896,6 +899,13 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			);
 			preflightInputs = this.resolvedInputsFromSnapshotPayload(retrySource, retrySnapshotPayload);
 		} else {
+			// The leased document is the only reference truth for this run: its
+			// own `upstream` and bindings. Readiness applies only to a Draft;
+			// exact Retry and recovery use the frozen Attempt payload instead.
+			await raceCancellationError(
+				this.assertDraftUpstreamReady(node, initial.document),
+				active.cancellation.token
+			);
 			await raceCancellationError(
 				this.assertDirectInputsSaved(node.workspaceFolder, normalizedRecipe.inputBindings),
 				active.cancellation.token
@@ -1036,6 +1046,8 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 				}
 				this.throwIfCancelled(active);
 				frozenNodeResource = URI.joinPath(inputDirectory, 'node.bhnode');
+				// The frozen declaration lists exactly the bound sources as its
+				// `upstream` (the default); unbound context never reaches a run.
 				const frozenDeclaration = createBaseHalfNodeDocument({
 					id: preparedDocument.id,
 					kind: preparedDocument.kind,
@@ -2230,31 +2242,52 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 			: `Save these direct inputs before running this node: ${dirtyPaths.join(', ')}.`);
 	}
 
+	/**
+	 * Draft submission readiness of the node's own upstream list (D37). Three
+	 * conditions block a Draft: an upstream entry without a binding, a dangling
+	 * entry (its source is missing), and a binding whose source is not listed
+	 * in `upstream`. Every invalid item blocks too. A node with an Attempt is
+	 * not checked: exact Retry and recovery never read `upstream`, so upstream
+	 * edits after the first Attempt never block or alter them.
+	 */
+	private async assertDraftUpstreamReady(target: IBaseHalfWorkspaceResource, document: IBaseHalfNodeDocument): Promise<void> {
+		if (!isBaseHalfNodeDraft(document)) {
+			return;
+		}
+		const identity = baseHalfUpstreamIdentity(target.workspaceFolder, this.uriIdentityService.extUri);
+		const analysis = analyzeBaseHalfNodeUpstream(document, target.relativePath, identity);
+		const invalid = analysis.items.filter(item => item.problem !== undefined);
+		if (invalid.length > 0) {
+			throw new Error(`Fix or remove the invalid upstream entries of this node before running it: ${invalid.map(item => `'${item.text}'`).join(', ')}.`);
+		}
+		if (analysis.unlistedBindingPaths.length > 0) {
+			throw new Error(`Every bound input must be listed in this node's upstream before running. Not listed: ${analysis.unlistedBindingPaths.join(', ')}.`);
+		}
+		if (analysis.unboundPaths.length > 0) {
+			throw new Error(`Assign every upstream connection to this recipe before running. Unassigned: ${analysis.unboundPaths.join(', ')}.`);
+		}
+		const missing: string[] = [];
+		for (const item of analysis.items) {
+			if (item.path !== undefined && !await this.fileService.exists(joinProjectPath(target.workspaceFolder, item.path))) {
+				missing.push(item.path);
+			}
+		}
+		if (missing.length > 0) {
+			throw new Error(missing.length === 1
+				? `Upstream source '${missing[0]}' no longer exists. Relink or remove it before running this node.`
+				: `These upstream sources no longer exist: ${missing.join(', ')}. Relink or remove them before running this node.`);
+		}
+	}
+
 	private async preflightInputs(
 		target: IBaseHalfWorkspaceResource,
 		recipe: IBaseHalfCanvasRecipeDescriptor,
 		bindings: readonly IBaseHalfNodeInputBinding[],
 		cancellationToken: CancellationToken
 	): Promise<readonly IResolvedInput[]> {
-		const targetNode: IBaseHalfBadgeNode = { ...target, kind: 'file' };
-		const neighborhood = await this.badgeGraphService.readBadgeNeighborhood(targetNode);
-		if (neighborhood.problems.length) {
-			throw new Error('One or more direct context references cannot be read. Repair them before running this node.');
-		}
-		const targetBadge = neighborhood.badges.get(target.relativePath);
-		const boundPaths = new Set(bindings.map(binding => binding.sourcePath));
-		const unassigned = (targetBadge?.referenced_by ?? []).filter(path => !boundPaths.has(path));
-		if (unassigned.length > 0) {
-			throw new Error(`Assign every direct context connection to this recipe before running. Unassigned: ${unassigned.join(', ')}.`);
-		}
-
 		const inputs: IResolvedInput[] = [];
 		for (const binding of bindings) {
 			throwIfNodeOperationCancelled(cancellationToken);
-			const sourceBadge = neighborhood.badges.get(binding.sourcePath);
-			if (!targetBadge?.referenced_by.includes(binding.sourcePath) || !sourceBadge?.references.includes(target.relativePath)) {
-				throw new Error(`'${binding.sourcePath}' is not a complete direct context reference into this node.`);
-			}
 			const source = await this.preflightSource(target.workspaceFolder, binding.sourcePath);
 			const revision = await this.getInputRevision(target.workspaceFolder, binding.sourcePath, { fresh: true });
 			inputs.push({
@@ -2326,24 +2359,9 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		inputDirectory: URI,
 		active: IActiveRun
 	): Promise<readonly IResolvedInput[]> {
-		const targetNode: IBaseHalfBadgeNode = { ...target, kind: 'file' };
-		const neighborhood = await this.badgeGraphService.readBadgeNeighborhood(targetNode);
-		if (neighborhood.problems.length) {
-			throw new Error('One or more direct context references cannot be read. Repair them before running this node.');
-		}
-		const targetBadge = neighborhood.badges.get(target.relativePath);
-		const boundPaths = new Set(bindings.map(binding => binding.sourcePath));
-		const unassigned = (targetBadge?.referenced_by ?? []).filter(path => !boundPaths.has(path));
-		if (unassigned.length > 0) {
-			throw new Error(`Assign every direct context connection to this recipe before running. Unassigned: ${unassigned.join(', ')}.`);
-		}
 		const resolved: IResolvedInput[] = [];
 		for (const binding of bindings) {
 			this.throwIfCancelled(active);
-			const sourceBadge = neighborhood.badges.get(binding.sourcePath);
-			if (!targetBadge?.referenced_by.includes(binding.sourcePath) || !sourceBadge?.references.includes(target.relativePath)) {
-				throw new Error(`'${binding.sourcePath}' is not a complete direct context reference into this node.`);
-			}
 			const source = await this.resolveSourceSnapshot(target.workspaceFolder, binding, inputDirectory, active);
 			resolved.push({
 				execution: {

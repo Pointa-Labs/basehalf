@@ -18,6 +18,14 @@ import {
 	baseHalfProjectPathProblem,
 	IBaseHalfNodeInputBinding
 } from './basehalfNodeDocument.js';
+import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES } from './basehalfReferenceEntries.js';
+import {
+	isBaseHalfUpstreamMarkdownName,
+	isBaseHalfUpstreamNodeDocumentName,
+	isBaseHalfUpstreamReservedOutput,
+	planBaseHalfMarkdownUpstreamEdit,
+	readBaseHalfMarkdownUpstream
+} from './basehalfReferenceStore.js';
 
 export const BASEHALF_CANVAS_TEMPLATE_VERSION = 1;
 export const BASEHALF_CANVAS_TEMPLATE_MAX_BYTES = 512 * 1024;
@@ -71,6 +79,11 @@ export interface IBaseHalfCanvasTemplateCard {
 	readonly height: number;
 }
 
+/**
+ * One template connection `from → to`. Templates keep this pair format; at
+ * instantiation the host stores it once, in the `to` node's `upstream` list
+ * (see {@link materializeBaseHalfCanvasTemplateUpstream}).
+ */
 export interface IBaseHalfCanvasTemplateReference {
 	readonly from: string;
 	readonly to: string;
@@ -96,7 +109,10 @@ export class BaseHalfCanvasTemplateError extends Error {
 /**
  * Parses the static, declarative template format accepted from reviewed
  * extensions. Templates create host-owned files and references; they cannot
- * carry Attempts, Results, credentials, executable code, or private extension state.
+ * carry Attempts, Results, credentials, executable code, or private extension
+ * state. A template never writes `upstream` itself: Markdown text files whose
+ * frontmatter has an `upstream` key are rejected, and so are references whose
+ * target cannot be downstream.
  */
 export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemplate {
 	if (typeof source !== 'string' || VSBuffer.fromString(source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
@@ -153,6 +169,17 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 		if (reference.from === reference.to) {
 			throw invalid(`Template reference '${reference.from}' cannot connect a resource to itself.`);
 		}
+		if (isBaseHalfUpstreamReservedOutput(reference.to)) {
+			throw invalid(`Template reference '${reference.from}' to '${reference.to}' targets the reserved outputs tree, which can't receive upstream context.`);
+		}
+	}
+	for (const file of files) {
+		if (isBaseHalfUpstreamMarkdownName(file.path)) {
+			const read = readBaseHalfMarkdownUpstream(file.contents);
+			if (read.hasKey || read.issue) {
+				throw invalid(`Template text file '${file.path}' cannot declare an 'upstream' key in its frontmatter. Use template references instead.`);
+			}
+		}
 	}
 	for (const node of nodes) {
 		const recipe = node.recipe;
@@ -167,13 +194,89 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 	if (totalTextBytes > MAX_TOTAL_TEXT_BYTES) {
 		throw invalid(`Template text files exceed ${MAX_TOTAL_TEXT_BYTES} bytes in total.`);
 	}
-	return Object.freeze({
+	const template: IBaseHalfCanvasTemplate = Object.freeze({
 		version: BASEHALF_CANVAS_TEMPLATE_VERSION,
 		files: Object.freeze(files),
 		nodes: Object.freeze(nodes),
 		cards: Object.freeze(cards),
 		references: Object.freeze(references)
 	});
+	// Every target must be able to receive its upstream list.
+	materializeBaseHalfCanvasTemplateUpstream(template, '');
+	return template;
+}
+
+/** A created sidecar-store node and the entries of its `upstream.yaml`. */
+export interface IBaseHalfCanvasTemplateSidecarUpstream {
+	/** Workspace-relative path of the created node. */
+	readonly path: string;
+	/** Workspace-relative entries, in template reference order. */
+	readonly entries: readonly string[];
+}
+
+/** The template's references, stored once in each target's own store. */
+export interface IBaseHalfCanvasTemplateUpstream {
+	/** Initial contents of every created text file, with the `upstream` list
+	 * merged into the frontmatter of each Markdown target by the planner. */
+	readonly files: ReadonlyMap<string, string>;
+	/** Workspace-relative `upstream` entries of each created `.bhnode`, keyed by
+	 * its template-relative path (empty for nodes without references). */
+	readonly nodes: ReadonlyMap<string, readonly string[]>;
+	/** Created nodes that keep their list in `.bh/mirror/<path>/upstream.yaml`. */
+	readonly sidecars: readonly IBaseHalfCanvasTemplateSidecarUpstream[];
+}
+
+/**
+ * Materializes the template's `references` into the downstream stores of the
+ * nodes it creates under `projectRelativePath` (D37). Each path is rebased
+ * from template-relative to workspace-relative. New Markdown files receive the
+ * `upstream` list in their initial bytes, merged into any template frontmatter
+ * by the minimal-edit planner; new `.bhnode` documents receive `upstream`;
+ * every other target is a sidecar node whose `upstream.yaml` the host writes
+ * through the reference edit service.
+ */
+export function materializeBaseHalfCanvasTemplateUpstream(
+	template: IBaseHalfCanvasTemplate,
+	projectRelativePath: string
+): IBaseHalfCanvasTemplateUpstream {
+	const rebase = (path: string): string => projectRelativePath ? `${projectRelativePath}/${path}` : path;
+	const entriesByTarget = new Map<string, string[]>();
+	for (const reference of template.references) {
+		let entries = entriesByTarget.get(reference.to);
+		if (!entries) {
+			entries = [];
+			entriesByTarget.set(reference.to, entries);
+		}
+		entries.push(rebase(reference.from));
+	}
+	const files = new Map<string, string>();
+	for (const file of template.files) {
+		const entries = entriesByTarget.get(file.path) ?? [];
+		if (entries.length === 0 || !isBaseHalfUpstreamMarkdownName(file.path)) {
+			files.set(file.path, file.contents);
+			continue;
+		}
+		const plan = planBaseHalfMarkdownUpstreamEdit(file.contents, {
+			kind: 'set',
+			items: entries.map(text => ({ text, scalar: true }))
+		}, { nodePath: rebase(file.path) });
+		if (plan.kind === 'refused') {
+			throw invalid(`Template text file '${file.path}' cannot receive its upstream list (${plan.reason}).`);
+		}
+		files.set(file.path, plan.kind === 'edit' ? plan.text : file.contents);
+	}
+	const nodes = new Map<string, readonly string[]>();
+	for (const node of template.nodes) {
+		const entries = entriesByTarget.get(node.path) ?? [];
+		if (entries.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
+			throw invalid(`Template node '${node.path}' cannot list more than ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
+		}
+		nodes.set(node.path, Object.freeze([...entries]));
+	}
+	const sidecars = template.files
+		.filter(file => !isBaseHalfUpstreamMarkdownName(file.path) && !isBaseHalfUpstreamNodeDocumentName(file.path) && (entriesByTarget.get(file.path)?.length ?? 0) > 0)
+		.map(file => Object.freeze({ path: rebase(file.path), entries: Object.freeze([...entriesByTarget.get(file.path)!]) }));
+	return Object.freeze({ files, nodes, sidecars: Object.freeze(sidecars) });
 }
 
 function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTextFile {

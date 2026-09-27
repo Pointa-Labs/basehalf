@@ -10,6 +10,10 @@ const MAX_NODE_PROMPT_LENGTH = 64 * 1024;
 const MAX_PARAMETERS = 128;
 const MAX_PARAMETER_DEPTH = 12;
 const MAX_CONTRIBUTION_ID_LENGTH = 128;
+/** A `.bhnode` lists at most this many upstream entries. */
+const MAX_NODE_UPSTREAM_ENTRIES = 64;
+/** A Markdown frontmatter block must close within this many UTF-8 bytes. */
+const FRONTMATTER_WINDOW_BYTES = 64 * 1024;
 const ANCHORS = new Set<BaseHalfCanvasTemplateAnchor>(['north', 'east', 'south', 'west']);
 const NODE_KINDS = new Set<BaseHalfCanvasTemplateNodeKind>([
   'file',
@@ -70,6 +74,11 @@ export interface BaseHalfCanvasTemplateCard {
   readonly height: number;
 }
 
+/**
+ * One template connection `from → to`. A template never writes `upstream`
+ * itself: at instantiation BaseHalf rebases the pair under the instantiation
+ * folder and stores it once, in the `to` node's `upstream` list.
+ */
 export interface BaseHalfCanvasTemplateReference {
   readonly from: string;
   readonly to: string;
@@ -199,6 +208,36 @@ function normalizeBaseHalfCanvasTemplate(value: unknown): BaseHalfCanvasTemplate
     }
     if (reference.from === reference.to) {
       throw invalid(`Template reference '${reference.from}' cannot connect a resource to itself.`);
+    }
+    if (isReservedOutputPath(reference.to)) {
+      throw invalid(
+        `Template reference '${reference.from}' to '${reference.to}' targets the reserved outputs tree, which can't receive upstream context.`,
+      );
+    }
+  }
+  for (const node of nodes) {
+    const upstreamEntries = references.filter((reference) => reference.to === node.path).length;
+    if (upstreamEntries > MAX_NODE_UPSTREAM_ENTRIES) {
+      throw invalid(
+        `Template node '${node.path}' cannot list more than ${MAX_NODE_UPSTREAM_ENTRIES} upstream entries.`,
+      );
+    }
+  }
+  const referenceTargets = new Set(references.map((reference) => reference.to));
+  for (const file of files) {
+    if (isMarkdownPath(file.path) && markdownFrontmatterDeclaresUpstream(file.contents)) {
+      throw invalid(
+        `Template text file '${file.path}' cannot declare an 'upstream' key in its frontmatter. Use template references instead.`,
+      );
+    }
+    // BaseHalf writes a Markdown target's upstream list into YAML frontmatter;
+    // a TOML (`+++`) block cannot receive it.
+    if (
+      isMarkdownPath(file.path) &&
+      referenceTargets.has(file.path) &&
+      /^(?:\ufeff)?\+\+\+[ \t]*\r?\n/.test(file.contents)
+    ) {
+      throw invalid(`Template text file '${file.path}' cannot receive its upstream list.`);
     }
   }
   for (const node of nodes) {
@@ -477,6 +516,38 @@ function assertNoPathPrefixConflicts(values: readonly string[], path: string): v
 function consume(budget: { remaining: number }, path: string): void {
   budget.remaining -= 1;
   if (budget.remaining < 0) throw invalid(`${path} exceeds the parameter complexity limit.`);
+}
+
+function isMarkdownPath(path: string): boolean {
+  return /\.(?:md|markdown)$/i.test(path);
+}
+
+function isReservedOutputPath(path: string): boolean {
+  return path.split('/')[0]?.toLowerCase() === 'outputs';
+}
+
+/**
+ * Whether a Markdown text starts with a frontmatter block (`---` or `+++`,
+ * after an optional BOM, closed within the first 64 KiB) that has a top-level
+ * `upstream` key. BaseHalf owns that key: templates declare connections as
+ * references instead.
+ */
+function markdownFrontmatterDeclaresUpstream(contents: string): boolean {
+  const body = contents.charCodeAt(0) === 0xfeff ? contents.slice(1) : contents;
+  const open = /^(---|\+\+\+)[ \t]*\r?\n/.exec(body);
+  if (!open) return false;
+  const marker = open[1] === '---' ? '---' : '\\+\\+\\+';
+  const close = new RegExp(`\\r?\\n${marker}[ \\t]*(?:\\r?\\n|$)`, 'g');
+  close.lastIndex = body.indexOf('\n');
+  const match = close.exec(body);
+  if (
+    !match ||
+    utf8Bytes(body.slice(0, match.index + match[0].length)) > FRONTMATTER_WINDOW_BYTES
+  ) {
+    return false;
+  }
+  const block = body.slice(open[0].length, match.index);
+  return /^(?:upstream|"upstream"|'upstream')[ \t]*:/m.test(block);
 }
 
 function utf8Bytes(value: string): number {

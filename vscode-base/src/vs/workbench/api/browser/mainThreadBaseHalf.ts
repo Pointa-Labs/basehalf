@@ -415,6 +415,8 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		if (!this.pluginAdmissionService.isAllowedContributor(contributor)) {
 			throw new Error(`Extension '${contributor.extensionId}' is not admitted to change BaseHalf project files.`);
 		}
+		// A plugin-originated transition never carries the host `origin`, so the
+		// transition service rejects any change of an upstream value (D37).
 		await this.projectFileTransitionService.apply({
 			resource: URI.revive(resource),
 			expected,
@@ -435,6 +437,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 					throw new Error(`Extension '${contributor.extensionId}' is no longer admitted to change BaseHalf project structure.`);
 				}
 				const transitions = await this.proxy.$prepareCanvasStructuralCleanup(extensionId, resource, token);
+				// Plugin-originated: staged through the upstream guard (D37).
 				return transitions.map(transition => ({
 					resource: URI.revive(transition.resource),
 					expected: transition.expected,

@@ -62,7 +62,7 @@ export function splitBaseHalfMarkdownFrontmatter(content: string): { frontmatter
 	// A pair of thematic breaks must not hide the Markdown between them. Limit
 	// frontmatter recognition to the shape of a top-level YAML mapping.
 	const candidate = content.slice(openLineEnd + 1, match.index);
-	if (!isYamlMapping(candidate)) {
+	if (!isBaseHalfMarkdownFrontmatterMapping(candidate)) {
 		return { frontmatter: '', body: content };
 	}
 
@@ -70,18 +70,54 @@ export function splitBaseHalfMarkdownFrontmatter(content: string): { frontmatter
 	return { frontmatter: content.slice(0, end), body: content.slice(end) };
 }
 
-function isYamlMapping(candidate: string): boolean {
+/**
+ * The number of lines the recognized frontmatter block occupies (its fences
+ * included), `0` when the document has none. Body line 1 is the file line
+ * after them. A leading BOM is ignored.
+ */
+export function baseHalfMarkdownFrontmatterLineCount(content: string): number {
+	const { frontmatter } = splitBaseHalfMarkdownFrontmatter(content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content);
+	let count = 0;
+	for (let index = 0; index < frontmatter.length; index++) {
+		if (frontmatter.charCodeAt(index) === 10) {
+			count++;
+		}
+	}
+	return count;
+}
+
+export interface IBaseHalfMarkdownFrontmatterMappingOptions {
+	/** Accept a repeated mapping key. The projection recognizer never does; the
+	 * upstream store reader uses it only to classify a duplicated `upstream`
+	 * key as an unreadable store instead of a rejected block. */
+	readonly allowDuplicateKeys?: boolean;
+}
+
+/**
+ * The BaseHalf frontmatter recognizer: the text between the leading `---`
+ * fences is frontmatter when it is a YAML block mapping. A mapping key whose
+ * value is empty (YAML `missing-value` at a mapping colon) is accepted, so an
+ * `upstream:` left behind by a person or an agent never turns the whole block
+ * into body text.
+ */
+export function isBaseHalfMarkdownFrontmatterMapping(candidate: string, options?: IBaseHalfMarkdownFrontmatterMappingOptions): boolean {
 	const firstLineEnd = candidate.search(/\r|\n/);
 	const firstLine = firstLineEnd >= 0 ? candidate.slice(0, firstLineEnd) : candidate;
 	if (firstLine.trim() === '') {
 		return false;
 	}
 	const errors: YamlParseError[] = [];
-	const node = parseYaml(candidate, errors);
-	return errors.every(error => isUnsupportedYamlAnchorIndent(candidate, error))
+	const node = parseYaml(candidate, errors, { allowDuplicateKeys: options?.allowDuplicateKeys });
+	return errors.every(error => isUnsupportedYamlAnchorIndent(candidate, error) || isMappingMissingValue(candidate, error))
 		&& node?.type === 'map'
 		&& yamlTriviaOnly(candidate.slice(0, node.startOffset))
 		&& yamlTriviaOnly(candidate.slice(node.endOffset));
+}
+
+/** `missing-value` is reported both at a mapping colon (`key:`) and at a
+ * sequence dash (`-`). Only the mapping form is an empty value. */
+function isMappingMissingValue(candidate: string, error: YamlParseError): boolean {
+	return error.code === 'missing-value' && candidate.charAt(error.startOffset) === ':';
 }
 
 function isUnsupportedYamlAnchorIndent(candidate: string, error: YamlParseError): boolean {

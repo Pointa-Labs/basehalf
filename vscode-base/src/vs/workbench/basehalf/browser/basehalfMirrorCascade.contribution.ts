@@ -7,27 +7,26 @@ import { Event } from '../../../base/common/event.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../base/common/lifecycle.js';
-import { relativePath as getRelativePath } from '../../../base/common/resources.js';
+import { dirname, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { FileOperation, FileOperationResult, IFileService, toFileOperationResult } from '../../../platform/files/common/files.js';
+import { localize } from '../../../nls.js';
+import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
+import { FileOperation, FileOperationError, FileOperationResult, FileSystemProviderCapabilities, IFileService, toFileOperationResult } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
-import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { UndoRedoGroup } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
-import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
-import { ITextFileService } from '../../services/textfile/common/textfiles.js';
-import { ISearchService } from '../../services/search/common/search.js';
-import { QueryBuilder } from '../../services/search/common/queryBuilder.js';
 import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
-import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
-import { BaseHalfBadgeKind } from '../common/basehalfBadgeMirror.js';
+import { BaseHalfBadgeKind, BaseHalfBadgeMirrorCorrupt, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection } from '../common/basehalfCardDetail.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
+import { baseHalfCommitMirrorFile } from '../common/basehalfMirrorFileCommit.js';
 import {
 	baseHalfIsMirrorSubtree,
 	baseHalfAssertMirrorPathComponentsNotSymbolicLink,
@@ -37,29 +36,21 @@ import {
 	baseHalfRemapSubtreeRel,
 	baseHalfWalkMirror
 } from '../common/basehalfMirrorTree.js';
-import { BaseHalfMirrorCascadeStageError, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfOrderCascadeStages, baseHalfPrepareStructuralDetail, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
+import { BaseHalfMirrorCascadeStageError, baseHalfForgetCanvasViewportsForStructuralChange, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfPrepareStructuralDetail, baseHalfRelocateBadgeText, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
+import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
-import {
-	BASEHALF_NODE_DOCUMENT_EXTENSION,
-	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	IBaseHalfNodeDocument,
-	baseHalfIsReservedOutputTreePath,
-	baseHalfNodeRecipeReferencesPath,
-	baseHalfProjectPathKey,
-	parseBaseHalfNodeDocumentBytesForActiveHost,
-	remapBaseHalfNodeRecipeInputBindings,
-	removeBaseHalfNodeRecipeInputBindings,
-	serializeBaseHalfNodeDocument
-} from '../common/basehalfNodeDocument.js';
 import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
-import { IBaseHalfProjectFileTransitionService } from '../common/basehalfProjectFileTransitions.js';
 import { IBaseHalfOwnedStagedDeleteCleanup, IBaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from './basehalfPluginStructuralDeleteCleanup.js';
+
+const BADGE_FILE_NAME = 'badge.yaml';
+const APPEARANCE_FILE_NAME = 'appearance.yaml';
+/** Largest per-node mirror file a relocation reads (badge.yaml is capped at 128 KiB). */
+const MIRROR_FILE_MAX_BYTES = 1024 * 1024;
 
 interface IBaseHalfPreparedStructuralOperation {
 	readonly operation: FileOperation.MOVE | FileOperation.DELETE;
 	readonly reservation: IBaseHalfStructuralMutationReservation;
-	kinds: ReadonlyMap<string, BaseHalfBadgeKind>;
 	readonly undoRedoGroup: UndoRedoGroup | undefined;
 	readonly stagedDeleteCleanups: IBaseHalfOwnedStagedDeleteCleanup[];
 	completedFileCount: number;
@@ -70,44 +61,6 @@ interface IBaseHalfPreparedStructuralOperation {
 	publication?: Promise<void>;
 }
 
-interface IBaseHalfNodeBindingDocument {
-	readonly resource: URI;
-	readonly expected: VSBuffer;
-	readonly document: IBaseHalfNodeDocument;
-}
-
-export function dirtyNodeTextMayReferencePath(text: string, affectedPaths: readonly string[]): boolean {
-	if (text.length > BASEHALF_NODE_DOCUMENT_MAX_BYTES) {
-		return true;
-	}
-	const roots = affectedPaths.map(path => baseHalfProjectPathKey(path));
-	const pattern = /"sourcePath"\s*:\s*("(?:\\.|[^"\\])*")/g;
-	for (const match of text.matchAll(pattern)) {
-		try {
-			const candidate: unknown = JSON.parse(match[1]);
-			if (typeof candidate !== 'string') {
-				continue;
-			}
-			const sourceKey = baseHalfProjectPathKey(candidate);
-			if (roots.some(root => sourceKey === root || sourceKey.startsWith(`${root}/`))) {
-				return true;
-			}
-		} catch {
-			// An invalid candidate is not a usable live binding.
-		}
-	}
-	return false;
-}
-
-export function nodeTextMayReferencePath(text: string, affectedPaths: readonly string[]): boolean {
-	try {
-		const document = parseBaseHalfNodeDocumentBytesForActiveHost(VSBuffer.fromString(text).buffer);
-		return affectedPaths.some(path => baseHalfNodeRecipeReferencesPath(document, path));
-	} catch {
-		return dirtyNodeTextMayReferencePath(text, affectedPaths);
-	}
-}
-
 interface IBaseHalfCascadeStage {
 	readonly label: string;
 	run(lease: IBaseHalfWorkspaceMutationLease): Promise<void>;
@@ -116,8 +69,7 @@ interface IBaseHalfCascadeStage {
 interface IBaseHalfCascadePlan {
 	readonly workspaceFolder: URI;
 	readonly description: string;
-	readonly projectionStages: readonly IBaseHalfCascadeStage[];
-	readonly semanticStages: readonly IBaseHalfCascadeStage[];
+	readonly stages: readonly IBaseHalfCascadeStage[];
 }
 
 interface IBaseHalfPendingCascadeRecovery {
@@ -137,35 +89,42 @@ interface IBaseHalfPendingCascadeRecovery {
 
 /**
  * Keeps `.bh/mirror/` in step with the files it annotates. The mirror is
- * DERIVED state addressed by workspace-relative path, so when a node moves or
- * dies its mirror data must follow or fall away — otherwise the human-authored
- * badge notes and reference graph silently go stale at the old path.
+ * addressed by workspace-relative path, so when a node moves or dies its own
+ * mirror files must follow or fall away.
  *
  * In-app file operations (Explorer rename/delete, card renames, extension
  * `workspace.fs` calls) all flow through `IWorkingCopyFileService`; this
- * contribution listens there and cascades:
+ * contribution listens there and cascades, for the moved or deleted node and
+ * every node below it:
  *
- *  - MOVE   → badge graph rename (badge + descendants + both graph directions),
- *             canvas relocate (geometry + edge styling), adhd reading-aids
- *             relocate, stale focus mirrors dropped (they self-heal on the next
- *             view).
- *  - DELETE → badge graph purge (badge + descendants + backlink scrub), canvas
- *             purge, adhd + focus mirrors dropped.
+ *  - MOVE   → canvas relocate (geometry + edge anchor rows), ADHD reading
+ *             aids relocate, and the node's own `badge.yaml` (description),
+ *             `appearance.yaml`, and `upstream.yaml` (its upstream list, D37)
+ *             move with its mirror directory. The per-machine canvas viewports
+ *             of the moved subtree (and of a replaced destination) are
+ *             forgotten.
+ *  - DELETE → canvas purge, ADHD dropped, the node's badge retired, and the
+ *             canvas viewports of the subtree forgotten. A delete to the trash
+ *             keeps `upstream.yaml`, so a restore brings the upstream list
+ *             back; a permanent delete removes it.
+ *
+ * The cascade never changes another node's upstream list: entries that named
+ * a moved or deleted node become dangling and stay visible until the rename
+ * refactor the user confirms (reference graph, "Removed cascades"). Recipe
+ * input bindings are not rewritten or removed either; a binding to a deleted
+ * source shows as a missing source. The one cross-node rewrite is of legacy
+ * `references` and `referenced_by` badge items that name a moved path, so a
+ * pair a migration has not moved yet stays complete.
  *
  * Operations that happen OUTSIDE the app (a terminal `mv`, an agent's tools)
- * don't pass through the working-copy service. Deletions are caught by the
- * orphan sweep — on workspace open every badge whose disk node is gone is
- * marked `orphan`, preserving the note — and a file reappearing (including the
- * "external rename looks like delete+add" case for the ADD half) clears the
- * flag again via file events. An external rename therefore degrades to
- * orphan-at-old-path rather than following the file; the note is never lost,
- * and adopting a rename heuristic over raw file events remains a possible
- * later refinement.
+ * don't pass through the working-copy service. On workspace open every badge
+ * whose disk node is gone is marked `orphan`, preserving its description, and
+ * a file reappearing clears the flag again via file events.
  *
  * All cascades run on one FIFO queue so two rapid operations (rename A→B, then
  * B→C) can never interleave their multi-file rewrites.
  */
-class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbenchContribution {
+export class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.basehalf.mirrorCascade';
 
@@ -180,18 +139,15 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IFileService private readonly fileService: IFileService,
-		@ISearchService private readonly searchService: ISearchService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
-		@ITextFileService private readonly textFileService: ITextFileService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
+		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
+		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
-		@IBaseHalfProjectFileTransitionService private readonly projectFileTransitionService: IBaseHalfProjectFileTransitionService,
 		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService
 	) {
 		super();
@@ -208,12 +164,12 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 
 		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
 			for (const added of event.added) {
-				this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(added.uri, lease => this.sweepOrphans(added.uri, lease)));
+				this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(added.uri, () => this.sweepOrphans(added.uri)));
 			}
 		}));
 
 		for (const folder of this.contextService.getWorkspace().folders) {
-			this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(folder.uri, lease => this.sweepOrphans(folder.uri, lease)));
+			this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(folder.uri, () => this.sweepOrphans(folder.uri)));
 		}
 	}
 
@@ -222,7 +178,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			return;
 		}
 		if (operation === FileOperation.MOVE && baseHalfMoveCrossesWorkspaceRoots(files, resource => this.contextService.getWorkspaceFolder(resource)?.uri)) {
-			throw new Error('Moving a BaseHalf node between workspace roots is not supported because its workspace-local badge graph cannot be migrated without data loss.');
+			throw new Error(localize('basehalf.mirrorCascade.crossRootMove', "Moving an item between workspace folders is not supported, because upstream lists can only name items in their own workspace folder."));
 		}
 		const executionFence = await this.nodeExecutionService.acquireStructuralOperation(operation, files, token);
 		const affectedPaths = this.operationAffectedPaths(files);
@@ -244,7 +200,6 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			context = {
 				operation,
 				reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
-				kinds: new Map(),
 				undoRedoGroup: undoInfo?.undoRedoGroup,
 				stagedDeleteCleanups: [],
 				completedFileCount: 0,
@@ -263,7 +218,6 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			if (this.disposed) {
 				throw new Error('BaseHalf mirror cascade was disposed before the file operation reached its commit barrier.');
 			}
-			context.kinds = await this.captureOperationKinds(files);
 			const activeEditor = this.activeEditorProjection();
 			const preparedFence = await baseHalfPrepareStructuralDetail(
 				operation,
@@ -279,12 +233,9 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				async () => this.flushAffectedActiveProjection(files, operation)
 			);
 			fence = preparedFence || undefined;
-			if (!undoInfo?.isUndoing) {
+			if (operation === FileOperation.DELETE && !undoInfo?.isUndoing) {
 				await context.reservation.runPrepared(async lease => {
-					if (operation === FileOperation.DELETE) {
-						context.stagedDeleteCleanups.push(...await this.pluginStructuralDeleteCleanupService.stageDelete(files, token, lease));
-					}
-					await this.stageDestructiveBindingCleanups(context, files, lease);
+					context.stagedDeleteCleanups.push(...await this.pluginStructuralDeleteCleanupService.stageDelete(files, token, lease));
 				});
 			}
 			let disposed = false;
@@ -403,7 +354,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		if (!failed) {
 			try {
 				await context.reservation.finishInternal(
-					lease => this.handleOperation(context.operation, completedFiles, context.kinds, lease),
+					lease => this.handleOperation(context.operation, completedFiles, lease),
 					baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles)
 				);
 				context.finalizationSucceeded = true;
@@ -430,7 +381,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				baseHalfMirrorCascadeCompletedMutations(context.operation, completedFiles),
 				async lease => {
 					await rollbackBaseHalfUncompletedDeleteCleanups(context.stagedDeleteCleanups, completedFiles.length, lease);
-					await this.handleOperation(context.operation, completedFiles, context.kinds, lease);
+					await this.handleOperation(context.operation, completedFiles, lease);
 				}
 			);
 		}
@@ -455,19 +406,17 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		}
 	}
 
-	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], kinds: ReadonlyMap<string, BaseHalfBadgeKind>, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		baseHalfForgetCanvasViewportsForStructuralChange(this.viewportStateService, operation, files);
 		const plans: IBaseHalfCascadePlan[] = [];
 		for (const pair of files) {
 			if (operation === FileOperation.MOVE && pair.source) {
-				const source = pair.source;
-				const target = pair.target;
-				const plan = this.planCascadeMove(source, target, kinds.get(source.toString()) ?? 'file', kinds.get(target.toString()));
+				const plan = this.planCascadeMove(pair.source, pair.target);
 				if (plan) {
 					plans.push(plan);
 				}
 			} else if (operation === FileOperation.DELETE) {
-				const target = pair.target;
-				const plan = this.planCascadeDelete(target, kinds.get(target.toString()) ?? 'file');
+				const plan = this.planCascadeDelete(pair.target, !this.deletesToTrash(pair.target));
 				if (plan) {
 					plans.push(plan);
 				}
@@ -488,17 +437,29 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		await this.runCascadeStagesOrRecover(
 			workspaceFolders,
 			description,
-			baseHalfOrderCascadeStages(plans),
+			plans.flatMap(plan => plan.stages),
 			lease
 		);
 	}
 
-	private planCascadeMove(source: URI, target: URI, sourceKind: BaseHalfBadgeKind, targetKind: BaseHalfBadgeKind | undefined): IBaseHalfCascadePlan | undefined {
+	/**
+	 * Whether a workbench delete of `resource` goes to the trash. The working
+	 * copy precondition does not receive the delete's `useTrash` option, so
+	 * this follows the same rule the canvas and Explorer use to choose it:
+	 * `files.enableTrash` and a provider that supports the trash.
+	 */
+	private deletesToTrash(resource: URI): boolean {
+		return this.configurationService.getValue<boolean>('files.enableTrash') !== false
+			&& this.fileService.hasCapability(resource, FileSystemProviderCapabilities.Trash);
+	}
+
+	private planCascadeMove(source: URI, target: URI): IBaseHalfCascadePlan | undefined {
 		const from = this.workspaceLocation(source);
 		const to = this.workspaceLocation(target);
 		if (from && !to) {
-			// Moved OUT of the workspace: the mirror cannot follow — same as a delete.
-			return this.planCascadeDelete(source, sourceKind);
+			// Moved OUT of the workspace: the mirror cannot follow, and nothing
+			// can restore the node here, so this is a permanent delete.
+			return this.planCascadeDelete(source, true);
 		}
 		if (!from || !to || from.workspaceFolder.toString() !== to.workspaceFolder.toString()) {
 			return undefined;
@@ -509,255 +470,81 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		if (sameResourceIdentity) {
 			// The user-file provider has already committed the casing change. Mirror
 			// files still contain the old logical paths, so first rename the ONE
-			// physical mirror subtree and then rewrite every projection in place. Do
-			// not route this branch through best-effort steps: half of a same-resource
-			// identity rewrite would leave aliased YAML that cannot be repaired by a
-			// later ordinary rename.
+			// physical mirror subtree (which carries badge.yaml, appearance.yaml, and
+			// upstream.yaml) and then rewrite every projection in place. Do not route
+			// this branch through best-effort steps: half of a same-resource identity
+			// rewrite would leave aliased YAML that cannot be repaired by a later
+			// ordinary rename.
 			return {
 				workspaceFolder,
 				description: `"${from.relativePath}" → "${to.relativePath}"`,
-				projectionStages: [
-				{
-					label: 'mirror directory casing',
-					run: () => this.relocateMirrorDirectoryIdentity(workspaceFolder, from.relativePath, to.relativePath)
-				},
-				{
-					label: 'canvas identity rewrite',
-					run: activeLease => this.canvasMirrorService.relocateNodeIdentity(workspaceFolder, from.relativePath, to.relativePath, activeLease)
-				},
-				{
-					label: 'ADHD identity rewrite',
-					run: activeLease => this.relocateAdhd(workspaceFolder, from.relativePath, to.relativePath, true, activeLease)
-				},
-				{
-					label: 'focus identity retirement',
-					run: () => this.dropMirrorFiles(workspaceFolder, to.relativePath, 'focus.yaml')
-				},
-				{
-					label: 'recipe input identity rewrite',
-					run: () => this.rewriteNodeRecipeBindings(workspaceFolder, from.relativePath, to.relativePath)
-				}
-				],
-				semanticStages: [
-					// Badge is the semantic owner. Every projection for EVERY completed batch
-					// pair commits before any canonical graph identity becomes visible.
+				stages: [
+					{
+						label: 'mirror directory casing',
+						run: () => this.relocateMirrorDirectoryIdentity(workspaceFolder, from.relativePath, to.relativePath)
+					},
+					{
+						label: 'canvas identity rewrite',
+						run: activeLease => this.canvasMirrorService.relocateNodeIdentity(workspaceFolder, from.relativePath, to.relativePath, activeLease)
+					},
+					{
+						label: 'ADHD identity rewrite',
+						run: activeLease => this.relocateAdhd(workspaceFolder, from.relativePath, to.relativePath, true, activeLease)
+					},
 					{
 						label: 'badge identity rewrite',
-						run: activeLease => this.badgeGraphService.replaceNodeIdentity(workspaceFolder, from.relativePath, to.relativePath, {
-							incomingKind: sourceKind,
-							sameResourceIdentity: true
-						}, activeLease)
+						run: () => this.rewriteBadgeIdentities(workspaceFolder, to.relativePath)
+					},
+					{
+						label: 'legacy connection paths',
+						run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
 					}
 				]
 			};
 		}
 
-		const stages: IBaseHalfCascadeStage[] = [{
-			label: 'canvas subtree relocation',
-			run: activeLease => this.canvasMirrorService.relocateNode(
-				workspaceFolder,
-				from.relativePath,
-				to.relativePath,
-				{ retireDestination: true },
-				activeLease
-			)
-		}];
-		stages.push(
-			{
-				label: 'destination ADHD retirement',
-				run: activeLease => this.retireAdhd(workspaceFolder, to.relativePath, activeLease)
-			},
-			{
-				label: 'destination focus retirement',
-				run: () => this.dropMirrorFiles(workspaceFolder, to.relativePath, 'focus.yaml')
-			},
-			{
-				label: 'ADHD subtree relocation',
-				run: activeLease => this.relocateAdhd(workspaceFolder, from.relativePath, to.relativePath, false, activeLease)
-			},
-			{
-				label: 'source focus retirement',
-				run: () => this.dropMirrorFiles(workspaceFolder, from.relativePath, 'focus.yaml')
-			},
-			{
-				label: 'recipe input subtree relocation',
-				run: () => this.rewriteNodeRecipeBindings(workspaceFolder, from.relativePath, to.relativePath)
-			},
-			{
-				label: 'badge graph identity replacement',
-				run: activeLease => this.badgeGraphService.replaceNodeIdentity(workspaceFolder, from.relativePath, to.relativePath, {
-					incomingKind: sourceKind,
-					...(targetKind !== undefined ? { replacedKind: targetKind } : {})
-				}, activeLease)
-			}
-		);
 		return {
 			workspaceFolder,
 			description: `"${from.relativePath}" → "${to.relativePath}"`,
-			projectionStages: stages.slice(0, -1),
-			semanticStages: stages.slice(-1)
+			stages: [
+				{
+					label: 'canvas subtree relocation',
+					run: activeLease => this.canvasMirrorService.relocateNode(
+						workspaceFolder,
+						from.relativePath,
+						to.relativePath,
+						{ retireDestination: true },
+						activeLease
+					)
+				},
+				{
+					label: 'destination ADHD retirement',
+					run: activeLease => this.retireAdhd(workspaceFolder, to.relativePath, activeLease)
+				},
+				{
+					label: 'ADHD subtree relocation',
+					run: activeLease => this.relocateAdhd(workspaceFolder, from.relativePath, to.relativePath, false, activeLease)
+				},
+				this.mirrorFileRelocationStage('badge subtree relocation', workspaceFolder, from.relativePath, to.relativePath, BADGE_FILE_NAME),
+				this.mirrorFileRelocationStage('appearance subtree relocation', workspaceFolder, from.relativePath, to.relativePath, APPEARANCE_FILE_NAME),
+				this.mirrorFileRelocationStage('upstream list relocation', workspaceFolder, from.relativePath, to.relativePath, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME),
+				{
+					label: 'legacy connection paths',
+					run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
+				}
+			]
 		};
 	}
 
-	private async rewriteNodeRecipeBindings(workspaceFolder: URI, fromPath: string, toPath: string): Promise<void> {
-		const documents = await this.readNodeRecipeBindingDocuments(workspaceFolder, [fromPath]);
-		for (const { resource, expected, document } of documents) {
-			const updated = remapBaseHalfNodeRecipeInputBindings(document, fromPath, toPath);
-			if (updated === document) {
-				continue;
-			}
-			await this.fileService.writeFileWithExpectedContents(
-				resource,
-				VSBuffer.fromString(serializeBaseHalfNodeDocument(updated)),
-				expected,
-				{ atomic: { postfix: '.basehalf-binding-move-tmp' } }
-			);
-		}
-	}
-
-	private async stageDestructiveBindingCleanups(
-		context: IBaseHalfPreparedStructuralOperation,
-		files: readonly SourceTargetPair[],
-		lease: IBaseHalfWorkspaceMutationLease
-	): Promise<void> {
-		const destructive = files.map((file, ownerIndex) => {
-			const source = context.operation === FileOperation.DELETE ? file.target : file.source;
-			if (!source) {
-				return undefined;
-			}
-			const location = this.workspaceLocation(source);
-			if (!location) {
-				return undefined;
-			}
-			if (context.operation === FileOperation.MOVE) {
-				const target = this.workspaceLocation(file.target);
-				if (target && this.uriIdentityService.extUri.isEqual(target.workspaceFolder, location.workspaceFolder)) {
-					return undefined;
-				}
-			}
-			return { ownerIndex, source, ...location };
-		}).filter((entry): entry is NonNullable<typeof entry> => !!entry);
-		const excludedRoots = destructive.map(entry => entry.source);
-
-		for (const entry of destructive) {
-			const documents = await this.readNodeRecipeBindingDocuments(
-				entry.workspaceFolder,
-				[entry.relativePath],
-				excludedRoots
-			);
-			for (const { resource, expected, document } of documents) {
-				const updated = removeBaseHalfNodeRecipeInputBindings(document, entry.relativePath);
-				if (updated === document) {
-					continue;
-				}
-				const transition = await this.projectFileTransitionService.stage({
-					resource,
-					expected,
-					next: VSBuffer.fromString(serializeBaseHalfNodeDocument(updated)),
-					label: 'Update node inputs'
-				}, lease);
-				if (transition.changed) {
-					context.stagedDeleteCleanups.push({ ownerIndex: entry.ownerIndex, transition });
-				}
-			}
-		}
-	}
-
-	private async readNodeRecipeBindingDocuments(
-		workspaceFolder: URI,
-		affectedPaths: readonly string[],
-		excludedRoots: readonly URI[] = []
-	): Promise<readonly IBaseHalfNodeBindingDocument[]> {
-		const query = this.instantiationService.createInstance(QueryBuilder).file([workspaceFolder], {
-			filePattern: `**/*${BASEHALF_NODE_DOCUMENT_EXTENSION}`,
-			shouldGlobSearch: true,
-			maxResults: 100_000,
-			disregardIgnoreFiles: true,
-			disregardGlobalIgnoreFiles: true,
-			disregardParentIgnoreFiles: true,
-			disregardExcludeSettings: true,
-			disregardSearchExcludeSettings: true,
-			ignoreSymlinks: true
-		});
-		const result = await this.searchService.fileSearch(query, CancellationToken.None);
-		if (result.limitHit) {
-			throw new Error('The project contains too many node documents to update recipe inputs safely.');
-		}
-		const resources = result.results
-			.map(match => match.resource)
-			.filter(resource => {
-				const relativePath = getRelativePath(workspaceFolder, resource);
-				return resource.path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
-					&& relativePath !== undefined
-					&& !baseHalfIsReservedOutputTreePath(relativePath)
-					&& !excludedRoots.some(root => this.uriIdentityService.extUri.isEqualOrParent(resource, root));
-			})
-			.sort((left, right) => left.toString().localeCompare(right.toString()));
-		const documents: IBaseHalfNodeBindingDocument[] = [];
-		for (const resource of resources) {
-			if (this.workingCopyService.isDirty(resource)) {
-				const model = this.textFileService.files.get(resource);
-				if (!model?.isResolved()) {
-					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
-				}
-				const text = model.textEditorModel.getValue();
-				if (nodeTextMayReferencePath(text, affectedPaths)) {
-					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
-				}
-				let saved: VSBuffer;
-				try {
-					saved = (await this.fileService.readFile(resource, {
-						atomic: true,
-						limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-					})).value;
-				} catch (error) {
-					if (toFileOperationResult(error) === FileOperationResult.FILE_TOO_LARGE) {
-						throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
-					}
-					throw error;
-				}
-				if (nodeTextMayReferencePath(saved.toString(), affectedPaths)) {
-					throw new Error(`Save '${getRelativePath(workspaceFolder, resource) ?? resource.path}' before changing connected context.`);
-				}
-				continue;
-			}
-			let expected: VSBuffer;
-			try {
-				expected = (await this.fileService.readFile(resource, {
-					atomic: true,
-					limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-				})).value;
-			} catch (error) {
-				if (toFileOperationResult(error) === FileOperationResult.FILE_TOO_LARGE) {
-					continue;
-				}
-				throw error;
-			}
-			let document: IBaseHalfNodeDocument;
-			try {
-				document = parseBaseHalfNodeDocumentBytesForActiveHost(expected.buffer);
-			} catch {
-				continue;
-			}
-			if (!affectedPaths.some(path => baseHalfNodeRecipeReferencesPath(document, path))) {
-				continue;
-			}
-			documents.push({ resource, expected, document });
-		}
-		return documents;
-	}
-
-	private planCascadeDelete(resource: URI, kind: BaseHalfBadgeKind = 'file'): IBaseHalfCascadePlan | undefined {
+	private planCascadeDelete(resource: URI, permanent: boolean): IBaseHalfCascadePlan | undefined {
 		const location = this.workspaceLocation(resource);
 		if (!location) {
 			return undefined;
 		}
 
 		const { workspaceFolder, relativePath } = location;
-		return {
-			workspaceFolder,
-			description: `delete "${relativePath}"`,
-			projectionStages: [{
+		const stages: IBaseHalfCascadeStage[] = [
+			{
 				label: 'canvas subtree retirement',
 				run: activeLease => this.canvasMirrorService.purgeNode(workspaceFolder, relativePath, activeLease)
 			},
@@ -766,14 +553,203 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				run: activeLease => this.retireAdhd(workspaceFolder, relativePath, activeLease)
 			},
 			{
-				label: 'focus subtree retirement',
-				run: () => this.dropMirrorFiles(workspaceFolder, relativePath, 'focus.yaml')
-			}],
-			semanticStages: [{
-				label: 'badge graph retirement',
-				run: activeLease => this.badgeGraphService.deleteNode(workspaceFolder, relativePath, kind, activeLease)
-			}]
+				label: 'badge subtree retirement',
+				run: () => this.retireBadges(workspaceFolder, relativePath)
+			}
+		];
+		if (permanent) {
+			// A delete to the trash keeps every upstream.yaml of the subtree so a
+			// restore brings the upstream lists back (the index treats them as
+			// naming a missing node until then).
+			stages.push({
+				label: 'upstream list removal',
+				run: () => this.removeUpstreamLists(workspaceFolder, relativePath)
+			});
+		}
+		return {
+			workspaceFolder,
+			description: `delete "${relativePath}"`,
+			stages
 		};
+	}
+
+	/**
+	 * A stage that moves one kind of per-node mirror file of a moved subtree to
+	 * the new paths. Destination files that no incoming file replaces belong to
+	 * a replaced or deleted node and are retired. That set is computed on the
+	 * first run only, so a retry never retires a file this stage already moved
+	 * in. `upstream.yaml` is neither moved nor retired in a folder marked with
+	 * the source-tree marker, where BaseHalf writes no upstream.yaml.
+	 */
+	private mirrorFileRelocationStage(label: string, workspaceFolder: URI, from: string, to: string, fileName: string): IBaseHalfCascadeStage {
+		let retired: readonly string[] | undefined;
+		return {
+			label,
+			run: async () => {
+				if (fileName === BASEHALF_UPSTREAM_SIDECAR_FILE_NAME && await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+					return;
+				}
+				const entries = await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName);
+				const sources = entries.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, from));
+				if (!retired) {
+					const incoming = new Set(sources.map(entry => baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
+					retired = entries
+						.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, to) && !incoming.has(entry.relativePath))
+						.map(entry => entry.relativePath);
+				}
+				for (const path of retired) {
+					if (fileName === BADGE_FILE_NAME) {
+						await this.retireBadge(workspaceFolder, path);
+					} else {
+						await this.deleteMirrorFile(workspaceFolder, baseHalfMirrorResource(workspaceFolder, path, fileName));
+					}
+				}
+				for (const source of sources) {
+					const targetPath = baseHalfRemapSubtreeRel(source.relativePath, from, to);
+					await this.moveMirrorFile(workspaceFolder, source.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
+				}
+			}
+		};
+	}
+
+	/**
+	 * Moves one mirror file. A relocated `badge.yaml` gets its new `path`; every
+	 * other byte travels unchanged, so legacy reference keys a migration has
+	 * not removed yet move with the badge. The target is written against its
+	 * current bytes before the source is removed against the bytes that were
+	 * copied, so a retry after a partial move finishes it without loss.
+	 */
+	private async moveMirrorFile(workspaceFolder: URI, source: URI, target: URI, badgePath: string | undefined): Promise<void> {
+		const bytes = await this.readMirrorFile(workspaceFolder, source);
+		if (bytes === null) {
+			return;
+		}
+		let next = bytes;
+		if (badgePath !== undefined) {
+			const relocated = baseHalfRelocateBadgeText(bytes.toString(), badgePath);
+			if (relocated !== undefined) {
+				next = VSBuffer.fromString(relocated);
+			}
+		}
+		const current = await this.readMirrorFile(workspaceFolder, target);
+		if (!current?.equals(next)) {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			await this.fileService.createFolder(dirname(target));
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			await baseHalfCommitMirrorFile(this.fileService, target, next, current);
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+		}
+		await this.deleteMirrorFile(workspaceFolder, source, bytes);
+	}
+
+	/** Reads a mirror file, or `null` when it does not exist. */
+	private async readMirrorFile(workspaceFolder: URI, resource: URI): Promise<VSBuffer | null> {
+		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
+		try {
+			return (await this.fileService.readFile(resource, { atomic: true, limits: { size: MIRROR_FILE_MAX_BYTES } })).value;
+		} catch (error) {
+			if (isFileNotFound(error)) {
+				return null;
+			}
+			throw error;
+		}
+	}
+
+	/** Deletes one mirror file (never a directory); with `expected`, only while it still has those bytes. */
+	private async deleteMirrorFile(workspaceFolder: URI, resource: URI, expected?: VSBuffer): Promise<void> {
+		if (expected) {
+			const current = await this.readMirrorFile(workspaceFolder, resource);
+			if (current === null) {
+				return;
+			}
+			if (!current.equals(expected)) {
+				throw new FileOperationError(`${resource.toString()} changed before it could be moved`, FileOperationResult.FILE_MODIFIED_SINCE);
+			}
+		}
+		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
+		try {
+			await this.fileService.del(resource, { recursive: false, useTrash: false, atomic: false });
+		} catch (error) {
+			if (!isFileNotFound(error)) {
+				throw error;
+			}
+		}
+	}
+
+	/** Case-only rename: the mirror directory already has the new casing, so
+	 * give every badge below it the path of its (renamed) mirror location. */
+	private async rewriteBadgeIdentities(workspaceFolder: URI, to: string): Promise<void> {
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BADGE_FILE_NAME)) {
+			if (!baseHalfIsMirrorSubtree(entry.relativePath, to)) {
+				continue;
+			}
+			const bytes = await this.readMirrorFile(workspaceFolder, entry.resource);
+			const relocated = bytes === null ? undefined : baseHalfRelocateBadgeText(bytes.toString(), entry.relativePath);
+			if (bytes === null || relocated === undefined || relocated === bytes.toString()) {
+				continue;
+			}
+			await baseHalfCommitMirrorFile(this.fileService, entry.resource, VSBuffer.fromString(relocated), bytes);
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, entry.resource);
+		}
+	}
+
+	/**
+	 * Legacy pairs before migration: every badge's legacy `references` and
+	 * `referenced_by` items that name the moved path, or a path below it, are
+	 * renamed the way releases before D37 renamed badge graph endpoints, so an
+	 * unmigrated pair stays complete. It runs after the badges themselves
+	 * moved. Only legacy keys change, never an upstream value, and nothing is
+	 * written in a folder marked with the source-tree marker, where no
+	 * migration runs.
+	 */
+	private async renameLegacyConnectionPaths(workspaceFolder: URI, from: string, to: string): Promise<void> {
+		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+			return;
+		}
+		const rename = (item: string) => baseHalfIsMirrorSubtree(item, from) ? baseHalfRemapSubtreeRel(item, from, to) : undefined;
+		const { entries } = await this.badgeMirrorService.listLegacyReferences(workspaceFolder);
+		for (const entry of entries) {
+			if (![...entry.references ?? [], ...entry.referencedBy ?? []].some(item => rename(item) !== undefined)) {
+				continue;
+			}
+			await this.badgeMirrorService.renameLegacyReferences(this.badgeNode(workspaceFolder, entry.relativePath, entry.kind ?? 'file'), rename);
+		}
+	}
+
+	/** Retires the node's own badge and those below it. Nothing else is
+	 * touched: no other badge is rewritten or scrubbed. */
+	private async retireBadges(workspaceFolder: URI, subtree: string): Promise<void> {
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BADGE_FILE_NAME)) {
+			if (baseHalfIsMirrorSubtree(entry.relativePath, subtree)) {
+				await this.retireBadge(workspaceFolder, entry.relativePath);
+			}
+		}
+	}
+
+	/** Clears the badge's description and orphan flag. The badge mirror keeps
+	 * legacy reference keys verbatim until a migration removes them. A corrupt
+	 * badge is left for the user to fix rather than blocking the operation. */
+	private async retireBadge(workspaceFolder: URI, relativePath: string): Promise<void> {
+		try {
+			await this.badgeMirrorService.patchBadge(this.badgeNode(workspaceFolder, relativePath, 'file'), () => null);
+		} catch (error) {
+			if (!(error instanceof BaseHalfBadgeMirrorCorrupt)) {
+				throw error;
+			}
+			this.logService.warn(`BaseHalf mirror cascade: left corrupt badge ${error.resource.toString()} in place: ${error.reason}`);
+		}
+	}
+
+	/** Permanent delete: removes the upstream.yaml of the node and of every node below it. */
+	private async removeUpstreamLists(workspaceFolder: URI, subtree: string): Promise<void> {
+		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+			return;
+		}
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME)) {
+			if (baseHalfIsMirrorSubtree(entry.relativePath, subtree)) {
+				await this.deleteMirrorFile(workspaceFolder, entry.resource);
+			}
+		}
 	}
 
 	private async relocateMirrorDirectoryIdentity(workspaceFolder: URI, from: string, to: string): Promise<void> {
@@ -794,32 +770,63 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 	}
 
 	/** A file/folder appeared on disk (in-app or external): if it has an
-	 *  orphaned badge, the node is back — clear the flag so the note rejoins
-	 *  the live overlay. Guarded by a cheap existence probe of the badge.yaml
-	 *  so bulk file creations don't schedule graph work. */
+	 *  orphaned badge, the node is back — clear the flag so its description
+	 *  rejoins the live overlay. Guarded by a cheap existence probe of the
+	 *  badge.yaml so bulk file creations don't schedule badge work. */
 	private handleAppeared(resource: URI): void {
 		const location = this.workspaceLocation(resource);
 		if (!location) {
 			return;
 		}
 
-		this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(location.workspaceFolder, async lease => {
-			const badgeResource = baseHalfMirrorResource(location.workspaceFolder, location.relativePath, 'badge.yaml');
-			if (!(await this.fileService.exists(badgeResource))) {
+		this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(location.workspaceFolder, async () => {
+			const node = this.badgeNode(location.workspaceFolder, location.relativePath, 'file');
+			if (!(await this.fileService.exists(this.badgeMirrorService.badgeResource(node)))) {
 				return;
 			}
-
-			await this.badgeGraphService.clearOrphan({
-				...this.workspaceNode(location.workspaceFolder, location.relativePath),
-				kind: 'file'
-			}, lease);
+			const badge = await this.badgeMirrorService.readBadge(node);
+			if (badge?.orphan !== true) {
+				return;
+			}
+			await this.badgeMirrorService.patchBadge(node, current => {
+				if (current === null || current.orphan !== true) {
+					return current;
+				}
+				const { orphan: _orphan, ...rest } = current;
+				return rest;
+			});
 		}));
 	}
 
-	private async sweepOrphans(workspaceFolder: URI, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
-		const orphaned = await this.badgeGraphService.pruneDangling(workspaceFolder, lease);
+	/** Marks every badge whose node is gone from disk as `orphan`, keeping its
+	 * description. Folders marked with the source-tree marker are skipped. */
+	private async sweepOrphans(workspaceFolder: URI): Promise<void> {
+		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+			return;
+		}
+		const { badges } = await this.badgeMirrorService.listBadges(workspaceFolder);
+		const orphaned: string[] = [];
+		for (const badge of badges.values()) {
+			if (badge.orphan === true || await this.nodeExists(workspaceFolder, badge.path, badge.kind)) {
+				continue;
+			}
+			await this.badgeMirrorService.patchBadge(
+				this.badgeNode(workspaceFolder, badge.path, badge.kind),
+				current => current === null ? null : { ...current, orphan: true }
+			);
+			orphaned.push(badge.path);
+		}
 		if (orphaned.length > 0) {
 			this.logService.info(`BaseHalf mirror cascade: marked ${orphaned.length} badge(s) orphan (disk node gone): ${orphaned.join(', ')}`);
+		}
+	}
+
+	private async nodeExists(workspaceFolder: URI, relativePath: string, kind: BaseHalfBadgeKind): Promise<boolean> {
+		try {
+			const stat = await this.fileService.stat(URI.joinPath(workspaceFolder, ...baseHalfMirrorPathSegments(relativePath)));
+			return kind === 'folder' ? stat.isDirectory : stat.isFile;
+		} catch {
+			return false;
 		}
 	}
 
@@ -1026,29 +1033,6 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		return [...this.pendingCascadeRecoveries].find(recovery => recovery.workspaceFolders.some(workspace => keys.has(workspace.toString())));
 	}
 
-	/** Drop every `<fileName>` mirror file under the subtree. Used for focus
-	 *  mirrors on move/delete (a viewport for a path that no longer exists is
-	 *  stale data an agent must not read; it self-heals on the next view) and
-	 *  for adhd mirrors on delete. */
-	private async dropMirrorFiles(workspaceFolder: URI, subtree: string, fileName: string): Promise<void> {
-		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName)) {
-			if (baseHalfIsMirrorSubtree(entry.relativePath, subtree)) {
-				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, entry.resource);
-				await this.deleteIgnoreMissing(entry.resource);
-			}
-		}
-	}
-
-	private async deleteIgnoreMissing(resource: URI): Promise<void> {
-		try {
-			await this.fileService.del(resource);
-		} catch (error) {
-			if (!isFileNotFound(error)) {
-				throw error;
-			}
-		}
-	}
-
 	private workspaceLocation(resource: URI): { workspaceFolder: URI; relativePath: string } | undefined {
 		const folder = this.contextService.getWorkspaceFolder(resource);
 		if (!folder) {
@@ -1068,42 +1052,6 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		}
 
 		return { workspaceFolder: folder.uri, relativePath: relative };
-	}
-
-	private async captureOperationKinds(files: readonly SourceTargetPair[]): Promise<ReadonlyMap<string, BaseHalfBadgeKind>> {
-		const kinds = new Map<string, BaseHalfBadgeKind>();
-		const resources = new Map<string, URI>();
-		for (const pair of files) {
-			for (const resource of pair.source ? [pair.source, pair.target] : [pair.target]) {
-				resources.set(resource.toString(), resource);
-			}
-		}
-		for (const [key, resource] of resources) {
-			try {
-				const stat = await this.fileService.stat(resource);
-				kinds.set(key, stat.isDirectory ? 'folder' : 'file');
-				continue;
-			} catch (error) {
-				if (!isFileNotFound(error)) {
-					throw error;
-				}
-			}
-
-			// A destination can be physically absent but still own orphan mirror
-			// identity. Preserve its recorded kind so replacement retirement covers
-			// exactly the old folder subtree when necessary.
-			const location = this.workspaceLocation(resource);
-			if (location) {
-				const badge = await this.badgeGraphService.readBadge({
-					...this.workspaceNode(location.workspaceFolder, location.relativePath),
-					kind: 'file'
-				});
-				if (badge) {
-					kinds.set(key, badge.kind);
-				}
-			}
-		}
-		return kinds;
 	}
 
 	private operationWorkspaces(files: readonly SourceTargetPair[]): URI[] {
@@ -1141,6 +1089,10 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			workspaceFolder,
 			relativePath
 		};
+	}
+
+	private badgeNode(workspaceFolder: URI, relativePath: string, kind: BaseHalfBadgeKind): IBaseHalfBadgeNode {
+		return { ...this.workspaceNode(workspaceFolder, relativePath), kind };
 	}
 
 	private enqueue(task: () => Promise<void>): void {

@@ -95,6 +95,23 @@ test('keeps the starter workflow declarative and inside host-owned primitives', 
 		}
 	}
 
+	// D37: the template keeps `references` pairs; the host stores each one in
+	// its target's `upstream` list. Template text never declares `upstream`,
+	// and no reference targets the reserved outputs tree.
+	for (const file of template.files as readonly { path: string; contents: string }[]) {
+		if (/\.(?:md|markdown)$/i.test(file.path)) {
+			const frontmatter = /^(?:\ufeff)?---\r?\n(?<block>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(file.contents)?.groups?.block ?? '';
+			assert.equal(/^upstream\s*:/m.test(frontmatter), false, `${file.path} must not declare upstream`);
+		}
+	}
+	assert.equal(template.references.some((reference: { to: string }) => reference.to.split('/')[0].toLowerCase() === 'outputs'), false);
+	const upstreamByTarget = new Map<string, string[]>();
+	for (const reference of template.references as readonly { from: string; to: string }[]) {
+		upstreamByTarget.set(reference.to, [...upstreamByTarget.get(reference.to) ?? [], reference.from]);
+	}
+	// A recipe-less node still receives context through its upstream list.
+	assert.deepEqual(upstreamByTarget.get('shots/shot-01/audio.bhnode'), ['shots/shot-01/audio-plan.bhnode']);
+
 	const forbiddenKeys = new Set(['credentials', 'current', 'history', 'outputs', 'runs', 'groups']);
 	walkKeys(template, key => assert.equal(forbiddenKeys.has(key), false, `template must not contain '${key}'`));
 	assert.equal(JSON.stringify(template).includes('.aivideo'), false);

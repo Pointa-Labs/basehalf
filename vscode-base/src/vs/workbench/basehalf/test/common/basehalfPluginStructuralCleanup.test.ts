@@ -38,6 +38,26 @@ suite('BaseHalfPluginStructuralCleanupService', () => {
 		descriptor.dispose();
 	});
 
+	test('never lets a plugin cleanup claim the host origin that exempts it from the upstream guard', async () => {
+		const service = new BaseHalfPluginStructuralCleanupService();
+		const descriptor = service.registerDescriptor('pointa.video', 'pointa.video.sequence-membership', ['.bhnode']);
+		const provider = service.registerProvider('pointa.video', {
+			prepareDelete: () => Promise.resolve([{
+				resource: URI.file('/workspace/note.md'),
+				expected: VSBuffer.fromString('---\nupstream:\n  - clip.bhnode\n---\n'),
+				next: VSBuffer.fromString(''),
+				label: 'Remove dangling entry',
+				origin: 'host'
+			}])
+		});
+
+		const transitions = await service.prepareDelete(URI.file('/workspace/clip.bhnode'), CancellationToken.None);
+		assert.deepStrictEqual(transitions.map(transition => Object.keys(transition).sort()), [['expected', 'label', 'next', 'resource']]);
+
+		provider.dispose();
+		descriptor.dispose();
+	});
+
 	test('rejects competing changes to the same domain document', async () => {
 		const service = new BaseHalfPluginStructuralCleanupService();
 		const registrations = [];

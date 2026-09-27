@@ -200,8 +200,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.saveRequested',
 			key: 'workspace\u0000doc.md',
 			requestId: 'save-1',
-			content: '# Edited\n',
-			previousContent: '# Before\n',
+			body: '# Edited\n',
+			previousContent: '---\nupstream: a.md\n---\n# Before\n',
 			forceWrite: false
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
@@ -231,11 +231,6 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.editorActivated',
 			key: 'workspace\u0000doc.md'
-		}), true);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
-			type: 'basehalf.markdownRich.focusChanged',
-			key: 'workspace\u0000doc.md',
-			fields: { visible_blocks: { start: 2 }, cursor: { line: 4, column: 1, line_precision: 'exact', block: 2 } }
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.workbenchCommand',
@@ -320,8 +315,18 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.saveRequested',
 			key: 'workspace\u0000doc.md',
 			requestId: 'save-1',
-			content: '# Edited\n',
+			body: '# Edited\n',
 			previousContent: '# Before\n'
+		}), false);
+		// A save carries the rich body only; a whole document with the
+		// webview's cached frontmatter is not a valid save request.
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.saveRequested',
+			key: 'workspace\u0000doc.md',
+			requestId: 'save-1',
+			content: '---\nupstream: a.md\n---\n# Edited\n',
+			previousContent: '# Before\n',
+			forceWrite: false
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.structuralFreezeChanged',
@@ -391,31 +396,13 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), false);
 	});
 
-	test('rejects malformed focus mirror payloads from webviews', () => {
+	test('rejects the retired focus mirror message from webviews', () => {
+		// The focus mirror is gone (D35). A stale webview bundle that still
+		// posts focus fields is dropped as an unknown message.
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.focusChanged',
 			key: 'workspace\u0000doc.md',
-			fields: { visible_lines: { start: 0 } }
-		}), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
-			type: 'basehalf.markdownRich.focusChanged',
-			key: 'workspace\u0000doc.md',
-			fields: { visible_blocks: { start: 1.5 } }
-		}), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
-			type: 'basehalf.markdownRich.focusChanged',
-			key: 'workspace\u0000doc.md',
-			fields: { cursor: { line: 4, column: 1, line_precision: 'unknown' } }
-		}), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
-			type: 'basehalf.markdownRich.focusChanged',
-			key: 'workspace\u0000doc.md',
-			fields: { cursor: { line: 4, column: 0, line_precision: 'exact' } }
-		}), false);
-		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
-			type: 'basehalf.markdownRich.focusChanged',
-			key: 'workspace\u0000doc.md',
-			fields: { cursor: { line: 4, column: 1, line_precision: 'exact', block: -1 } }
+			fields: { visible_blocks: { start: 2 }, cursor: { line: 4, column: 1, line_precision: 'exact', block: 2 } }
 		}), false);
 	});
 

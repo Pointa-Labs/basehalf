@@ -41,12 +41,11 @@ import {
 	type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
-	buildBaseHalfMarkdownFocusFields,
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownLinesToBlockIds,
 	countBaseHalfMarkdownNewlines,
-	type IBaseHalfMarkdownFocusBlock,
-} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFocus.js';
+	type IBaseHalfMarkdownBlockNode,
+} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownBlockLines.js';
 import {
 	type IBaseHalfAdhdCommand,
 	type IBaseHalfAdhdFile,
@@ -71,6 +70,10 @@ import {
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
 import {
+	makeBaseHalfSelectionRevealExtension,
+	setBaseHalfSelectionReveal,
+} from './selectionRevealDecorations.js';
+import {
 	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
 	type BaseHalfMarkdownRichEditorCommand,
@@ -82,6 +85,7 @@ import {
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
 import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichStructuralSave.js';
+import { joinBaseHalfMarkdownRichFrontmatter } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichSession.js';
 import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichAsyncMutation.js';
 
 interface VsCodeApi {
@@ -97,7 +101,6 @@ const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 // src/vs/workbench/basehalf/common/basehalfWorkbenchProfile.ts — the webview
 // bundle cannot import workbench code. Keep the two in sync.
 const AUTOSAVE_MS = 250;
-const FOCUS_DEBOUNCE_MS = 180;
 const SIDE_MENU_GUTTER_GAP = 8;
 
 function baseHalfBlockNoteDictionary(): Dictionary {
@@ -316,12 +319,6 @@ function firstVisibleBlockId(editorElement: HTMLElement | undefined, scrollEleme
 
 function findBlockElement(editorElement: HTMLElement | undefined, id: string): HTMLElement | null {
 	return editorElement?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`) ?? null;
-}
-
-function clearSelectionReveal(editorElement: HTMLElement | undefined): void {
-	for (const element of Array.from(editorElement?.querySelectorAll<HTMLElement>('.basehalf-markdown-rich-selection-reveal') ?? [])) {
-		element.classList.remove('basehalf-markdown-rich-selection-reveal');
-	}
 }
 
 function shiftedRect(rect: DOMRect, x: number): DOMRect {
@@ -567,13 +564,13 @@ function MarkdownRichEditor(): JSX.Element {
 		readonly reject: (error: Error) => void;
 		readonly timer: number;
 	}>());
-	const focusTimer = useRef<number | undefined>(undefined);
 	const pointFocusTimer = useRef<number | undefined>(undefined);
 	const pointFocusFrame = useRef<number | undefined>(undefined);
 	const yTransactionRevision = useRef(0);
 	const lastYTransactionAt = useRef(performance.now());
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
+	const selectionRevealExtension = useMemo(() => makeBaseHalfSelectionRevealExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const contextMenuRef = useRef<HTMLDivElement>(null);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
@@ -627,7 +624,7 @@ function MarkdownRichEditor(): JSX.Element {
 		dictionary: baseHalfBlockNoteDictionary(),
 		uploadFile,
 		resolveFileUrl,
-		extensions: [adhdExtension],
+		extensions: [adhdExtension, selectionRevealExtension],
 		collaboration: {
 			fragment: fragment as XmlFragment,
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
@@ -747,10 +744,27 @@ function MarkdownRichEditor(): JSX.Element {
 		if (!adhd || !state.ready) {
 			return new Set();
 		}
-		const blocks = editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[];
-		const frontmatterLines = countBaseHalfMarkdownNewlines(state.frontmatter);
-		return new Set(baseHalfMarkdownLinesToBlockIds(blocks, state.byId, frontmatterLines, adhd.read_paragraphs ?? []));
+		const blocks = editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[];
+		// Read ranges are body-relative (`line_base: body`): body line 1 is the
+		// first line after the frontmatter, so no frontmatter offset applies.
+		return new Set(baseHalfMarkdownLinesToBlockIds(blocks, state.byId, 0, adhd.read_paragraphs ?? []));
 	}, [editor]);
+
+	// Records document text the host reported (a save result or a
+	// frontmatter-only change) and refreshes the cached frontmatter from it.
+	// The cache only maps file lines to blocks (reveal and Open Source); saves
+	// never write it. Read ranges are body-relative, so a frontmatter change
+	// does not move them.
+	const adoptDiskFrontmatter = useCallback((content: string, frontmatter: string): void => {
+		const state = session.current;
+		state.lastDisk = content;
+		if (state.frontmatter === frontmatter) {
+			return;
+		}
+		state.frontmatter = frontmatter;
+		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
+		setVersion(value => value + 1);
+	}, [projectAdhdReadBlocks]);
 
 	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string, baseUri: string) => {
 		const state = session.current;
@@ -1134,13 +1148,15 @@ function MarkdownRichEditor(): JSX.Element {
 		if (!structural) {
 			await waitForCompositionSettled();
 		}
+		// The frontmatter never leaves this webview: a save carries the body, and
+		// the host writes it under the text model's current frontmatter.
 		if (!structural && !state.dirty && !forceSerialize && !forceWrite) {
 			state.pendingSaveContent.set(requestId, { content: state.lastDisk, revision: state.editRevision });
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
 				key: state.key,
 				requestId,
-				content: state.lastDisk,
+				body: splitBaseHalfMarkdownFrontmatter(state.lastDisk).body,
 				previousContent: state.lastDisk,
 				forceWrite,
 			});
@@ -1155,21 +1171,24 @@ function MarkdownRichEditor(): JSX.Element {
 					isComposing: () => composing.current || !!editor.prosemirrorView?.composing,
 					isFrozen: () => state.structuralFrozen && state.key === key && state.resource === resource,
 					revision: () => state.editRevision,
-					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId),
+					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId),
 				})
 				: {
-					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId),
+					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, '', state.byId),
 					revision: state.editRevision,
 				};
 			if (!snapshot) {
 				return;
 			}
-			state.pendingSaveContent.set(requestId, { content: snapshot.value, revision: snapshot.revision });
+			state.pendingSaveContent.set(requestId, {
+				content: joinBaseHalfMarkdownRichFrontmatter(state.frontmatter, snapshot.value),
+				revision: snapshot.revision,
+			});
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
 				key: state.key,
 				requestId,
-				content: snapshot.value,
+				body: snapshot.value,
 				previousContent: state.lastDisk,
 				forceWrite,
 			});
@@ -1203,58 +1222,20 @@ function MarkdownRichEditor(): JSX.Element {
 		}, AUTOSAVE_MS);
 	}, [serializeAndRequestSave]);
 
-	const scheduleFocus = useCallback(() => {
-		if (focusTimer.current !== undefined) {
-			window.clearTimeout(focusTimer.current);
-		}
+	// A pending focusAtPoint placement maps a client point to document content
+	// once the document settles. Any edit, selection change, scroll, reveal,
+	// or external merge moves content under that point, so it abandons the
+	// pending placement instead of landing the caret on the wrong text.
+	const cancelPendingPointFocus = useCallback(() => {
 		if (pointFocusTimer.current !== undefined) {
 			window.clearTimeout(pointFocusTimer.current);
+			pointFocusTimer.current = undefined;
 		}
 		if (pointFocusFrame.current !== undefined) {
 			window.cancelAnimationFrame(pointFocusFrame.current);
 			pointFocusFrame.current = undefined;
 		}
-		focusTimer.current = window.setTimeout(() => {
-			focusTimer.current = undefined;
-			const state = session.current;
-			if (!state.key || !state.ready || state.loading) {
-				return;
-			}
-
-			const blocks = editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[];
-			const frontmatterLines = countBaseHalfMarkdownNewlines(state.frontmatter);
-			const cursor = (() => {
-				try {
-					const position = editor.getTextCursorPosition();
-					const blockId = position.block.id;
-					const selection = editor.prosemirrorView?.state.selection;
-					const parentOffset = selection?.$from.parentOffset;
-					let column = typeof parentOffset === 'number' && parentOffset >= 0 ? parentOffset + 1 : 1;
-					let codeWithinOffset: number | null = null;
-					const blockElement = findBlockElement(editor.domElement, blockId);
-					if (blockElement?.dataset.contentType === 'codeBlock' && selection && typeof parentOffset === 'number') {
-						const text = selection.$from.parent.textContent ?? '';
-						const before = text.slice(0, parentOffset);
-						codeWithinOffset = countBaseHalfMarkdownNewlines(before);
-						column = before.length - (before.lastIndexOf('\n') + 1) + 1;
-					}
-					return { blockId, column, codeWithinOffset };
-				} catch {
-					return undefined;
-				}
-			})();
-			const fields = buildBaseHalfMarkdownFocusFields({
-				blocks,
-				byId: state.byId,
-				frontmatterLines,
-				cursor,
-				visibleBlockId: firstVisibleBlockId(editor.domElement, scrollRef.current),
-			});
-			if (fields.cursor || fields.visible_blocks || fields.visible_lines) {
-				vscode.postMessage({ type: 'basehalf.markdownRich.focusChanged', key: state.key, fields });
-			}
-		}, FOCUS_DEBOUNCE_MS);
-	}, [editor, vscode]);
+	}, []);
 
 	const revealSelection = useCallback((selection: IBaseHalfMarkdownRichTextSelection | undefined) => {
 		const state = session.current;
@@ -1265,7 +1246,7 @@ function MarkdownRichEditor(): JSX.Element {
 		const start = Math.min(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
 		const end = Math.max(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
 		const ids = baseHalfMarkdownLinesToBlockIds(
-			editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+			editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[],
 			state.byId,
 			countBaseHalfMarkdownNewlines(state.frontmatter),
 			[[start, end]]
@@ -1288,33 +1269,24 @@ function MarkdownRichEditor(): JSX.Element {
 				return;
 			}
 
-			clearSelectionReveal(editorElement);
 			elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
-			for (const element of elements) {
-				element.classList.add('basehalf-markdown-rich-selection-reveal');
-			}
+			setBaseHalfSelectionReveal(editor, ids);
 
 			if (revealTimer.current !== undefined) {
 				window.clearTimeout(revealTimer.current);
 			}
 			revealTimer.current = window.setTimeout(() => {
 				revealTimer.current = undefined;
-				clearSelectionReveal(editorElement);
+				setBaseHalfSelectionReveal(editor, []);
 			}, 1800);
-			scheduleFocus();
+			cancelPendingPointFocus();
 		};
 
 		window.requestAnimationFrame(() => reveal());
-	}, [editor, scheduleFocus]);
+	}, [cancelPendingPointFocus, editor]);
 
 	const focusAtPoint = useCallback((point: { readonly x: number; readonly y: number }): void => {
-		if (pointFocusTimer.current !== undefined) {
-			window.clearTimeout(pointFocusTimer.current);
-		}
-		if (pointFocusFrame.current !== undefined) {
-			window.cancelAnimationFrame(pointFocusFrame.current);
-			pointFocusFrame.current = undefined;
-		}
+		cancelPendingPointFocus();
 		const quietWindow = 80;
 		const place = (remainingAttempts: number): void => {
 			const delay = Math.max(16, quietWindow - (performance.now() - lastYTransactionAt.current));
@@ -1355,7 +1327,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}, delay);
 		};
 		place(8);
-	}, [editor]);
+	}, [cancelPendingPointFocus, editor]);
 
 	// Applies an external file change (agent writes, other tools) to the live
 	// document incrementally: only the changed segment range is replaced, so
@@ -1364,32 +1336,35 @@ function MarkdownRichEditor(): JSX.Element {
 	// caller falls back to a full rebuild.
 	const applyExternalContent = useCallback(async (content: string, editable: boolean, key: string, resource: string): Promise<boolean> => {
 		const state = session.current;
-		if (!state.ready || state.loading || state.dirty
+		if (!state.ready || state.loading
 			|| state.key !== key || state.resource !== resource
 			|| state.conflictDisk !== undefined || state.writeError !== undefined) {
 			return false;
 		}
 
 		const baseline = state.lastDisk;
-		state.editable = editable;
-		if (content === baseline) {
-			setVersion(value => value + 1);
-			return true;
-		}
-
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
 		const oldBody = splitBaseHalfMarkdownFrontmatter(baseline).body;
 		if (body === oldBody) {
-			state.frontmatter = frontmatter;
-			state.lastDisk = content;
-			state.lastAcknowledgedRevision = state.editRevision;
-			// Read ranges are absolute file lines; a frontmatter size change
-			// shifts every block's line span.
-			state.readBlockIds = projectAdhdReadBlocks(state.adhd);
+			// The frontmatter lives outside the block model, so a
+			// frontmatter-only change (an upstream edit, for example) never
+			// touches blocks or undo, and a dirty editor adopts it too.
+			state.editable = editable;
+			if (content !== baseline) {
+				if (!state.dirty) {
+					state.lastAcknowledgedRevision = state.editRevision;
+				}
+				adoptDiskFrontmatter(content, frontmatter);
+				cancelPendingPointFocus();
+			}
 			setVersion(value => value + 1);
-			scheduleFocus();
 			return true;
 		}
+		if (state.dirty) {
+			return false;
+		}
+
+		state.editable = editable;
 		if (oldBody === '' || body === '') {
 			return false;
 		}
@@ -1512,9 +1487,9 @@ function MarkdownRichEditor(): JSX.Element {
 				scrollElement.scrollTop += element.getBoundingClientRect().top - visibleAnchorTop;
 			}
 		}
-		scheduleFocus();
+		cancelPendingPointFocus();
 		return true;
-	}, [editor, editorApi, ensureLiveUndoManager, projectAdhdReadBlocks, scheduleFocus]);
+	}, [adoptDiskFrontmatter, cancelPendingPointFocus, editor, editorApi, ensureLiveUndoManager, projectAdhdReadBlocks]);
 
 	// Routes an incoming document state: merge when possible, rebuild
 	// otherwise. Arrivals during IME composition are parked and replayed on
@@ -1732,7 +1707,10 @@ function MarkdownRichEditor(): JSX.Element {
 						break;
 					}
 					if (message.result === 'saved' || message.result === 'noop') {
-						state.lastDisk = message.content ?? pending?.content ?? state.lastDisk;
+						// The host composed the text model's frontmatter with this
+						// body; its result refreshes the cached frontmatter.
+						const saved = message.content ?? pending?.content ?? state.lastDisk;
+						adoptDiskFrontmatter(saved, splitBaseHalfMarkdownFrontmatter(saved).frontmatter);
 						state.lastAcknowledgedRevision = pending?.revision ?? state.editRevision;
 						state.conflictDisk = undefined;
 						state.writeError = undefined;
@@ -1764,7 +1742,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, flushPendingEditorCommands, focusAtPoint, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, vscode, waitForCompositionSettled, ydoc]);
+	}, [adoptDiskFrontmatter, applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, flushPendingEditorCommands, focusAtPoint, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, vscode, waitForCompositionSettled, ydoc]);
 
 	useEffect(() => {
 		postFormatState();
@@ -1783,20 +1761,20 @@ function MarkdownRichEditor(): JSX.Element {
 			state.editRevision += 1;
 			notifyDirty(true);
 			scheduleSave();
-			scheduleFocus();
+			cancelPendingPointFocus();
 			postFormatState();
 		});
 		const offSelection = editor.onSelectionChange(() => {
-			scheduleFocus();
+			cancelPendingPointFocus();
 			postFormatState();
 		});
-		scroll?.addEventListener('scroll', scheduleFocus, { passive: true });
+		scroll?.addEventListener('scroll', cancelPendingPointFocus, { passive: true });
 		return () => {
 			offChange();
 			offSelection();
-			scroll?.removeEventListener('scroll', scheduleFocus);
+			scroll?.removeEventListener('scroll', cancelPendingPointFocus);
 		};
-	}, [editor, ensureLiveUndoManager, notifyDirty, postFormatState, scheduleFocus, scheduleSave]);
+	}, [cancelPendingPointFocus, editor, ensureLiveUndoManager, notifyDirty, postFormatState, scheduleSave]);
 
 	useEffect(() => {
 		const state = session.current;
@@ -2028,7 +2006,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 
 			const span = baseHalfMarkdownBlockReadSpan(
-				editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+				editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[],
 				blockId,
 				state.byId,
 				countBaseHalfMarkdownNewlines(state.frontmatter)
@@ -2067,11 +2045,12 @@ function MarkdownRichEditor(): JSX.Element {
 				return false;
 			}
 
+			// Read spans are body-relative lines (`line_base: body`).
 			const span = baseHalfMarkdownBlockReadSpan(
-				editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+				editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[],
 				blockId,
 				state.byId,
-				countBaseHalfMarkdownNewlines(state.frontmatter)
+				0
 			);
 			if (!span) {
 				return false;
@@ -2269,9 +2248,6 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => () => {
 		if (saveTimer.current !== undefined) {
 			window.clearTimeout(saveTimer.current);
-		}
-		if (focusTimer.current !== undefined) {
-			window.clearTimeout(focusTimer.current);
 		}
 		if (pointFocusTimer.current !== undefined) {
 			window.clearTimeout(pointFocusTimer.current);

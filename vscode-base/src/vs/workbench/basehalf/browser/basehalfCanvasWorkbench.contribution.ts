@@ -53,7 +53,6 @@ import { ITextFileService } from '../../services/textfile/common/textfiles.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
-	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
@@ -64,14 +63,21 @@ import {
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH,
 	IBaseHalfCanvasBadgeMetadata,
-	IBaseHalfCanvasBadgeRelationshipIssue,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
-	IBaseHalfCanvasItem
+	IBaseHalfCanvasItem,
+	IBaseHalfCanvasItemRelationships,
+	isBaseHalfCanvasEntry
 } from '../common/basehalfCanvasModel.js';
-import { IBaseHalfBadgeGraphService, IBaseHalfReferenceState } from '../common/basehalfBadgeGraph.js';
-import { IBaseHalfBadgeFile, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
+import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
+import { baseHalfCanvasConnectionSummary, baseHalfCanvasDeleteImpact, baseHalfCanvasResolveSiblingUpstream, baseHalfNodeUpstreamWithSourceChanges, IBaseHalfCanvasDeleteImpactStore } from '../common/basehalfCanvasUpstream.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
+import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../common/basehalfReferenceEdit.js';
+import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES, baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
+import { BaseHalfReferenceIndexState, IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from '../common/basehalfReferenceIndex.js';
+import { baseHalfUpstreamStoreKind } from '../common/basehalfReferenceStore.js';
+import { BaseHalfBadgeConnectionsFocusTarget, BaseHalfUpstreamActions, BaseHalfUpstreamBindingChoice, IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from './basehalfUpstreamActions.js';
 import { IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
 import {
 	BaseHalfCanvasMirrorCorrupt,
@@ -102,11 +108,13 @@ import {
 	baseHalfCanvasMarkdownSourceFitsInline,
 	BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES
 } from '../common/basehalfCanvasPreview.js';
+import { BaseHalfCanvasViewportPersister, BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
-import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
 import {
+	analyzeBaseHalfNodeUpstream,
+	baseHalfNodeUpstreamItemValues,
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_PROMPT_MAX_LENGTH,
@@ -119,7 +127,9 @@ import {
 	IBaseHalfNodeDocument,
 	IBaseHalfNodeInputBinding,
 	IBaseHalfNodeResultArtifact,
+	IBaseHalfNodeUpstreamAnalysis,
 	importBaseHalfNodeResult,
+	isBaseHalfNodeDraft,
 	parseBaseHalfNodeDocumentBytes,
 	parseBaseHalfNodeDocumentBytesForActiveHost,
 	serializeBaseHalfNodeDocument
@@ -254,11 +264,9 @@ import {
 	baseHalfBadgeDraftFailureDisposition,
 	baseHalfCopyRetainedBadgeDraft,
 	baseHalfDiscardRetainedBadgeDraft,
-	baseHalfPersistedCanvasEdgeRemoval,
 	baseHalfResourceMutationStampsEqual,
 	baseHalfShouldVetoForBadgeDrafts,
-	baseHalfTransitionBadgeDraftIdentity,
-	removeCompleteBaseHalfCanvasReference
+	baseHalfTransitionBadgeDraftIdentity
 } from './basehalfCanvasConnectionTransaction.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.js';
@@ -1255,12 +1263,21 @@ const nodeAttemptDateFormatter = safeIntl.DateTimeFormat(undefined, {
 	hour: 'numeric',
 	minute: '2-digit'
 });
-type BaseHalfBadgeEditorFocusTarget = 'prompt' | 'add-reference' | 'inbound-toggle';
+type BaseHalfBadgeEditorFocusTarget = 'prompt' | BaseHalfBadgeConnectionsFocusTarget;
 type BaseHalfCanvasBadgeFocusTarget = BaseHalfBadgeEditorFocusTarget | 'toggle';
 interface IBaseHalfBadgeEditorControls {
 	readonly prompt?: HTMLTextAreaElement;
-	readonly addReference?: HTMLButtonElement;
-	readonly inboundToggle?: HTMLButtonElement;
+	readonly addUpstream?: HTMLButtonElement;
+	readonly addDownstream?: HTMLButtonElement;
+}
+/** A node's connections as the badge editor shows them (D37). */
+interface IBaseHalfBadgeEditorConnections {
+	/** The node's own Upstream list, or `undefined` when it could not be read. */
+	readonly upstream: IBaseHalfUpstreamView | undefined;
+	readonly downstream: readonly IBaseHalfIndexedDownstream[];
+	readonly indexState: BaseHalfReferenceIndexState | undefined;
+	/** `.bhnode` only: labels of the node recipe's input roles. */
+	readonly roleLabels?: ReadonlyMap<string, string>;
 }
 interface IBaseHalfBadgeDescriptionDraft {
 	readonly node: IBaseHalfBadgeNode;
@@ -1296,25 +1313,32 @@ interface IBaseHalfCanvasUndoNode {
 	readonly kind: IBaseHalfCanvasItem['kind'];
 }
 
-interface IBaseHalfCanvasReferenceTransition {
-	readonly source: IBaseHalfCanvasUndoNode;
-	readonly target: IBaseHalfCanvasUndoNode;
-	readonly expected: IBaseHalfReferenceState;
-	readonly next: IBaseHalfReferenceState;
-}
-
 interface IBaseHalfCanvasNodeDocumentTransition {
 	readonly resource: URI;
 	readonly expected: VSBuffer;
 	readonly next: VSBuffer;
 }
 
+/**
+ * A canvas change that undo replays by exact states: card and anchor rows of
+ * `canvas.yaml` and whole `.bhnode` documents (whose `upstream` list and
+ * bindings travel inside the document bytes). Reference operations on other
+ * stores use the reference edit service's own undo element instead.
+ */
 interface IBaseHalfCanvasConnectionTransition {
 	readonly folder: IBaseHalfCanvasFolderState;
 	readonly nodes: readonly IBaseHalfCanvasUndoNode[];
-	readonly references: readonly IBaseHalfCanvasReferenceTransition[];
 	readonly canvas: IBaseHalfCanvasStateTransition;
 	readonly documents: readonly IBaseHalfCanvasNodeDocumentTransition[];
+}
+
+/** A Composer or node-surface save written through the reference edit service. */
+interface IBaseHalfNodeLocalSave {
+	readonly result: IBaseHalfReferenceEditResult;
+	/** The document as written, with its updated `upstream` list. */
+	readonly document: IBaseHalfNodeDocument;
+	/** The document bytes on disk after the save. */
+	readonly contents: VSBuffer;
 }
 
 interface IBaseHalfCanvasCreatedNodeTransition {
@@ -1326,24 +1350,6 @@ interface IBaseHalfCanvasCreatedNodeTransition {
 	readonly connection: IBaseHalfCanvasConnectionTransition;
 }
 
-interface IBaseHalfCanvasConnectionTargetDocumentSnapshot {
-	readonly resource: URI;
-	readonly contents: VSBuffer;
-	readonly document: IBaseHalfNodeDocument;
-	readonly recipe?: IBaseHalfCanvasRecipeDescriptor;
-}
-
-interface IBaseHalfCanvasConnectionTargetSnapshot {
-	readonly path: string;
-	readonly kind: IBaseHalfCanvasItem['kind'];
-	readonly directSourcePaths: readonly string[];
-	readonly inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>;
-	readonly node?: IBaseHalfCanvasConnectionTargetDocumentSnapshot;
-}
-interface IBaseHalfStampedReferenceCandidate {
-	readonly candidate: IBaseHalfCanvasItem;
-	readonly stamp: IBaseHalfWorkspaceResourceMutationStamp;
-}
 type BaseHalfCanvasInlineEdit =
 	| {
 		readonly kind: 'rename';
@@ -1413,6 +1419,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly canvasUndoRedoSource = BASEHALF_CANVAS_UNDO_REDO_SOURCE;
 
 	private renderSeq = 0;
+	/** Renders started by `requestRender` that have not resolved yet. */
+	private rendersInFlight = 0;
 	private backgroundRenderTimer: number | undefined;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
 	private readonly badgeDescriptionDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft>();
@@ -1422,15 +1430,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly badgeInteractionRenderGate = new BaseHalfCanvasInteractionRenderGate();
 	private badgeInteractionReleaseTimer: number | undefined;
 	private readonly pendingCanvasWarnings: string[] = [];
+	/** Badge descriptions (and orphan flags) by path, from the last render. */
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
 	private renderedBadgeProblems: ReadonlyMap<string, IBaseHalfBadgeReadProblem> = new Map();
+	/** Connections of the rendered cards, from the reference index. */
+	private renderedRelationships: ReadonlyMap<string, IBaseHalfCanvasItemRelationships> = new Map();
+	/** Upstream lists of the rendered cards that have one (open badge faces read theirs from disk). */
+	private renderedUpstreamViews: ReadonlyMap<string, IBaseHalfUpstreamView> = new Map();
+	private renderedIndexState: BaseHalfReferenceIndexState | undefined;
+	private readonly upstreamActions: BaseHalfUpstreamActions;
 	private readonly detailBadgeDisposables: DisposableStore;
 	private detailBadgeSeq = 0;
 	private detailBadgeOpen = false;
 	private detailBadgeRefreshAfterFocusLeaves = false;
 	private detailBadgeResourceKey: string | undefined;
 	private detailResourceMutationStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
-	private readonly expandedInboundBadges = new Set<string>();
 	private readonly openBadgeFaces = new Set<string>();
 	private readonly canvasBadgeFocusRefresh: MutableDisposable<IDisposable>;
 	private canvasBadgeRefreshAfterFocusLeaves = false;
@@ -1457,16 +1471,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private detailSwapSeq = 0;
 	private detailIdentityReconcileSeq = 0;
 	private detailIdentityPendingResourceKey: string | undefined;
-	private folderFocusTimer: number | undefined;
-	private pendingFolderFocusWrite: {
-		readonly folder: IBaseHalfCanvasFolderState;
-		readonly sceneKey: string;
-		readonly structuralStamp: IBaseHalfWorkspaceMutationStamp;
-		readonly fields: { readonly viewport_center: { readonly x: number; readonly y: number }; readonly zoom: number };
-	} | undefined;
-	private lastFolderFocusKey: string | undefined;
-	private restoredFolderFocusKey: string | undefined;
-	private folderFocusRestoreGeneration = 0;
+	private readonly viewportPersister: BaseHalfCanvasViewportPersister;
+	private restoredViewportSceneKey: string | undefined;
+	/** Bumped by every user viewport change; invalidates stale async restores and fits. */
+	private viewportRestoreGeneration = 0;
+	/** Scene whose restore or automatic fit is driving the viewport: its scene
+	 *  reports are not user changes and are persisted explicitly (or not at all). */
+	private programmaticViewportSceneKey: string | undefined;
+	/** The last automatic first fit that no user change has replaced yet. */
+	private autoFramedViewport: { readonly sceneKey: string; readonly generation: number } | undefined;
 	private canvasZoom = 1;
 	private canvasSnapEnabled = true;
 	private zoomMenuOpen = false;
@@ -1529,11 +1542,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
 		@ITextFileService private readonly textFileService: ITextFileService,
-		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
+		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
+		@IBaseHalfReferenceIndexService private readonly referenceIndexService: IBaseHalfReferenceIndexService,
+		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasAppearanceService private readonly canvasAppearanceService: IBaseHalfCanvasAppearanceService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
@@ -1561,6 +1576,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@ILifecycleService lifecycleService: ILifecycleService
 	) {
 		super();
+		// Flushes a pending settled viewport on dispose and when storage saves
+		// state, so the last gesture before closing is not lost.
+		this.viewportPersister = this._register(this.instantiationService.createInstance(BaseHalfCanvasViewportPersister));
+		this.upstreamActions = this._register(this.instantiationService.createInstance(BaseHalfUpstreamActions));
 		this._register(CommandsRegistry.registerCommand(BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, (_accessor, argument: unknown) => {
 			if (!isBaseHalfCanvasActionContext(argument)) {
 				return;
@@ -1662,7 +1681,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			showContextMenu: (sceneKey, structuralEpoch, request) => this.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
 			didStartViewportInteraction: () => {
-				this.folderFocusRestoreGeneration++;
+				this.viewportRestoreGeneration++;
 				this.markCanvasUserInteraction();
 			},
 			didEndInteraction: () => this.flushRenderQueuedBehindGesture(),
@@ -1751,12 +1770,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const affectsVisibleSurface = this.canvasNavigationService.state.cardDetail
 				? affectsBadgeMirror
 				: event.affects(folder.resource) || affectsBadgeMirror;
-			if (affectsVisibleSurface && !this.isFocusMirrorOnlyChange(event, folder)) {
+			if (affectsVisibleSurface) {
 				if (this.isCurrentCanvasLayoutOnlyChange(event, folder)) {
 					this.scheduleCanvasLayoutReconciliation();
 				} else {
 					this.scheduleBackgroundRender();
 				}
+			}
+		}));
+		// Connections live in the downstream nodes' own stores anywhere in the
+		// workspace folder (D37), so any store change of the folder can change
+		// this canvas's edges, counts, or the open badge editor.
+		this._register(this.referenceIndexService.onDidChange(event => {
+			const folder = this.getCurrentFolder();
+			if (folder && this.uriIdentityService.extUri.isEqual(event.workspaceFolder, folder.workspaceFolder)) {
+				this.scheduleBackgroundRender();
 			}
 		}));
 		this._register(this.nodeExecutionService.onDidChange(event => {
@@ -1850,11 +1878,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			return Promise.resolve(this.undoRedoService.redo(this.canvasUndoRedoSource)).catch(error => this.reportCanvasMutationError(error));
 		}));
+		this._register(this.viewportStateService.onDidImport(folders => this.onDidImportViewports(folders)));
 		this._register(toDisposable(() => {
-			if (this.folderFocusTimer !== undefined) {
-				mainWindow.clearTimeout(this.folderFocusTimer);
-				this.folderFocusTimer = undefined;
-			}
 			for (const timer of this.badgeDescriptionTimers.values()) {
 				mainWindow.clearTimeout(timer);
 			}
@@ -2095,12 +2120,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private requestRender(): void {
+		this.rendersInFlight++;
 		void this.render().catch(error => {
 			if (this.disposed) {
 				return;
 			}
 			this.logService.error(error);
 			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		}).finally(() => {
+			this.rendersInFlight--;
 		});
 	}
 
@@ -2163,6 +2191,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.inlineEdit = undefined;
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
+			this.renderedRelationships = new Map();
+			this.renderedUpstreamViews = new Map();
+			this.renderedIndexState = undefined;
 			this.renderedItemsByPath = new Map();
 			this.renderedCardPreviewsByPath = new Map();
 			this.renderedCardsByPath = new Map();
@@ -2210,6 +2241,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.inlineEditListeners.clear();
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
+			this.renderedRelationships = new Map();
+			this.renderedUpstreamViews = new Map();
+			this.renderedIndexState = undefined;
 			this.renderedItemsByPath = new Map();
 			this.renderedCardPreviewsByPath = new Map();
 			this.renderedCardsByPath = new Map();
@@ -2245,10 +2279,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		// One sparse-mirror walk fetches every badge in the workspace: the model
-		// needs them BEFORE it builds items so the child cap can keep annotated
-		// children and the edge set can derive from the reference graph.
-		const badgeRead = await this.badgeGraphService.listBadges(folder.workspaceFolder);
+		// One sparse-mirror walk fetches every badge description in the
+		// workspace, and the reference index supplies every card's connections
+		// (D37): the model needs both BEFORE it builds items so the child cap can
+		// keep annotated children and the edge set can derive from the
+		// downstream nodes' upstream lists.
+		const badgeRead = await this.badgeMirrorService.listBadges(folder.workspaceFolder);
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
+		const connections = await this.readCanvasConnections(folder, stat);
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
@@ -2265,7 +2305,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
 			canvas,
-			badges: badgeRead.badges
+			badges: badgeRead.badges,
+			relationships: connections.relationships
 		});
 		let badgeWarning: string | undefined;
 		const folderPrefix = folder.relativePath.length === 0 ? '' : `${folder.relativePath}/`;
@@ -2430,6 +2471,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const previousRenderedNodeChrome = this.renderedNodeChromeByPath;
 		this.renderedBadges = badgeRead.badges;
 		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
+		this.renderedRelationships = connections.relationships;
+		this.renderedUpstreamViews = connections.views;
+		this.renderedIndexState = connections.state;
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
 		this.renderedCardPreviewsByPath = new Map(items.map(item => [
 			item.path,
@@ -2488,7 +2532,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
 				...(this.openBadgeFaces.has(item.path) || this.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
-				...(this.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {})
+				...(this.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
+				...(connections.refusals.has(item.path) ? { upstreamRefusal: connections.refusals.get(item.path)! } : {})
 			};
 		});
 		this.disposeRemovedCardListenerStores(new Set(items.map(item => item.path)));
@@ -2554,13 +2599,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (badgeWarning) {
 			this.renderCanvasWarning(badgeWarning);
 		}
+		this.renderCanvasConnectionsStatus(connections.state);
 		for (const warning of this.pendingCanvasWarnings.splice(0)) {
 			this.renderCanvasWarning(warning);
 		}
 
 		if (this.pendingCanvasFit
 			&& (!this.isCanvasPostCreateOwnerCurrent(this.pendingCanvasFit.owner)
-				|| this.pendingCanvasFit.viewportGeneration !== this.folderFocusRestoreGeneration)) {
+				|| this.pendingCanvasFit.viewportGeneration !== this.viewportRestoreGeneration)) {
 			this.pendingCanvasFit = undefined;
 		}
 		const pendingFit = this.pendingCanvasFit?.sceneKey === currentSceneKey && !this.canvasNavigationService.state.cardDetail
@@ -2571,7 +2617,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mainWindow.requestAnimationFrame(() => {
 				if (!this.isCurrentSceneKey(pendingFit.sceneKey)
 					|| !this.isCanvasPostCreateOwnerCurrent(pendingFit.owner)
-					|| pendingFit.viewportGeneration !== this.folderFocusRestoreGeneration
+					|| pendingFit.viewportGeneration !== this.viewportRestoreGeneration
 					|| this.canvasNavigationService.state.cardDetail) {
 					return;
 				}
@@ -2581,14 +2627,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}).then(() => {
 					if (this.isCurrentSceneKey(pendingFit.sceneKey)
 						&& this.isCanvasPostCreateOwnerCurrent(pendingFit.owner)
-						&& pendingFit.viewportGeneration === this.folderFocusRestoreGeneration
+						&& pendingFit.viewportGeneration === this.viewportRestoreGeneration
 						&& !this.canvasNavigationService.state.cardDetail) {
-						this.scheduleFolderFocusWrite(0);
+						// Framing cards the user just created is a user change.
+						this.scheduleViewportPersist(0, 'user');
 					}
 				}).catch(error => this.logService.error(error));
 			});
 		} else {
-			this.restoreOrWriteFolderFocus(folder, seq);
+			this.restoreFolderViewport(folder);
 		}
 	}
 
@@ -2623,6 +2670,117 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private sceneMutationStamp(folder: IBaseHalfCanvasFolderState, structuralEpoch: number): IBaseHalfWorkspaceMutationStamp {
 		return { workspaceKey: folder.workspaceFolder.toString(), structuralEpoch };
+	}
+
+	private upstreamIdentity(workspaceFolder: URI): IBaseHalfUpstreamIdentity {
+		return baseHalfUpstreamIdentity(workspaceFolder, this.uriIdentityService.extUri);
+	}
+
+	private workspaceNode(workspaceFolder: URI, relativePath: string, kind: IBaseHalfCanvasItem['kind']): IBaseHalfUpstreamActionNode {
+		return {
+			resource: relativePath ? joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder,
+			workspaceFolder,
+			relativePath,
+			kind
+		};
+	}
+
+	/**
+	 * Reads the connections of a folder's cards from the reference index (D37).
+	 * While the index is building, the canvas shows cards without edges. Cards
+	 * whose badge face is open read their own store directly, so their Upstream
+	 * list never depends on enumeration.
+	 */
+	private async readCanvasConnections(folder: IBaseHalfCanvasFolderState, stat: IFileStat): Promise<{
+		readonly state: BaseHalfReferenceIndexState | undefined;
+		readonly relationships: ReadonlyMap<string, IBaseHalfCanvasItemRelationships>;
+		readonly views: ReadonlyMap<string, IBaseHalfUpstreamView>;
+		readonly refusals: ReadonlyMap<string, string>;
+	}> {
+		const state = this.referenceIndexService.getState(folder.workspaceFolder);
+		const relationships = new Map<string, IBaseHalfCanvasItemRelationships>();
+		const views = new Map<string, IBaseHalfUpstreamView>();
+		const refusals = new Map<string, string>();
+		const rootLevel = folder.relativePath.length === 0;
+		const children = (stat.children ?? []).filter(child => isBaseHalfCanvasEntry(child, rootLevel));
+		const siblingPaths = children.map(child => canvasChildPath(folder.relativePath, basename(child.resource)));
+		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder);
+		const identity = this.upstreamIdentity(folder.workspaceFolder);
+		const misplaced = state === undefined || state === 'building'
+			? new Set<string>()
+			: new Set(this.referenceIndexService.getStores(folder.workspaceFolder)
+				.filter(store => store.sidecarState === 'wrongOwner')
+				.map(store => identity.key(store.node.relativePath)));
+		await Promise.all(children.map(async (child, index) => {
+			const path = siblingPaths[index];
+			const node = this.workspaceNode(folder.workspaceFolder, path, child.isDirectory ? 'folder' : 'file');
+			const refusal = this.canvasUpstreamRefusal(node, basename(child.resource), marked);
+			if (refusal) {
+				refusals.set(path, refusal);
+			}
+			const building = state === undefined || state === 'building';
+			if (building && !this.openBadgeFaces.has(path)) {
+				return;
+			}
+			let view: IBaseHalfUpstreamView | undefined;
+			try {
+				if (this.openBadgeFaces.has(path)) {
+					view = await this.referenceIndexService.readUpstream(node);
+				} else {
+					const store = this.referenceIndexService.getStore(node);
+					if ((store && (store.read.items.length > 0 || store.read.issue || !store.read.readable)) || misplaced.has(identity.key(path))) {
+						view = await this.referenceIndexService.resolveUpstream(node);
+					}
+				}
+			} catch (error) {
+				this.logService.warn(`[BaseHalf] upstream list of ${path} could not be read`, error);
+			}
+			if (view) {
+				views.set(path, view);
+			}
+			if (building) {
+				// No edges or counts until the index is ready.
+				return;
+			}
+			const upstream = view
+				? baseHalfCanvasResolveSiblingUpstream(
+					view.entries.flatMap(entry => entry.status === 'valid' && entry.path !== undefined ? [entry.path] : []),
+					siblingPaths,
+					identity
+				)
+				: [];
+			const downstream = this.referenceIndexService.getDownstream(node).map(entry => entry.node.relativePath);
+			relationships.set(path, { upstream, downstream, issueCount: view?.issueCount ?? 0 });
+		}));
+		return { state, relationships, views, refusals };
+	}
+
+	/** Why a card can never receive a connection right now, if it cannot. */
+	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean): string | undefined {
+		if (this.referenceIndexService.getUpstreamOnlyReason(node)) {
+			return localize('basehalf.canvas.connect.upstreamOnly', "{0} can't receive upstream context.", name);
+		}
+		if (node.kind === 'file' && name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) && this.nodeExecutionService.getActiveRun(node.resource)) {
+			return localize('basehalf.canvas.connect.running', "This node is running.");
+		}
+		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
+			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder where BaseHalf doesn't write metadata.", name);
+		}
+		return undefined;
+	}
+
+	/** The index state as the canvas shows it: loading, or partial with unscanned files. */
+	private renderCanvasConnectionsStatus(state: BaseHalfReferenceIndexState | undefined): void {
+		if (state !== 'building' && state !== 'partial') {
+			return;
+		}
+		const status = append(this.canvasOverlay, $('.basehalf-canvas-connections-status'));
+		status.setAttribute('role', 'status');
+		status.setAttribute('data-testid', 'canvas-connections-status');
+		status.setAttribute('data-index-state', state);
+		status.textContent = state === 'building'
+			? localize('basehalf.canvas.connections.building', "Loading connections…")
+			: localize('basehalf.canvas.connections.partial', "Some files weren't scanned, so connections may be missing.");
 	}
 
 	private resourceMutationGuard(
@@ -2739,35 +2897,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private async applyCanvasConnectionTransition(
 		transition: IBaseHalfCanvasConnectionTransition,
 		reverse: boolean,
-		lease: IBaseHalfWorkspaceMutationLease,
-		allowMissingNodes = false
+		lease: IBaseHalfWorkspaceMutationLease
 	): Promise<void> {
-		const references = reverseReferenceTransitions(transition.references, reverse);
 		const canvas = reverseCanvasStateTransition(transition.canvas, reverse);
 		const documents = reverseDocumentTransitions(transition.documents, reverse);
-		let live: ReadonlyMap<string, IBaseHalfBadgeNode>;
-		if (!allowMissingNodes) {
-			live = await this.resolveLiveWorkspaceNodes(transition.folder.workspaceFolder, transition.nodes);
-		} else {
-			const resolved = new Map<string, IBaseHalfBadgeNode>();
-			for (const node of transition.nodes) {
-				try {
-					const candidate = await this.resolveLiveWorkspaceNodes(transition.folder.workspaceFolder, [node]);
-					resolved.set(node.path, candidate.get(node.path)!);
-				} catch (error) {
-					if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
-						throw error;
-					}
-					resolved.set(node.path, {
-						resource: joinPath(transition.folder.workspaceFolder, ...node.path.split('/')),
-						workspaceFolder: transition.folder.workspaceFolder,
-						relativePath: node.path,
-						kind: node.kind
-					});
-				}
-			}
-			live = resolved;
-		}
+		await this.resolveLiveWorkspaceNodes(transition.folder.workspaceFolder, transition.nodes);
 
 		for (const document of documents) {
 			if (this.workingCopyService.isDirty(document.resource) || this.nodeExecutionService.getActiveRun(document.resource)) {
@@ -2779,19 +2913,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 
-		let referencesApplied = false;
 		let canvasApplied = false;
 		const written: IBaseHalfCanvasNodeDocumentTransition[] = [];
 		try {
-			if (references.length > 0) {
-				await this.badgeGraphService.transitionReferenceStates(references.map(reference => ({
-					source: live.get(reference.source.path)!,
-					target: live.get(reference.target.path)!,
-					expected: reference.expected,
-					next: reference.next
-				})), lease);
-				referencesApplied = true;
-			}
 			await this.canvasMirrorService.transitionCanvasState(transition.folder, canvas, lease);
 			canvasApplied = true;
 			for (const document of documents) {
@@ -2824,42 +2948,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					rollbackErrors.push(rollbackError);
 				}
 			}
-			if (referencesApplied) {
-				try {
-					await this.badgeGraphService.transitionReferenceStates(references.map(reference => ({
-						source: live.get(reference.source.path)!,
-						target: live.get(reference.target.path)!,
-						expected: reference.next,
-						next: reference.expected
-					})), lease);
-				} catch (rollbackError) {
-					rollbackErrors.push(rollbackError);
-				}
-			}
 			if (rollbackErrors.length > 0) {
 				throw new AggregateError([error, ...rollbackErrors], 'The canvas connection and its safe rollback both failed. Reopen the project before continuing.');
 			}
 			throw error;
 		}
-	}
-
-	private async compensateCanvasConnectionGraphTransition(
-		transition: IBaseHalfCanvasConnectionTransition
-	): Promise<void> {
-		if (transition.references.length === 0 && !canvasStateTransitionChangesAnything(transition.canvas)) {
-			return;
-		}
-		const graphOnlyTransition: IBaseHalfCanvasConnectionTransition = {
-			...transition,
-			documents: []
-		};
-		const stamps = [...new Set([transition.folder.relativePath, ...transition.nodes.map(node => node.path)])]
-			.map(path => this.workspaceMutationCoordinator.captureResource(transition.folder.workspaceFolder, path));
-		await this.workspaceMutationCoordinator.runResourceMutation(
-			transition.folder.workspaceFolder,
-			stamps,
-			lease => this.applyCanvasConnectionTransition(graphOnlyTransition, true, lease, true)
-		);
 	}
 
 	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void> {
@@ -2892,6 +2985,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				await this.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
 			}
 		);
+		if (committedTransition) {
+			this.supersedeCanvasReadsBeforeGeometryCommit();
+		}
 		if (committedTransition && canvasStateTransitionChangesAnything(committedTransition)) {
 			this.pushCanvasUndoElement(
 				localize('basehalf.canvas.geometry.undo', "Move or resize canvas cards"),
@@ -2921,6 +3017,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// provides canonical reconciliation, now with unchanged previews cached.
 	}
 
+	/**
+	 * A render or layout reconciliation still in flight may have read
+	 * canvas.yaml before a geometry commit wrote it. Resolving after the
+	 * commit's scene update, it would publish the old geometry and snap the
+	 * moved or resized cards back until the next reconciliation. Supersede
+	 * both: an in-flight reconciliation is dropped (the commit's own
+	 * canvas.yaml change schedules a fresh one), and an in-flight render is
+	 * replaced by a new render that reads the committed file.
+	 */
+	private supersedeCanvasReadsBeforeGeometryCommit(): void {
+		this.canvasLayoutReconcileGeneration++;
+		if (this.rendersInFlight > 0) {
+			this.renderSeq++;
+			this.requestRender();
+		}
+	}
+
 	private async chooseConnectionInputSlot(
 		candidates: ReturnType<typeof getBaseHalfNodeAvailableInputSlots>,
 		sourcePath: string,
@@ -2945,48 +3058,92 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return decision.kind === 'bind' ? decision.slot : undefined;
 	}
 
-	private async prepareConnectionTargetBinding(
-		target: IBaseHalfCanvasConnectionTargetSnapshot,
-		sourcePath: string,
-		sourceKind: BaseHalfCanvasContentKind,
-		baseDocument = target.node?.document
-	): Promise<{ readonly kind: 'proceed'; readonly document?: IBaseHalfNodeDocument } | { readonly kind: 'cancel' }> {
-		if (!target.node || !baseDocument?.recipe) {
+	/**
+	 * The input role of a connection entering a `.bhnode` (D37). Only a Draft
+	 * with a recipe asks for a role: the entry and its binding are one write,
+	 * and cancelling writes nothing. A node without a recipe takes an unbound
+	 * entry; a node with an Attempt or Result is refused by the edit service
+	 * ("Copy its settings to a new Draft").
+	 */
+	private async chooseNodeConnectionBinding(target: IBaseHalfUpstreamActionNode, sourcePath: string): Promise<BaseHalfUpstreamBindingChoice> {
+		if (target.kind !== 'file' || !target.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
 			return { kind: 'proceed' };
 		}
-		if (baseDocument.result || baseDocument.attempts.length > 0) {
-			throw new Error(`'${target.path}' already has an attempt or sealed Result. Copy its settings to a new Draft before changing recipe inputs.`);
+		if (this.workingCopyService.isDirty(target.resource)) {
+			throw new Error(localize('basehalf.canvas.connect.nodeDirty', "Save '{0}' before changing its connections.", target.relativePath));
 		}
-		const recipe = target.node.recipe;
+		const content = await this.fileService.readFile(target.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
+		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
+		if (!document.recipe || !isBaseHalfNodeDraft(document)) {
+			return { kind: 'proceed' };
+		}
+		const identity = this.upstreamIdentity(target.workspaceFolder);
+		const sourceKey = identity.key(baseHalfNormalizeUpstreamEntry(sourcePath));
+		if (document.recipe.inputBindings.some(binding => identity.key(binding.sourcePath) === sourceKey)) {
+			// Already bound: the add is a no-op.
+			return { kind: 'proceed' };
+		}
+		const recipe = this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId);
 		if (!recipe) {
-			throw new Error(`Recipe '${baseDocument.recipe.recipeId}' for '${target.path}' is not installed. Choose an available recipe before connecting context.`);
+			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not installed. Choose an available recipe before connecting context.`);
 		}
-		if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, baseDocument.kind)) {
-			throw new Error(`Recipe '${recipe.label}' no longer produces ${baseDocument.kind} content for '${target.path}'. Choose a matching recipe before connecting context.`);
+		if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
+			throw new Error(`Recipe '${recipe.label}' no longer produces ${document.kind} content for '${target.relativePath}'. Choose a matching recipe before connecting context.`);
 		}
-		const candidates = getBaseHalfNodeAvailableInputSlots(
-			recipe,
-			baseDocument.recipe.inputBindings,
-			sourcePath,
-			sourceKind
-		);
-		const slot = await this.chooseConnectionInputSlot(candidates, sourcePath, target.path, sourceKind);
-		if (!slot) {
-			return { kind: 'cancel' };
-		}
+		const sourceKind = await this.readWorkspaceContentKind(target.workspaceFolder, sourcePath);
+		const candidates = getBaseHalfNodeAvailableInputSlots(recipe, document.recipe.inputBindings, sourcePath, sourceKind);
+		const slot = await this.chooseConnectionInputSlot(candidates, sourcePath, target.relativePath, sourceKind);
+		return slot ? { kind: 'proceed', binding: { slot: slot.id } } : { kind: 'cancel' };
+	}
+
+	/** The reference operation context of the current canvas: its undo stack and re-render. */
+	private upstreamActionContext(folder: IBaseHalfCanvasFolderState | undefined, onDidChange: () => void): IBaseHalfUpstreamActionContext {
 		return {
-			kind: 'proceed',
-			document: {
-				...baseDocument,
-				recipe: {
-					...baseDocument.recipe,
-					inputBindings: normalizeNodeInputBindings([
-						...baseDocument.recipe.inputBindings,
-						{ sourcePath, slot: slot.id, order: baseDocument.recipe.inputBindings.length }
-					])
-				}
-			}
+			canvasCardPaths: [...this.renderedItemsByPath.keys()],
+			...(folder ? { undoResources: [this.canvasMirrorService.canvasResource(folder)] } : {}),
+			chooseBinding: (target, sourcePath) => this.chooseNodeConnectionBinding(target, sourcePath),
+			onDidChange
 		};
+	}
+
+	/**
+	 * Runs one canvas reference operation (connect, disconnect, reconnect) and
+	 * pushes its single canvas undo step. A refusal is shown with its reason
+	 * (and **Open File** when that helps) and resolves `undefined`: the scene's
+	 * optimistic edge is then reconciled by the next render.
+	 */
+	private async runCanvasReferenceOperation(
+		folder: IBaseHalfCanvasFolderState,
+		node: IBaseHalfUpstreamActionNode,
+		label: string,
+		operation: () => Promise<IBaseHalfReferenceEditResult>
+	): Promise<IBaseHalfReferenceEditResult | undefined> {
+		return this.upstreamActions.run(label, node, this.upstreamActionContext(folder, () => this.scheduleBackgroundRender()), operation);
+	}
+
+	/**
+	 * `canvas.yaml` edge rows are anchor memory only (D37): a connect or
+	 * reconnect upserts the row of its pair so undo or a later reconnect
+	 * restores the anchors. In a folder marked with the source-tree marker
+	 * nothing is written under `.bh/`; the edge uses default anchors.
+	 */
+	private async rememberCanvasEdgeAnchors(folder: IBaseHalfCanvasFolderState, sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasEdge): Promise<void> {
+		try {
+			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
+				return;
+			}
+			await this.workspaceMutationCoordinator.runSceneMutation(
+				folder.workspaceFolder,
+				this.sceneMutationStamp(folder, structuralEpoch),
+				async lease => {
+					this.folderForSceneMutation(sceneKey);
+					await this.canvasMirrorService.upsertCanvasEdge(folder, edge, lease);
+				}
+			);
+		} catch (error) {
+			// The connection itself is saved; its anchors fall back to defaults.
+			this.logService.warn(`[BaseHalf] could not remember the anchors of ${edge.from} -> ${edge.to}`, error);
+		}
 	}
 
 	private async createResultNodeFromConnection(
@@ -3075,11 +3232,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			workspace: queuedFolder.workspaceFolder,
 			relativePath: targetPath
 		}]);
+		// The node document names its source in `upstream` and binds it in the
+		// same initial bytes (D37): creating the file is the connection.
+		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, queuedFolder.workspaceFolder);
 		let committed: IBaseHalfCanvasCreatedNodeTransition | undefined;
 		let failure: unknown;
 		await reservation.finish(async lease => {
 			let fileCreated = false;
-			let referenceTransition: Awaited<ReturnType<IBaseHalfBadgeGraphService['addReferenceWithState']>> | undefined;
 			let canvasApplied = false;
 			let canvasTransition: IBaseHalfCanvasStateTransition | undefined;
 			try {
@@ -3089,10 +3248,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 				const currentCanvas = await this.canvasMirrorService.readCanvas(queuedFolder);
 				if (await this.fileService.exists(baseHalfMirrorResource(queuedFolder.workspaceFolder, targetPath, 'badge.yaml'))
-					|| currentCanvas?.cards.some(candidate => candidate.path === targetPath)
-					|| currentCanvas?.edges.some(candidate => candidate.from === edge.from && candidate.to === edge.to)) {
+					|| currentCanvas?.cards.some(candidate => candidate.path === targetPath)) {
 					throw new Error(`Project metadata for '${targetPath}' already exists.`);
 				}
+				// Edge rows are anchor memory: a stale row for this pair is replaced.
+				const staleEdge = currentCanvas?.edges.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
 				const placement = this.avoidCanvasCreateOverlap({
 					canvasPosition: drop.position,
 					screenPosition: { x: 0, y: 0 }
@@ -3107,7 +3267,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				};
 				canvasTransition = {
 					cards: [{ path: targetPath, expected: null, next: card }],
-					edges: [{ from: edge.from, to: edge.to, expected: null, next: edge }]
+					edges: marked ? [] : [{ from: edge.from, to: edge.to, expected: staleEdge, next: edge }]
 				};
 				await this.fileService.writeFileWithExpectedContents(
 					targetResource,
@@ -3116,20 +3276,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					{ atomic: { postfix: '.basehalf-node-create-tmp' } }
 				);
 				fileCreated = true;
-				const live = await this.resolveLiveWorkspaceNodes(queuedFolder.workspaceFolder, [
+				await this.resolveLiveWorkspaceNodes(queuedFolder.workspaceFolder, [
 					{ path: drop.from, kind: drop.fromKind },
 					{ path: targetPath, kind: 'file' }
 				]);
 				if (await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, drop.from) !== sourceKind) {
 					throw new Error(`'${drop.from}' changed content kind before the node could be created.`);
-				}
-				referenceTransition = await this.badgeGraphService.addReferenceWithState(
-					live.get(drop.from)!,
-					live.get(targetPath)!,
-					lease
-				);
-				if (referenceTransition.result !== 'added') {
-					throw new Error(`Context metadata for '${targetPath}' already exists.`);
 				}
 				await this.canvasMirrorService.transitionCanvasState(queuedFolder, canvasTransition, lease);
 				canvasApplied = true;
@@ -3139,12 +3291,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						{ path: drop.from, kind: drop.fromKind },
 						{ path: targetPath, kind: 'file' }
 					],
-					references: [{
-						source: { path: drop.from, kind: drop.fromKind },
-						target: { path: targetPath, kind: 'file' },
-						expected: referenceTransition.before,
-						next: referenceTransition.after
-					}],
 					canvas: canvasTransition,
 					documents: []
 				};
@@ -3152,27 +3298,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			} catch (error) {
 				const rollbackErrors = await compensateBaseHalfCanvasConnectedNodeCreate({
 					canvasApplied,
-					referenceApplied: referenceTransition !== undefined,
 					fileCreated,
 					rollbackCanvas: async () => {
 						if (canvasTransition) {
 							await this.canvasMirrorService.transitionCanvasState(queuedFolder, reverseCanvasStateTransition(canvasTransition, true), lease);
 						}
-					},
-					rollbackReference: async () => {
-						if (!referenceTransition) {
-							return;
-						}
-						const live = await this.resolveLiveWorkspaceNodes(queuedFolder.workspaceFolder, [
-							{ path: drop.from, kind: drop.fromKind },
-							{ path: targetPath, kind: 'file' }
-						]);
-						await this.badgeGraphService.transitionReferenceStates([{
-							source: live.get(drop.from)!,
-							target: live.get(targetPath)!,
-							expected: referenceTransition.after,
-							next: referenceTransition.before
-						}], lease);
 					},
 					discardFile: async () => {
 						await this.discardExactCanvasNodeFile(targetResource, contents);
@@ -3189,6 +3319,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!committed) {
 			throw new Error('The result node transaction completed without a committed state.');
 		}
+		// Show the new connection now instead of after the file watcher event.
+		this.referenceIndexService.acceptSavedContent(
+			{ resource: targetResource, workspaceFolder: queuedFolder.workspaceFolder, relativePath: targetPath },
+			'node',
+			contents.toString()
+		);
 
 		this.pushCanvasCreatedNodeUndo(committed);
 		this.queueCanvasSelection(this.sceneKey(queuedFolder), [targetPath], postCreateOwner);
@@ -3341,653 +3477,175 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		);
 	}
 
-	private async readConnectionTargetSnapshot(
-		folder: IBaseHalfCanvasFolderState,
-		path: string,
-		kind: IBaseHalfCanvasItem['kind'],
-		action: 'connecting' | 'reconnecting',
-		loadNodeConfiguration = false
-	): Promise<IBaseHalfCanvasConnectionTargetSnapshot> {
-		const target: IBaseHalfBadgeNode = {
-			resource: joinPath(folder.workspaceFolder, ...path.split('/')),
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: path,
-			kind
-		};
-		const neighborhood = await this.badgeGraphService.readBadgeNeighborhood(target);
-		if (neighborhood.problems.length > 0) {
-			throw new Error(`Repair the context metadata for '${path}' before ${action} it.`);
-		}
-		const directSourcePaths = Object.freeze([...(neighborhood.badges.get(path)?.referenced_by ?? [])].sort());
-		if (!loadNodeConfiguration || !path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			return Object.freeze({ path, kind, directSourcePaths, inputKinds: new Map() });
-		}
-
-		const resource = target.resource;
-		if (this.workingCopyService.isDirty(resource) || this.nodeExecutionService.getActiveRun(resource)) {
-			throw new Error(`Save '${path}' and finish its active run before ${action} context.`);
-		}
-		const content = await this.fileService.readFile(resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		if (document.attempts.some(attempt => attempt.status === 'running')) {
-			throw new Error(`Finish '${path}' active run before ${action} context.`);
-		}
-		const recipe = document.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
-		const inputKinds = new Map<string, BaseHalfCanvasContentKind>();
-		if (recipe && baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
-			for (const sourcePath of directSourcePaths) {
-				inputKinds.set(sourcePath, await this.readWorkspaceContentKind(folder.workspaceFolder, sourcePath));
-			}
-		}
-		return Object.freeze({
-			path,
-			kind,
-			directSourcePaths,
-			inputKinds,
-			node: Object.freeze({ resource, contents: content.value, document, recipe })
-		});
-	}
-
-	private async readConnectionPairState(
-		folder: IBaseHalfCanvasFolderState,
-		source: IBaseHalfCanvasUndoNode,
-		target: IBaseHalfCanvasUndoNode
-	): Promise<IBaseHalfReferenceState> {
-		const node = (value: IBaseHalfCanvasUndoNode): IBaseHalfBadgeNode => ({
-			resource: joinPath(folder.workspaceFolder, ...value.path.split('/')),
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: value.path,
-			kind: value.kind
-		});
-		const [sourceNeighborhood, targetNeighborhood] = await Promise.all([
-			this.badgeGraphService.readBadgeNeighborhood(node(source)),
-			this.badgeGraphService.readBadgeNeighborhood(node(target))
-		]);
-		if (sourceNeighborhood.problems.length > 0 || targetNeighborhood.problems.length > 0) {
-			throw new Error(`Repair the context metadata between '${source.path}' and '${target.path}' before changing this connection.`);
-		}
-		return {
-			forward: sourceNeighborhood.badges.get(source.path)?.references.includes(target.path) ?? false,
-			backlink: targetNeighborhood.badges.get(target.path)?.referenced_by.includes(source.path) ?? false
-		};
-	}
-
-	private async assertConnectionTargetCurrent(
-		folder: IBaseHalfCanvasFolderState,
-		expectedTarget: IBaseHalfCanvasConnectionTargetSnapshot,
-		sourcePath: string
-	): Promise<IBaseHalfCanvasConnectionTargetSnapshot> {
-		const current = await this.readConnectionTargetSnapshot(folder, expectedTarget.path, expectedTarget.kind, 'connecting', !!expectedTarget.node);
-		if (!connectionTargetSnapshotsEqual(expectedTarget, current)) {
-			throw new Error(`'${expectedTarget.path}' or its direct context changed before the connection could be saved.`);
-		}
-		if (current.directSourcePaths.includes(sourcePath)) {
-			throw new Error(`Context from '${sourcePath}' is already connected to '${current.path}'.`);
-		}
-		return current;
-	}
-
+	/**
+	 * Connect on the canvas (D37): lists `from` in `to`'s own upstream store
+	 * (Markdown frontmatter, `.bhnode` `upstream`, or its sidecar) through the
+	 * reference edit service, then remembers the gesture's anchors in the
+	 * `canvas.yaml` row of the pair. The reference write is one canvas undo
+	 * step; the anchor row is not part of undo.
+	 */
 	private async connectSceneEdge(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void> {
 		if (connection.from === connection.to) {
 			throw new Error('A node cannot provide context to itself.');
 		}
-		const queuedFolder = this.folderForSceneMutation(sceneKey);
-		const target = await this.readConnectionTargetSnapshot(queuedFolder, connection.to, connection.toKind, 'connecting', true);
-		const sourceKind = await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, connection.from);
-		const pair = await this.readConnectionPairState(
-			queuedFolder,
+		const folder = this.folderForSceneMutation(sceneKey);
+		await this.resolveLiveCanvasNodes(sceneKey, folder, [
 			{ path: connection.from, kind: connection.fromKind },
 			{ path: connection.to, kind: connection.toKind }
-		);
-		const existingCanvasEdge = (await this.canvasMirrorService.readCanvas(queuedFolder))?.edges
-			.some(edge => edge.from === connection.from && edge.to === connection.to) ?? false;
-		if (existingCanvasEdge || pair.forward || pair.backlink || target.directSourcePaths.includes(connection.from)) {
-			if (pair.forward !== pair.backlink) {
-				throw new Error(`Repair the incomplete context metadata between '${connection.from}' and '${connection.to}' before reconnecting it.`);
-			}
-			throw new Error(`Context from '${connection.from}' is already connected to '${connection.to}'.`);
-		}
-		const binding = await this.prepareConnectionTargetBinding(target, connection.from, sourceKind);
+		]);
+		const target = this.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
+		const binding = await this.chooseNodeConnectionBinding(target, connection.from);
 		if (binding.kind === 'cancel') {
-			// The canvas scene clears its optimistic edge after this promise settles. Reconcile
-			// on the next background pass so a cancelled picker cannot leave that edge
-			// visible even though no graph layer was changed.
+			// The canvas scene clears its optimistic edge after this promise
+			// settles; the next render reconciles it.
 			this.scheduleBackgroundRender();
 			return;
 		}
-		const nodeUpdate = target.node && binding.document
-			? {
-				resource: target.node.resource,
-				expected: target.node.contents,
-				next: VSBuffer.fromString(serializeBaseHalfNodeDocument(binding.document))
-			}
-			: undefined;
-		let committedTransition: IBaseHalfCanvasConnectionTransition | undefined;
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			queuedFolder.workspaceFolder,
-			this.sceneMutationStamp(queuedFolder, structuralEpoch),
-			async lease => {
-				const folder = this.folderForSceneMutation(sceneKey);
-				await this.assertConnectionTargetCurrent(folder, target, connection.from);
-				if (await this.readWorkspaceContentKind(folder.workspaceFolder, connection.from) !== sourceKind) {
-					throw new Error(`'${connection.from}' changed content kind before it could be connected to '${connection.to}'.`);
-				}
-				const currentPair = await this.readConnectionPairState(
-					folder,
-					{ path: connection.from, kind: connection.fromKind },
-					{ path: connection.to, kind: connection.toKind }
-				);
-				if (currentPair.forward || currentPair.backlink) {
-					throw new Error(`The context metadata between '${connection.from}' and '${connection.to}' changed before it could be connected.`);
-				}
-				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
-					{ path: connection.from, kind: connection.fromKind },
-					{ path: connection.to, kind: connection.toKind }
-				]);
-				const edge: IBaseHalfCanvasEdge = {
-					from: connection.from,
-					from_anchor: connection.fromAnchor,
-					to: connection.to,
-					to_anchor: connection.toAnchor
-				};
-				const currentCanvasEdge = (await this.canvasMirrorService.readCanvas(folder))?.edges
-					.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
-				if (currentCanvasEdge) {
-					throw new Error(`Context from '${connection.from}' is already connected to '${connection.to}'.`);
-				}
-				let referenceTransition: Awaited<ReturnType<IBaseHalfBadgeGraphService['addReferenceWithState']>> | undefined;
-				let canvasApplied = false;
-				let documentApplied = false;
-				try {
-					referenceTransition = await this.badgeGraphService.addReferenceWithState(live.get(edge.from)!, live.get(edge.to)!, lease);
-					if (referenceTransition.result !== 'added') {
-						throw new Error(`Context from '${connection.from}' is already connected to '${connection.to}' or requires metadata repair.`);
-					}
-					await this.canvasMirrorService.transitionCanvasState(folder, {
-						edges: [{ from: edge.from, to: edge.to, expected: null, next: edge }]
-					}, lease);
-					canvasApplied = true;
-					if (nodeUpdate) {
-						await this.fileService.writeFileWithExpectedContents(
-							nodeUpdate.resource,
-							nodeUpdate.next,
-							nodeUpdate.expected,
-							{ atomic: { postfix: '.basehalf-node-connect-tmp' } }
-						);
-						documentApplied = true;
-					}
-					committedTransition = {
-						folder,
-						nodes: [
-							{ path: connection.from, kind: connection.fromKind },
-							{ path: connection.to, kind: connection.toKind }
-						],
-						references: [{
-							source: { path: connection.from, kind: connection.fromKind },
-							target: { path: connection.to, kind: connection.toKind },
-							expected: referenceTransition.before,
-							next: referenceTransition.after
-						}],
-						canvas: { edges: [{ from: edge.from, to: edge.to, expected: null, next: edge }] },
-						documents: nodeUpdate ? [nodeUpdate] : []
-					};
-				} catch (error) {
-					const rollbackErrors: unknown[] = [];
-					if (documentApplied && nodeUpdate) {
-						try {
-							await this.fileService.writeFileWithExpectedContents(
-								nodeUpdate.resource,
-								nodeUpdate.expected,
-								nodeUpdate.next,
-								{ atomic: { postfix: '.basehalf-node-connect-rollback-tmp' } }
-							);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (canvasApplied) {
-						try {
-							await this.canvasMirrorService.transitionCanvasState(folder, {
-								edges: [{ from: edge.from, to: edge.to, expected: edge, next: null }]
-							}, lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (referenceTransition) {
-						try {
-							await this.badgeGraphService.transitionReferenceStates([{
-								source: live.get(edge.from)!,
-								target: live.get(edge.to)!,
-								expected: referenceTransition.after,
-								next: referenceTransition.before
-							}], lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (rollbackErrors.length > 0) {
-						throw new AggregateError([error, ...rollbackErrors], 'The connection change and its safe rollback both failed. Reopen the project before continuing.');
-					}
-					throw error;
-				}
-			}
-		);
-		if (committedTransition && canvasConnectionTransitionChangesAnything(committedTransition)) {
-			this.pushCanvasUndoElement(
-				localize('basehalf.canvas.connect.undo', "Connect canvas nodes"),
-				queuedFolder,
-				committedTransition.nodes,
-				committedTransition.documents,
-				(reverse, lease) => this.applyCanvasConnectionTransition(committedTransition!, reverse, lease)
-			);
+		this.folderForSceneMutation(sceneKey);
+		const label = localize('basehalf.canvas.connect.undo', "Connect canvas nodes");
+		const result = await this.runCanvasReferenceOperation(folder, target, label, () => this.referenceEditService.add(target, connection.from, { label }, binding.binding));
+		if (result) {
+			await this.rememberCanvasEdgeAnchors(folder, sceneKey, structuralEpoch, {
+				from: connection.from,
+				from_anchor: connection.fromAnchor,
+				to: connection.to,
+				to_anchor: connection.toAnchor
+			});
 		}
 		this.requestRender();
 	}
 
+	/**
+	 * Reconnect on the canvas (D37):
+	 * - anchors only: upserts the anchor row;
+	 * - source end: replaces the entry in place in the target's store;
+	 * - target end: moves the entry to the new target's store (added there
+	 *   before it is removed from the old one).
+	 * Each is one canvas undo step, and the new pair's anchors are remembered.
+	 */
 	private async reconnectSceneEdge(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void> {
 		const { previous, next: connection } = intent;
 		if (connection.from === connection.to) {
 			throw new Error('A node cannot provide context to itself.');
 		}
-		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		const folder = this.folderForSceneMutation(sceneKey);
 		const next: IBaseHalfCanvasEdge = {
 			from: connection.from,
 			from_anchor: connection.fromAnchor,
 			to: connection.to,
 			to_anchor: connection.toAnchor
 		};
-		const endpointsChanged = previous.from !== next.from || previous.to !== next.to;
-		const targetSnapshots = new Map<string, IBaseHalfCanvasConnectionTargetSnapshot>();
-		const loadTarget = async (path: string, kind: IBaseHalfCanvasItem['kind']) => {
-			let target = targetSnapshots.get(path);
-			if (!target) {
-				target = await this.readConnectionTargetSnapshot(queuedFolder, path, kind, 'reconnecting', true);
-				targetSnapshots.set(path, target);
-			}
-			return target;
-		};
-		const previousTarget = await loadTarget(previous.to, previous.toKind);
-		const previousPair = await this.readConnectionPairState(
-			queuedFolder,
+		if (previous.from === next.from && previous.to === next.to) {
+			await this.rememberCanvasEdgeAnchors(folder, sceneKey, structuralEpoch, next);
+			this.requestRender();
+			return;
+		}
+		await this.resolveLiveCanvasNodes(sceneKey, folder, [
 			{ path: previous.from, kind: previous.fromKind },
-			{ path: previous.to, kind: previous.toKind }
-		);
-		const initialCanvas = await this.canvasMirrorService.readCanvas(queuedFolder);
-		const initialPreviousCanvasEdge = initialCanvas?.edges.find(edge => edge.from === previous.from && edge.to === previous.to) ?? null;
-		if (!initialPreviousCanvasEdge || !canvasEdgesEqual(initialPreviousCanvasEdge, previous)
-			|| !previousPair.forward || !previousPair.backlink
-			|| !previousTarget.directSourcePaths.includes(previous.from)) {
-			throw new Error('This context connection changed before it could be reconnected.');
-		}
-		if (endpointsChanged && initialCanvas?.edges.some(edge => edge.from === next.from && edge.to === next.to)) {
-			throw new Error(`Context from '${next.from}' is already connected to '${next.to}'.`);
-		}
-
-		const documents = new Map<string, {
-			readonly target: IBaseHalfCanvasConnectionTargetSnapshot;
-			document: IBaseHalfNodeDocument;
-		}>();
-		const editableDocument = (target: IBaseHalfCanvasConnectionTargetSnapshot) => {
-			if (!target.node) {
-				return undefined;
+			{ path: previous.to, kind: previous.toKind },
+			{ path: connection.from, kind: connection.fromKind },
+			{ path: connection.to, kind: connection.toKind }
+		]);
+		const previousTarget = this.workspaceNode(folder.workspaceFolder, previous.to, previous.toKind);
+		const nextTarget = this.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
+		const label = localize('basehalf.canvas.reconnect.undo', "Reconnect canvas nodes");
+		let operation: (() => Promise<IBaseHalfReferenceEditResult>) | undefined;
+		if (previous.to === next.to) {
+			operation = await this.sourceEndReconnectOperation(previousTarget, previous.from, next.from, label);
+			if (!operation) {
+				this.scheduleBackgroundRender();
+				return;
 			}
-			let state = documents.get(target.path);
-			if (!state) {
-				state = { target, document: target.node.document };
-				documents.set(target.path, state);
-			}
-			return state;
-		};
-		let selectedNextSourceKind: BaseHalfCanvasContentKind | undefined;
-		if (endpointsChanged) {
-			const nextPair = await this.readConnectionPairState(
-				queuedFolder,
-				{ path: next.from, kind: connection.fromKind },
-				{ path: next.to, kind: connection.toKind }
-			);
-			if (nextPair.forward || nextPair.backlink) {
-				if (nextPair.forward !== nextPair.backlink) {
-					throw new Error(`Repair the incomplete context metadata between '${next.from}' and '${next.to}' before reconnecting it.`);
-				}
-				throw new Error(`Context from '${next.from}' is already connected to '${next.to}'.`);
-			}
-			const previousDocument = editableDocument(previousTarget);
-			if (previousDocument?.document.recipe) {
-				if (previousDocument.document.result || previousDocument.document.attempts.length > 0) {
-					throw new Error(`'${previousTarget.path}' already has an attempt or sealed Result. Its recipe inputs cannot be reconnected.`);
-				}
-				previousDocument.document = {
-					...previousDocument.document,
-					recipe: {
-						...previousDocument.document.recipe,
-						inputBindings: normalizeNodeInputBindings(previousDocument.document.recipe.inputBindings
-							.filter(binding => binding.sourcePath !== previous.from))
-					}
-				};
-			}
-
-			const nextTarget = await loadTarget(next.to, connection.toKind);
-			const nextDirectSourcePaths = nextTarget.path === previousTarget.path
-				? nextTarget.directSourcePaths.filter(path => path !== previous.from)
-				: nextTarget.directSourcePaths;
-			if (nextDirectSourcePaths.includes(next.from)) {
-				throw new Error(`Context from '${next.from}' is already connected to '${next.to}'.`);
-			}
-
-			const nextSourceKind = await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, next.from);
-			selectedNextSourceKind = nextSourceKind;
-			const nextDocument = editableDocument(nextTarget);
-			const binding = await this.prepareConnectionTargetBinding(
-				nextTarget,
-				next.from,
-				nextSourceKind,
-				nextDocument?.document
-			);
+		} else {
+			const binding = await this.chooseNodeConnectionBinding(nextTarget, next.from);
 			if (binding.kind === 'cancel') {
 				this.scheduleBackgroundRender();
 				return;
 			}
-			if (nextDocument && binding.document) {
-				nextDocument.document = binding.document;
-			}
+			operation = previous.from === next.from
+				? () => this.referenceEditService.move(next.from, previousTarget, nextTarget, { label }, binding.binding)
+				: () => this.referenceEditService.apply([
+					{ node: nextTarget, operation: { kind: 'add', entry: next.from, ...(binding.binding ? { binding: binding.binding } : {}) } },
+					{ node: previousTarget, operation: { kind: 'remove', entry: previous.from } }
+				], { label });
 		}
-		const nodeUpdates = [...documents.values()].map(state => ({
-			resource: state.target.node!.resource,
-			expected: state.target.node!.contents,
-			next: VSBuffer.fromString(serializeBaseHalfNodeDocument(state.document))
-		})).filter(update => !update.expected.equals(update.next));
-		let committedTransition: IBaseHalfCanvasConnectionTransition | undefined;
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			queuedFolder.workspaceFolder,
-			this.sceneMutationStamp(queuedFolder, structuralEpoch),
-			async lease => {
-				const folder = this.folderForSceneMutation(sceneKey);
-				for (const expectedTarget of targetSnapshots.values()) {
-					const currentTarget = await this.readConnectionTargetSnapshot(folder, expectedTarget.path, expectedTarget.kind, 'reconnecting', !!expectedTarget.node);
-					if (!connectionTargetSnapshotsEqual(expectedTarget, currentTarget)) {
-						throw new Error(`'${expectedTarget.path}' or its direct context changed before the connection could be reconnected.`);
-					}
-				}
-				if (selectedNextSourceKind !== undefined
-					&& await this.readWorkspaceContentKind(folder.workspaceFolder, next.from) !== selectedNextSourceKind) {
-					throw new Error(`'${next.from}' changed content kind before it could be reconnected to '${next.to}'.`);
-				}
-				const currentPreviousPair = await this.readConnectionPairState(
-					folder,
-					{ path: previous.from, kind: previous.fromKind },
-					{ path: previous.to, kind: previous.toKind }
-				);
-				if (!currentPreviousPair.forward || !currentPreviousPair.backlink) {
-					throw new Error('The context metadata changed before the connection could be reconnected.');
-				}
-				if (endpointsChanged) {
-					const currentNextPair = await this.readConnectionPairState(
-						folder,
-						{ path: next.from, kind: connection.fromKind },
-						{ path: next.to, kind: connection.toKind }
-					);
-					if (currentNextPair.forward || currentNextPair.backlink) {
-						throw new Error('The destination context metadata changed before the connection could be reconnected.');
-					}
-				}
-				const currentCanvas = await this.canvasMirrorService.readCanvas(folder);
-				const currentPreviousCanvasEdge = currentCanvas?.edges.find(edge => edge.from === previous.from && edge.to === previous.to) ?? null;
-				if (!currentPreviousCanvasEdge || !canvasEdgesEqual(currentPreviousCanvasEdge, previous)
-					|| (endpointsChanged && currentCanvas?.edges.some(edge => edge.from === next.from && edge.to === next.to))) {
-					throw new Error('The canvas connection changed before it could be reconnected.');
-				}
-				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
-					{ path: previous.from, kind: previous.fromKind },
-					{ path: previous.to, kind: previous.toKind },
-					{ path: connection.from, kind: connection.fromKind },
-					{ path: connection.to, kind: connection.toKind }
-				]);
-				let referenceTransition: Awaited<ReturnType<IBaseHalfBadgeGraphService['reconnectReferenceWithState']>> | undefined;
-				const canvasTransitions = canvasReconnectStateTransitions(previous, next);
-				let canvasApplied = false;
-				const written: typeof nodeUpdates = [];
-				try {
-					if (endpointsChanged) {
-						referenceTransition = await this.badgeGraphService.reconnectReferenceWithState(
-							live.get(previous.from)!,
-							live.get(previous.to)!,
-							live.get(next.from)!,
-							live.get(next.to)!,
-							lease
-						);
-						if (referenceTransition.result === 'already-connected') {
-							throw new Error('This context connection already exists.');
-						}
-					}
-					await this.canvasMirrorService.transitionCanvasState(folder, { edges: canvasTransitions }, lease);
-					canvasApplied = true;
-					for (const update of nodeUpdates) {
-						await this.fileService.writeFileWithExpectedContents(
-							update.resource,
-							update.next,
-							update.expected,
-							{ atomic: { postfix: '.basehalf-node-reconnect-tmp' } }
-						);
-						written.push(update);
-					}
-					const referenceChanges: IBaseHalfCanvasReferenceTransition[] = referenceTransition ? [
-						{
-							source: { path: previous.from, kind: previous.fromKind },
-							target: { path: previous.to, kind: previous.toKind },
-							expected: referenceTransition.before.previous,
-							next: referenceTransition.after.previous
-						},
-						{
-							source: { path: connection.from, kind: connection.fromKind },
-							target: { path: connection.to, kind: connection.toKind },
-							expected: referenceTransition.before.next,
-							next: referenceTransition.after.next
-						}
-					] : [];
-					committedTransition = {
-						folder,
-						nodes: uniqueCanvasUndoNodes([
-							{ path: previous.from, kind: previous.fromKind },
-							{ path: previous.to, kind: previous.toKind },
-							{ path: connection.from, kind: connection.fromKind },
-							{ path: connection.to, kind: connection.toKind }
-						]),
-						references: referenceChanges,
-						canvas: { edges: canvasTransitions },
-						documents: nodeUpdates.map(update => ({ resource: update.resource, expected: update.expected, next: update.next }))
-					};
-				} catch (error) {
-					const rollbackErrors: unknown[] = [];
-					for (const update of written.reverse()) {
-						try {
-							await this.fileService.writeFileWithExpectedContents(
-								update.resource,
-								update.expected,
-								update.next,
-								{ atomic: { postfix: '.basehalf-node-reconnect-rollback-tmp' } }
-							);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (canvasApplied) {
-						try {
-							await this.canvasMirrorService.transitionCanvasState(folder, {
-								edges: canvasTransitions.map(change => ({ ...change, expected: change.next, next: change.expected }))
-							}, lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (referenceTransition) {
-						try {
-							await this.badgeGraphService.transitionReferenceStates([
-								{
-									source: live.get(previous.from)!, target: live.get(previous.to)!,
-									expected: referenceTransition.after.previous, next: referenceTransition.before.previous
-								},
-								{
-									source: live.get(next.from)!, target: live.get(next.to)!,
-									expected: referenceTransition.after.next, next: referenceTransition.before.next
-								}
-							], lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (rollbackErrors.length > 0) {
-						throw new AggregateError([error, ...rollbackErrors], 'The connection change and its safe rollback both failed. Reopen the project before continuing.');
-					}
-					throw error;
-				}
-			}
-		);
-		if (committedTransition && canvasConnectionTransitionChangesAnything(committedTransition)) {
-			this.pushCanvasUndoElement(
-				localize('basehalf.canvas.reconnect.undo', "Reconnect canvas nodes"),
-				queuedFolder,
-				committedTransition.nodes,
-				committedTransition.documents,
-				(reverse, lease) => this.applyCanvasConnectionTransition(committedTransition!, reverse, lease)
-			);
+		this.folderForSceneMutation(sceneKey);
+		const run = operation;
+		const result = await this.runCanvasReferenceOperation(folder, nextTarget, label, () => run());
+		if (result) {
+			await this.rememberCanvasEdgeAnchors(folder, sceneKey, structuralEpoch, next);
 		}
 		this.requestRender();
 	}
 
-	private async removeEdgeFromScene(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
-		const queuedFolder = this.folderForSceneMutation(sceneKey);
-		let nodeUpdate: { readonly resource: URI; readonly expected: VSBuffer; readonly next: VSBuffer } | undefined;
-		if (edge.to.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			const resource = joinPath(queuedFolder.workspaceFolder, ...edge.to.split('/'));
-			if (this.workingCopyService.isDirty(resource) || this.nodeExecutionService.getActiveRun(resource)) {
-					this.queueCanvasWarning(`Save '${edge.to}' and finish its active attempt before removing this connection.`);
-				this.requestRender();
-				return;
-			}
-			try {
-				const content = await this.fileService.readFile(resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-				const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-				if (document.attempts.some(attempt => attempt.status === 'running')) {
-						throw new Error(`Finish '${edge.to}' active attempt before removing this connection.`);
-					}
-					if (document.recipe?.inputBindings.some(binding => binding.sourcePath === edge.from)) {
-						if (document.result || document.attempts.length > 0) {
-							throw new Error(`'${edge.to}' already has an attempt or sealed Result. Its recipe inputs cannot be disconnected.`);
-						}
-					const inputBindings = normalizeNodeInputBindings(document.recipe.inputBindings.filter(binding => binding.sourcePath !== edge.from));
-					nodeUpdate = {
-						resource,
-						expected: content.value,
-						next: VSBuffer.fromString(serializeBaseHalfNodeDocument({
-							...document,
-							recipe: { ...document.recipe, inputBindings }
-						}))
-					};
-				}
-				} catch (error) {
-					this.logService.warn(error);
-					this.queueCanvasWarning(error instanceof Error ? error.message : `Open '${edge.to}' and repair it before removing this connection.`);
-				this.requestRender();
-				return;
-			}
+	/**
+	 * A source-end reconnect replaces the entry in place. In a `.bhnode` Draft
+	 * with a recipe whose entry is bound, the new source may not fit the old
+	 * role, so the role is chosen again and the entry and its binding change in
+	 * one write. Resolves `undefined` when the role choice was cancelled.
+	 */
+	private async sourceEndReconnectOperation(
+		target: IBaseHalfUpstreamActionNode,
+		from: string,
+		to: string,
+		label: string
+	): Promise<(() => Promise<IBaseHalfReferenceEditResult>) | undefined> {
+		const replace = () => this.referenceEditService.replace(target, from, to, { label });
+		if (target.kind !== 'file' || !target.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
+			return replace;
 		}
-		let committedTransition: IBaseHalfCanvasConnectionTransition | undefined;
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			queuedFolder.workspaceFolder,
-			this.sceneMutationStamp(queuedFolder, structuralEpoch),
-			async lease => {
-				const folder = this.folderForSceneMutation(sceneKey);
-				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
-					{ path: edge.from, kind: edge.fromKind },
-					{ path: edge.to, kind: edge.toKind }
-				]);
-				// A semantic edge may be derived entirely from reciprocal references
-				// and therefore have no persisted anchor row. Only CAS-delete the row
-				// that actually exists; rendered default anchors are not disk state.
-				const canvasTransitions = baseHalfPersistedCanvasEdgeRemoval(
-					(await this.canvasMirrorService.readCanvas(folder))?.edges ?? [],
-					edge.from,
-					edge.to
-				);
-				let referenceTransition: Awaited<ReturnType<IBaseHalfBadgeGraphService['removeReferenceWithState']>> | undefined;
-				let canvasApplied = false;
-				try {
-					referenceTransition = await removeCompleteBaseHalfCanvasReference(
-						() => this.badgeGraphService.removeReferenceWithState(live.get(edge.from)!, live.get(edge.to)!, lease),
-						transition => this.badgeGraphService.transitionReferenceStates([{
-							source: live.get(edge.from)!,
-							target: live.get(edge.to)!,
-							expected: transition.after,
-							next: transition.before
-						}], lease),
-						`Connection '${edge.from}' → '${edge.to}' changed before it could be removed.`,
-						!!nodeUpdate
-					);
-					if (canvasTransitions.length > 0) {
-						await this.canvasMirrorService.transitionCanvasState(folder, { edges: canvasTransitions }, lease);
-						canvasApplied = true;
-					}
-					if (nodeUpdate) {
-						await this.fileService.writeFileWithExpectedContents(
-							nodeUpdate.resource,
-							nodeUpdate.next,
-							nodeUpdate.expected,
-							{ atomic: { postfix: '.basehalf-node-unbind-tmp' } }
-						);
-					}
-					committedTransition = {
-						folder,
-						nodes: [
-							{ path: edge.from, kind: edge.fromKind },
-							{ path: edge.to, kind: edge.toKind }
-						],
-						references: [{
-							source: { path: edge.from, kind: edge.fromKind },
-							target: { path: edge.to, kind: edge.toKind },
-							expected: referenceTransition.before,
-							next: referenceTransition.after
-						}],
-						canvas: { edges: canvasTransitions },
-						documents: nodeUpdate ? [nodeUpdate] : []
-					};
-				} catch (error) {
-					const rollbackErrors: unknown[] = [];
-					if (canvasApplied) {
-						try {
-							await this.canvasMirrorService.transitionCanvasState(folder, reverseCanvasStateTransition({ edges: canvasTransitions }, true), lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (referenceTransition) {
-						try {
-							await this.badgeGraphService.transitionReferenceStates([{
-								source: live.get(edge.from)!,
-								target: live.get(edge.to)!,
-								expected: referenceTransition.after,
-								next: referenceTransition.before
-							}], lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (rollbackErrors.length > 0) {
-						throw new AggregateError([error, ...rollbackErrors], 'The connection change and its safe rollback both failed. Reopen the project before continuing.');
-					}
-					throw error;
-				}
-			}
-		);
-		if (committedTransition) {
-			this.pushCanvasUndoElement(
-				localize('basehalf.canvas.disconnect.undo', "Disconnect canvas nodes"),
-				queuedFolder,
-				committedTransition.nodes,
-				committedTransition.documents,
-				(reverse, lease) => this.applyCanvasConnectionTransition(committedTransition!, reverse, lease)
-			);
+		if (this.workingCopyService.isDirty(target.resource)) {
+			throw new Error(localize('basehalf.canvas.connect.nodeDirty', "Save '{0}' before changing its connections.", target.relativePath));
 		}
+		const content = await this.fileService.readFile(target.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
+		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
+		const identity = this.upstreamIdentity(target.workspaceFolder);
+		const fromKey = identity.key(baseHalfNormalizeUpstreamEntry(from));
+		const bound = document.recipe?.inputBindings.find(binding => identity.key(binding.sourcePath) === fromKey);
+		if (!document.recipe || !bound || !isBaseHalfNodeDraft(document)) {
+			// Unbound entries follow the plain replace; a bound entry outside a
+			// Draft is refused by the edit service.
+			return replace;
+		}
+		const recipe = this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId);
+		if (!recipe || !baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
+			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not available. Choose an available recipe before reconnecting context.`);
+		}
+		const remaining = normalizeNodeInputBindings(document.recipe.inputBindings.filter(binding => binding !== bound));
+		const sourceKind = await this.readWorkspaceContentKind(target.workspaceFolder, to);
+		const slot = await this.chooseConnectionInputSlot(getBaseHalfNodeAvailableInputSlots(recipe, remaining, to, sourceKind), to, target.relativePath, sourceKind);
+		if (!slot) {
+			return undefined;
+		}
+		const expected: IBaseHalfUpstreamStoreSnapshot = {
+			items: baseHalfNodeUpstreamItemValues(document.upstream),
+			bindings: [...document.recipe.inputBindings]
+		};
+		const toKey = identity.key(baseHalfNormalizeUpstreamEntry(to));
+		const toListed = document.upstream.some(item => typeof item === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(item)) === toKey);
+		const items = toListed
+			? expected.items.filter(item => !(item.scalar && identity.key(baseHalfNormalizeUpstreamEntry(item.text)) === fromKey))
+			: expected.items.map(item => item.scalar && identity.key(baseHalfNormalizeUpstreamEntry(item.text)) === fromKey ? { text: to, scalar: true } : item);
+		const nextSnapshot: IBaseHalfUpstreamStoreSnapshot = {
+			items,
+			bindings: normalizeNodeInputBindings([
+				...remaining.filter(binding => identity.key(binding.sourcePath) !== toKey),
+				{ sourcePath: to, slot: slot.id, order: remaining.length }
+			])
+		};
+		return () => this.referenceEditService.apply([{ node: target, operation: { kind: 'transition', from: expected, to: nextSnapshot } }], { label });
+	}
+
+	/** Disconnect on the canvas: removes `from` from `to`'s store. The anchor row is kept. */
+	private async removeEdgeFromScene(sceneKey: string, _structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
+		const folder = this.folderForSceneMutation(sceneKey);
+		await this.resolveLiveCanvasNodes(sceneKey, folder, [
+			{ path: edge.from, kind: edge.fromKind },
+			{ path: edge.to, kind: edge.toKind }
+		]);
+		const target = this.workspaceNode(folder.workspaceFolder, edge.to, edge.toKind);
+		const label = localize('basehalf.canvas.disconnect.undo', "Disconnect canvas nodes");
+		await this.runCanvasReferenceOperation(folder, target, label, () => this.referenceEditService.remove(target, edge.from, { label }));
 		this.requestRender();
 	}
 
@@ -4804,7 +4462,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			resourceKey: this.uriIdentityService.extUri.getComparisonKey(resource),
 			owner,
 			fitPaths,
-			...(fitPaths?.length ? { fitViewportGeneration: this.folderFocusRestoreGeneration } : {})
+			...(fitPaths?.length ? { fitViewportGeneration: this.viewportRestoreGeneration } : {})
 		};
 		this.pendingCreatedCanvasNoteActivation = focus.focus
 			? {
@@ -5406,6 +5064,25 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		items: readonly IBaseHalfCanvasItem[],
 		postCreateOwner: IBaseHalfCanvasPostCreateOwner
 	): Promise<void> {
+		// A copied folder keeps its notes' bytes, so entries inside it that name
+		// other items of the original folder still name the originals (D37).
+		const internallyConnected = items.filter(item => item.kind === 'folder' && this.folderHasInternalUpstream(folder.workspaceFolder, item.path));
+		if (internallyConnected.length > 0) {
+			const confirmation = await this.dialogService.confirm({
+				message: internallyConnected.length === 1
+					? localize('basehalf.canvas.duplicate.connectedFolder.message', "Duplicate '{0}'?", internallyConnected[0].name)
+					: localize('basehalf.canvas.duplicate.connectedFolders.message', "Duplicate {0} folders?", internallyConnected.length),
+				detail: localize(
+					'basehalf.canvas.duplicate.connectedFolder.detail',
+					"Items in the copy keep their upstream entries, so entries that name other items in {0} still name the originals.",
+					internallyConnected.map(item => `'${item.name}'`).join(', ')
+				),
+				primaryButton: localize('basehalf.canvas.duplicate.connectedFolder.primary', "&&Duplicate")
+			});
+			if (!confirmation.confirmed) {
+				return;
+			}
+		}
 		const configuredNaming = this.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
 		const naming = configuredNaming === 'disabled' ? 'smart' : configuredNaming;
 		const reserved = new Set<string>();
@@ -5448,6 +5125,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.requestRender();
 	}
 
+	/** Whether a store inside the folder lists another item of the same folder as upstream. */
+	private folderHasInternalUpstream(workspaceFolder: URI, folderPath: string): boolean {
+		const state = this.referenceIndexService.getState(workspaceFolder);
+		if (state === undefined || state === 'building') {
+			return false;
+		}
+		const identity = this.upstreamIdentity(workspaceFolder);
+		const prefix = identity.key(folderPath);
+		const inside = (path: string) => {
+			let current = path;
+			while (current.includes('/')) {
+				current = current.slice(0, current.lastIndexOf('/'));
+				if (identity.key(current) === prefix) {
+					return true;
+				}
+			}
+			return false;
+		};
+		return this.referenceIndexService.getStores(workspaceFolder).some(store => inside(store.node.relativePath)
+			&& (store.sidecarState === undefined || store.sidecarState === 'active')
+			&& store.read.items.some(item => item.path !== undefined && inside(item.path)));
+	}
+
 	private async deleteSceneSelection(
 		sceneKey: string,
 		structuralEpoch: number,
@@ -5461,26 +5161,40 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			? localize('basehalf.canvas.selection.deleteOne.label', "'{0}'", names[0])
 			: localize('basehalf.canvas.selection.deleteMany.label', "{0} selected items", items.length);
 		const scopeDetail = items.some(item => item.kind === 'folder')
-			? localize('basehalf.canvas.selection.deleteFolder.scope', "The selected cards and their context connections will be removed. Selected folders include all their contents. Other project files are not removed.")
-			: localize('basehalf.canvas.selection.deleteFile.scope', "The selected cards and their context connections will be removed. Other project files are not removed.");
+			? localize('basehalf.canvas.selection.deleteFolder.scopeUpstream', "Selected folders include all their contents. Other project files are not changed.")
+			: localize('basehalf.canvas.selection.deleteFile.scopeUpstream', "Other project files are not changed.");
 		const recoveryDetail = useTrash
 			? localize('basehalf.canvas.selection.deleteTrash.recovery', "You can restore the selected items from the Trash.")
 			: localize('basehalf.canvas.selection.deletePermanent.recovery', "This action cannot be undone from the Trash.");
+		// Deleting a node never changes another node's store: entries that name
+		// it become dangling (D37). The user may remove them in one separate step.
+		const impact = this.canvasDeleteImpact(folder, items);
+		const impactDetail = this.canvasDeleteImpactDetail(items, impact);
+		const detailParts = [impactDetail, scopeDetail, recoveryDetail].filter(part => !!part).join(' ');
 		const confirmation = await this.dialogService.confirm({
 			type: 'warning',
 			message: useTrash
 				? localize('basehalf.canvas.selection.deleteTrash.message', "Move {0} to the Trash?", selectionLabel)
 				: localize('basehalf.canvas.selection.deletePermanent.message', "Permanently delete {0}?", selectionLabel),
 			detail: items.length === 1
-				? `${scopeDetail} ${recoveryDetail}`
-				: `${names.slice(0, 12).join('\n')}${names.length > 12 ? localize('basehalf.canvas.selection.delete.more', "\n+{0} more", names.length - 12) : ''}\n\n${scopeDetail} ${recoveryDetail}`,
+				? detailParts
+				: `${names.slice(0, 12).join('\n')}${names.length > 12 ? localize('basehalf.canvas.selection.delete.more', "\n+{0} more", names.length - 12) : ''}\n\n${detailParts}`,
 			primaryButton: useTrash
 				? localize('basehalf.canvas.selection.deleteTrash.primary', "&&Move to Trash")
-				: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently")
+				: localize('basehalf.canvas.selection.deletePermanent.primary', "&&Delete Permanently"),
+			...(impact.stores.length > 0 ? {
+				checkbox: {
+					label: items.length === 1
+						? localize('basehalf.canvas.selection.delete.removeUpstreamOne', "Also remove {0} from their upstream lists", items[0].name)
+						: localize('basehalf.canvas.selection.delete.removeUpstreamMany', "Also remove the selected items from their upstream lists"),
+					checked: false
+				}
+			} : {})
 		});
 		if (!confirmation.confirmed) {
 			return;
 		}
+		const removeUpstreamEntries = confirmation.checkboxChecked === true && impact.stores.length > 0;
 		const hadActiveNote = !!this.activeCanvasNoteEditor;
 		if (hadActiveNote && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 			return;
@@ -5524,7 +5238,112 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		this.canvasScene.select({ cardPaths: [] });
+		if (removeUpstreamEntries) {
+			await this.removeDeletedUpstreamEntries(folder, items, impact.stores);
+		}
 		this.requestRender();
+	}
+
+	/**
+	 * The downstream stores that name the items about to be deleted. While the
+	 * index is building the answer is unknown; while it is partial it is a
+	 * lower bound.
+	 */
+	private canvasDeleteImpact(folder: IBaseHalfCanvasFolderState, items: readonly IBaseHalfCanvasItem[]): {
+		readonly state: BaseHalfReferenceIndexState | undefined;
+		readonly stores: readonly IBaseHalfCanvasDeleteImpactStore[];
+	} {
+		const state = this.referenceIndexService.getState(folder.workspaceFolder);
+		if (state === undefined || state === 'building') {
+			return { state, stores: [] };
+		}
+		return {
+			state,
+			stores: baseHalfCanvasDeleteImpact(
+				// A sealed or imported Result artifact keeps the bytes its node
+				// pins: its entries are never removed, so it is not offered.
+				this.referenceIndexService.getStores(folder.workspaceFolder).filter(store => !this.referenceIndexService.getUpstreamOnlyReason(store.node)),
+				items.map(item => item.path),
+				this.upstreamIdentity(folder.workspaceFolder)
+			)
+		};
+	}
+
+	private canvasDeleteImpactDetail(
+		items: readonly IBaseHalfCanvasItem[],
+		impact: { readonly state: BaseHalfReferenceIndexState | undefined; readonly stores: readonly IBaseHalfCanvasDeleteImpactStore[] }
+	): string {
+		if (impact.state === 'building') {
+			return localize('basehalf.canvas.selection.delete.checkingConnections', "Checking connections…");
+		}
+		const count = impact.stores.length;
+		if (count === 0) {
+			return '';
+		}
+		if (items.length > 1) {
+			if (count === 1) {
+				return impact.state === 'partial'
+					? localize('basehalf.canvas.selection.delete.manyUpstreamOfAtLeastOne', "The selected items are upstream of at least 1 item. It will show a broken upstream entry that you can fix later.")
+					: localize('basehalf.canvas.selection.delete.manyUpstreamOfOne', "The selected items are upstream of 1 item. It will show a broken upstream entry that you can fix later.");
+			}
+			return impact.state === 'partial'
+				? localize('basehalf.canvas.selection.delete.manyUpstreamOfAtLeast', "The selected items are upstream of at least {0} items. They will show a broken upstream entry that you can fix later.", count)
+				: localize('basehalf.canvas.selection.delete.manyUpstreamOf', "The selected items are upstream of {0} items. They will show a broken upstream entry that you can fix later.", count);
+		}
+		const name = items[0].name;
+		if (impact.state === 'partial') {
+			return count === 1
+				? localize('basehalf.canvas.selection.delete.upstreamOfAtLeastOne', "{0} is upstream of at least 1 item. It will show a broken upstream entry that you can fix later.", name)
+				: localize('basehalf.canvas.selection.delete.upstreamOfAtLeast', "{0} is upstream of at least {1} items. They will show a broken upstream entry that you can fix later.", name, count);
+		}
+		return count === 1
+			? localize('basehalf.canvas.selection.delete.upstreamOfOne', "{0} is upstream of 1 item. It will show a broken upstream entry that you can fix later.", name)
+			: localize('basehalf.canvas.selection.delete.upstreamOf', "{0} is upstream of {1} items. They will show a broken upstream entry that you can fix later.", name, count);
+	}
+
+	/**
+	 * "Also remove <name> from their upstream lists": one bulk edit after the
+	 * delete, as a separate canvas undo step.
+	 */
+	private async removeDeletedUpstreamEntries(
+		folder: IBaseHalfCanvasFolderState,
+		items: readonly IBaseHalfCanvasItem[],
+		stores: readonly IBaseHalfCanvasDeleteImpactStore[]
+	): Promise<void> {
+		const label = items.length === 1
+			? localize('basehalf.canvas.selection.delete.removeUpstreamUndoOne', "Remove {0} from upstream lists", items[0].name)
+			: localize('basehalf.canvas.selection.delete.removeUpstreamUndoMany', "Remove {0} items from upstream lists", items.length);
+		const identity = this.upstreamIdentity(folder.workspaceFolder);
+		const edits: IBaseHalfReferenceStoreEdit[] = [];
+		for (const store of stores) {
+			if (store.entries.length === 1) {
+				edits.push({ node: store.node, operation: { kind: 'remove', entry: store.entries[0].path } });
+				continue;
+			}
+			// One store may change only once per operation: remove all of its
+			// entries that name deleted items in one transition.
+			const snapshot = await this.referenceEditService.readSnapshot(store.node);
+			if (!snapshot) {
+				continue;
+			}
+			const removed = new Set(store.entries.map(entry => identity.key(entry.path)));
+			edits.push({
+				node: store.node,
+				operation: {
+					kind: 'transition',
+					from: snapshot,
+					to: {
+						items: snapshot.items.filter(item => !(item.scalar && removed.has(identity.key(baseHalfNormalizeUpstreamEntry(item.text))))),
+						...(snapshot.bindings ? { bindings: normalizeNodeInputBindings(snapshot.bindings.filter(binding => !removed.has(identity.key(binding.sourcePath)))) } : {})
+					}
+				}
+			});
+		}
+		if (edits.length === 0) {
+			return;
+		}
+		const target = this.workspaceNode(folder.workspaceFolder, stores[0].node.relativePath, 'file');
+		await this.upstreamActions.run(label, target, this.upstreamActionContext(folder, () => this.scheduleBackgroundRender()), () => this.referenceEditService.apply(edits, { label }));
 	}
 
 	private showSceneContextMenu(
@@ -5549,11 +5368,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					return;
 				}
 				this.lastCanvasContextMenu = undefined;
+				// An edge into a sealed or imported Result artifact can't be
+				// disconnected: BaseHalf never changes that file's bytes.
+				const upstreamOnly = !!this.referenceIndexService.getUpstreamOnlyReason(this.workspaceNode(current.workspaceFolder, edge.to, edge.toKind));
 				this.contextMenuService.showContextMenu({
 					getAnchor: () => request.anchor,
 					getActions: () => [toAction({
 						id: 'basehalf.canvas.disconnectSelection',
 						label: localize('basehalf.canvas.edge.disconnect', "Disconnect"),
+						enabled: !upstreamOnly,
 						run: () => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge)
 					})],
 					onHide: wasCancelled => {
@@ -5693,8 +5516,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (final) {
 			this.scheduleOverscanCardPreviews(viewport);
 			const folder = this.getCurrentFolder();
-			if (folder) {
-				this.scheduleFolderFocusWrite(200, { folder, viewport });
+			if (folder && this.programmaticViewportSceneKey !== sceneKey) {
+				this.scheduleViewportPersist(200, 'user', { folder, viewport });
 			}
 		}
 	}
@@ -5727,25 +5550,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private isRenderCurrent(seq: number): boolean {
 		return !this.disposed && seq === this.renderSeq;
-	}
-
-	private isFocusMirrorOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
-		// This window writes viewport/cursor focus mirrors at pan/zoom cadence; a full
-		// canvas rebuild (folder resolve + preview reads) for those writes causes a
-		// visible hitch right after every gesture. Canvas/badge mirror changes and user
-		// file changes must still re-render.
-		let sawRelevantChange = false;
-		const mirrorRoot = baseHalfMirrorRoot(folder.workspaceFolder);
-		for (const resource of [...event.rawAdded, ...event.rawUpdated, ...event.rawDeleted]) {
-			if (!isEqualOrParent(resource, folder.resource) && !isEqualOrParent(resource, mirrorRoot)) {
-				continue;
-			}
-			sawRelevantChange = true;
-			if (!isBaseHalfFocusMirrorResource(resource)) {
-				return false;
-			}
-		}
-		return sawRelevantChange;
 	}
 
 	private isCurrentCanvasLayoutOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
@@ -5791,35 +5595,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private cardVisualKey(item: IBaseHalfCanvasItem): string {
-		const relationships = baseHalfCanvasBadgeRelationships(
-			item.path,
-			item.badge,
-			this.renderedBadges,
-			this.renderedBadgeProblems
-		);
 		const ownProblem = this.renderedBadgeProblems.get(item.path);
 		const inlineRename = this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path
 			? { value: this.inlineEdit.value, selectionPending: this.inlineEdit.selectionPending }
 			: undefined;
+		const badgeOpen = this.openBadgeFaces.has(item.path);
+		const view = badgeOpen ? this.renderedUpstreamViews.get(item.path) : undefined;
 		return JSON.stringify({
-			badge: item.badge,
-			badgeOpen: this.openBadgeFaces.has(item.path),
+			badge: item.badge ? { description: item.badge.description, orphan: item.badge.orphan } : undefined,
+			badgeOpen,
 			inlineRename,
-			relationships: {
-				references: relationships.references,
-				referencedBy: relationships.referencedBy,
-				issues: relationships.issues.map(issue => ({
-					direction: issue.direction,
-					from: issue.from,
-					to: issue.to,
-					reason: issue.reason,
-					problem: issue.problem ? {
-						relativePath: issue.problem.relativePath,
-						message: issue.problem.message,
-						corrupt: issue.problem.corrupt
-					} : undefined
-				}))
-			},
+			relationships: item.relationships,
+			indexState: this.renderedIndexState,
+			// An open face renders the full Upstream and Downstream lists.
+			upstream: view ? {
+				storeKind: view.storeKind,
+				problem: view.problem,
+				storeIssue: view.storeIssue,
+				upstreamOnly: view.upstreamOnly,
+				lifecycle: view.lifecycle,
+				misplaced: !!view.misplacedSidecar,
+				entries: view.entries.map(entry => [entry.index, entry.text, entry.status, entry.problem, entry.historical, entry.workspacePath, entry.binding?.slot, entry.target?.relativePath])
+			} : undefined,
 			ownProblem: ownProblem ? {
 				relativePath: ownProblem.relativePath,
 				message: ownProblem.message,
@@ -5937,7 +5734,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
 			canvas,
-			badges: this.renderedBadges
+			badges: this.renderedBadges,
+			relationships: this.renderedRelationships
 		});
 		if (model.items.length !== this.renderedItemsByPath.size
 			|| model.items.some(item => {
@@ -6961,58 +6759,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			screenPosition: defaultPlacement.screenPosition,
 			canvasPosition: initialCanvasPosition
 		}, 'note');
-		const contents = VSBuffer.fromString(baseHalfPdfBranchMarkdown(sourceName, selection));
+		// The note's first bytes list the PDF as upstream (D37): the create is
+		// the connection, so there is no "created but not connected" state.
+		const targetPath = canvasChildPath(folder.relativePath, name);
+		const contents = VSBuffer.fromString(baseHalfPdfBranchMarkdown(sourceName, selection, {
+			sourcePath: cardDetail.relativePath,
+			notePath: targetPath
+		}));
 		const target = await this.createCanvasEntry(folder, context, name, 'file', placement.canvasPosition, {
 			contents,
 			select: false
 		});
 
-		const targetPath = canvasChildPath(folder.relativePath, name);
-		let sourceNode: IBaseHalfBadgeNode;
-		try {
-			const nodes = await this.resolveLiveWorkspaceNodes(folder.workspaceFolder, [
-				{ path: cardDetail.relativePath, kind: 'file' },
-				{ path: targetPath, kind: 'file' }
-			]);
-			const resolvedSource = nodes.get(cardDetail.relativePath);
-			const resolvedTarget = nodes.get(targetPath);
-			if (!resolvedSource || !resolvedTarget) {
-				throw new Error('The PDF branch nodes could not be resolved.');
-			}
-			sourceNode = resolvedSource;
-			await this.badgeGraphService.addReference(sourceNode, resolvedTarget);
-		} catch (error) {
-			// The user-owned note already exists. Keep it reachable even if the
-			// derived reference graph could not complete its two-sided write.
-			try {
-				await this.activateCreatedCanvasNoteAfterDetail(
-					cardDetail,
-					folder,
-					targetPath,
-					target,
-					createFocusOrigin,
-					createOwner,
-					[cardDetail.relativePath, targetPath]
-				);
-			} catch (activationError) {
-				this.logService.error('[BaseHalf] failed to return to a PDF branch card after its reference write failed', activationError);
-			}
-			throw new Error(localize(
-				'basehalf.pdf.branch.referenceFailed',
-				"The note was created, but its reference from {0} could not be saved: {1}",
-				sourceName,
-				error instanceof Error ? error.message : String(error)
-			));
-		}
-
+		// Frame the PDF's downstream set from the index, including the new note
+		// once it is indexed; fall back to the PDF and the new note.
 		let fittedPaths: readonly string[] = [cardDetail.relativePath, targetPath];
 		try {
-			const sourceBadge = await this.badgeGraphService.readBadge(sourceNode);
-			fittedPaths = [...new Set([cardDetail.relativePath, ...(sourceBadge?.references ?? []), targetPath])];
+			const downstream = this.referenceIndexService.getDownstream({
+				resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath: cardDetail.relativePath
+			});
+			fittedPaths = [...new Set([cardDetail.relativePath, ...downstream.map(entry => entry.node.relativePath), targetPath])];
 		} catch (error) {
-			// Framing is a view concern and must not turn a successful graph write
+			// Framing is a view concern and must not turn a successful create
 			// into an apparent action failure.
-			this.logService.warn('[BaseHalf] failed to read PDF branch references for canvas framing', error);
+			this.logService.warn('[BaseHalf] failed to read the PDF downstream set for canvas framing', error);
 		}
 		await this.activateCreatedCanvasNoteAfterDetail(
 			cardDetail,
@@ -7529,11 +7301,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			card.classList.add(`node-kind-${preview.document.kind}`);
 		}
 		const orphan = item.badge?.orphan === true;
-		const badgeRelationships = baseHalfCanvasBadgeRelationships(item.path, item.badge, this.renderedBadges, this.renderedBadgeProblems);
-		const badgeIssueCount = badgeRelationships.issues.length + (this.renderedBadgeProblems.has(item.path) ? 1 : 0);
+		const badgeIssueCount = (item.relationships?.issueCount ?? 0) + (this.renderedBadgeProblems.has(item.path) ? 1 : 0);
 		card.classList.toggle('has-reference-issues', badgeIssueCount > 0);
 		card.dataset.referenceIssueCount = String(badgeIssueCount);
-		card.setAttribute('aria-label', `${displayName} card${orphan ? ', missing' : ''}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
+		const issueText = badgeIssueCount === 0
+			? ''
+			: badgeIssueCount === 1
+				? localize('basehalf.canvas.card.oneIssue', "1 issue")
+				: localize('basehalf.canvas.card.issues', "{0} issues", badgeIssueCount);
+		card.setAttribute('aria-label', `${displayName} card${orphan ? ', missing' : ''}${issueText ? `, ${issueText}` : ''}`);
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
 		const caption = append(card, $('.basehalf-canvas-card-caption'));
 		const captionIdentity = append(caption, $('.basehalf-canvas-card-caption-identity'));
@@ -7546,7 +7322,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		label.classList.toggle('danger', orphan);
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
 		if (canShowBadgeFace) {
-			this.renderCardBadgeToggle(captionActions, item, badgeRelationships, badgeIssueCount, listeners);
+			this.renderCardBadgeToggle(captionActions, item, badgeIssueCount, listeners);
 		}
 		const content = append(card, $('.basehalf-canvas-card-content'));
 		this.renderInlineRenameEditor(card, item);
@@ -7585,7 +7361,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const active = append(content, $('.basehalf-canvas-card-active'));
 			const body = append(active, $('.basehalf-canvas-card-body'));
 			if (badgeOpen && canShowBadgeFace) {
-				this.renderCardBadgeFace(body, item, nextListeners);
+				this.renderCardBadgeFace(body, item, preview, nextListeners);
 			} else {
 				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card);
 			}
@@ -7663,14 +7439,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						? card.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt')
 						: undefined;
 					break;
-				case 'add-reference':
+				case 'add-upstream':
+					// Read-only upstream-only cards have no Add Upstream: fall back to Add Downstream.
 					target = card.dataset.previewLevel !== 'shell'
-						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-reference')
+						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-reference') ?? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-downstream')
 						: undefined;
 					break;
-				case 'inbound-toggle':
+				case 'add-downstream':
 					target = card.dataset.previewLevel !== 'shell'
-						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-inbound-toggle')
+						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-downstream')
 						: undefined;
 					break;
 				case 'toggle':
@@ -7713,18 +7490,31 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderCardBadgeToggle(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
-		badgeRelationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
 		badgeIssueCount: number,
 		listeners: DisposableStore
 	): void {
 		const badgeOpen = this.openBadgeFaces.has(item.path);
+		const relationships = item.relationships;
+		const connected = !!relationships && (relationships.upstream.length > 0 || relationships.downstream.length > 0);
+		const upstreamIssues = relationships?.issueCount ?? 0;
+		const summary = connected || upstreamIssues > 0
+			? baseHalfCanvasConnectionSummary({
+				upstream: relationships?.upstream.length ?? 0,
+				downstream: this.renderedIndexState === 'building' ? undefined : relationships?.downstream.length ?? 0,
+				issues: upstreamIssues,
+				incomplete: this.renderedIndexState === 'partial'
+			})
+			: undefined;
 		const badgeToggle = append(container, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
 		badgeToggle.classList.add('nodrag', 'nopan', 'nowheel');
 		badgeToggle.type = 'button';
-		badgeToggle.title = badgeIssueCount > 0
-			? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - open Badge to resolve`
-			: badgeOpen ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
-		badgeToggle.setAttribute('aria-label', `${badgeOpen ? 'Hide' : 'Show'} badge for ${item.path}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
+		const action = badgeOpen
+			? localize('basehalf.canvas.badge.hide', "Hide the badge - back to the preview")
+			: item.badge?.description ? localize('basehalf.canvas.badge.edit', "Has a badge - edit it") : localize('basehalf.canvas.badge.show', "Edit Badge");
+		badgeToggle.title = summary ? `${summary} - ${action}` : action;
+		badgeToggle.setAttribute('aria-label', summary
+			? localize('basehalf.canvas.badge.ariaSummary', "{0} badge for {1}, {2}", badgeOpen ? localize('basehalf.canvas.badge.hideVerb', "Hide") : localize('basehalf.canvas.badge.showVerb', "Show"), item.path, summary)
+			: localize('basehalf.canvas.badge.aria', "{0} badge for {1}", badgeOpen ? localize('basehalf.canvas.badge.hideVerb', "Hide") : localize('basehalf.canvas.badge.showVerb', "Show"), item.path));
 		badgeToggle.setAttribute('aria-pressed', String(badgeOpen));
 		badgeToggle.classList.toggle('lit', !!item.badge?.description || badgeIssueCount > 0);
 		badgeToggle.classList.toggle('issue', badgeIssueCount > 0);
@@ -7735,7 +7525,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			marker.setAttribute('data-testid', 'card-reference-issue-marker');
 			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
 			marker.setAttribute('aria-hidden', 'true');
-		} else if (item.badge?.description && (badgeRelationships.references.length > 0 || badgeRelationships.referencedBy.length > 0)) {
+		} else if (item.badge?.description && connected) {
 			append(badgeToggle, $('.basehalf-canvas-card-badge-dot'));
 		}
 		listeners.add(this.addDisposableListener(badgeToggle, 'pointerdown', event => {
@@ -9416,26 +9206,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						}
 						return createBaseHalfVideoMessagePrecedencePresentation(messages);
 					};
+					/** The saved node document's own `upstream` list and bindings (D37). */
+					const readVideoInputUpstream = async (): Promise<IBaseHalfNodeUpstreamAnalysis> => {
+						const saved = await this.fileService.readFile(item.stat.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
+						return analyzeBaseHalfNodeUpstream(parseBaseHalfNodeDocumentBytes(saved.value.buffer), item.path, this.upstreamIdentity(folder.workspaceFolder));
+					};
+					/**
+					 * A source's input state in the saved Draft: `present` when it is
+					 * bound and listed in `upstream`, `absent` when it is not bound (a
+					 * Pick of an already listed, unbound entry binds that entry), and
+					 * `inconsistent` when it is bound but not listed.
+					 */
 					const readVideoInputDirectEdgeState = async (
 						sourcePath: string,
-						persistedCanvasEdgeSourcePaths?: ReadonlySet<string>
+						upstreamAnalysis?: IBaseHalfNodeUpstreamAnalysis
 					): Promise<BaseHalfVideoDirectEdgeState> => {
-						const source: IBaseHalfCanvasUndoNode = { path: sourcePath, kind: 'file' };
-						const target: IBaseHalfCanvasUndoNode = { path: item.path, kind: item.kind };
-						const [pair, persistedCanvas] = await Promise.all([
-							this.readConnectionPairState(folder, source, target),
-							persistedCanvasEdgeSourcePaths ? Promise.resolve(undefined) : this.canvasMirrorService.readCanvas(folder)
-						]);
-						const hasCanvasEdge = persistedCanvasEdgeSourcePaths
-							? persistedCanvasEdgeSourcePaths.has(sourcePath)
-							: persistedCanvas?.edges.some(edge => edge.from === sourcePath && edge.to === item.path) ?? false;
-						if (!pair.forward && !pair.backlink && !hasCanvasEdge) {
-							return 'absent';
+						const analysis = upstreamAnalysis ?? await readVideoInputUpstream();
+						const identity = this.upstreamIdentity(folder.workspaceFolder);
+						const key = identity.key(baseHalfNormalizeUpstreamEntry(sourcePath));
+						const listed = analysis.items.find(entry => entry.path !== undefined && identity.key(entry.path) === key);
+						if (listed) {
+							return analysis.bindingByIndex.has(listed.index) ? 'present' : 'absent';
 						}
-						if (pair.forward && pair.backlink && hasCanvasEdge) {
-							return 'present';
-						}
-						return 'inconsistent';
+						return analysis.unlistedBindingPaths.some(path => identity.key(path) === key) ? 'inconsistent' : 'absent';
 					};
 					const inspectVideoInputSource = async (
 						sourcePath: string,
@@ -9515,9 +9308,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							nextConfigurationKey,
 							content.etag
 						);
-						let transition: IBaseHalfCanvasConnectionTransition;
+						let saved: IBaseHalfNodeLocalSave;
 						try {
-							transition = await this.saveNodeLocalChanges(
+							saved = await this.saveNodeLocalChanges(
 								folder,
 								item,
 								content.value,
@@ -9540,32 +9333,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						const confirmedDocument = parseBaseHalfNodeDocumentBytes(confirmedContent.value.buffer);
 						const confirmedConfigurationKey = documentConfigurationKey(confirmedDocument);
 						if (!settleVideoInputDocumentTransition(transactionId, nextConfigurationKey, confirmedConfigurationKey, confirmedContent.etag)) {
-							try {
-								await this.compensateCanvasConnectionGraphTransition(transition);
-								this.queueCanvasWarning(localize(
-									'basehalf.canvas.videoComposer.inputCommitUnconfirmed',
-									"The Video Draft changed before the saved input could be confirmed. The input graph was restored; review the current inputs before trying again."
-								));
-							} catch (compensationError) {
-								this.logService.warn(compensationError);
-								this.queueCanvasWarning(localize(
-									'basehalf.canvas.videoComposer.inputCommitCompensationFailed',
-									"The Video Draft changed and the input graph could not be restored safely. Reopen the project and repair its input connections."
-								));
-							}
+							// The input and its `upstream` entry were one document write, so
+							// there is no separate connection to restore.
+							this.queueCanvasWarning(localize(
+								'basehalf.canvas.videoComposer.inputCommitUnconfirmedUpstream',
+								"The Video Draft changed before the saved input could be confirmed. Review the current inputs before trying again."
+							));
 							queueSurfaceRefresh();
 							return false;
 						}
-						if (canvasConnectionTransitionChangesAnything(transition)) {
-							this.pushCanvasUndoElement(
-								localize('basehalf.canvas.videoInput.undo', "Change video input"),
-								folder,
-								transition.nodes,
-								transition.documents,
-								(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
-							);
-						}
-						document = nextDocument;
+						this.pushNodeLocalUndo(localize('basehalf.canvas.videoInput.undo', "Change video input"), folder, saved);
+						document = saved.document;
 						content = confirmedContent;
 						draftBindings = plan.afterBindings.map(binding => ({ ...binding }));
 						configurationBaseline = persistedConfiguration;
@@ -9912,9 +9690,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						if (!await retainCurrentPickRevision()) {
 							return;
 						}
-						let preflightCanvas: IBaseHalfCanvasFile | null;
+						let preflightUpstream: IBaseHalfNodeUpstreamAnalysis;
 						try {
-							preflightCanvas = await this.canvasMirrorService.readCanvas(folder);
+							preflightUpstream = await readVideoInputUpstream();
 						} catch (error) {
 							if (!requestLifetimeIsCurrent()) {
 								disposePickStore();
@@ -9929,13 +9707,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						if (!await retainCurrentPickRevision()) {
 							return;
 						}
-						const preflightCanvasEdgeSourcePaths = new Set((preflightCanvas?.edges ?? [])
-							.filter(edge => edge.to === item.path)
-							.map(edge => edge.from));
 						let currentEdgeState: BaseHalfVideoDirectEdgeState | undefined;
 						if (replaceSourcePath) {
 							try {
-								currentEdgeState = await readVideoInputDirectEdgeState(replaceSourcePath, preflightCanvasEdgeSourcePaths);
+								currentEdgeState = await readVideoInputDirectEdgeState(replaceSourcePath, preflightUpstream);
 							} catch {
 								currentEdgeState = 'inconsistent';
 							}
@@ -9949,7 +9724,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								try {
 									const [source, edgeState] = await Promise.all([
 										inspectVideoInputSource(sourcePath, dependencyPath => candidateRevisionDependencyPaths.add(dependencyPath)),
-										readVideoInputDirectEdgeState(sourcePath, preflightCanvasEdgeSourcePaths)
+										readVideoInputDirectEdgeState(sourcePath, preflightUpstream)
 									]);
 									const sources = [...videoInputs.sources.filter(candidate => candidate.sourcePath !== sourcePath), source];
 									if (replaceSourcePath) {
@@ -12588,7 +12363,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						savedDraftState = draftStateKeyFor(persistedConfiguration);
 						configurationConflict = undefined;
 						try {
-							const transition = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
+							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
 							const confirmedContent = await this.fileService.readFile(item.stat.resource, {
 								atomic: true,
 								limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
@@ -12608,15 +12383,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								queueSurfaceRefresh();
 								return false;
 							}
-							if (canvasConnectionTransitionChangesAnything(transition)) {
-								this.pushCanvasUndoElement(
-									localize('basehalf.canvas.videoInput.checkpointUndo', "Update video input configuration"),
-									folder,
-									transition.nodes,
-									transition.documents,
-									(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
-								);
-							}
+							this.pushNodeLocalUndo(localize('basehalf.canvas.videoInput.checkpointUndo', "Update video input configuration"), folder, saved);
 							document = nextDocument;
 							content = confirmedContent;
 							configurationBaseline = persistedConfiguration;
@@ -12674,19 +12441,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							recipe: nextRecipe
 						};
 						try {
-							const transition = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, [...removedConnections]);
-							if (canvasConnectionTransitionChangesAnything(transition)) {
-								this.pushCanvasUndoElement(
-									localize('basehalf.canvas.nodeEdit.undo', "Edit result node"),
-									folder,
-									transition.nodes,
-									transition.documents,
-									(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
-								);
-							}
+							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, [...removedConnections]);
+							this.pushNodeLocalUndo(localize('basehalf.canvas.nodeEdit.undo', "Edit result node"), folder, saved);
 							const persistedConfiguration = configurationDraftFromDocument(nextDocument);
-							document = nextDocument;
-							content = { ...content, value: transition.documents[0]?.next ?? content.value };
+							document = saved.document;
+							content = { ...content, value: saved.contents };
 							localRecipeNeedsModelCleanup = false;
 							videoSettingsNotice = undefined;
 							videoSettingsAdjustments = [];
@@ -12744,19 +12503,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 							// Incomplete recipe/model state and pending graph removals are not a
 							// valid disk contract. Preserve the last persisted recipe and write
 							// only the authored identity/prompt checkpoint.
-							const transition = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
-							if (canvasConnectionTransitionChangesAnything(transition)) {
-								this.pushCanvasUndoElement(
-									localize('basehalf.canvas.nodeEdit.undo', "Edit result node"),
-									folder,
-									transition.nodes,
-									transition.documents,
-									(reverse, lease) => this.applyCanvasConnectionTransition(transition, reverse, lease)
-								);
-							}
+							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
+							this.pushNodeLocalUndo(localize('basehalf.canvas.nodeEdit.undo', "Edit result node"), folder, saved);
 						const persistedConfiguration = configurationDraftFromDocument(nextDocument);
 						document = nextDocument;
-						content = { ...content, value: transition.documents[0]?.next ?? content.value };
+						content = { ...content, value: saved.contents };
 						applyConfigurationDraft(persistedConfiguration);
 						const persistedDraftState = draftStateKey();
 						draftBindings = currentBindings;
@@ -13005,7 +12756,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					});
 				};
 
-				const badgeResource = baseHalfMirrorResource(folder.workspaceFolder, item.path, 'badge.yaml');
 				store.add(this.nodeExecutionService.onDidChange(event => {
 					if (!this.uriIdentityService.extUri.isEqual(event.resource, item.stat.resource)) {
 						return;
@@ -13021,7 +12771,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					const affectsDirectSource = directSourcePaths.some(path => event.affects(joinPath(folder.workspaceFolder, ...path.split('/'))));
 					const resultArtifact = getBaseHalfNodeResultArtifact(document);
 					const affectsResultArtifact = !!resultArtifact && event.affects(joinPath(folder.workspaceFolder, ...resultArtifact.path.split('/')));
-					if (event.affects(item.stat.resource) || event.affects(badgeResource) || affectsDirectSource || affectsResultArtifact) {
+					// The node's `upstream` list lives in its own document (D37).
+					if (event.affects(item.stat.resource) || affectsDirectSource || affectsResultArtifact) {
 						queueSurfaceRefresh();
 					}
 				}));
@@ -13244,6 +12995,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.contextViewService.showContextView(delegate);
 	}
 
+	/**
+	 * Saves a Composer or node-surface edit as one expected-bytes write of the
+	 * node document. The node's `upstream` list and its bindings live in that
+	 * document (D37), so added sources are appended to `upstream` (an already
+	 * listed entry is never listed twice) and removed sources leave it in the
+	 * same write. `canvas.yaml` anchor rows are kept: they are anchor memory.
+	 *
+	 * Composer input changes are reference operations, so the write goes
+	 * through the reference edit service: it is refused while a run lease is
+	 * active or the node is being moved, and when the document no longer has
+	 * `expectedContents`. Push its canvas undo step with `pushNodeLocalUndo`.
+	 */
 	private async saveNodeLocalChanges(
 		folder: IBaseHalfCanvasFolderState,
 		item: IBaseHalfCanvasItem,
@@ -13253,30 +13016,30 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		addedSourcePaths: readonly string[] = [],
 		expectedSourceRevisions: ReadonlyMap<string, string> = new Map(),
 		expectedTargetRevision?: string
-	): Promise<IBaseHalfCanvasConnectionTransition> {
-		const nextContents = VSBuffer.fromString(serializeBaseHalfNodeDocument(nextDocument));
-		const documentTransition = { resource: item.stat.resource, expected: expectedContents, next: nextContents };
-		const removedSources = [...new Set(removedSourcePaths)];
-		const addedSources = [...new Set(addedSourcePaths)];
-		if (removedSources.some(sourcePath => addedSources.includes(sourcePath))) {
+	): Promise<IBaseHalfNodeLocalSave> {
+		const identity = this.upstreamIdentity(folder.workspaceFolder);
+		const removedKeys = new Set(removedSourcePaths.map(path => identity.key(baseHalfNormalizeUpstreamEntry(path))));
+		const addedSources = [...new Set(addedSourcePaths.map(baseHalfNormalizeUpstreamEntry))];
+		if (addedSources.some(path => removedKeys.has(identity.key(path)))) {
 			throw new Error('One input source cannot be added and removed in the same node edit.');
 		}
-		const validateSourceRevisions = async (): Promise<void> => {
-			for (const [sourcePath, expectedRevision] of expectedSourceRevisions) {
-				const currentRevision = await this.nodeExecutionService.getInputRevision(
-					folder.workspaceFolder,
-					sourcePath,
-					{ fresh: true }
-				);
-				if (currentRevision !== expectedRevision) {
-					throw new Error(`Input source '${sourcePath}' changed before this node edit could be saved.`);
-				}
+		const upstream = baseHalfNodeUpstreamWithSourceChanges(nextDocument.upstream, removedSourcePaths, addedSources, identity);
+		if (upstream.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES && upstream.length > nextDocument.upstream.length) {
+			throw new Error(localize('basehalf.canvas.nodeEdit.upstreamLimit', "This node already has {0} upstream entries.", BASEHALF_UPSTREAM_MAX_NODE_ENTRIES));
+		}
+		const documentWithUpstream: IBaseHalfNodeDocument = { ...nextDocument, upstream };
+		const nextContents = VSBuffer.fromString(serializeBaseHalfNodeDocument(documentWithUpstream));
+		for (const [sourcePath, expectedRevision] of expectedSourceRevisions) {
+			const currentRevision = await this.nodeExecutionService.getInputRevision(
+				folder.workspaceFolder,
+				sourcePath,
+				{ fresh: true }
+			);
+			if (currentRevision !== expectedRevision) {
+				throw new Error(`Input source '${sourcePath}' changed before this node edit could be saved.`);
 			}
-		};
-		const validateTargetRevision = async (): Promise<void> => {
-			if (!expectedTargetRevision) {
-				return;
-			}
+		}
+		if (expectedTargetRevision) {
 			const latest = await this.fileService.readFile(item.stat.resource, {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
@@ -13284,220 +13047,69 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (latest.etag !== expectedTargetRevision) {
 				throw new Error('The Video Draft changed while the selected input was being checked. Review the current inputs and try again.');
 			}
-		};
-		if (removedSources.length === 0 && addedSources.length === 0) {
-			await validateSourceRevisions();
-			await validateTargetRevision();
-			await this.fileService.writeFileWithExpectedContents(
-				item.stat.resource,
-				nextContents,
-				expectedContents,
-				{ atomic: { postfix: '.basehalf-node-edit-tmp' } }
-			);
-			return {
-				folder,
-				nodes: [{ path: item.path, kind: item.kind }],
-				references: [],
-				canvas: { edges: [] },
-				documents: [documentTransition]
-			};
 		}
-
-		const persistedEdges = (await this.canvasMirrorService.readCanvas(folder))?.edges ?? [];
-		const describeSource = async (sourcePath: string): Promise<IBaseHalfCanvasUndoNode> => {
-			const stat = await this.fileService.stat(joinPath(folder.workspaceFolder, ...sourcePath.split('/')));
-			return { path: sourcePath, kind: stat.isDirectory ? 'folder' : 'file' };
+		const node = { resource: item.stat.resource, workspaceFolder: folder.workspaceFolder, relativePath: item.path };
+		const label = localize('basehalf.canvas.nodeEdit.label', "Save {0}", item.name);
+		const result = await this.referenceEditService.apply([{
+			node,
+			operation: { kind: 'nodeDocument', expected: expectedContents, next: documentWithUpstream }
+		}], { label });
+		return {
+			result,
+			// The document as written, with its updated `upstream` list.
+			document: documentWithUpstream,
+			contents: result.changed ? nextContents : expectedContents
 		};
-		const removals = await Promise.all(removedSources.map(async sourcePath => {
-			let source: IBaseHalfCanvasUndoNode;
-			let sourceExists = true;
-			try {
-				source = await describeSource(sourcePath);
-			} catch (error) {
-				if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
-					throw error;
-				}
-				source = { path: sourcePath, kind: 'file' };
-				sourceExists = false;
-			}
-			const canvasEdge = persistedEdges.find(edge => edge.from === sourcePath && edge.to === item.path);
-			return { source, sourceExists, canvasEdge };
-		}));
-		const additions = await Promise.all(addedSources.map(async sourcePath => {
-			const source = await describeSource(sourcePath);
-			if (persistedEdges.some(edge => edge.from === sourcePath && edge.to === item.path)) {
-				throw new Error(`Context from '${sourcePath}' is already connected to '${item.path}'.`);
-			}
-			const canvasEdge: IBaseHalfCanvasEdge = {
-				from: sourcePath,
-				from_anchor: 'east',
-				to: item.path,
-				to_anchor: 'west'
-			};
-			return { source, canvasEdge };
-		}));
-		let committedTransition: IBaseHalfCanvasConnectionTransition | undefined;
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			folder.workspaceFolder,
-			this.sceneMutationStamp(folder, this.renderedSceneStructuralEpoch),
-			async lease => {
-				const target = { path: item.path, kind: item.kind };
-				const nodes = [...removals.map(removal => removal.source), ...additions.map(addition => addition.source), target];
-				const existingNodes = [
-					...removals.filter(removal => removal.sourceExists).map(removal => removal.source),
-					...additions.map(addition => addition.source),
-					target
-				];
-				const live = new Map(await this.resolveLiveWorkspaceNodes(folder.workspaceFolder, existingNodes));
-				for (const removal of removals) {
-					if (!removal.sourceExists) {
-						live.set(removal.source.path, {
-							resource: joinPath(folder.workspaceFolder, ...removal.source.path.split('/')),
-							workspaceFolder: folder.workspaceFolder,
-							relativePath: removal.source.path,
-							kind: removal.source.kind
-						});
-					}
-				}
-				const referenceTransitions: IBaseHalfCanvasReferenceTransition[] = [];
-				const canvasTransitions: IBaseHalfCanvasEdgeStateTransition[] = [];
-				try {
-					await validateTargetRevision();
-					await validateSourceRevisions();
-					for (const removal of removals) {
-						const removed = await removeCompleteBaseHalfCanvasReference(
-							() => this.badgeGraphService.removeReferenceWithState(
-								live.get(removal.source.path)!,
-								live.get(item.path)!,
-								lease
-							),
-							transition => this.badgeGraphService.transitionReferenceStates([{
-								source: live.get(removal.source.path)!,
-								target: live.get(item.path)!,
-								expected: transition.after,
-								next: transition.before
-							}], lease),
-							`Connection '${removal.source.path}' → '${item.path}' changed before it could be removed.`,
-							true
-						);
-						referenceTransitions.push({
-							source: removal.source,
-							target,
-							expected: removed.before,
-							next: removed.after
-						});
-						if (removal.canvasEdge) {
-							const canvasTransition = {
-								from: removal.source.path,
-								to: item.path,
-								expected: removal.canvasEdge,
-								next: null
-							};
-							await this.canvasMirrorService.transitionCanvasState(folder, { edges: [canvasTransition] }, lease);
-							canvasTransitions.push(canvasTransition);
-						}
-					}
-					for (const addition of additions) {
-						const added = await this.badgeGraphService.addReferenceWithState(
-							live.get(addition.source.path)!,
-							live.get(item.path)!,
-							lease
-						);
-						if (added.result !== 'added') {
-							throw new Error(`Context from '${addition.source.path}' is already connected to '${item.path}' or requires metadata repair.`);
-						}
-						referenceTransitions.push({
-							source: addition.source,
-							target,
-							expected: added.before,
-							next: added.after
-						});
-						const canvasTransition = {
-							from: addition.source.path,
-							to: item.path,
-							expected: null,
-							next: addition.canvasEdge
-						};
-						await this.canvasMirrorService.transitionCanvasState(folder, { edges: [canvasTransition] }, lease);
-						canvasTransitions.push(canvasTransition);
-					}
-					await validateTargetRevision();
-					await this.fileService.writeFileWithExpectedContents(
-						item.stat.resource,
-						nextContents,
-						expectedContents,
-						{ atomic: { postfix: '.basehalf-node-edit-tmp' } }
-					);
-					committedTransition = {
-						folder,
-						nodes,
-						references: referenceTransitions,
-						canvas: { edges: canvasTransitions },
-						documents: [documentTransition]
-					};
-				} catch (error) {
-					const rollbackErrors: unknown[] = [];
-					for (const transition of [...canvasTransitions].reverse()) {
-						try {
-							await this.canvasMirrorService.transitionCanvasState(folder, {
-								edges: [{ ...transition, expected: transition.next, next: transition.expected }]
-							}, lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					for (const transition of [...referenceTransitions].reverse()) {
-						try {
-							await this.badgeGraphService.transitionReferenceStates([{
-								source: live.get(transition.source.path)!,
-								target: live.get(transition.target.path)!,
-								expected: transition.next,
-								next: transition.expected
-							}], lease);
-						} catch (restoreError) {
-							rollbackErrors.push(restoreError);
-						}
-					}
-					if (rollbackErrors.length > 0) {
-						throw new AggregateError([error, ...rollbackErrors], 'The node edit and its safe rollback both failed. Reopen the project before continuing.');
-					}
-					throw error;
-				}
-			}
-		);
-		if (!committedTransition) {
-			throw new Error('The node edit did not complete.');
-		}
-		return committedTransition;
 	}
 
+	/**
+	 * One canvas undo step for a Composer or node-surface save. Undo restores
+	 * the whole document while it still holds what the save wrote, and refuses
+	 * with "<file> changed since this edit" otherwise.
+	 */
+	private pushNodeLocalUndo(label: string, folder: IBaseHalfCanvasFolderState, saved: IBaseHalfNodeLocalSave): void {
+		this.referenceEditService.pushUndoElement(saved.result, {
+			label,
+			resources: [this.canvasMirrorService.canvasResource(folder)],
+			source: this.canvasUndoRedoSource,
+			onDidRun: () => this.scheduleBackgroundRender()
+		});
+	}
+
+	/**
+	 * The direct sources of a node: its own upstream entries (D37). A dangling
+	 * entry keeps its path with an unknown kind, so one missing source does not
+	 * discard readable siblings. Invalid entries are issues, not sources.
+	 */
 	private async readNodeInboundSources(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<IBaseHalfNodeInboundState> {
 		try {
-			const target: IBaseHalfBadgeNode = {
+			const view = await this.referenceIndexService.readUpstream({
 				resource: item.stat.resource,
 				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path,
-				kind: 'file'
-			};
-			const neighborhood = await this.badgeGraphService.readBadgeNeighborhood(target);
-			if (neighborhood.problems.length > 0) {
+				relativePath: item.path
+			});
+			if (!view.readable) {
 				return Object.freeze({
 					sources: Object.freeze([]),
-					problem: 'Repair direct context references before running this node.'
+					problem: localize('basehalf.canvas.node.upstreamUnreadable', "Fix the upstream list of this node before running it.")
 				});
 			}
-			const paths = neighborhood.badges.get(item.path)?.referenced_by ?? [];
 			const sources: IBaseHalfNodeInboundSource[] = [];
-			for (const path of paths) {
+			for (const entry of view.entries) {
+				if (entry.path === undefined) {
+					continue;
+				}
+				if (entry.status !== 'valid') {
+					sources.push(Object.freeze({ path: entry.path }));
+					continue;
+				}
 				try {
-					sources.push(await this.readWorkspaceContentDescriptor(folder.workspaceFolder, path));
+					sources.push(await this.readWorkspaceContentDescriptor(folder.workspaceFolder, entry.path));
 				} catch (error) {
 					if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
 						throw error;
 					}
-					// Retain the durable backlink path while leaving its kind unknown,
-					// so one missing source does not discard readable siblings.
-					sources.push(Object.freeze({ path }));
+					sources.push(Object.freeze({ path: entry.path }));
 				}
 			}
 			return Object.freeze({ sources: Object.freeze(sources.sort((left, right) => left.path.localeCompare(right.path))) });
@@ -14255,6 +13867,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderCardBadgeFace(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
+		preview: BaseHalfCanvasCardPreview | undefined,
 		listeners: DisposableStore
 	): void {
 		const face = append(container, $('.basehalf-canvas-card-badge-face'));
@@ -14288,71 +13901,115 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.workspaceMutationCoordinator.captureResource(folder.workspaceFolder, item.path),
 			baseHalfBadgeResourceIdentity(item.stat)
 		);
-
-		this.renderBadgeEditorContent(body, {
+		const node: IBaseHalfBadgeNode = {
 			resource: item.stat.resource,
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: item.path,
 			kind: item.kind
-		}, item.badge, this.renderedBadges, this.renderedBadgeProblems, mutationGuard,
+		};
+
+		this.renderBadgeEditorContent(body, node, item.badge, this.renderedBadgeProblems.get(item.path), {
+			upstream: this.renderedUpstreamViews.get(item.path),
+			downstream: this.renderedIndexState === 'building' ? [] : this.referenceIndexService.getDownstream(node),
+			indexState: this.renderedIndexState,
+			roleLabels: this.nodeRoleLabels(preview?.kind === 'node' ? preview.document : undefined)
+		}, mutationGuard,
 		disposable => listeners.add(disposable),
-		() => this.referenceCandidates(item),
 		focusTarget => {
 			this.pendingCanvasBadgeFocus = { path: item.path, target: focusTarget };
 			this.requestRender();
 		});
 	}
 
+	/** The labels of a node recipe's input roles, for `.bhnode` Upstream rows. */
+	private nodeRoleLabels(document: IBaseHalfNodeDocument | undefined): ReadonlyMap<string, string> | undefined {
+		const recipe = document?.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
+		return recipe ? new Map(recipe.inputs.map(input => [input.id, input.label])) : undefined;
+	}
+
 	/**
-	 * The shared badge editor — prompt, outbound references, inbound backlinks —
-	 * used by both the canvas card's flip face and the card detail's badge zone.
-	 * The two surfaces differ only in their container chrome and listener
-	 * lifetime, so they hand in a listener sink and a reference-candidate
-	 * provider.
+	 * The shared badge editor — description, Upstream, Downstream — used by
+	 * both the canvas card's flip face and the card detail's badge zone. The two
+	 * surfaces differ only in their container chrome and listener lifetime, so
+	 * they hand in a listener sink and a refresh callback. The node's own
+	 * Upstream list is editable; the Downstream list is derived from the other
+	 * nodes' stores (D37).
 	 */
 	private renderBadgeEditorContent(
 		body: HTMLElement,
 		node: IBaseHalfBadgeNode,
 		badge: IBaseHalfCanvasBadgeMetadata | undefined,
-		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
-		problems: ReadonlyMap<string, IBaseHalfBadgeReadProblem>,
+		ownProblem: IBaseHalfBadgeReadProblem | undefined,
+		connections: IBaseHalfBadgeEditorConnections,
 		mutationGuard: IBaseHalfCanvasMutationGuard,
 		addListener: (disposable: IDisposable) => void,
-		candidates: () => readonly IBaseHalfCanvasItem[],
 		refresh: (focusTarget: BaseHalfBadgeEditorFocusTarget) => void
 	): IBaseHalfBadgeEditorControls {
-		const ownProblem = problems.get(node.relativePath);
+		let prompt: HTMLTextAreaElement | undefined;
 		if (ownProblem) {
+			// The description's own storage cannot be read: offer it for repair,
+			// but keep the connections editable.
 			const issueSection = append(body, $('.basehalf-canvas-card-badge-section.reference-issues'));
 			issueSection.setAttribute('data-testid', 'badge-metadata-issue');
 			const heading = append(issueSection, $('.basehalf-canvas-card-badge-issues-title'));
-			heading.textContent = 'Badge metadata issue';
+			heading.textContent = localize('basehalf.canvas.badge.descriptionIssue', "Description can't be read");
 			const row = append(issueSection, $('.basehalf-canvas-card-badge-issue-row'));
 			const message = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
-			message.textContent = ownProblem.corrupt ? 'badge.yaml cannot be parsed' : 'badge.yaml cannot be read';
+			message.textContent = ownProblem.corrupt
+				? localize('basehalf.canvas.badge.descriptionCorrupt', "badge.yaml cannot be parsed")
+				: localize('basehalf.canvas.badge.descriptionUnreadable', "badge.yaml cannot be read");
 			message.title = ownProblem.message;
 			const open = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
 			open.type = 'button';
-			open.textContent = 'Open metadata';
+			open.textContent = localize('basehalf.canvas.badge.openMetadata', "Open Metadata");
 			open.title = ownProblem.message;
 			addListener(this.addDisposableListener(open, 'click', event => {
 				event.preventDefault();
 				event.stopPropagation();
 				void this.openBadgeMetadata(node.workspaceFolder, ownProblem.relativePath, ownProblem.resource).catch(error => {
-					message.textContent = 'Metadata could not be opened safely';
+					message.textContent = localize('basehalf.canvas.badge.openMetadataFailed', "Metadata could not be opened safely");
 					message.title = error instanceof Error ? error.message : String(error);
 					this.reportCanvasMutationError(error);
 				});
 			}));
-			return {};
+		} else {
+			prompt = this.renderBadgeDescriptionPrompt(body, node, badge, mutationGuard, addListener);
+			this.renderBadgeDescriptionRecovery(body, node, addListener, refresh);
 		}
 
+		const context = this.upstreamActionContext(this.getCurrentFolder(), () => this.scheduleBackgroundRender());
+		const controls = this.upstreamActions.renderConnections(body, {
+			node,
+			upstream: connections.upstream,
+			downstream: connections.downstream,
+			indexState: connections.indexState,
+			context,
+			addListener,
+			openNode: relativePath => this.openWorkspaceRelative(node.workspaceFolder, relativePath),
+			refresh: focus => {
+				this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
+				refresh(focus);
+			},
+			...(connections.roleLabels ? { roleLabel: (slot: string) => connections.roleLabels?.get(slot) ?? slot } : {})
+		});
+		return { ...(prompt ? { prompt } : {}), ...controls };
+	}
+
+	private renderBadgeDescriptionPrompt(
+		body: HTMLElement,
+		node: IBaseHalfBadgeNode,
+		badge: IBaseHalfCanvasBadgeMetadata | undefined,
+		mutationGuard: IBaseHalfCanvasMutationGuard,
+		addListener: (disposable: IDisposable) => void
+	): HTMLTextAreaElement {
 		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
 		prompt.value = badge?.description ?? '';
-		prompt.placeholder = node.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
+		prompt.placeholder = node.kind === 'folder'
+			? localize('basehalf.canvas.badge.descriptionPlaceholderFolder', "One line about this folder…")
+			: localize('basehalf.canvas.badge.descriptionPlaceholderFile', "One line about this file…");
 		prompt.rows = 1;
 		prompt.spellcheck = false;
-		prompt.setAttribute('aria-label', `Badge prompt for ${node.relativePath}`);
+		prompt.setAttribute('aria-label', localize('basehalf.canvas.badge.descriptionLabel', "Description of {0}", node.relativePath));
 		this.fitBadgePrompt(prompt);
 		let composing = false;
 		const flushPrompt = () => {
@@ -14391,236 +14048,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			event.stopPropagation();
 		}));
-		this.renderBadgeDescriptionRecovery(body, node, addListener, refresh);
-
-		// External Agents update the reciprocal badge files sequentially. Treat a
-		// half-written pair as malformed input everywhere, not as a badge-only
-		// relationship that disagrees with the canvas projection.
-		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badge, badges, problems);
-		const refs = relationships.references;
-		if (relationships.issues.length > 0) {
-			const issueSection = append(body, $('.basehalf-canvas-card-badge-section.reference-issues'));
-			issueSection.setAttribute('data-testid', 'reference-issues');
-			const heading = append(issueSection, $('.basehalf-canvas-card-badge-issues-title'));
-			heading.textContent = `${relationships.issues.length} reference issue${relationships.issues.length === 1 ? '' : 's'}`;
-			for (const issue of relationships.issues) {
-				const counterpart = issue.direction === 'outbound' ? issue.to : issue.from;
-				const counterpartOrphan = badges.get(counterpart)?.orphan === true;
-				const issueResourceStamps = [issue.from, issue.to].map(path => this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, path));
-				const row = append(issueSection, $('.basehalf-canvas-card-badge-issue-row'));
-				row.setAttribute('data-testid', 'reference-issue');
-				row.setAttribute('data-reference-from', issue.from);
-				row.setAttribute('data-reference-to', issue.to);
-				row.setAttribute('data-reference-direction', issue.direction);
-				row.setAttribute('data-reference-reason', issue.reason);
-				const actionButtons: HTMLButtonElement[] = [];
-				let actionError: HTMLElement | undefined;
-				const runAction = (action: () => Promise<boolean>) => {
-					actionError?.remove();
-					actionError = undefined;
-					row.setAttribute('aria-busy', 'true');
-					for (const button of actionButtons) {
-						button.disabled = true;
-					}
-					void action().then(() => {
-						// A false result means the pair changed after this issue row was
-						// rendered (already complete or fully gone). Refresh the stale
-						// diagnosis without mutating that newer graph state.
-						refresh('add-reference');
-					}).catch(error => {
-						const alert = actionError = append(row, $('span.basehalf-canvas-card-badge-issue-error'));
-						alert.setAttribute('role', 'alert');
-						alert.setAttribute('data-testid', 'reference-issue-action-error');
-						alert.textContent = error instanceof Error ? error.message : String(error);
-						this.reportCanvasMutationError(error);
-					}).finally(() => {
-						row.removeAttribute('aria-busy');
-						for (const button of actionButtons) {
-							button.disabled = false;
-						}
-					});
-				};
-				const direction = append(row, $('span.basehalf-canvas-card-badge-direction.issue'));
-				direction.textContent = issue.direction === 'outbound' ? '→' : '←';
-				const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
-				label.type = 'button';
-				label.textContent = baseHalfReferenceLabel(counterpart);
-				label.title = counterpart;
-				addListener(this.addDisposableListener(label, 'click', event => {
-					event.preventDefault();
-					event.stopPropagation();
-					this.openWorkspaceRelative(node.workspaceFolder, counterpart);
-				}));
-				const state = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
-				state.textContent = issue.reason === 'unreadable'
-					? 'metadata unreadable'
-					: counterpartOrphan
-						? 'card is missing; restore it or discard'
-						: issue.direction === 'outbound' ? 'target is missing its backlink' : 'source is missing its reference';
-				state.title = issue.problem?.message ?? 'Only one side of this reference is recorded.';
-				if (issue.reason === 'incomplete') {
-					const repair = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
-					repair.type = 'button';
-					repair.textContent = 'Repair';
-					repair.setAttribute('data-testid', 'reference-issue-repair');
-					repair.setAttribute('aria-label', `Repair reference ${issue.from} to ${issue.to}`);
-					repair.disabled = counterpartOrphan;
-					if (counterpartOrphan) {
-						repair.title = `Restore ${counterpart} before repairing this reference`;
-					}
-					if (!counterpartOrphan) {
-						actionButtons.push(repair);
-					}
-					addListener(this.addDisposableListener(repair, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						runAction(() => this.repairBadgeRelationshipIssue(node, issue, mutationGuard, issueResourceStamps));
-					}));
-					const discard = append(row, $('button.basehalf-canvas-card-badge-issue-action.subtle')) as HTMLButtonElement;
-					discard.type = 'button';
-					discard.textContent = 'Discard';
-					discard.setAttribute('data-testid', 'reference-issue-discard');
-					discard.setAttribute('aria-label', `Discard incomplete reference ${issue.from} to ${issue.to}`);
-					actionButtons.push(discard);
-					addListener(this.addDisposableListener(discard, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						runAction(() => this.discardBadgeRelationshipIssue(node, issue, badges, mutationGuard, issueResourceStamps));
-					}));
-					const open = append(row, $('button.basehalf-canvas-card-badge-issue-action.subtle')) as HTMLButtonElement;
-					open.type = 'button';
-					open.textContent = 'Open metadata';
-					open.setAttribute('data-testid', 'reference-issue-open-yaml');
-					actionButtons.push(open);
-					addListener(this.addDisposableListener(open, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						void this.openBadgeMetadata(node.workspaceFolder, node.relativePath).catch(error => {
-							state.textContent = 'metadata could not be opened safely';
-							state.title = error instanceof Error ? error.message : String(error);
-							this.reportCanvasMutationError(error);
-						});
-					}));
-				} else if (issue.problem) {
-					const open = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
-					open.type = 'button';
-					open.textContent = 'Open metadata';
-					open.setAttribute('data-testid', 'reference-issue-open-yaml');
-					actionButtons.push(open);
-					addListener(this.addDisposableListener(open, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						void this.openBadgeMetadata(node.workspaceFolder, issue.problem!.relativePath, issue.problem!.resource).catch(error => {
-							state.textContent = 'metadata could not be opened safely';
-							state.title = error instanceof Error ? error.message : String(error);
-							this.reportCanvasMutationError(error);
-						});
-					}));
-				}
-			}
-		}
-		const stampedCandidates: IBaseHalfStampedReferenceCandidate[] = candidates().map(candidate => ({
-			candidate,
-			stamp: this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, candidate.path)
-		}));
-		const refSection = append(body, $('.basehalf-canvas-card-badge-section'));
-		if (refs.length > 0) {
-			const list = append(refSection, $('.basehalf-canvas-card-badge-list'));
-			for (const to of refs) {
-				const targetStamp = this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, to);
-				const row = append(list, $('.basehalf-canvas-card-badge-row'));
-				const direction = append(row, $('span.basehalf-canvas-card-badge-direction'));
-				direction.textContent = '→';
-				const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
-				label.type = 'button';
-				label.textContent = baseHalfReferenceLabel(to);
-				label.title = to;
-				addListener(this.addDisposableListener(label, 'click', event => {
-					event.preventDefault();
-					event.stopPropagation();
-					this.openWorkspaceRelative(node.workspaceFolder, to);
-				}));
-				const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
-				remove.type = 'button';
-				remove.title = `Remove reference to ${baseHalfReferenceLabel(to)}`;
-				remove.setAttribute('aria-label', `Remove reference to ${to}`);
-				addListener(this.addDisposableListener(remove, 'click', event => {
-					event.preventDefault();
-					event.stopPropagation();
-					if (remove.disabled) {
-						return;
-					}
-					remove.disabled = true;
-					row.setAttribute('aria-busy', 'true');
-					void this.removeBadgeReference(node, to, mutationGuard, targetStamp).then(changed => {
-						if (changed) {
-							refresh('add-reference');
-						}
-					}).catch(error => this.reportCanvasMutationError(error)).finally(() => {
-						remove.disabled = false;
-						row.removeAttribute('aria-busy');
-					});
-				}));
-			}
-		}
-		const add = append(refSection, $('button.basehalf-canvas-card-add-reference')) as HTMLButtonElement;
-		add.type = 'button';
-		add.textContent = '+ Add reference';
-		addListener(this.addDisposableListener(add, 'click', event => {
-			event.preventDefault();
-			event.stopPropagation();
-			if (add.disabled) {
-				return;
-			}
-			add.disabled = true;
-			add.setAttribute('aria-busy', 'true');
-			void this.addBadgeReference(node, refs, stampedCandidates, mutationGuard).then(changed => {
-				if (changed) {
-					refresh('add-reference');
-				}
-			}).catch(error => this.reportCanvasMutationError(error)).finally(() => {
-				add.disabled = false;
-				add.removeAttribute('aria-busy');
-			});
-		}));
-
-		const inbound = relationships.referencedBy;
-		let inboundToggle: HTMLButtonElement | undefined;
-		if (inbound.length > 0) {
-			const inboundSection = append(body, $('.basehalf-canvas-card-badge-section'));
-			const toggle = inboundToggle = append(inboundSection, $('button.basehalf-canvas-card-inbound-toggle')) as HTMLButtonElement;
-			toggle.type = 'button';
-			toggle.textContent = `← ${inbound.length} referenced by`;
-			toggle.setAttribute('aria-expanded', String(this.expandedInboundBadges.has(node.relativePath)));
-			addListener(this.addDisposableListener(toggle, 'click', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				if (this.expandedInboundBadges.has(node.relativePath)) {
-					this.expandedInboundBadges.delete(node.relativePath);
-				} else {
-					this.expandedInboundBadges.add(node.relativePath);
-				}
-				refresh('inbound-toggle');
-			}));
-			if (this.expandedInboundBadges.has(node.relativePath)) {
-				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
-				for (const from of inbound) {
-					const row = append(list, $('.basehalf-canvas-card-badge-row'));
-					const direction = append(row, $('span.basehalf-canvas-card-badge-direction.inbound'));
-					direction.textContent = '←';
-					const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
-					label.type = 'button';
-					label.textContent = baseHalfReferenceLabel(from);
-					label.title = from;
-					addListener(this.addDisposableListener(label, 'click', event => {
-						event.preventDefault();
-						event.stopPropagation();
-						this.openWorkspaceRelative(node.workspaceFolder, from);
-					}));
-				}
-			}
-		}
-		return { prompt, addReference: add, inboundToggle };
+		return prompt;
 	}
 
 	private renderBadgeDescriptionRecovery(
@@ -14780,6 +14208,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return `${workspaceFolder.toString()}\0${relativePath}`;
 	}
 
+	/**
+	 * Writes a node's one-line description to its `badge.yaml` (under the
+	 * caller's workspace mutation lease). `badge.yaml` holds no references
+	 * (D37); the mirror keeps any legacy reference keys verbatim. An empty
+	 * description on an otherwise-empty badge retires it.
+	 */
+	private writeBadgeDescription(node: IBaseHalfBadgeNode, description: string): Promise<IBaseHalfBadgeFile | null> {
+		const trimmed = description.trim();
+		return this.badgeMirrorService.patchBadge(node, current => {
+			if (current === null && !trimmed) {
+				return null;
+			}
+			const base: IBaseHalfBadgeFile = current ?? { path: node.relativePath, kind: node.kind };
+			const next: IBaseHalfBadgeFile = { ...base, description: trimmed || undefined };
+			return !next.description && next.orphan !== true ? null : next;
+		});
+	}
+
 	private badgeMetadataWithDraft(
 		workspaceFolder: URI,
 		relativePath: string,
@@ -14806,8 +14252,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		return {
 			description: draft.value,
-			references: badge?.references ?? [],
-			referenced_by: badge?.referenced_by ?? [],
 			orphan: badge?.orphan
 		};
 	}
@@ -14914,7 +14358,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			writtenValue = pending.value;
 			const live = await this.resolveLiveWorkspaceNodes(node.workspaceFolder, [{ path: node.relativePath, kind: node.kind }]);
-			await this.badgeGraphService.updateDescription(live.get(node.relativePath)!, writtenValue, lease);
+			await this.writeBadgeDescription(live.get(node.relativePath)!, writtenValue);
 		}).then(() => {
 			if (this.badgeDescriptionPending.get(key) === pending) {
 				this.badgeDescriptionPending.delete(key);
@@ -15178,95 +14622,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		);
 	}
 
-	private async repairBadgeRelationshipIssue(
-		node: IBaseHalfBadgeNode,
-		issue: IBaseHalfCanvasBadgeRelationshipIssue,
-		guard: IBaseHalfCanvasMutationGuard,
-		relatedStamps: readonly IBaseHalfWorkspaceResourceMutationStamp[]
-	): Promise<boolean> {
-		if (issue.reason !== 'incomplete' || guard.workspaceKey !== node.workspaceFolder.toString()
-			|| (issue.from !== node.relativePath && issue.to !== node.relativePath)) {
-			return false;
-		}
-		this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
-		return guard.run(async lease => {
-			let live: ReadonlyMap<string, IBaseHalfBadgeNode>;
-			try {
-				live = await this.resolveLiveRelationshipNodes(node.workspaceFolder, issue.from, issue.to);
-			} catch (error) {
-				throw new Error(`Cannot repair ${issue.from} → ${issue.to} because one of its cards is unavailable. Restore or create both cards, then retry; otherwise Discard this incomplete reference.`, { cause: error });
-			}
-			return this.badgeGraphService.repairIncompleteReference(live.get(issue.from)!, live.get(issue.to)!, lease);
-		}, relatedStamps);
-	}
-
-	private async discardBadgeRelationshipIssue(
-		node: IBaseHalfBadgeNode,
-		issue: IBaseHalfCanvasBadgeRelationshipIssue,
-		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
-		guard: IBaseHalfCanvasMutationGuard,
-		relatedStamps: readonly IBaseHalfWorkspaceResourceMutationStamp[]
-	): Promise<boolean> {
-		if (issue.reason !== 'incomplete' || guard.workspaceKey !== node.workspaceFolder.toString()
-			|| (issue.from !== node.relativePath && issue.to !== node.relativePath)) {
-			return false;
-		}
-		this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
-		const canvasFolder = this.getCurrentFolder();
-		const source = this.badgeNodeForPath(node.workspaceFolder, issue.from, badges, issue.from === node.relativePath ? node.kind : undefined);
-		const target = this.badgeNodeForPath(node.workspaceFolder, issue.to, badges, issue.to === node.relativePath ? node.kind : undefined);
-		return guard.run(async lease => {
-			const changed = await this.badgeGraphService.discardIncompleteReference(source, target, lease);
-			if (changed && canvasFolder?.workspaceFolder.toString() === node.workspaceFolder.toString()) {
-				try {
-					await this.canvasMirrorService.removeCanvasEdge(canvasFolder, { from: issue.from, to: issue.to }, lease);
-				} catch (error) {
-					// The graph cleanup already succeeded. A stale anchor row is inert
-					// and can be reported without turning Discard into a false failure.
-					this.logService.warn(error);
-					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-				}
-			}
-			return changed;
-		}, relatedStamps);
-	}
-
-	private async resolveLiveRelationshipNodes(
-		workspaceFolder: URI,
-		from: string,
-		to: string
-	): Promise<ReadonlyMap<string, IBaseHalfBadgeNode>> {
-		const live = new Map<string, IBaseHalfBadgeNode>();
-		for (const path of [from, to]) {
-			const resource = joinPath(workspaceFolder, ...path.split('/'));
-			const stat = await this.fileService.stat(resource);
-			if (!stat.isDirectory && !stat.isFile) {
-				throw new Error(`Reference endpoint is not a file or folder: ${path}`);
-			}
-			live.set(path, {
-				resource,
-				workspaceFolder,
-				relativePath: path,
-				kind: stat.isDirectory ? 'folder' : 'file'
-			});
-		}
-		return live;
-	}
-
-	private badgeNodeForPath(
-		workspaceFolder: URI,
-		path: string,
-		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
-		fallbackKind: IBaseHalfCanvasItem['kind'] = 'file'
-	): IBaseHalfBadgeNode {
-		return {
-			resource: joinPath(workspaceFolder, ...path.split('/')),
-			workspaceFolder,
-			relativePath: path,
-			kind: badges.get(path)?.kind ?? this.renderedItemsByPath.get(path)?.kind ?? fallbackKind
-		};
-	}
-
 	private async openBadgeMetadata(workspaceFolder: URI, relativePath: string, resource = baseHalfMirrorResource(workspaceFolder, relativePath, 'badge.yaml')): Promise<void> {
 		// Opening in the default text editor must honor the same no-symlink
 		// boundary as mirror reads/writes; otherwise a planted mirror ancestor
@@ -15276,211 +14631,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			resource,
 			options: { pinned: true, override: DEFAULT_EDITOR_ASSOCIATION.id }
 		});
-	}
-
-	private async addBadgeReference(
-		source: IBaseHalfBadgeNode,
-		currentReferences: readonly string[],
-		allCandidates: readonly IBaseHalfStampedReferenceCandidate[],
-		guard: IBaseHalfCanvasMutationGuard
-	): Promise<boolean> {
-		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
-			return false;
-		}
-		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
-		const existing = new Set(currentReferences);
-		// Files AND folders are both first-class reference targets — a folder is
-		// a badge too, and pointing at one is often exactly the annotation.
-		const candidates = allCandidates.filter(({ candidate }) => candidate.path !== source.relativePath && !existing.has(candidate.path));
-		if (candidates.length === 0) {
-			await this.quickInputService.pick([{ label: 'Nothing else to reference here.' }], { placeHolder: 'Add a reference' });
-			return false;
-		}
-
-		type RefPick = IQuickPickItem & IBaseHalfStampedReferenceCandidate;
-		const picked = await this.quickInputService.pick<RefPick>(candidates.map(({ candidate, stamp }) => ({
-			label: basename(candidate.stat.resource),
-			description: candidate.path,
-			detail: candidate.badge?.description,
-			candidate,
-			stamp
-		})), {
-			placeHolder: `Add a reference from ${source.relativePath || 'the workspace root'}...`,
-			matchOnDescription: true,
-			matchOnDetail: true
-		});
-		if (!picked) {
-			return false;
-		}
-
-		await guard.run(async lease => {
-			const live = await this.resolveLiveWorkspaceNodes(source.workspaceFolder, [
-				{ path: source.relativePath, kind: source.kind },
-				{ path: picked.candidate.path, kind: picked.candidate.kind }
-			]);
-			await this.badgeGraphService.addReference(live.get(source.relativePath)!, live.get(picked.candidate.path)!, lease);
-		}, [picked.stamp]);
-		return true;
-	}
-
-	private referenceCandidates(item: IBaseHalfCanvasItem): IBaseHalfCanvasItem[] {
-		if (item.kind === 'folder') {
-			return (item.stat.children ?? [])
-				.filter(child => child.isFile || child.isDirectory)
-				.map(child => {
-					const name = basename(child.resource);
-					return {
-						path: canvasChildPath(item.path, name),
-						name,
-						kind: child.isDirectory ? 'folder' : 'file',
-						stat: child
-					};
-				});
-		}
-		return [...this.renderedItemsByPath.values()];
-	}
-
-	private async removeBadgeReference(
-		source: IBaseHalfBadgeNode,
-		to: string,
-		guard: IBaseHalfCanvasMutationGuard,
-		targetStamp: IBaseHalfWorkspaceResourceMutationStamp
-	): Promise<boolean> {
-		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
-			return false;
-		}
-		const canvasFolder = this.getCurrentFolder();
-		if (!canvasFolder || canvasFolder.workspaceFolder.toString() !== source.workspaceFolder.toString()) {
-			return false;
-		}
-		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
-		const targetResource = joinPath(source.workspaceFolder, ...to.split('/'));
-		const targetStat = await this.fileService.stat(targetResource);
-		const targetKind: IBaseHalfCanvasItem['kind'] = targetStat.isDirectory ? 'folder' : 'file';
-		let nodeUpdate: IBaseHalfCanvasNodeDocumentTransition | undefined;
-		if (targetKind === 'file' && to.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			if (this.workingCopyService.isDirty(targetResource) || this.nodeExecutionService.getActiveRun(targetResource)) {
-					throw new Error(`Save '${to}' and finish its active attempt before removing this connection.`);
-			}
-			const content = await this.fileService.readFile(targetResource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			if (document.attempts.some(attempt => attempt.status === 'running')) {
-					throw new Error(`Finish '${to}' active attempt before removing this connection.`);
-				}
-				if (document.recipe?.inputBindings.some(binding => binding.sourcePath === source.relativePath)) {
-					if (document.result || document.attempts.length > 0) {
-						throw new Error(`'${to}' already has an attempt or sealed Result. Its recipe inputs cannot be disconnected.`);
-					}
-				const inputBindings = normalizeNodeInputBindings(document.recipe.inputBindings
-					.filter(binding => binding.sourcePath !== source.relativePath));
-				nodeUpdate = {
-					resource: targetResource,
-					expected: content.value,
-					next: VSBuffer.fromString(serializeBaseHalfNodeDocument({
-						...document,
-						recipe: { ...document.recipe, inputBindings }
-					}))
-				};
-			}
-		}
-		let committedTransition: IBaseHalfCanvasConnectionTransition | undefined;
-		await guard.run(async lease => {
-			const nodes: IBaseHalfCanvasUndoNode[] = [
-				{ path: source.relativePath, kind: source.kind },
-				{ path: to, kind: targetKind }
-			];
-			const live = await this.resolveLiveWorkspaceNodes(source.workspaceFolder, nodes);
-			const canvasTransitions = baseHalfPersistedCanvasEdgeRemoval(
-				(await this.canvasMirrorService.readCanvas(canvasFolder))?.edges ?? [],
-				source.relativePath,
-				to
-			);
-			let referenceTransition: Awaited<ReturnType<IBaseHalfBadgeGraphService['removeReferenceWithState']>> | undefined;
-			let canvasApplied = false;
-			try {
-				referenceTransition = await removeCompleteBaseHalfCanvasReference(
-					() => this.badgeGraphService.removeReferenceWithState(
-						live.get(source.relativePath)!,
-						live.get(to)!,
-						lease
-					),
-					transition => this.badgeGraphService.transitionReferenceStates([{
-						source: live.get(source.relativePath)!,
-						target: live.get(to)!,
-						expected: transition.after,
-						next: transition.before
-					}], lease),
-					`The reference ${source.relativePath} → ${to} changed before it could be removed.`,
-					!!nodeUpdate
-				);
-				if (canvasTransitions.length > 0) {
-					await this.canvasMirrorService.transitionCanvasState(canvasFolder, { edges: canvasTransitions }, lease);
-					canvasApplied = true;
-				}
-				if (nodeUpdate) {
-					await this.fileService.writeFileWithExpectedContents(
-						nodeUpdate.resource,
-						nodeUpdate.next,
-						nodeUpdate.expected,
-						{ atomic: { postfix: '.basehalf-node-unbind-tmp' } }
-					);
-				}
-				committedTransition = {
-					folder: canvasFolder,
-					nodes,
-					references: [{
-						source: nodes[0],
-						target: nodes[1],
-						expected: referenceTransition.before,
-						next: referenceTransition.after
-					}],
-					canvas: { edges: canvasTransitions },
-					documents: nodeUpdate ? [nodeUpdate] : []
-				};
-			} catch (error) {
-				const rollbackErrors: unknown[] = [];
-				if (canvasApplied) {
-					try {
-						await this.canvasMirrorService.transitionCanvasState(
-							canvasFolder,
-							reverseCanvasStateTransition({ edges: canvasTransitions }, true),
-							lease
-						);
-					} catch (rollbackError) {
-						rollbackErrors.push(rollbackError);
-					}
-				}
-				if (referenceTransition) {
-					try {
-						await this.badgeGraphService.transitionReferenceStates([{
-							source: live.get(source.relativePath)!,
-							target: live.get(to)!,
-							expected: referenceTransition.after,
-							next: referenceTransition.before
-						}], lease);
-					} catch (rollbackError) {
-						rollbackErrors.push(rollbackError);
-					}
-				}
-				if (rollbackErrors.length > 0) {
-					throw new AggregateError([error, ...rollbackErrors], 'The connection removal and its safe rollback both failed. Reopen the project before continuing.');
-				}
-				throw error;
-			}
-		}, [targetStamp]);
-		if (committedTransition && canvasConnectionTransitionChangesAnything(committedTransition)) {
-			this.pushCanvasUndoElement(
-				localize('basehalf.canvas.badgeDisconnect.undo', "Disconnect canvas nodes"),
-				canvasFolder,
-				committedTransition.nodes,
-				committedTransition.documents,
-				(reverse, lease) => this.applyCanvasConnectionTransition(committedTransition!, reverse, lease)
-			);
-		}
-		return true;
 	}
 
 	private renderTruncated(heldBack: number): void {
@@ -15693,17 +14843,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// deliberately no document-less rich editor parked in this container.
 			clearNode(this.detailTitle);
 			this.detailMeta.textContent = '';
-			// Re-assert folder focus only on the open→closed TRANSITION. An
-			// unconditional write here would race the initial-framing restore:
-			// renderDetail runs before the canvas pipeline, so a 0ms write of
-			// the not-yet-framed viewport would land in focus.yaml first and
-			// the restore would then faithfully restore the unframed state.
-				if (wasOpen) {
-					// Selected Notes were rendered as static previews underneath the detail
-					// surface. Recreate the retained cards once so the static selected Note
-					// and its controls are current when detail closes.
+			if (wasOpen) {
+				// Selected Notes were rendered as static previews underneath the detail
+				// surface. Recreate the retained cards once so the static selected Note
+				// and its controls are current when detail closes.
 				this.renderedCardsByPath = new Map();
-				this.scheduleFolderFocusWrite(0);
 			}
 			return;
 		}
@@ -16152,15 +15296,31 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		let badge: IBaseHalfBadgeFile | null;
-		let badges: ReadonlyMap<string, IBaseHalfBadgeFile>;
-		let problems: ReadonlyMap<string, IBaseHalfBadgeReadProblem>;
+		let ownProblem: IBaseHalfBadgeReadProblem | undefined;
+		let upstream: IBaseHalfUpstreamView | undefined;
+		let roleLabels: ReadonlyMap<string, string> | undefined;
 		try {
-			const badgeRead = await this.badgeGraphService.readBadgeNeighborhood(node);
-			badges = badgeRead.badges;
-			badge = badges.get(node.relativePath) ?? null;
-			problems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
-			for (const problem of badgeRead.problems) {
-				this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
+			// The description lives in badge.yaml; the connections come from the
+			// node's own store, read directly so the Upstream list never depends
+			// on enumeration (D37).
+			const badgeRead = await this.badgeMirrorService.readBadges([node]);
+			badge = badgeRead.badges.get(node.relativePath) ?? null;
+			ownProblem = badgeRead.problems.find(problem => problem.relativePath === node.relativePath);
+			if (ownProblem) {
+				this.logService.warn(`BaseHalf badge metadata issue for ${ownProblem.relativePath}: ${ownProblem.message}`);
+			}
+			try {
+				upstream = await this.referenceIndexService.readUpstream(node);
+			} catch (error) {
+				this.logService.warn(`BaseHalf card detail upstream list unreadable for ${node.relativePath}`, error);
+			}
+			if (upstream?.storeKind === 'node') {
+				try {
+					const content = await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
+					roleLabels = this.nodeRoleLabels(parseBaseHalfNodeDocumentBytes(content.value.buffer));
+				} catch {
+					// Rows fall back to the role ids.
+				}
 			}
 		} catch (error) {
 			this.logService.warn(`BaseHalf card detail badge graph unreadable for ${node.relativePath}`, error);
@@ -16229,19 +15389,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			toggle.setAttribute('aria-controls', bodyId);
 		}
 		// The badge glyph is the toolbar action's identity: accent-toned once
-		// the file carries a note or references, ghost while empty.
-		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badgeForDisplay, badges, problems);
-		const badgeIssueCount = relationships.issues.length + (problems.has(node.relativePath) ? 1 : 0);
-		const hasRelationships = relationships.references.length > 0 || relationships.referencedBy.length > 0;
+		// the file carries a note or connections, ghost while empty.
+		const indexState = this.referenceIndexService.getState(node.workspaceFolder);
+		const downstream = indexState === 'building' ? [] : this.referenceIndexService.getDownstream(node);
+		const upstreamCount = upstream?.entries.filter(entry => entry.status === 'valid').length ?? 0;
+		const upstreamIssueCount = upstream?.issueCount ?? 0;
+		const badgeIssueCount = upstreamIssueCount + (ownProblem ? 1 : 0);
+		const hasRelationships = upstreamCount > 0 || downstream.length > 0;
 		const hasContent = !!badgeForDisplay?.description?.trim() || hasRelationships || badgeIssueCount > 0;
+		const connectionSummary = hasRelationships || upstreamIssueCount > 0 || indexState === 'building'
+			? this.upstreamActions.summary(upstream, downstream, indexState)
+			: undefined;
 		toggle.classList.toggle('issue', badgeIssueCount > 0);
 		toggle.setAttribute('data-reference-issue-count', String(badgeIssueCount));
-		toggle.title = badgeIssueCount > 0
-			? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - ${open ? 'hide' : 'show'} Badge`
-			: open ? 'Hide Badge' : 'Show Badge';
-		toggle.setAttribute('aria-label', badgeIssueCount > 0
-			? `${open ? 'Hide' : 'Show'} Badge, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}`
-			: open ? 'Hide Badge' : 'Show Badge');
+		const toggleAction = open ? localize('basehalf.cardDetail.badge.hide', "Hide Badge") : localize('basehalf.cardDetail.badge.show', "Show Badge");
+		toggle.title = connectionSummary ? `${connectionSummary} - ${toggleAction}` : toggleAction;
+		toggle.setAttribute('aria-label', connectionSummary ? `${toggleAction}, ${connectionSummary}` : toggleAction);
 		this.renderGlyph(toggle, 'badge', badgeIssueCount > 0 ? 'var(--vscode-editorWarning-foreground)' : hasContent ? 'var(--vscode-textLink-foreground)' : 'var(--basehalf-detail-badge-ghost)', 15);
 		if (badgeIssueCount > 0) {
 			const marker = append(toggle, $('.basehalf-reference-issue-marker.detail'));
@@ -16255,14 +15418,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		chevron.setAttribute('aria-hidden', 'true');
 		const summary = append(toggle, $('span.basehalf-card-detail-badge-summary'));
 		if (!open) {
-			const inboundCount = relationships.referencedBy.length;
-			summary.textContent = badgeIssueCount > 0
-				? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}`
-				: badgeForDisplay?.description
-				?? (hasRelationships
-					? `${relationships.references.length} reference${relationships.references.length === 1 ? '' : 's'}${inboundCount > 0 ? ` · ← ${inboundCount}` : ''}`
-					: 'What agents should know about this file');
-			summary.classList.toggle('empty', !badgeForDisplay?.description && !hasRelationships && badgeIssueCount === 0);
+			// "↑N upstream · ↓M downstream · K issues", after the description.
+			const description = badgeForDisplay?.description;
+			summary.textContent = description && connectionSummary
+				? `${description} · ${connectionSummary}`
+				: description ?? connectionSummary ?? localize('basehalf.cardDetail.badge.descriptionPlaceholder', "One line about this file…");
+			summary.classList.toggle('empty', !description && !connectionSummary);
 		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(toggle, 'click', () => {
 			if (open) {
@@ -16294,11 +15455,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			body,
 			node,
 			badgeForDisplay,
-			badges,
-			problems,
+			ownProblem,
+			{ upstream, downstream, indexState, ...(roleLabels ? { roleLabels } : {}) },
 			this.resourceMutationGuard(cardDetail.workspaceFolder, structuralStamp, resourceIdentity),
 			disposable => this.detailBadgeDisposables.add(disposable),
-			() => [...this.renderedItemsByPath.values()],
 			focusTarget => {
 				const current = this.canvasNavigationService.state.cardDetail;
 				if (!current || current.resource.toString() !== cardDetail.resource.toString()) {
@@ -16316,9 +15476,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 				const target = focusEditorControl === 'prompt'
 					? editorControls.prompt
-					: focusEditorControl === 'add-reference'
-						? editorControls.addReference
-						: editorControls.inboundToggle;
+					: focusEditorControl === 'add-upstream'
+						? editorControls.addUpstream ?? editorControls.addDownstream
+						: editorControls.addDownstream;
 				(target ?? toggle).focus();
 			}, 0);
 		}
@@ -16752,14 +15912,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!folder) {
 			return;
 		}
-		this.folderFocusRestoreGeneration++;
+		this.viewportRestoreGeneration++;
 		const sceneKey = this.sceneKey(folder);
 		void this.canvasScene.fit(undefined, {
 			padding: 0.12,
 			maxZoom: 1
 		}).then(() => {
 			if (this.isCurrentSceneKey(sceneKey)) {
-				this.scheduleFolderFocusWrite(0, { folder, viewport: this.canvasScene.getViewport() });
+				this.scheduleViewportPersist(0, 'user', { folder, viewport: this.canvasScene.getViewport() });
 			}
 		}).catch(error => this.logService.error(error));
 	}
@@ -16790,14 +15950,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (nextZoom === this.canvasZoom) {
 			return;
 		}
-		this.folderFocusRestoreGeneration++;
+		this.viewportRestoreGeneration++;
 		const folder = this.getCurrentFolder();
 		const sceneKey = folder ? this.sceneKey(folder) : undefined;
 		this.canvasZoom = nextZoom;
 		this.updateCanvasZoomChrome();
 		void this.canvasScene.setZoom(nextZoom).then(() => {
 			if (folder && sceneKey && this.isCurrentSceneKey(sceneKey)) {
-				this.scheduleFolderFocusWrite(0, { folder, viewport: this.canvasScene.getViewport() });
+				this.scheduleViewportPersist(0, 'user', { folder, viewport: this.canvasScene.getViewport() });
 			}
 		}).catch(() => {
 			if (sceneKey && this.isCurrentSceneKey(sceneKey) && this.canvasZoom === nextZoom) {
@@ -16845,15 +16005,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 
-	private folderFocusViewportCenter(viewport: IBaseHalfCanvasSceneViewport): { x: number; y: number } {
+	/** Canvas-space center of the visible area, independent of window size.
+	 *  Undefined while the canvas has no size: that center would be wrong. */
+	private canvasViewportCenter(viewport: IBaseHalfCanvasSceneViewport): { x: number; y: number } | undefined {
+		const width = this.root.clientWidth;
+		const height = this.root.clientHeight;
+		if (width <= 0 || height <= 0 || !(viewport.zoom > 0)) {
+			return undefined;
+		}
 		return {
-			x: (this.root.clientWidth / 2 - viewport.x) / viewport.zoom,
-			y: (this.root.clientHeight / 2 - viewport.y) / viewport.zoom
+			x: roundCanvasPosition((width / 2 - viewport.x) / viewport.zoom),
+			y: roundCanvasPosition((height / 2 - viewport.y) / viewport.zoom)
 		};
 	}
 
-	private scheduleFolderFocusWrite(
-		delay = 200,
+	private scheduleViewportPersist(
+		delay: number,
+		source: BaseHalfCanvasViewportSource,
 		context?: { readonly folder: IBaseHalfCanvasFolderState; readonly viewport: IBaseHalfCanvasSceneViewport }
 	): void {
 		const folder = context?.folder ?? this.getCurrentFolder();
@@ -16861,98 +16029,120 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		const viewport = context?.viewport ?? this.canvasScene.getViewport();
-		this.pendingFolderFocusWrite = {
-			folder,
-			sceneKey: this.sceneKey(folder),
-			structuralStamp: this.workspaceMutationCoordinator.capture(folder.workspaceFolder),
-			fields: {
-				viewport_center: mapCanvasPoint(this.folderFocusViewportCenter(viewport), roundCanvasPosition),
-				zoom: viewport.zoom
-			}
-		};
-		if (this.folderFocusTimer !== undefined) {
-			mainWindow.clearTimeout(this.folderFocusTimer);
+		const center = this.canvasViewportCenter(viewport);
+		if (!center) {
+			return;
 		}
-
-		this.folderFocusTimer = mainWindow.setTimeout(() => {
-			this.folderFocusTimer = undefined;
-			this.flushFolderFocusWrite();
-		}, delay);
+		if (source !== 'auto') {
+			this.autoFramedViewport = undefined;
+		}
+		const sceneKey = this.sceneKey(folder);
+		const structuralStamp = this.workspaceMutationCoordinator.capture(folder.workspaceFolder);
+		const settled: IBaseHalfCanvasViewport = { x: center.x, y: center.y, zoom: viewport.zoom, source };
+		this.viewportPersister.schedule(delay, {
+			folder: folder.resource,
+			viewport: settled,
+			// A write whose scene is no longer current, or whose workspace saw a
+			// structural change (its folder may have moved), is dropped: it
+			// would recreate a key the move forgot.
+			isCurrent: () => this.isCurrentSceneKey(sceneKey)
+				&& this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)
+		});
 	}
 
-	private restoreOrWriteFolderFocus(folder: IBaseHalfCanvasFolderState, seq: number): void {
+	/**
+	 * Restore the folder's stored viewport once per scene, or fit its content
+	 * when none is stored. The first restore of a workspace folder waits
+	 * (bounded) for the legacy viewport import so an imported viewport is not
+	 * missed by a race with cleanup.
+	 */
+	private restoreFolderViewport(folder: IBaseHalfCanvasFolderState): void {
 		if (this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 
-		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}`;
-		if (this.restoredFolderFocusKey === key) {
-			this.scheduleFolderFocusWrite(0);
+		const sceneKey = this.sceneKey(folder);
+		if (this.restoredViewportSceneKey === sceneKey) {
 			return;
 		}
 
-		this.restoredFolderFocusKey = key;
-		const restoreGeneration = this.folderFocusRestoreGeneration;
-		void this.focusMirrorService.readFolderFocus(folder).then(async fields => {
-			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail || restoreGeneration !== this.folderFocusRestoreGeneration) {
-				return;
+		this.restoredViewportSceneKey = sceneKey;
+		const generation = this.viewportRestoreGeneration;
+		void (async () => {
+			const outcome = await baseHalfOpenCanvasViewport(this.viewportStateService, folder.resource, folder.workspaceFolder, {
+				isCurrent: () => this.isViewportRestoreCurrent(sceneKey, generation),
+				restore: stored => this.applyStoredViewport(sceneKey, stored),
+				fit: () => this.frameFreshFolderView(folder, sceneKey),
+				persistFit: () => {
+					this.scheduleViewportPersist(0, 'auto', { folder, viewport: this.canvasScene.getViewport() });
+					this.autoFramedViewport = { sceneKey, generation };
+				}
+			});
+			if (outcome === 'stale'
+				&& !this.disposed
+				&& this.restoredViewportSceneKey === sceneKey
+				&& this.isCurrentSceneKey(sceneKey)
+				&& generation === this.viewportRestoreGeneration) {
+				// Only Card Detail blocked it: retry on the next canvas render.
+				this.restoredViewportSceneKey = undefined;
 			}
-
-			if (!fields) {
-				this.frameFreshFolderView(folder, seq);
-				return;
-			}
-
-			this.canvasZoom = fields.zoom;
-			this.updateCanvasZoomChrome();
-			await this.canvasScene.setViewportCenter(fields.viewport_center.x, fields.viewport_center.y, fields.zoom);
-			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
-				this.scheduleFolderFocusWrite(0);
-			}
-		}).catch(error => {
-			this.logService.warn(error);
-			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
-				this.frameFreshFolderView(folder, seq);
-			}
-		});
+		})().catch(error => this.logService.error(error));
 	}
 
-	private frameFreshFolderView(folder: IBaseHalfCanvasFolderState, seq: number): void {
-		const maxZoom = Math.min(1, this.defaultCanvasZoom(folder));
-		void this.canvasScene.fit(undefined, { maxZoom, padding: 0.12 }).then(() => {
-			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
-				return;
+	private isViewportRestoreCurrent(sceneKey: string, generation: number): boolean {
+		return !this.disposed
+			&& this.isCurrentSceneKey(sceneKey)
+			&& generation === this.viewportRestoreGeneration
+			&& !this.canvasNavigationService.state.cardDetail;
+	}
+
+	private async applyStoredViewport(sceneKey: string, stored: IBaseHalfCanvasViewport): Promise<void> {
+		const zoom = normalizeCanvasZoom(stored.zoom);
+		this.canvasZoom = zoom;
+		this.updateCanvasZoomChrome();
+		this.autoFramedViewport = undefined;
+		this.programmaticViewportSceneKey = sceneKey;
+		try {
+			await this.canvasScene.setViewportCenter(stored.x, stored.y, zoom);
+		} finally {
+			if (this.programmaticViewportSceneKey === sceneKey) {
+				this.programmaticViewportSceneKey = undefined;
 			}
-			this.scheduleFolderFocusWrite(0);
-		}).catch(error => this.logService.error(error));
+		}
+	}
+
+	private async frameFreshFolderView(folder: IBaseHalfCanvasFolderState, sceneKey: string): Promise<void> {
+		const maxZoom = Math.min(1, this.defaultCanvasZoom(folder));
+		this.programmaticViewportSceneKey = sceneKey;
+		try {
+			await this.canvasScene.fit(undefined, { maxZoom, padding: 0.12 });
+		} finally {
+			if (this.programmaticViewportSceneKey === sceneKey) {
+				this.programmaticViewportSceneKey = undefined;
+			}
+		}
+	}
+
+	/** A legacy viewport imported after this scene's automatic first fit wins
+	 *  over it, as long as the user has not changed the viewport since. */
+	private onDidImportViewports(folders: readonly URI[]): void {
+		const auto = this.autoFramedViewport;
+		const folder = this.getCurrentFolder();
+		if (!auto || !folder || !this.isViewportRestoreCurrent(auto.sceneKey, auto.generation)) {
+			return;
+		}
+		if (!folders.some(imported => this.uriIdentityService.extUri.isEqual(imported, folder.resource))) {
+			return;
+		}
+		const stored = this.viewportStateService.get(folder.resource);
+		if (stored?.source !== 'import') {
+			return;
+		}
+		void this.applyStoredViewport(auto.sceneKey, stored).catch(error => this.logService.error(error));
 	}
 
 	private defaultCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
 		return normalizeBaseHalfCanvasZoom(this.configurationService.getValue(BaseHalfSetting.CanvasDefaultZoom, { resource: folder.resource }));
-	}
-
-	private flushFolderFocusWrite(): void {
-		const pending = this.pendingFolderFocusWrite;
-		this.pendingFolderFocusWrite = undefined;
-		if (!pending || this.canvasNavigationService.state.cardDetail || !this.isCurrentSceneKey(pending.sceneKey)) {
-			return;
-		}
-
-		const key = `${pending.sceneKey}::${pending.structuralStamp.structuralEpoch}::${JSON.stringify(pending.fields)}`;
-		if (key === this.lastFolderFocusKey) {
-			return;
-		}
-
-		void this.workspaceMutationCoordinator.runSceneMutation(
-			pending.folder.workspaceFolder,
-			pending.structuralStamp,
-			async lease => {
-				if (!this.isCurrentSceneKey(pending.sceneKey)) {
-					return;
-				}
-				await this.focusMirrorService.writeFolderFocus(pending.folder, pending.fields, lease);
-			}
-		).then(() => this.lastFolderFocusKey = key).catch(error => this.logService.error(error));
 	}
 }
 
@@ -16970,15 +16160,6 @@ function reverseCanvasStateTransition(transition: IBaseHalfCanvasStateTransition
 	};
 }
 
-function reverseReferenceTransitions(
-	transitions: readonly IBaseHalfCanvasReferenceTransition[],
-	reverse: boolean
-): readonly IBaseHalfCanvasReferenceTransition[] {
-	return reverse
-		? transitions.map(transition => ({ ...transition, expected: transition.next, next: transition.expected }))
-		: transitions;
-}
-
 function reverseDocumentTransitions(
 	transitions: readonly IBaseHalfCanvasNodeDocumentTransition[],
 	reverse: boolean
@@ -16988,31 +16169,9 @@ function reverseDocumentTransitions(
 		: transitions;
 }
 
-function canvasReconnectStateTransitions(previous: IBaseHalfCanvasEdge, next: IBaseHalfCanvasEdge): readonly IBaseHalfCanvasEdgeStateTransition[] {
-	const previousEdge: IBaseHalfCanvasEdge = {
-		from: previous.from,
-		from_anchor: previous.from_anchor,
-		to: previous.to,
-		to_anchor: previous.to_anchor
-	};
-	if (previous.from === next.from && previous.to === next.to) {
-		return [{ from: previous.from, to: previous.to, expected: previousEdge, next }];
-	}
-	return [
-		{ from: previous.from, to: previous.to, expected: previousEdge, next: null },
-		{ from: next.from, to: next.to, expected: null, next }
-	];
-}
-
 function canvasStateTransitionChangesAnything(transition: IBaseHalfCanvasStateTransition): boolean {
 	return (transition.cards ?? []).some(card => !canvasCardsEqual(card.expected, card.next))
 		|| (transition.edges ?? []).some(edge => !canvasEdgesEqual(edge.expected, edge.next));
-}
-
-function canvasConnectionTransitionChangesAnything(transition: IBaseHalfCanvasConnectionTransition): boolean {
-	return transition.documents.some(document => !document.expected.equals(document.next))
-		|| transition.references.some(reference => !referenceStatesEqual(reference.expected, reference.next))
-		|| canvasStateTransitionChangesAnything(transition.canvas);
 }
 
 function canvasCardsEqual(left: IBaseHalfCanvasCardStateTransition['expected'], right: IBaseHalfCanvasCardStateTransition['next']): boolean {
@@ -17031,29 +16190,6 @@ function canvasEdgesEqual(left: IBaseHalfCanvasEdgeStateTransition['expected'], 
 		&& left.from_anchor === right.from_anchor
 		&& left.to === right.to
 		&& left.to_anchor === right.to_anchor;
-}
-
-function connectionTargetSnapshotsEqual(
-	left: IBaseHalfCanvasConnectionTargetSnapshot,
-	right: IBaseHalfCanvasConnectionTargetSnapshot
-): boolean {
-	if (left.path !== right.path || left.kind !== right.kind
-		|| left.directSourcePaths.length !== right.directSourcePaths.length
-		|| left.directSourcePaths.some((path, index) => path !== right.directSourcePaths[index])
-		|| left.inputKinds.size !== right.inputKinds.size
-		|| [...left.inputKinds].some(([path, kind]) => right.inputKinds.get(path) !== kind)) {
-		return false;
-	}
-	if (!left.node || !right.node) {
-		return left.node === right.node;
-	}
-	return left.node.resource.toString() === right.node.resource.toString()
-		&& left.node.contents.equals(right.node.contents)
-		&& left.node.recipe === right.node.recipe;
-}
-
-function referenceStatesEqual(left: IBaseHalfReferenceState, right: IBaseHalfReferenceState): boolean {
-	return left.forward === right.forward && left.backlink === right.backlink;
 }
 
 function uniqueCanvasUndoNodes(nodes: readonly IBaseHalfCanvasUndoNode[]): readonly IBaseHalfCanvasUndoNode[] {
@@ -17103,22 +16239,6 @@ export function baseHalfCanvasZoomFromPercentInput(value: string): number | unde
 
 export function formatBaseHalfCanvasZoomPercent(zoom: number): string {
 	return String(Number((normalizeCanvasZoom(zoom) * 100).toFixed(2)));
-}
-
-function mapCanvasPoint(point: { readonly x: number; readonly y: number }, map: (value: number) => number): { readonly x: number; readonly y: number } {
-	return {
-		x: map(point.x),
-		y: map(point.y)
-	};
-}
-
-function isBaseHalfFocusMirrorResource(resource: URI): boolean {
-	const name = basename(resource);
-	if (name !== 'focus.yaml' && name !== 'current_focus.yaml') {
-		return false;
-	}
-
-	return resource.path.includes('/.bh/');
 }
 
 function mediaPreview(name: string): { readonly kind: 'image' | 'video' | 'audio' | 'pdf'; readonly label: string } | undefined {

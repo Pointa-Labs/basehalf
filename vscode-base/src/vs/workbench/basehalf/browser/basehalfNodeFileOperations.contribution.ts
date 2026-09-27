@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { localize } from '../../../nls.js';
 import { FileOperation, IFileService } from '../../../platform/files/common/files.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
@@ -41,9 +42,10 @@ class BaseHalfNodeFileOperationsContribution extends Disposable implements IWork
 	): Promise<void> {
 		const forked = await forkCopiedBaseHalfNodeTrees(this.fileService, plans, completedFiles);
 		if (forked.length > 0) {
+			// A forked node starts with `upstream: []` and no bindings (D37).
 			this.notificationService.info(forked.length === 1
-				? 'Copied node settings into a new Draft. Connections, Result, and Attempts start empty.'
-				: `Copied ${forked.length} node settings into new Drafts. Connections, Results, and Attempts start empty.`);
+				? localize('basehalf.nodeCopy.forkedOne', "Copied node settings into a new Draft. Its upstream connections, Result, and Attempts start empty.")
+				: localize('basehalf.nodeCopy.forkedMany', "Copied {0} node settings into new Drafts. Their upstream connections, Results, and Attempts start empty.", forked.length));
 		}
 	}
 

@@ -423,12 +423,15 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !value.operations.every(isCapabilityDiscoveryOperation)
 		|| new Set(value.operations.map(operation => (operation as Record<string, unknown>).id)).size !== value.operations.length
 		|| !isRecord(value.contextEdge)
-		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'roleAndOrderOwner', 'label'])
+		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'storedBy', 'markdownFrontmatterKey', 'nodeDocumentField', 'roleAndOrderOwner', 'label'])
 		|| value.contextEdge.source !== 'direct-content'
 		|| value.contextEdge.resultNodeSource !== 'sealed-result'
 		|| value.contextEdge.target !== 'direct-context'
 		|| value.contextEdge.autoRun !== false
 		|| value.contextEdge.recursive !== false
+		|| value.contextEdge.storedBy !== 'downstream'
+		|| value.contextEdge.markdownFrontmatterKey !== 'upstream'
+		|| value.contextEdge.nodeDocumentField !== 'upstream'
 		|| value.contextEdge.roleAndOrderOwner !== 'target-recipe-binding'
 		|| value.contextEdge.label !== 'none'
 		|| !isRecord(value.nodeDocument)) {
@@ -462,7 +465,7 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !document.resultKinds.every((kind, index) => kind === resultKinds[index])
 		|| !isRecord(document.inputBinding)
 		|| !hasOnlyKeys(document.inputBinding, ['scope', 'fields'])
-		|| document.inputBinding.scope !== 'direct-inbound-reference'
+		|| document.inputBinding.scope !== 'node-upstream'
 		|| !Array.isArray(document.inputBinding.fields)
 		|| document.inputBinding.fields.length !== 3
 		|| document.inputBinding.fields[0] !== 'sourcePath'

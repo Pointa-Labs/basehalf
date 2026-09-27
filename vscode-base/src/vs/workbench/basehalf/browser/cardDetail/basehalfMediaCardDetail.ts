@@ -21,7 +21,6 @@ import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../.
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../common/basehalfContentRendering.js';
-import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
@@ -41,7 +40,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 	private state: IBaseHalfCardDetailState | undefined;
 	private webview: IWebviewElement | undefined;
 	private disposed = false;
-	private visible = false;
 	private renderVersion = 0;
 	private pdfViewState: IBaseHalfPdfViewState | undefined;
 	private pdfBranchPending = false;
@@ -52,7 +50,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		private readonly onPdfUserInteraction: () => void,
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IFileService private readonly fileService: IFileService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IStorageService private readonly storageService: IStorageService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService
@@ -94,7 +91,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.webview.mountTo(this.webviewHost, mainWindow);
 			this._register(this.webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
 			this.renderWebview(kind);
-			this._register(this.webview.onDidFocus(() => this.writeFocus()));
 			this._register(this.webview.onFatalError(error => {
 				this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
 			}));
@@ -107,7 +103,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 					this.renderWebview(kind);
 				}
 			}));
-			this.writeFocus();
 			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
 		} catch (error) {
 			if (!this.disposed) {
@@ -124,17 +119,13 @@ export class BaseHalfMediaCardDetail extends Disposable {
 
 	activate(state: IBaseHalfCardDetailState): void {
 		this.state = state;
-		this.writeFocus();
 	}
 
 	applySelection(): void { }
 
-	setVisible(visible: boolean): void {
-		this.visible = visible;
-		if (visible) {
-			this.writeFocus();
-		}
-	}
+	/** The isolated webview retains its own context while hidden; nothing to
+	 *  suspend or resume. */
+	setVisible(_visible: boolean): void { }
 
 	focus(): void {
 		this.webview?.focus();
@@ -209,16 +200,6 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		clearNode(this.webviewHost);
 		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));
 		notice.textContent = message;
-	}
-
-	private writeFocus(): void {
-		const state = this.state;
-		if (!state || !this.visible) {
-			return;
-		}
-		void this.focusMirrorService.writeFileFocus(state, { projection: state.projection }).catch(error => {
-			this.logService.error('[BaseHalf] media focus mirror write failed', error);
-		});
 	}
 }
 
