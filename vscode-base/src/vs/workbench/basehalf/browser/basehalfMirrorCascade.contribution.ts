@@ -33,6 +33,7 @@ import {
 	baseHalfMirrorPathSegments,
 	baseHalfMirrorResource,
 	baseHalfMirrorRoot,
+	baseHalfPruneEmptyMirrorDirectories,
 	baseHalfRemapSubtreeRel,
 	baseHalfWalkMirror
 } from '../common/basehalfMirrorTree.js';
@@ -70,6 +71,8 @@ interface IBaseHalfCascadePlan {
 	readonly workspaceFolder: URI;
 	readonly description: string;
 	readonly stages: readonly IBaseHalfCascadeStage[];
+	/** The node whose old mirror directory is pruned of empty directories once every stage finished. */
+	readonly prune?: string;
 }
 
 interface IBaseHalfPendingCascadeRecovery {
@@ -440,6 +443,28 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			plans.flatMap(plan => plan.stages),
 			lease
 		);
+		await this.pruneEmptyMirrorDirectories(plans);
+	}
+
+	/**
+	 * Removes the directories the cascade left empty at the old mirror paths
+	 * (workspace state, "What BaseHalf persists"). Best effort: a failure is
+	 * logged and never fails the operation. Marked folders are left alone.
+	 */
+	private async pruneEmptyMirrorDirectories(plans: readonly IBaseHalfCascadePlan[]): Promise<void> {
+		for (const plan of plans) {
+			if (plan.prune === undefined || this.disposed) {
+				continue;
+			}
+			try {
+				if (await baseHalfIsWorkspaceFolderMarked(this.fileService, plan.workspaceFolder)) {
+					continue;
+				}
+				await baseHalfPruneEmptyMirrorDirectories(this.fileService, plan.workspaceFolder, plan.prune);
+			} catch (error) {
+				this.logService.warn(`BaseHalf mirror cascade: could not remove empty mirror directories for ${plan.description}`, error);
+			}
+		}
 	}
 
 	/**
@@ -532,7 +557,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 					label: 'legacy connection paths',
 					run: () => this.renameLegacyConnectionPaths(workspaceFolder, from.relativePath, to.relativePath)
 				}
-			]
+			],
+			prune: from.relativePath
 		};
 	}
 
@@ -569,7 +595,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		return {
 			workspaceFolder,
 			description: `delete "${relativePath}"`,
-			stages
+			stages,
+			prune: relativePath
 		};
 	}
 

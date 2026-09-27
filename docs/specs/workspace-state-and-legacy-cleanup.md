@@ -62,6 +62,22 @@ appended stay unless the user removes them. Project metadata may be committed,
 so that canvas layout, descriptions, and non-Markdown upstream lists travel
 with the folder. The release notes recommend ignoring `.bh/cache/`.
 
+`.bh/mirror/<path>/` holds the per-node files above. A workbench move or
+delete relocates or retires them through the mirror cascade. Once every
+required stage of that cascade has finished, including after a Retry, BaseHalf
+removes the directories left without any entry inside the moved or deleted
+item's old mirror directory, bottom-up, then that directory's ancestors up to,
+but not including, `.bh/mirror/`. It removes only empty directories, one at a
+time, and never follows or removes a symbolic link. In a marked folder it
+removes nothing. This step is best effort: a failure is logged and never
+refuses, blocks, or reverses the operation.
+
+Retirement can leave canonical empty files behind: a badge without a
+description, an empty canvas, or an empty reading-aid file. The mirror services
+use them as compare-and-swap tombstones, and a directory that holds one stays.
+Directories that the cascade empties elsewhere, such as under a replaced
+destination, are not pruned.
+
 BaseHalf no longer writes any of these:
 - `focus.yaml`;
 - `.bh/current_focus.yaml`;
@@ -313,3 +329,9 @@ release that contains every slice states:
      and reported.
 5. A marked folder is never changed, and its result carries
    `skipped: 'marker'`.
+6. After a workbench move of a file or a folder whose metadata moves with it,
+   and after a permanent delete of a node with only a sidecar, no empty
+   directory remains at the old mirror path or its emptied ancestors. A
+   directory that still holds a file, such as a tombstone or an `upstream.yaml`
+   kept by a delete to the trash, stays, and so do the directories of sibling
+   nodes and symbolic links. A marked folder keeps its directories.

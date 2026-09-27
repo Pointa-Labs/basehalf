@@ -147,6 +147,8 @@ interface IHarness {
 	/** The undo source of Explorer bulk edits, which agent moves use. */
 	readonly explorerUndoSource: UndoRedoSource;
 	move(from: string, to: string, isUndoing?: boolean): Promise<void>;
+	/** A permanent workbench delete (the harness has no trash). */
+	delete(path: string): Promise<void>;
 	/** Runs the agent move command, as the node command handler does after validating both paths. */
 	agentMove(from: string, to: string, token?: CancellationToken): Promise<IBaseHalfAgentMoveResult>;
 	/** The prompt whose message contains `text`, once it is shown. */
@@ -234,6 +236,9 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		refactor,
 		undoRedo: instantiationService.get(IUndoRedoService),
 		explorerUndoSource,
+		async delete(path) {
+			await workingCopyFileService.delete([{ resource: joinPath(folder, ...path.split('/')), recursive: true }], CancellationToken.None);
+		},
 		async move(from, to, isUndoing) {
 			await workingCopyFileService.move([{ file: { source: joinPath(folder, ...from.split('/')), target: joinPath(folder, ...to.split('/')) } }], CancellationToken.None, isUndoing ? { isUndoing } : undefined);
 		},
@@ -559,6 +564,44 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': '---\nupstream:\n  - a.md\n---\n# N\n' }, undefined, { partialIndex: true });
 		const moved = await harness.agentMove('a.md', 'b.md');
 		assert.deepStrictEqual(moved.upstream, { updated: ['n.md'], skipped: [], incomplete: 'the reference index is partial, so stores it could not read may still name the old path' });
+	});
+
+	test('a workbench move or permanent delete leaves no empty directory at the old mirror path, but keeps tombstones, siblings, and marked folders', async () => {
+		const files = {
+			'docs/x.md': '# X\n',
+			'docs/sub/y.md': '# Y\n',
+			'z.md': '# Z\n',
+			'p.pdf': 'pdf',
+			'q.md': '# Q\n',
+			'.bh/mirror/docs/badge.yaml': 'path: "docs"\nkind: folder\n',
+			'.bh/mirror/docs/sub/y.md/badge.yaml': 'path: "docs/sub/y.md"\nkind: file\n',
+			'.bh/mirror/z.md/badge.yaml': 'path: "z.md"\nkind: file\ndescription: "Z"\n',
+			'.bh/mirror/z.md/appearance.yaml': 'color: blue\n',
+			'.bh/mirror/p.pdf/upstream.yaml': 'upstream:\n  - q.md\n',
+			'.bh/mirror/q.md/badge.yaml': 'path: "q.md"\nkind: file\ndescription: "Q"\n'
+		};
+		const harness = await createHarness(disposables, files, 'never');
+		await harness.move('docs', 'papers');
+		await harness.move('z.md', 'papers/z.md');
+		await harness.delete('p.pdf');
+		await harness.delete('q.md');
+		const exists = (path: string) => harness.fileService.exists(joinPath(folder, '.bh', 'mirror', ...path.split('/')));
+		await until(async () => !await exists('docs') && !await exists('z.md') && !await exists('p.pdf'), 'empty mirror directories remained at the old paths');
+
+		const marked = await createHarness(disposables, { ...files, '.basehalf-no-workspace-setup': '' }, 'never');
+		await marked.move('z.md', 'y.md');
+		const markedExists = (path: string) => marked.fileService.exists(joinPath(folder, '.bh', 'mirror', ...path.split('/')));
+
+		assert.deepStrictEqual({
+			moved: [await exists('papers/badge.yaml'), await exists('papers/sub/y.md/badge.yaml'), await exists('papers/z.md/badge.yaml'), await exists('papers/z.md/appearance.yaml')],
+			// Retiring q.md's badge leaves a tombstone, so its directory stays.
+			tombstone: (await harness.read('.bh/mirror/q.md/badge.yaml')) ?? null,
+			marked: [await markedExists('z.md'), await markedExists('y.md/badge.yaml')]
+		}, {
+			moved: [true, true, true, true],
+			tombstone: 'path: "q.md"\nkind: file\n',
+			marked: [true, true]
+		});
 	});
 
 	test('an agent move result caps each list at 200 items', () => {

@@ -192,6 +192,71 @@ export async function baseHalfWalkMirror(fileService: IFileService, workspaceFol
 	return out.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
+/**
+ * Removes the directories below `.bh/mirror/<relativePath>/` that hold no
+ * entry, bottom-up, then that directory's ancestors up to, but not including,
+ * `.bh/mirror/`, stopping at the first that still holds an entry. Only empty
+ * directories are removed, one at a time, and symbolic links are never
+ * followed or removed. Returns the removed directories, deepest first.
+ */
+export async function baseHalfPruneEmptyMirrorDirectories(fileService: IFileService, workspaceFolder: URI, relativePath: string): Promise<URI[]> {
+	const segments = baseHalfMirrorPathSegments(relativePath);
+	if (segments.length === 0) {
+		return [];
+	}
+	const mirrorRoot = baseHalfMirrorRoot(workspaceFolder);
+	const removed: URI[] = [];
+	// Whether `directory` is gone afterwards (removed now, or already missing).
+	const removeIfEmpty = async (directory: URI): Promise<boolean> => {
+		try {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, directory);
+			const stat = await fileService.resolve(directory);
+			if (!stat.isDirectory || stat.isSymbolicLink || (stat.children?.length ?? 0) > 0) {
+				return false;
+			}
+			await fileService.del(directory, { recursive: false, useTrash: false });
+			removed.push(directory);
+			return true;
+		} catch (error) {
+			if (isFileNotFound(error)) {
+				return true;
+			}
+			throw error;
+		}
+	};
+	const pruneSubtree = async (directory: URI): Promise<boolean> => {
+		let children;
+		try {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, directory);
+			const stat = await fileService.resolve(directory);
+			if (!stat.isDirectory || stat.isSymbolicLink) {
+				return false;
+			}
+			children = stat.children ?? [];
+		} catch (error) {
+			if (isFileNotFound(error)) {
+				return true;
+			}
+			throw error;
+		}
+		let kept = 0;
+		for (const child of children) {
+			if (!child.isDirectory || child.isSymbolicLink || !await pruneSubtree(child.resource)) {
+				kept++;
+			}
+		}
+		return kept === 0 && removeIfEmpty(directory);
+	};
+	if (await pruneSubtree(URI.joinPath(mirrorRoot, ...segments))) {
+		for (let depth = segments.length - 1; depth > 0; depth--) {
+			if (!await removeIfEmpty(URI.joinPath(mirrorRoot, ...segments.slice(0, depth)))) {
+				break;
+			}
+		}
+	}
+	return removed;
+}
+
 function isFileNotFound(error: unknown): boolean {
 	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
 }
