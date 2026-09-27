@@ -3,11 +3,15 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { timeout } from '../../../base/common/async.js';
+import { DeferredPromise, timeout } from '../../../base/common/async.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { CancellationError } from '../../../base/common/errors.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
-import { isEqual, relativePath as getRelativePath } from '../../../base/common/resources.js';
+import { basename, dirname, isEqual, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
+import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
+import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { FileOperation, IFileService } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
@@ -15,13 +19,15 @@ import { INotificationHandle, INotificationService, IPromptChoice, Severity } fr
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IExplorerService } from '../../contrib/files/browser/files.js';
+import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
-import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
+import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
 import { baseHalfUpstreamSidecarResource, baseHalfUpstreamStoreKind, readBaseHalfSidecarUpstream } from '../common/basehalfReferenceStore.js';
 import {
 	BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING,
@@ -31,11 +37,16 @@ import {
 	baseHalfPrimaryMoves,
 	baseHalfRelocateRenameStores,
 	baseHalfUpdateOnFileMove,
+	BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID,
+	IBaseHalfAgentMoveArgument,
+	IBaseHalfAgentMoveResult,
+	IBaseHalfAgentMoveUpstreamResult,
 	IBaseHalfPathMove,
+	IBaseHalfRenameUpdatePlan,
 	IBaseHalfRenamePlanState,
 	IBaseHalfRenameStore
 } from '../common/basehalfRenameRefactor.js';
-import { IBaseHalfReferenceRefactorInput, IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
+import { IBaseHalfReferenceRefactorInput, IBaseHalfReferenceRefactorOutcome, IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
 /** How long an update that a move interrupted waits for moves in progress to finish. */
@@ -50,6 +61,16 @@ interface IPreparedRename {
 	readonly snapshot: readonly IBaseHalfRenameStore[] | undefined;
 	/** The old paths of the plans that were unanswered when the move was prepared: they own those entries. */
 	readonly exclude: readonly string[];
+	/** Set when the move is an agent move: its plan answers itself and reports here. */
+	readonly agent?: IAgentMoveRequest;
+}
+
+/** An agent move between its request and the end of its plan (reference graph, "Agent moves"). */
+interface IAgentMoveRequest {
+	/** What the plan did, or `undefined` when the move did not complete. */
+	readonly result: DeferredPromise<IBaseHalfAgentMoveUpstreamResult | undefined>;
+	/** Cancelled when the caller went away; the plan then reports like any other move. */
+	readonly token: CancellationToken;
 }
 
 /** A node whose store kind changed to its own file, with the entries its moved `upstream.yaml` holds. */
@@ -78,6 +99,19 @@ interface IPendingRename {
 	answered: boolean;
 	notification?: INotificationHandle;
 	promptInfo?: IPromptInfo;
+	/** An agent move: the plan never prompts and reports its result here. */
+	readonly agent?: IAgentMoveRequest;
+	/** The update's report is shown only when something needs the user's attention. */
+	reportQuietly?: boolean;
+}
+
+/** The most items one list of an agent move result holds. */
+const AGENT_MOVE_RESULT_MAX_ITEMS = 200;
+
+export function capAgentMoveList(items: readonly string[]): string[] {
+	return items.length <= AGENT_MOVE_RESULT_MAX_ITEMS
+		? [...items]
+		: [...items.slice(0, AGENT_MOVE_RESULT_MAX_ITEMS - 1), `… and ${items.length - AGENT_MOVE_RESULT_MAX_ITEMS + 1} more`];
 }
 
 /**
@@ -102,6 +136,10 @@ interface IPendingRename {
  * - A plan never rewrites entries that name the old paths of an earlier
  *   unanswered plan: that plan owns them and maps them through both moves.
  *
+ * - An agent move (`basehalf.workspace.move`, reference graph "Agent moves")
+ *   is a workbench move whose plan never prompts: it updates unless the
+ *   setting is `never`, and reports what it did to the waiting operation.
+ *
  * Moves outside the workbench are not refactored; Relink Everywhere repairs
  * their entries later.
  */
@@ -109,6 +147,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	static readonly ID = 'workbench.contrib.basehalf.renameRefactor';
 
 	private readonly pending = new Set<IPendingRename>();
+	/** Agent moves between their request and their prepare step, by source and target. */
+	private readonly agentMoves = new Map<string, IAgentMoveRequest>();
 	/** Workbench moves prepared but not yet composed, by workspace folder. */
 	private readonly movesInFlight = new Map<string, number>();
 	private settleWaiters: (() => void)[] = [];
@@ -122,14 +162,16 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IFileService private readonly fileService: IFileService,
+		@IExplorerService private readonly explorerService: IExplorerService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
 		this._register(workingCopyFileService.addFileOperationPrecondition({
-			prepare: async (files, operation) => this.prepare(files, operation)
+			prepare: async (files, operation, undoInfo) => this.prepare(files, operation, undoInfo)
 		}));
+		this._register(CommandsRegistry.registerCommand(BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID, (_accessor, argument: IBaseHalfAgentMoveArgument, token?: CancellationToken) => this.agentMove(argument, token ?? CancellationToken.None)));
 	}
 
 	override dispose(): void {
@@ -137,8 +179,13 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		for (const plan of this.pending) {
 			plan.answered = true;
 			plan.notification?.close();
+			plan.agent?.result.complete({ updated: [], skipped: [], notUpdated: 'BaseHalf closed the window before the entries were updated' });
 		}
 		this.pending.clear();
+		for (const request of this.agentMoves.values()) {
+			request.result.complete(undefined);
+		}
+		this.agentMoves.clear();
 		this.releaseSettleWaiters();
 		super.dispose();
 	}
@@ -150,14 +197,23 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	 * never awaits, so it adds no await boundary ahead of the structural
 	 * commit barrier of the mirror cascade.
 	 */
-	private prepare(files: readonly SourceTargetPair[], operation: FileOperation): IWorkingCopyFileOperationPreconditionGuard | undefined {
+	private prepare(files: readonly SourceTargetPair[], operation: FileOperation, undoInfo: IFileOperationUndoRedoInfo | undefined): IWorkingCopyFileOperationPreconditionGuard | undefined {
 		if (operation !== FileOperation.MOVE) {
 			return undefined;
 		}
-		const groups = new Map<string, { readonly workspaceFolder: URI; readonly pairs: { readonly source: URI; readonly target: URI; readonly move: IBaseHalfPathMove }[] }>();
+		const groups = new Map<string, { readonly workspaceFolder: URI; readonly pairs: { readonly source: URI; readonly target: URI; readonly move: IBaseHalfPathMove }[]; agent?: IAgentMoveRequest }>();
+		let unplanned: IAgentMoveRequest | undefined;
 		for (const pair of files) {
 			if (!pair.source) {
 				continue;
+			}
+			// An agent move is recognized by its source and target. Undo and redo of
+			// it run as undoing, so they follow the setting like any other move.
+			const agentKey = this.agentMoveKey(pair.source, pair.target);
+			const agent = undoInfo?.isUndoing ? undefined : this.agentMoves.get(agentKey);
+			if (agent) {
+				this.agentMoves.delete(agentKey);
+				unplanned = agent;
 			}
 			const from = this.location(pair.source);
 			const to = this.location(pair.target);
@@ -172,8 +228,14 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				groups.set(key, group);
 			}
 			group.pairs.push({ source: pair.source, target: pair.target, move: { from: from.relativePath, to: to.relativePath } });
+			if (agent) {
+				group.agent = agent;
+				unplanned = undefined;
+			}
 		}
 		if (groups.size === 0) {
+			// Nothing to plan: an agent move reports that nothing named it.
+			unplanned?.result.complete({ updated: [], skipped: [] });
 			return undefined;
 		}
 		const prepared: IPreparedRename[] = [...groups.values()].map(group => {
@@ -204,6 +266,10 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				try {
 					if (completed.length > 0 && !this.disposed) {
 						this.didMove(prepared, completed);
+					} else {
+						for (const group of prepared) {
+							group.agent?.result.complete(undefined);
+						}
 					}
 				} finally {
 					for (const group of prepared) {
@@ -267,6 +333,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				.filter(pair => completed.some(file => file.source && isEqual(file.source, pair.source) && isEqual(file.target, pair.target)))
 				.map(pair => pair.move);
 			if (moves.length === 0) {
+				group.agent?.result.complete(undefined);
 				continue;
 			}
 			const identity = this.identity(group.workspaceFolder);
@@ -279,6 +346,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				plan.state = baseHalfComposeRenamePlan(plan.state, moves, identity);
 				if (baseHalfEffectiveMoves(plan.state.moves).length === 0) {
 					this.settle(plan);
+					plan.agent?.result.complete({ updated: [], skipped: [], notUpdated: 'a later move put the item back where it was' });
 					plan.notification?.close();
 				} else if (!plan.answered && plan.notification && plan.promptInfo) {
 					plan.notification.updateMessage(this.promptMessage(plan, plan.promptInfo));
@@ -293,7 +361,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 					...(group.exclude.length > 0 ? { exclude: group.exclude } : {})
 				},
 				deferred: !group.snapshot,
-				answered: false
+				answered: false,
+				...(group.agent ? { agent: group.agent } : {})
 			};
 			this.pending.add(plan);
 			void timeout(0)
@@ -303,6 +372,14 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	}
 
 	private async process(plan: IPendingRename): Promise<void> {
+		if (plan.agent) {
+			return this.processAgentMove(plan, plan.agent);
+		}
+		return this.processWithSetting(plan);
+	}
+
+	/** Answers a plan as the setting says: update, prompt, or do nothing. */
+	private async processWithSetting(plan: IPendingRename): Promise<void> {
 		if (plan.answered || this.disposed) {
 			return;
 		}
@@ -316,13 +393,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		if (plan.answered || this.disposed) {
 			return;
 		}
-		if (plan.deferred) {
-			// The index was building when the move was prepared. Entries still
-			// name the old paths, so the index finds the same stores now; a store
-			// it still lists at its old path is mapped like a snapshot's.
-			plan.deferred = false;
-			plan.state = { ...plan.state, stores: baseHalfRelocateRenameStores(this.refactorService.snapshot(folder, plan.state.moves, plan.state.exclude), plan.state.moves, this.identity(folder)) };
-		}
+		this.snapshotDeferred(plan);
 		const storeKindChanges = await this.storeKindChanges(plan);
 		if (plan.answered || this.disposed) {
 			return;
@@ -351,6 +422,18 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			storeKindChanges,
 			skipped: preview ? this.refactorService.skippedNames(preview) : []
 		});
+	}
+
+	private snapshotDeferred(plan: IPendingRename): void {
+		if (!plan.deferred) {
+			return;
+		}
+		// The index was building when the move was prepared. Entries still
+		// name the old paths, so the index finds the same stores now; a store
+		// it still lists at its old path is mapped like a snapshot's.
+		const folder = plan.workspaceFolder;
+		plan.deferred = false;
+		plan.state = { ...plan.state, stores: baseHalfRelocateRenameStores(this.refactorService.snapshot(folder, plan.state.moves, plan.state.exclude), plan.state.moves, this.identity(folder)) };
 	}
 
 	/**
@@ -473,9 +556,9 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	 * the write is done; a move that lands before the write holds the lease
 	 * makes it re-plan from the composed plan.
 	 */
-	private async update(plan: IPendingRename): Promise<void> {
+	private async update(plan: IPendingRename): Promise<IBaseHalfReferenceRefactorOutcome | undefined> {
 		if (plan.answered || this.disposed) {
-			return;
+			return undefined;
 		}
 		plan.answered = true;
 		const folder = plan.workspaceFolder;
@@ -483,7 +566,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			await this.refactorService.whenIndexReady(folder);
 			const moves = baseHalfPrimaryMoves(plan.state.moves, this.identity(folder));
 			if (!this.input(plan) || moves.length === 0) {
-				return;
+				return undefined;
 			}
 			const storeKindChanges = await this.storeKindChanges(plan);
 			const outcome = await this.refactorService.update(folder, () => this.input(plan), {
@@ -492,9 +575,14 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				moveIntoFile: storeKindChanges.map(change => change.node),
 				whenMovesSettled: () => this.whenMovesSettled(folder)
 			});
-			if (outcome) {
+			// An agent move reports through its result; the notification appears
+			// only when something needs the user's attention.
+			const quiet = plan.reportQuietly && !plan.agent?.token.isCancellationRequested
+				&& outcome?.errors.length === 0 && outcome.plan.skipped.length === 0 && outcome.plan.leftAlone.length === 0;
+			if (outcome && !quiet) {
 				this.refactorService.report(outcome, 'rename');
 			}
+			return outcome;
 		} finally {
 			this.pending.delete(plan);
 		}
@@ -515,7 +603,178 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 
 	//#endregion
 
+	//#region Agent moves
+
+	/**
+	 * Runs one agent move as an Explorer move and waits for its plan (reference
+	 * graph, "Agent moves"). The node command handler has validated both paths
+	 * and resolved them to their spelling on disk.
+	 */
+	private async agentMove(argument: IBaseHalfAgentMoveArgument, token: CancellationToken): Promise<IBaseHalfAgentMoveResult> {
+		if (token.isCancellationRequested || this.disposed) {
+			throw new CancellationError();
+		}
+		const key = this.agentMoveKey(argument.source, argument.target);
+		if (this.agentMoves.has(key)) {
+			throw new Error(`'${argument.from}' is already being moved to '${argument.to}'.`);
+		}
+		const request: IAgentMoveRequest = { result: new DeferredPromise(), token };
+		this.agentMoves.set(key, request);
+		const oldName = basename(argument.source);
+		const renamed = this.uriIdentityService.extUri.isEqual(dirname(argument.source), dirname(argument.target));
+		let failure: { readonly error: unknown } | undefined;
+		try {
+			// From here on the move is committed: it and its plan complete even if
+			// the caller goes away, so the token is not passed on.
+			await this.explorerService.applyBulkEdit([new ResourceFileEdit(argument.source, argument.target, { overwrite: false })], {
+				undoLabel: renamed
+					? localize('basehalf.agentMove.renameUndo', "Rename {0} to {1}", oldName, basename(argument.target))
+					: localize('basehalf.agentMove.moveUndo', "Move {0}", oldName),
+				progressLabel: renamed
+					? localize('basehalf.agentMove.renameProgress', "Renaming {0}", oldName)
+					: localize('basehalf.agentMove.moveProgress', "Moving {0}", oldName),
+				confirmBeforeUndo: this.configurationService.getValue<IFilesConfiguration>()?.explorer?.confirmUndo === UndoConfirmLevel.Verbose
+			});
+		} catch (error) {
+			failure = { error };
+		} finally {
+			// The prepare step claims the request; one it never saw had nothing to plan.
+			if (this.agentMoves.get(key) === request) {
+				this.agentMoves.delete(key);
+				request.result.complete(failure ? undefined : { updated: [], skipped: [] });
+			}
+		}
+		const upstream = await request.result.p;
+		if (!upstream) {
+			throw failure?.error ?? new Error('The move did not complete.');
+		}
+		// A later stage that failed after the item moved does not undo the move: it is
+		// reported first, and each list is capped once.
+		const failureLine = failure ? [`the move completed, but BaseHalf then reported: ${failure.error instanceof Error ? failure.error.message : String(failure.error)}`] : [];
+		return {
+			from: argument.from,
+			to: argument.to,
+			upstream: {
+				...upstream,
+				updated: capAgentMoveList(upstream.updated),
+				skipped: capAgentMoveList([...failureLine, ...upstream.skipped])
+			}
+		};
+	}
+
+	/** The plan of an agent move: never prompts, updates unless the setting is `never`, and always reports. */
+	private async processAgentMove(plan: IPendingRename, request: IAgentMoveRequest): Promise<void> {
+		let result: IBaseHalfAgentMoveUpstreamResult = { updated: [], skipped: [] };
+		let promptInstead = false;
+		try {
+			if (plan.answered || this.disposed) {
+				return;
+			}
+			const folder = plan.workspaceFolder;
+			const setting = baseHalfUpdateOnFileMove(this.configurationService.getValue(BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, { resource: folder }));
+			if (setting === 'never') {
+				this.settle(plan);
+				result = { updated: [], skipped: [], notUpdated: `${BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING} is never` };
+				return;
+			}
+			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder)) {
+				// The marker appeared after validation: a marked folder always prompts.
+				promptInstead = true;
+				result = { updated: [], skipped: [], notUpdated: 'the workspace folder is marked as a BaseHalf source tree, so BaseHalf asks the user if any entries name the old path' };
+				return;
+			}
+			const indexState = await this.refactorService.whenIndexReady(folder);
+			if (plan.answered || this.disposed) {
+				return;
+			}
+			this.snapshotDeferred(plan);
+			const waiting = this.agentMoveWaitingEntries(plan);
+			if (plan.state.stores.length === 0 && (await this.storeKindChanges(plan)).length === 0) {
+				this.settle(plan);
+				result = this.agentMoveResult(undefined, waiting, indexState);
+				return;
+			}
+			plan.reportQuietly = true;
+			result = this.agentMoveResult(await this.update(plan), waiting, indexState);
+		} catch (error) {
+			result = { updated: [], skipped: [`the update failed: ${error instanceof Error ? error.message : String(error)}`] };
+		} finally {
+			request.result.complete(result);
+		}
+		if (promptInstead) {
+			await this.processWithSetting(plan);
+		}
+	}
+
+	/**
+	 * Stores whose entries name a moved path but that this plan leaves alone,
+	 * because the entries fall under the old path of an earlier plan that is
+	 * not settled yet (the `exclude` of the prepare step).
+	 */
+	private agentMoveWaitingEntries(plan: IPendingRename): string[] {
+		const exclude = plan.state.exclude;
+		if (!exclude?.length) {
+			return [];
+		}
+		const moves = baseHalfEffectiveMoves(plan.state.moves);
+		const taken = new Set(this.refactorService.snapshot(plan.workspaceFolder, moves, exclude).map(store => store.nodePath));
+		const owned = new Set<string>();
+		for (const other of this.pending) {
+			if (other !== plan && isEqual(other.workspaceFolder, plan.workspaceFolder)) {
+				for (const store of other.state.stores) {
+					owned.add(store.nodePath);
+				}
+			}
+		}
+		return this.refactorService.snapshot(plan.workspaceFolder, moves)
+			.filter(store => !taken.has(store.nodePath))
+			.map(store => owned.has(store.nodePath)
+				? `${store.nodePath} (its entry was left as it is: an earlier move of that path, not settled yet in BaseHalf, will update it)`
+				: `${store.nodePath} (its entry was left as it is because it names the old path of an earlier move that is not settled yet in BaseHalf; it stays broken until relinked)`);
+	}
+
+	private agentMoveResult(outcome: IBaseHalfReferenceRefactorOutcome | undefined, waiting: readonly string[], indexState: BaseHalfReferenceIndexState | undefined): IBaseHalfAgentMoveUpstreamResult {
+		const updated = [...new Set([...(outcome?.updated ?? []), ...(outcome?.movedIntoFile ?? [])].map(node => node.relativePath))];
+		const skipped = [
+			...(outcome ? this.agentMoveExclusions(outcome.plan) : []),
+			...waiting,
+			...(outcome?.errors ?? []).map(error => `the update failed: ${error instanceof Error ? error.message : String(error)}`)
+		];
+		return {
+			updated,
+			skipped,
+			...(indexState === 'partial' ? { incomplete: 'the reference index is partial, so stores it could not read may still name the old path' } : {})
+		};
+	}
+
+	/** Skipped stores and entries left alone, by workspace-relative path, for the agent's result. */
+	private agentMoveExclusions(plan: IBaseHalfRenameUpdatePlan): string[] {
+		return [
+			...plan.skipped.map(skip => {
+				switch (skip.reason) {
+					case 'historical':
+						return `${skip.node.relativePath} (its assigned inputs keep the paths they had when its attempt or result was made)`;
+					case 'upstreamOnly':
+						return `${skip.node.relativePath} (a result or output file, which can't receive upstream context)`;
+					case 'unreadable':
+						return `${skip.node.relativePath} (its upstream list can't be read)`;
+					default:
+						return skip.message ? `${skip.node.relativePath} (${skip.message.replace(/\.$/, '')})` : skip.node.relativePath;
+				}
+			}),
+			...plan.leftAlone.map(entry => entry.reason === 'resolves'
+				? `${entry.node.relativePath}: entry ${entry.entry} left as it is (that path names an item again)`
+				: `${entry.node.relativePath}: entry ${entry.entry} left as it is (the entry changed since the move)`)
+		];
+	}
+
+	//#endregion
+
 	//#region Helpers
+
+	private agentMoveKey(source: URI, target: URI): string {
+		return `${this.uriIdentityService.extUri.getComparisonKey(source)}\n${this.uriIdentityService.extUri.getComparisonKey(target)}`;
+	}
 
 	private location(resource: URI): { readonly workspaceFolder: URI; readonly relativePath: string } | undefined {
 		const folder = this.contextService.getWorkspaceFolder(resource);

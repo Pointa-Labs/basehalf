@@ -8,9 +8,9 @@ import { isAbsolute } from '../../../base/common/path.js';
 import { raceCancellationError } from '../../../base/common/async.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { CancellationError, isCancellationError } from '../../../base/common/errors.js';
-import { extUri } from '../../../base/common/resources.js';
+import { extUri, extUriIgnorePathCase } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { IFileService } from '../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, IFileService } from '../../../platform/files/common/files.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
@@ -33,6 +33,7 @@ import { IWorkingCopyService } from '../../services/workingCopy/common/workingCo
 import { IBaseHalfAgentAreaService } from '../common/basehalfAgentArea.js';
 import {
 	BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID,
+	BASEHALF_AGENT_WORKSPACE_MOVE_OPERATION_ID,
 	IBaseHalfAgentOperationContribution,
 	IBaseHalfAgentCapabilityRegistryService,
 	validateBaseHalfAgentOperationParameters,
@@ -41,6 +42,7 @@ import {
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasRecipeDescriptor, IBaseHalfCanvasRecipeRegistryService } from '../common/basehalfCanvasRecipes.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../common/basehalfCanvasTemplate.js';
+import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_VERSION,
@@ -48,6 +50,8 @@ import {
 	getBaseHalfNodeAgentAuthoringContract,
 	IBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
+import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamEntryGrammarProblem } from '../common/basehalfReferenceEntries.js';
+import { BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID, IBaseHalfAgentMoveArgument } from '../common/basehalfRenameRefactor.js';
 import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 
 export class BaseHalfNodeCommandHandler {
@@ -140,9 +144,10 @@ export class BaseHalfNodeCommandHandler {
 				...(template.description === undefined ? {} : { description: template.description })
 			})));
 			const templateIds = templates.map(template => template.id);
-			const hostOperations = Object.freeze(templateIds.length === 0
-				? []
-				: [capabilityDiscoveryOperation(createFromTemplateOperation(templateIds))]);
+			const hostOperations = Object.freeze([
+				capabilityDiscoveryOperation(workspaceMoveOperation()),
+				...(templateIds.length === 0 ? [] : [capabilityDiscoveryOperation(createFromTemplateOperation(templateIds))])
+			]);
 			const response: IBaseHalfAgentCapabilityDiscoveryResponse = {
 				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 				type: 'listCapabilities',
@@ -223,9 +228,11 @@ export class BaseHalfNodeCommandHandler {
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const argument = reviewed.hostTemplate
+			const argument = reviewed.host === 'template'
 				? { templateId: commandParameters.templateId, targetFolder: workspace.cwd, cancellationToken }
-				: Object.freeze(commandParameters);
+				: reviewed.host === 'move'
+					? await this.resolveMoveArgument(workspace.workspaceFolder.uri, String(rawParameters.from), String(rawParameters.to))
+					: Object.freeze(commandParameters);
 			const result = await raceCancellationError(
 				this.commandService.executeCommand(reviewed.operation.command, argument, cancellationToken),
 				cancellationToken
@@ -252,15 +259,18 @@ export class BaseHalfNodeCommandHandler {
 		}
 	}
 
-	private resolveOperation(operationId: string): { readonly operation: IBaseHalfAgentOperationContribution; readonly hostTemplate: boolean } {
+	private resolveOperation(operationId: string): { readonly operation: IBaseHalfAgentOperationContribution; readonly host?: 'template' | 'move' } {
 		const normalized = operationId.trim().toLowerCase();
+		if (normalized === BASEHALF_AGENT_WORKSPACE_MOVE_OPERATION_ID) {
+			return { host: 'move', operation: workspaceMoveOperation() };
+		}
 		if (normalized === BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID) {
 			const templateIds = this.canvasRecipeRegistryService.getTemplates().map(template => template.id);
 			if (templateIds.length === 0) {
 				throw new Error('No reviewed canvas template is installed.');
 			}
 			return {
-				hostTemplate: true,
+				host: 'template',
 				operation: createFromTemplateOperation(templateIds)
 			};
 		}
@@ -268,7 +278,164 @@ export class BaseHalfNodeCommandHandler {
 		if (!descriptor || descriptor.operation.deterministic !== true) {
 			throw new Error(`Agent operation '${operationId}' is not installed and reviewed.`);
 		}
-		return { operation: descriptor.operation, hostTemplate: false };
+		return { operation: descriptor.operation };
+	}
+
+	/**
+	 * Validates an agent move (reference graph, "Agent moves"): both paths in the
+	 * entry grammar, the segments the move creates also in the portable
+	 * project-path grammar, both inside one unmarked workspace folder and without
+	 * symbolic links. `from` and the existing folders of `to` are resolved to
+	 * their spelling on disk. `from` must exist, `to` must not (unless it is a
+	 * case-only rename of `from`), and `to` must not be inside `from`.
+	 */
+	private async resolveMoveArgument(workspaceFolder: URI, fromValue: string, toValue: string, keepNormalization = false): Promise<IBaseHalfAgentMoveArgument> {
+		if (toValue.endsWith('/')) {
+			throw new Error(`'to' is the item's new path, not a folder to move it into.`);
+		}
+		const requestedFrom = baseHalfNormalizeUpstreamEntry(fromValue);
+		const requestedTo = keepNormalization ? toValue : toValue.normalize('NFC');
+		for (const [name, value] of [['from', requestedFrom], ['to', requestedTo]] as const) {
+			const problem = baseHalfUpstreamEntryGrammarProblem(value);
+			if (problem) {
+				throw new Error(problem === 'metadata'
+					? `'${name}' must not be inside .bh/, which BaseHalf manages.`
+					: `'${name}' must be a path relative to the workspace folder, with forward slashes and no '.' or '..' segments.`);
+			}
+		}
+		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+			throw new Error('This workspace folder is marked as a BaseHalf source tree, where BaseHalf does not move files.');
+		}
+		const ignoreCase = !this.fileService.hasCapability(workspaceFolder, FileSystemProviderCapabilities.PathCaseSensitive);
+		const nameKey = (name: string) => ignoreCase ? name.normalize('NFC').toLowerCase() : name.normalize('NFC');
+		const toSegments = requestedTo.split('/');
+		const newName = toSegments[toSegments.length - 1];
+		const toFolders = await this.resolveDiskSpelling(workspaceFolder, toSegments.slice(0, -1), ignoreCase);
+		if (toFolders.missing.length > 0 && await this.fileService.exists(URI.joinPath(workspaceFolder, ...toFolders.resolved, toFolders.missing[0]))) {
+			// An alias such as a short 8.3 name reaches a folder its parent does not list by that name.
+			throw new Error(`'${[...toFolders.resolved, toFolders.missing[0]].join('/')}' names an existing folder by a spelling its parent folder does not list. Use the folder's listed name.`);
+		}
+		// Only the segments the move creates must be portable; existing folders keep their names.
+		const created = [...toFolders.missing, newName].join('/');
+		const portability = baseHalfProjectPathProblem(created.normalize('NFC'));
+		if (portability) {
+			throw new Error(`The new part of 'to' (${created}) ${portability}`);
+		}
+		const to = [...toFolders.resolved, ...toFolders.missing, newName].join('/');
+		const target = URI.joinPath(workspaceFolder, ...to.split('/'));
+		const fromSpelling = await this.resolveDiskSpelling(workspaceFolder, requestedFrom.split('/'), ignoreCase);
+		if (fromSpelling.missing.length > 0) {
+			throw new Error(await this.fileService.exists(target)
+				? `'${requestedFrom}' does not exist, but '${to}' does: the item may already have been moved.`
+				: `'${requestedFrom}' does not exist. Paths are relative to the workspace folder, not to the current directory.`);
+		}
+		const from = fromSpelling.resolved.join('/');
+		if (from === to) {
+			throw new Error(`'from' and 'to' name the same path.`);
+		}
+		const source = URI.joinPath(workspaceFolder, ...from.split('/'));
+		// Paths of a nested workspace folder belong to that folder: its .bh/ and marker rules apply.
+		for (const [name, resource] of [['from', source], ['to', target]] as const) {
+			const owner = this.workspaceContextService.getWorkspaceFolder(resource);
+			if (!owner || !extUri.isEqual(owner.uri, workspaceFolder)) {
+				throw new Error(`'${name}' belongs to another workspace folder. Run the command from inside that folder, with paths relative to it.`);
+			}
+		}
+		const sameItem = nameKey(from) === nameKey(to);
+		if (sameItem && from.normalize('NFC') === to.normalize('NFC')) {
+			throw new Error(`'to' differs from '${from}' only in Unicode normalization.`);
+		}
+		if (sameItem && !keepNormalization && from !== from.normalize('NFC')) {
+			// A case-only rename keeps the item's normalization form, so the file
+			// system sees the same name with different case.
+			return this.resolveMoveArgument(workspaceFolder, fromValue, [...toSegments.slice(0, -1), newName.normalize('NFD')].join('/'), true);
+		}
+		const comparer = ignoreCase ? extUriIgnorePathCase : extUri;
+		if (!sameItem && comparer.isEqualOrParent(target, source)) {
+			throw new Error(`'to' is inside '${from}'.`);
+		}
+		await this.assertNoSymbolicLinks(workspaceFolder, source);
+		const [workspaceRealpath, sourceRealpath] = await Promise.all([
+			this.fileService.realpath(workspaceFolder),
+			this.fileService.realpath(source)
+		]);
+		if (!workspaceRealpath || !sourceRealpath
+			|| !extUri.isEqualOrParent(sourceRealpath, workspaceRealpath)
+			|| extUri.isEqual(sourceRealpath, workspaceRealpath)) {
+			throw new Error(`'${from}' could not be verified inside the workspace folder.`);
+		}
+		// A sibling whose name matches the new one after normalization (and case, where
+		// case is ignored) is an existing item, even when the file system reports no
+		// conflict for a case-only rename.
+		const fromName = fromSpelling.resolved[fromSpelling.resolved.length - 1];
+		const sameParent = toFolders.missing.length === 0 && toFolders.resolved.join('/') === fromSpelling.resolved.slice(0, -1).join('/');
+		const siblings = toFolders.missing.length > 0 ? [] : await this.childNames(URI.joinPath(workspaceFolder, ...toFolders.resolved));
+		const occupied = siblings.some(name => (!sameParent || name !== fromName) && nameKey(name) === nameKey(newName));
+		if (occupied || (!sameItem && await this.fileService.exists(target))) {
+			throw new Error(`'${to}' already exists. 'to' is the item's new path, not a folder to move it into.`);
+		}
+		await this.assertNoSymbolicLinkAncestors(workspaceFolder, target);
+		return { workspaceFolder, source, target, from, to };
+	}
+
+	private async childNames(folder: URI): Promise<string[]> {
+		try {
+			return ((await this.fileService.resolve(folder)).children ?? []).map(child => child.name);
+		} catch {
+			return [];
+		}
+	}
+
+	/**
+	 * Resolves each segment to the spelling its parent folder lists: an exact
+	 * match first, then a name that differs only in Unicode normalization, then,
+	 * on a case-insensitive file system, one that also differs in case.
+	 * `missing` holds the segments from the first one that names nothing.
+	 */
+	private async resolveDiskSpelling(workspaceFolder: URI, segments: readonly string[], ignoreCase: boolean): Promise<{ readonly resolved: string[]; readonly missing: string[] }> {
+		const resolved: string[] = [];
+		let current = workspaceFolder;
+		for (let index = 0; index < segments.length; index++) {
+			const segment = segments[index];
+			const names = await this.childNames(current);
+			const nfc = segment.normalize('NFC');
+			const only = (candidates: string[]) => candidates.length === 1 ? candidates[0] : undefined;
+			const match = names.find(name => name === segment)
+				?? only(names.filter(name => name.normalize('NFC') === nfc))
+				?? (ignoreCase ? only(names.filter(name => name.normalize('NFC').toLowerCase() === nfc.toLowerCase())) : undefined);
+			if (match === undefined) {
+				return { resolved, missing: segments.slice(index) };
+			}
+			resolved.push(match);
+			current = URI.joinPath(current, match);
+		}
+		return { resolved, missing: [] };
+	}
+
+	/** Like {@link assertNoSymbolicLinks} for a path that may not exist yet: checks the ancestors that do. */
+	private async assertNoSymbolicLinkAncestors(root: URI, resource: URI): Promise<void> {
+		const relative = extUri.relativePath(root, resource);
+		if (relative === undefined || relative === '..' || relative.startsWith('../')) {
+			throw new Error('The requested path leaves the selected workspace folder.');
+		}
+		const segments = relative.split('/').filter(Boolean);
+		let current = root;
+		for (const segment of segments.slice(0, -1)) {
+			current = URI.joinPath(current, segment);
+			let stat;
+			try {
+				stat = await this.fileService.stat(current);
+			} catch {
+				// The rest of the path does not exist yet; the move creates it.
+				return;
+			}
+			if (stat.isSymbolicLink) {
+				throw new Error('The requested path contains a symbolic link.');
+			}
+			if (!stat.isDirectory) {
+				throw new Error(`'${extUri.relativePath(root, current)}' is not a folder.`);
+			}
+		}
 	}
 
 	private async resolveNode(event: IBaseHalfNodeCommandRequestEvent): Promise<IBaseHalfWorkspaceResource> {
@@ -504,6 +671,30 @@ function capabilityDiscoveryOperation(operation: IBaseHalfAgentOperationContribu
 			type: operation.returns.type,
 			description: operation.returns.description
 		})
+	});
+}
+
+function workspaceMoveOperation(): IBaseHalfAgentOperationContribution {
+	return Object.freeze({
+		id: BASEHALF_AGENT_WORKSPACE_MOVE_OPERATION_ID,
+		command: BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID,
+		description: 'Move or rename a file or folder as the Explorer does: its BaseHalf metadata moves with it, and the upstream entries that name it are updated.',
+		deterministic: true,
+		parameters: Object.freeze([
+			Object.freeze({
+				name: 'from',
+				type: 'string' as const,
+				required: true,
+				description: 'Path of the file or folder to move, relative to the workspace folder.'
+			}),
+			Object.freeze({
+				name: 'to',
+				type: 'string' as const,
+				required: true,
+				description: 'Its new path, relative to the workspace folder. Nothing may exist there yet.'
+			})
+		]),
+		returns: Object.freeze({ type: 'object', description: 'from, to, and upstream: { updated, skipped, incomplete?, notUpdated? }.' })
 	});
 }
 

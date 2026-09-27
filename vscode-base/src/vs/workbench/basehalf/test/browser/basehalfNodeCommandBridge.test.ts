@@ -9,7 +9,7 @@ import { Event } from '../../../../base/common/event.js';
 import { extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentOperationCommandRequest, IBaseHalfNodeCommandRequestEvent } from '../../../../platform/terminal/common/terminal.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -189,10 +189,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 			result: 'host-owned-single-file',
 			retry: 'frozen-only'
 		});
-		assert.strictEqual(response.host?.operations.length, 1);
+		assert.deepStrictEqual(response.host?.operations.map(operation => operation.id), ['basehalf.workspace.move', 'basehalf.canvas.create-from-template']);
 		assert.deepStrictEqual(response.host?.templates, [{ id: 'studio.workflow.starter', label: 'starter' }]);
-		assert.strictEqual(response.host?.operations[0].id, 'basehalf.canvas.create-from-template');
-		assert.deepStrictEqual(response.host?.operations[0].parameters[0].values, ['studio.workflow.starter']);
+		assert.deepStrictEqual(response.host?.operations[0].parameters.map(parameter => [parameter.name, parameter.type, parameter.required]), [['from', 'string', true], ['to', 'string', true]]);
+		assert.deepStrictEqual(response.host?.operations[1].parameters[0].values, ['studio.workflow.starter']);
 		assert.strictEqual(response.recipes?.length, 1);
 		assert.strictEqual(response.recipes?.[0].id, 'studio.workflow.render-image');
 		assert.strictEqual(response.extensions?.length, 1);
@@ -233,7 +233,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(await unknown.handler.handle(operationDiscoveryEvent()), undefined);
 		const withoutTemplates = await createHarness().handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(withoutTemplates?.type, 'listCapabilities');
-		assert.deepStrictEqual(withoutTemplates?.type === 'listCapabilities' ? withoutTemplates.host?.operations : undefined, []);
+		assert.deepStrictEqual(withoutTemplates?.type === 'listCapabilities' ? withoutTemplates.host?.operations.map(operation => operation.id) : undefined, ['basehalf.workspace.move']);
 	});
 
 	test('rejects operation discovery before serialization when the reviewed capability count exceeds the protocol bound', async () => {
@@ -282,6 +282,87 @@ suite('BaseHalfNodeCommandBridge', () => {
 			templateId: 'other.workflow.starter'
 		})))?.outcome, 'rejected');
 		assert.strictEqual(rejected.commandCalls.length, 0);
+	});
+
+	test('maps the host move operation to the agent move command with both paths resolved in the workspace folder', async () => {
+		const result = { from: 'a.md', to: 'docs/b.md', upstream: { updated: ['n.md'], skipped: [] } };
+		const harness = createHarness({ files: ['a.md', 'n.md', 'docs/readme.md'], commandResult: result });
+		const response = await harness.handler.handle(operationEvent('basehalf.workspace.move', { from: 'a.md', to: 'docs/b.md' }, '/work/docs'));
+		assert.deepStrictEqual({
+			outcome: response?.outcome,
+			result: response?.type === 'runOperation' ? response.result : undefined,
+			calls: harness.commandCalls.map(call => {
+				const argument = call.argument as { workspaceFolder: URI; source: URI; target: URI; from: string; to: string };
+				return [call.id, argument.workspaceFolder.path, argument.source.path, argument.target.path, argument.from, argument.to];
+			})
+		}, {
+			outcome: 'succeeded',
+			result,
+			calls: [['_basehalf.workspace.agentMove', '/work', '/work/a.md', '/work/docs/b.md', 'a.md', 'docs/b.md']]
+		});
+	});
+
+	test('lets an agent move keep an existing non-portable folder name, and never dispatches a cancelled request', async () => {
+		const harness = createHarness({ files: ['2024:25/draft.md'], commandResult: {} });
+		const response = await harness.handler.handle(operationEvent('basehalf.workspace.move', { from: '2024:25/draft.md', to: '2024:25/final.md' }));
+		const cancelled = createHarness({ files: ['a.md'], commandResult: {} });
+		const source = new CancellationTokenSource();
+		source.cancel();
+		const cancelledResponse = await cancelled.handler.handle(operationEvent('basehalf.workspace.move', { from: 'a.md', to: 'b.md' }), source.token);
+		source.dispose();
+		assert.deepStrictEqual([response?.outcome, harness.commandCalls.length, cancelledResponse?.outcome, cancelled.commandCalls.length], ['succeeded', 1, 'cancelled', 0]);
+	});
+
+	test('resolves an agent move to the spelling on disk, keeping the new name as given', async () => {
+		const resolved = [];
+		for (const [files, caseInsensitive, from, to] of [
+			[['Branches/SVD.md', 'Topics/x.md'], true, 'branches/svd.md', 'topics/Singular.md'],
+			[['cafe\u0301.md'], false, 'caf\u00e9.md', 'b.md'],
+			[['cafe\u0301.md'], true, 'cafe\u0301.md', 'Caf\u00e9.md']
+		] as const) {
+			const harness = createHarness({ files, caseInsensitive, commandResult: {} });
+			const response = await harness.handler.handle(operationEvent('basehalf.workspace.move', { from, to }));
+			const argument = harness.commandCalls[0]?.argument as { from: string; to: string } | undefined;
+			resolved.push([response?.outcome, argument?.from, argument?.to]);
+		}
+		assert.deepStrictEqual(resolved, [
+			['succeeded', 'Branches/SVD.md', 'Topics/Singular.md'],
+			['succeeded', 'cafe\u0301.md', 'b.md'],
+			// A case-only rename keeps the item's normalization form.
+			['succeeded', 'cafe\u0301.md', 'Cafe\u0301.md']
+		]);
+	});
+
+	test('refuses an agent move out of or into .bh, outside the folder, to a non-portable name, of a missing item, onto an existing one, into itself, through a link, or in a marked folder', async () => {
+		const cases: [string, string, Parameters<typeof createHarness>[0], string][] = [
+			['.bh/mirror/a.md/badge.yaml', 'b.md', { files: ['a.md'] }, 'inside .bh/'],
+			['a.md', '.BH/a.md', { files: ['a.md'] }, 'inside .bh/'],
+			['a.md', '../outside.md', { files: ['a.md'] }, 'relative to the workspace folder'],
+			['/work/a.md', 'b.md', { files: ['a.md'] }, 'relative to the workspace folder'],
+			['a.md', 'b?.md', { files: ['a.md'] }, 'portable'],
+			['a.md', 'new?/b.md', { files: ['a.md'] }, 'portable'],
+			['a.md', 'archive/', { files: ['a.md'] }, 'not a folder to move it into'],
+			['.', 'b.md', { files: ['a.md'] }, 'relative to the workspace folder'],
+			['caf\u0065\u0301.md', 'caf\u00e9.md', { files: ['caf\u0065\u0301.md'] }, 'only in Unicode normalization'],
+			['a.md', 'A.md', { files: ['a.md', 'A.md'], caseInsensitive: true }, 'already exists'],
+			['a.md', 'inner/b.md', { files: ['a.md', 'inner/c.md'], nestedFolder: '/work/inner' }, 'another workspace folder'],
+			['a.md', 'a.md', { files: ['a.md'] }, 'the same path'],
+			['missing.md', 'b.md', { files: ['a.md'] }, 'not to the current directory'],
+			['a.md', 'b.md', { files: ['b.md'] }, 'may already have been moved'],
+			['a.md', 'c.md', { files: ['a.md', 'c.md'] }, 'not a folder to move it into'],
+			['notes', 'notes/inner', { files: ['notes/a.md'] }, 'is inside'],
+			['linked/a.md', 'b.md', { files: ['linked/a.md'], symbolicLinkPath: '/work/linked' }, 'symbolic link'],
+			['a.md', 'linked/b.md', { files: ['a.md', 'linked/c.md'], symbolicLinkPath: '/work/linked' }, 'symbolic link'],
+			['a.md', 'b.md', { files: ['a.md', '.basehalf-no-workspace-setup'] }, 'source tree']
+		];
+		const outcomes = [];
+		for (const [from, to, options, reason] of cases) {
+			const harness = createHarness(options);
+			const response = await harness.handler.handle(operationEvent('basehalf.workspace.move', { from, to }));
+			const error = response?.type === 'runOperation' ? response.error ?? '' : '';
+			outcomes.push([from, to, response?.outcome, harness.commandCalls.length, error.includes(reason) ? reason : error]);
+		}
+		assert.deepStrictEqual(outcomes, cases.map(([from, to, , reason]) => [from, to, 'rejected', 0, reason]));
 	});
 
 	test('propagates cancellation into template creation and never reports a late command result as success', async () => {
@@ -346,6 +427,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly templateCount?: number;
 		readonly commandResult?: unknown;
 		readonly commandPromise?: Promise<unknown>;
+		/** Workspace-relative files that exist; when set, anything else below the folder does not. */
+		readonly files?: readonly string[];
+		readonly caseInsensitive?: boolean;
+		readonly nestedFolder?: string;
 	} = {}) {
 		const runCalls: Array<{ resource: URI; workspaceFolder: URI; relativePath: string }> = [];
 		const cancelCalls: Array<{ resource: URI; runId: string }> = [];
@@ -356,15 +441,38 @@ suite('BaseHalfNodeCommandBridge', () => {
 		const commandStarted = new Promise<void>(resolve => notifyCommandStarted = resolve);
 		const workspace = {
 			getWorkspace: () => ({ id: 'workspace' }),
-			getWorkspaceFolder: (resource: URI) => extUri.isEqualOrParent(resource, workspaceFolder) ? { uri: workspaceFolder } : undefined
+			getWorkspaceFolder: (resource: URI) => options.nestedFolder && extUri.isEqualOrParent(resource, URI.file(options.nestedFolder))
+				? { uri: URI.file(options.nestedFolder) }
+				: extUri.isEqualOrParent(resource, workspaceFolder) ? { uri: workspaceFolder } : undefined
 		} as unknown as IWorkspaceContextService;
-		const fileService = {
-			realpath: async (resource: URI) => resource,
-			stat: async (resource: URI) => ({
+		const files = options.files?.map(path => URI.joinPath(workspaceFolder, path).path);
+		const stat = async (resource: URI) => {
+			if (files) {
+				const isFile = files.includes(resource.path);
+				const isDirectory = resource.path === workspaceFolder.path || files.some(path => path.startsWith(`${resource.path}/`));
+				if (!isFile && !isDirectory) {
+					throw new FileOperationError('not found', FileOperationResult.FILE_NOT_FOUND);
+				}
+				return { isFile, isDirectory, isSymbolicLink: resource.fsPath === options.symbolicLinkPath };
+			}
+			return {
 				isFile: resource.path.endsWith('.bhnode'),
 				isDirectory: !resource.path.endsWith('.bhnode'),
 				isSymbolicLink: resource.fsPath === options.symbolicLinkPath
-			})
+			};
+		};
+		const fileService = {
+			realpath: async (resource: URI) => resource,
+			stat,
+			exists: async (resource: URI) => stat(resource).then(() => true, () => false),
+			resolve: async (resource: URI) => {
+				await stat(resource);
+				const names = new Set((files ?? [])
+					.filter(path => path.startsWith(`${resource.path}/`))
+					.map(path => path.slice(resource.path.length + 1).split('/')[0]));
+				return { children: [...names].map(name => ({ name })) };
+			},
+			hasCapability: () => !options.caseInsensitive
 		} as unknown as IFileService;
 		const workingCopies = {
 			isDirty: (resource: URI) => options.dirty === true && resource.path.endsWith('dirty.bhnode')

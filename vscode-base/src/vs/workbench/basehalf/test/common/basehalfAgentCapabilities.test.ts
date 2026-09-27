@@ -76,6 +76,16 @@ suite('BaseHalfAgentCapabilities', () => {
 		}), /must declare a document or operation/);
 	});
 
+	test('rejects plugin operations that claim a host operation id', () => {
+		for (const [owner, operationId] of [['basehalf.workspace', 'basehalf.workspace.move'], ['basehalf.canvas', 'basehalf.canvas.create-from-template']]) {
+			assert.throws(() => validateBaseHalfAgentCapabilityContribution(owner, {
+				id: `${owner}.capability`,
+				label: 'Host lookalike',
+				operations: [{ ...validCapability().operations![0], id: operationId, command: `${owner}.run` }]
+			}), /reserved for a BaseHalf host operation/);
+		}
+	});
+
 	test('rejects oversized and malformed parameter contracts', () => {
 		assert.throws(() => validateBaseHalfAgentCapabilityContribution('studio.workflow', {
 			...validCapability(),

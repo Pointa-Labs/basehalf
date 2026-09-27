@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { URI } from '../../../base/common/uri.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { BASEHALF_UPDATE_ON_FILE_MOVE_DEFAULT, BASEHALF_UPDATE_ON_FILE_MOVE_VALUES, BaseHalfSetting, BaseHalfUpdateOnFileMove } from './basehalfConfiguration.js';
 import { BaseHalfNodeUpstreamLifecycle } from './basehalfNodeDocument.js';
@@ -356,3 +357,44 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 	}
 	return { edits, skipped, leftAlone };
 }
+
+//#region Agent moves
+
+/**
+ * The internal command behind the `basehalf.workspace.move` host operation
+ * (reference graph, "Agent moves"). The node command handler validates the
+ * request and resolves both paths; the rename refactor contribution runs the
+ * workbench move and answers its plan without a prompt.
+ */
+export const BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID = '_basehalf.workspace.agentMove';
+
+/** A validated agent move inside one workspace folder. */
+export interface IBaseHalfAgentMoveArgument {
+	readonly workspaceFolder: URI;
+	readonly source: URI;
+	readonly target: URI;
+	/** `source` and `target` as workspace-relative paths. */
+	readonly from: string;
+	readonly to: string;
+}
+
+/** What the rename refactor did with the entries that name a moved path. */
+export interface IBaseHalfAgentMoveUpstreamResult {
+	/** Downstream nodes whose upstream list changed. */
+	readonly updated: readonly string[];
+	/** Stores the update could not write, and entries it left alone, with reasons. */
+	readonly skipped: readonly string[];
+	/** Why the update did not run, when it did not. */
+	readonly notUpdated?: string;
+	/** Set when the reference index was partial, so unread stores may still name the old path. */
+	readonly incomplete?: string;
+}
+
+/** The result of the `basehalf.workspace.move` host operation. */
+export interface IBaseHalfAgentMoveResult {
+	readonly from: string;
+	readonly to: string;
+	readonly upstream: IBaseHalfAgentMoveUpstreamResult;
+}
+
+//#endregion

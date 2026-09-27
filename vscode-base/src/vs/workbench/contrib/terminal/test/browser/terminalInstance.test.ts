@@ -339,6 +339,21 @@ suite('Workbench - TerminalInstance', () => {
 				{ code: 1, message: `The terminal process "foo 'bar', 'baz'" terminated with exit code: 1.` }
 			);
 		});
+		test('should show a long multi-line argument by its first non-blank line', () => {
+			const prompt = `# BaseHalf workspace\n\n${'You are running inside a BaseHalf workspace. '.repeat(10)}`;
+			deepStrictEqual(
+				[
+					parseExitResult(1, { executable: 'claude', args: ['--append-system-prompt', prompt] }, ProcessState.KilledByProcess, undefined),
+					parseExitResult(1, { executable: 'foo', args: `\r\n\nbar\r\n${'baz '.repeat(60)}` }, ProcessState.KilledDuringLaunch, undefined),
+					parseExitResult(1, { executable: 'bash', args: ['-c', 'set -e\nmake'] }, ProcessState.KilledByProcess, undefined)
+				],
+				[
+					{ code: 1, message: `The terminal process "claude '--append-system-prompt', '# BaseHalf workspace…'" terminated with exit code: 1.` },
+					{ code: 1, message: `The terminal process "foo bar…" failed to launch (exit code: 1).` },
+					{ code: 1, message: `The terminal process "bash '-c', 'set -e\nmake'" terminated with exit code: 1.` }
+				]
+			);
+		});
 		test('should return friendly message when executable and arguments are omitted for non-zero exit codes', () => {
 			deepStrictEqual(
 				parseExitResult(1, {}, ProcessState.KilledDuringLaunch, undefined),

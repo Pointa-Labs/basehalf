@@ -75,6 +75,10 @@ export interface IBaseHalfAgentOperationDescriptor {
 }
 
 export const BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID = 'basehalf.canvas.create-from-template';
+/** Moves or renames a file or folder as the Explorer does (reference graph, "Agent moves"). */
+export const BASEHALF_AGENT_WORKSPACE_MOVE_OPERATION_ID = 'basehalf.workspace.move';
+/** Host operation ids, which no plugin operation may use. */
+export const BASEHALF_HOST_AGENT_OPERATION_IDS: readonly string[] = [BASEHALF_AGENT_WORKSPACE_MOVE_OPERATION_ID, BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID];
 
 export const IBaseHalfAgentCapabilityRegistryService = createDecorator<IBaseHalfAgentCapabilityRegistryService>('baseHalfAgentCapabilityRegistryService');
 
@@ -295,6 +299,9 @@ function validateOperations(
 		assertRecord(operation, `${capabilityId}.operations[${index}]`);
 		assertOnlyKeys(operation, ['id', 'command', 'description', 'deterministic', 'parameters', 'returns'], `${capabilityId}.operations[${index}]`);
 		const id = ownedId(operation.id, owner, 'Agent operation');
+		if (BASEHALF_HOST_AGENT_OPERATION_IDS.includes(id.toLowerCase())) {
+			throw new Error(`Agent operation '${id}' is reserved for a BaseHalf host operation.`);
+		}
 		if (ids.has(id)) {
 			throw new Error(`BaseHalf Agent capability '${capabilityId}' declares operation '${id}' more than once.`);
 		}

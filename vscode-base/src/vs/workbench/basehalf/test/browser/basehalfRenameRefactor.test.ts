@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { timeout } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
@@ -15,6 +15,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { IBulkEditService } from '../../../../editor/browser/services/bulkEditService.js';
 import { TestConfigurationService } from '../../../../platform/configuration/test/common/testConfigurationService.js';
+import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
 import { IConfirmation, IConfirmationResult, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { FileService } from '../../../../platform/files/common/fileService.js';
 import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
@@ -22,10 +23,11 @@ import { InMemoryFileSystemProvider } from '../../../../platform/files/common/in
 import { NullLogService } from '../../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, IPromptChoice, IPromptOptions, NoOpProgress, NotificationMessage, Severity } from '../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../platform/notification/test/common/testNotificationService.js';
-import { IUndoRedoService } from '../../../../platform/undoRedo/common/undoRedo.js';
+import { IUndoRedoService, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { testWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
 import { BulkEditService } from '../../../contrib/bulkEdit/browser/bulkEditService.js';
+import { IExplorerService } from '../../../contrib/files/browser/files.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
@@ -36,7 +38,7 @@ import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceRefactorService, IBaseHalfReferenceRefactorService } from '../../browser/basehalfReferenceRefactorService.js';
-import { BaseHalfRenameRefactorContribution } from '../../browser/basehalfRenameRefactor.contribution.js';
+import { BaseHalfRenameRefactorContribution, capAgentMoveList } from '../../browser/basehalfRenameRefactor.contribution.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeMirrorService } from '../../common/basehalfBadgeMirror.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../../common/basehalfCanvasEditing.js';
@@ -47,7 +49,7 @@ import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../c
 import { createBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
-import { BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING } from '../../common/basehalfRenameRefactor.js';
+import { BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID, IBaseHalfAgentMoveResult } from '../../common/basehalfRenameRefactor.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 import { BaseHalfInMemoryFileSearchService } from './basehalfReferenceTestFixtures.js';
@@ -142,7 +144,11 @@ interface IHarness {
 	readonly dialogs: RecordingDialogService;
 	readonly refactor: IBaseHalfReferenceRefactorService;
 	readonly undoRedo: IUndoRedoService;
+	/** The undo source of Explorer bulk edits, which agent moves use. */
+	readonly explorerUndoSource: UndoRedoSource;
 	move(from: string, to: string, isUndoing?: boolean): Promise<void>;
+	/** Runs the agent move command, as the node command handler does after validating both paths. */
+	agentMove(from: string, to: string, token?: CancellationToken): Promise<IBaseHalfAgentMoveResult>;
 	/** The prompt whose message contains `text`, once it is shown. */
 	prompt(text: string): Promise<RecordedPrompt>;
 	read(path: string): Promise<string | undefined>;
@@ -150,7 +156,7 @@ interface IHarness {
 	tree(): Promise<Record<string, string>>;
 }
 
-async function createHarness(disposables: DisposableStore, files: Record<string, string>, setting?: string): Promise<IHarness> {
+async function createHarness(disposables: DisposableStore, files: Record<string, string>, setting?: string, options: { readonly structuralRefusal?: string; readonly partialIndex?: boolean } = {}): Promise<IHarness> {
 	const fileService = disposables.add(new FileService(new NullLogService()));
 	const provider = disposables.add(new TestFileSystemProvider());
 	disposables.add(fileService.registerProvider(Schemas.file, provider));
@@ -166,7 +172,14 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	const instantiationService = workbenchInstantiationService({ fileService: () => fileService, configurationService: () => configuration }, disposables);
 	instantiationService.stub(IWorkspaceContextService, new TestContextService(testWorkspace(folder)));
 	instantiationService.stub(ISearchService, new BaseHalfInMemoryFileSearchService(fileService));
-	instantiationService.stub(IBulkEditService, instantiationService.createInstance(BulkEditService));
+	const bulkEdit = instantiationService.createInstance(BulkEditService);
+	instantiationService.stub(IBulkEditService, bulkEdit);
+	const explorerUndoSource = new UndoRedoSource();
+	instantiationService.stub(IExplorerService, {
+		applyBulkEdit: async (edits, options) => {
+			await bulkEdit.apply(edits, { undoRedoSource: explorerUndoSource, undoRedoGroup: options.undoRedoGroup, label: options.undoLabel, code: 'undoredo.explorerOperation', confirmBeforeUndo: options.confirmBeforeUndo });
+		}
+	} as Partial<IExplorerService> as IExplorerService);
 	const flush = new BaseHalfEditorFlushService();
 	instantiationService.stub(IBaseHalfEditorFlushService, flush);
 	instantiationService.stub(IBaseHalfWorkspaceMutationCoordinator, new BaseHalfWorkspaceMutationCoordinator());
@@ -186,9 +199,19 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, new BaseHalfBadgeMirrorService(fileService));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, instantiationService.createInstance(BaseHalfCanvasMirrorService));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	instantiationService.stub(IBaseHalfNodeExecutionService, { acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+	instantiationService.stub(IBaseHalfNodeExecutionService, {
+		acquireStructuralOperation: async () => {
+			if (options.structuralRefusal) {
+				throw new Error(options.structuralRefusal);
+			}
+			return { dispose: () => { } };
+		}
+	} as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	const refactor = instantiationService.createInstance(BaseHalfReferenceRefactorService);
+	if (options.partialIndex) {
+		refactor.whenIndexReady = async () => 'partial';
+	}
 	instantiationService.stub(IBaseHalfReferenceRefactorService, refactor);
 	await index.whenReady(folder);
 	disposables.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
@@ -210,8 +233,14 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		dialogs,
 		refactor,
 		undoRedo: instantiationService.get(IUndoRedoService),
+		explorerUndoSource,
 		async move(from, to, isUndoing) {
 			await workingCopyFileService.move([{ file: { source: joinPath(folder, ...from.split('/')), target: joinPath(folder, ...to.split('/')) } }], CancellationToken.None, isUndoing ? { isUndoing } : undefined);
+		},
+		async agentMove(from, to, token = CancellationToken.None) {
+			const argument = { workspaceFolder: folder, source: joinPath(folder, ...from.split('/')), target: joinPath(folder, ...to.split('/')), from, to };
+			const result: unknown = instantiationService.invokeFunction(accessor => CommandsRegistry.getCommand(BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID)!.handler(accessor, argument, token));
+			return result as Promise<IBaseHalfAgentMoveResult>;
 		},
 		async prompt(text) {
 			await until(() => notifications.prompts.some(prompt => prompt.message.includes(text)), `no prompt containing "${text}": ${JSON.stringify(notifications.prompts.map(prompt => prompt.message))}`);
@@ -396,6 +425,145 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				null
 			]
 		});
+	});
+
+	test('an agent move carries the metadata, updates without a prompt or notification, returns what it did, and undoes as an Explorer move', async () => {
+		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
+		const files = {
+			'a.md': '# A\n',
+			'n.md': note,
+			'p.pdf': 'pdf',
+			'.bh/mirror/a.md/badge.yaml': 'path: "a.md"\nkind: file\ndescription: "Trunk"\n',
+			'.bh/mirror/a.md/appearance.yaml': 'color: blue\n',
+			'.bh/mirror/p.pdf/upstream.yaml': 'upstream:\n  - a.md\n'
+		};
+		const harness = await createHarness(disposables, files);
+		const moved = await harness.agentMove('a.md', 'docs/b.md');
+		const tree = await harness.tree();
+		const promptsAfterMove = harness.notifications.prompts.map(candidate => candidate.message);
+		await harness.undoRedo.undo(harness.explorerUndoSource);
+		const undoPrompt = await harness.prompt('b.md moved to a.md.');
+
+		assert.deepStrictEqual({
+			moved,
+			promptsAfterMove,
+			files: [tree['a.md'] ?? null, tree['docs/b.md'], tree['n.md'], tree['.bh/mirror/p.pdf/upstream.yaml'], tree['.bh/mirror/a.md/badge.yaml'] ?? null, tree['.bh/mirror/docs/b.md/badge.yaml'], tree['.bh/mirror/a.md/appearance.yaml'] ?? null, tree['.bh/mirror/docs/b.md/appearance.yaml']],
+			undo: [await harness.read('a.md'), undoPrompt.message.startsWith('b.md moved to a.md. 2 items list it as upstream.')]
+		}, {
+			moved: { from: 'a.md', to: 'docs/b.md', upstream: { updated: ['n.md', 'p.pdf'], skipped: [] } },
+			promptsAfterMove: [],
+			files: [null, '# A\n', '---\nupstream:\n  - docs/b.md\n---\n# N\n', 'upstream:\n  - docs/b.md\n', null, 'path: "docs/b.md"\nkind: file\ndescription: "Trunk"\n', null, 'color: blue\n'],
+			undo: ['# A\n', true]
+		});
+	});
+
+	test('an agent move under never leaves the entries and says so; one that nothing names returns an empty result; a refused move rejects', async () => {
+		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
+		const never = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note }, 'never');
+		const left = await never.agentMove('a.md', 'b.md');
+		const neverState = [left, never.notifications.prompts.length, await never.read('n.md')];
+
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'c.md': '# C\n' });
+		const result = await harness.agentMove('a.md', 'b.md');
+		await assert.rejects(harness.agentMove('b.md', 'c.md'));
+		assert.deepStrictEqual({
+			never: neverState,
+			nothing: [result, harness.notifications.prompts.length, await harness.read('b.md'), await harness.read('c.md')]
+		}, {
+			never: [{ from: 'a.md', to: 'b.md', upstream: { updated: [], skipped: [], notUpdated: `${BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING} is never` } }, 0, note],
+			nothing: [{ from: 'a.md', to: 'b.md', upstream: { updated: [], skipped: [] } }, 0, '# A\n', '# C\n']
+		});
+	});
+
+	test('an agent move reports entries that an earlier unsettled move owns, and that move still updates them', async () => {
+		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note });
+		await harness.move('a.md', 'b.md');
+		const prompt = await harness.prompt('a.md moved to b.md.');
+		// A new a.md: n.md's entry still names the old one, which the unanswered move owns.
+		await harness.fileService.writeFile(joinPath(folder, 'a.md'), VSBuffer.fromString('# New A\n'));
+		const moved = await harness.agentMove('a.md', 'c.md');
+		assert.deepStrictEqual([moved.upstream.updated, moved.upstream.skipped.map(item => item.split(' ')[0]), prompt.closed], [[], ['n.md'], false]);
+		await prompt.choose('Update');
+		await until(async () => await harness.read('n.md') === '---\nupstream:\n  - b.md\n---\n# N\n', 'the earlier prompt did not update its own entry');
+	});
+
+	test('an agent folder move carries every descendant\'s metadata and remaps entries that name paths inside it', async () => {
+		const harness = await createHarness(disposables, {
+			'docs/x.md': '# X\n',
+			'docs/y.md': '---\nupstream:\n  - docs/x.md\n---\n# Y\n',
+			'docs/p.pdf': 'pdf',
+			'n.md': '---\nupstream:\n  - docs\n  - docs/x.md\n---\n# N\n',
+			'.bh/mirror/docs/badge.yaml': 'path: "docs"\nkind: folder\ndescription: "Docs"\n',
+			'.bh/mirror/docs/x.md/badge.yaml': 'path: "docs/x.md"\nkind: file\ndescription: "X"\n',
+			'.bh/mirror/docs/p.pdf/upstream.yaml': 'upstream:\n  - docs/x.md\n'
+		});
+		const moved = await harness.agentMove('docs', 'papers');
+		const tree = await harness.tree();
+		assert.deepStrictEqual({
+			updated: [...moved.upstream.updated].sort(),
+			skipped: moved.upstream.skipped,
+			files: Object.fromEntries(Object.entries(tree).filter(([path]) => path !== 'docs/p.pdf' && path !== 'papers/p.pdf'))
+		}, {
+			updated: ['n.md', 'papers/p.pdf', 'papers/y.md'],
+			skipped: [],
+			files: {
+				'.bh/mirror/papers/badge.yaml': 'path: "papers"\nkind: folder\ndescription: "Docs"\n',
+				'.bh/mirror/papers/p.pdf/upstream.yaml': 'upstream:\n  - papers/x.md\n',
+				'.bh/mirror/papers/x.md/badge.yaml': 'path: "papers/x.md"\nkind: file\ndescription: "X"\n',
+				'n.md': '---\nupstream:\n  - papers\n  - papers/x.md\n---\n# N\n',
+				'papers/x.md': '# X\n',
+				'papers/y.md': '---\nupstream:\n  - papers/x.md\n---\n# Y\n'
+			}
+		});
+	});
+
+	test('an agent move shows the report when it skipped a store, and when its caller went away', async () => {
+		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
+		const skipping = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note, 'running.bhnode': nodeDocument(2, ['a.md'], []) });
+		await new BaseHalfNodeRunLeaseStore(skipping.fileService, 30_000).acquire(folder, baseHalfNodeTestId(2), 'running.bhnode', 'owner', 'run', undefined);
+		const skipped = await skipping.agentMove('a.md', 'b.md');
+		const skipReport = await skipping.prompt('Updated 1 item.');
+
+		const leaving = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note });
+		const source = new CancellationTokenSource();
+		const pending = leaving.agentMove('a.md', 'b.md', source.token);
+		source.cancel();
+		const completed = await pending;
+		await leaving.prompt('Updated 1 item.');
+		source.dispose();
+
+		assert.deepStrictEqual([skipped.upstream.updated, skipped.upstream.skipped.map(item => item.split(' ')[0]), skipReport.message.includes('running.bhnode'), completed.upstream, await leaving.read('n.md')], [
+			['n.md'],
+			['running.bhnode'],
+			true,
+			{ updated: ['n.md'], skipped: [] },
+			'---\nupstream:\n  - b.md\n---\n# N\n'
+		]);
+	});
+
+	test('an agent move that a workbench precondition refuses rejects with its reason and changes nothing; a cancelled one never starts', async () => {
+		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
+		const refused = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note }, undefined, { structuralRefusal: 'Wait for the active node Attempt before moving or deleting this item.' });
+		await assert.rejects(refused.agentMove('a.md', 'b.md'), /Wait for the active node Attempt/);
+
+		const cancelled = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note });
+		const source = new CancellationTokenSource();
+		source.cancel();
+		await assert.rejects(cancelled.agentMove('a.md', 'b.md', source.token));
+		source.dispose();
+		assert.deepStrictEqual([await refused.read('a.md'), await refused.read('b.md'), await cancelled.read('a.md'), await cancelled.read('b.md')], ['# A\n', undefined, '# A\n', undefined]);
+	});
+
+	test('an agent move on a partial index says its result may be incomplete', async () => {
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': '---\nupstream:\n  - a.md\n---\n# N\n' }, undefined, { partialIndex: true });
+		const moved = await harness.agentMove('a.md', 'b.md');
+		assert.deepStrictEqual(moved.upstream, { updated: ['n.md'], skipped: [], incomplete: 'the reference index is partial, so stores it could not read may still name the old path' });
+	});
+
+	test('an agent move result caps each list at 200 items', () => {
+		const items = (count: number) => Array.from({ length: count }, (_, index) => `n${index}.md`);
+		assert.deepStrictEqual([capAgentMoveList(items(200)).length, capAgentMoveList(items(201)).slice(-2)], [200, ['n198.md', '… and 2 more']]);
 	});
 
 	test('pending moves compose, and undo of a move follows the same rules', async () => {

@@ -2856,6 +2856,19 @@ export class TerminalLabelComputer extends Disposable {
 	}
 }
 
+/**
+ * BaseHalf: shows a long argument that contains a line break (such as an
+ * appended system prompt) by its first non-blank line, so the exit message
+ * never floods the terminal. Shorter arguments stay unchanged.
+ */
+function exitMessageArgument(argument: string): string {
+	if (argument.length <= 200 || !/[\r\n]/.test(argument)) {
+		return argument;
+	}
+	const firstLine = argument.split(/\r\n|\r|\n/).find(line => line.trim().length > 0) ?? '';
+	return `${firstLine}…`;
+}
+
 export function parseExitResult(
 	exitCodeOrError: ITerminalLaunchError | number | undefined,
 	shellLaunchConfig: IShellLaunchConfig,
@@ -2877,9 +2890,9 @@ export function parseExitResult(
 			if (shellLaunchConfig.executable) {
 				commandLine = shellLaunchConfig.executable;
 				if (isString(shellLaunchConfig.args)) {
-					commandLine += ` ${shellLaunchConfig.args}`;
+					commandLine += ` ${exitMessageArgument(shellLaunchConfig.args)}`;
 				} else if (shellLaunchConfig.args && shellLaunchConfig.args.length) {
-					commandLine += shellLaunchConfig.args.map(a => ` '${a}'`).join();
+					commandLine += shellLaunchConfig.args.map(a => ` '${exitMessageArgument(a)}'`).join();
 				}
 			}
 			if (processState === ProcessState.KilledDuringLaunch) {
