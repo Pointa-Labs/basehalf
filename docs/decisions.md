@@ -8,7 +8,8 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D24 capture the current direction.
+> (see notes inline). D12–D37 capture the current direction; D35–D37
+> (2026-09) revise parts of D12, D13, D14, D19, and D24 as noted inline.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -148,7 +149,12 @@ rather than a second product name.
 contributions: `CLA.md`, the CLA Assistant bot, branch protection requiring
 the CLA check + review.
 
-## D12 — MD = content truth; `.bh/` = local derived mirror; git = user-file history (NEW, overturns D2/D3)
+## D12 — MD = content truth; `.bh/` = local derived mirror; git = user-file history (NEW, overturns D2/D3; references revised by D37)
+
+> **Note (2026-09, D37).** References are no longer BaseHalf-added metadata
+> under `.bh/`: each is stored once by its downstream node, in Markdown
+> frontmatter or `.bhnode` for those kinds. BaseHalf no longer ignores `.bh/`
+> in git; see [workspace state](specs/workspace-state-and-legacy-cleanup.md).
 
 **Decision.** Markdown files on disk are the source of truth for content.
 Anything BaseHalf adds (badge metadata, canvas positions, references) lives
@@ -167,7 +173,12 @@ undo for user-authored files; `.bh/` itself is ignored.
 in sync with external edits. Modules that touch user files must be
 **observers**, never owners.
 
-## D13 — bh never modifies user files unprompted (NEW, scope clarification)
+## D13 — bh never modifies user files unprompted (NEW, scope clarification; revised for references by D37)
+
+> **Note (2026-09, D37).** Explicit reference operations, a confirmed or
+> opted-in rename refactor, and a confirmed migration may edit the `upstream`
+> frontmatter key (see [reference graph](specs/reference-graph.md#invariants)).
+> Nothing else changes: background services still never write user files.
 
 **Decision.** bh's own code never writes to user files (`.md`, `.pdf`,
 `.docx`, etc.) in the background. The only writes to user files happen when
@@ -180,7 +191,11 @@ silent rewrite of frontmatter, formatting normalization, or auto-tagging
 violates that. The agent edits MD with its own tools — that's a separate path
 bh doesn't gate.
 
-## D14 — Agent protocol = publish, not inject (NEW; file shapes updated by D19)
+## D14 — Agent protocol = publish, not inject (NEW; file shapes updated by D19; delivery refined by D36)
+
+> **Note (2026-09, D36).** BaseHalf no longer writes a hint into `CLAUDE.md`.
+> Agent Area Claude Code sessions receive a static, workspace-independent
+> instruction at launch; BaseHalf still never injects workspace content.
 
 > **Note (2026-06).** The *principle* (publish a file protocol, don't inject)
 > still holds. The specific file shapes below were replaced by the
@@ -271,7 +286,13 @@ canvas as native badges — without a separate storage format.
 The deleted module lives in git history if you ever need to reference its
 schema or commands.
 
-## D19 — `.bh/mirror/` YAML model; CLI / inbound / proposals / focus.md deleted (NEW, 2026-06)
+## D19 — `.bh/mirror/` YAML model; CLI / inbound / proposals / focus.md deleted (NEW, 2026-06; focus superseded by D35, references by D37, hint and git policy by D36)
+
+> **Note (2026-09).** `focus.yaml` and `current_focus.yaml` are removed (D35).
+> Badge `references`/`referenced_by` are replaced by downstream `upstream`
+> lists (D37). The `HINT_BODY` workspace hint and the claim that all of `.bh/`
+> is git-ignored no longer hold (D36,
+> [workspace state](specs/workspace-state-and-legacy-cleanup.md)).
 
 **Decision.** Align the code to `private-docs/focus_mode_spec/`. `.bh/` becomes a
 per-node **mirror tree** of YAML files instead of the old mix of JSON badges,
@@ -437,7 +458,12 @@ extension allowlist/auth/secrets, `.bh` mirror integration, theming/layout, and
 packaging/dev loop. Each track can be parallelized, but it should exit only
 when the module is coherent enough to be kept, not merely demonstrated.
 
-## D24 — References are explicit directed context flow; Markdown links only navigate (NEW, 2026-07-11)
+## D24 — References are explicit directed context flow; Markdown links only navigate (NEW, 2026-07-11; storage superseded by D37)
+
+> **Note (2026-09, D37).** The semantics below stand. The two-endpoint
+> storage, the "complete only when both endpoints agree" rule, and
+> Repair/Discard are superseded: each reference is stored once by its
+> downstream node.
 
 **Decision.** BaseHalf's reference graph is a general directed context-flow
 graph. `A → B` means that A's context flows into B: A's outbound `references`
@@ -722,3 +748,89 @@ accepts exactly one output file. A future multi-output control must pre-create
 one result slot per requested file and share batch provenance; until that host
 orchestration exists, recipes that return multiple files are rejected. A batch
 is not a referenceable canvas node or a simulated persistent Group.
+
+## D35 — The focus mirror is removed (NEW, 2026-09-27)
+
+**Decision.** BaseHalf no longer mirrors the user's live position into
+`.bh/current_focus.yaml` or `.bh/mirror/**/focus.yaml`. The per-folder canvas
+viewport, the only focus data BaseHalf itself read back, moves to per-machine
+VS Code workspace storage. Earlier focus artifacts are removed by the legacy
+cleanup in
+[workspace state and legacy cleanup](specs/workspace-state-and-legacy-cleanup.md).
+
+**Why.** The mirror depended on every agent voluntarily reading a file each
+turn, which none did reliably. It went stale when the user returned from Card
+Detail to a canvas or left the app, and it gave no freshness signal. It
+reported rendered-text columns as source columns and lacked selection ranges.
+It churned git on every cursor move. Meanwhile, agents' own `@` file mentions
+and IDE integrations already let people point at a location explicitly.
+Pointing belongs to the agent's interface; BaseHalf's value is the map, not a
+second copy of the cursor.
+
+**Consequences.** Supersedes the focus half of D19 and the live-attention part
+of the [agent bridge design](agent-bridge-design.md). Viewports no longer
+travel with the folder.
+
+## D36 — BaseHalf stops writing agent guides into workspaces (NEW, 2026-09-27)
+
+**Decision.** Opening a folder no longer writes a section into `CLAUDE.md` or
+`AGENTS.md`, no longer installs `.bh/agent-harness/`, and no longer edits
+`.gitignore`. BaseHalf-owned `.bh/` artifacts from earlier releases are removed
+automatically. Sections in user-owned root files are removed only after the
+user confirms. Claude Code TUI sessions launched by Agent Area instead receive
+a short BaseHalf instruction through `--append-system-prompt`, as specified in
+[agent launch context](specs/agent-launch-context.md).
+
+**Why.** The hint was an unprompted write to user files, in tension with D13.
+It kept steering agents toward the focus mirror even when BaseHalf was not
+running. D14 chose file publishing because BaseHalf could not reach an
+external agent's prompt. Agent Area now launches the agent, so launch-time
+context reaches it without touching the user's files.
+
+**Consequences.** Refines D14 and D19's "don't inject" restatement. The
+principle "publish data, never dictate traversal" stands; BaseHalf injects only
+a static, workspace-independent instruction and never workspace content. Codex
+TUI, extension agents, and agents outside Agent Area receive no BaseHalf
+instruction. They see the `upstream` lists of Markdown files and `.bhnode`
+documents in the files themselves, but do not learn canvas workflows, card
+descriptions, or the upstream lists of non-Markdown nodes, which live under
+`.bh/`.
+
+## D37 — References are stored once, by the downstream node (NEW, 2026-09-27)
+
+**Decision.** A reference `A → B` is stored only by B, as B's `upstream` list.
+- A Markdown file keeps the list in YAML frontmatter.
+- A `.bhnode` document keeps it in its own `upstream` field.
+- Every other node keeps it in `.bh/mirror/<path>/upstream.yaml`.
+
+The reverse direction is derived by an in-memory index and never stored.
+BaseHalf changes these lists only through reference operations the user
+starts. Markdown edits go through the document's working copy; `.bhnode` and
+sidecar edits use compare-and-swap writers. People and agents edit the lists as
+ordinary text. Existing two-sided badge pairs migrate after confirmation. The
+full contract is [reference graph](specs/reference-graph.md).
+
+**Why.** BaseHalf exists to keep a many-branched learning domain in one place.
+Each branch should carry the trunk it grows from, visible wherever the note is
+read. Storing the edge in the consuming file, like a source file's imports,
+makes the structure part of the text agents already read. For Markdown and
+`.bhnode`, the list stays with the downstream file when it moves, even outside
+BaseHalf; moving an upstream file outside the workbench leaves visible
+dangling entries that can be relinked. It is also portable to other tools.
+Storing it once removes one-sided pairs and the multi-file transaction and
+Repair/Discard machinery built to reconcile them.
+
+**Consequences.**
+- Supersedes D24's two-endpoint model and the badge `references`/`referenced_by`
+  storage of D19.
+- Revises D12 and D13 for references: a relationship the user creates is user
+  content and lives in the downstream store, while BaseHalf still never writes
+  in the background. Amends the private IR-v2-13 record for the `upstream` key
+  only.
+- Supersedes D12's and D19's statement that `.bh/` is ignored by git. Sidecar
+  `upstream.yaml` files are reference truth; users who ignore `.bh/` do not
+  share the upstream lists of non-Markdown nodes.
+- The badge `description` stays in `.bh/`. A sidecar list follows its node only
+  through workbench moves.
+- `.bhnode` moves to version 4.
+- Reviewed plugins may not change `upstream` values.

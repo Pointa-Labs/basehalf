@@ -2,7 +2,7 @@
 
 Status: active implementation work package
 
-Last updated: 2026-08-24
+Last updated: 2026-09-27 (reference storage follows D37)
 
 Implementation readiness: reviewed; no blocking product or engineering
 questions
@@ -454,9 +454,9 @@ executor/catalog owner, frozen node digest, every tuple and snapshot digest,
 run guard, real paths, and symlink-free containment. It then rebuilds the
 executor request only from the Attempt and manifest, activates the exact recipe
 owner, and hands off `{ kind: 'recover', providerRequestId }` for the same
-Attempt id. Recovery does not read the current badge graph, direct source files,
-or editable Draft settings; it has no create authorization callback. The
-executor may only poll/read/download the durable task.
+Attempt id. Recovery does not read the node's current `upstream` list, direct
+source files, or editable Draft settings; it has no create authorization
+callback. The executor may only poll/read/download the durable task.
 
 If any verification, activation, credential identity, CAS, or lease check
 fails, the host interrupts the same Attempt with sanitized
@@ -477,8 +477,9 @@ Draft settings.
 
 Both authorization preflight and admitted execution derive input history and
 executor inputs only from the source Attempt plus its verified manifest. They
-must not read the current badge graph, source node declarations, imported
-artifacts, or other mutable direct-input paths. After the new Attempt is
+must not read the node's current `upstream` list, source node declarations,
+imported artifacts, or other mutable direct-input paths. Upstream edits after
+the first Attempt never block or alter Retry. After the new Attempt is
 durably appended, the host copies each verified frozen node/input snapshot into
 the new Attempt input directory, checks that the source digest stayed stable
 during the copy, and attaches a new manifest with the same immutable identities

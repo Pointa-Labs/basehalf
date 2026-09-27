@@ -1,8 +1,9 @@
 # BaseHalf plugin architecture
 
-Status: implemented platform and curated publishing path, updated 2026-08-13.
-This is the implementation map for decisions D25–D34. Product decisions in
-[`decisions.md`](decisions.md) remain authoritative.
+Status: implemented platform and curated publishing path, updated 2026-09-27.
+This is the implementation map for decisions D25–D34 and the plugin rules of
+D37. Product decisions in [`decisions.md`](decisions.md) and the
+[reference graph](specs/reference-graph.md) remain authoritative.
 
 ## Product contract
 
@@ -16,7 +17,7 @@ navigation, data, trust, and lifecycle contracts.
 | Global product surfaces | Owns Files/Git/Search/Plugins and Agent Area | Cannot add competing Activity Bar or panel areas |
 | Center navigation | Owns Canvas, Card Detail, history, focus, and fallback | Contributes Recipes and Templates; may opt in to a file-specific Card Detail Projection |
 | File truth | Opens and observes ordinary workspace files | Uses ordinary files and may document additional local formats |
-| `.bh/mirror` | Owns derived context/focus state | Must not store domain truth there |
+| `.bh/mirror` | Owns BaseHalf project metadata: layout, descriptions, reading aids, and non-Markdown upstream lists | Must not store domain truth there |
 | Content and execution | Owns the primary node graph plus Draft, immutable Attempt, sealed Result, and direct-context semantics | Contributes domain recipes, templates, input roles, validation, and executors |
 | Agent decisions | Hosts user-selected Agents | May define a disclosed AI strategy |
 | Model credentials | Stores global connections and secrets | Requests reviewed capabilities at run time |
@@ -356,6 +357,8 @@ parameters, and only the direct input
 snapshots frozen and bound by the host for that explicit Attempt. It writes one
 ordinary artifact to the host-provided attempt directory; BaseHalf owns
 Attempt/Cancel, the sealed Result, geometry, references, and binding storage.
+A `.bhnode` stores its references in its own `upstream` list, next to its
+bindings, and every binding's source must be listed there.
 
 `text` and `code` are input kinds, not executable result kinds. Markdown, source
 code, and other authored text remain ordinary file cards with their normal
@@ -401,7 +404,9 @@ Agent renderer does not cancel it. Cancellation is a separate explicit node
 action, and the host keeps the Attempt active until the executor actually settles.
 
 The same private Agent Area bridge exposes the live, admission-filtered canvas
-contract without writing a capability cache into the workspace:
+contract without writing a capability cache into the workspace. Claude Code
+TUI sessions that Agent Area launches are told to run it first
+([agent launch context](specs/agent-launch-context.md)):
 
 ```sh
 basehalf --list-capabilities
@@ -427,13 +432,19 @@ validates its bounded JSON return. A request cannot supply a command id. The
 discovery response and operation execution are available only to a BaseHalf-owned
 Agent Area terminal for the matching open workspace.
 
-The BaseHalf canvas is the only node-and-edge truth. `A → B` means A's direct
+BaseHalf's reference graph is the only node-and-edge truth, and the canvas
+draws it. `A → B` is stored once, in B's `upstream` list: Markdown
+frontmatter, the `.bhnode` `upstream` field, or
+`.bh/mirror/<path>/upstream.yaml` for other nodes. `A → B` means A's direct
 content is explicitly provided to B as context; for a result node, that content
 is its single sealed local file. It does not imply recursive execution, playback order,
 or an editable relationship description.
 Plugins may contribute recipes and bindings over this graph, but cannot infer
 new references, create a second hidden graph, or silently change recipe settings
-when an edge is connected. Markdown links remain navigation only.
+when an edge is connected. A plugin's project file transitions and structural
+cleanups may not change any upstream value; the host rejects them
+([reference graph](specs/reference-graph.md#plugins)). Markdown links remain
+navigation only.
 
 ## Developer entry point and evolution
 

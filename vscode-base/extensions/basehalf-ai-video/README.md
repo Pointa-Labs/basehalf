@@ -16,7 +16,8 @@ expand the script, add shots, bind inputs, and change parameters.
 
 BaseHalf owns the product primitives shared by every domain:
 
-- the canvas, cards, selection, geometry, and directed reference graph;
+- the canvas, cards, selection, geometry, and directed reference graph, whose
+  edges each target stores once in its own `upstream` list;
 - ordinary text and code files plus generic File, Image, Video, Audio, PDF, and
   Presentation nodes;
 - waiting, running, failed, cancelled, and sealed-result lifecycle state;
@@ -41,9 +42,10 @@ This extension owns only video-domain meaning:
 - executors for the recipes it declares.
 
 A canvas edge always keeps the BaseHalf meaning “source context flows into
-target.” An input binding records how the target recipe consumes that direct
-source; it does not add a second kind of edge and it never starts execution by
-itself.
+target.” The target `.bhnode` lists that source in its `upstream` field, next to
+the input binding that records how the target recipe consumes it; every
+binding's source must be listed there. A binding does not add a second kind of
+edge and it never starts execution by itself.
 
 ## Contributed recipes
 

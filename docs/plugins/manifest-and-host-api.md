@@ -15,7 +15,9 @@ format or exact file name. A Projection is a view over one local file. It cannot
 create another workflow canvas, redefine reference meaning, or own an execution
 lifecycle. A bounded **Structural Cleanup** may remove stale exact-result
 references from ordinary domain documents when the host deletes a result node;
-the host still owns deletion, validation, and project undo.
+the host still owns deletion, validation, and project undo. No plugin
+transition may change a node's `upstream` list, which is BaseHalf's reference
+truth.
 
 A plugin cannot add a competing global Activity Bar container, replace
 Files/Git/Search/Plugins or Agent Area, make editor tabs primary, use proposed
@@ -178,7 +180,8 @@ The executor receives one immutable Attempt request. `request.prompt` is the
 node-wide generation intent frozen by the host; plugins must not duplicate it
 as a Recipe parameter. Its `inputs` are the direct
 references the user or Agent explicitly bound to Recipe slots, in saved order;
-the executor must not recursively walk the graph or infer hidden dependencies.
+every bound source is listed in the node's `upstream`. The executor must not
+recursively walk the graph or infer hidden dependencies.
 The artifact `id` is an audit identifier: it starts with an ASCII letter or
 digit and contains only letters, digits, `.`, `_`, `:`, or `-`.
 It writes its artifact only inside `request.outputDirectory` and returns the
@@ -228,6 +231,22 @@ Use `parseBaseHalfCanvasTemplateForManifest` from `@basehalf/plugin-sdk` in
 tests or build tooling. It checks both the template structure and its semantic
 fit with the manifest: Recipe identity, output kind, parameter constraints,
 direct references, slot bindings, and accepted input kinds.
+
+Template `references` keep their `{ from, to }` pair format. A template never
+writes `upstream` itself. When the user instantiates it, BaseHalf rebases each
+pair from template-relative to workspace-relative paths under the instantiation
+folder, then stores it in the `to` node's `upstream` list:
+
+- a new Markdown file receives the list in its initial bytes, merged into any
+  template frontmatter;
+- a new `.bhnode` receives it in its `upstream` field;
+- any other node receives `.bh/mirror/<path>/upstream.yaml`, subject to the
+  source-tree guard for folders marked with `.basehalf-no-workspace-setup`.
+
+Validation, in the SDK and in the host, rejects a reference whose `to` node
+cannot be downstream and a template text file whose frontmatter already
+contains an `upstream` key. See
+[reference graph](../specs/reference-graph.md#templates).
 
 ## Request shared model services
 
@@ -361,7 +380,8 @@ The manifest contribution activates the reviewed plugin only for declared
 suffixes. `prepareDelete` does not write files or delete the node. It returns at
 most the bounded transitions needed to remove owned domain references. BaseHalf
 rejects dirty files, symbolic links, paths outside the workspace, stale
-`expected` bytes, duplicate targets, and oversized transitions. It commits the
+`expected` bytes, duplicate targets, oversized transitions, and transitions
+that change an upstream value (see below). It commits the
 accepted transitions and the host deletion in one project undo group; if
 deletion fails, it restores already-applied cleanup before returning the error.
 
@@ -382,5 +402,15 @@ This is a compare-and-swap write: the saved bytes must still equal the supplied
 out-of-workspace paths, and payloads over 4 MiB, then records one project undo
 step. Call it only from an explicit user or Agent action. Automated services
 and activation hooks must not write user files unprompted.
+
+Neither a project file transition nor a structural cleanup may change any
+upstream value. The host reads the upstream state of the `expected` bytes and of
+the next bytes: either "unreadable" or the ordered list of raw entries, valid
+and invalid. It rejects the transition with a plugin-facing error unless the two
+states are identical. That includes a transition that makes a readable
+`upstream` list unreadable, for example by breaking a Markdown frontmatter
+fence, or an unreadable one readable. Upstream changes belong to BaseHalf's own
+reference operations
+([reference graph](../specs/reference-graph.md#plugins)).
 
 Continue with [Local development and testing](local-development.md).

@@ -52,21 +52,45 @@ See [roadmap.md](../roadmap.md) and public decisions D20–D23 in
   verbatim on disk.
 - An explicit reference `A → B` means A's context flows into B. The graph is
   directed, many-to-many, cyclic when useful, and never self-referential.
-  Markdown links navigate but do not create reference edges. Edges persist
-  endpoints and anchors, not relationship prose.
+  Markdown links navigate but do not create reference edges. Edges carry no
+  relationship prose.
+- `A → B` is stored once, in B's store: the `upstream` frontmatter key of a
+  Markdown file, the `upstream` field of a `.bhnode`, or
+  `.bh/mirror/<path>/upstream.yaml` for any other node. The reverse direction
+  is derived in memory and never stored. `canvas.yaml` edge rows are anchor
+  memory only; they never create, block, or imply a reference.
+- Dangling and invalid upstream entries are shown as issues and never removed
+  automatically. Only an explicit user action repairs or removes them.
+- BaseHalf changes an upstream value only through a reference operation that
+  the user started or confirmed, as listed in
+  [reference graph Invariant 4](../specs/reference-graph.md#invariants). Host
+  lifecycle writes carry `upstream` through unchanged, and reviewed plugins may
+  not change it.
 - Automated BaseHalf services observe user files and never modify them
-  unprompted. Only an explicit user action through BaseHalf may write user data;
-  agents use their own file tools.
+  unprompted. BaseHalf writes user files only on an explicit user action,
+  including the reference operations of reference graph Invariant 4, or after
+  the user confirms, as in the removal of earlier BaseHalf sections from root
+  agent files in
+  [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md#confirmed-user-owned-root-files).
+  Agents use their own file tools.
+- BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
+  and no `.gitignore` edits into workspaces. Agent Area Claude Code sessions
+  receive BaseHalf context at launch instead, as defined in
+  [agent launch context](../specs/agent-launch-context.md).
 
-See public decisions D12–D14 and D24 and the relevant records under
-`private-docs/decisions/`.
+See public decisions D12–D14, D24, and D35–D37, the
+[reference graph](../specs/reference-graph.md) and
+[workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
+specifications, and the relevant records under `private-docs/decisions/`.
 
 ## Plugin and executable-media boundary
 
 - The shell is fixed and the center is extensible. Curated plugins may add
   project types, main-canvas recipes and templates, card previews, and
   file-specific Card Detail projections. They may not replace BaseHalf's
-  sidebar, canvas, navigation, reference semantics, or Agent Area.
+  sidebar, canvas, navigation, reference semantics, or Agent Area. Their
+  project file transitions and structural cleanups may not change any upstream
+  value.
 - The initial extension ecosystem is curated around Git, GitHub,
   GitHub Authentication, Codex, and Claude rather than a general marketplace.
 - Plugin workflow output is ordinary local user-owned data. Plugin removal must

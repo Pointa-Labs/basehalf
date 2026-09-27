@@ -4,9 +4,11 @@
 BaseHalf itself. Start here after reading the short root `AGENTS.md` or
 `CLAUDE.md`, then load only the documents that own the task at hand.
 
-This is not the product-generated `.bh/agent-harness/`. That harness is written
-only into normal user workspaces and explains the user-facing `.bh` protocol.
-BaseHalf's source tree is protected from that initialization.
+This is not the `.bh/agent-harness/` that earlier BaseHalf releases wrote into
+user workspaces. The product no longer installs it, and the legacy cleanup in
+[workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
+removes the files it wrote. BaseHalf's source tree is marked, so that cleanup
+never changes it.
 
 ## Context layers
 
@@ -38,13 +40,14 @@ The full workflow and source-tree isolation contract is
 
 | Task family | Read first | Add when relevant |
 | --- | --- | --- |
-| Development workflow or source-tree initialization | [Spec-driven development](../specs/spec-driven-development.md) | Workspace setup implementation and its marker tests |
+| Development workflow or source-tree initialization | [Spec-driven development](../specs/spec-driven-development.md) | The marker tests of legacy cleanup, migration, sidecar writes, and agent launch context |
 | Current migration scope and module status | [Roadmap](../roadmap.md), [architecture invariants](architecture-invariants.md) | Public decisions D20–D23 in [decisions.md](../decisions.md) |
-| Canvas, Card Detail, navigation, or references | [Roadmap](../roadmap.md), [architecture invariants](architecture-invariants.md) | Public decisions D20, D24, D33, D34; matching files in `private-docs/decisions/` |
-| Markdown rich/source/preview editing | Roadmap track 5, [architecture invariants](architecture-invariants.md) | `private-docs/decisions/vscode-base-canvas-detail-markdown-projections.md`, `rich-editor-agent-native-hardening.md`, and `rich-editor-undo-single-owner.md` |
-| Agent Area, terminal, or agent extensions | [Agent bridge design](../agent-bridge-design.md), [architecture invariants](architecture-invariants.md) | Public decision D21 and `private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md` |
-| `.bh/mirror/`, focus, cursor, badge, or workspace protocol | `private-docs/focus_mode_spec/` | Public decisions D12–D14 and D19; relevant private decision records |
-| Plugin platform or plugin publishing | [Plugin architecture](../plugin-architecture.md), [plugin development](../plugin-development.md) | [Plugin docs](../plugins/), public decisions D25–D34 |
+| Canvas, Card Detail, or navigation | [Roadmap](../roadmap.md), [architecture invariants](architecture-invariants.md) | Public decisions D20, D33, D34, and D35; [workspace state](../specs/workspace-state-and-legacy-cleanup.md) for canvas viewports; matching files in `private-docs/decisions/` |
+| References, upstream lists, badge editor, reference index, rename refactor, migration from badge pairs, or template references | [Reference graph](../specs/reference-graph.md), [architecture invariants](architecture-invariants.md) | Public decisions D24 and D37 |
+| Markdown rich/source/preview editing | Roadmap track 5, [architecture invariants](architecture-invariants.md) | [Reference graph](../specs/reference-graph.md) for frontmatter recognition and rich-editor coherence; `private-docs/decisions/vscode-base-canvas-detail-markdown-projections.md`, `rich-editor-agent-native-hardening.md`, and `rich-editor-undo-single-owner.md` |
+| Agent Area, terminal, or agent extensions | [Architecture invariants](architecture-invariants.md); [agent launch context](../specs/agent-launch-context.md) for what Agent Area sessions receive at launch | Public decisions D21 and D36 and `private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md`; the [agent bridge design](../agent-bridge-design.md) is history only |
+| `.bh/` persistence, canvas viewport state, focus removal, or legacy cleanup of focus files, `.bh/agent-harness/`, and root agent-file sections | [Workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md) | Public decisions D12, D13, D19, D35, and D36; `private-docs/focus_mode_spec/` only as history |
+| Plugin platform or plugin publishing | [Plugin architecture](../plugin-architecture.md), [plugin development](../plugin-development.md) | [Plugin docs](../plugins/), public decisions D25–D34; [reference graph](../specs/reference-graph.md#plugins) for the upstream rule on plugin transitions and for template references (D37) |
 | AI Video or executable media nodes | `vscode-base/extensions/basehalf-ai-video/docs/product-contract.md` | [`video-node-development-spec.md`](../../vscode-base/extensions/basehalf-ai-video/docs/video-node-development-spec.md) routes the Composer-surface, model/settings, input/frame-role, and execution/recovery work packages; public decisions D28 and D34; [plugin architecture](../plugin-architecture.md) |
 | Git, SCM, GitHub, or history graph | [Git/SCM/GitHub/GitGraph](../git-scm-github-gitgraph.md) | Roadmap track 3 and public decision D22 |
 | Dependencies, licenses, or distribution | [Dependency policy](../dependency-policy.md) | [Trademark policy](../trademark-policy.md), public decisions D8–D11 |

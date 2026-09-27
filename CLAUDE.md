@@ -2,7 +2,7 @@
 
 `AGENTS.md` and `CLAUDE.md` are intentionally equivalent indexes for coding
 agents developing BaseHalf itself. Keep them in sync. They are not the product
-workspace hints that BaseHalf installs for users.
+workspace hints that earlier BaseHalf releases installed for users.
 
 ## Required entry
 

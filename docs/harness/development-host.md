@@ -59,9 +59,30 @@ mkdir -p .build/basehalf-dev-workspace
 
 `scripts/code.sh` already supplies `vscode-base/` as the Electron application
 path, so any further path argument is the workspace to open. The fixture
-directory is a normal user workspace: BaseHalf initializes `.bh/` and the
-workspace-hint agent guides inside it, which is the behavior the source trees
-opt out of through their `.basehalf-no-workspace-setup` markers.
+directory is a normal user workspace without a `.basehalf-no-workspace-setup`
+marker. Opening it writes no agent guides and no `.gitignore` edit, and creates
+no `.bh/` by itself; `.bh/` appears only when an edit stores project metadata,
+as described in
+[workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md#what-basehalf-persists).
+The legacy cleanup, migration, sidecar writes, and agent launch context that
+run here are what the source trees opt out of through their markers.
+
+To exercise the legacy cleanup and migration, seed the fixture before launch
+with artifacts that earlier releases wrote:
+
+- a `<!-- bh:workspace-hint -->` section in a root `CLAUDE.md` or `AGENTS.md`;
+- files in `.bh/agent-harness/` whose content starts with
+  `<!-- bh:agent-harness managed`;
+- a `.bh/current_focus.yaml` symbolic link and `.bh/mirror/**/focus.yaml`
+  files, including a folder focus document with a viewport;
+- `badge.yaml` files whose `references` and `referenced_by` form complete
+  pairs, plus a one-sided pair.
+
+Cleanup removes the `.bh/` artifacts on the first open, and the root-file
+section and the legacy pairs change only after you confirm, so reseed the
+fixture to repeat a run. A **Keep** choice and the once-per-machine cleanup
+notice are remembered in the development profile's workspace storage under
+`.build/basehalf-dev-user-data`.
 
 Three failure modes are worth naming because none of them produce an obvious
 error message:

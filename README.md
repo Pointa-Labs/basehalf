@@ -7,8 +7,9 @@
 
 BaseHalf is an open-source, local-first desktop workspace built on a real VS
 Code substrate. It keeps your files in a normal folder, gives humans a
-canvas/card-detail way to navigate that folder, and builds a `.bh/` protocol
-layer so agents can stay oriented in the same materials.
+canvas/card-detail way to navigate that folder, and records how the materials
+connect in the files themselves so agents can stay oriented in the same
+materials.
 
 <div align="center">
 
@@ -43,17 +44,18 @@ AI agents are good at reading and editing files, but people think through
 spatial context, references, partial attention, and "where was I?" signals.
 BaseHalf is the meeting place: a real folder remains the source of truth, while
 the app adds a visual canvas, file cards, Markdown projections, Git/Search/File
-surfaces, and an agent-readable local mirror beside the work.
+surfaces, and agent-readable connections beside the work.
 
 BaseHalf is not trying to become the agent. It is a substrate for compound work:
 humans keep the map, agents use their own tools, and both sides can inspect the
 same local project without a cloud account or hidden database.
 
-The `.bh/` layer is a core part of that product direction, not a legacy detail.
-It is where BaseHalf will publish the workspace map, current focus, references,
-canvas layout, reading state, and agent-facing context. The current release has
-the first mirror primitives in place; the broader `.bh` protocol is one of the
-main areas still being built out.
+The workspace map is a core part of that product direction, not a legacy
+detail. Each note lists what flows into it in an `upstream` list that agents
+read along with the note, and `.bh/` holds BaseHalf project metadata such as
+canvas layout, descriptions, and reading aids. BaseHalf does not mirror your
+live position into files; an agent's own file mentions already point at a
+location.
 
 ## Product Shape
 
@@ -62,10 +64,12 @@ main areas still being built out.
   not the default product model.
 - **Real files stay real.** Markdown, code, media, and project files remain in
   the workspace folder. Git, external editors, and agents see ordinary files.
-- **`.bh/` is the agent context layer.** BaseHalf keeps user content in real
-  files and uses `.bh/` for local derived context: mirrors, focus, canvas state,
-  references, and reading aids. This is a first-class product workstream, even
-  though the VS Code-base migration has recently been the active focus.
+- **Connections live in the files.** BaseHalf keeps user content in real
+  files. A note's `upstream` frontmatter lists what flows into it, and `.bh/`
+  holds BaseHalf project metadata: canvas layout, descriptions, reading aids,
+  and the upstream lists of non-Markdown files. This is a first-class product
+  workstream, even though the VS Code-base migration has recently been the
+  active focus.
 - **VS Code is the lower layer.** BaseHalf reuses VS Code's Explorer, Search,
   SCM/Git, quick input, working-copy/file services, menus, settings, extension
   host, and terminal process APIs.
@@ -96,12 +100,16 @@ Extension support starts curated, not marketplace-open. BaseHalf currently
 allows only the extension families needed for Git/GitHub auth and the Codex /
 Claude agent surfaces.
 
-## `.bh` Local Protocol
+## Local Workspace Protocol
 
-BaseHalf publishes context instead of injecting prompts. Agents can read the
-workspace files directly and, when useful, inspect `.bh/`. This protocol is the
-planned shared language between the app, the human's visual workspace, and
-file-based agents:
+BaseHalf publishes context in files and never injects workspace content into
+prompts. Agents read the workspace files directly, including each note's
+`upstream` list, and can inspect `.bh/` when useful. Claude Code TUI sessions
+started from Agent Area also receive a short, static BaseHalf instruction at
+launch that explains this layout and the canvas workflow commands. BaseHalf
+no longer adds instructions to `CLAUDE.md` or `AGENTS.md`. This protocol is the
+shared language between the app, the human's visual workspace, and file-based
+agents:
 
 ```mermaid
 flowchart LR
@@ -114,37 +122,48 @@ flowchart LR
   area --> files
   area --> mirror
 
-  mirror --> focus["current_focus.yaml"]
+  files --> upstream["upstream lists"]
   mirror --> badge["badge.yaml"]
   mirror --> canvas["canvas.yaml"]
-  mirror --> aids["focus.yaml / adhd.yaml"]
+  mirror --> aids["adhd.yaml / appearance.yaml"]
+  mirror --> sidecar["upstream.yaml"]
 ```
 
-The mirror is deliberately plain. The current implementation already uses these
-shapes as the foundation, and future `.bh` work will make this layer more
-complete and more useful to agents:
+The format is deliberately plain:
 
-- `.bh/current_focus.yaml` points to the active node's `focus.yaml`.
-- `.bh/mirror/<path>/badge.yaml` stores a file or folder description plus
-  `references` and `referenced_by`.
-- `.bh/mirror/<folder>/canvas.yaml` stores card geometry plus reference-edge
-  endpoints and anchors for that folder canvas.
-- `.bh/mirror/<path>/focus.yaml` mirrors the current file projection, cursor or
-  visible lines, or a folder canvas viewport.
+- A Markdown note lists the files that flow into it under the `upstream` key of
+  its frontmatter; a `.bhnode` keeps the same list in its `upstream` field.
+- `.bh/mirror/<path>/upstream.yaml` keeps the upstream list of a folder, PDF,
+  or other non-Markdown file.
+- `.bh/mirror/<path>/badge.yaml` stores a file or folder description.
+- `.bh/mirror/<folder>/canvas.yaml` stores card geometry and edge anchors for
+  that folder canvas.
 - `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
-  and read ranges.
+  and read ranges, and `.bh/mirror/<path>/appearance.yaml` stores visual
+  presentation.
+- `.bh/cache/` holds machine-local run leases and undo stashes and is not
+  meant for git.
+
+BaseHalf does not create or edit `.gitignore`. The rest of `.bh/` may be
+committed, so that canvas layout, descriptions, and non-Markdown upstream lists
+travel with the folder; we recommend ignoring `.bh/cache/`. Canvas viewports
+are kept per machine, outside the workspace.
 
 References are an explicit directed context-flow graph: `A → B` means A's
 context flows into B. The graph is not a tree; many-to-many relationships and
-cycles are valid, while self-references are not. Users and Agents create cards
-and references explicitly. Markdown links remain ordinary document navigation
-and never create a BaseHalf reference automatically. Canvas edges visualize the
-same graph with endpoints and anchors only, without relationship labels or
-notes.
+cycles are valid, while self-references are not. Each reference is stored once,
+in B's upstream list; BaseHalf derives the reverse direction ("downstream") and
+never stores it. Users and Agents create cards and references explicitly, and
+may edit upstream lists as ordinary text. An entry that names a missing file
+stays visible as a broken entry until someone relinks or removes it. Markdown
+links remain ordinary document navigation and never create a BaseHalf reference
+automatically. Canvas edges visualize the same graph without relationship
+labels or notes.
 
-User files remain content truth. `.bh/` is a local derived mirror, and automated
-BaseHalf services observe/reconcile unless the user triggers a concrete write.
-Agents edit files with their own tools.
+User files remain content truth. Automated BaseHalf services observe files and
+never modify them in the background; BaseHalf changes an upstream list only
+through an operation the user starts or confirms. Agents edit files with their
+own tools.
 
 ## What Works Today
 
@@ -153,8 +172,7 @@ Agents edit files with their own tools.
 - Open folders as canvases and files as BaseHalf card detail instead of editor
   tabs.
 - Drag cards, persist positions, explicitly connect directed context-flow
-  references with anchored edges, use snap guides, and explicitly repair or
-  discard incomplete Agent-written reference pairs from the Badge surface.
+  references with anchored edges, and use snap guides.
 - Use Quick Open and Quick Text Search while result activation still routes
   back into BaseHalf card detail.
 - Edit Markdown in rich mode, switch to source or preview, and keep Markdown as
@@ -232,8 +250,8 @@ build/basehalf/package-darwin.sh arm64
 vscode-base/                         current desktop product source
   src/vs/workbench/basehalf/         BaseHalf canvas, card detail, Agent Area,
                                      profile, routing, mirrors, tests
-  src/vs/platform/basehalf/          BaseHalf platform services such as update
-                                     protocol and mirror-link helpers
+  src/vs/platform/basehalf/          BaseHalf platform services such as the
+                                     update protocol
   extensions/basehalf/               rich Markdown webview/editor assets
   build/basehalf/                    macOS package, DMG, and update scripts
   BASEHALF_UPSTREAM.md               VS Code import baseline
@@ -261,9 +279,10 @@ packages/                            historical BaseHalf core/desktop material
    the sidebar, or Agent Area. See the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
    over the same Markdown working copy.
-7. **BaseHalf does not secretly edit user files.** Automated services publish
-   and reconcile `.bh/` context; explicit user actions or external agents make
-   content changes.
+7. **BaseHalf does not secretly edit user files.** Automated services never
+   write user files in the background, and BaseHalf writes no agent guides or
+   focus files into the workspace. Explicit or confirmed user actions, or
+   external agents, make content and upstream changes.
 
 ## Designed For
 
@@ -272,7 +291,7 @@ packages/                            historical BaseHalf core/desktop material
 - **Agent-assisted project work:** keep files, Git state, search results, and
   agent terminals in one local workspace.
 - **Research maps:** arrange folders and files spatially, connect supporting
-  materials, and preserve focus across sessions.
+  materials, and return to each canvas where you left it.
 - **Local-first project memory:** keep lightweight descriptions, references,
   canvas positions, and reading state beside the project itself.
 

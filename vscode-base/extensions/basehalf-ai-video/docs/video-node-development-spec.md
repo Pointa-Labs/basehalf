@@ -2,7 +2,7 @@
 
 Status: active umbrella implementation specification, version 7
 
-Last updated: 2026-08-25
+Last updated: 2026-09-27 (reference storage follows D37)
 
 Implementation readiness: reviewed; no blocking product or engineering questions
 
@@ -119,7 +119,7 @@ They must never appear as inert Result-toolbar controls.
 | --- | --- | --- |
 | card, Composer placement, selection, canvas viewport | BaseHalf host | canvas and host interaction state |
 | Draft, Attempt, Result, prompt, Recipe, model snapshot, input bindings | BaseHalf host | `.bhnode` |
-| reference edge | BaseHalf host | main reference graph |
+| reference edge | BaseHalf host | the target `.bhnode`'s `upstream` list, per the host [reference graph](../../../../docs/specs/reference-graph.md) |
 | provider, deployment, region, exact model revision, modes, parameters, constraints | reviewed plugin contribution | video model catalog |
 | connection form, fixed/allowlisted endpoint policy | reviewed plugin contribution, rendered by host | provider-connection catalog |
 | credentials | BaseHalf host | system credential store |
@@ -225,11 +225,12 @@ Start-Frame-only capability.
 
 Inputs can enter through either path:
 
-- create or reconnect a normal reference edge into the Video node, then assign
-  its target-owned role; or
+- create or reconnect a normal reference edge into the Video node and assign
+  its target-owned role; the `upstream` entry and its binding are one write,
+  and cancelling the role assignment writes nothing; or
 - choose **Add input** in the Composer, enter canvas-pick mode, and select one
-  compatible saved source node. BaseHalf creates the edge and binding as one
-  undoable transaction.
+  compatible saved source node. BaseHalf adds the `upstream` entry and binding
+  in one node-document write and one undoable transaction.
 
 The Composer displays assigned inputs as ordered, removable chips. A chip shows
 its role, source identity, content kind, and integrity/readiness problem when
@@ -779,7 +780,7 @@ Canvas-pick mode:
 2. shows a small fixed banner naming the requested role and **Cancel**;
 3. dims ineligible nodes without changing their selection or graph state;
 4. lets the user choose one saved, compatible source node;
-5. creates edge plus target binding atomically;
+5. adds the `upstream` entry plus target binding in one document write;
 6. returns focus to the new input chip and reopens Inputs;
 7. cancels with `Escape` or banner action without mutation.
 
@@ -798,8 +799,8 @@ After reconciliation, each binding is classified as:
 
 The latter three block Generate and appear in Inputs with an explicit action:
 choose another role, choose another method, or remove the input. Removing a
-binding from Inputs removes its direct edge in the same undoable transaction,
-because an edge exists only for a real target input.
+binding from Inputs removes its `upstream` entry in the same document write and
+undoable transaction, because an edge exists only for a real target input.
 
 Role conversion is never automatic. For example, switching from Start + End
 Frames to Start Frame keeps Start active and places the End-frame binding in
@@ -1072,7 +1073,8 @@ provider seams. It exercises this complete path:
 6. choose Start + End Frames before adding an input and observe the
    missing-Start blocker;
 7. pick a Start frame and observe the missing-End blocker without losing Start;
-8. pick an End frame and verify two role bindings and two graph edges;
+8. pick an End frame and verify two role bindings, two `upstream` entries, and
+   two drawn edges;
 9. move and resize the Draft near a viewport edge; verify child dismissal,
    prompt DOM identity, fixed Composer size, and below/above/clamped placement;
 10. pan and zoom away and back; verify no floating off-screen Composer and the

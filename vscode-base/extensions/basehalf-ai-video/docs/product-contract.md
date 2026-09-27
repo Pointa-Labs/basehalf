@@ -73,6 +73,14 @@ prompt text or generation settings into a new node does not by itself create a
 reference edge. The input role belongs to the target recipe binding; it is not
 stored on the edge and does not create a second graph.
 
+The edge is stored once, by the target: a `.bhnode` lists its sources in its
+own `upstream` field, next to `recipe.inputBindings` in the same document. Every
+binding's `sourcePath` must be listed in that node's `upstream`, and adding or
+removing an input changes the binding and the entry in one document write. The
+reverse direction is derived by the host and never stored. The full storage
+contract is the host
+[reference graph](../../../../docs/specs/reference-graph.md).
+
 ## Recipes and execution
 
 Recipes remain declarative extension contributions. They declare ids, labels,
@@ -286,7 +294,8 @@ reference.
 
 The starter template may create ordinary briefs, scripts, shot metadata, an
 empty Sequence, configured planning nodes, empty media placeholders, canvas
-cards, and explicit input references. It must not contain credentials,
+cards, and explicit input references, which the host stores in each target's
+`upstream` list at instantiation. It must not contain credentials,
 generated results, provider jobs, output paths, private extension state,
 executable payloads, install hooks, or user assets.
 

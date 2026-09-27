@@ -160,24 +160,42 @@ Done means:
 - All projections share one source of truth and one dirty/conflict/save model.
 - External disk changes, save failures, serialization errors, and navigation
   prompts are complete.
-- Cursor and visible-line/block focus mirror writes are accurate enough for
-  agents to use.
+- Frontmatter, including a note's `upstream` list, survives rich editing
+  byte-for-byte; the rich projection never writes cached frontmatter
+  ([reference graph](specs/reference-graph.md#rich-editor-coherence)).
 
-### 6. `.bh` Mirror And Workspace Protocol
+### 6. Workspace Metadata, Reference Graph, And Legacy Cleanup
 
-Goal: Keep the `.bh/mirror/` YAML protocol as BaseHalf's derived attention
-mirror while using VS Code file/workspace services underneath.
+Goal: Store each reference once in its downstream node, keep `.bh/` as plain
+BaseHalf project metadata, and remove what earlier releases wrote, using VS
+Code file, working-copy, and storage services underneath. The owning
+specifications are [reference graph](specs/reference-graph.md) and
+[workspace state and legacy cleanup](specs/workspace-state-and-legacy-cleanup.md).
 
 Done means:
 
-- `.bh/current_focus.yaml` remains a symlink, never a regular file.
-- `badge.yaml`, `canvas.yaml`, `focus.yaml`, and `adhd.yaml` are read/written
-  through explicit services.
+- Each reference `A → B` is stored once, in B's `upstream` list: Markdown
+  frontmatter, the `.bhnode` `upstream` field, or
+  `.bh/mirror/<path>/upstream.yaml` for other nodes. The reverse direction is
+  derived by an in-memory index and never stored.
+- Reference operations write through the document's working copy or a
+  compare-and-swap writer, with the specified canvas undo, refusals, and
+  recovery.
+- Dangling, invalid, and unreadable entries are visible issues with explicit
+  repair actions; nothing removes them automatically.
+- Workbench moves offer the rename refactor, and legacy badge pairs move into
+  downstream stores only after the user confirms.
+- `badge.yaml`, `canvas.yaml`, `adhd.yaml`, `appearance.yaml`, and
+  `upstream.yaml` are read/written through explicit services.
+- Canvas viewports persist per folder in VS Code workspace storage, not in the
+  workspace.
+- Legacy focus and agent-harness files are removed automatically and disclosed;
+  BaseHalf sections in root agent files are removed only after confirmation.
 - Every read-modify-write path is protected by the keyed mutex.
 - Corrupt YAML, missing files, permission errors, symlink hazards, and external
   edits have clear behavior and tests.
-- BaseHalf services observe user files; they do not modify user content
-  unprompted.
+- BaseHalf services observe user files; they change user content only through
+  explicit or confirmed operations.
 
 ### 7. Agent Area, Terminal, And Extension Agents
 
@@ -192,6 +210,10 @@ Done means:
 - VS Code terminal API calls from extensions can be hosted in Agent Area.
 - Session lifecycle, naming, persistence, focus, split/restart/kill, and
   process errors are complete.
+- Qualifying local Claude Code TUI sessions receive the BaseHalf launch
+  instruction and relaunch once without it after an early non-zero exit; other
+  session types receive none
+  ([agent launch context](specs/agent-launch-context.md)).
 - The existing Ghosty-inspired terminal interaction quality is preserved.
 - Stock VS Code Agent/Chat/Copilot/Sessions UI does not leak into the product.
 
@@ -250,7 +272,7 @@ provider, Quick Open, Quick Text Search, and folder routing.
 
 1. Complete the module audit against D23 and VS Code source, with parallel
    agents for Files/Canvas, Git/SCM/GitHub, Agent Area/Terminal/Extensions, and
-   Markdown/.bh mirror.
+   Markdown/workspace metadata.
 2. Fix any user-visible dead controls or disconnected command paths before
    adding new surface area.
 3. Finish Git/SCM/GitHub next, because it is the module that most benefits from
@@ -258,8 +280,11 @@ provider, Quick Open, Quick Text Search, and folder routing.
    caused the most mismatch.
 4. Finish Search/QuickInput and Files/Canvas activation as one routing family,
    because all accepted resources must enter the same BaseHalf navigation model.
-5. Finish Markdown projections and `.bh` mirror write-back as one document
-   ownership family.
+5. Land D35–D37 in the slice order of
+   [reference graph delivery](specs/reference-graph.md#delivery): workspace
+   state, frontmatter safety, the reference store flip, the rename refactor,
+   and agent guides with launch context. Finish Markdown projections with them
+   as one document ownership family.
 6. Finish Agent Area extension compatibility, starting with Codex and Claude
    extension paths.
 

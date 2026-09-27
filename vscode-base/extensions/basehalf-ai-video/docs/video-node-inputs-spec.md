@@ -2,13 +2,15 @@
 
 Status: active implementation work package, version 4
 
-Last updated: 2026-08-24
+Last updated: 2026-09-27 (reference storage follows D37)
 
 Parent specification: [Video node development specification](video-node-development-spec.md)
 
 Composer UI specification: [Video node Composer surface specification](video-node-composer-surface-spec.md)
 
 Owning product contract: [AI Video domain contract](product-contract.md)
+
+Reference storage: host [reference graph](../../../../docs/specs/reference-graph.md)
 
 Implementation readiness: ready after the version 2 state-machine and Draft
 checkpoint requirements below
@@ -17,8 +19,8 @@ checkpoint requirements below
 
 This work package defines the implementable contract for Video-node inputs,
 including named Start and End frame slots, ordinary bound inputs, canvas pick,
-input reconciliation, explicit role changes, and the graph/undo transactions
-that persist those operations.
+input reconciliation, explicit role changes, and the node-document/undo
+transactions that persist those operations.
 
 The parent specification owns shared vocabulary, the complete execution
 lifecycle, model and connection behavior, and cross-package acceptance. The
@@ -112,7 +114,7 @@ reuse the Start or End labels unless the shared method contract is versioned.
 | active method and its input cardinalities | resolved reviewed model capability |
 | whether a source kind is Recipe-compatible | admitted Recipe input definition |
 | source identity, kind, saved revision, and integrity | host node/file inspection |
-| direct reference existence | host reference graph |
+| direct reference existence | the target node's `upstream` list, under the host reference graph rules |
 | input role, order, and captured source identity/revision | target Draft's `recipe.inputBindings` |
 | visible slots, chips, problems, and actions | pure input presentation derived from the sources above |
 | pending canvas-pick request | transient selected-Composer state |
@@ -127,7 +129,8 @@ Terms specific to this package:
 - **Needs review**: a visible group of retained bindings that cannot currently
   participate in generation without explicit user action;
 - **input mutation plan**: a pure before/after description that the host first
-  revalidates, then commits through one graph/document transaction;
+  revalidates, then commits through one node-document write that changes the
+  bindings and their `upstream` entries together;
 - **canvas-pick request**: one transient request for one target node, requested
   role, and expected Draft revision.
 
@@ -232,7 +235,7 @@ creating a duplicate binding row.
 Unknown roles and unknown source kinds fail closed as incompatible. They are
 never discarded during parsing or reconciliation.
 
-Source inspection is isolated per durable binding/backlink path. If one source
+Source inspection is isolated per durable binding path. If one source
 is missing, its path remains present with unknown kind and is classified as
 `source-missing`; readable sibling roles keep their verified kind, identity,
 revision, active presentation, and edge. One missing role must not make another
@@ -382,7 +385,8 @@ the requested role. The resulting durable Draft revision becomes
 `expectedDraftRevision`. This checkpoint belongs to the user's earlier
 model/settings edit; it must not save an unrelated pending title or prompt.
 If the checkpoint conflicts or cannot be verified, canvas pick does not open.
-The later input transaction still owns only bindings plus the exact graph pair.
+The later input transaction still owns only bindings plus their exact
+`upstream` entries.
 
 This rule makes configuration order deterministic: a user may select Start +
 End Frames and immediately pick Start even when the previous durable Draft was
@@ -400,8 +404,9 @@ A source is eligible only when all are true at hover and rechecked at commit:
    integrity;
 5. the selected method still declares the requested role with capacity;
 6. the same normalized source path is not already bound anywhere in the Draft;
-7. no direct edge or backlink already exists between this source and target in
-   an inconsistent state;
+7. the target's `upstream` list can take the source: it stays within 64
+   entries, and a source it already lists without a binding is bound, never
+   listed twice;
 8. target path, immutable node id, Recipe, and expected Draft revision still
    match the request.
 
@@ -436,18 +441,18 @@ revalidation and does not install one watcher per candidate.
 
 ### 8.3 Commit and cancellation
 
-Selecting an eligible source plans and commits exactly one direct edge plus one
-target binding. When the target remains visible, the commit reopens Inputs and
-focuses the new chip/slot. If the user panned the target fully off-screen, the
-commit closes the fixed banner, leaves Inputs closed, and defers the stable
-`returnFocusKey` until that exact selected target is visible again; it never
-auto-pans back or focuses a hidden surface.
+Selecting an eligible source plans and commits exactly one `upstream` entry
+plus one target binding, in one node-document write. When the target remains
+visible, the commit reopens Inputs and focuses the new chip/slot. If the user
+panned the target fully off-screen, the commit closes the fixed banner, leaves
+Inputs closed, and defers the stable `returnFocusKey` until that exact selected
+target is visible again; it never auto-pans back or focuses a hidden surface.
 
 `Escape`, banner Cancel, blank-canvas cancellation, stale target, or failed
-revalidation creates neither edge nor binding. A transaction failure rolls
-back every applied layer and reports one actionable error while keeping the
-Draft inspectable. It must never leave an edge without a binding, a binding
-without an edge, or a second source-path binding.
+revalidation creates neither entry nor binding. A failed write changes nothing
+and reports one actionable error while keeping the Draft inspectable. It must
+never leave the picked entry without its binding, a binding whose source is not
+listed in `upstream`, or a second source-path binding.
 
 ### 8.4 Canvas-pick state machine and exactly-once behavior
 
@@ -533,8 +538,8 @@ After a graph/document transition returns, an atomic target read must still
 confirm the expected normalized configuration at a durable revision before the
 host installs the plan or reports success. A mismatch clears the pending
 acknowledgement and enters external merge. The host compensates only the exact
-reference/canvas states written by its transition and never overwrites the
-unknown external document; a compensation conflict requires an explicit
+binding and `upstream` entries written by its transition and never overwrites
+the unknown external document; a compensation conflict requires an explicit
 reopen/repair diagnostic.
 
 ## 9. Input mutations and atomicity
@@ -547,7 +552,8 @@ Before any mutation the host re-reads and verifies:
 - target lifecycle is editable Draft with no Attempt or Result;
 - current node contents match the operation's expected revision;
 - installed Recipe identity and input definitions still match;
-- current graph forward/backlink state is internally consistent;
+- the target's `upstream` array parses, and the change keeps it within 64
+  entries;
 - source identity, kind, saved state, and integrity still satisfy the action,
   except that Remove intentionally does not require the source file to exist;
 - normalized binding source paths remain unique.
@@ -557,10 +563,10 @@ from current durable state and explains the stale operation.
 
 The adapter applies `afterBindings` to a fresh persisted target document, not
 to the complete in-memory Composer draft. An input transaction may therefore
-change only `recipe.inputBindings` plus its exact graph pair. It must not save,
-discard, or include in its undo snapshot unrelated pending title, role, prompt,
-model, method, or scalar-setting edits. Those values keep their existing dirty
-state and their own normal Draft save/undo lifecycle.
+change only `recipe.inputBindings` plus the matching `upstream` entries. It
+must not save, discard, or include in its undo snapshot unrelated pending
+title, role, prompt, model, method, or scalar-setting edits. Those values keep
+their existing dirty state and their own normal Draft save/undo lifecycle.
 
 The configuration checkpoint required by section 8.1 must finish before the
 input request captures its expected revision. It is not included in the input
@@ -570,43 +576,43 @@ write boundary.
 
 ### 9.2 Mutation table
 
-| User operation | Binding change | Graph change | One undo unit |
+| User operation | Binding change | `upstream` change | One undo unit |
 | --- | --- | --- | --- |
-| Pick/Add | append requested role, canonicalize order | add forward reference and backlink | yes |
-| Replace | replace one binding source, preserve role and position | remove old pair, add new pair | yes |
-| Remove | remove one binding, canonicalize remaining order | remove its forward reference and backlink | yes |
+| Pick/Add | append requested role, canonicalize order | add the source unless already listed | yes |
+| Replace | replace one binding source, preserve role and position | remove the old source's entry, add the new source's entry | yes |
+| Remove | remove one binding, canonicalize remaining order | remove its entry | yes |
 | Swap Start/End | exchange two `slot` values | none | yes |
 | Explicit role conversion | change one `slot`, preserve source and position | none | yes |
 | Move Earlier/Later | reorder only within one role | none | yes |
 | Change model/method | no binding change | none | normal Draft configuration undo |
 
-All operations use host-owned project-file/reference transitions and the
-canvas undo source. The pure package may produce a mutation plan but never
-writes files, graph metadata, or undo history itself.
+All operations use host-owned node-document writes and the canvas undo
+source; a binding and its `upstream` entry always change in the same write. The
+pure package may produce a mutation plan but never writes files, `upstream`
+entries, or undo history itself.
 
 Undo and redo revalidate exact before/after snapshots. They fail closed when an
-external edit has changed an overlapping binding or graph entry; they do not
-overwrite newer state. A failure leaves both graph directions and the target
-document mutually consistent.
+external edit has changed an overlapping binding or `upstream` entry; they do
+not overwrite newer state. A failed undo or redo writes nothing.
 
 ### 9.3 Remove semantics
 
 Because an edge exists only for real context flowing into the target, removing
-an input removes its direct edge in the same transaction. The action copy names
-both effects. It never deletes the source node or source artifact.
+an input removes its `upstream` entry in the same document write. The action
+copy names both effects. It never deletes the source node or source artifact.
 
-If multiple unrelated graph facts share the same files, the transition edits
-only the exact source-target reference. It does not rewrite unrelated edges,
+If multiple unrelated graph facts share the same files, the write edits only
+the exact binding and `upstream` entry. It does not rewrite unrelated entries,
 bindings, geometry, or selection.
 
-Remove remains available when the source file or source badge is missing. The
-persisted binding path is sufficient to address the exact pair: the graph
-transition removes whichever forward reference, backlink, and canvas edge
-still exist, while the same transaction removes the target binding. An already
-absent direction is an idempotent cleanup condition, not a reason to strand the
-binding. Undo may restore the binding and graph facts but never recreates the
-deleted source file; if restoring the captured graph state is no longer safe,
-undo fails closed without overwriting newer graph state.
+Remove remains available when the source file is missing. The persisted binding
+path is sufficient to address the exact entry: one node-document write removes
+the target binding and its `upstream` entry. An entry that is already absent is
+an idempotent cleanup condition, not a reason to strand the binding. The
+`canvas.yaml` anchor row, if any, is kept as anchor memory, as for any
+disconnect. Undo may restore the binding and entry but never recreates the
+deleted source file; if the target document changed since the removal, undo
+fails closed without overwriting newer state.
 
 ### 9.4 Explicit role conversion
 
@@ -655,8 +661,8 @@ reclassifies bindings without mutating them.
 If the Recipe disappears, its input contract changes incompatibly, or the
 resolved capability becomes unavailable, retain all bindings and graph edges
 as Needs review. Disable input mutations that cannot be safely validated, keep
-Remove available only when the graph/document transaction can still identify
-the exact pair, and route model/Recipe repair through the parent flow.
+Remove available only when the node-document write can still identify the
+exact binding and entry, and route model/Recipe repair through the parent flow.
 
 ## 11. Persistence and execution handoff
 
@@ -676,7 +682,10 @@ format change.
 - Transient pick requests, source thumbnails, Needs review classification,
   notices, and focus keys never enter `.bhnode`.
 - Generate preflight re-inspects every source and requires zero readiness and
-  Needs review problems before creating an Attempt.
+  Needs review problems before creating an Attempt. Following the host
+  reference graph, an `upstream` entry with no binding, a dangling entry, and
+  a binding whose `sourcePath` is not listed in `upstream` also block
+  submission.
 - Attempt inputs freeze binding role, order, source path, and source revision.
 - The executor consumes only the immutable Attempt snapshot; it never reads the
   live Composer classification.
@@ -763,8 +772,9 @@ fields in `basehalfNodeDocument.ts`, and their focused tests. That lane owns:
 - refreshing only the persisted model-snapshot input counts derived from that
   binding set;
 - source identity/revision capture and comparison;
-- missing-source and incomplete-graph Remove cleanup;
-- exact graph/document transition and undo snapshots.
+- missing-source Remove cleanup, including a binding whose `upstream` entry
+  is already absent;
+- exact node-document writes and undo snapshots.
 
 It does not own model/settings rendering, shared canvas CSS, provider execution,
 or the execution/recovery extension. The owner must coordinate before editing a
@@ -792,7 +802,7 @@ Exit: all slot and retained-binding states can be proven without DOM or I/O.
 4. add one-unit undo/redo and stale-state failure tests;
 5. integrate stable focus and accessibility behavior.
 
-Exit: each explicit input operation changes the target and graph exactly once
+Exit: each explicit input operation changes the target document exactly once
 and can be undone as one unit.
 
 ### Phase III — end-to-end input gate
@@ -827,20 +837,20 @@ unchanged. Maps to A17.
 ### I4. Canvas pick is atomic
 
 Given an empty Start slot, picking one eligible saved Image commits exactly one
-edge pair and one Start binding in one undo unit. Undo removes both; cancellation
-creates neither. Maps to A6.
+`upstream` entry and one Start binding in one document write and one undo unit.
+Undo removes both; cancellation creates neither. Maps to A6.
 
 ### I5. Same source cannot fill two roles
 
 Given a source already bound as Start, End-pick marks it ineligible with a
-visible reason. Selection creates no duplicate edge, binding, or implicit role
-move.
+visible reason. Selection creates no duplicate `upstream` entry, binding, or
+implicit role move.
 
 ### I6. Swap changes roles only
 
 Given one valid Start and End, Swap exchanges their target-owned roles in one
-undo unit. Source paths and graph edges are byte-for-byte unchanged; undo
-restores both roles together.
+undo unit. Source paths and `upstream` entries are byte-for-byte unchanged;
+undo restores both roles together.
 
 ### I7. Method change retains End
 
@@ -860,14 +870,14 @@ Given an eligible retained image and an empty accepted destination role, Change
 role names old and new roles before commit, changes only the binding slot, and
 is one undo unit. No model/method change invokes it automatically.
 
-### I10. Remove changes graph and binding together
+### I10. Remove changes upstream and binding together
 
-Removing one input removes exactly its target binding and direct graph pair,
-never its source node or artifact. Undo restores both; a partial write is rolled
-back or fails closed. The same result holds when the source file is already
-missing or either graph direction was already absent. Unrelated pending prompt,
-model, method, and setting edits are neither committed nor reverted by Remove
-or its undo.
+Removing one input removes exactly its target binding and `upstream` entry in
+one document write, never its source node or artifact. Undo restores both, or
+fails closed when the document changed. The same result holds when the source
+file is already missing or its `upstream` entry was already absent. Unrelated
+pending prompt, model, method, and setting edits are neither committed nor
+reverted by Remove or its undo.
 
 ### I11. Integrity failures stay inspectable
 
@@ -902,18 +912,19 @@ regions remain non-overlapping and independently clickable.
 ### I16. Cancel, re-enter, and selection are request-scoped
 
 Given an open Start pick, when the user cancels and immediately re-enters, then
-one Enter or pointer selection on an eligible source commits exactly one edge
-pair and one Start binding. The prior epoch cannot consume, suppress, or repeat
-the new selection. Success returns to the filled Start slot without entering a
-generic connection mode.
+one Enter or pointer selection on an eligible source commits exactly one
+`upstream` entry and one Start binding. The prior epoch cannot consume,
+suppress, or repeat the new selection. Success returns to the filled Start slot
+without entering a generic connection mode.
 
 ### I17. Unsaved method checkpoint precedes input commit
 
 Given a durable Text-to-Video Draft whose Composer has selected Start + End
 Frames, when the user opens Start pick, then the canonical model/method
 configuration is durably checkpointed before the request revision is captured.
-Picking Start changes only the binding and graph pair in the input transaction;
-an unrelated pending prompt or title is neither saved nor reverted.
+Picking Start changes only the binding and its `upstream` entry in the input
+transaction; an unrelated pending prompt or title is neither saved nor
+reverted.
 
 ### I18. Current blocker outranks adjustment history
 
@@ -950,12 +961,12 @@ target exposes the filled slot and consumes the deferred focus key exactly once.
 - pan/zoom-stable pick epoch, disabled node geometry gestures, off-screen target
   success, and exactly-once deferred focus restoration;
 - Pick/Replace identity capture and changed/legacy revision classification;
-- missing-source Remove with present, incomplete, and already-absent graph
-  state;
+- missing-source Remove with its `upstream` entry present and already absent;
 - one missing bound source does not contaminate a readable sibling role;
-- document application changes only `recipe.inputBindings` and rejects stale
-  before-bindings without touching prompt/model/settings;
-- no mutation plan changes a graph for Swap/Convert/Reorder;
+- document application changes only `recipe.inputBindings` and the matching
+  `upstream` entries, and rejects stale before-bindings without touching
+  prompt/model/settings;
+- no mutation plan changes `upstream` for Swap/Convert/Reorder;
 - every blocker has a stable non-localized kind.
 
 ### 16.2 Host integration tests
@@ -989,8 +1000,10 @@ target exposes the filled slot and consumes the deferred focus key exactly once.
   expected has been observed follows the external-change path;
 - an unsaved frame-method selection is checkpointed before pick without saving
   unrelated prompt/title edits;
-- one graph pair plus binding per Pick and one undo/redo unit;
-- Replace and Remove modify the exact graph pair atomically;
+- one `upstream` entry plus binding per Pick, in one document write and one
+  undo/redo unit;
+- Replace and Remove modify the exact binding and `upstream` entries in one
+  write;
 - method/model change preserves bindings and edges;
 - retained End returns without a write when switching back;
 - focus restoration after pick, cancel, remove, and undo;
@@ -1002,17 +1015,20 @@ target exposes the filled slot and consumes the deferred focus key exactly once.
 
 The parent smoke path must select Start + End Frames before adding inputs,
 observe missing Start, add Start and observe missing End without losing Start,
-add End, and verify two distinct role bindings plus two graph edges. A real
-Workbench Undo must remove the latest binding, forward reference, backlink,
-and canvas edge together while retaining Start; Redo must restore all four.
+add End, and verify two distinct role bindings plus two `upstream` entries in
+the node document, each drawn as an edge. A real Workbench Undo must remove the
+latest binding and its `upstream` entry together while retaining Start; Redo
+must restore both.
 After the expected Redo revision is visible, the smoke opens a pending input
 request and externally writes the exact bytes of the earlier Start-only
 configuration. That new file revision must cancel the request and refresh the
 End blocker rather than being swallowed as the earlier own-write echo. The
 smoke then deletes one bound frame source outside the app, observes that the
 missing binding remains removable, invokes Remove from Composer, and verifies
-the binding, exact forward/backlink pair, and canvas edge are all absent before
-continuing to Generate. It must run only in a disposable fixture workspace.
+that the binding and its `upstream` entry are both absent from the node document
+before continuing to Generate. The smoke asserts on the node document, not on
+`canvas.yaml` rows, which are anchor memory only. It must run only in a
+disposable fixture workspace.
 
 ## 17. Verification commands
 

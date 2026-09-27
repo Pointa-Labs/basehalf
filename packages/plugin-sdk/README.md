@@ -55,7 +55,9 @@ const template = defineBaseHalfCanvasTemplate({
 parseBaseHalfCanvasTemplateForManifest(JSON.stringify(template), pluginManifest);
 ```
 
-Template v1 creates only ordinary text files, `.bhnode` result containers, card geometry, and direct references. A template node may include the host-owned `prompt`; it remains separate from Recipe parameters. Text and code stay ordinary editable file cards; executable result containers use `file`, `image`, `video`, `audio`, `pdf`, or `presentation`. Combined validation rejects reserved paths, private state, Attempt or Result state, unsupported fields, dangling cards or references, undeclared recipes, incompatible output kinds, invalid parameters, and any binding without a matching direct reference. A direct reference may remain unassigned; the target stays non-runnable until its Recipe binding is complete.
+Template v1 creates only ordinary text files, `.bhnode` result containers, card geometry, and direct references. A template node may include the host-owned `prompt`; it remains separate from Recipe parameters. Text and code stay ordinary editable file cards; executable result containers use `file`, `image`, `video`, `audio`, `pdf`, or `presentation`. Combined validation rejects reserved paths, private state, Attempt or Result state, unsupported fields, dangling cards or references, references whose target cannot be downstream, template text files whose frontmatter contains an `upstream` key, undeclared recipes, incompatible output kinds, invalid parameters, and any binding without a matching direct reference. A direct reference may remain unassigned; the target stays non-runnable until its Recipe binding is complete.
+
+Template `references` keep their `{ from, to }` pair format; a template never writes `upstream` itself. At instantiation, BaseHalf rebases each pair under the instantiation folder and stores it in the `to` node's `upstream` list: the frontmatter of a new Markdown file, the `upstream` field of a new `.bhnode`, or `.bh/mirror/<path>/upstream.yaml` for any other node. See the [reference graph](https://github.com/Pointa-Labs/basehalf/blob/main/docs/specs/reference-graph.md#templates) specification.
 
 A recipe executor receives the host-owned `request.prompt` and only the direct, explicitly bound input snapshots frozen by the host for that Attempt. Recipe-specific controls remain in `request.parameters`. The executor writes only to the Attempt directory supplied in the request, and each submission returns exactly one ordinary local file:
 
@@ -82,7 +84,7 @@ const registration = vscode.basehalf.registerCanvasRecipeExecutor(
 The artifact `id` must start with an ASCII letter or digit and may then contain
 only letters, digits, `.`, `_`, `:`, or `-`.
 
-BaseHalf continues to own canvas geometry, references, input binding storage, immutable Attempts, cancellation, and the single sealed Result. A plugin contributes recipes, templates, and executors without creating a second canvas or storing project truth privately.
+BaseHalf continues to own canvas geometry, references (stored once, in each target node's `upstream` list), input binding storage, immutable Attempts, cancellation, and the single sealed Result. A plugin contributes recipes, templates, and executors without creating a second canvas or storing project truth privately.
 
 `basehalfAgentCapabilities` is static discovery metadata. It can describe an
 owned ordinary document format and deterministic owned commands with their required structured parameters and
@@ -164,6 +166,8 @@ next, label)`. The host writes only when the saved bytes still equal `expected`,
 rejects dirty files, symbolic links, and paths outside the workspace, and adds a
 project undo step. This API is not permission for background or unprompted file
 writes.
+
+Neither a project file transition nor a structural cleanup may change any `upstream` value. The host compares the upstream state of the expected and next bytes, either "unreadable" or the ordered raw entries, and rejects the transition unless they are identical, including a change that breaks a Markdown frontmatter fence.
 
 When a recipe declares `modelCapability`, the node Recipe stores the selected stable service id and optional explicit model id. A `video` recipe must also declare `videoModelCatalogId` as the exact full id of a `basehalfVideoModelCatalogs` contribution owned by the same extension, must produce a Video Result, and must leave its static `parameters` empty; the reviewed catalog is the sole settings schema. Non-video recipes cannot declare `videoModelCatalogId`. BaseHalf freezes that selection plus the service label, capability, and non-secret connection identity for each explicit Attempt. Request access with `vscode.basehalf.getModelServiceAccess(request.modelService)` only while executing that request, and only when `request.modelService` is present. Model-service access currently admits only the official Bearer authorization contract; custom header names and unauthenticated services are not part of the public SDK. Access fails closed if request-affecting connection settings changed after the snapshot; secret rotation does not change that identity. API keys belong to BaseHalf's global encrypted model settings, never to recipe parameters, templates, project files, logs, or extension storage. After a remote task is accepted, executors must await `request.acknowledgeProviderRequestId(id)` before polling or other fallible work. An exact Retry receives `request.resumeProviderRequestId`; it must inspect that task before deciding whether a replacement submission is safe. Executors may return the acknowledged request id, structured usage, and decimal-string cost for the immutable Attempt audit record.
 

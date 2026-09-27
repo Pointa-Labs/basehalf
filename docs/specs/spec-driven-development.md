@@ -1,10 +1,10 @@
 # Spec-driven development and source-tree isolation
 
-Status: Active
+Status: Active (source-tree guard revised 2026-09-27 for D35–D37)
 
 This specification defines how maintainers and coding agents develop BaseHalf.
-It also separates the BaseHalf source tree from the user workspaces that the
-product initializes with the `.bh/` YAML protocol.
+It also separates the BaseHalf source tree from the user workspaces in which
+the product keeps `.bh/` project metadata and runs its legacy cleanup.
 
 ## Goals
 
@@ -16,12 +16,15 @@ product initializes with the `.bh/` YAML protocol.
   history into every session.
 - Prevent BaseHalf from initializing its own source directories as product
   workspaces.
-- Keep `.bh/` focus and mirror state from influencing work on BaseHalf itself.
+- Keep `.bh/` data, including legacy focus files, from influencing work on
+  BaseHalf itself.
 
 ## Non-goals
 
-- This specification does not change the `.bh/` protocol for normal user
-  workspaces.
+- This specification does not define product behavior in normal user
+  workspaces. [Workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
+  [reference graph](reference-graph.md), and
+  [agent launch context](agent-launch-context.md) own it.
 - It does not replace decision documents. Decisions record why a direction was
   chosen; specifications define the behavior that the current implementation
   must satisfy.
@@ -93,25 +96,48 @@ workspaces:
   workspace.
 
 Both directories must track `.basehalf-no-workspace-setup`. Presence of this
-marker is the authoritative opt-out from product workspace initialization.
+marker in a workspace folder root is the authoritative opt-out from the product
+workspace writes listed below. Markers in subdirectories have no effect, and a
+folder whose marker existence cannot be determined is treated as marked.
 
-When the marker is present, BaseHalf must not:
+These services honor the marker:
 
-- create or update `.bh/`, `.bh/mirror/`, `.bh/current_focus.yaml`, or
-  `.bh/agent-harness/`;
-- append the BaseHalf workspace-hint block to `AGENTS.md` or `CLAUDE.md`;
-- create a new root agent guide;
-- modify `.gitignore` for `.bh/cache/`;
-- publish focus, badge, canvas, appearance, or ADHD YAML for the source tree.
+- **Legacy cleanup** writes nothing in a marked folder and returns
+  `skipped: 'marker'`. It deletes no earlier `.bh/` artifact and offers no
+  root agent-file removal there
+  ([workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md#legacy-cleanup)).
+- **Migration** of legacy badge pairs does not run
+  ([reference graph](reference-graph.md#source-tree-guard)).
+- **Sidecar writes**: BaseHalf writes no `upstream.yaml` and refuses
+  connections whose target needs a sidecar store. An explicitly requested
+  Markdown or `.bhnode` upstream edit is an ordinary user edit; it writes only
+  that store, with no `canvas.yaml` anchor row, no `adhd.yaml`, and nothing
+  else under `.bh/`. The rename refactor always prompts.
+- **Legacy record**: BaseHalf writes no `.bh/legacy-references.yaml`.
+- **Agent launch context**: Agent Area sessions whose workspace has any marked
+  folder receive no BaseHalf launch instruction
+  ([agent launch context](agent-launch-context.md#scope)).
 
-Coding agents working on BaseHalf must not read or follow `.bh/current_focus.yaml`
-or any `.bh/` mirror data found in these source directories. Such data is
-accidental generated contamination, not development context or product truth.
-Agents should report it and remove it only when the user authorizes cleanup.
+BaseHalf writes no `.bh/current_focus.yaml`, `focus.yaml`,
+`.bh/agent-harness/`, a BaseHalf section in `AGENTS.md` or `CLAUDE.md`, a new
+root agent guide, or a `.gitignore` edit in any workspace (D35, D36). Canvas
+viewports live in VS Code workspace storage, outside the tree.
 
-Development launches, smoke tests, and workspace-setup tests must use disposable
-fixture workspaces. They must never exercise product initialization against the
-repository root or `vscode-base/`.
+**Known gap.** The passive canvas layout (`canvas.yaml`), appearance, and ADHD
+writers do not consult the marker; the reference graph lists this as a
+non-goal. Moving cards, changing a card's appearance, or marking reading aids
+in a source directory opened as a workspace can still write `.bh/mirror/`
+there. The disposable-fixture rule below is what keeps the source trees clean.
+
+Coding agents working on BaseHalf must not read or follow any `.bh/` data found
+in these source directories, including legacy `current_focus.yaml` or
+`focus.yaml` files. Such data is accidental generated contamination, not
+development context or product truth. Agents should report it and remove it
+only when the user authorizes cleanup.
+
+Development launches, smoke tests, and legacy cleanup or migration tests must
+use disposable fixture workspaces. They must never exercise product workspace
+behavior against the repository root or `vscode-base/`.
 
 ## Development harness and progressive disclosure
 
@@ -151,18 +177,19 @@ the full contents of specifications and decisions. At minimum it owns:
 - development-host guidance covering the watch-based hot-reload loop and the
   disposable fixture workspace a development launch must open.
 
-The product-generated `.bh/agent-harness/` is a different system. It is
-installed into normal user workspaces and explains the user-facing `.bh`
-protocol. It must never be used as the development harness for BaseHalf's own
-source tree.
+The `.bh/agent-harness/` that earlier releases installed into user
+workspaces is a different, retired system (D36). The product no longer
+installs it, and legacy cleanup removes the files it wrote. It must never be
+used as the development harness for BaseHalf's own source tree.
 
 ## Agent-guide ownership
 
 The root `AGENTS.md` and `CLAUDE.md` are human-maintained development entry
 points. They must remain semantically equivalent, follow the same compact
 index structure, and carry the same source-tree warning and development-harness
-routes. Product workspace setup must never inject generated workspace-protocol
-instructions into either file.
+routes. BaseHalf no longer writes instructions into any workspace's
+`AGENTS.md` or `CLAUDE.md` (D36), and the marker keeps legacy cleanup from
+offering to edit these two files.
 
 Development rules belong in the harness, and subsystem details belong in their
 owning specification. The root guides contain durable routing and the minimum
@@ -172,28 +199,34 @@ source-tree safety warning, not duplicated rule bodies.
 
 - Opening the repository root in BaseHalf does not change any file.
 - Opening `vscode-base/` directly in BaseHalf does not change any file.
-- Neither source directory gains `.bh/`, a generated `CLAUDE.md`, an injected
-  workspace-hint block, or a `.gitignore` edit.
+- Opening either source directory adds no `.bh/`, generated `CLAUDE.md`,
+  injected workspace-hint block, or `.gitignore` edit. The passive layout,
+  appearance, and ADHD writers remain the known gap described above.
 - Coding agents use this repository's specifications and decisions as context,
-  never the product's YAML focus protocol.
+  never `.bh/` data or legacy focus files.
 - `AGENTS.md` and `CLAUDE.md` remain semantically identical indexes and route
   substantive work through the harness to the spec-first sequence.
 - The root guides do not enumerate the complete decision corpus or duplicate
   architecture, delivery, or subsystem contracts.
 - `docs/harness/README.md` routes architecture, product-surface, plugin,
   protocol, and delivery work to the documents that own those topics.
-- Development-only guidance lives in `docs/harness/`; the generated
-  `.bh/agent-harness/` remains exclusively a normal-user-workspace feature.
+- Development-only guidance lives in `docs/harness/`; BaseHalf no longer
+  generates `.bh/agent-harness/` in any workspace.
 - The harness documents a development-host launch that opens a disposable
   fixture workspace, and that procedure never opens the repository root or
   `vscode-base/` as a product workspace.
-- Normal user workspaces without the opt-out marker retain the existing BaseHalf
-  initialization behavior.
+- Normal user workspaces without the opt-out marker follow
+  [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)
+  and [reference graph](reference-graph.md).
+- In a marked folder, legacy cleanup returns `skipped: 'marker'` and changes
+  nothing, migration does not run, no sidecar or legacy-record file is written,
+  and Agent Area sessions receive no launch context.
 
 ## Verification
 
 - Confirm both opt-out marker files are tracked.
 - Compare the two root agent guides after every edit.
-- Exercise the existing workspace-setup marker test.
+- Exercise the marker tests of legacy cleanup, migration and sidecar writes,
+  and the agent launch configuration.
 - Run a development-host smoke with the repository root and `vscode-base/`
   protected, then confirm `git status` remains unchanged.

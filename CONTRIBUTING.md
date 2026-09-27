@@ -68,18 +68,25 @@ When contributing, keep these invariants (see [docs/decisions.md](docs/decisions
    `@basehalf/core`; the reverse is forbidden. Modules don't depend on each
    other directly — they coordinate through commands.
 4. **User files = content truth.** Modules that touch user files must be
-   **observers** (file watcher + reconcile-on-launch), never owners. The
-   `.bh/` mirror is derived local runtime state and is gitignored in full.
-5. **core never writes user files unprompted.** Only explicit user edits
-   through the BaseHalf UI (block editor, rename) write back to disk. Agents
-   edit user files with their own tools — core stays out of that path.
-6. **Primitives, not tasks.** Add small composable commands (e.g. `badge.addRef`,
-   `focus.set`), not task-specific ones (e.g. `arrange-into-heart`). The
+   **observers** (file watcher + reconcile-on-launch), never owners. `.bh/`
+   holds BaseHalf project metadata that may be committed; only `.bh/cache/` is
+   machine-local runtime state. BaseHalf does not edit `.gitignore` (see
+   [workspace state](docs/specs/workspace-state-and-legacy-cleanup.md)).
+5. **core never writes user files unprompted.** Only explicit or confirmed
+   user actions through the BaseHalf UI (block editor, rename, connecting
+   cards, a confirmed `upstream` update) write back to disk. Agents edit user
+   files with their own tools — core stays out of that path.
+6. **Primitives, not tasks.** Add small composable commands (e.g. `canvas.setCard`,
+   `adhd.markRead`), not task-specific ones (e.g. `arrange-into-heart`). The
    agent composes them.
-7. **Publish, don't inject.** Agent-facing surfaces write files to known paths
-   in the `.bh/mirror/` tree (`current_focus.yaml` symlink + per-node
-   `badge.yaml` / `canvas.yaml` / `focus.yaml` / `adhd.yaml`); no system-prompt
-   injection, no MCP server required.
+7. **Publish, don't inject workspace content.** Agent-facing context lives in
+   files: each downstream file's `upstream` list, plus per-node `badge.yaml` /
+   `canvas.yaml` / `adhd.yaml` / `appearance.yaml` / `upstream.yaml` in the
+   `.bh/mirror/` tree. BaseHalf writes no focus files and no agent guides. The
+   only injected text is a static, workspace-independent instruction that
+   Agent Area passes to Claude Code at launch
+   ([agent launch context](docs/specs/agent-launch-context.md)); no MCP server
+   required.
 8. **Any RMW on a `.bh/` YAML needs a mutex.** Serialize read-modify-writes on a
    mirror file through `createKeyedMutex` (kernel) or concurrent writers (the
    watcher + an in-app edit) silently lose updates.
