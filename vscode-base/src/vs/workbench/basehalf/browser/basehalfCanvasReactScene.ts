@@ -52,6 +52,7 @@ import {
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
+	BASEHALF_CANVAS_CARD_CORNER_RADIUS,
 	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT,
@@ -348,6 +349,106 @@ export function baseHalfCanvasResizeStartSize(
 		width: safeDimension(width, fallback.width, BASEHALF_CANVAS_MIN_CARD_WIDTH),
 		height: safeDimension(height, fallback.height, BASEHALF_CANVAS_MIN_CARD_HEIGHT)
 	};
+}
+
+export type BaseHalfCanvasResizeCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+type BaseHalfCanvasResizeSide = 'top' | 'right' | 'bottom' | 'left';
+
+const RESIZE_CORNERS: readonly BaseHalfCanvasResizeCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const RESIZE_SIDES: readonly BaseHalfCanvasResizeSide[] = ['top', 'right', 'bottom', 'left'];
+const RESIZE_CORNER_BAND_SCREEN_OUTSET = 12;
+const RESIZE_CORNER_BAND_SCREEN_INSET = 8;
+const RESIZE_CORNER_BAND_SCREEN_SEAM = 1;
+const RESIZE_CORNER_INDICATOR_SCREEN_GAP = 5;
+const RESIZE_CORNER_INDICATOR_SCREEN_STROKE = 3;
+const RESIZE_CORNER_INDICATOR_SPAN = Math.PI * 50 / 180;
+
+/**
+ * Side resize targets cover only the straight part of each side; the rounded
+ * ends belong to the corner targets.
+ */
+const RESIZE_SIDE_STYLES: Readonly<Record<BaseHalfCanvasResizeSide, CSSProperties>> = {
+	top: { left: BASEHALF_CANVAS_CARD_CORNER_RADIUS, width: `calc(100% - ${2 * BASEHALF_CANVAS_CARD_CORNER_RADIUS}px)` },
+	bottom: { left: BASEHALF_CANVAS_CARD_CORNER_RADIUS, width: `calc(100% - ${2 * BASEHALF_CANVAS_CARD_CORNER_RADIUS}px)` },
+	left: { top: BASEHALF_CANVAS_CARD_CORNER_RADIUS, height: `calc(100% - ${2 * BASEHALF_CANVAS_CARD_CORNER_RADIUS}px)` },
+	right: { top: BASEHALF_CANVAS_CARD_CORNER_RADIUS, height: `calc(100% - ${2 * BASEHALF_CANVAS_CARD_CORNER_RADIUS}px)` }
+};
+
+export interface IBaseHalfCanvasResizeCornerGeometry {
+	/** Node-local placement of the control box, whose corner is the arc center. */
+	readonly style: {
+		readonly left: number | string;
+		readonly top: number | string;
+		readonly width: number;
+		readonly height: number;
+		readonly translate: 'none';
+	};
+	readonly viewBox: string;
+	/** The part of the hit band outside the card edge, which stacks below the card. */
+	readonly outerBandPath: string;
+	readonly outerBandWidth: number;
+	/** The part of the hit band inside the card edge, which stacks above the card's content. */
+	readonly innerBandPath: string;
+	readonly innerBandWidth: number;
+	/** The visible arc: the middle of the corner, its round caps included. */
+	readonly indicatorPath: string;
+	readonly indicatorWidth: number;
+}
+
+/**
+ * Resolves one corner's resize target and indicator in flow units. Both are
+ * concentric with the card's rounded corner and keep constant screen sizes at
+ * every zoom, so the target follows the painted silhouette instead of the
+ * bounding rectangle.
+ */
+export function resolveBaseHalfCanvasResizeCornerGeometry(corner: BaseHalfCanvasResizeCorner, zoom: number): IBaseHalfCanvasResizeCornerGeometry {
+	const safeZoom = Number.isFinite(zoom) && zoom > 0 ? Math.max(BASEHALF_CANVAS_MIN_ZOOM, zoom) : 1;
+	const round = (value: number): number => Math.round(value * 1000) / 1000;
+	const radius = BASEHALF_CANVAS_CARD_CORNER_RADIUS;
+	const bandInner = Math.max(0, radius - RESIZE_CORNER_BAND_SCREEN_INSET / safeZoom);
+	const bandOuter = radius + RESIZE_CORNER_BAND_SCREEN_OUTSET / safeZoom;
+	// The inner part reaches just past the edge so no seam opens between the
+	// part above the card and the part below it.
+	const innerBandOuter = radius + RESIZE_CORNER_BAND_SCREEN_SEAM / safeZoom;
+	const indicatorWidth = RESIZE_CORNER_INDICATOR_SCREEN_STROKE / safeZoom;
+	const indicatorRadius = radius + RESIZE_CORNER_INDICATOR_SCREEN_GAP / safeZoom + indicatorWidth / 2;
+	// A round cap reaches half the stroke past its end point, so pull each end
+	// in by that reach to keep the painted mark inside its span.
+	const capAngle = Math.min(RESIZE_CORNER_INDICATOR_SPAN / 2, Math.asin(Math.min(1, indicatorWidth / 2 / indicatorRadius)));
+	const indicatorFrom = Math.PI / 4 - RESIZE_CORNER_INDICATOR_SPAN / 2 + capAngle;
+	const indicatorTo = Math.PI / 4 + RESIZE_CORNER_INDICATOR_SPAN / 2 - capAngle;
+	const [vertical, horizontal] = corner.split('-');
+	const xSign = horizontal === 'right' ? 1 : -1;
+	const ySign = vertical === 'bottom' ? 1 : -1;
+	// Angles run from the side tangent point (0) to the top or bottom tangent
+	// point (π/2). Mirroring one axis reverses the sweep direction.
+	const sweep = xSign * ySign > 0 ? 1 : 0;
+	const point = (arcRadius: number, angle: number): string => `${round(xSign * arcRadius * Math.cos(angle))} ${round(ySign * arcRadius * Math.sin(angle))}`;
+	const arc = (arcRadius: number, from: number, to: number): string => `M ${point(arcRadius, from)} A ${round(arcRadius)} ${round(arcRadius)} 0 0 ${sweep} ${point(arcRadius, to)}`;
+	const extent = round(bandOuter);
+	return {
+		style: {
+			left: xSign > 0 ? `calc(100% - ${radius}px)` : round(radius - bandOuter),
+			top: ySign > 0 ? `calc(100% - ${radius}px)` : round(radius - bandOuter),
+			width: extent,
+			height: extent,
+			translate: 'none'
+		},
+		viewBox: `${xSign > 0 ? 0 : -extent} ${ySign > 0 ? 0 : -extent} ${extent} ${extent}`,
+		outerBandPath: arc((radius + bandOuter) / 2, 0, Math.PI / 2),
+		outerBandWidth: round(bandOuter - radius),
+		innerBandPath: arc((bandInner + innerBandOuter) / 2, 0, Math.PI / 2),
+		innerBandWidth: round(innerBandOuter - bandInner),
+		indicatorPath: arc(indicatorRadius, indicatorFrom, indicatorTo),
+		indicatorWidth: round(indicatorWidth)
+	};
+}
+
+/** Clears the resizing state and the active corner at the same boundary. */
+function clearCardResizeState(element: HTMLElement): void {
+	delete element.dataset.cardResizing;
+	delete element.dataset.cardResizeCorner;
 }
 
 export function captureBaseHalfCanvasNodeDragOrigins(
@@ -1125,6 +1226,95 @@ function createCanvasSceneMount(
 	const EdgeInteractionContext = vendor.createContext<IBaseHalfCanvasEdgeInteraction | undefined>(undefined);
 	const SelectionSizeContext = vendor.createContext(0);
 
+	interface ICardResizeControlsProps {
+		readonly onResizeStart: () => void;
+		readonly onResize: (corner: BaseHalfCanvasResizeCorner | undefined) => void;
+		readonly onResizeEnd: () => void;
+	}
+
+	function CardResizeCorner({ corner, zoom, onResizeStart, onResize, onResizeEnd }: ICardResizeControlsProps & {
+		readonly corner: BaseHalfCanvasResizeCorner;
+		readonly zoom: number;
+	}): ReactElement {
+		const markCornerResizing = vendor.useCallback(() => onResize(corner), [corner, onResize]);
+		const geometry = resolveBaseHalfCanvasResizeCornerGeometry(corner, zoom);
+		// The control box only places the band. It neither paints nor takes the
+		// pointer; the band inherits React Flow's diagonal cursor and its press
+		// bubbles to the control's drag handler. The band's two parts live in
+		// two layers: the outer one stacks below the card, the inner one above it.
+		return h(vendor.NodeResizeControl, {
+			position: corner,
+			variant: vendor.ResizeControlVariant.Handle,
+			className: 'basehalf-canvas-node-resizer-handle',
+			style: geometry.style,
+			autoScale: false,
+			minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
+			minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT,
+			onResizeStart,
+			onResize: markCornerResizing,
+			onResizeEnd
+		},
+			h('svg', {
+				className: 'basehalf-canvas-node-resize-corner',
+				viewBox: geometry.viewBox,
+				'aria-hidden': true,
+				focusable: false
+			},
+				h('path', {
+					className: 'basehalf-canvas-node-resize-corner-band',
+					d: geometry.outerBandPath,
+					strokeWidth: geometry.outerBandWidth
+				}),
+				h('path', {
+					className: 'basehalf-canvas-node-resize-corner-indicator',
+					d: geometry.indicatorPath,
+					strokeWidth: geometry.indicatorWidth
+				})
+			),
+			h('svg', {
+				className: 'basehalf-canvas-node-resize-corner inner',
+				viewBox: geometry.viewBox,
+				'aria-hidden': true,
+				focusable: false
+			},
+				h('path', {
+					className: 'basehalf-canvas-node-resize-corner-band',
+					d: geometry.innerBandPath,
+					strokeWidth: geometry.innerBandWidth
+				})
+			)
+		);
+	}
+
+	function CardResizeControls({ onResizeStart, onResize, onResizeEnd }: ICardResizeControlsProps): ReactElement {
+		// Only the single selected card renders these controls, so following the
+		// live zoom here does not re-render the rest of the scene.
+		const zoom = vendor.useStore(state => state.transform[2]);
+		const markSideResizing = vendor.useCallback(() => onResize(undefined), [onResize]);
+		return h(vendor.Fragment, null,
+			...RESIZE_SIDES.map(side => h(vendor.NodeResizeControl, {
+				key: side,
+				position: side,
+				variant: vendor.ResizeControlVariant.Line,
+				className: 'basehalf-canvas-node-resizer-line',
+				style: RESIZE_SIDE_STYLES[side],
+				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
+				minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT,
+				onResizeStart,
+				onResize: markSideResizing,
+				onResizeEnd
+			})),
+			...RESIZE_CORNERS.map(corner => h(CardResizeCorner, {
+				key: corner,
+				corner,
+				zoom,
+				onResizeStart,
+				onResize,
+				onResizeEnd
+			}))
+		);
+	}
+
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
@@ -1192,7 +1382,7 @@ function createCanvasSceneMount(
 			}
 			activeResizeRef.current = undefined;
 			active.removeBoundaryListeners();
-			delete active.card.element.dataset.cardResizing;
+			clearCardResizeState(active.card.element);
 			active.end();
 		}, []);
 		const beginCardResize = vendor.useCallback((): void => {
@@ -1218,16 +1408,24 @@ function createCanvasSceneMount(
 					settleAtPointerBoundary();
 				}
 			};
+			const settleAtWindowBlur = (event: FocusEvent): void => {
+				// A capture listener on the window also sees every element's blur.
+				// The press itself moves focus off a focused card, so only the
+				// window losing focus may settle the gesture.
+				if (event.target === view) {
+					settleAtPointerBoundary();
+				}
+			};
 			const removeBoundaryListeners = (): void => {
 				view?.removeEventListener('pointerup', settleAtPointerBoundary, true);
 				view?.removeEventListener('pointercancel', settleAtPointerBoundary, true);
 				view?.removeEventListener('lostpointercapture', settleAtLostPointerCapture, true);
-				view?.removeEventListener('blur', settleAtPointerBoundary, true);
+				view?.removeEventListener('blur', settleAtWindowBlur, true);
 			};
 			view?.addEventListener('pointerup', settleAtPointerBoundary, true);
 			view?.addEventListener('pointercancel', settleAtPointerBoundary, true);
 			view?.addEventListener('lostpointercapture', settleAtLostPointerCapture, true);
-			view?.addEventListener('blur', settleAtPointerBoundary, true);
+			view?.addEventListener('blur', settleAtWindowBlur, true);
 			activeResizeRef.current = {
 				card: data.card,
 				end: data.endResize,
@@ -1235,10 +1433,19 @@ function createCanvasSceneMount(
 			};
 			data.beginResize();
 		}, [data.beginResize, data.card, data.endResize, finishCardResize]);
-		const markCardResizing = vendor.useCallback((): void => {
+		const markCardResizing = vendor.useCallback((corner: BaseHalfCanvasResizeCorner | undefined): void => {
 			const active = activeResizeRef.current;
-			if (active) {
-				active.card.element.dataset.cardResizing = 'true';
+			if (!active) {
+				return;
+			}
+			// Runs on every resize frame; write only changes so selectors keyed on
+			// these attributes are not invalidated per frame.
+			const dataset = active.card.element.dataset;
+			if (dataset.cardResizing !== 'true') {
+				dataset.cardResizing = 'true';
+			}
+			if (corner && dataset.cardResizeCorner !== corner) {
+				dataset.cardResizeCorner = corner;
 			}
 		}, []);
 		const prepareCardResizeMeasurement = vendor.useCallback((event: globalThis.PointerEvent): void => {
@@ -1266,7 +1473,7 @@ function createCanvasSceneMount(
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
 			finishCardResize();
-			delete mounted.card.element.dataset.cardResizing;
+			clearCardResizeState(mounted.card.element);
 			const active = mounted.card.element.ownerDocument.activeElement;
 			if (isHTMLElement(active) && mounted.card.element.contains(active)) {
 				active.blur();
@@ -1297,7 +1504,7 @@ function createCanvasSceneMount(
 			}
 			return () => {
 				finishCardResize();
-				delete data.card.element.dataset.cardResizing;
+				clearCardResizeState(data.card.element);
 				if (data.card.element.parentElement === mount) {
 					const active = data.card.element.ownerDocument.activeElement;
 					replacementFocusPath.current = isHTMLElement(active)
@@ -1350,16 +1557,13 @@ function createCanvasSceneMount(
 		}, [data.card, data.card.element, height, presentation, structuralSelectionVisible]);
 
 		return h(vendor.Fragment, null,
-			h(vendor.NodeResizer, {
-				minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
-				minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT,
-				isVisible: resizeControlsVisible,
-				lineClassName: 'basehalf-canvas-node-resizer-line',
-				handleClassName: 'basehalf-canvas-node-resizer-handle',
-				onResizeStart: beginCardResize,
-				onResize: markCardResizing,
-				onResizeEnd: finishCardResize
-			}),
+			resizeControlsVisible
+				? h(CardResizeControls, {
+					onResizeStart: beginCardResize,
+					onResize: markCardResizing,
+					onResizeEnd: finishCardResize
+				})
+				: null,
 			...(['north', 'east', 'south', 'west'] as const).map(anchor => h(vendor.Handle, {
 				key: anchor,
 				id: anchor,

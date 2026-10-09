@@ -44,8 +44,9 @@ The smoke currently covers canvas startup, hidden Open Editors, Quick Open,
 Quick Text Search, folder routing, the reference-graph flows (connect,
 disconnect, both reconnects, canvas undo after closing a note, the badge
 editor's Upstream and Downstream, PDF branch, rename refactor, and migration of
-a seeded legacy pair), legacy workspace cleanup, the rich reveal highlight, and
-the video node flows. Extend its acceptance coverage when a
+a seeded legacy pair), legacy workspace cleanup, the rich reveal highlight,
+card resizing with its rounded corner targets and indicator, and the video node
+flows. Extend its acceptance coverage when a
 changed workbench flow is not represented there.
 
 The broader VS Code-base suite is:

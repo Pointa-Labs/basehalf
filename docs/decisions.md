@@ -8,8 +8,9 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D38 capture the current direction; D35–D38
-> (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline.
+> (see notes inline). D12–D39 capture the current direction; D35–D38
+> (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline,
+> and D39 (2026-10) refines D21.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -868,3 +869,38 @@ bookkeeping for Explorer moves.
   Codex's default sandbox denies the bridge socket, so their moves, like
   terminal moves and agents outside Agent Area, still leave metadata behind.
 - The operation is refused in marked source-tree folders.
+
+## D39 — Agent Area terminals identify as BaseHalf and scroll like Ghostty (NEW, 2026-10-09)
+
+**Decision.** Every integrated terminal, which in BaseHalf is always an Agent
+Area terminal, reports `TERM_PROGRAM=BaseHalf` with BaseHalf's version and
+answers XTVERSION as `BaseHalf(<version>)`. It turns the mouse wheel into
+input with Ghostty's semantics: one wheel report, or one cursor key in the
+alternate buffer, per row of accumulated scroll. Because Claude Code no longer
+applies its xterm.js-only glyph-atlas reset, the terminal clears its WebGL
+glyph atlas itself before the atlas starts merging pages. See
+[Agent Area terminal](specs/agent-area-terminal.md).
+
+**Why.** Scrolling Claude Code's fullscreen renderer in Agent Area stuttered,
+and measurement put the cause at the terminal boundary, not in rendering.
+xterm.js sends at most one damped report per wheel event, and agents that
+recognize xterm.js compensate with velocity guesses. Claude Code's curve
+produced 3-row steps with stalls of more than 300 ms on slow swipes and jumps of
+up to 69 rows on medium ones. Fixing only the reports made it worse, because
+the curve read standard reports as very fast scrolling. Fixing only the
+identity made scrolling far too slow. Together they put Claude Code on the
+model it uses in Ghostty, one frame per report. Matching a native terminal at
+this boundary works for every TUI and does not depend on any agent's internal
+heuristics.
+
+**Consequences.**
+- Refines D21: Agent Area terminals are BaseHalf's own terminal, not VS Code's
+  terminal, toward the programs that run in them.
+- Tools treat the terminal as an unknown truecolor `xterm-256color` terminal.
+  Their xterm.js- and VS Code-specific behaviors stop. TUI agents no longer
+  auto-connect to their VS Code companion extensions.
+- VS Code behaviors keyed on `TERM_PROGRAM=vscode` (CLI window reuse,
+  `--wait` refocus, fish shell integration, Python environment activation)
+  recognize `BaseHalf` instead.
+- The terminal reaches into xterm.js internals to encode wheel reports. A test
+  pins them, and a missing internal falls back to xterm.js's own reports.

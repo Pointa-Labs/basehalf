@@ -76,7 +76,7 @@ if ($env:VSCODE_ENV_APPEND) {
 # Prevent multiple activation with guard
 if (-not $env:VSCODE_PYTHON_AUTOACTIVATE_GUARD) {
 	$env:VSCODE_PYTHON_AUTOACTIVATE_GUARD = '1'
-	if ($env:VSCODE_PYTHON_PWSH_ACTIVATE -and $env:TERM_PROGRAM -eq 'vscode') {
+	if ($env:VSCODE_PYTHON_PWSH_ACTIVATE -and $env:TERM_PROGRAM -eq 'BaseHalf') {
 		$activateScript = $env:VSCODE_PYTHON_PWSH_ACTIVATE
 
 		try {

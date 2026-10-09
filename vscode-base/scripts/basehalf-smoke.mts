@@ -1326,6 +1326,7 @@ async function assertAgentAreaTerminalCommand(page) {
 	await assertAgentAreaSurfaceKind(page, 'terminal');
 	await assertAgentAreaTerminalClipboardPaste(page);
 	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
+	await assertAgentAreaTerminalVersionAndWheelReports(page);
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
@@ -1594,10 +1595,10 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
 	await terminal.click();
-	await page.keyboard.insertText(`node -e "console.log('BH_NO_COLOR='+(process.env.NO_COLOR||'<empty>')); console.log('BH_TERM='+process.env.TERM); console.log('BH_COLORTERM='+process.env.COLORTERM); console.log('BH_TERM_PROGRAM='+process.env.TERM_PROGRAM); console.log('BH_FORCE_COLOR='+(process.env.FORCE_COLOR||'<empty>')); console.log('BH_NODE_DISABLE_COLORS='+(process.env.NODE_DISABLE_COLORS||'<empty>')); process.stdout.write('\\x1b[31mBH_RED_SENTINEL\\x1b[0m \\x1b[36mBH_CYAN_SENTINEL\\x1b[0m\\n')"`);
+	await page.keyboard.insertText(`node -e "console.log('BH_NO_COLOR='+(process.env.NO_COLOR||'<empty>')); console.log('BH_TERM='+process.env.TERM); console.log('BH_COLORTERM='+process.env.COLORTERM); console.log('BH_TERM_PROGRAM='+process.env.TERM_PROGRAM); console.log('BH_TERM_PROGRAM_VERSION='+process.env.TERM_PROGRAM_VERSION); console.log('BH_FORCE_COLOR='+(process.env.FORCE_COLOR||'<empty>')); console.log('BH_NODE_DISABLE_COLORS='+(process.env.NODE_DISABLE_COLORS||'<empty>')); process.stdout.write('\\x1b[31mBH_RED_SENTINEL\\x1b[0m \\x1b[36mBH_CYAN_SENTINEL\\x1b[0m\\n')"`);
 	await page.keyboard.press('Enter');
 
-	await page.waitForFunction(() => {
+	await page.waitForFunction(expectedVersion => {
 		const getActiveXtermBufferText = (): string => {
 			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
 			const buffer = wrapper?.xterm?.buffer?.active;
@@ -1615,12 +1616,13 @@ async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 		return text.includes('BH_NO_COLOR=<empty>')
 			&& text.includes('BH_TERM=xterm-256color')
 			&& text.includes('BH_COLORTERM=truecolor')
-			&& text.includes('BH_TERM_PROGRAM=vscode')
+			&& text.includes('BH_TERM_PROGRAM=BaseHalf')
+			&& text.includes(`BH_TERM_PROGRAM_VERSION=${expectedVersion}`)
 			&& text.includes('BH_FORCE_COLOR=<empty>')
 			&& text.includes('BH_NODE_DISABLE_COLORS=<empty>')
 			&& text.includes('BH_RED_SENTINEL')
 			&& text.includes('BH_CYAN_SENTINEL');
-	}, null, { timeout: 20_000 });
+	}, product.basehalfVersion, { timeout: 20_000 });
 
 	await page.waitForFunction(() => {
 		const activeXtermHasPaletteText = (marker: string, paletteIndex: number): boolean => {
@@ -1650,6 +1652,119 @@ async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 		return activeXtermHasPaletteText('BH_RED_SENTINEL', 1)
 			&& activeXtermHasPaletteText('BH_CYAN_SENTINEL', 6);
 	}, null, { timeout: 20_000 });
+}
+
+// A terminal program that prints the terminal's XTVERSION reply, or counts the
+// wheel reports it receives while tracking the mouse in the alternate buffer.
+function agentAreaTerminalProbeSource() {
+	return String.raw`
+const mode = process.argv[2];
+process.stdin.setRawMode(true);
+process.stdin.setEncoding('latin1');
+const finish = line => {
+	process.stdin.setRawMode(false);
+	console.log(line);
+	process.exit(0);
+};
+if (mode === 'xtversion') {
+	let reply = '';
+	setTimeout(() => finish('BH_XTVERSION=<none>'), 5000);
+	process.stdin.on('data', chunk => {
+		reply += chunk;
+		const match = /\x1bP>\|([^\x1b]*)\x1b\\/.exec(reply);
+		if (match) {
+			finish('BH_XTVERSION=' + match[1]);
+		}
+	});
+	process.stdout.write('\x1b[>0q');
+} else {
+	let up = 0;
+	let down = 0;
+	process.stdout.write('\x1b[?1049h\x1b[?1000h\x1b[?1006hBH_WHEEL_READY');
+	process.stdin.on('data', chunk => {
+		for (const match of chunk.matchAll(/\x1b\[<(\d+);\d+;\d+[Mm]/g)) {
+			if (match[1] === '64') {
+				up++;
+			} else if (match[1] === '65') {
+				down++;
+			}
+		}
+		if (chunk.includes('q')) {
+			process.stdout.write('\x1b[?1006l\x1b[?1000l\x1b[?1049l');
+			finish('BH_WHEEL_REPORTS=' + up + ',' + down);
+		}
+	});
+}
+`;
+}
+
+async function waitForActiveAgentAreaTerminalLine(page, prefix) {
+	const handle = await page.waitForFunction(expectedPrefix => {
+		const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
+		const buffer = wrapper?.xterm?.buffer?.active;
+		for (let index = buffer ? buffer.length - 1 : -1; index >= 0; index--) {
+			const line = buffer?.getLine(index)?.translateToString(true) ?? '';
+			if (line.startsWith(expectedPrefix)) {
+				return line;
+			}
+		}
+		return false;
+	}, prefix, { timeout: 20_000 });
+	return await handle.jsonValue();
+}
+
+// Agent Area terminals answer XTVERSION as BaseHalf and turn a trackpad
+// gesture into one wheel report per accumulated row, Ghostty-style
+// (docs/specs/agent-area-terminal.md).
+async function assertAgentAreaTerminalVersionAndWheelReports(page) {
+	const probe = path.join(runRoot, 'agent-area-terminal-probe.cjs');
+	fs.writeFileSync(probe, agentAreaTerminalProbeSource());
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.click();
+
+	await page.keyboard.insertText(`node ${JSON.stringify(probe)} xtversion`);
+	await page.keyboard.press('Enter');
+	const version = await waitForActiveAgentAreaTerminalLine(page, 'BH_XTVERSION=');
+	if (version !== `BH_XTVERSION=BaseHalf(${product.basehalfVersion})`) {
+		throw new Error(`Agent Area terminal answered XTVERSION with ${version}`);
+	}
+
+	await page.keyboard.insertText(`node ${JSON.stringify(probe)} wheel`);
+	await page.keyboard.press('Enter');
+	await page.waitForFunction(() => {
+		const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { type: string } }; modes?: { mouseTrackingMode: string } } } | null;
+		return wrapper?.xterm?.buffer?.active?.type === 'alternate' && wrapper.xterm.modes?.mouseTrackingMode === 'vt200';
+	}, null, { timeout: 20_000 });
+	const cellHeight = await page.evaluate(() => {
+		const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } } } } | null;
+		return wrapper?.xterm?._core?._renderService?.dimensions?.css?.cell?.height ?? 0;
+	});
+	const box = await terminal.boundingBox();
+	const pointer = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+	// A trackpad gesture, shaped like Chromium's precise macOS wheel events
+	// (wheelDelta is three times the pixel delta). CDP-synthesized wheel events
+	// always carry one notch, which reads as a physical wheel, so they serve as
+	// the two notches afterwards.
+	const deltas = [2, 3, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 3, 2, 1];
+	await page.evaluate(async ({ deltas, pointer }) => {
+		const screen = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .xterm-screen');
+		for (const delta of deltas) {
+			screen?.dispatchEvent(new WheelEvent('wheel', { deltaY: -delta, deltaMode: 0, wheelDeltaY: 3 * delta, clientX: pointer.x, clientY: pointer.y, bubbles: true, cancelable: true }));
+			await new Promise(resolve => setTimeout(resolve, 8));
+		}
+	}, { deltas, pointer });
+	await page.mouse.move(pointer.x, pointer.y);
+	await page.mouse.wheel(0, -40);
+	await page.mouse.wheel(0, -40);
+	await page.waitForTimeout(500);
+	await page.keyboard.press('q');
+	const reports = await waitForActiveAgentAreaTerminalLine(page, 'BH_WHEEL_REPORTS=');
+	const [up, down] = String(reports).slice('BH_WHEEL_REPORTS='.length).split(',').map(Number);
+	const pixels = deltas.reduce((total, delta) => total + delta, 0);
+	const expected = Math.floor(2 * pixels / cellHeight) + 2 * 3;
+	if (!(cellHeight > 0) || down !== 0 || Math.abs(up - expected) > 1) {
+		throw new Error(`Agent Area terminal sent ${up} up and ${down} down wheel reports for ${pixels}px of trackpad scroll and two wheel notches; expected ${expected} (cell height ${cellHeight}).`);
+	}
 }
 
 async function assertAgentAreaGhosttySplitVisuals(page) {
@@ -3401,15 +3516,11 @@ async function assertVideoComposerResizeAndKeyboardGeometry(page, {
 	await resizeHandle.waitFor({ state: 'visible', timeout: 10_000 });
 	const beforeResize = await captureVideoAttachedChrome(page, canvasPath);
 	const cardBeforeResize = await card.boundingBox();
-	const handleBeforeResize = await resizeHandle.boundingBox();
-	if (!cardBeforeResize || !handleBeforeResize) {
+	if (!cardBeforeResize) {
 		throw new Error('Could not measure the selected Video card before resize');
 	}
 	const canvasBeforeResize = fs.readFileSync(canvasYamlPath, 'utf8');
-	const resizeStart = {
-		x: handleBeforeResize.x + handleBeforeResize.width / 2,
-		y: handleBeforeResize.y + handleBeforeResize.height / 2
-	};
+	const resizeStart = await canvasCardCornerBandPoint(card, 'bottom-right');
 	await page.evaluate(path => {
 		const state = window as typeof window & { __basehalfVideoResizeTimeline?: string[] };
 		state.__basehalfVideoResizeTimeline = [];
@@ -6528,36 +6639,86 @@ async function captureCanvasCardComputedChrome(card) {
 			&& border.style !== 'hidden'
 			&& border.color !== 'transparent'
 			&& border.color !== 'rgba(0, 0, 0, 0)';
+		// Probe the real hit-testing against the painted silhouette: the corner
+		// arc comes from the card's own computed radius and live zoom, so these
+		// samples also catch a scene radius that drifts from the CSS token.
+		const cardRect = element.getBoundingClientRect();
+		const cardZoom = element.offsetWidth > 0 ? cardRect.width / element.offsetWidth : 1;
+		const cornerRadius = Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) * cardZoom;
+		const cornerPoint = (corner, degrees, distance) => {
+			const [vertical, horizontal] = corner.split('-');
+			const xSign = horizontal === 'right' ? 1 : -1;
+			const ySign = vertical === 'bottom' ? 1 : -1;
+			const centerX = xSign > 0 ? cardRect.right - cornerRadius : cardRect.left + cornerRadius;
+			const centerY = ySign > 0 ? cardRect.bottom - cornerRadius : cardRect.top + cornerRadius;
+			const radians = degrees * Math.PI / 180;
+			return { x: centerX + xSign * distance * Math.cos(radians), y: centerY + ySign * distance * Math.sin(radians) };
+		};
+		const describeHit = hit => hit instanceof Element ? `${hit.tagName.toLowerCase()}.${hit.getAttribute('class') ?? ''}` : null;
+		const isResizeTarget = hit => hit instanceof Element && hit.closest('.react-flow__resize-control') !== null;
 		const resizeLines = Array.from(node.querySelectorAll('.basehalf-canvas-node-resizer-line')).map(line => {
 			const style = getComputedStyle(line);
 			const borders = borderPaint(style);
+			const bounds = line.getBoundingClientRect();
+			const vertical = line.classList.contains('left') || line.classList.contains('right');
 			return {
 				className: line.getAttribute('class'),
 				opacity: style.opacity,
 				pointerEvents: style.pointerEvents,
 				borders,
-				painted: Object.values(borders).some(isPaintedBorder)
+				painted: Object.values(borders).some(isPaintedBorder),
+				coversOnlyStraightSide: vertical
+					? Math.abs(bounds.top - (cardRect.top + cornerRadius)) <= 1 && Math.abs(bounds.bottom - (cardRect.bottom - cornerRadius)) <= 1
+					: Math.abs(bounds.left - (cardRect.left + cornerRadius)) <= 1 && Math.abs(bounds.right - (cardRect.right - cornerRadius)) <= 1
 			};
 		});
 		const resizeHandles = Array.from(node.querySelectorAll('.basehalf-canvas-node-resizer-handle')).map(handle => {
 			const style = getComputedStyle(handle);
-			const bounds = handle.getBoundingClientRect();
 			const borders = borderPaint(style);
 			const visible = isVisible(handle);
 			const backgroundPainted = style.backgroundColor !== 'transparent'
 				&& style.backgroundColor !== 'rgba(0, 0, 0, 0)';
+			const corner = `${handle.classList.contains('top') ? 'top' : 'bottom'}-${handle.classList.contains('left') ? 'left' : 'right'}`;
+			const bands = Array.from(handle.querySelectorAll('.basehalf-canvas-node-resize-corner-band'));
+			const indicator = handle.querySelector('.basehalf-canvas-node-resize-corner-indicator');
+			const indicatorStyle = indicator ? getComputedStyle(indicator) : undefined;
+			// The band spans both sides of the rounded edge: the outer part below
+			// the card and the inner strip above the card's content.
+			const arcSamples = [10, 45, 80].flatMap(degrees => [3, -4].map(offset => {
+				const point = cornerPoint(corner, degrees, cornerRadius + offset);
+				const hit = document.elementFromPoint(point.x, point.y);
+				return {
+					degrees,
+					offset,
+					hitsBand: hit !== null && bands.includes(hit),
+					cursor: hit ? getComputedStyle(hit).cursor : 'none',
+					hit: describeHit(hit)
+				};
+			}));
+			const inside = cornerPoint(corner, 45, cornerRadius - 12);
+			const insideHit = document.elementFromPoint(inside.x, inside.y);
+			const beyond = cornerPoint(corner, 45, cornerRadius + 16);
+			const beyondHit = document.elementFromPoint(beyond.x, beyond.y);
 			return {
 				className: handle.getAttribute('class'),
+				corner,
 				visible,
-				interactive: visible && style.pointerEvents !== 'none',
+				interactive: visible && arcSamples.every(sample => sample.hitsBand),
 				painted: visible && (backgroundPainted || Object.values(borders).some(isPaintedBorder)),
-				width: bounds.width,
-				height: bounds.height,
-				cursor: style.cursor,
+				arcSamples,
+				insideBelongsToCard: insideHit instanceof Element && element.contains(insideHit) && !isResizeTarget(insideHit),
+				insideHit: describeHit(insideHit),
+				beyondBandIsTarget: isResizeTarget(beyondHit),
+				beyondHit: describeHit(beyondHit),
 				borderColor: style.borderColor,
 				backgroundColor: style.backgroundColor,
 				opacity: style.opacity,
-				pointerEvents: style.pointerEvents
+				pointerEvents: style.pointerEvents,
+				indicatorVisible: visible
+					&& indicatorStyle !== undefined
+					&& indicatorStyle.display !== 'none'
+					&& Number.parseFloat(indicatorStyle.opacity) > 0,
+				indicatorStroke: indicatorStyle?.stroke ?? 'none'
 			};
 		});
 		const connectionHandles = Array.from(node.querySelectorAll('.basehalf-canvas-card-connect-handle')).map(handle => {
@@ -6637,6 +6798,9 @@ function assertCanvasCardChromeDoesNotUseIntent(chrome, phase) {
 		if (handle.painted && handle.backgroundColor === chrome.colors.intent) {
 			usages.push(`resizeHandle[${index}].backgroundColor`);
 		}
+		if (handle.indicatorVisible && handle.indicatorStroke === chrome.colors.intent) {
+			usages.push(`resizeHandle[${index}].indicatorStroke`);
+		}
 	}
 	if (usages.length > 0) {
 		throw new Error(`Canvas card used connection-intent paint during ${phase}: ${JSON.stringify({ usages, chrome })}`);
@@ -6677,19 +6841,75 @@ function assertCanvasCardResizeChromeIsNeutral(chrome, phase) {
 		throw new Error(`Canvas card rendered a resize outline during ${phase}: ${JSON.stringify(chrome.resizeLines)}`);
 	}
 	if (chrome.paintedResizeHandles !== 0) {
-		throw new Error(`Canvas card painted visible resize points during ${phase}: ${JSON.stringify(chrome.resizeHandles)}`);
+		throw new Error(`Canvas card painted a resize control box during ${phase}: ${JSON.stringify(chrome.resizeHandles)}`);
+	}
+	// The corner indicator is the only resize paint: at most one arc, in the
+	// neutral geometry color.
+	const indicators = chrome.resizeHandles.filter(handle => handle.indicatorVisible);
+	if (indicators.length > 1 || indicators.some(handle => handle.indicatorStroke !== chrome.colors.geometryStrong)) {
+		throw new Error(`Canvas card showed more than one neutral corner indicator during ${phase}: ${JSON.stringify({ indicators, geometryStrong: chrome.colors.geometryStrong })}`);
 	}
 }
 
-function assertCanvasCardHasInvisibleCornerResizeTargets(chrome, phase) {
-	const interactive = chrome.resizeHandles.filter(handle => handle.interactive);
-	const diagonalCursors = new Set(['nesw-resize', 'nwse-resize']);
-	const invalid = interactive.filter(handle => handle.painted
-		|| handle.width < 15.5
-		|| handle.height < 15.5
-		|| !diagonalCursors.has(handle.cursor));
-	if (interactive.length !== 4 || invalid.length > 0) {
-		throw new Error(`Canvas card did not expose four invisible corner resize targets during ${phase}: ${JSON.stringify({ interactive, invalid })}`);
+function assertCanvasCardHasRoundedCornerResizeTargets(chrome, phase) {
+	const cursors = {
+		'top-left': 'nwse-resize',
+		'top-right': 'nesw-resize',
+		'bottom-left': 'nesw-resize',
+		'bottom-right': 'nwse-resize'
+	};
+	const corners = chrome.resizeHandles.map(handle => handle.corner).sort();
+	const invalid = chrome.resizeHandles.filter(handle => !handle.interactive
+		|| handle.painted
+		|| handle.arcSamples.some(sample => sample.cursor !== cursors[handle.corner])
+		|| !handle.insideBelongsToCard
+		|| handle.beyondBandIsTarget);
+	const misplacedSides = chrome.resizeLines.filter(line => !line.coversOnlyStraightSide);
+	if (JSON.stringify(corners) !== JSON.stringify(['bottom-left', 'bottom-right', 'top-left', 'top-right'])
+		|| invalid.length > 0
+		|| misplacedSides.length > 0) {
+		throw new Error(`Canvas card did not expose rounded corner and straight side resize targets during ${phase}: ${JSON.stringify({ corners, invalid, misplacedSides })}`);
+	}
+}
+
+/**
+ * A point on a card's corner resize band: on the corner arc's 45° radius, a few
+ * screen pixels outside the painted edge.
+ */
+async function canvasCardCornerBandPoint(card, corner = 'bottom-right', outside = 4) {
+	return card.evaluate((element, { corner, outside }) => {
+		const rect = element.getBoundingClientRect();
+		const zoom = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1;
+		const radius = Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) * zoom;
+		const [vertical, horizontal] = corner.split('-');
+		const xSign = horizontal === 'right' ? 1 : -1;
+		const ySign = vertical === 'bottom' ? 1 : -1;
+		const distance = (radius + outside) * Math.SQRT1_2;
+		return {
+			x: (xSign > 0 ? rect.right - radius : rect.left + radius) + xSign * distance,
+			y: (ySign > 0 ? rect.bottom - radius : rect.top + radius) + ySign * distance
+		};
+	}, { corner, outside });
+}
+
+async function waitForCanvasCardCornerIndicators(page, cardPath, expectedCorners, phase) {
+	try {
+		await page.waitForFunction(({ path, expected }) => {
+			const card = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`);
+			const node = card?.closest('.react-flow__node');
+			if (!node) {
+				return false;
+			}
+			const handles = Array.from(node.querySelectorAll('.basehalf-canvas-node-resizer-handle'));
+			return handles.length === 4 && handles.every(handle => {
+				const corner = `${handle.classList.contains('top') ? 'top' : 'bottom'}-${handle.classList.contains('left') ? 'left' : 'right'}`;
+				const indicator = handle.querySelector('.basehalf-canvas-node-resize-corner-indicator');
+				const opacity = indicator ? getComputedStyle(indicator).opacity : '0';
+				return opacity === (expected.includes(corner) ? '1' : '0');
+			});
+		}, { path: cardPath, expected: expectedCorners }, { timeout: 3_000 });
+	} catch (error) {
+		throw new Error(`Corner indicators of ${cardPath} did not settle to ${JSON.stringify(expectedCorners)} ${phase}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 
@@ -7986,7 +8206,7 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	}, cardSelector, { timeout: 3_000 });
 	let selectedNoteChrome = await captureCanvasCardComputedChrome(note);
 	assertCanvasCardResizeChromeIsNeutral(selectedNoteChrome, 'selected Note pointer state');
-	assertCanvasCardHasInvisibleCornerResizeTargets(selectedNoteChrome, 'selected Note pointer state');
+	assertCanvasCardHasRoundedCornerResizeTargets(selectedNoteChrome, 'selected Note pointer state');
 	if (!selectedNoteChrome.cardSelected
 		|| !selectedNoteChrome.nodeSelected
 		|| selectedNoteChrome.visibleResizeHandles !== 4
@@ -9627,7 +9847,7 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	await docsNode.locator(':scope > .basehalf-canvas-node-resizer-handle.bottom.right').waitFor({ state: 'visible', timeout: 10_000 });
 	const activeBeforeDrag = await captureCanvasCardComputedChrome(docs);
 	assertCanvasCardResizeChromeIsNeutral(activeBeforeDrag, 'selected docs card before drag');
-	assertCanvasCardHasInvisibleCornerResizeTargets(activeBeforeDrag, 'selected docs card before drag');
+	assertCanvasCardHasRoundedCornerResizeTargets(activeBeforeDrag, 'selected docs card before drag');
 	if (!activeBeforeDrag.cardSelected
 		|| !activeBeforeDrag.nodeSelected
 		|| activeBeforeDrag.visibleResizeHandles !== 4
@@ -9764,19 +9984,19 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 		throw new Error(`Dragging a card rebuilt card DOM instead of reconciling layout in place: ${paths}`);
 	}
 
-	const resizeHandle = docsNode.locator(':scope > .basehalf-canvas-node-resizer-handle.bottom.right');
-	const [resizeBeforeBox, resizeHandleBox] = await Promise.all([docs.boundingBox(), resizeHandle.boundingBox()]);
-	if (!resizeBeforeBox || !resizeHandleBox) {
+	const resizeBeforeBox = await docs.boundingBox();
+	if (!resizeBeforeBox) {
 		throw new Error('Could not measure the selected docs card before resize');
 	}
 	const resizeCanvasBefore = fs.readFileSync(canvasPath, 'utf8');
 	const resizeBeforeChrome = await captureCanvasCardComputedChrome(docs);
 	assertCanvasCardResizeChromeIsNeutral(resizeBeforeChrome, 'selected docs card before resize');
 	assertCanvasCardPaintEqual(activeBeforeDrag.cardPaint, resizeBeforeChrome.cardPaint, 'drag-to-resize resting transition');
-	const resizeStart = {
-		x: resizeHandleBox.x + resizeHandleBox.width / 2,
-		y: resizeHandleBox.y + resizeHandleBox.height / 2
-	};
+	const resizeStart = await canvasCardCornerBandPoint(docs, 'bottom-right');
+	await page.mouse.move(1, 1);
+	await waitForCanvasCardCornerIndicators(page, 'docs', [], 'with the pointer away from the selected docs card');
+	await page.mouse.move(resizeStart.x, resizeStart.y);
+	await waitForCanvasCardCornerIndicators(page, 'docs', ['bottom-right'], 'while hovering the docs card bottom-right band');
 	await docs.evaluate(card => {
 		const scope = window as typeof window & { __basehalfSmokeNoMoveResizeObserver?: MutationObserver };
 		scope.__basehalfSmokeNoMoveResizeObserver?.disconnect();
@@ -9831,6 +10051,7 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	await page.mouse.down();
 	await page.mouse.move(resizeStart.x + 48, resizeStart.y + 36, { steps: 10 });
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') === 'true', null, { timeout: 10_000 });
+	await waitForCanvasCardCornerIndicators(page, 'docs', ['bottom-right'], 'while resizing the docs card from its bottom-right band');
 	const resizeDuringChrome = await captureCanvasCardComputedChrome(docs);
 	assertCanvasCardResizeChromeIsNeutral(resizeDuringChrome, 'active docs card resize');
 	assertCanvasCardPaintEqual(resizeBeforeChrome.cardPaint, resizeDuringChrome.cardPaint, 'resize pointer-down transition');
@@ -9859,23 +10080,27 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 		|| resizeAfterBox.height < resizeBeforeBox.height + 18) {
 		throw new Error(`Resized docs card did not retain its new dimensions: ${JSON.stringify({ resizeBeforeBox, resizeAfterBox })}`);
 	}
+	await page.mouse.move(1, 1);
+	await waitForCanvasCardCornerIndicators(page, 'docs', [], 'after the docs card resize settled and the pointer left its band');
 
-	const restoreHandleBox = await resizeHandle.boundingBox();
-	if (!restoreHandleBox) {
-		throw new Error('Could not measure the docs card handle before restoring its fixture size');
-	}
 	const restoreCanvasBefore = fs.readFileSync(canvasPath, 'utf8');
-	const restoreStart = {
-		x: restoreHandleBox.x + restoreHandleBox.width / 2,
-		y: restoreHandleBox.y + restoreHandleBox.height / 2
+	const restoreStart = await canvasCardCornerBandPoint(docs, 'bottom-right');
+	const restoreTarget = {
+		x: restoreStart.x + resizeBeforeBox.width - resizeAfterBox.width,
+		y: restoreStart.y + resizeBeforeBox.height - resizeAfterBox.height
 	};
+	// A selected card usually holds keyboard focus. The press moves focus off
+	// it, and that element blur must not settle the resize session.
+	const docsFocused = await docs.evaluate(card => {
+		card.focus({ preventScroll: true });
+		return card.ownerDocument.activeElement === card;
+	});
+	if (!docsFocused) {
+		throw new Error('Could not focus the docs card before its fixture-size restore');
+	}
 	await page.mouse.move(restoreStart.x, restoreStart.y);
 	await page.mouse.down();
-	await page.mouse.move(
-		restoreStart.x + resizeBeforeBox.width - resizeAfterBox.width,
-		restoreStart.y + resizeBeforeBox.height - resizeAfterBox.height,
-		{ steps: 10 }
-	);
+	await page.mouse.move(restoreTarget.x, restoreTarget.y, { steps: 10 });
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') === 'true', null, { timeout: 10_000 });
 	const restoreDuringChrome = await captureCanvasCardComputedChrome(docs);
 	assertCanvasCardResizeChromeIsNeutral(restoreDuringChrome, 'active docs card fixture-size restore');
@@ -9889,6 +10114,33 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	if (fs.readFileSync(canvasPath, 'utf8') !== restoreCanvasBefore) {
 		throw new Error('Restored Canvas geometry persisted before the resize gesture completed');
 	}
+	// Past the minimum size the card stops following the pointer, so the pointer
+	// leaves the corner band. The corner the gesture started from keeps its
+	// indicator until the gesture settles. Returning restores the fixture size,
+	// because the resizer measures from the gesture's start.
+	const excursion = { x: restoreTarget.x - restoreDuringBox.width, y: restoreTarget.y - restoreDuringBox.height };
+	await page.mouse.move(excursion.x, excursion.y, { steps: 8 });
+	await page.waitForFunction(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		return card instanceof HTMLElement && card.offsetWidth <= 141 && card.offsetHeight <= 49;
+	}, null, { timeout: 10_000 });
+	const excursionInBand = await docs.evaluate((element, pointer) => {
+		const rect = element.getBoundingClientRect();
+		const zoom = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1;
+		const radius = Number.parseFloat(getComputedStyle(element).borderTopLeftRadius) * zoom;
+		const centerX = rect.right - radius;
+		const centerY = rect.bottom - radius;
+		return pointer.x >= centerX && pointer.y >= centerY && Math.hypot(pointer.x - centerX, pointer.y - centerY) <= radius + 12;
+	}, excursion);
+	if (excursionInBand) {
+		throw new Error(`The minimum-size excursion left the pointer on the bottom-right band: ${JSON.stringify(excursion)}`);
+	}
+	await waitForCanvasCardCornerIndicators(page, 'docs', ['bottom-right'], 'after the pointer left the band mid-resize');
+	await page.mouse.move(restoreTarget.x, restoreTarget.y, { steps: 8 });
+	await page.waitForFunction(({ width, height }) => {
+		const rect = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getBoundingClientRect();
+		return !!rect && Math.abs(rect.width - width) <= 2 && Math.abs(rect.height - height) <= 2;
+	}, { width: resizeBeforeBox.width, height: resizeBeforeBox.height }, { timeout: 10_000 });
 	await page.mouse.up();
 	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== restoreCanvasBefore, 'restored docs geometry to persist after pointer-up');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]')?.getAttribute('data-card-resizing') !== 'true', null, { timeout: 10_000 });

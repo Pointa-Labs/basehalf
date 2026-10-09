@@ -36,10 +36,15 @@ path. Their history remains available for archaeology.
   VS Code extension Codex, VS Code extension Claude Code, and Terminal sessions.
   Route extension-created terminals there; do not expose stock VS Code
   Agent/Chat/Copilot/Sessions or terminal-panel UI as competing product areas.
+- Agent Area terminals present themselves to the programs in them as
+  BaseHalf's terminal: `TERM_PROGRAM=BaseHalf`, a BaseHalf XTVERSION reply,
+  and Ghostty wheel semantics. Do not reintroduce the `vscode` identity or
+  xterm.js's one-report-per-event wheel input
+  ([Agent Area terminal](../specs/agent-area-terminal.md), D39).
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 
-See [roadmap.md](../roadmap.md) and public decisions D20–D23 in
+See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
 [decisions.md](../decisions.md).
 
 ## Content and graph truth

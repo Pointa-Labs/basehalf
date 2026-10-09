@@ -172,6 +172,8 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 	readonly onDidDispose = this._onDidDispose.event;
 	private readonly _onDidChangeProgress = this._register(new Emitter<IProgressState>());
 	readonly onDidChangeProgress = this._onDidChangeProgress.event;
+	private readonly _onDidAddTextureAtlasPage = this._register(new Emitter<void>());
+	readonly onDidAddTextureAtlasPage = this._onDidAddTextureAtlasPage.event;
 
 	get markTracker(): IMarkTracker { return this._markNavigationAddon; }
 	get shellIntegration(): IShellIntegration { return this._shellIntegrationAddon; }
@@ -870,6 +872,7 @@ export class XtermTerminal extends Disposable implements IXtermTerminal, IDetach
 				this._logService.info(`Webgl lost context, disposing of webgl renderer`);
 				this._disposeOfWebglRenderer();
 			}));
+			this._store.add(this._webglAddon.onAddTextureAtlasCanvas(() => this._onDidAddTextureAtlasPage.fire()));
 			this._refreshImageAddon();
 			// WebGL renderer cell dimensions differ from the DOM renderer, make sure the terminal
 			// gets resized after the webgl addon is loaded

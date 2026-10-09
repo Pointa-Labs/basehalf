@@ -39,7 +39,7 @@ suite('Workbench - TerminalEnvironment', () => {
 		test('should set expected variables', () => {
 			const env: { [key: string]: any } = {};
 			addTerminalEnvironmentKeys(env, '1.2.3', 'en', 'on');
-			strictEqual(env['TERM_PROGRAM'], 'vscode');
+			strictEqual(env['TERM_PROGRAM'], 'BaseHalf');
 			strictEqual(env['TERM_PROGRAM_VERSION'], '1.2.3');
 			strictEqual(env['COLORTERM'], 'truecolor');
 			strictEqual(env['LANG'], 'en_US.UTF-8');
@@ -313,8 +313,14 @@ suite('Workbench - TerminalEnvironment', () => {
 	suite('createTerminalEnvironment', () => {
 		const commonVariables = {
 			COLORTERM: 'truecolor',
-			TERM_PROGRAM: 'vscode'
+			TERM_PROGRAM: 'BaseHalf'
 		};
+		test('should not add the terminal identity to a strict environment', async () => {
+			deepStrictEqual(
+				await createTerminalEnvironment({ strictEnv: true, env: { foo: 'bar' } }, undefined, undefined, '1.2.3', 'off', { baz: 'qux' }),
+				{ foo: 'bar' }
+			);
+		});
 		test('should retain variables equal to the empty string', async () => {
 			deepStrictEqual(
 				await createTerminalEnvironment({}, undefined, undefined, undefined, 'off', { foo: 'bar', empty: '' }),

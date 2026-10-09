@@ -215,6 +215,9 @@ Done means:
   session types receive none
   ([agent launch context](specs/agent-launch-context.md)).
 - The existing Ghosty-inspired terminal interaction quality is preserved.
+- Agent Area terminals identify as BaseHalf and turn the wheel into input with
+  Ghostty's semantics, so full-screen TUI agents scroll smoothly
+  ([Agent Area terminal](specs/agent-area-terminal.md)).
 - Stock VS Code Agent/Chat/Copilot/Sessions UI does not leak into the product.
 
 ### 8. Extension Allowlist, Authentication, And Secrets

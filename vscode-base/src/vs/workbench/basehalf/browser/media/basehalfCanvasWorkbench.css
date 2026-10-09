@@ -1028,6 +1028,11 @@ body.basehalf-canvas-edge-reconnecting * {
 	flex-direction: column;
 	overflow: hidden;
 	border-radius: var(--bh-card-inner-radius);
+	/* Chromium's hit testing ignores a rounded overflow clip for descendants
+	 * that paint in their own layer, such as a positioned preview. The same
+	 * rounded clip-path keeps every preview from taking the pointer in the
+	 * empty corners outside the card's outline, where the resize bands live. */
+	clip-path: inset(0 round var(--bh-card-inner-radius));
 }
 
 .monaco-workbench .basehalf-canvas-card-active {
@@ -4348,18 +4353,80 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-color: transparent !important;
 }
 
+/* A corner control is a square with one corner on its arc's center. The scene
+ * sizes and places it per zoom; it never paints or takes the pointer itself, so
+ * nothing square remains outside the card's rounded silhouette. Only the two
+ * parts of its band are hit-tested, and both inherit React Flow's diagonal
+ * resize cursor. */
 .monaco-workbench .basehalf-canvas-node-resizer-handle {
-	/* Keep a generous hit target at normal and zoomed-out scales without
-	 * painting square controls outside the card's rounded silhouette. React
-	 * Flow retains the native diagonal resize cursor and gesture handling. */
-	width: 16px !important;
-	height: 16px !important;
 	box-sizing: border-box;
 	background: transparent !important;
 	border: 0 !important;
 	border-radius: 0;
 	box-shadow: none !important;
 	outline: none !important;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner {
+	position: absolute;
+	inset: 0;
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	pointer-events: none;
+	/* The band's transparent stroke must stay transparent in forced colors; the
+	 * indicator already resolves to CanvasText through its geometry token. */
+	forced-color-adjust: none;
+}
+
+/* The outer layer stacks below the card, so the caption keeps the pointer where
+ * it overlaps the band near a top corner. The inner layer stacks above the
+ * card's content, so the strip just inside the rounded edge resizes instead of
+ * moving the card. It stays inside the outline, never under the caption, and
+ * below the connection handles. */
+.monaco-workbench .basehalf-canvas-node-resize-corner.inner {
+	z-index: 3;
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner-band {
+	fill: none;
+	stroke: transparent;
+	pointer-events: stroke;
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
+	fill: none;
+	stroke: var(--bh-canvas-geometry-strong);
+	stroke-linecap: round;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 100ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle:hover .basehalf-canvas-node-resize-corner-indicator {
+	opacity: 1;
+}
+
+/* Once a gesture moves the card, only the corner it started from keeps its
+ * indicator, even after the pointer leaves that corner's band. */
+.monaco-workbench .react-flow__node.dragging > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-indicator,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-indicator {
+	opacity: 0;
+}
+
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="top-left"]) > .basehalf-canvas-node-resizer-handle.top.left .basehalf-canvas-node-resize-corner-indicator,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="top-right"]) > .basehalf-canvas-node-resizer-handle.top.right .basehalf-canvas-node-resize-corner-indicator,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="bottom-left"]) > .basehalf-canvas-node-resizer-handle.bottom.left .basehalf-canvas-node-resize-corner-indicator,
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="bottom-right"]) > .basehalf-canvas-node-resizer-handle.bottom.right .basehalf-canvas-node-resize-corner-indicator {
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
+		transition: none;
+	}
 }
 
 /* The workbench marks the Note as editing before the React scene commits its
@@ -4370,6 +4437,10 @@ body.basehalf-canvas-edge-reconnecting * {
 	opacity: 0 !important;
 	pointer-events: none !important;
 	transition: none !important;
+}
+
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-band {
+	pointer-events: none !important;
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),

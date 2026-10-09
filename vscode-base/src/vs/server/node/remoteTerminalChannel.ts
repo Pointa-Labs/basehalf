@@ -14,7 +14,7 @@ import { IURITransformer } from '../../base/common/uriIpc.js';
 import { IServerChannel } from '../../base/parts/ipc/common/ipc.js';
 import { createRandomIPCHandle } from '../../base/parts/ipc/node/ipc.net.js';
 import { RemoteAgentConnectionContext } from '../../platform/remote/common/remoteAgentEnvironment.js';
-import { IPtyHostService, IShellLaunchConfig, ITerminalProfile } from '../../platform/terminal/common/terminal.js';
+import { IPtyHostService, IShellLaunchConfig, ITerminalProfile, getTerminalProgramVersion } from '../../platform/terminal/common/terminal.js';
 import { IGetTerminalLayoutInfoArgs, ISetTerminalLayoutInfoArgs } from '../../platform/terminal/common/terminalProcess.js';
 import { IWorkspaceFolder } from '../../platform/workspace/common/workspace.js';
 import { createURITransformer } from '../../base/common/uriTransformer.js';
@@ -239,7 +239,7 @@ export class RemoteTerminalChannel extends Disposable implements IServerChannel<
 			shellLaunchConfig,
 			envFromConfig,
 			variableResolver,
-			this._productService.version,
+			getTerminalProgramVersion(this._productService),
 			args.configuration['terminal.integrated.detectLocale'],
 			baseEnv
 		);

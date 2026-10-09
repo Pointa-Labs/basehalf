@@ -44,14 +44,17 @@ started them; stop it with `npm run kill-watchd`.
 
 ## Launch the host
 
-A development launch opens a disposable fixture workspace. It must never open
-the repository root or `vscode-base/` as a product workspace.
+A development launch opens a disposable fixture workspace that lives outside
+the repository, where a user's own workspace would. It must never open the
+repository root or `vscode-base/` as a product workspace. Do not keep the
+fixture inside the repository either, not even in an ignored directory such as
+`vscode-base/.build/`.
 
 ```bash
 cd vscode-base
 unset ELECTRON_RUN_AS_NODE
-mkdir -p .build/basehalf-dev-workspace
-./scripts/code.sh "$PWD/.build/basehalf-dev-workspace" \
+mkdir -p "$HOME/basehalf-dev-workspace"
+./scripts/code.sh "$HOME/basehalf-dev-workspace" \
   --user-data-dir="$PWD/.build/basehalf-dev-user-data" \
   --extensions-dir="$PWD/.build/basehalf-dev-extensions" \
   --logsPath="$PWD/.build/basehalf-dev-logs"
@@ -95,8 +98,9 @@ error message:
 - Running under the wrong Node version fails during the pre-launch build rather
   than at startup.
 
-Keeping host state under `vscode-base/.build/` keeps a development profile out
-of the installed product's profile and inside an ignored directory. Those
+Host state, meaning the development profile, extensions, and logs, stays under
+`vscode-base/.build/`. That keeps it out of the installed product's profile and
+inside an ignored directory. It is tool state, not a workspace. Those
 directories accumulate logs and crash dumps across sessions; clearing entries
 older than the current session is safe.
 

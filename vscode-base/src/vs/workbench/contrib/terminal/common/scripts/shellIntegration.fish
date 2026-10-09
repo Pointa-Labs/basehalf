@@ -9,14 +9,14 @@
 #
 #   (1) Add the following to the end of `$__fish_config_dir/config.fish`:
 #
-#         string match -q "$TERM_PROGRAM" "vscode"
+#         string match -q "$TERM_PROGRAM" "BaseHalf"
 #         and . (code --locate-shell-integration-path fish)
 #
 #   (2) Restart fish.
 
 # Don't run in scripts, other terminals, or more than once per session.
 status is-interactive
-and string match --quiet "$TERM_PROGRAM" "vscode"
+and string match --quiet "$TERM_PROGRAM" "BaseHalf"
 and ! set --query VSCODE_SHELL_INTEGRATION
 or exit
 
@@ -86,7 +86,7 @@ end
 # Prevent multiple activation with guard
 if not set -q VSCODE_PYTHON_AUTOACTIVATE_GUARD
 	set -gx VSCODE_PYTHON_AUTOACTIVATE_GUARD 1
-	if test -n "$VSCODE_PYTHON_FISH_ACTIVATE"; and test "$TERM_PROGRAM" = "vscode"
+	if test -n "$VSCODE_PYTHON_FISH_ACTIVATE"; and test "$TERM_PROGRAM" = "BaseHalf"
 		# Fish does not crash on eval failure, so don't need negation.
 		eval $VSCODE_PYTHON_FISH_ACTIVATE
 		set __vsc_activation_status $status

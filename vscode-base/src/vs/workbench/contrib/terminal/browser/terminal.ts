@@ -1382,6 +1382,12 @@ export interface IXtermTerminal extends IDisposable {
 	readonly onDidChangeFocus: Event<boolean>;
 
 	/**
+	 * Fires when the WebGL renderer's glyph texture atlas adds a page because its
+	 * pages are full. Terminals that share an atlas all receive it.
+	 */
+	readonly onDidAddTextureAtlasPage: Event<void>;
+
+	/**
 	 * Fires after a search is performed.
 	 */
 	readonly onAfterSearch: Event<void>;

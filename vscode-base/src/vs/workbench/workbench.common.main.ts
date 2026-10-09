@@ -500,6 +500,7 @@ import './basehalf/browser/basehalfReferences.contribution.js';
 import './basehalf/browser/basehalfReferenceMigration.contribution.js';
 import './basehalf/browser/basehalfLegacyCleanup.contribution.js';
 import './basehalf/browser/basehalfAgentArea.contribution.js';
+import './basehalf/browser/basehalfAgentAreaTerminal.contribution.js';
 import './basehalf/browser/basehalfNodeCommandBridge.contribution.js';
 
 //#endregion

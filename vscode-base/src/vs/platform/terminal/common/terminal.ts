@@ -302,6 +302,31 @@ export interface ITerminalLaunchResult {
 	injectedArgs: string[];
 }
 
+/**
+ * The program name that integrated terminals report through `TERM_PROGRAM` and
+ * XTVERSION. In BaseHalf every integrated terminal is an Agent Area terminal,
+ * which presents itself as BaseHalf's own terminal rather than VS Code's (D39,
+ * docs/specs/agent-area-terminal.md).
+ */
+export const TERMINAL_PROGRAM_NAME = 'BaseHalf';
+
+/**
+ * The version that integrated terminals report together with
+ * {@link TERMINAL_PROGRAM_NAME}: BaseHalf's version, or the VS Code version
+ * when the product defines none.
+ */
+export function getTerminalProgramVersion(product: { readonly basehalfVersion?: string; readonly version: string }): string {
+	return product.basehalfVersion ?? product.version;
+}
+
+/**
+ * Whether `termProgram`, the `TERM_PROGRAM` of a process, identifies one of
+ * this application's integrated terminals.
+ */
+export function isIntegratedTerminalProgram(termProgram: string | undefined): boolean {
+	return termProgram === TERMINAL_PROGRAM_NAME;
+}
+
 export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
 /**
  * Version 3 (D37): capability discovery describes downstream-owned upstream

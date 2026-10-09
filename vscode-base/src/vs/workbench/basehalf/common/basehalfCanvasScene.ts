@@ -11,6 +11,8 @@ export const BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT = 'basehalf-note-toolbar-f
 export const BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT = 'basehalf-note-format-state';
 export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP = 8;
 export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT = 24;
+/** Mirrors `--bh-card-radius`; the corner resize targets follow this arc. */
+export const BASEHALF_CANVAS_CARD_CORNER_RADIUS = 22;
 export const BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT = 'basehalf-video-composer-layout';
 export const BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP = 16;
 export const BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT = 172;

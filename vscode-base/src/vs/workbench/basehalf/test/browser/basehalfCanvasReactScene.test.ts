@@ -8,11 +8,13 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import {
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
+	BASEHALF_CANVAS_CARD_CORNER_RADIUS,
 	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
 } from '../../common/basehalfCanvasScene.js';
 import {
 	BaseHalfCanvasPendingConnectionState,
+	BaseHalfCanvasResizeCorner,
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasResizeStartSize,
@@ -36,6 +38,7 @@ import {
 	resolveBaseHalfCanvasVideoSelectionPlacement,
 	resolveBaseHalfCanvasSelectionToolbarPlacement,
 	resolveBaseHalfCanvasCardFocusPath,
+	resolveBaseHalfCanvasResizeCornerGeometry,
 	restoreBaseHalfCanvasNodeDragOrigins
 } from '../../browser/basehalfCanvasReactScene.js';
 
@@ -511,6 +514,110 @@ suite('BaseHalfCanvasReactScene', () => {
 			measured: { width: 640, height: 360 },
 			style: { width: 640, height: 360 }
 		});
+	});
+
+	test('anchors each corner resize target on its rounded corner arc', () => {
+		const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+		assert.deepStrictEqual(Object.fromEntries(corners.map(corner => [corner, resolveBaseHalfCanvasResizeCornerGeometry(corner, 1)])), {
+			'top-left': {
+				style: { left: -12, top: -12, width: 34, height: 34, translate: 'none' },
+				viewBox: '-34 -34 34 34',
+				outerBandPath: 'M -28 0 A 28 28 0 0 1 0 -28',
+				outerBandWidth: 12,
+				innerBandPath: 'M -18.5 0 A 18.5 18.5 0 0 1 0 -18.5',
+				innerBandWidth: 9,
+				indicatorPath: 'M -26.231 -11.144 A 28.5 28.5 0 0 1 -11.144 -26.231',
+				indicatorWidth: 3
+			},
+			'top-right': {
+				style: { left: 'calc(100% - 22px)', top: -12, width: 34, height: 34, translate: 'none' },
+				viewBox: '0 -34 34 34',
+				outerBandPath: 'M 28 0 A 28 28 0 0 0 0 -28',
+				outerBandWidth: 12,
+				innerBandPath: 'M 18.5 0 A 18.5 18.5 0 0 0 0 -18.5',
+				innerBandWidth: 9,
+				indicatorPath: 'M 26.231 -11.144 A 28.5 28.5 0 0 0 11.144 -26.231',
+				indicatorWidth: 3
+			},
+			'bottom-left': {
+				style: { left: -12, top: 'calc(100% - 22px)', width: 34, height: 34, translate: 'none' },
+				viewBox: '-34 0 34 34',
+				outerBandPath: 'M -28 0 A 28 28 0 0 0 0 28',
+				outerBandWidth: 12,
+				innerBandPath: 'M -18.5 0 A 18.5 18.5 0 0 0 0 18.5',
+				innerBandWidth: 9,
+				indicatorPath: 'M -26.231 11.144 A 28.5 28.5 0 0 0 -11.144 26.231',
+				indicatorWidth: 3
+			},
+			'bottom-right': {
+				style: { left: 'calc(100% - 22px)', top: 'calc(100% - 22px)', width: 34, height: 34, translate: 'none' },
+				viewBox: '0 0 34 34',
+				outerBandPath: 'M 28 0 A 28 28 0 0 1 0 28',
+				outerBandWidth: 12,
+				innerBandPath: 'M 18.5 0 A 18.5 18.5 0 0 1 0 18.5',
+				innerBandWidth: 9,
+				indicatorPath: 'M 26.231 11.144 A 28.5 28.5 0 0 1 11.144 26.231',
+				indicatorWidth: 3
+			}
+		});
+		assert.deepStrictEqual(
+			resolveBaseHalfCanvasResizeCornerGeometry('bottom-right', Number.NaN),
+			resolveBaseHalfCanvasResizeCornerGeometry('bottom-right', 1)
+		);
+	});
+
+	test('keeps corner resize bands and indicators at constant screen sizes across zoom', () => {
+		const zooms = [0.2, 0.5, 1, 2, 4];
+		const parseArc = (path: string) => {
+			const [, startX, startY, , radius, , , , , endX, endY] = path.split(' ').map(Number);
+			return { startX, startY, radius, endX, endY };
+		};
+		const summarize = (corner: BaseHalfCanvasResizeCorner, zoom: number) => {
+			const geometry = resolveBaseHalfCanvasResizeCornerGeometry(corner, zoom);
+			const screen = (value: number) => Math.round(value * zoom * 100) / 100;
+			const degrees = (radians: number) => Math.round(radians * 1800 / Math.PI) / 10;
+			const outer = parseArc(geometry.outerBandPath);
+			const inner = parseArc(geometry.innerBandPath);
+			const indicator = parseArc(geometry.indicatorPath);
+			const spansSector = (arc: ReturnType<typeof parseArc>) => arc.startY === 0
+				&& arc.endX === 0
+				&& Math.abs(arc.startX) === arc.radius
+				&& Math.abs(arc.endY) === arc.radius;
+			const capReach = Math.asin(geometry.indicatorWidth / 2 / indicator.radius);
+			// Band edges are measured from the card edge: negative inside, positive outside.
+			return {
+				outerBand: [
+					screen(outer.radius - geometry.outerBandWidth / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS),
+					screen(outer.radius + geometry.outerBandWidth / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS)
+				],
+				innerBand: [
+					screen(inner.radius - geometry.innerBandWidth / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS),
+					screen(inner.radius + geometry.innerBandWidth / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS)
+				],
+				bandsSpanSector: spansSector(outer) && spansSector(inner),
+				indicatorGap: screen(indicator.radius - geometry.indicatorWidth / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS),
+				indicatorStroke: screen(geometry.indicatorWidth),
+				indicatorSpan: [
+					degrees(Math.atan2(Math.abs(indicator.startY), Math.abs(indicator.startX)) - capReach),
+					degrees(Math.atan2(Math.abs(indicator.endY), Math.abs(indicator.endX)) + capReach)
+				]
+			};
+		};
+		const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+		assert.deepStrictEqual(
+			zooms.flatMap(zoom => corners.map(corner => ({ zoom, corner, ...summarize(corner, zoom) }))),
+			zooms.flatMap(zoom => corners.map(corner => ({
+				zoom,
+				corner,
+				outerBand: [0, 12],
+				// Below a screen radius of 8 the strip stops at the arc's center.
+				innerBand: [-Math.min(8, Math.round(BASEHALF_CANVAS_CARD_CORNER_RADIUS * zoom * 100) / 100), 1],
+				bandsSpanSector: true,
+				indicatorGap: 5,
+				indicatorStroke: 3,
+				indicatorSpan: [20, 70]
+			})))
+		);
 	});
 
 	test('keeps composition and nested controls ahead of graph shortcuts', () => {

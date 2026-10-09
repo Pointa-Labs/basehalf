@@ -137,7 +137,10 @@ only when the user authorizes cleanup.
 
 Development launches, smoke tests, and legacy cleanup or migration tests must
 use disposable fixture workspaces. They must never exercise product workspace
-behavior against the repository root or `vscode-base/`.
+behavior against the repository root or `vscode-base/`. A fixture workspace
+lives outside the repository, as a user's own workspace does. It never lives
+inside the repository, not even in an ignored directory such as
+`vscode-base/.build/`.
 
 ## Development harness and progressive disclosure
 
@@ -213,8 +216,8 @@ source-tree safety warning, not duplicated rule bodies.
 - Development-only guidance lives in `docs/harness/`; BaseHalf no longer
   generates `.bh/agent-harness/` in any workspace.
 - The harness documents a development-host launch that opens a disposable
-  fixture workspace, and that procedure never opens the repository root or
-  `vscode-base/` as a product workspace.
+  fixture workspace outside the repository, and that procedure never opens the
+  repository root or `vscode-base/` as a product workspace.
 - Normal user workspaces without the opt-out marker follow
   [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)
   and [reference graph](reference-graph.md).
