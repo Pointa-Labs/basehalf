@@ -98,7 +98,11 @@ Relevant implementation:
   `src/vs/workbench/api/common/extHostBaseHalf.ts`
 - stable API: `src/vscode-dts/vscode.d.ts` under `vscode.basehalf`
 - catalog: `src/vs/workbench/basehalf/common/basehalfPluginCatalog.ts`
-- lifecycle: `src/vs/workbench/basehalf/common/basehalfPluginManagementService.ts`
+- lifecycle: `src/vs/workbench/basehalf/common/basehalfPluginManagementService.ts`.
+  The desktop workbench registers it through
+  `src/vs/workbench/basehalf/electron-browser/basehalfPluginManagementService.ts`,
+  which supplies the temporary directory where downloads are staged, so the
+  common module names no desktop-only service
 
 ### D34 implementation map
 

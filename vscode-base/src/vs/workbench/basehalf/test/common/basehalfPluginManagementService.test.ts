@@ -15,7 +15,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { IChecksumService } from '../../../../platform/checksum/common/checksumService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { INativeEnvironmentService } from '../../../../platform/environment/common/environment.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
@@ -646,6 +646,7 @@ function createFixture(options: {
 		}
 	};
 	const service = new BaseHalfPluginManagementService(
+		URI.file('/tmp'),
 		catalog,
 		management as IWorkbenchExtensionManagementService,
 		enablement as IWorkbenchExtensionEnablementService,
@@ -653,7 +654,7 @@ function createFixture(options: {
 		fileService as IFileService,
 		requestService as IRequestService,
 		{ checksum: async () => options.checksum ?? sha256HexToChecksumBase64(remoteVersion?.sha256 ?? 'a'.repeat(64)) } as unknown as IChecksumService,
-		{ tmpDir: URI.file('/tmp') } as INativeEnvironmentService,
+		{ isBuilt: false } as IEnvironmentService,
 		{ basehalfPlugins: { assetBaseUrl: 'http://127.0.0.1:8123/assets/' } } as IProductService,
 		{ executeCommand: async (id: string) => { commands.push(id); } } as unknown as ICommandService,
 		{ error() { }, warn() { } } as unknown as ILogService,

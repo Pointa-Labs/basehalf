@@ -6,6 +6,6 @@
 import './basehalfPluginStateStore.js';
 import './basehalfModelCredentialStore.js';
 import '../common/basehalfPluginCatalogService.js';
-import '../common/basehalfPluginManagementService.js';
+import './basehalfPluginManagementService.js';
 import '../browser/basehalfPluginManager.contribution.js';
 import '../browser/basehalfPluginsView.js';

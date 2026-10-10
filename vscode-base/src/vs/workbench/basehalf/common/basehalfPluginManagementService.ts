@@ -16,10 +16,9 @@ import { listenStream, newWriteableStream, ReadableStream } from '../../../base/
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { IChecksumService } from '../../../platform/checksum/common/checksumService.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
-import { INativeEnvironmentService } from '../../../platform/environment/common/environment.js';
+import { IEnvironmentService } from '../../../platform/environment/common/environment.js';
 import { ILocalExtension } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { IFileService } from '../../../platform/files/common/files.js';
-import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
 import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
@@ -55,7 +54,13 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 	private readonly queues = new Map<string, Promise<unknown>>();
 	private readonly receiptReconciliations = new Map<string, Promise<void>>();
 
+	/**
+	 * @param downloadRoot Where a plugin download is staged before it is
+	 * verified and installed. The desktop workbench passes its temporary
+	 * directory.
+	 */
 	constructor(
+		private readonly downloadRoot: URI,
 		@IBaseHalfPluginCatalogService private readonly catalogService: IBaseHalfPluginCatalogService,
 		@IWorkbenchExtensionManagementService private readonly extensionManagementService: IWorkbenchExtensionManagementService,
 		@IWorkbenchExtensionEnablementService private readonly enablementService: IWorkbenchExtensionEnablementService,
@@ -63,7 +68,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 		@IFileService private readonly fileService: IFileService,
 		@IRequestService private readonly requestService: IRequestService,
 		@IChecksumService private readonly checksumService: IChecksumService,
-		@INativeEnvironmentService private readonly environmentService: INativeEnvironmentService,
+		@IEnvironmentService private readonly environmentService: IEnvironmentService,
 		@IProductService private readonly productService: IProductService,
 		@ICommandService private readonly commandService: ICommandService,
 		@ILogService private readonly logService: ILogService,
@@ -352,7 +357,7 @@ export class BaseHalfPluginManagementService extends Disposable implements IBase
 		const requestTimeout = disposableTimeout(() => cancellation.cancel(), 120_000);
 		this.cancellations.set(plugin.extensionId, cancellation);
 		this._onDidChange.fire();
-		const directory = joinPath(this.environmentService.tmpDir, `basehalf-plugin-${generateUuid()}`);
+		const directory = joinPath(this.downloadRoot, `basehalf-plugin-${generateUuid()}`);
 		const partial = joinPath(directory, 'download.partial');
 		const vsix = joinPath(directory, 'plugin.vsix');
 		let preserveRecoveryCopy = false;
@@ -618,5 +623,3 @@ export function limitBaseHalfPluginDownloadStream(
 function isPluginWithdrawn(plugin: IBaseHalfResolvedPlugin): boolean {
 	return !!plugin.remote?.versions.length && plugin.remote.versions.every(version => version.status === 'withdrawn');
 }
-
-registerSingleton(IBaseHalfPluginManagementService, BaseHalfPluginManagementService, InstantiationType.Delayed);
