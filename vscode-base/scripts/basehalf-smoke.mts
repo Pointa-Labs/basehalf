@@ -282,6 +282,7 @@ try {
 			await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+			await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
 		console.log(JSON.stringify({
 			ok: true,
 			workspace: workspacePath,
@@ -311,7 +312,8 @@ try {
 					'edge-delete-removes-reference',
 					'canvas-create-from-connection',
 					'canvas-zoom-controls',
-					'canvas-snap-guides'
+					'canvas-snap-guides',
+					'note-that-cannot-hold-a-list'
 			]
 		}, null, 2));
 	} else {
@@ -346,6 +348,7 @@ try {
 		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 		await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+		await step('note-that-cannot-hold-a-list', () => assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
@@ -482,6 +485,7 @@ try {
 			'migration-moves-seeded-legacy-pair',
 			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
+			'note-that-cannot-hold-a-list',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-save-status-hidden',
 			'markdown-rich-blockquote-editable',
@@ -11191,6 +11195,65 @@ async function assertBadgeEditorUpstreamDownstream(page) {
 	if (readWorkspaceFile('README.md') !== readmeBefore) {
 		throw new Error('Downstream edits on README changed README itself instead of the downstream note');
 	}
+}
+
+// A note that starts with a horizontal rule cannot take an upstream list in
+// its own text. BaseHalf keeps the list for it instead of refusing: the note's
+// bytes never change, the connection is drawn, and the badge says where the
+// list is. Once the note can hold a list, the kept list stays in use and Move
+// into File moves it into the note.
+async function assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page) {
+	const note = 'rule-note.md';
+	const notePath = path.join(workspacePath, note);
+	const keptPath = path.join(workspacePath, '.bh', 'mirror', note, 'upstream.yaml');
+	const original = '---\nA line between two rules.\n---\n\nBody\n';
+	fs.writeFileSync(notePath, original, 'utf8');
+	const noteCard = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${note}"]`);
+	await noteCard.waitFor({ state: 'visible', timeout: 10_000 });
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await frameCanvasCardsForConnection(page, [readme, noteCard]);
+
+	await openCanvasBadgeFace(noteCard);
+	const upstream = noteCard.locator('[data-testid="badge-upstream"]');
+	const helper = await upstream.locator('.basehalf-canvas-card-badge-helper').textContent();
+	if (!helper?.includes('BaseHalf keeps this list for this file.')) {
+		throw new Error(`The badge does not say that BaseHalf keeps this note's list: ${JSON.stringify(helper)}`);
+	}
+	if (await upstream.locator('.basehalf-canvas-card-badge-issue-row').count() !== 0) {
+		throw new Error('A note that only starts with a horizontal rule shows an upstream issue');
+	}
+	await noteCard.locator('[data-testid="badge-add-upstream"]').click();
+	const widget = page.locator('.quick-input-widget:visible');
+	await widget.locator('.quick-input-title', { hasText: `Add upstream to ${note}` }).waitFor({ state: 'visible', timeout: 10_000 });
+	await visibleQuickInput(page).fill('README');
+	const readmeRow = widget.locator('.quick-input-list .monaco-list-row[role="option"]', { hasText: 'README.md' }).first();
+	await readmeRow.waitFor({ state: 'visible', timeout: 15_000 });
+	await readmeRow.click();
+	await widget.waitFor({ state: 'hidden', timeout: 10_000 });
+	await waitUntil(() => fs.existsSync(keptPath) && fs.readFileSync(keptPath, 'utf8') === 'upstream:\n  - README.md\n', 'BaseHalf to keep the upstream list for the note');
+	if (fs.readFileSync(notePath, 'utf8') !== original) {
+		throw new Error(`Connecting into the note changed the note: ${JSON.stringify(fs.readFileSync(notePath, 'utf8'))}`);
+	}
+	await noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="valid"]', { hasText: 'README.md' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await closeCanvasBadgeFace(noteCard);
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+
+	// The rule is removed: the note could hold the list now. Its connection
+	// stays, and the badge offers to move the list into the note.
+	fs.writeFileSync(notePath, 'Body\n', 'utf8');
+	await noteCard.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]:visible').waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	await openCanvasBadgeFace(noteCard);
+	const moveIntoFile = upstream.locator('.basehalf-canvas-card-badge-issue-row[data-upstream-issue="misplaced"] .basehalf-canvas-card-badge-issue-action', { hasText: 'Move into File' });
+	await moveIntoFile.waitFor({ state: 'visible', timeout: 10_000 });
+	await moveIntoFile.click();
+	await waitUntil(() => readWorkspaceFile(note) === '---\nupstream:\n  - README.md\n---\nBody\n' && !fs.existsSync(keptPath), 'Move into File to move the kept list into the note');
+	await closeCanvasBadgeFace(noteCard);
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+
+	// Leave the canvas as the following steps expect it.
+	fs.rmSync(notePath);
+	await noteCard.waitFor({ state: 'detached', timeout: 10_000 });
 }
 
 // Select the agent-drawn edge with the mouse and press Delete while focus is

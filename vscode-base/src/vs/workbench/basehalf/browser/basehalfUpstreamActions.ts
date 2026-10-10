@@ -27,6 +27,7 @@ import {
 	baseHalfOrderUpstreamPickerCandidates,
 	baseHalfUniqueUpstreamNameMatch,
 	baseHalfUpstreamEntryMessage,
+	baseHalfUpstreamRebuildCarriesOver,
 	baseHalfUpstreamStoreCanRebuild,
 	baseHalfUpstreamStoreProblemMessage,
 	IBaseHalfUpstreamPickerCandidate
@@ -334,12 +335,14 @@ export class BaseHalfUpstreamActions extends Disposable {
 	 * Markdown list changes through its document and is undone there, so this
 	 * pushes no canvas undo step.
 	 */
-	async rebuildList(node: IBaseHalfWorkspaceResource, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+	async rebuildList(node: IBaseHalfWorkspaceResource, context: IBaseHalfUpstreamActionContext, carriesOver = false): Promise<boolean> {
 		const label = localize('basehalf.upstream.rebuildList', "Rebuild List");
 		const { confirmed } = await this.dialogService.confirm({
 			type: 'question',
 			message: localize('basehalf.upstream.rebuildList.message', "Rebuild the upstream list of {0}?", basename(node.resource)),
-			detail: localize('basehalf.upstream.rebuildList.detail', "BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed."),
+			detail: carriesOver
+				? localize('basehalf.upstream.rebuildList.carryOverDetail', "BaseHalf will keep the connections it can read from this note for you. The note itself is not changed.")
+				: localize('basehalf.upstream.rebuildList.detail', "BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed."),
 			primaryButton: label
 		});
 		if (!confirmed) {
@@ -543,7 +546,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 				// The user is never sent to the file.
 				const row = this.issueRow(upstreamSection, baseHalfUpstreamStoreProblemMessage(view.storeKind, view.problem, view.readError), 'store');
 				if (!readOnly && baseHalfUpstreamStoreCanRebuild(view.storeKind, view.problem, view.readError)) {
-					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.rebuildList', "Rebuild List"), () => this.rebuildList(node, context), 'add-upstream')
+					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.rebuildList', "Rebuild List"), () => this.rebuildList(node, context, baseHalfUpstreamRebuildCarriesOver(view.storeKind, view.problem)), 'add-upstream')
 						.setAttribute('data-testid', 'badge-upstream-rebuild');
 				}
 			}
@@ -868,7 +871,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 			actions.push({ label: localize('basehalf.upstream.moveIntoFile', "Move into File"), run: () => this.moveIntoFile(issue.node, context) });
 		}
 		if (issue.kind === 'store' && !readOnly && baseHalfUpstreamStoreCanRebuild(issue.storeKind, issue.problem)) {
-			actions.push({ label: localize('basehalf.upstream.rebuildList', "Rebuild List"), run: () => this.rebuildList(issue.node, context) });
+			actions.push({ label: localize('basehalf.upstream.rebuildList', "Rebuild List"), run: () => this.rebuildList(issue.node, context, baseHalfUpstreamRebuildCarriesOver(issue.storeKind, issue.problem)) });
 		}
 		return actions;
 	}

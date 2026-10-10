@@ -107,10 +107,17 @@ export interface IBaseHalfUpstreamStoreRead {
 	/** True when an `upstream` key (or sidecar file content) is present. */
 	readonly hasKey: boolean;
 	readonly problem?: BaseHalfUpstreamStoreProblem;
-	/** Whether the store-level problem is shown as an issue. A not-writable
-	 * Markdown document is an issue only when its leading block has a line
-	 * matching `^upstream\s*:`. */
+	/** Whether the store-level problem is shown as an issue. A Markdown
+	 * document BaseHalf does not write is an issue only while its leading
+	 * block holds entries BaseHalf can read (`blockEntries`). */
 	readonly issue: boolean;
+	/**
+	 * Markdown only: the valid entries of an `upstream` key written inside a
+	 * leading block BaseHalf does not recognize as frontmatter. They are not
+	 * this store's items. BaseHalf carries them into the note's sidecar on its
+	 * first write there, and on Rebuild List.
+	 */
+	readonly blockEntries?: readonly string[];
 }
 
 export interface IBaseHalfUpstreamReadOptions {
@@ -584,6 +591,37 @@ function multilineProblem(upstream: IUpstreamSyntax): BaseHalfUpstreamStoreProbl
 }
 
 /**
+ * The valid entries of an `upstream` key inside a leading block that is not
+ * recognized as frontmatter. The key's own lines are read as a list, whatever
+ * the rest of the block holds, so an error elsewhere in the block does not
+ * hide the connections it lists.
+ */
+function unrecognizedBlockEntries(text: string, layout: IMarkdownLayout, options: IBaseHalfUpstreamReadOptions): readonly string[] {
+	if (!layout.upstreamLine) {
+		return [];
+	}
+	const lines = text.slice(layout.contentStart, layout.contentEnd).split(/\r\n|\n|\r/);
+	const first = lines.findIndex(line => /^upstream\s*:/.test(line));
+	// The key's lines run until a line starts another key.
+	let last = first;
+	while (last + 1 < lines.length && /^(?:[ \t]|-|#|$)/.test(lines[last + 1])) {
+		last++;
+	}
+	return baseHalfReadableSidecarUpstreamEntries(lines.slice(first, last + 1).map(line => `${line}\n`).join(''), options);
+}
+
+/**
+ * Whether a Markdown note keeps its upstream list in its sidecar
+ * `upstream.yaml` instead of its frontmatter (reference graph, "A note that
+ * cannot hold its list"). It does while it has no `upstream` key of its own
+ * and either cannot take one or already has a sidecar. `own` is the note's
+ * own read.
+ */
+export function baseHalfMarkdownNoteUsesSidecar(own: Pick<IBaseHalfUpstreamStoreRead, 'hasKey' | 'writable'>, sidecarExists: boolean): boolean {
+	return !own.hasKey && (sidecarExists || !own.writable);
+}
+
+/**
  * Reads the `upstream` frontmatter key of a Markdown document. `text` may be
  * the complete document or its first 64 KiB, and may start with a BOM.
  */
@@ -594,10 +632,22 @@ export function readBaseHalfMarkdownUpstream(text: string, options: IBaseHalfUps
 			return { readable: true, writable: true, items: [], hasKey: false, issue: false };
 		case 'beyondWindow':
 			return { readable: true, writable: false, items: [], hasKey: false, problem: 'frontmatterBeyondWindow', issue: false };
+		// BaseHalf does not treat these blocks as frontmatter and never writes
+		// into them: the note's list is kept in its sidecar
+		// (`baseHalfMarkdownNoteUsesSidecar`).
 		case 'toml':
-			return { readable: true, writable: false, items: [], hasKey: false, problem: 'tomlFrontmatter', issue: layout.upstreamLine };
-		case 'rejected':
-			return { readable: true, writable: false, items: [], hasKey: false, problem: 'frontmatterRejected', issue: layout.upstreamLine };
+		case 'rejected': {
+			const blockEntries = unrecognizedBlockEntries(text, layout, options);
+			return {
+				readable: true,
+				writable: false,
+				items: [],
+				hasKey: false,
+				problem: layout.kind === 'toml' ? 'tomlFrontmatter' : 'frontmatterRejected',
+				issue: blockEntries.length > 0,
+				...(blockEntries.length > 0 ? { blockEntries } : {})
+			};
+		}
 		case 'duplicateKey':
 			return { readable: false, writable: false, items: [], hasKey: true, problem: 'duplicateKey', issue: true };
 	}
@@ -967,6 +1017,11 @@ function locateUpstreamKeys(
 
 function rebuiltListLines(entries: readonly string[], eol: string): string {
 	return entries.length === 0 ? '' : ['upstream:', ...entries.map(entry => `  - ${baseHalfFormatUpstreamEntry(entry)}`)].map(line => line + eol).join('');
+}
+
+/** The text of a sidecar `upstream.yaml` that lists `entries`. */
+export function baseHalfSidecarUpstreamText(entries: readonly string[]): string {
+	return rebuiltListLines(entries, '\n');
 }
 
 /** **Rebuild List** for a Markdown document (reference graph, "Rebuilding a list"). */

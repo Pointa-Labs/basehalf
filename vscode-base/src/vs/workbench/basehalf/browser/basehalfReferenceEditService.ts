@@ -87,6 +87,7 @@ import {
 	BaseHalfUpstreamPlanRefusal,
 	BaseHalfUpstreamStoreKind,
 	BaseHalfUpstreamTextPlan,
+	baseHalfMarkdownNoteUsesSidecar,
 	baseHalfReadableSidecarUpstreamEntries,
 	baseHalfUpstreamSidecarResource,
 	baseHalfUpstreamStoreKind,
@@ -108,15 +109,20 @@ const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 /** Operations the service performs internally besides the public ones. */
 type InternalOperation =
 	| BaseHalfReferenceEditOperation
-	/** Move into File: remove the misplaced `upstream.yaml` when it still has
-	 * the bytes `expected`, the bytes the appended entries were read from. */
-	/** `preserve`: the file holds content the move leaves behind, so its bytes
-	 * are kept as a recovery copy before it is removed. */
+	/**
+	 * Move into File: remove the `upstream.yaml` when it still has the bytes
+	 * `expected`, the bytes the appended entries were read from. `preserve`:
+	 * the file holds content the move leaves behind, so its bytes are kept as
+	 * a recovery copy before it is removed.
+	 */
 	| { readonly kind: 'deleteSidecar'; readonly expected: VSBuffer; readonly preserve?: boolean };
 
 interface IInternalEdit {
 	readonly node: IBaseHalfWorkspaceResource;
 	readonly operation: InternalOperation;
+	/** The operation addresses the node's own file, even for a note whose
+	 * list lives in its sidecar (Move into File). */
+	readonly ownFile?: boolean;
 }
 
 interface IStoreTarget {
@@ -126,6 +132,13 @@ interface IStoreTarget {
 	readonly storeKind: BaseHalfUpstreamStoreKind;
 	readonly storeResource: URI;
 	readonly identity: IBaseHalfUpstreamIdentity;
+	/** The store is the sidecar of a Markdown note (reference graph, "A note
+	 * that cannot hold its list"). */
+	readonly noteSidecar?: boolean;
+	/** For a note's sidecar that does not exist yet: the entries BaseHalf can
+	 * read in the note's unrecognized leading block. The first write carries
+	 * them over, so they are not left behind. */
+	readonly seedEntries?: readonly string[];
 }
 
 type TransitionState = 'from' | 'to' | 'other';
@@ -233,7 +246,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				blocking.push({ node: target.node, storeResource: target.storeResource, reason: 'beingMoved', message: this.message('beingMoved', target.node.resource) });
 				continue;
 			}
-			if (target.storeKind === 'markdown' && this.referenceIndexService.getState(target.node.workspaceFolder) === 'building') {
+			if ((target.storeKind === 'markdown' || target.noteSidecar) && this.referenceIndexService.getState(target.node.workspaceFolder) === 'building') {
 				blocking.push({ node: target.node, storeResource: target.storeResource, reason: 'indexLoading', message: this.message('indexLoading', target.node.resource) });
 				continue;
 			}
@@ -270,7 +283,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		// The entries and the removal come from this one read: the removal is
 		// refused if the file no longer has these bytes.
 		const result = await this.run([
-			{ node, operation: { kind: 'append', entries } },
+			{ node, operation: { kind: 'append', entries }, ownFile: true },
 			{ node, operation: { kind: 'deleteSidecar', expected: bytes, ...(leavesContent ? { preserve: true } : {}) } }
 		], options);
 		if (leavesContent) {
@@ -286,7 +299,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	async readSnapshot(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfUpstreamStoreSnapshot | undefined> {
 		const identity = this.identity(node.workspaceFolder);
 		const stat = await this.statOptional(node.resource);
-		const storeKind = baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
+		const nodeKind = baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
+		const storeKind = nodeKind === 'markdown' && stat && await this.noteSidecar(node, identity) ? 'sidecar' : nodeKind;
 		if (storeKind === 'markdown') {
 			const model = this.textFileService.files.get(node.resource);
 			const text = model?.isResolved() ? model.textEditorModel.getValue() : await this.readText(node.resource, undefined, node.workspaceFolder);
@@ -414,15 +428,62 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		const node = edit.node;
 		const operation = edit.operation;
 		const stat = await this.statOptional(node.resource);
+		const identity = this.identity(node.workspaceFolder);
+		const nodeKind = baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
 		// Undo and redo transition exactly the store the operation changed, which
-		// for Move into File includes the node's misplaced sidecar.
-		const storeKind: BaseHalfUpstreamStoreKind = operation.kind === 'deleteSidecar'
+		// for Move into File includes the node's sidecar.
+		const named: BaseHalfUpstreamStoreKind | undefined = operation.kind === 'deleteSidecar'
 			? 'sidecar'
 			: operation.kind === 'transition' && operation.store !== undefined
 				? operation.store
-				: baseHalfUpstreamStoreKind(node.relativePath, stat?.isDirectory ?? false);
+				: edit.ownFile || operation.kind === 'nodeDocument'
+					? nodeKind
+					: undefined;
+		// Otherwise a note's content decides between the note and its sidecar.
+		const note = named === undefined && nodeKind === 'markdown' && stat ? await this.noteSidecar(node, identity) : undefined;
+		const storeKind = named ?? (note ? 'sidecar' : nodeKind);
 		const storeResource = storeKind === 'sidecar' ? baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath) : node.resource;
-		return { edit, node, exists: !!stat, storeKind, storeResource, identity: this.identity(node.workspaceFolder) };
+		return {
+			edit,
+			node,
+			exists: !!stat,
+			storeKind,
+			storeResource,
+			identity,
+			...(storeKind === 'sidecar' && nodeKind === 'markdown' ? { noteSidecar: true } : {}),
+			...(note?.seedEntries.length ? { seedEntries: note.seedEntries } : {})
+		};
+	}
+
+	/**
+	 * Whether a Markdown note keeps its list in its sidecar, decided from the
+	 * text an edit would change (the open document when there is one) and the
+	 * presence of the sidecar. Returns `undefined` when the note is its own
+	 * store.
+	 */
+	private async noteSidecar(node: IBaseHalfWorkspaceResource, identity: IBaseHalfUpstreamIdentity): Promise<{ readonly seedEntries: readonly string[] } | undefined> {
+		// The whole text, as the Markdown planner sees it: only that tells
+		// frontmatter that closes beyond the size window from none at all.
+		const model = this.textFileService.files.get(node.resource);
+		let text: string | undefined;
+		try {
+			text = model?.isResolved() ? model.textEditorModel.getValue() : await this.readText(node.resource, undefined, node.workspaceFolder);
+		} catch {
+			// The note's own preflight reports a file that cannot be read.
+			return undefined;
+		}
+		if (text === undefined) {
+			return undefined;
+		}
+		const own = readBaseHalfMarkdownUpstream(text, { nodePath: node.relativePath, identity });
+		if (own.hasKey) {
+			return undefined;
+		}
+		const sidecarExists = await this.fileService.exists(baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath)).catch(() => false);
+		if (!baseHalfMarkdownNoteUsesSidecar(own, sidecarExists)) {
+			return undefined;
+		}
+		return { seedEntries: sidecarExists ? [] : own.blockEntries ?? [] };
 	}
 
 	/**
@@ -432,7 +493,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	 */
 	private async waitForIndex(targets: readonly IStoreTarget[], options: IBaseHalfReferenceEditOptions): Promise<void> {
 		for (const target of targets) {
-			if (target.storeKind !== 'markdown') {
+			if (target.storeKind !== 'markdown' && !target.noteSidecar) {
 				continue;
 			}
 			const state = await this.referenceIndexService.whenReady(target.node.workspaceFolder, options.indexWaitMs ?? BASEHALF_REFERENCE_INDEX_WAIT_MS);
@@ -921,7 +982,18 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				}
 			}
 			const listOperations = this.listOperations(target);
-			plan = chainPlans(text, listOperations, (current, next) => planBaseHalfSidecarUpstreamEdit(current, next, options));
+			// A note's first sidecar starts with the entries BaseHalf can read in
+			// the note's unrecognized leading block.
+			const seedPlan = bytes === null && target.seedEntries?.length && operation.kind !== 'transition'
+				? planBaseHalfSidecarUpstreamEdit(undefined, { kind: 'set', items: target.seedEntries.map(entry => ({ text: entry, scalar: true })) }, options)
+				: undefined;
+			const seedText = seedPlan?.kind === 'edit' ? seedPlan.text : undefined;
+			plan = chainPlans(seedText ?? text, listOperations, (current, next) => planBaseHalfSidecarUpstreamEdit(current, next, options));
+			if (seedPlan && seedText !== undefined && plan.kind !== 'refused' && plan.kind !== 'edit') {
+				// Nothing else to write (Rebuild List, or an entry already carried
+				// over): the carried entries are the change.
+				plan = plan.kind === 'noop' ? seedPlan : { kind: 'noop' };
+			}
 		}
 		if (plan.kind === 'refused') {
 			throw this.planRefusal(plan.reason, target.node.resource, 'sidecar');

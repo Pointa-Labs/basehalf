@@ -366,29 +366,52 @@ suite('BaseHalfReferenceMigration (services)', () => {
 	});
 
 	test('a deferred pair keeps its keys and is offered again', async () => {
-		const a = badge('a.md', { references: ['gone.md', 'toml.md'] });
+		const a = badge('a.md', { references: ['flow.md', 'gone.md'] });
 		const gone = badge('gone.md', { referencedBy: ['a.md'] });
-		const toml = badge('toml.md', { referencedBy: ['a.md'] });
+		const flow = badge('flow.md', { referencedBy: ['a.md'] });
 		const harness = await createHarness(disposables, {
 			'a.md': '# A\n',
-			'toml.md': '+++\ntitle = "T"\n+++\n',
+			// A list BaseHalf reads but will not edit in place.
+			'flow.md': '---\n{title: T, upstream: [other.md]}\n---\n',
 			'.bh/mirror/a.md/badge.yaml': a,
 			'.bh/mirror/gone.md/badge.yaml': gone,
-			'.bh/mirror/toml.md/badge.yaml': toml
+			'.bh/mirror/flow.md/badge.yaml': flow
 		});
 		const result = await harness.session().migrate([folder]);
 		assert.deepStrictEqual({ outcomes: outcomes(result), counts: [result.moved, result.files, result.notMoved], records: records(await harness.read(recordPath)) }, {
-			outcomes: ['a.md→gone.md deferred missingDownstream', 'a.md→toml.md deferred notWritable'],
+			outcomes: ['a.md→flow.md deferred notWritable', 'a.md→gone.md deferred missingDownstream'],
 			counts: [0, 0, 2],
-			records: ['a.md→gone.md deferred missingDownstream', 'a.md→toml.md deferred notWritable']
+			records: ['a.md→flow.md deferred notWritable', 'a.md→gone.md deferred missingDownstream']
 		});
 		const plan = await harness.session().detect(folder);
 		assert.deepStrictEqual({
 			planned: planned(plan),
-			badges: [await harness.read('.bh/mirror/a.md/badge.yaml'), await harness.read('.bh/mirror/gone.md/badge.yaml'), await harness.read('.bh/mirror/toml.md/badge.yaml')]
+			badges: [await harness.read('.bh/mirror/a.md/badge.yaml'), await harness.read('.bh/mirror/gone.md/badge.yaml'), await harness.read('.bh/mirror/flow.md/badge.yaml')]
 		}, {
-			planned: ['a.md→gone.md deferred missingDownstream', 'a.md→toml.md deferred notWritable'],
-			badges: [a, gone, toml]
+			planned: ['a.md→flow.md deferred notWritable', 'a.md→gone.md deferred missingDownstream'],
+			badges: [a, gone, flow]
+		});
+	});
+
+	test('a pair into a note that cannot hold a list moves into the list BaseHalf keeps for it', async () => {
+		const toml = '+++\ntitle = "T"\n+++\n';
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'toml.md': toml,
+			'.bh/mirror/a.md/badge.yaml': badge('a.md', { references: ['toml.md'] }),
+			'.bh/mirror/toml.md/badge.yaml': badge('toml.md', { referencedBy: ['a.md'] })
+		});
+		const result = await harness.session().migrate([folder]);
+		assert.deepStrictEqual({
+			outcomes: outcomes(result),
+			counts: [result.moved, result.files, result.notMoved],
+			note: await harness.read('toml.md'),
+			kept: await harness.read('.bh/mirror/toml.md/upstream.yaml')
+		}, {
+			outcomes: ['a.md→toml.md migrated'],
+			counts: [1, 1, 0],
+			note: toml,
+			kept: 'upstream:\n  - a.md\n'
 		});
 	});
 

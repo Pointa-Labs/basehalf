@@ -462,6 +462,32 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		});
 	});
 
+	test('a move updates and carries the list BaseHalf keeps for a note that cannot hold one', async () => {
+		const quote = '---\nA quote.\n---\nBody\n';
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'quote.md': quote,
+			'.bh/mirror/quote.md/upstream.yaml': 'upstream:\n  - a.md\n'
+		});
+		// The node the list names moves, and then the note itself.
+		const movedUpstream = await harness.agentMove('a.md', 'docs/b.md');
+		const movedNote = await harness.agentMove('quote.md', 'notes/quote.md');
+		const tree = await harness.tree();
+		assert.deepStrictEqual({
+			movedUpstream: movedUpstream.upstream,
+			movedNote: movedNote.upstream,
+			old: tree['.bh/mirror/quote.md/upstream.yaml'] ?? null,
+			kept: tree['.bh/mirror/notes/quote.md/upstream.yaml'],
+			note: tree['notes/quote.md']
+		}, {
+			movedUpstream: { updated: ['quote.md'], skipped: [] },
+			movedNote: { updated: [], skipped: [] },
+			old: null,
+			kept: 'upstream:\n  - docs/b.md\n',
+			note: quote
+		});
+	});
+
 	test('an agent move under never leaves the entries and says so; one that nothing names returns an empty result; a refused move rejects', async () => {
 		const note = '---\nupstream:\n  - a.md\n---\n# N\n';
 		const never = await createHarness(disposables, { 'a.md': '# A\n', 'n.md': note }, 'never');

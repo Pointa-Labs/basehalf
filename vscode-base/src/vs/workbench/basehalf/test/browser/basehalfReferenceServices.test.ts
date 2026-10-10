@@ -349,8 +349,57 @@ suite('BaseHalfReferenceIndexService', () => {
 			'entry:notes/a.md:../b.md',
 			'misplacedSidecar:notes/a.md:'
 		]);
-		assert.strictEqual((await index.readUpstream(harness.node('quote.md'))).storeIssue, false);
-		assert.strictEqual((await index.readUpstream(harness.node('quote.md'))).writable, false);
+		// A note that cannot hold a list is shown as the list BaseHalf keeps
+		// for it. A note that only starts with a thematic break has no issue;
+		// one whose unrecognized block lists an entry has one, with a repair.
+		const [quote, broken] = [await index.readUpstream(harness.node('quote.md')), await index.readUpstream(harness.node('break.md'))];
+		assert.deepStrictEqual([quote, broken].map(note => [note.storeKind, note.storeResource.path, note.writable, note.storeIssue, note.problem ?? null]), [
+			['sidecar', '/work/.bh/mirror/quote.md/upstream.yaml', true, false, null],
+			['sidecar', '/work/.bh/mirror/break.md/upstream.yaml', true, true, 'frontmatterRejected']
+		]);
+	});
+
+	test('a note with no upstream key uses its sidecar; a note with one ignores it', async () => {
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'c.md': '# C\n',
+			'toml.md': '+++\ntitle = "T"\n+++\n# T\n',
+			'.bh/mirror/toml.md/upstream.yaml': 'upstream:\n  - a.md\n',
+			'plain.md': '# P\n',
+			'.bh/mirror/plain.md/upstream.yaml': 'upstream:\n  - a.md\n',
+			'own.md': '---\nupstream:\n  - c.md\n---\n# O\n',
+			'.bh/mirror/own.md/upstream.yaml': 'upstream:\n  - a.md\n'
+		});
+		const index = harness.index;
+		const state = async () => ({
+			sidecars: index.getStores(folder).filter(store => store.storeKind === 'sidecar').map(store => `${store.node.relativePath}:${store.sidecarState}`).sort(),
+			downstreamOfA: index.getDownstream(harness.node('a.md')).map(entry => `${entry.node.relativePath}:${entry.storeKind}`),
+			views: await Promise.all(['toml.md', 'plain.md', 'own.md'].map(async path => {
+				const view = await index.resolveUpstream(harness.node(path));
+				return [path, view.storeKind, view.entries.map(entry => entry.text).join(','), !!view.misplacedSidecar, view.issueCount];
+			})),
+			issues: (await index.getIssues(folder)).map(issue => `${issue.kind}:${issue.node.relativePath}`)
+		});
+		assert.deepStrictEqual(await state(), {
+			sidecars: ['own.md:wrongOwner', 'plain.md:active', 'toml.md:active'],
+			downstreamOfA: ['plain.md:sidecar', 'toml.md:sidecar'],
+			views: [
+				// The note cannot hold a list: BaseHalf keeps it, with no issue.
+				['toml.md', 'sidecar', 'a.md', false, 0],
+				// The note could hold it: the list stays in use and can move in.
+				['plain.md', 'sidecar', 'a.md', true, 1],
+				// The note has its own list: the sidecar is ignored.
+				['own.md', 'markdown', 'c.md', true, 1]
+			],
+			issues: ['misplacedSidecar:own.md', 'misplacedSidecar:plain.md']
+		});
+
+		// A note that gains a list of its own stops using its sidecar, and one
+		// that loses it uses the sidecar again.
+		await harness.write('plain.md', '---\nupstream:\n  - c.md\n---\n# P\n');
+		await harness.write('own.md', '# O\n');
+		await until(async () => (await state()).sidecars.join() === 'own.md:active,plain.md:wrongOwner,toml.md:active', 'the sidecar states to follow the notes');
+		assert.deepStrictEqual((await state()).downstreamOfA, ['own.md:sidecar', 'toml.md:sidecar']);
 	});
 
 	test('marks dangling bound entries of attempted nodes as historical and reports sealed artifacts', async () => {
@@ -525,11 +574,107 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.strictEqual(await harness.read('b.md'), '# B\n');
 	});
 
-	test('refuses a note that starts with a thematic break and a foreign upstream value', async () => {
-		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'quote.md': '---\nA quote.\n---\n', 'feed.md': '---\nupstream: https://example.com/feed\n---\n' });
-		assert.strictEqual((await refusal(harness.edit.add(harness.node('quote.md'), 'a.md', options))).reason, 'notWritable');
+	test('refuses a foreign upstream value and a list BaseHalf reads but cannot edit', async () => {
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'feed.md': '---\nupstream: https://example.com/feed\n---\n', 'flow.md': '---\n{title: T, upstream: [a.md]}\n---\n' });
 		const foreign = await refusal(harness.edit.add(harness.node('feed.md'), 'a.md', options));
 		assert.deepStrictEqual([foreign.reason, foreign.blocking.map(store => store.storeResource.path)], ['foreign', ['/work/feed.md']]);
+		assert.strictEqual((await refusal(harness.edit.add(harness.node('flow.md'), 'feed.md', options))).reason, 'notWritable');
+	});
+
+	test('connecting into a note that cannot hold a list keeps the list for it and never changes the note', async () => {
+		const notes = {
+			'quote.md': '---\nA quote.\n---\nBody\n',
+			'toml.md': '+++\ntitle = "T"\n+++\n# T\n',
+			'huge.md': `---\ntitle: ${'x'.repeat(70_000)}\n---\n# H\n`
+		};
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'c.md': '# C\n', ...notes });
+		const source = new UndoRedoSource();
+		const canvas = joinPath(folder, '.bh', 'mirror', 'canvas.yaml');
+		const paths = Object.keys(notes);
+		const kept = () => Promise.all(paths.map(path => harness.read(`.bh/mirror/${path}/upstream.yaml`)));
+		for (const path of paths) {
+			const result = await harness.edit.add(harness.node(path), 'a.md', options);
+			assert.deepStrictEqual(result.stores.map(store => [store.storeKind, store.outcome, !!store.createdFrontmatter]), [['sidecar', 'changed', false]], path);
+		}
+		harness.edit.pushUndoElement(await harness.edit.add(harness.node('quote.md'), 'c.md', options), { label: 'Connect', resources: [canvas], source });
+		assert.deepStrictEqual({
+			kept: await kept(),
+			notes: await Promise.all(paths.map(path => harness.read(path))),
+			downstreamOfA: harness.index.getDownstream(harness.node('a.md')).map(entry => entry.node.relativePath),
+			view: await harness.index.resolveUpstream(harness.node('quote.md')).then(view => [view.storeKind, view.writable, view.entries.map(entry => entry.text), view.issueCount]),
+			// No notice about a block added to the note: the note was not touched.
+			prompts: harness.notifications.prompts.length
+		}, {
+			kept: ['upstream:\n  - a.md\n  - c.md\n', 'upstream:\n  - a.md\n', 'upstream:\n  - a.md\n'],
+			notes: Object.values(notes),
+			downstreamOfA: ['huge.md', 'quote.md', 'toml.md'],
+			view: ['sidecar', true, ['a.md', 'c.md'], 0],
+			prompts: 0
+		});
+
+		// Undo, redo, and a disconnect change only the kept list.
+		await harness.undoRedo.undo(source);
+		const undone = (await kept())[0];
+		await harness.undoRedo.redo(source);
+		await harness.edit.remove(harness.node('toml.md'), 'a.md', options);
+		assert.deepStrictEqual({ undone, kept: await kept(), notes: await Promise.all(paths.map(path => harness.read(path))) }, {
+			undone: 'upstream:\n  - a.md\n',
+			kept: ['upstream:\n  - a.md\n  - c.md\n', undefined, 'upstream:\n  - a.md\n'],
+			notes: Object.values(notes)
+		});
+	});
+
+	test('a kept list stays in use when the note can hold it again, and Move into File moves it in', async () => {
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'c.md': '# C\n', 'quote.md': '---\nA quote.\n---\nBody\n' });
+		await harness.edit.add(harness.node('quote.md'), 'a.md', options);
+		// The user removes the rule at the top: the note could now hold a list.
+		await harness.write('quote.md', 'Body\n');
+		await until(async () => !!(await harness.index.resolveUpstream(harness.node('quote.md'))).misplacedSidecar, 'the kept list to be offered for the note');
+		await harness.edit.add(harness.node('quote.md'), 'c.md', options);
+		const before = {
+			note: await harness.read('quote.md'),
+			kept: await harness.read('.bh/mirror/quote.md/upstream.yaml'),
+			downstreamOfA: harness.index.getDownstream(harness.node('a.md')).map(entry => entry.node.relativePath)
+		};
+		await harness.edit.moveIntoFile(harness.node('quote.md'), options);
+		assert.deepStrictEqual({
+			before,
+			note: await harness.read('quote.md'),
+			kept: await harness.read('.bh/mirror/quote.md/upstream.yaml'),
+			downstreamOfA: harness.index.getDownstream(harness.node('a.md')).map(entry => `${entry.node.relativePath}:${entry.storeKind}`)
+		}, {
+			before: { note: 'Body\n', kept: 'upstream:\n  - a.md\n  - c.md\n', downstreamOfA: ['quote.md'] },
+			note: '---\nupstream:\n  - a.md\n  - c.md\n---\nBody\n',
+			kept: undefined,
+			downstreamOfA: ['quote.md:markdown']
+		});
+	});
+
+	test('entries inside a block BaseHalf does not recognize are carried into the kept list', async () => {
+		// Frontmatter BaseHalf wrote, made invalid elsewhere by another tool.
+		const broken = '---\ntitle: Plan: draft\nupstream:\n  - a.md\n  - c.md\ntags: [x\n---\n# N\n';
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'c.md': '# C\n', 'd.md': '# D\n', 'connect.md': broken, 'rebuild.md': broken });
+		const issue = async (path: string) => harness.index.resolveUpstream(harness.node(path)).then(view => [view.storeIssue, view.problem ?? null, view.entries.map(entry => entry.text)]);
+		const before = [await issue('connect.md'), await issue('rebuild.md')];
+		// A connect never leaves them behind, and Rebuild List carries them over.
+		await harness.edit.add(harness.node('connect.md'), 'd.md', options);
+		const rebuilt = await harness.edit.rebuild(harness.node('rebuild.md'), options);
+		const again = await harness.edit.rebuild(harness.node('rebuild.md'), options);
+		assert.deepStrictEqual({
+			before,
+			outcomes: [rebuilt.stores.map(store => store.outcome), again.stores.map(store => store.outcome)],
+			kept: [await harness.read('.bh/mirror/connect.md/upstream.yaml'), await harness.read('.bh/mirror/rebuild.md/upstream.yaml')],
+			notes: [await harness.read('connect.md'), await harness.read('rebuild.md')],
+			after: [await issue('connect.md'), await issue('rebuild.md')],
+			downstreamOfA: harness.index.getDownstream(harness.node('a.md')).map(entry => entry.node.relativePath)
+		}, {
+			before: [[true, 'frontmatterRejected', []], [true, 'frontmatterRejected', []]],
+			outcomes: [['changed'], ['unchanged']],
+			kept: ['upstream:\n  - a.md\n  - c.md\n  - d.md\n', 'upstream:\n  - a.md\n  - c.md\n'],
+			notes: [broken, broken],
+			after: [[false, null, ['a.md', 'c.md', 'd.md']], [false, null, ['a.md', 'c.md']]],
+			downstreamOfA: ['connect.md', 'rebuild.md']
+		});
 	});
 
 	test('connecting into a Draft node writes upstream and its binding in one write', async () => {
@@ -618,9 +763,11 @@ suite('BaseHalfReferenceEditService', () => {
 	});
 
 	test('in a marked folder, Markdown connects leave .bh absent and sidecar targets are refused', async () => {
-		const harness = await createHarness(disposables, { '.basehalf-no-workspace-setup': '', 'a.md': '# A\n', 'b.md': '# B\n', 'docs/x.txt': '' });
+		const harness = await createHarness(disposables, { '.basehalf-no-workspace-setup': '', 'a.md': '# A\n', 'b.md': '# B\n', 'docs/x.txt': '', 'quote.md': '---\nA quote.\n---\n' });
 		await harness.edit.add(harness.node('b.md'), 'a.md', options);
 		assert.strictEqual((await refusal(harness.edit.add(harness.node('docs'), 'a.md', options))).reason, 'markedFolder');
+		// A note that cannot hold a list would need one kept under .bh/.
+		assert.strictEqual((await refusal(harness.edit.add(harness.node('quote.md'), 'a.md', options))).reason, 'markedFolder');
 		assert.ok((await harness.list()).every(path => !path.startsWith('.bh/')));
 	});
 
@@ -653,7 +800,7 @@ suite('BaseHalfReferenceEditService', () => {
 			'clip.bhnode': '{ not json'
 		});
 		const storeIssues = async () => (await harness.index.getIssues(folder)).filter(issue => issue.kind === 'store').map(issue => issue.node.relativePath);
-		// TOML frontmatter is not BaseHalf's to edit: it carries no issue and no rebuild.
+		// A note with TOML frontmatter keeps its list with BaseHalf: it carries no issue.
 		assert.deepStrictEqual(await storeIssues(), ['book.pdf', 'clip.bhnode', 'docs', 'feed.md', 'merged.md']);
 
 		for (const path of ['feed.md', 'merged.md', 'docs', 'book.pdf']) {
@@ -679,9 +826,10 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual(await Promise.all(recovered.map(path => harness.read(path))), [garbage, conflicted]);
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('c.md')).map(entry => entry.node.relativePath), ['docs', 'merged.md']);
 
-		// What cannot be edited safely is refused and left as it was.
-		assert.strictEqual((await refusal(harness.edit.rebuild(harness.node('toml.md'), options))).reason, 'notWritable');
+		// A node that cannot be read is refused and left as it was. A note
+		// that cannot hold a list has nothing to rebuild and is never changed.
 		assert.strictEqual((await refusal(harness.edit.rebuild(harness.node('clip.bhnode'), options))).reason, 'unreadable');
+		assert.deepStrictEqual((await harness.edit.rebuild(harness.node('toml.md'), options)).stores.map(store => [store.storeKind, store.outcome]), [['sidecar', 'unchanged']]);
 		assert.deepStrictEqual([await harness.read('toml.md'), await harness.read('clip.bhnode')], ['+++\nupstream = ["a.md"]\n+++\n# Toml\n', '{ not json']);
 		assert.deepStrictEqual(await storeIssues(), ['clip.bhnode']);
 
@@ -733,12 +881,12 @@ suite('BaseHalfReferenceEditService', () => {
 	});
 
 	test('the preflight writes nothing when any store is refused', async () => {
-		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '# B\n', 'quote.md': '---\nQuote\n---\n' });
+		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '# B\n', 'feed.md': '---\nupstream: https://example.com/feed\n---\n' });
 		const refused = await refusal(harness.edit.apply([
 			{ node: harness.node('b.md'), operation: { kind: 'add', entry: 'a.md' } },
-			{ node: harness.node('quote.md'), operation: { kind: 'add', entry: 'a.md' } }
+			{ node: harness.node('feed.md'), operation: { kind: 'add', entry: 'a.md' } }
 		], options));
-		assert.deepStrictEqual(refused.blocking.map(store => store.node.relativePath), ['quote.md']);
+		assert.deepStrictEqual(refused.blocking.map(store => store.node.relativePath), ['feed.md']);
 		assert.strictEqual(await harness.read('b.md'), '# B\n');
 	});
 

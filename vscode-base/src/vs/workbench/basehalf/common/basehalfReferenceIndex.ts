@@ -41,6 +41,7 @@ import {
 	BASEHALF_UPSTREAM_SIDECAR_FILE_NAME,
 	BaseHalfUpstreamStoreKind,
 	BaseHalfUpstreamStoreProblem,
+	baseHalfMarkdownNoteUsesSidecar,
 	baseHalfUpstreamSidecarResource,
 	baseHalfUpstreamStoreKind,
 	IBaseHalfUpstreamStoreRead,
@@ -150,8 +151,10 @@ export interface IBaseHalfUpstreamView {
 	/** Set when the node cannot be downstream: Upstream is read-only. */
 	readonly upstreamOnly?: 'reservedOutput' | 'sealedArtifact';
 	readonly lifecycle?: BaseHalfNodeUpstreamLifecycle;
-	/** A sidecar that belongs in this Markdown or `.bhnode` file ("belongs in
-	 * the file"; the issue offers Move into File). It contributes no edges. */
+	/** A sidecar whose list could live in this Markdown or `.bhnode` file (the
+	 * issue offers Move into File). It contributes no edges when the file has
+	 * an `upstream` key of its own; otherwise it is this note's store, and
+	 * `storeKind` is `sidecar`. */
 	readonly misplacedSidecar?: { readonly resource: URI; readonly items: readonly IBaseHalfUpstreamItem[] };
 	/** The store could not be read (I/O error). */
 	readonly readError?: string;
@@ -442,7 +445,44 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			this.applyRead(index, storeResource, result, true);
 		}
 		const record = result.kind === 'record' ? result.record : emptyRecord(node, storeKind, storeResource, this.resourceKey(storeResource), this.resourceKey(node.resource));
+		if (storeKind === 'markdown' && result.kind === 'record' && !record.read.hasKey) {
+			const sidecarView = await this.readNoteSidecar(index, identity, node, stat, record.read);
+			if (sidecarView) {
+				return sidecarView;
+			}
+		}
 		return this.view(index, node, record, undefined);
+	}
+
+	/**
+	 * The view of a note whose list lives in its sidecar, read from disk, or
+	 * `undefined` when the note has no sidecar. `own` is the note's own read,
+	 * which has no `upstream` key.
+	 */
+	private async readNoteSidecar(index: IFolderIndex | undefined, identity: IBaseHalfUpstreamIdentity, node: IBaseHalfWorkspaceResource, stat: INodeStat | undefined, own: IBaseHalfUpstreamStoreRead): Promise<IBaseHalfUpstreamView | undefined> {
+		const storeResource = baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath);
+		const result = await this.readStore(node.workspaceFolder, identity, node, 'sidecar', storeResource, stat);
+		if (result.kind === 'missing') {
+			return undefined;
+		}
+		if (index && !index.disposed && index.state !== 'building' && this.isIndexable(index, node.relativePath)) {
+			this.applyRead(index, storeResource, result, true);
+		}
+		if (result.kind === 'error') {
+			return {
+				node,
+				storeKind: 'sidecar',
+				storeResource,
+				readable: false,
+				writable: false,
+				storeIssue: true,
+				entries: [],
+				readError: result.message,
+				issueCount: 1,
+				...this.upstreamOnly(index, node)
+			};
+		}
+		return this.view(index, node, withSidecarState(identity, result.record, 'active'), undefined, own);
 	}
 
 	async getIssues(workspaceFolder?: URI): Promise<readonly IBaseHalfUpstreamIssue[]> {
@@ -463,7 +503,14 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 					issues.push({ kind: 'misplacedSidecar', node: record.node, storeKind: 'sidecar', storeResource: record.storeResource });
 					continue;
 				}
+				if (record.storeKind !== 'sidecar' && index.activeByNode.get(record.nodeKey) !== record.storeKey) {
+					// A note whose list lives in its sidecar is reported there.
+					continue;
+				}
 				const view = await this.view(index, record.node, record, undefined);
+				if (view.misplacedSidecar && record.storeKind === 'sidecar') {
+					issues.push({ kind: 'misplacedSidecar', node: record.node, storeKind: 'sidecar', storeResource: record.storeResource });
+				}
 				if (view.storeIssue) {
 					issues.push({ kind: 'store', node: view.node, storeKind: view.storeKind, storeResource: view.storeResource, problem: view.problem });
 				}
@@ -590,6 +637,10 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			if (result.kind === 'record') {
 				this.insertRecord(index, result.record);
 			}
+		}
+		// With every note read, decide which sidecars are their notes' stores.
+		for (const nodeKey of [...index.sidecarsByNode.keys()]) {
+			this.refreshNoteSidecar(index, nodeKey);
 		}
 		if (index.problems.size > 0) {
 			partialReasons.add('readError');
@@ -835,9 +886,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		if (record.storeKind === 'sidecar') {
 			index.sidecarsByNode.set(record.nodeKey, record.storeKey);
 		}
-		if (record.storeKind !== 'sidecar' || record.sidecarState === 'active') {
-			index.activeByNode.set(record.nodeKey, record.storeKey);
-		}
+		this.updateActive(index, record.nodeKey);
 		for (const [target, entryIndex] of record.targets) {
 			let stores = index.downstream.get(target);
 			if (!stores) {
@@ -861,12 +910,10 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			return undefined;
 		}
 		index.records.delete(storeKey);
-		if (index.activeByNode.get(record.nodeKey) === storeKey) {
-			index.activeByNode.delete(record.nodeKey);
-		}
 		if (index.sidecarsByNode.get(record.nodeKey) === storeKey) {
 			index.sidecarsByNode.delete(record.nodeKey);
 		}
+		this.updateActive(index, record.nodeKey);
 		for (const [target] of record.targets) {
 			const stores = index.downstream.get(target);
 			stores?.delete(storeKey);
@@ -886,8 +933,71 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return record;
 	}
 
+	/**
+	 * The store a node's list lives in: its sidecar while that is active,
+	 * otherwise the node's own file. A Markdown note can have both records.
+	 */
+	private updateActive(index: IFolderIndex, nodeKey: string): void {
+		const sidecarKey = index.sidecarsByNode.get(nodeKey);
+		const sidecar = sidecarKey ? index.records.get(sidecarKey) : undefined;
+		// A node's own-file store has the node's resource as its key.
+		const own = index.records.get(nodeKey);
+		const active = sidecar?.sidecarState === 'active' ? sidecar : own && own.storeKind !== 'sidecar' ? own : undefined;
+		if (active) {
+			index.activeByNode.set(nodeKey, active.storeKey);
+		} else {
+			index.activeByNode.delete(nodeKey);
+		}
+	}
+
+	/**
+	 * A sidecar that belongs to a Markdown note is the note's store while the
+	 * note has no `upstream` key of its own (reference graph, "A note that
+	 * cannot hold its list"), and is ignored once the note has one. Until the
+	 * note itself has been read, the sidecar keeps the state it was read with.
+	 */
+	private withNoteSidecarState(index: IFolderIndex, record: IStoreRecord): IStoreRecord {
+		if (record.storeKind !== 'sidecar' || record.sidecarState === 'missingNode' || !isBaseHalfUpstreamMarkdownName(record.node.relativePath)) {
+			return record;
+		}
+		const own = index.records.get(record.nodeKey);
+		if (own?.storeKind !== 'markdown') {
+			return record;
+		}
+		const sidecarState: BaseHalfUpstreamSidecarState = own.read.hasKey ? 'wrongOwner' : 'active';
+		return sidecarState === record.sidecarState ? record : withSidecarState(index.identity, record, sidecarState);
+	}
+
+	/** Re-derives the state of a note's sidecar after the note's own read changed. */
+	private refreshNoteSidecar(index: IFolderIndex, nodeKey: string): boolean {
+		const sidecarKey = index.sidecarsByNode.get(nodeKey);
+		const sidecar = sidecarKey ? index.records.get(sidecarKey) : undefined;
+		const next = sidecar ? this.withNoteSidecarState(index, sidecar) : undefined;
+		if (!sidecar || !next || next === sidecar) {
+			return false;
+		}
+		this.deleteRecord(index, sidecar.storeKey);
+		this.insertRecord(index, next);
+		return true;
+	}
+
 	/** Applies one read to the index; returns whether anything changed. */
 	private applyRead(index: IFolderIndex, storeResource: URI, result: StoreReadResult, fire: boolean): boolean {
+		const changed = this.applyStoreRead(index, storeResource, result, fire);
+		// A note's own read decides whether its sidecar is its store. For an
+		// own-file store the store key is the node key.
+		const nodeKey = this.resourceKey(storeResource);
+		const node = index.sidecarsByNode.has(nodeKey) ? index.records.get(index.sidecarsByNode.get(nodeKey)!)?.node : undefined;
+		if (!node || !this.refreshNoteSidecar(index, nodeKey)) {
+			return changed;
+		}
+		if (fire && !changed) {
+			this.fire(index, [node.resource]);
+		}
+		return true;
+	}
+
+	private applyStoreRead(index: IFolderIndex, storeResource: URI, result: StoreReadResult, fire: boolean): boolean {
 		const storeKey = this.resourceKey(storeResource);
 		const previous = index.records.get(storeKey);
 		if (result.kind === 'error') {
@@ -914,7 +1024,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			}
 			return true;
 		}
-		const record = result.record;
+		const record = this.withNoteSidecarState(index, result.record);
 		if (previous && previous.content === record.content && previous.sidecarState === record.sidecarState) {
 			return hadProblem;
 		}
@@ -1151,8 +1261,26 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 
 	//#region Views
 
-	private async view(index: IFolderIndex | undefined, node: IBaseHalfWorkspaceResource, record: IStoreRecord, readError: string | undefined): Promise<IBaseHalfUpstreamView> {
+	/** `noteRead` is the own read of the note a sidecar `record` belongs to; it defaults to the indexed one. */
+	private async view(index: IFolderIndex | undefined, node: IBaseHalfWorkspaceResource, record: IStoreRecord, readError: string | undefined, noteRead?: IBaseHalfUpstreamStoreRead): Promise<IBaseHalfUpstreamView> {
 		const read = record.read;
+		if (record.storeKind === 'markdown' && readError === undefined && baseHalfMarkdownNoteUsesSidecar(read, false) && !index?.sidecarsByNode.has(record.nodeKey)) {
+			// The note cannot hold a list and has none yet: this is the empty
+			// list BaseHalf will keep for it. Entries it can read in the note's
+			// unrecognized leading block are an issue until they are carried over.
+			return {
+				node,
+				storeKind: 'sidecar',
+				storeResource: baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath),
+				readable: true,
+				writable: true,
+				...(read.issue && read.problem ? { problem: read.problem } : {}),
+				storeIssue: read.issue,
+				entries: [],
+				...this.upstreamOnly(index, node),
+				issueCount: read.issue ? 1 : 0
+			};
+		}
 		const identity = index?.identity ?? baseHalfUpstreamIdentity(node.workspaceFolder, this.uriIdentityService.extUri);
 		const bindingsByKey = new Map<string, IBaseHalfIndexedBinding>();
 		for (const binding of record.bindings ?? []) {
@@ -1193,9 +1321,17 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		}
 		const sidecarKey = record.storeKind !== 'sidecar' && index ? index.sidecarsByNode.get(record.nodeKey) : undefined;
 		const sidecar = sidecarKey ? index?.records.get(sidecarKey) : undefined;
-		const misplacedSidecar = sidecar?.sidecarState === 'wrongOwner'
-			? { resource: sidecar.storeResource, items: sidecar.read.items }
+		// A sidecar that is a note's store could move into the note once the
+		// note can take a list; it stays in use until the user moves it.
+		const ownerRecord = record.storeKind === 'sidecar' && record.sidecarState === 'active' ? index?.records.get(record.nodeKey) : undefined;
+		const owner = record.storeKind === 'sidecar' && record.sidecarState === 'active'
+			? noteRead ?? (ownerRecord?.storeKind === 'markdown' ? ownerRecord.read : undefined)
 			: undefined;
+		const misplacedSidecar = owner && owner.writable && !owner.hasKey
+			? { resource: record.storeResource, items: read.items }
+			: sidecar?.sidecarState === 'wrongOwner'
+				? { resource: sidecar.storeResource, items: sidecar.read.items }
+				: undefined;
 		const storeIssue = read.issue || readError !== undefined;
 		return {
 			node,
@@ -1304,6 +1440,19 @@ function toIndexedStore(record: IStoreRecord): IBaseHalfIndexedStore {
 		...(record.bindings ? { bindings: record.bindings } : {}),
 		...(record.sidecarState ? { sidecarState: record.sidecarState } : {})
 	};
+}
+
+/** The same sidecar record in another state. Only an active sidecar contributes edges. */
+function withSidecarState(identity: IBaseHalfUpstreamIdentity, record: IStoreRecord, sidecarState: BaseHalfUpstreamSidecarState): IStoreRecord {
+	const targets: (readonly [string, number])[] = [];
+	if (sidecarState === 'active' && record.read.readable) {
+		for (const item of record.read.items) {
+			if (item.path !== undefined) {
+				targets.push([identity.key(item.path), item.index]);
+			}
+		}
+	}
+	return { ...record, sidecarState, targets };
 }
 
 function emptyRecord(node: IBaseHalfWorkspaceResource, storeKind: BaseHalfUpstreamStoreKind, storeResource: URI, storeKey: string, nodeKey: string): IStoreRecord {

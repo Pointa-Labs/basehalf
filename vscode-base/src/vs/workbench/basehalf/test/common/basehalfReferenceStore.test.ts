@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 import {
+	baseHalfMarkdownNoteUsesSidecar,
 	baseHalfTransitionChangesUpstream,
 	BaseHalfUpstreamListOperation,
 	BaseHalfUpstreamTextPlan,
@@ -359,6 +360,61 @@ suite('BaseHalfReferenceStore', () => {
 			rebuild('upstream:\n  - a.md\n'),
 			rebuild(undefined)
 		], ['upstream:\n  - a.md\n  - b.md\n', 'delete', 'delete', 'noop', 'noop']);
+	});
+
+	test('a note keeps its list in its sidecar while it has no upstream key and cannot take one, or already has a sidecar', () => {
+		const uses = (text: string) => {
+			const own = readBaseHalfMarkdownUpstream(text);
+			return [baseHalfMarkdownNoteUsesSidecar(own, false), baseHalfMarkdownNoteUsesSidecar(own, true)];
+		};
+		assert.deepStrictEqual({
+			plain: uses('# Note\n'),
+			emptyFrontmatter: uses('---\ntitle: x\n---\n'),
+			thematicBreak: uses('---\nA quote.\n---\nBody\n'),
+			toml: uses('+++\ntitle = "x"\n+++\n'),
+			flowWithoutKey: uses('---\n{title: x}\n---\n'),
+			// A note with a key keeps its list, whatever state the key is in.
+			ownList: uses('---\nupstream:\n  - a.md\n---\n'),
+			unreadableOwnList: uses('---\nupstream: *alias\n---\n'),
+			flowWithKey: uses('---\n{title: x, upstream: [a.md]}\n---\n')
+		}, {
+			plain: [false, true],
+			emptyFrontmatter: [false, true],
+			thematicBreak: [true, true],
+			toml: [true, true],
+			flowWithoutKey: [true, true],
+			ownList: [false, false],
+			unreadableOwnList: [false, false],
+			flowWithKey: [false, false]
+		});
+	});
+
+	test('reads the entries of an upstream key inside a leading block it does not recognize', () => {
+		const block = (text: string) => {
+			const read = readBaseHalfMarkdownUpstream(text, { nodePath: 'note.md' });
+			return [read.hasKey, read.items.length, read.issue, read.blockEntries ?? null];
+		};
+		assert.deepStrictEqual({
+			// Frontmatter made invalid elsewhere: the key's own lines still read.
+			brokenElsewhere: block('---\ntitle: Plan: draft\nupstream:\n  - a.md\n  - "b c.md"\n  - a.md\n  - /abs.md\ntags: [x\n---\n'),
+			unindentedItems: block('---\ntext [x\nupstream:\n- a.md\n- b.md\nmore: y\n---\n'),
+			scalar: block('---\nupstream: a.md\ntext [x\n---\n'),
+			self: block('---\nupstream:\n  - note.md\ntext [x\n---\n'),
+			thematicBreak: block('---\nA quote.\n---\n'),
+			// A list left open still yields the entries before the break.
+			unclosedList: block('---\nupstream: [a.md\n---\n'),
+			noValidEntry: block('---\nupstream:\n  first: a.md\ntext [x\n---\n'),
+			toml: block('+++\nupstream = ["a.md"]\n+++\n')
+		}, {
+			brokenElsewhere: [false, 0, true, ['a.md', 'b c.md']],
+			unindentedItems: [false, 0, true, ['a.md', 'b.md']],
+			scalar: [false, 0, true, ['a.md']],
+			self: [false, 0, false, null],
+			thematicBreak: [false, 0, false, null],
+			unclosedList: [false, 0, true, ['a.md']],
+			noValidEntry: [false, 0, false, null],
+			toml: [false, 0, false, null]
+		});
 	});
 
 	test('chooses the store kind and upstream-only outputs', () => {

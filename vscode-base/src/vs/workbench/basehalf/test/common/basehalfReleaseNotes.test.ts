@@ -28,7 +28,7 @@ suite('BaseHalfReleaseNotes', () => {
 	test('states the workspace-state, cleanup, connection, and rename changes this build ships', () => {
 		const markdown = getBaseHalfReleaseNotesMarkdown('1.2.3');
 		const statements = [
-			'Connecting two cards saves the connection with the card it points to. For a note, it is saved inside the note itself, so agents and other tools that read the note see it too. For PDFs, folders, and other files, BaseHalf keeps the list for you.',
+			'Connecting two cards saves the connection with the card it points to. For a note, it is saved inside the note itself, so agents and other tools that read the note see it too. For PDFs, folders, other files, and a note BaseHalf can\'t write into, BaseHalf keeps the list for you.',
 			'The badge edits a card\'s Upstream list. Downstream shows what draws on it.',
 			'Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.',
 			'Connections from earlier versions move into your files after you confirm.',

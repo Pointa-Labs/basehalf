@@ -493,7 +493,10 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				blocking: { reason: 'missingNode', message: localize('basehalf.references.refactor.missing', "{0} no longer exists.", basename(node.resource)) }
 			};
 		}
-		const storeKind = baseHalfUpstreamStoreKind(store.nodePath, isDirectory);
+		const nodeKind = baseHalfUpstreamStoreKind(store.nodePath, isDirectory);
+		// A note whose list lives in its sidecar was indexed as that sidecar
+		// store, and the edit service writes it there.
+		const storeKind = nodeKind === 'markdown' && store.storeKind === 'sidecar' ? 'sidecar' : nodeKind;
 		const options = { nodePath: store.nodePath, identity };
 		try {
 			let read: IBaseHalfUpstreamStoreRead;

@@ -188,6 +188,9 @@ export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamS
 	if (problem === 'invalidDocument' && storeKind === 'node') {
 		return localize('basehalf.upstream.store.invalidDocument', "This node can't be read.");
 	}
+	if (baseHalfUpstreamRebuildCarriesOver(storeKind, problem)) {
+		return localize('basehalf.upstream.store.blockEntries', "The connections written at the top of this note are not in use.");
+	}
 	switch (problem) {
 		case 'invalidDocument':
 		case 'mappingValue':
@@ -206,6 +209,15 @@ export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamS
 		default:
 			return localize('basehalf.upstream.store.unknown', "The upstream list can't be edited here.");
 	}
+}
+
+/**
+ * Whether **Rebuild List** only carries entries over: the note keeps its list
+ * in its sidecar, has none there yet, and lists connections inside a leading
+ * block BaseHalf does not recognize. The note itself is not changed.
+ */
+export function baseHalfUpstreamRebuildCarriesOver(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined): boolean {
+	return storeKind === 'sidecar' && (problem === 'frontmatterRejected' || problem === 'tomlFrontmatter');
 }
 
 /**

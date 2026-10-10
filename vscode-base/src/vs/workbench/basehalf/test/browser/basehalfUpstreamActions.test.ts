@@ -267,6 +267,8 @@ suite('BaseHalfUpstreamActions', () => {
 			.rows.map(row => [row.status, row.actions]);
 		assert.deepStrictEqual({
 			mergedNote: issueRows(node('merged.md'), { problem: 'duplicateKey' }),
+			// A note whose list BaseHalf keeps, with connections still written in its unrecognized top block.
+			blockEntries: issueRows(node('quote.md'), { storeKind: 'sidecar', readable: true, writable: true, problem: 'frontmatterRejected' }),
 			foreignNote: issueRows(node('feed.md'), { problem: 'foreignValue' }),
 			sidecar: issueRows(node('sources/book.pdf'), { storeKind: 'sidecar', problem: 'mappingValue' }),
 			// Not BaseHalf's to edit, a node document, a file the disk refuses,
@@ -277,6 +279,7 @@ suite('BaseHalfUpstreamActions', () => {
 			output: issueRows(node('outputs/run/frame.png'), { storeKind: 'sidecar', problem: 'mappingValue', upstreamOnly: 'reservedOutput' })
 		}, {
 			mergedNote: [['store', ['Rebuild List']]],
+			blockEntries: [['store', ['Rebuild List']]],
 			foreignNote: [['store', ['Rebuild List']]],
 			sidecar: [['store', ['Rebuild List']]],
 			toml: [['store', []]],
@@ -291,16 +294,25 @@ suite('BaseHalfUpstreamActions', () => {
 		const cancelled = await actions.rebuildList(node('merged.md'), context);
 		confirmRebuild = true;
 		const rebuilt = await actions.rebuildList(node('merged.md'), context);
+		// Carrying entries over from a note's top block changes nothing in the note.
+		await actions.rebuildList(node('quote.md'), {}, true);
 		assert.deepStrictEqual({ cancelled, rebuilt, rebuilds, refreshed, confirmations, undo: undoElements.length }, {
 			cancelled: false,
 			rebuilt: true,
-			rebuilds: ['merged.md'],
+			rebuilds: ['merged.md', 'quote.md'],
 			refreshed: 1,
-			confirmations: new Array(2).fill({
-				message: 'Rebuild the upstream list of merged.md?',
-				detail: 'BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed.',
-				primaryButton: 'Rebuild List'
-			}),
+			confirmations: [
+				...new Array(2).fill({
+					message: 'Rebuild the upstream list of merged.md?',
+					detail: 'BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed.',
+					primaryButton: 'Rebuild List'
+				}),
+				{
+					message: 'Rebuild the upstream list of quote.md?',
+					detail: 'BaseHalf will keep the connections it can read from this note for you. The note itself is not changed.',
+					primaryButton: 'Rebuild List'
+				}
+			],
 			// The note's own undo stack owns the change.
 			undo: 0
 		});
