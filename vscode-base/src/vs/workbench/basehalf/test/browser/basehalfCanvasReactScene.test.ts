@@ -8,10 +8,9 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import {
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
-	BASEHALF_CANVAS_CARD_CORNER_RADIUS,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+	BASEHALF_CANVAS_CARD_CORNER_RADIUS
 } from '../../common/basehalfCanvasScene.js';
+import { BASEHALF_VIDEO_COMPOSER_GAP, BASEHALF_VIDEO_COMPOSER_HEIGHT, BASEHALF_VIDEO_COMPOSER_WIDTH, resolveBaseHalfVideoComposerPlacement } from '../../common/basehalfVideoComposerPresentation.js';
 import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasResizeCorner,
@@ -316,94 +315,59 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.ok(narrow.left + narrow.width <= 112);
 	});
 
-	test('keeps the Video Composer at the shared compact gap and fixed screen size', () => {
-		const centered = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: 100,
-			top: 80,
-			right: 500,
-			bottom: 300,
-			viewport: { x: 0, y: 0, zoom: 1 },
-			viewportWidth: 800,
-			viewportHeight: 700,
-			screenWidth: 280,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
-		});
-		assert.deepStrictEqual(centered, {
-			placement: 'below',
-			visible: true,
-			left: 160,
-			top: 316,
-			flowLeft: 160,
-			flowTop: 316,
-			screenWidth: 280,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
+	test('places the Video Composer by the composer layout in screen space and adds its flow position', () => {
+		const place = (anchor: { left: number; top: number; right: number; bottom: number }, viewport: { x: number; y: number; zoom: number }, viewportWidth: number, viewportHeight: number) => {
+			const placement = resolveBaseHalfCanvasVideoComposerPlacement({
+				...anchor,
+				viewport,
+				viewportWidth,
+				viewportHeight,
+				screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH,
+				screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT
+			});
+			// The layout itself is owned and tested by the composer presentation.
+			const layout = resolveBaseHalfVideoComposerPlacement({
+				left: anchor.left * viewport.zoom + viewport.x,
+				top: anchor.top * viewport.zoom + viewport.y,
+				right: anchor.right * viewport.zoom + viewport.x,
+				bottom: anchor.bottom * viewport.zoom + viewport.y
+			}, { width: viewportWidth, height: viewportHeight });
+			return { placement, delegates: JSON.stringify({ ...placement, flowLeft: undefined, flowTop: undefined }) === JSON.stringify(layout) };
+		};
+		const card = { left: 100, top: 80, right: 500, bottom: 300 };
+		const centered = place(card, { x: 0, y: 0, zoom: 1 }, 800, 700);
+		const zoomedAndPanned = place(card, { x: -100, y: -80, zoom: 2 }, 1000, 900);
+		const narrow = place({ left: 0, top: 40, right: 240, bottom: 200 }, { x: 0, y: 0, zoom: 1 }, 220, 520);
+		const belowViewport = place({ left: 100, top: 720, right: 500, bottom: 800 }, { x: 0, y: 0, zoom: 1 }, 800, 700);
+
+		assert.deepStrictEqual({
+			delegates: [centered, zoomedAndPanned, narrow, belowViewport].map(result => result.delegates),
+			centered: pick(centered.placement),
+			// The composer keeps its screen size at any zoom; its flow position
+			// is that screen position mapped back through the viewport.
+			zoomedAndPanned: pick(zoomedAndPanned.placement),
+			narrowFitsViewport: narrow.placement.screenWidth <= 220 && narrow.placement.left >= 0,
+			belowViewportVisible: belowViewport.placement.visible
+		}, {
+			delegates: [true, true, true, true],
+			centered: { placement: 'below', visible: true, left: 44, top: 300 + BASEHALF_VIDEO_COMPOSER_GAP, flowLeft: 44, flowTop: 300 + BASEHALF_VIDEO_COMPOSER_GAP, screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH, screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT },
+			zoomedAndPanned: { placement: 'below', visible: true, left: 244, top: 520 + BASEHALF_VIDEO_COMPOSER_GAP, flowLeft: 172, flowTop: (520 + BASEHALF_VIDEO_COMPOSER_GAP + 80) / 2, screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH, screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT },
+			narrowFitsViewport: true,
+			belowViewportVisible: false
 		});
 
-		const zoomedAndPanned = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: 100,
-			top: 80,
-			right: 500,
-			bottom: 300,
-			viewport: { x: -100, y: -80, zoom: 2 },
-			viewportWidth: 1000,
-			viewportHeight: 900,
-			screenWidth: 280,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
-		});
-		assert.strictEqual(zoomedAndPanned.visible, true);
-		assert.strictEqual(zoomedAndPanned.placement, 'below');
-		assert.strictEqual(zoomedAndPanned.left, 360);
-		assert.strictEqual(zoomedAndPanned.top, 536);
-		assert.strictEqual(zoomedAndPanned.flowLeft, 230);
-		assert.strictEqual(zoomedAndPanned.flowTop, 308);
-		assert.strictEqual(zoomedAndPanned.screenWidth, centered.screenWidth);
-		assert.strictEqual(zoomedAndPanned.screenHeight, centered.screenHeight);
-
-		const narrow = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: 0,
-			top: 40,
-			right: 240,
-			bottom: 200,
-			viewport: { x: 0, y: 0, zoom: 1 },
-			viewportWidth: 220,
-			viewportHeight: 520,
-			screenWidth: 640,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
-		});
-		assert.strictEqual(narrow.visible, true);
-		assert.strictEqual(narrow.left, 8);
-		assert.strictEqual(narrow.top, 216);
-		assert.strictEqual(narrow.screenWidth, 204);
-
-		const partiallyClipped = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: 100,
-			top: 400,
-			right: 500,
-			bottom: 620,
-			viewport: { x: 0, y: 0, zoom: 1 },
-			viewportWidth: 800,
-			viewportHeight: 700,
-			screenWidth: 280,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
-		});
-		assert.strictEqual(partiallyClipped.visible, true);
-		assert.strictEqual(partiallyClipped.placement, 'below');
-		assert.strictEqual(partiallyClipped.top, 636);
-
-		const fullyBelowViewport = resolveBaseHalfCanvasVideoComposerPlacement({
-			left: 100,
-			top: 650,
-			right: 500,
-			bottom: 720,
-			viewport: { x: 0, y: 0, zoom: 1 },
-			viewportWidth: 800,
-			viewportHeight: 700,
-			screenWidth: 280,
-			screenHeight: BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_HEIGHT
-		});
-		assert.strictEqual(fullyBelowViewport.visible, false);
-		assert.strictEqual(fullyBelowViewport.top, 736);
-		assert.strictEqual(centered.top - 300, BASEHALF_CANVAS_VIDEO_COMPOSER_SCREEN_GAP);
+		function pick(placement: ReturnType<typeof resolveBaseHalfCanvasVideoComposerPlacement>) {
+			return {
+				placement: placement.placement,
+				visible: placement.visible,
+				left: placement.left,
+				top: placement.top,
+				flowLeft: placement.flowLeft,
+				flowTop: placement.flowTop,
+				screenWidth: placement.screenWidth,
+				screenHeight: placement.screenHeight
+			};
+		}
 	});
 
 	test('commits an allowed selection intent after preparation', async () => {
