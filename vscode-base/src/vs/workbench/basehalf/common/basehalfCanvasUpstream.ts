@@ -8,7 +8,7 @@ import type { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import type { IBaseHalfIndexedStore, IBaseHalfUpstreamEntryView } from './basehalfReferenceIndex.js';
 import type { BaseHalfNodeJsonValue } from './basehalfNodeDocument.js';
 import { BASEHALF_EXACT_UPSTREAM_IDENTITY, baseHalfNormalizeUpstreamEntry, BaseHalfUpstreamEntryProblem, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
-import type { BaseHalfUpstreamStoreProblem } from './basehalfReferenceStore.js';
+import type { BaseHalfUpstreamStoreKind, BaseHalfUpstreamStoreProblem } from './basehalfReferenceStore.js';
 
 /**
  * Pure helpers for the canvas and badge editor projection of the reference
@@ -166,9 +166,9 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 		case 'notString': return localize('basehalf.upstream.problem.notString', "This entry is not a path.");
 		case 'absolute': return localize('basehalf.upstream.problem.absolute', "Paths start at the workspace folder, without a leading /.");
 		case 'backslash': return localize('basehalf.upstream.problem.backslash', "Paths use / between folders, not \\.");
-		case 'controlCharacter': return localize('basehalf.upstream.problem.controlCharacter', "This path contains a control character.");
+		case 'controlCharacter': return localize('basehalf.upstream.problem.controlCharacter', "This path contains a character that can't be used.");
 		case 'invalidSegment': return localize('basehalf.upstream.problem.invalidSegment', "This path has an empty, '.', or '..' part.");
-		case 'metadata': return localize('basehalf.upstream.problem.metadata', "This path names BaseHalf metadata under .bh.");
+		case 'metadata': return localize('basehalf.upstream.problem.metadata', "This path points into BaseHalf's own files.");
 		case 'self': return localize('basehalf.upstream.problem.self', "This entry names the card itself.");
 		case 'duplicate': return localize('basehalf.upstream.problem.duplicate', "This path is already listed above.");
 		case 'overLimit': return localize('basehalf.upstream.problem.overLimit', "A node lists at most 64 upstream entries.");
@@ -176,24 +176,56 @@ export function baseHalfUpstreamEntryProblemMessage(problem: BaseHalfUpstreamEnt
 	}
 }
 
-/** Why a store's `upstream` value cannot be read or written by BaseHalf. */
-export function baseHalfUpstreamStoreProblemMessage(problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): string {
+/**
+ * Why BaseHalf cannot read or write a store's upstream list, in words for
+ * someone who does not read code (reference graph, "Wording"). The format
+ * detail behind a problem is not part of the message.
+ */
+export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): string {
 	if (readError !== undefined) {
 		return localize('basehalf.upstream.store.readError', "The upstream list could not be read: {0}", readError);
 	}
+	if (problem === 'invalidDocument' && storeKind === 'node') {
+		return localize('basehalf.upstream.store.invalidDocument', "This node can't be read.");
+	}
 	switch (problem) {
-		case 'mappingValue': return localize('basehalf.upstream.store.mappingValue', "`upstream` holds a mapping, so it can't be read as a list.");
-		case 'duplicateKey': return localize('basehalf.upstream.store.duplicateKey', "`upstream` appears more than once.");
-		case 'anchorAliasTag': return localize('basehalf.upstream.store.anchorAliasTag', "`upstream` uses a YAML anchor, alias, or tag.");
-		case 'blockScalar': return localize('basehalf.upstream.store.blockScalar', "`upstream` is a block of text, not a list.");
-		case 'invalidDocument': return localize('basehalf.upstream.store.invalidDocument', "This node document can't be read.");
-		case 'foreignValue': return localize('basehalf.upstream.store.foreignValue', "`upstream` is used by another tool.");
-		case 'frontmatterRejected': return localize('basehalf.upstream.store.frontmatterRejected', "The block at the top of this file isn't frontmatter BaseHalf can edit.");
-		case 'tomlFrontmatter': return localize('basehalf.upstream.store.tomlFrontmatter', "BaseHalf doesn't edit TOML frontmatter.");
-		case 'mappingNotBlock': return localize('basehalf.upstream.store.mappingNotBlock', "The frontmatter isn't a plain list of keys BaseHalf can edit.");
-		case 'frontmatterBeyondWindow': return localize('basehalf.upstream.store.frontmatterBeyondWindow', "The frontmatter is too large for BaseHalf to edit.");
-		case 'multilineItem': return localize('basehalf.upstream.store.multilineItem', "An `upstream` entry spans several lines.");
-		default: return localize('basehalf.upstream.store.unknown', "The upstream list can't be edited here.");
+		case 'invalidDocument':
+		case 'mappingValue':
+		case 'duplicateKey':
+		case 'anchorAliasTag':
+		case 'blockScalar':
+		case 'multilineItem':
+			return localize('basehalf.upstream.store.unreadableList', "BaseHalf can't read this upstream list.");
+		case 'foreignValue':
+			return localize('basehalf.upstream.store.foreignValue', "Another tool keeps something else where this note's upstream list goes.");
+		case 'frontmatterRejected':
+		case 'tomlFrontmatter':
+		case 'mappingNotBlock':
+		case 'frontmatterBeyondWindow':
+			return localize('basehalf.upstream.store.notEditable', "BaseHalf can't save connections into this note because of how the file begins.");
+		default:
+			return localize('basehalf.upstream.store.unknown', "The upstream list can't be edited here.");
+	}
+}
+
+/**
+ * Whether **Rebuild List** can write a store's list again (reference graph,
+ * "Rebuilding a list"): a Markdown list whose value BaseHalf cannot use, or a
+ * sidecar it cannot read. A document BaseHalf cannot edit safely, a node
+ * document, and a store the file system refuses to read cannot be rebuilt.
+ */
+export function baseHalfUpstreamStoreCanRebuild(storeKind: BaseHalfUpstreamStoreKind, problem: BaseHalfUpstreamStoreProblem | undefined, readError?: string): boolean {
+	if (readError !== undefined || problem === undefined) {
+		return false;
+	}
+	switch (storeKind) {
+		case 'markdown':
+			return problem === 'mappingValue' || problem === 'duplicateKey' || problem === 'anchorAliasTag'
+				|| problem === 'blockScalar' || problem === 'foreignValue' || problem === 'multilineItem';
+		case 'sidecar':
+			return true;
+		case 'node':
+			return false;
 	}
 }
 

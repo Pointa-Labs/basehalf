@@ -11,6 +11,7 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup, UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
+import { baseHalfUserFacingErrorMessage } from './basehalfPlainFailureReason.js';
 import { IBaseHalfNodeDocument, IBaseHalfNodeInputBinding, IBaseHalfNodeUpstreamBindingRequest } from './basehalfNodeDocument.js';
 import { IBaseHalfUpstreamItemValue } from './basehalfReferenceEntries.js';
 import { BaseHalfUpstreamStoreKind, baseHalfUpstreamItemsEqual } from './basehalfReferenceStore.js';
@@ -80,6 +81,11 @@ export type BaseHalfReferenceEditOperation =
 	/** Appends the entries the store does not list yet, in order (migration,
 	 * Move into File). Entries the store already lists are skipped. */
 	| { readonly kind: 'append'; readonly entries: readonly string[] }
+	/** **Rebuild List**: writes a list BaseHalf cannot read, or will not edit in
+	 * place, again as one block list of the valid entries it holds. Markdown
+	 * and sidecar stores only; a store that is readable and writable is left
+	 * as it is. */
+	| { readonly kind: 'rebuild' }
 	/** Canvas undo and redo: when the store holds `from`, write `to`; when it
 	 * already holds `to`, complete without writing; otherwise refuse with
 	 * `changedSinceEdit`. Across a multi-store operation the rule applies to
@@ -170,7 +176,7 @@ export type BaseHalfReferenceRefusalReason =
 	| 'unreadable'
 	/** The document is not writable (rejected frontmatter, TOML, flow mapping, …). */
 	| 'notWritable'
-	/** "`upstream` is used by another tool". */
+	/** Another tool keeps a value where the upstream list goes. */
 	| 'foreign'
 	/** The target is in the reserved outputs tree or is a sealed or imported
 	 * Result artifact: BaseHalf never changes its store, including removals. */
@@ -224,9 +230,7 @@ export class BaseHalfReferenceEditRefusal extends Error {
 		readonly reason: BaseHalfReferenceRefusalReason,
 		message: string,
 		/** Every store that blocks the operation, in operation order. */
-		readonly blocking: readonly IBaseHalfReferenceBlockingStore[],
-		/** The file to offer with an **Open File** action, when useful. */
-		readonly openResource?: URI
+		readonly blocking: readonly IBaseHalfReferenceBlockingStore[]
 	) {
 		super(message);
 	}
@@ -326,6 +330,13 @@ export interface IBaseHalfReferenceEditService {
 	 * invalid entry other than a repeated one, so no entry is lost.
 	 */
 	moveIntoFile(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
+	/**
+	 * **Rebuild List**: writes the node's list again in BaseHalf's own form,
+	 * keeping the valid entries it holds. A Markdown list is rewritten through
+	 * its document and belongs to that document's undo stack. A sidecar is
+	 * first saved as a recovery copy. The caller has confirmed the operation.
+	 */
+	rebuild(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
 	/** The current snapshot of a node's store (the Markdown model when one is loaded, disk otherwise). */
 	readSnapshot(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfUpstreamStoreSnapshot | undefined>;
 	/**
@@ -397,7 +408,7 @@ export class BaseHalfReferenceUndoElement implements IWorkspaceUndoRedoElement {
 			}
 			this.notificationService.notify({
 				severity: Severity.Warning,
-				message: error instanceof Error ? error.message : localize('basehalf.references.undo.failed', "The connection change could not be undone.")
+				message: error instanceof Error ? baseHalfUserFacingErrorMessage(error) : localize('basehalf.references.undo.failed', "The connection change could not be undone.")
 			});
 			if (direction === 'undo') {
 				// Nothing was written: keep the step on the undo stack.

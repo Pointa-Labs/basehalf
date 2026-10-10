@@ -9,34 +9,32 @@ import { Disposable, IDisposable } from '../../../base/common/lifecycle.js';
 import { basename, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
+import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
-import { INotificationService, IPromptChoice, Severity } from '../../../platform/notification/common/notification.js';
+import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { IQuickInputService, IQuickPickItem, IQuickPickSeparator } from '../../../platform/quickinput/common/quickInput.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
-import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
-import { DEFAULT_EDITOR_ASSOCIATION } from '../../common/editor.js';
-import { IEditorService } from '../../services/editor/common/editorService.js';
 import { IFileQuery, ISearchService, QueryType } from '../../services/search/common/search.js';
 import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../common/basehalfCanvasModel.js';
-import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import {
 	baseHalfCanvasConnectionSummary,
 	baseHalfOrderUpstreamPickerCandidates,
 	baseHalfUniqueUpstreamNameMatch,
 	baseHalfUpstreamEntryMessage,
+	baseHalfUpstreamStoreCanRebuild,
 	baseHalfUpstreamStoreProblemMessage,
 	IBaseHalfUpstreamPickerCandidate
 } from '../common/basehalfCanvasUpstream.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfNodeUpstreamBindingRequest } from '../common/basehalfNodeDocument.js';
 import {
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditRefusal,
-	BaseHalfReferenceRefusalReason,
 	IBaseHalfReferenceEditResult,
 	IBaseHalfReferenceEditService
 } from '../common/basehalfReferenceEdit.js';
@@ -49,7 +47,6 @@ import {
 	IBaseHalfUpstreamIssue,
 	IBaseHalfUpstreamView
 } from '../common/basehalfReferenceIndex.js';
-import { BaseHalfUpstreamStoreKind, isBaseHalfUpstreamMarkdownName } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 
 /** A node an upstream action works on. */
@@ -105,11 +102,6 @@ export interface IBaseHalfBadgeConnectionsControls {
 }
 
 const PICKER_MAX_RESULTS = 20_000;
-/** Refusals that the user resolves in the file itself, so they offer **Open File**. */
-const OPEN_FILE_REFUSALS: ReadonlySet<BaseHalfReferenceRefusalReason> = new Set<BaseHalfReferenceRefusalReason>([
-	'unreadable', 'notWritable', 'foreign', 'frontmatterTooLarge', 'unsaved', 'flushFailed',
-	'conflict', 'error', 'readonly', 'changedSinceEdit', 'entryMissing', 'invalidEntry'
-]);
 const NODE_CACHE_MS = 5_000;
 
 type ActionPick = IQuickPickItem & { readonly run: () => Promise<unknown> };
@@ -129,14 +121,12 @@ export class BaseHalfUpstreamActions extends Disposable {
 		@IBaseHalfReferenceRefactorService private readonly referenceRefactorService: IBaseHalfReferenceRefactorService,
 		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
-		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ISearchService private readonly searchService: ISearchService,
 		@IFileService private readonly fileService: IFileService,
-		@IEditorService private readonly editorService: IEditorService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
-		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IDialogService private readonly dialogService: IDialogService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -152,7 +142,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 	/**
 	 * Runs one reference operation and pushes its canvas undo step. Returns the
 	 * result, or `undefined` when the operation was refused or failed (the user
-	 * has been told why, with **Open File** when that helps).
+	 * has been told why).
 	 */
 	async run(
 		label: string,
@@ -188,21 +178,18 @@ export class BaseHalfUpstreamActions extends Disposable {
 		});
 	}
 
-	/** Tells the user why a reference operation did not run. */
+	/** Tells the user why a reference operation did not run. It never offers to
+	 * open a file: users are not expected to read a file's source (D41). */
 	reportError(error: unknown): void {
 		if (error instanceof BaseHalfReferenceEditFailure) {
 			return;
 		}
 		if (error instanceof BaseHalfReferenceEditRefusal) {
-			const openResource = OPEN_FILE_REFUSALS.has(error.reason) ? error.openResource : undefined;
-			const choices: IPromptChoice[] = openResource
-				? [{ label: localize('basehalf.upstream.openFile', "Open File"), run: () => this.openFile(openResource) }]
-				: [];
-			this.notificationService.prompt(Severity.Warning, error.message, choices);
+			this.notificationService.prompt(Severity.Warning, error.message, []);
 			return;
 		}
 		this.logService.error(error instanceof Error ? error : String(error));
-		this.notificationService.error(error instanceof Error ? error.message : String(error));
+		this.notificationService.error(baseHalfUserFacingErrorMessage(error));
 	}
 
 	private parentCanvasResource(node: IBaseHalfWorkspaceResource): URI {
@@ -341,6 +328,33 @@ export class BaseHalfUpstreamActions extends Disposable {
 		}
 	}
 
+	/**
+	 * **Rebuild List**: after the user confirms, writes a list BaseHalf cannot
+	 * use again in its own form, keeping the connections it can read. A
+	 * Markdown list changes through its document and is undone there, so this
+	 * pushes no canvas undo step.
+	 */
+	async rebuildList(node: IBaseHalfWorkspaceResource, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
+		const label = localize('basehalf.upstream.rebuildList', "Rebuild List");
+		const { confirmed } = await this.dialogService.confirm({
+			type: 'question',
+			message: localize('basehalf.upstream.rebuildList.message', "Rebuild the upstream list of {0}?", basename(node.resource)),
+			detail: localize('basehalf.upstream.rebuildList.detail', "BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed."),
+			primaryButton: label
+		});
+		if (!confirmed) {
+			return false;
+		}
+		try {
+			return (await this.referenceEditService.rebuild(node, { label })).changed;
+		} catch (error) {
+			this.reportError(error);
+			return false;
+		} finally {
+			context.onDidChange?.();
+		}
+	}
+
 	/** **Move into File**: moves a misplaced `upstream.yaml` into the node's own file. */
 	async moveIntoFile(node: IBaseHalfWorkspaceResource, context: IBaseHalfUpstreamActionContext): Promise<boolean> {
 		const label = localize('basehalf.upstream.moveIntoFile.undo', "Move upstream into file");
@@ -356,40 +370,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 		const nodes = await this.listNodes(node.workspaceFolder);
 		const match = baseHalfUniqueUpstreamNameMatch(entryPath, nodes);
 		return match && !excluded.has(this.key(node, match.path)) ? match.path : undefined;
-	}
-
-	/** **Open File**: opens a store in the Source projection (Markdown) or as text. */
-	async openStore(storeKind: BaseHalfUpstreamStoreKind, storeResource: URI, workspaceFolder: URI): Promise<void> {
-		if (storeKind === 'markdown') {
-			try {
-				const result = await this.canvasNavigationService.openCardDetail(storeResource, { source: 'api', projection: 'source', history: 'push' });
-				if (result.handled) {
-					return;
-				}
-			} catch (error) {
-				this.logService.warn('[BaseHalf] could not open the Source projection', error);
-			}
-			await this.editorService.openEditor({ resource: storeResource, options: { pinned: true } });
-			return;
-		}
-		if (storeKind === 'sidecar') {
-			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, storeResource);
-		}
-		await this.editorService.openEditor({ resource: storeResource, options: { pinned: true, override: DEFAULT_EDITOR_ASSOCIATION.id } });
-	}
-
-	private async openFile(resource: URI): Promise<void> {
-		const folder = this.workspaceContextService.getWorkspaceFolder(resource)?.uri;
-		const relative = folder ? getRelativePath(folder, resource) ?? '' : '';
-		// Anything that is not Markdown opens as text, like a node document.
-		const kind: BaseHalfUpstreamStoreKind = relative.startsWith('.bh/')
-			? 'sidecar'
-			: isBaseHalfUpstreamMarkdownName(basename(resource)) ? 'markdown' : 'node';
-		try {
-			await this.openStore(kind, resource, folder ?? resource);
-		} catch (error) {
-			this.reportError(error);
-		}
 	}
 
 	//#endregion
@@ -551,30 +531,27 @@ export class BaseHalfUpstreamActions extends Disposable {
 				: localize('basehalf.upstream.readOnly.file', "This file can't receive upstream context.")
 			: view?.storeKind === 'sidecar'
 				? `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${node.kind === 'folder'
-					? localize('basehalf.upstream.helper.sidecarFolder', "Saved in BaseHalf metadata for this folder.")
-					: localize('basehalf.upstream.helper.sidecar', "Saved in BaseHalf metadata for this file.")}`
-				: `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${localize('basehalf.upstream.helper.file', "Saved in this file's `upstream` list, so agents reading it see it too.")}`;
+					? localize('basehalf.upstream.helper.sidecarFolder', "BaseHalf keeps this list for this folder.")
+					: localize('basehalf.upstream.helper.sidecar', "BaseHalf keeps this list for this file.")}`
+				: `${localize('basehalf.upstream.helper.lead', "Context that flows into this card.")} ${localize('basehalf.upstream.helper.file', "Saved inside this file, so agents reading it see it too.")}`;
 		if (!view) {
 			const unavailable = append(upstreamSection, $('.basehalf-canvas-card-badge-empty'));
 			unavailable.textContent = localize('basehalf.upstream.unavailable', "The upstream list could not be read.");
 		} else {
 			if (view.storeIssue) {
-				const row = this.issueRow(upstreamSection, baseHalfUpstreamStoreProblemMessage(view.problem, view.readError), 'store');
-				button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.openFile', "Open File"), async () => {
-					await this.openStore(view.storeKind, view.storeResource, node.workspaceFolder);
-					return false;
-				});
+				// The reason, with a repair inside BaseHalf when there is one.
+				// The user is never sent to the file.
+				const row = this.issueRow(upstreamSection, baseHalfUpstreamStoreProblemMessage(view.storeKind, view.problem, view.readError), 'store');
+				if (!readOnly && baseHalfUpstreamStoreCanRebuild(view.storeKind, view.problem, view.readError)) {
+					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.rebuildList', "Rebuild List"), () => this.rebuildList(node, context), 'add-upstream')
+						.setAttribute('data-testid', 'badge-upstream-rebuild');
+				}
 			}
 			if (view.misplacedSidecar) {
-				const row = this.issueRow(upstreamSection, localize('basehalf.upstream.misplacedSidecar', "An upstream list in BaseHalf metadata belongs in the file."), 'misplaced');
+				const row = this.issueRow(upstreamSection, localize('basehalf.upstream.misplacedSidecar', "An upstream list for this note is saved outside the note."), 'misplaced');
 				if (!readOnly) {
 					button(row, 'basehalf-canvas-card-badge-issue-action', localize('basehalf.upstream.moveIntoFile', "Move into File"), () => this.moveIntoFile(node, context), 'add-upstream');
 				}
-				const sidecar = view.misplacedSidecar.resource;
-				button(row, 'basehalf-canvas-card-badge-issue-action.subtle', localize('basehalf.upstream.openFile', "Open File"), async () => {
-					await this.openStore('sidecar', sidecar, node.workspaceFolder);
-					return false;
-				});
 			}
 			const list = append(upstreamSection, $('.basehalf-canvas-card-badge-list.upstream'));
 			for (const entry of view.entries) {
@@ -776,12 +753,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 				remove.title = localize('basehalf.upstream.boundOutsideDraft', "This input is part of a result. Copy the settings into a new Draft to change it.");
 			}
 		}
-		if (view) {
-			button(actions, 'basehalf-canvas-card-badge-issue-action.subtle', localize('basehalf.upstream.openFile', "Open File"), async () => {
-				await this.openStore(view.storeKind, view.storeResource, node.workspaceFolder);
-				return false;
-			});
-		}
 	}
 
 	private issueRow(parent: HTMLElement, text: string, kind: string): HTMLElement {
@@ -839,6 +810,11 @@ export class BaseHalfUpstreamActions extends Disposable {
 			return;
 		}
 		const actions = await this.issueActions(picked.issue, context);
+		if (actions.length === 0) {
+			// Nothing in the product repairs this issue: say what it is.
+			this.notificationService.info(`${this.issueLabel(picked.issue)}: ${this.issueDescription(picked.issue)}`);
+			return;
+		}
 		const action = await this.quickInputService.pick<ActionPick>(actions, {
 			title: this.issueLabel(picked.issue),
 			placeHolder: this.issueDescription(picked.issue)
@@ -851,7 +827,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 	private issueLabel(issue: IBaseHalfUpstreamIssue): string {
 		switch (issue.kind) {
 			case 'entry': return issue.entry?.text || localize('basehalf.upstream.entry.emptyText', "(empty)");
-			case 'misplacedSidecar': return localize('basehalf.upstream.issues.misplacedLabel', "Upstream list in BaseHalf metadata");
+			case 'misplacedSidecar': return localize('basehalf.upstream.issues.misplacedLabel', "Upstream list saved outside the note");
 			default: return localize('basehalf.upstream.issues.storeLabel', "Upstream list");
 		}
 	}
@@ -859,9 +835,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 	private issueDescription(issue: IBaseHalfUpstreamIssue): string {
 		switch (issue.kind) {
 			case 'entry': return issue.entry ? baseHalfUpstreamEntryMessage(issue.entry) : '';
-			case 'misplacedSidecar': return localize('basehalf.upstream.misplacedSidecar', "An upstream list in BaseHalf metadata belongs in the file.");
-			case 'readError': return baseHalfUpstreamStoreProblemMessage(undefined, issue.message ?? '');
-			default: return baseHalfUpstreamStoreProblemMessage(issue.problem);
+			case 'misplacedSidecar': return localize('basehalf.upstream.misplacedSidecar', "An upstream list for this note is saved outside the note.");
+			case 'readError': return baseHalfUpstreamStoreProblemMessage(issue.storeKind, undefined, issue.message ?? '');
+			default: return baseHalfUpstreamStoreProblemMessage(issue.storeKind, issue.problem);
 		}
 	}
 
@@ -871,7 +847,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 		const actions: ActionPick[] = [];
 		const entry = issue.entry;
 		// A node that can't be downstream (reserved outputs, sealed or imported
-		// Result artifacts) is read-only: its issues offer only Open File.
+		// Result artifacts) is read-only: its issues offer no action.
 		const readOnly = !!this.referenceIndexService.getUpstreamOnlyReason(issue.node);
 		if (issue.kind === 'entry' && entry && !readOnly) {
 			if (entry.status === 'dangling' && entry.path !== undefined) {
@@ -891,10 +867,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 		if (issue.kind === 'misplacedSidecar' && !readOnly) {
 			actions.push({ label: localize('basehalf.upstream.moveIntoFile', "Move into File"), run: () => this.moveIntoFile(issue.node, context) });
 		}
-		actions.push({
-			label: localize('basehalf.upstream.openFile', "Open File"),
-			run: () => this.openStore(issue.storeKind, issue.storeResource, issue.node.workspaceFolder).catch(error => this.reportError(error))
-		});
+		if (issue.kind === 'store' && !readOnly && baseHalfUpstreamStoreCanRebuild(issue.storeKind, issue.problem)) {
+			actions.push({ label: localize('basehalf.upstream.rebuildList', "Rebuild List"), run: () => this.rebuildList(issue.node, context) });
+		}
 		return actions;
 	}
 

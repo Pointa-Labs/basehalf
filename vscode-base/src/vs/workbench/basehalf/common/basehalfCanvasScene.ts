@@ -119,6 +119,10 @@ export interface IBaseHalfCanvasSceneCard extends IBaseHalfCanvasBounds {
 	/** The scene reports only meaningful presentation changes. The workbench
 	 *  keeps one card body alive at a time and owns its resource lifecycle. */
 	readonly updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => void;
+	/** The scene calls this once it has put `element` into the document in
+	 *  place of the card's previous element. Until then the previous element
+	 *  is the one on screen, so the workbench keeps its listeners. */
+	readonly didMountElement?: () => void;
 	/** An explicitly open in-card surface (for example a Badge face or editor)
 	 *  stays mounted while selection catches up with a replacement snapshot. */
 	readonly forceInteractive?: true;

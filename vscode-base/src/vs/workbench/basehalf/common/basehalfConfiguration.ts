@@ -75,7 +75,7 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 				localize('basehalf.references.updateOnFileMove.never', 'Leave the upstream lists unchanged. Their entries for the old path show as broken until they are relinked.')
 			],
 			scope: ConfigurationScope.RESOURCE,
-			description: localize('basehalf.references.updateOnFileMove', 'Controls what happens to the upstream lists that name a file or folder when it is moved or renamed in BaseHalf. Folders that contain a `.basehalf-no-workspace-setup` marker always ask.')
+			description: localize('basehalf.references.updateOnFileMove', 'Controls what happens to the upstream lists that name a file or folder when it is moved or renamed in BaseHalf. Folders that BaseHalf is set to leave alone always ask.')
 		},
 		[BaseHalfSetting.AgentDefaultSession]: {
 			type: 'string',

@@ -19,6 +19,7 @@ import { IFileQuery, ISearchService, QueryType } from '../../services/search/com
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { isBaseHalfCanvasEntry } from './basehalfCanvasModel.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorRoot } from './basehalfMirrorTree.js';
+import { baseHalfPlainFailureReason } from './basehalfPlainFailureReason.js';
 import {
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	baseHalfNodeUpstreamItemValues,
@@ -772,7 +773,8 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			if (isFileNotFound(error)) {
 				return { kind: 'missing' };
 			}
-			return { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+			this.logService.warn(`[BaseHalf] the upstream list of ${node.relativePath} could not be read`, error);
+			return { kind: 'error', message: baseHalfPlainFailureReason(error) };
 		}
 	}
 

@@ -314,6 +314,53 @@ suite('BaseHalfReferenceStore', () => {
 		], [false, false, true, true, true, true, false, false, true, true, false]);
 	});
 
+	test('Rebuild List writes a list BaseHalf could not use as one block list of the entries it can read', () => {
+		const rebuild = (text: string) => {
+			const plan = planBaseHalfMarkdownUpstreamEdit(text, { kind: 'rebuild' }, { nodePath: 'note.md' });
+			return plan.kind === 'edit' ? plan.text : plan.kind === 'refused' ? `refused: ${plan.reason}` : plan.kind;
+		};
+		assert.deepStrictEqual({
+			mapping: rebuild('---\ntitle: x\nupstream:\n  first: a.md\n  second: b.md\n# kept comment\ntags: [t]\n---\nBody\n'),
+			blockScalar: rebuild('---\nupstream: |\n  a.md\n  b.md\ntitle: x\n---\nBody\n'),
+			anchor: rebuild('---\ntitle: x\nupstream:\n  - &src a.md\n  - b.md\n---\nBody\n'),
+			foreign: rebuild('---\ntitle: x\nupstream: https://example.com/feed\n---\nBody\n'),
+			multiline: rebuild('---\nupstream: [a.md, "b\n  c.md"]\ntitle: x\n---\nBody\n'),
+			// Both sides of a merge added the key: every valid entry is kept once, in order.
+			duplicateKey: rebuild('---\nupstream:\n  - a.md\n  - b.md\ntitle: x\nupstream:\n  - b.md\n  - c.md\n---\nBody\n'),
+			onlyKey: rebuild('---\nupstream:\n  first: a.md\n---\nBody\n'),
+			healthy: rebuild('---\nupstream:\n  - a.md\n---\nBody\n'),
+			toml: rebuild('+++\nupstream = ["a.md"]\n+++\nBody\n'),
+			rejected: rebuild('---\nupstream: [a.md\n---\nBody\n'),
+			flowRoot: rebuild('---\n{ title: x, upstream: { a: 1 } }\n---\nBody\n')
+		}, {
+			mapping: '---\ntitle: x\n# kept comment\ntags: [t]\n---\nBody\n',
+			blockScalar: '---\ntitle: x\n---\nBody\n',
+			anchor: '---\ntitle: x\n---\nBody\n',
+			foreign: '---\ntitle: x\n---\nBody\n',
+			multiline: '---\nupstream:\n  - a.md\n  - b c.md\ntitle: x\n---\nBody\n',
+			duplicateKey: '---\nupstream:\n  - a.md\n  - b.md\n  - c.md\ntitle: x\n---\nBody\n',
+			onlyKey: 'Body\n',
+			healthy: 'noop',
+			toml: 'refused: tomlFrontmatter',
+			rejected: 'refused: frontmatterRejected',
+			flowRoot: 'refused: mappingNotBlock'
+		});
+	});
+
+	test('Rebuild List rewrites a sidecar it could not read, or plans its removal', () => {
+		const rebuild = (text: string | undefined) => {
+			const plan = planBaseHalfSidecarUpstreamEdit(text, { kind: 'rebuild' }, { nodePath: 'book.pdf' });
+			return plan.kind === 'edit' ? plan.text : plan.kind;
+		};
+		assert.deepStrictEqual([
+			rebuild('upstream:\n  - a.md\nupstream:\n  - b.md\n'),
+			rebuild('upstream:\n  first: a.md\n'),
+			rebuild('<<<<<<< HEAD\nupstream:\n  - a.md\n'),
+			rebuild('upstream:\n  - a.md\n'),
+			rebuild(undefined)
+		], ['upstream:\n  - a.md\n  - b.md\n', 'delete', 'delete', 'noop', 'noop']);
+	});
+
 	test('chooses the store kind and upstream-only outputs', () => {
 		assert.deepStrictEqual([
 			baseHalfUpstreamStoreKind('a/Note.MD', false),

@@ -48,6 +48,7 @@ import {
 } from '../common/basehalfCanvasTemplate.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
+import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
@@ -160,7 +161,7 @@ registerAction2(class BaseHalfCanvasRunNodeAction extends Action2 {
 		const relativePath = workspaceFolder ? getRelativePath(workspaceFolder.uri, argument) : undefined;
 		if (!workspaceFolder || !relativePath || baseHalfProjectPathProblem(relativePath)
 			|| !relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			throw new Error(localize('basehalf.canvas.runNode.workspaceNodeRequired', "The URI must identify a node document inside the current workspace."));
+			throw new Error(localize('basehalf.canvas.runNode.workspaceNodeRequired', "The URI must identify a node inside the current workspace."));
 		}
 		return accessor.get(IBaseHalfNodeExecutionService).run({
 			resource: argument,
@@ -235,7 +236,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		if (upstream.sidecars.length > 0 && await baseHalfIsWorkspaceFolderMarked(fileService, currentFolder.workspaceFolder)) {
 			throw new Error(localize(
 				'basehalf.canvas.template.markedFolder',
-				"'{0}' connects into files that keep their upstream list in BaseHalf metadata, which BaseHalf doesn't write in this folder.",
+				"'{0}' needs connections that BaseHalf can't save in a folder it is set to leave alone.",
 				descriptor.label
 			));
 		}
@@ -423,7 +424,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		}));
 		const pick = await quickInputService.pick(picks, {
 			title: localize('basehalf.canvas.template.resumeTitle', "Finish Canvas Setup"),
-			placeHolder: localize('basehalf.canvas.template.resumePlaceholder', "Choose the project whose canvas metadata should be completed")
+			placeHolder: localize('basehalf.canvas.template.resumePlaceholder', "Choose the project whose canvas setup should be finished")
 		});
 		if (!pick) {
 			return;
@@ -941,7 +942,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 			}
 		}
 		{
-			const message = failure instanceof Error ? failure.message : String(failure);
+			const message = baseHalfUserFacingErrorMessage(failure);
 			const canStopSetup = await canStopPendingTemplateSetup(runtime);
 			const { result } = await runtime.dialogService.prompt<'retry' | 'open' | 'forget'>({
 				type: 'warning',
@@ -976,7 +977,7 @@ async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime
 				}
 				failure = new Error(localize(
 					'basehalf.canvas.template.recoveryStillRequired',
-					'Canvas setup changed while the recovery prompt was open. Recovery remains available so the partial metadata cannot be forgotten.'
+					'Canvas setup changed while this prompt was open. It can still be finished later with \'Finish Incomplete Canvas Setup\'.'
 				));
 				continue;
 			}

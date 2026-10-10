@@ -135,7 +135,11 @@ export type BaseHalfUpstreamListOperation =
 	/** Replaces the item at `index` (which must still have `expected` as its text) in place. */
 	| { readonly kind: 'replaceAt'; readonly index: number; readonly expected: string; readonly to: string }
 	/** Makes the list exactly `items`, keeping the source text of unchanged items (undo and redo). */
-	| { readonly kind: 'set'; readonly items: readonly IBaseHalfUpstreamItemValue[] };
+	| { readonly kind: 'set'; readonly items: readonly IBaseHalfUpstreamItemValue[] }
+	/** **Rebuild List**: writes a list BaseHalf cannot read, or will not edit in
+	 * place, again as one block list of the valid entries it holds. A store
+	 * that is readable and writable is left as it is. */
+	| { readonly kind: 'rebuild' };
 
 export type BaseHalfUpstreamPlanRefusal =
 	| BaseHalfUpstreamStoreProblem
@@ -684,6 +688,9 @@ function computeTarget(
 		}
 		case 'set':
 			return setTarget(items, operation.items);
+		case 'rebuild':
+			// The planners handle a rebuild before any target is computed.
+			return { kind: 'noop' };
 	}
 }
 
@@ -897,6 +904,136 @@ function refusedByRead(read: IBaseHalfUpstreamStoreRead): BaseHalfUpstreamTextPl
 }
 
 /**
+ * The valid entries of every top-level `upstream` key of a YAML region, in
+ * order and without repeats, with the lines each key occupies. `undefined`
+ * when the region is not a block mapping whose keys start in column 0, which
+ * is the only shape BaseHalf removes whole key lines from.
+ */
+function locateUpstreamKeys(
+	text: string,
+	lines: LineIndex,
+	regionStart: number,
+	regionEnd: number,
+	options: IBaseHalfUpstreamReadOptions
+): { readonly keys: readonly { readonly firstLine: number; readonly lastLine: number }[]; readonly entries: readonly string[] } | undefined {
+	const region = text.slice(regionStart, regionEnd);
+	const root = parseYaml(region, [], { allowDuplicateKeys: true });
+	if (root?.type !== 'map' || root.style !== 'block') {
+		return undefined;
+	}
+	const columnZero = root.properties.every(property => {
+		const offset = regionStart + property.key.startOffset;
+		return offset === lines.start(lines.lineOf(offset));
+	});
+	if (!columnZero) {
+		return undefined;
+	}
+	const identity = options.identity ?? BASEHALF_EXACT_UPSTREAM_IDENTITY;
+	const keys: { firstLine: number; lastLine: number }[] = [];
+	const entries: string[] = [];
+	const seen = new Set<string>();
+	root.properties.forEach((property, index) => {
+		if (property.key.value !== 'upstream') {
+			return;
+		}
+		const firstLine = lines.lineOf(regionStart + property.key.startOffset);
+		// The key's lines run to the line before the next key, without the
+		// blank and comment lines that lead up to that key.
+		const next = root.properties[index + 1];
+		let lastLine = next
+			? lines.lineOf(regionStart + next.key.startOffset) - 1
+			: lines.lineOf(Math.max(regionStart, regionEnd - 1));
+		while (lastLine > firstLine && /^[ \t]*(?:#.*)?$/.test(text.slice(lines.start(lastLine), lines.contentEnd(lastLine)))) {
+			lastLine--;
+		}
+		keys.push({ firstLine, lastLine });
+		const syntax = analyzeUpstreamProperty(text, lines, regionStart, region, property, true, true);
+		if (!syntax.readable || !syntax.upstream) {
+			return;
+		}
+		for (const item of baseHalfAnalyzeUpstreamItems(syntax.upstream.items.map(candidate => candidate.value), options.nodePath, identity)) {
+			if (item.path === undefined) {
+				continue;
+			}
+			const key = identity.key(item.path);
+			if (!seen.has(key)) {
+				seen.add(key);
+				entries.push(item.path);
+			}
+		}
+	});
+	return { keys, entries };
+}
+
+function rebuiltListLines(entries: readonly string[], eol: string): string {
+	return entries.length === 0 ? '' : ['upstream:', ...entries.map(entry => `  - ${baseHalfFormatUpstreamEntry(entry)}`)].map(line => line + eol).join('');
+}
+
+/** **Rebuild List** for a Markdown document (reference graph, "Rebuilding a list"). */
+function planMarkdownRebuild(
+	text: string,
+	lines: LineIndex,
+	layout: IMarkdownLayout,
+	read: IBaseHalfUpstreamStoreRead,
+	options: IBaseHalfUpstreamPlanOptions
+): BaseHalfUpstreamTextPlan {
+	if (read.readable && read.writable) {
+		return { kind: 'noop' };
+	}
+	if (layout.kind !== 'recognized' && layout.kind !== 'duplicateKey') {
+		// TOML, a rejected block, or one beyond the window: not a document BaseHalf edits.
+		return { kind: 'refused', reason: read.problem ?? 'frontmatterRejected' };
+	}
+	const located = locateUpstreamKeys(text, lines, layout.contentStart, layout.contentEnd, options);
+	if (!located) {
+		return { kind: 'refused', reason: 'mappingNotBlock' };
+	}
+	if (located.keys.length === 0) {
+		return { kind: 'noop' };
+	}
+	const eol = detectEol(text, options.defaultEol);
+	const [first, ...others] = located.keys;
+	const edits: IRawEdit[] = [
+		{ start: lines.start(first.firstLine), end: lines.end(first.lastLine), text: rebuiltListLines(located.entries, eol) },
+		...others.map(key => deleteLines(lines, key.firstLine, key.lastLine))
+	];
+	const after = applyEdits(text, edits);
+	const remainder = after.slice(layout.contentStart, layout.contentEnd - (text.length - after.length));
+	if (remainder.trim() === '') {
+		return editPlan(text, [{ start: layout.bomLength, end: layout.blockEnd, text: '' }]);
+	}
+	if (!isBaseHalfMarkdownFrontmatterMapping(remainder)) {
+		return { kind: 'refused', reason: 'frontmatterRejected' };
+	}
+	return editPlan(text, edits);
+}
+
+/** **Rebuild List** for a sidecar: the valid entries it holds, or no file at all. */
+function planSidecarRebuild(
+	text: string | undefined,
+	read: IBaseHalfUpstreamStoreRead,
+	options: IBaseHalfUpstreamPlanOptions
+): BaseHalfUpstreamTextPlan {
+	if (text === undefined || (read.readable && read.writable)) {
+		return { kind: 'noop' };
+	}
+	const entries = baseHalfReadableSidecarUpstreamEntries(text, options);
+	if (entries.length === 0) {
+		return { kind: 'delete' };
+	}
+	return editPlan(text, [{ start: 0, end: text.length, text: rebuiltListLines(entries, detectEol(text, options.defaultEol)) }]);
+}
+
+/**
+ * The valid entries BaseHalf can read from a sidecar's text, once each and in
+ * order, when the file as a whole cannot be read as a list.
+ */
+export function baseHalfReadableSidecarUpstreamEntries(text: string, options: IBaseHalfUpstreamReadOptions = {}): readonly string[] {
+	const bomLength = text.charCodeAt(0) === 0xFEFF ? 1 : 0;
+	return locateUpstreamKeys(text, new LineIndex(text), bomLength, text.length, options)?.entries ?? [];
+}
+
+/**
  * Plans the minimal text edit of a Markdown document's `upstream` key. The
  * text is the complete document (a text model value, or bytes with a BOM).
  */
@@ -909,6 +1046,9 @@ export function planBaseHalfMarkdownUpstreamEdit(
 	const read = readBaseHalfMarkdownUpstream(text, options);
 	const layout = layoutMarkdown(text);
 	const lines = new LineIndex(text);
+	if (operation.kind === 'rebuild') {
+		return planMarkdownRebuild(text, lines, layout, read, options);
+	}
 	const region = layout.kind === 'recognized' ? analyzeYamlRegion(text, lines, layout.contentStart, layout.contentEnd, false) : undefined;
 	const refusal = refusedByRead(read);
 	if (refusal) {
@@ -965,6 +1105,9 @@ export function planBaseHalfSidecarUpstreamEdit(
 ): BaseHalfUpstreamTextPlan {
 	const identity = options.identity ?? BASEHALF_EXACT_UPSTREAM_IDENTITY;
 	const read = readBaseHalfSidecarUpstream(text, options);
+	if (operation.kind === 'rebuild') {
+		return planSidecarRebuild(text, read, options);
+	}
 	const refusal = refusedByRead(read);
 	const target = computeTarget(read.items, operation, identity);
 	if (refusal) {

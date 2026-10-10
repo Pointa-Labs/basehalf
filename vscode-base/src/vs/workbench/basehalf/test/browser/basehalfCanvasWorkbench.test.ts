@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { DisposableStore, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasSetVideoInputPickActive, baseHalfCanvasVideoCanonicalAdjustmentState, baseHalfCanvasVideoConnectionBindingRequiresRebind, baseHalfCanvasVideoInputReadinessMessage, baseHalfCanvasVideoMethodControlState, baseHalfCanvasVideoModelCapabilitySummary, baseHalfCanvasVideoModelIsTypeaheadKey, baseHalfCanvasVideoModelNavigationIndex, baseHalfCanvasVideoModelProblemAction, baseHalfCanvasVideoModelTypeaheadIndex, baseHalfCanvasVideoOverlayNextFocusTarget, baseHalfCanvasVideoPickCandidateBatches, baseHalfCanvasVideoPickCandidatePaths, baseHalfCanvasVideoPickCheckpointCanContinue, baseHalfCanvasVideoPickHasCandidateChange, baseHalfCanvasVideoPickMountedCandidatePaths, baseHalfCanvasVideoPickRevisionDependencyPaths, baseHalfCanvasVideoRangeAccessibleNames, baseHalfCanvasWarningDisplayMessage, baseHalfCanvasZoomFromPercentInput, disposeBaseHalfCanvasVideoPickStore, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
+import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasProvisionalVideoDraftDocument, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasSetVideoInputPickActive, baseHalfCanvasVideoCanonicalAdjustmentState, baseHalfCanvasVideoConnectionBindingRequiresRebind, baseHalfCanvasVideoInputReadinessMessage, baseHalfCanvasVideoMethodControlState, baseHalfCanvasVideoModelCapabilitySummary, baseHalfCanvasVideoModelIsTypeaheadKey, baseHalfCanvasVideoModelNavigationIndex, baseHalfCanvasVideoModelProblemAction, baseHalfCanvasVideoModelTypeaheadIndex, baseHalfCanvasVideoOverlayNextFocusTarget, baseHalfCanvasVideoPickCandidateBatches, baseHalfCanvasVideoPickCandidatePaths, baseHalfCanvasVideoPickCheckpointCanContinue, baseHalfCanvasVideoPickHasCandidateChange, baseHalfCanvasVideoPickMountedCandidatePaths, baseHalfCanvasVideoPickRevisionDependencyPaths, baseHalfCanvasVideoRangeAccessibleNames, baseHalfCanvasLayoutNotice, baseHalfCanvasZoomFromPercentInput, disposeBaseHalfCanvasVideoPickStore, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
 import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
 import { acquireBaseHalfVideoInputTransaction, baseHalfVideoInputTransactionIsCurrent, beginBaseHalfVideoCanvasPick, cancelBaseHalfVideoCanvasPick, createBaseHalfVideoCanvasPickState, createBaseHalfVideoInputTransactionOwnerState, failBaseHalfVideoCanvasPick, getBaseHalfVideoCanvasPickInteraction, markBaseHalfVideoCanvasPickReady, releaseBaseHalfVideoInputTransaction } from '../../common/basehalfVideoInputs.js';
 import { createBaseHalfVideoMessagePrecedencePresentation } from '../../common/basehalfVideoModelSettingsPresentation.js';
@@ -44,13 +44,17 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasCardPreviewCanRetainElement(false, first as never, equivalent as never), false);
 	});
 
-	test('collapses detailed corrupt canvas errors into one display warning', () => {
-		assert.strictEqual(baseHalfCanvasWarningDisplayMessage('Corrupt canvas.yaml'), 'Corrupt canvas.yaml');
-		assert.strictEqual(
-			baseHalfCanvasWarningDisplayMessage('Corrupt canvas.yaml at file:///tmp/work/.bh/mirror/canvas.yaml: card \'note.md\' width must be positive'),
-			'Corrupt canvas.yaml'
+	test('describes unusable saved layout in one calm line per damage kind', () => {
+		assert.deepStrictEqual(
+			[
+				baseHalfCanvasLayoutNotice({ kind: 'partial', reason: 'cards[0].kind must be file or folder' }),
+				baseHalfCanvasLayoutNotice({ kind: 'unreadable', reason: 'path must be "docs"' })
+			],
+			[
+				'Some saved card positions could not be read',
+				'This canvas\'s saved layout could not be read'
+			]
 		);
-		assert.strictEqual(baseHalfCanvasWarningDisplayMessage('Unable to read canvas.yaml'), 'Unable to read canvas.yaml');
 	});
 
 	test('retains a post-create selection until every created card is visible in the model', () => {

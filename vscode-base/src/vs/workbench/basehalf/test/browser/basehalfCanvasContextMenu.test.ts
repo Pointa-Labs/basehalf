@@ -360,7 +360,7 @@ suite('BaseHalf canvas context menu', () => {
 			references: [{ from: 'brief.md', to: 'shot.json', fromAnchor: 'east', toAnchor: 'west' }]
 		});
 		const harness = await createTemplateHarness(disposables, { templateSource, marked: true });
-		await assert.rejects(() => harness.create(), /doesn't write in this folder/);
+		await assert.rejects(() => harness.create(), /a folder it is set to leave alone/);
 		assert.deepStrictEqual({
 			project: await harness.fileService.exists(harness.projectResource),
 			referenceEdits: harness.referenceEdits,
@@ -530,7 +530,7 @@ async function createTemplateHarness(
 	}));
 
 	const mutationCoordinator = new BaseHalfWorkspaceMutationCoordinator();
-	const canvasMirror = new BaseHalfCanvasMirrorService(fileService, mutationCoordinator);
+	const canvasMirror = disposables.add(new BaseHalfCanvasMirrorService(fileService, mutationCoordinator));
 	const referenceEditService = new RecordingReferenceEditService();
 	const storageService = disposables.add(new TestStorageService());
 	const dialogService = new TestDialogService(undefined, { result: undefined });

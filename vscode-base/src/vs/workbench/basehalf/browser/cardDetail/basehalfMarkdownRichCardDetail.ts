@@ -64,7 +64,7 @@ import {
 	planBaseHalfMarkdownRichProjectionHandoff
 } from '../../common/basehalfMarkdownRichWebviewSaveCoordinator.js';
 import { IBaseHalfAdhdCommand } from '../../common/basehalfAdhd.js';
-import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
+import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../common/basehalfMarkdownProjection.js';
@@ -1478,9 +1478,7 @@ function escapeAttribute(value: string): string {
 	return escape(value).replace(/"/g, '&quot;');
 }
 
+/** Reading aids fail only when the file system refuses the read or write. */
 function adhdErrorMessage(error: unknown): string {
-	if (error instanceof BaseHalfAdhdMirrorCorrupt) {
-		return `ADHD metadata issue: ${error.reason}`;
-	}
 	return error instanceof Error ? `ADHD metadata issue: ${error.message}` : `ADHD metadata issue: ${String(error)}`;
 }

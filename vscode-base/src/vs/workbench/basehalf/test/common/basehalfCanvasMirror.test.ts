@@ -13,10 +13,16 @@ import {
 	IFileService,
 	IFileStat
 } from '../../../../platform/files/common/files.js';
-import { BaseHalfCanvasMirrorCorrupt, BaseHalfCanvasMirrorService, BaseHalfCanvasStateConflict, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
+import { BaseHalfCanvasMirrorService, BaseHalfCanvasStateConflict, IBaseHalfCanvasPreservedEvent, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
+import { baseHalfMirrorRecoveryResource } from '../../common/basehalfMirrorRecovery.js';
 import { BaseHalfMirrorSymbolicLinkError } from '../../common/basehalfMirrorTree.js';
+import { BaseHalfMirrorWriteRejected } from '../../common/basehalfMirrorYaml.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
+
+/** Names that an earlier reader mistook for numbers, booleans, or null, and names that need escaping. */
+const TRICKY_NAMES = ['09', '2024', '-3', '1.5', '1e21', 'true', 'false', 'null', '~', '', ' lead', 'trail ', '"q"', 'it\'s', 'back\\slash', 'a: b', 'a #b', 'line\nbreak', 'bell\u0007', 'ls\u2028x', '中文 笔记.md'];
 
 suite('BaseHalfCanvasMirrorService', () => {
 	const workspaceFolder = URI.file('/work');
@@ -142,26 +148,197 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual((fileService.files.get(canvasPath)?.match(/- from: "a\.md"/g) ?? []).length, 1);
 	});
 
-	test('throws a typed corrupt error for invalid YAML', async () => {
+	test('reads invalid YAML as no layout and reports it unreadable', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/canvas.yaml', 'path: [unterminated']
 		]));
 
-		await assert.rejects(
-			() => service.readCanvas(folder('')),
-			error => error instanceof BaseHalfCanvasMirrorCorrupt
-		);
+		const read = await service.inspectCanvas(folder(''));
+
+		assert.deepStrictEqual({ canvas: read.canvas, damage: read.damage?.kind }, { canvas: null, damage: 'unreadable' });
 	});
 
-	test('throws a typed corrupt error when the stored path does not match the folder', async () => {
+	test('reads a canvas stored for another folder as no layout', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/docs/canvas.yaml', 'path: other\ncards: []\nedges: []\n']
 		]));
 
+		assert.deepStrictEqual(await service.inspectCanvas(folder('docs')), {
+			canvas: null,
+			damage: { kind: 'unreadable', reason: 'path must be "docs"' }
+		});
+	});
+
+	test('reads back every card path and edge endpoint it writes', async () => {
+		const service = createService(new Map());
+		const cards: IBaseHalfCanvasCard[] = TRICKY_NAMES.map((path, index) => ({ path, kind: 'folder', x: index, y: -1.5 - index, width: 248, height: 188 }));
+		const edges: IBaseHalfCanvasEdge[] = cards.slice(1).map((card, index) => ({ from: cards[index].path, from_anchor: 'east', to: card.path, to_anchor: 'west' }));
+
+		await service.updateCardGeometries(folder(''), cards);
+		for (const edge of edges) {
+			await service.upsertCanvasEdge(folder(''), edge);
+		}
+
+		assert.deepStrictEqual(await service.inspectCanvas(folder('')), { canvas: { path: '', cards, edges } });
+	});
+
+	test('reads back every folder path it writes', async () => {
+		const service = createService(new Map());
+		const names = TRICKY_NAMES.filter(name => name !== '');
+		const reads = [];
+		for (const name of names) {
+			await service.updateCardGeometry(folder(name), { path: `${name}/a.md`, kind: 'file', x: 1, y: 2, width: 300, height: 220 });
+			reads.push(await service.inspectCanvas(folder(name)));
+		}
+
+		assert.deepStrictEqual(reads, names.map(name => ({
+			canvas: { path: name, cards: [{ path: `${name}/a.md`, kind: 'file', x: 1, y: 2, width: 300, height: 220 }], edges: [] }
+		})));
+	});
+
+	test('reads a hand-written plain numeric path as text', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', 'path: ""\ncards:\n  - path: 09\n    kind: folder\n    x: 1\n    y: 2\n    width: 3\n    height: 4\nedges: []\n']
+		]));
+
+		assert.deepStrictEqual(await service.inspectCanvas(folder('')), {
+			canvas: { path: '', cards: [{ path: '09', kind: 'folder', x: 1, y: 2, width: 3, height: 4 }], edges: [] }
+		});
+	});
+
+	test('a folder named 09 leaves its canvas readable, movable, and purgeable', async () => {
+		const service = createService(new Map());
+		const note: IBaseHalfCanvasCard = { path: 'note.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 };
+		const numbered: IBaseHalfCanvasCard = { path: '09', kind: 'folder', x: 10, y: 10, width: 248, height: 188 };
+		const moved: IBaseHalfCanvasCard = { ...note, x: 500, y: 40 };
+
+		await service.updateCardGeometry(folder(''), note);
+		await service.updateCardGeometry(folder(''), numbered);
+		await service.updateCardGeometry(folder(''), moved);
+		const beforeDelete = await service.inspectCanvas(folder(''));
+		await service.purgeNode(workspaceFolder, '09');
+
+		assert.deepStrictEqual([beforeDelete, await service.inspectCanvas(folder(''))], [
+			{ canvas: { path: '', cards: [moved, numbered], edges: [] } },
+			{ canvas: { path: '', cards: [moved], edges: [] } }
+		]);
+	});
+
+	test('skips rows it cannot read and keeps the stored bytes before writing over them', async () => {
+		const canvasPath = '/work/.bh/mirror/canvas.yaml';
+		const good: IBaseHalfCanvasCard = { path: 'good.md', kind: 'file', x: 5, y: 6, width: 300, height: 220 };
+		const moved: IBaseHalfCanvasCard = { path: 'moved.md', kind: 'file', x: 7, y: 8, width: 300, height: 220 };
+		const damaged = [
+			'path: ""',
+			'cards:',
+			'  - path: "bad.md"',
+			'    kind: group',
+			'    x: 1',
+			'    y: 2',
+			'    width: 300',
+			'    height: 220',
+			'  - path: "good.md"',
+			'    kind: file',
+			'    x: 5',
+			'    y: 6',
+			'    width: 300',
+			'    height: 220',
+			'edges: []',
+			''
+		].join('\n');
+		const fileService = new TestFileService(new Map([[canvasPath, damaged]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const preserved: IBaseHalfCanvasPreservedEvent[] = [];
+		const listener = service.onDidPreserveUnreadableCanvas(event => preserved.push(event));
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(canvasPath), VSBuffer.fromString(damaged));
+
+		const before = await service.inspectCanvas(folder(''));
+		await service.updateCardGeometry(folder(''), moved);
+		listener.dispose();
+
+		assert.deepStrictEqual({
+			before,
+			after: await service.inspectCanvas(folder('')),
+			recoveryCopy: fileService.files.get(recoveryCopy.fsPath),
+			preserved: preserved.map(event => ({ relativePath: event.relativePath, damage: event.damage.kind, recoveryCopy: event.recoveryCopy.fsPath }))
+		}, {
+			before: { canvas: { path: '', cards: [good], edges: [] }, damage: { kind: 'partial', reason: 'cards[0].kind must be file or folder' } },
+			after: { canvas: { path: '', cards: [good, moved], edges: [] } },
+			recoveryCopy: damaged,
+			preserved: [{ relativePath: '', damage: 'partial', recoveryCopy: recoveryCopy.fsPath }]
+		});
+	});
+
+	test('keeps both sides of a merge conflict as a recovery copy instead of reading the file as an empty canvas', async () => {
+		const canvasPath = '/work/.bh/mirror/canvas.yaml';
+		const row = (path: string, x: number) => `  - path: "${path}"\n    kind: file\n    x: ${x}\n    y: 2\n    width: 300\n    height: 220\n`;
+		const conflicted = `path: ""\ncards:\n${row('kept.md', 1)}<<<<<<< HEAD\n${row('a.md', 3)}=======\n${row('a.md', 9)}>>>>>>> feature\n${row('after.md', 5)}edges: []\n`;
+		const fileService = new TestFileService(new Map([[canvasPath, conflicted]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const kept: IBaseHalfCanvasCard = { path: 'kept.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 };
+		const moved: IBaseHalfCanvasCard = { path: 'a.md', kind: 'file', x: 40, y: 50, width: 300, height: 220 };
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(canvasPath), VSBuffer.fromString(conflicted));
+
+		const before = await service.inspectCanvas(folder(''));
+		await service.updateCardGeometry(folder(''), moved);
+
+		assert.deepStrictEqual({
+			before,
+			after: await service.inspectCanvas(folder('')),
+			recoveryCopy: fileService.files.get(recoveryCopy.fsPath)
+		}, {
+			before: { canvas: { path: '', cards: [kept], edges: [] }, damage: { kind: 'partial', reason: 'line 9 and what follows could not be read' } },
+			after: { canvas: { path: '', cards: [kept, moved], edges: [] } },
+			recoveryCopy: conflicted
+		});
+	});
+
+	test('reads a canvas saved with a byte order mark', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', '\ufeffpath: ""\ncards:\n  - path: "a.md"\n    kind: file\n    x: 1\n    y: 2\n    width: 3\n    height: 4\nedges: []\n']
+		]));
+
+		assert.deepStrictEqual(await service.inspectCanvas(folder('')), {
+			canvas: { path: '', cards: [{ path: 'a.md', kind: 'file', x: 1, y: 2, width: 3, height: 4 }], edges: [] }
+		});
+	});
+
+	test('writes card geometry over an unreadable canvas after keeping its bytes, and leaves it alone on a no-op', async () => {
+		const canvasPath = '/work/.bh/mirror/canvas.yaml';
+		const unreadable = 'path: [unterminated';
+		const fileService = new TestFileService(new Map([[canvasPath, unreadable]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const card: IBaseHalfCanvasCard = { path: 'a.md', kind: 'file', x: 10, y: 20, width: 220, height: 112 };
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(canvasPath), VSBuffer.fromString(unreadable));
+
+		await service.removeCanvasEdge(folder(''), { from: 'a.md', to: 'b.md' });
+		const afterNoOp = { canvas: fileService.files.get(canvasPath), recoveryCopy: fileService.files.get(recoveryCopy.fsPath) };
+		await service.updateCardGeometry(folder(''), card);
+
+		assert.deepStrictEqual({
+			afterNoOp,
+			after: await service.inspectCanvas(folder('')),
+			recoveryCopy: fileService.files.get(recoveryCopy.fsPath)
+		}, {
+			afterNoOp: { canvas: unreadable, recoveryCopy: undefined },
+			after: { canvas: { path: '', cards: [card], edges: [] } },
+			recoveryCopy: unreadable
+		});
+	});
+
+	test('leaves an unreadable canvas unchanged when its recovery copy cannot be saved', async () => {
+		const canvasPath = '/work/.bh/mirror/canvas.yaml';
+		const unreadable = 'path: [unterminated';
+		const fileService = new TestFileService(new Map([[canvasPath, unreadable]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(canvasPath), VSBuffer.fromString(unreadable));
+		fileService.failNextWrite(recoveryCopy.fsPath, new Error('disk full'));
+
 		await assert.rejects(
-			() => service.readCanvas(folder('docs')),
-			error => error instanceof BaseHalfCanvasMirrorCorrupt && error.reason === 'path must be "docs"'
+			() => service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 10, y: 20, width: 220, height: 112 }),
+			/disk full/
 		);
+		assert.strictEqual(fileService.files.get(canvasPath), unreadable);
 	});
 
 	test('serializes canvas.yaml with stable fields, cards, and edges', () => {
@@ -409,17 +586,19 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.deepStrictEqual(absentFileService.createdFolders, []);
 	});
 
-	test('does not overwrite corrupt canvas.yaml while writing card geometry', async () => {
-		const fileService = new TestFileService(new Map([
-			['/work/.bh/mirror/canvas.yaml', 'path: [unterminated']
-		]));
+	test('never commits a canvas the reader would not accept in full', async () => {
+		const fileService = new TestFileService(new Map());
 		const service = mirrorService(fileService as unknown as IFileService);
 
 		await assert.rejects(
-			() => service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 10, y: 20, width: 220, height: 112 }),
-			error => error instanceof BaseHalfCanvasMirrorCorrupt
+			() => service.upsertCanvasEdge(folder(''), { from: 'a.md', from_anchor: 'up' as IBaseHalfCanvasEdge['from_anchor'], to: 'b.md', to_anchor: 'west' }),
+			error => error instanceof BaseHalfMirrorWriteRejected
 		);
-		assert.strictEqual(fileService.files.get('/work/.bh/mirror/canvas.yaml'), 'path: [unterminated');
+		await assert.rejects(
+			() => service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 10, y: 20, width: 0.00001, height: 112 }),
+			error => error instanceof RangeError && error.message.includes('card \'a.md\' width must be positive')
+		);
+		assert.deepStrictEqual([...fileService.files.keys()], []);
 	});
 
 	test('rejects invalid geometry before it can corrupt canvas.yaml', async () => {
@@ -1181,6 +1360,46 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 		assert.strictEqual(fileService.files.get(canvasPath), external);
 		assert.strictEqual((await service.readCanvas(folder('docs')))?.edges[0].from_anchor, 'west');
+	});
+
+	test('purgeNode completes around canvases it cannot read and keeps their bytes', async () => {
+		const unreadable = 'path: [unterminated';
+		const files = new Map([
+			['/work/.bh/mirror/canvas.yaml', unreadable],
+			['/work/.bh/mirror/docs/canvas.yaml', unreadable],
+			['/work/.bh/mirror/docs/sub/canvas.yaml', 'path: "docs/sub"\ncards:\n  - path: "docs/sub/a.md"\n    kind: file\n    x: 1\n    y: 2\n    width: 260\n    height: 140\nedges: []\n']
+		]);
+		const service = createService(files);
+
+		await service.purgeNode(workspaceFolder, 'docs');
+
+		assert.deepStrictEqual(Object.fromEntries(files), {
+			'/work/.bh/mirror/canvas.yaml': unreadable,
+			'/work/.bh/mirror/docs/canvas.yaml': unreadable,
+			'/work/.bh/mirror/docs/sub/canvas.yaml': 'path: "docs/sub"\ncards: []\nedges: []\n'
+		});
+	});
+
+	test('relocateNode leaves an unreadable source canvas in place and replaces an unreadable destination only with incoming layout', async () => {
+		const unreadable = 'path: [unterminated';
+		const layout = (path: string) => `path: "${path}"\ncards:\n  - path: "${path}/a.md"\n    kind: file\n    x: 1\n    y: 2\n    width: 260\n    height: 140\nedges: []\n`;
+		const fileService = new TestFileService(new Map([
+			['/work/.bh/mirror/lost/canvas.yaml', unreadable],
+			['/work/.bh/mirror/from/canvas.yaml', layout('from')],
+			['/work/.bh/mirror/to/canvas.yaml', unreadable]
+		]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file('/work/.bh/mirror/to/canvas.yaml'), VSBuffer.fromString(unreadable));
+
+		await service.relocateNode(workspaceFolder, 'lost', 'found', { retireDestination: true });
+		await service.relocateNode(workspaceFolder, 'from', 'to', { retireDestination: true });
+
+		assert.deepStrictEqual(Object.fromEntries(fileService.files), {
+			'/work/.bh/mirror/lost/canvas.yaml': unreadable,
+			'/work/.bh/mirror/from/canvas.yaml': 'path: "from"\ncards: []\nedges: []\n',
+			'/work/.bh/mirror/to/canvas.yaml': layout('to'),
+			[recoveryCopy.fsPath]: unreadable
+		});
 	});
 
 	function folder(relativePath: string): IBaseHalfCanvasFolderState {

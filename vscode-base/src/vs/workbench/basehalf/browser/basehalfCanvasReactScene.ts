@@ -1515,6 +1515,7 @@ function createCanvasSceneMount(
 				return;
 			}
 			mount.replaceChildren(data.card.element);
+			data.card.didMountElement?.();
 			const focusPath = replacementFocusPath.current;
 			replacementFocusPath.current = undefined;
 			if (focusPath) {

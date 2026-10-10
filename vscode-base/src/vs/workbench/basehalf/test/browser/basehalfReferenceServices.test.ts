@@ -180,7 +180,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	const flush = new BaseHalfEditorFlushService();
 	instantiationService.stub(IBaseHalfEditorFlushService, flush);
 	instantiationService.stub(IBaseHalfWorkspaceMutationCoordinator, new BaseHalfWorkspaceMutationCoordinator());
-	const adhd = instantiationService.createInstance(BaseHalfAdhdMirrorService);
+	const adhd = disposables.add(instantiationService.createInstance(BaseHalfAdhdMirrorService));
 	instantiationService.stub(IBaseHalfAdhdMirrorService, adhd);
 	const notifications = new RecordingNotificationService();
 	instantiationService.stub(INotificationService, notifications);
@@ -447,8 +447,11 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual(await harness.list(), before);
 		assert.strictEqual(harness.textFileService.isDirty(harness.node('b.md').resource), false);
 
-		// The first-frontmatter notice is shown once per machine.
-		assert.deepStrictEqual(harness.notifications.prompts.map(prompt => prompt.choices.map(choice => choice.label)), [['Show in File', 'OK']]);
+		// The first-frontmatter notice is shown once per machine, in plain
+		// words and with no way into the note's source.
+		assert.deepStrictEqual(harness.notifications.prompts.map(prompt => [prompt.message, prompt.choices.map(choice => choice.label)]), [
+			['Saved this connection inside b.md. Agents and other tools that read the note see it there.', ['OK']]
+		]);
 		assert.strictEqual(harness.storage.getBoolean(BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY, StorageScope.APPLICATION), true);
 		await harness.edit.add(harness.node('a.md'), 'b.md', options);
 		assert.strictEqual(harness.notifications.prompts.length, 1);
@@ -526,7 +529,7 @@ suite('BaseHalfReferenceEditService', () => {
 		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'quote.md': '---\nA quote.\n---\n', 'feed.md': '---\nupstream: https://example.com/feed\n---\n' });
 		assert.strictEqual((await refusal(harness.edit.add(harness.node('quote.md'), 'a.md', options))).reason, 'notWritable');
 		const foreign = await refusal(harness.edit.add(harness.node('feed.md'), 'a.md', options));
-		assert.deepStrictEqual([foreign.reason, foreign.openResource?.path], ['foreign', '/work/feed.md']);
+		assert.deepStrictEqual([foreign.reason, foreign.blocking.map(store => store.storeResource.path)], ['foreign', ['/work/feed.md']]);
 	});
 
 	test('connecting into a Draft node writes upstream and its binding in one write', async () => {
@@ -634,6 +637,66 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.strictEqual(await harness.read('.bh/mirror/note.md/upstream.yaml'), undefined);
 	});
 
+	test('Rebuild List makes an unusable list usable again and keeps a replaced sidecar as a recovery copy', async () => {
+		const conflicted = 'upstream:\n  - a.md\nupstream:\n  - c.md\n';
+		const garbage = '<<<<<<< HEAD\nupstream:\n  - a.md\n';
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'c.md': '# C\n',
+			'feed.md': '---\ntitle: Feed\nupstream: https://example.com/feed\n---\n# Feed\n',
+			'merged.md': '---\nupstream:\n  - a.md\ntitle: Merged\nupstream:\n  - a.md\n  - c.md\n---\n# Merged\n',
+			'toml.md': '+++\nupstream = ["a.md"]\n+++\n# Toml\n',
+			'docs/x.txt': '',
+			'book.pdf': '%PDF',
+			'.bh/mirror/docs/upstream.yaml': conflicted,
+			'.bh/mirror/book.pdf/upstream.yaml': garbage,
+			'clip.bhnode': '{ not json'
+		});
+		const storeIssues = async () => (await harness.index.getIssues(folder)).filter(issue => issue.kind === 'store').map(issue => issue.node.relativePath);
+		// TOML frontmatter is not BaseHalf's to edit: it carries no issue and no rebuild.
+		assert.deepStrictEqual(await storeIssues(), ['book.pdf', 'clip.bhnode', 'docs', 'feed.md', 'merged.md']);
+
+		for (const path of ['feed.md', 'merged.md', 'docs', 'book.pdf']) {
+			await harness.edit.rebuild(harness.node(path), options);
+		}
+		assert.deepStrictEqual({
+			feed: await harness.read('feed.md'),
+			merged: await harness.read('merged.md'),
+			docs: await harness.read('.bh/mirror/docs/upstream.yaml'),
+			book: await harness.read('.bh/mirror/book.pdf/upstream.yaml')
+		}, {
+			feed: '---\ntitle: Feed\n---\n# Feed\n',
+			merged: '---\nupstream:\n  - a.md\n  - c.md\ntitle: Merged\n---\n# Merged\n',
+			docs: 'upstream:\n  - a.md\n  - c.md\n',
+			book: undefined
+		});
+		// Each replaced sidecar is kept byte for byte, and nothing else is.
+		const recovered = (await harness.list()).filter(path => path.startsWith('.bh/cache/recovered/'));
+		assert.deepStrictEqual(recovered.map(path => path.replace(/\.[0-9a-f]{12}\.yaml$/, '.<digest>.yaml')), [
+			'.bh/cache/recovered/mirror/book.pdf/upstream.<digest>.yaml',
+			'.bh/cache/recovered/mirror/docs/upstream.<digest>.yaml'
+		]);
+		assert.deepStrictEqual(await Promise.all(recovered.map(path => harness.read(path))), [garbage, conflicted]);
+		assert.deepStrictEqual(harness.index.getDownstream(harness.node('c.md')).map(entry => entry.node.relativePath), ['docs', 'merged.md']);
+
+		// What cannot be edited safely is refused and left as it was.
+		assert.strictEqual((await refusal(harness.edit.rebuild(harness.node('toml.md'), options))).reason, 'notWritable');
+		assert.strictEqual((await refusal(harness.edit.rebuild(harness.node('clip.bhnode'), options))).reason, 'unreadable');
+		assert.deepStrictEqual([await harness.read('toml.md'), await harness.read('clip.bhnode')], ['+++\nupstream = ["a.md"]\n+++\n# Toml\n', '{ not json']);
+		assert.deepStrictEqual(await storeIssues(), ['clip.bhnode']);
+
+		// A readable list has nothing to rebuild.
+		const again = await harness.edit.rebuild(harness.node('merged.md'), options);
+		assert.deepStrictEqual(again.stores.map(store => store.outcome), ['unchanged']);
+	});
+
+	test('Rebuild List leaves the sidecar unchanged when its recovery copy cannot be saved', async () => {
+		const garbage = '<<<<<<< HEAD\nupstream:\n  - a.md\n';
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'book.pdf': '%PDF', '.bh/mirror/book.pdf/upstream.yaml': garbage, '.bh/cache/recovered': '' });
+		await assert.rejects(harness.edit.rebuild(harness.node('book.pdf'), options));
+		assert.strictEqual(await harness.read('.bh/mirror/book.pdf/upstream.yaml'), garbage);
+	});
+
 	test('a target-end reconnect adds to the new downstream before removing from the old one', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '---\nupstream:\n  - a.md\n---\n', 'c.md': '# C\n' });
 		const result = await harness.edit.move('a.md', harness.node('b.md'), harness.node('c.md'), options);
@@ -653,12 +716,12 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual(harness.notifications.prompts.map(prompt => prompt.message), []);
 	});
 
-	test('shows Retry, Revert Change, and Open File when the save fails', async () => {
+	test('shows Retry and Revert Change, and no way into the file, when the save fails', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '# B\n' });
 		harness.provider.failingWrites.add('/work/b.md');
 		await assert.rejects(harness.edit.add(harness.node('b.md'), 'a.md', options), /not saved/);
 		const prompt = harness.notifications.prompts.find(candidate => candidate.message === 'The upstream change to b.md is not saved.');
-		assert.deepStrictEqual(prompt?.choices.map(choice => choice.label), ['Retry', 'Revert Change', 'Open File']);
+		assert.deepStrictEqual(prompt?.choices.map(choice => choice.label), ['Retry', 'Revert Change']);
 		const model = harness.textFileService.files.get(harness.node('b.md').resource)!;
 		assert.strictEqual(model.textEditorModel?.getValue(), '---\nupstream:\n  - a.md\n---\n# B\n');
 		// Only BaseHalf's change was unsaved: Revert Change goes back to the text on disk.
@@ -721,24 +784,59 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual([await state(), harness.notifications.messages], [[full, undefined], []]);
 	});
 
-	test('Move into File moves a repeated entry once and refuses invalid entries and a sidecar that changed', async () => {
+	test('Move into File moves every entry it can read, keeps the rest as a recovery copy, and refuses a sidecar that changed', async () => {
+		const withInvalid = 'upstream:\n  - /abs.md\n  - a.md\n';
+		const twice = 'upstream:\n  - a.md\nupstream:\n  - c.md\n';
+		const garbage = '<<<<<<< HEAD\nupstream:\n  - a.md\n';
 		const harness = await createHarness(disposables, {
 			'a.md': '',
 			'c.md': '',
 			'note.md': '# N\n',
 			'.bh/mirror/note.md/upstream.yaml': 'upstream:\n  - a.md\n  - a.md\n',
 			'bad.md': '# B\n',
-			'.bh/mirror/bad.md/upstream.yaml': 'upstream:\n  - /abs.md\n  - a.md\n',
+			'.bh/mirror/bad.md/upstream.yaml': withInvalid,
+			'twice.md': '# T\n',
+			'.bh/mirror/twice.md/upstream.yaml': twice,
+			'garbage.md': '# G\n',
+			'.bh/mirror/garbage.md/upstream.yaml': garbage,
 			'raced.md': '# R\n',
 			'.bh/mirror/raced.md/upstream.yaml': 'upstream:\n  - a.md\n'
 		});
 		await harness.edit.moveIntoFile(harness.node('note.md'), options);
-		assert.deepStrictEqual([await harness.read('note.md'), await harness.read('.bh/mirror/note.md/upstream.yaml')], ['---\nupstream:\n  - a.md\n---\n# N\n', undefined]);
+		assert.deepStrictEqual([await harness.read('note.md'), await harness.read('.bh/mirror/note.md/upstream.yaml'), harness.notifications.messages], ['---\nupstream:\n  - a.md\n---\n# N\n', undefined, []]);
 
-		const invalid = await refusal(harness.edit.moveIntoFile(harness.node('bad.md'), options));
-		assert.deepStrictEqual([invalid.reason, invalid.openResource?.path, await harness.read('bad.md'), await harness.read('.bh/mirror/bad.md/upstream.yaml')], [
-			'invalidEntry', '/work/.bh/mirror/bad.md/upstream.yaml', '# B\n', 'upstream:\n  - /abs.md\n  - a.md\n'
-		]);
+		// An invalid entry, and content that can't be read, have nowhere to go:
+		// the move never refuses them, and the sidecar is kept byte for byte.
+		const source = new UndoRedoSource();
+		const canvas = joinPath(folder, '.bh', 'mirror', 'canvas.yaml');
+		await harness.edit.moveIntoFile(harness.node('bad.md'), options);
+		harness.edit.pushUndoElement(await harness.edit.moveIntoFile(harness.node('twice.md'), options), { label: 'Move into File', resources: [canvas], source });
+		await harness.edit.moveIntoFile(harness.node('garbage.md'), options);
+		const recovered = (await harness.list()).filter(path => path.startsWith('.bh/cache/recovered/'));
+		assert.deepStrictEqual({
+			bad: [await harness.read('bad.md'), await harness.read('.bh/mirror/bad.md/upstream.yaml')],
+			twice: [await harness.read('twice.md'), await harness.read('.bh/mirror/twice.md/upstream.yaml')],
+			garbage: [await harness.read('garbage.md'), await harness.read('.bh/mirror/garbage.md/upstream.yaml')],
+			recovered: recovered.map(path => path.replace(/\.[0-9a-f]{12}\.yaml$/, '.<digest>.yaml')),
+			recoveredBytes: await Promise.all(recovered.map(path => harness.read(path))),
+			messages: harness.notifications.messages
+		}, {
+			bad: ['---\nupstream:\n  - a.md\n---\n# B\n', undefined],
+			twice: ['---\nupstream:\n  - a.md\n  - c.md\n---\n# T\n', undefined],
+			garbage: ['# G\n', undefined],
+			recovered: [
+				'.bh/cache/recovered/mirror/bad.md/upstream.<digest>.yaml',
+				'.bh/cache/recovered/mirror/garbage.md/upstream.<digest>.yaml',
+				'.bh/cache/recovered/mirror/twice.md/upstream.<digest>.yaml'
+			],
+			recoveredBytes: [withInvalid, garbage, twice],
+			messages: ['bad.md', 'twice.md', 'garbage.md'].map(name => `BaseHalf moved the upstream entries it could read into ${name}. The rest could not be used and was removed.`)
+		});
+
+		// Undo puts the moved entries back where BaseHalf can read them.
+		await disposeModel(harness, 'twice.md');
+		await harness.undoRedo.undo(source);
+		assert.deepStrictEqual([await harness.read('twice.md'), await harness.read('.bh/mirror/twice.md/upstream.yaml')], ['# T\n', 'upstream:\n  - a.md\n  - c.md\n']);
 
 		// An agent adds an entry after the entries were read: nothing is written or removed.
 		const raced = 'upstream:\n  - a.md\n  - c.md\n';

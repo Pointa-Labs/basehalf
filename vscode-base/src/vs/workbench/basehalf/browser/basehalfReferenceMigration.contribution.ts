@@ -301,16 +301,16 @@ export class BaseHalfReferenceMigrationController extends Disposable implements 
 		const { connections, notes, metadataItems, nodeDocuments } = counts;
 		let message: string;
 		if (notes > 0 && metadataItems > 0) {
-			message = localize('basehalf.migration.prompt', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will add an `upstream` list to the frontmatter of {1} notes and update {2} items in .bh/.", connections, notes, metadataItems);
+			message = localize('basehalf.migration.prompt', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will save them inside {1} notes and in the lists it keeps for {2} other items.", connections, notes, metadataItems);
 		} else if (notes > 0) {
-			message = localize('basehalf.migration.prompt.notes', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will add an `upstream` list to the frontmatter of {1} notes.", connections, notes);
+			message = localize('basehalf.migration.prompt.notes', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will save them inside {1} notes.", connections, notes);
 		} else if (metadataItems > 0) {
-			message = localize('basehalf.migration.prompt.metadata', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will update {1} items in .bh/.", connections, metadataItems);
+			message = localize('basehalf.migration.prompt.metadata', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections? BaseHalf will save them in the lists it keeps for {1} items.", connections, metadataItems);
 		} else {
 			message = localize('basehalf.migration.prompt.plain', "Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move {0} connections?", connections);
 		}
 		if (nodeDocuments > 0) {
-			message = localize('basehalf.migration.prompt.nodeDocuments', "{0} It will also update {1} node documents.", message, nodeDocuments);
+			message = localize('basehalf.migration.prompt.nodeDocuments', "{0} It will also update {1} nodes.", message, nodeDocuments);
 		}
 		return message;
 	}
@@ -438,7 +438,7 @@ export class BaseHalfReferenceMigrationController extends Disposable implements 
 			title: phase === 'preview'
 				? localize('basehalf.migration.report.title', "Connections from an Earlier BaseHalf Version")
 				: localize('basehalf.migration.report.resultTitle', "Moved Connections"),
-			placeHolder: localize('basehalf.migration.report.placeholder', "Moving connections is not an undo step. Revert it with version control."),
+			placeHolder: localize('basehalf.migration.report.placeholder', "Moving connections can't be undone with Undo."),
 			matchOnDescription: true,
 			matchOnDetail: true
 		});
@@ -454,12 +454,12 @@ export class BaseHalfReferenceMigrationController extends Disposable implements 
 			? `${this.contextService.getWorkspaceFolder(row.workspaceFolder)?.name ?? basename(row.workspaceFolder)}/${row.downstream}`
 			: row.downstream;
 		const description = row.key
-			? localize('basehalf.migration.report.key', "`{0}` in its badge", row.key)
+			? localize('basehalf.migration.report.key', "an earlier connection list in its badge")
 			: localize('basehalf.migration.report.from', "from {0}", row.upstreams.join(', '));
 		return {
 			label,
 			description,
-			...(row.reason ? { detail: baseHalfLegacyReasonLabel(row.reason, row.message) } : {}),
+			...(row.reason ? { detail: baseHalfLegacyReasonLabel(row.reason) } : {}),
 			...(row.downstream ? { resource: URI.joinPath(row.workspaceFolder, ...row.downstream.split('/').filter(Boolean)) } : {})
 		};
 	}

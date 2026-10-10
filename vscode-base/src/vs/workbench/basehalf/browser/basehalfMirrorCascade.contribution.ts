@@ -7,7 +7,7 @@ import { Event } from '../../../base/common/event.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { Disposable, DisposableStore, IDisposable } from '../../../base/common/lifecycle.js';
-import { dirname, relativePath as getRelativePath } from '../../../base/common/resources.js';
+import { basename, dirname, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
@@ -20,13 +20,14 @@ import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIde
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
 import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
-import { BaseHalfBadgeKind, BaseHalfBadgeMirrorCorrupt, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
+import { BaseHalfBadgeKind, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection } from '../common/basehalfCardDetail.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../common/basehalfMirrorFileCommit.js';
+import { baseHalfPlainFailureReason } from '../common/basehalfPlainFailureReason.js';
 import {
 	baseHalfIsMirrorSubtree,
 	baseHalfAssertMirrorPathComponentsNotSymbolicLink,
@@ -85,8 +86,10 @@ interface IBaseHalfPendingCascadeRecovery {
 	rejectCompletion(error: unknown): void;
 	nextStage: number;
 	lastFailure: unknown;
+	/** The user chose Skip: the stages from `nextStage` on did not run. */
+	skipped?: boolean;
 	running?: Promise<void>;
-	notification?: { readonly handle: INotificationHandle; suppressed: boolean };
+	notification?: { readonly handle: INotificationHandle; readonly closeListener: IDisposable; suppressed: boolean };
 	notificationRepublishQueued?: boolean;
 }
 
@@ -126,6 +129,12 @@ interface IBaseHalfPendingCascadeRecovery {
  *
  * All cascades run on one FIFO queue so two rapid operations (rename A→B, then
  * B→C) can never interleave their multi-file rewrites.
+ *
+ * Mirror content that cannot be read never stops a stage: the mirror services
+ * leave such a file in place or work on its readable part. A stage fails only
+ * when the file system refuses the operation, and the user can then retry or
+ * skip the rest of the metadata update, so the workspace is never locked
+ * (mirror file resilience, "Structural operations").
  */
 export class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbenchContribution {
 
@@ -165,6 +174,31 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			}
 		}));
 
+		this._register(this.canvasMirrorService.onDidPreserveUnreadableCanvas(event => {
+			this.logService.warn(`BaseHalf canvas mirror: replaced the ${event.damage.kind === 'partial' ? 'partly unreadable' : 'unreadable'} layout of '${event.relativePath}' (${event.damage.reason}); its bytes are kept at ${event.recoveryCopy.toString()}`);
+			this.notificationService.info(localize(
+				'basehalf.mirrorCascade.canvasLayoutRecovered',
+				"BaseHalf could not read part of the saved layout of {0}, so it saved a new one. A copy of the old one is kept.",
+				event.relativePath || basename(event.workspaceFolder)
+			));
+		}));
+		this._register(this.badgeMirrorService.onDidPreserveUnreadableBadge(event => {
+			this.logService.warn(`BaseHalf badge mirror: replaced the unreadable badge of '${event.relativePath}' (${event.reason}); its bytes are kept at ${event.recoveryCopy.toString()}`);
+			this.notificationService.info(localize(
+				'basehalf.mirrorCascade.badgeRecovered',
+				"BaseHalf could not read the saved description of {0}, so it saved the new one. A copy of the old one is kept.",
+				event.relativePath || basename(event.workspaceFolder)
+			));
+		}));
+		this._register(this.adhdMirrorService.onDidPreserveUnreadableAdhd(event => {
+			this.logService.warn(`BaseHalf ADHD mirror: replaced the unreadable reading aids of '${event.relativePath}' (${event.reason}); their bytes are kept at ${event.recoveryCopy.toString()}`);
+			this.notificationService.info(localize(
+				'basehalf.mirrorCascade.adhdRecovered',
+				"BaseHalf could not read the saved reading aids of {0}, so it saved new ones. A copy of the old ones is kept.",
+				event.relativePath
+			));
+		}));
+
 		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
 			for (const added of event.added) {
 				this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(added.uri, () => this.sweepOrphans(added.uri)));
@@ -192,7 +226,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const pendingRecovery = this.pendingRecoveryFor(workspaces);
 		if (pendingRecovery) {
 			executionFence.dispose();
-			throw new Error(`A file operation is still finalizing BaseHalf metadata for ${pendingRecovery.description}. Use the Retry action in Notifications before changing these paths again.`);
+			throw new Error(localize('basehalf.mirrorCascade.recoveryPending', "BaseHalf is still updating its cards and badges after an earlier change ({0}). Choose Retry or Skip in Notifications before moving or deleting these items again.", pendingRecovery.description));
 		}
 
 		// This is deliberately the first await boundary in BaseHalf's prepare:
@@ -437,13 +471,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const description = plans.length === 1
 			? plans[0].description
 			: `${operation === FileOperation.MOVE ? 'move' : 'delete'} batch (${plans.map(plan => plan.description).join(', ')})`;
-		await this.runCascadeStagesOrRecover(
+		const completed = await this.runCascadeStagesOrRecover(
 			workspaceFolders,
 			description,
 			plans.flatMap(plan => plan.stages),
 			lease
 		);
-		await this.pruneEmptyMirrorDirectories(plans);
+		// After a Skip, metadata the dropped stages would have moved or retired
+		// is still at the old mirror paths, so nothing there is pruned.
+		if (completed) {
+			await this.pruneEmptyMirrorDirectories(plans);
+		}
 	}
 
 	/**
@@ -754,17 +792,10 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	}
 
 	/** Clears the badge's description and orphan flag. The badge mirror keeps
-	 * legacy reference keys verbatim until a migration removes them. A corrupt
-	 * badge is left for the user to fix rather than blocking the operation. */
+	 * legacy reference keys verbatim until a migration removes them, and leaves
+	 * a badge whose content cannot be read in place. */
 	private async retireBadge(workspaceFolder: URI, relativePath: string): Promise<void> {
-		try {
-			await this.badgeMirrorService.patchBadge(this.badgeNode(workspaceFolder, relativePath, 'file'), () => null);
-		} catch (error) {
-			if (!(error instanceof BaseHalfBadgeMirrorCorrupt)) {
-				throw error;
-			}
-			this.logService.warn(`BaseHalf mirror cascade: left corrupt badge ${error.resource.toString()} in place: ${error.reason}`);
-		}
+		await this.badgeMirrorService.patchBadge(this.badgeNode(workspaceFolder, relativePath, 'file'), () => null);
 	}
 
 	/** Permanent delete: removes the upstream.yaml of the node and of every node below it. */
@@ -858,8 +889,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	}
 
 	/** Move every adhd.yaml under the subtree to the remapped location. Reading
-	 * aids are authored user state, so an unreadable member is a required-stage
-	 * failure with an explicit recovery cursor rather than a best-effort skip. */
+	 * aids are authored user state: a member the file system refuses to move is
+	 * a required-stage failure with an explicit recovery cursor, and a member
+	 * that cannot be read is left in place, byte for byte, by the ADHD mirror. */
 	private async relocateAdhd(workspaceFolder: URI, from: string, to: string, sameResourceIdentity: boolean, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'adhd.yaml')) {
 			const actualRoot = sameResourceIdentity ? to : from;
@@ -890,14 +922,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
+	/** Runs every stage. Resolves `false` when a stage failed and the user chose
+	 * Skip, so the stages from the failed one on did not run. */
 	private async runCascadeStagesOrRecover(
 		workspaceFolders: readonly URI[],
 		description: string,
 		stages: readonly IBaseHalfCascadeStage[],
 		lease: IBaseHalfWorkspaceMutationLease
-	): Promise<void> {
+	): Promise<boolean> {
 		try {
 			await this.runCascadeStages(stages, 0, lease);
+			return true;
 		} catch (error) {
 			if (!(error instanceof BaseHalfMirrorCascadeStageError)) {
 				throw error;
@@ -930,9 +965,11 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			// The physical operation has committed, but the original structural lease
 			// and editor fences remain held while this promise waits. Public outcomes,
 			// later batch stages, and ordinary mirror mutations therefore cannot observe
-			// or overtake half-reconciled metadata. Retry resumes on this SAME lease.
+			// or overtake half-reconciled metadata. Retry resumes on this SAME lease;
+			// Skip gives the rest up and releases it.
 			this.showCascadeRecoveryFailure(recovery, error);
 			await recovery.completion;
+			return !recovery.skipped;
 		}
 	}
 
@@ -958,7 +995,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				await this.runCascadeStages(recovery.stages, recovery.nextStage, recovery.lease);
 				this.pendingCascadeRecoveries.delete(recovery);
 				this.logService.info(`BaseHalf mirror cascade: recovered ${recovery.description}`);
-				this.notificationService.info(`BaseHalf finished reconciling metadata for ${recovery.description}.`);
+				this.notificationService.info(localize('basehalf.mirrorCascade.recovered', "BaseHalf finished updating its cards and badges ({0}).", recovery.description));
 				recovery.resolveCompletion();
 			} catch (error) {
 				if (error instanceof BaseHalfMirrorCascadeStageError) {
@@ -981,33 +1018,62 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
+	/**
+	 * Ends the metadata update of an operation whose stage keeps failing. The
+	 * stages that have not run are dropped and the lease is released, so later
+	 * file operations proceed. Metadata those stages would have moved or
+	 * retired stays at its old mirror path, the state a move or delete outside
+	 * BaseHalf leaves.
+	 */
+	private skipCascadeRecovery(recovery: IBaseHalfPendingCascadeRecovery): void {
+		if (this.disposed || recovery.running || !this.pendingCascadeRecoveries.delete(recovery)) {
+			return;
+		}
+		recovery.skipped = true;
+		this.closeCascadeRecoveryNotification(recovery);
+		const stage = recovery.stages[recovery.nextStage]?.label ?? 'unknown stage';
+		this.logService.warn(`BaseHalf mirror cascade: skipped the metadata update for ${recovery.description} from "${stage}" on; that metadata stays at its old mirror paths`, recovery.lastFailure);
+		recovery.resolveCompletion();
+	}
+
 	private showCascadeRecoveryFailure(recovery: IBaseHalfPendingCascadeRecovery, error: unknown): void {
 		if (this.disposed || !this.pendingCascadeRecoveries.has(recovery)) {
 			return;
 		}
-		const stage = error instanceof BaseHalfMirrorCascadeStageError
-			? error.stageLabel
-			: recovery.stages[recovery.nextStage]?.label ?? 'unknown stage';
+		const failure = error instanceof BaseHalfMirrorCascadeStageError ? error.failure : error;
 		recovery.lastFailure = error;
 		this.closeCascadeRecoveryNotification(recovery);
+		// The stage that failed is in the log; the message names only what the
+		// user did and what they can do next.
 		const handle = this.notificationService.prompt(
 			Severity.Error,
-			`The file operation ${recovery.description} completed on disk, but BaseHalf metadata stopped at “${stage}”. Concurrent .bh/mirror edits were preserved. Further file operations in this workspace are blocked until reconciliation succeeds.`,
+			localize(
+				'basehalf.mirrorCascade.recovery',
+				"Your change is done ({0}), but BaseHalf couldn't finish updating its cards and badges to match. Retry, or Skip to keep working. Cause: {1}",
+				recovery.description,
+				baseHalfPlainFailureReason(failure)
+			),
 			[{
-				label: 'Retry metadata reconciliation',
+				label: localize('basehalf.mirrorCascade.recovery.retry', "Retry"),
 				keepOpen: true,
 				run: () => { void this.retryCascadeRecovery(recovery); }
+			}, {
+				label: localize('basehalf.mirrorCascade.recovery.skip', "Skip"),
+				run: () => this.skipCascadeRecovery(recovery)
 			}],
 			{ sticky: true }
 		);
-		const notification = { handle, suppressed: false };
+		const notification = {
+			handle,
+			suppressed: false,
+			closeListener: Event.once(handle.onDidClose)(() => {
+				if (recovery.notification === notification) {
+					recovery.notification = undefined;
+				}
+				this.scheduleCascadeRecoveryNotificationRepublish(recovery, notification.suppressed);
+			})
+		};
 		recovery.notification = notification;
-		Event.once(handle.onDidClose)(() => {
-			if (recovery.notification === notification) {
-				recovery.notification = undefined;
-			}
-			this.scheduleCascadeRecoveryNotificationRepublish(recovery, notification.suppressed);
-		});
 	}
 
 	private closeCascadeRecoveryNotification(recovery: IBaseHalfPendingCascadeRecovery): void {
@@ -1018,6 +1084,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		notification.suppressed = true;
 		recovery.notification = undefined;
 		notification.handle.close();
+		notification.closeListener.dispose();
 	}
 
 	private scheduleCascadeRecoveryNotificationRepublish(recovery: IBaseHalfPendingCascadeRecovery, closeWasSuppressed: boolean): void {

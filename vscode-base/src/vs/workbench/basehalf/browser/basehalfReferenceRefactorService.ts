@@ -20,6 +20,7 @@ import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../common/basehalfCanvasEditin
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
+import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, extractBaseHalfNodeUpstreamLenient } from '../common/basehalfNodeDocument.js';
 import {
 	BaseHalfReferenceEditFailure,
@@ -562,7 +563,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 			}
 			this.notificationService.notify({
 				severity: Severity.Warning,
-				message: error instanceof Error ? error.message : localize('basehalf.references.undoFailed', "The upstream change could not be undone.")
+				message: error instanceof Error ? baseHalfUserFacingErrorMessage(error) : localize('basehalf.references.undoFailed', "The upstream change could not be undone.")
 			});
 		}
 	}

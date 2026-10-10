@@ -8,10 +8,11 @@ import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileOperationError, FileOperationResult, FileType, IFileService, IFileStat } from '../../../../platform/files/common/files.js';
-import { BaseHalfBadgeMirrorCorrupt, BaseHalfBadgeMirrorService, baseHalfLegacyBadgePathAccepted, baseHalfRenameLegacyBadgeItems, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
+import { BaseHalfBadgeMirrorService, baseHalfLegacyBadgePathAccepted, baseHalfRenameLegacyBadgeItems, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
+import { baseHalfMirrorRecoveryResource, IBaseHalfMirrorPreservedEvent } from '../../common/basehalfMirrorRecovery.js';
 
 suite('BaseHalfBadgeMirrorService', () => {
-	ensureNoDisposablesAreLeakedInTestSuite();
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 	const workspaceFolder = URI.file('/work');
 
 	test('maps root, file, and nested folder nodes to badge.yaml resources', () => {
@@ -72,25 +73,80 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.strictEqual(await service.readLegacyReferences(node('docs', 'folder')), undefined);
 	});
 
-	test('throws a typed corrupt error for invalid YAML', async () => {
-		const service = createService(new Map([
-			['/work/.bh/mirror/bad.md/badge.yaml', 'path: [unterminated']
-		]));
+	test('reads back paths and descriptions that look like numbers, booleans, or null', async () => {
+		const values = ['09', '2024', '-3', '1.5', 'true', 'false', 'null', '~', 'a: b', 'it\'s "quoted"', 'two\nlines'];
+		const service = createService(new Map());
+		const badges = [];
+		for (const value of values) {
+			await service.patchBadge(node(value, 'folder'), () => ({ path: value, kind: 'folder', description: value }));
+			badges.push(await service.readBadge(node(value, 'folder')));
+		}
 
-		await assert.rejects(
-			() => service.readBadge(node('bad.md', 'file')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt
-		);
+		assert.deepStrictEqual(badges, values.map(value => ({ path: value, kind: 'folder', description: value })));
 	});
 
-	test('throws a typed corrupt error when the path does not match the node', async () => {
-		const wrongPath = createService(new Map([
-			['/work/.bh/mirror/docs/readme.md/badge.yaml', 'path: docs/other.md\nkind: file\nreferences: []\nreferenced_by: []\n']
+	test('reads hand-written plain numeric values as text', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/09/badge.yaml', 'path: 09\nkind: folder\ndescription: 2024\norphan: true\n']
 		]));
-		await assert.rejects(
-			() => wrongPath.readBadge(node('docs/readme.md', 'file')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt && error.reason === 'path must be "docs/readme.md"'
-		);
+
+		assert.deepStrictEqual(await service.readBadge(node('09', 'folder')), { path: '09', kind: 'folder', description: '2024', orphan: true });
+	});
+
+	test('a badge whose content cannot be read reads as absent, and saving a description keeps it as a recovery copy', async () => {
+		const conflicted = 'path: "conflict.md"\nkind: file\n<<<<<<< HEAD\ndescription: "Ours"\n=======\ndescription: "Theirs"\n>>>>>>> feature\nreferences:\n  - "legacy.md"\n';
+		const unreadable: Record<string, string> = {
+			'syntax.md': 'path: [unterminated',
+			'elsewhere.md': 'path: "other.md"\nkind: file\ndescription: "For another node"\n',
+			'kind.md': 'path: "kind.md"\nkind: link\n',
+			'conflict.md': conflicted
+		};
+		const badgePath = (name: string) => `/work/.bh/mirror/${name}/badge.yaml`;
+		const fileService = new TestFileService(new Map([
+			...Object.entries(unreadable).map(([name, text]): [string, string] => [badgePath(name), text]),
+			[badgePath('bom.md'), '\ufeffpath: "bom.md"\nkind: file\ndescription: "Saved with a byte order mark"\n']
+		]));
+		const service = mirrorService(fileService);
+		const preserved: IBaseHalfMirrorPreservedEvent[] = [];
+		disposables.add(service.onDidPreserveUnreadableBadge(event => preserved.push(event)));
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(badgePath('conflict.md')), VSBuffer.fromString(conflicted));
+
+		const read = await service.readBadges([...Object.keys(unreadable), 'bom.md'].map(name => node(name, 'file')));
+		const listed = await service.listBadges(workspaceFolder);
+		// Clearing a description that could not be read changes nothing.
+		await service.patchBadge(node('syntax.md', 'file'), () => null);
+		const saved = await service.patchBadge(node('conflict.md', 'file'), () => ({ path: 'conflict.md', kind: 'file', description: 'Mine' }));
+
+		assert.deepStrictEqual({
+			read: { badges: [...read.badges.keys()], problems: read.problems },
+			listed: { badges: [...listed.badges.keys()], problems: listed.problems },
+			untouched: fileService.files.get(badgePath('syntax.md')),
+			saved,
+			// The legacy block, split out by line, is still in the new file.
+			written: fileService.files.get(badgePath('conflict.md')),
+			recoveryCopy: fileService.files.get(recoveryCopy.fsPath),
+			preserved: preserved.map(event => ({ relativePath: event.relativePath, reason: event.reason, recoveryCopy: event.recoveryCopy.fsPath }))
+		}, {
+			read: { badges: ['bom.md'], problems: [] },
+			listed: { badges: ['bom.md'], problems: [] },
+			untouched: 'path: [unterminated',
+			saved: { path: 'conflict.md', kind: 'file', description: 'Mine' },
+			written: 'path: "conflict.md"\nkind: file\ndescription: "Mine"\nreferences:\n  - "legacy.md"\n',
+			recoveryCopy: conflicted,
+			preserved: [{ relativePath: 'conflict.md', reason: 'line 3 and what follows could not be read', recoveryCopy: recoveryCopy.fsPath }]
+		});
+	});
+
+	test('leaves an unreadable badge unchanged when its recovery copy cannot be saved', async () => {
+		const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
+		const unreadable = 'path: [unterminated';
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(badgePath), VSBuffer.fromString(unreadable));
+		// Something else already sits where the copy belongs, so it cannot be created.
+		const fileService = new TestFileService(new Map([[badgePath, unreadable], [recoveryCopy.fsPath, 'other bytes']]));
+		const service = mirrorService(fileService);
+
+		await assert.rejects(() => service.patchBadge(node('a.md', 'file'), () => ({ path: 'a.md', kind: 'file', description: 'Mine' })));
+		assert.strictEqual(fileService.files.get(badgePath), unreadable);
 	});
 
 	test('legacy reference items the legacy grammar rejects never make the badge unreadable', async () => {
@@ -164,17 +220,9 @@ suite('BaseHalfBadgeMirrorService', () => {
 
 		const badge = await service.readBadge(node('docs', 'file'));
 		assert.strictEqual(badge?.kind, 'folder');
-
-		const invalidKind = createService(new Map([
-			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: link\nreferences: []\nreferenced_by: []\n']
-		]));
-		await assert.rejects(
-			() => invalidKind.readBadge(node('docs', 'folder')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt && error.reason === 'kind must be "file" or "folder"'
-		);
 	});
 
-	test('readBadges returns valid badges while collecting corrupt metadata problems', async () => {
+	test('readBadges returns valid badges, skips one whose content cannot be read, and keeps malformed legacy keys apart', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/a.md/badge.yaml', 'path: a.md\nkind: file\ndescription: Alpha\nreferences: []\nreferenced_by: []\n'],
 			['/work/.bh/mirror/b.md/badge.yaml', 'path: b.md\nkind: link\n'],
@@ -194,9 +242,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 			kind: 'file',
 			description: 'Alpha'
 		});
-		assert.strictEqual(result.problems.length, 1);
-		assert.strictEqual(result.problems[0].relativePath, 'b.md');
-		assert.strictEqual(result.problems[0].corrupt, true);
+		assert.deepStrictEqual(result.problems, []);
 		assert.deepStrictEqual((await service.readLegacyReferences(node('c.md', 'file')))?.malformed, ['references', 'referenced_by']);
 	});
 
@@ -393,7 +439,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 	}
 
 	function mirrorService(fileService: TestFileService): BaseHalfBadgeMirrorService {
-		return new BaseHalfBadgeMirrorService(fileService as unknown as IFileService);
+		return disposables.add(new BaseHalfBadgeMirrorService(fileService as unknown as IFileService));
 	}
 });
 

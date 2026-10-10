@@ -196,10 +196,10 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	} as Partial<IBaseHalfCanvasNavigationService> as IBaseHalfCanvasNavigationService);
 	const index = disposables.add(instantiationService.createInstance(BaseHalfReferenceIndexService));
 	instantiationService.stub(IBaseHalfReferenceIndexService, index);
-	instantiationService.stub(IBaseHalfAdhdMirrorService, instantiationService.createInstance(BaseHalfAdhdMirrorService));
+	instantiationService.stub(IBaseHalfAdhdMirrorService, disposables.add(instantiationService.createInstance(BaseHalfAdhdMirrorService)));
 	instantiationService.stub(IBaseHalfReferenceEditService, disposables.add(instantiationService.createInstance(BaseHalfReferenceEditService)));
-	instantiationService.stub(IBaseHalfBadgeMirrorService, new BaseHalfBadgeMirrorService(fileService));
-	instantiationService.stub(IBaseHalfCanvasMirrorService, instantiationService.createInstance(BaseHalfCanvasMirrorService));
+	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
+	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	instantiationService.stub(IBaseHalfNodeExecutionService, {
 		acquireStructuralOperation: async () => {
@@ -829,6 +829,106 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				'upstream:\n  - new/a.md\n'
 			],
 			undone: [n1, n2, 'upstream:\n  - old/a.md\n']
+		});
+	});
+	test('deleting a folder named 09 retires its canvas row and never stops the cascade', async () => {
+		const note = '  - path: "note.md"\n    kind: file\n    x: 1\n    y: 2\n    width: 300\n    height: 220\n';
+		const harness = await createHarness(disposables, {
+			'09/inner.md': '# Inner\n',
+			'note.md': '# Note\n',
+			'.bh/mirror/canvas.yaml': `path: ""\ncards:\n${note}  - path: "09"\n    kind: folder\n    x: 3\n    y: 4\n    width: 248\n    height: 188\nedges: []\n`
+		}, 'never');
+
+		await harness.delete('09');
+
+		assert.deepStrictEqual({
+			prompts: harness.notifications.prompts.map(prompt => prompt.message),
+			canvas: await harness.read('.bh/mirror/canvas.yaml')
+		}, {
+			prompts: [],
+			canvas: `path: ""\ncards:\n${note}edges: []\n`
+		});
+	});
+
+	test('a move or delete completes around mirror content that cannot be read and keeps its bytes', async () => {
+		const unreadable = 'path: [unterminated';
+		const harness = await createHarness(disposables, {
+			'docs/a.md': '# A\n',
+			'gone.md': '# Gone\n',
+			'.bh/mirror/canvas.yaml': unreadable,
+			'.bh/mirror/docs/canvas.yaml': unreadable,
+			'.bh/mirror/docs/a.md/adhd.yaml': unreadable,
+			'.bh/mirror/docs/a.md/badge.yaml': 'path: "docs/a.md"\nkind: link\n',
+			'.bh/mirror/gone.md/adhd.yaml': unreadable,
+			'.bh/mirror/gone.md/badge.yaml': unreadable
+		}, 'never');
+
+		await harness.move('docs', 'papers');
+		await harness.delete('gone.md');
+
+		assert.deepStrictEqual({
+			prompts: harness.notifications.prompts.map(prompt => prompt.message),
+			files: [await harness.read('docs/a.md') ?? null, await harness.read('papers/a.md'), await harness.read('gone.md') ?? null],
+			mirror: [
+				await harness.read('.bh/mirror/canvas.yaml'),
+				await harness.read('.bh/mirror/docs/canvas.yaml'),
+				await harness.read('.bh/mirror/docs/a.md/adhd.yaml'),
+				await harness.read('.bh/mirror/gone.md/adhd.yaml'),
+				await harness.read('.bh/mirror/gone.md/badge.yaml'),
+				// A badge travels with its node; only its path line is rewritten.
+				await harness.read('.bh/mirror/papers/a.md/badge.yaml')
+			]
+		}, {
+			prompts: [],
+			files: [null, '# A\n', null],
+			mirror: [unreadable, unreadable, unreadable, unreadable, unreadable, 'path: "papers/a.md"\nkind: link\n']
+		});
+	});
+
+	test('a metadata update the file system refuses offers Retry and Skip; Skip releases the workspace and Retry resumes', async () => {
+		const badge = (path: string) => `path: "${path}"\nkind: file\ndescription: "Kept"\n`;
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'b.md': '# B\n',
+			'c.md': '# C\n',
+			'.bh/mirror/a.md/badge.yaml': badge('a.md'),
+			'.bh/mirror/c.md/badge.yaml': badge('c.md')
+		}, 'never');
+		// A directory where the root canvas.yaml belongs: every read of it fails
+		// for a cause that no retry inside BaseHalf can cure.
+		const blocker = joinPath(folder, '.bh', 'mirror', 'canvas.yaml');
+		await harness.fileService.createFolder(blocker);
+
+		const deletingA = harness.delete('a.md');
+		const promptA = await harness.prompt('Your change is done (delete "a.md")');
+		let refusedWhilePending = '';
+		await harness.delete('b.md').catch(error => { refusedWhilePending = String(error); });
+		await promptA.choose('Skip');
+		await deletingA;
+
+		const deletingC = harness.delete('c.md');
+		const promptC = await harness.prompt('Your change is done (delete "c.md")');
+		await harness.fileService.del(blocker, { recursive: true });
+		await promptC.choose('Retry');
+		await deletingC;
+
+		assert.deepStrictEqual({
+			choices: promptA.choices.map(choice => choice.label),
+			// Plain words and the cause; the stage and "metadata" stay in the log.
+			namesCause: /Cause: \S/.test(promptA.message),
+			codeWords: /metadata|canvas subtree retirement|\.bh|yaml/i.test(promptA.message),
+			refusedWhilePending: /Choose Retry or Skip/.test(refusedWhilePending),
+			files: [await harness.read('a.md') ?? null, await harness.read('b.md'), await harness.read('c.md') ?? null],
+			// Skip dropped the stages after the failed one, so a.md's badge was
+			// not retired. Retry ran them, so c.md's badge is a tombstone.
+			badges: [await harness.read('.bh/mirror/a.md/badge.yaml'), await harness.read('.bh/mirror/c.md/badge.yaml')]
+		}, {
+			choices: ['Retry', 'Skip'],
+			namesCause: true,
+			codeWords: false,
+			refusedWhilePending: true,
+			files: [null, '# B\n', null],
+			badges: [badge('a.md'), 'path: "c.md"\nkind: file\n']
 		});
 	});
 });

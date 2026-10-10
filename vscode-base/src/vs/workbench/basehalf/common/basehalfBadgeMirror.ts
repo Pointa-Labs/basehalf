@@ -4,16 +4,31 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../base/common/buffer.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
 import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
+import { parse as parseYaml, YamlMapNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
+import { baseHalfPreserveMirrorBytes, IBaseHalfMirrorPreservedEvent } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfWalkMirror } from './basehalfMirrorTree.js';
+import { baseHalfPlainFailureReason } from './basehalfPlainFailureReason.js';
+import {
+	BaseHalfMirrorWriteRejected,
+	BaseHalfMirrorYamlUnreadable,
+	IBaseHalfMirrorYamlDocument,
+	baseHalfMirrorYamlAbsent,
+	baseHalfMirrorYamlBoolean,
+	baseHalfMirrorYamlProperty,
+	baseHalfMirrorYamlQuote,
+	baseHalfMirrorYamlString,
+	baseHalfParseMirrorYaml
+} from './basehalfMirrorYaml.js';
 
 export const IBaseHalfBadgeMirrorService = createDecorator<IBaseHalfBadgeMirrorService>('baseHalfBadgeMirrorService');
 
@@ -85,15 +100,18 @@ interface IBaseHalfBadgeExistingReadState {
 	readonly contents: VSBuffer;
 	/** The legacy key blocks of `contents`, verbatim, in file order. */
 	readonly legacyText: string;
+	/** Why the identity fields of `contents` could not be read. The badge then
+	 * reads as absent, and a write keeps `contents` as a recovery copy. */
+	readonly unreadable?: string;
 }
 
 type IBaseHalfBadgeReadState = IBaseHalfBadgeAbsentReadState | IBaseHalfBadgeExistingReadState;
 
+/** A `badge.yaml` the file system refused to read. */
 export interface IBaseHalfBadgeReadProblem {
 	readonly relativePath: string;
 	readonly resource: URI;
 	readonly message: string;
-	readonly corrupt: boolean;
 }
 
 export interface IBaseHalfBadgeReadResult {
@@ -111,12 +129,19 @@ export interface IBaseHalfBadgeReadResult {
 export interface IBaseHalfBadgeMirrorService {
 	readonly _serviceBrand: undefined;
 
+	/** Fires after a badge write replaced a file whose content could not be read. */
+	readonly onDidPreserveUnreadableBadge: Event<IBaseHalfMirrorPreservedEvent>;
+
+	/** The badge, or `null` when it is absent or its content cannot be read.
+	 *  It rejects only when the file system refuses the read (mirror file
+	 *  resilience, "Annotation files"). */
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult>;
 	/** Every materialized badge.yaml in the workspace's mirror tree,
-	 *  keyed by workspace-relative path. Corrupt files are collected as
-	 *  problems, never thrown — one bad badge must not blank a listing. A
-	 *  canonical empty tombstone is logically absent and is not listed. */
+	 *  keyed by workspace-relative path. A file the file system refuses to
+	 *  read is collected as a problem, never thrown — one bad badge must not
+	 *  blank a listing. A canonical empty tombstone and a file whose content
+	 *  cannot be read are logically absent and are not listed. */
 	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult>;
 	/** Optimistic read-modify-write of one badge.yaml under the file's write
 	 *  lock. Existing files use exact-byte guarded atomic replace; absent files
@@ -124,7 +149,10 @@ export interface IBaseHalfBadgeMirrorService {
 	 *  `update` receives the current badge (or null when absent) and returns the
 	 *  next value. Returning null from a materialized badge commits a canonical
 	 *  empty tombstone; it never follows a guarded write with an unguarded
-	 *  delete. Never-materialized empty badges remain absent. */
+	 *  delete. Never-materialized empty badges remain absent. A file whose
+	 *  content cannot be read counts as absent: a non-null update replaces it
+	 *  after its bytes are kept as a recovery copy, and a null update leaves
+	 *  it in place. */
 	patchBadge(node: IBaseHalfBadgeNode, update: (current: IBaseHalfBadgeFile | null) => IBaseHalfBadgeFile | null): Promise<IBaseHalfBadgeFile | null>;
 	badgeResource(node: IBaseHalfWorkspaceResource): URI;
 	/** The legacy reference keys of one badge, or `undefined` when the badge
@@ -150,7 +178,7 @@ export interface IBaseHalfBadgeMirrorService {
 	renameLegacyReferences(node: IBaseHalfBadgeNode, rename: (item: string) => string | undefined): Promise<boolean>;
 }
 
-export class BaseHalfBadgeMirrorCorrupt extends Error {
+class BaseHalfBadgeMirrorCorrupt extends Error {
 	override readonly name = 'BaseHalfBadgeMirrorCorrupt';
 
 	constructor(
@@ -162,13 +190,18 @@ export class BaseHalfBadgeMirrorCorrupt extends Error {
 	}
 }
 
-export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
+export class BaseHalfBadgeMirrorService extends Disposable implements IBaseHalfBadgeMirrorService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();
 
+	private readonly _onDidPreserveUnreadableBadge = this._register(new Emitter<IBaseHalfMirrorPreservedEvent>());
+	readonly onDidPreserveUnreadableBadge = this._onDidPreserveUnreadableBadge.event;
+
 	constructor(
 		@IFileService private readonly fileService: IFileService
-	) { }
+	) {
+		super();
+	}
 
 	async readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null> {
 		return this.readBadgeAt(node.workspaceFolder, this.badgeResource(node), node.relativePath);
@@ -218,7 +251,16 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 					return null;
 				}
 				try {
-					return await this.commitBadgeUnlocked(node, resource, current, next);
+					// Bytes that could not be read are kept before a write the
+					// user asked for replaces them.
+					const preserved = current.exists && current.unreadable !== undefined
+						? { reason: current.unreadable, recoveryCopy: await baseHalfPreserveMirrorBytes(this.fileService, node.workspaceFolder, resource, current.contents) }
+						: undefined;
+					const committed = await this.commitBadgeUnlocked(node, resource, current, next);
+					if (preserved) {
+						this._onDidPreserveUnreadableBadge.fire({ workspaceFolder: node.workspaceFolder, relativePath: node.relativePath, ...preserved });
+					}
+					return committed;
 				} catch (error) {
 					if (!isBadgePatchConflict(error) || attempt === BADGE_PATCH_MAX_ATTEMPTS - 1) {
 						throw error;
@@ -356,7 +398,7 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 			...(updated?.orphan ? { orphan: true } : {})
 		};
 		const legacyText = expected.exists ? expected.legacyText : '';
-		const contents = VSBuffer.fromString(serializeBadgeFile(badge, legacyText));
+		const contents = encodeBadgeFile(badge, legacyText, resource);
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, node.workspaceFolder, resource);
 		await this.fileService.createFolder(dirname(resource));
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, node.workspaceFolder, resource);
@@ -389,31 +431,35 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 
 		const raw = content.value.toString();
 		const split = splitLegacyBlocks(raw);
-		const parsed = parseBadgeYaml(split.identityText, resource);
-		if (parsed === null) {
-			return { exists: true, badge: null, contents: content.value, legacyText: split.legacyText };
-		}
+		try {
+			const parsed = parseBadgeYaml(split.identityText, resource);
+			if (parsed === null) {
+				return { exists: true, badge: null, contents: content.value, legacyText: split.legacyText };
+			}
 
-		const badge = normalizeBadgeFile(parsed, resource, relativePath);
-		return {
-			exists: true,
-			badge: isEmptyBadge(badge) ? null : badge,
-			storedKind: badge.kind,
-			contents: content.value,
-			legacyText: split.legacyText
-		};
+			const badge = normalizeBadgeFile(parsed, resource, relativePath);
+			return {
+				exists: true,
+				badge: isEmptyBadge(badge) ? null : badge,
+				storedKind: badge.kind,
+				contents: content.value,
+				legacyText: split.legacyText
+			};
+		} catch (error) {
+			if (!(error instanceof BaseHalfBadgeMirrorCorrupt)) {
+				throw error;
+			}
+			// The user is never asked to repair a hidden file: the badge reads
+			// as absent, and the legacy blocks, split out by line, still travel.
+			return { exists: true, badge: null, contents: content.value, legacyText: split.legacyText, unreadable: error.reason };
+		}
 	}
 
 	private toProblem(error: unknown, relativePath: string, resource: URI): IBaseHalfBadgeReadProblem {
-		if (error instanceof BaseHalfBadgeMirrorCorrupt) {
-			return { relativePath, resource: error.resource, message: error.reason, corrupt: true };
-		}
-
 		return {
 			relativePath,
 			resource,
-			message: error instanceof Error ? error.message : String(error),
-			corrupt: false
+			message: baseHalfPlainFailureReason(error)
 		};
 	}
 }
@@ -437,12 +483,12 @@ function isEmptyBadge(badge: IBaseHalfBadgeFile): boolean {
  */
 function serializeBadgeFile(badge: IBaseHalfBadgeFile, legacyText: string): string {
 	const lines = [
-		`path: ${yamlString(badge.path)}`,
+		`path: ${baseHalfMirrorYamlQuote(badge.path)}`,
 		`kind: ${badge.kind}`
 	];
 
 	if (badge.description) {
-		lines.push(`description: ${yamlString(badge.description)}`);
+		lines.push(`description: ${baseHalfMirrorYamlQuote(badge.description)}`);
 	}
 
 	let text = lines.join('\n') + '\n';
@@ -453,6 +499,32 @@ function serializeBadgeFile(badge: IBaseHalfBadgeFile, legacyText: string): stri
 		text += 'orphan: true\n';
 	}
 	return text;
+}
+
+/**
+ * The bytes of a `badge.yaml` after the write check: the reader must return
+ * the identity fields that were serialized, or nothing is written (mirror
+ * file resilience, "Write check"). Legacy blocks travel verbatim and are not
+ * part of the check.
+ */
+function encodeBadgeFile(badge: IBaseHalfBadgeFile, legacyText: string, resource: URI): VSBuffer {
+	const text = serializeBadgeFile(badge, legacyText);
+	let readBack: IBaseHalfBadgeFile | undefined;
+	try {
+		const root = parseBadgeYaml(splitLegacyBlocks(text).identityText, resource);
+		readBack = root === null ? undefined : normalizeBadgeFile(root, resource, badge.path);
+	} catch (error) {
+		if (!(error instanceof BaseHalfBadgeMirrorCorrupt)) {
+			throw error;
+		}
+		throw new BaseHalfMirrorWriteRejected(resource, error.reason);
+	}
+	if (readBack?.path !== badge.path || readBack.kind !== badge.kind
+		|| (readBack.description ?? '') !== (badge.description ?? '')
+		|| (readBack.orphan === true) !== (badge.orphan === true)) {
+		throw new BaseHalfMirrorWriteRejected(resource, 'the badge changed when it was read back');
+	}
+	return VSBuffer.fromString(text);
 }
 
 interface ILegacyBlock {
@@ -548,8 +620,9 @@ function legacyReferencesOf(raw: string, resource: URI, relativePath: string): I
 	const referencedBy = legacyValue(split.blocks, 'referenced_by');
 	let kind: BaseHalfBadgeKind | undefined;
 	try {
-		const parsed = parseBadgeYaml(split.identityText, resource);
-		kind = parsed?.kind === 'file' || parsed?.kind === 'folder' ? parsed.kind : undefined;
+		const root = parseBadgeYaml(split.identityText, resource);
+		const stored = root ? baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(root, 'kind')) : undefined;
+		kind = stored === 'file' || stored === 'folder' ? stored : undefined;
 	} catch {
 		kind = undefined;
 	}
@@ -591,7 +664,7 @@ function removeLegacyItems(raw: string, removal: IBaseHalfBadgeLegacyRemoval): s
 		}
 		const remaining = value.items.filter(item => !removed.includes(item));
 		const eol = /\r\n/.test(raw) ? '\r\n' : '\n';
-		return remaining.length === 0 ? '' : `${key}:${eol}${remaining.map(item => `  - ${yamlString(item)}${eol}`).join('')}`;
+		return remaining.length === 0 ? '' : `${key}:${eol}${remaining.map(item => `  - ${baseHalfMirrorYamlQuote(item)}${eol}`).join('')}`;
 	};
 	const references = rewrite('references', removal.references);
 	const referencedBy = rewrite('referenced_by', removal.referencedBy);
@@ -650,7 +723,7 @@ export function baseHalfRenameLegacyBadgeItems(raw: string, rename: (item: strin
 				items.push(next);
 			}
 		}
-		return changed ? `${key}:${eol}${items.map(item => `  - ${yamlString(item)}${eol}`).join('')}` : undefined;
+		return changed ? `${key}:${eol}${items.map(item => `  - ${baseHalfMirrorYamlQuote(item)}${eol}`).join('')}` : undefined;
 	};
 	const replacements = new Map<BaseHalfBadgeLegacyKey, string>();
 	for (const key of ['references', 'referenced_by'] as const) {
@@ -686,13 +759,8 @@ export function baseHalfRenameLegacyBadgeItems(raw: string, rename: (item: strin
 	return result;
 }
 
-function yamlString(value: string): string {
-	return JSON.stringify(value);
-}
-
-function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string): IBaseHalfBadgeFile {
-	const record = asRecord(value, resource, 'badge root must be an object');
-	const path = stringField(record, 'path', resource);
+function normalizeBadgeFile(root: YamlMapNode, resource: URI, expectedPath: string): IBaseHalfBadgeFile {
+	const path = stringField(root, 'path', resource);
 	if (path !== expectedPath) {
 		throw new BaseHalfBadgeMirrorCorrupt(resource, `path must be "${expectedPath}"`);
 	}
@@ -701,13 +769,21 @@ function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string)
 	// both a file and a folder on disk, so the stored kind is authoritative and a
 	// caller's guess (e.g. a reference target defaulting to 'file') must not turn
 	// a healthy folder badge into a "corrupt" read.
-	const kind = stringField(record, 'kind', resource);
+	const kind = stringField(root, 'kind', resource);
 	if (kind !== 'file' && kind !== 'folder') {
 		throw new BaseHalfBadgeMirrorCorrupt(resource, 'kind must be "file" or "folder"');
 	}
 
-	const description = optionalStringField(record, 'description', resource);
-	const orphan = optionalBooleanField(record, 'orphan', resource);
+	const descriptionNode = baseHalfMirrorYamlProperty(root, 'description');
+	const description = baseHalfMirrorYamlString(descriptionNode);
+	if (description === undefined && !baseHalfMirrorYamlAbsent(descriptionNode)) {
+		throw new BaseHalfBadgeMirrorCorrupt(resource, 'description must be a string');
+	}
+	const orphanNode = baseHalfMirrorYamlProperty(root, 'orphan');
+	const orphan = baseHalfMirrorYamlBoolean(orphanNode);
+	if (orphan === undefined && !baseHalfMirrorYamlAbsent(orphanNode)) {
+		throw new BaseHalfBadgeMirrorCorrupt(resource, 'orphan must be a boolean');
+	}
 
 	return {
 		path,
@@ -717,96 +793,27 @@ function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string)
 	};
 }
 
-function parseBadgeYaml(raw: string, resource: URI): Record<string, unknown> | null {
-	const errors: YamlParseError[] = [];
-	const node = parseYaml(raw, errors);
-	if (errors.length > 0) {
-		throw new BaseHalfBadgeMirrorCorrupt(resource, errors[0].message);
-	}
-
-	if (!node) {
-		return null;
-	}
-
-	return asRecord(yamlNodeToValue(node), resource, 'badge root must be an object');
-}
-
-function yamlNodeToValue(node: YamlNode): unknown {
-	if (node.type === 'map') {
-		const value: Record<string, unknown> = {};
-		for (const property of node.properties) {
-			value[property.key.value] = yamlNodeToValue(property.value);
+function parseBadgeYaml(raw: string, resource: URI): YamlMapNode | null {
+	let document: IBaseHalfMirrorYamlDocument;
+	try {
+		document = baseHalfParseMirrorYaml(raw, 'badge');
+	} catch (error) {
+		if (error instanceof BaseHalfMirrorYamlUnreadable) {
+			throw new BaseHalfBadgeMirrorCorrupt(resource, error.reason, { cause: error });
 		}
-		return value;
+		throw error;
 	}
-
-	if (node.type === 'sequence') {
-		return node.items.map(item => yamlNodeToValue(item));
+	if (document.unparsed) {
+		// A description after that line would be lost on the next write.
+		throw new BaseHalfBadgeMirrorCorrupt(resource, document.unparsed);
 	}
-
-	return yamlScalarValue(node);
+	return document.root;
 }
 
-function yamlScalarValue(node: YamlScalarNode): string | number | boolean | null {
-	const value = node.value;
-	const trimmed = value.trim();
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
-		return Number(trimmed);
-	}
-
-	if (trimmed === 'true') {
-		return true;
-	}
-
-	if (trimmed === 'false') {
-		return false;
-	}
-
-	if (trimmed === 'null' || trimmed === '~') {
-		return null;
-	}
-
-	return value;
-}
-
-function asRecord(value: unknown, resource: URI, reason: string): Record<string, unknown> {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new BaseHalfBadgeMirrorCorrupt(resource, reason);
-	}
-
-	return value as Record<string, unknown>;
-}
-
-function stringField(record: Record<string, unknown>, key: string, resource: URI): string {
-	const value = record[key];
-	if (typeof value !== 'string') {
-		throw new BaseHalfBadgeMirrorCorrupt(resource, `${key} must be a string`);
-	}
-
-	return value;
-}
-
-function optionalStringField(record: Record<string, unknown>, key: string, resource: URI): string | undefined {
-	const value = record[key];
+function stringField(root: YamlMapNode, key: string, resource: URI): string {
+	const value = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(root, key));
 	if (value === undefined) {
-		return undefined;
-	}
-
-	if (typeof value !== 'string') {
 		throw new BaseHalfBadgeMirrorCorrupt(resource, `${key} must be a string`);
-	}
-
-	return value;
-}
-
-function optionalBooleanField(record: Record<string, unknown>, key: string, resource: URI): boolean | undefined {
-	const value = record[key];
-	if (value === undefined) {
-		return undefined;
-	}
-
-	if (typeof value !== 'boolean') {
-		throw new BaseHalfBadgeMirrorCorrupt(resource, `${key} must be a boolean`);
 	}
 
 	return value;

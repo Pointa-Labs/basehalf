@@ -44,7 +44,7 @@ import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove, findVal
 import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { DEFAULT_EDITOR_ASSOCIATION, SideBySideEditor } from '../../common/editor.js';
+import { SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { SettingsEditor2Input } from '../../services/preferences/common/preferencesEditorInput.js';
 import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js';
@@ -79,14 +79,15 @@ import { BaseHalfReferenceIndexState, IBaseHalfIndexedDownstream, IBaseHalfRefer
 import { baseHalfUpstreamStoreKind, planBaseHalfMarkdownUpstreamEdit } from '../common/basehalfReferenceStore.js';
 import { BaseHalfBadgeConnectionsFocusTarget, BaseHalfUpstreamActions, BaseHalfUpstreamBindingChoice, IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from './basehalfUpstreamActions.js';
 import { IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
+import { BaseHalfCanvasCardListenerStores } from '../common/basehalfCanvasCardListeners.js';
 import {
-	BaseHalfCanvasMirrorCorrupt,
 	IBaseHalfCanvasCardStateTransition,
+	IBaseHalfCanvasDamage,
 	IBaseHalfCanvasEdgeStateTransition,
 	IBaseHalfCanvasMirrorService,
 	IBaseHalfCanvasStateTransition
 } from '../common/basehalfCanvasMirror.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
+import { baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import {
 	baseHalfCanvasNoteFormatOwnerKey,
@@ -112,6 +113,7 @@ import { BaseHalfCanvasViewportPersister, BaseHalfCanvasViewportSource, baseHalf
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
+import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import {
 	analyzeBaseHalfNodeUpstream,
 	baseHalfNodeUpstreamItemValues,
@@ -1192,10 +1194,15 @@ export function baseHalfCanvasCardPreviewCanRetainElement(
 		|| (resultNode && baseHalfCanvasCardPreviewRenderKey(previous) === baseHalfCanvasCardPreviewRenderKey(next));
 }
 
-export function baseHalfCanvasWarningDisplayMessage(message: string): string {
-	return message === 'Corrupt canvas.yaml' || message.startsWith('Corrupt canvas.yaml at ')
-		? 'Corrupt canvas.yaml'
-		: message;
+/**
+ * The one-line canvas notice for saved layout BaseHalf could not use (mirror
+ * file resilience, "What the user sees"). The affected cards are placed as
+ * cards that were never positioned, and every interaction keeps working.
+ */
+export function baseHalfCanvasLayoutNotice(damage: IBaseHalfCanvasDamage): string {
+	return damage.kind === 'partial'
+		? localize('basehalf.canvas.layout.partial', "Some saved card positions could not be read")
+		: localize('basehalf.canvas.layout.unreadable', "This canvas's saved layout could not be read");
 }
 
 export function baseHalfCanvasPendingSelectionIsReady(
@@ -1415,7 +1422,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
-	private readonly cardListenerStores = new Map<string, DisposableStore>();
+	private readonly cardListenerStores = this._register(new BaseHalfCanvasCardListenerStores());
 	private readonly inlineEditListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailTitleDisposables = this._register(new DisposableStore());
@@ -1433,6 +1440,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly badgeInteractionRenderGate = new BaseHalfCanvasInteractionRenderGate();
 	private badgeInteractionReleaseTimer: number | undefined;
 	private readonly pendingCanvasWarnings: string[] = [];
+	/** The canvas layout damage last written to the log, so a re-render does not repeat it. */
+	private loggedCanvasDamage: string | undefined;
 	/** Badge descriptions (and orphan flags) by path, from the last render. */
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
 	private renderedBadgeProblems: ReadonlyMap<string, IBaseHalfBadgeReadProblem> = new Map();
@@ -1937,7 +1946,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.canvasNavigationService.setActiveCanvasEditor(undefined);
 			this.detachCanvasNoteEditorMount(activeNote);
 		}
-		this.clearCardListenerStores();
+		this.cardListenerStores.clear();
 		this.canvasNavigationService.setSurfaceActive(false);
 		this.renderSeq++;
 		this.disposeDetailSurfaces();
@@ -1990,30 +1999,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			this.requestRender();
 		}, 100);
-	}
-
-	private clearCardListenerStores(): void {
-		for (const store of this.cardListenerStores.values()) {
-			store.dispose();
-		}
-		this.cardListenerStores.clear();
-	}
-
-	private disposeRemovedCardListenerStores(retainedPaths: ReadonlySet<string>): void {
-		for (const [path, store] of this.cardListenerStores) {
-			if (retainedPaths.has(path)) {
-				continue;
-			}
-			store.dispose();
-			this.cardListenerStores.delete(path);
-		}
-	}
-
-	private replaceCardListenerStore(path: string): DisposableStore {
-		this.cardListenerStores.get(path)?.dispose();
-		const store = new DisposableStore();
-		this.cardListenerStores.set(path, store);
-		return store;
 	}
 
 	private patchRenderedNodeExecutionState(resource: URI, execution: IBaseHalfNodeExecutionState): void {
@@ -2208,7 +2193,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneStructuralEpoch = 0;
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
-			this.clearCardListenerStores();
+			this.cardListenerStores.clear();
 			this.canvasScene.update({ key: 'no-folder', structuralEpoch: 0, revision: seq, cards: [], edges: [] });
 			this.renderEmpty('No folder');
 			return;
@@ -2258,7 +2243,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
-			this.clearCardListenerStores();
+			this.cardListenerStores.clear();
 			if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 				return;
 			}
@@ -2274,9 +2259,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let canvas: IBaseHalfCanvasFile | null = null;
 		let canvasWarning: string | undefined;
 		try {
-			canvas = await this.canvasMirrorService.readCanvas(folder);
+			const read = await this.canvasMirrorService.inspectCanvas(folder);
+			canvas = read.canvas;
+			if (read.damage) {
+				canvasWarning = baseHalfCanvasLayoutNotice(read.damage);
+			}
+			const damageKey = read.damage ? `${this.sceneKey(folder)}\0${read.damage.kind}\0${read.damage.reason}` : undefined;
+			if (read.damage && damageKey !== this.loggedCanvasDamage) {
+				this.logService.warn(`BaseHalf canvas layout of '${folder.relativePath}' is ${read.damage.kind === 'partial' ? 'partly unreadable' : 'unreadable'}: ${read.damage.reason}`);
+			}
+			this.loggedCanvasDamage = damageKey;
 		} catch (error) {
-			canvasWarning = error instanceof BaseHalfCanvasMirrorCorrupt ? 'Corrupt canvas.yaml' : 'Unable to read canvas.yaml';
+			this.logService.warn(`BaseHalf canvas layout of '${folder.relativePath}' could not be loaded`, error);
+			canvasWarning = localize('basehalf.canvas.layout.loadFailed', "The saved layout could not be loaded: {0}", error instanceof Error ? error.message : String(error));
 		}
 		if (!this.isRenderCurrent(seq)) {
 			return;
@@ -2534,12 +2529,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				...bounds,
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
+				didMountElement: () => this.cardListenerStores.didMount(item.path, element),
 				...(this.openBadgeFaces.has(item.path) || this.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
 				...(this.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
 				...(connections.refusals.has(item.path) ? { upstreamRefusal: connections.refusals.get(item.path)! } : {})
 			};
 		});
-		this.disposeRemovedCardListenerStores(new Set(items.map(item => item.path)));
+		this.cardListenerStores.retain(new Set(items.map(item => item.path)));
 		const sceneEdges = model.edges.map(edge => {
 			const from = this.renderedItemsByPath.get(edge.from);
 			const to = this.renderedItemsByPath.get(edge.to);
@@ -2767,7 +2763,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return localize('basehalf.canvas.connect.running', "This node is running.");
 		}
 		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
-			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder where BaseHalf doesn't write metadata.", name);
+			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
 		}
 		return undefined;
 	}
@@ -2965,29 +2961,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const queuedFolder = this.folderForSceneMutation(sceneKey);
 		let committedTransition: IBaseHalfCanvasStateTransition | undefined;
 		const nodes = geometries.map(geometry => ({ path: geometry.path, kind: geometry.kind }));
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			queuedFolder.workspaceFolder,
-			this.sceneMutationStamp(queuedFolder, structuralEpoch),
-			async lease => {
-				const folder = this.folderForSceneMutation(sceneKey);
-				await this.resolveLiveCanvasNodes(sceneKey, folder, geometries);
-				const current = await this.canvasMirrorService.readCanvas(folder);
-				const cards: IBaseHalfCanvasCardStateTransition[] = geometries.map(geometry => ({
-					path: geometry.path,
-					expected: current?.cards.find(card => card.path === geometry.path) ?? null,
-					next: {
+		try {
+			await this.workspaceMutationCoordinator.runSceneMutation(
+				queuedFolder.workspaceFolder,
+				this.sceneMutationStamp(queuedFolder, structuralEpoch),
+				async lease => {
+					const folder = this.folderForSceneMutation(sceneKey);
+					await this.resolveLiveCanvasNodes(sceneKey, folder, geometries);
+					const current = await this.canvasMirrorService.readCanvas(folder);
+					const cards: IBaseHalfCanvasCardStateTransition[] = geometries.map(geometry => ({
 						path: geometry.path,
-						kind: geometry.kind,
-						x: geometry.x,
-						y: geometry.y,
-						width: geometry.width,
-						height: geometry.height
-					}
-				}));
-				committedTransition = { cards };
-				await this.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
-			}
-		);
+						expected: current?.cards.find(card => card.path === geometry.path) ?? null,
+						next: {
+							path: geometry.path,
+							kind: geometry.kind,
+							x: geometry.x,
+							y: geometry.y,
+							width: geometry.width,
+							height: geometry.height
+						}
+					}));
+					committedTransition = { cards };
+					await this.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
+				}
+			);
+		} catch (error) {
+			// The scene returns the cards to their saved positions; say why.
+			// A storage error's own text names system error codes and files
+			// under `.bh/`: the user gets the reason in plain words.
+			throw new Error(localize('basehalf.canvas.geometry.saveFailed', "Couldn't save the card position: {0}", baseHalfUserFacingErrorMessage(error)), { cause: error });
+		}
 		if (committedTransition) {
 			this.supersedeCanvasReadsBeforeGeometryCommit();
 		}
@@ -3112,8 +3115,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	/**
 	 * Runs one canvas reference operation (connect, disconnect, reconnect) and
 	 * pushes its single canvas undo step. A refusal is shown with its reason
-	 * (and **Open File** when that helps) and resolves `undefined`: the scene's
-	 * optimistic edge is then reconciled by the next render.
+	 * and resolves `undefined`: the scene's optimistic edge is then reconciled
+	 * by the next render.
 	 */
 	private async runCanvasReferenceOperation(
 		folder: IBaseHalfCanvasFolderState,
@@ -5703,8 +5706,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			} : undefined,
 			ownProblem: ownProblem ? {
 				relativePath: ownProblem.relativePath,
-				message: ownProblem.message,
-				corrupt: ownProblem.corrupt
+				message: ownProblem.message
 			} : undefined
 		});
 	}
@@ -6348,6 +6350,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					controls,
 					element,
 					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
+					didMountElement: () => this.cardListenerStores.didMount(currentItem.path, element),
 					...(this.openBadgeFaces.has(currentItem.path) || this.canvasNoteSurfacePath === currentItem.path ? { forceInteractive: true as const } : {}),
 					...(this.canvasNoteSurfacePath === currentItem.path ? { noteEditing: true as const } : {})
 				});
@@ -7392,10 +7395,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		structuralStamp: IBaseHalfWorkspaceMutationStamp,
 		sceneKey: string
 	): HTMLElement {
-		const listeners = this.replaceCardListenerStore(item.path);
+		const card = $('.basehalf-canvas-card');
+		// The element this one replaces stays on screen, with its listeners,
+		// until the scene mounts this one.
+		const listeners = this.cardListenerStores.replace(item.path, card);
 		const presentationListeners = new MutableDisposable<DisposableStore>();
 		listeners.add(presentationListeners);
-		const card = $('.basehalf-canvas-card');
 		const displayName = cardDisplayName(item, preview);
 		const resultNode = item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION);
 		const markdownNote = isBaseHalfMarkdownResource(item.stat.resource);
@@ -14069,31 +14074,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	): IBaseHalfBadgeEditorControls {
 		let prompt: HTMLTextAreaElement | undefined;
 		if (ownProblem) {
-			// The description's own storage cannot be read: offer it for repair,
-			// but keep the connections editable.
+			// The file system refuses to read the description's own storage, so
+			// there is no description to edit. Say why in place of the field and
+			// offer nothing that leads into `.bh/`: users are never sent to a
+			// hidden file. A badge whose content cannot be read never gets
+			// here: it reads as absent and the description field stays usable.
 			const issueSection = append(body, $('.basehalf-canvas-card-badge-section.reference-issues'));
 			issueSection.setAttribute('data-testid', 'badge-metadata-issue');
 			const heading = append(issueSection, $('.basehalf-canvas-card-badge-issues-title'));
 			heading.textContent = localize('basehalf.canvas.badge.descriptionIssue', "Description can't be read");
 			const row = append(issueSection, $('.basehalf-canvas-card-badge-issue-row'));
 			const message = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
-			message.textContent = ownProblem.corrupt
-				? localize('basehalf.canvas.badge.descriptionCorrupt', "badge.yaml cannot be parsed")
-				: localize('basehalf.canvas.badge.descriptionUnreadable', "badge.yaml cannot be read");
-			message.title = ownProblem.message;
-			const open = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
-			open.type = 'button';
-			open.textContent = localize('basehalf.canvas.badge.openMetadata', "Open Metadata");
-			open.title = ownProblem.message;
-			addListener(this.addDisposableListener(open, 'click', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				void this.openBadgeMetadata(node.workspaceFolder, ownProblem.relativePath, ownProblem.resource).catch(error => {
-					message.textContent = localize('basehalf.canvas.badge.openMetadataFailed', "Metadata could not be opened safely");
-					message.title = error instanceof Error ? error.message : String(error);
-					this.reportCanvasMutationError(error);
-				});
-			}));
+			message.textContent = localize('basehalf.canvas.badge.descriptionUnavailable', "BaseHalf could not load it: {0}", ownProblem.message);
 		} else {
 			prompt = this.renderBadgeDescriptionPrompt(body, node, badge, mutationGuard, addListener);
 			this.renderBadgeDescriptionRecovery(body, node, addListener, refresh);
@@ -14744,32 +14736,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		);
 	}
 
-	private async openBadgeMetadata(workspaceFolder: URI, relativePath: string, resource = baseHalfMirrorResource(workspaceFolder, relativePath, 'badge.yaml')): Promise<void> {
-		// Opening in the default text editor must honor the same no-symlink
-		// boundary as mirror reads/writes; otherwise a planted mirror ancestor
-		// could turn this diagnostic escape hatch into an outside-workspace read.
-		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-		await this.editorService.openEditor({
-			resource,
-			options: { pinned: true, override: DEFAULT_EDITOR_ASSOCIATION.id }
-		});
-	}
-
 	private renderTruncated(heldBack: number): void {
 		const truncated = append(this.canvasOverlay, $('.basehalf-canvas-truncated'));
 		truncated.textContent = `+${heldBack} more`;
 	}
 
 	private renderCanvasWarning(message: string): void {
-		const displayMessage = baseHalfCanvasWarningDisplayMessage(message);
 		const warnings = [...this.canvasOverlay.querySelectorAll<HTMLElement>('.basehalf-canvas-warning')];
-		const duplicate = warnings.some(warning => warning.textContent === displayMessage);
+		const duplicate = warnings.some(warning => warning.textContent === message);
 		if (duplicate) {
 			return;
 		}
 		const warning = append(this.canvasOverlay, $('.basehalf-canvas-warning'));
 		warning.style.top = `${58 + warnings.length * 30}px`;
-		warning.textContent = displayMessage;
+		warning.textContent = message;
 	}
 
 	private showCanvasNoteSaveWarning(path: string): void {

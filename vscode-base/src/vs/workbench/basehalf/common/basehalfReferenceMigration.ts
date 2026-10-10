@@ -318,11 +318,11 @@ function isPlannedPair(pair: IBaseHalfLegacyPlannedPair | IBaseHalfLegacyPairOut
 }
 
 /** A short, user-facing explanation of why a pair can't be moved. */
-export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | BaseHalfLegacyDeferReason, message?: string): string {
+export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | BaseHalfLegacyDeferReason): string {
 	switch (reason) {
 		case 'oneSided': return localize('basehalf.migration.reason.oneSided', "Only one side was recorded");
 		case 'self': return localize('basehalf.migration.reason.self', "It points to itself");
-		case 'rootOrMetadata': return localize('basehalf.migration.reason.rootOrMetadata', "It points to the workspace folder or into .bh/");
+		case 'rootOrMetadata': return localize('basehalf.migration.reason.rootOrMetadata', "It points to the workspace folder or into BaseHalf's own files");
 		case 'invalidPath': return localize('basehalf.migration.reason.invalidPath', "The recorded path isn't valid");
 		case 'otherWorkspaceFolder': return localize('basehalf.migration.reason.otherWorkspaceFolder', "It points into another workspace folder");
 		case 'symbolicLink': return localize('basehalf.migration.reason.symbolicLink', "It is a symbolic link or inside one");
@@ -333,17 +333,16 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'conflict': return localize('basehalf.migration.reason.conflict', "It has a save conflict");
 		case 'readonly': return localize('basehalf.migration.reason.readonly', "It is read-only");
 		case 'unreadable': return localize('basehalf.migration.reason.unreadable', "Its upstream list can't be read");
-		case 'foreign': return localize('basehalf.migration.reason.foreign', "Its `upstream` key is used by another tool");
-		case 'notWritable': return localize('basehalf.migration.reason.notWritable', "BaseHalf can't edit its frontmatter");
+		case 'foreign': return localize('basehalf.migration.reason.foreign', "Another tool keeps something else where its upstream list goes");
+		case 'notWritable': return localize('basehalf.migration.reason.notWritable', "BaseHalf can't save connections into it because of how the file begins");
 		case 'saveFailed': return localize('basehalf.migration.reason.saveFailed', "The change could not be saved");
 		case 'missingDownstream': return localize('basehalf.migration.reason.missingDownstream', "The file no longer exists");
 		case 'recipeFrozen': return localize('basehalf.migration.reason.recipeFrozen', "The node already has an attempt or a result");
 		case 'limit': return localize('basehalf.migration.reason.limit', "The node already has 64 upstream entries");
 		case 'beingMoved': return localize('basehalf.migration.reason.beingMoved', "It was being moved");
 		case 'indexLoading': return localize('basehalf.migration.reason.indexLoading', "Connections were still loading");
-		case 'failed': return message
-			? localize('basehalf.migration.reason.failedWithMessage', "It could not be written: {0}", message)
-			: localize('basehalf.migration.reason.failed', "It could not be written");
+		// The recorded error text names files and system error codes; it stays in the record.
+		case 'failed': return localize('basehalf.migration.reason.failed', "It could not be written");
 	}
 }
 

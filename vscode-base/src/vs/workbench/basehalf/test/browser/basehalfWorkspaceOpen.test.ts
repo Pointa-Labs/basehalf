@@ -151,7 +151,7 @@ suite('BaseHalfWorkspaceOpen', () => {
 
 		// 2. Earlier-connection detection waits for the index; a folder without
 		// legacy badge keys settles without a prompt or a write.
-		const badgeMirror = new BaseHalfBadgeMirrorService(fileService);
+		const badgeMirror = disposables.add(new BaseHalfBadgeMirrorService(fileService));
 		const migration = new BaseHalfReferenceMigrationService(
 			fileService,
 			contextService,

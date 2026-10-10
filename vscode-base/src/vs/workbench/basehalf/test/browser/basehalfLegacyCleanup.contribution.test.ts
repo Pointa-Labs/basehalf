@@ -330,7 +330,7 @@ suite('BaseHalfLegacyCleanupNotifier', () => {
 			noGitChoices: noGit.notifications.notifications.map(item => item.choices.length),
 			marked: marked.notifications.notifications.length
 		}, {
-			message: 'BaseHalf removed 3 files that earlier versions created in .bh/ (focus and agent-harness files). Your notes and canvas layout were not changed.',
+			message: 'BaseHalf removed 3 files that earlier versions kept for itself and no longer uses. Your notes and canvas layout were not changed.',
 			severity: Severity.Info,
 			choices: ['Show in Source Control'],
 			commands: ['workbench.view.scm'],

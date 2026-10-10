@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../base/common/buffer.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
 import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
+import { YamlMapNode, YamlNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
@@ -19,7 +21,21 @@ import {
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
+import { baseHalfPreserveMirrorBytes } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfIsMirrorSubtree, baseHalfMirrorPathSegments, baseHalfRemapSubtreeRel, baseHalfWalkMirror } from './basehalfMirrorTree.js';
+import {
+	BaseHalfMirrorWriteRejected,
+	BaseHalfMirrorYamlUnreadable,
+	IBaseHalfMirrorYamlDocument,
+	baseHalfMirrorYamlAbsent,
+	baseHalfMirrorYamlItems,
+	baseHalfMirrorYamlMap,
+	baseHalfMirrorYamlNumber,
+	baseHalfMirrorYamlProperty,
+	baseHalfMirrorYamlQuote,
+	baseHalfMirrorYamlString,
+	baseHalfParseMirrorYaml
+} from './basehalfMirrorYaml.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
 export const IBaseHalfCanvasMirrorService = createDecorator<IBaseHalfCanvasMirrorService>('baseHalfCanvasMirrorService');
@@ -38,6 +54,8 @@ interface IBaseHalfCanvasExistingReadState {
 	readonly exists: true;
 	readonly canvas: IBaseHalfCanvasFile | null;
 	readonly contents: VSBuffer;
+	/** What the read could not use from `contents`. */
+	readonly damage?: IBaseHalfCanvasDamage;
 }
 
 type IBaseHalfCanvasReadState = IBaseHalfCanvasAbsentReadState | IBaseHalfCanvasExistingReadState;
@@ -68,21 +86,42 @@ interface IBaseHalfCanvasStructuralSnapshot extends IBaseHalfCanvasStructuralRes
 	next: IBaseHalfCanvasFile;
 }
 
-interface IBaseHalfCanvasCommittedWrite {
-	readonly snapshot: IBaseHalfCanvasStructuralSnapshot;
+interface IBaseHalfCanvasCommit {
 	readonly contents: VSBuffer;
+	/** Set when the commit replaced bytes that could not be fully read. */
+	readonly preserved?: IBaseHalfCanvasPreservedEvent;
 }
 
-export class BaseHalfCanvasMirrorCorrupt extends Error {
-	override readonly name = 'BaseHalfCanvasMirrorCorrupt';
+interface IBaseHalfCanvasCommittedWrite extends IBaseHalfCanvasCommit {
+	readonly snapshot: IBaseHalfCanvasStructuralSnapshot;
+}
 
-	constructor(
-		readonly resource: URI,
-		readonly reason: string,
-		options?: { cause?: unknown }
-	) {
-		super(`Corrupt canvas.yaml at ${resource.toString()}: ${reason}`, options);
-	}
+export type BaseHalfCanvasDamageKind = 'partial' | 'unreadable';
+
+/**
+ * What a read could not use from a stored `canvas.yaml` (mirror file
+ * resilience, "Layout files"). `partial`: rows or the size were skipped.
+ * `unreadable`: the file has no readable layout and reads as no layout.
+ */
+export interface IBaseHalfCanvasDamage {
+	readonly kind: BaseHalfCanvasDamageKind;
+	/** The first cause, for the log. */
+	readonly reason: string;
+}
+
+export interface IBaseHalfCanvasRead {
+	readonly canvas: IBaseHalfCanvasFile | null;
+	readonly damage?: IBaseHalfCanvasDamage;
+}
+
+/** A write replaced canvas bytes that could not be fully read. */
+export interface IBaseHalfCanvasPreservedEvent {
+	readonly workspaceFolder: URI;
+	/** The folder whose `canvas.yaml` was replaced (`''` is the workspace root). */
+	readonly relativePath: string;
+	readonly damage: IBaseHalfCanvasDamage;
+	/** The replaced bytes, under `.bh/cache/recovered/`. */
+	readonly recoveryCopy: URI;
 }
 
 export class BaseHalfCanvasStateConflict extends Error {
@@ -110,7 +149,15 @@ export interface IBaseHalfCanvasStateTransition {
 export interface IBaseHalfCanvasMirrorService {
 	readonly _serviceBrand: undefined;
 
+	/** Fires after a write replaced canvas bytes that could not be fully read. */
+	readonly onDidPreserveUnreadableCanvas: Event<IBaseHalfCanvasPreservedEvent>;
+
+	/** The readable layout. It never rejects because of the file's content:
+	 *  rows that cannot be read are skipped, and a file with no readable layout
+	 *  reads as no layout. It rejects only on an environmental failure. */
 	readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null>;
+	/** `readCanvas` plus what the read could not use. */
+	inspectCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasRead>;
 	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	/** Atomically upsert a set of card geometries by path. An empty set is a
 	 *  read-only no-op and returns the current canvas (or null when absent). */
@@ -139,14 +186,19 @@ export interface IBaseHalfCanvasMirrorService {
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
 }
 
-export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService {
+export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalfCanvasMirrorService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();
+
+	private readonly _onDidPreserveUnreadableCanvas = this._register(new Emitter<IBaseHalfCanvasPreservedEvent>());
+	readonly onDidPreserveUnreadableCanvas = this._onDidPreserveUnreadableCanvas.event;
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator
-	) { }
+	) {
+		super();
+	}
 
 	private runWorkspaceMutation<T>(workspaceFolder: URI, lease: IBaseHalfWorkspaceMutationLease | undefined, task: () => Promise<T>): Promise<T> {
 		if (lease) {
@@ -158,6 +210,11 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 
 	async readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null> {
 		return this.readCanvasAt(folder.workspaceFolder, this.canvasResource(folder), folder.relativePath);
+	}
+
+	async inspectCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasRead> {
+		const read = await this.readCanvasStateAt(folder.workspaceFolder, this.canvasResource(folder), folder.relativePath);
+		return { canvas: read.canvas, ...(read.exists && read.damage ? { damage: read.damage } : {}) };
 	}
 
 	async updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
@@ -405,8 +462,7 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 				let commitError: unknown;
 				try {
 					for (const snapshot of writes) {
-						const contents = await this.commitCanvasState(workspaceFolder, snapshot.resource, snapshot.next, snapshot.read);
-						committed.push({ snapshot, contents });
+						committed.push({ snapshot, ...await this.commitCanvasState(workspaceFolder, snapshot.resource, snapshot.next, snapshot.read) });
 					}
 				} catch (error) {
 					commitError = error;
@@ -439,6 +495,7 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 							await this.assertCanvasSnapshotUnchanged(workspaceFolder, snapshot);
 						}
 					}
+					this.reportPreserved(committed);
 					return;
 				} catch (error) {
 					const rollbackErrors = await this.compensateCanvasWrites(workspaceFolder, committed);
@@ -452,18 +509,15 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 	}
 
 	private async readCanvasStructuralState(workspaceFolder: URI, spec: IBaseHalfCanvasStructuralResource): Promise<{ readonly readPath: string; readonly read: IBaseHalfCanvasReadState }> {
-		try {
-			return { readPath: spec.relativePath, read: await this.readCanvasStateAt(workspaceFolder, spec.resource, spec.relativePath) };
-		} catch (error) {
-			if (!(error instanceof BaseHalfCanvasMirrorCorrupt) || spec.alternateRelativePath === undefined) {
-				throw error;
-			}
-			try {
-				return { readPath: spec.alternateRelativePath, read: await this.readCanvasStateAt(workspaceFolder, spec.resource, spec.alternateRelativePath) };
-			} catch {
-				throw error;
+		const read = await this.readCanvasStateAt(workspaceFolder, spec.resource, spec.relativePath);
+		if (spec.alternateRelativePath !== undefined && read.exists && read.damage?.kind === 'unreadable') {
+			// The same bytes may already carry the alternate identity.
+			const alternate = canvasReadStateOf(read.contents, spec.alternateRelativePath);
+			if (alternate.damage?.kind !== 'unreadable') {
+				return { readPath: spec.alternateRelativePath, read: alternate };
 			}
 		}
+		return { readPath: spec.relativePath, read };
 	}
 
 	private async compensateCanvasWrites(workspaceFolder: URI, writes: readonly IBaseHalfCanvasCommittedWrite[]): Promise<unknown[]> {
@@ -478,13 +532,33 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		return errors;
 	}
 
-	private async commitCanvasState(workspaceFolder: URI, resource: URI, canvas: IBaseHalfCanvasFile, expected: IBaseHalfCanvasReadState): Promise<VSBuffer> {
-		const contents = VSBuffer.fromString(serializeCanvasFile(canvas));
+	/** Commits `canvas` against the exact bytes of `expected`. Bytes that could
+	 * not be fully read are saved as a recovery copy before they are replaced;
+	 * if that copy cannot be saved, the canvas file is left unchanged. */
+	private async commitCanvasState(workspaceFolder: URI, resource: URI, canvas: IBaseHalfCanvasFile, expected: IBaseHalfCanvasReadState): Promise<IBaseHalfCanvasCommit> {
+		const contents = encodeCanvasFile(canvas, resource);
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 		await this.fileService.createFolder(dirname(resource));
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
+		let preserved: IBaseHalfCanvasPreservedEvent | undefined;
+		if (expected.exists && expected.damage) {
+			preserved = {
+				workspaceFolder,
+				relativePath: canvas.path,
+				damage: expected.damage,
+				recoveryCopy: await baseHalfPreserveMirrorBytes(this.fileService, workspaceFolder, resource, expected.contents)
+			};
+		}
 		await baseHalfCommitMirrorFile(this.fileService, resource, contents, expected.exists ? expected.contents : null);
-		return contents;
+		return { contents, ...(preserved ? { preserved } : {}) };
+	}
+
+	private reportPreserved(commits: readonly IBaseHalfCanvasCommit[]): void {
+		for (const commit of commits) {
+			if (commit.preserved) {
+				this._onDidPreserveUnreadableCanvas.fire(commit.preserved);
+			}
+		}
 	}
 
 	private async restoreCanvasState(workspaceFolder: URI, resource: URI, relativePath: string, written: VSBuffer, original: IBaseHalfCanvasReadState): Promise<void> {
@@ -555,18 +629,10 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 				continue;
 			}
 
-			let snapshot: IBaseHalfCanvasFile | null;
-			try {
-				snapshot = await this.readCanvasAt(workspaceFolder, entry.resource, entry.relativePath);
-			} catch (error) {
-				if (error instanceof BaseHalfCanvasMirrorCorrupt) {
-					// Preserve a corrupt layout file for recovery instead of turning a
-					// node delete into unrelated layout data loss.
-					continue;
-				}
-				throw error;
-			}
-
+			// A file with no readable layout reads as no layout and is left in
+			// place, byte for byte, instead of turning a node delete into
+			// unrelated layout data loss.
+			const snapshot = await this.readCanvasAt(workspaceFolder, entry.resource, entry.relativePath);
 			if (snapshot) {
 				await this.retireCanvasSnapshot(workspaceFolder, entry.relativePath, snapshot);
 			}
@@ -602,7 +668,8 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 	 *  lock. Existing files use exact-byte guarded atomic replace; absent files
 	 *  use provider-exclusive create. Conflicts replay the pure update on the newest
 	 *  file. A materialized canvas that becomes empty stays as canonical YAML,
-	 *  avoiding an unguarded delete after the guarded commit. */
+	 *  avoiding an unguarded delete after the guarded commit. The update applies
+	 *  to the readable layout, so content that cannot be read never refuses it. */
 	private patchCanvas(workspaceFolder: URI, folderRel: string, update: (existing: IBaseHalfCanvasFile) => IBaseHalfCanvasFile): Promise<IBaseHalfCanvasFile> {
 		const resource = this.canvasResourceFor(workspaceFolder, folderRel);
 		return this.mutex.runExclusive(resource.toString(), async () => {
@@ -618,12 +685,8 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 					return next;
 				}
 
-				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-				await this.fileService.createFolder(dirname(resource));
-				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 				try {
-					const contents = VSBuffer.fromString(serializeCanvasFile(next));
-					await baseHalfCommitMirrorFile(this.fileService, resource, contents, read.exists ? read.contents : null);
+					this.reportPreserved([await this.commitCanvasState(workspaceFolder, resource, next, read)]);
 					return next;
 				} catch (error) {
 					if (!isCanvasPatchConflict(error) || attempt === CANVAS_PATCH_MAX_ATTEMPTS - 1) {
@@ -657,18 +720,19 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		}
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 
-		const parsed = parseCanvasYaml(content.value.toString(), resource);
-		if (parsed === null) {
-			return { exists: true, canvas: null, contents: content.value };
-		}
-
-		const canvas = normalizeCanvasFile(parsed, resource, relativePath);
-		return {
-			exists: true,
-			canvas: isEmptyCanvas(canvas) ? null : canvas,
-			contents: content.value
-		};
+		return canvasReadStateOf(content.value, relativePath);
 	}
+}
+
+/** The read state of stored bytes for the folder `relativePath`. */
+function canvasReadStateOf(contents: VSBuffer, relativePath: string): IBaseHalfCanvasExistingReadState {
+	const decoded = decodeCanvasFile(contents.toString(), relativePath);
+	return {
+		exists: true,
+		canvas: isEmptyCanvas(decoded.canvas) ? null : decoded.canvas,
+		contents,
+		...(decoded.damage ? { damage: decoded.damage } : {})
+	};
 }
 
 function isCanvasPatchConflict(error: unknown): boolean {
@@ -742,6 +806,11 @@ function emptyCanvas(path: string): IBaseHalfCanvasFile {
 function canvasStructuralStateEqual(snapshot: IBaseHalfCanvasStructuralSnapshot): boolean {
 	if (snapshot.read.canvas) {
 		return canvasFilesEqual(snapshot.read.canvas, snapshot.next);
+	}
+	if (snapshot.read.exists && snapshot.read.damage?.kind === 'unreadable') {
+		// A file with no readable layout is replaced only by incoming layout.
+		// An empty next state leaves it in place, byte for byte.
+		return isEmptyCanvas(snapshot.next);
 	}
 	// Absent and materialized-empty states are both logical tombstones. They are
 	// unchanged only while the embedded identity is unchanged; a case-only move
@@ -873,7 +942,7 @@ export function removeCanvasEdge(canvas: IBaseHalfCanvasFile, edge: Pick<IBaseHa
 export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 	assertCanvasGeometrySerializable(canvas);
 	const lines = [
-		`path: ${yamlString(canvas.path)}`
+		`path: ${baseHalfMirrorYamlQuote(canvas.path)}`
 	];
 
 	if (canvas.size) {
@@ -890,7 +959,7 @@ export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 	} else {
 		for (const card of canvas.cards) {
 			lines.push(
-				`  - path: ${yamlString(card.path)}`,
+				`  - path: ${baseHalfMirrorYamlQuote(card.path)}`,
 				`    kind: ${card.kind}`,
 				`    x: ${formatNumber(card.x)}`,
 				`    y: ${formatNumber(card.y)}`,
@@ -906,9 +975,9 @@ export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 	} else {
 		for (const edge of canvas.edges) {
 			lines.push(
-				`  - from: ${yamlString(edge.from)}`,
+				`  - from: ${baseHalfMirrorYamlQuote(edge.from)}`,
 				`    from_anchor: ${edge.from_anchor}`,
-				`    to: ${yamlString(edge.to)}`,
+				`    to: ${baseHalfMirrorYamlQuote(edge.to)}`,
 				`    to_anchor: ${edge.to_anchor}`
 			);
 		}
@@ -939,41 +1008,87 @@ function assertCanvasFinite(value: number, label: string): void {
 
 function assertCanvasFinitePositive(value: number, label: string): void {
 	assertCanvasFinite(value, label);
-	if (value <= 0) {
+	// The written precision decides: a size that rounds to zero would be
+	// written as a row the reader skips.
+	if (Number(formatNumber(value)) <= 0) {
 		throw new RangeError(`Cannot serialize canvas: ${label} must be positive`);
 	}
-}
-
-function yamlString(value: string): string {
-	return JSON.stringify(value);
 }
 
 function formatNumber(value: number): string {
 	return String(Number(value.toFixed(4)));
 }
 
-function normalizeCanvasFile(value: unknown, resource: URI, expectedPath: string): IBaseHalfCanvasFile {
-	const record = asRecord(value, resource, 'canvas root must be an object');
-	const path = stringField(record, 'path', resource);
-	if (path !== expectedPath) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `path must be "${expectedPath}"`);
+/**
+ * The bytes of a canvas after the write check: the reader must accept all of
+ * them and return what was serialized, or nothing is written (mirror file
+ * resilience, "Write check"). Rows are made canonical first, as on reading.
+ */
+function encodeCanvasFile(canvas: IBaseHalfCanvasFile, resource: URI): VSBuffer {
+	const text = serializeCanvasFile({
+		path: canvas.path,
+		...(canvas.size ? { size: canvas.size } : {}),
+		cards: lastByKey(canvas.cards, card => card.path),
+		edges: lastByKey(canvas.edges, edge => `${edge.from}\u0000${edge.to}`)
+	});
+	const decoded = decodeCanvasFile(text, canvas.path);
+	if (decoded.damage) {
+		throw new BaseHalfMirrorWriteRejected(resource, decoded.damage.reason);
+	}
+	if (serializeCanvasFile(decoded.canvas) !== text) {
+		throw new BaseHalfMirrorWriteRejected(resource, 'the layout changed when it was read back');
+	}
+	return VSBuffer.fromString(text);
+}
+
+interface IBaseHalfCanvasDecoded {
+	/** The readable layout; empty when nothing could be read. */
+	readonly canvas: IBaseHalfCanvasFile;
+	readonly damage?: IBaseHalfCanvasDamage;
+}
+
+/**
+ * Reads stored canvas text for the folder `expectedPath`. It never throws for
+ * content: rows that cannot be read are skipped (`partial` damage), and text
+ * that is not this folder's canvas reads as no layout (`unreadable` damage).
+ */
+function decodeCanvasFile(raw: string, expectedPath: string): IBaseHalfCanvasDecoded {
+	const unreadable = (reason: string): IBaseHalfCanvasDecoded => ({ canvas: emptyCanvas(expectedPath), damage: { kind: 'unreadable', reason } });
+	let document: IBaseHalfMirrorYamlDocument;
+	try {
+		document = baseHalfParseMirrorYaml(raw, 'canvas');
+	} catch (error) {
+		if (error instanceof BaseHalfMirrorYamlUnreadable) {
+			return unreadable(error.reason);
+		}
+		throw error;
+	}
+	const root = document.root;
+	if (root === null) {
+		return { canvas: emptyCanvas(expectedPath) };
 	}
 
-	const size = optionalSize(record.size, resource);
-	const cards = lastByKey(
-		arrayField(record, 'cards', resource).map((card, index) => normalizeCanvasCard(card, resource, index)),
-		card => card.path
-	);
-	const edges = lastByKey(
-		arrayField(record, 'edges', resource).map((edge, index) => normalizeCanvasEdge(edge, resource, index)),
-		edge => `${edge.from}\u0000${edge.to}`
-	);
+	const path = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(root, 'path'));
+	if (path === undefined) {
+		return unreadable('path must be a string');
+	}
+	if (path !== expectedPath) {
+		return unreadable(`path must be "${expectedPath}"`);
+	}
 
+	// Rows after the line the parser stopped at were never read.
+	const skipped: string[] = document.unparsed ? [document.unparsed] : [];
+	const size = decodeCanvasSize(baseHalfMirrorYamlProperty(root, 'size'), skipped);
+	const cards = decodeCanvasRows(root, 'cards', decodeCanvasCard, skipped);
+	const edges = decodeCanvasRows(root, 'edges', decodeCanvasEdge, skipped);
 	return {
-		path,
-		...(size ? { size } : {}),
-		cards,
-		edges
+		canvas: {
+			path,
+			...(size ? { size } : {}),
+			cards: lastByKey(cards, card => card.path),
+			edges: lastByKey(edges, edge => `${edge.from}\u0000${edge.to}`)
+		},
+		...(skipped.length > 0 ? { damage: { kind: 'partial', reason: skipped[0] } } : {})
 	};
 }
 
@@ -985,155 +1100,90 @@ function lastByKey<T>(values: readonly T[], keyOf: (value: T) => string): T[] {
 	return [...byKey.values()];
 }
 
-function normalizeCanvasCard(value: unknown, resource: URI, index: number): IBaseHalfCanvasCard {
-	const record = asRecord(value, resource, `cards[${index}] must be an object`);
-	const kind = stringField(record, 'kind', resource);
-	if (kind !== 'file' && kind !== 'folder') {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `cards[${index}].kind must be file or folder`);
-	}
-
-	return {
-		path: stringField(record, 'path', resource),
-		kind,
-		x: numberField(record, 'x', resource),
-		y: numberField(record, 'y', resource),
-		width: positiveNumberField(record, 'width', resource),
-		height: positiveNumberField(record, 'height', resource)
-	};
-}
-
-function normalizeCanvasEdge(value: unknown, resource: URI, index: number): IBaseHalfCanvasEdge {
-	const record = asRecord(value, resource, `edges[${index}] must be an object`);
-	const fromAnchor = anchorField(record, 'from_anchor', resource, index);
-	const toAnchor = anchorField(record, 'to_anchor', resource, index);
-
-	return {
-		from: stringField(record, 'from', resource),
-		from_anchor: fromAnchor,
-		to: stringField(record, 'to', resource),
-		to_anchor: toAnchor
-	};
-}
-
-function optionalSize(value: unknown, resource: URI): IBaseHalfCanvasSize | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-
-	const record = asRecord(value, resource, 'size must be an object');
-	return {
-		width: positiveNumberField(record, 'width', resource),
-		height: positiveNumberField(record, 'height', resource)
-	};
-}
-
-function asRecord(value: unknown, resource: URI, reason: string): Record<string, unknown> {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, reason);
-	}
-
-	return value as Record<string, unknown>;
-}
-
-function arrayField(record: Record<string, unknown>, key: string, resource: URI): readonly unknown[] {
-	const value = record[key];
-	if (value === undefined) {
+/** The readable rows of a list. `decode` returns a row or why it cannot be
+ * read, and every such cause is added to `skipped`. */
+function decodeCanvasRows<T extends object>(root: YamlMapNode, key: 'cards' | 'edges', decode: (node: YamlNode) => T | string, skipped: string[]): T[] {
+	const items = baseHalfMirrorYamlItems(baseHalfMirrorYamlProperty(root, key));
+	if (!items) {
+		skipped.push(`${key} must be an array`);
 		return [];
 	}
 
-	if (!Array.isArray(value)) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be an array`);
-	}
-
-	return value;
+	const rows: T[] = [];
+	items.forEach((item, index) => {
+		const row = decode(item);
+		if (typeof row === 'string') {
+			skipped.push(`${key}[${index}]${row}`);
+		} else {
+			rows.push(row);
+		}
+	});
+	return rows;
 }
 
-function stringField(record: Record<string, unknown>, key: string, resource: URI): string {
-	const value = record[key];
-	if (typeof value !== 'string') {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be a string`);
+function decodeCanvasCard(node: YamlNode): IBaseHalfCanvasCard | string {
+	const map = baseHalfMirrorYamlMap(node);
+	if (!map) {
+		return ' must be an object';
 	}
-
-	return value;
+	const path = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'path'));
+	if (path === undefined) {
+		return '.path must be a string';
+	}
+	const kind = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'kind'));
+	if (kind !== 'file' && kind !== 'folder') {
+		return '.kind must be file or folder';
+	}
+	const x = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'x'));
+	const y = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'y'));
+	if (x === undefined || y === undefined) {
+		return ' must have a finite x and y';
+	}
+	const size = decodeCanvasPositiveSize(map);
+	if (!size) {
+		return ' must have a positive width and height';
+	}
+	return { path, kind, x, y, width: size.width, height: size.height };
 }
 
-function numberField(record: Record<string, unknown>, key: string, resource: URI): number {
-	const value = record[key];
-	if (typeof value !== 'number' || !Number.isFinite(value)) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be a finite number`);
+function decodeCanvasEdge(node: YamlNode): IBaseHalfCanvasEdge | string {
+	const map = baseHalfMirrorYamlMap(node);
+	if (!map) {
+		return ' must be an object';
 	}
-
-	return value;
+	const from = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'from'));
+	const to = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'to'));
+	if (from === undefined || to === undefined) {
+		return ' must have a string from and to';
+	}
+	const fromAnchor = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'from_anchor'));
+	const toAnchor = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(map, 'to_anchor'));
+	if (!isCanvasAnchor(fromAnchor) || !isCanvasAnchor(toAnchor)) {
+		return ' must have a canvas anchor at both ends';
+	}
+	return { from, from_anchor: fromAnchor, to, to_anchor: toAnchor };
 }
 
-function positiveNumberField(record: Record<string, unknown>, key: string, resource: URI): number {
-	const value = numberField(record, key, resource);
-	if (value <= 0) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be positive`);
-	}
-
-	return value;
+function isCanvasAnchor(value: string | undefined): value is IBaseHalfCanvasEdge['from_anchor'] {
+	return value !== undefined && CANVAS_ANCHORS.has(value);
 }
 
-function anchorField(record: Record<string, unknown>, key: string, resource: URI, edgeIndex: number): IBaseHalfCanvasEdge['from_anchor'] {
-	const value = stringField(record, key, resource);
-	if (!CANVAS_ANCHORS.has(value)) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, `edges[${edgeIndex}].${key} must be a canvas anchor`);
+function decodeCanvasSize(node: YamlNode | undefined, skipped: string[]): IBaseHalfCanvasSize | undefined {
+	if (baseHalfMirrorYamlAbsent(node)) {
+		return undefined;
 	}
+	const map = baseHalfMirrorYamlMap(node);
+	const size = map && decodeCanvasPositiveSize(map);
+	if (!size) {
+		skipped.push('size must have a positive width and height');
+	}
+	return size;
+}
 
-	return value as IBaseHalfCanvasEdge['from_anchor'];
+function decodeCanvasPositiveSize(map: YamlMapNode): IBaseHalfCanvasSize | undefined {
+	const width = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'width'));
+	const height = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'height'));
+	return width !== undefined && height !== undefined && width > 0 && height > 0 ? { width, height } : undefined;
 }
 
 registerSingleton(IBaseHalfCanvasMirrorService, BaseHalfCanvasMirrorService, InstantiationType.Delayed);
-
-function parseCanvasYaml(raw: string, resource: URI): Record<string, unknown> | null {
-	const errors: YamlParseError[] = [];
-	const node = parseYaml(raw, errors);
-	if (errors.length > 0) {
-		throw new BaseHalfCanvasMirrorCorrupt(resource, errors[0].message);
-	}
-
-	if (!node) {
-		return null;
-	}
-
-	return asRecord(yamlNodeToValue(node), resource, 'canvas root must be an object');
-}
-
-function yamlNodeToValue(node: YamlNode): unknown {
-	if (node.type === 'map') {
-		const value: Record<string, unknown> = {};
-		for (const property of node.properties) {
-			value[property.key.value] = yamlNodeToValue(property.value);
-		}
-		return value;
-	}
-
-	if (node.type === 'sequence') {
-		return node.items.map(item => yamlNodeToValue(item));
-	}
-
-	return yamlScalarValue(node);
-}
-
-function yamlScalarValue(node: YamlScalarNode): string | number | boolean | null {
-	const value = node.value;
-	const trimmed = value.trim();
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
-		return Number(trimmed);
-	}
-
-	if (trimmed === 'true') {
-		return true;
-	}
-
-	if (trimmed === 'false') {
-		return false;
-	}
-
-	if (trimmed === 'null' || trimmed === '~') {
-		return null;
-	}
-
-	return value;
-}

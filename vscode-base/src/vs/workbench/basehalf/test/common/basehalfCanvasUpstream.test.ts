@@ -14,6 +14,7 @@ import {
 	baseHalfOrderUpstreamPickerCandidates,
 	baseHalfUniqueUpstreamNameMatch,
 	baseHalfUpstreamEntryMessage,
+	baseHalfUpstreamStoreProblemMessage,
 	IBaseHalfUpstreamPickerCandidate
 } from '../../common/basehalfCanvasUpstream.js';
 import { IBaseHalfUpstreamIdentity } from '../../common/basehalfReferenceEntries.js';
@@ -83,6 +84,30 @@ suite('BaseHalfCanvasUpstream', () => {
 		];
 		assert.strictEqual(messages[1], 'Moved or deleted since this result was made');
 		assert.ok(messages.every(message => message.length > 0 && !/reference/i.test(message)));
+	});
+
+	test('states every store and entry problem without code words', () => {
+		const storeProblems = ['mappingValue', 'duplicateKey', 'anchorAliasTag', 'blockScalar', 'invalidDocument', 'foreignValue', 'frontmatterRejected', 'tomlFrontmatter', 'mappingNotBlock', 'frontmatterBeyondWindow', 'multilineItem', undefined] as const;
+		const entryProblems = ['empty', 'notScalar', 'notString', 'absolute', 'backslash', 'controlCharacter', 'invalidSegment', 'metadata', 'self', 'duplicate', 'overLimit', undefined] as const;
+		const messages = [
+			...(['markdown', 'sidecar', 'node'] as const).flatMap(storeKind => storeProblems.map(problem => baseHalfUpstreamStoreProblemMessage(storeKind, problem))),
+			baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied'),
+			...entryProblems.map(problem => baseHalfUpstreamEntryMessage({ status: 'invalid', problem, historical: false }))
+		];
+		assert.deepStrictEqual(messages.filter(message => message === '' || /`|frontmatter|yaml|toml|json|metadata|sidecar|\.bh|node document|\bkey\b|mapping|anchor|alias|scalar/i.test(message)), []);
+		assert.deepStrictEqual({
+			unreadableSidecar: baseHalfUpstreamStoreProblemMessage('sidecar', 'invalidDocument'),
+			unreadableNode: baseHalfUpstreamStoreProblemMessage('node', 'invalidDocument'),
+			foreign: baseHalfUpstreamStoreProblemMessage('markdown', 'foreignValue'),
+			notEditable: baseHalfUpstreamStoreProblemMessage('markdown', 'tomlFrontmatter'),
+			readError: baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied')
+		}, {
+			unreadableSidecar: 'BaseHalf can\'t read this upstream list.',
+			unreadableNode: 'This node can\'t be read.',
+			foreign: 'Another tool keeps something else where this note\'s upstream list goes.',
+			notEditable: 'BaseHalf can\'t save connections into this note because of how the file begins.',
+			readError: 'The upstream list could not be read: permission denied'
+		});
 	});
 
 	test('resolves entry spelling to sibling card paths by identity', () => {

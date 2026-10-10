@@ -4,12 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../base/common/buffer.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
 import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
+import { YamlMapNode, YamlNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../platform/log/common/log.js';
 import {
 	BASEHALF_ADHD_LINE_BASE,
 	IBaseHalfAdhdFile,
@@ -26,7 +29,20 @@ import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
 import { baseHalfMarkdownFrontmatterLineCount } from './basehalfMarkdownProjection.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
+import { baseHalfPreserveMirrorBytes, IBaseHalfMirrorPreservedEvent } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from './basehalfMirrorTree.js';
+import {
+	BaseHalfMirrorWriteRejected,
+	BaseHalfMirrorYamlUnreadable,
+	IBaseHalfMirrorYamlDocument,
+	baseHalfMirrorYamlAbsent,
+	baseHalfMirrorYamlItems,
+	baseHalfMirrorYamlNumber,
+	baseHalfMirrorYamlProperty,
+	baseHalfMirrorYamlQuote,
+	baseHalfMirrorYamlString,
+	baseHalfParseMirrorYaml
+} from './basehalfMirrorYaml.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
 export const IBaseHalfAdhdMirrorService = createDecorator<IBaseHalfAdhdMirrorService>('baseHalfAdhdMirrorService');
@@ -49,6 +65,9 @@ interface IBaseHalfAdhdExistingReadState {
 	/** The file has read ranges and no `line_base` (written by an earlier release). */
 	readonly legacy: boolean;
 	readonly contents: VSBuffer;
+	/** Why `contents` could not be read. The file then reads as one without
+	 * reading aids, and a write keeps `contents` as a recovery copy. */
+	readonly unreadable?: string;
 }
 
 type IBaseHalfAdhdReadState = IBaseHalfAdhdAbsentReadState | IBaseHalfAdhdExistingReadState;
@@ -75,7 +94,14 @@ export interface IBaseHalfAdhdDocumentOptions {
 export interface IBaseHalfAdhdMirrorService {
 	readonly _serviceBrand: undefined;
 
-	/** The file with body-relative ranges (converted when it has no `line_base`). */
+	/** Fires after a reading-aid write replaced a file whose content could not be read. */
+	readonly onDidPreserveUnreadableAdhd: Event<IBaseHalfMirrorPreservedEvent>;
+
+	/** The file with body-relative ranges (converted when it has no
+	 * `line_base`), or `null` when it is absent or its content cannot be read.
+	 * Reads and writes reject only when the file system refuses them; a write
+	 * over content that could not be read keeps it as a recovery copy first
+	 * (mirror file resilience, "Annotation files"). */
 	readAdhd(file: IBaseHalfWorkspaceResource, options?: IBaseHalfAdhdDocumentOptions): Promise<IBaseHalfAdhdFile | null>;
 	/** `fields.read_paragraphs` are body-relative. */
 	setAdhd(file: IBaseHalfWorkspaceResource, fields: Pick<IBaseHalfAdhdFile, 'highlight_keywords' | 'read_paragraphs'>, lease?: IBaseHalfWorkspaceMutationLease, options?: IBaseHalfAdhdDocumentOptions): Promise<IBaseHalfAdhdFile | null>;
@@ -95,13 +121,15 @@ export interface IBaseHalfAdhdMirrorService {
 	persistBodyLineBase(file: IBaseHalfWorkspaceResource, frontmatterLines: number, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
 	/** Structural path identity operations. They do not require the old user
 	 * file to still exist and retire mirrors to canonical tombstones with exact
-	 * byte preconditions instead of unguarded unlink. */
+	 * byte preconditions instead of unguarded unlink. An `adhd.yaml` that cannot
+	 * be read is left in place, byte for byte, and never rejects them (mirror
+	 * file resilience, "Structural operations"). */
 	retireAdhd(file: IBaseHalfWorkspaceResource, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	relocateAdhd(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, options?: { readonly sameResourceIdentity?: boolean }, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	adhdResource(file: IBaseHalfWorkspaceResource): URI;
 }
 
-export class BaseHalfAdhdMirrorCorrupt extends Error {
+class BaseHalfAdhdMirrorCorrupt extends Error {
 	override readonly name = 'BaseHalfAdhdMirrorCorrupt';
 
 	constructor(
@@ -113,14 +141,20 @@ export class BaseHalfAdhdMirrorCorrupt extends Error {
 	}
 }
 
-export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
+export class BaseHalfAdhdMirrorService extends Disposable implements IBaseHalfAdhdMirrorService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();
 
+	private readonly _onDidPreserveUnreadableAdhd = this._register(new Emitter<IBaseHalfMirrorPreservedEvent>());
+	readonly onDidPreserveUnreadableAdhd = this._onDidPreserveUnreadableAdhd.event;
+
 	constructor(
 		@IFileService private readonly fileService: IFileService,
-		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator
-	) { }
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
+		@ILogService private readonly logService: ILogService
+	) {
+		super();
+	}
 
 	async readAdhd(file: IBaseHalfWorkspaceResource, options?: IBaseHalfAdhdDocumentOptions): Promise<IBaseHalfAdhdFile | null> {
 		const read = await this.readAdhdStateAt(file.workspaceFolder, this.adhdResource(file), file.relativePath);
@@ -189,7 +223,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 					const converted = convertLegacyFile(file.relativePath, read.adhd, frontmatterLines);
 					try {
 						await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, file.workspaceFolder, resource);
-						await baseHalfCommitMirrorFile(this.fileService, resource, VSBuffer.fromString(serializeAdhdFile(converted)), read.contents);
+						await baseHalfCommitMirrorFile(this.fileService, resource, encodeAdhdFile(converted, resource), read.contents);
 						return true;
 					} catch (error) {
 						if (!isAdhdPatchConflict(error) || attempt === ADHD_PATCH_MAX_ATTEMPTS - 1) {
@@ -248,7 +282,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 		await this.mutex.runExclusive(resource.toString(), async () => {
 			for (let attempt = 0; attempt < ADHD_PATCH_MAX_ATTEMPTS; attempt++) {
 				const read = await this.readAdhdStateAt(file.workspaceFolder, resource, file.relativePath);
-				if (!read.exists) {
+				if (!read.exists || this.leftInPlace(resource, read)) {
 					return;
 				}
 				try {
@@ -256,7 +290,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 					await baseHalfCommitMirrorFile(
 						this.fileService,
 						resource,
-						VSBuffer.fromString(serializeAdhdFile(buildBaseHalfAdhdFile(file.relativePath, undefined, undefined))),
+						encodeAdhdFile(buildBaseHalfAdhdFile(file.relativePath, undefined, undefined), resource),
 						read.contents
 					);
 					return;
@@ -274,7 +308,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 		const targetResource = this.adhdResource(target);
 		for (let attempt = 0; attempt < ADHD_PATCH_MAX_ATTEMPTS; attempt++) {
 			const sourceRead = await this.readAdhdStateAt(source.workspaceFolder, sourceResource, source.relativePath);
-			if (!sourceRead.exists || sourceRead.adhd === null) {
+			if (!sourceRead.exists || this.leftInPlace(sourceResource, sourceRead) || sourceRead.adhd === null) {
 				return;
 			}
 			const targetRead = await this.readAdhdStateAt(target.workspaceFolder, targetResource, target.relativePath);
@@ -286,14 +320,20 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 				moved?.highlight_keywords,
 				moved?.read_paragraphs
 			);
-			const relocatedContents = VSBuffer.fromString(serializeAdhdFile(relocated));
-			const sourceTombstoneContents = VSBuffer.fromString(serializeAdhdFile(buildBaseHalfAdhdFile(source.relativePath, undefined, undefined)));
+			const relocatedContents = encodeAdhdFile(relocated, targetResource);
+			const sourceTombstoneContents = encodeAdhdFile(buildBaseHalfAdhdFile(source.relativePath, undefined, undefined), sourceResource);
 			let targetCommitted = false;
 			let sourceWritten: VSBuffer | undefined;
 			try {
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, target.workspaceFolder, targetResource);
 				await this.fileService.createFolder(dirname(targetResource));
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, target.workspaceFolder, targetResource);
+				if (targetRead.exists && targetRead.unreadable !== undefined) {
+					// The incoming reading aids replace bytes that could not be
+					// read: keep those bytes as a recovery copy first.
+					const recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, target.workspaceFolder, targetResource, targetRead.contents);
+					this.logService.warn(`[BaseHalf] kept unreadable reading aids of ${target.relativePath} at ${recoveryCopy.toString()} before replacing them: ${targetRead.unreadable}`);
+				}
 				await baseHalfCommitMirrorFile(
 					this.fileService,
 					targetResource,
@@ -327,7 +367,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 			}
 
 			try {
-				await this.assertAdhdStateContents(target.workspaceFolder, targetResource, target.relativePath, relocatedContents);
+				await this.assertAdhdStateContents(target.workspaceFolder, targetResource, relocatedContents);
 			} catch (error) {
 				// The destination changed after its commit. Preserve that external
 				// latest state, conditionally restore the authored source, and fail
@@ -344,7 +384,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 			}
 
 			try {
-				await this.assertAdhdStateContents(source.workspaceFolder, sourceResource, source.relativePath, sourceWritten!);
+				await this.assertAdhdStateContents(source.workspaceFolder, sourceResource, sourceWritten!);
 				return;
 			} catch (error) {
 				// A source identity recreated after retirement wins. Undo only our
@@ -365,7 +405,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 	private async restoreAdhdState(workspaceFolder: URI, resource: URI, relativePath: string, written: VSBuffer, original: IBaseHalfAdhdReadState): Promise<void> {
 		const restored = original.exists
 			? original.contents
-			: VSBuffer.fromString(serializeAdhdFile(buildBaseHalfAdhdFile(relativePath, undefined, undefined)));
+			: encodeAdhdFile(buildBaseHalfAdhdFile(relativePath, undefined, undefined), resource);
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 		await this.fileService.createFolder(dirname(resource));
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
@@ -373,9 +413,9 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 	}
 
-	private async assertAdhdStateContents(workspaceFolder: URI, resource: URI, relativePath: string, expected: VSBuffer): Promise<void> {
-		const current = await this.readAdhdStateAt(workspaceFolder, resource, relativePath);
-		if (!current.exists || !current.contents.equals(expected)) {
+	private async assertAdhdStateContents(workspaceFolder: URI, resource: URI, expected: VSBuffer): Promise<void> {
+		const current = await this.readAdhdBytesAt(workspaceFolder, resource);
+		if (!current?.equals(expected)) {
 			throw new FileOperationError(`ADHD state changed after relocation commit: ${resource.toString()}`, FileOperationResult.FILE_MODIFIED_SINCE);
 		}
 	}
@@ -383,27 +423,19 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 	private async renameAdhdIdentityLocked(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource): Promise<void> {
 		const resource = this.adhdResource(source);
 		for (let attempt = 0; attempt < ADHD_PATCH_MAX_ATTEMPTS; attempt++) {
-			let read: IBaseHalfAdhdReadState;
-			try {
-				read = await this.readAdhdStateAt(source.workspaceFolder, resource, source.relativePath);
-			} catch (error) {
-				if (!(error instanceof BaseHalfAdhdMirrorCorrupt)) {
-					throw error;
-				}
-				// A retry after the one-file case-only commit sees target-path YAML
-				// through the same case-insensitive resource. Accept only a fully valid
-				// target identity; unrelated corruption must remain fail-closed.
-				try {
-					const targetRead = await this.readAdhdStateAt(target.workspaceFolder, resource, target.relativePath);
-					if (targetRead.exists) {
-						return;
-					}
-				} catch {
-					// Re-throw the source-identity corruption below.
-				}
-				throw error;
-			}
+			const read = await this.readAdhdStateAt(source.workspaceFolder, resource, source.relativePath);
 			if (!read.exists) {
+				return;
+			}
+			if (read.unreadable !== undefined) {
+				// A retry after the one-file case-only commit sees target-path
+				// YAML through the same case-insensitive resource: that rename
+				// is already done. Any other file that cannot be read stays.
+				try {
+					adhdReadStateOf(read.contents, resource, target.relativePath);
+				} catch {
+					this.leftInPlace(resource, read);
+				}
 				return;
 			}
 			// Materialized empty ADHD files are CAS tombstones. They still carry a
@@ -417,7 +449,7 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 			);
 			try {
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, source.workspaceFolder, resource);
-				await baseHalfCommitMirrorFile(this.fileService, resource, VSBuffer.fromString(serializeAdhdFile(renamed)), read.contents);
+				await baseHalfCommitMirrorFile(this.fileService, resource, encodeAdhdFile(renamed, resource), read.contents);
 				return;
 			} catch (error) {
 				if (!isAdhdPatchConflict(error) || attempt === ADHD_PATCH_MAX_ATTEMPTS - 1) {
@@ -481,13 +513,20 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 					return null;
 				}
 
-				const serialized = serializeAdhdFile(next ?? buildBaseHalfAdhdFile(file.relativePath, undefined, undefined));
+				const contents = encodeAdhdFile(next ?? buildBaseHalfAdhdFile(file.relativePath, undefined, undefined), resource);
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, file.workspaceFolder, resource);
 				await this.fileService.createFolder(dirname(resource));
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, file.workspaceFolder, resource);
 				try {
-					const contents = VSBuffer.fromString(serialized);
+					// Bytes that could not be read are kept before a write the
+					// user asked for replaces them.
+					const preserved = read.exists && read.unreadable !== undefined
+						? { reason: read.unreadable, recoveryCopy: await baseHalfPreserveMirrorBytes(this.fileService, file.workspaceFolder, resource, read.contents) }
+						: undefined;
 					await baseHalfCommitMirrorFile(this.fileService, resource, contents, read.exists ? read.contents : null);
+					if (preserved) {
+						this._onDidPreserveUnreadableAdhd.fire({ workspaceFolder: file.workspaceFolder, relativePath: file.relativePath, ...preserved });
+					}
 					return next;
 				} catch (error) {
 					if (!isAdhdPatchConflict(error) || attempt === ADHD_PATCH_MAX_ATTEMPTS - 1) {
@@ -500,7 +539,37 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 		});
 	}
 
+	/**
+	 * Bytes that cannot be read as the reading aids of `relativePath` come back
+	 * as a file without reading aids whose `unreadable` holds the cause, so a
+	 * content failure never rejects a read, a write, a move, or a delete.
+	 */
 	private async readAdhdStateAt(workspaceFolder: URI, resource: URI, relativePath: string): Promise<IBaseHalfAdhdReadState> {
+		const contents = await this.readAdhdBytesAt(workspaceFolder, resource);
+		if (contents === null) {
+			return { exists: false, adhd: null };
+		}
+		try {
+			return adhdReadStateOf(contents, resource, relativePath);
+		} catch (error) {
+			if (!(error instanceof BaseHalfAdhdMirrorCorrupt)) {
+				throw error;
+			}
+			return { exists: true, adhd: null, legacy: false, contents, unreadable: error.reason };
+		}
+	}
+
+	/** Whether `read` could not be read. Such a file stays where it is, byte for byte. */
+	private leftInPlace(resource: URI, read: IBaseHalfAdhdReadState): boolean {
+		if (!read.exists || read.unreadable === undefined) {
+			return false;
+		}
+		this.logService.warn(`[BaseHalf] left reading aids that cannot be read in place: ${resource.toString()}: ${read.unreadable}`);
+		return true;
+	}
+
+	/** The stored bytes, or `null` when the file does not exist. */
+	private async readAdhdBytesAt(workspaceFolder: URI, resource: URI): Promise<VSBuffer | null> {
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 		let content;
 		try {
@@ -511,26 +580,53 @@ export class BaseHalfAdhdMirrorService implements IBaseHalfAdhdMirrorService {
 		} catch (error) {
 			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-				return { exists: false, adhd: null };
+				return null;
 			}
 
 			throw error;
 		}
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
-
-		const parsed = parseAdhdYaml(content.value.toString(), resource);
-		if (parsed === null) {
-			return { exists: true, adhd: null, legacy: false, contents: content.value };
-		}
-
-		const { adhd, legacy } = normalizeAdhdFile(parsed, resource, relativePath);
-		return {
-			exists: true,
-			adhd: isBaseHalfAdhdEmpty(adhd) ? null : adhd,
-			legacy: legacy && !isBaseHalfAdhdEmpty(adhd),
-			contents: content.value
-		};
+		return content.value;
 	}
+}
+
+/** The read state of stored bytes; throws when they are not the reading aids of `relativePath`. */
+function adhdReadStateOf(contents: VSBuffer, resource: URI, relativePath: string): IBaseHalfAdhdExistingReadState {
+	const parsed = parseAdhdYaml(contents.toString(), resource);
+	if (parsed === null) {
+		return { exists: true, adhd: null, legacy: false, contents };
+	}
+
+	const { adhd, legacy } = normalizeAdhdFile(parsed, resource, relativePath);
+	return {
+		exists: true,
+		adhd: isBaseHalfAdhdEmpty(adhd) ? null : adhd,
+		legacy: legacy && !isBaseHalfAdhdEmpty(adhd),
+		contents
+	};
+}
+
+/**
+ * The bytes of an `adhd.yaml` after the write check: the reader must accept
+ * them and return what was serialized, or nothing is written (mirror file
+ * resilience, "Write check").
+ */
+function encodeAdhdFile(file: IBaseHalfAdhdFile, resource: URI): VSBuffer {
+	const text = serializeAdhdFile(file);
+	let readBack: string;
+	try {
+		const root = parseAdhdYaml(text, resource);
+		readBack = root === null ? '' : serializeAdhdFile(normalizeAdhdFile(root, resource, file.path).adhd);
+	} catch (error) {
+		if (!(error instanceof BaseHalfAdhdMirrorCorrupt)) {
+			throw error;
+		}
+		throw new BaseHalfMirrorWriteRejected(resource, error.reason);
+	}
+	if (readBack !== text) {
+		throw new BaseHalfMirrorWriteRejected(resource, 'the reading aids changed when they were read back');
+	}
+	return VSBuffer.fromString(text);
 }
 
 function isAdhdPatchConflict(error: unknown): boolean {
@@ -543,7 +639,7 @@ function isAdhdPatchConflict(error: unknown): boolean {
 
 export function serializeAdhdFile(file: IBaseHalfAdhdFile): string {
 	const lines = [
-		`path: ${yamlString(file.path)}`,
+		`path: ${baseHalfMirrorYamlQuote(file.path)}`,
 		'kind: file'
 	];
 
@@ -556,7 +652,7 @@ export function serializeAdhdFile(file: IBaseHalfAdhdFile): string {
 	if (keywords.length > 0) {
 		lines.push('highlight_keywords:');
 		for (const keyword of keywords) {
-			lines.push(`  - ${yamlString(keyword)}`);
+			lines.push(`  - ${baseHalfMirrorYamlQuote(keyword)}`);
 		}
 	}
 
@@ -572,27 +668,27 @@ export function serializeAdhdFile(file: IBaseHalfAdhdFile): string {
 }
 
 /** A stored file and whether its ranges are absolute (no `line_base`). */
-function normalizeAdhdFile(value: unknown, resource: URI, expectedPath: string): { readonly adhd: IBaseHalfAdhdFile; readonly legacy: boolean } {
-	const record = asRecord(value, resource, 'adhd root must be an object');
-	const path = stringField(record, 'path', resource);
+function normalizeAdhdFile(root: YamlMapNode, resource: URI, expectedPath: string): { readonly adhd: IBaseHalfAdhdFile; readonly legacy: boolean } {
+	const path = stringField(root, 'path', resource);
 	if (path !== expectedPath) {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, `path must be "${expectedPath}"`);
 	}
 
-	if (stringField(record, 'kind', resource) !== 'file') {
+	if (stringField(root, 'kind', resource) !== 'file') {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, 'kind must be file');
 	}
 
-	const lineBase = record['line_base'];
-	if (lineBase !== undefined && lineBase !== BASEHALF_ADHD_LINE_BASE) {
+	const lineBaseNode = baseHalfMirrorYamlProperty(root, 'line_base');
+	const hasLineBase = !baseHalfMirrorYamlAbsent(lineBaseNode);
+	if (hasLineBase && baseHalfMirrorYamlString(lineBaseNode) !== BASEHALF_ADHD_LINE_BASE) {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, `line_base must be ${BASEHALF_ADHD_LINE_BASE}`);
 	}
 
-	const keywords = optionalStringArrayField(record, 'highlight_keywords', resource);
-	const ranges = optionalRangeArrayField(record, 'read_paragraphs', resource);
+	const keywords = optionalStringArrayField(root, 'highlight_keywords', resource);
+	const ranges = optionalRangeArrayField(root, 'read_paragraphs', resource);
 	try {
 		const adhd = buildBaseHalfAdhdFile(path, keywords, ranges);
-		return { adhd, legacy: lineBase === undefined && (adhd.read_paragraphs?.length ?? 0) > 0 };
+		return { adhd, legacy: !hasLineBase && (adhd.read_paragraphs?.length ?? 0) > 0 };
 	} catch (error) {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, error instanceof Error ? error.message : String(error), { cause: error });
 	}
@@ -603,92 +699,56 @@ function convertLegacyFile(path: string, file: IBaseHalfAdhdFile, frontmatterLin
 	return buildBaseHalfAdhdFile(path, file.highlight_keywords, convertBaseHalfAdhdLegacyRanges(file.read_paragraphs ?? [], frontmatterLines));
 }
 
-function parseAdhdYaml(raw: string, resource: URI): Record<string, unknown> | null {
-	const errors: YamlParseError[] = [];
-	const node = parseYaml(raw, errors);
-	if (errors.length > 0) {
-		throw new BaseHalfAdhdMirrorCorrupt(resource, errors[0].message);
+function parseAdhdYaml(raw: string, resource: URI): YamlMapNode | null {
+	let document: IBaseHalfMirrorYamlDocument;
+	try {
+		document = baseHalfParseMirrorYaml(raw, 'adhd');
+	} catch (error) {
+		if (error instanceof BaseHalfMirrorYamlUnreadable) {
+			throw new BaseHalfAdhdMirrorCorrupt(resource, error.reason, { cause: error });
+		}
+		throw error;
 	}
-
-	if (!node) {
-		return null;
+	if (document.unparsed) {
+		// Reading aids after that line would be lost on the next write.
+		throw new BaseHalfAdhdMirrorCorrupt(resource, document.unparsed);
 	}
-
-	return asRecord(yamlNodeToValue(node), resource, 'adhd root must be an object');
+	return document.root;
 }
 
-function yamlNodeToValue(node: YamlNode): unknown {
-	if (node.type === 'map') {
-		const value: Record<string, unknown> = {};
-		for (const property of node.properties) {
-			value[property.key.value] = yamlNodeToValue(property.value);
+function optionalStringArrayField(root: YamlMapNode, key: string, resource: URI): readonly string[] {
+	const items = listField(root, key, resource);
+	return items.map((item, index) => {
+		const value = baseHalfMirrorYamlString(item);
+		if (value === undefined) {
+			throw new BaseHalfAdhdMirrorCorrupt(resource, `${key}[${index}] must be a string`);
 		}
 		return value;
-	}
-
-	if (node.type === 'sequence') {
-		return node.items.map(item => yamlNodeToValue(item));
-	}
-
-	return yamlScalarValue(node);
+	});
 }
 
-function yamlScalarValue(node: YamlScalarNode): string | number | boolean | null {
-	const value = node.value;
-	const trimmed = value.trim();
-	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
-		return Number(trimmed);
-	}
-	if (trimmed === 'true') {
-		return true;
-	}
-	if (trimmed === 'false') {
-		return false;
-	}
-	if (trimmed === 'null' || trimmed === '~') {
-		return null;
-	}
-	return value;
-}
-
-function optionalStringArrayField(record: Record<string, unknown>, key: string, resource: URI): readonly string[] {
-	const value = record[key];
-	if (value === undefined) {
-		return [];
-	}
-	if (!Array.isArray(value)) {
-		throw new BaseHalfAdhdMirrorCorrupt(resource, `${key} must be an array`);
-	}
-
-	const out: string[] = [];
-	for (let i = 0; i < value.length; i++) {
-		const item = value[i];
-		if (typeof item !== 'string') {
-			throw new BaseHalfAdhdMirrorCorrupt(resource, `${key}[${i}] must be a string`);
-		}
-		out.push(item);
-	}
-	return out;
-}
-
-function optionalRangeArrayField(record: Record<string, unknown>, key: string, resource: URI): readonly IBaseHalfAdhdLineRange[] {
-	const value = record[key];
-	if (value === undefined) {
-		return [];
-	}
-	if (!Array.isArray(value)) {
-		throw new BaseHalfAdhdMirrorCorrupt(resource, `${key} must be an array`);
-	}
-
-	return value.map((item, index) => {
-		if (!Array.isArray(item) || item.length !== 2) {
+function optionalRangeArrayField(root: YamlMapNode, key: string, resource: URI): readonly IBaseHalfAdhdLineRange[] {
+	const items = listField(root, key, resource);
+	return items.map((item, index) => {
+		const pair = item.type === 'sequence' ? item.items : undefined;
+		if (pair?.length !== 2) {
 			throw new BaseHalfAdhdMirrorCorrupt(resource, `${key}[${index}] must be a [start, end] pair`);
 		}
-		if (!Number.isInteger(item[0]) || !Number.isInteger(item[1])) {
+		const start = baseHalfMirrorYamlNumber(pair[0]);
+		const end = baseHalfMirrorYamlNumber(pair[1]);
+		if (start === undefined || end === undefined || !Number.isInteger(start) || !Number.isInteger(end)) {
 			throw new BaseHalfAdhdMirrorCorrupt(resource, `${key}[${index}] must contain integers`);
 		}
-		return [item[0], item[1]] as const;
+		return [start, end] as const;
 	});
+}
+
+function listField(root: YamlMapNode, key: string, resource: URI): readonly YamlNode[] {
+	const items = baseHalfMirrorYamlItems(baseHalfMirrorYamlProperty(root, key));
+	if (!items) {
+		throw new BaseHalfAdhdMirrorCorrupt(resource, `${key} must be an array`);
+	}
+	return items;
 }
 
 function mirrorPathSegments(relativePath: string): string[] {
@@ -704,25 +764,13 @@ function mirrorPathSegments(relativePath: string): string[] {
 	return segments;
 }
 
-function asRecord(value: unknown, resource: URI, reason: string): Record<string, unknown> {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new BaseHalfAdhdMirrorCorrupt(resource, reason);
-	}
-
-	return value as Record<string, unknown>;
-}
-
-function stringField(record: Record<string, unknown>, key: string, resource: URI): string {
-	const value = record[key];
-	if (typeof value !== 'string') {
+function stringField(root: YamlMapNode, key: string, resource: URI): string {
+	const value = baseHalfMirrorYamlString(baseHalfMirrorYamlProperty(root, key));
+	if (value === undefined) {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, `${key} must be a string`);
 	}
 
 	return value;
-}
-
-function yamlString(value: string): string {
-	return JSON.stringify(value);
 }
 
 registerSingleton(IBaseHalfAdhdMirrorService, BaseHalfAdhdMirrorService, InstantiationType.Delayed);

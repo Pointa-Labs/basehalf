@@ -253,8 +253,8 @@ export class BaseHalfLegacyCleanupNotifier extends Disposable implements IBaseHa
 		const multiRoot = this.contextService.getWorkspace().folders.length > 1;
 		const folderName = this.contextService.getWorkspaceFolder(workspaceFolder)?.name ?? workspaceFolder.path;
 		const message = multiRoot
-			? localize('basehalf.cleanup.mirror.removedInFolder', "BaseHalf removed {0} files that earlier versions created in {1}/.bh/ (focus and agent-harness files). Your notes and canvas layout were not changed.", count, folderName)
-			: localize('basehalf.cleanup.mirror.removed', "BaseHalf removed {0} files that earlier versions created in .bh/ (focus and agent-harness files). Your notes and canvas layout were not changed.", count);
+			? localize('basehalf.cleanup.mirror.removedInFolder', "BaseHalf removed {0} files in {1} that earlier versions kept for itself and no longer uses. Your notes and canvas layout were not changed.", count, folderName)
+			: localize('basehalf.cleanup.mirror.removed', "BaseHalf removed {0} files that earlier versions kept for itself and no longer uses. Your notes and canvas layout were not changed.", count);
 		const choices = await this.isGitRepository(workspaceFolder)
 			? [{
 				label: localize('basehalf.cleanup.mirror.showScm', "Show in Source Control"),
@@ -323,7 +323,7 @@ function skipReasonLabel(reason: BaseHalfAgentGuideSkipReason): string {
 		case 'dirty': return localize('basehalf.cleanup.agentGuides.reason.dirty', "it has unsaved changes");
 		case 'symbolicLink': return localize('basehalf.cleanup.agentGuides.reason.symbolicLink', "it is a symbolic link");
 		case 'unreadable': return localize('basehalf.cleanup.agentGuides.reason.unreadable', "it could not be read");
-		case 'notText': return localize('basehalf.cleanup.agentGuides.reason.notText', "it is not UTF-8 text");
+		case 'notText': return localize('basehalf.cleanup.agentGuides.reason.notText', "it is not a text file");
 		case 'unrecognized': return localize('basehalf.cleanup.agentGuides.reason.unrecognized', "its BaseHalf section was edited, so the lines BaseHalf added cannot be told apart");
 		case 'changed': return localize('basehalf.cleanup.agentGuides.reason.changed', "it changed while BaseHalf was updating it");
 		case 'writeFailed': return localize('basehalf.cleanup.agentGuides.reason.writeFailed', "it could not be written");

@@ -13,8 +13,10 @@ import {
 	IFileService,
 	IFileStat
 } from '../../../../platform/files/common/files.js';
-import { BaseHalfAdhdMirrorCorrupt, BaseHalfAdhdMirrorService, serializeAdhdFile } from '../../common/basehalfAdhdMirror.js';
+import { NullLogService } from '../../../../platform/log/common/log.js';
+import { BaseHalfAdhdMirrorService, serializeAdhdFile } from '../../common/basehalfAdhdMirror.js';
 import { IBaseHalfWorkspaceResource } from '../../common/basehalfCanvasNavigation.js';
+import { baseHalfMirrorRecoveryResource, IBaseHalfMirrorPreservedEvent } from '../../common/basehalfMirrorRecovery.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfAdhdMirrorService', () => {
@@ -112,15 +114,7 @@ suite('BaseHalfAdhdMirrorService', () => {
 		});
 	});
 
-	test('rejects an unknown line_base and relocates a legacy file against the moved document', async () => {
-		const corrupt = createService(new Map([
-			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: bad.md\nkind: file\nline_base: file\n']
-		]));
-		await assert.rejects(
-			() => corrupt.readAdhd(file('bad.md')),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt && error.reason === 'line_base must be body'
-		);
-
+	test('relocates a legacy file against the moved document', async () => {
 		const fileService = new TestFileService(new Map([
 			['/work/.bh/mirror/a.md/adhd.yaml', 'path: a.md\nkind: file\nread_paragraphs:\n  - [4, 4]\n'],
 			['/work/b.md', '---\ntitle: B\n---\nbody\n']
@@ -130,38 +124,21 @@ suite('BaseHalfAdhdMirrorService', () => {
 		assert.strictEqual(fileService.files.get('/work/.bh/mirror/b.md/adhd.yaml'), 'path: "b.md"\nkind: file\nline_base: body\nread_paragraphs:\n  - [1, 1]\n');
 	});
 
-	test('throws typed corrupt errors for invalid YAML, path, kind, and ranges', async () => {
-		const invalid = createService(new Map([
-			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: [unterminated']
-		]));
-		await assert.rejects(
-			() => invalid.readAdhd(file('bad.md')),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt
-		);
+	test('reading aids whose content cannot be read read as none', async () => {
+		const unreadable = [
+			'path: [unterminated',
+			'path: other.md\nkind: file\n',
+			'path: bad.md\nkind: folder\n',
+			'path: bad.md\nkind: file\nline_base: file\n',
+			'path: bad.md\nkind: file\nread_paragraphs:\n  - [4, 2]\n',
+			'path: bad.md\nkind: file\nhighlight_keywords:\n  - "kept"\n<<<<<<< HEAD\n  - "ours"\n=======\n  - "theirs"\n>>>>>>> feature\n'
+		];
+		const reads = [];
+		for (const text of unreadable) {
+			reads.push(await createService(new Map([['/work/.bh/mirror/bad.md/adhd.yaml', text]])).readAdhd(file('bad.md')));
+		}
 
-		const wrongPath = createService(new Map([
-			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: other.md\nkind: file\n']
-		]));
-		await assert.rejects(
-			() => wrongPath.readAdhd(file('bad.md')),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt && error.reason === 'path must be "bad.md"'
-		);
-
-		const wrongKind = createService(new Map([
-			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: bad.md\nkind: folder\n']
-		]));
-		await assert.rejects(
-			() => wrongKind.readAdhd(file('bad.md')),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt && error.reason === 'kind must be file'
-		);
-
-		const badRange = createService(new Map([
-			['/work/.bh/mirror/bad.md/adhd.yaml', 'path: bad.md\nkind: file\nread_paragraphs:\n  - [4, 2]\n']
-		]));
-		await assert.rejects(
-			() => badRange.readAdhd(file('bad.md')),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt && /before start/.test(error.reason)
-		);
+		assert.deepStrictEqual(reads, unreadable.map(() => null));
 	});
 
 	test('serializes sparse adhd.yaml with stable fields', () => {
@@ -426,17 +403,101 @@ suite('BaseHalfAdhdMirrorService', () => {
 		assert.deepStrictEqual((await service.readAdhd(file('a.md')))?.read_paragraphs, [[1, 1], [6, 6]]);
 	});
 
-	test('does not overwrite corrupt adhd.yaml while writing', async () => {
+	test('reads back keywords and paths that look like numbers, booleans, or null', async () => {
+		const keywords = ['2024', '09', '-3', '1.5', 'true', 'false', 'null', '~', 'a: b', 'it\'s "quoted"'];
+		const service = createService(new Map());
+
+		for (const keyword of keywords) {
+			await service.addKeyword(file('2024'), keyword);
+		}
+
+		assert.deepStrictEqual(await service.readAdhd(file('2024')), { path: '2024', kind: 'file', highlight_keywords: keywords });
+	});
+
+	test('reads hand-written plain numeric values as text', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/09/adhd.yaml', 'path: 09\nkind: file\nhighlight_keywords:\n  - 2024\n  - true\n']
+		]));
+
+		assert.deepStrictEqual(await service.readAdhd(file('09')), { path: '09', kind: 'file', highlight_keywords: ['2024', 'true'] });
+	});
+
+	test('structural operations leave an adhd.yaml they cannot read in place', async () => {
+		const unreadable = 'path: [unterminated';
 		const fileService = new TestFileService(new Map([
-			['/work/.bh/mirror/a.md/adhd.yaml', 'path: [unterminated']
+			['/work/.bh/mirror/retired.md/adhd.yaml', unreadable],
+			['/work/.bh/mirror/moved.md/adhd.yaml', unreadable],
+			['/work/.bh/mirror/Cased.md/adhd.yaml', unreadable]
 		]));
 		const service = mirrorService(fileService as unknown as IFileService);
 
-		await assert.rejects(
-			() => service.markRead(file('a.md'), 1, 1),
-			error => error instanceof BaseHalfAdhdMirrorCorrupt
-		);
-		assert.strictEqual(fileService.files.get('/work/.bh/mirror/a.md/adhd.yaml'), 'path: [unterminated');
+		await service.retireAdhd(file('retired.md'));
+		await service.relocateAdhd(file('moved.md'), file('target.md'));
+		await service.relocateAdhd(file('cased.md'), file('Cased.md'), { sameResourceIdentity: true });
+
+		assert.deepStrictEqual(Object.fromEntries(fileService.files), {
+			'/work/.bh/mirror/retired.md/adhd.yaml': unreadable,
+			'/work/.bh/mirror/moved.md/adhd.yaml': unreadable,
+			'/work/.bh/mirror/Cased.md/adhd.yaml': unreadable
+		});
+	});
+
+	test('structural relocation keeps an unreadable destination as a recovery copy before replacing it', async () => {
+		const targetPath = '/work/.bh/mirror/b.md/adhd.yaml';
+		const unreadable = 'path: [unterminated';
+		const fileService = new TestFileService(new Map([
+			['/work/.bh/mirror/a.md/adhd.yaml', adhdYaml('a.md', ['Mine'])],
+			[targetPath, unreadable]
+		]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(targetPath), VSBuffer.fromString(unreadable));
+
+		await service.relocateAdhd(file('a.md'), file('b.md'));
+
+		assert.deepStrictEqual(Object.fromEntries(fileService.files), {
+			'/work/.bh/mirror/a.md/adhd.yaml': 'path: "a.md"\nkind: file\n',
+			[targetPath]: adhdYaml('b.md', ['Mine']),
+			[recoveryCopy.fsPath]: unreadable
+		});
+	});
+
+	test('a write over reading aids that cannot be read keeps them as a recovery copy, and a no-op leaves them alone', async () => {
+		const mirrorPath = '/work/.bh/mirror/a.md/adhd.yaml';
+		const conflicted = 'path: "a.md"\nkind: file\nhighlight_keywords:\n  - "kept"\n<<<<<<< HEAD\n  - "ours"\n=======\n  - "theirs"\n>>>>>>> feature\n';
+		const fileService = new TestFileService(new Map([[mirrorPath, conflicted]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const preserved: IBaseHalfMirrorPreservedEvent[] = [];
+		const listener = service.onDidPreserveUnreadableAdhd(event => preserved.push(event));
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(mirrorPath), VSBuffer.fromString(conflicted));
+
+		await service.removeKeyword(file('a.md'), 'kept');
+		const afterNoOp = { file: fileService.files.get(mirrorPath), recoveryCopy: fileService.files.get(recoveryCopy.fsPath) };
+		await service.markRead(file('a.md'), 2, 3);
+		listener.dispose();
+
+		assert.deepStrictEqual({
+			afterNoOp,
+			written: fileService.files.get(mirrorPath),
+			recoveryCopy: fileService.files.get(recoveryCopy.fsPath),
+			preserved: preserved.map(event => ({ relativePath: event.relativePath, reason: event.reason, recoveryCopy: event.recoveryCopy.fsPath }))
+		}, {
+			afterNoOp: { file: conflicted, recoveryCopy: undefined },
+			written: 'path: "a.md"\nkind: file\nline_base: body\nread_paragraphs:\n  - [2, 3]\n',
+			recoveryCopy: conflicted,
+			preserved: [{ relativePath: 'a.md', reason: 'line 5 and what follows could not be read', recoveryCopy: recoveryCopy.fsPath }]
+		});
+	});
+
+	test('leaves unreadable reading aids unchanged when their recovery copy cannot be saved', async () => {
+		const mirrorPath = '/work/.bh/mirror/a.md/adhd.yaml';
+		const unreadable = 'path: [unterminated';
+		const recoveryCopy = await baseHalfMirrorRecoveryResource(workspaceFolder, URI.file(mirrorPath), VSBuffer.fromString(unreadable));
+		// Something else already sits where the copy belongs, so it cannot be created.
+		const fileService = new TestFileService(new Map([[mirrorPath, unreadable], [recoveryCopy.fsPath, 'other bytes']]));
+		const service = mirrorService(fileService as unknown as IFileService);
+
+		await assert.rejects(() => service.markRead(file('a.md'), 1, 1));
+		assert.strictEqual(fileService.files.get(mirrorPath), unreadable);
 	});
 
 	function file(relativePath: string): IBaseHalfWorkspaceResource {
@@ -452,7 +513,7 @@ suite('BaseHalfAdhdMirrorService', () => {
 	}
 
 	function mirrorService(fileService: IFileService): BaseHalfAdhdMirrorService {
-		return new BaseHalfAdhdMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator());
+		return new BaseHalfAdhdMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator(), new NullLogService());
 	}
 });
 

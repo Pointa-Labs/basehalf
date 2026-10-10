@@ -182,6 +182,7 @@ try {
 		await step('canvas-create-result-node-submenu', () => assertCanvasCreateResultNodeSubmenu(page));
 		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 		await step('canvas-note-selection-controls', () => assertCanvasNoteInlineWysiwygEditor(page));
+		await step('canvas-numeric-folder-names', () => assertCanvasNumericFolderNames(page));
 	}
 
 		if (opts.settingsOnly) {
@@ -266,6 +267,7 @@ try {
 			} else if (opts.canvasOnly) {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+			await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -292,8 +294,10 @@ try {
 				'canvas-create-result-node-submenu',
 				'canvas-create-note-file-folder',
 				'canvas-note-selection-controls',
+				'canvas-numeric-folder-names',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
+				'canvas-unreadable-badge-recovers',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -328,6 +332,7 @@ try {
 		await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+		await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -447,6 +452,7 @@ try {
 			'canvas-create-result-node-submenu',
 			'canvas-create-note-file-folder',
 			'canvas-note-selection-controls',
+			'canvas-numeric-folder-names',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'statusbar-curated',
@@ -460,6 +466,7 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
+			'canvas-unreadable-badge-recovers',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -774,7 +781,9 @@ function createFixtureWorkspace(workspace) {
 	// flush broken. The rich Markdown autosave has its own webview timer and
 	// is unaffected; it gets a dedicated disk assertion instead.
 	fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true });
-	fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'files.autoSaveDelay': 3_600_000 }, null, '\t'), 'utf8');
+	// Deletes made by the smoke are permanent, so a run leaves nothing in the
+	// system trash of the machine it runs on.
+	fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'files.autoSaveDelay': 3_600_000, 'files.enableTrash': false }, null, '\t'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'README.md'), [
 		'# Smoke README',
 		'',
@@ -8758,7 +8767,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		const badgeYaml = fs.readFileSync(readmeBadgePath, 'utf8');
 		return badgeYaml.includes('First prompt line') && badgeYaml.includes('Second prompt line');
 	}, 'multiline canvas Badge prompt to persist');
-	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
+	await clickCanvasBadgeToggle(readme);
 	try {
 		await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 	} catch (error) {
@@ -9087,7 +9096,7 @@ async function assertCanvasConnectIntoNote(page) {
 			&& canvas.includes(`to: "${note}"`)
 			&& canvas.includes('to_anchor: west');
 	}, 'canvas.yaml to persist the four-side anchor row');
-	await clickNotificationAction(page, `Saved this connection at the top of ${note} as`, 'OK');
+	await clickNotificationAction(page, `Saved this connection inside ${note}.`, 'OK');
 	const bhChanges = bhTreeChangesSince(bhBeforeConnect);
 	if (bhChanges.some(rel => rel !== '.bh/mirror/canvas.yaml')) {
 		throw new Error(`Connecting into a note may change only its bytes and the canvas.yaml anchor row, but .bh/ also changed: ${bhChanges.join(', ')}`);
@@ -9457,6 +9466,197 @@ async function assertCanvasCreateResultNodeSubmenu(page) {
 	}
 	fs.rmSync(nodePath, { force: true });
 	await card.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
+/**
+ * Mirror file resilience, acceptance criterion 10 in the product: a
+ * description file that cannot be read, here one left with merge conflict
+ * markers, is not something the user has to repair. The card shows no issue,
+ * the description field stays usable, and saving keeps the old file as a
+ * recovery copy.
+ */
+async function assertCanvasUnreadableBadgeRecovers(page) {
+	const badgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	const recoveryRoot = path.join(workspacePath, '.bh', 'cache', 'recovered');
+	const recoveryDir = path.join(recoveryRoot, 'mirror', 'README.md');
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const fixture = fs.readFileSync(badgePath, 'utf8');
+	// A toggle click that lands while the canvas re-renders after a file change
+	// is dropped, so the face is opened and closed until it is in the wanted state.
+	const setBadgeFace = async open => {
+		for (let attempt = 0; attempt < 6; attempt++) {
+			if ((await readme.getAttribute('data-projection') === 'badge') === open) {
+				return;
+			}
+			await clickCanvasBadgeToggle(readme);
+			await page.waitForFunction(wanted => {
+				const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+				return (card?.getAttribute('data-projection') === 'badge') === wanted;
+			}, open, { timeout: 2_000 }).catch(() => undefined);
+		}
+		throw new Error(`The README badge face did not ${open ? 'open' : 'close'}`);
+	};
+	const conflicted = 'path: "README.md"\nkind: file\n<<<<<<< HEAD\ndescription: "Ours"\n=======\ndescription: "Theirs"\n>>>>>>> feature\n';
+	fs.writeFileSync(badgePath, conflicted, 'utf8');
+
+	// The toggle is lit by a description or by an issue: the card now has neither.
+	await page.waitForFunction(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const toggle = card?.querySelector('.basehalf-canvas-card-badge-toggle');
+		return toggle instanceof HTMLElement && !toggle.classList.contains('lit');
+	}, null, { timeout: 10_000 });
+	await setBadgeFace(true);
+	const badgePrompt = readme.locator('.basehalf-canvas-card-badge-prompt');
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await badgePrompt.inputValue() !== '' || await readme.locator('[data-testid="badge-metadata-issue"]').count() !== 0) {
+		throw new Error('A description file that cannot be read was shown as an issue instead of an empty description field');
+	}
+
+	await badgePrompt.fill('Recovered badge');
+	await badgePrompt.evaluate(prompt => prompt.blur());
+	await waitUntil(() => {
+		const saved = fs.readFileSync(badgePath, 'utf8');
+		return saved.includes('description: "Recovered badge"') && !saved.includes('<<<<<<<');
+	}, 'a new description to replace the description file that could not be read');
+	const copies = fs.existsSync(recoveryDir) ? fs.readdirSync(recoveryDir) : [];
+	if (copies.length !== 1 || !/^badge\.[0-9a-f]{12}\.yaml$/.test(copies[0]) || fs.readFileSync(path.join(recoveryDir, copies[0]), 'utf8') !== conflicted) {
+		throw new Error(`The description file that could not be read was not kept as one recovery copy: ${JSON.stringify(copies)}`);
+	}
+	await expectNotification(page, 'could not read the saved description of README.md');
+
+	// Hand the fixture back as the next steps expect it.
+	await badgePrompt.fill('Smoke file badge');
+	await badgePrompt.evaluate(prompt => prompt.blur());
+	await waitUntil(() => fs.readFileSync(badgePath, 'utf8').includes('description: "Smoke file badge"'), 'the fixture description to be restored');
+	await setBadgeFace(false);
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	fs.writeFileSync(badgePath, fixture, 'utf8');
+	fs.rmSync(recoveryRoot, { recursive: true, force: true });
+
+	// Criterion 11: when the file system refuses to read the file, a line with
+	// the cause takes the place of the description field, and nothing there
+	// leads into `.bh/`. Permission bits do not refuse a read on Windows.
+	if (process.platform === 'win32') {
+		return;
+	}
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const refreshMirror = () => fs.writeFileSync(canvasPath, fs.readFileSync(canvasPath));
+	const issueNotice = page.locator('.basehalf-canvas-warning', { hasText: 'badge metadata issue' });
+	fs.chmodSync(badgePath, 0o000);
+	try {
+		refreshMirror();
+		await issueNotice.waitFor({ state: 'visible', timeout: 10_000 });
+		await setBadgeFace(true);
+		const issue = readme.locator('[data-testid="badge-metadata-issue"]');
+		await issue.waitFor({ state: 'visible', timeout: 10_000 });
+		const shown = {
+			text: (await issue.innerText()).replace(/\s+/g, ' '),
+			buttons: await issue.locator('button').count(),
+			prompts: await readme.locator('.basehalf-canvas-card-badge-prompt').count()
+		};
+		if (!shown.text.includes('BaseHalf could not load it:') || shown.buttons !== 0 || shown.prompts !== 0) {
+			throw new Error(`A description the file system refuses to read was not shown as one line without a button: ${JSON.stringify(shown)}`);
+		}
+	} finally {
+		fs.chmodSync(badgePath, 0o644);
+	}
+	refreshMirror();
+	await issueNotice.waitFor({ state: 'detached', timeout: 10_000 });
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	await setBadgeFace(false);
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/**
+ * Mirror file resilience, acceptance criterion 14: folders whose names look
+ * like numbers leave their canvas readable. Cards next to them still move and
+ * stay where they are dropped, and deleting the folders removes their rows
+ * without a layout notice or a metadata notification.
+ */
+async function assertCanvasNumericFolderNames(page) {
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const savedGeometry = name => readCanvasCardGeometry(fs.readFileSync(canvasPath, 'utf8'), name);
+	const cardFor = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	await page.keyboard.press('Escape');
+
+	for (const name of ['09', '2024']) {
+		await clickCanvasCreateAction(page, 'New Folder...');
+		const input = page.locator('.basehalf-canvas-inline-create-card input');
+		await input.waitFor({ state: 'visible', timeout: 10_000 });
+		await input.fill(name);
+		await input.press('Enter');
+		await waitUntil(() => fs.existsSync(path.join(workspacePath, name)) && fs.statSync(path.join(workspacePath, name)).isDirectory(), `canvas New Folder to create the folder ${name}`);
+		await cardFor(name).waitFor({ state: 'visible', timeout: 10_000 });
+		await waitForCanvasCardSelection(page, name);
+		await waitUntil(() => savedGeometry(name) !== undefined, `the position of the folder ${name} to be saved`);
+	}
+
+	// A move reads the canvas that now holds `path: "09"` before it writes.
+	// New cards can land outside the window, so pan to the one that moves and
+	// hand the viewport back at the end, where later steps expect it.
+	const anchor = cardFor('README.md');
+	const anchorBefore = await anchor.boundingBox();
+	const moved = cardFor('2024');
+	await page.keyboard.press('Escape');
+	await centerCanvasCards(page, [moved]);
+	const savedBefore = savedGeometry('2024');
+	const boxBefore = await moved.boundingBox();
+	if (!savedBefore || !boxBefore || !anchorBefore) {
+		throw new Error('Missing the 2024 folder card or the viewport anchor before the move');
+	}
+	const start = { x: boxBefore.x + boxBefore.width / 2, y: boxBefore.y + boxBefore.height / 2 };
+	await page.mouse.move(start.x, start.y);
+	await page.mouse.down();
+	await page.mouse.move(start.x + 70, start.y + 45, { steps: 10 });
+	await page.mouse.up();
+	await waitUntil(() => {
+		const saved = savedGeometry('2024');
+		return saved !== undefined && (saved.x !== savedBefore.x || saved.y !== savedBefore.y);
+	}, 'the moved 2024 folder card to be saved next to the 09 folder card');
+	// A rejected save writes nothing, and the next render returns the card to
+	// its old position. The saved position must have changed and must stay.
+	// It is compared in canvas coordinates: the viewport may still be settling,
+	// so the card's place on screen says nothing.
+	const savedAfter = savedGeometry('2024');
+	await page.waitForTimeout(500);
+	const savedLater = savedGeometry('2024');
+	if (!savedAfter || !savedLater || savedLater.x !== savedAfter.x || savedLater.y !== savedAfter.y
+		|| (savedLater.x === savedBefore.x && savedLater.y === savedBefore.y)) {
+		throw new Error(`The moved 2024 folder card did not stay where it was dropped: ${JSON.stringify({ savedBefore, savedAfter, savedLater })}`);
+	}
+
+	for (const name of ['2024', '09']) {
+		await page.keyboard.press('Escape');
+		await cardFor(name).click({ button: 'right' });
+		const deleteAction = page.locator('.context-view.monaco-menu-container .action-label')
+			.filter({ hasText: /^Delete\.\.\.$/ })
+			.filter({ visible: true })
+			.last();
+		await deleteAction.waitFor({ state: 'visible', timeout: 10_000 });
+		await page.waitForTimeout(150);
+		await deleteAction.click();
+		const dialog = page.locator('.monaco-dialog-box', { hasText: `'${name}'` }).first();
+		await dialog.waitFor({ state: 'visible', timeout: 10_000 });
+		await dialog.locator('.monaco-button', { hasText: /^(Delete Permanently|Move to Trash)$/ }).click();
+		await waitUntil(() => !fs.existsSync(path.join(workspacePath, name)), `the folder ${name} to be deleted`);
+		await cardFor(name).waitFor({ state: 'hidden', timeout: 10_000 });
+		await waitUntil(() => savedGeometry(name) === undefined, `the row of the folder ${name} to leave canvas.yaml`);
+	}
+
+	// Toasts never render under the smoke driver, so open notifications are read from the center.
+	const notices = await page.locator('.basehalf-canvas-warning').evaluateAll(elements => elements.map(element => element.textContent ?? ''));
+	const center = await showNotificationsCenter(page);
+	const notifications = await center.locator('.notification-list-item').evaluateAll(elements => elements.map(element => element.textContent ?? ''));
+	await hideNotificationsCenter(page);
+	const unexpected = [...notices, ...notifications].filter(text => /saved layout|saved card positions|card position|cards and badges/.test(text));
+	if (unexpected.length > 0) {
+		throw new Error(`Numeric folder names produced a layout notice or a metadata notification: ${JSON.stringify(unexpected)}`);
+	}
+	if (fs.existsSync(path.join(workspacePath, '.bh', 'cache', 'recovered'))) {
+		throw new Error('Numeric folder names made BaseHalf save a recovery copy of a canvas it wrote itself');
+	}
+	await page.keyboard.press('Escape');
+	await panCanvasCardTo(page, anchor, anchorBefore);
 }
 
 async function assertCanvasCreateNoteFileAndFolder(page) {
@@ -9982,45 +10182,75 @@ async function centerCanvasCards(page, cards) {
 			return;
 		}
 
-		const panStart = await page.evaluate(({ bounds, horizontal, vertical }) => {
-			const xFractions = horizontal >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
-			const yFractions = vertical >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
-			for (const yFraction of yFractions) {
-				for (const xFraction of xFractions) {
-					const x = bounds.x + bounds.width * xFraction;
-					const y = bounds.y + bounds.height * yFraction;
-					if (document.elementFromPoint(x, y)?.closest('.react-flow__pane')) {
-						return { x, y };
-					}
-				}
-			}
-			return undefined;
-		}, { bounds: canvasBox, horizontal: deltaX, vertical: deltaY });
-		if (!panStart) {
-			await page.waitForTimeout(100);
-			continue;
-		}
-
-		const startX = panStart.x;
-		const startY = panStart.y;
-		const maxDeltaX = Math.max(1, deltaX >= 0
-			? canvasBox.x + canvasBox.width - startX - 12
-			: startX - canvasBox.x - 12);
-		const maxDeltaY = Math.max(1, deltaY >= 0
-			? canvasBox.y + canvasBox.height - startY - 12
-			: startY - canvasBox.y - 12);
-		await page.mouse.move(startX, startY);
-		await page.mouse.down({ button: 'middle' });
-		await page.mouse.move(
-			startX + Math.max(-maxDeltaX, Math.min(maxDeltaX, deltaX)),
-			startY + Math.max(-maxDeltaY, Math.min(maxDeltaY, deltaY)),
-			{ steps: 8 }
-		);
-		await page.mouse.up({ button: 'middle' });
-		await page.waitForTimeout(50);
+		await panCanvasToward(page, canvasBox, deltaX, deltaY);
 	}
 
 	throw new Error('Canvas viewport did not settle around the requested cards');
+}
+
+/**
+ * Pans the canvas until `card` is at the screen position `expected`, so a
+ * step that had to pan can hand the viewport back as it found it.
+ */
+async function panCanvasCardTo(page, card, expected) {
+	const canvas = page.locator('.basehalf-canvas-cards');
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const canvasBox = await canvas.boundingBox();
+		const box = await card.boundingBox();
+		if (!canvasBox || !box) {
+			await page.waitForTimeout(100);
+			continue;
+		}
+		const deltaX = expected.x - box.x;
+		const deltaY = expected.y - box.y;
+		if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) {
+			return;
+		}
+
+		await panCanvasToward(page, canvasBox, deltaX, deltaY);
+	}
+
+	throw new Error('Canvas viewport did not return to where the step found it');
+}
+
+/** One middle-button pan toward the delta, as far as the canvas bounds allow. */
+async function panCanvasToward(page, canvasBox, deltaX, deltaY) {
+	const panStart = await page.evaluate(({ bounds, horizontal, vertical }) => {
+		const xFractions = horizontal >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
+		const yFractions = vertical >= 0 ? [0.15, 0.3, 0.5, 0.7, 0.85] : [0.85, 0.7, 0.5, 0.3, 0.15];
+		for (const yFraction of yFractions) {
+			for (const xFraction of xFractions) {
+				const x = bounds.x + bounds.width * xFraction;
+				const y = bounds.y + bounds.height * yFraction;
+				if (document.elementFromPoint(x, y)?.closest('.react-flow__pane')) {
+					return { x, y };
+				}
+			}
+		}
+		return undefined;
+	}, { bounds: canvasBox, horizontal: deltaX, vertical: deltaY });
+	if (!panStart) {
+		await page.waitForTimeout(100);
+		return;
+	}
+
+	const startX = panStart.x;
+	const startY = panStart.y;
+	const maxDeltaX = Math.max(1, deltaX >= 0
+		? canvasBox.x + canvasBox.width - startX - 12
+		: startX - canvasBox.x - 12);
+	const maxDeltaY = Math.max(1, deltaY >= 0
+		? canvasBox.y + canvasBox.height - startY - 12
+		: startY - canvasBox.y - 12);
+	await page.mouse.move(startX, startY);
+	await page.mouse.down({ button: 'middle' });
+	await page.mouse.move(
+		startX + Math.max(-maxDeltaX, Math.min(maxDeltaX, deltaX)),
+		startY + Math.max(-maxDeltaY, Math.min(maxDeltaY, deltaY)),
+		{ steps: 8 }
+	);
+	await page.mouse.up({ button: 'middle' });
+	await page.waitForTimeout(50);
 }
 
 // A derived edge (from the reference graph) is drawn on the current canvas.
@@ -10774,14 +11004,31 @@ async function assertAgentCreatesCard(page) {
 		.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
+// Clicks a card's badge toggle by script. A locator resolves its element in
+// one step and runs the script in the next; a re-render in between leaves the
+// script holding a card that is no longer in the document, where a click does
+// nothing. So the card on screen is looked up and clicked in the same step.
+async function clickCanvasBadgeToggle(card) {
+	await card.locator('.basehalf-canvas-card-badge-toggle:visible').waitFor({ state: 'visible', timeout: 10_000 });
+	await card.evaluate(element => {
+		const path = element.getAttribute('data-basehalf-card-path') ?? '';
+		const live = element.isConnected ? element : document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${CSS.escape(path)}"]`);
+		const toggle = Array.from(live?.querySelectorAll('.basehalf-canvas-card-badge-toggle') ?? []).find(button => button.getClientRects().length > 0);
+		if (!(toggle instanceof HTMLElement)) {
+			throw new Error(`No visible badge toggle on the card ${path}`);
+		}
+		toggle.click();
+	});
+}
+
 // Opens the badge face of a canvas card and waits for its Upstream section.
 async function openCanvasBadgeFace(card) {
-	await card.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
+	await clickCanvasBadgeToggle(card);
 	await card.locator('[data-testid="badge-upstream"]').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function closeCanvasBadgeFace(card) {
-	await card.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
+	await clickCanvasBadgeToggle(card);
 	await card.locator('[data-testid="badge-upstream"]').waitFor({ state: 'detached', timeout: 10_000 });
 }
 
@@ -10829,6 +11076,33 @@ async function assertAgentUpstreamEditDrawsEdge(page) {
 	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md']), 'Remove to delete only the dangling entry from the note');
 	await issueMarker.waitFor({ state: 'detached', timeout: 10_000 });
 	await closeCanvasBadgeFace(noteCard);
+
+	// Both sides of a merge added the list: BaseHalf cannot read it. The badge
+	// states that in plain words and offers Rebuild List, which keeps every
+	// connection after the user confirms. Nothing sends the user to the file.
+	fs.writeFileSync(notePath, `---\nupstream:\n  - docs\nupstream:\n  - README.md\n---\n${AGENT_CREATED_CARD_CONTENT}`, 'utf8');
+	await issueMarker.waitFor({ state: 'visible', timeout: 10_000 });
+	await openCanvasBadgeFace(noteCard);
+	const storeIssue = noteCard.locator('[data-testid="badge-upstream"] .basehalf-canvas-card-badge-issue-row[data-upstream-issue="store"]');
+	await storeIssue.waitFor({ state: 'visible', timeout: 10_000 });
+	const storeIssueText = await storeIssue.locator('.basehalf-canvas-card-badge-issue-message').textContent();
+	if (storeIssueText !== 'BaseHalf can\'t read this upstream list.') {
+		throw new Error(`The unreadable upstream list is not stated in plain words: ${JSON.stringify(storeIssueText)}`);
+	}
+	const upstreamSectionText = await noteCard.locator('[data-testid="badge-upstream"]').textContent() ?? '';
+	if (/Open File|frontmatter|YAML|`/.test(upstreamSectionText)) {
+		throw new Error(`The Upstream section names code or offers to open the file: ${JSON.stringify(upstreamSectionText)}`);
+	}
+	await storeIssue.locator('[data-testid="badge-upstream-rebuild"]').click();
+	const rebuildDialog = page.locator('.monaco-dialog-box', { hasText: 'Rebuild the upstream list of' }).first();
+	await rebuildDialog.waitFor({ state: 'visible', timeout: 10_000 });
+	await rebuildDialog.locator('.monaco-button', { hasText: /^Rebuild List$/ }).click();
+	await rebuildDialog.waitFor({ state: 'hidden', timeout: 10_000 });
+	await waitUntil(() => readWorkspaceFile(note) === agentNoteWithUpstream(['docs', 'README.md']), 'Rebuild List to write one list that keeps both connections');
+	await issueMarker.waitFor({ state: 'detached', timeout: 10_000 });
+	await closeCanvasBadgeFace(noteCard);
+	await assertCanvasEdgeVisible(page, 'README.md', note);
+	await assertCanvasEdgeVisible(page, 'docs', note);
 
 	// The same edit reaches an open Card Detail through its live refresh: the
 	// collapsed summary changes in place and focus stays on the toggle.
@@ -10881,7 +11155,7 @@ async function assertBadgeEditorUpstreamDownstream(page) {
 
 	await openCanvasBadgeFace(noteCard);
 	const helper = await noteCard.locator('[data-testid="badge-upstream"] .basehalf-canvas-card-badge-helper').textContent();
-	if (!helper?.includes('Saved in this file\'s `upstream` list')) {
+	if (!helper?.includes('Saved inside this file')) {
 		throw new Error(`The note's Upstream helper does not name its own store: ${JSON.stringify(helper)}`);
 	}
 	await noteCard.locator('[data-testid="badge-add-upstream"]').click();

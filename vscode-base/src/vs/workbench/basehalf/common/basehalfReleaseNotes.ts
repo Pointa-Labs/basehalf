@@ -27,16 +27,22 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 
 ## Connections
 
-- Connecting two cards saves the connection in the card it points to: an \`upstream\` list in a Markdown note's frontmatter, a \`.bhnode\`'s \`upstream\` field, or \`.bh/mirror/<path>/upstream.yaml\` for PDFs, folders, and other files. The list is visible in git, in the Source view, and in other Markdown tools, and agents read it when they open the note. Deleting it removes the connection.
+- Connecting two cards saves the connection with the card it points to. For a note, it is saved inside the note itself, so agents and other tools that read the note see it too. For PDFs, folders, and other files, BaseHalf keeps the list for you.
 - The badge edits a card's Upstream list. Downstream shows what draws on it.
 - Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.
 - Connections from earlier versions move into your files after you confirm.
+- If BaseHalf can't read a card's upstream list, the badge offers Rebuild List, which keeps the connections it can read.
 
-## Workspace Files
+## Fewer Interruptions
 
-- BaseHalf removes its old focus and harness files from \`.bh/\`, which may delete tracked files in git. It offers to remove the sections it added to \`CLAUDE.md\` and \`AGENTS.md\`, and keeps canvas viewports per machine.
-- BaseHalf no longer edits \`.gitignore\`. We recommend ignoring \`.bh/cache/\`.
-- Folders that ignore all of \`.bh/\` do not share the upstream lists of non-Markdown nodes through git.
+- Files and folders whose names look like numbers, such as 09, keep their place on the canvas.
+- When BaseHalf can't read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.
+- If BaseHalf can't finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.
+
+## Your Files
+
+- BaseHalf removes files that earlier versions kept for itself and no longer uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md, and remembers where you left each canvas on this computer.
+- If you keep your notes in git: the removed files show up as deletions, BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.
 
 ## Current Product Shape
 

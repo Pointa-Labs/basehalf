@@ -10,6 +10,7 @@ import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { IConfirmation, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { TestInstantiationService } from '../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILogService, NullLogService } from '../../../../platform/log/common/log.js';
@@ -74,6 +75,9 @@ suite('BaseHalfUpstreamActions', () => {
 	let picks: string[][];
 	let pickPath: string | undefined;
 	let relinks: { from: string; to: string; undo: string[] }[];
+	let rebuilds: string[];
+	let confirmations: { message: string | undefined; detail: string | undefined; primaryButton: string | undefined }[];
+	let confirmRebuild: boolean;
 	let actions: BaseHalfUpstreamActions;
 
 	setup(() => {
@@ -82,6 +86,9 @@ suite('BaseHalfUpstreamActions', () => {
 		picks = [];
 		pickPath = undefined;
 		relinks = [];
+		rebuilds = [];
+		confirmations = [];
+		confirmRebuild = true;
 		const instantiationService = disposables.add(new TestInstantiationService());
 		const result: IBaseHalfReferenceEditResult = { stores: [], changed: true };
 		instantiationService.stub(IBaseHalfReferenceEditService, {
@@ -89,9 +96,19 @@ suite('BaseHalfUpstreamActions', () => {
 				adds.push({ node: target.relativePath, entry: value });
 				return result;
 			},
+			rebuild: async (target: IBaseHalfWorkspaceResource, _options: IBaseHalfReferenceEditOptions) => {
+				rebuilds.push(target.relativePath);
+				return result;
+			},
 			pushUndoElement: (_result: IBaseHalfReferenceEditResult, options: Omit<IBaseHalfReferenceUndoElementOptions, 'stores'>) => {
 				undoElements.push(options);
 				return undefined;
+			}
+		});
+		instantiationService.stub(IDialogService, {
+			confirm: async (confirmation: IConfirmation) => {
+				confirmations.push({ message: confirmation.message, detail: confirmation.detail, primaryButton: confirmation.primaryButton });
+				return { confirmed: confirmRebuild };
 			}
 		});
 		instantiationService.stub(IBaseHalfReferenceIndexService, {
@@ -179,11 +196,11 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual(describe(container), [
 			{
 				title: 'Upstream',
-				text: ['Context that flows into this card. Saved in this file\'s `upstream` list, so agents reading it see it too.'],
+				text: ['Context that flows into this card. Saved inside this file, so agents reading it see it too.'],
 				rows: [
 					{ status: 'valid', label: 'overview.md', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
-					{ status: 'dangling', label: 'gone.md', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove', 'Open File'] },
-					{ status: 'invalid', label: '../overview.md', role: undefined, remove: undefined, actions: ['Use a/overview.md', 'Remove', 'Open File'] }
+					{ status: 'dangling', label: 'gone.md', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] },
+					{ status: 'invalid', label: '../overview.md', role: undefined, remove: undefined, actions: ['Use a/overview.md', 'Remove'] }
 				],
 				add: '+ Add Upstream'
 			},
@@ -202,7 +219,7 @@ suite('BaseHalfUpstreamActions', () => {
 			{
 				title: 'Upstream',
 				text: [
-					'Context that flows into this card. Saved in BaseHalf metadata for this folder.',
+					'Context that flows into this card. BaseHalf keeps this list for this folder.',
 					'Nothing flows into this card yet. Add upstream, or drag a connection into it on the canvas.'
 				],
 				rows: [],
@@ -243,6 +260,50 @@ suite('BaseHalfUpstreamActions', () => {
 			{ node: node('outputs/run/copy.md'), storeKind: 'markdown', entryIndex: 0 }
 		])) as { rows: { label: string; remove: unknown }[] }[])[1].rows.map(row => [row.label, !!row.remove]);
 		assert.deepStrictEqual(downstreamRows, [['summary.md', true], ['copy.md', false]]);
+	});
+
+	test('offers Rebuild List exactly on a list BaseHalf can rebuild, and rebuilds only after the user confirms', async () => {
+		const issueRows = (target: IBaseHalfUpstreamActionNode, extra: Partial<IBaseHalfUpstreamView>) => (describe(render(target, view(target, [], { readable: false, writable: false, storeIssue: true, issueCount: 1, ...extra }))) as { rows: { status: string; actions: string[] }[]; add: string | undefined }[])[0]
+			.rows.map(row => [row.status, row.actions]);
+		assert.deepStrictEqual({
+			mergedNote: issueRows(node('merged.md'), { problem: 'duplicateKey' }),
+			foreignNote: issueRows(node('feed.md'), { problem: 'foreignValue' }),
+			sidecar: issueRows(node('sources/book.pdf'), { storeKind: 'sidecar', problem: 'mappingValue' }),
+			// Not BaseHalf's to edit, a node document, a file the disk refuses,
+			// and a node that can't be downstream: the reason, and no action.
+			toml: issueRows(node('toml.md'), { problem: 'tomlFrontmatter' }),
+			nodeDocument: issueRows(node('clip.bhnode'), { storeKind: 'node', problem: 'invalidDocument' }),
+			readError: issueRows(node('sources/locked.pdf'), { storeKind: 'sidecar', readError: 'permission denied' }),
+			output: issueRows(node('outputs/run/frame.png'), { storeKind: 'sidecar', problem: 'mappingValue', upstreamOnly: 'reservedOutput' })
+		}, {
+			mergedNote: [['store', ['Rebuild List']]],
+			foreignNote: [['store', ['Rebuild List']]],
+			sidecar: [['store', ['Rebuild List']]],
+			toml: [['store', []]],
+			nodeDocument: [['store', []]],
+			readError: [['store', []]],
+			output: [['store', []]]
+		});
+
+		let refreshed = 0;
+		const context = { onDidChange: () => refreshed++ };
+		confirmRebuild = false;
+		const cancelled = await actions.rebuildList(node('merged.md'), context);
+		confirmRebuild = true;
+		const rebuilt = await actions.rebuildList(node('merged.md'), context);
+		assert.deepStrictEqual({ cancelled, rebuilt, rebuilds, refreshed, confirmations, undo: undoElements.length }, {
+			cancelled: false,
+			rebuilt: true,
+			rebuilds: ['merged.md'],
+			refreshed: 1,
+			confirmations: new Array(2).fill({
+				message: 'Rebuild the upstream list of merged.md?',
+				detail: 'BaseHalf will write the list again in a form it can use. It keeps the connections it can read. Anything else in the list is removed.',
+				primaryButton: 'Rebuild List'
+			}),
+			// The note's own undo stack owns the change.
+			undo: 0
+		});
 	});
 
 	test('Add Upstream picks any node of the workspace folder and writes the downstream note', async () => {

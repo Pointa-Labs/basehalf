@@ -22,17 +22,19 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../platform/
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoGroup } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { SaveReason } from '../../common/editor.js';
-import { IEditorService } from '../../services/editor/common/editorService.js';
 import { AutoSaveMode, IFilesConfigurationService } from '../../services/filesConfiguration/common/filesConfigurationService.js';
 import { ITextFileEditorModel, ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../services/textfile/common/textfiles.js';
-import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
-import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
+import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { baseHalfUpstreamStoreCanRebuild } from '../common/basehalfCanvasUpstream.js';
 import { IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../common/basehalfMarkdownProjection.js';
 import { baseHalfMarkdownRichDocumentKey } from '../common/basehalfMarkdownRichLiveDocument.js';
 import { baseHalfCommitMirrorFile } from '../common/basehalfMirrorFileCommit.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
+import { baseHalfPreserveMirrorBytes } from '../common/basehalfMirrorRecovery.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, BaseHalfMirrorSymbolicLinkError } from '../common/basehalfMirrorTree.js';
+import { baseHalfPlainFailureReason, baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import {
 	addBaseHalfNodeUpstreamEntry,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
@@ -85,6 +87,7 @@ import {
 	BaseHalfUpstreamPlanRefusal,
 	BaseHalfUpstreamStoreKind,
 	BaseHalfUpstreamTextPlan,
+	baseHalfReadableSidecarUpstreamEntries,
 	baseHalfUpstreamSidecarResource,
 	baseHalfUpstreamStoreKind,
 	IBaseHalfUpstreamStoreRead,
@@ -107,7 +110,9 @@ type InternalOperation =
 	| BaseHalfReferenceEditOperation
 	/** Move into File: remove the misplaced `upstream.yaml` when it still has
 	 * the bytes `expected`, the bytes the appended entries were read from. */
-	| { readonly kind: 'deleteSidecar'; readonly expected: VSBuffer };
+	/** `preserve`: the file holds content the move leaves behind, so its bytes
+	 * are kept as a recovery copy before it is removed. */
+	| { readonly kind: 'deleteSidecar'; readonly expected: VSBuffer; readonly preserve?: boolean };
 
 interface IInternalEdit {
 	readonly node: IBaseHalfWorkspaceResource;
@@ -187,8 +192,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		@INotificationService private readonly notificationService: INotificationService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
-		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
-		@IEditorService private readonly editorService: IEditorService,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ILogService private readonly logService: ILogService
 	) {
@@ -240,7 +243,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			} catch (error) {
 				blocking.push(error instanceof StoreRefusal
 					? { node: target.node, storeResource: target.storeResource, reason: error.reason, message: error.message }
-					: { node: target.node, storeResource: target.storeResource, reason: 'error', message: error instanceof Error ? error.message : String(error) });
+					: { node: target.node, storeResource: target.storeResource, reason: 'error', message: baseHalfUserFacingErrorMessage(error) });
 			}
 		}
 		return blocking;
@@ -253,27 +256,31 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (bytes === null) {
 			return { stores: [], changed: false };
 		}
-		const read = readBaseHalfSidecarUpstream(utf8Decoder.decode(bytes.buffer), { nodePath: node.relativePath, identity });
-		if (!read.readable) {
-			throw this.refusal([{ node, storeResource: sidecar, reason: 'unreadable', message: this.message('unreadable', sidecar) }], sidecar);
-		}
-		// Removing the file must not lose an entry: a repeated entry is moved
-		// once, and any other invalid entry has to be fixed first.
-		if (read.items.some(item => item.path === undefined && item.problem !== 'duplicate')) {
-			throw this.refusal([{
-				node,
-				storeResource: sidecar,
-				reason: 'invalidEntry',
-				message: localize('basehalf.references.moveIntoFileInvalid', "Some entries in the BaseHalf metadata of {0} can't be moved into the file. Fix or remove them first.", basename(node.resource))
-			}], sidecar);
-		}
-		const entries = read.items.flatMap(item => item.path === undefined ? [] : [item.path]);
+		const text = utf8Decoder.decode(bytes.buffer);
+		const readOptions = { nodePath: node.relativePath, identity };
+		const read = readBaseHalfSidecarUpstream(text, readOptions);
+		// Every entry BaseHalf can read moves, a repeated one once. Anything
+		// else in the file (an invalid entry, or content that could not be read)
+		// has nowhere to go, so the file is kept as a recovery copy before it is
+		// removed.
+		const entries = read.readable
+			? read.items.flatMap(item => item.path === undefined ? [] : [item.path])
+			: baseHalfReadableSidecarUpstreamEntries(text, readOptions);
+		const leavesContent = !read.readable || read.items.some(item => item.path === undefined && item.problem !== 'duplicate');
 		// The entries and the removal come from this one read: the removal is
 		// refused if the file no longer has these bytes.
-		return this.run([
+		const result = await this.run([
 			{ node, operation: { kind: 'append', entries } },
-			{ node, operation: { kind: 'deleteSidecar', expected: bytes } }
+			{ node, operation: { kind: 'deleteSidecar', expected: bytes, ...(leavesContent ? { preserve: true } : {}) } }
 		], options);
+		if (leavesContent) {
+			this.notificationService.info(localize('basehalf.references.moveIntoFilePartial', "BaseHalf moved the upstream entries it could read into {0}. The rest could not be used and was removed.", basename(node.resource)));
+		}
+		return result;
+	}
+
+	rebuild(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
+		return this.run([{ node, operation: { kind: 'rebuild' } }], options);
 	}
 
 	async readSnapshot(node: IBaseHalfWorkspaceResource): Promise<IBaseHalfUpstreamStoreSnapshot | undefined> {
@@ -461,7 +468,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				}
 			}
 			if (blocking.length > 0) {
-				throw this.refusal(blocking, blocking[0].storeResource);
+				throw this.refusal(blocking);
 			}
 			return await this.write(prepared, options, leases);
 		} finally {
@@ -536,7 +543,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			}
 			const resource = URI.joinPath(target.node.workspaceFolder, ...replacement.from.split('/'));
 			if (await this.fileService.exists(resource).catch(() => false)) {
-				throw new StoreRefusal('entryResolves', this.message('entryResolves', target.storeResource));
+				throw new StoreRefusal('entryResolves', this.message('entryResolves', target.node.resource));
 			}
 		}
 	}
@@ -697,7 +704,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		}
 		const plan = chainPlans(text, listOperations, (current, operation) => planBaseHalfMarkdownUpstreamEdit(current ?? '', operation, options));
 		if (plan.kind === 'refused') {
-			throw this.planRefusal(plan.reason, store.storeResource);
+			throw this.planRefusal(plan.reason, store.storeResource, 'markdown');
 		}
 		const planned = plan.kind === 'edit' ? plan.text : text;
 		return {
@@ -731,6 +738,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				return [{ kind: 'set', items: operation.to.items }];
 			case 'append':
 				return operation.entries.map(entry => ({ kind: 'add', entry: baseHalfNormalizeUpstreamEntry(entry) }));
+			case 'rebuild':
+				return [{ kind: 'rebuild' }];
 			case 'nodeDocument':
 			case 'deleteSidecar':
 				return [];
@@ -747,7 +756,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		try {
 			document = parseBaseHalfNodeDocumentBytes(bytes.buffer);
 		} catch (error) {
-			throw new StoreRefusal('unreadable', localize('basehalf.references.nodeUnreadable', "{0} can't be read: {1}", basename(resource), error instanceof Error ? error.message : String(error)));
+			this.logService.warn(`[BaseHalf] ${target.node.relativePath} can't be read`, error);
+			throw new StoreRefusal('unreadable', localize('basehalf.references.nodeUnreadable', "{0} can't be read.", basename(resource)));
 		}
 		// Every write is refused while a run lease is active.
 		const lease = await this.runLeases.inspect(target.node.workspaceFolder, document.id).catch(() => undefined);
@@ -755,6 +765,11 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			throw new StoreRefusal('running', this.message('running', resource));
 		}
 		const operation = target.edit.operation;
+		if (operation.kind === 'rebuild') {
+			// A node document is one JSON value BaseHalf writes whole: there is
+			// no list inside it to write again.
+			throw new StoreRefusal('notWritable', localize('basehalf.references.rebuildUnavailable', "The upstream list of {0} can't be rebuilt.", basename(resource)));
+		}
 		// A Composer or node-surface save, and its undo, compare and restore the
 		// whole document, not only the list and bindings.
 		const withDocument = operation.kind === 'nodeDocument'
@@ -782,7 +797,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 								: 'binding';
 				throw new StoreRefusal(reason, reason === 'binding' ? error.message : this.message(reason, resource));
 			}
-			throw new StoreRefusal('notWritable', error instanceof Error ? error.message : String(error));
+			this.logService.warn(`[BaseHalf] the upstream change to ${target.node.relativePath} was not planned`, error);
+			throw new StoreRefusal('notWritable', localize('basehalf.references.nodeNotWritable', "This change can't be saved to {0}.", basename(resource)));
 		}
 		const nextBytes = next === document ? undefined : VSBuffer.fromString(serializeBaseHalfNodeDocument(next));
 		const changed = nextBytes !== undefined && !nextBytes.equals(bytes);
@@ -859,6 +875,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'nodeDocument':
 				return nextNodeDocumentSave(document, operation.next, identity);
 			case 'deleteSidecar':
+			case 'rebuild':
 				return document;
 		}
 	}
@@ -869,20 +886,29 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		try {
 			bytes = await this.readOptional(resource, SIDECAR_MAX_BYTES, target.node.workspaceFolder);
 		} catch (error) {
-			throw new StoreRefusal('unreadable', localize('basehalf.references.sidecarUnreadable', "{0} can't be read: {1}", this.label(resource), error instanceof Error ? error.message : String(error)));
+			if (error instanceof BaseHalfMirrorSymbolicLinkError) {
+				this.logService.warn(`[BaseHalf] the upstream list of ${target.node.relativePath} is behind a symbolic link`, error);
+				throw new StoreRefusal('symbolicLink', localize('basehalf.references.sidecarSymbolicLink', "BaseHalf keeps the upstream list of {0} behind a symbolic link. BaseHalf doesn't change files through links.", this.label(target.node.resource)));
+			}
+			this.logService.warn(`[BaseHalf] the upstream list of ${target.node.relativePath} could not be read`, error);
+			throw new StoreRefusal('unreadable', localize('basehalf.references.sidecarUnreadable', "The upstream list of {0} could not be read: {1}", this.label(target.node.resource), baseHalfPlainFailureReason(error)));
 		}
 		const text = bytes === null ? undefined : utf8Decoder.decode(bytes.buffer);
 		const options = { nodePath: target.node.relativePath, identity: target.identity };
 		const read = readBaseHalfSidecarUpstream(text, options);
-		const expected = readSnapshot(read);
 		const operation = target.edit.operation;
+		// Move into File takes the entries it can read out of a file that
+		// cannot be read as a whole: undo puts those entries back.
+		const expected = operation.kind === 'deleteSidecar' && text !== undefined && !read.readable
+			? { items: baseHalfReadableSidecarUpstreamEntries(text, options).map(entry => ({ text: entry, scalar: true })) }
+			: readSnapshot(read);
 		let transition: TransitionState | undefined;
 		let plan: BaseHalfUpstreamTextPlan;
 		if (operation.kind === 'deleteSidecar') {
 			// Move into File appends the entries read from `operation.expected`:
 			// the file is removed only while it still has exactly those bytes.
 			if (bytes !== null && !bytes.equals(operation.expected)) {
-				throw new StoreRefusal('changedSinceEdit', this.message('changedSinceEdit', resource));
+				throw new StoreRefusal('changedSinceEdit', localize('basehalf.references.sidecarChangedSinceEdit', "The upstream list of {0} changed since this edit.", this.label(target.node.resource)));
 			}
 			plan = bytes === null ? { kind: 'noop' } : { kind: 'delete' };
 		} else if (operation.kind === 'nodeDocument') {
@@ -898,7 +924,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			plan = chainPlans(text, listOperations, (current, next) => planBaseHalfSidecarUpstreamEdit(current, next, options));
 		}
 		if (plan.kind === 'refused') {
-			throw this.planRefusal(plan.reason, resource);
+			throw this.planRefusal(plan.reason, target.node.resource, 'sidecar');
 		}
 		const changed = plan.kind === 'edit' || plan.kind === 'delete';
 		if (changed && await baseHalfIsWorkspaceFolderMarked(this.fileService, target.node.workspaceFolder)) {
@@ -918,7 +944,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		};
 	}
 
-	private planRefusal(reason: BaseHalfUpstreamPlanRefusal, resource: URI): StoreRefusal {
+	/** The refusal for a list a planner would not edit. `resource` is the node the message names. */
+	private planRefusal(reason: BaseHalfUpstreamPlanRefusal, resource: URI, storeKind: 'markdown' | 'sidecar'): StoreRefusal {
 		switch (reason) {
 			case 'entryMissing':
 				return new StoreRefusal('entryMissing', this.message('entryMissing', resource));
@@ -931,9 +958,14 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'anchorAliasTag':
 			case 'blockScalar':
 			case 'invalidDocument':
-				return new StoreRefusal('unreadable', this.message('unreadable', resource));
+				// The message names Rebuild List only where the badge offers it.
+				return new StoreRefusal('unreadable', baseHalfUpstreamStoreCanRebuild(storeKind, reason)
+					? this.message('unreadable', resource)
+					: localize('basehalf.references.unreadableNoRepair', "BaseHalf can't read the upstream list of {0}.", this.label(resource)));
 			default:
-				return new StoreRefusal('notWritable', this.message('notWritable', resource));
+				return new StoreRefusal('notWritable', baseHalfUpstreamStoreCanRebuild(storeKind, reason)
+					? this.message('unreadable', resource)
+					: this.message('notWritable', resource));
 		}
 	}
 
@@ -997,6 +1029,20 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		}
 	}
 
+	/** Rebuild List, and a Move into File that leaves content behind, replace
+	 * or remove a sidecar holding something BaseHalf could not use: its bytes
+	 * are kept as a recovery copy first. If the copy cannot be saved, the write
+	 * fails and the sidecar is left unchanged. */
+	private async preserveReplacedSidecar(store: IPreparedStore): Promise<void> {
+		const operation = store.edit.operation;
+		const preserves = operation.kind === 'rebuild' || (operation.kind === 'deleteSidecar' && !!operation.preserve);
+		if (!preserves || !store.expectedBytes) {
+			return;
+		}
+		const recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, store.node.workspaceFolder, store.storeResource, store.expectedBytes);
+		this.logService.warn(`[BaseHalf] replaced the upstream.yaml of ${store.node.relativePath}, which held content BaseHalf could not use; its bytes are kept at ${recoveryCopy.toString()}`);
+	}
+
 	/** Node documents (node-document writer) and sidecars (expected-bytes compare and swap). */
 	private async writeFileStore(store: IPreparedStore, retried = false): Promise<void> {
 		try {
@@ -1004,10 +1050,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				await this.fileService.writeFileWithExpectedContents(store.storeResource, store.nextBytes as VSBuffer, store.expectedBytes ?? null, { atomic: { postfix: NODE_WRITE_TEMP_POSTFIX } });
 				this.referenceIndexService.acceptSavedContent(store.node, 'node', (store.nextBytes as VSBuffer).toString());
 			} else if (store.nextBytes === 'delete') {
+				await this.preserveReplacedSidecar(store);
 				await this.deleteSidecar(store);
 				this.referenceIndexService.acceptSavedContent(store.node, 'sidecar', undefined);
 			} else {
 				const workspaceFolder = store.node.workspaceFolder;
+				await this.preserveReplacedSidecar(store);
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, store.storeResource);
 				await this.fileService.createFolder(dirname(store.storeResource));
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, store.storeResource);
@@ -1080,7 +1128,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			}
 		}
 		// Every edited document is saved, even after one save fails: a failed
-		// document keeps its notice (Retry, Revert Change, Open File) and the
+		// document keeps its notice (Retry, Revert Change) and the
 		// operation then reports exactly which documents changed.
 		let failure: unknown;
 		for (const store of stores) {
@@ -1123,9 +1171,10 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				await this.adhdMirrorService.persistBodyLineBase(store.node, before, lease);
 			} catch (error) {
 				// Reading aids never block the upstream change the user asked for.
-				// A corrupt file has no ranges to keep aligned; any other failure
-				// (a linked mirror path, an I/O error) leaves the file as it was.
-				this.logService.warn(`[BaseHalf] could not convert the ADHD reading aids of ${store.node.relativePath} to body lines: ${error instanceof BaseHalfAdhdMirrorCorrupt ? error.reason : error instanceof Error ? error.message : String(error)}`);
+				// A file that cannot be read has no ranges to keep aligned and
+				// does not get here; a failure of the file system (a linked
+				// mirror path, an I/O error) leaves the file as it was.
+				this.logService.warn(`[BaseHalf] could not convert the ADHD reading aids of ${store.node.relativePath} to body lines: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 	}
@@ -1183,7 +1232,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				this.accepted(store);
 				return;
 			}
-			failure = new Error(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.storeResource)));
+			failure = new Error(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)));
 		} catch (error) {
 			failure = error;
 		}
@@ -1202,7 +1251,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		store.outcome = 'failed';
 		store.error = failure instanceof Error ? failure.message : String(failure);
 		this.showNotSaved(store, options, producedVersion);
-		throw new BaseHalfReferenceEditFailure(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.storeResource)), toResult([store]));
+		throw new BaseHalfReferenceEditFailure(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)), toResult([store]));
 	}
 
 	private accepted(store: IPreparedStore): void {
@@ -1264,13 +1313,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 						text: edit.text
 					}, textModel.getVersionId())], { label: options.label, code: 'basehalf.references.revert', respectAutoSaveConfig: false });
 				}
-			},
-			{
-				label: localize('basehalf.references.openFile', "Open File"),
-				run: () => this.openSource(store.storeResource)
 			}
 		];
-		this.notificationService.prompt(Severity.Error, localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.storeResource)), choices, { sticky: true });
+		this.notificationService.prompt(Severity.Error, localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)), choices, { sticky: true });
 	}
 
 	private showFirstFrontmatterNotice(node: IBaseHalfWorkspaceResource): void {
@@ -1280,17 +1325,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		this.storageService.store(BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		this.notificationService.prompt(Severity.Info, localize(
 			'basehalf.references.firstFrontmatter',
-			"Saved this connection at the top of {0} as `upstream`. Agents and other tools read it there.",
+			"Saved this connection inside {0}. Agents and other tools that read the note see it there.",
 			basename(node.resource)
 		), [
-			{ label: localize('basehalf.references.showInFile', "Show in File"), run: () => this.openSource(node.resource) },
 			{ label: localize('basehalf.references.ok', "OK"), run: () => { } }
 		]);
 	}
 
 	private reportFailure(result: IBaseHalfReferenceEditResult, error: unknown): void {
-		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.label(store.storeResource));
-		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.label(store.storeResource));
+		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.label(store.node.resource));
+		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.label(store.node.resource));
 		this.logService.error(`[BaseHalf] upstream operation failed. Changed: ${changed.join(', ') || '(none)'}. Not changed: ${unchanged.join(', ') || '(none)'}.`, error);
 		if (result.stores.length > 1) {
 			this.notificationService.notify({
@@ -1305,29 +1349,17 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		} else if (!(error instanceof BaseHalfReferenceEditFailure) && result.stores[0]?.storeKind !== 'markdown') {
 			this.notificationService.notify({
 				severity: Severity.Error,
-				message: localize('basehalf.references.writeFailed', "The upstream change to {0} is not saved: {1}", unchanged[0] ?? '', error instanceof Error ? error.message : String(error))
+				message: localize('basehalf.references.writeFailed', "The upstream change to {0} is not saved: {1}", unchanged[0] ?? '', baseHalfPlainFailureReason(error))
 			});
 		}
-	}
-
-	private async openSource(resource: URI): Promise<void> {
-		try {
-			const result = await this.canvasNavigationService.openCardDetail(resource, { source: 'api', projection: 'source', history: 'push' });
-			if (result.handled) {
-				return;
-			}
-		} catch (error) {
-			this.logService.warn('[BaseHalf] could not open the Source projection', error);
-		}
-		await this.editorService.openEditor({ resource, options: { pinned: true } });
 	}
 
 	//#endregion
 
 	//#region Helpers
 
-	private refusal(blocking: readonly IBaseHalfReferenceBlockingStore[], openResource?: URI): BaseHalfReferenceEditRefusal {
-		return new BaseHalfReferenceEditRefusal(blocking[0].reason, blocking.map(store => store.message).join('\n'), blocking, openResource);
+	private refusal(blocking: readonly IBaseHalfReferenceBlockingStore[]): BaseHalfReferenceEditRefusal {
+		return new BaseHalfReferenceEditRefusal(blocking[0].reason, blocking.map(store => store.message).join('\n'), blocking);
 	}
 
 	private message(reason: BaseHalfReferenceRefusalReason, resource: URI): string {
@@ -1339,12 +1371,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'conflict': return localize('basehalf.references.conflict', "{0} has a save conflict. Resolve it first.", file);
 			case 'error': return localize('basehalf.references.modelError', "{0} could not be saved earlier. Resolve the error first.", file);
 			case 'binary': return localize('basehalf.references.binary', "{0} is not a text file.", file);
-			case 'frontmatterTooLarge': return localize('basehalf.references.frontmatterTooLarge', "The frontmatter of {0} is too large for BaseHalf to edit.", file);
+			case 'frontmatterTooLarge': return localize('basehalf.references.frontmatterTooLarge', "BaseHalf can't save connections into {0}: the top of the file is too large to change.", file);
 			case 'flushFailed': return localize('basehalf.references.flushFailed', "Finish or resolve the unsaved edit in {0} first.", file);
 			case 'unsaved': return localize('basehalf.references.unsaved', "Save or revert {0} first.", file);
-			case 'unreadable': return localize('basehalf.references.unreadable', "The upstream list of {0} can't be read. Fix it in the file first.", file);
-			case 'notWritable': return localize('basehalf.references.notWritable', "BaseHalf can't add an upstream list to {0} because its leading block isn't frontmatter BaseHalf can edit.", file);
-			case 'foreign': return localize('basehalf.references.foreign', "`upstream` in {0} is used by another tool.", file);
+			case 'unreadable': return localize('basehalf.references.unreadable', "BaseHalf can't read the upstream list of {0}. Use Rebuild List in its badge first.", file);
+			case 'notWritable': return localize('basehalf.references.notWritable', "BaseHalf can't save connections into {0} because of how the file begins.", file);
+			case 'foreign': return localize('basehalf.references.foreign', "Another tool keeps something else where the upstream list of {0} goes. To connect anyway, use Rebuild List in its badge.", file);
 			case 'upstreamOnly': return localize('basehalf.references.upstreamOnly', "{0} can't receive upstream context.", file);
 			case 'symbolicLink': return localize('basehalf.references.symbolicLink', "{0} is a symbolic link or inside one. BaseHalf doesn't change files through links.", file);
 			case 'indexLoading': return localize('basehalf.references.indexLoading', "Still loading connections. Try again in a moment.");
@@ -1353,7 +1385,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'boundOutsideDraft': return localize('basehalf.references.boundOutsideDraft', "This input is part of a result. Copy the settings into a new Draft to change it.");
 			case 'recipeFrozen': return localize('basehalf.references.recipeFrozen', "{0} already has an attempt or sealed Result. Copy its settings to a new Draft before changing recipe inputs.", file);
 			case 'binding': return localize('basehalf.references.binding', "This input can't be assigned in {0}.", file);
-			case 'markedFolder': return localize('basehalf.references.markedFolder', "{0} is in a folder where BaseHalf doesn't write metadata.", file);
+			case 'markedFolder': return localize('basehalf.references.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", file);
 			case 'missingNode': return localize('basehalf.references.missingNode', "{0} no longer exists.", file);
 			case 'invalidEntry': return localize('basehalf.references.invalidEntryGeneric', "This path can't be listed as upstream of {0}.", file);
 			case 'entryMissing': return localize('basehalf.references.entryMissing', "{0} changed; the entry is no longer listed.", file);

@@ -124,10 +124,10 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	} as Partial<IBaseHalfCanvasNavigationService> as IBaseHalfCanvasNavigationService);
 	const index = disposables.add(instantiationService.createInstance(BaseHalfReferenceIndexService));
 	instantiationService.stub(IBaseHalfReferenceIndexService, index);
-	instantiationService.stub(IBaseHalfAdhdMirrorService, instantiationService.createInstance(BaseHalfAdhdMirrorService));
+	instantiationService.stub(IBaseHalfAdhdMirrorService, disposables.add(instantiationService.createInstance(BaseHalfAdhdMirrorService)));
 	instantiationService.stub(IBaseHalfReferenceEditService, disposables.add(instantiationService.createInstance(BaseHalfReferenceEditService)));
-	instantiationService.stub(IBaseHalfBadgeMirrorService, new BaseHalfBadgeMirrorService(fileService));
-	instantiationService.stub(IBaseHalfCanvasMirrorService, instantiationService.createInstance(BaseHalfCanvasMirrorService));
+	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
+	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	instantiationService.stub(IBaseHalfNodeExecutionService, { acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
@@ -669,7 +669,7 @@ suite('BaseHalfReferenceMigrationController', () => {
 			contextService,
 			migration,
 			gate,
-			new BaseHalfBadgeMirrorService({} as IFileService),
+			disposables.add(new BaseHalfBadgeMirrorService({} as IFileService)),
 			notifications,
 			{ withProgress: (_options: unknown, task: (progress: { report(): void }) => Promise<unknown>) => task({ report: () => { } }) } as Partial<IProgressService> as IProgressService,
 			{ pick: async () => undefined } as Partial<IQuickInputService> as IQuickInputService,
@@ -706,7 +706,7 @@ suite('BaseHalfReferenceMigrationController', () => {
 			settled
 		}, {
 			prompts: [[
-				'Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move 2 connections? BaseHalf will add an `upstream` list to the frontmatter of 1 notes and update 1 items in .bh/.',
+				'Connections from an earlier BaseHalf version are hidden until they are moved into your files. Move 2 connections? BaseHalf will save them inside 1 notes and in the lists it keeps for 1 other items.',
 				['Move Connections', 'Preview', 'Later']
 			]],
 			settled: false
