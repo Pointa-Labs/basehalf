@@ -794,7 +794,7 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			'.bh/mirror/notes.txt/upstream.yaml': 'upstream:\n  - x.md\n'
 		});
 		await harness.move('notes.txt', 'notes.md');
-		const prompt = await harness.prompt('now keeps its upstream list in the file');
+		const prompt = await harness.prompt('can now hold its upstream list itself');
 		await prompt.choose('Update');
 		await harness.prompt('notes.md now keeps its upstream list in the file.');
 		const moved = await harness.tree();
@@ -806,7 +806,7 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			moved: [moved['notes.md'], moved['.bh/mirror/notes.md/upstream.yaml'] ?? null],
 			undone: [undone['notes.md'], undone['.bh/mirror/notes.md/upstream.yaml'] ?? null]
 		}, {
-			prompt: 'notes.md now keeps its upstream list in the file. Move its 1 entry?',
+			prompt: 'notes.md can now hold its upstream list itself. Move its 1 entry into the file?',
 			moved: ['---\nupstream:\n  - x.md\n---\ntext\n', null],
 			undone: ['text\n', 'upstream:\n  - x.md\n']
 		});

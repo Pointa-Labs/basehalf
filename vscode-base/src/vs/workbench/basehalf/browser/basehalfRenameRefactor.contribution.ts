@@ -28,7 +28,7 @@ import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
-import { baseHalfUpstreamSidecarResource, baseHalfUpstreamStoreKind, readBaseHalfSidecarUpstream } from '../common/basehalfReferenceStore.js';
+import { BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES, baseHalfUpstreamSidecarResource, baseHalfUpstreamStoreKind, readBaseHalfMarkdownUpstream, readBaseHalfSidecarUpstream } from '../common/basehalfReferenceStore.js';
 import {
 	BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING,
 	baseHalfComposeRenamePlan,
@@ -456,7 +456,12 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				const text = utf8Decoder.decode((await this.fileService.readFile(sidecar, { limits: { size: SIDECAR_MAX_BYTES } })).value.buffer);
 				const read = readBaseHalfSidecarUpstream(text, { nodePath: path, identity: this.identity(folder) });
 				const entries = read.items.filter(item => item.path !== undefined).length;
-				if (entries > 0) {
+				// The list stays in use where it is. Moving it is offered only
+				// into a note that can hold it.
+				const noteText = stat.isFile && baseHalfUpstreamStoreKind(path, false) === 'markdown'
+					? utf8Decoder.decode((await this.fileService.readFile(node.resource, { length: BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES })).value.buffer)
+					: undefined;
+				if (entries > 0 && (noteText === undefined || readBaseHalfMarkdownUpstream(noteText).writable)) {
 					out.push({ node, entries });
 				}
 			} catch {
@@ -544,8 +549,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		for (const change of info.storeKindChanges) {
 			const name = change.node.relativePath.slice(change.node.relativePath.lastIndexOf('/') + 1);
 			parts.push(change.entries === 1
-				? localize('basehalf.renameRefactor.storeKind.one', "{0} now keeps its upstream list in the file. Move its 1 entry?", name)
-				: localize('basehalf.renameRefactor.storeKind', "{0} now keeps its upstream list in the file. Move its {1} entries?", name, change.entries));
+				? localize('basehalf.renameRefactor.storeKind.one', "{0} can now hold its upstream list itself. Move its 1 entry into the file?", name)
+				: localize('basehalf.renameRefactor.storeKind', "{0} can now hold its upstream list itself. Move its {1} entries into the file?", name, change.entries));
 		}
 		return parts.join(' ');
 	}

@@ -967,24 +967,47 @@ function readableUpstreamValues(text: string, lines: LineIndex, regionStart: num
 	if (syntax.readable) {
 		return syntax.upstream?.items.map(candidate => candidate.value) ?? [];
 	}
-	if (syntax.problem !== 'anchorAliasTag') {
+	if (syntax.problem !== 'anchorAliasTag' && syntax.problem !== 'blockScalar') {
 		return [];
 	}
-	const nodes = property.value.type === 'sequence' ? property.value.items : [property.value];
+	// One item made the list unreadable: the others still read. A value that
+	// is itself a block of text holds no list.
+	const value = property.value;
+	const nodes = value.type === 'sequence' ? value.items : syntax.problem === 'anchorAliasTag' ? [value] : [];
 	const values: IBaseHalfUpstreamItemValue[] = [];
 	for (const node of nodes) {
 		if (node.type !== 'scalar' || node.format === 'literal' || node.format === 'folded') {
 			continue;
 		}
-		let value = node.value;
-		while (node.format === 'none' && /^[&!]\S*\s+/.test(value)) {
-			value = value.replace(/^[&!]\S*\s+/, '');
+		if (node.format !== 'none') {
+			values.push({ text: node.value, scalar: true });
+			continue;
 		}
-		if (node.format !== 'none' || !startsWithNodeProperty(value)) {
-			values.push({ text: value, scalar: true });
+		// The parser reads an anchor or tag and what follows it as one plain
+		// scalar: the entry is what follows, which may be quoted.
+		const entry = node.value.replace(/^(?:[&!]\S*\s+)+/, '');
+		if (entry === '' || startsWithNodeProperty(entry) || /^(?:~|null|Null|NULL)$/.test(entry)) {
+			continue;
 		}
+		values.push({ text: entry === node.value ? entry : unquotedScalar(entry), scalar: true });
 	}
 	return values;
+}
+
+/** The value of a scalar that may be written in YAML quotes. */
+function unquotedScalar(text: string): string {
+	if (text.length >= 2 && text.startsWith('\'') && text.endsWith('\'')) {
+		return text.slice(1, -1).replace(/''/g, '\'');
+	}
+	if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+		try {
+			const value: unknown = JSON.parse(text);
+			return typeof value === 'string' ? value : text.slice(1, -1);
+		} catch {
+			return text.slice(1, -1);
+		}
+	}
+	return text;
 }
 
 /**
@@ -1077,6 +1100,11 @@ function locateUpstreamKeys(
 
 function rebuiltListLines(entries: readonly string[], eol: string): string {
 	return entries.length === 0 ? '' : ['upstream:', ...entries.map(entry => `  - ${baseHalfFormatUpstreamEntry(entry)}`)].map(line => line + eol).join('');
+}
+
+/** The plan that leaves a sidecar as a file with an empty list. */
+export function baseHalfEmptySidecarPlan(text: string): BaseHalfUpstreamTextPlan {
+	return editPlan(text, [{ start: 0, end: text.length, text: 'upstream: []\n' }]);
 }
 
 /** The text of a sidecar `upstream.yaml` that lists `entries`. */
@@ -1304,7 +1332,9 @@ export function readBaseHalfUpstreamRawState(relativePath: string, text: string 
 	}
 	if (storeKind === 'markdown') {
 		const read = readBaseHalfMarkdownUpstream(text);
-		return read.readable ? { readable: true, entries: read.items.map(item => item.text) } : { readable: false };
+		// The entries inside an unrecognized leading block are carried into
+		// the note's sidecar, so a change to them is a change to the list.
+		return read.readable ? { readable: true, entries: [...read.items.map(item => item.text), ...(read.blockEntries ?? [])] } : { readable: false };
 	}
 	const extract = extractBaseHalfNodeUpstreamLenient(text);
 	return extract.readable ? { readable: true, entries: baseHalfNodeUpstreamItemValues(extract.upstream).map(item => item.text) } : { readable: false };

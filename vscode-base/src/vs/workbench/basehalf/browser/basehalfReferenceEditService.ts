@@ -87,6 +87,7 @@ import {
 	BaseHalfUpstreamPlanRefusal,
 	BaseHalfUpstreamStoreKind,
 	BaseHalfUpstreamTextPlan,
+	baseHalfEmptySidecarPlan,
 	baseHalfMarkdownNoteUsesSidecar,
 	baseHalfReadableSidecarUpstreamEntries,
 	baseHalfUpstreamSidecarResource,
@@ -139,7 +140,17 @@ interface IStoreTarget {
 	 * read in the note's unrecognized leading block. The first write carries
 	 * them over, so they are not left behind. */
 	readonly seedEntries?: readonly string[];
+	/** The entries in the note's unrecognized leading block, whether or not
+	 * its sidecar exists. While there are any, an emptied sidecar is kept as
+	 * an empty file, so they are not carried over a second time. */
+	readonly blockEntries?: readonly string[];
+	/** The note's content decides between the note and its sidecar. `describe`
+	 * decides provisionally; `prepare` decides again under the lease. */
+	readonly contentDecides?: boolean;
 }
+
+/** The recovery copy a write depends on could not be saved: nothing changed. */
+class RecoveryCopyFailure extends Error { }
 
 type TransitionState = 'from' | 'to' | 'other';
 
@@ -440,19 +451,51 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 					? nodeKind
 					: undefined;
 		// Otherwise a note's content decides between the note and its sidecar.
-		const note = named === undefined && nodeKind === 'markdown' && stat ? await this.noteSidecar(node, identity) : undefined;
-		const storeKind = named ?? (note ? 'sidecar' : nodeKind);
+		const contentDecides = named === undefined && nodeKind === 'markdown' && !!stat;
+		const base = { edit, node, exists: !!stat, identity };
+		if (contentDecides) {
+			return this.noteTarget(base, await this.noteSidecar(node, identity));
+		}
+		const storeKind = named ?? nodeKind;
 		const storeResource = storeKind === 'sidecar' ? baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath) : node.resource;
+		return { ...base, storeKind, storeResource, ...(storeKind === 'sidecar' && nodeKind === 'markdown' ? { noteSidecar: true } : {}) };
+	}
+
+	/** The target of an operation on a note whose content decides its store. */
+	private noteTarget(base: Pick<IStoreTarget, 'edit' | 'node' | 'exists' | 'identity'>, note: { readonly seedEntries: readonly string[]; readonly blockEntries: readonly string[] } | undefined): IStoreTarget {
+		if (!note) {
+			return { ...base, storeKind: 'markdown', storeResource: base.node.resource, contentDecides: true };
+		}
 		return {
-			edit,
-			node,
-			exists: !!stat,
-			storeKind,
-			storeResource,
-			identity,
-			...(storeKind === 'sidecar' && nodeKind === 'markdown' ? { noteSidecar: true } : {}),
-			...(note?.seedEntries.length ? { seedEntries: note.seedEntries } : {})
+			...base,
+			storeKind: 'sidecar',
+			storeResource: baseHalfUpstreamSidecarResource(base.node.workspaceFolder, base.node.relativePath),
+			contentDecides: true,
+			noteSidecar: true,
+			...(note.seedEntries.length ? { seedEntries: note.seedEntries } : {}),
+			...(note.blockEntries.length ? { blockEntries: note.blockEntries } : {})
 		};
+	}
+
+	/**
+	 * `describe` decided a note's store before the workspace lease was taken
+	 * and before the note's open projections were flushed. The decision is
+	 * taken again here, on the text the write will see. As for a write into
+	 * the note, text the user chose not to save is no basis for a write.
+	 */
+	private async settleNoteStore(target: IStoreTarget, mode: 'write' | 'check'): Promise<IStoreTarget> {
+		if (!target.contentDecides || !target.exists) {
+			return target;
+		}
+		const resource = target.node.resource;
+		const model = this.textFileService.files.get(resource);
+		if (model?.isResolved() && model.isDirty() && this.filesConfigurationService.getAutoSaveMode(resource).mode === AutoSaveMode.OFF) {
+			throw new StoreRefusal('unsaved', this.message('unsaved', resource));
+		}
+		if (mode === 'write' && !await this.flush(target.node)) {
+			throw new StoreRefusal('flushFailed', this.message('flushFailed', resource));
+		}
+		return this.noteTarget(target, await this.noteSidecar(target.node, target.identity));
 	}
 
 	/**
@@ -461,7 +504,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	 * presence of the sidecar. Returns `undefined` when the note is its own
 	 * store.
 	 */
-	private async noteSidecar(node: IBaseHalfWorkspaceResource, identity: IBaseHalfUpstreamIdentity): Promise<{ readonly seedEntries: readonly string[] } | undefined> {
+	private async noteSidecar(node: IBaseHalfWorkspaceResource, identity: IBaseHalfUpstreamIdentity): Promise<{ readonly seedEntries: readonly string[]; readonly blockEntries: readonly string[] } | undefined> {
 		// The whole text, as the Markdown planner sees it: only that tells
 		// frontmatter that closes beyond the size window from none at all.
 		const model = this.textFileService.files.get(node.resource);
@@ -483,7 +526,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (!baseHalfMarkdownNoteUsesSidecar(own, sidecarExists)) {
 			return undefined;
 		}
-		return { seedEntries: sidecarExists ? [] : own.blockEntries ?? [] };
+		const blockEntries = own.blockEntries ?? [];
+		return { seedEntries: sidecarExists ? [] : blockEntries, blockEntries };
 	}
 
 	/**
@@ -548,7 +592,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	 * no text model is created: a loaded model's state is checked, otherwise
 	 * the saved text is planned.
 	 */
-	private async prepare(target: IStoreTarget, mode: 'write' | 'check' = 'write'): Promise<IPreparedStore> {
+	private async prepare(described: IStoreTarget, mode: 'write' | 'check' = 'write'): Promise<IPreparedStore> {
+		const target = await this.settleNoteStore(described, mode);
 		const operation = target.edit.operation;
 		for (const entry of entriesToWrite(operation)) {
 			if (baseHalfUpstreamEntryProblem(entry, target.node.relativePath, target.identity)) {
@@ -990,9 +1035,17 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			const seedText = seedPlan?.kind === 'edit' ? seedPlan.text : undefined;
 			plan = chainPlans(seedText ?? text, listOperations, (current, next) => planBaseHalfSidecarUpstreamEdit(current, next, options));
 			if (seedPlan && seedText !== undefined && plan.kind !== 'refused' && plan.kind !== 'edit') {
-				// Nothing else to write (Rebuild List, or an entry already carried
-				// over): the carried entries are the change.
-				plan = plan.kind === 'noop' ? seedPlan : { kind: 'noop' };
+				// Nothing else to write: for Rebuild List, or an add of an entry
+				// that was carried over, the carried entries are the change. A
+				// removal of something that is not listed creates no file.
+				plan = plan.kind === 'noop' && (operation.kind === 'rebuild' || addsEntries(operation)) ? seedPlan : { kind: 'noop' };
+			}
+			if (plan.kind === 'delete' && text !== undefined && target.blockEntries?.length && !this.undoesCarryOver(target, operation)) {
+				// The note still lists entries in its unrecognized block. An
+				// emptied list stays as an empty file: without it they would
+				// count as not carried over, and the next connect would bring
+				// back connections the user removed.
+				plan = baseHalfEmptySidecarPlan(text);
 			}
 		}
 		if (plan.kind === 'refused') {
@@ -1017,6 +1070,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	/** The refusal for a list a planner would not edit. `resource` is the node the message names. */
+	/** Whether an undo or redo takes a note's sidecar back to before its block
+	 * entries were carried over: the state it leaves holds all of them. */
+	private undoesCarryOver(target: IStoreTarget, operation: InternalOperation): boolean {
+		if (operation.kind !== 'transition') {
+			return false;
+		}
+		const listed = new Set(operation.from.items.map(item => target.identity.key(baseHalfNormalizeUpstreamEntry(item.text))));
+		return (target.blockEntries ?? []).every(entry => listed.has(target.identity.key(entry)));
+	}
+
 	private planRefusal(reason: BaseHalfUpstreamPlanRefusal, resource: URI, storeKind: 'markdown' | 'sidecar'): StoreRefusal {
 		switch (reason) {
 			case 'entryMissing':
@@ -1119,7 +1182,19 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			}
 			const replaced = replacedLeadingText(store.model.textEditorModel.getValue(), store.plannedText);
 			const mirrorName = URI.joinPath(dirname(baseHalfUpstreamSidecarResource(workspaceFolder, store.node.relativePath)), 'frontmatter.md');
-			const recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, workspaceFolder, mirrorName, VSBuffer.fromString(replaced));
+			let recoveryCopy: URI;
+			try {
+				recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, workspaceFolder, mirrorName, VSBuffer.fromString(replaced));
+			} catch (error) {
+				this.logService.error(`[BaseHalf] could not keep a copy of the text Rebuild List would replace in ${store.node.relativePath}`, error);
+				store.outcome = 'failed';
+				throw new RecoveryCopyFailure(localize(
+					'basehalf.references.recoveryCopyFailed',
+					"BaseHalf could not keep a copy of what Rebuild List would replace in {0}, so it changed nothing: {1}",
+					this.label(store.node.resource),
+					baseHalfPlainFailureReason(error)
+				));
+			}
 			this.logService.warn(`[BaseHalf] rebuilt the upstream list of ${store.node.relativePath}; the text it replaced is kept at ${recoveryCopy.toString()}`);
 		}
 	}
@@ -1213,6 +1288,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				this.replan(store);
 			}
 			const remaining = stores.filter(store => store.changed);
+			// The new plan may replace other text than the first one.
+			await this.preserveRebuiltNotes(remaining);
 			try {
 				await this.applyBulk(remaining, options.label);
 			} catch {
@@ -1341,6 +1418,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				store.outcome = 'unchanged';
 				return;
 			}
+			await this.preserveRebuiltNotes([store]);
 			await this.applyBulk([store], options.label);
 			return this.saveMarkdown(store, options, true);
 		}
@@ -1432,6 +1510,11 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.storeLabel(store));
 		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.storeLabel(store));
 		this.logService.error(`[BaseHalf] upstream operation failed. Changed: ${changed.join(', ') || '(none)'}. Not changed: ${unchanged.join(', ') || '(none)'}.`, error);
+		if (error instanceof RecoveryCopyFailure) {
+			// No save was attempted, so no notice of a failed save exists.
+			this.notificationService.notify({ severity: Severity.Error, message: error.message });
+			return;
+		}
 		if (result.stores.length > 1) {
 			this.notificationService.notify({
 				severity: Severity.Error,

@@ -964,9 +964,11 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 	 * note itself has been read, the sidecar keeps the state it was read with.
 	 */
 	private withNoteSidecarState(index: IFolderIndex, record: IStoreRecord): IStoreRecord {
-		if (record.storeKind !== 'sidecar' || record.sidecarState === 'missingNode' || !isBaseHalfUpstreamMarkdownName(record.node.relativePath)) {
+		if (record.storeKind !== 'sidecar' || !isBaseHalfUpstreamMarkdownName(record.node.relativePath)) {
 			return record;
 		}
+		// The note's own record means the note exists, also for a sidecar
+		// that was read while the note was away.
 		const own = index.records.get(record.nodeKey);
 		if (own?.storeKind !== 'markdown') {
 			return record;
@@ -1134,10 +1136,17 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		}
 		const reads: URI[] = [];
 		const subtrees: URI[] = [];
+		// The sidecars of notes that were added: deleting a note drops its
+		// sidecar's record, so a note that comes back reads its sidecar again.
+		const noteSidecars: URI[] = [];
 		for (const resource of [...batch.added, ...batch.updated]) {
 			const kind = this.classifyEvent(index, resource);
 			if (kind === 'store') {
 				reads.push(resource);
+				const relativePath = getRelativePath(index.folder, resource);
+				if (relativePath !== undefined && batch.added.includes(resource) && isBaseHalfUpstreamMarkdownName(relativePath) && this.sidecarNodePath(index, resource) === undefined) {
+					noteSidecars.push(baseHalfUpstreamSidecarResource(index.folder, relativePath));
+				}
 			} else if (kind === 'unknown' && batch.added.includes(resource)) {
 				subtrees.push(resource);
 			}
@@ -1159,6 +1168,19 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				continue;
 			}
 			if (this.applyRead(index, resource, result, false)) {
+				changed.push(result.kind === 'record' ? result.record.node.resource : resource);
+			}
+		}
+		for (const resource of noteSidecars) {
+			if (index.disposed || generation !== index.generation) {
+				return;
+			}
+			const result = await this.readStoreResource(index, resource);
+			if (index.disposed || generation !== index.generation) {
+				return;
+			}
+			// A note without a sidecar is the usual case and changes nothing.
+			if ((result.kind !== 'missing' || index.records.has(this.resourceKey(resource))) && this.applyRead(index, resource, result, false)) {
 				changed.push(result.kind === 'record' ? result.record.node.resource : resource);
 			}
 		}
@@ -1481,8 +1503,10 @@ function decodeUtf8(bytes: Uint8Array): string {
 	return utf8Decoder.decode(bytes);
 }
 
+/** A store that is not there: no file, or a folder whose name looks like a store's. */
 function isFileNotFound(error: unknown): boolean {
-	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
+	const result = error instanceof Error ? toFileOperationResult(error) : undefined;
+	return result === FileOperationResult.FILE_NOT_FOUND || result === FileOperationResult.FILE_IS_DIRECTORY;
 }
 
 /**

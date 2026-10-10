@@ -306,13 +306,17 @@ suite('BaseHalfReferenceStore', () => {
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('  - a.md\n', '  - b.md\n')),
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('---\nBody', '--\nBody')),
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('  - a.md', '  - *alias')),
+			// Entries planted inside a block BaseHalf does not recognize count:
+			// they would be carried into the note's sidecar.
+			baseHalfTransitionChangesUpstream('n.md', '# N\n', '---\nupstream:\n  - a.md\ntext [x\n---\n# N\n'),
+			baseHalfTransitionChangesUpstream('n.md', '# N\n', '---\nA quote.\n---\n# N\n'),
 			baseHalfTransitionChangesUpstream('n.md', note, undefined),
 			baseHalfTransitionChangesUpstream('n.md', undefined, '# new\n'),
 			baseHalfTransitionChangesUpstream('n.bhnode', node, node.replace('"x"', '"y"')),
 			baseHalfTransitionChangesUpstream('n.bhnode', node, node.replace('a.md', 'b.md')),
 			baseHalfTransitionChangesUpstream('n.bhnode', node, '{'),
 			baseHalfTransitionChangesUpstream('image.png', 'a', 'b')
-		], [false, false, true, true, true, true, false, false, true, true, false]);
+		], [false, false, true, true, true, true, false, true, false, false, true, true, false]);
 	});
 
 	test('Rebuild List writes a list BaseHalf could not use as one block list of the entries it can read', () => {
@@ -336,6 +340,9 @@ suite('BaseHalfReferenceStore', () => {
 			// Another key is repeated too: the list becomes one key that reads.
 			otherKeyRepeated: rebuild('---\ntitle: x\nupstream:\n  - a.md\ntitle: x\nupstream:\n  - b.md\n---\nBody\n'),
 			aliasOnly: rebuild('---\ntitle: x\nupstream:\n  - *src\n---\nBody\n'),
+			// Beside an item BaseHalf cannot read, the plain entries are kept;
+			// a quoted entry loses its quotes, and an empty one is no entry.
+			besideUnreadable: rebuild('---\ntitle: x\nupstream:\n  - &q "x y.md"\n  - ~\n  - !!str \'it\'\'s.md\'\n  - |\n    text\n  - b.md\n---\nBody\n'),
 			tagged: rebuild('---\ntitle: x\nupstream: !!str a.md\n---\nBody\n'),
 			healthy: rebuild('---\nupstream:\n  - a.md\n---\nBody\n'),
 			toml: rebuild('+++\nupstream = ["a.md"]\n+++\nBody\n'),
@@ -354,6 +361,7 @@ suite('BaseHalfReferenceStore', () => {
 			blankLineAfter: '---\nupstream: []\n\ntitle: x\n---\nBody\n',
 			otherKeyRepeated: '---\ntitle: x\nupstream:\n  - a.md\n  - b.md\ntitle: x\n---\nBody\n',
 			aliasOnly: '---\ntitle: x\n---\nBody\n',
+			besideUnreadable: '---\ntitle: x\nupstream:\n  - x y.md\n  - "it\'s.md"\n  - b.md\n---\nBody\n',
 			tagged: '---\ntitle: x\nupstream:\n  - a.md\n---\nBody\n',
 			healthy: 'noop',
 			toml: 'refused: tomlFrontmatter',

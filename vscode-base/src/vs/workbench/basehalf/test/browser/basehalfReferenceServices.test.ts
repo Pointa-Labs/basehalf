@@ -853,6 +853,88 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.strictEqual(await harness.read('.bh/mirror/book.pdf/upstream.yaml'), garbage);
 	});
 
+	test('removing every entry of a kept list never brings carried entries back', async () => {
+		const broken = '---\ntitle: Plan: draft\nupstream:\n  - a.md\n  - c.md\ntags: [x\n---\n# N\n';
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'c.md': '# C\n', 'e.md': '# E\n', 'note.md': broken, 'other.md': broken });
+		const kept = (name: string) => harness.read(`.bh/mirror/${name}/upstream.yaml`);
+		const issue = async (name: string) => (await harness.index.resolveUpstream(harness.node(name))).storeIssue;
+
+		// A removal of something that is not listed creates no file.
+		const nothing = await harness.edit.remove(harness.node('note.md'), 'e.md', options);
+		const afterNoop = await kept('note.md');
+
+		await harness.edit.rebuild(harness.node('note.md'), options);
+		await harness.edit.remove(harness.node('note.md'), 'a.md', options);
+		await harness.edit.remove(harness.node('note.md'), 'c.md', options);
+		const emptied = [await kept('note.md'), await issue('note.md')];
+		await harness.edit.add(harness.node('note.md'), 'e.md', options);
+
+		// Undoing the connect that carried the entries over goes back to before it.
+		const source = new UndoRedoSource();
+		harness.edit.pushUndoElement(await harness.edit.add(harness.node('other.md'), 'e.md', options), { label: 'Connect', resources: [joinPath(folder, '.bh', 'mirror', 'canvas.yaml')], source });
+		const connected = await kept('other.md');
+		await harness.undoRedo.undo(source);
+
+		assert.deepStrictEqual({
+			nothing: nothing.stores.map(store => store.outcome),
+			afterNoop,
+			emptied,
+			reconnected: await kept('note.md'),
+			note: await harness.read('note.md'),
+			connected,
+			undone: [await kept('other.md'), await issue('other.md')]
+		}, {
+			nothing: ['unchanged'],
+			afterNoop: undefined,
+			// The emptied list stays as a file, and no issue comes back.
+			emptied: ['upstream: []\n', false],
+			reconnected: 'upstream:\n  - e.md\n',
+			note: broken,
+			connected: 'upstream:\n  - a.md\n  - c.md\n  - e.md\n',
+			undone: [undefined, true]
+		});
+	});
+
+	test('a note that is deleted and comes back shows its kept list again', async () => {
+		const quote = '---\nA quote.\n---\nBody\n';
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'quote.md': quote, '.bh/mirror/quote.md/upstream.yaml': 'upstream:\n  - a.md\n' });
+		const downstream = () => harness.index.getDownstream(harness.node('a.md')).map(entry => entry.node.relativePath).join();
+		assert.strictEqual(downstream(), 'quote.md');
+		// The note goes to the trash and is restored; its sidecar never moved.
+		await harness.fileService.del(harness.node('quote.md').resource);
+		await until(() => downstream() === '', 'the edge of the deleted note to go');
+		await harness.write('quote.md', quote);
+		await until(() => downstream() === 'quote.md', 'the kept list of the restored note to be live again');
+	});
+
+	test('a kept list follows the rule for unsaved text, and Rebuild List says so when its copy cannot be saved', async () => {
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'quote.md': '---\nA quote.\n---\nBody\n',
+			'merged.md': '---\nupstream:\n  - a.md\nupstream:\n  - a.md\n---\n# M\n',
+			// A file where the folder of recovery copies belongs.
+			'.bh/cache/recovered': ''
+		}, { autoSave: 'off' });
+		const reference = await harness.textModelService.createModelReference(harness.node('quote.md').resource);
+		try {
+			reference.object.textEditorModel.setValue('---\nA quote, edited.\n---\nBody\n');
+			const unsaved = await refusal(harness.edit.add(harness.node('quote.md'), 'a.md', options));
+			assert.deepStrictEqual([unsaved.reason, unsaved.message, await harness.read('.bh/mirror/quote.md/upstream.yaml')], ['unsaved', 'Save or revert quote.md first.', undefined]);
+			await harness.textFileService.revert(harness.node('quote.md').resource);
+		} finally {
+			reference.dispose();
+		}
+
+		await assert.rejects(harness.edit.rebuild(harness.node('merged.md'), options));
+		assert.deepStrictEqual({
+			note: await harness.read('merged.md'),
+			told: harness.notifications.messages.map(message => message.replace(/: [^:]*$/, ': <reason>'))
+		}, {
+			note: '---\nupstream:\n  - a.md\nupstream:\n  - a.md\n---\n# M\n',
+			told: ['BaseHalf could not keep a copy of what Rebuild List would replace in merged.md, so it changed nothing: <reason>']
+		});
+	});
+
 	test('a target-end reconnect adds to the new downstream before removing from the old one', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '', 'b.md': '---\nupstream:\n  - a.md\n---\n', 'c.md': '# C\n' });
 		const result = await harness.edit.move('a.md', harness.node('b.md'), harness.node('c.md'), options);
