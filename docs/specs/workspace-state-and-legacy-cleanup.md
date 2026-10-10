@@ -55,7 +55,7 @@ In the workspace, under `.bh/`:
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
-| `.bh/cache/` | machine-local runtime state | run leases and undo stashes; not meant for git |
+| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, and recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)); not meant for git |
 
 BaseHalf does not create or edit `.gitignore`. Lines that earlier releases
 appended stay unless the user removes them. Project metadata may be committed,
@@ -63,8 +63,11 @@ so that canvas layout, descriptions, and non-Markdown upstream lists travel
 with the folder. The release notes recommend ignoring `.bh/cache/`.
 
 `.bh/mirror/<path>/` holds the per-node files above. A workbench move or
-delete relocates or retires them through the mirror cascade. Once every
-required stage of that cascade has finished, including after a Retry, BaseHalf
+delete relocates or retires them through the mirror cascade
+([mirror file resilience](mirror-file-resilience.md) defines what the cascade
+does with content it cannot read and with a stage that fails). Once every
+required stage of that cascade has finished, including after a Retry but not
+after a Skip, BaseHalf
 removes the directories left without any entry inside the moved or deleted
 item's old mirror directory, bottom-up, then that directory's ancestors up to,
 but not including, `.bh/mirror/`. It removes only empty directories, one at a
@@ -198,13 +201,17 @@ The steps run in this order:
 When this pass removed anything in a folder, BaseHalf shows one information
 notification for that folder, once per machine:
 
-> BaseHalf removed N files that earlier versions created in .bh/ (focus and
-> agent-harness files). Your notes and canvas layout were not changed.
+> BaseHalf removed N files that earlier versions kept for itself and no
+> longer uses. Your notes and canvas layout were not changed.
 
-In a multi-root workspace the message names the folder ("in <folder>/.bh/").
+In a multi-root workspace the message names the folder ("removed N files in
+<folder> that…"). It does not name `.bh/` or the kinds of files (D41); the
+removal is logged.
 
 The notification offers **Show in Source Control** when the folder is a git
-repository. Later removals are only logged.
+repository: the Git view is part of BaseHalf's own sidebar, and it is where
+these removals show up for someone who keeps the folder in git. Later removals
+are only logged.
 
 ### Confirmed: user-owned root files
 
@@ -276,24 +283,35 @@ Claude Code sessions receive the launch-time instruction defined in
 Each delivery slice adds only the statements that are true in its build. The
 release that contains every slice states:
 
-- Connecting two cards saves the connection in the card it points to:
-  - an `upstream` list in a Markdown note's frontmatter;
-  - a `.bhnode`'s `upstream` field;
-  - `.bh/mirror/<path>/upstream.yaml` for PDFs, folders, and other files.
-
-  The list is visible in git, in the Source view, and in other Markdown tools,
-  and agents read it when they open the note. Deleting it removes the
-  connection.
+- Connecting two cards saves the connection with the card it points to. For
+  a note, it is saved inside the note itself, so agents and other tools that
+  read the note see it too. For PDFs, folders, and other files, BaseHalf keeps
+  the list for you.
 - The badge edits a card's Upstream list. Downstream shows what draws on it.
 - Moving or renaming a file in BaseHalf offers to update the upstream lists
   that name it.
 - Connections from earlier versions move into your files after you confirm.
-- BaseHalf removes its old focus and harness files from `.bh/`, which may
-  delete tracked files in git. It offers to remove the sections it added to
-  `CLAUDE.md` and `AGENTS.md`, and keeps canvas viewports per machine.
-- BaseHalf no longer edits `.gitignore`. We recommend ignoring `.bh/cache/`.
-- Folders that ignore all of `.bh/` do not share the upstream lists of
-  non-Markdown nodes through git.
+- If BaseHalf can't read a card's upstream list, the badge offers Rebuild
+  List, which keeps the connections it can read.
+- Files and folders whose names look like numbers, such as 09, keep their
+  place on the canvas.
+- When BaseHalf can't read something it saved for a canvas or a card, it keeps
+  working with what it can read and keeps a copy of the rest. It never asks
+  you to open or fix a file.
+- If BaseHalf can't finish updating its cards and badges after you move or
+  delete something, you can Retry or Skip instead of being blocked.
+- BaseHalf removes files that earlier versions kept for itself and no longer
+  uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md,
+  and remembers where you left each canvas on this computer.
+- If you keep your notes in git: the removed files show up as deletions,
+  BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A
+  folder that ignores all of .bh/ does not share the upstream lists of PDFs,
+  folders, and other non-note files.
+
+The statements are written for someone who does not read code (D41): they do
+not name file formats or show names in code formatting. The one statement
+addressed to people who keep their notes in git names `.bh/`, because the
+advice cannot be followed without it.
 
 ## Acceptance criteria
 

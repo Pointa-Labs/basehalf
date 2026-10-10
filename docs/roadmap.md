@@ -193,7 +193,9 @@ Done means:
   BaseHalf sections in root agent files are removed only after confirmation.
 - Every read-modify-write path is protected by the keyed mutex.
 - Corrupt YAML, missing files, permission errors, symlink hazards, and external
-  edits have clear behavior and tests.
+  edits have clear behavior and tests. Unreadable mirror content never blocks
+  a card move or a file operation
+  ([mirror file resilience](specs/mirror-file-resilience.md), D40).
 - BaseHalf services observe user files; they change user content only through
   explicit or confirmed operations.
 

@@ -8,9 +8,10 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D39 capture the current direction; D35–D38
+> (see notes inline). D12–D41 capture the current direction; D35–D38
 > (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline,
-> and D39 (2026-10) refines D21.
+> D39 (2026-10) refines D21, D40 (2026-10) refines D12 and D19, and D41
+> (2026-10) refines D37 and D40.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -904,3 +905,83 @@ heuristics.
   recognize `BaseHalf` instead.
 - The terminal reaches into xterm.js internals to encode wheel reports. A test
   pins them, and a missing internal falls back to xterm.js's own reports.
+
+## D40 — Mirror metadata never blocks the user (NEW, 2026-10-10)
+
+**Decision.** What BaseHalf keeps under `.bh/mirror/` annotates the user's
+files; it is not their truth. Content there that BaseHalf cannot read never
+blocks a card move, a file operation, or any other user action, and is never
+destroyed. Three rules follow. BaseHalf reads back every mirror file it
+writes, and checks that before each commit. Canvas layout that cannot be read
+is skipped row by row, and a write over it first saves the old bytes as a
+recovery copy under `.bh/cache/recovered/`. A metadata update that fails after
+a file operation offers Skip next to Retry, so the workspace is never locked.
+See [mirror file resilience](specs/mirror-file-resilience.md).
+
+**Why.** A folder named `09` made BaseHalf read its own `canvas.yaml` as
+corrupt, because the reader guessed types from text and ignored quotes. The
+canvas then refused every card move, the delete cascade stopped at a stage
+that Retry could not pass, and the workspace stayed locked until reload. The
+reader bug was one line, but the architecture let one unreadable value stop
+the product: layout reads were all-or-nothing, every write began with such a
+read, and a failed required stage held the workspace lease with no way out.
+A note-taking product must not put its bookkeeping ahead of the user's work.
+
+**Consequences.**
+- Refines D12 and D19: `.bh/mirror/` files are read by schema through one
+  shared grammar.
+- BaseHalf assumes users never open or edit files under `.bh/`. No recovery
+  step asks them to. An unreadable `badge.yaml` or `adhd.yaml` reads as no
+  description or no reading aids, and the next save replaces it after a
+  recovery copy is kept. BaseHalf replaces such a file only as part of a
+  write the user asked for.
+- Reference truth is unchanged. Unreadable `upstream` values stay visible
+  issues that only the user repairs (D37).
+- `.bh/cache/recovered/` joins the machine-local state under `.bh/cache/`.
+  BaseHalf never deletes recovery copies.
+- After Skip, metadata stays at its old mirror path, the state a move or
+  delete outside BaseHalf already leaves.
+
+## D41 — Users are not expected to read code or open hidden files (NEW, 2026-10-10)
+
+**Decision.** BaseHalf assumes its users do not read YAML, frontmatter, or
+JSON, and never open the hidden `.bh/` folder. No message, button, or repair
+step sends a user to a file's source or to a file under `.bh/`. The **Open
+Metadata** action of the badge editor and every **Open File** action of the
+reference interface (issue rows, the Upstream Issues list, refusal notices,
+and the save-failure notice) are removed. A repair that BaseHalf offers is an
+action in its own interface. See
+[mirror file resilience](specs/mirror-file-resilience.md) and
+[reference graph](specs/reference-graph.md#badge-editor).
+
+**Why.** D37 keeps each reference in the downstream file, where BaseHalf makes
+only minimal edits. Where BaseHalf would not edit a value itself, the design
+handed the file to the user with Open File. That helps only someone who can
+read and fix YAML. For the learners BaseHalf is built for (D16) it is a way
+out that leads nowhere, and it puts the file's bookkeeping in front of people
+who came to take notes.
+
+**Consequences.**
+- Refines D37 and D40. Where references are stored does not change: the lists
+  stay in the downstream file, and agents and other tools still read them
+  there.
+- An upstream list that BaseHalf cannot read, or will not edit in place, gets
+  a confirmed **Rebuild List** action that writes it again in BaseHalf's own
+  form and keeps the connections it can read. A document BaseHalf cannot edit
+  safely still has no repair in the product.
+- The reference interface states every reason in plain words. No notice or
+  issue row names `upstream` as code, frontmatter, YAML, TOML, `.bh/`, or
+  "metadata", and none tells the user to fix a file. The **Show in File**
+  action of the first-connection notice is removed. Format detail goes to the
+  log. The rules are in
+  [reference graph](specs/reference-graph.md#wording).
+- **Move into File** no longer refuses a sidecar it cannot fully use. It moves
+  what it can read and keeps the sidecar as a recovery copy.
+- The same wording applies outside the reference interface: the notice for
+  removed legacy files, the canvas setup prompts, the settings text, and the
+  release notes do not name `.bh/`, file formats, or "metadata". A file system
+  error is shown as a plain reason and its own text is logged
+  ([mirror file resilience](specs/mirror-file-resilience.md#failure-reasons-in-messages)).
+  Two kinds of text keep their terms on purpose: the release-note line
+  addressed to people who keep their notes in git, and errors returned to a
+  command's caller rather than shown as a notice.

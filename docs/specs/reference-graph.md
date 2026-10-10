@@ -1,7 +1,8 @@
 # Reference graph: downstream-owned upstream lists
 
-Status: Active (2026-09-27)
-Decision: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27)
+Status: Active (2026-09-27; Open File removed 2026-10-10 for D41)
+Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
+[D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [agent launch context](agent-launch-context.md)
 
@@ -193,7 +194,7 @@ BaseHalf when any of these hold:
 - the value is a block scalar (`|` or `>`).
 
 A document is **not writable** by BaseHalf (connect into it is refused with the
-reason and an **Open file** action) in two cases:
+reason) in two cases:
 - a closed leading fence pair whose content the recognizer rejects;
 - a document that uses TOML `+++` frontmatter.
 
@@ -218,8 +219,8 @@ comments, quoting, and the body stay byte-identical.
   - If every current item is a valid entry, BaseHalf replaces the value text,
     from after `upstream:` to its end, with a block list of the same entries.
   - A single scalar that is not a valid entry means the key is used by another
-    tool. The store is reported as "`upstream` is used by another tool", and
-    writes are refused with **Open file**.
+    tool. The store is reported as "Another tool keeps something else where
+    this note's upstream list goes", and writes are refused with that reason.
 - **Order.** New entries are appended. Removals keep the order of the rest. A
   source-end reconnect replaces the entry in place.
 - **Quoting.** An entry is written as a double-quoted scalar when it has any of
@@ -313,9 +314,18 @@ comments, quoting, and the body stay byte-identical.
   - A permanent delete removes the file.
 - **Copy.** A copied sidecar node starts with no upstream list. Unlike Markdown,
   its list does not travel in its bytes.
-- **Move into File** refuses while the sidecar holds an invalid entry other
-  than a repeat, and refuses when the sidecar changed after its entries were
-  read. After the move it deletes the sidecar.
+- **Move into File** moves every entry BaseHalf can read into the file, a
+  repeated entry once, and then deletes the sidecar.
+  - When the sidecar holds anything the move leaves behind (an invalid entry
+    other than a repeat, or content BaseHalf cannot read), BaseHalf first
+    saves the sidecar as a recovery copy under the rules of
+    [mirror file resilience](mirror-file-resilience.md), and afterwards says
+    "BaseHalf moved the upstream entries it could read into <name>. The rest
+    could not be used and was removed." If the copy cannot be saved, the
+    sidecar is left unchanged.
+  - Undo of a move out of a sidecar that could not be read writes a sidecar
+    with the entries that were moved.
+  - It refuses when the sidecar changed after its entries were read.
 - A `badge.yaml` that holds only legacy keys reads as having no badge; the
   migration's legacy reader is the only consumer of those keys.
 - **`badge.yaml`.** It keeps `path`, `kind`, `description`, and `orphan`, and
@@ -453,9 +463,56 @@ exclude failing stores and list them as skipped before the user confirms.
 7. Save the document. If the save fails because the file changed on disk while
    the model is still at the version BaseHalf produced, revert the model to
    disk, re-plan once, and apply and save again. Otherwise show "The upstream
-   change to <file> is not saved" with Retry, Revert Change, and Open File. A
+   change to <file> is not saved" with Retry and Revert Change. A
    BaseHalf write never leaves a document in the save-conflict state without
    that notice.
+
+### Rebuilding a list
+
+A list that BaseHalf cannot read, or can read but will not edit in place,
+would leave the user with an issue and no way to resolve it. **Rebuild List**
+writes the list again in BaseHalf's own form. It is a user-started, confirmed
+reference operation (Invariant 4) and never runs by itself.
+
+**Where it is offered.** On the store issue row of the badge editor and in
+**BaseHalf: Show Upstream Issues**, for these stores:
+
+- a Markdown file whose `upstream` value is a mapping, a block scalar, uses an
+  anchor, alias, or tag, appears more than once, holds a value used by another
+  tool, or has an entry that spans several lines;
+- a sidecar `upstream.yaml` that cannot be read.
+
+It is not offered for a document BaseHalf cannot edit safely: TOML
+frontmatter, a leading block the recognizer rejects, frontmatter beyond the
+size window, a frontmatter mapping that is not a block mapping in column 0,
+and a `.bhnode` that cannot be read. It is not offered for a node that cannot
+be downstream. For these the row states the reason and has no action.
+
+**Confirmation.** "Rebuild the upstream list of <name>?" with the detail
+"BaseHalf will write the list again in a form it can use. It keeps the
+connections it can read. Anything else in the list is removed." and the
+buttons **Rebuild List** and Cancel.
+
+**Markdown.** BaseHalf removes every top-level `upstream` key together with
+its value lines. At the position of the first one it writes one block list of
+the valid entries those keys held, in order and without repeats. With no valid
+entry it writes no key, and when nothing else remains in the frontmatter the
+block is removed. Other keys, lines outside the removed ones, and the body
+stay byte-identical. If the remaining frontmatter would no longer be
+recognized, the operation is refused and nothing changes. The edit goes
+through the document as every Markdown write does and belongs to the
+document's own undo stack; it is not a canvas undo step.
+
+**Sidecar.** BaseHalf first saves the file as a recovery copy,
+`.bh/cache/recovered/mirror/<path>/upstream.<12 hex digits>.yaml`, under the
+rules of [mirror file resilience](mirror-file-resilience.md). It then writes
+the valid entries it could read as a block list, or deletes the file when
+there are none.
+
+The refusal rules of every other write apply: a running node, a marked
+folder, a read-only or unsaved document, and a symbolic link refuse the
+rebuild with their reason. After a rebuild the store is readable and writable,
+and its issue is gone.
 
 ### Node documents and sidecars
 
@@ -634,9 +691,9 @@ undo step.
 ### First frontmatter notice
 
 The first time BaseHalf adds a frontmatter block to a Markdown file that had
-none, a one-time notification (per machine) says: "Saved this connection at the
-top of <B> as `upstream`. Agents and other tools read it there." Its actions are
-**Show in File** (opens the Source projection) and **OK**.
+none, a one-time notification (per machine) says: "Saved this connection inside
+<B>. Agents and other tools that read the note see it there." Its only action
+is **OK**. It has no action that opens the note's source (D41).
 
 ## Badge editor
 
@@ -646,9 +703,9 @@ The card flip face and the Card Detail badge zone share one editor.
   this file…" ("…this folder…" for folders). UI copy no longer promises that
   agents read it.
 - **Upstream.** This node's own list, which is editable.
-  - Helper line: "Context that flows into this card. Saved in this file's
-    `upstream` list, so agents reading it see it too." For sidecar nodes: "Saved
-    in BaseHalf metadata for this file."
+  - Helper line: "Context that flows into this card. Saved inside this file,
+    so agents reading it see it too." For sidecar nodes: "BaseHalf keeps this
+    list for this file." ("…this folder." for folders).
   - **Add Upstream** opens a workspace-wide picker titled "Add upstream to
     <name>". The picker:
     - lists every node in the downstream node's workspace folder, leaving out
@@ -673,14 +730,24 @@ The card flip face and the Card Detail badge zone share one editor.
       that names it, including entries under it when it was a folder. It is a
       confirmed multi-document operation that follows the rename refactor rules
       and is one undo step.
-    - **Remove** and **Open File**.
+    - **Remove**.
     - When exactly one node in the workspace has the entry's file name, the
       first action is **Relink to <path>**.
-  - **Invalid, in a readable store:** **Remove** and **Open File**. When the
-    entry, read relative to the downstream file, names an existing node, the
-    first action is **Use <workspace path>**, which replaces it in place.
-  - **Unreadable or not-writable store:** one issue row with **Open File**,
-    which opens the store in the Source projection.
+  - **Invalid, in a readable store:** **Remove**. When the entry, read
+    relative to the downstream file, names an existing node, the first action
+    is **Use <workspace path>**, which replaces it in place.
+  - **Unreadable or not-writable store:** one issue row that states the
+    reason, with **Rebuild List** when BaseHalf can rebuild the list
+    ([Rebuilding a list](#rebuilding-a-list)).
+  - **No Open File.** No row, notice, or list offers an action that opens a
+    file's source or a file under `.bh/`. BaseHalf assumes users do not read
+    code (D41), so every repair it offers is an action in its own interface.
+    An earlier **Open File** action is removed from all of them.
+
+    **Known gap.** A document that BaseHalf cannot edit safely (TOML
+    frontmatter, a rejected leading block, an oversized or non-block
+    frontmatter mapping, an unreadable `.bhnode`) has no repair in the product.
+    Connections into it are refused with the reason.
   - **Attempted or sealed `.bhnode`:** a dangling bound entry is a historical
     input. It reads "Moved or deleted since this result was made", in a neutral
     style, and is not counted as an issue.
@@ -700,11 +767,62 @@ The card flip face and the Card Detail badge zone share one editor.
 - **`.bhnode` rows** show their binding role or "Unassigned". Outside a Draft,
   × on a bound entry is disabled, and its tooltip gives the reason.
 
+### Wording
+
 UI copy uses "upstream", "downstream", and "connection". It avoids
 "reference", which is also an AI Video input role.
 
+Every string the reference interface shows is written for someone who does not
+read code (D41):
+
+- "upstream", "downstream", "upstream list", "connection", "badge", "note",
+  and "node" are product words and are shown as plain text, never in code
+  formatting.
+- No string names a file format or a part of one (frontmatter, YAML, TOML,
+  JSON, key, mapping, anchor, alias, tag, block scalar), the `.bh/` folder or
+  a file in it, "metadata", "sidecar", or "node document".
+- A message that names a store names the node it belongs to, never a file
+  under `.bh/`.
+- Parser and file-format detail goes to the log, not to the message. A file
+  system failure is shown as a
+  [plain failure reason](mirror-file-resilience.md#failure-reasons-in-messages),
+  never as the error's own text.
+- No message tells the user to fix a file. Where BaseHalf has a repair, the
+  message names the action and where it is.
+
+Store issue rows, in the badge editor and in Show Upstream Issues:
+
+| Store state | Row text | Action |
+| --- | --- | --- |
+| A list BaseHalf cannot read or will not edit in place (mapping, repeated key, anchor/alias/tag, block scalar, an entry over several lines; an unreadable sidecar) | "BaseHalf can't read this upstream list." | Rebuild List |
+| A value used by another tool | "Another tool keeps something else where this note's upstream list goes." | Rebuild List |
+| A document BaseHalf cannot edit safely (rejected leading block, TOML, non-block or oversized frontmatter) | "BaseHalf can't save connections into this note because of how the file begins." | none |
+| An unreadable `.bhnode` | "This node can't be read." | none |
+| A store the file system refuses to read | "The upstream list could not be read: <plain failure reason>" | none |
+| A sidecar list for a node that keeps its list in its own file | "An upstream list for this note is saved outside the note." | Move into File |
+
+Refusal messages for the same states, where <name> is the node's file name:
+
+| Refusal | Message |
+| --- | --- |
+| The list cannot be read or edited in place and can be rebuilt | "BaseHalf can't read the upstream list of <name>. Use Rebuild List in its badge first." |
+| The list cannot be read and cannot be rebuilt | "BaseHalf can't read the upstream list of <name>." |
+| A value used by another tool | "Another tool keeps something else where the upstream list of <name> goes. To connect anyway, use Rebuild List in its badge." |
+| A document BaseHalf cannot edit safely | "BaseHalf can't save connections into <name> because of how the file begins." |
+| Frontmatter beyond the size window | "BaseHalf can't save connections into <name>: the top of the file is too large to change." |
+| An unreadable `.bhnode` | "<name> can't be read." |
+| A sidecar the file system refuses to read | "The upstream list of <name> could not be read: <plain failure reason>" |
+| A sidecar behind a symbolic link | "BaseHalf keeps the upstream list of <name> behind a symbolic link. BaseHalf doesn't change files through links." |
+| A marked folder | "<name> is in a folder BaseHalf is set to leave alone." |
+
+Invalid entry rows keep their short reasons. Two of them avoid file-system
+terms: an entry under `.bh` reads "This path points into BaseHalf's own
+files.", and an entry with a control character reads "This path contains a
+character that can't be used."
+
 The command **BaseHalf: Show Upstream Issues** lists every issue in the
-workspace in a quick pick, grouped by file, with the same actions.
+workspace in a quick pick, grouped by file, with the same actions. Choosing an
+issue that has no action shows its reason in a notification.
 
 ## Rename refactor
 
@@ -932,10 +1050,16 @@ The prompt appears whenever legacy keys exist and at least one pair needs a
 downstream write:
 
 > Connections from an earlier BaseHalf version are hidden until they are moved
-> into your files. Move N connections? BaseHalf will add an `upstream` list to
-> the frontmatter of M notes and update K items in .bh/.
+> into your files. Move N connections? BaseHalf will save them inside M notes
+> and in the lists it keeps for K other items.
 >
 > Move Connections · Preview · Later
+
+With only notes the last sentence ends after "M notes."; with only other items
+it reads "BaseHalf will save them in the lists it keeps for K items." When
+`.bhnode` files change too, the prompt adds "It will also update J nodes."
+The report follows the [wording](#wording) rules: a row for a legacy key that
+cannot be read is described as "an earlier connection list in its badge".
 
 - **Preview** opens a read-only report grouped by downstream node, in three
   sections: "Will be added", "Already present", and "Can't be moved" with each
@@ -1063,11 +1187,11 @@ In a marked folder:
 
 | Situation | Behavior |
 | --- | --- |
-| Store unreadable or not writable | No edges from an unreadable store. The issue is shown, and writes are refused with Open File. |
+| Store unreadable or not writable | No edges from an unreadable store. The issue is shown with Rebuild List when the list can be rebuilt, and other writes are refused with the reason. |
 | Model read-only, in conflict, or in error | Write refused with the reason; nothing changes |
 | Flush fails or times out | Refused: "Finish or resolve the unsaved edit in <file> first" |
 | Model changed between planning and applying | Re-plan once, then refuse |
-| Save fails | Notice with Retry, Revert Change, and Open File |
+| Save fails | Notice with Retry and Revert Change |
 | Partial multi-document failure | Report lists changed and unchanged documents, and is logged |
 | Node running | Write refused: "This node is running" |
 | Index building | See [Consumers before ready](#consumers-before-ready) |
@@ -1210,5 +1334,33 @@ slice 4, or slice 5 without slice 3.
     - the rename refactor notification;
     - migration from a seeded legacy pair;
     - the badge editor's Upstream and Downstream;
+    - Rebuild List on a note whose list was added twice: the plain issue row,
+      the confirmation, and the rewritten list;
     - Create from Connection: the menu, its cancel, Note, and Image with its
       undo.
+19. Rebuild List:
+    - A Markdown store whose `upstream` is a mapping, a block scalar, an
+      anchored or tagged value, a value used by another tool, a list with an
+      entry over several lines, or a key that appears twice is rewritten as
+      one block list. The valid entries of every `upstream` key are kept in
+      order without repeats; other keys, comments, and the body are
+      byte-identical.
+    - With no valid entry the key is removed, and a frontmatter block that
+      held nothing else is removed with it.
+    - TOML frontmatter, a rejected leading block, and a frontmatter mapping
+      that is not a block mapping in column 0 are refused, and nothing changes.
+    - A sidecar that cannot be read is saved as a recovery copy and then
+      rewritten, or deleted when it has no valid entry.
+    - The store issue row offers Rebuild List exactly when the list can be
+      rebuilt, and asks for confirmation before it writes. No row, notice, or
+      list offers Open File.
+20. Wording and Move into File:
+    - No string of the reference interface names frontmatter, YAML, TOML,
+      JSON, `.bh/`, "metadata", "sidecar", or "node document", shows
+      `upstream` in code formatting, or tells the user to fix a file. A
+      refusal for a sidecar store names its node, never `upstream.yaml`.
+    - The first-connection notice has **OK** as its only action.
+    - Move into File on a sidecar with an invalid entry, and on a sidecar that
+      cannot be read, moves the entries BaseHalf can read, saves the sidecar
+      as a recovery copy, deletes it, and tells the user. With a recovery copy
+      that cannot be saved, the sidecar is unchanged.

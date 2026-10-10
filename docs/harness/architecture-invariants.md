@@ -72,6 +72,12 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   memory only; they never create, block, or imply a reference.
 - Dangling and invalid upstream entries are shown as issues and never removed
   automatically. Only an explicit user action repairs or removes them.
+- `.bh/mirror/` content that BaseHalf cannot read never blocks a card move or
+  a file operation and is never destroyed. Mirror files are read by schema
+  through `basehalfMirrorYaml.ts`, every write is read back before it is
+  committed, unreadable canvas layout is skipped and preserved as a recovery
+  copy, and the mirror cascade always offers Skip
+  ([mirror file resilience](../specs/mirror-file-resilience.md), D40).
 - BaseHalf changes an upstream value only through a reference operation that
   the user started or confirmed, or through the rename refactor of an agent
   move, as listed in
@@ -88,12 +94,17 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   receive the launch context move and rename files through the host
   [agent move](../specs/reference-graph.md#agent-moves) operation; other
   agents' moves still leave BaseHalf metadata behind.
+- BaseHalf assumes users do not read code and never open `.bh/`. No message,
+  button, or repair step sends them to a file's source or to a hidden file;
+  repairs are actions in BaseHalf's own interface (D41). Messages give reasons
+  in plain words: no file-format terms, no path under `.bh/`, and no raw file
+  system error text, which goes to the log.
 - BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
   and no `.gitignore` edits into workspaces. Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
 
-See public decisions D12–D14, D24, and D35–D38, the
+See public decisions D12–D14, D24, D35–D38, D40, and D41, the
 [reference graph](../specs/reference-graph.md) and
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.

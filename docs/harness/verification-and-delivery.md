@@ -43,8 +43,11 @@ repository root or `vscode-base/` as a product workspace.
 The smoke currently covers canvas startup, hidden Open Editors, Quick Open,
 Quick Text Search, folder routing, the reference-graph flows (connect,
 disconnect, both reconnects, canvas undo after closing a note, Create from
-Connection, the badge editor's Upstream and Downstream, PDF branch, rename refactor, and migration of
-a seeded legacy pair), legacy workspace cleanup, the rich reveal highlight,
+Connection, the badge editor's Upstream and Downstream, Rebuild List on a list
+BaseHalf cannot read, PDF branch, rename refactor, and migration of
+a seeded legacy pair), legacy workspace cleanup, folders whose names look like
+numbers (create, move a card beside them, delete), a description file that
+cannot be read recovering on the next save, the rich reveal highlight,
 card resizing with its rounded corner targets and indicator, and the video node
 flows. Extend its acceptance coverage when a
 changed workbench flow is not represented there.
