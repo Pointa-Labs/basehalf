@@ -13,6 +13,7 @@ import {
 	BASEHALF_CANVAS_MIN_CARD_HEIGHT,
 	BASEHALF_CANVAS_MIN_CARD_WIDTH,
 	BaseHalfCanvasAnchor,
+	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgePath
 } from '../common/basehalfCanvasModel.js';
 import { baseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
@@ -35,6 +36,8 @@ import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
 	BaseHalfCanvasSceneSelectionAction,
+	baseHalfCanvasConnectHandleReachLimit,
+	baseHalfCanvasOppositeAnchor,
 	baseHalfCanvasSceneConnectionRefusal,
 	baseHalfCanvasSceneSelectionActions,
 	baseHalfCanvasSceneVideoSelectionActions,
@@ -88,7 +91,7 @@ import type {
 	ReactFlowProps,
 	Viewport
 } from '@xyflow/react';
-import type { ComponentType, CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, RefObject } from 'react';
 import type { Root } from 'react-dom/client';
 
 interface IBaseHalfCanvasToolbarIconProps {
@@ -446,9 +449,10 @@ export function resolveBaseHalfCanvasResizeCornerGeometry(corner: BaseHalfCanvas
 }
 
 /** Clears the resizing state and the active corner at the same boundary. */
-function clearCardResizeState(element: HTMLElement): void {
+function clearCardResizeState(element: HTMLElement, host: HTMLElement): void {
 	delete element.dataset.cardResizing;
 	delete element.dataset.cardResizeCorner;
+	delete host.dataset.cardResizing;
 }
 
 export function captureBaseHalfCanvasNodeDragOrigins(
@@ -544,6 +548,23 @@ const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio
 interface IBaseHalfCanvasScreenSpaceStyle extends CSSProperties {
 	readonly '--basehalf-canvas-zoom': string;
 	readonly '--basehalf-adjacent-chrome-travel': string;
+}
+
+/** How long a kept connection line waits for the chosen node's edge. */
+const CONNECTION_DROP_LINE_EDGE_TIMEOUT_MS = 2000;
+
+interface IBaseHalfCanvasDropLine {
+	readonly token: number;
+	readonly sceneKey: string;
+	readonly source: string;
+	readonly path: string;
+	/** Edges from the source when the line was released; a new one replaces the line. */
+	readonly knownEdgeIds: ReadonlySet<string>;
+	readonly awaitingEdge: boolean;
+}
+
+interface IBaseHalfCanvasConnectCaptureStyle extends CSSProperties {
+	readonly '--bh-connect-reach-limit': string;
 }
 
 function screenSpaceCanvasStyle(zoom: number, style: CSSProperties): IBaseHalfCanvasScreenSpaceStyle {
@@ -1382,7 +1403,7 @@ function createCanvasSceneMount(
 			}
 			activeResizeRef.current = undefined;
 			active.removeBoundaryListeners();
-			clearCardResizeState(active.card.element);
+			clearCardResizeState(active.card.element, host);
 			active.end();
 		}, []);
 		const beginCardResize = vendor.useCallback((): void => {
@@ -1443,6 +1464,8 @@ function createCanvasSceneMount(
 			const dataset = active.card.element.dataset;
 			if (dataset.cardResizing !== 'true') {
 				dataset.cardResizing = 'true';
+				// Capture circles take no pointer while a card is resized.
+				host.dataset.cardResizing = 'true';
 			}
 			if (corner && dataset.cardResizeCorner !== corner) {
 				dataset.cardResizeCorner = corner;
@@ -1473,7 +1496,7 @@ function createCanvasSceneMount(
 		vendor.useLayoutEffect(() => () => {
 			const mounted = mountedCardRef.current;
 			finishCardResize();
-			clearCardResizeState(mounted.card.element);
+			clearCardResizeState(mounted.card.element, host);
 			const active = mounted.card.element.ownerDocument.activeElement;
 			if (isHTMLElement(active) && mounted.card.element.contains(active)) {
 				active.blur();
@@ -1504,7 +1527,7 @@ function createCanvasSceneMount(
 			}
 			return () => {
 				finishCardResize();
-				clearCardResizeState(data.card.element);
+				clearCardResizeState(data.card.element, host);
 				if (data.card.element.parentElement === mount) {
 					const active = data.card.element.ownerDocument.activeElement;
 					replacementFocusPath.current = isHTMLElement(active)
@@ -2615,6 +2638,11 @@ function createCanvasSceneMount(
 		const interacting = vendor.useRef(false);
 		const snapEnabledRef = vendor.useRef(true);
 		const [guides, setGuides] = vendor.useState<readonly IBaseHalfCanvasSnapGuide[]>([]);
+		// The released connection line, kept while the Create from Connection
+		// menu is open and until the chosen node's edge replaces it.
+		const [dropLine, setDropLine] = vendor.useState<IBaseHalfCanvasDropLine | undefined>(undefined);
+		const dropLineToken = vendor.useRef(0);
+		const dropLineElement = vendor.useRef<SVGSVGElement>(null);
 		const [nodeDragChromePhase, setNodeDragChromePhase] = vendor.useState<{ readonly token: number; readonly phase: 'dragging' | 'settling' } | undefined>(undefined);
 		const [videoComposerSurface, setVideoComposerSurfaceState] = vendor.useState<IBaseHalfCanvasSceneVideoComposerSurface | undefined>(undefined);
 		const [videoComposerManipulation, setVideoComposerManipulation] = vendor.useState<{
@@ -3412,11 +3440,54 @@ function createCanvasSceneMount(
 				from: sourceNode.id,
 				fromKind: sourceNode.data.card.kind,
 				fromAnchor: anchorFromHandle(state.fromHandle?.id, 'east')
-			}, false, flow.screenToFlowPosition(client));
-			if (drop) {
-				void delegate.createFromConnection(operationKey, operationEpoch, drop).catch(error => delegate.reportError(error));
+			}, false, flow.screenToFlowPosition(client), client);
+			if (!drop) {
+				return;
 			}
+			const token = ++dropLineToken.current;
+			// `state.from` is in flow coordinates but `state.to` is relative to the
+			// container in screen pixels; the drop position is the release point
+			// in flow coordinates.
+			const [path] = vendor.getBezierPath({
+				sourceX: state.from.x,
+				sourceY: state.from.y,
+				sourcePosition: state.fromPosition,
+				targetX: drop.position.x,
+				targetY: drop.position.y,
+				targetPosition: state.toPosition ?? flowPosition(vendor, baseHalfCanvasOppositeAnchor(drop.fromAnchor))
+			});
+			setDropLine({
+				token,
+				sceneKey: operationKey,
+				source: drop.from,
+				path,
+				knownEdgeIds: new Set(edgesRef.current.filter(edge => edge.source === drop.from).map(edge => edge.id)),
+				awaitingEdge: false
+			});
+			const clear = () => setDropLine(current => current?.token === token ? undefined : current);
+			void delegate.showConnectionCreateMenu(operationKey, operationEpoch, drop).then(created => {
+				if (!created) {
+					// Hide it in the task that closed the menu; React removes it
+					// on its next render.
+					if (dropLineToken.current === token) {
+						dropLineElement.current?.style.setProperty('display', 'none');
+					}
+					clear();
+					return;
+				}
+				setDropLine(current => current?.token === token ? { ...current, awaitingEdge: true } : current);
+				host.ownerDocument.defaultView?.setTimeout(clear, CONNECTION_DROP_LINE_EDGE_TIMEOUT_MS);
+			}, error => {
+				clear();
+				delegate.reportError(error);
+			});
 		}, [endInteraction]);
+		vendor.useEffect(() => {
+			// The chosen node's edge replaces the kept line as soon as it is drawn.
+			if (dropLine?.awaitingEdge && edges.some(edge => edge.source === dropLine.source && !dropLine.knownEdgeIds.has(edge.id))) {
+				setDropLine(current => current?.token === dropLine.token ? undefined : current);
+			}
+		}, [dropLine, edges]);
 		const finishClickConnect = vendor.useCallback(() => {
 			const owner = pendingConnection.current.take('click');
 			if (owner) {
@@ -4065,6 +4136,8 @@ function createCanvasSceneMount(
 						color: 'color-mix(in srgb, var(--vscode-foreground) 4.5%, transparent)'
 					}),
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
+					dropLine && dropLine.sceneKey === sceneKeyRef.current ? h(ConnectionDropLine, { key: dropLine.token, path: dropLine.path, elementRef: dropLineElement }) : null,
+					h(ConnectCaptureLayer, { nodes, disabled: videoInputPickActive || nodeDragChromePhase !== undefined }),
 					videoComposerNode && videoComposerSurface
 						? h(VideoComposerAdjacentSurface, {
 							key: videoComposerSurface.path,
@@ -4086,6 +4159,121 @@ function createCanvasSceneMount(
 								: null
 				)
 			)
+		);
+	}
+
+	function connectHandleElement(nodeId: string, anchor: BaseHalfCanvasAnchor): HTMLElement | null {
+		return host.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(nodeId)}"] > .basehalf-canvas-card-connect-handle.${anchor}`);
+	}
+
+	function forwardToConnectHandle(event: ReactMouseEvent<HTMLElement>, nodeId: string, anchor: BaseHalfCanvasAnchor): void {
+		const handle = connectHandleElement(nodeId, anchor);
+		if (!handle) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		// The handle owns the gesture: React Flow starts a drag from its
+		// mousedown and click-to-connect from its click.
+		handle.dispatchEvent(new MouseEvent(event.type, {
+			bubbles: true,
+			cancelable: true,
+			composed: true,
+			view: event.nativeEvent.view,
+			detail: event.detail,
+			clientX: event.clientX,
+			clientY: event.clientY,
+			screenX: event.screenX,
+			screenY: event.screenY,
+			button: event.button,
+			buttons: event.buttons,
+			altKey: event.altKey,
+			ctrlKey: event.ctrlKey,
+			metaKey: event.metaKey,
+			shiftKey: event.shiftKey
+		}));
+	}
+
+	/**
+	 * One handle's capture circle. It lies below edges and cards, so it takes
+	 * the pointer only where nothing else on the canvas does, and hands every
+	 * press and click to its handle.
+	 */
+	const ConnectCapture = vendor.memo(function ConnectCapture({ nodeId, anchor, x, y, reachLimit }: {
+		readonly nodeId: string;
+		readonly anchor: BaseHalfCanvasAnchor;
+		readonly x: number;
+		readonly y: number;
+		readonly reachLimit: number;
+	}): ReactElement {
+		const setSnapped = vendor.useCallback((snapped: boolean) => {
+			const handle = connectHandleElement(nodeId, anchor);
+			handle?.classList.toggle('snapped', snapped);
+			// The node class shows all of the card's handles.
+			handle?.parentElement?.classList.toggle('basehalf-canvas-connect-near', snapped);
+		}, [nodeId, anchor]);
+		vendor.useEffect(() => () => setSnapped(false), [setSnapped]);
+		const style: IBaseHalfCanvasConnectCaptureStyle = { left: x, top: y, '--bh-connect-reach-limit': `${reachLimit}px` };
+		return h('div', {
+			// Not `nopan`: middle- and right-button drags still pan from here.
+			className: `basehalf-canvas-connect-capture ${anchor}`,
+			'data-node-id': nodeId,
+			'data-anchor': anchor,
+			style,
+			onPointerEnter: () => setSnapped(true),
+			onPointerLeave: () => setSnapped(false),
+			onMouseDown: (event: ReactMouseEvent<HTMLElement>) => {
+				if (event.button === 0) {
+					forwardToConnectHandle(event, nodeId, anchor);
+				}
+			},
+			onClick: (event: ReactMouseEvent<HTMLElement>) => forwardToConnectHandle(event, nodeId, anchor)
+		});
+	});
+
+	function ConnectCaptureLayer({ nodes, disabled }: { readonly nodes: readonly BaseHalfCanvasFlowNode[]; readonly disabled: boolean }): ReactElement {
+		if (disabled) {
+			return h(vendor.Fragment);
+		}
+		const captures: ReactNode[] = [];
+		for (const node of nodes) {
+			if (node.dragging || baseHalfCanvasSceneCardIsNoteEditing(node.data.card)) {
+				continue;
+			}
+			const bounds = {
+				x: node.position.x,
+				y: node.position.y,
+				width: node.measured?.width ?? node.width ?? node.data.card.width,
+				height: node.measured?.height ?? node.height ?? node.data.card.height
+			};
+			for (const anchor of EDGE_RECONNECT_ANCHORS) {
+				const point = baseHalfCanvasAnchorPoint(bounds, anchor);
+				captures.push(h(ConnectCapture, {
+					key: `${node.id}\0${anchor}`,
+					nodeId: node.id,
+					anchor,
+					x: point.x,
+					y: point.y,
+					reachLimit: baseHalfCanvasConnectHandleReachLimit(anchor, bounds)
+				}));
+			}
+		}
+		// A negative z-index places the layer below the viewport's edges and
+		// nodes: cards and edges keep the pointer over it.
+		return h(vendor.ViewportPortal, null,
+			h('div', { className: 'basehalf-canvas-connect-capture-layer' }, ...captures)
+		);
+	}
+
+	function ConnectionDropLine({ path, elementRef }: { readonly path: string; readonly elementRef: RefObject<SVGSVGElement | null> }): ReactElement {
+		return h(vendor.ViewportPortal, null,
+			h('svg', {
+				ref: elementRef,
+				className: 'basehalf-canvas-connection-drop-line',
+				width: 1,
+				height: 1,
+				style: { position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: 'none' }
+			}, h('path', { 'data-testid': 'canvas-connection-drop-line', d: path }))
 		);
 	}
 

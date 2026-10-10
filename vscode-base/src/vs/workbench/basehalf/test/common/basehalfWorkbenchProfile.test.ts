@@ -223,6 +223,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['breadcrumbs.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSave'], 'afterDelay');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSaveDelay'], 250);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['window.menuStyle'], 'custom');
 		assert.deepStrictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.exclude'], {
 			'.bh': true,
 			'AGENTS.md': true,

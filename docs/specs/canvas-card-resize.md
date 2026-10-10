@@ -69,7 +69,9 @@ whole rounded corner.
 - **Inside the outline**, the 8-pixel strip along the rounded edge stacks above
   the card and its content, so a pointer there resizes instead of moving the
   card or reaching the content. Deeper inside, the card keeps the pointer. The
-  card's connection handles stay above the strip.
+  card's connection handles stay above the strip. Their capture circles lie
+  below the card, so every resize target keeps the pointer over them
+  ([connection handles](canvas-connection-handles.md)).
 - **Outside the outline**, the band stacks below the card, so the card's
   caption keeps the pointer where the two overlap near the top corners. The
   inner strip reaches 1 screen pixel past the edge, so no seam opens between

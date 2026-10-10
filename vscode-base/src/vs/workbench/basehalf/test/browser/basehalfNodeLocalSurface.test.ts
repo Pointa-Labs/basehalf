@@ -44,10 +44,9 @@ import {
 	resolveBaseHalfNodeLocalSurfacePlacement,
 	resolveBaseHalfVideoComposerPopoverGeometryDismissReason,
 	resolveBaseHalfVideoComposerPopoverPlacement,
-	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
 } from '../../browser/basehalfNodeLocalSurface.js';
-import { IBaseHalfCanvasRecipeDescriptor } from '../../common/basehalfCanvasRecipes.js';
+import { IBaseHalfCanvasRecipeDescriptor, resolveBaseHalfNodeImplicitVideoRecipe } from '../../common/basehalfCanvasRecipes.js';
 import { IBaseHalfModelServiceDescriptor } from '../../common/basehalfModelServices.js';
 import {
 	beginBaseHalfNodeAttempt,

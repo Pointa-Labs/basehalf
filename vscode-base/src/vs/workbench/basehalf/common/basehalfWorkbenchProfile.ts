@@ -496,6 +496,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 		'AGENTS.md': true,
 		'CLAUDE.md': true
 	},
+	// Context menus are drawn in the window, as VS Code's Agents window does:
+	// they follow the product theme, and canvas state shown while a menu is
+	// open closes with it. A native menu is closed by the OS before the window
+	// is told.
+	'window.menuStyle': 'custom',
 	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,

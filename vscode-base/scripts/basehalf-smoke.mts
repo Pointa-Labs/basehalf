@@ -72,18 +72,16 @@ for (const dir of [logsPath, crashesPath, userDataDir, sharedDataDir, extensions
 	fs.mkdirSync(dir, { recursive: true });
 }
 
-// Playwright cannot inspect a native macOS context menu. The smoke profile is
-// disposable, so use VS Code's custom renderer here to exercise the same menu
-// registrations and commands without changing product settings. Welcome runs
-// also force the broader stock startup choice: Folder/Workspace must still
-// return to the canvas, while the empty New Window must keep BaseHalf Welcome.
+// Context menus come from BaseHalf's product default (`window.menuStyle:
+// custom`), not from this profile: every step that reads a menu also checks
+// that default, since Playwright cannot inspect a native macOS context menu.
+// Welcome runs force the broader stock startup choice: Folder/Workspace must
+// still return to the canvas, while the empty New Window must keep BaseHalf
+// Welcome.
 fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true });
 fs.writeFileSync(
 	path.join(userDataDir, 'User', 'settings.json'),
-	JSON.stringify({
-		'window.menuStyle': 'custom',
-		...(runsNewWindowWelcome ? { 'workbench.startupEditor': 'welcomePage' } : {})
-	}, null, '\t'),
+	JSON.stringify(runsNewWindowWelcome ? { 'workbench.startupEditor': 'welcomePage' } : {}, null, '\t'),
 	'utf8'
 );
 
@@ -269,6 +267,7 @@ try {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
+			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
 			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', AGENT_CREATED_CARD_PATH));
 			await step('canvas-undo-after-closing-note', () => assertCanvasUndoAfterClosingNote(page));
@@ -278,6 +277,7 @@ try {
 			await step('badge-editor-upstream-downstream', () => assertBadgeEditorUpstreamDownstream(page));
 			await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 			await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
+			await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 			await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
 			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 		console.log(JSON.stringify({
@@ -295,6 +295,7 @@ try {
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
 				'agent-creates-card',
+				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
 				'canvas-derived-edge-visible',
 				'canvas-undo-after-closing-note',
@@ -304,6 +305,7 @@ try {
 					'badge-editor-upstream-downstream',
 					'edge-delete-scoped-to-canvas',
 					'edge-delete-removes-reference',
+					'canvas-create-from-connection',
 					'canvas-zoom-controls',
 					'canvas-snap-guides'
 			]
@@ -327,6 +329,7 @@ try {
 
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
+		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
 		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', AGENT_CREATED_CARD_PATH));
 		await step('canvas-undo-after-closing-note', () => assertCanvasUndoAfterClosingNote(page));
@@ -336,6 +339,7 @@ try {
 		await step('badge-editor-upstream-downstream', () => assertBadgeEditorUpstreamDownstream(page));
 		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
 		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
+		await step('canvas-create-from-connection', () => assertCanvasCreateFromConnection(page));
 		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
@@ -457,6 +461,7 @@ try {
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
 			'agent-creates-card',
+			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
 			'canvas-derived-edge-visible',
 			'canvas-undo-after-closing-note',
@@ -466,6 +471,7 @@ try {
 			'badge-editor-upstream-downstream',
 			'edge-delete-scoped-to-canvas',
 			'edge-delete-removes-reference',
+			'canvas-create-from-connection',
 			'migration-moves-seeded-legacy-pair',
 			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
@@ -9038,54 +9044,20 @@ async function assertCanvasConnectIntoNote(page) {
 	await page.locator('.basehalf-canvas-cards').focus();
 	await page.keyboard.press('Escape');
 	await docs.click();
-	await docs.hover();
-	await page.waitForFunction(() => getComputedStyle(document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east')).pointerEvents !== 'none', null, { timeout: 10_000 });
-	const sourceBox = await docsEast.boundingBox();
-	if (!sourceBox) {
-		throw new Error('Missing React Flow connection geometry');
-	}
 
 	if (readWorkspaceFile(note) !== AGENT_CREATED_CARD_CONTENT) {
 		throw new Error(`${note} must start without frontmatter`);
 	}
 	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
-	const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
-	let connectionStarted = false;
-	let connectionStartState;
-	for (let attempt = 0; attempt < 3 && !connectionStarted; attempt++) {
-		await docs.hover();
-		await page.mouse.move(sourcePoint.x, sourcePoint.y);
-		await page.mouse.down();
-		// The connection gesture intentionally waits until the pointer crosses its
-		// drag threshold; pointer-down alone does not create a draft path.
-		await page.mouse.move(sourcePoint.x + 8 + attempt * 4, sourcePoint.y, { steps: 3 });
-		connectionStarted = await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 2_500 })
-			.then(() => true, () => false);
-		if (!connectionStarted) {
-			connectionStartState = await page.evaluate(({ x, y }) => {
-				const target = document.elementFromPoint(x, y);
-				const handle = document.querySelector('.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.east');
-				return {
-					targetClass: target?.getAttribute('class'),
-					handleClass: handle?.getAttribute('class'),
-					handlePointerEvents: handle ? getComputedStyle(handle).pointerEvents : undefined,
-					handleOpacity: handle ? getComputedStyle(handle).opacity : undefined
-				};
-			}, sourcePoint);
-			await page.mouse.up();
-			await page.keyboard.press('Escape');
-			await page.waitForTimeout(100);
-		}
-	}
-	if (!connectionStarted) {
-		throw new Error(`Connection gesture did not start from the visible handle: ${JSON.stringify(connectionStartState)}`);
-	}
-	const blank = await canvasReconnectBlankPoint(page, sourcePoint);
-	await page.mouse.move(blank.x, blank.y, { steps: 8 });
-	await page.mouse.up();
+	// A blank release opens the Create from Connection menu; Escape closes it
+	// and writes nothing.
+	const release = await dropCanvasConnectionOnBlank(page, 'docs');
+	const cancelAction = await connectionCreateMenuAction(page, release, 'Note');
+	await page.keyboard.press('Escape');
+	await cancelAction.waitFor({ state: 'hidden', timeout: 10_000 });
 	await page.waitForTimeout(150);
 	if (fs.readFileSync(canvasPath, 'utf8') !== beforeCancelCanvas || readWorkspaceFile(note) !== AGENT_CREATED_CARD_CONTENT) {
-		throw new Error('Expected blank connection release to cancel without changing canvas.yaml or the note');
+		throw new Error('Expected closing the Create from Connection menu to write nothing to canvas.yaml or the note');
 	}
 	const draftCountAfterCancel = await page.locator('.react-flow__connection-path').count();
 	if (draftCountAfterCancel !== 0) {
@@ -9100,7 +9072,8 @@ async function assertCanvasConnectIntoNote(page) {
 	if (!freshSourceBox || !freshTargetBox) {
 		throw new Error('Missing React Flow handles after cancelled connection');
 	}
-	await page.mouse.move(freshSourceBox.x + freshSourceBox.width / 2, freshSourceBox.y + freshSourceBox.height / 2);
+	// Inside the outline the card keeps the pointer; press the handle's outside half.
+	await page.mouse.move(freshSourceBox.x + freshSourceBox.width / 2 + 3, freshSourceBox.y + freshSourceBox.height / 2);
 	await page.mouse.down();
 	await page.mouse.move(freshTargetBox.x + freshTargetBox.width / 2, freshTargetBox.y + freshTargetBox.height / 2, { steps: 8 });
 	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
@@ -9118,6 +9091,253 @@ async function assertCanvasConnectIntoNote(page) {
 	const bhChanges = bhTreeChangesSince(bhBeforeConnect);
 	if (bhChanges.some(rel => rel !== '.bh/mirror/canvas.yaml')) {
 		throw new Error(`Connecting into a note may change only its bytes and the canvas.yaml anchor row, but .bh/ also changed: ${bhChanges.join(', ')}`);
+	}
+}
+
+// Connection handles capture the pointer within 24 screen pixels of their
+// anchor point at every zoom: coming from outside the card shows its handles
+// and snaps the near one to a 16-pixel connection-intent circle, and a drag
+// from there starts a connection. The released line stays drawn while the
+// Create from Connection menu is open, and Escape removes it.
+async function assertCanvasConnectionHandleCapture(page) {
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	for (const percent of [40, 100]) {
+		const controller = await openCanvasZoomMenu(page);
+		await controller.input.fill(`${percent}%`);
+		await controller.input.press('Enter');
+		await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+		const zoom = percent / 100;
+		await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, zoom, { timeout: 10_000 });
+		await centerCanvasCards(page, [docs]);
+		await page.mouse.move(5, 5);
+		// Pick a side whose outside is free: a neighbor's capture circle may cover it.
+		const target = await page.evaluate(() => {
+			const node = document.querySelector('.react-flow__node[data-id="docs"]');
+			const rect = node?.getBoundingClientRect();
+			if (!node || !rect) {
+				return undefined;
+			}
+			const points = {
+				east: { x: rect.right + 16, y: rect.top + rect.height / 2 },
+				south: { x: rect.left + rect.width / 2, y: rect.bottom + 16 },
+				west: { x: rect.left - 16, y: rect.top + rect.height / 2 },
+				north: { x: rect.left + rect.width / 2, y: rect.top - 16 }
+			};
+			for (const [anchor, point] of Object.entries(points)) {
+				const hit = document.elementFromPoint(point.x, point.y);
+				if (hit?.matches('.basehalf-canvas-connect-capture') && hit.getAttribute('data-node-id') === 'docs' && hit.getAttribute('data-anchor') === anchor) {
+					return { anchor, point };
+				}
+			}
+			return undefined;
+		});
+		if (!target) {
+			throw new Error(`No connection handle of docs captures a point 16 screen pixels outside its card at ${percent}%`);
+		}
+		await page.mouse.move(target.point.x, target.point.y, { steps: 4 });
+		const snapped = await page.waitForFunction(({ anchor, zoom }) => {
+			const node = document.querySelector('.react-flow__node[data-id="docs"]');
+			const handle = node?.querySelector(`:scope > .basehalf-canvas-card-connect-handle.${anchor}`);
+			const rest = node?.querySelector(`:scope > .basehalf-canvas-card-connect-handle:not(.${anchor})`);
+			if (!handle || !rest || !handle.classList.contains('snapped') || getComputedStyle(handle).opacity !== '1' || getComputedStyle(rest).opacity !== '1') {
+				return undefined;
+			}
+			const circle = element => {
+				const style = getComputedStyle(element, '::before');
+				return { diameter: parseFloat(style.width) * new DOMMatrixReadOnly(style.transform).a * zoom, background: style.backgroundColor };
+			};
+			const snap = circle(handle);
+			const other = circle(rest);
+			return Math.abs(snap.diameter - 16) <= 0.75 && Math.abs(other.diameter - 11) <= 0.75 && snap.background !== other.background
+				? { snap, other }
+				: undefined;
+		}, { anchor: target.anchor, zoom }, { timeout: 10_000 }).catch(() => undefined);
+		if (!snapped) {
+			throw new Error(`The ${target.anchor} handle of docs did not snap to a 16-pixel intent circle at ${percent}%`);
+		}
+		await page.mouse.down();
+		await page.mouse.move(target.point.x + (target.anchor === 'east' ? 12 : target.anchor === 'west' ? -12 : 0), target.point.y + (target.anchor === 'south' ? 12 : target.anchor === 'north' ? -12 : 0), { steps: 3 });
+		await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 5_000 });
+		const blank = await canvasReconnectBlankPoint(page, target.point);
+		await page.mouse.move(blank.x, blank.y, { steps: 8 });
+		await page.mouse.up();
+		const cancelAction = await connectionCreateMenuAction(page, blank, 'Note');
+		const dropLine = page.locator('[data-testid="canvas-connection-drop-line"]');
+		if (await dropLine.count() !== 1) {
+			throw new Error(`The released connection line must stay drawn while the menu is open at ${percent}%`);
+		}
+		const lineEnds = await dropLine.evaluate(path => {
+			const ctm = path.getScreenCTM();
+			const toScreen = point => {
+				const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+				return { x: screen.x, y: screen.y };
+			};
+			return ctm ? { start: toScreen(path.getPointAtLength(0)), end: toScreen(path.getPointAtLength(path.getTotalLength())) } : undefined;
+		});
+		const handleCenter = await page.evaluate(anchor => {
+			const rect = document.querySelector(`.react-flow__node[data-id="docs"] > .basehalf-canvas-card-connect-handle.${anchor}`)?.getBoundingClientRect();
+			return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined;
+		}, target.anchor);
+		if (!lineEnds || !handleCenter || pointDistance(lineEnds.end, blank) > 2 || pointDistance(lineEnds.start, handleCenter) > 2) {
+			throw new Error(`The kept connection line must run from the ${target.anchor} handle to the release point at ${percent}%: ${JSON.stringify({ lineEnds, handleCenter, release: blank })}`);
+		}
+		// Escape at one zoom, a click on empty canvas at the other.
+		const dismissPoint = percent === 100 ? await canvasReconnectBlankPoint(page, blank) : undefined;
+		await assertDropLineLeavesWithMenu(page, () => dismissPoint ? page.mouse.click(dismissPoint.x, dismissPoint.y) : page.keyboard.press('Escape'));
+		await cancelAction.waitFor({ state: 'hidden', timeout: 10_000 });
+		await dropLine.waitFor({ state: 'detached', timeout: 5_000 });
+	}
+}
+
+// Dismisses the Create from Connection menu and checks, on the first frame
+// without the menu, that the kept connection line is already gone.
+async function assertDropLineLeavesWithMenu(page, dismiss) {
+	const firstFrameWithoutMenu = page.evaluate(() => new Promise(resolve => {
+		const check = () => {
+			const action = document.querySelector('.context-view.monaco-menu-container .action-label[aria-label="Note"]');
+			if (action && action.getClientRects().length > 0) {
+				requestAnimationFrame(check);
+				return;
+			}
+			const line = document.querySelector('.basehalf-canvas-connection-drop-line');
+			resolve(!!line && getComputedStyle(line).display !== 'none');
+		};
+		requestAnimationFrame(check);
+	}));
+	await dismiss();
+	if (await firstFrameWithoutMenu) {
+		throw new Error('The kept connection line was still drawn on the first frame after the menu closed');
+	}
+}
+
+// Starts a connection drag from the east handle of `sourcePath`'s card and
+// returns the pointer position once React Flow draws the draft path.
+async function startCanvasConnectionDrag(page, sourcePath) {
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${sourcePath}"]`);
+	const handleSelector = `.react-flow__node[data-id="${sourcePath}"] > .basehalf-canvas-card-connect-handle.east`;
+	await card.hover();
+	await page.waitForFunction(selector => getComputedStyle(document.querySelector(selector)).pointerEvents !== 'none', handleSelector, { timeout: 10_000 });
+	const sourceBox = await page.locator(handleSelector).boundingBox();
+	if (!sourceBox) {
+		throw new Error('Missing React Flow connection geometry');
+	}
+	// Inside the outline the card keeps the pointer; press the handle's outside half.
+	const sourcePoint = { x: sourceBox.x + sourceBox.width / 2 + 3, y: sourceBox.y + sourceBox.height / 2 };
+	let connectionStartState;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		await card.hover();
+		await page.mouse.move(sourcePoint.x, sourcePoint.y);
+		await page.mouse.down();
+		// The connection gesture intentionally waits until the pointer crosses its
+		// drag threshold; pointer-down alone does not create a draft path.
+		await page.mouse.move(sourcePoint.x + 8 + attempt * 4, sourcePoint.y, { steps: 3 });
+		if (await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 2_500 }).then(() => true, () => false)) {
+			return sourcePoint;
+		}
+		connectionStartState = await page.evaluate(({ x, y, selector }) => {
+			const target = document.elementFromPoint(x, y);
+			const handle = document.querySelector(selector);
+			return {
+				targetClass: target?.getAttribute('class'),
+				handleClass: handle?.getAttribute('class'),
+				handlePointerEvents: handle ? getComputedStyle(handle).pointerEvents : undefined,
+				handleOpacity: handle ? getComputedStyle(handle).opacity : undefined
+			};
+		}, { ...sourcePoint, selector: handleSelector });
+		await page.mouse.up();
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(100);
+	}
+	throw new Error(`Connection gesture did not start from the visible handle: ${JSON.stringify(connectionStartState)}`);
+}
+
+// Drags a connection from `sourcePath` and releases it on empty canvas.
+async function dropCanvasConnectionOnBlank(page, sourcePath) {
+	const sourcePoint = await startCanvasConnectionDrag(page, sourcePath);
+	const blank = await canvasReconnectBlankPoint(page, sourcePoint);
+	await page.mouse.move(blank.x, blank.y, { steps: 8 });
+	await page.mouse.up();
+	return blank;
+}
+
+// The Create from Connection menu item `label`, after checking the menu opened
+// at the release point and not as Quick Input.
+async function connectionCreateMenuAction(page, release, label) {
+	const action = page.locator(`.context-view.monaco-menu-container .action-label[aria-label="${label}"]`).last();
+	await action.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.quick-input-widget').isVisible()) {
+		throw new Error('Create from Connection opened Quick Input instead of the canvas create menu');
+	}
+	const menu = await page.locator('.context-view.monaco-menu-container').last().boundingBox();
+	if (!menu) {
+		throw new Error('Missing Create from Connection menu geometry');
+	}
+	const nearest = {
+		x: Math.min(Math.max(release.x, menu.x), menu.x + menu.width),
+		y: Math.min(Math.max(release.y, menu.y), menu.y + menu.height)
+	};
+	if (pointDistance(nearest, release) > 32) {
+		throw new Error(`Create from Connection menu opened at ${JSON.stringify(menu)}, away from the release point ${JSON.stringify(release)}`);
+	}
+	// VS Code attaches menu mouse-up listeners after a 100 ms guard against the
+	// pointer event that opened the menu.
+	await page.waitForTimeout(150);
+	return action;
+}
+
+// Create from Connection: each item creates a node whose first bytes list the
+// source as upstream (D37), draws the edge, and leaves the source unchanged. A
+// created .bhnode, its card, and its edge go away in one canvas undo step.
+async function assertCanvasCreateFromConnection(page) {
+	const source = 'README.md';
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const notePath = path.join(workspacePath, 'untitled.md');
+	if (fs.existsSync(notePath)) {
+		throw new Error('Create from Connection needs a canvas without untitled.md');
+	}
+	const readme = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${source}"]`);
+	await frameCanvasCardsForConnection(page, [readme]);
+	await page.locator('.basehalf-canvas-cards').focus();
+	await page.keyboard.press('Escape');
+	const sourceBefore = readWorkspaceFile(source);
+
+	// A connected node takes the first default name with no file or canvas row,
+	// so an earlier step's leftover row can move it to `image-N.bhnode`.
+	const imageNodes = () => fs.readdirSync(workspacePath).filter(name => /^image(-\d+)?\.bhnode$/.test(name));
+	const imagesBefore = new Set(imageNodes());
+	await (await connectionCreateMenuAction(page, await dropCanvasConnectionOnBlank(page, source), 'Image')).click();
+	let image;
+	await waitUntil(() => (image = imageNodes().find(name => !imagesBefore.has(name))) !== undefined, 'Create from Connection to create an image node');
+	const imagePath = path.join(workspacePath, image);
+	const document = JSON.parse(fs.readFileSync(imagePath, 'utf8'));
+	if (document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== JSON.stringify([source]) || document.recipe !== undefined) {
+		throw new Error(`Create from Connection created the wrong Image document: ${JSON.stringify(document)}`);
+	}
+	await assertCanvasEdgeVisible(page, source, image);
+	// The new edge replaces the line kept while the menu was open.
+	await page.locator('[data-testid="canvas-connection-drop-line"]').waitFor({ state: 'detached', timeout: 5_000 });
+	await waitForCanvasCardSelection(page, image);
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8').includes(`to: "${image}"`), 'canvas.yaml to remember the anchors of the created edge');
+	await readme.focus();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => !fs.existsSync(imagePath), `one canvas undo to remove the created ${image}`, 15_000);
+	await assertCanvasEdgeGone(page, source, image);
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${image}"]`).waitFor({ state: 'detached', timeout: 10_000 });
+
+	await (await connectionCreateMenuAction(page, await dropCanvasConnectionOnBlank(page, source), 'Note')).click();
+	await waitUntil(() => fs.existsSync(notePath), 'Create from Connection to create untitled.md');
+	const noteText = readWorkspaceFile('untitled.md');
+	if (noteText !== `---\nupstream:\n  - ${source}\n---\n`) {
+		throw new Error(`Create from Connection note must start with only its upstream frontmatter, got ${JSON.stringify(noteText)}`);
+	}
+	const editor = await waitForCanvasNoteInlineEditor(page, 'untitled.md');
+	await assertCanvasEdgeVisible(page, source, 'untitled.md');
+	await page.keyboard.press('Escape');
+	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	fs.rmSync(notePath, { force: true });
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="untitled.md"]').waitFor({ state: 'detached', timeout: 10_000 });
+	if (readWorkspaceFile(source) !== sourceBefore) {
+		throw new Error('Create from Connection changed the source card instead of only the new node');
 	}
 }
 

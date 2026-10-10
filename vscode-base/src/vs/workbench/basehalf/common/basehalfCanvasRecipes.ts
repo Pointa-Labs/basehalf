@@ -149,9 +149,12 @@ export interface IBaseHalfCanvasRecipeDescriptor extends Omit<IBaseHalfCanvasRec
 	readonly parameters: readonly IBaseHalfCanvasRecipeParameterDefinition[];
 }
 
-export interface IBaseHalfCanvasConnectedRecipeChoice {
-	readonly recipe: IBaseHalfCanvasRecipeDescriptor;
-	readonly primaryOutput: IBaseHalfCanvasRecipeOutputDefinition;
+/** A `.bhnode` kind that Create from Connection offers for one source. When
+ *  the kind has an implicit recipe, `slots` are the roles of that recipe that
+ *  accept the source; otherwise the node is created with no recipe. */
+export interface IBaseHalfCanvasConnectionNodeTarget {
+	readonly kind: BaseHalfNodeKind;
+	readonly recipe?: IBaseHalfCanvasRecipeDescriptor;
 	readonly slots: readonly IBaseHalfCanvasRecipeInputDefinition[];
 }
 
@@ -240,19 +243,39 @@ export class BaseHalfCanvasRecipeRegistryService extends Disposable implements I
 	}
 }
 
-/** Operations that can consume one direct source and produce one stable result
- *  node. Callers still ask the user to choose both the operation and, when
- *  ambiguous, the target-owned input role before creating anything. */
-export function getBaseHalfCanvasConnectedRecipeChoices(
+/** The order in which Create from Connection lists `.bhnode` kinds. */
+const CONNECTION_NODE_TARGET_KINDS: readonly BaseHalfNodeKind[] = ['image', 'video', 'audio', 'file', 'pdf', 'presentation'];
+
+/** Resolves the only installed video generator for an unconfigured Video Draft.
+ * Zero or multiple candidates remain unresolved so the composer never guesses. */
+export function resolveBaseHalfNodeImplicitVideoRecipe(
+	document: Pick<IBaseHalfNodeDocument, 'kind' | 'recipe'>,
+	recipes: readonly IBaseHalfCanvasRecipeDescriptor[]
+): IBaseHalfCanvasRecipeDescriptor | undefined {
+	if (document.kind !== 'video' || document.recipe) {
+		return undefined;
+	}
+	const candidates = recipes.filter(recipe => recipe.modelCapability === 'video'
+		&& baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind));
+	return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/** The `.bhnode` kinds a connection from `sourceKind` content can create. A
+ *  kind with an implicit recipe is offered only when one of its roles accepts
+ *  the source, because an unbound entry would block its run; the caller asks
+ *  for the role when several accept it. Every other kind takes the source as
+ *  an unbound entry, as a connect into a node without a recipe does. */
+export function getBaseHalfCanvasConnectionNodeTargets(
 	recipes: readonly IBaseHalfCanvasRecipeDescriptor[],
 	sourceKind: BaseHalfCanvasContentKind
-): readonly IBaseHalfCanvasConnectedRecipeChoice[] {
-	return Object.freeze(recipes.flatMap(recipe => {
-		const primaryOutput = recipe.outputs.find(output => output.primary === true);
+): readonly IBaseHalfCanvasConnectionNodeTarget[] {
+	return Object.freeze(CONNECTION_NODE_TARGET_KINDS.flatMap((kind): IBaseHalfCanvasConnectionNodeTarget[] => {
+		const recipe = resolveBaseHalfNodeImplicitVideoRecipe({ kind, recipe: undefined }, recipes);
+		if (!recipe) {
+			return [Object.freeze({ kind, slots: Object.freeze([]) })];
+		}
 		const slots = recipe.inputs.filter(input => input.accepts.includes(sourceKind) && input.maxItems > 0);
-		return primaryOutput && slots.length > 0
-			? [Object.freeze({ recipe, primaryOutput, slots: Object.freeze(slots) })]
-			: [];
+		return slots.length > 0 ? [Object.freeze({ kind, recipe, slots: Object.freeze(slots) })] : [];
 	}));
 }
 
@@ -270,30 +293,40 @@ export function getBaseHalfCanvasRecipeDefaultParameters(
 	return Object.freeze(result);
 }
 
-/** Builds the initial local document after the user has chosen one compatible
- *  operation and input role. The stable identity is supplied once and no model
- *  selection or non-default parameter is inferred from the connection. The
- *  source is listed in `upstream` and bound in the same initial document
- *  (Create from Connection), so no second write connects it. */
+/** Builds the initial document of a node created from a connection. The
+ *  source is listed in `upstream` and, when the target has a recipe, bound to
+ *  the chosen role in the same initial document (Create from Connection), so
+ *  no second write connects it. No model selection or non-default parameter is
+ *  inferred from the connection. */
 export function createBaseHalfCanvasConnectedNodeDocument(
-	recipe: IBaseHalfCanvasRecipeDescriptor,
+	target: IBaseHalfCanvasConnectionNodeTarget,
 	nodeId: string,
+	title: string,
 	sourcePath: string,
 	sourceKind: BaseHalfCanvasContentKind,
-	slotId: string
+	slotId: string | undefined
 ): IBaseHalfNodeDocument {
-	const primaryOutput = recipe.outputs.find(output => output.primary === true);
-	if (!primaryOutput) {
-		throw new Error(`Recipe '${recipe.label}' has no primary output.`);
+	const recipe = target.recipe;
+	if (!recipe) {
+		return createBaseHalfNodeDocument({
+			id: nodeId,
+			kind: target.kind,
+			title,
+			role: getBaseHalfCanvasDefaultNodeRole(target.kind),
+			upstream: [sourcePath]
+		});
 	}
-	if (!recipe.inputs.some(input => input.id === slotId && input.maxItems > 0 && input.accepts.includes(sourceKind))) {
-		throw new Error(`Recipe '${recipe.label}' cannot bind input role '${slotId}'.`);
+	if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, target.kind)) {
+		throw new Error(`Recipe '${recipe.label}' does not produce ${target.kind} content.`);
+	}
+	if (!slotId || !recipe.inputs.some(input => input.id === slotId && input.maxItems > 0 && input.accepts.includes(sourceKind))) {
+		throw new Error(`Recipe '${recipe.label}' cannot bind input role '${slotId ?? ''}'.`);
 	}
 	return createBaseHalfNodeDocument({
 		id: nodeId,
-		kind: primaryOutput.kind,
-		title: recipe.label,
-		role: getBaseHalfCanvasDefaultNodeRole(primaryOutput.kind),
+		kind: target.kind,
+		title,
+		role: getBaseHalfCanvasDefaultNodeRole(target.kind),
 		upstream: [sourcePath],
 		recipe: {
 			recipeId: recipe.id,

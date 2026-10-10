@@ -41,6 +41,12 @@ path. Their history remains available for archaeology.
   and Ghostty wheel semantics. Do not reintroduce the `vscode` identity or
   xterm.js's one-report-per-event wheel input
   ([Agent Area terminal](../specs/agent-area-terminal.md), D39).
+- Context menus are drawn in the window by default (`window.menuStyle:
+  custom`), as VS Code's Agents window does, on every platform. They follow
+  the product theme, and canvas state shown while a menu is open, such as the
+  Create from Connection line, closes in the same frame as the menu. Users can
+  switch back to native menus in settings; a native menu is closed by the OS
+  before the window is told, so such state then lags behind it.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 

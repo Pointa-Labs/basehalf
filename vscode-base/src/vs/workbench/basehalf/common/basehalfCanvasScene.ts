@@ -224,20 +224,65 @@ export interface IBaseHalfCanvasSceneConnectionDrop {
 	readonly from: string;
 	readonly fromKind: BaseHalfCanvasItemKind;
 	readonly fromAnchor: IBaseHalfCanvasEdge['from_anchor'];
+	/** The release point in canvas coordinates. */
 	readonly position: { readonly x: number; readonly y: number };
+	/** The release point in client coordinates, where the create menu opens. */
+	readonly anchor: { readonly x: number; readonly y: number };
 }
 
 /** Resolves the only connection completion that may open a create menu. A
  *  cancelled gesture or any gesture ending on a node has no persistent intent. */
 export function resolveBaseHalfCanvasSceneConnectionDrop(
-	source: Omit<IBaseHalfCanvasSceneConnectionDrop, 'position'> | undefined,
+	source: Omit<IBaseHalfCanvasSceneConnectionDrop, 'position' | 'anchor'> | undefined,
 	targetPresent: boolean,
-	position: { readonly x: number; readonly y: number }
+	position: { readonly x: number; readonly y: number },
+	anchor: { readonly x: number; readonly y: number }
 ): IBaseHalfCanvasSceneConnectionDrop | undefined {
 	if (!source || targetPresent) {
 		return undefined;
 	}
-	return Object.freeze({ ...source, position: Object.freeze({ x: position.x, y: position.y }) });
+	return Object.freeze({
+		...source,
+		position: Object.freeze({ x: position.x, y: position.y }),
+		anchor: Object.freeze({ x: anchor.x, y: anchor.y })
+	});
+}
+
+/** The side of a target card that faces a source anchor. */
+export function baseHalfCanvasOppositeAnchor(anchor: IBaseHalfCanvasEdge['from_anchor']): IBaseHalfCanvasEdge['to_anchor'] {
+	switch (anchor) {
+		case 'north': return 'south';
+		case 'east': return 'west';
+		case 'south': return 'north';
+		case 'west': return 'east';
+	}
+}
+
+/** The largest capture-circle radius of a connection handle, in flow pixels:
+ *  it stays on the straight part of its side, clear of the corner resize
+ *  bands. The 24-screen-pixel target and the visible-circle floor are applied
+ *  in CSS at the live zoom. */
+export function baseHalfCanvasConnectHandleReachLimit(
+	anchor: IBaseHalfCanvasEdge['from_anchor'],
+	size: { readonly width: number; readonly height: number }
+): number {
+	const along = anchor === 'north' || anchor === 'south' ? size.width : size.height;
+	return Math.max(0, along / 2 - BASEHALF_CANVAS_CARD_CORNER_RADIUS);
+}
+
+/** The top-left corner of a card created from a connection drop: the side the
+ *  edge enters is centered on the release point. */
+export function baseHalfCanvasConnectionTargetOrigin(
+	position: { readonly x: number; readonly y: number },
+	toAnchor: IBaseHalfCanvasEdge['to_anchor'],
+	size: { readonly width: number; readonly height: number }
+): { readonly x: number; readonly y: number } {
+	switch (toAnchor) {
+		case 'west': return { x: position.x, y: position.y - size.height / 2 };
+		case 'east': return { x: position.x - size.width, y: position.y - size.height / 2 };
+		case 'north': return { x: position.x - size.width / 2, y: position.y };
+		case 'south': return { x: position.x - size.width / 2, y: position.y - size.height };
+	}
 }
 
 export interface IBaseHalfCanvasSceneReconnect {
@@ -290,7 +335,10 @@ export interface IBaseHalfCanvasSceneFitOptions {
 export interface IBaseHalfCanvasSceneDelegate {
 	commitGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void>;
 	connect(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void>;
-	createFromConnection(sceneKey: string, structuralEpoch: number, drop: IBaseHalfCanvasSceneConnectionDrop): Promise<void>;
+	/** Opens the Create from Connection menu at the drop's release point.
+	 *  Resolves when the menu has closed: `true` once a chosen node was
+	 *  created, `false` when the menu was dismissed or nothing was created. */
+	showConnectionCreateMenu(sceneKey: string, structuralEpoch: number, drop: IBaseHalfCanvasSceneConnectionDrop): Promise<boolean>;
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;

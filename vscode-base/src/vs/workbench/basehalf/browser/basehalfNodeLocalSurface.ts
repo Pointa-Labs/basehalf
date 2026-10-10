@@ -752,20 +752,6 @@ export function createBaseHalfNodeModelSelection(
 	});
 }
 
-/** Resolves the only installed video generator for an unconfigured Video Draft.
- * Zero or multiple candidates remain unresolved so the composer never guesses. */
-export function resolveBaseHalfNodeImplicitVideoRecipe(
-	document: Pick<IBaseHalfNodeDocument, 'kind' | 'recipe'>,
-	recipes: readonly IBaseHalfCanvasRecipeDescriptor[]
-): IBaseHalfCanvasRecipeDescriptor | undefined {
-	if (document.kind !== 'video' || document.recipe) {
-		return undefined;
-	}
-	const candidates = recipes.filter(recipe => recipe.modelCapability === 'video'
-		&& baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind));
-	return candidates.length === 1 ? candidates[0] : undefined;
-}
-
 /** Keeps a temporarily unavailable plugin recipe intact until the user
  * explicitly chooses the no-recipe option. */
 export function resolveBaseHalfNodeRecipeDraft(

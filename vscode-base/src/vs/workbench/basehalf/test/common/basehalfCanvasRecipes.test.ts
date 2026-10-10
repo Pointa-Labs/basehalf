@@ -14,7 +14,7 @@ import {
 	BaseHalfCanvasRecipeRuntimeService,
 	compensateBaseHalfCanvasConnectedNodeCreate,
 	createBaseHalfCanvasConnectedNodeDocument,
-	getBaseHalfCanvasConnectedRecipeChoices,
+	getBaseHalfCanvasConnectionNodeTargets,
 	getBaseHalfCanvasDefaultNodeRole,
 	IBaseHalfCanvasRecipeContribution,
 	IBaseHalfCanvasRecipeExecutionRequest,
@@ -471,54 +471,88 @@ suite('BaseHalfCanvasRecipes', () => {
 		]), /contiguous from zero/);
 	});
 
-	test('offers only installed operations with a compatible direct-input role and primary result', () => {
-		const compatible = validateBaseHalfCanvasRecipeContribution('studio.workflow', recipeContribution());
-		const imageOnly = validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+	test('offers every node kind and binds a connection only through the implicit video recipe', () => {
+		const videoRecipe = validateBaseHalfCanvasRecipeContribution('studio.workflow', connectionVideoRecipeContribution());
+		const imagePlanning = validateBaseHalfCanvasRecipeContribution('studio.workflow', {
 			...recipeContribution(),
-			id: 'studio.workflow.image-only',
-			inputs: [{ id: 'image', label: 'Image', accepts: ['image'], minItems: 1, maxItems: 1 }]
+			id: 'studio.workflow.storyboard',
+			outputs: [{ id: 'primary', kind: 'image', extensions: ['.svg'], minItems: 1, maxItems: 1, primary: true }]
 		});
-		const missingPrimary = {
-			...compatible,
-			id: 'studio.workflow.invalid',
-			outputs: compatible.outputs.map(output => ({ ...output, primary: false }))
-		};
-		const source = [compatible, imageOnly, missingPrimary] as const;
+		const secondVideoRecipe = validateBaseHalfCanvasRecipeContribution('studio.workflow', {
+			...connectionVideoRecipeContribution(),
+			id: 'studio.workflow.other-video'
+		});
+		const summarize = (targets: ReturnType<typeof getBaseHalfCanvasConnectionNodeTargets>) => targets.map(target => ({
+			kind: target.kind,
+			recipe: target.recipe?.id,
+			slots: target.slots.map(slot => slot.id)
+		}));
+		const source = [imagePlanning, videoRecipe] as const;
 		const before = JSON.stringify(source);
+		const fromImage = getBaseHalfCanvasConnectionNodeTargets(source, 'image');
 
-		const choices = getBaseHalfCanvasConnectedRecipeChoices(source, 'text');
-
-		assert.deepStrictEqual(choices.map(choice => choice.recipe.id), [compatible.id]);
-		assert.deepStrictEqual(choices[0].slots.map(slot => slot.id), ['context']);
-		assert.strictEqual(choices[0].primaryOutput.kind, 'video');
-		assert.strictEqual(Object.isFrozen(choices), true);
-		assert.strictEqual(JSON.stringify(source), before, 'planning a cancelled picker must not mutate recipe state');
+		assert.deepStrictEqual({
+			fromImage: summarize(fromImage),
+			fromText: summarize(getBaseHalfCanvasConnectionNodeTargets(source, 'text')).map(target => target.kind),
+			twoVideoRecipes: summarize(getBaseHalfCanvasConnectionNodeTargets([videoRecipe, secondVideoRecipe], 'text')).find(target => target.kind === 'video')
+		}, {
+			fromImage: [
+				{ kind: 'image', recipe: undefined, slots: [] },
+				{ kind: 'video', recipe: videoRecipe.id, slots: ['reference', 'first-frame'] },
+				{ kind: 'audio', recipe: undefined, slots: [] },
+				{ kind: 'file', recipe: undefined, slots: [] },
+				{ kind: 'pdf', recipe: undefined, slots: [] },
+				{ kind: 'presentation', recipe: undefined, slots: [] }
+			],
+			fromText: ['image', 'audio', 'file', 'pdf', 'presentation'],
+			twoVideoRecipes: { kind: 'video', recipe: undefined, slots: [] }
+		});
+		assert.strictEqual(Object.isFrozen(fromImage), true);
+		assert.strictEqual(JSON.stringify(source), before, 'planning a cancelled menu must not mutate recipe state');
 	});
 
-	test('creates one stable result identity with only defaults and the selected direct binding', () => {
-		const recipe = validateBaseHalfCanvasRecipeContribution('studio.workflow', {
-			...recipeContribution(),
-			parameters: [
-				...recipeContribution().parameters!,
-				{ id: 'prompt', label: 'Prompt', type: 'multiline', required: true }
-			]
-		});
+	test('creates a connected node that lists its source and binds it only to the chosen role', () => {
+		const videoRecipe = validateBaseHalfCanvasRecipeContribution('studio.workflow', connectionVideoRecipeContribution());
+		const video = getBaseHalfCanvasConnectionNodeTargets([videoRecipe], 'image').find(target => target.kind === 'video')!;
+		const image = getBaseHalfCanvasConnectionNodeTargets([videoRecipe], 'text').find(target => target.kind === 'image')!;
 
-		const document = createBaseHalfCanvasConnectedNodeDocument(recipe, baseHalfNodeTestId(1), 'brief.md', 'text', 'context');
+		const bound = createBaseHalfCanvasConnectedNodeDocument(video, baseHalfNodeTestId(1), 'Video', 'frame.png', 'image', 'first-frame');
+		const unbound = createBaseHalfCanvasConnectedNodeDocument(image, baseHalfNodeTestId(2), 'Image', 'brief.md', 'text', undefined);
 
-		assert.strictEqual(document.id, baseHalfNodeTestId(1));
-		assert.strictEqual(document.kind, 'video');
-		assert.strictEqual(document.role, 'Video clip');
-		assert.strictEqual(document.recipe?.recipeId, recipe.id);
-		assert.deepStrictEqual(document.recipe?.parameters, { seconds: 5 });
-		assert.deepStrictEqual(document.recipe?.inputBindings, [{ sourcePath: 'brief.md', slot: 'context', order: 0 }]);
-		assert.deepStrictEqual(document.upstream, ['brief.md']);
-		assert.strictEqual(document.recipe?.modelServiceId, undefined);
-		assert.strictEqual(document.recipe?.modelId, undefined);
-		assert.deepStrictEqual(document.attempts, []);
-		assert.strictEqual(document.result, undefined);
+		assert.deepStrictEqual([bound, unbound].map(document => ({
+			id: document.id,
+			kind: document.kind,
+			title: document.title,
+			role: document.role,
+			upstream: document.upstream,
+			recipe: document.recipe,
+			attempts: document.attempts,
+			result: document.result
+		})), [{
+			id: baseHalfNodeTestId(1),
+			kind: 'video',
+			title: 'Video',
+			role: 'Video clip',
+			upstream: ['frame.png'],
+			recipe: { recipeId: videoRecipe.id, parameters: {}, inputBindings: [{ sourcePath: 'frame.png', slot: 'first-frame', order: 0 }] },
+			attempts: [],
+			result: undefined
+		}, {
+			id: baseHalfNodeTestId(2),
+			kind: 'image',
+			title: 'Image',
+			role: 'Image result',
+			upstream: ['brief.md'],
+			recipe: undefined,
+			attempts: [],
+			result: undefined
+		}]);
 		assert.throws(
-			() => createBaseHalfCanvasConnectedNodeDocument(recipe, 'other-id', 'sound.wav', 'audio', 'context'),
+			() => createBaseHalfCanvasConnectedNodeDocument(video, baseHalfNodeTestId(3), 'Video', 'clip.mp4', 'video', 'first-frame'),
+			/cannot bind input role/
+		);
+		assert.throws(
+			() => createBaseHalfCanvasConnectedNodeDocument(video, baseHalfNodeTestId(3), 'Video', 'frame.png', 'image', undefined),
 			/cannot bind input role/
 		);
 	});
@@ -570,6 +604,19 @@ suite('BaseHalfCanvasRecipes', () => {
 		});
 	});
 });
+
+function connectionVideoRecipeContribution(): IBaseHalfCanvasRecipeContribution {
+	return {
+		...recipeContribution(),
+		modelCapability: 'video',
+		videoModelCatalogId: 'studio.workflow.video-models',
+		inputs: [
+			{ id: 'reference', label: 'Reference Media', accepts: ['image', 'video'], minItems: 0, maxItems: 8 },
+			{ id: 'first-frame', label: 'First Frame', accepts: ['image'], minItems: 0, maxItems: 1 }
+		],
+		parameters: []
+	};
+}
 
 function recipeContribution(): IBaseHalfCanvasRecipeContribution {
 	return {

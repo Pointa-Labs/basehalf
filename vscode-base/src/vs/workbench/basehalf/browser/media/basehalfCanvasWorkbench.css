@@ -855,6 +855,14 @@
 	stroke-width: 2px;
 }
 
+/* The released connection line kept while Create from Connection is open:
+ * the same stroke as React Flow's drag line. */
+.monaco-workbench .basehalf-canvas-connection-drop-line path {
+	fill: none;
+	stroke: var(--xy-connectionline-stroke, var(--xy-connectionline-stroke-default));
+	stroke-width: var(--xy-connectionline-stroke-width, var(--xy-connectionline-stroke-width-default));
+}
+
 .monaco-workbench .basehalf-canvas-edge-hit {
 	fill: none;
 	stroke: transparent;
@@ -4246,6 +4254,13 @@ body.basehalf-canvas-edge-reconnecting * {
 	opacity: 0.75;
 }
 
+/* Connection handle sizes are screen pixels: divide by the live canvas zoom. */
+.monaco-workbench .basehalf-canvas-react-island {
+	--bh-connect-zoom: var(--basehalf-canvas-zoom, 1);
+	--bh-connect-size: calc(11px / var(--bh-connect-zoom));
+	--bh-connect-border: calc(2px / var(--bh-connect-zoom));
+}
+
 .monaco-workbench .basehalf-canvas-react-island .basehalf-canvas-card-connect-handle {
 	--bh-connect-scale: 1;
 
@@ -4270,15 +4285,91 @@ body.basehalf-canvas-edge-reconnecting * {
 	position: absolute;
 	left: 50%;
 	top: 50%;
-	width: 11px;
-	height: 11px;
+	width: var(--bh-connect-size);
+	height: var(--bh-connect-size);
 	box-sizing: border-box;
-	border: 2px solid var(--bh-card-text-tertiary);
+	border: var(--bh-connect-border) solid var(--bh-card-text-tertiary);
 	border-radius: 50%;
 	background: var(--bh-card-surface);
 	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
-	pointer-events: inherit;
+	pointer-events: none;
 	transition: transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
+}
+
+/* The handle's own hit target: the outside half of the snapped circle. It
+ * stays above edges, so a side that already has an edge can start another;
+ * inside the outline the card's content keeps the pointer. */
+.monaco-workbench .basehalf-canvas-card-connect-handle::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: calc(16px / var(--bh-connect-zoom));
+	height: calc(16px / var(--bh-connect-zoom));
+	border-radius: 50%;
+	transform: translate(-50%, -50%);
+	pointer-events: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.north::after { clip-path: inset(0 0 50% 0); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.east::after { clip-path: inset(0 0 0 50%); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.south::after { clip-path: inset(50% 0 0 0); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.west::after { clip-path: inset(0 50% 0 0); }
+
+/* Capture circles lie below the viewport's edges and nodes (negative z-index
+ * in the viewport's stacking context): cards and edges keep the pointer over
+ * them. The scene sets --bh-connect-reach-limit (flow pixels) so a circle stays
+ * on the straight part of its side. */
+.monaco-workbench .basehalf-canvas-connect-capture-layer {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: -1;
+}
+
+.monaco-workbench .basehalf-canvas-connect-capture {
+	--bh-connect-reach: max(
+		calc(var(--bh-connect-size) / 2),
+		min(calc(24px / var(--bh-connect-zoom)), var(--bh-connect-reach-limit, 9999px))
+	);
+
+	position: absolute;
+	width: calc(2 * var(--bh-connect-reach));
+	height: calc(2 * var(--bh-connect-reach));
+	border-radius: 50%;
+	transform: translate(-50%, -50%);
+	pointer-events: auto;
+	cursor: crosshair;
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-card-resizing="true"] .basehalf-canvas-connect-capture {
+	pointer-events: none;
+}
+
+/* A pointer in a capture circle shows the card's handles and snaps that one. */
+.monaco-workbench .react-flow__node.basehalf-canvas-connect-near > .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-card-connect-handle.snapped {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:hover,
+.monaco-workbench .basehalf-canvas-card-connect-handle.snapped {
+	/* 16 screen pixels across. */
+	--bh-connect-scale: calc(16 / 11);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:hover::before,
+.monaco-workbench .basehalf-canvas-card-connect-handle.snapped::before {
+	border-color: var(--bh-canvas-intent-soft);
+	background: var(--bh-canvas-intent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-card-connect-handle,
+	.monaco-workbench .basehalf-canvas-card-connect-handle::before {
+		transition: none;
+	}
 }
 
 .monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
@@ -4309,7 +4400,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
 .monaco-workbench .basehalf-canvas-card-connect-handle.valid,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connection-target {
-	--bh-connect-scale: 1.15;
+	--bh-connect-scale: calc(16 / 11);
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom::before,

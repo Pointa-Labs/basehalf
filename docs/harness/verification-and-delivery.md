@@ -42,8 +42,8 @@ repository root or `vscode-base/` as a product workspace.
 
 The smoke currently covers canvas startup, hidden Open Editors, Quick Open,
 Quick Text Search, folder routing, the reference-graph flows (connect,
-disconnect, both reconnects, canvas undo after closing a note, the badge
-editor's Upstream and Downstream, PDF branch, rename refactor, and migration of
+disconnect, both reconnects, canvas undo after closing a note, Create from
+Connection, the badge editor's Upstream and Downstream, PDF branch, rename refactor, and migration of
 a seeded legacy pair), legacy workspace cleanup, the rich reveal highlight,
 card resizing with its rounded corner targets and indicator, and the video node
 flows. Extend its acceptance coverage when a

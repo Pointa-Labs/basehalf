@@ -281,6 +281,19 @@ class ResourceEditStack {
 		}
 	}
 
+	/**
+	 * Drops the future elements of one source. Used when a new element of that
+	 * source is pushed, so every stack the source touched forgets its undone
+	 * branch, not only the stacks of the new element.
+	 */
+	public removeFutureElementsWithSource(sourceId: number): void {
+		const future = this._future.filter(element => element.sourceId !== sourceId);
+		if (future.length !== this._future.length) {
+			this._future = future;
+			this.versionId++;
+		}
+	}
+
 	public pushElement(element: StackElement): void {
 		// remove the future
 		for (const futureElement of this._future) {
@@ -535,6 +548,14 @@ export class UndoRedoService implements IUndoRedoService {
 	}
 
 	private _pushElement(element: StackElement): void {
+		if (element.sourceId !== 0) {
+			// A source keeps one linear history: redo by source picks the oldest
+			// future element of that source in any stack, so an element undone
+			// before this push must not stay redoable in stacks this push misses.
+			for (const editStack of this._editStacks.values()) {
+				editStack.removeFutureElementsWithSource(element.sourceId);
+			}
+		}
 		for (let i = 0, len = element.strResources.length; i < len; i++) {
 			const resourceLabel = element.resourceLabels[i];
 			const strResource = element.strResources[i];

@@ -18,7 +18,7 @@ import { VSBuffer } from '../../../base/common/buffer.js';
 import { safeIntl } from '../../../base/common/date.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { equals as objectsEqual, stableStringify } from '../../../base/common/objects.js';
-import { toAction } from '../../../base/common/actions.js';
+import { IAction, Separator, SubmenuAction, toAction } from '../../../base/common/actions.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { FileAccess } from '../../../base/common/network.js';
@@ -76,7 +76,7 @@ import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../common/basehalfReferenceEdit.js';
 import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES, baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState, IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from '../common/basehalfReferenceIndex.js';
-import { baseHalfUpstreamStoreKind } from '../common/basehalfReferenceStore.js';
+import { baseHalfUpstreamStoreKind, planBaseHalfMarkdownUpstreamEdit } from '../common/basehalfReferenceStore.js';
 import { BaseHalfBadgeConnectionsFocusTarget, BaseHalfUpstreamActions, BaseHalfUpstreamBindingChoice, IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from './basehalfUpstreamActions.js';
 import { IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
 import {
@@ -140,11 +140,13 @@ import {
 	baseHalfCanvasRecipeMatchesNodeKind,
 	compensateBaseHalfCanvasConnectedNodeCreate,
 	createBaseHalfCanvasConnectedNodeDocument,
-	getBaseHalfCanvasConnectedRecipeChoices,
+	getBaseHalfCanvasConnectionNodeTargets,
 	getBaseHalfCanvasDefaultNodeRole,
+	IBaseHalfCanvasConnectionNodeTarget,
 	IBaseHalfCanvasRecipeDescriptor,
 	IBaseHalfCanvasRecipeParameterDefinition,
-	IBaseHalfCanvasRecipeRegistryService
+	IBaseHalfCanvasRecipeRegistryService,
+	resolveBaseHalfNodeImplicitVideoRecipe
 } from '../common/basehalfCanvasRecipes.js';
 import {
 	BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID,
@@ -292,7 +294,9 @@ import {
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
-	IBaseHalfCanvasSceneViewport
+	IBaseHalfCanvasSceneViewport,
+	baseHalfCanvasConnectionTargetOrigin,
+	baseHalfCanvasOppositeAnchor
 } from '../common/basehalfCanvasScene.js';
 import {
 	BASEHALF_VIDEO_COMPOSER_HEIGHT,
@@ -343,7 +347,6 @@ import {
 	moveBaseHalfNodeInputBinding,
 	parseBaseHalfNodeParameterDraft,
 	resolveBaseHalfNodeLocalDraftExit,
-	resolveBaseHalfNodeImplicitVideoRecipe,
 	resolveBaseHalfNodeRecipeDraft
 } from './basehalfNodeLocalSurface.js';
 import {
@@ -1658,7 +1661,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
 			commitGeometry: (sceneKey, structuralEpoch, geometries) => this.commitSceneGeometry(sceneKey, structuralEpoch, geometries),
 			connect: (sceneKey, structuralEpoch, connection) => this.connectSceneEdge(sceneKey, structuralEpoch, connection),
-			createFromConnection: (sceneKey, structuralEpoch, drop) => this.createResultNodeFromConnection(sceneKey, structuralEpoch, drop),
+			showConnectionCreateMenu: (sceneKey, structuralEpoch, drop) => this.showConnectionCreateMenu(sceneKey, structuralEpoch, drop),
 			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
 			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
@@ -3146,15 +3149,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async createResultNodeFromConnection(
+	/**
+	 * Create from Connection: a drop on empty canvas opens the create menu at
+	 * the release point. Every item creates a node whose first bytes list the
+	 * source as upstream (D37); closing the menu writes nothing.
+	 */
+	private async showConnectionCreateMenu(
 		sceneKey: string,
 		structuralEpoch: number,
 		drop: IBaseHalfCanvasSceneConnectionDrop
-	): Promise<void> {
+	): Promise<boolean> {
 		const queuedFolder = this.folderForSceneMutation(sceneKey);
 		const stamp = this.sceneMutationStamp(queuedFolder, structuralEpoch);
 		if (!this.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp)) {
-			return;
+			return false;
 		}
 		this.markCanvasUserInteraction();
 
@@ -3162,54 +3170,130 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		try {
 			sourceKind = await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, drop.from);
 		} catch (error) {
-			throw new Error(`'${drop.from}' changed before a result operation could be chosen.`, { cause: error });
+			throw new Error(`'${drop.from}' changed before a node could be created from it.`, { cause: error });
 		}
-		if (!this.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp) || !this.isCurrentSceneKey(sceneKey)) {
-			return;
-		}
+		// Resolves once the menu is closed: `true` after a chosen node was
+		// created. The scene keeps the released line until then.
+		return new Promise<boolean>(resolve => {
+			let chosen: Promise<void> | undefined;
+			const run = (create: () => Promise<void>) => () => {
+				chosen = create().then(() => resolve(true), error => {
+					this.reportCanvasMutationError(error);
+					resolve(false);
+				});
+			};
+			const nodeAction = (target: IBaseHalfCanvasConnectionNodeTarget): IAction => {
+				const id = `basehalf.canvas.createFromConnection.${target.kind}`;
+				const label = canvasResultNodeKindLabel(target.kind);
+				const create = (slot: IBaseHalfCanvasRecipeDescriptor['inputs'][number] | undefined) =>
+					run(() => this.createNodeFromConnection(sceneKey, structuralEpoch, drop, sourceKind, target, slot));
+				// Several roles accept the source: the chosen role is the binding.
+				return target.slots.length > 1
+					? new SubmenuAction(id, label, target.slots.map(slot => toAction({ id: `${id}.${slot.id}`, label: slot.label, run: create(slot) })))
+					: toAction({ id, label, run: create(target.slots[0]) });
+			};
+			const targets = getBaseHalfCanvasConnectionNodeTargets(this.canvasRecipeRegistryService.getRecipes(), sourceKind);
+			const isMedia = (target: IBaseHalfCanvasConnectionNodeTarget) => target.kind === 'image' || target.kind === 'video' || target.kind === 'audio';
+			const actions: IAction[] = [
+				toAction({
+					id: 'basehalf.canvas.createFromConnection.note',
+					label: localize('basehalf.canvas.createFromConnection.note', "Note"),
+					run: run(() => this.createNoteFromConnection(sceneKey, structuralEpoch, drop))
+				}),
+				new Separator(),
+				...targets.filter(isMedia).map(nodeAction),
+				new Separator(),
+				...targets.filter(target => !isMedia(target)).map(nodeAction)
+			];
 
-		const choices = getBaseHalfCanvasConnectedRecipeChoices(this.canvasRecipeRegistryService.getRecipes(), sourceKind);
-		if (choices.length === 0) {
-			this.queueCanvasWarning(`No installed operation can use ${sourceKind} context from '${drop.from}'.`);
-			this.requestRender();
-			return;
-		}
-		type RecipePick = IQuickPickItem & { readonly choice: typeof choices[number] };
-		const picked = await this.quickInputService.pick<RecipePick>(choices.map(choice => ({
-			label: choice.recipe.label,
-			description: `Creates ${choice.primaryOutput.kind}`,
-			choice
-		})), {
-			title: 'Create from Connection',
-			placeHolder: 'Choose what this context should produce'
+			mainWindow.setTimeout(() => {
+				if (this.disposed || !this.isCurrentSceneKey(sceneKey)
+					|| !this.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp)) {
+					resolve(false);
+					return;
+				}
+				this.lastCanvasContextMenu = undefined;
+				this.activeNodeLocalSurface?.closeTransientOverlay();
+				this.contextMenuService.showContextMenu({
+					getAnchor: () => drop.anchor,
+					getActions: () => actions,
+					onHide: wasCancelled => {
+						if (wasCancelled) {
+							this.cards.focus({ preventScroll: true });
+							resolve(false);
+							return;
+						}
+						// Both menus run a chosen action synchronously right after
+						// hiding, and the native menu reports a dismissal as not
+						// cancelled. Settle in the same task, so the kept line goes
+						// away with the menu.
+						queueMicrotask(() => {
+							if (!chosen) {
+								resolve(false);
+							}
+						});
+					}
+				});
+			}, 0);
 		});
-		if (!picked) {
-			return;
-		}
+	}
 
-		const slot = await this.chooseConnectionInputSlot(
-			picked.choice.slots,
-			drop.from,
-			picked.choice.recipe.label,
-			sourceKind
-		);
-		if (!slot) {
+	/** Note from Connection: an untitled note whose only content is the
+	 *  frontmatter that lists the source, opened for inline editing. */
+	private async createNoteFromConnection(
+		sceneKey: string,
+		structuralEpoch: number,
+		drop: IBaseHalfCanvasSceneConnectionDrop
+	): Promise<void> {
+		const folder = this.folderForSceneMutation(sceneKey);
+		if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
+		this.markCanvasUserInteraction();
+		const createOwner = this.captureCanvasPostCreateOwner();
+		const createFocusOrigin = this.root.ownerDocument.activeElement;
+		const context = await this.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
+		const toAnchor = baseHalfCanvasOppositeAnchor(drop.fromAnchor);
+		const placement = this.avoidCanvasCreateOverlap({
+			canvasPosition: baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, {
+				width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
+				height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+			}),
+			screenPosition: drop.anchor
+		}, 'note');
+		await this.createUntitledNote(folder, context, placement.canvasPosition, createOwner, createFocusOrigin, undefined, {
+			from: drop.from,
+			fromAnchor: drop.fromAnchor,
+			toAnchor
+		});
+	}
+
+	private async createNodeFromConnection(
+		sceneKey: string,
+		structuralEpoch: number,
+		drop: IBaseHalfCanvasSceneConnectionDrop,
+		sourceKind: BaseHalfCanvasContentKind,
+		target: IBaseHalfCanvasConnectionNodeTarget,
+		slot: IBaseHalfCanvasRecipeDescriptor['inputs'][number] | undefined
+	): Promise<void> {
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		const stamp = this.sceneMutationStamp(queuedFolder, structuralEpoch);
 		if (!this.workspaceMutationCoordinator.isStampCurrent(queuedFolder.workspaceFolder, stamp) || !this.isCurrentSceneKey(sceneKey)) {
 			return;
 		}
-		if (this.canvasRecipeRegistryService.getRecipe(picked.choice.recipe.id) !== picked.choice.recipe) {
-			throw new Error(`'${picked.choice.recipe.label}' changed while it was being selected. Choose the operation again.`);
+		this.markCanvasUserInteraction();
+		const recipe = target.recipe;
+		if (recipe && this.canvasRecipeRegistryService.getRecipe(recipe.id) !== recipe) {
+			throw new Error(`'${recipe.label}' changed while it was being selected. Connect again.`);
 		}
 		const postCreateOwner = this.captureCanvasPostCreateOwner();
 
-		const name = await this.findAvailableConnectedNodeName(queuedFolder, picked.choice.primaryOutput.kind);
+		const name = await this.findAvailableConnectedNodeName(queuedFolder, target.kind);
 		const targetPath = canvasChildPath(queuedFolder.relativePath, name);
 		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
 		const nodeId = generateUuid();
-		const document = createBaseHalfCanvasConnectedNodeDocument(picked.choice.recipe, nodeId, drop.from, sourceKind, slot.id);
-		const targetSize = picked.choice.primaryOutput.kind === 'video'
+		const document = createBaseHalfCanvasConnectedNodeDocument(target, nodeId, canvasResultNodeKindLabel(target.kind), drop.from, sourceKind, slot?.id);
+		const targetSize = target.kind === 'video'
 			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 		const contents = VSBuffer.fromString(serializeBaseHalfNodeDocument(document));
@@ -3217,7 +3301,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			from: drop.from,
 			from_anchor: drop.fromAnchor,
 			to: targetPath,
-			to_anchor: oppositeCanvasAnchor(drop.fromAnchor)
+			to_anchor: baseHalfCanvasOppositeAnchor(drop.fromAnchor)
 		};
 		const stashResource = joinPath(
 			queuedFolder.workspaceFolder,
@@ -3243,8 +3327,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			let canvasTransition: IBaseHalfCanvasStateTransition | undefined;
 			try {
 				this.folderForSceneMutation(sceneKey);
-				if (this.canvasRecipeRegistryService.getRecipe(picked.choice.recipe.id) !== picked.choice.recipe) {
-					throw new Error(`'${picked.choice.recipe.label}' is no longer installed.`);
+				if (recipe && this.canvasRecipeRegistryService.getRecipe(recipe.id) !== recipe) {
+					throw new Error(`'${recipe.label}' is no longer installed.`);
 				}
 				const currentCanvas = await this.canvasMirrorService.readCanvas(queuedFolder);
 				if (await this.fileService.exists(baseHalfMirrorResource(queuedFolder.workspaceFolder, targetPath, 'badge.yaml'))
@@ -3254,8 +3338,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				// Edge rows are anchor memory: a stale row for this pair is replaced.
 				const staleEdge = currentCanvas?.edges.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
 				const placement = this.avoidCanvasCreateOverlap({
-					canvasPosition: drop.position,
-					screenPosition: { x: 0, y: 0 }
+					canvasPosition: baseHalfCanvasConnectionTargetOrigin(drop.position, edge.to_anchor, targetSize),
+					screenPosition: drop.anchor
 				}, 'resultNode', currentCanvas?.cards, targetSize);
 				const card: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['next'] = {
 					path: targetPath,
@@ -6602,7 +6686,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		canvasPosition: { readonly x: number; readonly y: number },
 		createOwner: IBaseHalfCanvasPostCreateOwner,
 		createFocusOrigin: Element | null,
-		sourceDetail: IBaseHalfCardDetailState | undefined
+		sourceDetail: IBaseHalfCardDetailState | undefined,
+		connection?: {
+			readonly from: string;
+			readonly fromAnchor: IBaseHalfCanvasEdge['from_anchor'];
+			readonly toAnchor: IBaseHalfCanvasEdge['to_anchor'];
+		}
 	): Promise<void> {
 		if (!this.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
@@ -6632,10 +6721,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!name) {
 			throw new Error(localize('basehalf.canvas.newNote.exhausted', "Too many untitled notes. Rename one before creating another."));
 		}
+		const path = canvasChildPath(folder.relativePath, name);
+		// From a connection, the note's first bytes list the source (D37): the
+		// create is the connection.
+		let connected: { readonly contents: VSBuffer; readonly edge: IBaseHalfCanvasEdge } | undefined;
+		if (connection) {
+			const plan = planBaseHalfMarkdownUpstreamEdit('', { kind: 'add', entry: connection.from }, { nodePath: path });
+			if (plan.kind !== 'edit') {
+				throw new Error(`The new note could not list '${connection.from}' as upstream.`);
+			}
+			connected = {
+				contents: VSBuffer.fromString(plan.text),
+				edge: { from: connection.from, from_anchor: connection.fromAnchor, to: path, to_anchor: connection.toAnchor }
+			};
+		}
 		const target = await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			select: false,
-			postCreateOwner: createOwner
+			postCreateOwner: createOwner,
+			contents: connected?.contents,
+			edge: connected?.edge
 		});
+		if (connected) {
+			// Show the new connection now instead of after the file watcher event.
+			this.referenceIndexService.acceptSavedContent(
+				{ resource: target, workspaceFolder: folder.workspaceFolder, relativePath: path },
+				'markdown',
+				connected.contents.toString()
+			);
+		}
 		if (!this.isCanvasPostCreateOwnerCurrent(createOwner)) {
 			return;
 		}
@@ -6657,7 +6770,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		const activationOwner = this.captureCanvasPostCreateOwner();
-		const path = canvasChildPath(folder.relativePath, name);
 		this.queueCanvasSelection(this.sceneKey(folder), [path], activationOwner);
 		this.queueCreatedCanvasNoteActivation(folder, path, target, activationOwner, {
 			focus: true,
@@ -7096,6 +7208,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			readonly select?: boolean;
 			readonly postCreateOwner?: IBaseHalfCanvasPostCreateOwner;
 			readonly size?: { readonly width: number; readonly height: number };
+			/** The anchor row of a connection the new file's contents carry. */
+			readonly edge?: IBaseHalfCanvasEdge;
 		} = {}
 	): Promise<URI> {
 		const postCreateOwner = options.postCreateOwner ?? this.captureCanvasPostCreateOwner();
@@ -7130,6 +7244,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} catch (error) {
 			this.logService.warn(error);
 			this.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
+		}
+		// Anchor memory only: in a marked folder the edge uses default anchors.
+		if (options.edge && !await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
+			try {
+				await this.canvasMirrorService.upsertCanvasEdge(folder, options.edge);
+			} catch (error) {
+				this.logService.warn(`[BaseHalf] could not remember the anchors of ${options.edge.from} -> ${options.edge.to}`, error);
+			}
 		}
 
 		// A canvas Create action produces and selects a card; it never implies an
@@ -16210,15 +16332,6 @@ function uniqueUris(resources: readonly URI[]): readonly URI[] {
 
 function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
-}
-
-function oppositeCanvasAnchor(anchor: IBaseHalfCanvasEdge['from_anchor']): IBaseHalfCanvasEdge['to_anchor'] {
-	switch (anchor) {
-		case 'north': return 'south';
-		case 'east': return 'west';
-		case 'south': return 'north';
-		case 'west': return 'east';
-	}
 }
 
 function normalizeCanvasZoom(value: number): number {

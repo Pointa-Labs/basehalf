@@ -10,7 +10,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/c
 import { IDialogService, IPrompt } from '../../../dialogs/common/dialogs.js';
 import { TestDialogService } from '../../../dialogs/test/common/testDialogService.js';
 import { TestNotificationService } from '../../../notification/test/common/testNotificationService.js';
-import { IUndoRedoElement, UndoRedoElementType, UndoRedoGroup } from '../../common/undoRedo.js';
+import { IUndoRedoElement, UndoRedoElementType, UndoRedoGroup, UndoRedoSource } from '../../common/undoRedo.js';
 import { UndoRedoService } from '../../common/undoRedoService.js';
 
 suite('UndoRedoService', () => {
@@ -219,6 +219,41 @@ suite('UndoRedoService', () => {
 		assert.strictEqual(service.hasElements(resource2), true);
 		assert.ok(service.getLastElement(resource2) === element1);
 
+	});
+
+	test('a new element of a source discards that source\'s undone elements in every stack', async () => {
+		const source = new UndoRedoSource();
+		const otherSource = new UndoRedoSource();
+		const service = createUndoRedoService();
+		const calls: string[] = [];
+		const element = (label: string, ...files: string[]): IUndoRedoElement => ({
+			type: UndoRedoElementType.Workspace,
+			resources: files.map(file => URI.file(file)),
+			label,
+			code: 'test',
+			undo: () => { calls.push(`undo ${label}`); },
+			redo: () => { calls.push(`redo ${label}`); }
+		});
+
+		service.pushElement(element('create node', 'canvas-a.yaml', 'node.bhnode'), undefined, source);
+		service.pushElement(element('other source', 'other.txt'), undefined, otherSource);
+		await service.undo(source);
+		await service.undo(otherSource);
+		service.pushElement(element('resize card', 'canvas-b.yaml'), undefined, source);
+		await service.undo(source);
+		await service.redo(source);
+
+		assert.deepStrictEqual({
+			calls,
+			sourceCanRedo: service.canRedo(source),
+			nodeCanRedo: service.canRedo(URI.file('node.bhnode')),
+			otherSourceCanRedo: service.canRedo(otherSource)
+		}, {
+			calls: ['undo create node', 'undo other source', 'undo resize card', 'redo resize card'],
+			sourceCanRedo: false,
+			nodeCanRedo: false,
+			otherSourceCanRedo: true
+		});
 	});
 
 	test('UndoRedoGroup.None uses id 0', () => {

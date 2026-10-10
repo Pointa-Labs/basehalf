@@ -574,8 +574,42 @@ A connection's target must be a node that can be downstream (see
   - Framing after the branch uses the PDF's downstream set from the index,
     including the new note once it is indexed. It falls back to the PDF and the
     new note.
-- **Create from Connection** creates the `.bhnode` with the source in `upstream`
-  and its binding in the initial document.
+- **Create from Connection** creates a node that references the source.
+  Releasing a connection drag from a card on empty canvas opens a context menu
+  at the release point. It is the same kind of menu as the double-click create
+  menu, never Quick Input.
+  - **Items.** **Note**; then **Image**, **Video**, and **Audio**; then
+    **File**, **PDF**, and **Presentation**. These are the double-click menu's
+    New Note and New Media or Document kinds.
+  - **First bytes.** The new node lists the source as its only `upstream`
+    entry in its initial bytes. There is no "created but not connected" state.
+  - **Edge and placement.** The edge runs from the dragged handle to the
+    opposite side of the new card. That side is centered on the release point.
+    The card moves only to avoid other cards or the edge of the visible
+    canvas. The anchor row is written as a connect writes it. In a marked
+    folder no row is written, and the edge uses default anchors.
+  - **Note** creates `untitled.md` (or the next free `untitled-N.md`). Its
+    content is only a frontmatter block that lists the source. It opens for
+    inline editing, as New Note does.
+  - **Media and document kinds** create `<kind>.bhnode`, or the next
+    `<kind>-N.bhnode` that has no file and no canvas row. The node is titled
+    with the kind and selected.
+    - Video has an implicit recipe when exactly one video generator is
+      installed. In that case the document also carries that recipe, its
+      defaults, and a binding of the source. When several input roles of the
+      recipe accept the source's content kind, **Video** opens a submenu of
+      those roles, and the chosen role is the binding. When no role accepts
+      it, **Video** is not offered, because an unbound entry would block the
+      run.
+    - Any other kind has no recipe and gets an unbound entry, as connecting
+      into a node without a recipe does. Recipes, including planning recipes,
+      are chosen later in the node's own surface.
+  - **Cancel.** Escape or a click outside closes the menu and writes nothing.
+  - **Undo.** For a `.bhnode`, one canvas undo step removes the node, its
+    card, and its edge together. The connection lives in the file. A note is
+    undone the way New Note is. Canvas history is linear: a new canvas action
+    discards the actions that were undone and not redone, in every folder, so
+    a later redo never brings back a removed node.
 
 ### Deleting
 
@@ -1139,6 +1173,19 @@ slice 4, or slice 5 without slice 3.
     - Connecting two Markdown files leaves `.bh/` absent.
 15. A PDF branch note's first saved bytes contain `upstream` naming the PDF, and
     the PDF → note edge appears with no other file written.
+    Create from Connection:
+    - Releasing a connection drag on empty canvas opens the menu at the release
+      point, not Quick Input. Escape writes nothing.
+    - Note creates a note whose first bytes list the source in `upstream`. It
+      draws the edge and opens inline editing.
+    - Image creates an image `.bhnode` with `upstream` naming the source and
+      no recipe.
+    - With one video generator installed, Video from an image offers that
+      recipe's image roles. Choosing one writes the recipe and that binding in
+      the first bytes. Video is not offered from a text source.
+    - One canvas undo removes a created `.bhnode`, its card, and its edge. A
+      later canvas action, undone and redone in another folder, redoes that
+      action and not the removed node.
 16. ADHD ranges stay aligned after a connect, an agent frontmatter edit, and an
     undo. A legacy `adhd.yaml` is converted exactly once.
 17. Agent moves:
@@ -1162,4 +1209,6 @@ slice 4, or slice 5 without slice 3.
     - canvas undo after closing the note;
     - the rename refactor notification;
     - migration from a seeded legacy pair;
-    - the badge editor's Upstream and Downstream.
+    - the badge editor's Upstream and Downstream;
+    - Create from Connection: the menu, its cancel, Note, and Image with its
+      undo.
