@@ -664,7 +664,10 @@ export function readBaseHalfSidecarUpstream(text: string | undefined, options: I
 		return { readable: true, writable: true, items: [], hasKey: false, issue: false };
 	}
 	const bomLength = text.charCodeAt(0) === 0xFEFF ? 1 : 0;
-	return toRead(analyzeYamlRegion(text, new LineIndex(text), bomLength, text.length, true), options);
+	const read = toRead(analyzeYamlRegion(text, new LineIndex(text), bomLength, text.length, true), options);
+	// A sidecar BaseHalf will not edit in place is always reported, so that
+	// Rebuild List is offered wherever a write would be refused.
+	return read.writable || read.issue ? read : { ...read, issue: true };
 }
 
 /** The ordered raw entry strings of a read, or `undefined` when unreadable.
@@ -954,6 +957,67 @@ function refusedByRead(read: IBaseHalfUpstreamStoreRead): BaseHalfUpstreamTextPl
 }
 
 /**
+ * The scalar values of one `upstream` key that can still be read when the
+ * value as a whole cannot: an anchor or tag in front of an item is dropped
+ * and the item kept, and an alias, which names a value defined elsewhere, is
+ * skipped.
+ */
+function readableUpstreamValues(text: string, lines: LineIndex, regionStart: number, region: string, property: YamlMapNode['properties'][number]): IBaseHalfUpstreamItemValue[] {
+	const syntax = analyzeUpstreamProperty(text, lines, regionStart, region, property, true, true);
+	if (syntax.readable) {
+		return syntax.upstream?.items.map(candidate => candidate.value) ?? [];
+	}
+	if (syntax.problem !== 'anchorAliasTag') {
+		return [];
+	}
+	const nodes = property.value.type === 'sequence' ? property.value.items : [property.value];
+	const values: IBaseHalfUpstreamItemValue[] = [];
+	for (const node of nodes) {
+		if (node.type !== 'scalar' || node.format === 'literal' || node.format === 'folded') {
+			continue;
+		}
+		let value = node.value;
+		while (node.format === 'none' && /^[&!]\S*\s+/.test(value)) {
+			value = value.replace(/^[&!]\S*\s+/, '');
+		}
+		if (node.format !== 'none' || !startsWithNodeProperty(value)) {
+			values.push({ text: value, scalar: true });
+		}
+	}
+	return values;
+}
+
+/**
+ * The valid entries of every `upstream` key of a sidecar's text, once each and
+ * in order, read as tolerantly as the text allows: the file need not be a
+ * block mapping in column 0, and it may start with a BOM.
+ */
+function readableSidecarEntries(text: string, options: IBaseHalfUpstreamReadOptions): readonly string[] {
+	const body = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+	const root = parseYaml(body, [], { allowDuplicateKeys: true });
+	if (root?.type !== 'map') {
+		return [];
+	}
+	const identity = options.identity ?? BASEHALF_EXACT_UPSTREAM_IDENTITY;
+	const lines = new LineIndex(body);
+	const entries: string[] = [];
+	const seen = new Set<string>();
+	for (const property of root.properties) {
+		if (property.key.value !== 'upstream') {
+			continue;
+		}
+		for (const item of baseHalfAnalyzeUpstreamItems(readableUpstreamValues(body, lines, 0, body, property), options.nodePath, identity)) {
+			const key = item.path === undefined ? undefined : identity.key(item.path);
+			if (item.path !== undefined && key !== undefined && !seen.has(key)) {
+				seen.add(key);
+				entries.push(item.path);
+			}
+		}
+	}
+	return entries;
+}
+
+/**
  * The valid entries of every top-level `upstream` key of a YAML region, in
  * order and without repeats, with the lines each key occupies. `undefined`
  * when the region is not a block mapping whose keys start in column 0, which
@@ -997,11 +1061,7 @@ function locateUpstreamKeys(
 			lastLine--;
 		}
 		keys.push({ firstLine, lastLine });
-		const syntax = analyzeUpstreamProperty(text, lines, regionStart, region, property, true, true);
-		if (!syntax.readable || !syntax.upstream) {
-			return;
-		}
-		for (const item of baseHalfAnalyzeUpstreamItems(syntax.upstream.items.map(candidate => candidate.value), options.nodePath, identity)) {
+		for (const item of baseHalfAnalyzeUpstreamItems(readableUpstreamValues(text, lines, regionStart, region, property), options.nodePath, identity)) {
 			if (item.path === undefined) {
 				continue;
 			}
@@ -1052,15 +1112,26 @@ function planMarkdownRebuild(
 		{ start: lines.start(first.firstLine), end: lines.end(first.lastLine), text: rebuiltListLines(located.entries, eol) },
 		...others.map(key => deleteLines(lines, key.firstLine, key.lastLine))
 	];
-	const after = applyEdits(text, edits);
-	const remainder = after.slice(layout.contentStart, layout.contentEnd - (text.length - after.length));
+	const remainderOf = (after: string) => after.slice(layout.contentStart, layout.contentEnd - (text.length - after.length));
+	const remainder = remainderOf(applyEdits(text, edits));
 	if (remainder.trim() === '') {
 		return editPlan(text, [{ start: layout.bomLength, end: layout.blockEnd, text: '' }]);
 	}
-	if (!isBaseHalfMarkdownFrontmatterMapping(remainder)) {
-		return { kind: 'refused', reason: 'frontmatterRejected' };
+	if (isBaseHalfMarkdownFrontmatterMapping(remainder)) {
+		return editPlan(text, edits);
 	}
-	return editPlan(text, edits);
+	// Removing the key would leave something the recognizer rejects, such as
+	// only comments or a leading blank line: keep an empty key in its place, as
+	// removing the last entry does.
+	const kept: IRawEdit[] = located.entries.length === 0
+		? [{ ...edits[0], text: `upstream: []${eol}` }, ...edits.slice(1)]
+		: edits;
+	// The block may hold another repeated key and stay unrecognized, as it
+	// was before. Its list is then one key that reads, which a later Rebuild
+	// List carries into the note's sidecar.
+	return isBaseHalfMarkdownFrontmatterMapping(remainderOf(applyEdits(text, kept)), { allowDuplicateKeys: true })
+		? editPlan(text, kept)
+		: { kind: 'refused', reason: 'frontmatterRejected' };
 }
 
 /** **Rebuild List** for a sidecar: the valid entries it holds, or no file at all. */
@@ -1072,7 +1143,12 @@ function planSidecarRebuild(
 	if (text === undefined || (read.readable && read.writable)) {
 		return { kind: 'noop' };
 	}
-	const entries = baseHalfReadableSidecarUpstreamEntries(text, options);
+	// A list BaseHalf reads but will not edit in place (a flow mapping, a
+	// BOM, indented keys) keeps every entry it reads. One it cannot read keeps
+	// the entries of the keys that still read.
+	const entries = read.readable
+		? read.items.flatMap(item => item.path === undefined ? [] : [item.path])
+		: baseHalfReadableSidecarUpstreamEntries(text, options);
 	if (entries.length === 0) {
 		return { kind: 'delete' };
 	}
@@ -1084,8 +1160,7 @@ function planSidecarRebuild(
  * order, when the file as a whole cannot be read as a list.
  */
 export function baseHalfReadableSidecarUpstreamEntries(text: string, options: IBaseHalfUpstreamReadOptions = {}): readonly string[] {
-	const bomLength = text.charCodeAt(0) === 0xFEFF ? 1 : 0;
-	return locateUpstreamKeys(text, new LineIndex(text), bomLength, text.length, options)?.entries ?? [];
+	return readableSidecarEntries(text, options);
 }
 
 /**

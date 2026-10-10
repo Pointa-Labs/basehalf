@@ -490,9 +490,16 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		const issues: IBaseHalfUpstreamIssue[] = [];
 		for (const index of indexes) {
 			for (const problem of index.problems.values()) {
-				const relativePath = getRelativePath(index.folder, problem.resource) ?? problem.resource.path;
-				const node = { resource: problem.resource, workspaceFolder: index.folder, relativePath };
-				issues.push({ kind: 'readError', node, storeKind: baseHalfUpstreamStoreKind(relativePath, false), storeResource: problem.resource, message: problem.message });
+				// A sidecar that cannot be read is reported for its node, never
+				// under its own path in `.bh/`.
+				const sidecarNodePath = this.sidecarNodePath(index, problem.resource);
+				const relativePath = sidecarNodePath ?? getRelativePath(index.folder, problem.resource) ?? problem.resource.path;
+				const node = {
+					resource: sidecarNodePath === undefined ? problem.resource : URI.joinPath(index.folder, ...sidecarNodePath.split('/')),
+					workspaceFolder: index.folder,
+					relativePath
+				};
+				issues.push({ kind: 'readError', node, storeKind: sidecarNodePath === undefined ? baseHalfUpstreamStoreKind(relativePath, false) : 'sidecar', storeResource: problem.resource, message: problem.message });
 			}
 			const records = [...index.records.values()].sort((left, right) => left.node.relativePath.localeCompare(right.node.relativePath));
 			for (const record of records) {

@@ -99,12 +99,17 @@ suite('BaseHalfCanvasUpstream', () => {
 			unreadableSidecar: baseHalfUpstreamStoreProblemMessage('sidecar', 'invalidDocument'),
 			unreadableNode: baseHalfUpstreamStoreProblemMessage('node', 'invalidDocument'),
 			foreign: baseHalfUpstreamStoreProblemMessage('markdown', 'foreignValue'),
+			readButNotEditable: [baseHalfUpstreamStoreProblemMessage('markdown', 'multilineItem'), baseHalfUpstreamStoreProblemMessage('sidecar', 'mappingNotBlock')],
+			blockEntries: baseHalfUpstreamStoreProblemMessage('sidecar', 'frontmatterRejected'),
 			notEditable: baseHalfUpstreamStoreProblemMessage('markdown', 'tomlFrontmatter'),
 			readError: baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied')
 		}, {
 			unreadableSidecar: 'BaseHalf can\'t read this upstream list.',
 			unreadableNode: 'This node can\'t be read.',
-			foreign: 'Another tool keeps something else where this note\'s upstream list goes.',
+			foreign: 'Another tool keeps something else where this upstream list goes.',
+			// Their entries are read and shown; only editing in place is refused.
+			readButNotEditable: new Array(2).fill('BaseHalf can\'t change this upstream list the way it is written.'),
+			blockEntries: 'The connections written at the top of this note are not in use.',
 			notEditable: 'BaseHalf can\'t save connections into this note because of how the file begins.',
 			readError: 'The upstream list could not be read: permission denied'
 		});

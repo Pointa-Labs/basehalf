@@ -30,6 +30,18 @@ export class BaseHalfMirrorWriteRejected extends Error {
 	}
 }
 
+/**
+ * Whether the `path` a mirror file stores names the node whose mirror
+ * directory the file was found in. A stored path that differs only in letter
+ * case or Unicode normalization still does: that is what a rename made outside
+ * BaseHalf leaves behind on a file system that ignores those differences
+ * (mirror file resilience, "The stored path"). The file is read as the node's
+ * own, and the next write stores the current spelling.
+ */
+export function baseHalfMirrorPathNamesNode(stored: string, expected: string): boolean {
+	return stored === expected || stored.normalize('NFC').toLowerCase() === expected.normalize('NFC').toLowerCase();
+}
+
 /** The bytes cannot be read as a mirror document at all: a content failure. */
 export class BaseHalfMirrorYamlUnreadable extends Error {
 	override readonly name = 'BaseHalfMirrorYamlUnreadable';

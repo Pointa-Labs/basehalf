@@ -329,6 +329,14 @@ suite('BaseHalfReferenceStore', () => {
 			// Both sides of a merge added the key: every valid entry is kept once, in order.
 			duplicateKey: rebuild('---\nupstream:\n  - a.md\n  - b.md\ntitle: x\nupstream:\n  - b.md\n  - c.md\n---\nBody\n'),
 			onlyKey: rebuild('---\nupstream:\n  first: a.md\n---\nBody\n'),
+			// Removing the key would leave something the recognizer rejects: an
+			// empty key stays instead, so the rebuild is never refused here.
+			commentRemainder: rebuild('---\n# note\nupstream:\n  first: a.md\n---\nBody\n'),
+			blankLineAfter: rebuild('---\nupstream:\n  first: a.md\n\ntitle: x\n---\nBody\n'),
+			// Another key is repeated too: the list becomes one key that reads.
+			otherKeyRepeated: rebuild('---\ntitle: x\nupstream:\n  - a.md\ntitle: x\nupstream:\n  - b.md\n---\nBody\n'),
+			aliasOnly: rebuild('---\ntitle: x\nupstream:\n  - *src\n---\nBody\n'),
+			tagged: rebuild('---\ntitle: x\nupstream: !!str a.md\n---\nBody\n'),
 			healthy: rebuild('---\nupstream:\n  - a.md\n---\nBody\n'),
 			toml: rebuild('+++\nupstream = ["a.md"]\n+++\nBody\n'),
 			rejected: rebuild('---\nupstream: [a.md\n---\nBody\n'),
@@ -336,11 +344,17 @@ suite('BaseHalfReferenceStore', () => {
 		}, {
 			mapping: '---\ntitle: x\n# kept comment\ntags: [t]\n---\nBody\n',
 			blockScalar: '---\ntitle: x\n---\nBody\n',
-			anchor: '---\ntitle: x\n---\nBody\n',
+			// An anchor or tag in front of an entry is dropped and the entry kept.
+			anchor: '---\ntitle: x\nupstream:\n  - a.md\n  - b.md\n---\nBody\n',
 			foreign: '---\ntitle: x\n---\nBody\n',
 			multiline: '---\nupstream:\n  - a.md\n  - b c.md\ntitle: x\n---\nBody\n',
 			duplicateKey: '---\nupstream:\n  - a.md\n  - b.md\n  - c.md\ntitle: x\n---\nBody\n',
 			onlyKey: 'Body\n',
+			commentRemainder: '---\n# note\nupstream: []\n---\nBody\n',
+			blankLineAfter: '---\nupstream: []\n\ntitle: x\n---\nBody\n',
+			otherKeyRepeated: '---\ntitle: x\nupstream:\n  - a.md\n  - b.md\ntitle: x\n---\nBody\n',
+			aliasOnly: '---\ntitle: x\n---\nBody\n',
+			tagged: '---\ntitle: x\nupstream:\n  - a.md\n---\nBody\n',
 			healthy: 'noop',
 			toml: 'refused: tomlFrontmatter',
 			rejected: 'refused: frontmatterRejected',
@@ -360,6 +374,27 @@ suite('BaseHalfReferenceStore', () => {
 			rebuild('upstream:\n  - a.md\n'),
 			rebuild(undefined)
 		], ['upstream:\n  - a.md\n  - b.md\n', 'delete', 'delete', 'noop', 'noop']);
+
+		// A list BaseHalf reads but will not edit in place (a flow mapping)
+		// keeps every entry. It is always reported, so Rebuild List is offered
+		// wherever a write is refused. A BOM or indented keys need no rebuild.
+		const shapes = ['{"upstream": ["a.md", "b.md"]}\n', '{}\n', '\uFEFFupstream:\n  - a.md\n  - b.md\n', '  upstream:\n    - a.md\n    - b.md\n'];
+		assert.deepStrictEqual(shapes.map(text => {
+			const read = readBaseHalfSidecarUpstream(text);
+			const add = planBaseHalfSidecarUpstreamEdit(text, { kind: 'add', entry: 'c.md' });
+			return [read.readable, read.writable, read.issue, add.kind, rebuild(text)];
+		}), [
+			[true, false, true, 'refused', 'upstream:\n  - a.md\n  - b.md\n'],
+			[true, false, true, 'refused', 'delete'],
+			[true, true, false, 'edit', 'noop'],
+			[true, true, false, 'edit', 'noop']
+		]);
+		// One it cannot read keeps the entries of the keys that still read,
+		// whatever the shape of the file.
+		assert.deepStrictEqual([
+			rebuild('{upstream: [a.md], upstream: [b.md]}\n'),
+			rebuild('\uFEFFupstream:\n  - a.md\nupstream:\n  - &x b.md\n')
+		], ['upstream:\n  - a.md\n  - b.md\n', 'upstream:\n  - a.md\n  - b.md\n']);
 	});
 
 	test('a note keeps its list in its sidecar while it has no upstream key and cannot take one, or already has a sidecar', () => {

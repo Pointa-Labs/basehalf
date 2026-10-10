@@ -68,6 +68,8 @@ import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../common/basehalfMarkdownProjection.js';
+import { baseHalfUserFacingErrorMessage } from '../../common/basehalfPlainFailureReason.js';
+import { localize } from '../../../../nls.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 
@@ -1480,5 +1482,5 @@ function escapeAttribute(value: string): string {
 
 /** Reading aids fail only when the file system refuses the read or write. */
 function adhdErrorMessage(error: unknown): string {
-	return error instanceof Error ? `ADHD metadata issue: ${error.message}` : `ADHD metadata issue: ${String(error)}`;
+	return localize('basehalf.adhd.readingAidsFailed', "Reading aids could not be loaded or saved: {0}", baseHalfUserFacingErrorMessage(error));
 }

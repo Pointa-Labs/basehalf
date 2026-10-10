@@ -8981,10 +8981,22 @@ async function hideNotificationsCenter(page) {
 // Waits for the open notification whose message contains `message` (a string
 // or a RegExp) and returns its row in the notification center, which stays open.
 async function waitForNotification(page, message, timeout = 15_000) {
-	const center = await showNotificationsCenter(page);
-	const item = center.locator('.notification-list-item', { hasText: message }).first();
-	await item.waitFor({ state: 'visible', timeout });
-	return item;
+	// A center that is opened before the notification arrives can close again
+	// with nothing to show, and the notification does not reopen it. So the
+	// center is opened again for as long as the notification is not listed.
+	const deadline = Date.now() + timeout;
+	for (; ;) {
+		const center = await showNotificationsCenter(page);
+		const item = center.locator('.notification-list-item', { hasText: message }).first();
+		try {
+			await item.waitFor({ state: 'visible', timeout: Math.max(250, Math.min(1_000, deadline - Date.now())) });
+			return item;
+		} catch (error) {
+			if (Date.now() >= deadline) {
+				throw error;
+			}
+		}
+	}
 }
 
 // Waits for a notification, checks it, and clears it so later lookups of the
@@ -9545,7 +9557,7 @@ async function assertCanvasUnreadableBadgeRecovers(page) {
 	}
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const refreshMirror = () => fs.writeFileSync(canvasPath, fs.readFileSync(canvasPath));
-	const issueNotice = page.locator('.basehalf-canvas-warning', { hasText: 'badge metadata issue' });
+	const issueNotice = page.locator('.basehalf-canvas-warning', { hasText: '1 description could not be loaded' });
 	fs.chmodSync(badgePath, 0o000);
 	try {
 		refreshMirror();
@@ -11521,7 +11533,18 @@ async function assertCanvasSnapGuides(page) {
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await docs.waitFor({ state: 'visible', timeout: 20_000 });
-	await readme.scrollIntoViewIfNeeded();
+	// The zoom change re-renders the cards, so the element the locator found
+	// can be replaced before the scroll runs. Look it up again when that happens.
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await readme.scrollIntoViewIfNeeded();
+			break;
+		} catch (error) {
+			if (attempt >= 4 || !/not attached/.test(String(error))) {
+				throw error;
+			}
+		}
+	}
 	await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
 	const geometry = await page.evaluate(() => {

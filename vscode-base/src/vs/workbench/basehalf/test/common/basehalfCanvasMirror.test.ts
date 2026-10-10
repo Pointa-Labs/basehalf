@@ -206,6 +206,47 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
+	test('reads a layout whose folder was renamed in case only outside BaseHalf, and stores the new spelling on the next write', async () => {
+		// The file system finds the file under the new spelling; it still stores the old one.
+		const canvasPath = '/work/.bh/mirror/docs/canvas.yaml';
+		const row = (path: string, x: number) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, '    y: 2', '    width: 300', '    height: 220'];
+		const stored = ['path: "Docs"', 'cards:', ...row('Docs/a.md', 1), ...row('Docs/b.md', 5), 'edges:', '  - from: "Docs/a.md"', '    to: "Docs/b.md"', '    from_anchor: east', '    to_anchor: west', ''].join('\n');
+		const fileService = new TestFileService(new Map([[canvasPath, stored]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const a: IBaseHalfCanvasCard = { path: 'docs/a.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 };
+		const b: IBaseHalfCanvasCard = { path: 'docs/b.md', kind: 'file', x: 5, y: 2, width: 300, height: 220 };
+
+		const read = await service.inspectCanvas(folder('docs'));
+		await service.updateCardGeometry(folder('docs'), { ...a, x: 40 });
+
+		assert.deepStrictEqual({
+			read,
+			written: fileService.files.get(canvasPath)?.split('\n').filter(line => /path:|from:|to:/.test(line)),
+			// Nothing was unreadable, so nothing had to be kept aside.
+			recovered: [...fileService.files.keys()].filter(path => path.includes('/recovered/')),
+			// Another name is still another node's file.
+			other: (await mirrorService(new TestFileService(new Map([[canvasPath, stored.replace('path: "Docs"', 'path: "notes"')]])) as unknown as IFileService).inspectCanvas(folder('docs'))).damage?.kind
+		}, {
+			read: { canvas: { path: 'docs', cards: [a, b], edges: [{ from: 'docs/a.md', to: 'docs/b.md', from_anchor: 'east', to_anchor: 'west' }] } },
+			written: ['path: "docs"', '  - path: "docs/a.md"', '  - path: "docs/b.md"', '  - from: "docs/a.md"', '    to: "docs/b.md"'],
+			recovered: [],
+			other: 'unreadable'
+		});
+	});
+
+	test('a size too small to be written is a row it cannot read, and never blocks a later write', async () => {
+		const canvasPath = '/work/.bh/mirror/canvas.yaml';
+		const row = (path: string, width: string) => [`  - path: "${path}"`, '    kind: file', '    x: 1', '    y: 2', `    width: ${width}`, '    height: 220'];
+		const fileService = new TestFileService(new Map([[canvasPath, ['path: ""', 'cards:', ...row('tiny.md', '0.00001'), ...row('ok.md', '300'), 'edges: []', ''].join('\n')]]));
+		const service = mirrorService(fileService as unknown as IFileService);
+		const ok: IBaseHalfCanvasCard = { path: 'ok.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 };
+
+		const read = await service.inspectCanvas(folder(''));
+		await service.updateCardGeometry(folder(''), { ...ok, x: 90 });
+
+		assert.deepStrictEqual([read.canvas?.cards, read.damage?.kind, (await service.inspectCanvas(folder(''))).canvas?.cards], [[ok], 'partial', [{ ...ok, x: 90 }]]);
+	});
+
 	test('a folder named 09 leaves its canvas readable, movable, and purgeable', async () => {
 		const service = createService(new Map());
 		const note: IBaseHalfCanvasCard = { path: 'note.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 };

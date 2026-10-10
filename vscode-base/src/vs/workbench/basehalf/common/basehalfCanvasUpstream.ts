@@ -191,16 +191,19 @@ export function baseHalfUpstreamStoreProblemMessage(storeKind: BaseHalfUpstreamS
 	if (baseHalfUpstreamRebuildCarriesOver(storeKind, problem)) {
 		return localize('basehalf.upstream.store.blockEntries', "The connections written at the top of this note are not in use.");
 	}
+	if (problem === 'multilineItem' || (storeKind === 'sidecar' && problem === 'mappingNotBlock')) {
+		// Its entries are read and shown; only editing it in place is refused.
+		return localize('basehalf.upstream.store.notEditableList', "BaseHalf can't change this upstream list the way it is written.");
+	}
 	switch (problem) {
 		case 'invalidDocument':
 		case 'mappingValue':
 		case 'duplicateKey':
 		case 'anchorAliasTag':
 		case 'blockScalar':
-		case 'multilineItem':
 			return localize('basehalf.upstream.store.unreadableList', "BaseHalf can't read this upstream list.");
 		case 'foreignValue':
-			return localize('basehalf.upstream.store.foreignValue', "Another tool keeps something else where this note's upstream list goes.");
+			return localize('basehalf.upstream.store.foreignValue', "Another tool keeps something else where this upstream list goes.");
 		case 'frontmatterRejected':
 		case 'tomlFrontmatter':
 		case 'mappingNotBlock':

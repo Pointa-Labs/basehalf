@@ -422,6 +422,15 @@ suite('BaseHalfAdhdMirrorService', () => {
 		assert.deepStrictEqual(await service.readAdhd(file('09')), { path: '09', kind: 'file', highlight_keywords: ['2024', 'true'] });
 	});
 
+	test('reads reading aids whose note was renamed in case only outside BaseHalf', async () => {
+		// The file system finds the file under the new spelling; it still stores the old one.
+		const service = createService(new Map([
+			['/work/.bh/mirror/notes/plan.md/adhd.yaml', 'path: "Notes/Plan.md"\nkind: file\nhighlight_keywords:\n  - "focus"\n']
+		]));
+
+		assert.deepStrictEqual(await service.readAdhd(file('notes/plan.md')), { path: 'notes/plan.md', kind: 'file', highlight_keywords: ['focus'] });
+	});
+
 	test('structural operations leave an adhd.yaml they cannot read in place', async () => {
 		const unreadable = 'path: [unterminated';
 		const fileService = new TestFileService(new Map([

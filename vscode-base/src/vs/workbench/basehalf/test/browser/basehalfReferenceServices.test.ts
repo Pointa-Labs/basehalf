@@ -817,13 +817,21 @@ suite('BaseHalfReferenceEditService', () => {
 			docs: 'upstream:\n  - a.md\n  - c.md\n',
 			book: undefined
 		});
-		// Each replaced sidecar is kept byte for byte, and nothing else is.
+		// Each replaced sidecar is kept byte for byte. For a note, the text up
+		// to the last line the rebuild changed is kept, which holds what it removed.
 		const recovered = (await harness.list()).filter(path => path.startsWith('.bh/cache/recovered/'));
-		assert.deepStrictEqual(recovered.map(path => path.replace(/\.[0-9a-f]{12}\.yaml$/, '.<digest>.yaml')), [
+		assert.deepStrictEqual(recovered.map(path => path.replace(/\.[0-9a-f]{12}\.(yaml|md)$/, '.<digest>.$1')), [
 			'.bh/cache/recovered/mirror/book.pdf/upstream.<digest>.yaml',
-			'.bh/cache/recovered/mirror/docs/upstream.<digest>.yaml'
+			'.bh/cache/recovered/mirror/docs/upstream.<digest>.yaml',
+			'.bh/cache/recovered/mirror/feed.md/frontmatter.<digest>.md',
+			'.bh/cache/recovered/mirror/merged.md/frontmatter.<digest>.md'
 		]);
-		assert.deepStrictEqual(await Promise.all(recovered.map(path => harness.read(path))), [garbage, conflicted]);
+		assert.deepStrictEqual(await Promise.all(recovered.map(path => harness.read(path))), [
+			garbage,
+			conflicted,
+			'---\ntitle: Feed\nupstream: https://example.com/feed\n',
+			'---\nupstream:\n  - a.md\ntitle: Merged\nupstream:\n  - a.md\n  - c.md\n'
+		]);
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('c.md')).map(entry => entry.node.relativePath), ['docs', 'merged.md']);
 
 		// A node that cannot be read is refused and left as it was. A note
@@ -994,7 +1002,8 @@ suite('BaseHalfReferenceEditService', () => {
 		});
 		try {
 			const changed = await refusal(harness.edit.moveIntoFile(harness.node('raced.md'), options));
-			assert.deepStrictEqual([changed.reason, await harness.read('raced.md'), await harness.read('.bh/mirror/raced.md/upstream.yaml')], ['changedSinceEdit', '# R\n', raced]);
+			// The message names the note, never the file BaseHalf keeps for it.
+			assert.deepStrictEqual([changed.reason, changed.message, await harness.read('raced.md'), await harness.read('.bh/mirror/raced.md/upstream.yaml')], ['changedSinceEdit', 'The upstream list of raced.md changed since this edit.', '# R\n', raced]);
 		} finally {
 			flusher.dispose();
 		}

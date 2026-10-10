@@ -19,15 +19,16 @@ import { baseHalfPreserveMirrorBytes, IBaseHalfMirrorPreservedEvent } from './ba
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason } from './basehalfPlainFailureReason.js';
 import {
+	baseHalfMirrorPathNamesNode,
 	BaseHalfMirrorWriteRejected,
-	BaseHalfMirrorYamlUnreadable,
-	IBaseHalfMirrorYamlDocument,
 	baseHalfMirrorYamlAbsent,
 	baseHalfMirrorYamlBoolean,
 	baseHalfMirrorYamlProperty,
 	baseHalfMirrorYamlQuote,
 	baseHalfMirrorYamlString,
-	baseHalfParseMirrorYaml
+	BaseHalfMirrorYamlUnreadable,
+	baseHalfParseMirrorYaml,
+	IBaseHalfMirrorYamlDocument
 } from './basehalfMirrorYaml.js';
 
 export const IBaseHalfBadgeMirrorService = createDecorator<IBaseHalfBadgeMirrorService>('baseHalfBadgeMirrorService');
@@ -111,7 +112,10 @@ type IBaseHalfBadgeReadState = IBaseHalfBadgeAbsentReadState | IBaseHalfBadgeExi
 export interface IBaseHalfBadgeReadProblem {
 	readonly relativePath: string;
 	readonly resource: URI;
+	/** Why the read failed, in plain words for the user. */
 	readonly message: string;
+	/** The error's own text, for the log. */
+	readonly detail: string;
 }
 
 export interface IBaseHalfBadgeReadResult {
@@ -459,7 +463,8 @@ export class BaseHalfBadgeMirrorService extends Disposable implements IBaseHalfB
 		return {
 			relativePath,
 			resource,
-			message: baseHalfPlainFailureReason(error)
+			message: baseHalfPlainFailureReason(error),
+			detail: error instanceof Error ? error.message : String(error)
 		};
 	}
 }
@@ -760,10 +765,11 @@ export function baseHalfRenameLegacyBadgeItems(raw: string, rename: (item: strin
 }
 
 function normalizeBadgeFile(root: YamlMapNode, resource: URI, expectedPath: string): IBaseHalfBadgeFile {
-	const path = stringField(root, 'path', resource);
-	if (path !== expectedPath) {
+	if (!baseHalfMirrorPathNamesNode(stringField(root, 'path', resource), expectedPath)) {
 		throw new BaseHalfBadgeMirrorCorrupt(resource, `path must be "${expectedPath}"`);
 	}
+	// A path that differs only in case or normalization is this node's.
+	const path = expectedPath;
 
 	// The kind is trusted from the FILE, not from the caller: a path cannot be
 	// both a file and a folder on disk, so the stored kind is authoritative and a

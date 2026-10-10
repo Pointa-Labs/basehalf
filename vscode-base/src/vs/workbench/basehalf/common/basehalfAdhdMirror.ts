@@ -32,16 +32,17 @@ import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes, IBaseHalfMirrorPreservedEvent } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from './basehalfMirrorTree.js';
 import {
+	baseHalfMirrorPathNamesNode,
 	BaseHalfMirrorWriteRejected,
-	BaseHalfMirrorYamlUnreadable,
-	IBaseHalfMirrorYamlDocument,
 	baseHalfMirrorYamlAbsent,
 	baseHalfMirrorYamlItems,
 	baseHalfMirrorYamlNumber,
 	baseHalfMirrorYamlProperty,
 	baseHalfMirrorYamlQuote,
 	baseHalfMirrorYamlString,
-	baseHalfParseMirrorYaml
+	BaseHalfMirrorYamlUnreadable,
+	baseHalfParseMirrorYaml,
+	IBaseHalfMirrorYamlDocument
 } from './basehalfMirrorYaml.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
@@ -669,10 +670,11 @@ export function serializeAdhdFile(file: IBaseHalfAdhdFile): string {
 
 /** A stored file and whether its ranges are absolute (no `line_base`). */
 function normalizeAdhdFile(root: YamlMapNode, resource: URI, expectedPath: string): { readonly adhd: IBaseHalfAdhdFile; readonly legacy: boolean } {
-	const path = stringField(root, 'path', resource);
-	if (path !== expectedPath) {
+	if (!baseHalfMirrorPathNamesNode(stringField(root, 'path', resource), expectedPath)) {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, `path must be "${expectedPath}"`);
 	}
+	// A path that differs only in case or normalization is this node's.
+	const path = expectedPath;
 
 	if (stringField(root, 'kind', resource) !== 'file') {
 		throw new BaseHalfAdhdMirrorCorrupt(resource, 'kind must be file');

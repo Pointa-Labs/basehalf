@@ -93,6 +93,30 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.deepStrictEqual(await service.readBadge(node('09', 'folder')), { path: '09', kind: 'folder', description: '2024', orphan: true });
 	});
 
+	test('reads a badge whose node was renamed in case only outside BaseHalf, and stores the new spelling on the next write', async () => {
+		// The file system finds the file under the new spelling; it still stores the old one.
+		const badgePath = '/work/.bh/mirror/notes/plan.md/badge.yaml';
+		const fileService = new TestFileService(new Map([[badgePath, 'path: "Notes/Plan.md"\nkind: file\ndescription: "The plan"\n']]));
+		const service = mirrorService(fileService);
+		const plan = node('notes/plan.md', 'file');
+
+		const read = await service.readBadge(plan);
+		await service.patchBadge(plan, current => ({ ...current!, description: 'The new plan' }));
+
+		assert.deepStrictEqual({
+			read,
+			written: fileService.files.get(badgePath),
+			recovered: [...fileService.files.keys()].filter(path => path.includes('/recovered/')),
+			// Another name is still another node's file: it reads as absent.
+			other: await createService(new Map([[badgePath, 'path: "notes/other.md"\nkind: file\ndescription: "x"\n']])).readBadge(plan)
+		}, {
+			read: { path: 'notes/plan.md', kind: 'file', description: 'The plan' },
+			written: 'path: "notes/plan.md"\nkind: file\ndescription: "The new plan"\n',
+			recovered: [],
+			other: null
+		});
+	});
+
 	test('a badge whose content cannot be read reads as absent, and saving a description keeps it as a recovery copy', async () => {
 		const conflicted = 'path: "conflict.md"\nkind: file\n<<<<<<< HEAD\ndescription: "Ours"\n=======\ndescription: "Theirs"\n>>>>>>> feature\nreferences:\n  - "legacy.md"\n';
 		const unreadable: Record<string, string> = {

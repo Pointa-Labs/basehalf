@@ -24,9 +24,8 @@ import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
 import { baseHalfPreserveMirrorBytes } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfIsMirrorSubtree, baseHalfMirrorPathSegments, baseHalfRemapSubtreeRel, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 import {
+	baseHalfMirrorPathNamesNode,
 	BaseHalfMirrorWriteRejected,
-	BaseHalfMirrorYamlUnreadable,
-	IBaseHalfMirrorYamlDocument,
 	baseHalfMirrorYamlAbsent,
 	baseHalfMirrorYamlItems,
 	baseHalfMirrorYamlMap,
@@ -34,7 +33,9 @@ import {
 	baseHalfMirrorYamlProperty,
 	baseHalfMirrorYamlQuote,
 	baseHalfMirrorYamlString,
-	baseHalfParseMirrorYaml
+	BaseHalfMirrorYamlUnreadable,
+	baseHalfParseMirrorYaml,
+	IBaseHalfMirrorYamlDocument
 } from './basehalfMirrorYaml.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
@@ -1072,18 +1073,23 @@ function decodeCanvasFile(raw: string, expectedPath: string): IBaseHalfCanvasDec
 	if (path === undefined) {
 		return unreadable('path must be a string');
 	}
-	if (path !== expectedPath) {
+	if (!baseHalfMirrorPathNamesNode(path, expectedPath)) {
 		return unreadable(`path must be "${expectedPath}"`);
 	}
+	// The folder was renamed outside BaseHalf in case or normalization only:
+	// its rows name their cards under the old spelling of the folder.
+	const respell = (rowPath: string) => path !== expectedPath && path !== '' && rowPath.startsWith(`${path}/`)
+		? `${expectedPath}${rowPath.slice(path.length)}`
+		: rowPath;
 
 	// Rows after the line the parser stopped at were never read.
 	const skipped: string[] = document.unparsed ? [document.unparsed] : [];
 	const size = decodeCanvasSize(baseHalfMirrorYamlProperty(root, 'size'), skipped);
-	const cards = decodeCanvasRows(root, 'cards', decodeCanvasCard, skipped);
-	const edges = decodeCanvasRows(root, 'edges', decodeCanvasEdge, skipped);
+	const cards = decodeCanvasRows(root, 'cards', decodeCanvasCard, skipped).map(card => ({ ...card, path: respell(card.path) }));
+	const edges = decodeCanvasRows(root, 'edges', decodeCanvasEdge, skipped).map(edge => ({ ...edge, from: respell(edge.from), to: respell(edge.to) }));
 	return {
 		canvas: {
-			path,
+			path: expectedPath,
 			...(size ? { size } : {}),
 			cards: lastByKey(cards, card => card.path),
 			edges: lastByKey(edges, edge => `${edge.from}\u0000${edge.to}`)
@@ -1183,7 +1189,9 @@ function decodeCanvasSize(node: YamlNode | undefined, skipped: string[]): IBaseH
 function decodeCanvasPositiveSize(map: YamlMapNode): IBaseHalfCanvasSize | undefined {
 	const width = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'width'));
 	const height = baseHalfMirrorYamlNumber(baseHalfMirrorYamlProperty(map, 'height'));
-	return width !== undefined && height !== undefined && width > 0 && height > 0 ? { width, height } : undefined;
+	// The written precision decides, as it does when the file is written: a
+	// size that would be written as zero is not a size.
+	return width !== undefined && height !== undefined && Number(formatNumber(width)) > 0 && Number(formatNumber(height)) > 0 ? { width, height } : undefined;
 }
 
 registerSingleton(IBaseHalfCanvasMirrorService, BaseHalfCanvasMirrorService, InstantiationType.Delayed);

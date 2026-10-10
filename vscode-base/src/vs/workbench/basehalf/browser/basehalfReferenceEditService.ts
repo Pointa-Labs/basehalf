@@ -525,7 +525,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 					}
 				} else if (!transitions.every(store => store.transition === 'from')) {
 					const changed = transitions.find(store => store.transition === 'other') ?? transitions.find(store => store.transition === 'to')!;
-					blocking.push({ node: changed.node, storeResource: changed.storeResource, reason: 'changedSinceEdit', message: this.message('changedSinceEdit', changed.storeResource) });
+					blocking.push({ node: changed.node, storeResource: changed.storeResource, reason: 'changedSinceEdit', message: this.changedSinceEditMessage(changed) });
 				}
 			}
 			if (blocking.length > 0) {
@@ -969,7 +969,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			// Move into File appends the entries read from `operation.expected`:
 			// the file is removed only while it still has exactly those bytes.
 			if (bytes !== null && !bytes.equals(operation.expected)) {
-				throw new StoreRefusal('changedSinceEdit', localize('basehalf.references.sidecarChangedSinceEdit', "The upstream list of {0} changed since this edit.", this.label(target.node.resource)));
+				throw new StoreRefusal('changedSinceEdit', this.changedSinceEditMessage(target));
 			}
 			plan = bytes === null ? { kind: 'noop' } : { kind: 'delete' };
 		} else if (operation.kind === 'nodeDocument') {
@@ -1036,7 +1036,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 					: localize('basehalf.references.unreadableNoRepair', "BaseHalf can't read the upstream list of {0}.", this.label(resource)));
 			default:
 				return new StoreRefusal('notWritable', baseHalfUpstreamStoreCanRebuild(storeKind, reason)
-					? this.message('unreadable', resource)
+					? localize('basehalf.references.notEditableList', "BaseHalf can't change the upstream list of {0} the way it is written. Use Rebuild List in its badge first.", this.label(resource))
 					: this.message('notWritable', resource));
 		}
 	}
@@ -1101,6 +1101,29 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		}
 	}
 
+	/**
+	 * Rebuild List removes from a note the lines of a list BaseHalf could not
+	 * use, which may hold another tool's value. The note's text up to the last
+	 * line the rebuild changes is kept as a recovery copy first; if the copy
+	 * cannot be saved, the note is left unchanged. A marked folder gets no
+	 * copy, because nothing is written under `.bh/` there.
+	 */
+	private async preserveRebuiltNotes(stores: readonly IPreparedStore[]): Promise<void> {
+		for (const store of stores) {
+			if (store.edit.operation.kind !== 'rebuild' || !store.changed || store.plannedText === undefined || !store.model) {
+				continue;
+			}
+			const workspaceFolder = store.node.workspaceFolder;
+			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+				continue;
+			}
+			const replaced = replacedLeadingText(store.model.textEditorModel.getValue(), store.plannedText);
+			const mirrorName = URI.joinPath(dirname(baseHalfUpstreamSidecarResource(workspaceFolder, store.node.relativePath)), 'frontmatter.md');
+			const recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, workspaceFolder, mirrorName, VSBuffer.fromString(replaced));
+			this.logService.warn(`[BaseHalf] rebuilt the upstream list of ${store.node.relativePath}; the text it replaced is kept at ${recoveryCopy.toString()}`);
+		}
+	}
+
 	/** Rebuild List, and a Move into File that leaves content behind, replace
 	 * or remove a sidecar holding something BaseHalf could not use: its bytes
 	 * are kept as a recovery copy first. If the copy cannot be saved, the write
@@ -1149,7 +1172,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				}
 				if (store.transition !== undefined && replanned.transition !== 'from') {
 					store.outcome = 'failed';
-					store.error = this.message('changedSinceEdit', store.storeResource);
+					store.error = this.changedSinceEditMessage(store);
 					throw new BaseHalfReferenceEditFailure(store.error, toResult([store]));
 				}
 				Object.assign(store, { next: replanned.next, changed: replanned.changed, expectedBytes: replanned.expectedBytes, nextBytes: replanned.nextBytes, savedText: replanned.savedText });
@@ -1180,6 +1203,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 
 	/** Steps 6 and 7: one bulk edit for every Markdown document, then each save. */
 	private async writeMarkdown(stores: readonly IPreparedStore[], options: IBaseHalfReferenceEditOptions, leases: FolderLeases): Promise<void> {
+		await this.preserveRebuiltNotes(stores);
 		await this.persistAdhdLineBase(stores, leases);
 		try {
 			await this.applyBulk(stores, options.label);
@@ -1194,7 +1218,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			} catch {
 				for (const store of remaining) {
 					store.outcome = 'failed';
-					store.error = this.message('changedSinceEdit', store.storeResource);
+					store.error = this.changedSinceEditMessage(store);
 				}
 				throw new BaseHalfReferenceEditFailure(localize('basehalf.references.modelChanged', "{0} changed while the connection was being saved.", this.label(remaining[0].storeResource)), toResult(stores));
 			}
@@ -1254,7 +1278,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	private replan(store: IPreparedStore): void {
 		const replanned = this.planMarkdown({ ...store, changed: false });
 		if (store.transition !== undefined && replanned.transition !== 'from') {
-			throw new BaseHalfReferenceEditFailure(this.message('changedSinceEdit', store.storeResource), toResult([store]));
+			throw new BaseHalfReferenceEditFailure(this.changedSinceEditMessage(store), toResult([store]));
 		}
 		Object.assign(store, {
 			expected: replanned.expected,
@@ -1405,8 +1429,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	private reportFailure(result: IBaseHalfReferenceEditResult, error: unknown): void {
-		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.label(store.node.resource));
-		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.label(store.node.resource));
+		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.storeLabel(store));
+		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.storeLabel(store));
 		this.logService.error(`[BaseHalf] upstream operation failed. Changed: ${changed.join(', ') || '(none)'}. Not changed: ${unchanged.join(', ') || '(none)'}.`, error);
 		if (result.stores.length > 1) {
 			this.notificationService.notify({
@@ -1421,7 +1445,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		} else if (!(error instanceof BaseHalfReferenceEditFailure) && result.stores[0]?.storeKind !== 'markdown') {
 			this.notificationService.notify({
 				severity: Severity.Error,
-				message: localize('basehalf.references.writeFailed', "The upstream change to {0} is not saved: {1}", unchanged[0] ?? '', baseHalfPlainFailureReason(error))
+				message: localize('basehalf.references.writeFailed', "The upstream change to {0} is not saved: {1}", unchanged[0] ?? '', baseHalfUserFacingErrorMessage(error))
 			});
 		}
 	}
@@ -1470,6 +1494,20 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		return basename(resource);
 	}
 
+	/** A store in a message: the node, and for a sidecar what BaseHalf keeps
+	 * for it. A file under `.bh/` is never named. */
+	private storeLabel(store: { readonly storeKind: BaseHalfUpstreamStoreKind; readonly node: IBaseHalfWorkspaceResource }): string {
+		return store.storeKind === 'sidecar'
+			? localize('basehalf.references.keptListLabel', "the list BaseHalf keeps for {0}", this.label(store.node.resource))
+			: this.label(store.node.resource);
+	}
+
+	private changedSinceEditMessage(store: { readonly storeKind: BaseHalfUpstreamStoreKind; readonly node: IBaseHalfWorkspaceResource }): string {
+		return store.storeKind === 'sidecar'
+			? localize('basehalf.references.sidecarChangedSinceEdit', "The upstream list of {0} changed since this edit.", this.label(store.node.resource))
+			: this.message('changedSinceEdit', store.node.resource);
+	}
+
 	private identity(workspaceFolder: URI): IBaseHalfUpstreamIdentity {
 		return baseHalfUpstreamIdentity(workspaceFolder, this.uriIdentityService.extUri);
 	}
@@ -1505,6 +1543,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	//#endregion
+}
+
+/** The text of `before` from its start to the end of the last line that `after` changes. */
+function replacedLeadingText(before: string, after: string): string {
+	let common = 0;
+	while (common < before.length && common < after.length && before.charCodeAt(before.length - 1 - common) === after.charCodeAt(after.length - 1 - common)) {
+		common++;
+	}
+	const lineEnd = before.indexOf('\n', before.length - common);
+	return before.slice(0, lineEnd < 0 ? before.length : lineEnd + 1);
 }
 
 function addsEntries(operation: InternalOperation): boolean {

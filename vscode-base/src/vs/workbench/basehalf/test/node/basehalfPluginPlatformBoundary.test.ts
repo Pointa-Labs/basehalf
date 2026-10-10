@@ -31,6 +31,24 @@ suite('BaseHalfPluginPlatformBoundary', () => {
 		assert.ok(desktopPluginPlatform.includes('basehalfModelCredentialStore.js'));
 	});
 
+	test('registers plugin management from the desktop module, not from the common one', () => {
+		const common = readCompiledModule('vs/workbench/basehalf/common/basehalfPluginManagementService.js');
+		const desktop = readCompiledModule('vs/workbench/basehalf/electron-browser/basehalfPluginManagementService.js');
+		const desktopPluginPlatform = readCompiledModule('vs/workbench/basehalf/electron-browser/basehalfPluginPlatform.contribution.js');
+
+		assert.deepStrictEqual({
+			commonRegisters: common.includes('registerSingleton'),
+			commonNamesDesktopEnvironment: common.includes('INativeEnvironmentService'),
+			desktopRegisters: desktop.includes('registerSingleton'),
+			platformLoadsDesktopModule: /['"]\.\/basehalfPluginManagementService\.js['"]/.test(desktopPluginPlatform)
+		}, {
+			commonRegisters: false,
+			commonNamesDesktopEnvironment: false,
+			desktopRegisters: true,
+			platformLoadsDesktopModule: true
+		});
+	});
+
 	test('keeps the common state-store module free of desktop process services', () => {
 		const commonStateStore = readCompiledModule('vs/workbench/basehalf/common/basehalfPluginStateStore.js');
 		assert.ok(!commonStateStore.includes('mainProcessService'));

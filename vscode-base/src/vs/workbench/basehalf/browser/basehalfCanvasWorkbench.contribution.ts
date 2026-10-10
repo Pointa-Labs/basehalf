@@ -2271,7 +2271,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.loggedCanvasDamage = damageKey;
 		} catch (error) {
 			this.logService.warn(`BaseHalf canvas layout of '${folder.relativePath}' could not be loaded`, error);
-			canvasWarning = localize('basehalf.canvas.layout.loadFailed', "The saved layout could not be loaded: {0}", error instanceof Error ? error.message : String(error));
+			canvasWarning = localize('basehalf.canvas.layout.loadFailed', "The saved layout could not be loaded: {0}", baseHalfUserFacingErrorMessage(error));
 		}
 		if (!this.isRenderCurrent(seq)) {
 			return;
@@ -2310,9 +2310,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folderPrefix = folder.relativePath.length === 0 ? '' : `${folder.relativePath}/`;
 		const localProblems = badgeRead.problems.filter(problem => problem.relativePath.startsWith(folderPrefix));
 		if (localProblems.length > 0) {
-			badgeWarning = `${localProblems.length} badge metadata issue${localProblems.length === 1 ? '' : 's'}`;
+			badgeWarning = localProblems.length === 1
+				? localize('basehalf.canvas.badge.oneNotLoaded', "1 description could not be loaded")
+				: localize('basehalf.canvas.badge.someNotLoaded', "{0} descriptions could not be loaded", localProblems.length);
 			for (const problem of localProblems) {
-				this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
+				this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.detail}`);
 			}
 		}
 		const items = model.items;
@@ -14773,7 +14775,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private reportCanvasMutationError(error: unknown): void {
 		this.logService.error(error instanceof Error ? error : String(error));
-		this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+		this.queueCanvasWarning(baseHalfUserFacingErrorMessage(error));
 		this.requestRender();
 	}
 
@@ -15409,7 +15411,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			badge = badgeRead.badges.get(node.relativePath) ?? null;
 			ownProblem = badgeRead.problems.find(problem => problem.relativePath === node.relativePath);
 			if (ownProblem) {
-				this.logService.warn(`BaseHalf badge metadata issue for ${ownProblem.relativePath}: ${ownProblem.message}`);
+				this.logService.warn(`BaseHalf badge metadata issue for ${ownProblem.relativePath}: ${ownProblem.detail}`);
 			}
 			try {
 				upstream = await this.referenceIndexService.readUpstream(node);
