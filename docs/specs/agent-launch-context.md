@@ -73,8 +73,7 @@ The instruction covers the following, in this order.
    - canvas layout;
    - reading aids;
    - each card's one-line `description`, in `.bh/mirror/<path>/badge.yaml`;
-   - the upstream lists of non-Markdown nodes, in
-     `.bh/mirror/<path>/upstream.yaml`.
+   - upstream lists BaseHalf keeps, in `.bh/mirror/<path>/upstream.yaml`.
 
    Read a node's `description` when you need to know what the user says it is
    for. Never delete or regenerate `.bh/`. Edit it only when the user asks.
@@ -83,7 +82,8 @@ The instruction covers the following, in this order.
    - a Markdown note, under the `upstream` key of its frontmatter;
    - a `.bhnode`, under its `upstream` field;
    - any other node, in `.bh/mirror/<path>/upstream.yaml`. A note with no
-     `upstream` key may have its list there too.
+     `upstream` key may have its list there too: then edit that list, not the
+     note.
 
    Each entry is relative to the workspace folder, uses forward slashes, has no
    `./` and no leading `/`, and names a folder without a trailing slash. Quote

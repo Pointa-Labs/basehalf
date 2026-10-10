@@ -135,6 +135,10 @@ the key is in.
 - The index and the edit service decide this with one shared rule. The index
   applies it to saved content. The edit service applies it to the text it
   would edit, which is the open document when there is one.
+- The edit service takes the decision under the workspace lease, after the
+  note's open projections are flushed. A note with unsaved changes and
+  auto-save off refuses the write with "Save or revert <file> first", whether
+  its list is in the note or in the sidecar.
 - For such a note the sidecar is a sidecar store in every respect: reads,
   writes, undo, the marked-folder rule, workbench moves, and deletes follow
   [Sidecar store](#sidecar-store). The note's bytes are never changed.
@@ -251,7 +255,12 @@ note's **block entries**.
   entries, so a connect never leaves them behind. Rebuild List does the same
   and nothing else. The note is not changed.
 - Once the sidecar exists, the block entries are ignored and the issue is
-  gone.
+  gone. That must stay true when the user removes the last entry, or the next
+  connect would bring back connections the user removed. So while the note
+  has block entries, a sidecar that becomes empty is kept as a file with an
+  empty list. Only undoing the step that carried the entries over deletes it
+  again.
+- A removal of an entry that is not listed creates no sidecar.
 - A block with no such line, or with no valid entry, carries no issue.
 
 ### Writes
@@ -363,7 +372,9 @@ comments, quoting, and the body stay byte-identical.
   - then removes the `upstream.yaml`.
 - **Missing node.** An `upstream.yaml` whose node does not exist contributes no
   edges and no downstream entries. It becomes live again if a node reappears at
-  that path.
+  that path. This holds for a note too: when a note is added, restored from
+  the trash, or brought back by a branch switch, the index reads its sidecar
+  again.
 - **Workbench move.** The node's `upstream.yaml` moves with its mirror
   directory. The mirror cascade never changes the upstream value of any other
   node; only the [rename refactor](#rename-refactor) does.
@@ -505,8 +516,12 @@ exclude failing stores and list them as skipped before the user confirms.
    stale or fenced, refuse with "This item is being moved".
 2. Resolve the text file model. Refuse if any of these hold:
    - it is read-only, orphaned, in conflict, or in error;
-   - it is binary;
-   - its frontmatter's closing fence lies beyond the first 64 KiB.
+   - it is binary.
+
+   A note that cannot take an `upstream` key is not refused here. Its store
+   is its sidecar ([A note that cannot hold its list](#a-note-that-cannot-hold-its-list)),
+   and only an operation that addresses the note itself, Move into File, is
+   refused for it.
 3. Flush the pending edits of every open projection of the document. Rich
    registers its flusher under the workspace-and-path key, and the other
    projections under the resource key; flush both. If any flush returns false
@@ -565,8 +580,9 @@ the valid entries those keys held, in order and without repeats. Other keys,
 lines outside the removed ones, and the body stay byte-identical.
 
 - **What it can read.** An anchor or a tag in front of an entry is dropped
-  and the entry kept. An alias, a mapping, and a block scalar hold no entry
-  BaseHalf reads.
+  and the entry kept, without its quotes when it is quoted. An alias, an
+  empty or null item, a mapping, and a block scalar hold no entry BaseHalf
+  reads, and the plain entries beside such an item are kept.
 - **No valid entry.** It writes no key, and when nothing else remains in the
   frontmatter the block is removed. When removing the key would leave
   something the recognizer rejects, such as only comments or a leading blank
@@ -577,9 +593,12 @@ lines outside the removed ones, and the body stay byte-identical.
   [entries inside the block](#recognition).
 - **Recovery copy.** Before the edit, BaseHalf saves the note's text up to the
   last line the rebuild changes as
-  `.bh/cache/recovered/mirror/<path>/frontmatter.<12 hex digits>.md`. If the
-  copy cannot be saved, the note is left unchanged. A marked folder gets no
-  copy.
+  `.bh/cache/recovered/mirror/<path>/frontmatter.<12 hex digits>.md`. A marked
+  folder gets no copy. When the edit has to be planned again because the note
+  changed, the copy is taken again. If the copy cannot be saved, the note is
+  left unchanged and BaseHalf says "BaseHalf could not keep a copy of what
+  Rebuild List would replace in <name>, so it changed nothing: <plain failure
+  reason>".
 - **Undo.** The edit goes through the document as every Markdown write does
   and belongs to the document's own undo stack; it is not a canvas undo step.
 - It is refused, and nothing changes, only when the keys cannot be located
@@ -1255,6 +1274,9 @@ change any upstream value.
 The host reads the upstream state of both the expected bytes and the next bytes
 with the index reader. For `.bhnode` it uses the lenient extractor. A state is
 either "unreadable" or the ordered list of raw entry strings, valid and invalid.
+For a Markdown file the list includes the
+[entries inside an unrecognized leading block](#recognition), because
+BaseHalf carries those into the note's sidecar.
 
 The transition is rejected with a plugin-facing error unless the two states are
 identical. That includes a transition that makes a readable store unreadable,
@@ -1329,8 +1351,8 @@ slice 4, or slice 5 without slice 3.
    - `upstream: *a`, a duplicated key, a mapping value, and a block scalar make
      the store unreadable.
    - `- ~` is one invalid entry, and the other entries stay valid.
-   - A note that starts with a thematic break shows no issue, and connecting
-     into it is refused with the reason.
+   - A note that starts with a thematic break shows no issue, and its list is
+     kept in its sidecar (criterion 21).
 3. Connecting A to a Markdown B writes only B's store and the `canvas.yaml`
    anchor row. The edge appears when the operation resolves.
    - After B's model is disposed, canvas undo removes exactly that entry and
@@ -1480,7 +1502,13 @@ slice 4, or slice 5 without slice 3.
       byte-identical, and draws the edge. Disconnect, canvas undo, and redo
       change only the sidecar.
     - The badge lists the entries with "BaseHalf keeps this list for this
-      file." and shows no issue.
+      file." and shows no issue. The exception is a note whose frontmatter
+      closes beyond the size window: the index cannot tell that it cannot
+      hold a list, so its badge offers a Move into File that is refused with
+      the size reason.
+    - A note that is deleted and comes back shows its kept list again.
+    - Removing every entry of a kept list leaves no issue and brings no entry
+      back, also for a note with entries inside its leading block.
     - A note whose leading block is rejected and lists entries under
       `upstream` shows one issue with Rebuild List. Rebuild List, and the
       first connect into the note, start the sidecar with those entries and
