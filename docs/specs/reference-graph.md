@@ -272,7 +272,7 @@ comments, quoting, and the body stay byte-identical.
     from after `upstream:` to its end, with a block list of the same entries.
   - A single scalar that is not a valid entry means the key is used by another
     tool. The store is reported as "Another tool keeps something else where
-    this note's upstream list goes", and writes are refused with that reason.
+    this upstream list goes", and writes are refused with that reason.
 - **Order.** New entries are appended. Removals keep the order of the rest. A
   source-end reconnect replaces the entry in place.
 - **Quoting.** An entry is written as a double-quoted scalar when it has any of
@@ -561,19 +561,43 @@ buttons **Rebuild List** and Cancel.
 
 **Markdown.** BaseHalf removes every top-level `upstream` key together with
 its value lines. At the position of the first one it writes one block list of
-the valid entries those keys held, in order and without repeats. With no valid
-entry it writes no key, and when nothing else remains in the frontmatter the
-block is removed. Other keys, lines outside the removed ones, and the body
-stay byte-identical. If the remaining frontmatter would no longer be
-recognized, the operation is refused and nothing changes. The edit goes
-through the document as every Markdown write does and belongs to the
-document's own undo stack; it is not a canvas undo step.
+the valid entries those keys held, in order and without repeats. Other keys,
+lines outside the removed ones, and the body stay byte-identical.
+
+- **What it can read.** An anchor or a tag in front of an entry is dropped
+  and the entry kept. An alias, a mapping, and a block scalar hold no entry
+  BaseHalf reads.
+- **No valid entry.** It writes no key, and when nothing else remains in the
+  frontmatter the block is removed. When removing the key would leave
+  something the recognizer rejects, such as only comments or a leading blank
+  line, it writes `upstream: []` in its place, as removing the last entry
+  does.
+- **Another repeated key.** The block stays unrecognized, as it was. Its list
+  is then one key that reads, and it is carried into the note's sidecar as
+  [entries inside the block](#recognition).
+- **Recovery copy.** Before the edit, BaseHalf saves the note's text up to the
+  last line the rebuild changes as
+  `.bh/cache/recovered/mirror/<path>/frontmatter.<12 hex digits>.md`. If the
+  copy cannot be saved, the note is left unchanged. A marked folder gets no
+  copy.
+- **Undo.** The edit goes through the document as every Markdown write does
+  and belongs to the document's own undo stack; it is not a canvas undo step.
+- It is refused, and nothing changes, only when the keys cannot be located
+  as whole lines: a frontmatter mapping that is not a block mapping in
+  column 0.
 
 **Sidecar.** BaseHalf first saves the file as a recovery copy,
 `.bh/cache/recovered/mirror/<path>/upstream.<12 hex digits>.yaml`, under the
 rules of [mirror file resilience](mirror-file-resilience.md). It then writes
 the valid entries it could read as a block list, or deletes the file when
 there are none.
+
+- A sidecar BaseHalf reads but will not edit in place, such as a flow
+  mapping, keeps every entry it reads.
+- A sidecar it cannot read keeps the entries of the `upstream` keys that
+  still read, whatever the shape of the file.
+- A sidecar BaseHalf will not edit in place is always shown as an issue, so
+  Rebuild List is offered wherever a write to it is refused.
 
 The refusal rules of every other write apply: a running node, a marked
 folder, a read-only or unsaved document, and a symbolic link refuse the
@@ -851,7 +875,8 @@ read code (D41):
   JSON, key, mapping, anchor, alias, tag, block scalar), the `.bh/` folder or
   a file in it, "metadata", "sidecar", or "node document".
 - A message that names a store names the node it belongs to, never a file
-  under `.bh/`.
+  under `.bh/`. Where a note and its sidecar must be told apart, the sidecar
+  is "the list BaseHalf keeps for <name>".
 - Parser and file-format detail goes to the log, not to the message. A file
   system failure is shown as a
   [plain failure reason](mirror-file-resilience.md#failure-reasons-in-messages),
@@ -863,8 +888,9 @@ Store issue rows, in the badge editor and in Show Upstream Issues:
 
 | Store state | Row text | Action |
 | --- | --- | --- |
-| A list BaseHalf cannot read or will not edit in place (mapping, repeated key, anchor/alias/tag, block scalar, an entry over several lines; an unreadable sidecar) | "BaseHalf can't read this upstream list." | Rebuild List |
-| A value used by another tool | "Another tool keeps something else where this note's upstream list goes." | Rebuild List |
+| A list BaseHalf cannot read (mapping, repeated key, anchor/alias/tag, block scalar; an unreadable sidecar) | "BaseHalf can't read this upstream list." | Rebuild List |
+| A list BaseHalf reads but will not edit in place (a Markdown entry over several lines; a sidecar that is a flow mapping) | "BaseHalf can't change this upstream list the way it is written." | Rebuild List |
+| A value used by another tool | "Another tool keeps something else where this upstream list goes." | Rebuild List |
 | A frontmatter mapping BaseHalf cannot edit that already holds `upstream` | "BaseHalf can't save connections into this note because of how the file begins." | none |
 | An unreadable `.bhnode` | "This node can't be read." | none |
 | A store the file system refuses to read | "The upstream list could not be read: <plain failure reason>" | none |
@@ -877,6 +903,8 @@ Refusal messages for the same states, where <name> is the node's file name:
 | --- | --- |
 | The list cannot be read or edited in place and can be rebuilt | "BaseHalf can't read the upstream list of <name>. Use Rebuild List in its badge first." |
 | The list cannot be read and cannot be rebuilt | "BaseHalf can't read the upstream list of <name>." |
+| The list is read but cannot be edited in place | "BaseHalf can't change the upstream list of <name> the way it is written. Use Rebuild List in its badge first." |
+| A sidecar changed after it was read | "The upstream list of <name> changed since this edit." |
 | A value used by another tool | "Another tool keeps something else where the upstream list of <name> goes. To connect anyway, use Rebuild List in its badge." |
 | A frontmatter mapping BaseHalf cannot edit that already holds `upstream`; Move into File into a note that cannot take a list | "BaseHalf can't save connections into <name> because of how the file begins." |
 | Move into File into a note whose frontmatter is beyond the size window | "BaseHalf can't save connections into <name>: the top of the file is too large to change." |
@@ -1420,11 +1448,17 @@ slice 4, or slice 5 without slice 3.
       order without repeats; other keys, comments, and the body are
       byte-identical.
     - With no valid entry the key is removed, and a frontmatter block that
-      held nothing else is removed with it.
-    - TOML frontmatter, a rejected leading block, and a frontmatter mapping
-      that is not a block mapping in column 0 are refused, and nothing changes.
+      held nothing else is removed with it. When only comments or a leading
+      blank line would remain, `upstream: []` is written instead.
+    - An entry with an anchor or a tag in front of it is kept, together with
+      the plain entries beside it.
+    - The note's text up to the last changed line is saved as a recovery copy
+      before the edit.
+    - A frontmatter mapping that is not a block mapping in column 0 is
+      refused, and nothing changes.
     - A sidecar that cannot be read is saved as a recovery copy and then
-      rewritten, or deleted when it has no valid entry.
+      rewritten, or deleted when it has no valid entry. A sidecar that is a
+      flow mapping keeps every entry it lists.
     - The store issue row offers Rebuild List exactly when the list can be
       rebuilt, and asks for confirmation before it writes. No row, notice, or
       list offers Open File.

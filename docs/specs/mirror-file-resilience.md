@@ -54,8 +54,8 @@ where a description or keyword such as `2024` or `true` had the same effect.
   aids). The user authored its content.
 - **Content failure**: the bytes of a mirror file cannot be read as that
   file: a YAML syntax error, a root that is not a mapping, a `path` that does
-  not name the file's node, or a field with the wrong shape. Reading the same
-  bytes again gives the same result.
+  not name the file's node ([The stored path](#the-stored-path)), or a field
+  with the wrong shape. Reading the same bytes again gives the same result.
 - **Environmental failure**: the file system refuses the operation: missing
   permission, a full disk, a mirror path that passes through a symbolic link,
   a file above its size limit, or a concurrent writer that keeps winning.
@@ -106,6 +106,22 @@ Canvas rows are made canonical before serialization: the last card for a path
 and the last edge for an endpoint pair win, as they do on reading. A card size
 that rounds to zero at the written precision is refused before serialization.
 
+## The stored path
+
+Every mirror file stores the `path` of its node. A file whose stored path
+names another node is a content failure. A stored path that differs from the
+node's path only in letter case or Unicode normalization still names the node:
+the file was found in that node's mirror directory, and this is what a rename
+made outside BaseHalf leaves behind on a file system that ignores those
+differences.
+
+- Such a file is read as the node's own, with no damage and no recovery copy.
+- In a canvas, card rows and edge ends that start with the stored spelling of
+  the folder are read under the folder's current spelling.
+- The next write stores the current spelling. Reading changes nothing on disk.
+- This does not follow a file or folder that was moved to another name
+  outside BaseHalf, which stays a non-goal.
+
 ## Layout files
 
 ### Reading
@@ -114,7 +130,9 @@ Reading a canvas never fails because of the file's content.
 
 - **Rows.** A card row is kept when it is a mapping with a string `path`, a
   `kind` of `file` or `folder`, finite `x` and `y`, and positive finite
-  `width` and `height`. An edge row is kept when `from` and `to` are strings
+  `width` and `height`. A size is positive when it is still above zero at the
+  precision BaseHalf writes, so that every row it reads is a row it can write
+  back. An edge row is kept when `from` and `to` are strings
   and both anchors are `north`, `east`, `south`, or `west`. Every other row is
   skipped. An invalid `size` is dropped. A `cards` or `edges` value that is
   not a list reads as an empty list.
@@ -216,10 +234,11 @@ reading-aid controls stay usable. Reading changes nothing on disk.
 
 A badge with a content failure is not an issue on its card: the badge editor
 shows the empty description field, and neither the card nor the canvas counts
-it as a metadata issue.
+it as an issue.
 
 When the file system refuses to read a badge, there is no description to
-edit. In place of the description field the badge editor shows "Description
+edit. The canvas shows "1 description could not be loaded" ("N descriptions
+could not be loaded" for several). In place of the description field the badge editor shows "Description
 can't be read" and one line with the cause: "BaseHalf could not load it:
 <cause>", a [plain failure reason](#failure-reasons-in-messages). It offers no
 action there: the earlier **Open Metadata** button,
@@ -346,7 +365,11 @@ are logged.
 6. A canvas with a YAML syntax error, and one whose `path` names another
    folder, read as no layout with `unreadable` damage. Moving a card saves a
    recovery copy and a readable file. A write that changes nothing leaves the
-   file and creates no copy.
+   file and creates no copy. A canvas, a `badge.yaml`, and an `adhd.yaml`
+   whose `path` differs from the node's only in letter case read as the
+   node's own, with rows under the current spelling, and the next write
+   stores the current spelling without a recovery copy. A card row whose size
+   would be written as zero is skipped, and the canvas stays writable.
 7. When the recovery copy cannot be written, the layout file is unchanged and
    the write is rejected.
 8. `purgeNode` and `relocateNode` complete when the parent canvas, a subtree

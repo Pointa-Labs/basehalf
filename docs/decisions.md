@@ -941,6 +941,13 @@ A note-taking product must not put its bookkeeping ahead of the user's work.
   BaseHalf never deletes recovery copies.
 - After Skip, metadata stays at its old mirror path, the state a move or
   delete outside BaseHalf already leaves.
+- A mirror file whose stored path differs from its node's only in letter
+  case or Unicode normalization is the node's own. A rename made outside
+  BaseHalf on a file system that ignores those differences would otherwise
+  make the saved layout, descriptions, and reading aids read as missing and
+  be replaced on the next save.
+- Recovery copies are a safety net for support, not a feature: nothing in the
+  product reads them back yet. A way to restore from them is an open item.
 
 ## D41 — Users are not expected to read code or open hidden files (NEW, 2026-10-10)
 
