@@ -44,7 +44,8 @@ The smoke currently covers canvas startup, hidden Open Editors, Quick Open,
 Quick Text Search, folder routing, the reference-graph flows (connect,
 disconnect, both reconnects, canvas undo after closing a note, Create from
 Connection, the badge editor's Upstream and Downstream, Rebuild List on a list
-BaseHalf cannot read, PDF branch, rename refactor, and migration of
+BaseHalf cannot read, a note whose list BaseHalf keeps because the note cannot
+hold it, PDF branch, rename refactor, and migration of
 a seeded legacy pair), legacy workspace cleanup, folders whose names look like
 numbers (create, move a card beside them, delete), a description file that
 cannot be read recovering on the next save, the rich reveal highlight,

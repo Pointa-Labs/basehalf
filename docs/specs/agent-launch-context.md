@@ -82,7 +82,8 @@ The instruction covers the following, in this order.
    file lists its upstream paths:
    - a Markdown note, under the `upstream` key of its frontmatter;
    - a `.bhnode`, under its `upstream` field;
-   - any other node, in `.bh/mirror/<path>/upstream.yaml`.
+   - any other node, in `.bh/mirror/<path>/upstream.yaml`. A note with no
+     `upstream` key may have its list there too.
 
    Each entry is relative to the workspace folder, uses forward slashes, has no
    `./` and no leading `/`, and names a folder without a trailing slash. Quote

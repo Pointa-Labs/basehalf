@@ -8,10 +8,10 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D41 capture the current direction; D35–D38
+> (see notes inline). D12–D42 capture the current direction; D35–D38
 > (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline,
-> D39 (2026-10) refines D21, D40 (2026-10) refines D12 and D19, and D41
-> (2026-10) refines D37 and D40.
+> D39 (2026-10) refines D21, D40 (2026-10) refines D12 and D19, D41
+> (2026-10) refines D37 and D40, and D42 (2026-10) refines D37.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -985,3 +985,41 @@ who came to take notes.
   Two kinds of text keep their terms on purpose: the release-note line
   addressed to people who keep their notes in git, and errors returned to a
   command's caller rather than shown as a notice.
+
+## D42 — A note that cannot hold its upstream list keeps it with BaseHalf (NEW, 2026-10-10)
+
+**Decision.** A Markdown note's upstream list lives in the note, as D37
+decided, with one exception. While the note has no `upstream` key of its own,
+its list lives in its sidecar `upstream.yaml` when the note cannot take the
+key (TOML frontmatter, a leading block BaseHalf does not recognize, a
+frontmatter mapping BaseHalf cannot edit, frontmatter beyond the size window)
+or when the sidecar already holds a list for it. The sidecar is then the
+note's store exactly as it is for a PDF or a folder, and connecting into the
+note is not refused. See
+[reference graph](specs/reference-graph.md#a-note-that-cannot-hold-its-list).
+
+**Why.** D37 refuses to write into a document it cannot edit safely, and D41
+removed the exit that handed the file to the user. What was left is a refusal
+with no way out for an ordinary action, and it reaches ordinary notes: one
+that starts with a horizontal rule is enough. Writing into the unrecognized
+block would mean guessing what the block is, and a wrong guess damages the
+note. Keeping the list beside the note never touches the file.
+
+**Consequences.**
+- Refines D37. Where a note's list lives now depends on the note's content as
+  well as on its kind. The index and the edit service decide it with one
+  shared rule.
+- An agent that reads such a note does not find the list in it. The launch
+  instructions say where to look, and the badge says "BaseHalf keeps this
+  list for this file."
+- A sidecar that holds a note's only list stays in use when the note becomes
+  able to take a list, so connections never disappear because the top of a
+  note was edited. The badge then offers **Move into File**. As before, a
+  sidecar is ignored only when the note has an `upstream` key of its own.
+- A block BaseHalf does not recognize can still list connections, for
+  example frontmatter that another tool made invalid. BaseHalf reads those
+  entries and carries them into the sidecar on the first write or on
+  **Rebuild List**, so the row that reports them always has an action.
+- Still without a repair: a note whose frontmatter is a flow mapping that
+  already holds `upstream`, which is read but cannot be edited, and an
+  unreadable `.bhnode`, which is a node-document matter.

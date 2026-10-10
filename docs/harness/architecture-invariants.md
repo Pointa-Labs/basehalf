@@ -67,7 +67,9 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   relationship prose.
 - `A → B` is stored once, in B's store: the `upstream` frontmatter key of a
   Markdown file, the `upstream` field of a `.bhnode`, or
-  `.bh/mirror/<path>/upstream.yaml` for any other node. The reverse direction
+  `.bh/mirror/<path>/upstream.yaml` for any other node. A Markdown note with
+  no `upstream` key that cannot take one, or that already has a list in its
+  `upstream.yaml`, uses that file as its store (D42). The reverse direction
   is derived in memory and never stored. `canvas.yaml` edge rows are anchor
   memory only; they never create, block, or imply a reference.
 - Dangling and invalid upstream entries are shown as issues and never removed
@@ -104,7 +106,7 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
 
-See public decisions D12–D14, D24, D35–D38, D40, and D41, the
+See public decisions D12–D14, D24, D35–D38, and D40–D42, the
 [reference graph](../specs/reference-graph.md) and
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.

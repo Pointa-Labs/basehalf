@@ -1,8 +1,10 @@
 # Reference graph: downstream-owned upstream lists
 
-Status: Active (2026-09-27; Open File removed 2026-10-10 for D41)
+Status: Active (2026-09-27; Open File removed 2026-10-10 for D41; a note that
+cannot hold its list keeps it in its sidecar, 2026-10-10 for D42)
 Decisions: [D37](../decisions.md#d37--references-are-stored-once-by-the-downstream-node-new-2026-09-27),
-[D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10)
+[D41](../decisions.md#d41--users-are-not-expected-to-read-code-or-open-hidden-files-new-2026-10-10),
+[D42](../decisions.md#d42--a-note-that-cannot-hold-its-upstream-list-keeps-it-with-basehalf-new-2026-10-10)
 Related: [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
 [agent launch context](agent-launch-context.md)
 
@@ -115,6 +117,38 @@ The downstream node's kind decides where its upstream list lives.
 | `.bhnode` document | top-level `upstream` array in the node document |
 | Any other node: folder, PDF, image, audio, video, code, text, and so on | `.bh/mirror/<path>/upstream.yaml` |
 
+### A note that cannot hold its list
+
+A Markdown note's store is its sidecar `upstream.yaml`, not its frontmatter,
+while the note has no `upstream` key of its own and at least one of these
+holds (D42):
+
+- the note cannot take the key, because the document is
+  [not writable](#recognition): a leading block the recognizer rejects, TOML
+  frontmatter, a frontmatter mapping that is not a block mapping in column 0,
+  or frontmatter beyond the size window;
+- the note already has a sidecar `upstream.yaml`.
+
+A note that has an `upstream` key keeps its list in the note, whatever state
+the key is in.
+
+- The index and the edit service decide this with one shared rule. The index
+  applies it to saved content. The edit service applies it to the text it
+  would edit, which is the open document when there is one.
+- For such a note the sidecar is a sidecar store in every respect: reads,
+  writes, undo, the marked-folder rule, workbench moves, and deletes follow
+  [Sidecar store](#sidecar-store). The note's bytes are never changed.
+- The second condition keeps a list in use when the note changes. Editing the
+  top of a note so that it can take a key never makes its connections
+  disappear; the badge then offers **Move into File**.
+- BaseHalf never moves a list between the note and the sidecar by itself
+  (Invariant 4).
+- The index reads only the first 64 KiB of a note, so it cannot tell
+  frontmatter that closes beyond that window from none at all. For such a
+  note the edit service, which reads the whole text, still keeps the list in
+  the sidecar. The badge then offers Move into File, and that move is refused
+  with the size reason.
+
 These are **upstream-only**. BaseHalf refuses every change to their stores,
 removals and no-op removals included, and never writes their bytes:
 
@@ -193,14 +227,32 @@ BaseHalf when any of these hold:
   (an anchor, alias, or tag);
 - the value is a block scalar (`|` or `>`).
 
-A document is **not writable** by BaseHalf (connect into it is refused with the
-reason) in two cases:
+A document is **not writable** by BaseHalf in two cases:
 - a closed leading fence pair whose content the recognizer rejects;
 - a document that uses TOML `+++` frontmatter.
 
-Such a document is shown as an issue only when that leading block contains a
-line matching `^upstream\s*:`. A note that merely starts with a thematic break
-carries no issue.
+BaseHalf never writes into such a document. It has no `upstream` key, so its
+list is kept in its sidecar
+([A note that cannot hold its list](#a-note-that-cannot-hold-its-list)) and
+connecting into it is not refused. A note that merely starts with a thematic
+break is one of these documents.
+
+**Entries inside the block.** Such a block can still list connections: for
+example, frontmatter that BaseHalf wrote and that another tool later made
+invalid elsewhere. When the block has a line matching `^upstream\s*:`,
+BaseHalf reads that key's own lines (up to the next line that starts another
+key) as a list and keeps its valid entries apart from the store, as the
+note's **block entries**.
+
+- Block entries draw no edges while the note has no sidecar. The badge shows
+  one issue, "The connections written at the top of this note are not in
+  use.", with **Rebuild List**.
+- The first write to the note's sidecar starts the sidecar with the block
+  entries, so a connect never leaves them behind. Rebuild List does the same
+  and nothing else. The note is not changed.
+- Once the sidecar exists, the block entries are ignored and the issue is
+  gone.
+- A block with no such line, or with no valid entry, carries no issue.
 
 ### Writes
 
@@ -296,10 +348,18 @@ comments, quoting, and the body stay byte-identical.
 - BaseHalf edits `upstream.yaml` only through the reference edit service, using
   the same minimal text planner as frontmatter. No other BaseHalf writer opens
   this file. Builds before D37 never read or write it.
-- **Wrong owner.** An `upstream.yaml` that belongs to a Markdown or `.bhnode`
-  node is ignored and reported as "belongs in the file". The issue offers
-  **Move into file**, which in one explicit operation:
-  - appends to the file's store the entries it does not already list, in order;
+- **A note's sidecar.** An `upstream.yaml` that belongs to a Markdown note is
+  that note's store while the note has no `upstream` key
+  ([A note that cannot hold its list](#a-note-that-cannot-hold-its-list)).
+  When the note could take the key, the badge also reports "An upstream list
+  for this note is saved outside the note" and offers **Move into File**. The
+  list stays in use until the user moves it.
+- **Wrong owner.** An `upstream.yaml` that belongs to a Markdown note with an
+  `upstream` key of its own, or to a `.bhnode`, is ignored and reported the
+  same way.
+- **Move into File**, in one explicit operation:
+  - appends to the file's own store the entries it does not already list, in
+    order;
   - then removes the `upstream.yaml`.
 - **Missing node.** An `upstream.yaml` whose node does not exist contributes no
   edges and no downstream entries. It becomes live again if a node reappears at
@@ -482,11 +542,17 @@ reference operation (Invariant 4) and never runs by itself.
   tool, or has an entry that spans several lines;
 - a sidecar `upstream.yaml` that cannot be read.
 
-It is not offered for a document BaseHalf cannot edit safely: TOML
-frontmatter, a leading block the recognizer rejects, frontmatter beyond the
-size window, a frontmatter mapping that is not a block mapping in column 0,
-and a `.bhnode` that cannot be read. It is not offered for a node that cannot
-be downstream. For these the row states the reason and has no action.
+It is not offered for a frontmatter mapping that is not a block mapping in
+column 0 and already holds `upstream`, for a `.bhnode` that cannot be read, or
+for a node that cannot be downstream. For these the row states the reason and
+has no action.
+
+A note that cannot hold a list keeps it in its sidecar
+([A note that cannot hold its list](#a-note-that-cannot-hold-its-list)). For
+such a note Rebuild List is offered only to carry over the
+[entries inside its leading block](#recognition). Its confirmation detail
+reads "BaseHalf will keep the connections it can read from this note for you.
+The note itself is not changed."
 
 **Confirmation.** "Rebuild the upstream list of <name>?" with the detail
 "BaseHalf will write the list again in a form it can use. It keeps the
@@ -616,7 +682,8 @@ imply a reference.
 
 A connection's target must be a node that can be downstream (see
 [Stores](#stores)). These connections are refused with an explanation:
-- into a not-writable document;
+- into a note whose own `upstream` key BaseHalf cannot read or edit in place
+  (the message names Rebuild List when it applies);
 - into a running `.bhnode`;
 - into a node whose store needs a `.bh/` write in a marked folder (see
   [Source-tree guard](#source-tree-guard)).
@@ -683,7 +750,7 @@ undo step.
 
 | What is copied | What happens to upstream entries |
 | --- | --- |
-| Markdown file | keeps its bytes and entries. Entries that do not resolve show as dangling. |
+| Markdown file | keeps its bytes and entries. Entries that do not resolve show as dangling. A note whose list is kept in its sidecar starts with no upstream list, like a sidecar node. |
 | Folder | entries inside it that name other items in the original folder still name the originals. The copy confirmation states this. |
 | `.bhnode` | forked with `upstream: []` and no bindings |
 | Sidecar node | starts with no upstream list |
@@ -704,8 +771,9 @@ The card flip face and the Card Detail badge zone share one editor.
   agents read it.
 - **Upstream.** This node's own list, which is editable.
   - Helper line: "Context that flows into this card. Saved inside this file,
-    so agents reading it see it too." For sidecar nodes: "BaseHalf keeps this
-    list for this file." ("…this folder." for folders).
+    so agents reading it see it too." For sidecar nodes, and for a note whose
+    list is kept in its sidecar: "BaseHalf keeps this list for this file."
+    ("…this folder." for folders).
   - **Add Upstream** opens a workspace-wide picker titled "Add upstream to
     <name>". The picker:
     - lists every node in the downstream node's workspace folder, leaving out
@@ -744,10 +812,11 @@ The card flip face and the Card Detail badge zone share one editor.
     code (D41), so every repair it offers is an action in its own interface.
     An earlier **Open File** action is removed from all of them.
 
-    **Known gap.** A document that BaseHalf cannot edit safely (TOML
-    frontmatter, a rejected leading block, an oversized or non-block
-    frontmatter mapping, an unreadable `.bhnode`) has no repair in the product.
-    Connections into it are refused with the reason.
+    **Known gap.** Two states have no repair in the product. A note whose
+    frontmatter is not a block mapping in column 0 and already holds
+    `upstream` has its entries read, and edits to it are refused with the
+    reason. An unreadable `.bhnode` is a node-document matter outside this
+    specification.
   - **Attempted or sealed `.bhnode`:** a dangling bound entry is a historical
     input. It reads "Moved or deleted since this result was made", in a neutral
     style, and is not counted as an issue.
@@ -796,10 +865,11 @@ Store issue rows, in the badge editor and in Show Upstream Issues:
 | --- | --- | --- |
 | A list BaseHalf cannot read or will not edit in place (mapping, repeated key, anchor/alias/tag, block scalar, an entry over several lines; an unreadable sidecar) | "BaseHalf can't read this upstream list." | Rebuild List |
 | A value used by another tool | "Another tool keeps something else where this note's upstream list goes." | Rebuild List |
-| A document BaseHalf cannot edit safely (rejected leading block, TOML, non-block or oversized frontmatter) | "BaseHalf can't save connections into this note because of how the file begins." | none |
+| A frontmatter mapping BaseHalf cannot edit that already holds `upstream` | "BaseHalf can't save connections into this note because of how the file begins." | none |
 | An unreadable `.bhnode` | "This node can't be read." | none |
 | A store the file system refuses to read | "The upstream list could not be read: <plain failure reason>" | none |
-| A sidecar list for a node that keeps its list in its own file | "An upstream list for this note is saved outside the note." | Move into File |
+| A sidecar list for a note that could hold it, or for a node that has a list in its own file | "An upstream list for this note is saved outside the note." | Move into File |
+| Entries inside a leading block BaseHalf does not recognize, in a note with no sidecar | "The connections written at the top of this note are not in use." | Rebuild List |
 
 Refusal messages for the same states, where <name> is the node's file name:
 
@@ -808,8 +878,8 @@ Refusal messages for the same states, where <name> is the node's file name:
 | The list cannot be read or edited in place and can be rebuilt | "BaseHalf can't read the upstream list of <name>. Use Rebuild List in its badge first." |
 | The list cannot be read and cannot be rebuilt | "BaseHalf can't read the upstream list of <name>." |
 | A value used by another tool | "Another tool keeps something else where the upstream list of <name> goes. To connect anyway, use Rebuild List in its badge." |
-| A document BaseHalf cannot edit safely | "BaseHalf can't save connections into <name> because of how the file begins." |
-| Frontmatter beyond the size window | "BaseHalf can't save connections into <name>: the top of the file is too large to change." |
+| A frontmatter mapping BaseHalf cannot edit that already holds `upstream`; Move into File into a note that cannot take a list | "BaseHalf can't save connections into <name> because of how the file begins." |
+| Move into File into a note whose frontmatter is beyond the size window | "BaseHalf can't save connections into <name>: the top of the file is too large to change." |
 | An unreadable `.bhnode` | "<name> can't be read." |
 | A sidecar the file system refuses to read | "The upstream list of <name> could not be read: <plain failure reason>" |
 | A sidecar behind a symbolic link | "BaseHalf keeps the upstream list of <name> behind a symbolic link. BaseHalf doesn't change files through links." |
@@ -1188,6 +1258,7 @@ In a marked folder:
 | Situation | Behavior |
 | --- | --- |
 | Store unreadable or not writable | No edges from an unreadable store. The issue is shown with Rebuild List when the list can be rebuilt, and other writes are refused with the reason. |
+| Note cannot hold a list | The list is kept in the note's sidecar. Nothing is refused and no issue is shown. |
 | Model read-only, in conflict, or in error | Write refused with the reason; nothing changes |
 | Flush fails or times out | Refused: "Finish or resolve the unsaved edit in <file> first" |
 | Model changed between planning and applying | Re-plan once, then refuse |
@@ -1336,6 +1407,9 @@ slice 4, or slice 5 without slice 3.
     - the badge editor's Upstream and Downstream;
     - Rebuild List on a note whose list was added twice: the plain issue row,
       the confirmation, and the rewritten list;
+    - a note that starts with a horizontal rule: Add Upstream keeps the list
+      with BaseHalf and leaves the note unchanged, and Move into File moves
+      it into the note once the note can hold it;
     - Create from Connection: the menu, its cancel, Note, and Image with its
       undo.
 19. Rebuild List:
@@ -1364,3 +1438,25 @@ slice 4, or slice 5 without slice 3.
       cannot be read, moves the entries BaseHalf can read, saves the sidecar
       as a recovery copy, deletes it, and tells the user. With a recovery copy
       that cannot be saved, the sidecar is unchanged.
+21. A note that cannot hold its list (D42):
+    - Connecting into a note with TOML frontmatter, into a note whose leading
+      block the recognizer rejects (a note that starts with a thematic break
+      included), and into a note whose frontmatter is beyond the size window
+      writes `.bh/mirror/<path>/upstream.yaml`, leaves the note
+      byte-identical, and draws the edge. Disconnect, canvas undo, and redo
+      change only the sidecar.
+    - The badge lists the entries with "BaseHalf keeps this list for this
+      file." and shows no issue.
+    - A note whose leading block is rejected and lists entries under
+      `upstream` shows one issue with Rebuild List. Rebuild List, and the
+      first connect into the note, start the sidecar with those entries and
+      leave the note byte-identical; afterwards the issue is gone.
+    - When the note becomes able to hold a list, its sidecar list stays in
+      use and the badge offers Move into File, which moves the entries into
+      the note and deletes the sidecar.
+    - When the note has an `upstream` key of its own, its sidecar is ignored
+      and reported.
+    - The rename refactor updates the entries in such a sidecar, and a
+      workbench move carries the sidecar with the note.
+    - In a marked folder the connection is refused with the marked-folder
+      reason and nothing is written.

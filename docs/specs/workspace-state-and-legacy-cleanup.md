@@ -59,7 +59,7 @@ In the workspace, under `.bh/`:
 
 BaseHalf does not create or edit `.gitignore`. Lines that earlier releases
 appended stay unless the user removes them. Project metadata may be committed,
-so that canvas layout, descriptions, and non-Markdown upstream lists travel
+so that canvas layout, descriptions, and the upstream lists BaseHalf keeps travel
 with the folder. The release notes recommend ignoring `.bh/cache/`.
 
 `.bh/mirror/<path>/` holds the per-node files above. A workbench move or
@@ -285,8 +285,8 @@ release that contains every slice states:
 
 - Connecting two cards saves the connection with the card it points to. For
   a note, it is saved inside the note itself, so agents and other tools that
-  read the note see it too. For PDFs, folders, and other files, BaseHalf keeps
-  the list for you.
+  read the note see it too. For PDFs, folders, other files, and a note
+  BaseHalf can't write into, BaseHalf keeps the list for you.
 - The badge edits a card's Upstream list. Downstream shows what draws on it.
 - Moving or renaming a file in BaseHalf offers to update the upstream lists
   that name it.
