@@ -1743,6 +1743,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			),
 			showContextMenu: (sceneKey, structuralEpoch, request) => this.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
+			// The resting projection of a Note holds the whole note.
+			cardScrollableContent: card => this.canvasNotePreviewMounts.get(card)?.fallback,
 			didStartViewportInteraction: () => {
 				this.viewportRestoreGeneration++;
 				this.markCanvasUserInteraction();
@@ -14326,7 +14328,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			// The original preview remains the atomic exit frame underneath the live
 			// surface, but only one projection enters the accessibility tree.
-			active.instance.setScrollTop(fallbackScrollTop);
+			// The resting note stays the shown projection until here, and a wheel
+			// may have scrolled it since the editor began to open.
+			active.instance.setScrollTop(active.fallback.scrollTop);
 			active.fallback.setAttribute('aria-hidden', 'true');
 			active.fallback.setAttribute('inert', '');
 			active.host.classList.add('ready');
