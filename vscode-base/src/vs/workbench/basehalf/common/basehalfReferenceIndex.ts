@@ -1131,9 +1131,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 	private async applyEvents(index: IFolderIndex, batch: { readonly added: readonly URI[]; readonly updated: readonly URI[]; readonly deleted: readonly URI[] }): Promise<void> {
 		const changed: URI[] = [];
 		const generation = index.generation;
-		for (const deleted of batch.deleted) {
-			changed.push(...this.dropSubtree(index, deleted));
-		}
+		changed.push(...this.dropSubtrees(index, batch.deleted));
 		const reads: URI[] = [];
 		const subtrees: URI[] = [];
 		// The sidecars of notes that were added: deleting a note drops its
@@ -1219,28 +1217,49 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return this.isStoreFileName(relativePath) && this.isCanvasEligible(index, relativePath, false) ? 'store' : 'unknown';
 	}
 
-	/** Drops every store at or under a deleted path, including sidecars under the matching mirror path. */
-	private dropSubtree(index: IFolderIndex, deleted: URI): URI[] {
+	/**
+	 * Drops every store at or under the deleted paths, including sidecars under
+	 * the matching mirror paths. One pass over the stores serves all the paths:
+	 * a store is looked up among them by its own key and the keys above it, so
+	 * many files deleted at once cost no more than one (reference graph, "Events").
+	 */
+	private dropSubtrees(index: IFolderIndex, deleted: readonly URI[]): URI[] {
+		if (deleted.length === 0) {
+			return [];
+		}
+		const paths = new Set<string>();
+		const mirrorPaths = new Set<string>();
+		for (const resource of deleted) {
+			paths.add(this.resourceKey(resource));
+			const relativePath = getRelativePath(index.folder, resource);
+			if (relativePath && !relativePath.startsWith('.bh/') && relativePath !== '.bh') {
+				mirrorPaths.add(this.resourceKey(URI.joinPath(baseHalfMirrorRoot(index.folder), ...relativePath.split('/'))));
+			}
+		}
+		// A key is its resource as text, and the key of a folder is the start of
+		// the keys below it. An event names a path at or below the workspace folder.
+		const shortest = this.resourceKey(index.folder).length;
+		const atOrBelow = (key: string, among: ReadonlySet<string>): boolean => {
+			for (let end = key.length; end >= shortest; end = key.lastIndexOf('/', end - 1)) {
+				if (among.has(end === key.length ? key : key.slice(0, end))) {
+					return true;
+				}
+			}
+			return false;
+		};
 		const changed: URI[] = [];
-		const relativePath = getRelativePath(index.folder, deleted);
-		const mirror = relativePath && !relativePath.startsWith('.bh/') && relativePath !== '.bh'
-			? URI.joinPath(baseHalfMirrorRoot(index.folder), ...relativePath.split('/'))
-			: undefined;
-		const extUri = this.uriIdentityService.extUri;
 		for (const record of [...index.records.values()]) {
-			if (extUri.isEqualOrParent(record.storeResource, deleted)
-				|| extUri.isEqualOrParent(record.node.resource, deleted)
-				|| (mirror && extUri.isEqualOrParent(record.storeResource, mirror))) {
+			if (atOrBelow(record.storeKey, paths) || atOrBelow(record.nodeKey, paths) || atOrBelow(record.storeKey, mirrorPaths)) {
 				this.deleteRecord(index, record.storeKey);
 				changed.push(record.node.resource);
 			}
 		}
 		for (const [key, problem] of [...index.problems]) {
-			if (extUri.isEqualOrParent(problem.resource, deleted)) {
+			if (atOrBelow(this.resourceKey(problem.resource), paths)) {
 				index.problems.delete(key);
 			}
 		}
-		changed.push(deleted);
+		changed.push(...deleted);
 		return changed;
 	}
 

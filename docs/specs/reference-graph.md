@@ -458,6 +458,16 @@ drops its stores, problems, and pending prompts.
 | A path is deleted | drop every store at or under that path, including sidecars under the matching mirror path |
 | A change under `.bh/mirror/**/upstream.yaml` | re-read that sidecar |
 
+The deleted paths of one event batch are dropped in one pass over the stores.
+Each store is looked up among the deleted paths by its own path and the
+paths above it, so the work grows with the number of stores and not with
+that number times the number of deleted paths. Measured on 2026-10-11 in a
+workspace of 4,300 notes: 300 files renamed at once outside BaseHalf kept the
+window's thread busy for 2.7 seconds when every deleted path was compared
+with every store, and nothing else in the window ran in that time. A unit
+test deletes a folder, two notes, and a PDF with a kept list in one batch,
+next to paths that only start like theirs, and those stay.
+
 After a BaseHalf save succeeds, the edit service passes the saved text to the
 index. The index updates that store and fires `onDidChange` before the
 operation resolves. The watcher event that follows, for identical content,

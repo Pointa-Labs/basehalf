@@ -440,6 +440,41 @@ suite('BaseHalfReferenceIndexService', () => {
 		await until(() => !downstream().includes('moved/b.md') && !downstream().includes('moved'), 'deletion was not indexed');
 	});
 
+	test('drops the stores of every path that is deleted at once, and of no path that only starts like one', async () => {
+		const listing = '---\nupstream:\n  - a.md\n---\n';
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'gone/x.md': listing,
+			'gone/deep/y.md': listing,
+			'one.md': listing,
+			'two.md': listing,
+			'paper.pdf': '%PDF',
+			'.bh/mirror/paper.pdf/upstream.yaml': 'upstream:\n  - a.md\n',
+			'.bh/mirror/gone/upstream.yaml': 'upstream:\n  - a.md\n',
+			// These stay: their paths start with a deleted path and are not below it.
+			'gone-too/x.md': listing,
+			'one.md.copy.md': listing,
+			'two.mdx/z.md': listing
+		});
+		const index = harness.index;
+		const downstream = () => index.getDownstream(harness.node('a.md')).map(entry => entry.node.relativePath).sort();
+		const before = downstream();
+
+		await Promise.all([
+			harness.fileService.del(joinPath(folder, 'gone'), { recursive: true }),
+			harness.fileService.del(joinPath(folder, 'one.md')),
+			harness.fileService.del(joinPath(folder, 'two.md')),
+			harness.fileService.del(joinPath(folder, 'paper.pdf'))
+		]);
+		const kept = ['gone-too/x.md', 'one.md.copy.md', 'two.mdx/z.md'];
+		await until(() => JSON.stringify(downstream()) === JSON.stringify(kept), `the deletions were not indexed: ${downstream()}`);
+
+		assert.deepStrictEqual({ before, stores: index.getStores(folder).map(store => store.node.relativePath).sort() }, {
+			before: ['gone', 'gone-too/x.md', 'gone/deep/y.md', 'gone/x.md', 'one.md', 'one.md.copy.md', 'paper.pdf', 'two.md', 'two.mdx/z.md'],
+			stores: ['a.md', ...kept]
+		});
+	});
+
 	test('never reads unsaved buffers', async () => {
 		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'b.md': '# B\n' });
 		const reference = await harness.textModelService.createModelReference(harness.node('b.md').resource);
