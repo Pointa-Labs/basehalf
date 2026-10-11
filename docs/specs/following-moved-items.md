@@ -254,6 +254,33 @@ it by path, and where an edit to the file changes nothing.
     BaseHalf is concerned, and is never paired with something that appears
     later. This is what keeps a new note from taking the card of a similar
     note that was deleted long ago.
+- **What a drawing has already seen.** The canvas reads a folder from disk
+  when it draws it. File events for the same change reach BaseHalf later.
+  The file watcher hands on a change of thousands of files in batches of 500,
+  200 ms apart, and its first batch can hold a few files only. A drawing in
+  between sees a renamed file as one card that is gone and one that is new.
+  - When a drawing finds that an item with a card row is not in the folder
+    any more, and file events have not told BaseHalf, the canvas tells it.
+    BaseHalf looks at each such path again by itself. An item that is gone
+    is taken as removed, and the items of that folder that BaseHalf did not
+    know are taken as added, exactly as if file events had said so.
+  - The file events that arrive later for the same change find it known and
+    change nothing.
+  - A file that was taken as removed and is written again can arrive as one
+    update of its path, because the file watcher joins a removal and an
+    addition of the same path. BaseHalf takes that update as an addition, so
+    that it knows the file again.
+  - A drawing for what the user did is drawn as it is. A redraw for what
+    happened on disk is not shown while the folder is not settled: the
+    canvas waits as it does for any item that is being recognized
+    ([what the user sees](#what-the-user-sees)). Whether the folder is
+    settled decides, and not which drawing told BaseHalf: one drawing can
+    tell and be overtaken by the next.
+  - Found on 2026-10-11 with 2,100 files renamed at once, 100 of them in the
+    folder that was shown. The first batch of events held 16 files. BaseHalf
+    paired them, the canvas drew, and 84 cards lost the places BaseHalf had
+    chosen for them: their rows were removed as rows of deleted files before
+    their events had arrived.
 - **File events name the top of a change.** Removing a folder is one event,
   and covers everything the snapshot holds below it. An added folder is
   listed, because its files may have no events of their own.
@@ -347,7 +374,8 @@ in place of a question.
 ## Relocation
 
 For each paired item, BaseHalf moves its card information from the old path
-to the new one.
+to the new one. The pairs that are pending in a workspace folder are
+relocated in one run ([many items at once](#many-items-at-once)).
 
 1. **Exclusive, without refusing the user.** Relocation runs alone against
    other writes of card information in the workspace folder, and open
@@ -414,10 +442,105 @@ its own variant of those stages and never runs the workbench one.
 
 **One item costs the same in any folder.** Relocation reads only the item's
 own directory under `.bh/mirror/` and the layouts of the two parent folders.
-It does not walk the rest of the mirror tree, so that a rename of many files
-at once finishes inside the time the canvas waits. Measured in the trial of
+It does not walk the rest of the mirror tree. Measured in the trial of
 2026-10-11: about 30 ms per file, where walking the whole tree took about
 315 ms per file in a folder with 60 cards.
+
+### Many items at once
+
+The pending pairs of a workspace folder are relocated in one run, in the
+order in which they were recognized. The result is the one that relocating
+each pair by itself, in that order, gives. What changes is how often a file
+is read and written.
+
+1. **Checked together.** Rules 2 and 3 are applied to every pair first, and
+   whether the item has a directory under `.bh/mirror/` is looked up with
+   them. A pair below another pair of the same run is left for the next run:
+   it starts again where its card information is after this one. When the
+   pair above it fails, it waits with it.
+2. **A layout is read once and written once.** Every layout that holds a row
+   of a pair that passed is read once. The rows follow pair after pair as
+   rule 4 says, on what was read. Then each layout that changed is written
+   once.
+3. **New places before old ones, as for one pair.** A layout that takes a row
+   in is written before the layout that the row leaves, so that a run that
+   stops in between leaves the row in both and never in neither. When one
+   pair takes a row out of a layout that another pair puts a row into, the
+   two cannot be written in such an order. The run then writes in more than
+   one step, and each step holds the pairs that can.
+4. **One layout that cannot be written does not hold the others.** When a
+   step fails, each of its pairs is relocated by itself. The pairs whose
+   layouts could be written are done, and only the others stay pending.
+5. **Mirror files** move item after item, as rule 4 says. An item without a
+   directory under `.bh/mirror/` has none, and nothing more is read for it.
+6. **Reported together.** The canvas, the open editors, and the entries step
+   are told about all the pairs of the run at once. The canvas then draws
+   them in one redraw.
+
+A drag, a resize, or a connection that the user makes while the run lasts
+waits until it has finished, as rule 1 says for one pair.
+
+**Why.** Relocating each pair by itself cost 20 to 35 ms a file, measured on
+2026-10-11 with timing lines in the program itself, in a folder of 300 placed
+notes without descriptions:
+
+| Renamed at once | Checks | Layout | Mirror files | Empty directories | From the first card to the last |
+| --- | --- | --- | --- | --- | --- |
+| 20 | 16 ms | 331 ms | 60 ms | 84 ms | 0.48 s |
+| 100 | 214 ms | 3,482 ms | 881 ms | 731 ms | 5.7 s |
+
+Six tenths of it rewrote the same layout once for every file: a read, a
+write, and a read to check it, of all 300 rows each time. A quarter looked
+for mirror files that these notes do not have, four times for each note, and
+for empty directories. With 100 files the run was longer than the canvas
+waits. The canvas then drew the notes that had not been followed yet as new
+cards at the end, and moved each back when its pair was done. Whether the
+window was sampled in every frame during the measurement made no difference:
+32 ms a file without, 34 ms with.
+
+**Measured after the change**, on the same day and machine, in the real
+window, with every frame of the canvas recorded. The folder that is shown
+holds 300 placed notes, in a workspace of 4,300. "Before" is the build before
+this section, the reference index's
+[one pass over the stores](reference-graph.md#events), and
+[what a drawing has already seen](#when-basehalf-compares).
+
+| Renamed at once | Before: new names drawn | After: every row followed | After: new names drawn |
+| --- | --- | --- | --- |
+| 1 | 0.50 s | 0.43 s | 0.50 s |
+| 20 | 1.13 s | 0.45 s | 0.53 s |
+| 50 | 2.51 s | 0.45 s | 0.57 s |
+| 100 | 7.97 s, with cards at other places in 468 frames and as few as 274 of 286 cards drawn | 0.58 s | 0.80 s |
+| 200 | did not finish | 0.74 s | 1.10 s |
+| 300 | not measured | 1.11 s | 1.63 s |
+| 300, and 700 in other folders | not measured | 2.85 s | 3.44 s |
+| 100, and 2,000 in other folders | not measured | 4.52 s | 4.70 s |
+
+- In every row after the change, each renamed card kept its place, and no
+  frame showed a card at a place that is not its own. In one frame of each
+  run, up to fourteen cards at the right edge that the canvas does not draw
+  otherwise were drawn.
+- The machine ran other programs during these runs, with a load average of
+  14 to 24. One of four runs of a single rename, the first change after the
+  folder was opened, took 2.4 seconds. The other three took 0.5.
+- The run of 100 files itself, from the first check to the last report, took
+  about 60 ms, where it had taken 5.7 seconds.
+- With 300 files, the time from the rename to the comparison had been 3.6
+  seconds. A processor profile of the window showed 2.7 seconds of it in the
+  reference index, which compared every deleted path with every store. It
+  is 13 ms since the index drops the paths of a batch in one pass.
+- The last two rows did not work before
+  [what a drawing has already seen](#when-basehalf-compares): with 1,000
+  files the canvas drew at its old limit of two seconds and showed cards at
+  other places for a second, and with 2,100 files 84 to 87 of the 100 cards
+  lost their places. In the row of 1,000 the file watcher dropped events,
+  and BaseHalf compared with the disk as after any lost events.
+- With thousands of files the canvas waits for the last file event of the
+  whole change, because every batch of events starts the quiet time again.
+  That is the 4.4 seconds of the last row.
+- Not changed: the lists that the comparison keeps are gone through once for
+  each removed, added, and paired file. That is about 0.3 seconds of the
+  1.1 seconds for 300 files in a workspace of 4,300.
 
 **Pending pairs.** A paired item is kept with the snapshot as a pending pair
 until its relocation has finished: when it was held back, when the window
@@ -425,6 +548,9 @@ closed in the middle, and when a stage failed for an environmental reason.
 BaseHalf tries every pending pair again at open, at each comparison, and
 when the editor or the run that held it back ends. A failure is logged. It
 shows no Retry and Skip notification: nothing the user did is waiting on it.
+A pair whose relocation failed does not keep the canvas from redrawing, like
+a pair that is held back: it waits for the next try, and the canvas does not
+wait for it.
 
 An item can move again before its card information has followed it. Then
 there is still one pair for it, from where its card information is to where
@@ -495,17 +621,38 @@ relocation bring it back.
   state in which the card is gone or somewhere else. To make this hold, the
   canvas does not redraw a folder for what happened on disk, from the
   removal of a followed item in it, of the folder itself, or of a folder
-  above it, until the comparison has finished and relocation is done, for at
-  most two seconds. Navigation and the user's own edits are drawn at once.
-  After that it draws what is on disk and corrects itself when relocation
-  has finished. A card of a file that was deleted outside
-  BaseHalf therefore stays for about half a second before it goes.
-- **Each move gets its own wait.** The two seconds count from the first
+  above it, until the comparison has finished and relocation is done.
+  Navigation and the user's own edits are drawn at once. A card of a file
+  that was deleted outside BaseHalf therefore stays for about half a second
+  before it goes.
+- **The wait has a limit of ten seconds, and it is a safeguard.** After it
+  the canvas draws what is on disk and corrects itself when relocation has
+  finished. The limit was two seconds, a value nobody had measured. Measured
+  on 2026-10-11, 1,000 files renamed at once were followed after 3.2
+  seconds, and the canvas had drawn 300 cards at other places for the second
+  before that. Ten seconds is also the latest that a comparison starts after
+  the first file event, so the canvas never gives up before BaseHalf has
+  compared.
+- **What the limit costs.** While file events keep arriving in the workspace
+  folder without a pause of 300 ms, the comparison starts ten seconds after
+  the first of them. A card of the shown folder whose file was removed or
+  renamed in that time changes when the comparison has run, and the cards of
+  files that were added to that folder meanwhile appear with it. With the
+  old limit the canvas drew after two seconds, with the renamed file as a
+  new card at the end, and corrected itself later.
+- **A redraw that was put off** behind a drag or a description that is being
+  typed is drawn as it is when that ends, and does not wait. The rows are
+  kept either way ([canvas card placement](canvas-card-placement.md#a-chosen-row-whose-item-is-gone)),
+  so the card is at its place once its pair is relocated.
+- **Each move gets its own wait.** The ten seconds count from the first
   change of one move. Once the folder is settled again, or another folder is
   shown, the next change starts a new wait. A wait that ended at its limit
   is not started again for the same move.
 - **At open.** The first drawing of a folder's canvas waits for the
-  comparison of its workspace folder in the same way, for at most 500 ms.
+  comparison of its workspace folder in the same way, for at most 500 ms. A
+  later redraw waits for that comparison for at most two seconds. No change
+  is on its way then: the folder is only being read, and the ten seconds
+  are not for that.
 - **The user's own edits are kept.** A card that the user drags or resizes
   while relocation runs stays where they put it, and no warning appears.
   When it is the card of the item that is being followed, its new place is
@@ -722,6 +869,23 @@ with the same expectations.
     described note, outside Agent Area with their own tools and with no
     BaseHalf window open. After the next open all four cards have their
     descriptions.
+27. **Many at once.** Thirty placed notes of one folder, two of them
+    described, are renamed outside at once. Every row is at its new path
+    with its place, and both descriptions followed. Renamed again while no
+    window is open, the same holds after the next open, and the layout was
+    written once. Following many moves through the layouts gives what
+    following each by itself gives, with fewer writes, also when one move
+    takes a row out of a layout that another puts a row into. When one
+    layout cannot be written, the moves of the other layouts are followed.
+28. **A drawing ahead of the file events.** A described file is renamed and
+    another is deleted, and their file events have not arrived. Told what a
+    listing shows, BaseHalf recognizes the rename, and the folder is not
+    settled until it has. A file that the listing left out and that is there
+    is not touched. The file events that arrive later change nothing. The
+    deleted file is given up when the time in which it can be paired has
+    passed, and not before.
+29. **In the real window, many at once.** Recorded, not automated: the table
+    under [many items at once](#many-items-at-once).
 
 ## Verification
 
@@ -846,4 +1010,6 @@ frame of the canvas.
    and one half and 32 characters for similarity are first values. The measurements under
    Verification decide them. None blocks implementation. The quiet time
    before a comparison was one second and is 300 ms since it was measured
-   ([When BaseHalf compares](#when-basehalf-compares)).
+   ([When BaseHalf compares](#when-basehalf-compares)). The time the canvas
+   waits was two seconds and is ten since it was measured
+   ([what the user sees](#what-the-user-sees)).

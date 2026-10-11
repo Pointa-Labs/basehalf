@@ -1404,12 +1404,21 @@ const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 const BASEHALF_CANVAS_NEW_NODE_READ_LIMIT = 1024 * 1024;
 const BASEHALF_CANVAS_NEW_NODE_KINDS_KEPT = 2000;
 
-/** How long the canvas waits with a redraw for an item that is being recognized at a new path. */
-const BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS = 2000;
+/**
+ * The longest the canvas waits with a redraw for items that are being
+ * recognized at a new path. A safeguard: the wait ends when their card
+ * information has followed. It is also the latest that a comparison starts
+ * after the first file event (following moved items, "What the user sees").
+ */
+const BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS = 10_000;
+/** How long a place the user gave a card waits for the move of that card's item before it is saved. */
+const BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS = 2000;
 /** After that limit, how long the canvas remembers that it already waited for a move that has not settled. */
 const BASEHALF_CANVAS_MOVED_ITEMS_FORGET_MS = 120_000;
 /** How long its first drawing waits for the comparison at open. */
 const BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS = 500;
+/** How long a later redraw waits for the comparison at open: no change is on its way, the folder is only being read. */
+const BASEHALF_CANVAS_MOVED_ITEMS_OPENING_HOLD_MS = 2000;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -1453,6 +1462,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private movedItemsHoldWaiting = false;
 	/** The first drawing waits for the comparison at open for a shorter time. */
 	private firstRenderHeld = false;
+	/** A drawing for what the user did was asked for, and no drawing has been shown since. */
+	private userRenderOwed = false;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
 	private readonly badgeDescriptionDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft>();
 	private readonly badgeDescriptionRecoveryDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft[]>();
@@ -2059,7 +2070,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		if (!this.holdRenderForMovedItems()) {
-			this.requestRender();
+			this.requestRender(true);
 		}
 	}
 
@@ -2173,8 +2184,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	 * While an item of the folder that is shown is being recognized at a new
 	 * path and its card information is on its way there, the canvas does not
 	 * redraw for what happened on disk: the card would leave and come back. It
-	 * waits two seconds at most, and half a second for the comparison at open,
-	 * and then draws what is on disk. Navigation and the user's own edits are
+	 * waits until that is done, ten seconds at most, and then draws what is on
+	 * disk. For the comparison at open its first drawing waits half a second
+	 * and a later redraw two seconds. Navigation and the user's own edits are
 	 * never held.
 	 */
 	private holdRenderForMovedItems(): boolean {
@@ -2192,7 +2204,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.movedItemsHoldStarted = undefined;
 		}
 		this.movedItemsHoldStarted ??= now;
-		const limit = this.firstRenderHeld ? BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS : BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS;
+		const limit = !this.firstRenderHeld ? BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS
+			: this.movedItemsService.hasCompared(folder.workspaceFolder) ? BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS
+				: BASEHALF_CANVAS_MOVED_ITEMS_OPENING_HOLD_MS;
 		const remaining = limit - (now - this.movedItemsHoldStarted);
 		if (remaining <= 0) {
 			// The limit has passed: the canvas draws what is on disk, and is not
@@ -2268,9 +2282,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private requestRender(): void {
+	/** `forDiskChange`: a redraw for what happened on disk, and not for what the user did. */
+	private requestRender(forDiskChange = false): void {
 		this.rendersInFlight++;
-		void this.render().catch(error => {
+		// A drawing the user is waiting for is never left out, whatever takes its turn.
+		this.userRenderOwed ||= !forDiskChange;
+		void this.render(forDiskChange).catch(error => {
 			if (this.disposed) {
 				return;
 			}
@@ -2281,7 +2298,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 	}
 
-	private async render(): Promise<void> {
+	private async render(forDiskChange = false): Promise<void> {
 		if (this.disposed) {
 			return;
 		}
@@ -2471,6 +2488,26 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// what kind of node a new node file is.
 		const pathKey = this.canvasPathKey(folder);
 		const childPaths = (stat.children ?? []).map(child => canvasChildPath(folder.relativePath, basename(child.resource)));
+		// This listing can be ahead of the file events for the same change. What
+		// it shows of the cards that were here is told to following moved items,
+		// so that a renamed file is not taken for a deleted one and a new one.
+		const sameItem = pathKey ?? ((path: string) => path);
+		const listed = new Set(childPaths.map(sameItem));
+		const missingRows = (canvas?.cards ?? []).filter(card => !listed.has(sameItem(card.path))).map(card => ({ path: card.path, kind: card.kind }));
+		if (missingRows.length > 0) {
+			const rows = new Set((canvas?.cards ?? []).map(card => sameItem(card.path)));
+			await this.movedItemsService.acceptListing(folder.workspaceFolder, missingRows, childPaths.filter(path => !rows.has(sameItem(path))));
+			if (!this.isRenderCurrent(seq)) {
+				return;
+			}
+			// A redraw for what happened on disk waits until the items are
+			// recognized. Whether the folder is settled decides, and not whether
+			// this drawing was the one that told: another drawing may have, and
+			// have been overtaken by this one.
+			if (forDiskChange && !this.userRenderOwed && this.holdRenderForMovedItems()) {
+				return;
+			}
+		}
 		const [newCardSizes, goneRows] = await Promise.all([
 			this.sizesOfNewNodeCards(folder, stat, canvas, waitingPlaces),
 			canvasReadInFull ? this.chosenCanvasPlaces.goneRows(folder, childPaths, canvas, pathKey) : []
@@ -2750,6 +2787,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
+		this.userRenderOwed = false;
 		// The cards are drawn: the places BaseHalf chose for them are kept from
 		// now on, and saved when the layout can take them.
 		this.renderedLayoutRows = canvas?.cards ?? [];
@@ -3156,7 +3194,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// saved under that path, once the item's card information is there. No
 		// other card waits.
 		if (requested.some(geometry => this.movedItemsService.isMoving(queuedFolder.workspaceFolder, geometry.path))) {
-			await this.movedItemsService.whenSettled(queuedFolder.workspaceFolder, BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS, queuedFolder.relativePath);
+			await this.movedItemsService.whenSettled(queuedFolder.workspaceFolder, BASEHALF_CANVAS_MOVED_ITEMS_EDIT_HOLD_MS, queuedFolder.relativePath);
 		}
 		const geometries = requested.map(geometry => {
 			const path = this.movedItemsService.resolveMovedPath(queuedFolder.workspaceFolder, geometry.path);

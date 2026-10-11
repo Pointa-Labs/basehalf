@@ -63,8 +63,8 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 		const mirror = disposables.add(new BaseHalfCanvasMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator()));
 		const places = new BaseHalfCanvasChosenPlaces(fileService, mirror, {
 			isSettled: () => moved.settled,
-			isMoving: (_folder, path) => moved.moving.has(path),
-			getPendingMoves: () => moved.pending.map(from => ({ from }))
+			// On its way, or the item of a pair that waits for its relocation, or something below it.
+			mayStillBeFollowed: (_folder, path) => moved.moving.has(path) || moved.pending.some(from => path === from || path.startsWith(`${from}/`))
 		}, new NullLogService());
 		return { places, mirror, moved };
 	}

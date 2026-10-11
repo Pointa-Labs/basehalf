@@ -359,9 +359,22 @@ also when the item was moved outside BaseHalf.
 ### A chosen row whose item is gone
 
 - BaseHalf removes a chosen row when its item is no longer in the folder and
-  following moved items is not waiting to pair it. This happens at the next
-  drawing of that canvas, in the write that adds rows. Nothing of the user's
-  is lost: BaseHalf chose that place and nobody changed it.
+  following moved items has given the item up. Nothing of the user's is
+  lost: BaseHalf chose that place and nobody changed it.
+- **Given up** means that BaseHalf will not find the item at a new path any
+  more: file events have said that it is gone, it is not waiting for its
+  relocation, and the 60 seconds in which it can be paired with an item that
+  appears have passed
+  ([when BaseHalf compares](following-moved-items.md#when-basehalf-compares)).
+  The row is removed at the first drawing of that canvas after that, in the
+  write that adds rows. Until then it stays and takes its place, like a row
+  of the user's whose item is gone.
+- **Why not at once.** A file that is deleted and written again elsewhere a
+  few seconds later is recognized as moved. Its card keeps its place only
+  when its row is still there. And a drawing can see a file gone before the
+  file events for its move have arrived. The first version removed the row
+  when no comparison was running, and both cases lost the place: found on
+  2026-10-11, 84 of 100 cards after 2,100 files were renamed at once.
 - **One listing of the folder is not enough.** A listing can leave out a
   file that a tool is rewriting at that moment. BaseHalf looks at each such
   path again by itself, when it draws and once more before it writes.
@@ -369,9 +382,8 @@ also when the item was moved outside BaseHalf.
   it has unsaved changes, or a node that is running, is followed later
   ([following moved items](following-moved-items.md#relocation)). Its row
   waits for it.
-- **Its place is open at once.** A card that appears in the same drawing can
-  take it, so that a file which is deleted and written again under another
-  name leaves no hole.
+- **Its place is open in the drawing that removes it.** A card that appears
+  in the same drawing can take it.
 - A row of the user's whose item is gone stays, as before. An item that is
   there again at that path is drawn with it.
 
@@ -696,7 +708,8 @@ written with this document.
     has the place and size it had, and is a chosen row when it was one. When
     another card was put on that place meanwhile, it is at the end.
 17. **Gone.** A file that was drawn as a new card and then deleted leaves no
-    row. The cards that were placed after it do not move.
+    row once it is given up. The cards that were placed after it do not
+    move.
 18. **Two writers.** Two windows show the same folder when a file is added.
     The layout has one row for it and both windows draw it there. A card
     that a move writes into the same layout at the same moment does not meet
@@ -845,7 +858,9 @@ with this one.
 | The notes folder: a note moved outside into another folder, until its row is there | not followed unless described or placed | 0.5 s |
 
 - The first drawing is not later in a way that can be noticed.
-- A rename is followed inside the two seconds the canvas waits.
+- A rename is followed well inside the time the canvas waits. That time was
+  two seconds then and is ten now
+  ([following moved items](following-moved-items.md#what-the-user-sees)).
 - The snapshot grows by about 0.8 KiB for each file under a shown folder
   card, up to 200 files for each. A workspace in which 5,000 items were
   shown stays near 4 MiB, far below the limit.

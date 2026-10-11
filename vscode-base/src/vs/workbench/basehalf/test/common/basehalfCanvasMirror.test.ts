@@ -1165,6 +1165,87 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
+	test('followNodes follows the moves of one run with one write of each layout, and gives what following each by itself gives', async () => {
+		const row = (path: string, x: number, auto = false) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, '    y: 20', '    width: 260', '    height: 140', ...(auto ? ['    auto: true'] : [])];
+		const edge = (from: string, to: string) => [`  - from: "${from}"`, '    from_anchor: east', `    to: "${to}"`, '    to_anchor: west'];
+		const canvas = (path: string, cards: string[][], edges: string[][] = []) => [`path: "${path}"`, 'cards:', ...cards.flat(), 'edges:', ...edges.flat(), ''].join('\n');
+		const layouts = (files: TestFileService) => Object.fromEntries([...files.files].filter(([path]) => path.endsWith('canvas.yaml')));
+
+		// Many renames inside one folder: its layout is written once.
+		const names = Array.from({ length: 50 }, (_, index) => `note-${index}.md`);
+		const many = () => new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [...names.map((name, index) => row(name, index * 340)), row('stays.md', 99_000)], [edge('note-0.md', 'note-1.md'), edge('note-2.md', 'stays.md')])]]);
+		const renames = names.map(name => ({ from: name, to: `renamed-${name}`, withoutMirrorDirectory: true }));
+		const manyTogether = new TestFileService(many());
+		const manyFailed = await mirrorService(manyTogether as unknown as IFileService).followNodes(workspaceFolder, renames);
+		const manyOneByOne = new TestFileService(many());
+		const oneByOne = mirrorService(manyOneByOne as unknown as IFileService);
+		for (const move of renames) {
+			await oneByOne.followNode(workspaceFolder, move.from, move.to);
+		}
+
+		// Moves of several kinds. The fourth takes a row out of the layout that the
+		// third put one into, so the two cannot be written in one go.
+		const mixed = () => new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('a.md', 10), row('b.md', 350), row('c.md', 690), row('docs', 1030), row('new-b.md', 5000, true)], [edge('a.md', 'b.md')])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 700), row('docs/y.md', 1040)])],
+			['/work/.bh/mirror/old/canvas.yaml', canvas('old', [row('old/p.md', 1), row('old/q.md', 2)], [edge('old/p.md', 'old/q.md')])]
+		]);
+		const moves = [
+			{ from: 'a.md', to: 'new-a.md' },
+			{ from: 'b.md', to: 'new-b.md' },
+			{ from: 'c.md', to: 'docs/c.md' },
+			{ from: 'docs/x.md', to: 'x.md' },
+			{ from: 'old', to: 'new' },
+			{ from: 'same.md', to: 'same.md' }
+		];
+		const mixedTogether = new TestFileService(mixed());
+		const mixedFailed = await mirrorService(mixedTogether as unknown as IFileService).followNodes(workspaceFolder, moves);
+		const mixedOneByOne = new TestFileService(mixed());
+		const each = mirrorService(mixedOneByOne as unknown as IFileService);
+		for (const move of moves) {
+			await each.followNode(workspaceFolder, move.from, move.to);
+		}
+
+		// One layout cannot be written: the moves of the other layouts are followed.
+		const two = () => new Map([
+			['/work/.bh/mirror/one/canvas.yaml', canvas('one', [row('one/a.md', 10)])],
+			['/work/.bh/mirror/two/canvas.yaml', canvas('two', [row('two/a.md', 10)])]
+		]);
+		const inTwoFolders = [{ from: 'one/a.md', to: 'one/b.md' }, { from: 'two/a.md', to: 'two/b.md' }];
+		const broken = new TestFileService(two());
+		broken.failWrites('/work/.bh/mirror/one/canvas.yaml', new Error('disk full'));
+		const brokenFailed = await mirrorService(broken as unknown as IFileService).followNodes(workspaceFolder, inTwoFolders);
+		// It fails once: each of the moves is then followed by itself, and none is left.
+		const once = new TestFileService(two());
+		once.failNextWrite('/work/.bh/mirror/two/canvas.yaml', new Error('busy'));
+		const onceFailed = await mirrorService(once as unknown as IFileService).followNodes(workspaceFolder, inTwoFolders);
+		// A move to another folder whose old layout cannot be written: the row
+		// that was written into the new layout is taken back, and the rename
+		// that shared the write is followed by itself.
+		const across = new TestFileService(two());
+		across.failWrites('/work/.bh/mirror/one/canvas.yaml', new Error('read-only'));
+		const acrossFailed = await mirrorService(across as unknown as IFileService).followNodes(workspaceFolder, [{ from: 'one/a.md', to: 'two/c.md' }, { from: 'two/a.md', to: 'two/b.md' }]);
+		const paths = (layout: string) => layout.split('\n').filter(line => line.includes('- path: ')).map(line => JSON.parse(line.split('- path: ')[1]));
+
+		assert.deepStrictEqual({
+			many: [layouts(manyTogether), manyTogether.writeCount, manyOneByOne.writeCount, manyFailed.size, manyTogether.resolveCount],
+			mixed: [layouts(mixedTogether), mixedFailed.size],
+			mixedWrites: [mixedTogether.writeCount + mixedTogether.createCount, mixedOneByOne.writeCount + mixedOneByOne.createCount],
+			broken: [[...brokenFailed].map(([index, error]) => `${index}: ${(error as Error).message}`), layouts(broken)['/work/.bh/mirror/one/canvas.yaml'].includes('one/a.md'), layouts(broken)['/work/.bh/mirror/two/canvas.yaml'].includes('two/b.md')],
+			once: [onceFailed.size, layouts(once)['/work/.bh/mirror/one/canvas.yaml'].includes('one/b.md'), layouts(once)['/work/.bh/mirror/two/canvas.yaml'].includes('two/b.md')],
+			across: [[...acrossFailed.keys()], paths(layouts(across)['/work/.bh/mirror/one/canvas.yaml']), paths(layouts(across)['/work/.bh/mirror/two/canvas.yaml'])]
+		}, {
+			// No directory is listed for an item that is known to have no mirror directory.
+			many: [layouts(manyOneByOne), 1, 50, 0, 0],
+			mixed: [layouts(mixedOneByOne), 0],
+			// Root and `docs` twice, and the two layouts of the folder. One by one, the first three moves alone write four times.
+			mixedWrites: [6, 8],
+			broken: [['0: disk full'], true, true],
+			once: [0, true, true],
+			across: [[0], ['one/a.md'], ['two/b.md']]
+		});
+	});
+
 	test('followNode leaves a layout that cannot be read in full as it is, on both sides', async () => {
 		const good = ['path: "docs"', 'cards:', '  - path: "docs/a.md"', '    kind: file', '    x: 1', '    y: 20', '    width: 260', '    height: 140', 'edges: []', ''].join('\n');
 		const damaged = ['path: "docs"', 'cards:', '  - path: "docs/a.md"', '    kind: file', '    x: 1', '    y: 20', '    width: 260', '    height: 140', '  - path: "docs/b.md"', '    kind: file', '    x: oops', 'edges: []', ''].join('\n');
@@ -1773,7 +1854,9 @@ class TestFileService {
 	private readonly runsAfterWrite = new Map<string, () => void>();
 	private readonly externalWritesAfterRead = new Map<string, string>();
 	private readonly hardWriteFailures = new Map<string, Error>();
+	private readonly brokenWrites = new Map<string, Error>();
 	readonly symbolicLinks = new Set<string>();
+	resolveCount = 0;
 	/** Whether `.bh/.gitignore` reads as present when `files` does not hold it. */
 	ignoreFileThere = true;
 	createCount = 0;
@@ -1838,6 +1921,10 @@ class TestFileService {
 		if (hardFailure) {
 			this.hardWriteFailures.delete(resource.fsPath);
 			throw hardFailure;
+		}
+		const broken = this.brokenWrites.get(resource.fsPath);
+		if (broken) {
+			throw broken;
 		}
 		if (expectedContents === null) {
 			return this.createFile(resource, buffer, { overwrite: false });
@@ -1928,6 +2015,11 @@ class TestFileService {
 		this.hardWriteFailures.set(path, error);
 	}
 
+	/** Every write of the file at `path` fails from now on. */
+	failWrites(path: string, error: Error): void {
+		this.brokenWrites.set(path, error);
+	}
+
 	replaceExternally(path: string, contents: string): void {
 		this.files.set(path, contents);
 		this.revisions.set(path, (this.revisions.get(path) ?? 0) + 1);
@@ -1954,6 +2046,7 @@ class TestFileService {
 	}
 
 	async resolve(resource: URI): Promise<{ isFile: boolean; isDirectory: boolean; isSymbolicLink: boolean; children: Array<{ resource: URI; name: string; isFile: boolean; isDirectory: boolean; isSymbolicLink: boolean }> }> {
+		this.resolveCount++;
 		const prefix = `${resource.fsPath}/`;
 		const names = new Map<string, boolean>();
 		const exactFile = this.files.has(resource.fsPath);

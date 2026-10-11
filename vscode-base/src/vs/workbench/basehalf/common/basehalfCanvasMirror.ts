@@ -86,6 +86,31 @@ interface IBaseHalfCanvasStructuralResource {
 	readonly order: number;
 }
 
+export interface IBaseHalfCanvasFollowedMove {
+	readonly from: string;
+	readonly to: string;
+	/** The item has no directory under `.bh/mirror/`, so it has no layouts of its own: none are looked for. */
+	readonly withoutMirrorDirectory?: boolean;
+}
+
+/** A layout that takes rows in is written before one that rows leave. */
+const CANVAS_FOLLOW_ORDER = { layoutBelowNewPath: 20, newParent: 30, layoutBelowOldPath: 80, oldParent: 90 };
+const takesCanvasRows = (order: number): boolean => order < CANVAS_FOLLOW_ORDER.layoutBelowOldPath;
+const laterCanvasFollowOrder = (first: number | undefined, second: number | undefined): number | undefined => first === undefined ? second : second === undefined ? first : Math.max(first, second);
+
+/** What one followed move reads and writes: the layouts of the item and below it, and those of its parent folders. */
+interface IBaseHalfCanvasFollowPlan {
+	readonly from: string;
+	readonly to: string;
+	readonly sourceEntries: readonly { readonly relativePath: string; readonly resource: URI }[];
+	/**
+	 * By resource. Without an `order` it is the layout of a move inside one
+	 * folder: the row changes its path there in one write, so the layout can be
+	 * written at any time.
+	 */
+	readonly resources: ReadonlyMap<string, { readonly resource: URI; readonly relativePath: string; readonly order?: number }>;
+}
+
 interface IBaseHalfCanvasStructuralSnapshot extends IBaseHalfCanvasStructuralResource {
 	readonly readPath: string;
 	readonly read: IBaseHalfCanvasReadState;
@@ -223,6 +248,19 @@ export interface IBaseHalfCanvasMirrorService {
 	 * {@link relocateNode} it replaces nothing and can be run again.
 	 */
 	followNode(workspaceFolder: URI, from: string, to: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	/**
+	 * {@link followNode} for the moves of one relocation run (following moved
+	 * items, "Many items at once"). The result is the one that following each
+	 * move by itself, in the given order, gives. Every layout is read once and
+	 * written once. Returns the moves whose rows could not follow, by their
+	 * index in `moves`, with the reason.
+	 *
+	 * The caller has checked each move: its old path names nothing and its new
+	 * path names the item. The layouts below an old path are looked for before
+	 * any move is written, and that is only right when no move of the same
+	 * call can put a layout there.
+	 */
+	followNodes(workspaceFolder: URI, moves: readonly IBaseHalfCanvasFollowedMove[], lease?: IBaseHalfWorkspaceMutationLease): Promise<ReadonlyMap<number, unknown>>;
 	/** A node was deleted: drop its own canvas subtree plus the parent folder's
 	 *  card and any edges touching it. */
 	purgeNode(workspaceFolder: URI, path: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
@@ -514,93 +552,184 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 		if (from === to || baseHalfIsMirrorSubtree(to, from) || baseHalfIsMirrorSubtree(from, to)) {
 			return Promise.resolve();
 		}
-		return this.runWorkspaceMutation(workspaceFolder, lease, () => this.followNodeLocked(workspaceFolder, from, to));
+		return this.runWorkspaceMutation(workspaceFolder, lease, async () => this.followPlans(workspaceFolder, [await this.planFollowNode(workspaceFolder, { from, to })]));
 	}
 
-	private async followNodeLocked(workspaceFolder: URI, from: string, to: string): Promise<void> {
+	followNodes(workspaceFolder: URI, moves: readonly IBaseHalfCanvasFollowedMove[], lease?: IBaseHalfWorkspaceMutationLease): Promise<ReadonlyMap<number, unknown>> {
+		return this.runWorkspaceMutation(workspaceFolder, lease, () => this.followNodesLocked(workspaceFolder, moves));
+	}
+
+	private async followNodesLocked(workspaceFolder: URI, moves: readonly IBaseHalfCanvasFollowedMove[]): Promise<ReadonlyMap<number, unknown>> {
+		const failed = new Map<number, unknown>();
+		// The moves whose layouts can be written in one go, new places before old ones.
+		let step: { readonly index: number; readonly move: IBaseHalfCanvasFollowedMove; readonly plan: IBaseHalfCanvasFollowPlan }[] = [];
+		const takesRows = new Set<string>();
+		const losesRows = new Set<string>();
+		const write = async (): Promise<void> => {
+			const together = step;
+			step = [];
+			takesRows.clear();
+			losesRows.clear();
+			if (together.length === 0) {
+				return;
+			}
+			try {
+				await this.followPlans(workspaceFolder, together.map(one => one.plan));
+				return;
+			} catch (error) {
+				if (together.length === 1) {
+					failed.set(together[0].index, error);
+					return;
+				}
+			}
+			// One layout that cannot be written does not hold the others: each move by itself.
+			for (const one of together) {
+				try {
+					await this.followPlans(workspaceFolder, [await this.planFollowNode(workspaceFolder, one.move)]);
+				} catch (error) {
+					failed.set(one.index, error);
+				}
+			}
+		};
+		for (const [index, move] of moves.entries()) {
+			if (move.from === move.to || baseHalfIsMirrorSubtree(move.to, move.from) || baseHalfIsMirrorSubtree(move.from, move.to)) {
+				continue;
+			}
+			try {
+				let plan = await this.planFollowNode(workspaceFolder, move);
+				const ordered = (): [string, number][] => [...plan.resources].flatMap(([key, resource]) => resource.order === undefined ? [] : [[key, resource.order] as [string, number]]);
+				// A layout that this move takes a row out of and an earlier one puts a
+				// row into, or the other way round, has no place in one order: what
+				// was collected is written first.
+				if (ordered().some(([key, order]) => (takesCanvasRows(order) ? losesRows : takesRows).has(key))) {
+					await write();
+					plan = await this.planFollowNode(workspaceFolder, move);
+				}
+				for (const [key, order] of ordered()) {
+					(takesCanvasRows(order) ? takesRows : losesRows).add(key);
+				}
+				step.push({ index, move, plan });
+			} catch (error) {
+				failed.set(index, error);
+			}
+		}
+		await write();
+		return failed;
+	}
+
+	private async planFollowNode(workspaceFolder: URI, move: IBaseHalfCanvasFollowedMove): Promise<IBaseHalfCanvasFollowPlan> {
+		const { from, to } = move;
 		// Only the layouts of the item and below it: the rest of the tree is not read for one item's move.
-		const sourceEntries = await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml', from);
+		const sourceEntries = move.withoutMirrorDirectory ? [] : await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml', from);
 		const oldParent = parentRel(from);
 		const newParent = parentRel(to);
-		const resources = new Map<string, IBaseHalfCanvasStructuralResource>();
-		const addResource = (resource: URI, relativePath: string, order: number): void => {
+		const resources = new Map<string, { readonly resource: URI; readonly relativePath: string; readonly order?: number }>();
+		const addResource = (resource: URI, relativePath: string, order?: number): void => {
 			const key = resource.toString();
 			const previous = resources.get(key);
 			if (previous && previous.relativePath !== relativePath) {
 				throw new Error(`Canvas relocation aliases two logical paths at ${key}`);
 			}
-			resources.set(key, { resource, relativePath, order: Math.max(previous?.order ?? order, order) });
+			resources.set(key, { resource, relativePath, order: laterCanvasFollowOrder(previous?.order, order) });
 		};
 		// The new places are written before the old ones are cleared, so a run
 		// that stops in between leaves a row in both, never in neither.
 		for (const entry of sourceEntries) {
 			const targetRel = baseHalfRemapSubtreeRel(entry.relativePath, from, to);
-			addResource(this.canvasResourceFor(workspaceFolder, targetRel), targetRel, 20);
-			addResource(entry.resource, entry.relativePath, 80);
+			addResource(this.canvasResourceFor(workspaceFolder, targetRel), targetRel, CANVAS_FOLLOW_ORDER.layoutBelowNewPath);
+			addResource(entry.resource, entry.relativePath, CANVAS_FOLLOW_ORDER.layoutBelowOldPath);
 		}
-		addResource(this.canvasResourceFor(workspaceFolder, newParent), newParent, oldParent === newParent ? 90 : 30);
-		addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent, 90);
+		if (oldParent === newParent) {
+			addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent);
+		} else {
+			addResource(this.canvasResourceFor(workspaceFolder, newParent), newParent, CANVAS_FOLLOW_ORDER.newParent);
+			addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent, CANVAS_FOLLOW_ORDER.oldParent);
+		}
+		return { from, to, sourceEntries, resources };
+	}
 
-		await this.executeCanvasStructuralTransaction(workspaceFolder, [...resources.values()], snapshots => {
-			const snapshotFor = (resource: URI): IBaseHalfCanvasStructuralSnapshot => {
-				const snapshot = snapshots.get(resource.toString());
-				if (!snapshot) {
-					throw new Error(`Missing canvas transaction snapshot for ${resource.toString()}`);
+	/** One read and one write of every layout, for all the moves: each is applied to what the one before left. */
+	private async followPlans(workspaceFolder: URI, plans: readonly IBaseHalfCanvasFollowPlan[]): Promise<void> {
+		const resources = new Map<string, { readonly resource: URI; readonly relativePath: string; readonly order?: number }>();
+		for (const plan of plans) {
+			for (const [key, resource] of plan.resources) {
+				const previous = resources.get(key);
+				if (previous && previous.relativePath !== resource.relativePath) {
+					throw new Error(`Canvas relocation aliases two logical paths at ${key}`);
 				}
-				return snapshot;
-			};
-			const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
-
-			// A layout that cannot be read in full is left as it is, on both sides:
-			// moving its readable rows would rewrite it, and filling it would replace it.
-			const damaged = (snapshot: IBaseHalfCanvasStructuralSnapshot): boolean => snapshot.read.exists && snapshot.read.damage !== undefined;
-			for (const entry of sourceEntries) {
-				const source = snapshotFor(entry.resource);
-				const target = snapshotFor(this.canvasResourceFor(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
-				if (damaged(source) || damaged(target)) {
-					continue;
-				}
-				const filled = fillFreeCanvasRows(target.next, source.next, swap);
-				target.next = filled.target;
-				source.next = filled.source;
+				resources.set(key, { ...resource, order: laterCanvasFollowOrder(previous?.order, resource.order) });
 			}
-
-			const oldParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, oldParent));
-			if (damaged(oldParentSnapshot)) {
-				return;
+		}
+		const specs = [...resources.values()].map(resource => ({ ...resource, order: resource.order ?? CANVAS_FOLLOW_ORDER.oldParent }));
+		await this.executeCanvasStructuralTransaction(workspaceFolder, specs, snapshots => {
+			for (const plan of plans) {
+				this.applyFollowPlan(workspaceFolder, plan, snapshots);
 			}
-			if (oldParent === newParent) {
-				oldParentSnapshot.next = followNodeWithinParent(oldParentSnapshot.next, from, to);
-				return;
-			}
-			const newParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, newParent));
-			if (damaged(newParentSnapshot)) {
-				return;
-			}
-			const carried = oldParentSnapshot.next.cards.find(card => card.path === from);
-			if (!carried) {
-				return;
-			}
-			const existing = newParentSnapshot.next.cards.find(card => card.path === to);
-			if (existing && !existing.auto) {
-				// A row of the user's stands, and the row that would follow stays at the old path.
-				return;
-			}
-			// A row BaseHalf chose is there when the item was drawn as a new card
-			// before it was known to be a moved one, or when an earlier run of this
-			// move stopped after this write. It keeps its place and takes the size of
-			// the row that follows, so a second run changes nothing here. A larger
-			// size that would reach a neighbour is given the end of the canvas.
-			const sized = existing ? { ...existing, width: carried.width, height: carried.height } : undefined;
-			const incoming = sized && baseHalfCanvasIsOpen(sized, newParentSnapshot.next.cards.filter(card => card.path !== to))
-				? sized
-				: carriedCanvasCard(newParentSnapshot.next, carried, to);
-			if (incoming) {
-				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
-			}
-			// Its edge rows connected it to the cards of the old folder: they drop there, as on a workbench move.
-			oldParentSnapshot.next = removeNodeFromParentCanvas(oldParentSnapshot.next, from);
 		});
+	}
+
+	private applyFollowPlan(workspaceFolder: URI, plan: IBaseHalfCanvasFollowPlan, snapshots: ReadonlyMap<string, IBaseHalfCanvasStructuralSnapshot>): void {
+		const { from, to, sourceEntries } = plan;
+		const oldParent = parentRel(from);
+		const newParent = parentRel(to);
+		const snapshotFor = (resource: URI): IBaseHalfCanvasStructuralSnapshot => {
+			const snapshot = snapshots.get(resource.toString());
+			if (!snapshot) {
+				throw new Error(`Missing canvas transaction snapshot for ${resource.toString()}`);
+			}
+			return snapshot;
+		};
+		const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
+
+		// A layout that cannot be read in full is left as it is, on both sides:
+		// moving its readable rows would rewrite it, and filling it would replace it.
+		const damaged = (snapshot: IBaseHalfCanvasStructuralSnapshot): boolean => snapshot.read.exists && snapshot.read.damage !== undefined;
+		for (const entry of sourceEntries) {
+			const source = snapshotFor(entry.resource);
+			const target = snapshotFor(this.canvasResourceFor(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
+			if (damaged(source) || damaged(target)) {
+				continue;
+			}
+			const filled = fillFreeCanvasRows(target.next, source.next, swap);
+			target.next = filled.target;
+			source.next = filled.source;
+		}
+
+		const oldParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, oldParent));
+		if (damaged(oldParentSnapshot)) {
+			return;
+		}
+		if (oldParent === newParent) {
+			oldParentSnapshot.next = followNodeWithinParent(oldParentSnapshot.next, from, to);
+			return;
+		}
+		const newParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, newParent));
+		if (damaged(newParentSnapshot)) {
+			return;
+		}
+		const carried = oldParentSnapshot.next.cards.find(card => card.path === from);
+		if (!carried) {
+			return;
+		}
+		const existing = newParentSnapshot.next.cards.find(card => card.path === to);
+		if (existing && !existing.auto) {
+			// A row of the user's stands, and the row that would follow stays at the old path.
+			return;
+		}
+		// A row BaseHalf chose is there when the item was drawn as a new card
+		// before it was known to be a moved one, or when an earlier run of this
+		// move stopped after this write. It keeps its place and takes the size of
+		// the row that follows, so a second run changes nothing here. A larger
+		// size that would reach a neighbour is given the end of the canvas.
+		const sized = existing ? { ...existing, width: carried.width, height: carried.height } : undefined;
+		const incoming = sized && baseHalfCanvasIsOpen(sized, newParentSnapshot.next.cards.filter(card => card.path !== to))
+			? sized
+			: carriedCanvasCard(newParentSnapshot.next, carried, to);
+		if (incoming) {
+			newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
+		}
+		// Its edge rows connected it to the cards of the old folder: they drop there, as on a workbench move.
+		oldParentSnapshot.next = removeNodeFromParentCanvas(oldParentSnapshot.next, from);
 	}
 
 	private async relocateNodeIdentityLocked(workspaceFolder: URI, from: string, to: string): Promise<void> {

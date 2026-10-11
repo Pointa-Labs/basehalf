@@ -12,7 +12,7 @@ import { Schemas } from '../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { IFileService, IStat } from '../../../../platform/files/common/files.js';
+import { FileChangeType, IFileChange, IFileService, IStat } from '../../../../platform/files/common/files.js';
 import { FileService } from '../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
@@ -66,6 +66,30 @@ class SlowFileSystemProvider extends InMemoryFileSystemProvider {
 	override async stat(resource: URI): Promise<IStat> {
 		await timeout(4);
 		return super.stat(resource);
+	}
+}
+
+/** A file system whose file events arrive when `deliver` is called: until then a listing is ahead of them. */
+class LateEventsFileSystemProvider extends InMemoryFileSystemProvider {
+	private readonly delivered = this._register(new Emitter<readonly IFileChange[]>());
+	private withheld: IFileChange[] = [];
+	// Declared before the override below, so that it listens to the events of the file system itself.
+	protected readonly listener = this._register(this.onDidChangeFile(changes => this.withheld.push(...changes)));
+	override readonly onDidChangeFile = this.delivered.event;
+
+	async deliver(): Promise<void> {
+		// The file system hands its events on a moment after the change.
+		await timeout(20);
+		const changes = this.withheld;
+		this.withheld = [];
+		this.delivered.fire(changes);
+	}
+
+	/** What happened arrives as `changes`, as from a watcher that joins the events of one path. */
+	async deliverAs(changes: readonly IFileChange[]): Promise<void> {
+		await timeout(20);
+		this.withheld = [];
+		this.delivered.fire(changes);
 	}
 }
 
@@ -562,6 +586,124 @@ suite('BaseHalfMovedItemsService', () => {
 			afterItsWindow: [],
 			// The entry that names the first path leads to the last one.
 			owed: [{ from: 'named.md', to: 'named-3.md' }, { from: 'named-2.md', to: 'named-3.md' }]
+		});
+	});
+
+	test('what a drawing has already seen is taken as if file events had said it, and the events that arrive later change nothing', async () => {
+		const provider = new LateEventsFileSystemProvider();
+		const fileService = await createFiles({ 'a.md': note(6), 'gone.md': note(7), 'keep.md': note(8) }, provider);
+		for (const path of ['a.md', 'gone.md', 'keep.md']) {
+			await describe(fileService, path);
+		}
+		await provider.deliver();
+		const { service, recognized } = start(fileService);
+		await service.whenCompared(folder);
+		await settle();
+		const followed = (path: string) => service.mayStillBeFollowed(folder, path);
+
+		// Renamed and deleted on disk. The file events are still on their way.
+		await fileService.move(resource('a.md'), resource('b.md'));
+		await fileService.del(resource('gone.md'));
+		await settle();
+		const beforeTheListing = { recognized: [...recognized], settled: service.isSettled(folder), followed: [followed('a.md'), followed('gone.md')] };
+		// A drawing lists the folder: the rows of `a.md` and `gone.md` have no item, and `b.md` has no row.
+		// A listing can leave a file out. `keep.md` is there, and nothing happens to it.
+		const row = (path: string) => ({ path, kind: 'file' as const });
+		const told = await service.acceptListing(folder, [row('a.md'), row('gone.md'), row('keep.md')], ['b.md']);
+		const settledAfterTheListing = service.isSettled(folder);
+		await settle();
+		const afterTheComparison = { recognized: [...recognized], followed: [followed('a.md'), followed('gone.md'), followed('keep.md')] };
+		const toldAgain = await service.acceptListing(folder, [row('a.md'), row('gone.md')], []);
+		for (const move of service.getPendingMoves(folder)) {
+			service.acceptRelocated(folder, move, 'done');
+		}
+
+		await provider.deliver();
+		await settle();
+		const afterTheEvents = { recognized: [...recognized], pending: service.getPendingMoves(folder).length, settled: service.isSettled(folder), followed: [followed('a.md'), followed('keep.md')] };
+		// The time in which `gone.md` could be paired with a file that appears has passed.
+		await timeout(timing.windowMs + 50);
+
+		assert.deepStrictEqual({ beforeTheListing, told, settledAfterTheListing, afterTheComparison, toldAgain, afterTheEvents, goneIsGivenUp: !followed('gone.md') }, {
+			// Nothing has said that they are gone: BaseHalf still knows both.
+			beforeTheListing: { recognized: [], settled: true, followed: [true, true] },
+			told: true,
+			settledAfterTheListing: false,
+			// `a.md` waits for its relocation, and `gone.md` can still be paired.
+			afterTheComparison: { recognized: ['a.md -> b.md [file, sameContent]'], followed: [true, true, true] },
+			toldAgain: false,
+			afterTheEvents: { recognized: ['a.md -> b.md [file, sameContent]'], pending: 0, settled: true, followed: [false, true] },
+			goneIsGivenUp: true
+		});
+	});
+
+	test('a folder that a drawing no longer finds is followed, and a file that was taken as removed and is written again is known again', async () => {
+		const provider = new LateEventsFileSystemProvider();
+		const fileService = await createFiles({ 'old/x.md': note(6), 'old/y.md': note(7), 'a.md': note(8) }, provider);
+		await describe(fileService, 'old', 'folder');
+		await describe(fileService, 'a.md');
+		await provider.deliver();
+		const { service, recognized } = start(fileService, true);
+		await service.whenCompared(folder);
+		await settle();
+
+		// The folder is renamed on disk, and a drawing sees it before the file events arrive.
+		await fileService.move(resource('old'), resource('new'));
+		const toldOfTheFolder = await service.acceptListing(folder, [{ path: 'old', kind: 'folder' }], ['new']);
+		await settle();
+		const afterTheFolder = [...recognized];
+		await provider.deliver();
+		await settle();
+
+		// A tool removes `a.md` and writes it again, and a drawing looks while it is gone.
+		const text = (await fileService.readFile(resource('a.md'))).value;
+		await fileService.del(resource('a.md'));
+		const toldOfTheFile = await service.acceptListing(folder, [{ path: 'a.md', kind: 'file' }], []);
+		await fileService.writeFile(resource('a.md'), text);
+		// The watcher hands the removal and the addition on as one update.
+		await provider.deliverAs([{ type: FileChangeType.UPDATED, resource: resource('a.md') }]);
+		await settle();
+		// Long after that, the file is renamed outside. It is followed, because BaseHalf knows it again.
+		await timeout(timing.windowMs + 50);
+		await fileService.move(resource('a.md'), resource('b.md'));
+		await provider.deliver();
+		await settle();
+
+		assert.deepStrictEqual({ toldOfTheFolder, afterTheFolder, toldOfTheFile, recognized }, {
+			toldOfTheFolder: true,
+			afterTheFolder: ['old -> new [folder, folderFiles]'],
+			toldOfTheFile: true,
+			recognized: ['old -> new [folder, folderFiles]', 'a.md -> b.md [file, sameContent]']
+		});
+	});
+
+	test('the moves of one relocation run are reported together', async () => {
+		const fileService = await createFiles({ 'a.md': note(6), 'b.md': note(7), 'c.md': note(8) });
+		for (const path of ['a.md', 'b.md', 'c.md']) {
+			await describe(fileService, path);
+		}
+		const { service } = start(fileService);
+		await service.whenCompared(folder);
+		for (const name of ['a', 'b', 'c']) {
+			await fileService.move(resource(`${name}.md`), resource(`${name}-2.md`));
+		}
+		await settle();
+		const reported: string[][] = [];
+		disposables.add(service.onDidRelocate(event => reported.push(event.moves.map(move => `${move.from} -> ${move.to}`))));
+		const pending = [...service.getPendingMoves(folder)].sort((first, second) => first.from < second.from ? -1 : 1);
+		service.acceptRelocatedTogether(folder, pending.slice(0, 2));
+		const settledWithOneLeft = service.isSettled(folder);
+		const left = service.getPendingMoves(folder).map(move => `${move.from} -> ${move.to}`);
+		// A run that relocated nothing reports nothing.
+		service.acceptRelocatedTogether(folder, []);
+		service.acceptRelocated(folder, pending[2], 'done');
+
+		assert.deepStrictEqual({ reported, settledWithOneLeft, left, settled: service.isSettled(folder), owed: service.getOwedEntryMoves(folder) }, {
+			reported: [['a.md -> a-2.md', 'b.md -> b-2.md'], ['c.md -> c-2.md']],
+			settledWithOneLeft: false,
+			left: ['c.md -> c-2.md'],
+			settled: true,
+			owed: [{ from: 'a.md', to: 'a-2.md' }, { from: 'b.md', to: 'b-2.md' }, { from: 'c.md', to: 'c-2.md' }]
 		});
 	});
 

@@ -54,6 +54,8 @@ const BADGE_FILE_NAME = 'badge.yaml';
 const APPEARANCE_FILE_NAME = 'appearance.yaml';
 /** Largest per-node mirror file a relocation reads (badge.yaml is capped at 128 KiB). */
 const MIRROR_FILE_MAX_BYTES = 1024 * 1024;
+/** How many moved items of one relocation run are looked up on disk at the same time. */
+const RELOCATION_CHECKS_AT_ONCE = 16;
 
 interface IBaseHalfPreparedStructuralOperation {
 	readonly operation: FileOperation.MOVE | FileOperation.DELETE;
@@ -926,34 +928,104 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		if (moves.length === 0 || this.disposed || await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
 			return;
 		}
+		try {
+			// The plain lease: a drag the user makes meanwhile waits and is not refused.
+			await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, lease => this.followMovesTogether(workspaceFolder, moves, lease));
+		} catch (error) {
+			// They stay pending, and are tried again at the next comparison and at open.
+			this.logService.warn(`BaseHalf mirror cascade: could not move the cards of ${moves.length} item(s) that were moved outside BaseHalf`, error);
+			this.waitForNextTry(workspaceFolder, moves);
+		}
+	}
+
+	/** A pair whose relocation failed waits for the next try, and the canvas does not wait for it. */
+	private waitForNextTry(workspaceFolder: URI, moves: readonly IBaseHalfMovedItem[]): void {
+		const pending = this.movedItemsService.getPendingMoves(workspaceFolder);
 		for (const move of moves) {
-			try {
-				// The plain lease: a drag the user makes meanwhile waits and is not refused.
-				await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, lease => this.followMove(workspaceFolder, move, lease));
-			} catch (error) {
-				// It stays pending, and is tried again at the next comparison and at open.
-				this.logService.warn(`BaseHalf mirror cascade: could not move the card of '${move.from}' to '${move.to}'`, error);
+			if (pending.some(other => other.from === move.from && other.to === move.to)) {
+				this.movedItemsService.acceptRelocated(workspaceFolder, move, 'held');
 			}
 		}
 	}
 
 	/**
-	 * Moves the card information of one item that was found at a new path.
-	 * Every piece moves only into a free place and nothing at the new path is
-	 * replaced, so this can be run again after it was interrupted.
+	 * Moves the card information of the items that were found at a new path,
+	 * in one run (following moved items, "Many items at once"): they are
+	 * checked together, every layout is read once and written once, and they
+	 * are reported together. Every piece moves only into a free place and
+	 * nothing at the new path is replaced, so this can be run again after it
+	 * was interrupted.
 	 */
-	private async followMove(workspaceFolder: URI, move: IBaseHalfMovedItem, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
-		if (!this.movedItemsService.getPendingMoves(workspaceFolder).some(pending => pending.from === move.from && pending.to === move.to)) {
+	private async followMovesTogether(workspaceFolder: URI, moves: readonly IBaseHalfMovedItem[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		const pending = this.movedItemsService.getPendingMoves(workspaceFolder);
+		const current = moves.filter(move => pending.some(other => other.from === move.from && other.to === move.to));
+		const checks: Awaited<ReturnType<BaseHalfMirrorCascadeContribution['checkMovedItem']>>[] = [];
+		for (let start = 0; start < current.length; start += RELOCATION_CHECKS_AT_ONCE) {
+			checks.push(...await Promise.all(current.slice(start, start + RELOCATION_CHECKS_AT_ONCE).map(move => this.checkMovedItem(workspaceFolder, move))));
+		}
+		const ready: { readonly move: IBaseHalfMovedItem; readonly withoutMirrorDirectory: boolean }[] = [];
+		// A pair below one of this run starts again where its card information is afterwards.
+		const leftForTheNextRun: { readonly move: IBaseHalfMovedItem; readonly below: IBaseHalfMovedItem }[] = [];
+		for (const [index, check] of checks.entries()) {
+			const move = current[index];
+			const above = ready.find(earlier => baseHalfIsMirrorSubtree(move.from, earlier.move.from));
+			if (check.outcome) {
+				this.movedItemsService.acceptRelocated(workspaceFolder, move, check.outcome);
+			} else if (above) {
+				leftForTheNextRun.push({ move, below: above.move });
+			} else {
+				ready.push({ move, withoutMirrorDirectory: check.withoutMirrorDirectory });
+			}
+		}
+		if (ready.length === 0 || this.disposed) {
 			return;
 		}
-		if (await this.nodeExists(workspaceFolder, move.from, 'file') || await this.nodeExists(workspaceFolder, move.from, 'folder')) {
+
+		const failed = await this.canvasMirrorService.followNodes(workspaceFolder, ready.map(one => ({ from: one.move.from, to: one.move.to, withoutMirrorDirectory: one.withoutMirrorDirectory })), lease);
+		const done: IBaseHalfMovedItem[] = [];
+		for (const [index, { move, withoutMirrorDirectory }] of ready.entries()) {
+			try {
+				if (failed.has(index)) {
+					throw failed.get(index);
+				}
+				if (!withoutMirrorDirectory) {
+					await this.followMirrorFiles(workspaceFolder, move, lease);
+				}
+				if (move.kind === 'folder') {
+					this.viewportStateService.moveSubtree(this.workspaceNode(workspaceFolder, move.from).resource, this.workspaceNode(workspaceFolder, move.to).resource);
+				}
+				done.push(move);
+			} catch (error) {
+				// It stays pending, and is tried again at the next comparison and at open.
+				this.logService.warn(`BaseHalf mirror cascade: could not move the card of '${move.from}' to '${move.to}'`, error);
+				// A pair that was left for the next run because of this one waits with it.
+				this.waitForNextTry(workspaceFolder, [move, ...leftForTheNextRun.filter(left => left.below === move).map(left => left.move)]);
+			}
+		}
+		this.movedItemsService.acceptRelocatedTogether(workspaceFolder, done);
+		for (const move of done) {
+			this.logService.info(`BaseHalf mirror cascade: the card of '${move.from}' followed it to '${move.to}'`);
+		}
+	}
+
+	/**
+	 * Before the card information of an item follows it: whether the old path
+	 * still names nothing and the new one still names the item, whether the
+	 * item is held back, and whether it has a directory under `.bh/mirror/`.
+	 */
+	private async checkMovedItem(workspaceFolder: URI, move: IBaseHalfMovedItem): Promise<{ readonly outcome?: 'kept' | 'gone' | 'held'; readonly withoutMirrorDirectory: boolean }> {
+		const [oldPathNamesAnItem, newPathNamesIt, hasMirrorDirectory] = await Promise.all([
+			this.nodeExists(workspaceFolder, move.from),
+			this.nodeExists(workspaceFolder, move.to, move.kind),
+			this.hasMirrorDirectory(workspaceFolder, move.from)
+		]);
+		const withoutMirrorDirectory = !hasMirrorDirectory;
+		if (oldPathNamesAnItem) {
 			// The old path names an item again: its card stays with it.
-			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'kept');
-			return;
+			return { outcome: 'kept', withoutMirrorDirectory };
 		}
-		if (!(await this.nodeExists(workspaceFolder, move.to, move.kind))) {
-			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'gone');
-			return;
+		if (!newPathNamesIt) {
+			return { outcome: 'gone', withoutMirrorDirectory };
 		}
 		const from = this.workspaceNode(workspaceFolder, move.from);
 		const to = this.workspaceNode(workspaceFolder, move.to);
@@ -961,12 +1033,21 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			|| this.nodeExecutionService.getActiveRun(from.resource) !== undefined
 			|| this.nodeExecutionService.getActiveRun(to.resource) !== undefined
 			|| (move.kind === 'folder' && await this.holdsRunningNode(from.resource, to.resource));
-		if (heldBack) {
-			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'held');
-			return;
-		}
+		return { ...(heldBack ? { outcome: 'held' as const } : {}), withoutMirrorDirectory };
+	}
 
-		await this.canvasMirrorService.followNode(workspaceFolder, move.from, move.to, lease);
+	/** An item without a directory under `.bh/mirror/` has no mirror files and no layouts of its own. */
+	private async hasMirrorDirectory(workspaceFolder: URI, relativePath: string): Promise<boolean> {
+		try {
+			return await this.fileService.exists(URI.joinPath(baseHalfMirrorRoot(workspaceFolder), ...baseHalfMirrorPathSegments(relativePath)));
+		} catch {
+			// What cannot be told is looked at piece by piece, with the checks of each piece.
+			return true;
+		}
+	}
+
+	/** The mirror files of one item follow it, each into a free place only. */
+	private async followMirrorFiles(workspaceFolder: URI, move: IBaseHalfMovedItem, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		// Only the item's own mirror directory is walked, so that one item costs
 		// the same in a folder with ten cards and in one with ten thousand.
 		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'adhd.yaml', move.from)) {
@@ -984,11 +1065,6 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			}
 		}
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
-		if (move.kind === 'folder') {
-			this.viewportStateService.moveSubtree(from.resource, to.resource);
-		}
-		this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
-		this.logService.info(`BaseHalf mirror cascade: the card of '${move.from}' followed it to '${move.to}'`);
 	}
 
 	/** Whether a node below a folder that was moved is running, under its old or its new path. */
@@ -1086,10 +1162,11 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 	}
 
-	private async nodeExists(workspaceFolder: URI, relativePath: string, kind: BaseHalfBadgeKind): Promise<boolean> {
+	/** Whether the path names an item of that kind, or of either kind when none is given. */
+	private async nodeExists(workspaceFolder: URI, relativePath: string, kind?: BaseHalfBadgeKind): Promise<boolean> {
 		try {
 			const stat = await this.fileService.stat(URI.joinPath(workspaceFolder, ...baseHalfMirrorPathSegments(relativePath)));
-			return kind === 'folder' ? stat.isDirectory : stat.isFile;
+			return kind === undefined ? stat.isDirectory || stat.isFile : kind === 'folder' ? stat.isDirectory : stat.isFile;
 		} catch {
 			return false;
 		}

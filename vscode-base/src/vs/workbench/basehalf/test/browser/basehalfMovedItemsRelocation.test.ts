@@ -273,6 +273,86 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
+	test('many files that are renamed at once are relocated in one run, with one write of their layout', async () => {
+		const names = Array.from({ length: 30 }, (_, index) => `n${index}.md`);
+		const files: Record<string, string> = {
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', names.map((name, index) => row(`notes/${name}`, index * 340))),
+			'.bh/mirror/notes/n3.md/badge.yaml': badge('notes/n3.md', 'The third.'),
+			'.bh/mirror/notes/n7.md/badge.yaml': badge('notes/n7.md', 'The seventh.')
+		};
+		for (const [index, name] of names.entries()) {
+			files[`notes/${name}`] = `# Note ${index}\n\nWhat note ${index} says and no other note does: ${index * 7919}.\n`;
+		}
+		const expected = (prefix: string) => ({
+			'.gitignore': BASEHALF_MIRROR_IGNORE_CONTENT,
+			[`mirror/notes/${prefix}n3.md/badge.yaml`]: badge(`notes/${prefix}n3.md`, 'The third.'),
+			[`mirror/notes/${prefix}n7.md/badge.yaml`]: badge(`notes/${prefix}n7.md`, 'The seventh.'),
+			'mirror/notes/canvas.yaml': canvas('notes', names.map((name, index) => row(`notes/${prefix}${name}`, index * 340)))
+		});
+
+		const fileService = await createFiles(files);
+		const session = await open(fileService);
+		const reported: number[] = [];
+		disposables.add(session.movedItems.onDidRelocate(event => reported.push(event.moves.length)));
+		await Promise.all(names.map(name => fileService.move(resource(`notes/${name}`), resource(`notes/r-${name}`))));
+		await settle();
+		const whileRunning = await hidden(fileService);
+		const pending = session.movedItems.getPendingMoves(folder).length;
+		session.close();
+
+		// Renamed again while no window is open: the comparison at open finds all of them at once.
+		for (const name of names) {
+			await fileService.move(resource(`notes/r-${name}`), resource(`notes/f-${name}`));
+		}
+		let layoutWrites = 0;
+		const write = fileService.writeFileWithExpectedContents.bind(fileService);
+		fileService.writeFileWithExpectedContents = (written, ...rest) => {
+			layoutWrites += written.path === '/work/.bh/mirror/notes/canvas.yaml' ? 1 : 0;
+			return write(written, ...rest);
+		};
+		await open(fileService);
+
+		assert.deepStrictEqual({ whileRunning, pending, followed: reported.reduce((sum, count) => sum + count, 0), inFewerReportsThanFiles: reported.length < names.length, atOpen: await hidden(fileService), layoutWrites }, {
+			whileRunning: expected('r-'),
+			pending: 0,
+			followed: 30,
+			inFewerReportsThanFiles: true,
+			atOpen: expected('f-'),
+			layoutWrites: 1
+		});
+	});
+
+	test('a pair whose relocation fails waits for the next try, and the canvas does not wait for it', async () => {
+		const fileService = await createFiles({
+			'notes/a.md': '# A\n\nA note with words of its own.\n',
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', [row('notes/a.md', 10)])
+		});
+		const session = await open(fileService);
+		// The layout cannot be written.
+		let broken = true;
+		const write = fileService.writeFileWithExpectedContents.bind(fileService);
+		fileService.writeFileWithExpectedContents = (written, ...rest) => broken && written.path === '/work/.bh/mirror/notes/canvas.yaml'
+			? Promise.reject(new Error('read-only'))
+			: write(written, ...rest);
+		await fileService.move(resource('notes/a.md'), resource('notes/b.md'));
+		await settle();
+		const whileItFails = {
+			pending: session.movedItems.getPendingMoves(folder).map(move => `${move.from} -> ${move.to}`),
+			settled: session.movedItems.isSettled(folder, 'notes'),
+			layout: (await hidden(fileService))['mirror/notes/canvas.yaml']
+		};
+		// The cause is gone. BaseHalf tries the pairs that wait again when an editor is saved.
+		broken = false;
+		session.dirtyChanged();
+		await settle();
+
+		assert.deepStrictEqual({ whileItFails, pending: session.movedItems.getPendingMoves(folder).length, layout: (await hidden(fileService))['mirror/notes/canvas.yaml'] }, {
+			whileItFails: { pending: ['notes/a.md -> notes/b.md'], settled: true, layout: canvas('notes', [row('notes/a.md', 10)]) },
+			pending: 0,
+			layout: canvas('notes', [row('notes/b.md', 10)])
+		});
+	});
+
 	test('nothing at the new path is replaced, an orphan badge there gives way with a recovery copy, and a folder takes everything below it along', async () => {
 		const fileService = await createFiles({
 			'a.md': 'The first note, with enough text to be told apart.\n',

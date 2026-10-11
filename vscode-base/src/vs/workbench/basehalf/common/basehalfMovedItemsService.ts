@@ -101,6 +101,8 @@ export interface IBaseHalfMovedItemsService {
 	isComparing(workspaceFolder: URI): boolean;
 	/** Resolves when the comparison at open has finished, or after `timeoutMs`. */
 	whenCompared(workspaceFolder: URI, timeoutMs?: number): Promise<void>;
+	/** Whether the comparison at open has finished. True for a folder BaseHalf keeps no snapshot of. */
+	hasCompared(workspaceFolder: URI): boolean;
 	/**
 	 * Whether nothing is in flight: no comparison is deciding, no recognized
 	 * move waits for its relocation, and no entries of a relocated item are
@@ -119,6 +121,25 @@ export interface IBaseHalfMovedItemsService {
 	 * card information is not there yet.
 	 */
 	isMoving(workspaceFolder: URI, path: string): boolean;
+	/**
+	 * Whether BaseHalf may still find the item that was at `path` at a new
+	 * path: file events have not said that it is gone, or it disappeared and
+	 * the time in which it can be paired has not passed, or it was recognized
+	 * and its card information has not followed yet, held back or not. An item
+	 * that this is false for is given up: it is deleted, as far as BaseHalf is
+	 * concerned.
+	 */
+	mayStillBeFollowed(workspaceFolder: URI, path: string): boolean;
+	/**
+	 * A drawing of a folder shows what file events have not said yet (following
+	 * moved items, "What a drawing has already seen"). `missing` are the items
+	 * with a card row that the folder no longer holds, `unknown` the paths in
+	 * it that have no row. What BaseHalf has not been told is looked at again
+	 * and taken as if file events had said it. Resolves to whether an item was
+	 * removed that BaseHalf may find at a new path: the folder is not settled
+	 * then, until the comparison for it has finished.
+	 */
+	acceptListing(workspaceFolder: URI, missing: readonly { readonly path: string; readonly kind: BaseHalfCanvasItemKind }[], unknown: readonly string[]): Promise<boolean>;
 	/**
 	 * Where an item is now that BaseHalf found at a new path in the last
 	 * minute, or whose relocation is pending. `undefined` when it did not move.
@@ -140,9 +161,17 @@ export interface IBaseHalfMovedItemsService {
 	 * information is at the new path, `kept` when the old path names an item
 	 * again and nothing moved, `gone` when the new path names nothing any
 	 * more, so that the item can be paired again, and `held` when unsaved
-	 * changes or a running node hold it back, which leaves it pending.
+	 * changes or a running node hold it back, or when its relocation failed,
+	 * which leaves it pending and does not keep the canvas waiting.
 	 */
 	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'kept' | 'gone' | 'held'): void;
+	/**
+	 * {@link acceptRelocated} with `done` for the moves of one relocation run,
+	 * in their order. They are reported together: {@link onDidRelocate} fires
+	 * once for all of them, so the canvas draws them in one redraw and their
+	 * entries are written in one step.
+	 */
+	acceptRelocatedTogether(workspaceFolder: URI, moves: readonly IBaseHalfMovedItem[]): void;
 	/** The card information of these items is at their new paths now. */
 	readonly onDidRelocate: Event<IBaseHalfRecognizedMoves>;
 	/**
@@ -372,6 +401,10 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		await (timeoutMs === undefined ? state.compared.p : Promise.race([state.compared.p, timeout(timeoutMs)]));
 	}
 
+	hasCompared(workspaceFolder: URI): boolean {
+		return this.folders.get(workspaceFolder.toString())?.compared.isSettled ?? true;
+	}
+
 	isSettled(workspaceFolder: URI, shownFolder?: string): boolean {
 		const state = this.folders.get(workspaceFolder.toString());
 		if (!state) {
@@ -416,6 +449,75 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		const covers = (root: string) => baseHalfIsMirrorSubtree(path, root);
 		return state.pending.some(move => !state.held.has(moveKey(move)) && (covers(move.from) || covers(move.to)))
 			|| (state.comparing > 0 && [...state.disappeared].some(([gone, item]) => item.pairedTo === undefined && covers(gone)));
+	}
+
+	mayStillBeFollowed(workspaceFolder: URI, path: string): boolean {
+		const state = this.folders.get(workspaceFolder.toString());
+		if (!state) {
+			return false;
+		}
+		if (state.pending.some(move => baseHalfIsMirrorSubtree(path, move.from))) {
+			return true;
+		}
+		const now = Date.now();
+		for (const [gone, item] of state.disappeared) {
+			if (item.pairedTo === undefined && now - item.at <= this.timing.windowMs && (baseHalfIsMirrorSubtree(path, gone) || baseHalfIsMirrorSubtree(gone, path))) {
+				return true;
+			}
+		}
+		// The snapshot still holds it: no file event has said that it is gone.
+		return state.has(path);
+	}
+
+	async acceptListing(workspaceFolder: URI, missing: readonly { readonly path: string; readonly kind: BaseHalfCanvasItemKind }[], unknown: readonly string[]): Promise<boolean> {
+		const state = this.folders.get(workspaceFolder.toString());
+		if (!state?.loaded || state.disposed || !state.compared.isSettled || missing.length === 0) {
+			return false;
+		}
+		// Only what the snapshot still holds: about the rest, file events have
+		// spoken. A folder is held through the files below it.
+		let folders: Set<string> | undefined;
+		const holds = (item: { readonly path: string; readonly kind: BaseHalfCanvasItemKind }) => item.kind === 'folder' ? (folders ??= state.folders()).has(item.path) : state.has(item.path);
+		const held = missing.filter(holds);
+		if (held.length === 0) {
+			return false;
+		}
+		// A listing can leave out a file that a tool is rewriting at that moment.
+		// Not through the queue of fingerprint reads: a drawing waits for this.
+		const there = new Set<string>();
+		for (let start = 0; start < held.length; start += READ_CONCURRENCY) {
+			await Promise.all(held.slice(start, start + READ_CONCURRENCY).map(async item => {
+				if (await this.fileService.exists(this.resource(state, item.path))) {
+					there.add(item.path);
+				}
+			}));
+		}
+		if (state.disposed) {
+			return false;
+		}
+		folders = undefined;
+		const now = Date.now();
+		let recognizable = false;
+		for (const item of held) {
+			// File events may have arrived while the paths were looked at.
+			if (!there.has(item.path) && holds(item)) {
+				recognizable = this.removed(state, item.path, now) || recognizable;
+			}
+		}
+		if (!recognizable) {
+			return false;
+		}
+		const added = unknown.filter(path => !state.has(path));
+		if (added.length > 0) {
+			void this.enqueue(state, async () => {
+				for (const path of added) {
+					await this.added(state, path, now);
+				}
+			});
+		}
+		this.schedule(state);
+		void this.enqueue(state, () => this.noteArrivals(state));
+		return true;
 	}
 
 	resolveMovedPath(workspaceFolder: URI, path: string): string | undefined {
@@ -476,6 +578,10 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	}
 
 	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'kept' | 'gone' | 'held'): void {
+		if (outcome === 'done') {
+			this.acceptRelocatedTogether(workspaceFolder, [move]);
+			return;
+		}
 		const state = this.folders.get(workspaceFolder.toString());
 		if (!state) {
 			return;
@@ -496,30 +602,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		}
 		state.held.delete(moveKey(move));
 		state.pending = state.pending.filter(pending => pending.from !== move.from || pending.to !== move.to);
-		if (outcome === 'done') {
-			// A pair that was recognized while this one was on its way starts where
-			// the card information is now.
-			const before = state.pending;
-			state.pending = state.pending.flatMap(pending => {
-				if (!baseHalfIsMirrorSubtree(pending.from, move.from)) {
-					return [pending];
-				}
-				state.held.delete(moveKey(pending));
-				const from = baseHalfRemapSubtreeRel(pending.from, move.from, move.to);
-				return from === pending.to ? [] : [{ ...pending, from }];
-			});
-			const restarted = state.pending.some((pending, index) => pending !== before[index]);
-			// The entries that name the old path are owed until they are written.
-			// They are kept with the snapshot, so that they outlive the window. A
-			// window that closes before the snapshot is saved finds the move again
-			// at the next open.
-			state.owed = baseHalfComposeOwedEntryMoves(state.owed, [move], true);
-			state.recent.push({ move, at: Date.now() });
-			this._onDidRelocate.fire({ workspaceFolder, moves: [move] });
-			if (restarted) {
-				this._onDidRecognize.fire({ workspaceFolder, moves: state.pending });
-			}
-		} else if (outcome === 'kept') {
+		if (outcome === 'kept') {
 			// The old path names an item again: what is followed is collected again.
 			state.followedChanged = true;
 			this.schedule(state);
@@ -561,6 +644,42 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				}
 			}
 			this.schedule(state);
+		}
+		this._onDidChangeSettled.fire();
+		this.scheduleSave(state);
+	}
+
+	acceptRelocatedTogether(workspaceFolder: URI, moves: readonly IBaseHalfMovedItem[]): void {
+		const state = this.folders.get(workspaceFolder.toString());
+		if (!state || moves.length === 0) {
+			return;
+		}
+		let restarted = false;
+		for (const move of moves) {
+			state.held.delete(moveKey(move));
+			state.pending = state.pending.filter(pending => pending.from !== move.from || pending.to !== move.to);
+			// A pair that was recognized while this one was on its way starts where
+			// the card information is now.
+			const before = state.pending;
+			state.pending = state.pending.flatMap(pending => {
+				if (!baseHalfIsMirrorSubtree(pending.from, move.from)) {
+					return [pending];
+				}
+				state.held.delete(moveKey(pending));
+				const from = baseHalfRemapSubtreeRel(pending.from, move.from, move.to);
+				return from === pending.to ? [] : [{ ...pending, from }];
+			});
+			restarted = restarted || state.pending.some((pending, index) => pending !== before[index]);
+			// The entries that name the old path are owed until they are written.
+			// They are kept with the snapshot, so that they outlive the window. A
+			// window that closes before the snapshot is saved finds the move again
+			// at the next open.
+			state.owed = baseHalfComposeOwedEntryMoves(state.owed, [move], true);
+			state.recent.push({ move, at: Date.now() });
+		}
+		this._onDidRelocate.fire({ workspaceFolder, moves });
+		if (restarted) {
+			this._onDidRecognize.fire({ workspaceFolder, moves: state.pending });
 		}
 		this._onDidChangeSettled.fire();
 		this.scheduleSave(state);
@@ -1046,13 +1165,20 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 					relevant = this.removed(state, path, now) || relevant;
 				}
 			}
+			// A file that was taken as removed and is written again can arrive as
+			// one update: the watcher joins a removal and an addition of the same
+			// path. It is there again, as after an addition.
+			const back: URI[] = [];
 			for (const resource of updated) {
 				const path = getRelativePath(state.folder, resource);
 				if (path && state.fingerprints.has(path)) {
 					state.changed.add(path);
 					relevant = true;
+				} else if (path && state.disappeared.has(path) && state.disappeared.get(path)!.pairedTo === undefined) {
+					back.push(resource);
 				}
 			}
+			added.push(...back);
 			if (added.length > 0) {
 				// An added folder is listed: its files may have no events of their own.
 				relevant = true;

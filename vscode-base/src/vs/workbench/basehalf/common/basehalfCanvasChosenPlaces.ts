@@ -10,15 +10,13 @@ import { IBaseHalfCanvasMirrorService } from './basehalfCanvasMirror.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
-import { baseHalfIsMirrorSubtree } from './basehalfMirrorTree.js';
 import { IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
 /** What following moved items knows about the items of a workspace folder. */
 export interface IBaseHalfCanvasPlacesMovedItems {
 	isSettled(workspaceFolder: URI): boolean;
-	isMoving(workspaceFolder: URI, path: string): boolean;
-	/** Every pair that still waits for relocation, also one that is held back. */
-	getPendingMoves(workspaceFolder: URI): readonly { readonly from: string }[];
+	/** Whether the item that was at `path` may still be found at a new path. False when BaseHalf has given it up. */
+	mayStillBeFollowed(workspaceFolder: URI, path: string): boolean;
 }
 
 /**
@@ -78,12 +76,10 @@ export class BaseHalfCanvasChosenPlaces {
 			return [];
 		}
 		const there = new Set(children.map(pathKey));
-		const pending = this.movedItems.getPendingMoves(folder.workspaceFolder);
 		return this.absent(folder, layout.cards
 			.filter(card => card.auto
 				&& !there.has(pathKey(card.path))
-				&& !this.movedItems.isMoving(folder.workspaceFolder, card.path)
-				&& !pending.some(move => baseHalfIsMirrorSubtree(card.path, move.from)))
+				&& !this.movedItems.mayStillBeFollowed(folder.workspaceFolder, card.path))
 			.map(card => card.path));
 	}
 

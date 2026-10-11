@@ -28,6 +28,10 @@ export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {
 	compare: async () => { },
 	getPendingMoves: () => [],
 	acceptRelocated: () => { },
+	acceptRelocatedTogether: () => { },
+	hasCompared: () => true,
+	mayStillBeFollowed: () => false,
+	acceptListing: async () => false,
 	acceptWorkbenchMove: () => { },
 	acceptWorkbenchDelete: () => { }
 };
