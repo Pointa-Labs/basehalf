@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { basename } from '../../../base/common/resources.js';
+import { URI } from '../../../base/common/uri.js';
 import { IFileStat } from '../../../platform/files/common/files.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
@@ -210,6 +211,24 @@ export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): bool
 	}
 
 	return !HIDDEN_FILE_NAMES.has(name);
+}
+
+/**
+ * Whether the canvas could show the item at `relativePath` below a workspace
+ * folder: every segment of the path is one the canvas shows as a card.
+ */
+export function baseHalfIsCanvasEligiblePath(workspaceFolder: URI, relativePath: string, isDirectory: boolean): boolean {
+	const segments = relativePath.split('/');
+	let current = workspaceFolder;
+	for (let position = 0; position < segments.length; position++) {
+		current = URI.joinPath(current, segments[position]);
+		const directory = position < segments.length - 1 || isDirectory;
+		const stat: IFileStat = { resource: current, name: segments[position], isFile: !directory, isDirectory: directory, isSymbolicLink: false, children: undefined };
+		if (!isBaseHalfCanvasEntry(stat, position === 0)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /** Directory names the canvas never shows as cards (and never walks into). */

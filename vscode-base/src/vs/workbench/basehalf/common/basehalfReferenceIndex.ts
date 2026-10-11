@@ -17,7 +17,7 @@ import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIde
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IFileQuery, ISearchService, QueryType } from '../../services/search/common/search.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
-import { isBaseHalfCanvasEntry } from './basehalfCanvasModel.js';
+import { baseHalfIsCanvasEligiblePath } from './basehalfCanvasModel.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorRoot } from './basehalfMirrorTree.js';
 import { baseHalfPlainFailureReason } from './basehalfPlainFailureReason.js';
 import {
@@ -288,7 +288,7 @@ type StoreReadResult =
  * them only to avoid walking large trees; `isBaseHalfCanvasEntry` remains the
  * authoritative eligibility check for every result.
  */
-const SEARCH_EXCLUDED_DIRECTORY_NAMES = [
+export const BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES = [
 	'.git', '.bh', '.idea', '.vscode', '.turbo', '.next', '.nuxt', '.svelte-kit',
 	'node_modules', 'dist', 'build', 'out', '__pycache__', '.pytest_cache', 'target', 'vendor'
 ];
@@ -684,7 +684,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				ignoreGlobCase: true
 			}],
 			includePattern: { '**/*.md': true, '**/*.markdown': true, '**/*.bhnode': true },
-			excludePattern: Object.fromEntries(SEARCH_EXCLUDED_DIRECTORY_NAMES.map(name => [`**/${name}`, true])),
+			excludePattern: Object.fromEntries(BASEHALF_SEARCH_EXCLUDED_DIRECTORY_NAMES.map(name => [`**/${name}`, true])),
 			ignoreGlobCase: true,
 			maxResults: BASEHALF_REFERENCE_INDEX_STORE_LIMIT + 1
 		};
@@ -1443,17 +1443,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 
 	/** Whether every segment is one the canvas could show as a card. */
 	private isCanvasEligible(index: IFolderIndex, relativePath: string, isDirectory: boolean): boolean {
-		const segments = relativePath.split('/');
-		let current = index.folder;
-		for (let position = 0; position < segments.length; position++) {
-			current = URI.joinPath(current, segments[position]);
-			const directory = position < segments.length - 1 || isDirectory;
-			const stat: IFileStat = { resource: current, name: segments[position], isFile: !directory, isDirectory: directory, isSymbolicLink: false, children: undefined };
-			if (!isBaseHalfCanvasEntry(stat, position === 0)) {
-				return false;
-			}
-		}
-		return true;
+		return baseHalfIsCanvasEligiblePath(index.folder, relativePath, isDirectory);
 	}
 
 	//#endregion
