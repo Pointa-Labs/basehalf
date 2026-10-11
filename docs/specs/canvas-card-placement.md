@@ -404,7 +404,16 @@ their descriptions. Those are shared through git as before.
   edits it.
 - **The user's own `.gitignore` is never touched**, and BaseHalf runs no git
   command.
-- A folder that is not in git gets the file too. It does nothing there.
+- **Every folder, without any setup.** Git reads an ignore file in whatever
+  directory it finds one, so nothing depends on the repository.
+  - A folder that is not in git gets the file too. When it becomes a
+    repository later, the file is already there.
+  - The workspace folder does not have to be the root of the repository.
+  - A rule in the user's own ignore file cannot bring the layouts back: the
+    file that is nearer to them decides.
+  - Tried on 2026-10-11 for all three, with everything added to git at
+    once, as an agent does: the descriptions and the notes were added, and
+    no layout, no cache file, and not the ignore file.
 
 ### What showing a canvas writes
 
@@ -636,7 +645,11 @@ written with this document.
 27. **Git shows nothing.** In a git repository without `.bh/`: after the
     folder is opened, canvases are shown, and cards are dragged, git reports
     no change and no new file. After a card is described and connected, git
-    reports those files and no layout.
+    reports those files and no layout. The same holds when the folder
+    becomes a repository only after it was used, when the workspace folder
+    is below the repository's root, when the user's own ignore file has a
+    rule that would include the layouts, and when everything is added to git
+    at once.
 28. **A file named like a layout.** A file of the user's that is named
     `canvas.yaml` is described. Git reports its description.
 29. **The ignore file.** It is written before the first layout. One that is
