@@ -1148,3 +1148,81 @@ whether BaseHalf was running, which a user could not have known.
 - Open questions of this work are settled by what git does: nothing is
   overwritten silently, every step can be run again, what is not recognized
   is left as it is and never deleted, and limits come from measurement.
+
+## D46 — Every card has a saved place (NEW, 2026-10-11)
+
+**Decision.** Every card on a canvas has a place that is saved in its
+folder's layout under `.bh/`. A card gets its place when it first appears on
+a canvas, and after that only the user changes it. BaseHalf chooses the place
+once: the nearest place that is not taken to where the user pointed, and
+the end of the canvas when nobody pointed. It saves that place at once and by
+itself, in the same file as a place the user chose, and marks the row as its
+own choice. There is no sorted mode, and the one way BaseHalf will change a
+place the user has is a tidy command that the user runs. See
+[canvas card placement](specs/canvas-card-placement.md).
+
+**Why.** A canvas had two kinds of place: saved for the cards the user had
+moved, and computed at every drawing for all others. A computed place depends
+on the other cards and on the list of files. So cards could lie on each
+other, cards moved when a file was added or renamed, and most of what the
+canvas showed was stored nowhere, against the rule of D44 that what the
+canvas shows is what is stored. A first fix kept both kinds and searched for
+free places. It was correct and hard to predict. A simpler rule on top of it
+failed in the product, because without a saved place for every card BaseHalf
+cannot tell a new card from one that has been there all along.
+
+Ten open-source implementations were read in source: five desktop views that
+show a folder as icons the user can place, and five canvas editors, formats,
+and libraries. Nine store a position for every item that can be placed
+freely, place an item once when it appears, and handle every case with that
+alone. The tenth stores only what the user moved and lets the rest flow
+around it, and a new file shifts the icons after it. That was BaseHalf's
+method, and its problems came with the method.
+
+**What was set aside.**
+- Keeping computed places and searching for free ones around the saved
+  ones. This is the first version of the specification.
+- Two states for a canvas: arranged by name until the user touches it, and
+  saved from then on. Three of the desktop views have such a mode as a
+  feature. The rule does not need it, and a canvas would change its
+  character at the first drag.
+- Remembering BaseHalf's own choices on this machine and writing to the
+  folder only when the user arranges something. It keeps "opening a folder
+  writes nothing". It also means two places for one kind of fact, and cards
+  nobody arranged could sit elsewhere on another machine. One place was
+  preferred.
+- Filling the first free gap from the top-left corner, as three of the
+  desktop views do on a screen of fixed size. On a canvas the gaps between
+  the user's cards mean something, and a card put there would look as if it
+  belonged to its neighbours.
+- Keeping the coordinates of a card that goes to another folder. They
+  belong to the canvas it left.
+- Saving a place only once BaseHalf knows that the item is new and not a
+  moved one. A place that waits is invisible to another window and to a
+  move that writes into the same layout, and each of them could choose it
+  again. A mark on the row does the same work with nothing unsaved.
+
+**Consequences.**
+- Refines D35 and D36 as [workspace state](specs/workspace-state-and-legacy-cleanup.md)
+  records them: showing a folder's canvas now writes that folder's layout,
+  so the first canvas shown in a workspace folder creates `.bh/` there.
+  BaseHalf still writes no agent guides, no focus state, and nothing into
+  the user's own files.
+- Refines D43: `.bh/` is still how the agent skill recognizes a BaseHalf
+  workspace. It now appears when a folder is first shown, not when the user
+  first arranges or describes a card.
+- Refines D44: every item whose card was shown is a followed item. A file
+  renamed outside BaseHalf keeps its place also when the user never touched
+  its card, and BaseHalf keeps a fingerprint for every such file. The cost
+  is measured before the work is done.
+- A file that anyone adds to a shown folder changes that folder's layout,
+  and git shows both changes.
+- Cards are in name order only as far as they appeared together. A file
+  that is added later is at the end.
+- A place BaseHalf chose is never written in a marked folder, which closes
+  the known gap of the source-tree guard for writes that no user action
+  started.
+- A row says whether BaseHalf chose its place. Only such a row gives way
+  to the row that follows a moved item, and only such a row is removed when
+  its item is gone. BaseHalf does neither to a place the user chose.
+- The user can still put a card on another card. BaseHalf does not.
