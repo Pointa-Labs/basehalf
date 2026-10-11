@@ -64,6 +64,7 @@
     "basehalf:plugin:fixture": "node --experimental-strip-types scripts/basehalf-plugin-fixture.mts",
     "basehalf:plugin:verify": "node --experimental-strip-types scripts/basehalf-plugin-release.mts verify",
     "basehalf:plugin:layout-smoke": "node --experimental-strip-types scripts/basehalf-plugin-layout-smoke.mts",
+    "basehalf:update-e2e": "node --experimental-strip-types scripts/basehalf-update-e2e.mts",
     "download-builtin-extensions": "node build/lib/builtInExtensions.ts",
     "download-builtin-extensions-cg": "node build/lib/builtInExtensionsCG.ts",
     "monaco-compile-check": "tsgo --project src/tsconfig.monaco.json --noEmit",

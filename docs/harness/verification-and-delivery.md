@@ -70,6 +70,22 @@ cd vscode-base
 build/basehalf/package-darwin.sh arm64
 ```
 
+Before a release is published, an installed application is updated to it for
+real, as the [app update](../specs/app-update.md#verification) specification
+requires. The packaging script refuses an archive that installed applications
+would not accept. Then:
+
+```bash
+cd vscode-base
+npm run basehalf:update-e2e -- --app ../VSCode-darwin-arm64/BaseHalf.app \
+  --archive ../basehalf-dist/BaseHalf-<version>-darwin-arm64.zip \
+  --from ../basehalf-dist/BaseHalf-<version before>-darwin-arm64.zip
+```
+
+`--from` is the release that users have installed: it is updated by the update
+service it was released with. The run needs the release key, opens BaseHalf
+windows, and takes several minutes. It is not part of CI.
+
 Package-specific work should run that package's lint, typecheck, and test
 scripts in addition to any cross-package acceptance checks defined by the
 owning specification.

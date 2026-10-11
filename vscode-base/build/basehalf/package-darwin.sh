@@ -69,5 +69,8 @@ echo
 echo "Done. Release assets in ${DIST}:"
 ls -lh "$DIST" | sed -n '2,9p'
 echo
+echo "Before publishing, update an installed application to it for real:"
+echo "  npm run basehalf:update-e2e -- --app '${APP}' --archive '${ZIP}' --from <zip of the release before>"
+echo
 echo "Publish with:"
 echo "  gh release create v${VERSION} '${ZIP}' '${DMG}' '${DIST}/update-manifest-darwin-${ARCH}.json' --title 'BaseHalf ${VERSION}' --notes-file <notes.md>"
