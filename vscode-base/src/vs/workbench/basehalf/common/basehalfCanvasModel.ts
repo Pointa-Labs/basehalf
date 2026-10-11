@@ -219,6 +219,11 @@ export interface IBaseHalfCanvasModelOptions {
 	readonly newCardSizes?: ReadonlyMap<string, IBaseHalfCanvasSize>;
 	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
 	readonly pathKey?: (path: string) => string;
+	/**
+	 * Paths of rows that BaseHalf chose and whose items are gone. The next save
+	 * removes them, so their places are open for a card that appears.
+	 */
+	readonly released?: ReadonlySet<string>;
 }
 
 export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
@@ -342,8 +347,9 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 	// Every card has a place (canvas card placement). A card without a row
 	// appears: it gets its place now, at the end of the canvas, and keeps it.
 	// What is taken is every row of the layout, also of an item that is gone,
-	// and the places that still wait for a write.
-	const rows = options.canvas?.cards ?? [];
+	// and the places that still wait for a write. A row that is about to be
+	// removed takes nothing.
+	const rows = (options.canvas?.cards ?? []).filter(card => !options.released?.has(card.path));
 	const inLayout = new Set(rows.map(card => pathKey(card.path)));
 	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
 	const chosen = new Map(baseHalfCanvasPlaceAppearing(

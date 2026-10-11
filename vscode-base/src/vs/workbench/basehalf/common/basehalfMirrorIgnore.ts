@@ -19,6 +19,8 @@ import { baseHalfAssertBhPathComponentsNotSymbolicLink } from './basehalfMirrorT
  * - `canvas.yaml` hides every layout. `!canvas.yaml/` keeps the mirror
  *   directory of a user's own file of that name, with its description.
  * - `/cache/` hides BaseHalf's working files.
+ * - `*.basehalf-tmp` hides the file a mirror write goes through before it
+ *   takes its name. It is there for a moment, or longer after a crash.
  */
 export const BASEHALF_MIRROR_IGNORE_CONTENT = [
 	'# Written by BaseHalf. Card positions and BaseHalf\'s working files are',
@@ -27,6 +29,7 @@ export const BASEHALF_MIRROR_IGNORE_CONTENT = [
 	'canvas.yaml',
 	'!canvas.yaml/',
 	'/cache/',
+	'*.basehalf-tmp',
 	''
 ].join('\n');
 

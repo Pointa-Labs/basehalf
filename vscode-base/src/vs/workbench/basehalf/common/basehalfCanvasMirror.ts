@@ -232,8 +232,8 @@ export interface IBaseHalfCanvasMirrorService {
 export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalfCanvasMirrorService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();
-	/** By workspace folder, then by the path the row had. */
-	private readonly rowsThatLeft = new Map<string, Map<string, IBaseHalfCanvasCard>>();
+	/** By workspace folder, then by the path the row had: the row, and where its item went. */
+	private readonly rowsThatLeft = new Map<string, Map<string, { readonly row: IBaseHalfCanvasCard; readonly wentTo: string }>>();
 
 	private readonly _onDidPreserveUnreadableCanvas = this._register(new Emitter<IBaseHalfCanvasPreservedEvent>());
 	readonly onDidPreserveUnreadableCanvas = this._onDidPreserveUnreadableCanvas.event;
@@ -435,9 +435,11 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 		addResource(this.canvasResourceFor(workspaceFolder, newParent), newParent, oldParent === newParent ? 90 : 30);
 		addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent, 90);
 
-		// The row the card had at `to` before a move made in BaseHalf took it
-		// away: undo puts the card back where it was (canvas card placement).
-		const back = this.rowsThatLeft.get(workspaceFolder.toString())?.get(to);
+		// The row the card had at `to` before a move made in BaseHalf took it to
+		// `from`: undo puts the card back where it was (canvas card placement).
+		// Another item that happens to arrive at that path is a new card there.
+		const remembered = this.rowsThatLeft.get(workspaceFolder.toString())?.get(to);
+		const back = remembered?.wentTo === from ? remembered.row : undefined;
 		let left: IBaseHalfCanvasCard | undefined;
 
 		await this.executeCanvasStructuralTransaction(workspaceFolder, [...resources.values()], snapshots => {
@@ -495,13 +497,13 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 	/** Kept while the window is open and stored nowhere: the last rows that a move made in BaseHalf took out of a layout. */
 	private rememberRowThatLeft(workspaceFolder: URI, from: string, to: string, left: IBaseHalfCanvasCard | undefined): void {
 		const key = workspaceFolder.toString();
-		const rows = this.rowsThatLeft.get(key) ?? new Map<string, IBaseHalfCanvasCard>();
+		const rows = this.rowsThatLeft.get(key) ?? new Map<string, { readonly row: IBaseHalfCanvasCard; readonly wentTo: string }>();
 		this.rowsThatLeft.set(key, rows);
 		// The card is at `to` now: what was remembered for that path is used up.
 		rows.delete(to);
 		if (left) {
 			rows.delete(from);
-			rows.set(from, left);
+			rows.set(from, { row: left, wentTo: to });
 			if (rows.size > CANVAS_ROWS_THAT_LEFT_LIMIT) {
 				rows.delete(rows.keys().next().value!);
 			}
@@ -587,9 +589,11 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			// A row BaseHalf chose is there when the item was drawn as a new card
 			// before it was known to be a moved one, or when an earlier run of this
 			// move stopped after this write. It keeps its place and takes the size of
-			// the row that follows, so a second run changes nothing here.
-			const incoming = existing
-				? { ...existing, width: carried.width, height: carried.height }
+			// the row that follows, so a second run changes nothing here. A larger
+			// size that would reach a neighbour is given the end of the canvas.
+			const sized = existing ? { ...existing, width: carried.width, height: carried.height } : undefined;
+			const incoming = sized && baseHalfCanvasIsOpen(sized, newParentSnapshot.next.cards.filter(card => card.path !== to))
+				? sized
 				: carriedCanvasCard(newParentSnapshot.next, carried, to);
 			if (incoming) {
 				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
@@ -1059,11 +1063,14 @@ function carriedCanvasCard(canvas: IBaseHalfCanvasFile, carried: IBaseHalfCanvas
 	if (back && baseHalfCanvasIsOpen(back, taken)) {
 		return { ...back, path: to };
 	}
-	if (!carried || taken.length === 0) {
+	// The place it had is taken: it goes to the end, with the size it has, or
+	// had here when the other folder kept no row for it.
+	const source = carried ?? back;
+	if (!source || taken.length === 0) {
 		return undefined;
 	}
-	const size = { width: carried.width, height: carried.height };
-	return { path: to, kind: carried.kind, ...baseHalfCanvasEndPlace(taken, size, baseHalfCanvasRowSpan(taken, 1)), ...size, auto: true };
+	const size = { width: source.width, height: source.height };
+	return { path: to, kind: source.kind, ...baseHalfCanvasEndPlace(taken, size, baseHalfCanvasRowSpan(taken, 1)), ...size, auto: true };
 }
 
 /**

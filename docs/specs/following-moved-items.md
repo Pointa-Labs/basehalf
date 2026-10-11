@@ -375,7 +375,8 @@ to the new one.
    - **A card row that changes folder** does not keep its coordinates: they
      belong to the canvas it left. It goes to the end of the other canvas
      with its size, as a row BaseHalf chose, and a row BaseHalf chose that
-     is already there keeps its place and takes that size. A folder without
+     is already there keeps its place and takes that size, or goes to the
+     end when it would reach a neighbour at that size. A folder without
      a layout gets no row, and the card appears when its canvas is first
      drawn. Either way the row at the old path is then removed, and a second
      run changes nothing.

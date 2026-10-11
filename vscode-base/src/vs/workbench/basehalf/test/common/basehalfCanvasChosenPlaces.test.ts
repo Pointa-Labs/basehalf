@@ -10,11 +10,11 @@ import { relativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileService } from '../../../../platform/files/common/fileService.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
-import { BaseHalfCanvasChosenPlaces, IBaseHalfCanvasChosenPlacesSaveOptions } from '../../common/basehalfCanvasChosenPlaces.js';
-import { BaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.js';
+import { BaseHalfCanvasChosenPlaces } from '../../common/basehalfCanvasChosenPlaces.js';
+import { BaseHalfCanvasMirrorService, IBaseHalfCanvasRead } from '../../common/basehalfCanvasMirror.js';
 import { baseHalfCanvasModelFromStat, baseHalfCanvasPosition, IBaseHalfCanvasCard } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
 import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnore.js';
@@ -29,6 +29,16 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 	interface IMoved {
 		settled: boolean;
 		moving: Set<string>;
+		/** The old paths of the pairs that wait for relocation, also the ones that are held back. */
+		pending: string[];
+	}
+
+	/** What a drawing has read before it gives cards their places. */
+	interface IPrepared {
+		readonly stat: IFileStat;
+		readonly read: IBaseHalfCanvasRead;
+		readonly waiting: ReadonlyMap<string, IBaseHalfCanvasCard> | undefined;
+		readonly gone: readonly string[];
 	}
 
 	interface IWindow {
@@ -49,31 +59,49 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 	}
 
 	function openWindow(fileService: IFileService): IWindow {
-		const moved: IMoved = { settled: true, moving: new Set() };
+		const moved: IMoved = { settled: true, moving: new Set(), pending: [] };
 		const mirror = disposables.add(new BaseHalfCanvasMirrorService(fileService, new BaseHalfWorkspaceMutationCoordinator()));
-		const places = new BaseHalfCanvasChosenPlaces(fileService, mirror, { isSettled: () => moved.settled, isMoving: (_folder, path) => moved.moving.has(path) }, new NullLogService());
+		const places = new BaseHalfCanvasChosenPlaces(fileService, mirror, {
+			isSettled: () => moved.settled,
+			isMoving: (_folder, path) => moved.moving.has(path),
+			getPendingMoves: () => moved.pending.map(from => ({ from }))
+		}, new NullLogService());
 		return { places, mirror, moved };
 	}
 
 	/**
-	 * One drawing of the root canvas, as the canvas does it: read the folder and
-	 * the layout, give every card its place, and save what the layout can take.
-	 * With `saveLater` the places are chosen and the write is left to the caller.
+	 * What a drawing reads, in the order the canvas reads it: what waits for a
+	 * write first, then the folder and the layout.
 	 */
-	async function draw(fileService: IFileService, window: IWindow, saveLater = false, pathKey?: (path: string) => string): Promise<Record<string, string>> {
+	async function prepare(fileService: IFileService, window: IWindow, pathKey?: (path: string) => string): Promise<IPrepared> {
+		const waiting = window.places.waitingFor(root);
 		const stat = await fileService.resolve(workspaceFolder, { resolveMetadata: true });
 		const read = await window.mirror.inspectCanvas(root);
-		const model = baseHalfCanvasModelFromStat(stat, { rootLevel: true, canvas: read.canvas, waiting: window.places.waitingFor(root), pathKey });
+		const gone = read.damage ? [] : await window.places.goneRows(root, (stat.children ?? []).map(child => child.name), read.canvas, pathKey);
+		return { stat, read, waiting, gone };
+	}
+
+	/**
+	 * Gives every card its place from what was read, and saves what the layout
+	 * can take. With `saveLater` the write is left to the caller.
+	 */
+	async function finish(window: IWindow, prepared: IPrepared, saveLater = false, pathKey?: (path: string) => string): Promise<Record<string, string>> {
+		const model = baseHalfCanvasModelFromStat(prepared.stat, { rootLevel: true, canvas: prepared.read.canvas, waiting: prepared.waiting, pathKey, released: new Set(prepared.gone) });
 		window.places.drawn(root, model.appeared);
-		if (!read.damage && !saveLater) {
-			await save(fileService, window, { pathKey, respelled: model.respelled });
+		if (!prepared.read.damage && !saveLater) {
+			await window.places.save(root, prepared.gone, model.respelled);
 		}
 		return Object.fromEntries(model.items.map(item => [item.path, at(item.card)]));
 	}
 
-	async function save(fileService: IFileService, window: IWindow, options?: IBaseHalfCanvasChosenPlacesSaveOptions): Promise<void> {
-		const stat = await fileService.resolve(workspaceFolder);
-		await window.places.save(root, (stat.children ?? []).map(child => child.name), await window.mirror.readCanvas(root), options);
+	/** One drawing of the root canvas, as the canvas does it. */
+	async function draw(fileService: IFileService, window: IWindow, saveLater = false, pathKey?: (path: string) => string): Promise<Record<string, string>> {
+		return finish(window, await prepare(fileService, window, pathKey), saveLater, pathKey);
+	}
+
+	/** The write that a drawing with `saveLater` left to the caller. */
+	async function save(window: IWindow): Promise<void> {
+		await window.places.save(root, []);
 	}
 
 	/** A row that BaseHalf chose is marked with a star. */
@@ -259,6 +287,61 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 		});
 	});
 
+	test('a save that lands while the next drawing is being prepared does not take its card out of that drawing', async () => {
+		const fileService = await createFiles({ 'm.md': 'm' });
+		const window = openWindow(fileService);
+		await draw(fileService, window);
+
+		// An agent adds `zeta.md`. It is drawn, and its place is on its way to the layout.
+		await fileService.createFile(URI.joinPath(workspaceFolder, 'zeta.md'), VSBuffer.fromString('z'));
+		const first = await draw(fileService, window, true);
+		// The agent adds `alpha.md`. The next drawing reads the layout before that save has landed,
+		// and gives the cards their places after it has.
+		await fileService.createFile(URI.joinPath(workspaceFolder, 'alpha.md'), VSBuffer.fromString('a'));
+		const prepared = await prepare(fileService, window);
+		await save(window);
+		const second = await finish(window, prepared);
+
+		assert.deepStrictEqual({
+			zetaFirst: first['zeta.md'],
+			second,
+			stored: await rows(window)
+		}, {
+			zetaFirst: '1390,690*',
+			// `zeta.md` is where it was drawn. `alpha.md`, whose name sorts first, is beside it.
+			second: { 'alpha.md': '1730,690*', 'm.md': slot(0, 1), 'zeta.md': '1390,690*' },
+			stored: { 'm.md': slot(0, 1), 'zeta.md': '1390,690*', 'alpha.md': '1730,690*' }
+		});
+	});
+
+	test('one listing does not make a file gone, a move that is held back keeps its row, and a row that goes frees its place', async () => {
+		const fileService = await createFiles({ 'b.md': 'b', 'c.md': 'c', 'd.md': 'd' });
+		const window = openWindow(fileService);
+		await draw(fileService, window);
+		const layout = await window.mirror.readCanvas(root);
+
+		// A listing that left `d.md` out while a tool was rewriting it: the file is there.
+		const leftOut = await window.places.goneRows(root, ['b.md', 'c.md'], layout);
+		// `c.md` was renamed outside while it has unsaved changes: its pair waits, held back.
+		await fileService.del(URI.joinPath(workspaceFolder, 'c.md'));
+		window.moved.pending = ['c.md'];
+		const heldBack = await window.places.goneRows(root, ['b.md', 'd.md'], layout);
+		window.moved.pending = [];
+		const givenUp = await window.places.goneRows(root, ['b.md', 'd.md'], layout);
+
+		// `c.md` is gone for good, and a new file appears in the same drawing: it takes the place that is free now.
+		await fileService.createFile(URI.joinPath(workspaceFolder, 'z.md'), VSBuffer.fromString('z'));
+		const drawn = await draw(fileService, window);
+
+		assert.deepStrictEqual({ leftOut, heldBack, givenUp, drawn, stored: await rows(window) }, {
+			leftOut: [],
+			heldBack: [],
+			givenUp: ['c.md'],
+			drawn: { 'b.md': slot(0, 3), 'd.md': slot(2, 3), 'z.md': '1730,690*' },
+			stored: { 'b.md': slot(0, 3), 'd.md': slot(2, 3), 'z.md': '1730,690*' }
+		});
+	});
+
 	test('a file renamed in letter case only, on a volume that ignores it, keeps its row under the new spelling', async () => {
 		const fileService = await createFiles({ 'Note.md': 'n', 'other.md': 'o' });
 		const window = openWindow(fileService);
@@ -297,8 +380,8 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 		await fileService.createFile(URI.joinPath(workspaceFolder, 'n.md'), VSBuffer.fromString('n'));
 		const chosenByOne = await draw(fileService, one, true);
 		const chosenByTwo = await draw(fileService, two, true);
-		await save(fileService, one);
-		await save(fileService, two);
+		await save(one);
+		await save(two);
 		const both = await rows(one);
 
 		// A second file is added, and before the window saves, a move writes a row
@@ -306,7 +389,7 @@ suite('BaseHalfCanvasChosenPlaces', () => {
 		await fileService.createFile(URI.joinPath(workspaceFolder, 'o.md'), VSBuffer.fromString('o'));
 		const chosen = await draw(fileService, one, true);
 		await one.mirror.updateCardGeometry(root, { path: 'moved-in.md', kind: 'file', x: 1900, y: 690, width: 300, height: 220 });
-		await save(fileService, one);
+		await save(one);
 
 		assert.deepStrictEqual({
 			chosenByOne: chosenByOne['n.md'],

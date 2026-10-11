@@ -1031,6 +1031,16 @@ suite('BaseHalfCanvasMirrorService', () => {
 		// The other folder has no layout: nothing is written there, and the card appears when it is first drawn.
 		const movedIntoUnseen = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)])]]));
 		await movedIntoUnseen.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		// The card the user had made large was drawn as a new, small card between two others.
+		// At its size it would reach its neighbour, so it goes to the end of that canvas.
+		const large = [...row('old.md', 10).slice(0, 4), '    width: 600', '    height: 400'];
+		const movedLarge = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [large])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 700), row('docs/old.md', 1040, true), row('docs/y.md', 1380)])]
+		]));
+		await movedLarge.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		const largeOnce = await movedLarge.readCanvas(folder('docs'));
+		await movedLarge.followNode(workspaceFolder, 'old.md', 'docs/old.md');
 
 		// A folder: its own canvas goes row by row, and its card in the parent follows.
 		const folderMove = createService(new Map([
@@ -1051,6 +1061,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 			movedTaken: [await summary(movedTaken, ''), await summary(movedTaken, 'docs')],
 			movedDrawnFirst: [await summary(movedDrawnFirst, ''), await summary(movedDrawnFirst, 'docs')],
 			movedIntoUnseen: [await summary(movedIntoUnseen, ''), await summary(movedIntoUnseen, 'docs')],
+			movedLarge: [await summary(movedLarge, ''), largeOnce?.cards.find(card => card.path === 'docs/old.md'), (await movedLarge.readCanvas(folder('docs')))?.cards.find(card => card.path === 'docs/old.md')],
 			folderMove: [await summary(folderMove, ''), await summary(folderMove, 'docs'), await summary(folderMove, 'notes')]
 		}, {
 			renamed: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
@@ -1063,6 +1074,11 @@ suite('BaseHalfCanvasMirrorService', () => {
 			movedTaken: [{ cards: ['old.md@10'], edges: [] }, { cards: ['docs/old.md@70'], edges: [] }],
 			movedDrawnFirst: [{ cards: [], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@1040*'], edges: [] }],
 			movedIntoUnseen: [{ cards: ['b.md@50'], edges: [] }, { cards: [], edges: [] }],
+			movedLarge: [
+				{ cards: [], edges: [] },
+				{ path: 'docs/old.md', kind: 'file', x: 1720, y: 20, width: 600, height: 400, auto: true },
+				{ path: 'docs/old.md', kind: 'file', x: 1720, y: 20, width: 600, height: 400, auto: true }
+			],
 			// `notes/b.md` had a row of its own: the row of `docs/b.md` stays behind.
 			folderMove: [
 				{ cards: ['notes@10'], edges: [] },
@@ -1107,6 +1123,18 @@ suite('BaseHalfCanvasMirrorService', () => {
 		await takenMeanwhile.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
 		await takenMeanwhile.updateCardGeometry(folder(''), { path: 'b.md', kind: 'file', x: 20, y: 30, width: 260, height: 140 });
 		await takenMeanwhile.relocateNode(workspaceFolder, 'docs/a.md', 'a.md');
+		// The same when the other folder kept no row for it: it still has the size it had here.
+		const takenAndUnseen = createService(files([]));
+		await takenAndUnseen.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		await takenAndUnseen.updateCardGeometry(folder(''), { path: 'b.md', kind: 'file', x: 20, y: 30, width: 260, height: 140 });
+		await takenAndUnseen.relocateNode(workspaceFolder, 'docs/a.md', 'a.md');
+		// Another item of the same name arrives at that path from somewhere else: it is not the card that left.
+		const anotherItem = createService(new Map([
+			...files(one),
+			['/work/.bh/mirror/other/canvas.yaml', canvas('other', [row('other/a.md', 77, 88)])]
+		]));
+		await anotherItem.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		await anotherItem.relocateNode(workspaceFolder, 'other/a.md', 'a.md');
 
 		const atTheEnd = { 'docs/x.md': '40,30 260x140', 'docs/y.md': '900,400 260x140', 'docs/a.md': '1240,400 260x140*' };
 		assert.deepStrictEqual({
@@ -1116,7 +1144,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 			followedAgain: await places(followedTwo),
 			unseenThere,
 			back: [await places(workbenchOne, ''), await places(unseen, '')],
-			backAtTheEnd: await places(takenMeanwhile, '')
+			backAtTheEnd: [await places(takenMeanwhile, ''), await places(takenAndUnseen, '')],
+			anotherItem: await places(anotherItem, '')
 		}, {
 			workbenchOne: { 'docs/x.md': '900,20 260x140' },
 			workbenchTwo: atTheEnd,
@@ -1127,7 +1156,12 @@ suite('BaseHalfCanvasMirrorService', () => {
 				{ 'b.md': '400,20 260x140', 'a.md': '10,20 260x140' },
 				{ 'b.md': '400,20 260x140', 'a.md': '10,20 260x140' }
 			],
-			backAtTheEnd: { 'b.md': '20,30 260x140', 'a.md': '360,30 260x140*' }
+			backAtTheEnd: [
+				{ 'b.md': '20,30 260x140', 'a.md': '360,30 260x140*' },
+				{ 'b.md': '20,30 260x140', 'a.md': '360,30 260x140*' }
+			],
+			// At the end of the canvas, not where the other `a.md` had been.
+			anotherItem: { 'b.md': '400,20 260x140', 'a.md': '740,20 260x140*' }
 		});
 	});
 

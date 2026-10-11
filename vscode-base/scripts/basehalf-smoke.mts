@@ -37,6 +37,7 @@ const BH_IGNORE_FILE = [
 	'canvas.yaml',
 	'!canvas.yaml/',
 	'/cache/',
+	'*.basehalf-tmp',
 	''
 ].join('\n');
 const LEGACY_REFERENCES_RECORD_PATH = path.join('.bh', 'legacy-references.yaml');
@@ -9797,21 +9798,23 @@ async function assertCanvasNewFilesGoToTheEnd(page) {
 		return row ? { x: row.x, y: row.y, chosen: new RegExp(`- path: "${folderName}/${name.replace(/[.]/g, '\\.')}"\\n(?: {4}.*\\n)*? {4}auto: true`).test(raw) } : undefined;
 	};
 	const hiddenInGit = () => gitStatusOfWorkspace().split('\n').filter(line => line.includes('.bh/')).sort().join('\n');
-	const original = ['b.md', 'c.md', 'd.md'];
+	// A folder, which is listed first, and three notes.
+	const original = ['sub', 'b.md', 'c.md', 'd.md'];
 	const added = ['a.md', 'x1.md', 'x2.md', 'x3.md'];
 	const gitBefore = hiddenInGit();
 
-	fs.mkdirSync(path.join(workspacePath, folderName));
-	original.forEach(note);
+	fs.mkdirSync(path.join(workspacePath, folderName, 'sub'), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'sub', 'inside.md'), '# Inside\n\nA note inside the folder card that is dragged.\n', 'utf8');
+	original.slice(1).forEach(note);
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
 	await assertCanvasFolder(page, folderName);
 	await card('d.md').waitFor({ state: 'visible', timeout: 15_000 });
 
-	// The first drawing: the plain grid for three cards, saved as places BaseHalf chose.
+	// The first drawing: the plain grid for four cards, saved as places BaseHalf chose.
 	await waitUntil(() => original.every(name => rowOf(name) !== undefined), 'the first drawing of a folder to save a row for every card', 15_000);
 	const first = Object.fromEntries(original.map(name => [name, rowOf(name)]));
-	const expectedFirst = { 'b.md': { x: 710, y: 690, chosen: true }, 'c.md': { x: 1050, y: 690, chosen: true }, 'd.md': { x: 1390, y: 690, chosen: true } };
+	const expectedFirst = { 'sub': { x: 540, y: 690, chosen: true }, 'b.md': { x: 880, y: 690, chosen: true }, 'c.md': { x: 1220, y: 690, chosen: true }, 'd.md': { x: 1560, y: 690, chosen: true } };
 	if (JSON.stringify(first) !== JSON.stringify(expectedFirst)) {
 		throw new Error(`The first drawing of a folder must be the plain grid, saved as places BaseHalf chose: ${JSON.stringify(first)}`);
 	}
@@ -9860,7 +9863,7 @@ async function assertCanvasNewFilesGoToTheEnd(page) {
 	});
 	const rows = Object.fromEntries([...original, ...added].map(name => [name, rowOf(name)]));
 	// It was not sorted in: it is beside the last card. The row of five cells is then full, and a new row starts.
-	const endPlaces = ['1730,690', '2070,690', '710,970', '1050,970'];
+	const endPlaces = ['1900,690', '540,970', '880,970', '1220,970'];
 	const addedPlaces = added.map(name => `${rows[name].x},${rows[name].y}`);
 	if (original.some(name => JSON.stringify(rows[name]) !== JSON.stringify(expectedFirst[name]))
 		|| addedPlaces[0] !== endPlaces[0]
@@ -9871,17 +9874,18 @@ async function assertCanvasNewFilesGoToTheEnd(page) {
 	}
 
 	// The user drags a card: it is saved where it was dropped, as the user's, and no other row changes.
-	const box = await card('c.md').boundingBox();
-	await page.mouse.move(box.x + box.width / 2, box.y + 14);
+	// It is the folder card, taken by its middle: pressing on the text of a note can start editing it.
+	const box = await card('sub').boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 	await page.mouse.down();
-	await page.mouse.move(box.x + box.width / 2 + 60, box.y + 14 + 130, { steps: 8 });
+	await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 - 130, { steps: 8 });
 	await page.mouse.up();
-	await waitUntil(() => rowOf('c.md')?.chosen === false, 'a dragged card to be saved as the user\'s', 15_000);
+	await waitUntil(() => rowOf('sub')?.chosen === false, 'a dragged card to be saved as the user\'s', 15_000);
 	const afterDrag = Object.fromEntries([...original, ...added].map(name => [name, rowOf(name)]));
-	// It went right and down by about the distance of the pointer, whatever the zoom is.
-	const moved = { x: afterDrag['c.md'].x - 1050, y: afterDrag['c.md'].y - 690 };
-	if ([...original, ...added].some(name => name !== 'c.md' && JSON.stringify(afterDrag[name]) !== JSON.stringify(rows[name]))
-		|| moved.x < 20 || moved.x > 200 || moved.y < 60 || moved.y > 400) {
+	// It went right and up by about the distance of the pointer, whatever the zoom is.
+	const moved = { x: afterDrag['sub'].x - 540, y: afterDrag['sub'].y - 690 };
+	if ([...original, ...added].some(name => name !== 'sub' && JSON.stringify(afterDrag[name]) !== JSON.stringify(rows[name]))
+		|| moved.x < 20 || moved.x > 200 || moved.y > -60 || moved.y < -400) {
 		throw new Error(`A drag must change the row of the dragged card and no other: ${JSON.stringify({ moved, afterDrag })}`);
 	}
 

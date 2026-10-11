@@ -10,19 +10,15 @@ import { IBaseHalfCanvasMirrorService } from './basehalfCanvasMirror.js';
 import { IBaseHalfCanvasCard, IBaseHalfCanvasFile } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
+import { baseHalfIsMirrorSubtree } from './basehalfMirrorTree.js';
 import { IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
-
-export interface IBaseHalfCanvasChosenPlacesSaveOptions {
-	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
-	readonly pathKey?: (path: string) => string;
-	/** The rows whose item is spelled differently now. Each takes the new spelling. */
-	readonly respelled?: readonly { readonly from: string; readonly to: string }[];
-}
 
 /** What following moved items knows about the items of a workspace folder. */
 export interface IBaseHalfCanvasPlacesMovedItems {
 	isSettled(workspaceFolder: URI): boolean;
 	isMoving(workspaceFolder: URI, path: string): boolean;
+	/** Every pair that still waits for relocation, also one that is held back. */
+	getPendingMoves(workspaceFolder: URI): readonly { readonly from: string }[];
 }
 
 /**
@@ -40,6 +36,8 @@ export class BaseHalfCanvasChosenPlaces {
 	private readonly waiting = new Map<string, Map<string, IBaseHalfCanvasCard>>();
 	/** One save at a time for each canvas. */
 	private readonly saves = new Map<string, Promise<void>>();
+	/** The failure that was logged last for a canvas, so that one that repeats at every drawing is logged once. */
+	private readonly logged = new Map<string, string>();
 
 	constructor(
 		private readonly fileService: IFileService,
@@ -48,9 +46,45 @@ export class BaseHalfCanvasChosenPlaces {
 		private readonly logService: ILogService
 	) { }
 
-	/** The places that wait for this canvas, by path. A drawing passes them to the model so that their cards stay. */
+	/**
+	 * The places that wait for this canvas, by path. A drawing passes them to
+	 * the model so that their cards stay.
+	 *
+	 * It is a copy, and a drawing takes it before it reads the layout. A save
+	 * that lands while the drawing is being prepared removes a card from what
+	 * waits; with what waited when the drawing began, that card still has a
+	 * place, whether the layout was read before the save or after.
+	 */
 	waitingFor(folder: IBaseHalfCanvasFolderState): ReadonlyMap<string, IBaseHalfCanvasCard> | undefined {
-		return this.waiting.get(keyOf(folder));
+		const waiting = this.waiting.get(keyOf(folder));
+		return waiting?.size ? new Map(waiting) : undefined;
+	}
+
+	/**
+	 * The rows of `layout` that BaseHalf chose and whose items are no longer in
+	 * the folder. They are removed with the next save, and their places are
+	 * open for a card that appears.
+	 *
+	 * - `children` are the paths of everything in the folder, shown or not.
+	 * - A row leaves only once following moved items has given its item up. The
+	 *   row of a renamed file is moved to the new name, not removed, also when
+	 *   the move is held back because the file has unsaved changes.
+	 * - One listing is not enough to call a file gone: it can leave out a file
+	 *   that a tool is rewriting. Each path is looked at again by itself.
+	 * - `pathKey` maps a path to what two spellings of the same path share.
+	 */
+	async goneRows(folder: IBaseHalfCanvasFolderState, children: readonly string[], layout: IBaseHalfCanvasFile | null, pathKey: (path: string) => string = path => path): Promise<string[]> {
+		if (!layout || !this.movedItems.isSettled(folder.workspaceFolder)) {
+			return [];
+		}
+		const there = new Set(children.map(pathKey));
+		const pending = this.movedItems.getPendingMoves(folder.workspaceFolder);
+		return this.absent(folder, layout.cards
+			.filter(card => card.auto
+				&& !there.has(pathKey(card.path))
+				&& !this.movedItems.isMoving(folder.workspaceFolder, card.path)
+				&& !pending.some(move => baseHalfIsMirrorSubtree(card.path, move.from)))
+			.map(card => card.path));
 	}
 
 	/** A canvas was drawn. `appeared` are the rows of its cards that the layout does not hold. */
@@ -63,28 +97,18 @@ export class BaseHalfCanvasChosenPlaces {
 	}
 
 	/**
-	 * Saves by itself what waits for this canvas, and removes the rows BaseHalf
-	 * chose for items that are no longer in the folder.
+	 * Saves by itself what waits for this canvas, and removes the rows of
+	 * {@link goneRows}. The caller has read the layout in full: BaseHalf does
+	 * not write over content it could not read by itself.
 	 *
-	 * - `children` are the paths of everything in the folder, shown or not.
-	 * - `layout` is the layout the canvas was drawn from. It was read in full:
-	 *   BaseHalf does not write over content it could not read by itself.
 	 * - Nothing is written in a marked folder.
-	 * - A row leaves only once following moved items has given its item up: the
-	 *   row of a renamed file is moved to the new name, not removed.
-	 * - A file that changed only in letter case, on a volume that ignores it, is
-	 *   still there: its row takes the new spelling.
+	 * - `respelled` are rows whose item is spelled differently now, on a volume
+	 *   where both spellings are the same path. Each takes the new spelling.
 	 * - A failure is logged and shown to nobody, because nothing the user did is
 	 *   waiting. The places keep waiting and the next drawing tries again.
 	 */
-	save(folder: IBaseHalfCanvasFolderState, children: readonly string[], layout: IBaseHalfCanvasFile | null, options: IBaseHalfCanvasChosenPlacesSaveOptions = {}): Promise<void> {
+	save(folder: IBaseHalfCanvasFolderState, gone: readonly string[], respelled: readonly { readonly from: string; readonly to: string }[] = []): Promise<void> {
 		const key = keyOf(folder);
-		const pathKey = options.pathKey ?? (path => path);
-		const respelled = options.respelled ?? [];
-		const there = new Set(children.map(pathKey));
-		const gone = this.movedItems.isSettled(folder.workspaceFolder)
-			? (layout?.cards ?? []).filter(card => card.auto && !there.has(pathKey(card.path)) && !this.movedItems.isMoving(folder.workspaceFolder, card.path)).map(card => card.path)
-			: [];
 		if (!this.waiting.get(key)?.size && gone.length === 0 && respelled.length === 0) {
 			return this.saves.get(key) ?? Promise.resolve();
 		}
@@ -92,9 +116,15 @@ export class BaseHalfCanvasChosenPlaces {
 			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
 				return;
 			}
-			await this.write(folder, gone, undefined, false, respelled);
+			// This write can run later than the drawing that asked for it.
+			await this.write(folder, await this.absent(folder, gone), undefined, false, respelled);
+			this.logged.delete(key);
 		}).catch(error => {
-			this.logService.warn(`BaseHalf could not save the places of new cards in '${folder.relativePath}'`, error);
+			const message = error instanceof Error ? error.message : String(error);
+			if (this.logged.get(key) !== message) {
+				this.logged.set(key, message);
+				this.logService.warn(`BaseHalf could not save the places of new cards in '${folder.relativePath}'`, error);
+			}
 		});
 		this.saves.set(key, save);
 		return save;
@@ -127,6 +157,12 @@ export class BaseHalfCanvasChosenPlaces {
 				waiting.delete(card.path);
 			}
 		}
+	}
+
+	/** The paths that name nothing on disk right now. */
+	private async absent(folder: IBaseHalfCanvasFolderState, paths: readonly string[]): Promise<string[]> {
+		const checked = await Promise.all(paths.map(async path => await this.fileService.exists(URI.joinPath(folder.workspaceFolder, ...path.split('/'))) ? undefined : path));
+		return checked.filter((path): path is string => path !== undefined);
 	}
 }
 

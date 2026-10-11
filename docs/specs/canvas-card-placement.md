@@ -302,8 +302,13 @@ was at the end of the canvas, outside the window, and could not be clicked.
 
 - A card the user drags or resizes is saved where they left it, also on top
   of another card. Its row becomes the user's. No other row changes.
+- A gesture that ends where it began changes nothing: a place BaseHalf chose
+  stays one BaseHalf chose.
 - Undo of a drag or a resize puts the row back as it was, a chosen row
   included.
+- Files and folders that the user drops or pastes at a point get the size of
+  their kind, which for a node file is read first. A card that is moved to
+  that point from another folder keeps the size it had.
 
 ### A row follows its item
 
@@ -330,7 +335,8 @@ also when the item was moved outside BaseHalf.
   - In the same folder, the row that follows replaces it. The card has the
     place and the size it had under its old path.
   - In another folder, the chosen row keeps its place and takes the size of
-    the row that follows.
+    the row that follows. When the card would reach a neighbour at that
+    size, it goes to the end of that canvas instead.
   - Either way the row at the old path is then removed. A second run finds
     nothing at the old path and changes nothing, so the move stays safe to
     repeat.
@@ -339,10 +345,16 @@ also when the item was moved outside BaseHalf.
   replaces a place the user chose.
 - **Undo of a move made in BaseHalf** puts the card back. While the window
   is open, BaseHalf remembers the rows that left a layout through a move
-  made in BaseHalf, the last 200 for each workspace folder, and stores them
-  nowhere. When such an item is moved back to its old path, by undo or by
-  the user, its row is restored as it was when that place is open, and the
-  card goes to the end otherwise. A move outside BaseHalf uses no memory.
+  made in BaseHalf, and where each item went, the last 200 for each
+  workspace folder, and stores them nowhere.
+  - When such an item is moved back from there to its old path, by undo or
+    by the user, its row is restored as it was when that place is open.
+  - Otherwise the card goes to the end, with the size it has, or had here
+    when the other folder kept no row for it.
+  - Another item that arrives at that path from somewhere else is not the
+    card that left. It is placed like any card that comes from another
+    folder.
+  - A move outside BaseHalf uses no memory.
 
 ### A chosen row whose item is gone
 
@@ -350,6 +362,16 @@ also when the item was moved outside BaseHalf.
   following moved items is not waiting to pair it. This happens at the next
   drawing of that canvas, in the write that adds rows. Nothing of the user's
   is lost: BaseHalf chose that place and nobody changed it.
+- **One listing of the folder is not enough.** A listing can leave out a
+  file that a tool is rewriting at that moment. BaseHalf looks at each such
+  path again by itself, when it draws and once more before it writes.
+- **A move that is held back keeps its row.** A file that is renamed while
+  it has unsaved changes, or a node that is running, is followed later
+  ([following moved items](following-moved-items.md#relocation)). Its row
+  waits for it.
+- **Its place is open at once.** A card that appears in the same drawing can
+  take it, so that a file which is deleted and written again under another
+  name leaves no hole.
 - A row of the user's whose item is gone stays, as before. An item that is
   there again at that path is drawn with it.
 
@@ -370,6 +392,10 @@ A place that BaseHalf chose is written by itself, without a user action.
   ([mirror file resilience](mirror-file-resilience.md#layout-files)). When
   the layout changed in between, it is read again. A row that is there for a
   path is never changed by this write.
+- **Two drawings close together.** A drawing takes what waits for a write
+  before it reads the layout. A save that lands while the drawing is being
+  prepared then takes no card out of it: the card has its place from what
+  waited, whether the layout was read before that save or after.
 - **Checked again at the write.** A place was chosen against the layout as
   the drawing read it. When a row that another window or a move wrote since
   lies on it, the card is given the end of the canvas as it is at the write.
@@ -391,7 +417,8 @@ cards do not move either, and counts them as taken.
 | The write fails for an environmental reason, which includes a `.bh/` behind a symbolic link | It is logged. There is no message, because nothing the user did is waiting. BaseHalf tries again at the next drawing of that canvas. |
 
 In all three, a change the user makes on that canvas writes the layout, and
-the places that wait are saved with it as chosen rows.
+the places that wait are saved with it as chosen rows. A drag, a resize, a
+card the user creates, and files the user drops there are such changes.
 
 - They are saved before the user's own row, so that undo of the change puts
   the card back at the place BaseHalf chose.
@@ -417,9 +444,13 @@ their descriptions. Those are shared through git as before.
   canvas.yaml
   !canvas.yaml/
   /cache/
+  *.basehalf-tmp
   ```
 
   - It hides itself, every layout, and `.bh/cache/`.
+  - The last rule hides the file that a write under `.bh/` goes through
+    before it takes its name. It is there for a moment, or longer after a
+    crash, and adding everything to git at that moment would take it along.
   - The third rule keeps a directory of that name visible: the mirror
     directory of a user's own file that is named `canvas.yaml`, with the
     description in it. See [Limits](#limits) for when such a file can have
@@ -525,6 +556,10 @@ A canvas shows at most 300 cards.
 - **A layout that was committed before** stays in git until it is removed
   from it there, and git keeps showing its changes. BaseHalf does not do
   that for the user.
+- **A git command that deletes ignored files deletes every arrangement.**
+  Cleaning a repository of ignored files, or stashing them, takes the
+  layouts with it, also the places the user chose. Nothing brings them
+  back, because git never had them.
 - **A folder that two computers share through a file-sync service** shares
   its layouts as files. The later write stands.
 - **A file of the user's that is named `canvas.yaml`.** What BaseHalf keeps
@@ -705,7 +740,22 @@ written with this document.
 29. **The ignore file.** It is written before the first layout. One that is
     there with other content is not changed. One that was deleted is written
     again before the next layout write. The user's own `.gitignore` is
-    byte for byte what it was.
+    byte for byte what it was. A file that a write under `.bh/` goes through
+    does not show in git either.
+30. **Two drawings close together.** A file is added and drawn. A second file
+    is added, and the drawing for it reads the layout before the place of
+    the first is saved and gives the cards their places after. The first
+    card is where it was drawn.
+31. **Not gone.** A listing of the folder that leaves out a file that is
+    there removes no row. A file that was renamed outside BaseHalf while its
+    move is held back keeps its row.
+32. **A larger card in another folder.** A card that was drawn as a new card
+    in another folder, and whose followed size would reach a neighbour
+    there, is at the end of that canvas. A second run changes nothing.
+33. **Another item at a path that was left.** After a card was moved to
+    another folder in BaseHalf, an item of the same name that is moved to
+    the old path from a third folder is at the end, not at the place the
+    first one had.
 
 ## Verification
 
@@ -713,10 +763,10 @@ written with this document.
   the nearest open place, and the block: criteria 4, 6, 7, 8, 9, 22, 23.
 - Unit tests of the canvas mirror for the mark, for saving the places of
   cards that appeared, for the ignore file, for a row that follows its
-  item, and for a card that comes back: criteria 11, 12, 16, 29.
+  item, and for a card that comes back: criteria 11, 12, 16, 29, 32, 33.
 - Unit tests of the chosen places, on a file system with the real mirror
   service, for how and when a place is saved: criteria 1, 2, 3, 5, 17 to
-  21, 24, 25.
+  21, 24, 25, 30, 31.
 - A test with the moved-items service and the cascade for a row that
   BaseHalf chose and whose file is moved outside BaseHalf: criteria 12 to
   15.
@@ -730,6 +780,30 @@ written with this document.
   the ignore rules were written.
 - Criterion 26 in the real window, with frames sampled as in the trial of
   2026-10-11.
+
+### Tried in the real window, 2026-10-11
+
+The notes folder of the earlier trial (82 invented notes in eight folders,
+some described), as a git repository, with every layout removed first.
+
+| What was done | What was seen |
+| --- | --- |
+| The folder was opened | 10 cards in the plain grid, 10 rows saved, none on another. The ignore file was written. Git reported nothing new. |
+| Twelve files were added to the root at once | All drawn and saved after 0.47 s. In 237 frames no card that was there was drawn elsewhere or missing. No row changed. The twelve followed the last card. |
+| A note was moved outside the window into a folder whose canvas had been shown | Its row was at the end of that canvas after 1.2 s, as a place BaseHalf chose. No row of that folder changed. |
+| An agent tool's two folders were added | Their cards followed the last card. In the trial before this change they lay behind two folder cards. |
+| One of twenty notes was renamed outside, then the other nineteen at once | The new names showed after 1.6 s and 1.7 s. All twenty kept their place. Nobody had placed these cards by hand. |
+| At the end | Git reported the notes, and the descriptions that had followed the renamed notes. No layout, no ignore file, no working file. |
+
+The smoke found two things that the unit tests had not: the redraw after the
+wait for a moved item replaced a description that was being typed, and the
+card of a project made from a template was at the end of the canvas, out of
+sight. Both are fixed and described above.
+
+A review of the code found, among smaller things: a save that landed while
+the next drawing was being prepared moved its card; one listing of a folder
+was enough to remove a row; and a move that was held back lost a place that
+BaseHalf had chosen. Criteria 30 to 33 are for these.
 
 ## Measurements
 
@@ -753,6 +827,33 @@ longer followed inside the time the canvas waits, or a snapshot above
 50 MiB is not accepted. The limit that avoids it is then set from the
 numbers and written into
 [following moved items](following-moved-items.md#limits).
+
+### Measured on 2026-10-11
+
+On one machine, in the real window, with the build before this change and
+with this one.
+
+| What | Before | After |
+| --- | --- | --- |
+| The notes folder of the trial: from starting the window to the first card, median of five | 3,045 ms | 3,053 ms |
+| A folder of 4,300 invented notes, 20 folders of 200 and one of 300: from starting the window to the first card | 2,543 ms | 2,560 ms |
+| The same folder: the snapshot after its root was shown | 0.12 MiB | 3.4 MiB |
+| The same folder: the snapshot after the folder of 300 was shown too | 0.12 MiB | 3.5 MiB |
+| The same folder: the layout of the folder of 300 | none | 36 KiB |
+| A note of the 300 renamed outside: until its card shows the new name | 0.3 s, as a new card whose neighbours shift | 1.3 s, at its place |
+| The notes folder: one of twenty notes renamed outside, then nineteen at once | followed only where a card was described or placed | 1.6 s and 1.7 s, all twenty at their places |
+
+- The first drawing is not later in a way that can be noticed.
+- A rename is followed inside the two seconds the canvas waits.
+- The snapshot grows by about 0.8 KiB for each file under a shown folder
+  card, up to 200 files for each. A workspace in which 5,000 items were
+  shown stays near 4 MiB, far below the limit.
+- A file that nobody had touched and that is renamed outside now takes a
+  second longer to show its new name. Before, it showed at once, in a new
+  place. That second is the wait of following moved items, and it is what
+  keeps the card where it was.
+
+No limit had to be set.
 
 ## Open questions
 
