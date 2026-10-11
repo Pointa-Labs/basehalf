@@ -848,7 +848,7 @@ export class BaseHalfNodeExecutionService extends Disposable implements IBaseHal
 		}
 		const recipe = this.recipeRegistryService.getRecipe(recipeState.recipeId);
 		if (!recipe) {
-			throw new Error(`Recipe '${recipeState.recipeId}' is not installed.`);
+			throw new Error(`Recipe '${recipeState.recipeId}' is not available.`);
 		}
 		if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, initial.document.kind)) {
 			throw new Error(`Recipe '${recipe.label}' cannot run on a ${initial.document.kind} node.`);

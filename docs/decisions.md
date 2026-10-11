@@ -392,6 +392,9 @@ services and APIs can remain as compatibility plumbing for extensions.
 
 ## D22 — Sidebar, extension allowlist, and file-open remapping (REVISED, 2026-07-13)
 
+*Narrowed by D45: the Plugins library is removed and the sidebar has three
+areas.*
+
 **Decision.** BaseHalf's left sidebar has exactly four product areas: Files,
 Git, Search, and a BaseHalf-owned Plugins library. Reuse VS Code's native
 Activity Bar/view-container lifecycle, Explorer/Search/SCM mechanics, the
@@ -503,6 +506,9 @@ services do not silently rewrite either case.
 
 ## D25 — Plugin platform: fixed shell, open center (NEW, 2026-07-12)
 
+*Frozen by D45: the product has no plugin surface and admits only its
+built-in AI Video.*
+
 **Decision.** BaseHalf is a general AI-native file manager with a formal plugin
 ecosystem. Its product shell stays fixed: Files/Git/Search/Plugins on the left,
 BaseHalf-owned navigation around the center, and Agent Area on the right.
@@ -563,6 +569,9 @@ does not remove or lock the files it produced.
 
 ## D28 — AI Video is the first official domain plugin (NEW, 2026-07-12)
 
+*Changed by D45: AI Video is built in, not installed as a plugin. Its domain
+boundary stands.*
+
 **Decision.** After the plugin platform is ready, AI Video is the first official
 domain plugin. It covers scripts, characters/scenes, storyboards and shot tasks,
 Agent-assisted authoring, and connections to user-chosen video and voice
@@ -579,6 +588,9 @@ free and open source; connector packaging and automation policy remain
 plugin-level decisions.
 
 ## D29 — Official plugin distribution uses a signed static catalog (NEW, 2026-07-13)
+
+*Frozen by D45: the client fetches no catalog. The registry stays online for
+builds that are already distributed.*
 
 **Decision.** BaseHalf distributes its initial official plugins through a
 product-owned, ECDSA P-256/SHA-256 signed catalog and immutable VSIX objects in
@@ -605,6 +617,8 @@ Open VSX, third-party publishing, payment, ratings, and the current EC2 stack
 remain outside this decision.
 
 ## D30 — Curated community publishing uses one Basehalf account and a signer-separated pipeline (NEW, 2026-07-14)
+
+*Frozen by D45, together with D31 and D32: community publishing is closed.*
 
 **Decision.** Community developers use their existing Basehalf account and one
 Publisher identity; there is no separate developer account. Publication is
@@ -1148,6 +1162,86 @@ whether BaseHalf was running, which a user could not have known.
 - Open questions of this work are settled by what git does: nothing is
   overwritten silently, every step can be run again, what is not recognized
   is left as it is and never deleted, and limits come from measurement.
+
+## D45 — AI Video is built in and the plugin platform is frozen (NEW, 2026-10-11)
+
+**Decision.** AI Video is a built-in part of BaseHalf. It ships inside the
+application, works from the first start, and needs no install step. Its
+version is the application's version. The left sidebar is again exactly
+Files, Git, and Search: the Plugins library, the Manage Plugins command, and
+plugin links leave the product. The plugin platform is frozen. BaseHalf
+fetches no plugin catalog, installs no plugin, and admits no extension other
+than its own built-in AI Video. Community publishing is closed: the job that
+promotes reviewed plugins no longer runs on a schedule, and the publishing
+portal and its API are taken out of service. The signed registry, the signing
+key, the stored submissions, and the platform's code stay as they are, so the
+freeze can be lifted. See
+[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md).
+
+**Why.** The platform was built for an ecosystem that does not exist yet.
+Three months after community publishing opened, the catalog held no plugin
+from anyone outside BaseHalf. The one real plugin, AI Video, had become the
+product's main capability, yet a new user had to find the Plugins library and
+install it first. BaseHalf had stopped using its own channel: the registry
+stopped at AI Video 0.4.0 while the source moved on to 0.6.0. Client builds
+made after 2026-07-20 rejected the published catalog and showed an error in
+the Plugins library, and that stayed unrepaired for almost three months. A
+channel that nobody uses breaks without anyone seeing why. A publishing
+pipeline that nobody watches is worse: its hourly job could still sign code
+that clients trust.
+
+What extends BaseHalf falls into two layers. What an agent can do is extended
+by the agent's own skills and tool connections, which have their own
+communities; BaseHalf adds its skill there (D43) and builds nothing beside
+them. What the container shows and does with files is BaseHalf's own work
+today, so it is built in. A platform drawn from a single tenant guesses where
+its boundaries are. A second real domain is the evidence that shows them.
+
+**What was set aside.**
+- Keeping the Plugins library with AI Video already installed. A library with
+  one entry that is already installed says that the ecosystem is empty, and it
+  keeps a surface that can fail.
+- Repairing the catalog and keeping a channel for official plugins only. It
+  stays alive only if BaseHalf ships a second, optional capability through it
+  with every release, and there is none yet.
+- Deleting the platform. Nothing was promised outside, but removing a signing
+  key and a registry that distributed builds read is hard to undo, and keeping
+  static files costs little.
+- Opening a public repository for community templates and skills now.
+  A template is a plain folder that can be shared anywhere already, and skills
+  travel through the agents' own channels.
+- A switch that turns AI Video off. It adds states to the main capability
+  before anyone has asked for them.
+
+**Consequences.**
+- Narrows D22: the sidebar has three areas, not four. The extension allowlist
+  is unchanged.
+- Replaces the product surface of D25 and the distribution and publishing
+  surfaces of D29–D32 for as long as the freeze lasts. Their text now
+  describes the frozen platform, not what the product does.
+- Replaces how D28 packages AI Video: it is no longer a plugin that a user
+  installs. Its domain boundary stays as D28, D33, and D34 set it. It
+  contributes recipes, a template, the Sequence view, and executors to the one
+  canvas, and the host owns the node lifecycle.
+- D26 and D27 stand. AI Video is trusted because it is part of the
+  application, and what it produces is ordinary local user data.
+- The host keeps the boundary between the canvas and AI Video's domain code.
+  It is engineering discipline, not a contract with third parties, so both
+  sides may change together.
+- The platform's code stays in the repository, compiles, and keeps its tests,
+  with nothing registering it. This is a recorded exception to D23's rule
+  against detached interface code.
+- Extensions that an earlier build's plugin installer put into a profile stop
+  running and stay on disk unused. The product is not launched, so nothing is
+  migrated or cleaned up.
+- Builds that are already distributed keep reading the registry and keep
+  showing their catalog error until they are updated. The registry stays in
+  place so that nothing else changes for them.
+- The freeze is reviewed when a second domain is ready to be built, or when
+  someone outside BaseHalf asks to build something for the container. If the
+  platform reopens, contributions that run no code, such as templates as plain
+  folders and agent skills, come before code plugins, and review is automated
+  before it is staffed.
 
 ## D46 — Every card has a saved place (NEW, 2026-10-11)
 

@@ -51,7 +51,7 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 		if (!admitted) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
-				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated source-control, Agent Area, and signed reviewed plugin extensions."
+				"BaseHalf does not run this extension. It runs only its built-in extensions and the agent extensions it supports."
 			));
 		}
 

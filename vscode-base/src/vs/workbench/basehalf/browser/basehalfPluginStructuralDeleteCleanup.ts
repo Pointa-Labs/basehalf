@@ -149,7 +149,7 @@ export class BaseHalfPluginStructuralDeleteCleanupService implements IBaseHalfPl
 				}
 			}
 			if (rollbackErrors.length > 0) {
-				throw new AggregateError([error, ...rollbackErrors], 'Plugin structural cleanup could not be prepared or fully restored. Review the affected project documents before continuing.');
+				throw new AggregateError([error, ...rollbackErrors], 'Related project documents could not be updated or fully restored. Review the affected project documents before continuing.');
 			}
 			throw error;
 		}

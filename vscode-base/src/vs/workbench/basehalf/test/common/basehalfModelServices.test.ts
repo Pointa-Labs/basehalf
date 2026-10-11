@@ -6,7 +6,6 @@
 import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { Event } from '../../../../base/common/event.js';
-import { FileAccess } from '../../../../base/common/network.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
@@ -16,7 +15,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { TestSecretStorageService } from '../../../../platform/secrets/test/common/testSecretStorageService.js';
 import { InMemoryStorageService } from '../../../../platform/storage/common/storage.js';
 import { TestExtensionService } from '../../../test/common/workbenchTestServices.js';
-import { BASEHALF_CURATED_PLUGINS } from '../../common/basehalfPluginCatalog.js';
+import { BASEHALF_BUILT_IN_CAPABILITIES, baseHalfBuiltInCapabilityLocation } from '../../common/basehalfBuiltInCapabilities.js';
 import { BaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../common/basehalfPluginAdmissionService.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
 import { IBaseHalfPluginStateStore } from '../../common/basehalfPluginStateStore.js';
@@ -98,11 +97,11 @@ suite('BaseHalfModelServices', () => {
 				connectionIdentity: saved.connectionIdentity,
 				capability: 'video' as const
 			};
-			const access = await harness.service.getAccess(bundledOfficialIdentity(), snapshot);
+			const access = await harness.service.getAccess(builtInAiVideoIdentity(), snapshot);
 			assert.strictEqual(access?.apiKey, 'secret-value');
 			assert.deepStrictEqual(access?.credentialValues, { apiKey: 'secret-value' });
-			assert.strictEqual(await harness.service.getAccess(bundledOfficialIdentity(), { ...snapshot, capability: 'audio' }), undefined);
-			assert.strictEqual(await harness.service.getAccess(bundledOfficialIdentity(), { ...snapshot, connectionIdentity: `sha256:${'A'.repeat(43)}` }), undefined);
+			assert.strictEqual(await harness.service.getAccess(builtInAiVideoIdentity(), { ...snapshot, capability: 'audio' }), undefined);
+			assert.strictEqual(await harness.service.getAccess(builtInAiVideoIdentity(), { ...snapshot, connectionIdentity: `sha256:${'A'.repeat(43)}` }), undefined);
 			await assert.rejects(() => harness.service.getAccess(installedIdentity('unknown.extension', '1.0.0'), snapshot), /not admitted/);
 		} finally {
 			await harness.dispose();
@@ -167,7 +166,7 @@ suite('BaseHalfModelServices', () => {
 			assert.deepStrictEqual(connectionState(harness.pluginStateStore).attentionConnections, [FIXED_SPEC.id]);
 			assert.strictEqual(await harness.credentialStore.get(credentialKey), credentialBeforeTest);
 			assert.strictEqual((await secondWindow.getServices())[0]?.configured, false);
-			assert.strictEqual(await secondWindow.getAccess(bundledOfficialIdentity(), {
+			assert.strictEqual(await secondWindow.getAccess(builtInAiVideoIdentity(), {
 				serviceId: saved.id,
 				serviceLabel: saved.label,
 				connectionIdentity: saved.connectionIdentity,
@@ -179,7 +178,7 @@ suite('BaseHalfModelServices', () => {
 			assert.strictEqual(verified.configured, true);
 			assert.deepStrictEqual(connectionState(harness.pluginStateStore).attentionConnections, []);
 			assert.strictEqual((await harness.service.getServices())[0]?.configured, true);
-			assert.strictEqual((await harness.service.getAccess(bundledOfficialIdentity(), {
+			assert.strictEqual((await harness.service.getAccess(builtInAiVideoIdentity(), {
 				serviceId: saved.id,
 				serviceLabel: saved.label,
 				connectionIdentity: saved.connectionIdentity,
@@ -201,7 +200,7 @@ suite('BaseHalfModelServices', () => {
 			assert.strictEqual(second.connectionIdentity, first.connectionIdentity);
 			assert.notStrictEqual(storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef, firstStored.credentialRef);
 			assert.strictEqual(await harness.credentialStore.get(firstKey), undefined);
-			const access = await harness.service.getAccess(bundledOfficialIdentity(), {
+			const access = await harness.service.getAccess(builtInAiVideoIdentity(), {
 				serviceId: first.id,
 				serviceLabel: first.label,
 				connectionIdentity: first.connectionIdentity,
@@ -274,7 +273,7 @@ suite('BaseHalfModelServices', () => {
 			credentialStore.failNextSet();
 			await assert.rejects(() => harness.service.saveConnection(FIXED_SPEC.id, { apiKey: 'replacement-key' }), /fixture secret storage failure/);
 			assert.strictEqual(storedConnection(harness.pluginStateStore, FIXED_SPEC.id).credentialRef, originalRef);
-			const access = await harness.service.getAccess(bundledOfficialIdentity(), {
+			const access = await harness.service.getAccess(builtInAiVideoIdentity(), {
 				serviceId: first.id,
 				serviceLabel: first.label,
 				connectionIdentity: first.connectionIdentity,
@@ -313,7 +312,7 @@ suite('BaseHalfModelServices', () => {
 			assert.strictEqual(await credentialStore.get(stagedKey!), undefined);
 			assert.deepStrictEqual(connectionState(pluginStateStore).stagedCredentials, {});
 			assert.deepStrictEqual(connectionState(pluginStateStore).pendingCredentialCleanup, []);
-			assert.strictEqual((await harness.service.getAccess(bundledOfficialIdentity(), {
+			assert.strictEqual((await harness.service.getAccess(builtInAiVideoIdentity(), {
 				serviceId: first.id,
 				serviceLabel: first.label,
 				connectionIdentity: first.connectionIdentity,
@@ -445,7 +444,7 @@ suite('BaseHalfModelServices', () => {
 
 			assert.deepStrictEqual((await secondWindow.getServices()).map(service => service.id), [FIXED_SPEC.id, WAN_SPEC.id]);
 			assert.strictEqual(await credentialStore.get(initialKey), undefined);
-			assert.strictEqual((await secondWindow.getAccess(bundledOfficialIdentity(), {
+			assert.strictEqual((await secondWindow.getAccess(builtInAiVideoIdentity(), {
 				serviceId: FIXED_SPEC.id,
 				serviceLabel: FIXED_SPEC.label,
 				connectionIdentity: (await secondWindow.getServices()).find(service => service.id === FIXED_SPEC.id)!.connectionIdentity,
@@ -601,16 +600,13 @@ function connectionState(pluginStateStore: MemoryPluginStateStore): {
 	return JSON.parse(pluginStateStore.getRaw(BASEHALF_MODEL_CONNECTION_STATE_STORAGE_KEY) ?? '{}');
 }
 
-function bundledOfficialIdentity(): IBaseHalfPluginContributorIdentity {
-	const plugin = BASEHALF_CURATED_PLUGINS[0];
-	if (!plugin.bundledPath) {
-		throw new Error('Expected an official bundled plugin fixture.');
-	}
+function builtInAiVideoIdentity(): IBaseHalfPluginContributorIdentity {
+	const capability = BASEHALF_BUILT_IN_CAPABILITIES[0];
 	return {
-		extensionId: plugin.extensionId,
+		extensionId: capability.extensionId,
 		version: '0.1.0',
-		extensionLocation: joinPath(FileAccess.asFileUri(''), '..', ...plugin.bundledPath.split('/')),
-		isBuiltin: false,
+		extensionLocation: baseHalfBuiltInCapabilityLocation(capability),
+		isBuiltin: true,
 		isUnderDevelopment: false
 	};
 }

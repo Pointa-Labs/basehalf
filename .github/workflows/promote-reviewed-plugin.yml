@@ -1,9 +1,10 @@
 name: Promote reviewed BaseHalf plugin
 
+# The plugin platform is frozen (docs/specs/built-in-ai-video-and-plugin-freeze.md).
+# This workflow no longer runs on a schedule. A maintainer can still start it
+# by hand after the freeze is lifted.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 * * * *'
 
 permissions:
   contents: read

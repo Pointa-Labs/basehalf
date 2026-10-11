@@ -76,9 +76,6 @@ import { fromNow } from '../../../../base/common/date.js';
 import { hash } from '../../../../base/common/hash.js';
 import { IUserDataProfilesService } from '../../../../platform/userDataProfile/common/userDataProfile.js';
 import { IMeteredConnectionService } from '../../../../platform/meteredConnection/common/meteredConnection.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
-import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID } from '../../../basehalf/common/basehalfPluginCatalog.js';
-import { getBaseHalfPluginLibraryTargetFromExtensionURI } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
 
 interface IExtensionStateProvider<T> {
 	(extension: Extension): T;
@@ -1043,8 +1040,7 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 		@IFileDialogService private readonly fileDialogService: IFileDialogService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IAllowedExtensionsService private readonly allowedExtensionsService: IAllowedExtensionsService,
-		@IMeteredConnectionService private readonly meteredConnectionService: IMeteredConnectionService,
-		@ICommandService private readonly commandService: ICommandService
+		@IMeteredConnectionService private readonly meteredConnectionService: IMeteredConnectionService
 	) {
 		super();
 
@@ -3297,14 +3293,9 @@ export class ExtensionsWorkbenchService extends Disposable implements IExtension
 			return Promise.resolve(false);
 		}
 		if (this.productService.basehalfVersion) {
-			const extensionId = getBaseHalfPluginLibraryTargetFromExtensionURI(this.productService, uri);
-			if (!extensionId) {
-				return Promise.resolve(true);
-			}
-			return this.commandService.executeCommand(BASEHALF_MANAGE_PLUGINS_COMMAND_ID, extensionId).then(() => true, error => {
-				this.onError(error);
-				return true;
-			});
+			// BaseHalf has no extension or plugin page. The link is taken so that
+			// nothing else opens for it, and it shows nothing.
+			return Promise.resolve(true);
 		}
 
 		this.onOpenExtensionUrl(uri);

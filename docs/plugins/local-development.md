@@ -1,5 +1,9 @@
 # Local development and testing
 
+> **Paused.** Plugin publishing is frozen
+> ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
+> The development host still works; submission and review do not.
+
 ## Development host
 
 The generated project includes a BaseHalf extension-development launch

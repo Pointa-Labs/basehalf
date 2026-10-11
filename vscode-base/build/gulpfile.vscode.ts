@@ -273,21 +273,18 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		// BaseHalf: the bundled Copilot Chat extension is not part of the curated
 		// extension set (the Agent Area hosts Codex/Claude instead) and would add
 		// ~440MB to the package — keep it out of the shipped app.
+		// AI Video ships with the other built-in extensions, so it works from the
+		// first start with no install step.
 		const basehalfExcludedBuiltInExtensions = [
-			'!.build/extensions/copilot/**',
-			// Domain plugins are reviewed payloads installed from Manage Plugins,
-			// not pre-scanned system extensions.
-			'!.build/extensions/basehalf-ai-video/**'
+			'!.build/extensions/copilot/**'
 		];
 
 		const extensions = gulp.src(['.build/extensions/**', ...basehalfExcludedBuiltInExtensions, ...platformSpecificBuiltInExtensionsExclusions], { base: '.build', dot: true });
-		const basehalfPluginPayloads = gulp.src('.build/extensions/basehalf-ai-video/**', { base: '.build/extensions', dot: true })
-			.pipe(rename(file => file.dirname = `plugins/${file.dirname}`));
 
 		const sourceFilterPattern = stripSourceMapsInPackagingTasks
 			? ['**', '!**/*.{js,css}.map']
 			: ['**'];
-		const sources = es.merge(src, extensions, basehalfPluginPayloads)
+		const sources = es.merge(src, extensions)
 			.pipe(filter(sourceFilterPattern, { dot: true }));
 
 		let version = packageJson.version;

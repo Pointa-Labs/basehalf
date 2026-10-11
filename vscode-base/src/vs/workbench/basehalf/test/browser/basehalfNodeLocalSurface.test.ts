@@ -763,7 +763,8 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(failed, { recipe, modelServices: [configuredModel] }).action, { kind: 'retry', label: 'Retry' });
 		assert.strictEqual(getBaseHalfNodeLocalState(failed, { recipe, modelServices: [configuredModel] }).status, 'Failed');
 		assert.deepStrictEqual(getBaseHalfNodeLocalState(failed).action, { kind: 'wait', label: 'Retry unavailable' });
-		assert.match(getBaseHalfNodeLocalState(failed).message, /exact recipe/);
+		assert.match(getBaseHalfNodeLocalState(failed).message, /is not available, so this attempt cannot be retried/);
+		assert.doesNotMatch(getBaseHalfNodeLocalState(failed).message, /install|restore/i);
 		const changedFrozenConfiguration = failBaseHalfNodeAttempt(running, 'attempt-1', {
 			completedAt: '2026-07-18T10:00:01Z',
 			error: 'Retry requires the unchanged frozen Recipe, inputs, and model connection. Copy settings to a new Draft.'

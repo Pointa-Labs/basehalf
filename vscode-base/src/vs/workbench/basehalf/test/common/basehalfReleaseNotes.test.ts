@@ -21,7 +21,9 @@ suite('BaseHalfReleaseNotes', () => {
 		assert.ok(markdown.includes('editable Draft through immutable Attempts to one sealed local-file Result'));
 		assert.ok(markdown.includes('accepts exactly one result file'));
 		assert.ok(markdown.includes('Connections never auto-run a workflow'));
-		assert.ok(markdown.includes('Restart to Update'));
+		assert.ok(markdown.includes('AI Video is built in. It works from the first start and no longer needs to be installed, and the Plugins library is gone from the sidebar.'));
+		assert.ok(markdown.includes('BaseHalf keeps the left sidebar focused on Files, Git, and Search.'));
+		assert.strictEqual(markdown.includes('Restart to Update'), false);
 		assert.strictEqual(markdown.includes('basehalf.update.'), false);
 	});
 

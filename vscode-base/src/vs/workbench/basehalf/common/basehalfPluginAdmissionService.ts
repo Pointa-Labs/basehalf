@@ -14,7 +14,8 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
-import { baseHalfBundledPluginLocation, baseHalfPluginLocationsEqual, baseHalfPluginPayloadLocation, BASEHALF_CURATED_PLUGINS } from './basehalfPluginCatalog.js';
+import { baseHalfBuiltInCapabilityLocation, findBaseHalfBuiltInCapability } from './basehalfBuiltInCapabilities.js';
+import { baseHalfPluginLocationsEqual } from './basehalfPluginCatalog.js';
 import { baseHalfCanonicalInstalledFileBytes } from './basehalfPluginInstalledContent.js';
 
 const LEGACY_VERIFIED_INSTALLS_STORAGE_KEY = 'basehalf.plugins.verifiedInstalls';
@@ -191,32 +192,20 @@ export class BaseHalfPluginAdmissionService extends Disposable implements IBaseH
 			&& this.environmentService.extensionDevelopmentLocationURI?.some(location => baseHalfPluginLocationsEqual(location, identity.extensionLocation))) {
 			return true;
 		}
-		const bundled = BASEHALF_CURATED_PLUGINS.find(plugin =>
-			plugin.publisher.trust === 'official'
-			&& plugin.extensionId.toLowerCase() === extensionId
-		);
+		const builtInCapability = findBaseHalfBuiltInCapability(extensionId);
+		if (builtInCapability) {
+			// A built-in capability is admitted only as the copy the application
+			// ships, in a packaged and in a development build alike. A profile copy
+			// with the same identity never is.
+			return identity.isBuiltin
+				&& baseHalfPluginLocationsEqual(identity.extensionLocation, baseHalfBuiltInCapabilityLocation(builtInCapability));
+		}
 		if (identity.isBuiltin) {
-			if (bundled && this.environmentService.isBuilt === false) {
-				const developmentLocation = baseHalfPluginPayloadLocation(bundled, false);
-				if (developmentLocation && baseHalfPluginLocationsEqual(identity.extensionLocation, developmentLocation)) {
-					return true;
-				}
-			}
 			return false;
 		}
-		if (bundled) {
-			const bundledLocation = baseHalfBundledPluginLocation(bundled);
-			if (bundledLocation && baseHalfPluginLocationsEqual(identity.extensionLocation, bundledLocation)) {
-				return true;
-			}
-			if (this.environmentService.isBuilt === false) {
-				const developmentLocation = baseHalfPluginPayloadLocation(bundled, false);
-				if (developmentLocation && baseHalfPluginLocationsEqual(identity.extensionLocation, developmentLocation)) {
-					return true;
-				}
-			}
-		}
 
+		// Everything else needs an exact signed grant and a matching install
+		// receipt. No location alone admits an extension.
 		const grant = this.verifiedVersions.get(extensionId)?.get(identity.version);
 		if (!grant) {
 			return false;

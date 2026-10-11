@@ -217,7 +217,7 @@ export class BaseHalfModelConnectionsView extends Disposable implements ISetting
 
 		if (!this.specs.length) {
 			const empty = append(this.list, $('.basehalf-model-connections-empty'));
-			empty.textContent = 'No official model providers are available. Install or enable a reviewed plugin that contributes model connections.';
+			empty.textContent = 'No model providers are available yet. If this stays after BaseHalf has started, AI Video could not start, and reinstalling BaseHalf repairs it.';
 			const detailEmpty = append(this.detail, $('.basehalf-model-connections-empty'));
 			detailEmpty.textContent = 'Provider settings will appear here.';
 			return;

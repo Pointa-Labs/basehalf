@@ -126,7 +126,7 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 			if (!this.runtimeService.getProvider(this.projectionId)) {
 				this.connectionGeneration++;
 				this.session.clear();
-				this.renderStatus('Plugin host restarted. Reconnecting…');
+				this.renderStatus('Reconnecting…');
 				return;
 			}
 			if (!this.session.value && this.state) {
@@ -142,7 +142,7 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 
 	private async connect(state: IBaseHalfCardDetailState, activateExtension: boolean): Promise<void> {
 		const generation = ++this.connectionGeneration;
-		this.renderStatus('Loading plugin projection…');
+		this.renderStatus('Loading…');
 		try {
 			if (activateExtension) {
 				await this.extensionService.activateByEvent(`onBaseHalfCardProjection:${this.projectionId}`, ActivationKind.Immediate);
@@ -166,7 +166,7 @@ export class BaseHalfExtensionCardDetail extends Disposable implements IBaseHalf
 			if (!this.disposed && generation === this.connectionGeneration) {
 				this.session.clear();
 				this.logService.error(`[BaseHalf] failed to open extension projection '${this.projectionId}'`, error);
-				this.renderStatus(`The ${this.projectionId} plugin projection could not be opened.`, true, true);
+				this.renderStatus('This view could not be opened.', true, true);
 			}
 		}
 	}

@@ -3237,7 +3237,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const recipe = this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId);
 		if (!recipe) {
-			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not installed. Choose an available recipe before connecting context.`);
+			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not available. Choose an available recipe before connecting context.`);
 		}
 		if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
 			throw new Error(`Recipe '${recipe.label}' no longer produces ${document.kind} content for '${target.relativePath}'. Choose a matching recipe before connecting context.`);
@@ -10705,7 +10705,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					if (selectedRecipeId && !selectedRecipe) {
 						const missing = append(recipeSelect, $('option')) as HTMLOptionElement;
 						missing.value = selectedRecipeId;
-						missing.textContent = `${selectedRecipeId} (not installed)`;
+						missing.textContent = `${selectedRecipeId} (not available)`;
 						missing.disabled = true;
 					}
 					for (const recipe of recipes) {

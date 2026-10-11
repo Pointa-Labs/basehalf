@@ -87,7 +87,10 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('pointa.basehalf-ai-video', ExtensionType.System)), true);
 		const official = BASEHALF_CURATED_PLUGINS[0];
 		assert.ok(official.bundledPath);
-		assert.strictEqual(testObject.isAllowed(aLocalExtension(
+		const builtInLocation = joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'basehalf-ai-video');
+		assert.strictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.System, '0.6.0', builtInLocation)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(official.extensionId, ExtensionType.User, '0.6.0', builtInLocation)), true);
+		assert.notStrictEqual(testObject.isAllowed(aLocalExtension(
 			official.extensionId,
 			ExtensionType.User,
 			'0.1.0',

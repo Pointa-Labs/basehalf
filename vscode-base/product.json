@@ -164,20 +164,7 @@
 		"serviceUrl": "https://open-vsx.org/vscode/gallery",
 		"itemUrl": "https://open-vsx.org/vscode/item",
 		"resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
-		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json",
-		"additionalControlUrls": [
-			"https://registry.basehalf.com/v1/extensions-control.json"
-		]
-	},
-	"basehalfPlugins": {
-		"catalogIndexUrl": "https://registry.basehalf.com/v1/catalog-index.json",
-		"assetBaseUrl": "https://registry.basehalf.com/",
-		"publicKeys": [
-			{
-				"keyId": "release-2026-07",
-				"publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZwuu3eYNB3hIPT0ljQzkzREL/yMf\nudBWzbar+txPigbDQTuR6DH84LK9C36yStS2RadiEmL34yQgPWMAj/lmFA==\n-----END PUBLIC KEY-----\n"
-			}
-		]
+		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json"
 	},
 	"onboardingKeymaps": [
 		{

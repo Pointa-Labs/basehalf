@@ -9,7 +9,7 @@ import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
 import { IGalleryExtension, InstallOptions } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
-import { baseHalfBundledPluginLocation, baseHalfPluginLocationComparisonKey, baseHalfPluginLocationsEqual, BASEHALF_CURATED_PLUGINS } from './basehalfPluginCatalog.js';
+import { baseHalfPluginLocationComparisonKey } from './basehalfPluginCatalog.js';
 import { isBaseHalfTrustedExternalGalleryIdentity } from './basehalfWorkbenchProfile.js';
 
 export const BASEHALF_VERIFIED_PLUGIN_INSTALL_CONTEXT = 'basehalfVerifiedInstall';
@@ -24,7 +24,7 @@ const pendingLocationInstalls = new Map<string, number>();
 
 export function assertBaseHalfReviewedPluginInstallSurface(productService: Pick<IProductService, 'basehalfVersion'>): void {
 	if (productService.basehalfVersion) {
-		throw new Error(localize('basehalfReviewedPluginInstallOnly', "BaseHalf installs code plugins only through its reviewed Plugins library."));
+		throw new Error(localize('basehalfExtensionInstallNotSupported', "BaseHalf cannot install this extension. It runs only its built-in extensions and the agent extensions it supports."));
 	}
 }
 
@@ -92,12 +92,8 @@ export function assertBaseHalfLocationInstallAllowed(productService: Pick<IProdu
 		}
 		return;
 	}
-	if (BASEHALF_CURATED_PLUGINS.some(plugin => {
-		const bundledLocation = baseHalfBundledPluginLocation(plugin);
-		return bundledLocation && baseHalfPluginLocationsEqual(location, bundledLocation);
-	})) {
-		return;
-	}
+	// No location is installable by itself. An install from a location passes
+	// only inside a transaction that authorized exactly that location.
 	assertBaseHalfReviewedPluginInstallSurface(productService);
 }
 

@@ -16,7 +16,6 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { RemoteExtensionManagementCLI } from '../../../api/browser/mainThreadCLICommands.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IExtensionManifestPropertiesService } from '../../../services/extensions/common/extensionManifestPropertiesService.js';
-import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID } from '../../common/basehalfPluginCatalog.js';
 import { assertArbitraryExtensionInstallAllowed } from '../../../contrib/extensions/browser/extensions.contribution.js';
 
 suite('BaseHalf extension install commands', () => {
@@ -26,7 +25,7 @@ suite('BaseHalf extension install commands', () => {
 		const previousBaseHalfVersion = product.basehalfVersion;
 		Object.assign(product, { basehalfVersion: 'test' });
 		try {
-			assert.throws(() => assertArbitraryExtensionInstallAllowed(), /reviewed Plugins library/);
+			assert.throws(() => assertArbitraryExtensionInstallAllowed(), /cannot install this extension/);
 			const command = CommandsRegistry.getCommand('workbench.extensions.installExtension');
 			assert.ok(command);
 			const accessor = {
@@ -35,14 +34,14 @@ suite('BaseHalf extension install commands', () => {
 				}
 			} as ServicesAccessor;
 
-			await assert.rejects(Promise.resolve(command.handler(accessor, 'outside.extension')), /reviewed Plugins library/);
-			await assert.rejects(Promise.resolve(command.handler(accessor, URI.file('/tmp/outside.vsix'))), /reviewed Plugins library/);
+			await assert.rejects(Promise.resolve(command.handler(accessor, 'outside.extension')), /cannot install this extension/);
+			await assert.rejects(Promise.resolve(command.handler(accessor, URI.file('/tmp/outside.vsix'))), /cannot install this extension/);
 		} finally {
 			Object.assign(product, { basehalfVersion: previousBaseHalfVersion });
 		}
 	});
 
-	test('routes stock extension detail commands to the Plugins library', async () => {
+	test('opens nothing for stock extension detail commands', async () => {
 		const previousBaseHalfVersion = product.basehalfVersion;
 		Object.assign(product, { basehalfVersion: 'test' });
 		const calls: { readonly command: string; readonly argument: string }[] = [];
@@ -64,10 +63,7 @@ suite('BaseHalf extension install commands', () => {
 			assert.ok(manage);
 			await open.handler(accessor, 'publisher.first');
 			await manage.handler(accessor, 'publisher.second');
-			assert.deepStrictEqual(calls, [
-				{ command: BASEHALF_MANAGE_PLUGINS_COMMAND_ID, argument: 'publisher.first' },
-				{ command: BASEHALF_MANAGE_PLUGINS_COMMAND_ID, argument: 'publisher.second' }
-			]);
+			assert.deepStrictEqual(calls, []);
 		} finally {
 			Object.assign(product, { basehalfVersion: previousBaseHalfVersion });
 		}
@@ -85,7 +81,7 @@ suite('BaseHalf extension install commands', () => {
 					return product;
 				}
 			} as ServicesAccessor;
-			await assert.rejects(Promise.resolve(command.handler(accessor, { install: ['publisher.plugin'] })), /reviewed Plugins library/);
+			await assert.rejects(Promise.resolve(command.handler(accessor, { install: ['publisher.plugin'] })), /cannot install this extension/);
 		} finally {
 			Object.assign(product, { basehalfVersion: previousBaseHalfVersion });
 		}
@@ -101,6 +97,6 @@ suite('BaseHalf extension install commands', () => {
 			{} as IExtensionManifestPropertiesService,
 			{ ...product, basehalfVersion: 'test' } as unknown as IProductService
 		);
-		assert.throws(() => cli.installExtensions(['publisher.plugin'], [], {}, false), /reviewed Plugins library/);
+		assert.throws(() => cli.installExtensions(['publisher.plugin'], [], {}, false), /cannot install this extension/);
 	});
 });
