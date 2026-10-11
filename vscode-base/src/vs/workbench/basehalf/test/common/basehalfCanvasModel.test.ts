@@ -312,6 +312,37 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 1220, y: 690, width: 300, height: 220 });
 	});
 
+	test('a card without a saved place is never drawn on another card, and a folder without saved places keeps the plain grid', () => {
+		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(name => `${name}.md`);
+		const root = folder('/workspace', names.map(name => file(`/workspace/${name}`)));
+		const slot = (index: number) => baseHalfCanvasPosition(index, names.length);
+		// The user placed one card exactly on the slot of c.md and one across the slot of e.md, and two cards on each other.
+		const saved = [
+			{ path: 'a.md', kind: 'file' as const, ...slot(2), width: 300, height: 220 },
+			{ path: 'b.md', kind: 'file' as const, x: slot(4).x + 150, y: slot(4).y + 10, width: 300, height: 220 },
+			{ path: 'g.md', kind: 'file' as const, x: -2000, y: 0, width: 300, height: 220 },
+			{ path: 'h.md', kind: 'file' as const, x: -1900, y: 40, width: 300, height: 220 }
+		];
+		const plain = baseHalfCanvasModelFromStat(root, { rootLevel: true });
+		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas: { path: '', cards: saved, edges: [] } });
+		const bounds = model.items.map((item, index) => ({ path: item.path, saved: item.card !== undefined, ...baseHalfCanvasItemBounds(item, index, model.items.length) }));
+		const meets = (first: typeof bounds[number], second: typeof bounds[number]) => first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
+
+		assert.deepStrictEqual({
+			plainGrid: plain.items.every((item, index) => item.place === undefined && baseHalfCanvasItemBounds(item, index, plain.items.length).x === slot(index).x && baseHalfCanvasItemBounds(item, index, plain.items.length).y === slot(index).y),
+			// A card BaseHalf placed lies on no other card. Where the user put two cards on each other, they stay.
+			placedOnAnother: bounds.flatMap((first, index) => bounds.slice(index + 1).filter(second => meets(first, second) && !(first.saved && second.saved)).map(second => `${first.path} on ${second.path}`)),
+			savedKept: bounds.filter(item => item.saved).map(item => [item.path, item.x, item.y]),
+			// The slot of d.md is free, so it stays in it. The slots of c.md and e.md are taken, so they moved.
+			inItsSlot: ['c.md', 'd.md', 'e.md'].map(name => { const index = names.indexOf(name); return bounds[index].x === slot(index).x && bounds[index].y === slot(index).y; })
+		}, {
+			plainGrid: true,
+			placedOnAnother: [],
+			savedKept: saved.map(card => [card.path, card.x, card.y]),
+			inItsSlot: [false, true, false]
+		});
+	});
+
 	test('keeps saved card positions in unbounded canvas coordinates', () => {
 		const root = folder('/workspace', [
 			file('/workspace/a.md')

@@ -113,6 +113,12 @@ export interface IBaseHalfCanvasItem {
 	readonly kind: BaseHalfCanvasItemKind;
 	readonly stat: IFileStat;
 	readonly card?: IBaseHalfCanvasCard;
+	/**
+	 * The automatic place of a card without a saved one, when its grid slot is
+	 * taken and BaseHalf chose a free place (canvas card placement). It is never
+	 * written.
+	 */
+	readonly place?: IBaseHalfCanvasPosition;
 	readonly badge?: IBaseHalfCanvasBadgeMetadata;
 	/** Present when the card has upstream or downstream connections or issues. */
 	readonly relationships?: IBaseHalfCanvasItemRelationships;
@@ -305,12 +311,42 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 			});
 	}
 
+	items = withFreeAutomaticPlaces(items);
 	return {
 		items,
 		edges: deriveCanvasEdges(items, options.canvas?.edges ?? []),
 		truncated: Math.max(0, allItems.length - items.length),
 		size: options.canvas?.size
 	};
+}
+
+/**
+ * BaseHalf never puts a card on another card by its own choice. A card
+ * without a saved place stays in its grid slot when that is free of the
+ * saved places. The others take, in list order, the nearest place that is
+ * free of the saved places, of the slots that are in use, and of the places
+ * given before. Where no card has a saved place the plain grid stands, in
+ * which no two slots meet.
+ */
+function withFreeAutomaticPlaces<T extends IBaseHalfCanvasItem>(items: readonly T[]): T[] {
+	const saved: IBaseHalfCanvasBounds[] = items.flatMap(item => item.card ? [{ x: item.card.x, y: item.card.y, width: item.card.width, height: item.card.height }] : []);
+	if (saved.length === 0) {
+		return [...items];
+	}
+	const slots = items.map((item, index) => item.card ? undefined : { ...baseHalfCanvasPosition(index, items.length), width: defaultCardWidth(item.kind), height: defaultCardHeight(item.kind) });
+	// A card that nothing lies on does not move because another one has to.
+	const inSlot = slots.map(slot => slot !== undefined && saved.every(other => !canvasBoundsOverlap(slot, other)));
+	const taken = [...saved, ...slots.flatMap((slot, index) => slot && inSlot[index] ? [slot] : [])];
+	return items.map((item, index) => {
+		const slot = slots[index];
+		if (!slot || inSlot[index]) {
+			return item;
+		}
+		const size = { width: slot.width, height: slot.height };
+		const place = baseHalfCanvasOpenPosition(slot, size, taken);
+		taken.push({ ...place, ...size });
+		return { ...item, place };
+	});
 }
 
 /** Whether a card has any connection or connection issue worth keeping on the canvas. */
@@ -456,7 +492,7 @@ function canvasBoundsOverlap(a: IBaseHalfCanvasBounds, b: IBaseHalfCanvasBounds)
 }
 
 export function baseHalfCanvasItemBounds(item: IBaseHalfCanvasItem, index: number, total: number): IBaseHalfCanvasBounds {
-	const fallbackPosition = baseHalfCanvasPosition(index, total);
+	const fallbackPosition = item.place ?? baseHalfCanvasPosition(index, total);
 	return {
 		x: item.card?.x ?? fallbackPosition.x,
 		y: item.card?.y ?? fallbackPosition.y,

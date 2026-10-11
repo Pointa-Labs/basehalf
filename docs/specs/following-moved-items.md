@@ -790,9 +790,10 @@ frame of the canvas.
   passed through", "What was last seen is kept until the events say
   otherwise", "One item costs the same in any folder", and "Each move gets
   its own wait" are the fixes.
-- **Not changed.** A card that is moved to another folder keeps its
-  coordinates in that folder's layout, as it does on a move inside BaseHalf,
-  and can land on top of a card that is there.
+- **Changed after the trial.** A card that was moved to another folder kept
+  its coordinates in that folder's layout and could land on a card that was
+  there. [Canvas card placement](canvas-card-placement.md) gives it the
+  nearest free place instead, for moves inside BaseHalf and outside it.
 
 ## Open questions
 

@@ -14,7 +14,7 @@ import {
 	IFileStat
 } from '../../../../platform/files/common/files.js';
 import { BaseHalfCanvasMirrorService, BaseHalfCanvasStateConflict, IBaseHalfCanvasPreservedEvent, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
-import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
+import { baseHalfCanvasOpenPosition, IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
 import { baseHalfMirrorRecoveryResource } from '../../common/basehalfMirrorRecovery.js';
 import { BaseHalfMirrorSymbolicLinkError } from '../../common/basehalfMirrorTree.js';
@@ -922,7 +922,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		// To another folder: the row goes to that folder's canvas when its place is free.
 		const moved = createService(new Map([
 			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)], [edge('old.md', 'b.md')])],
-			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 70)])]
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 700)])]
 		]));
 		await moved.followNode(workspaceFolder, 'old.md', 'docs/old.md');
 		const movedTaken = createService(new Map([
@@ -952,7 +952,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 			renamedAgain: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
 			taken: { cards: ['old.md@10', 'new.md@99', 'b.md@50'], edges: ['old.md>b.md:east', 'new.md>b.md:north'] },
 			interrupted: { cards: ['new.md@10'], edges: [] },
-			moved: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@70', 'docs/old.md@10'], edges: [] }],
+			moved: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@10'], edges: [] }],
 			movedTaken: [{ cards: ['old.md@10'], edges: [] }, { cards: ['docs/old.md@70'], edges: [] }],
 			// `notes/b.md` had a row of its own: the row of `docs/b.md` stays behind.
 			folderMove: [
@@ -960,6 +960,52 @@ suite('BaseHalfCanvasMirrorService', () => {
 				{ cards: ['docs/b.md@2'], edges: [] },
 				{ cards: ['notes/b.md@77', 'notes/a.md@1'], edges: ['notes/a.md>notes/b.md:east'] }
 			]
+		});
+	});
+
+	test('a card carried into another folder keeps its place when it is free there and takes the nearest free place otherwise', async () => {
+		const row = (path: string, x: number, y: number) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, `    y: ${y}`, '    width: 260', '    height: 140'];
+		const canvas = (path: string, cards: string[][]) => [`path: "${path}"`, 'cards:', ...cards.flat(), 'edges: []', ''].join('\n');
+		const size = { width: 260, height: 140 };
+		const places = async (service: BaseHalfCanvasMirrorService) => Object.fromEntries(((await service.readCanvas(folder('docs')))?.cards ?? []).map(card => [card.path, `${card.x},${card.y} ${card.width}x${card.height}`]));
+		const files = (there: string[][]) => new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('a.md', 10, 20)])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', there)]
+		]);
+		const free = [row('docs/x.md', 900, 20)];
+		// A card of the other folder lies where the carried card was in its own folder.
+		const taken = [row('docs/x.md', 40, 30), row('docs/y.md', 900, 400)];
+		const nearest = baseHalfCanvasOpenPosition({ x: 10, y: 20 }, size, [{ x: 40, y: 30, ...size }, { x: 900, y: 400, ...size }]);
+
+		// Moved through the workbench.
+		const workbenchFree = createService(files(free));
+		await workbenchFree.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const workbenchTaken = createService(files(taken));
+		await workbenchTaken.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		// Moved outside BaseHalf and followed, and followed a second time.
+		const followedFree = createService(files(free));
+		await followedFree.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const followedTaken = createService(files(taken));
+		await followedTaken.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const once = await places(followedTaken);
+		await followedTaken.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+
+		const kept = { 'docs/x.md': '900,20 260x140', 'docs/a.md': '10,20 260x140' };
+		const moved = { 'docs/x.md': '40,30 260x140', 'docs/y.md': '900,400 260x140', 'docs/a.md': `${nearest.x},${nearest.y} 260x140` };
+		assert.deepStrictEqual({
+			nearestIsAnotherPlace: nearest.x !== 10 || nearest.y !== 20,
+			workbenchFree: await places(workbenchFree),
+			workbenchTaken: await places(workbenchTaken),
+			followedFree: await places(followedFree),
+			followedTaken: once,
+			followedAgain: await places(followedTaken)
+		}, {
+			nearestIsAnotherPlace: true,
+			workbenchFree: kept,
+			workbenchTaken: moved,
+			followedFree: kept,
+			followedTaken: moved,
+			followedAgain: moved
 		});
 	});
 

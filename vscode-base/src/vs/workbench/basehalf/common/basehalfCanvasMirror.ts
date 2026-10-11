@@ -13,6 +13,7 @@ import { FileOperationError, FileOperationResult, IFileService } from '../../../
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import {
+	baseHalfCanvasOpenPosition,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
@@ -396,7 +397,7 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 				newParentSnapshot.next = removeNodeFromParentCanvas(newParentSnapshot.next, to);
 			}
 			if (carried) {
-				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, { ...carried, path: to });
+				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, carriedCanvasCard(newParentSnapshot.next, carried, to));
 			}
 		});
 	}
@@ -472,7 +473,9 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			if (!carried) {
 				return;
 			}
-			const incoming = { ...carried, path: to };
+			// The place depends only on the row and on the other rows of the new
+			// folder, so a second run computes the same one and finds it there.
+			const incoming = carriedCanvasCard(newParentSnapshot.next, carried, to);
 			const existing = newParentSnapshot.next.cards.find(card => card.path === to);
 			if (existing && !canvasCardsEqual(existing, incoming)) {
 				return;
@@ -924,6 +927,18 @@ function removeNodeFromParentCanvas(canvas: IBaseHalfCanvasFile, path: string): 
 /** Rename one card identity in a shared parent canvas. On overwrite, target
  * state is retired before the incoming source card/edges are mapped, so there
  * is exactly one target card and its geometry is the source identity's. */
+/**
+ * The row of a card that is carried into another folder's layout: it keeps
+ * its size, and its coordinates when that place is free of the rows that are
+ * there. Otherwise it takes the nearest free place (canvas card placement).
+ * The coordinates meant something in the folder it came from only.
+ */
+function carriedCanvasCard(canvas: IBaseHalfCanvasFile, carried: IBaseHalfCanvasCard, to: string): IBaseHalfCanvasCard {
+	const taken = canvas.cards.filter(card => card.path !== to).map(card => ({ x: card.x, y: card.y, width: card.width, height: card.height }));
+	const place = baseHalfCanvasOpenPosition({ x: carried.x, y: carried.y }, { width: carried.width, height: carried.height }, taken);
+	return { ...carried, path: to, x: place.x, y: place.y };
+}
+
 function relocateNodeWithinParent(canvas: IBaseHalfCanvasFile, from: string, to: string, retireDestination: boolean): IBaseHalfCanvasFile {
 	const incomingCard = canvas.cards.find(card => card.path === from);
 	const cards: IBaseHalfCanvasCard[] = [];
