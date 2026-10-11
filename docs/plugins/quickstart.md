@@ -1,5 +1,10 @@
 # Create your first BaseHalf plugin
 
+> **Paused.** Plugin publishing is frozen
+> ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
+> BaseHalf does not install or load plugins from the catalog, and submissions
+> are not accepted.
+
 ## Prerequisites
 
 - Node.js 22.12 or newer

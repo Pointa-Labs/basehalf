@@ -19,10 +19,10 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - The workbench opens into a BaseHalf welcome surface instead of stock VS Code onboarding.
 - Settings live in VS Code's native Settings UI under the BaseHalf category.
 - Release Notes open as a system page in the main surface, without creating user files.
-- Model-service connections are configured once for BaseHalf and shared by reviewed plugins; API keys stay in encrypted application credential storage.
-- The main canvas keeps Markdown and code as ordinary editable files, while executable File, Image, Video, Audio, PDF, and Presentation nodes move from an editable Draft through immutable Attempts to one sealed local-file Result. Domain plugins contribute reviewed recipes and templates instead of separate canvases.
+- AI Video is built in. It works from the first start and no longer needs to be installed, and the Plugins library is gone from the sidebar.
+- Model-service connections are configured once for BaseHalf; API keys stay in encrypted application credential storage.
+- The main canvas keeps Markdown and code as ordinary editable files, while executable File, Image, Video, Audio, PDF, and Presentation nodes move from an editable Draft through immutable Attempts to one sealed local-file Result. AI Video adds its recipes and templates to this canvas instead of a separate one.
 - Each submission consumes frozen direct inputs and accepts exactly one result file. Connections never auto-run a workflow; failed or cancelled Attempts remain auditable and may retry only the same frozen configuration.
-- Curated plugin updates use VS Code's native extension runtime state, including Reload Window, Restart Extensions, and Restart to Update when required.
 - Visible editor tabs and VS Code breadcrumbs are hidden by default so BaseHalf navigation remains canvas-first.
 
 ## Connections
@@ -50,7 +50,7 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 
 ## Current Product Shape
 
-BaseHalf keeps the left sidebar focused on Files, Git, Search, and the curated Plugins library. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.
+BaseHalf keeps the left sidebar focused on Files, Git, and Search. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.
 
 ## Settings
 

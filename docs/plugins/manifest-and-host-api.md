@@ -1,5 +1,10 @@
 # Manifest and host API
 
+> **Paused.** Plugin publishing is frozen
+> ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
+> BaseHalf admits no reviewed plugin. The contribution points on this page
+> are still what the built-in AI Video uses.
+
 ## Product boundary
 
 A reviewed plugin extends the one BaseHalf canvas. The normal contribution is a

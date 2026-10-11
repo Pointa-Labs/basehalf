@@ -87,7 +87,6 @@ import { ExtensionsWorkbenchService } from './extensionsWorkbenchService.js';
 import './media/extensionManagement.css';
 import { UnsupportedExtensionsMigrationContrib } from './unsupportedExtensionsMigrationContribution.js';
 import { assertBaseHalfReviewedPluginInstallSurface } from '../../../basehalf/common/basehalfExtensionInstallPolicy.js';
-import { BASEHALF_MANAGE_PLUGINS_COMMAND_ID } from '../../../basehalf/common/basehalfPluginCatalog.js';
 
 // Singletons
 registerSingleton(IExtensionsWorkbenchService, ExtensionsWorkbenchService, InstantiationType.Eager /* Auto updates extensions */);
@@ -390,7 +389,8 @@ jsonRegistry.registerSchema(ExtensionsConfigurationSchemaId, ExtensionsConfigura
 // Register Commands
 CommandsRegistry.registerCommand('_extensions.manage', (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string) => {
 	if (product.basehalfVersion) {
-		return accessor.get(ICommandService).executeCommand(BASEHALF_MANAGE_PLUGINS_COMMAND_ID, extensionId);
+		// BaseHalf has no extension or plugin page to open.
+		return;
 	}
 	const extensionService = accessor.get(IExtensionsWorkbenchService);
 	const extension = extensionService.local.find(e => areSameExtensions(e.identifier, { id: extensionId }));
@@ -404,7 +404,8 @@ CommandsRegistry.registerCommand('_extensions.manage', (accessor: ServicesAccess
 CommandsRegistry.registerCommand('extension.open', async (accessor: ServicesAccessor, extensionId: string, tab?: ExtensionEditorTab, preserveFocus?: boolean, feature?: string, sideByside?: boolean) => {
 	const commandService = accessor.get(ICommandService);
 	if (product.basehalfVersion) {
-		return commandService.executeCommand(BASEHALF_MANAGE_PLUGINS_COMMAND_ID, extensionId);
+		// BaseHalf has no extension or plugin page to open.
+		return;
 	}
 	const extensionService = accessor.get(IExtensionsWorkbenchService);
 

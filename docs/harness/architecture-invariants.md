@@ -29,9 +29,9 @@ path. Their history remains available for archaeology.
 - BaseHalf is canvas-first. Folders open canvases; files open full-screen Card
   Detail inside the canvas flow. VS Code editor tabs/groups are advanced or
   fallback behavior, not the default interaction.
-- The left product surface is Files, Git, Search, and the BaseHalf-owned Plugins
-  library. Keep the stock Extensions Marketplace and plugin-defined competing
-  global sidebars out of the product.
+- The left product surface is Files, Git, and Search. There is no plugin
+  surface: no Plugins library, no plugin manager command, no stock Extensions
+  Marketplace, and no plugin-defined global sidebar (D45).
 - The right product surface is Agent Area. It hosts TUI Codex, TUI Claude Code,
   VS Code extension Codex, VS Code extension Claude Code, and Terminal sessions.
   Route extension-created terminals there; do not expose stock VS Code
@@ -50,7 +50,7 @@ path. Their history remains available for archaeology.
 - Use VS Code mechanics underneath without allowing the product to collapse
   back into stock VS Code navigation or layout.
 
-See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
+See [roadmap.md](../roadmap.md), public decisions D20–D23, D39, and D45 in
 [decisions.md](../decisions.md).
 
 ## Content and graph truth
@@ -129,26 +129,38 @@ See public decisions D12–D14, D24, D35–D38, and D40–D43, the
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.
 
-## Plugin and executable-media boundary
+## Built-in AI Video, executable media, and the frozen plugin platform
 
-- The shell is fixed and the center is extensible. Curated plugins may add
-  project types, main-canvas recipes and templates, card previews, and
-  file-specific Card Detail projections. They may not replace BaseHalf's
-  sidebar, canvas, navigation, reference semantics, or Agent Area. Their
-  project file transitions and structural cleanups may not change any upstream
-  value.
+The first two points are owned by
+[built-in AI Video and the frozen plugin platform](../specs/built-in-ai-video-and-plugin-freeze.md).
+
+- AI Video is built in. It ships inside the application as a built-in
+  extension, is admitted only as that copy, and has no install, update, or
+  removal of its own (D45).
+- The plugin platform is frozen. Do not register its interface, fetch its
+  catalog, add a product configuration entry that names the registry or the
+  publishing portal, or write a message that sends the user to Plugins. Its
+  code, tooling, and documents are kept and must keep compiling and passing
+  their tests. Changing or deleting them is a separate decision.
+- The shell is fixed. The host owns the sidebar, canvas, navigation,
+  reference semantics, node lifecycle, credentials, and Agent Area. AI Video
+  adds recipes, a template, a file-specific Card Detail projection, structural
+  cleanup, and executors through the host's contribution points. This
+  boundary is internal, so both sides may change together. AI Video's project
+  file transitions and structural cleanups may not change any upstream value.
 - The initial extension ecosystem is curated around Git, GitHub,
   GitHub Authentication, Codex, and Claude rather than a general marketplace.
-- Plugin workflow output is ordinary local user-owned data. Plugin removal must
-  leave output readable; domain truth does not move into `.bh/mirror/` or an
-  extension-private database.
+- Workflow output is ordinary local user-owned data. Domain truth does not
+  move into `.bh/mirror/` or an extension-private database.
 - Executable media follows Draft → immutable Attempt(s) → one sealed local-file
   Result. A Result never switches files or runs again; changed settings create a
-  new Draft. Domain plugins contribute reviewed recipes, input roles,
-  validation, and executors without duplicating canvas or lifecycle truth.
+  new Draft. AI Video contributes recipes, input roles, validation, and
+  executors without duplicating canvas or lifecycle truth.
 
-See [plugin-architecture.md](../plugin-architecture.md),
-[plugin-development.md](../plugin-development.md), and public decisions D25–D34.
+See public decisions D26–D28, D33, D34, and D45.
+[plugin-architecture.md](../plugin-architecture.md) and
+[plugin-development.md](../plugin-development.md) describe the frozen platform
+(D25, D29–D32) and the contribution points that AI Video still uses.
 
 ## Completion standard
 

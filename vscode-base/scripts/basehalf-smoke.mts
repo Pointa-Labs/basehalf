@@ -109,10 +109,12 @@ const bhTreeBeforeLaunch = readBhTree();
 // What git shows of the fixture before BaseHalf first opens it.
 const gitStatusBeforeLaunch = gitStatusOfWorkspace();
 
-const electronPath = getDevElectronPath();
+const electronPath = opts.packagedApp ? getPackagedElectronPath(opts.packagedApp) : getDevElectronPath();
 
 const args = [
-	root,
+	// The development Electron takes the source tree as its application path.
+	// A packaged application carries its own.
+	...(opts.packagedApp ? [] : [root]),
 	workspacePath,
 	'--skip-release-notes',
 	...(runsNewWindowWelcome ? [] : ['--skip-welcome']),
@@ -137,11 +139,10 @@ if (opts.verbose) {
 
 const env = {
 	...process.env,
-	NODE_ENV: 'development',
 	// Harness processes (agents, editor terminals) may export this; it would
 	// make the dev Electron start as plain node and never open a window.
 	ELECTRON_RUN_AS_NODE: undefined,
-	VSCODE_DEV: '1',
+	...(opts.packagedApp ? { NODE_ENV: undefined, VSCODE_DEV: undefined } : { NODE_ENV: 'development', VSCODE_DEV: '1' }),
 	VSCODE_CLI: '1',
 	BASEHALF_SMOKE_PROVIDER_VALIDATION: '1',
 	TERM: 'dumb',
@@ -159,7 +160,9 @@ let canvasViewportBeforeCardDetail;
 const pageErrors = [];
 try {
 	if (!fs.existsSync(electronPath)) {
-		throw new Error(`Dev Electron was not found at ${electronPath}. Run npm run electron or npm run basehalf:smoke first.`);
+		throw new Error(opts.packagedApp
+			? `The packaged application has no executable at ${electronPath}.`
+			: `Dev Electron was not found at ${electronPath}. Run npm run electron or npm run basehalf:smoke first.`);
 	}
 
 	app = await _electron.launch({ executablePath: electronPath, args, timeout: 60_000, env });
@@ -217,7 +220,7 @@ try {
 						: await assertExternalPluginLifecycle(page);
 				console.log(JSON.stringify({ ok: true, workspace: workspacePath, checks, runRoot }, null, 2));
 			} else {
-				await step('curated-plugin-manager', () => assertCuratedPluginManager(page, true));
+				await step('no-plugin-surface', () => assertNoPluginSurface(page));
 				await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
 				await step('video-node-ui', () => assertVideoNodeUI(page));
 				await step('video-workflow-node-run', () => assertVideoWorkflowNodeRun(page));
@@ -228,7 +231,7 @@ try {
 						'video-workflow-template',
 						'video-node-ui',
 						'video-workflow-node-run',
-						'curated-plugin-manager'
+						'no-plugin-surface'
 					]
 				}, null, 2));
 			}
@@ -423,7 +426,7 @@ try {
 	await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
 	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
 	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
-	await step('curated-plugin-manager', () => assertCuratedPluginManager(page, true));
+	await step('no-plugin-surface', () => assertNoPluginSurface(page));
 	await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
 	await step('video-node-ui', () => assertVideoNodeUI(page));
 	await step('video-workflow-node-run', () => assertVideoWorkflowNodeRun(page));
@@ -594,7 +597,8 @@ function parseArgs(args) {
 		seedVsix: undefined,
 		verifyUninstalled: false,
 		verifyInstalled: false,
-		output: undefined
+		output: undefined,
+		packagedApp: undefined
 	};
 
 	for (let i = 0; i < args.length; i++) {
@@ -645,12 +649,18 @@ function parseArgs(args) {
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
 				break;
+			case '--packaged-app':
+				parsed.packagedApp = path.resolve(requireValue(args, ++i, arg));
+				break;
 			case '--help':
 				printHelpAndExit();
 				break;
 			default:
 				throw new Error(`Unknown argument: ${arg}`);
 		}
+	}
+	if (parsed.externalPluginId) {
+		throw new Error('The reviewed-plugin lifecycle slice cannot run while the plugin platform is frozen: the product has no plugin surface (docs/specs/built-in-ai-video-and-plugin-freeze.md).');
 	}
 	if (parsed.externalPluginId && (!parsed.pluginOnly || !parsed.externalPluginExtension || !parsed.externalPluginVersion)) {
 		throw new Error('--external-plugin-id requires --plugin-only, --external-plugin-extension, and --external-plugin-version.');
@@ -681,15 +691,19 @@ function printHelpAndExit() {
 
 Options:
 	  --output <path>     Store smoke logs/user-data/crashes in this directory.
+	  --packaged-app <path>
+	                      Run against a packaged application bundle or folder instead of
+	                      the development build, for example ../VSCode-darwin-arm64/BaseHalf.app.
 	  --keep              Keep the generated temporary directory after the run.
 	  --zoom-only         Run the lower-left zoom and card-snapping controls slice.
 	  --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
-  --plugin-only       Run the curated plugin and AI Video integration slice.
+  --plugin-only       Check that there is no plugin surface and run the built-in AI Video slice.
   --settings-only     Run BaseHalf Settings and its Models & Providers section.
   --new-window-only   Open a new empty window and verify the BaseHalf Welcome surface.
   --external-plugin-id <id>
-                      Run the reviewed remote-plugin lifecycle slice.
+                      Run the reviewed remote-plugin lifecycle slice. Refused while
+                      the plugin platform is frozen.
   --external-plugin-extension <ext>
                       File extension contributed by the reviewed test plugin.
   --external-plugin-version <version>
@@ -965,6 +979,19 @@ function configureGitAuthor(workspace) {
 function commitFixtureChanges(workspace, message) {
 	execFileSync('git', ['add', '.'], { cwd: workspace, stdio: 'ignore' });
 	execFileSync('git', ['commit', '-m', message], { cwd: workspace, stdio: 'ignore' });
+}
+
+function getPackagedElectronPath(packagedApp) {
+	switch (process.platform) {
+		case 'darwin':
+			return path.join(packagedApp, 'Contents', 'MacOS', product.nameShort);
+		case 'linux':
+			return path.join(packagedApp, product.applicationName);
+		case 'win32':
+			return path.join(packagedApp, `${product.nameShort}.exe`);
+		default:
+			throw new Error(`Unsupported platform: ${process.platform}`);
+	}
 }
 
 function getDevElectronPath() {
@@ -1930,7 +1957,7 @@ async function assertGlobalModelConnectionsEditor(page) {
 		await secondRow.press('Home');
 		await editor.locator('.basehalf-model-provider-row[aria-current="page"][data-provider-id="byteplus"]').waitFor({ state: 'visible', timeout: 10_000 });
 	} else {
-		await editor.getByText('No official model providers are available.', { exact: false }).waitFor({ state: 'visible', timeout: 15_000 });
+		await editor.getByText('No model providers are available yet.', { exact: false }).waitFor({ state: 'visible', timeout: 15_000 });
 	}
 	if (await editor.locator('button[data-action="close"]').count() !== 0) {
 		throw new Error('Models & Providers retained its retired standalone-editor close action');
@@ -1939,92 +1966,63 @@ async function assertGlobalModelConnectionsEditor(page) {
 	await editor.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
-async function assertCuratedPluginManager(page, installIfAvailable = false) {
-	const pluginsAction = page.locator([
-		'.part.activitybar .action-label[aria-label^="Plugins"]',
-		'.part.activitybar .action-label.codicon-extensions',
-		'.part.sidebar .composite-bar .action-label[aria-label^="Plugins"]',
-		'.part.sidebar .composite-bar .action-label.codicon-extensions'
-	].join(', ')).first();
-	await pluginsAction.waitFor({ state: 'visible', timeout: 15_000 });
+// The plugin platform is frozen and AI Video is built in
+// (docs/specs/built-in-ai-video-and-plugin-freeze.md). The product has no
+// plugin surface: the sidebar shows exactly Files, Git, and Search, and no
+// command opens Plugins or manages a plugin.
+async function assertNoPluginSurface(page) {
 	if (await page.locator('.part.sidebar .sidebar-utility-footer').count()) {
 		throw new Error('The retired custom sidebar plugin footer is still mounted');
 	}
-	await pluginsAction.click();
-	await page.locator('.part.sidebar .title-label h2', { hasText: /^Plugins$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	const pluginsView = page.locator('.basehalf-plugins-view').first();
-	await pluginsView.waitFor({ state: 'visible', timeout: 15_000 });
-	const sidebarRow = pluginsView.locator('[data-extension-id="pointa.basehalf-ai-video"]', { hasText: 'AI Video' }).first();
-	await sidebarRow.waitFor({ state: 'visible', timeout: 15_000 });
-	const sidebarText = (await pluginsView.textContent()) ?? '';
-	if (!sidebarText.includes('starter workflows') || sidebarText.includes('Marketplace')) {
-		throw new Error(`The native Plugins view exposed an unexpected catalog: ${sidebarText.replace(/\s+/g, ' ').trim()}`);
+	const compositeBarLabels = await page.locator([
+		'.part.activitybar .composite-bar .action-item .action-label',
+		'.part.sidebar .composite-bar .action-item .action-label'
+	].join(', ')).evaluateAll(elements => elements
+		.filter(element => (element as HTMLElement).offsetParent !== null)
+		.map(element => (element.getAttribute('aria-label') ?? '').trim())
+		.filter(label => label.length > 0 && !/^Additional Views/.test(label)));
+	const expectedAreas = [/^(Explorer|Files)\b/, /^Source Control\b/, /^Search\b/];
+	if (compositeBarLabels.length !== expectedAreas.length
+		|| !expectedAreas.every(area => compositeBarLabels.some(label => area.test(label)))) {
+		throw new Error(`The sidebar does not show exactly Files, Git, and Search: ${JSON.stringify(compositeBarLabels)}`);
 	}
-	if (!await sidebarRow.locator('.extension-list-item').count()) {
-		throw new Error('The Plugins view is not using the native VS Code extension-row renderer');
+	if (await page.locator('.basehalf-plugins-view, .basehalf-plugin-library').count()) {
+		throw new Error('A frozen plugin surface is mounted in the workbench');
 	}
-	await sidebarRow.hover();
-	await sidebarRow.locator('.action-label.manage').first().click();
-	await page.locator('.context-view .action-label', { hasText: /^Open Details$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+
+	const previousQuickInput = visibleQuickInput(page);
+	if (await previousQuickInput.isVisible().catch(() => false)) {
+		await page.keyboard.press('Escape');
+		await previousQuickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	}
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	const quickInput = visibleQuickInput(page);
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	// Positive control: the palette must show a command it is known to have,
+	// so that a list without plugin commands is a filtered command list and not
+	// an unfilled or stale one.
+	await quickInput.fill('>Reload Window');
+	const controlRow = page.locator('.quick-input-list .monaco-list-row[role="option"]', { hasText: 'Reload Window' }).first();
+	await controlRow.waitFor({ state: 'visible', timeout: 15_000 });
+	// No letter sequence of "Plugin" matches "Reload Window", so the control
+	// row leaving the list shows that the list was filtered for the new query.
+	await quickInput.fill('>Plugin');
+	await controlRow.waitFor({ state: 'hidden', timeout: 15_000 });
+	const readCommandRows = () => page.locator('.quick-input-list .monaco-list-row[role="option"]')
+		.evaluateAll(rows => rows.map(row => (row.getAttribute('aria-label') ?? row.textContent ?? '').replace(/\s+/g, ' ').trim()));
+	let commandRows = await readCommandRows();
+	for (let settledReads = 0; settledReads < 2;) {
+		await page.waitForTimeout(250);
+		const next = await readCommandRows();
+		settledReads = JSON.stringify(next) === JSON.stringify(commandRows) ? settledReads + 1 : 0;
+		commandRows = next;
+	}
 	await page.keyboard.press('Escape');
-	await sidebarRow.click({ button: 'right' });
-	await page.locator('.context-view .action-label', { hasText: /^Open Details$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	await page.keyboard.press('Escape');
-	await sidebarRow.click();
-	const library = page.locator('.basehalf-plugin-library').first();
-	try {
-		await library.waitFor({ state: 'visible', timeout: 15_000 });
-	} catch (error) {
-		const diagnostics = await page.evaluate(() => ({
-			notifications: Array.from(document.querySelectorAll('.notifications-toasts, .monaco-dialog-box')).map(element => element.textContent?.replace(/\s+/g, ' ').trim()),
-			editorText: document.querySelector('.part.editor')?.textContent?.replace(/\s+/g, ' ').trim(),
-			tabs: Array.from(document.querySelectorAll('.part.editor .tab')).map(element => element.textContent?.replace(/\s+/g, ' ').trim())
-		}));
-		throw new Error(`Plugin Library did not open: ${JSON.stringify(diagnostics)}; ${error}`);
+	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	const pluginCommands = commandRows.filter(row => /plug-?in/i.test(row));
+	if (pluginCommands.length) {
+		throw new Error(`The Command Palette still lists plugin commands: ${JSON.stringify(pluginCommands)}`);
 	}
-	const row = library.locator('.basehalf-plugin-library-row', { hasText: 'AI Video' }).first();
-	await row.waitFor({ state: 'visible', timeout: 15_000 });
-	await row.click();
-	const allText = (await library.textContent()) ?? '';
-	if (!allText.includes('starter workflows')) {
-		throw new Error('The Plugin Library did not describe the AI Video domain plugin');
-	}
-	if (allText.includes('Marketplace')) {
-		throw new Error('The Plugin Library exposed a Marketplace product surface');
-	}
-	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
-		throw new Error('Manage Plugins reopened the retired Quick Pick instead of the central Library');
-	}
-	if (installIfAvailable) {
-		const install = library.locator('[data-plugin-action="install"][data-extension-id="pointa.basehalf-ai-video"]').first();
-		const enable = library.locator('[data-plugin-action="enable"][data-extension-id="pointa.basehalf-ai-video"]').first();
-		const open = library.locator('[data-plugin-action="open"][data-extension-id="pointa.basehalf-ai-video"]').first();
-		if (await install.isVisible({ timeout: 2_000 }).catch(() => false)) {
-			await install.click();
-			await open.waitFor({ state: 'visible', timeout: 60_000 });
-		} else if (await enable.isVisible({ timeout: 2_000 }).catch(() => false)) {
-			await enable.click();
-			await runNativePluginRuntimeActionIfVisible(page, library);
-			await open.waitFor({ state: 'visible', timeout: 15_000 });
-		} else if (!await open.isVisible({ timeout: 2_000 }).catch(() => false)) {
-			const diagnostics = await library.locator('[data-plugin-action]').evaluateAll(elements => elements.map(element => ({
-				action: (element as HTMLElement).dataset.pluginAction,
-				extensionId: (element as HTMLElement).dataset.extensionId,
-				text: element.textContent?.trim()
-			})));
-			throw new Error(`The curated plugin exposed neither Install nor Open in the central Library: ${JSON.stringify(diagnostics)}; ${(await library.textContent())?.replace(/\s+/g, ' ').trim()}`);
-		}
-	}
-	const selectedPluginsAction = page.locator([
-		'.part.activitybar .action-item.checked .action-label[aria-label^="Plugins"]',
-		'.part.activitybar .action-item.checked .action-label.codicon-extensions',
-		'.part.sidebar .composite-bar .action-item.checked .action-label[aria-label^="Plugins"]',
-		'.part.sidebar .composite-bar .action-item.checked .action-label.codicon-extensions'
-	].join(', ')).first();
-	await selectedPluginsAction.waitFor({ state: 'visible', timeout: 15_000 });
-	await assertNoEditorTabFor(page, 'Plugins');
-	await library.locator('[data-action="close"]').click();
-	await library.waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 async function assertExternalPluginLifecycle(page) {

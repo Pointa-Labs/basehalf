@@ -551,8 +551,8 @@ export function getBaseHalfNodeLocalState(
 			'Needs input',
 			false,
 			isFrozen
-				? `Recipe '${document.recipe.recipeId}' is not installed. Restore that exact recipe to Retry; attempted settings are frozen.`
-				: `Recipe '${document.recipe.recipeId}' is not installed. Choose an available recipe.`,
+				? `Recipe '${document.recipe.recipeId}' is not available, so this attempt cannot be retried; attempted settings are frozen.`
+				: `Recipe '${document.recipe.recipeId}' is not available. Choose an available recipe.`,
 			blockedAction.kind,
 			blockedAction.label
 		);

@@ -23,39 +23,43 @@ suite('BaseHalf extension install policy', () => {
 	test('verified VSIX authorization is exact, one-use, and revocable', () => {
 		const first = authorizeBaseHalfVerifiedVSIXInstall('publisher.plugin', '1.2.3');
 		const options = { context: { [BASEHALF_VERIFIED_PLUGIN_INSTALL_CONTEXT]: first.token } };
-		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.other', '1.2.3', options), /reviewed Plugins library/);
-		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.plugin', '2.0.0', options), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.other', '1.2.3', options), /cannot install this extension/);
+		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.plugin', '2.0.0', options), /cannot install this extension/);
 		assert.doesNotThrow(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'PUBLISHER.PLUGIN', '1.2.3', options));
-		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.plugin', '1.2.3', options), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.plugin', '1.2.3', options), /cannot install this extension/);
 		first.disposable.dispose();
 
 		const revoked = authorizeBaseHalfVerifiedVSIXInstall('publisher.plugin', '1.2.3');
 		revoked.disposable.dispose();
 		assert.throws(() => assertBaseHalfVSIXInstallAllowed(baseHalfProduct, 'publisher.plugin', '1.2.3', {
 			context: { [BASEHALF_VERIFIED_PLUGIN_INSTALL_CONTEXT]: revoked.token }
-		}), /reviewed Plugins library/);
+		}), /cannot install this extension/);
 	});
 
 	test('location authorization is exact and one-use', () => {
 		const location = URI.file('/tmp/reviewed-plugin');
 		const authorization = authorizeBaseHalfLocationInstall(location);
-		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, URI.file('/tmp/other-plugin')), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, URI.file('/tmp/other-plugin')), /cannot install this extension/);
 		assert.doesNotThrow(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location));
-		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location), /cannot install this extension/);
 		authorization.dispose();
 
 		const revoked = authorizeBaseHalfLocationInstall(location);
 		revoked.dispose();
-		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location), /cannot install this extension/);
 	});
 
-	test('only exact bundled locations bypass a transaction authorization', () => {
+	test('no application location bypasses a transaction authorization', () => {
 		const bundledPath = BASEHALF_CURATED_PLUGINS.find(plugin => plugin.bundledPath)?.bundledPath;
 		assert.ok(bundledPath);
-		const bundledLocation = joinPath(FileAccess.asFileUri(''), '..', ...bundledPath.split('/'));
-		assert.doesNotThrow(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, bundledLocation));
-		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, joinPath(FileAccess.asFileUri(''), ...bundledPath.split('/'))), /reviewed Plugins library/);
-		assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, joinPath(bundledLocation, '..')), /reviewed Plugins library/);
+		const applicationRoot = joinPath(FileAccess.asFileUri(''), '..');
+		for (const location of [
+			joinPath(applicationRoot, ...bundledPath.split('/')),
+			joinPath(applicationRoot, 'extensions', 'basehalf-ai-video'),
+			joinPath(applicationRoot, 'extensions')
+		]) {
+			assert.throws(() => assertBaseHalfLocationInstallAllowed(baseHalfProduct, location), /cannot install this extension/, location.toString());
+		}
 	});
 
 	test('gallery installation requires an exact trusted product identity', () => {
@@ -65,8 +69,8 @@ suite('BaseHalf extension install policy', () => {
 			identifier: { id, uuid }
 		} as IGalleryExtension);
 		assert.doesNotThrow(() => assertBaseHalfGalleryInstallAllowed(baseHalfProduct, extension(trustedIdentity.extensionId, trustedIdentity.galleryUuid)));
-		assert.throws(() => assertBaseHalfGalleryInstallAllowed(baseHalfProduct, extension(trustedIdentity.extensionId, '00000000-0000-0000-0000-000000000000')), /reviewed Plugins library/);
-		assert.throws(() => assertBaseHalfGalleryInstallAllowed(baseHalfProduct, extension('publisher.plugin', trustedIdentity.galleryUuid)), /reviewed Plugins library/);
+		assert.throws(() => assertBaseHalfGalleryInstallAllowed(baseHalfProduct, extension(trustedIdentity.extensionId, '00000000-0000-0000-0000-000000000000')), /cannot install this extension/);
+		assert.throws(() => assertBaseHalfGalleryInstallAllowed(baseHalfProduct, extension('publisher.plugin', trustedIdentity.galleryUuid)), /cannot install this extension/);
 	});
 
 	test('upstream products retain their extension installation behavior', () => {

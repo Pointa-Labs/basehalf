@@ -264,7 +264,7 @@ export class BaseHalfNodeCommandHandler {
 		}
 		const descriptor = this.agentCapabilityRegistryService.getOperation(normalized);
 		if (!descriptor || descriptor.operation.deterministic !== true) {
-			throw new Error(`Agent operation '${operationId}' is not installed and reviewed.`);
+			throw new Error(`Agent operation '${operationId}' is not available.`);
 		}
 		return { operation: descriptor.operation };
 	}

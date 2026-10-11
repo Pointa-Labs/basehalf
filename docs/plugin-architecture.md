@@ -1,6 +1,15 @@
 # BaseHalf plugin architecture
 
-Status: implemented platform and curated publishing path, updated 2026-09-27.
+Status: frozen by
+[D45](decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)
+on 2026-10-11; last updated as an implemented platform on 2026-09-27.
+[Built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md)
+says what the product does now. The Plugin Library, the signed catalog, the
+publishing control plane, the release infrastructure, and the developer entry
+point below describe the frozen platform, not current product behavior. The
+runtime layers, the D34 implementation map, the manifest and host API, and
+the local data and workflow rules still apply to the built-in AI Video.
+
 This is the implementation map for decisions D25–D34 and the plugin rules of
 D37. Product decisions in [`decisions.md`](decisions.md) and the
 [reference graph](specs/reference-graph.md) remain authoritative.

@@ -486,6 +486,7 @@ import './basehalf/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/browser/basehalfNavigation.contribution.js';
 import './basehalf/browser/basehalfCardProjectionExtensionPoint.contribution.js';
+import './basehalf/browser/basehalfBuiltInCapabilities.contribution.js';
 import './basehalf/browser/basehalfPluginStructuralCleanupExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfCanvasRecipeExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfModelProviderCatalogExtensionPoint.contribution.js';

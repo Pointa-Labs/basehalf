@@ -1,5 +1,11 @@
 # Build and publish a BaseHalf plugin
 
+> **Paused.** Plugin publishing is frozen
+> ([D45](decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
+> BaseHalf does not install or load plugins from the catalog, and submissions
+> are not accepted. This guide describes the platform as it was built and is
+> kept for when the freeze is lifted.
+
 BaseHalf plugins add project experiences inside the fixed BaseHalf shell. They
 use the VS Code extension runtime and lifecycle, but ship through BaseHalf's
 reviewed catalog rather than the generic Marketplace.

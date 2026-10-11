@@ -203,7 +203,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		const workspaceContextService = accessor.get(IWorkspaceContextService);
 		const descriptor = recipes.getTemplate(commandArguments.templateId);
 		if (!descriptor) {
-			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not installed.", commandArguments.templateId));
+			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not available.", commandArguments.templateId));
 		}
 		const raw = await fileService.readFile(descriptor.resource, { limits: { size: 512 * 1024 } });
 		throwIfTemplateCreationCancelled(cancellationToken);
@@ -440,7 +440,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		}
 		const descriptor = recipes.getTemplate(setup.templateId);
 		if (!descriptor) {
-			throw new Error(localize('basehalf.canvas.template.resumeTemplateMissing', "Install or enable the plugin that provides '{0}', then try again.", setup.templateLabel));
+			throw new Error(localize('basehalf.canvas.template.resumeTemplateMissing', "'{0}' is not available, so this setup cannot be finished. If it stays unavailable after BaseHalf has started, AI Video could not start, and reinstalling BaseHalf repairs it.", setup.templateLabel));
 		}
 		const projectResource = joinProjectPath(workspaceFolder, setup.projectRelativePath);
 		if (!await fileService.exists(projectResource)) {
@@ -456,7 +456,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		if (await templateSourceDigest(templateSource) !== setup.templateDigest) {
 			throw new Error(localize(
 				'basehalf.canvas.template.resumeTemplateChanged',
-				"'{0}' changed after these project files were created. Reinstall the original plugin version to finish this setup, or keep the files and create a new project from the current template.",
+				"'{0}' changed after these project files were created, so this setup cannot be finished. Keep the files and create a new project from the current template.",
 				setup.templateLabel
 			));
 		}
@@ -899,7 +899,7 @@ function validateTemplateRecipes(
 		}
 		const recipe = recipes.getRecipe(node.recipe.recipeId);
 		if (!recipe) {
-			throw new Error(localize('basehalf.canvas.template.recipeMissing', "Template recipe '{0}' is not installed.", node.recipe.recipeId));
+			throw new Error(localize('basehalf.canvas.template.recipeMissing', "Template recipe '{0}' is not available.", node.recipe.recipeId));
 		}
 		const primary = recipe.outputs.find(output => output.primary === true)!;
 		if (primary.kind !== node.kind) {

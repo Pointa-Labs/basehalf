@@ -14,6 +14,8 @@ See also:
   for sidebar and extension boundaries.
 - [decisions.md D23](decisions.md#d23--module-complete-migration-not-mvp-or-intermediate-shell-new-2026-06-30)
   for the quality bar: module-complete migration, not an MVP shell.
+- [decisions.md D45](decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)
+  for built-in AI Video and the frozen plugin platform.
 
 ## Product Direction
 
@@ -35,6 +37,8 @@ BaseHalf's own product layer remains canvas-first:
 - The right side is BaseHalf's Agent Area, unifying TUI agents, extension agents,
   and plain terminals.
 - The left sidebar exposes exactly Files, Git, and Search.
+- AI Video is a built-in capability on the main canvas. There is no plugin
+  surface, and the plugin platform is frozen (D45).
 
 ## Quality Bar
 
@@ -231,6 +235,8 @@ Done means:
 
 - BaseHalf has a curated product allowlist rather than exposing the full
   marketplace by default.
+- No plugin catalog, plugin manager, or community publishing surface is
+  exposed while the plugin platform is frozen (track 11).
 - Required VS Code APIs for selected extensions are present: commands,
   terminals, webviews, auth, secrets, storage, configuration, and file access.
 - Blocked extensions fail with a clear product-level reason.
@@ -273,6 +279,33 @@ Current status: `npm run basehalf:smoke` and
 identity, canvas startup, hidden Open Editors, Source Control's VS Code Git
 provider, Quick Open, Quick Text Search, and folder routing.
 
+### 11. Built-in AI Video And The Frozen Plugin Platform
+
+Goal: AI Video works from the first start with no install step, the product
+has no plugin surface, and nothing publishes or signs a plugin unattended.
+The owning specification is
+[built-in AI Video and the frozen plugin platform](specs/built-in-ai-video-and-plugin-freeze.md).
+
+Done means:
+
+- A packaged build carries AI Video among its built-in extensions and admits
+  only that copy.
+- The Activity Bar shows exactly Files, Git, and Search. No command, link, or
+  message leads to Plugins.
+- BaseHalf makes no request to the plugin registry or the publishing portal.
+- Extensions that an earlier build's plugin installer put into a profile are
+  never admitted.
+- The promotion workflow has no schedule, and the publishing portal and its
+  API are out of service. The registry, the signing key, and the stored data
+  are kept.
+- The platform's code stays in the repository, compiles, and keeps its tests.
+
+Current status: the client side is implemented and covered by unit tests and
+the smoke. The services are not changed yet: the publishing portal and its
+API are still online, the release token is not revoked, and the developer
+packages carry no notice. Builds that are already distributed still show the
+Plugins library and reject the published catalog.
+
 ## Current Execution Order
 
 1. Complete the module audit against D23 and VS Code source, with parallel
@@ -292,6 +325,9 @@ provider, Quick Open, Quick Text Search, and folder routing.
    as one document ownership family.
 6. Finish Agent Area extension compatibility, starting with Codex and Claude
    extension paths.
+7. Land track 11 before the next packaged release: stop the scheduled
+   promotion workflow first, then make AI Video built in and remove the plugin
+   surface in one change, then take the portal and its API out of service.
 
 ## Historical Notes
 

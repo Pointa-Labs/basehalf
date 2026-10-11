@@ -1,5 +1,10 @@
 # Publish, review, and update
 
+> **Paused.** Plugin publishing is frozen
+> ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
+> The portal does not accept submissions, and nothing is reviewed or
+> published.
+
 ## Publish from the plugin project
 
 ```bash

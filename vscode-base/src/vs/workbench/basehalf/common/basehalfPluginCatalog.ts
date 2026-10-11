@@ -170,7 +170,7 @@ export function baseHalfPluginLocationsEqual(first: URI, second: URI): boolean {
 	return baseHalfPluginLocationComparisonKey(first) === baseHalfPluginLocationComparisonKey(second);
 }
 
-function baseHalfApplicationRoot(): URI {
+export function baseHalfApplicationRoot(): URI {
 	return joinPath(FileAccess.asFileUri(''), '..');
 }
 

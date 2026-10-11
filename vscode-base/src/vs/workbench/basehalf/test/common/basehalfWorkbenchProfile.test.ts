@@ -46,22 +46,21 @@ import {
 suite('BaseHalfWorkbenchProfile', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('declares Files, Git, Search, and curated Plugins as primary left-sidebar containers', () => {
+	test('declares exactly Files, Git, and Search as primary left-sidebar containers', () => {
 		assert.strictEqual(BASEHALF_PRODUCT_PROFILE_ID, 'basehalf.canvasWorkbench');
 		assert.deepStrictEqual(
 			BASEHALF_PRIMARY_VIEW_CONTAINERS.map(surface => surface.id),
 			[
 				'workbench.view.explorer',
 				'workbench.view.scm',
-				'workbench.view.search',
-				'basehalf.view.plugins'
+				'workbench.view.search'
 			]
 		);
 
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('workbench.view.explorer'), true);
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('workbench.view.scm'), true);
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('workbench.view.search'), true);
-		assert.strictEqual(isBaseHalfPrimaryViewContainer('basehalf.view.plugins'), true);
+		assert.strictEqual(isBaseHalfPrimaryViewContainer('basehalf.view.plugins'), false);
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('workbench.view.extensions'), false);
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('workbench.panel.chat'), false);
 		assert.strictEqual(isBaseHalfPrimaryViewContainer('terminal'), false);
@@ -70,7 +69,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 	test('classifies stock VS Code surfaces as primary, remapped, or hidden', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.explorer'), 'primary');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.scm.repositories'), 'primary');
-		assert.strictEqual(getBaseHalfSurfaceDisposition('basehalf.plugins'), 'primary');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('basehalf.plugins'), undefined);
 		assert.strictEqual(getBaseHalfSurfaceDisposition('terminal'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.new'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.newWithProfile'), 'remapped');
@@ -206,14 +205,13 @@ suite('BaseHalfWorkbenchProfile', () => {
 			[
 				'workbench.view.explorer',
 				'workbench.view.scm',
-				'workbench.view.search',
-				'basehalf.view.plugins'
+				'workbench.view.search'
 			]
 		);
 		assert.ok(BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.some(surface => surface.id === 'workbench.view.extensions' && !surface.pinned && !surface.visible));
 		assert.ok(BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.some(surface => surface.id === 'workbench.view.debug' && !surface.pinned && !surface.visible));
 		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'workbench.view.search' && surface.visible));
-		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'basehalf.view.plugins' && surface.visible));
+		assert.ok(!BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'basehalf.view.plugins'));
 		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'workbench.view.remote' && !surface.visible));
 	});
 
@@ -312,6 +310,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('openai.chatgpt'), true);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ANTHROPIC.CLAUDE-CODE'), true);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('pointa.basehalf-ai-video'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('pointa.basehalf-ai-video'), false);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ms-vscode.remote-server'), false);
 		assert.strictEqual(isBaseHalfTrustedExternalGalleryIdentity('openai.chatgpt', '90b52117-6fd1-4f1c-9e14-256bd6e21d79'), true);
@@ -325,7 +324,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['git', 'github', 'github-authentication', 'codex', 'claude', 'domain-plugins']
+			['git', 'github', 'github-authentication', 'codex', 'claude', 'ai-video']
 		);
 	});
 

@@ -12,8 +12,7 @@ import { Testing } from '../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../services/search/common/search.js';
-import { BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from './basehalfPluginCatalog.js';
-import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES } from './basehalfPluginIdentities.js';
+import { BASEHALF_BUILT_IN_CAPABILITIES } from './basehalfBuiltInCapabilities.js';
 import { BASEHALF_TRUSTED_EXTERNAL_GALLERY_IDENTITIES, isBaseHalfTrustedExternalGalleryIdentity } from '../../../platform/extensionManagement/common/basehalfExtensionGalleryPolicy.js';
 import { WorkbenchState } from '../../../platform/workspace/common/workspace.js';
 
@@ -26,7 +25,7 @@ export const BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY = 'workbench.statusba
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command' | 'statusbarEntry';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
-export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'plugins' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
+export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
 
 export interface IBaseHalfWorkbenchSurface {
 	readonly id: string;
@@ -57,13 +56,6 @@ export const BASEHALF_PRIMARY_VIEW_CONTAINERS = [
 		area: 'search',
 		source: 'src/vs/workbench/services/search/common/search.ts',
 		reason: 'Search uses VS Code search services and quick access, with BaseHalf result activation remapped into canvas/card navigation.'
-	},
-	{
-		id: BASEHALF_PLUGINS_VIEW_CONTAINER_ID,
-		kind: 'viewContainer',
-		area: 'plugins',
-		source: 'src/vs/workbench/basehalf/browser/basehalfPluginsView.ts',
-		reason: 'Plugins uses the native Activity Bar and view-container lifecycle while exposing only the BaseHalf-reviewed catalog.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -102,13 +94,6 @@ export const BASEHALF_PRIMARY_VIEWS = [
 		area: 'search',
 		source: 'src/vs/workbench/services/search/common/search.ts',
 		reason: 'Search view remains visible; result open behavior is remapped by the BaseHalf navigation module.'
-	},
-	{
-		id: BASEHALF_PLUGINS_VIEW_ID,
-		kind: 'view',
-		area: 'plugins',
-		source: 'src/vs/workbench/basehalf/browser/basehalfPluginsView.ts',
-		reason: 'The curated plugin list reuses workbench search, view title actions, context menus, settings, and extension-management services without exposing Marketplace.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -433,7 +418,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'domain-plugins';
+export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'ai-video';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -659,12 +644,15 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		reason: 'Claude Code extension sessions are allowed only through the curated Agent Area extension-agent path.'
 	},
 	{
-		family: 'domain-plugins',
+		family: 'ai-video',
+		// Not listed under builtInExtensionIds on purpose: those are allowed by
+		// id, while AI Video is allowed only as the copy in the application's own
+		// extensions folder, which the admission service checks by location.
 		builtInExtensionIds: [],
-		externalExtensionIds: BASEHALF_OFFICIAL_PLUGIN_IDENTITIES.map(identity => identity.extensionId),
+		externalExtensionIds: BASEHALF_BUILT_IN_CAPABILITIES.map(capability => capability.extensionId),
 		externalSlotIds: [],
-		source: 'extensions/basehalf-ai-video/package.json; BaseHalf curated domain-plugin catalog',
-		reason: 'The first-party AI Video plugin validates the fixed-shell, open-center domain-plugin contract.'
+		source: 'extensions/basehalf-ai-video/package.json',
+		reason: 'AI Video ships inside the application as a built-in extension and is admitted only as that copy.'
 	}
 ] as const satisfies readonly IBaseHalfAllowedExtensionFamily[];
 

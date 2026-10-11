@@ -55,7 +55,7 @@ suite('BaseHalfPluginAdmissionService', () => {
 		await assert.rejects(() => hashBaseHalfPluginInstall(files, location), /strict UTF-8 JSON/);
 	});
 
-	test('separates bundled official trust from exact signed-version trust', async () => {
+	test('never admits a profile copy of a built-in capability and admits reviewed plugins only by exact signed version', async () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const files = fileService();
 		const service = disposables.add(new BaseHalfPluginAdmissionService(storage, environment(), files));
@@ -69,8 +69,10 @@ suite('BaseHalfPluginAdmissionService', () => {
 			throw new Error('Expected an official bundled plugin fixture.');
 		}
 		const bundledLocation = joinPath(FileAccess.asFileUri(''), '..', ...official.bundledPath.split('/'));
+		const builtInLocation = joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'basehalf-ai-video');
 
-		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.1.0', bundledLocation)), true);
+		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.1.0', bundledLocation)), false);
+		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.1.0', builtInLocation)), false);
 		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.1.0', URI.file('/tmp/untrusted-extension'))), false);
 		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.1.0', URI.file('/tmp/builtin'), true)), false);
 		assert.strictEqual(service.isAllowedContributor(identity('untrusted.extension', '1.0.0', URI.file('/tmp/builtin'), true)), false);
@@ -331,18 +333,28 @@ suite('BaseHalfPluginAdmissionService', () => {
 		assert.strictEqual(normalService.isAllowedContributor(identity('reviewed.workflow', '0.0.1', developmentLocation, false, true)), false);
 	});
 
-	test('admits the official built-in only from the development scanner location', () => {
+	test('admits the built-in capability only from the application extensions folder, packaged or not', () => {
 		const storage = disposables.add(new InMemoryStorageService());
 		const files = fileService();
 		const official = BASEHALF_CURATED_PLUGINS[0];
 		const applicationRoot = joinPath(FileAccess.asFileUri(''), '..');
 		const scannerLocation = joinPath(applicationRoot, 'extensions', 'basehalf-ai-video');
 		const staleOutLocation = joinPath(FileAccess.asFileUri(''), 'extensions', 'basehalf-ai-video');
-		const service = disposables.add(new BaseHalfPluginAdmissionService(storage, environment(false, undefined, false), files));
 
-		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.6.0', scannerLocation, true)), true);
-		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.6.0', staleOutLocation, true)), false);
-		assert.strictEqual(service.isAllowedContributor(identity(official.extensionId, '0.6.0', joinPath(scannerLocation, '..'), true)), false);
+		for (const isBuilt of [true, false]) {
+			const service = disposables.add(new BaseHalfPluginAdmissionService(storage, environment(false, undefined, isBuilt), files));
+			assert.deepStrictEqual({
+				builtInCopy: service.isAllowedContributor(identity(official.extensionId, '0.6.0', scannerLocation, true)),
+				profileCopyAtTheSamePath: service.isAllowedContributor(identity(official.extensionId, '0.6.0', scannerLocation, false)),
+				staleOutputCopy: service.isAllowedContributor(identity(official.extensionId, '0.6.0', staleOutLocation, true)),
+				parentFolder: service.isAllowedContributor(identity(official.extensionId, '0.6.0', joinPath(scannerLocation, '..'), true))
+			}, {
+				builtInCopy: true,
+				profileCopyAtTheSamePath: false,
+				staleOutputCopy: false,
+				parentFolder: false
+			}, `isBuilt: ${isBuilt}`);
+		}
 	});
 
 	test('merges independent receipts and re-verifies storage changes from another service instance', async () => {

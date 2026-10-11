@@ -51,8 +51,9 @@ numbers (create, move a card beside them, delete), a description file that
 cannot be read recovering on the next save, cards that follow files renamed
 from outside the window (one file, the folder whose canvas is open, and many
 files at once), the rich reveal highlight,
-card resizing with its rounded corner targets and indicator, and the video node
-flows. Extend its acceptance coverage when a
+card resizing with its rounded corner targets and indicator, the sidebar
+showing exactly Files, Git, and Search with no plugin command, and the video
+node flows of the built-in AI Video. Extend its acceptance coverage when a
 changed workbench flow is not represented there.
 
 The broader VS Code-base suite is:
