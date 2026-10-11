@@ -96,6 +96,26 @@ if (notes.length > 16384) {
 	process.exit(1);
 }
 
+const protocolSource = readFileSync(
+	new URL('../../src/vs/platform/update/node/basehalfUpdateProtocol.ts', import.meta.url),
+	'utf8',
+);
+
+// An installed application refuses a manifest whose archive is above the
+// limit it was released with, and can then not be updated by itself. Checked
+// before the archive is read (app update, "Before a release").
+//
+// This is the limit of the applications that are installed, not of the tree
+// that is released: raising MAX_ARCHIVE_BYTES in basehalfUpdateProtocol.ts
+// does not raise it. Raise it here only when no application that was
+// released with a lower limit has to update itself any more.
+const INSTALLED_APPLICATIONS_ACCEPT_MIB = 500;
+const length = statSync(zipPath).size;
+if (length > INSTALLED_APPLICATIONS_ACCEPT_MIB * 1024 * 1024) {
+	console.error(`The archive is ${length} bytes. Installed applications accept ${INSTALLED_APPLICATIONS_ACCEPT_MIB} MiB (${INSTALLED_APPLICATIONS_ACCEPT_MIB * 1024 * 1024} bytes) and would refuse this update.`);
+	process.exit(1);
+}
+
 const privateKey = createPrivateKey(readFileSync(keyPath));
 const bytes = readFileSync(zipPath);
 const signature = sign(null, bytes, privateKey).toString('base64');
@@ -104,11 +124,7 @@ const signature = sign(null, bytes, privateKey).toString('base64');
 // signed, or every install would reject this release. Compare key material.
 // BH_UPDATE_SKIP_KEYCHECK=1 bypasses it for tests that sign with a throwaway key.
 if (process.env.BH_UPDATE_SKIP_KEYCHECK !== '1') {
-	const protocolSrc = readFileSync(
-		new URL('../../src/vs/platform/update/node/basehalfUpdateProtocol.ts', import.meta.url),
-		'utf8',
-	);
-	const embedded = /BASEHALF_UPDATE_PUBKEY_B64 = '(?<key>[A-Za-z0-9+/=]+)'/.exec(protocolSrc)?.groups?.key;
+	const embedded = /BASEHALF_UPDATE_PUBKEY_B64 = '(?<key>[A-Za-z0-9+/=]+)'/.exec(protocolSource)?.groups?.key;
 	const derived = createPublicKey(privateKey)
 		.export({ type: 'spki', format: 'der' })
 		.toString('base64');
@@ -124,7 +140,6 @@ const pubDate = new Date().toISOString();
 // --url overrides the archive location (staging feeds; end-to-end tests sign a
 // local absolute path — the app only accepts that from a local feed override).
 const url = flagValue('--url') ?? `https://github.com/Pointa-Labs/basehalf/releases/download/v${version}/${basename(zipPath)}`;
-const length = statSync(zipPath).size;
 
 // Sign the manifest METADATA too, so version/url/length/pubDate/notes can't be
 // forged (an unsigned manifest lets a feed attacker relabel an old signed
