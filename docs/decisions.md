@@ -8,10 +8,11 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D42 capture the current direction; D35–D38
+> (see notes inline). D12–D43 capture the current direction; D35–D38
 > (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline,
 > D39 (2026-10) refines D21, D40 (2026-10) refines D12 and D19, D41
-> (2026-10) refines D37 and D40, and D42 (2026-10) refines D37.
+> (2026-10) refines D37 and D40, D42 (2026-10) refines D37, and D43
+> (2026-10) refines D36.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -1030,3 +1031,38 @@ note. Keeping the list beside the note never touches the file.
 - Still without a repair: a note whose frontmatter is a flow mapping that
   already holds `upstream`, which is read but cannot be edited, and an
   unreadable `.bhnode`, which is a node-document matter.
+
+## D43 — Agents learn a BaseHalf workspace from a skill the user installs (NEW, 2026-10-11)
+
+**Decision.** BaseHalf ships one agent skill, `basehalf`, in the open Agent
+Skills format. It tells an agent where a card's badge is (its description and
+its upstream and downstream connections) and how to move files without losing
+it. BaseHalf offers the skill when a workspace opens, and the user installs
+it. It goes into the agents' own skill folders in the user's home folder, for
+Claude Code and for agents that read the shared location, such as Codex.
+Where BaseHalf stores a badge does not change: a note's upstream list stays in
+the note, and descriptions and the other upstream lists stay under `.bh/`.
+See [agent skill](specs/agent-skill.md).
+
+**Why.** BaseHalf is the container that intelligence flows through, not an
+intelligence layer. D36 reached one agent, Claude Code started from Agent
+Area, by adding to its system prompt. Every other agent learned nothing about
+descriptions or the lists under `.bh/`. Moving that data into visible files
+was considered and set aside: it either removes connections into PDFs and
+folders or adds files to the user's folders. A skill needs neither. It is a
+format the agents share, the user chooses to install it, and it works for an
+agent started anywhere.
+
+**Consequences.**
+- Refines D36. BaseHalf still writes nothing into a workspace for agents and
+  nothing into `AGENTS.md` or `CLAUDE.md`. Its one write outside the workspace
+  is the skill, and only when the user asks for it.
+- An agent uses a skill when it judges that the task matches. The skill makes
+  the badge reachable; it does not guarantee that an agent reads it.
+- "Publish data, never dictate traversal" stands. The skill says where things
+  are and what they mean, not what to read first.
+- A Claude Code session started from Agent Area with the skill installed gets
+  a short pointer to the skill instead of the full launch instruction.
+- A badge that changes is not announced to a running session. The skill says
+  to read it from disk again.
+

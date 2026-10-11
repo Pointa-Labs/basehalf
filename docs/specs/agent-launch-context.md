@@ -49,6 +49,16 @@ the application bundle, so no local process can change it.
 - For a qualifying session, `baseHalfTuiSessionLaunchConfig` returns
   `args: ['--append-system-prompt', TEXT]`.
 - Restarts use the same function, so a restart keeps the argument.
+- **With the BaseHalf skill.** When the [agent skill](agent-skill.md) is
+  installed for Claude Code, TEXT is a short pointer instead of the full
+  instruction, because the skill holds the same sections: "You are running
+  inside a BaseHalf workspace, started from BaseHalf's Agent Area. The
+  `basehalf` skill describes this workspace: where a card's description and
+  its upstream and downstream connections are, how to move and rename files
+  so that they keep them, and how to run canvas workflows. Use that skill
+  before you read, write, move, or rename anything here." Whether the skill
+  is installed is read when the session launches. Everything else in this
+  section applies to both texts.
 
 If a session that was launched with the argument exits with a non-zero code
 within 5 seconds, before any user input, Agent Area relaunches it once without
@@ -171,3 +181,7 @@ The instruction covers the following, in this order.
 4. A unit test shows the terminal exit message for a long multi-line argument
    by its first non-blank line and `…`, and leaves a short multi-line argument
    unchanged.
+5. With the skill installed for Claude Code, a qualifying session's argument
+   is the pointer text, which names the `basehalf` skill. Without it, the
+   argument is the full instruction. Both are recognized when the argument is
+   stripped for a relaunch. Unit test.

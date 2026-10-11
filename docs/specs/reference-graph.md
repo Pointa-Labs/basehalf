@@ -1013,7 +1013,10 @@ move, so nothing is left behind. Any Agent Area terminal session that has the
 node command bridge can run it, unless a sandbox denies the bridge socket, as
 Codex's default sandbox does. Claude Code sessions that receive the
 [agent launch context](agent-launch-context.md) are told to use it instead of
-`mv`; other agents are not told.
+`mv`, and so is any agent that loads the
+[BaseHalf agent skill](agent-skill.md). An agent outside Agent Area cannot
+run the operation, so its move is a move outside the workbench; both texts
+say what to do then.
 
 ```sh
 basehalf --run-operation '{"operationId":"basehalf.workspace.move","parameters":{"from":"branches/svd.md","to":"branches/singular-value-decomposition.md"}}'

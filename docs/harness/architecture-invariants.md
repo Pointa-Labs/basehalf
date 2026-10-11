@@ -105,8 +105,13 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   and no `.gitignore` edits into workspaces. Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
+- BaseHalf is the container that intelligence flows through, not an
+  intelligence layer. Agents learn a workspace from the files and from the
+  [agent skill](../specs/agent-skill.md), which BaseHalf offers and the user
+  installs into the agents' own skill folders. It is never installed unasked
+  and never written into a workspace (D43).
 
-See public decisions D12–D14, D24, D35–D38, and D40–D42, the
+See public decisions D12–D14, D24, D35–D38, and D40–D43, the
 [reference graph](../specs/reference-graph.md) and
 [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md)
 specifications, and the relevant records under `private-docs/decisions/`.

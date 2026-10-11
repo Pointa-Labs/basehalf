@@ -97,6 +97,7 @@ In VS Code storage (this machine):
 | `basehalf.cleanup.agentGuides.kept.v1` | workspace | folders where the user chose Keep for old agent guides |
 | `basehalf.cleanup.mirrorNotice.v1` | workspace | folders already told about removed `.bh/` files |
 | `basehalf.references.firstFrontmatterNotice.v1` | application | whether the first-frontmatter notice was shown |
+| `basehalf.agentSkill.declinedVersion` | application | the version of the [agent skill](agent-skill.md) the user chose not to be asked about again |
 | `basehalf.canvas.pendingTemplateSetups.v2` | workspace | pending template setups ([reference graph](reference-graph.md#templates)) |
 
 ## Canvas viewport state
@@ -303,6 +304,9 @@ release that contains every slice states:
 - BaseHalf removes files that earlier versions kept for itself and no longer
   uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md,
   and remembers where you left each canvas on this computer.
+- BaseHalf can install a skill for your agents, so that Claude Code, Codex,
+  and others know where a card's description and connections are. It asks
+  first, and adds it to the agents' own settings, not to your folder.
 - If you keep your notes in git: the removed files show up as deletions,
   BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A
   folder that ignores all of .bh/ does not share the upstream lists of PDFs,
