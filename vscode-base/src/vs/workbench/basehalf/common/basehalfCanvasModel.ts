@@ -64,6 +64,12 @@ export interface IBaseHalfCanvasCard {
 	readonly y: number;
 	readonly width: number;
 	readonly height: number;
+	/**
+	 * BaseHalf chose this place and the user has not changed it since (canvas
+	 * card placement). Only such a row gives way to the row that follows a
+	 * moved item, and only such a row is removed when its item is gone.
+	 */
+	readonly auto?: true;
 }
 
 /**
@@ -112,13 +118,12 @@ export interface IBaseHalfCanvasItem {
 	readonly name: string;
 	readonly kind: BaseHalfCanvasItemKind;
 	readonly stat: IFileStat;
-	readonly card?: IBaseHalfCanvasCard;
 	/**
-	 * The automatic place of a card without a saved one, when its grid slot is
-	 * taken and BaseHalf chose a free place (canvas card placement). It is never
-	 * written.
+	 * The card's row. Every item of a folder model has one: the row of the
+	 * layout, or the place BaseHalf chose for a card that appeared (canvas card
+	 * placement).
 	 */
-	readonly place?: IBaseHalfCanvasPosition;
+	readonly card?: IBaseHalfCanvasCard;
 	readonly badge?: IBaseHalfCanvasBadgeMetadata;
 	/** Present when the card has upstream or downstream connections or issues. */
 	readonly relationships?: IBaseHalfCanvasItemRelationships;
@@ -189,6 +194,12 @@ export interface IBaseHalfCanvasFolderModel {
 	readonly edges: readonly IBaseHalfCanvasEdge[];
 	readonly truncated: number;
 	readonly size?: IBaseHalfCanvasSize;
+	/**
+	 * The rows of the shown cards that the layout does not hold, in list order:
+	 * the cards that appeared in this model and the ones whose place still waits
+	 * for a write.
+	 */
+	readonly appeared: readonly IBaseHalfCanvasCard[];
 }
 
 export interface IBaseHalfCanvasModelOptions {
@@ -200,6 +211,12 @@ export interface IBaseHalfCanvasModelOptions {
 	/** Connections by workspace-relative path, from the reference index. Edges
 	 *  are drawn only from these; omit them while the index is building. */
 	readonly relationships?: ReadonlyMap<string, IBaseHalfCanvasItemRelationships>;
+	/** The places BaseHalf chose for this folder and could not save yet, by path. */
+	readonly waiting?: ReadonlyMap<string, IBaseHalfCanvasCard>;
+	/** The size of a new card whose kind is not drawn at the default size, by path. */
+	readonly newCardSizes?: ReadonlyMap<string, IBaseHalfCanvasSize>;
+	/** Maps a path to what two spellings of the same path share. Defaults to the path. */
+	readonly pathKey?: (path: string) => string;
 }
 
 export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
@@ -274,13 +291,14 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 			return basename(a.resource).localeCompare(basename(b.resource));
 		});
 
-	const cardByPath = new Map((options.canvas?.cards ?? []).map(card => [card.path, card]));
+	const pathKey = options.pathKey ?? (path => path);
+	const cardByPath = new Map((options.canvas?.cards ?? []).map(card => [pathKey(card.path), card]));
 	const folderRelativePath = options.folderRelativePath ?? '';
 	const allItems = eligibleChildren.map(stat => {
 		const name = basename(stat.resource);
 		const path = childPath(folderRelativePath, name);
 		const kind: BaseHalfCanvasItemKind = stat.isDirectory ? 'folder' : 'file';
-		const card = cardByPath.get(path);
+		const card = cardByPath.get(pathKey(path)) ?? options.waiting?.get(path);
 		const badge = options.badges?.get(path);
 		const relationships = options.relationships?.get(path);
 		return {
@@ -311,42 +329,25 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 			});
 	}
 
-	items = withFreeAutomaticPlaces(items);
+	// Every card has a place (canvas card placement). A card without a row
+	// appears: it gets its place now, at the end of the canvas, and keeps it.
+	// What is taken is every row of the layout, also of an item that is gone,
+	// and the places that still wait for a write.
+	const rows = options.canvas?.cards ?? [];
+	const inLayout = new Set(rows.map(card => pathKey(card.path)));
+	const isWaiting = (item: IBaseHalfCanvasItem) => item.card !== undefined && !inLayout.has(pathKey(item.path));
+	const chosen = new Map(baseHalfCanvasPlaceAppearing(
+		items.filter(item => !item.card).map(item => ({ path: item.path, kind: item.kind, ...(options.newCardSizes?.get(item.path) ?? baseHalfCanvasDefaultCardSize(item.kind)) })),
+		[...rows, ...items.flatMap(item => isWaiting(item) ? [item.card!] : [])]
+	).map(card => [card.path, card]));
+	items = items.map(item => item.card ? item : { ...item, card: chosen.get(item.path) });
 	return {
 		items,
 		edges: deriveCanvasEdges(items, options.canvas?.edges ?? []),
 		truncated: Math.max(0, allItems.length - items.length),
-		size: options.canvas?.size
+		size: options.canvas?.size,
+		appeared: items.flatMap(item => isWaiting(item) ? [item.card!] : [])
 	};
-}
-
-/**
- * BaseHalf never puts a card on another card by its own choice. A card
- * without a saved place stays in its grid slot when that is free of the
- * saved places. The others take, in list order, the nearest place that is
- * free of the saved places, of the slots that are in use, and of the places
- * given before. Where no card has a saved place the plain grid stands, in
- * which no two slots meet.
- */
-function withFreeAutomaticPlaces<T extends IBaseHalfCanvasItem>(items: readonly T[]): T[] {
-	const saved: IBaseHalfCanvasBounds[] = items.flatMap(item => item.card ? [{ x: item.card.x, y: item.card.y, width: item.card.width, height: item.card.height }] : []);
-	if (saved.length === 0) {
-		return [...items];
-	}
-	const slots = items.map((item, index) => item.card ? undefined : { ...baseHalfCanvasPosition(index, items.length), width: defaultCardWidth(item.kind), height: defaultCardHeight(item.kind) });
-	// A card that nothing lies on does not move because another one has to.
-	const inSlot = slots.map(slot => slot !== undefined && saved.every(other => !canvasBoundsOverlap(slot, other)));
-	const taken = [...saved, ...slots.flatMap((slot, index) => slot && inSlot[index] ? [slot] : [])];
-	return items.map((item, index) => {
-		const slot = slots[index];
-		if (!slot || inSlot[index]) {
-			return item;
-		}
-		const size = { width: slot.width, height: slot.height };
-		const place = baseHalfCanvasOpenPosition(slot, size, taken);
-		taken.push({ ...place, ...size });
-		return { ...item, place };
-	});
 }
 
 /** Whether a card has any connection or connection issue worth keeping on the canvas. */
@@ -415,21 +416,100 @@ export function baseHalfCanvasItemsFromStat(folder: IFileStat, rootLevel: boolea
 	return [...baseHalfCanvasModelFromStat(folder, { rootLevel }).items];
 }
 
-export function baseHalfCanvasPosition(index: number, total: number): IBaseHalfCanvasPosition {
+const BASEHALF_CANVAS_CELL_WIDTH = BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP;
+const BASEHALF_CANVAS_CELL_HEIGHT = BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP;
+/** A row of new cards is at least this wide: five cells without the last gap. */
+const BASEHALF_CANVAS_MIN_ROW_WIDTH = 5 * BASEHALF_CANVAS_CELL_WIDTH - BASEHALF_CANVAS_GRID_COLUMN_GAP;
+
+/** The grid of a folder whose cards all appear together. */
+function plainGrid(total: number): { readonly cols: number; readonly originX: number; readonly originY: number; readonly width: number } {
 	const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
 	const usedCols = Math.max(1, Math.min(total, cols));
 	const rows = Math.max(1, Math.ceil(Math.max(1, total) / cols));
-	const cellWidth = BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP;
-	const cellHeight = BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP;
-	const gridWidth = (usedCols - 1) * cellWidth + BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH;
-	const gridHeight = (rows - 1) * cellHeight + BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT;
-	const originX = Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_WIDTH - gridWidth) / 2);
-	const originY = Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_HEIGHT - gridHeight) / 2);
-
+	const width = (usedCols - 1) * BASEHALF_CANVAS_CELL_WIDTH + BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH;
+	const height = (rows - 1) * BASEHALF_CANVAS_CELL_HEIGHT + BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT;
 	return {
-		x: roundCanvasNumber(originX + (index % cols) * cellWidth),
-		y: roundCanvasNumber(originY + Math.floor(index / cols) * cellHeight)
+		cols,
+		originX: Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_WIDTH - width) / 2),
+		originY: Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_HEIGHT - height) / 2),
+		width
 	};
+}
+
+export function baseHalfCanvasPosition(index: number, total: number): IBaseHalfCanvasPosition {
+	const grid = plainGrid(total);
+	return {
+		x: roundCanvasNumber(grid.originX + (index % grid.cols) * BASEHALF_CANVAS_CELL_WIDTH),
+		y: roundCanvasNumber(grid.originY + Math.floor(index / grid.cols) * BASEHALF_CANVAS_CELL_HEIGHT)
+	};
+}
+
+/** The left and right edge of the rows that the new cards of one drawing continue. */
+export interface IBaseHalfCanvasRowSpan {
+	readonly start: number;
+	readonly end: number;
+	/** Where the first card goes when nothing is taken. */
+	readonly first: IBaseHalfCanvasPosition;
+}
+
+/**
+ * The rows that new cards continue, fixed for one drawing from what is taken
+ * when it starts. With cards on the canvas the rows are as wide as those
+ * cards, and at least five cells. On an empty canvas they are the plain grid
+ * for the cards that appear together.
+ */
+export function baseHalfCanvasRowSpan(taken: readonly IBaseHalfCanvasBounds[], appearing: number): IBaseHalfCanvasRowSpan {
+	const grid = plainGrid(appearing);
+	const first = { x: roundCanvasNumber(grid.originX), y: roundCanvasNumber(grid.originY) };
+	if (taken.length === 0) {
+		return { start: first.x, end: roundCanvasNumber(grid.originX + grid.width), first };
+	}
+	const start = Math.min(...taken.map(bounds => bounds.x));
+	return { start, end: Math.max(Math.max(...taken.map(bounds => bounds.x + bounds.width)), start + BASEHALF_CANVAS_MIN_ROW_WIDTH), first };
+}
+
+/**
+ * Where a card goes that nobody pointed at: the end of the canvas. That is
+ * beside the last card, the one furthest down and then furthest right, or at
+ * the start of a new row below everything. Nothing is put between the cards
+ * that are there: an empty stretch between the user's cards is theirs.
+ */
+export function baseHalfCanvasEndPlace(taken: readonly IBaseHalfCanvasBounds[], size: IBaseHalfCanvasSize, span: IBaseHalfCanvasRowSpan): IBaseHalfCanvasPosition {
+	if (taken.length === 0) {
+		return span.first;
+	}
+	const last = taken.reduce((found, bounds) => bounds.y > found.y || (bounds.y === found.y && bounds.x > found.x) ? bounds : found);
+	const beside = {
+		x: roundCanvasNumber(Math.max(last.x + BASEHALF_CANVAS_CELL_WIDTH, last.x + last.width + BASEHALF_CANVAS_GRID_COLUMN_GAP)),
+		y: last.y
+	};
+	if (beside.x + size.width <= span.end && baseHalfCanvasIsOpen({ ...beside, ...size }, taken)) {
+		return beside;
+	}
+	const bottom = Math.max(...taken.map(bounds => bounds.y + bounds.height));
+	return {
+		x: span.start,
+		y: roundCanvasNumber(Math.max(last.y + BASEHALF_CANVAS_CELL_HEIGHT, bottom + BASEHALF_CANVAS_GRID_ROW_GAP))
+	};
+}
+
+/**
+ * The rows of the cards that appear in one drawing, in the order given. Each
+ * goes to the end of the canvas and counts as taken for the next. They are
+ * chosen rows: BaseHalf picked the place, not the user.
+ */
+export function baseHalfCanvasPlaceAppearing(
+	appearing: readonly (IBaseHalfCanvasSize & { readonly path: string; readonly kind: BaseHalfCanvasItemKind })[],
+	taken: readonly IBaseHalfCanvasBounds[]
+): IBaseHalfCanvasCard[] {
+	const span = baseHalfCanvasRowSpan(taken, appearing.length);
+	const all = [...taken];
+	return appearing.map(item => {
+		const size = { width: item.width, height: item.height };
+		const card: IBaseHalfCanvasCard = { path: item.path, kind: item.kind, ...baseHalfCanvasEndPlace(all, size, span), ...size, auto: true };
+		all.push(card);
+		return card;
+	});
 }
 
 /** Places a group imported at one pointer location as a readable compact grid. */
@@ -439,6 +519,25 @@ export function baseHalfCanvasTransferPosition(origin: IBaseHalfCanvasPosition, 
 		x: roundCanvasNumber(origin.x + (index % cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP)),
 		y: roundCanvasNumber(origin.y + Math.floor(index / cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP))
 	};
+}
+
+/**
+ * The places of a group that the user dropped at one point. The group keeps
+ * its block where the block is open: the cards whose slots are open take them
+ * first, then the others take, in order, the nearest open place to their slot.
+ */
+export function baseHalfCanvasTransferPlaces(origin: IBaseHalfCanvasPosition, sizes: readonly IBaseHalfCanvasSize[], taken: readonly IBaseHalfCanvasBounds[]): IBaseHalfCanvasPosition[] {
+	const slots = sizes.map((_, index) => baseHalfCanvasTransferPosition(origin, index, sizes.length));
+	const inSlot = slots.map((slot, index) => baseHalfCanvasIsOpen({ ...slot, ...sizes[index] }, taken));
+	const all = [...taken, ...slots.flatMap((slot, index) => inSlot[index] ? [{ ...slot, ...sizes[index] }] : [])];
+	return slots.map((slot, index) => {
+		if (inSlot[index]) {
+			return slot;
+		}
+		const place = baseHalfCanvasOpenPosition(slot, sizes[index], all);
+		all.push({ ...place, ...sizes[index] });
+		return place;
+	});
 }
 
 /**
@@ -471,10 +570,21 @@ export function baseHalfCanvasOpenPosition(
 				return candidate;
 			}
 	}
-	return {
-		x: roundCanvasNumber(preferred.x + (occupied.length + 1) * columnStep),
-		y: preferred.y
-	};
+	// Nothing near the point is open: the card goes where any new card goes.
+	return baseHalfCanvasEndPlace(occupied, size, baseHalfCanvasRowSpan(occupied, 1));
+}
+
+/**
+ * Whether a card can be put somewhere: it is at least the column gap away to
+ * the side, or the row gap away above or below, from everything that is taken.
+ */
+export function baseHalfCanvasIsOpen(bounds: IBaseHalfCanvasBounds, taken: readonly IBaseHalfCanvasBounds[]): boolean {
+	return taken.every(other => !canvasBoundsOverlap(bounds, other));
+}
+
+/** The size at which a card of a kind is drawn when it is new. */
+export function baseHalfCanvasDefaultCardSize(kind: BaseHalfCanvasItemKind): IBaseHalfCanvasSize {
+	return { width: defaultCardWidth(kind), height: defaultCardHeight(kind) };
 }
 
 function canvasBoundsContain(container: IBaseHalfCanvasBounds, child: IBaseHalfCanvasBounds): boolean {
@@ -492,7 +602,7 @@ function canvasBoundsOverlap(a: IBaseHalfCanvasBounds, b: IBaseHalfCanvasBounds)
 }
 
 export function baseHalfCanvasItemBounds(item: IBaseHalfCanvasItem, index: number, total: number): IBaseHalfCanvasBounds {
-	const fallbackPosition = item.place ?? baseHalfCanvasPosition(index, total);
+	const fallbackPosition = baseHalfCanvasPosition(index, total);
 	return {
 		x: item.card?.x ?? fallbackPosition.x,
 		y: item.card?.y ?? fallbackPosition.y,

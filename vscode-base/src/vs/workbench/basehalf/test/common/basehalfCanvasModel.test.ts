@@ -12,13 +12,17 @@ import {
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgePath,
+	baseHalfCanvasEndPlace,
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
 	baseHalfCanvasPosition,
+	baseHalfCanvasRowSpan,
+	baseHalfCanvasTransferPlaces,
 	baseHalfCanvasTransferPosition,
+	IBaseHalfCanvasCard,
 	IBaseHalfCanvasItemRelationships,
 	isBaseHalfCanvasEntry,
 	isBaseHalfCanvasPathEligible
@@ -152,7 +156,9 @@ suite('BaseHalfCanvasModel', () => {
 			model.items.find(item => item.path === 'docs')?.card,
 			{ path: 'docs', kind: 'folder', x: 320, y: 180, width: 260, height: 140 }
 		);
-		assert.strictEqual(model.items.find(item => item.path === 'README.md')?.card, undefined);
+		// The file has no row yet: it appears beside the folder card, as a row BaseHalf chose.
+		assert.deepStrictEqual(model.items.find(item => item.path === 'README.md')?.card, { path: 'README.md', kind: 'file', x: 660, y: 180, width: 300, height: 220, auto: true });
+		assert.deepStrictEqual(model.appeared.map(card => card.path), ['README.md']);
 	});
 
 	test('uses folder relative paths when matching saved card geometry inside subfolders', () => {
@@ -309,37 +315,158 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[0], 0, model.items.length), { x: 12, y: 24, width: 280, height: 160 });
-		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 1220, y: 690, width: 300, height: 220 });
+		// b.md has no row: it appears beside the last card and keeps the size of a new card.
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 352, y: 24, width: 300, height: 220 });
 	});
 
-	test('a card without a saved place is never drawn on another card, and a folder without saved places keeps the plain grid', () => {
+	/** The rows a first drawing of these files writes: the plain grid, as chosen rows. */
+	function firstDrawing(names: readonly string[]) {
+		return baseHalfCanvasModelFromStat(folder('/workspace', names.map(name => file(`/workspace/${name}`))), { rootLevel: true });
+	}
+
+	function place(card: { readonly x: number; readonly y: number } | undefined): [number, number] | undefined {
+		return card ? [card.x, card.y] : undefined;
+	}
+
+	test('the first drawing of a folder is the plain grid, and every card gets a chosen row', () => {
 		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(name => `${name}.md`);
-		const root = folder('/workspace', names.map(name => file(`/workspace/${name}`)));
-		const slot = (index: number) => baseHalfCanvasPosition(index, names.length);
-		// The user placed one card exactly on the slot of c.md and one across the slot of e.md, and two cards on each other.
-		const saved = [
-			{ path: 'a.md', kind: 'file' as const, ...slot(2), width: 300, height: 220 },
-			{ path: 'b.md', kind: 'file' as const, x: slot(4).x + 150, y: slot(4).y + 10, width: 300, height: 220 },
-			{ path: 'g.md', kind: 'file' as const, x: -2000, y: 0, width: 300, height: 220 },
-			{ path: 'h.md', kind: 'file' as const, x: -1900, y: 40, width: 300, height: 220 }
-		];
-		const plain = baseHalfCanvasModelFromStat(root, { rootLevel: true });
-		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, canvas: { path: '', cards: saved, edges: [] } });
-		const bounds = model.items.map((item, index) => ({ path: item.path, saved: item.card !== undefined, ...baseHalfCanvasItemBounds(item, index, model.items.length) }));
-		const meets = (first: typeof bounds[number], second: typeof bounds[number]) => first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
+		const model = firstDrawing(names);
 
 		assert.deepStrictEqual({
-			plainGrid: plain.items.every((item, index) => item.place === undefined && baseHalfCanvasItemBounds(item, index, plain.items.length).x === slot(index).x && baseHalfCanvasItemBounds(item, index, plain.items.length).y === slot(index).y),
-			// A card BaseHalf placed lies on no other card. Where the user put two cards on each other, they stay.
-			placedOnAnother: bounds.flatMap((first, index) => bounds.slice(index + 1).filter(second => meets(first, second) && !(first.saved && second.saved)).map(second => `${first.path} on ${second.path}`)),
-			savedKept: bounds.filter(item => item.saved).map(item => [item.path, item.x, item.y]),
-			// The slot of d.md is free, so it stays in it. The slots of c.md and e.md are taken, so they moved.
-			inItsSlot: ['c.md', 'd.md', 'e.md'].map(name => { const index = names.indexOf(name); return bounds[index].x === slot(index).x && bounds[index].y === slot(index).y; })
+			drawn: model.items.map(item => place(item.card)),
+			rows: model.appeared.map(card => [card.path, card.width, card.height, card.auto])
 		}, {
-			plainGrid: true,
-			placedOnAnother: [],
-			savedKept: saved.map(card => [card.path, card.x, card.y]),
-			inItsSlot: [false, true, false]
+			drawn: names.map((_, index) => place(baseHalfCanvasPosition(index, names.length))),
+			rows: names.map(name => [name, 300, 220, true])
+		});
+	});
+
+	test('a card that appears goes to the end of the canvas, and no row that is there changes', () => {
+		const twelve = Array.from({ length: 12 }, (_, index) => `${String.fromCharCode(98 + index)}.md`);
+		const ten = twelve.slice(0, 10);
+		const rowsOf = (names: readonly string[]) => [...firstDrawing(names).appeared];
+		const after = (rows: readonly IBaseHalfCanvasCard[], names: readonly string[]) => baseHalfCanvasModelFromStat(
+			folder('/workspace', names.map(name => file(`/workspace/${name}`))),
+			{ rootLevel: true, canvas: { path: '', cards: rows, edges: [] } }
+		);
+		const added = (rows: readonly IBaseHalfCanvasCard[], names: readonly string[], ...more: string[]) => after(rows, [...names, ...more]).appeared.map(card => [card.path, card.x, card.y]);
+		const dragged = rowsOf(twelve).map((card, index) => index === 0 ? { ...card, x: card.x - 100, y: card.y - 37, auto: undefined } : card);
+		const kept = after(rowsOf(twelve), [...twelve, 'a.md']);
+
+		assert.deepStrictEqual({
+			// The last row has room. A name that sorts first is not sorted in.
+			besideTheLast: added(rowsOf(twelve), twelve, 'a.md'),
+			rowsUntouched: kept.items.filter(item => item.path !== 'a.md').map(item => item.card),
+			// The same after the user moved the first card a little: the row goes on.
+			afterADrag: added(dragged, twelve, 'a.md'),
+			// The last row is full: a new row starts under the first column.
+			newRow: added(rowsOf(ten), ten, 'a.md'),
+			// Several at once follow each other in list order.
+			together: added(rowsOf(ten), ten, 'x.md', 'a.md', 'y.md', 'z1.md', 'z2.md', 'z3.md', 'z4.md'),
+			// An empty stretch between the user's cards stays empty.
+			gapKept: added([
+				{ path: 'b.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 },
+				{ path: 'c.md', kind: 'file', x: 1360, y: 0, width: 300, height: 220 }
+			], ['b.md', 'c.md'], 'd.md'),
+			// The user's cards are wider than five cells: the rows of new cards are that wide.
+			wide: added([
+				{ path: 'b.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 },
+				{ path: 'c.md', kind: 'file', x: 2040, y: 0, width: 300, height: 220 },
+				{ path: 'd.md', kind: 'file', x: 0, y: 280, width: 300, height: 220 }
+			], ['b.md', 'c.md', 'd.md'], 'e.md', 'f.md', 'g.md', 'h.md', 'i.md', 'j.md', 'k.md')
+		}, {
+			besideTheLast: [['a.md', 1050, 970]],
+			rowsUntouched: rowsOf(twelve),
+			afterADrag: [['a.md', 1050, 970]],
+			newRow: [['a.md', 370, 1110]],
+			together: [['a.md', 370, 1110], ['x.md', 710, 1110], ['y.md', 1050, 1110], ['z1.md', 1390, 1110], ['z2.md', 1730, 1110], ['z3.md', 370, 1390], ['z4.md', 710, 1390]],
+			gapKept: [['d.md', 0, 280]],
+			wide: [['e.md', 340, 280], ['f.md', 680, 280], ['g.md', 1020, 280], ['h.md', 1360, 280], ['i.md', 1700, 280], ['j.md', 2040, 280], ['k.md', 0, 560]]
+		});
+	});
+
+	test('a card that is larger than a cell keeps the next cards clear of it', () => {
+		const root = folder('/workspace', ['a.bhnode', 'b.md', 'c.md', 'd.md'].map(name => file(`/workspace/${name}`)));
+		const model = baseHalfCanvasModelFromStat(root, { rootLevel: true, newCardSizes: new Map([['a.bhnode', { width: 720, height: 405 }]]) });
+
+		assert.deepStrictEqual(model.appeared.map(card => [card.path, card.x, card.y, card.width, card.height]), [
+			['a.bhnode', 540, 690, 720, 405],
+			// Beside it, 40 beyond its right edge.
+			['b.md', 1300, 690, 300, 220],
+			// The row of four cells is full: a new row, 60 below the lowest edge.
+			['c.md', 540, 1155, 300, 220],
+			['d.md', 880, 1155, 300, 220]
+		]);
+	});
+
+	test('a group dropped at a point keeps its block, and a card whose slot is taken goes beside it', () => {
+		const size = { width: 300, height: 220 };
+		const origin = { x: 100, y: 200 };
+
+		assert.deepStrictEqual({
+			open: baseHalfCanvasTransferPlaces(origin, Array.from({ length: 5 }, () => size), []),
+			// The first slot is taken. The other four stay, and the first card goes above the block.
+			firstTaken: baseHalfCanvasTransferPlaces(origin, Array.from({ length: 5 }, () => size), [{ ...origin, ...size }])
+		}, {
+			open: [{ x: 100, y: 200 }, { x: 440, y: 200 }, { x: 780, y: 200 }, { x: 100, y: 480 }, { x: 440, y: 480 }],
+			firstTaken: [{ x: 100, y: -80 }, { x: 440, y: 200 }, { x: 780, y: 200 }, { x: 100, y: 480 }, { x: 440, y: 480 }]
+		});
+	});
+
+	test('when nothing near a point is open, the card goes to the end of the canvas', () => {
+		const size = { width: 300, height: 220 };
+		const taken = [{ x: 0, y: 0, ...size }, { x: 340, y: 0, ...size }];
+		// The visible part holds one card and it is taken.
+		const viewport = { x: 0, y: 0, width: 300, height: 220 };
+
+		assert.deepStrictEqual({
+			place: baseHalfCanvasOpenPosition({ x: 0, y: 0 }, size, taken, viewport),
+			end: baseHalfCanvasEndPlace(taken, size, baseHalfCanvasRowSpan(taken, 1))
+		}, {
+			place: { x: 680, y: 0 },
+			end: { x: 680, y: 0 }
+		});
+	});
+
+	test('a place that waits for a write is kept and counts as taken, and a row is found whatever the spelling', () => {
+		const root = folder('/workspace', ['a.md', 'b.md', 'c.md'].map(name => file(`/workspace/${name}`)));
+		const waiting = { path: 'b.md', kind: 'file' as const, x: 340, y: 0, width: 300, height: 220, auto: true as const };
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: { path: '', cards: [{ path: 'A.md', kind: 'file', x: 0, y: 0, width: 300, height: 220 }], edges: [] },
+			waiting: new Map([['b.md', waiting]]),
+			pathKey: path => path.toLowerCase()
+		});
+
+		assert.deepStrictEqual({
+			drawn: model.items.map(item => [item.path, ...place(item.card)!]),
+			appeared: model.appeared.map(card => card.path)
+		}, {
+			drawn: [['a.md', 0, 0], ['b.md', 340, 0], ['c.md', 680, 0]],
+			appeared: ['b.md', 'c.md']
+		});
+	});
+
+	test('an item appears only while a canvas has room, and takes the place at the end when a card goes', () => {
+		const names = Array.from({ length: BASEHALF_CANVAS_CHILD_LIMIT + 20 }, (_, index) => `${String(index).padStart(3, '0')}.md`);
+		const first = firstDrawing(names);
+		const canvas = { path: '', cards: first.appeared, edges: [] };
+		const again = (list: readonly string[]) => baseHalfCanvasModelFromStat(folder('/workspace', list.map(name => file(`/workspace/${name}`))), { rootLevel: true, canvas });
+		const full = again([...names, '000a.md']);
+		const oneGone = again(names.filter(name => name !== '005.md'));
+		const last = first.appeared[first.appeared.length - 1];
+
+		assert.deepStrictEqual({
+			rows: first.appeared.length,
+			held: first.truncated,
+			noCardWhileFull: [full.items.length, full.appeared.length, full.items.some(item => item.path === '000a.md')],
+			// The first file that had no card gets one, beside the last card. The row of the file that is gone still counts.
+			afterOneWent: oneGone.appeared.map(card => [card.path, card.x - last.x, card.y - last.y])
+		}, {
+			rows: BASEHALF_CANVAS_CHILD_LIMIT,
+			held: 20,
+			noCardWhileFull: [BASEHALF_CANVAS_CHILD_LIMIT, 0, false],
+			afterOneWent: [[`${BASEHALF_CANVAS_CHILD_LIMIT}.md`, 340, 0]]
 		});
 	});
 
