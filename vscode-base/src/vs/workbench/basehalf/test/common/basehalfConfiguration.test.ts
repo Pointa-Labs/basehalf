@@ -53,7 +53,7 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].default, BASEHALF_CANVAS_DEFAULT_ZOOM);
 		// Entries are always updated after a move: there is nothing to configure.
-		assert.strictEqual('basehalf.references.updateOnFileMove' in properties, false);
+		assert.strictEqual(properties['basehalf.references.updateOnFileMove'], undefined);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].default, BASEHALF_AGENT_DEFAULT_SESSION);
 		// Official connection metadata is an internal machine record. The user

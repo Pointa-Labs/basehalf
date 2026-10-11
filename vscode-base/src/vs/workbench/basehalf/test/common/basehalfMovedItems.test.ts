@@ -54,7 +54,7 @@ async function recognize(before: Record<string, string>, after: Record<string, s
 	for (const [path, content] of Object.entries(before)) {
 		const fingerprint = await baseHalfComputeFileFingerprint(source(content));
 		if (fingerprint) {
-			if (path in after) {
+			if (after[path] !== undefined) {
 				presentFingerprints.push(fingerprint);
 			} else {
 				disappearedFingerprints.set(path, fingerprint);
@@ -63,9 +63,9 @@ async function recognize(before: Record<string, string>, after: Record<string, s
 	}
 	const fingerprinted: string[] = [];
 	const moves = await baseHalfRecognizeMovedItems({
-		disappeared: followed.filter(item => item.kind === 'file' ? !(item.path in after) : !afterFolders.has(item.path)),
+		disappeared: followed.filter(item => item.kind === 'file' ? after[item.path] === undefined : !afterFolders.has(item.path)),
 		disappearedFingerprints,
-		appearedFiles: Object.keys(after).filter(path => !(path in before)).map(path => ({ path, size: VSBuffer.fromString(after[path]).byteLength })),
+		appearedFiles: Object.keys(after).filter(path => before[path] === undefined).map(path => ({ path, size: VSBuffer.fromString(after[path]).byteLength })),
 		appearedFolders: new Set([...afterFolders].filter(folder => !beforeFolders.has(folder))),
 		earlierPairs,
 		presentFingerprints,
