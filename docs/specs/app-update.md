@@ -1,7 +1,7 @@
 # App update
 
-Status: Active (2026-10-12). Implementation in progress: until it lands, the
-code does what [the first version](#the-first-version) describes.
+Status: Active (2026-10-12). Implemented. Installed copies up to 0.5.0 still
+do what [the first version](#the-first-version) describes.
 Decision: [D47](../decisions.md#d47--an-update-is-downloaded-once-and-is-there-at-the-next-start-new-2026-10-12)
 Related: [verification and delivery](../harness/verification-and-delivery.md),
 [architecture invariants](../harness/architecture-invariants.md)
@@ -155,16 +155,35 @@ the next start.
 ### Downloading
 
 - **A checked archive is not downloaded again.** When `BaseHalf-V.zip` is
-  there, BaseHalf unpacks it.
+  there with the length the manifest says, BaseHalf checks its signature
+  again and unpacks it. The update store is a folder like any other of the
+  user, and what is unpacked from it becomes the application. One of another
+  length, or one that is not what it was when it was checked, is removed and
+  downloaded.
 - **An interrupted download continues.** When `BaseHalf-V.zip.part` is there
   and shorter than the manifest says, BaseHalf asks for the bytes after it.
   When the server answers with the whole file instead, BaseHalf starts the
-  file again.
+  file again. When the server says that it has no bytes after it, the partial
+  file is deleted, and the next check starts with nothing.
+- **An answer that says it is something else is refused**, and the partial
+  file is left as it is: a whole file of another length, or a part that
+  starts elsewhere or belongs to a file of another length. Some networks put
+  a page of their own in place of a file, with a success status.
 - **A wrong archive is deleted.** One that is longer than the manifest says,
   or whose signature is wrong, is deleted, and the update fails as before.
   The next check starts with nothing.
 - The length and the signature are checked as in the first version, on the
   whole file, before anything is unpacked.
+- **An archive that was signed and holds something else stays.** When it does
+  not hold exactly one application of the manifest's version, the update
+  fails, and the archive is kept: a download would bring the same bytes. The
+  next check fails without the network. A release with such an archive is a
+  mistake of the release, which the [check before a release](#before-a-release)
+  finds.
+- **Whether BaseHalf may write beside its bundle is asked before the
+  download**, not after it, and before a staged copy that is there is called
+  ready. A user who may not write there cannot swap, and is not shown an
+  update that a restart would not bring.
 
 ### Staging
 
@@ -179,7 +198,8 @@ the next start.
 
 ### At a start
 
-Before the first window opens:
+Before the application is created, once BaseHalf knows that it is the only
+run with its data folder:
 
 1. BaseHalf looks beside the bundle for complete staged copies.
 2. **A staged copy of a newer version takes the bundle's place now**, and
@@ -188,15 +208,29 @@ Before the first window opens:
    - The version is read from the staged copy itself and has to be the one in
      its name.
    - Not while another BaseHalf runs from the same bundle. That one still
-     reads from it.
+     reads from it. BaseHalf's own processes are not another one, and
+     neither are helper processes that a killed run has not ended yet: they
+     load nothing more from the bundle.
+   - Only where updates are switched on, and where this user may write
+     beside the bundle.
+   - Not in a start that something waits for: a command line that waits
+     until its files are closed, and a start for developing or testing an
+     extension. It would take the end of this process for the end of the
+     run.
+   - The list of processes is asked for with a limit of a few seconds. What
+     cannot be told in that time is taken as another BaseHalf.
    - When the swap fails, BaseHalf starts as it is, and the staged copy
      stays.
-3. A staged copy of the running version or of an older one is removed.
+   - What this start was asked to open, by the command line or by Finder,
+     is opened by the start that follows the swap.
 
-After the first window opened:
+When the update service has started:
 
-4. **A staged copy that is still there makes BaseHalf ready at once.** The
-   title bar shows "Update" without a check and without a download.
+- **A staged copy of a newer version that is still there makes BaseHalf
+  ready at once.** The title bar shows "Update" without a check and without
+  a download.
+- A staged copy of the running version or of an older one is
+  [removed](#what-is-removed).
 
 ### At a quit
 
@@ -205,6 +239,10 @@ After the first window opened:
   plain quit.
 - A swap that fails is logged, and the bundle is left as it was. The staged
   copy stays, so the next start tries.
+- When the staged copy is gone, because another run from the same bundle
+  swapped it in, nothing is done.
+- "Restart to Update" starts BaseHalf again also when nothing was swapped.
+  The user asked for a restart, and the next start tries the swap.
 
 ### What is removed
 
@@ -214,6 +252,8 @@ After the first window opened:
   staged copy that was being built, the bundle it renamed aside, and what the
   first version wrote below the temporary folder.
 - Nothing of a run that is still alive.
+- A bundle that was renamed aside stays while another BaseHalf runs from the
+  same place. That one may be the run that still executes from it.
 
 ### The version that is shown
 
@@ -237,7 +277,8 @@ not changed.
 ### Before a release
 
 - The archive is not larger than what installed applications accept. The
-  release script refuses a larger one.
+  release script refuses a larger one. Its limit is that of the applications
+  that are installed, not of the tree that is released.
 - The update of an installed application is tried
   ([verification](#verification)).
 
@@ -260,7 +301,12 @@ not changed.
   beside its bundle, it cannot stage, and reports the error as before.
 - **Two runs from one bundle.** When one of them swaps at its quit, the other
   one keeps running on a bundle that was renamed aside, as in the first
-  version.
+  version. That bundle is removed by a start at which no other BaseHalf runs
+  from the place.
+- **Two copies of BaseHalf in one folder** share what is staged there. The
+  name of a staged copy holds the version and not the copy it is for.
+- **A link that started BaseHalf** is not opened when that start swaps a
+  staged copy in. Files and folders are.
 - **The temporary copy that macOS makes of a downloaded application.** An
   application that runs from it is not updated, as before. It says so when
   the user checks.
@@ -273,13 +319,19 @@ Unit tests unless another kind is named.
    the final name only when its length and signature are right. A staged copy
    has its final name only when it is complete.
 2. **Not again.** With a checked archive in the update store, nothing is
-   requested from the network, and the update becomes ready.
+   requested from the network, its signature is checked again, and the update
+   becomes ready. With something else under its name and of its length, the
+   archive is requested.
 3. **Continues.** With a partial archive of 40% in the update store, the
    request asks for the bytes after it, and the result is the whole archive.
    When the server sends the whole file, the result is the whole archive
-   too.
+   too. An answer that says it is something else leaves the partial archive
+   as it is.
 4. **Wrong archive.** An archive with a wrong signature is deleted, nothing is
-   staged, and the next check requests the whole archive.
+   staged, and the next check requests the whole archive. One that was signed
+   and holds another version stays and is not requested again. A partial
+   archive after which the server has no bytes is deleted. When BaseHalf may
+   not write beside its bundle, nothing is requested.
 5. **Used when there.** With a complete staged copy of the offered version
    beside the bundle, the service is ready without a request for the archive.
 6. **Which staged copy.** Of the staged copies beside a bundle, the one with
@@ -287,10 +339,13 @@ Unit tests unless another kind is named.
    differs from its name is not. One of the running version or below is
    removed.
 7. **Not under a running one.** With another BaseHalf running from the same
-   bundle, a start does not swap.
+   bundle, a start does not swap. BaseHalf's own processes, and the helper
+   processes a killed run left, are not another one. The swap puts the bundle
+   back when it cannot finish.
 8. **What is removed.** Archives, partial archives, and staged copies of the
    running version and below are removed, and what a dead run left under its
-   process number. What a living run owns stays.
+   process number. What a living run owns stays, and a bundle that was renamed
+   aside stays beside another run.
 9. **The version.** About, the update tooltip, and the bundle's short version
    string show BaseHalf's version.
 10. **Release notes.** A start in which the page was not opened leaves the
@@ -303,17 +358,28 @@ Unit tests unless another kind is named.
     - becomes ready, is quit, and is the new version at the next start;
     - is killed while it downloads, is started again, and continues instead
       of starting over;
-    - is killed when it is ready, and is the new version at the next start.
+    - is killed when it is ready, and is the new version at the next start;
+    - is killed when it is ready and started while another BaseHalf runs from
+      the same bundle: it is ready at once, without a request, and is the new
+      version after its quit.
+
+    And the application of the release before, with the update service it
+    was released with, becomes ready, is quit, and is the new version at the
+    next start, which removes what that service left.
 
 ## Verification
 
 - Unit tests of the update store and of the choice among staged copies, on a
   temporary folder, with the network replaced by a function.
-- `npm run basehalf:update-e2e -- --app <BaseHalf.app>` for criterion 12. It
-  copies the packaged application, makes the copy report an older version,
-  signs the archive of the packaged application for a local feed with the
-  release key, and drives the three cases. It needs the release key, so it
-  runs on the release machine.
+- `npm run basehalf:update-e2e -- --app <BaseHalf.app> --from <the release
+  before>` for criterion 12. It copies the packaged application, makes the
+  copy report an older version, signs the archive of the packaged
+  application for a local feed with the release key, serves the archive from
+  this machine, slowly enough to interrupt it, and drives the four cases.
+  Then it does the same with a copy of the release before, which is what its
+  users will go through. It needs the release key, so it runs on the release
+  machine. For it, a feed that is a local file may name an archive at an
+  address on this machine. No other feed may.
 - The smoke stays as it is and keeps updates switched off.
 
 ## Open questions

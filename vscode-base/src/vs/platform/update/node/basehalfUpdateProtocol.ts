@@ -26,7 +26,10 @@ import { basename, dirname } from '../../../base/common/path.js';
 export const BASEHALF_UPDATE_PUBKEY_B64 = 'MCowBQYDK2VwAyEALH0EpJUvH3sQl4Lvw3wYTXYd3r6molfDeBnDvvgSH6U=';
 
 /** Hard cap on the update archive — a corrupt/malicious manifest can't make
- *  us spool an unbounded body to disk. */
+ *  us spool an unbounded body to disk. An installed application holds the cap
+ *  it was released with, so raising it helps only the versions after the one
+ *  that raises it. build/basehalf/sign-update.mjs holds the cap of the
+ *  installed applications, and refuses a larger archive. */
 export const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
 
 /** Standard base64 (what `.toString('base64')` emits). Used to keep signatures
@@ -92,8 +95,9 @@ export function compareBaseHalfVersions(a: string, b: string): number | null {
  *  pinned to https (no file:/smb:/… retrieval) and the length bounded.
  *  `allowLocalUrl` (set only when the feed itself came from the local test
  *  override) additionally admits an absolute archive path, so an end-to-end
- *  test can run the full verify→extract→swap chain serverless; signature
- *  verification still gates whatever the bytes are. */
+ *  test can run the full verify→extract→swap chain serverless, and an address
+ *  on this machine, so that it can interrupt a download and see it continue;
+ *  signature verification still gates whatever the bytes are. */
 export function sanitizeBaseHalfUpdateManifest(raw: unknown, opts?: { allowLocalUrl?: boolean }): IBaseHalfUpdateManifest | null {
 	if (typeof raw !== 'object' || raw === null) {
 		return null;
@@ -105,7 +109,7 @@ export function sanitizeBaseHalfUpdateManifest(raw: unknown, opts?: { allowLocal
 	if (typeof r.url !== 'string') {
 		return null;
 	}
-	const urlOk = r.url.startsWith('https://') || (opts?.allowLocalUrl === true && r.url.startsWith('/'));
+	const urlOk = r.url.startsWith('https://') || (opts?.allowLocalUrl === true && (r.url.startsWith('/') || r.url.startsWith('http://127.0.0.1:')));
 	// Every field below is constrained so NONE can contain a newline — that keeps
 	// the '\n'-joined signing message injective (no two manifests can collide on
 	// one signed string). version is already regex-bound and length is an integer.

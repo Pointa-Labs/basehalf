@@ -50,6 +50,7 @@ import product from '../../platform/product/common/product.js';
 import { IProductService } from '../../platform/product/common/productService.js';
 import { IProtocolMainService } from '../../platform/protocol/electron-main/protocol.js';
 import { ProtocolMainService } from '../../platform/protocol/electron-main/protocolMainService.js';
+import { baseHalfSwapStagedCopyAtStart } from '../../platform/update/electron-main/basehalfStagedCopy.js';
 import { ITunnelService } from '../../platform/tunnel/common/tunnel.js';
 import { TunnelService } from '../../platform/tunnel/node/tunnelService.js';
 import { IRequestService } from '../../platform/request/common/request.js';
@@ -154,6 +155,15 @@ class CodeMain {
 					const message = `${productService.nameShort} is currently being updated. Please wait for the update to complete before launching.`;
 					instantiationService.invokeFunction(this.quit, new Error(message));
 					return;
+				}
+
+				// BaseHalf: a ready update that the run before this one left
+				// behind takes the bundle's place now, and BaseHalf starts
+				// again as that version (app update, "At a start"). This
+				// process is the only one with this data folder by now, and
+				// nothing of the application exists yet.
+				if (isMacintosh && baseHalfSwapStagedCopyAtStart(environmentMainService, configurationService, productService, logService)) {
+					throw new ExpectedError('A staged update took the bundle\'s place. Starting again...');
 				}
 
 				return instantiationService.createInstance(CodeApplication, mainProcessNodeIpcServer, instanceEnvironment).startup();

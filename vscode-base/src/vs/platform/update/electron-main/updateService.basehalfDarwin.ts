@@ -3,17 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { execFile } from 'child_process';
 import * as electron from 'electron';
-import { createWriteStream, promises as fs, renameSync } from 'fs';
+import { existsSync, promises as fs } from 'fs';
 import { tmpdir } from 'os';
-import { promisify } from 'util';
 import { streamToBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { toErrorMessage } from '../../../base/common/errorMessage.js';
 import { hash } from '../../../base/common/hash.js';
 import { dirname, join } from '../../../base/common/path.js';
-import { listenStream } from '../../../base/common/stream.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { ILifecycleMainService, IRelaunchHandler, IRelaunchOptions } from '../../lifecycle/electron-main/lifecycleMainService.js';
@@ -25,17 +22,9 @@ import { IApplicationStorageMainService } from '../../storage/electron-main/stor
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
 import { AvailableForDownload, IUpdate, State, StateType, UpdateType } from '../common/update.js';
 import { compareBaseHalfVersions, IBaseHalfUpdateManifest, parseBaseHalfVersion, sanitizeBaseHalfUpdateManifest, verifyBaseHalfArchiveSignature, verifyBaseHalfManifestSignature, bundlePathFromExec } from '../node/basehalfUpdateProtocol.js';
+import { baseHalfPrepareUpdate, baseHalfRemove, baseHalfSwapIn, baseHalfUpdateLeftovers } from '../node/basehalfUpdateStore.js';
 import { AbstractUpdateService, IUpdateURLOptions, UpdateErrorClassification } from './abstractUpdateService.js';
-
-const execFileAsync = promisify(execFile);
-
-/** Recursive delete via /bin/rm. fs.rm CANNOT be used on app bundles from
- *  inside Electron: the asar-patched fs treats the bundle's app.asar as a
- *  virtual directory and the recursive walk dies on it partway. An external
- *  rm — like the ditto we already shell out to — is immune. */
-async function rmrf(path: string): Promise<void> {
-	await execFileAsync('/bin/rm', ['-rf', '--', path]);
-}
+import { baseHalfAnotherRunUsesBundle, baseHalfFindStagedCopy } from './basehalfStagedCopy.js';
 
 function isPidAlive(pid: number): boolean {
 	try {
@@ -62,16 +51,23 @@ function isPidAlive(pid: number): boolean {
  *   performed on quit, and files the app downloads itself carry no quarantine
  *   flag — so the swapped-in version launches cleanly without Gatekeeper
  *   re-evaluation.
+ * - Kept by version (app update): the archive and the staged copy are named
+ *   after the version and not after this run. An interrupted download
+ *   continues, a complete one is not fetched again, and a staged copy that a
+ *   run left behind takes the bundle's place at the next start, before the
+ *   application is created (see basehalfStagedCopy.ts).
  */
 export class BaseHalfDarwinUpdateService extends AbstractUpdateService implements IRelaunchHandler {
 
 	/** Verified manifest of the update we last offered (survives the
 	 *  AvailableForDownload detour on metered connections). */
 	private pendingManifest: IBaseHalfUpdateManifest | undefined;
-	/** `.bh-staged-<pid>.app` sitting next to the running bundle, fully
+	/** `.bh-staged-<version>.app` sitting next to the running bundle, fully
 	 *  verified and ready to be renamed into place on quit. */
 	private stagedAppPath: string | undefined;
 	private didInstall = false;
+	/** Where an archive is kept while it is downloaded and unpacked. It outlives a run. */
+	private readonly updateStorePath: string;
 
 	constructor(
 		@ILifecycleMainService lifecycleMainService: ILifecycleMainService,
@@ -86,6 +82,7 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 	) {
 		super(lifecycleMainService, configurationService, environmentMainService, requestService, logService, productService, telemetryService, applicationStorageMainService, meteredConnectionService, false);
 
+		this.updateStorePath = join(environmentMainService.userDataPath, 'updates');
 		lifecycleMainService.setRelaunchHandler(this);
 
 		// A plain quit applies a ready update too (parity with platform
@@ -221,121 +218,60 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 		return { body: JSON.parse(buffer.toString()), isLocal: false };
 	}
 
-	/** Download the archive, verify length + signature, extract, and pre-place
-	 *  the unpacked .app next to the running bundle, ready for the quit-time
-	 *  rename swap. Errors propagate to the caller. */
+	/**
+	 * Makes the update ready: the archive is downloaded unless it is there,
+	 * its length and signature are checked, it is unpacked, and the unpacked
+	 * app is placed next to the running bundle for the quit-time rename swap.
+	 * Each step uses what an earlier run left complete. Errors propagate to
+	 * the caller.
+	 */
 	private async downloadAndStage(manifest: IBaseHalfUpdateManifest, update: IUpdate, explicit: boolean): Promise<void> {
-		const stageDir = join(tmpdir(), `bh-update-${process.pid}`);
-		try {
-			this.setState(State.Downloading(update, explicit, false, 0, manifest.length, Date.now()));
+		this.setState(State.Downloading(update, explicit, false, 0, manifest.length, Date.now()));
 
-			// Resolve the running bundle FIRST: failing early (dev layout,
+		let lastPushed = 0;
+		this.stagedAppPath = await baseHalfPrepareUpdate({
+			version: manifest.version,
+			length: manifest.length,
+			verify: bytes => verifyBaseHalfArchiveSignature(bytes, manifest.signature),
+			// A local archive is only reachable via the test feed override
+			// (sanitize gates it); the signature still decides whether it
+			// installs.
+			localArchive: manifest.url.startsWith('/') ? manifest.url : undefined,
+			request: async from => {
+				const context = await this.requestService.request({
+					url: manifest.url,
+					headers: from > 0 ? { 'Range': `bytes=${from}-` } : undefined,
+					callSite: 'updateService.basehalfDarwin.download'
+				}, CancellationToken.None);
+				const header = (name: string) => {
+					const value = context.res.headers[name];
+					return Array.isArray(value) ? value[0] : value;
+				};
+				const contentLength = Number(header('content-length'));
+				return {
+					statusCode: context.res.statusCode,
+					stream: context.stream,
+					contentLength: header('content-length') !== undefined && Number.isInteger(contentLength) ? contentLength : undefined,
+					contentRange: header('content-range')
+				};
+			},
+			// Resolved before anything else: failing early (dev layout,
 			// translocated run) beats failing after a full download.
-			const bundle = this.runningBundlePath();
-
-			await rmrf(stageDir);
-			await fs.mkdir(stageDir, { recursive: true });
-			const zipPath = join(stageDir, 'update.zip');
-
-			if (manifest.url.startsWith('/')) {
-				// Local archive — only reachable via the test feed override
-				// (sanitize gates it); the signature check below still decides
-				// whether it installs.
-				await fs.copyFile(manifest.url, zipPath);
-			} else {
-				await this.downloadToFile(manifest, update, explicit, zipPath);
-			}
-
-			const bytes = await fs.readFile(zipPath);
-			if (bytes.length !== manifest.length) {
-				throw new Error(`Download incomplete (${bytes.length} of ${manifest.length} bytes).`);
-			}
-			if (!verifyBaseHalfArchiveSignature(bytes, manifest.signature)) {
-				throw new Error('Signature verification failed — refusing the update.');
-			}
-
-			this.setState(State.Updating(update, explicit));
-
-			// ditto preserves the symlinks + metadata inside .app bundles that a
-			// generic unzip mangles.
-			const extractDir = join(stageDir, 'extracted');
-			await fs.mkdir(extractDir, { recursive: true });
-			await execFileAsync('/usr/bin/ditto', ['-xk', zipPath, extractDir]);
-			const apps = (await fs.readdir(extractDir)).filter(e => e.endsWith('.app'));
-			if (apps.length !== 1) {
-				throw new Error('Archive did not contain exactly one app bundle.');
-			}
-
-			// Copy into the bundle's own directory: rename() can't cross
-			// volumes, and the temp dir may be on another one. With the staged
-			// copy in place, the quit-time swap is two atomic renames.
-			const stagedHere = join(dirname(bundle), `.bh-staged-${process.pid}.app`);
-			await rmrf(stagedHere);
-			await execFileAsync('/usr/bin/ditto', [join(extractDir, apps[0]), stagedHere]);
-			this.stagedAppPath = stagedHere;
-
-			this.setState(State.Ready(update, explicit, false));
-		} finally {
-			await rmrf(stageDir).catch(() => undefined);
-		}
-	}
-
-	private async downloadToFile(manifest: IBaseHalfUpdateManifest, update: IUpdate, explicit: boolean, zipPath: string): Promise<void> {
-		const context = await this.requestService.request({ url: manifest.url, callSite: 'updateService.basehalfDarwin.download' }, CancellationToken.None);
-		const statusCode = context.res.statusCode;
-		if (!statusCode || statusCode < 200 || statusCode >= 300) {
-			throw new Error(`Download failed (HTTP ${statusCode}).`);
-		}
-
-		await new Promise<void>((resolve, reject) => {
-			const out = createWriteStream(zipPath);
-			let received = 0;
-			let lastPushed = 0;
-			let settled = false;
-			const fail = (err: Error) => {
-				if (settled) {
-					return;
+			bundle: this.runningBundlePath(),
+			storePath: this.updateStorePath,
+			pid: process.pid,
+			onProgress: received => {
+				// Progress pushes throttled so the state channel (and the
+				// info-level state log) isn't spammed per-chunk.
+				if (received - lastPushed > 5 * 1024 * 1024) {
+					lastPushed = received;
+					this.setState(State.Downloading(update, explicit, false, received, manifest.length));
 				}
-				settled = true;
-				out.destroy();
-				context.stream.destroy();
-				reject(err);
-			};
-			out.on('error', fail);
-			listenStream(context.stream, {
-				onData: chunk => {
-					received += chunk.byteLength;
-					if (received > manifest.length) {
-						fail(new Error('Archive larger than the manifest says.'));
-						return;
-					}
-					if (!out.write(chunk.buffer)) {
-						context.stream.pause();
-						out.once('drain', () => context.stream.resume());
-					}
-					// Progress pushes throttled so the state channel (and the
-					// info-level state log) isn't spammed per-chunk.
-					if (received - lastPushed > 5 * 1024 * 1024) {
-						lastPushed = received;
-						this.setState(State.Downloading(update, explicit, false, received, manifest.length));
-					}
-				},
-				onError: fail,
-				onEnd: () => {
-					out.end(() => {
-						if (settled) {
-							return;
-						}
-						settled = true;
-						if (received !== manifest.length) {
-							reject(new Error(`Download incomplete (${received} of ${manifest.length} bytes).`));
-						} else {
-							resolve();
-						}
-					});
-				}
-			});
+			},
+			onUnpacking: () => this.setState(State.Updating(update, explicit))
 		});
+
+		this.setState(State.Ready(update, explicit, false));
 	}
 
 	override async isLatestVersion(): Promise<boolean | undefined> {
@@ -377,19 +313,12 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 			return true;
 		}
 		const staged = this.stagedAppPath;
-		if (!staged) {
+		if (!staged || !existsSync(staged)) {
+			// Nothing is staged, or another run from this bundle swapped it in already.
 			return false;
 		}
 		try {
-			const bundle = this.runningBundlePath();
-			const previous = join(dirname(bundle), `.bh-previous-${process.pid}.app`);
-			renameSync(bundle, previous);
-			try {
-				renameSync(staged, bundle);
-			} catch (err) {
-				renameSync(previous, bundle); // roll back; the app keeps running
-				throw err;
-			}
+			baseHalfSwapIn(this.runningBundlePath(), staged, process.pid);
 			this.didInstall = true;
 			return true;
 		} catch (err) {
@@ -400,14 +329,26 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 
 	protected override doQuitAndInstall(): void {
 		this.logService.trace('update#quitAndInstall(): installing staged update');
-		if (this.installStagedUpdate()) {
-			// The lifecycle quit is already in flight; registering the relaunch
-			// now makes macOS start the freshly swapped bundle after exit.
-			electron.app.relaunch();
-		}
+		this.installStagedUpdate();
+		// The lifecycle quit is already in flight; registering the relaunch
+		// now makes macOS start the bundle again after exit. Also when
+		// nothing was swapped, because another run did it already or the
+		// swap failed: the user asked for a restart, and the next start tries
+		// again.
+		electron.app.relaunch();
 	}
 
 	protected override async postInitialize(): Promise<void> {
+		// A staged copy that is still there is a ready update: the title bar
+		// shows it without a check and without a download. The start did not
+		// swap it in (see baseHalfSwapStagedCopyAtStart): another BaseHalf
+		// runs from the bundle, or the swap failed.
+		const staged = baseHalfFindStagedCopy(this.productService.basehalfVersion);
+		if (staged) {
+			this.stagedAppPath = staged.path;
+			this.setState(State.Ready({ version: staged.version, productVersion: staged.version }, false, false));
+		}
+
 		// Best-effort sweep of swap debris from previous updates: the
 		// renamed-aside old bundle, an orphaned staging copy (crash
 		// mid-install), and stale temp download dirs. Delayed + retried
@@ -424,44 +365,34 @@ export class BaseHalfDarwinUpdateService extends AbstractUpdateService implement
 
 	/** One sweep attempt; resolves false if anything failed to delete. */
 	private async sweepUpdateLeftovers(): Promise<boolean> {
-		const sweeps: Promise<unknown>[] = [];
-		const bundle = bundlePathFromExec(process.execPath);
-		if (bundle) {
-			const parent = dirname(bundle);
+		const list = async (path: string | undefined): Promise<string[]> => {
 			try {
-				for (const entry of await fs.readdir(parent)) {
-					const match = /^\.bh-(?:previous|staged)-(?<pid>\d+)\.app$/.exec(entry);
-					if (match?.groups) {
-						// Another running instance may legitimately own a fresher
-						// staged copy; only sweep ones whose owning pid is gone.
-						const pid = Number(match.groups.pid);
-						if (pid !== process.pid && (!Number.isInteger(pid) || !isPidAlive(pid))) {
-							sweeps.push(rmrf(join(parent, entry)));
-						}
-					}
-				}
+				return path ? await fs.readdir(path) : [];
 			} catch {
-				// Unreadable parent dir — nothing to sweep.
+				return []; // Unreadable or missing: nothing to sweep there.
 			}
-		}
-		try {
-			for (const entry of await fs.readdir(tmpdir())) {
-				const match = /^bh-update-(?<pid>\d+)$/.exec(entry);
-				if (match?.groups) {
-					const pid = Number(match.groups.pid);
-					if (pid !== process.pid && (!Number.isInteger(pid) || !isPidAlive(pid))) {
-						sweeps.push(rmrf(join(tmpdir(), entry)));
-					}
-				}
-			}
-		} catch {
-			// Unreadable tmpdir — skip.
-		}
+		};
+		const bundle = bundlePathFromExec(process.execPath);
+		const parent = bundle ? dirname(bundle) : undefined;
+		const besideBundle = await list(parent);
+		// Another run may still execute from a bundle that was renamed aside.
+		const anotherRun = !!bundle && besideBundle.some(entry => entry.startsWith('.bh-previous-')) && baseHalfAnotherRunUsesBundle(bundle);
+		const leftovers = baseHalfUpdateLeftovers({
+			besideBundle,
+			inStore: await list(this.updateStorePath),
+			inTemporaryFolder: await list(tmpdir())
+		}, this.productService.basehalfVersion ?? '0.0.0', process.pid, isPidAlive, anotherRun);
+		const sweeps = [
+			...leftovers.besideBundle.map(entry => join(parent!, entry)),
+			...leftovers.inStore.map(entry => join(this.updateStorePath, entry)),
+			...leftovers.inTemporaryFolder.map(entry => join(tmpdir(), entry))
+		].map(path => baseHalfRemove(path));
 		const results = await Promise.allSettled(sweeps);
 		const failed = results.filter(r => r.status === 'rejected');
 		for (const f of failed) {
 			this.logService.warn('update#sweepUpdateLeftovers - failed:', (f as PromiseRejectedResult).reason);
 		}
-		return failed.length === 0;
+		// What was kept because of another run is looked at once more.
+		return failed.length === 0 && !anotherRun;
 	}
 }

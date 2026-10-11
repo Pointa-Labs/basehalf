@@ -6,12 +6,12 @@
 import assert from 'assert';
 import { execFileSync } from 'child_process';
 import { createPrivateKey, generateKeyPairSync, sign, KeyObject } from 'crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { FileAccess } from '../../../../base/common/network.js';
 import { dirname, join } from '../../../../base/common/path.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { basehalfManifestSigningMessage, bundlePathFromExec, compareBaseHalfVersions, parseBaseHalfVersion, sanitizeBaseHalfUpdateManifest, verifyBaseHalfArchiveSignature, verifyBaseHalfManifestSignature } from '../../node/basehalfUpdateProtocol.js';
+import { basehalfManifestSigningMessage, bundlePathFromExec, compareBaseHalfVersions, MAX_ARCHIVE_BYTES, parseBaseHalfVersion, sanitizeBaseHalfUpdateManifest, verifyBaseHalfArchiveSignature, verifyBaseHalfManifestSignature } from '../../node/basehalfUpdateProtocol.js';
 
 /** A keypair as the protocol consumes it: the public half SPKI-DER-base64
  *  (the shape verify* expects), ready to sign test messages with the private. */
@@ -117,6 +117,16 @@ suite('basehalfUpdateProtocol - sanitizeBaseHalfUpdateManifest', () => {
 		const local = { ...good, url: '/tmp/somewhere/x.zip' };
 		assert.strictEqual(sanitizeBaseHalfUpdateManifest(local), null);
 		assert.strictEqual(sanitizeBaseHalfUpdateManifest(local, { allowLocalUrl: true })?.url, '/tmp/somewhere/x.zip');
+	});
+
+	test('admits an archive address on this machine only with allowLocalUrl, and no other address without https', () => {
+		const onThisMachine = { ...good, url: 'http://127.0.0.1:4010/x.zip' };
+		assert.deepStrictEqual([
+			sanitizeBaseHalfUpdateManifest(onThisMachine),
+			sanitizeBaseHalfUpdateManifest(onThisMachine, { allowLocalUrl: true })?.url ?? null,
+			sanitizeBaseHalfUpdateManifest({ ...good, url: 'http://127.0.0.1.example.com/x.zip' }, { allowLocalUrl: true }),
+			sanitizeBaseHalfUpdateManifest({ ...good, url: 'http://example.com/x.zip' }, { allowLocalUrl: true })
+		], [null, 'http://127.0.0.1:4010/x.zip', null, null]);
 	});
 });
 
@@ -240,6 +250,42 @@ suite('basehalfUpdateProtocol - sign-update.mjs cross-check', () => {
 			const pub = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
 			assert.strictEqual(verifyBaseHalfManifestSignature(m, pub), true); // notes are authenticated
 			assert.strictEqual(verifyBaseHalfArchiveSignature(readFileSync(zip), m.signature, pub), true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test('refuses an archive above the limit that installed applications accept, before it reads it', function () {
+		const outRoot = dirname(FileAccess.asFileUri('vs/platform/update/node/basehalfUpdateProtocol.js').fsPath);
+		const script = join(outRoot, '../../../../..', 'build', 'basehalf', 'sign-update.mjs');
+		const dir = mkdtempSync(join(tmpdir(), 'bh-sign-'));
+		try {
+			const keyPath = join(dir, 'key.pem');
+			writeFileSync(keyPath, generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }));
+			// One byte too long. The file takes no room: nothing was written into it.
+			const zip = join(dir, 'BaseHalf-0.2.0-darwin-arm64.zip');
+			writeFileSync(zip, '');
+			// What the applications that are installed accept, which the tree
+			// that is released may have raised for itself.
+			const accepted = 500 * 1024 * 1024;
+			assert.ok(MAX_ARCHIVE_BYTES >= accepted);
+			truncateSync(zip, accepted + 1);
+
+			let refusal: { status: number | null; stderr: string } | undefined;
+			try {
+				execFileSync(process.execPath, [script, zip, '--version', '0.2.0'], {
+					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', BH_UPDATE_KEY: keyPath, BH_UPDATE_SKIP_KEYCHECK: '1' },
+					stdio: ['ignore', 'ignore', 'pipe'],
+				});
+			} catch (error) {
+				const failed = error as { status: number | null; stderr: Buffer };
+				refusal = { status: failed.status, stderr: failed.stderr.toString().trim() };
+			}
+
+			assert.deepStrictEqual({ refusal, manifest: existsSync(join(dir, 'update-manifest-darwin-arm64.json')) }, {
+				refusal: { status: 1, stderr: `The archive is ${accepted + 1} bytes. Installed applications accept 500 MiB (${accepted} bytes) and would refuse this update.` },
+				manifest: false
+			});
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
