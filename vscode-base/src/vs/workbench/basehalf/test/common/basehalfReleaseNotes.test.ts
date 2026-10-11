@@ -30,7 +30,8 @@ suite('BaseHalfReleaseNotes', () => {
 		const statements = [
 			'Connecting two cards saves the connection with the card it points to. For a note, it is saved inside the note itself, so agents and other tools that read the note see it too. For PDFs, folders, other files, and a note BaseHalf can\'t write into, BaseHalf keeps the list for you.',
 			'The badge edits a card\'s Upstream list. Downstream shows what draws on it.',
-			'Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.',
+			'When a file or folder is moved or renamed, BaseHalf updates the upstream lists that name it by itself. It no longer asks.',
+			'A card keeps its description, its place, and its connections when its file or folder is moved or renamed outside BaseHalf, by you or by an agent, also while BaseHalf is closed. A file that was also rewritten for the most part starts as a new card.',
 			'Connections from earlier versions move into your files after you confirm.',
 			'If BaseHalf can\'t read a card\'s upstream list, the badge offers Rebuild List, which keeps the connections it can read.',
 			'BaseHalf can install a skill for your agents, so that Claude Code, Codex, and others know where a card\'s description and connections are. It asks first, and adds it to the agents\' own settings, not to your folder.',
