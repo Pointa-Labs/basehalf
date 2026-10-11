@@ -3,9 +3,25 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IFileQuery, ISearchComplete, ISearchService } from '../../../services/search/common/search.js';
+import { IBaseHalfMovedItemsService } from '../../common/basehalfMovedItemsService.js';
+
+/** A moved-items service for tests in which nothing is moved outside BaseHalf. */
+export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {
+	_serviceBrand: undefined,
+	onDidRecognize: Event.None,
+	onDidChangeComparing: Event.None,
+	isComparing: () => false,
+	whenCompared: async () => { },
+	compare: async () => { },
+	getPendingMoves: () => [],
+	acceptRelocated: () => { },
+	acceptWorkbenchMove: () => { },
+	acceptWorkbenchDelete: () => { }
+};
 
 /**
  * File search over an in-memory file system for reference index tests. It

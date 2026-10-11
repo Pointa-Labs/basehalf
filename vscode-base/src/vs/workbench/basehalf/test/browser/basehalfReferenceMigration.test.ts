@@ -34,6 +34,7 @@ import { IWorkingCopyFileService } from '../../../services/workingCopy/common/wo
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
+import { IBaseHalfMovedItemsService } from '../../common/basehalfMovedItemsService.js';
 import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
 import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
@@ -61,7 +62,7 @@ import {
 } from '../../common/basehalfReferenceMigration.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
-import { BaseHalfInMemoryFileSearchService } from './basehalfReferenceTestFixtures.js';
+import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
 
 const folder = URI.file('/work');
 const recordPath = `.bh/${BASEHALF_LEGACY_REFERENCES_RECORD_FILE_NAME}`;
@@ -129,7 +130,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	instantiationService.stub(IBaseHalfNodeExecutionService, { acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+	instantiationService.stub(IBaseHalfNodeExecutionService, { onDidChange: Event.None, getActiveRun: () => undefined, acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	await index.whenReady(folder);
 	for (const nested of settings.nestedFolders ?? []) {
@@ -147,6 +148,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		provider,
 		session: () => instantiationService.createInstance(BaseHalfReferenceMigrationService),
 		cascade: () => {
+			instantiationService.stub(IBaseHalfMovedItemsService, baseHalfNoMovedItems);
 			disposables.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		},
 		workingCopyFileService: instantiationService.get(IWorkingCopyFileService),

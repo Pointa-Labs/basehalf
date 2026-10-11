@@ -19,6 +19,7 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeKind, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
@@ -27,6 +28,9 @@ import { IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasVie
 import { BaseHalfCardDetailProjection } from '../common/basehalfCardDetail.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfCommitMirrorFile } from '../common/basehalfMirrorFileCommit.js';
+import { baseHalfPreserveMirrorBytes } from '../common/basehalfMirrorRecovery.js';
+import { IBaseHalfMovedItem } from '../common/basehalfMovedItems.js';
+import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';
 import { baseHalfPlainFailureReason } from '../common/basehalfPlainFailureReason.js';
 import {
 	baseHalfIsMirrorSubtree,
@@ -160,9 +164,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
-		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService
+		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService,
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
+		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService
 	) {
 		super();
+
+		// Items that were moved outside BaseHalf: their card information follows.
+		this._register(this.movedItemsService.onDidRecognize(event => this.enqueue(() => this.followMoves(event.workspaceFolder, event.moves))));
+		// A move that was held back is tried again when what held it back ends.
+		this._register(this.workingCopyService.onDidChangeDirty(() => this.retryPendingMoves()));
+		this._register(this.nodeExecutionService.onDidChange(() => this.retryPendingMoves()));
 
 		this._register(workingCopyFileService.addFileOperationPrecondition({
 			prepare: (files, operation, undoInfo, token) => this.prepareStructuralDetail(files, operation, undoInfo, token)
@@ -201,12 +213,12 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 
 		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
 			for (const added of event.added) {
-				this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(added.uri, () => this.sweepOrphans(added.uri)));
+				this.enqueue(() => this.sweepOrphansAfterComparison(added.uri));
 			}
 		}));
 
 		for (const folder of this.contextService.getWorkspace().folders) {
-			this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(folder.uri, () => this.sweepOrphans(folder.uri)));
+			this.enqueue(() => this.sweepOrphansAfterComparison(folder.uri));
 		}
 	}
 
@@ -445,6 +457,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 
 	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		baseHalfForgetCanvasViewportsForStructuralChange(this.viewportStateService, operation, files);
+		// A move or delete through the workbench is not something to recognize:
+		// what BaseHalf last saw takes it here.
+		for (const pair of files) {
+			const target = this.workspaceLocation(pair.target);
+			const source = pair.source ? this.workspaceLocation(pair.source) : undefined;
+			if (operation === FileOperation.MOVE && source && target) {
+				this.movedItemsService.acceptWorkbenchMove(target.workspaceFolder, source.relativePath, target.relativePath);
+			} else if (operation === FileOperation.DELETE && target) {
+				this.movedItemsService.acceptWorkbenchDelete(target.workspaceFolder, target.relativePath);
+			}
+		}
 		const plans: IBaseHalfCascadePlan[] = [];
 		for (const pair of files) {
 			if (operation === FileOperation.MOVE && pair.source) {
@@ -837,7 +860,19 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			return;
 		}
 
-		this.enqueue(() => this.workspaceMutationCoordinator.runExclusive(location.workspaceFolder, async () => {
+		this.enqueue(async () => {
+			// A path that a moved item took is not a node that came back:
+			// relocation decides what happens to an orphan badge there.
+			await this.whenNotComparing(location.workspaceFolder);
+			if (this.movedItemsService.getPendingMoves(location.workspaceFolder).some(move => baseHalfIsMirrorSubtree(location.relativePath, move.to))) {
+				return;
+			}
+			await this.clearOrphanFlag(location);
+		});
+	}
+
+	private clearOrphanFlag(location: { readonly workspaceFolder: URI; readonly relativePath: string }): Promise<void> {
+		return this.workspaceMutationCoordinator.runExclusive(location.workspaceFolder, async () => {
 			const node = this.badgeNode(location.workspaceFolder, location.relativePath, 'file');
 			if (!(await this.fileService.exists(this.badgeMirrorService.badgeResource(node)))) {
 				return;
@@ -853,8 +888,142 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 				const { orphan: _orphan, ...rest } = current;
 				return rest;
 			});
-		}));
+		});
 	}
+
+	//#region Items moved outside BaseHalf (following moved items, "Relocation")
+
+	private async whenNotComparing(workspaceFolder: URI): Promise<void> {
+		while (!this.disposed && this.movedItemsService.isComparing(workspaceFolder)) {
+			await Event.toPromise(this.movedItemsService.onDidChangeComparing);
+		}
+	}
+
+	/** The sweep marks only what is still missing once the moved items were followed. */
+	private async sweepOrphansAfterComparison(workspaceFolder: URI): Promise<void> {
+		await this.movedItemsService.whenCompared(workspaceFolder);
+		await this.followMoves(workspaceFolder, this.movedItemsService.getPendingMoves(workspaceFolder));
+		await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, () => this.sweepOrphans(workspaceFolder));
+	}
+
+	private retryPendingMoves(): void {
+		for (const folder of this.contextService.getWorkspace().folders) {
+			if (this.movedItemsService.getPendingMoves(folder.uri).length > 0) {
+				this.enqueue(() => this.followMoves(folder.uri, this.movedItemsService.getPendingMoves(folder.uri)));
+			}
+		}
+	}
+
+	private async followMoves(workspaceFolder: URI, moves: readonly IBaseHalfMovedItem[]): Promise<void> {
+		if (moves.length === 0 || this.disposed || await baseHalfIsWorkspaceFolderMarked(this.fileService, workspaceFolder)) {
+			return;
+		}
+		for (const move of moves) {
+			try {
+				// The plain lease: a drag the user makes meanwhile waits and is not refused.
+				await this.workspaceMutationCoordinator.runExclusive(workspaceFolder, lease => this.followMove(workspaceFolder, move, lease));
+			} catch (error) {
+				// It stays pending, and is tried again at the next comparison and at open.
+				this.logService.warn(`BaseHalf mirror cascade: could not move the card of '${move.from}' to '${move.to}'`, error);
+			}
+		}
+	}
+
+	/**
+	 * Moves the card information of one item that was found at a new path.
+	 * Every piece moves only into a free place and nothing at the new path is
+	 * replaced, so this can be run again after it was interrupted.
+	 */
+	private async followMove(workspaceFolder: URI, move: IBaseHalfMovedItem, lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		if (!this.movedItemsService.getPendingMoves(workspaceFolder).some(pending => pending.from === move.from && pending.to === move.to)) {
+			return;
+		}
+		if (await this.nodeExists(workspaceFolder, move.from, 'file') || await this.nodeExists(workspaceFolder, move.from, 'folder')) {
+			// The old path names an item again: its card stays with it.
+			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
+			return;
+		}
+		if (!(await this.nodeExists(workspaceFolder, move.to, move.kind))) {
+			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'gone');
+			return;
+		}
+		const from = this.workspaceNode(workspaceFolder, move.from);
+		const to = this.workspaceNode(workspaceFolder, move.to);
+		const heldBack = this.workingCopyService.dirtyWorkingCopies.some(workingCopy => this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, from.resource))
+			|| this.nodeExecutionService.getActiveRun(from.resource) !== undefined
+			|| this.nodeExecutionService.getActiveRun(to.resource) !== undefined;
+		if (heldBack) {
+			return;
+		}
+
+		await this.canvasMirrorService.followNode(workspaceFolder, move.from, move.to, lease);
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'adhd.yaml')) {
+			if (baseHalfIsMirrorSubtree(entry.relativePath, move.from)) {
+				await this.adhdMirrorService.relocateAdhd(
+					this.workspaceNode(workspaceFolder, entry.relativePath),
+					this.workspaceNode(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to)),
+					{ keepTarget: true },
+					lease
+				);
+			}
+		}
+		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME]) {
+			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName)) {
+				if (baseHalfIsMirrorSubtree(entry.relativePath, move.from)) {
+					const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
+					await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
+				}
+			}
+		}
+		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
+		this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
+		this.logService.info(`BaseHalf mirror cascade: the card of '${move.from}' followed it to '${move.to}'`);
+	}
+
+	/**
+	 * {@link moveMirrorFile} for a followed move: the file moves only into a
+	 * free place. A target that holds anything else keeps it, and the source
+	 * stays. The one exception is a badge that is empty or belongs to an item
+	 * that is gone: the moved badge takes its place, and an orphan's bytes are
+	 * kept as a recovery copy first.
+	 */
+	private async followMirrorFile(workspaceFolder: URI, source: URI, target: URI, badgePath: string | undefined): Promise<void> {
+		const bytes = await this.readMirrorFile(workspaceFolder, source);
+		if (bytes === null) {
+			return;
+		}
+		let next = bytes;
+		if (badgePath !== undefined) {
+			const relocated = baseHalfRelocateBadgeText(bytes.toString(), badgePath);
+			if (relocated !== undefined) {
+				next = VSBuffer.fromString(relocated);
+			}
+		}
+		const current = await this.readMirrorFile(workspaceFolder, target);
+		if (current !== null && !current.equals(next)) {
+			if (badgePath === undefined) {
+				return;
+			}
+			const badge = await this.badgeMirrorService.readBadge(this.badgeNode(workspaceFolder, badgePath, 'file'));
+			if (badge?.orphan === true) {
+				const recoveryCopy = await baseHalfPreserveMirrorBytes(this.fileService, workspaceFolder, target, current);
+				this.logService.info(`BaseHalf mirror cascade: kept the badge of the item that used to be at '${badgePath}' at ${recoveryCopy.toString()}`);
+			} else if (!isEmptyBadgeText(current.toString())) {
+				// A description of its own, or content that cannot be read: it stays.
+				return;
+			}
+		}
+		if (!current?.equals(next)) {
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			await this.fileService.createFolder(dirname(target));
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+			await baseHalfCommitMirrorFile(this.fileService, target, next, current);
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
+		}
+		await this.deleteMirrorFile(workspaceFolder, source, bytes);
+	}
+
+	//#endregion
 
 	/** Marks every badge whose node is gone from disk as `orphan`, keeping its
 	 * description. Folders marked with the source-tree marker are skipped. */
@@ -1194,6 +1363,14 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			.then(task)
 			.catch(error => this.logService.error('BaseHalf mirror cascade step failed', error));
 	}
+}
+
+/**
+ * Whether a badge file holds only what retirement leaves: its `path` and
+ * `kind`, without a description.
+ */
+function isEmptyBadgeText(text: string): boolean {
+	return text.split(/\r\n|\n|\r/).every(line => line.trim() === '' || /^(?:path|kind)[ \t]*:/.test(line));
 }
 
 function isFileNotFound(error: unknown): boolean {

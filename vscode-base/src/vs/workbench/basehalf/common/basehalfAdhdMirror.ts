@@ -126,7 +126,13 @@ export interface IBaseHalfAdhdMirrorService {
 	 * be read is left in place, byte for byte, and never rejects them (mirror
 	 * file resilience, "Structural operations"). */
 	retireAdhd(file: IBaseHalfWorkspaceResource, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
-	relocateAdhd(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, options?: { readonly sameResourceIdentity?: boolean }, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	/**
+	 * With `keepTarget`, reading aids move only into a free place: a target
+	 * that has reading aids of its own keeps them and the source keeps its
+	 * own, and a target that already holds the moved ones only loses the
+	 * source (following moved items, "Relocation").
+	 */
+	relocateAdhd(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, options?: { readonly sameResourceIdentity?: boolean; readonly keepTarget?: boolean }, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	adhdResource(file: IBaseHalfWorkspaceResource): URI;
 }
 
@@ -246,7 +252,7 @@ export class BaseHalfAdhdMirrorService extends Disposable implements IBaseHalfAd
 		return this.runStructuralMutation(file.workspaceFolder, lease, () => this.retireAdhdLocked(file));
 	}
 
-	relocateAdhd(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, options: { readonly sameResourceIdentity?: boolean } = {}, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+	relocateAdhd(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, options: { readonly sameResourceIdentity?: boolean; readonly keepTarget?: boolean } = {}, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
 		if (source.workspaceFolder.toString() !== target.workspaceFolder.toString()) {
 			return Promise.reject(new Error('ADHD mirror relocation cannot cross workspaces.'));
 		}
@@ -261,7 +267,7 @@ export class BaseHalfAdhdMirrorService extends Disposable implements IBaseHalfAd
 			}
 			const [first, second] = [sourceResource, targetResource].sort((a, b) => a.toString().localeCompare(b.toString()));
 			return this.mutex.runExclusive(first.toString(), () =>
-				this.mutex.runExclusive(second.toString(), () => this.relocateAdhdLocked(source, target))
+				this.mutex.runExclusive(second.toString(), () => this.relocateAdhdLocked(source, target, options.keepTarget === true))
 			);
 		});
 	}
@@ -304,7 +310,7 @@ export class BaseHalfAdhdMirrorService extends Disposable implements IBaseHalfAd
 		});
 	}
 
-	private async relocateAdhdLocked(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource): Promise<void> {
+	private async relocateAdhdLocked(source: IBaseHalfWorkspaceResource, target: IBaseHalfWorkspaceResource, keepTarget = false): Promise<void> {
 		const sourceResource = this.adhdResource(source);
 		const targetResource = this.adhdResource(target);
 		for (let attempt = 0; attempt < ADHD_PATCH_MAX_ATTEMPTS; attempt++) {
@@ -322,6 +328,12 @@ export class BaseHalfAdhdMirrorService extends Disposable implements IBaseHalfAd
 				moved?.read_paragraphs
 			);
 			const relocatedContents = encodeAdhdFile(relocated, targetResource);
+			if (keepTarget && targetRead.exists && !targetRead.contents.equals(relocatedContents)) {
+				const free = targetRead.unreadable === undefined && !targetRead.adhd?.highlight_keywords?.length && !targetRead.adhd?.read_paragraphs?.length;
+				if (!free) {
+					return;
+				}
+			}
 			const sourceTombstoneContents = encodeAdhdFile(buildBaseHalfAdhdFile(source.relativePath, undefined, undefined), sourceResource);
 			let targetCommitted = false;
 			let sourceWritten: VSBuffer | undefined;

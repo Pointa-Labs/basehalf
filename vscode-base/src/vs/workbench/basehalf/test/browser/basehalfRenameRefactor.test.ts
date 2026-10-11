@@ -33,6 +33,7 @@ import { IWorkingCopyFileService } from '../../../services/workingCopy/common/wo
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
+import { IBaseHalfMovedItemsService } from '../../common/basehalfMovedItemsService.js';
 import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
 import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
@@ -52,7 +53,7 @@ import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '.
 import { BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID, IBaseHalfAgentMoveResult } from '../../common/basehalfRenameRefactor.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
-import { BaseHalfInMemoryFileSearchService } from './basehalfReferenceTestFixtures.js';
+import { BaseHalfInMemoryFileSearchService, baseHalfNoMovedItems } from './basehalfReferenceTestFixtures.js';
 
 const folder = URI.file('/work');
 
@@ -202,6 +203,8 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	instantiationService.stub(IBaseHalfNodeExecutionService, {
+		onDidChange: Event.None,
+		getActiveRun: () => undefined,
 		acquireStructuralOperation: async () => {
 			if (options.structuralRefusal) {
 				throw new Error(options.structuralRefusal);
@@ -216,6 +219,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	}
 	instantiationService.stub(IBaseHalfReferenceRefactorService, refactor);
 	await index.whenReady(folder);
+	instantiationService.stub(IBaseHalfMovedItemsService, baseHalfNoMovedItems);
 	disposables.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 	disposables.add(instantiationService.createInstance(BaseHalfRenameRefactorContribution));
 	const workingCopyFileService = instantiationService.get(IWorkingCopyFileService);
