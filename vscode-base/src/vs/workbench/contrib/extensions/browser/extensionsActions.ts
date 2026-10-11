@@ -453,6 +453,7 @@ export class InstallAction extends ExtensionAction {
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IAllowedExtensionsService private readonly allowedExtensionsService: IAllowedExtensionsService,
 		@IExtensionGalleryManifestService private readonly extensionGalleryManifestService: IExtensionGalleryManifestService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super('extensions.install', localize('install', "Install"), InstallAction.CLASS, false);
 		this.hideOnDisabled = false;
@@ -470,7 +471,7 @@ export class InstallAction extends ExtensionAction {
 		this.enabled = false;
 		this.class = InstallAction.HIDE;
 		this.hidden = true;
-		if (product.basehalfVersion) {
+		if (this.productService.basehalfVersion) {
 			return;
 		}
 		if (!this.extension) {
@@ -500,7 +501,7 @@ export class InstallAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		assertBaseHalfReviewedPluginInstallSurface(this.productService);
 		if (!this.extension) {
 			return;
 		}
@@ -747,6 +748,7 @@ export abstract class InstallInOtherServerAction extends ExtensionAction {
 		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IExtensionManagementServerService protected readonly extensionManagementServerService: IExtensionManagementServerService,
 		@IExtensionManifestPropertiesService private readonly extensionManifestPropertiesService: IExtensionManifestPropertiesService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super(id, InstallInOtherServerAction.INSTALL_LABEL, InstallInOtherServerAction.Class, false);
 		this.update();
@@ -755,7 +757,7 @@ export abstract class InstallInOtherServerAction extends ExtensionAction {
 	update(): void {
 		this.enabled = false;
 		this.class = InstallInOtherServerAction.Class;
-		if (product.basehalfVersion) {
+		if (this.productService.basehalfVersion) {
 			this.class = `${InstallInOtherServerAction.Class} hide`;
 			return;
 		}
@@ -825,7 +827,7 @@ export abstract class InstallInOtherServerAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<void> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		assertBaseHalfReviewedPluginInstallSurface(this.productService);
 		if (!this.extension?.local) {
 			return;
 		}
@@ -850,8 +852,9 @@ export class RemoteInstallAction extends InstallInOtherServerAction {
 		@IExtensionsWorkbenchService extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IExtensionManagementServerService extensionManagementServerService: IExtensionManagementServerService,
 		@IExtensionManifestPropertiesService extensionManifestPropertiesService: IExtensionManifestPropertiesService,
+		@IProductService productService: IProductService,
 	) {
-		super(`extensions.remoteinstall`, extensionManagementServerService.remoteExtensionManagementServer, canInstallAnyWhere, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService);
+		super(`extensions.remoteinstall`, extensionManagementServerService.remoteExtensionManagementServer, canInstallAnyWhere, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService, productService);
 	}
 
 	protected getInstallLabel(): string {
@@ -868,8 +871,9 @@ export class LocalInstallAction extends InstallInOtherServerAction {
 		@IExtensionsWorkbenchService extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IExtensionManagementServerService extensionManagementServerService: IExtensionManagementServerService,
 		@IExtensionManifestPropertiesService extensionManifestPropertiesService: IExtensionManifestPropertiesService,
+		@IProductService productService: IProductService,
 	) {
-		super(`extensions.localinstall`, extensionManagementServerService.localExtensionManagementServer, false, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService);
+		super(`extensions.localinstall`, extensionManagementServerService.localExtensionManagementServer, false, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService, productService);
 	}
 
 	protected getInstallLabel(): string {
@@ -884,8 +888,9 @@ export class WebInstallAction extends InstallInOtherServerAction {
 		@IExtensionsWorkbenchService extensionsWorkbenchService: IExtensionsWorkbenchService,
 		@IExtensionManagementServerService extensionManagementServerService: IExtensionManagementServerService,
 		@IExtensionManifestPropertiesService extensionManifestPropertiesService: IExtensionManifestPropertiesService,
+		@IProductService productService: IProductService,
 	) {
-		super(`extensions.webInstall`, extensionManagementServerService.webExtensionManagementServer, false, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService);
+		super(`extensions.webInstall`, extensionManagementServerService.webExtensionManagementServer, false, extensionsWorkbenchService, extensionManagementServerService, extensionManifestPropertiesService, productService);
 	}
 
 	protected getInstallLabel(): string {
@@ -973,6 +978,7 @@ export class UpdateAction extends ExtensionAction {
 		@IDialogService private readonly dialogService: IDialogService,
 		@IOpenerService private readonly openerService: IOpenerService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IProductService private readonly productService: IProductService,
 	) {
 		super(`extensions.update`, localize('update', "Update"), UpdateAction.DisabledClass, false);
 		this.update();
@@ -988,7 +994,7 @@ export class UpdateAction extends ExtensionAction {
 	private async computeAndUpdateEnablement(): Promise<void> {
 		this.enabled = false;
 		this.class = UpdateAction.DisabledClass;
-		if (product.basehalfVersion) {
+		if (this.productService.basehalfVersion) {
 			this.class = `${UpdateAction.DisabledClass} hide`;
 			return;
 		}
@@ -1009,7 +1015,7 @@ export class UpdateAction extends ExtensionAction {
 	}
 
 	override async run(): Promise<any> {
-		assertBaseHalfReviewedPluginInstallSurface(product);
+		assertBaseHalfReviewedPluginInstallSurface(this.productService);
 		if (!this.extension) {
 			return;
 		}

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { timeout } from '../../../../../base/common/async.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
 import { IExtensionsWorkbenchService, ExtensionContainers } from '../../common/extensions.js';
 import * as ExtensionsActions from '../../browser/extensionsActions.js';
@@ -224,6 +225,36 @@ suite('ExtensionsActions', () => {
 		await promise;
 		assert.ok(testObject.enabled);
 		assert.strictEqual('Install', testObject.label);
+	});
+
+	test('BaseHalf hides the install and the update action', async () => {
+		instantiationService.stub(IProductService, { basehalfVersion: '1.0.0' });
+		const install: ExtensionsActions.InstallAction = disposables.add(instantiationService.createInstance(ExtensionsActions.InstallAction, { installPreReleaseVersion: false }));
+		const update: ExtensionsActions.UpdateAction = disposables.add(instantiationService.createInstance(ExtensionsActions.UpdateAction, false));
+		disposables.add(instantiationService.createInstance(ExtensionContainers, [install, update]));
+		const workbenchService = instantiationService.get(IExtensionsWorkbenchService);
+		// An extension that is not installed: in a product that is not BaseHalf the install action is enabled for it.
+		instantiationService.stubPromise(IExtensionGalleryService, 'query', aPage(aGalleryExtension('b')));
+		install.extension = (await workbenchService.queryGallery(CancellationToken.None)).firstPage[0];
+		// An installed extension with a newer version: there the update action is enabled for it.
+		const local = aLocalExtension('a', { version: '1.0.0' });
+		instantiationService.stubPromise(IExtensionManagementService, 'getInstalled', [local]);
+		update.extension = (await workbenchService.queryLocal())[0];
+		const gallery = aGalleryExtension('a', { identifier: local.identifier, version: '1.0.1' });
+		instantiationService.stubPromise(IExtensionGalleryService, 'query', aPage(gallery));
+		instantiationService.stubPromise(IExtensionGalleryService, 'getCompatibleExtension', gallery);
+		instantiationService.stubPromise(IExtensionGalleryService, 'getExtensions', [gallery]);
+		await workbenchService.queryGallery(CancellationToken.None);
+		// Both decide after a moment. Neither becomes available.
+		await timeout(50);
+
+		assert.deepStrictEqual({
+			install: [install.enabled, install.hidden, install.class],
+			update: [update.enabled, update.class]
+		}, {
+			install: [false, true, 'extension-action label prominent install hide'],
+			update: [false, 'extension-action label update disabled hide']
+		});
 	});
 
 	test('Test Install action when extension is system action', () => {
@@ -1751,6 +1782,26 @@ suite('RemoteInstallAction', () => {
 		assert.strictEqual('extension-action label prominent install-other-server', testObject.class);
 	});
 
+	test('BaseHalf hides the remote install action', async () => {
+		instantiationService.stub(IProductService, { basehalfVersion: '1.0.0' });
+		// The setup in which the action is enabled in a product that is not BaseHalf.
+		const localWorkspaceExtension = aLocalExtension('a', { extensionKind: ['workspace'] }, { location: URI.file(`pub.a`) });
+		const extensionManagementServerService = aMultiExtensionManagementServerService(instantiationService, createExtensionManagementService([localWorkspaceExtension]));
+		instantiationService.stub(IExtensionManagementServerService, extensionManagementServerService);
+		instantiationService.stub(IWorkbenchExtensionEnablementService, disposables.add(new TestExtensionEnablementService(instantiationService)));
+		const workbenchService: IExtensionsWorkbenchService = disposables.add(instantiationService.createInstance(ExtensionsWorkbenchService));
+		instantiationService.set(IExtensionsWorkbenchService, workbenchService);
+
+		instantiationService.stubPromise(IExtensionGalleryService, 'query', aPage(aGalleryExtension('a', { identifier: localWorkspaceExtension.identifier })));
+		const testObject = disposables.add(instantiationService.createInstance(ExtensionsActions.RemoteInstallAction, false));
+		disposables.add(instantiationService.createInstance(ExtensionContainers, [testObject]));
+
+		const extensions = await workbenchService.queryLocal(extensionManagementServerService.localExtensionManagementServer!);
+		await workbenchService.queryGallery(CancellationToken.None);
+		testObject.extension = extensions[0];
+		assert.deepStrictEqual([testObject.enabled, testObject.class], [false, 'extension-action label prominent install-other-server hide']);
+	});
+
 	test('Test remote install action when installing local workspace extension', async () => {
 		// multi server setup
 		const remoteExtensionManagementService = createExtensionManagementService();
@@ -2180,6 +2231,26 @@ suite('LocalInstallAction', () => {
 		assert.ok(testObject.enabled);
 		assert.strictEqual('Install Locally', testObject.label);
 		assert.strictEqual('extension-action label prominent install-other-server', testObject.class);
+	});
+
+	test('BaseHalf hides the local install action', async () => {
+		instantiationService.stub(IProductService, { basehalfVersion: '1.0.0' });
+		// The setup in which the action is enabled in a product that is not BaseHalf.
+		const remoteUIExtension = aLocalExtension('a', { extensionKind: ['ui'] }, { location: URI.file(`pub.a`).with({ scheme: Schemas.vscodeRemote }) });
+		const extensionManagementServerService = aMultiExtensionManagementServerService(instantiationService, createExtensionManagementService(), createExtensionManagementService([remoteUIExtension]));
+		instantiationService.stub(IExtensionManagementServerService, extensionManagementServerService);
+		instantiationService.stub(IWorkbenchExtensionEnablementService, disposables.add(new TestExtensionEnablementService(instantiationService)));
+		const workbenchService: IExtensionsWorkbenchService = disposables.add(instantiationService.createInstance(ExtensionsWorkbenchService));
+		instantiationService.set(IExtensionsWorkbenchService, workbenchService);
+
+		instantiationService.stubPromise(IExtensionGalleryService, 'query', aPage(aGalleryExtension('a', { identifier: remoteUIExtension.identifier })));
+		const testObject = disposables.add(instantiationService.createInstance(ExtensionsActions.LocalInstallAction));
+		disposables.add(instantiationService.createInstance(ExtensionContainers, [testObject]));
+
+		const extensions = await workbenchService.queryLocal(extensionManagementServerService.remoteExtensionManagementServer!);
+		await workbenchService.queryGallery(CancellationToken.None);
+		testObject.extension = extensions[0];
+		assert.deepStrictEqual([testObject.enabled, testObject.class], [false, 'extension-action label prominent install-other-server hide']);
 	});
 
 	test('Test local install action is enabled for remote ui+workspace extension', async () => {
