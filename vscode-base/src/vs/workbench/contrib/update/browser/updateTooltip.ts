@@ -137,7 +137,8 @@ export class UpdateTooltip extends Disposable {
 	}
 
 	private updateCurrentVersion() {
-		const productVersion = this.productService.version;
+		// BaseHalf's own version, which is the one an update is compared with.
+		const productVersion = this.productService.basehalfVersion ?? this.productService.version;
 		if (productVersion) {
 			const currentCommitId = this.productService.commit?.substring(0, 7);
 			this.currentVersionNode.textContent = currentCommitId

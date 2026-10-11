@@ -236,6 +236,33 @@ function computeChecksum(filename: string): string {
 	return hash;
 }
 
+/**
+ * The bundle's short version string, which Finder shows, is BaseHalf's
+ * version and not the one of the VS Code base (app update, "The version that
+ * is shown"). The bundle version stays the base's. A build in which the
+ * string was not set fails.
+ */
+function baseHalfBundleVersion(platform: string) {
+	const baseHalfVersion = (product as { basehalfVersion?: string }).basehalfVersion;
+	const wanted = platform === 'darwin' && !!baseHalfVersion;
+	let done = false;
+	return es.through(function (file) {
+		if (wanted && file.relative === `${product.nameLong}.app/Contents/Info.plist` && file.contents) {
+			const shortVersion = /(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*(<\/string>)/;
+			const plist = file.contents.toString();
+			done = shortVersion.test(plist);
+			file.contents = Buffer.from(plist.replace(shortVersion, `$1${baseHalfVersion}$2`));
+		}
+		this.emit('data', file);
+	}, function () {
+		if (wanted && !done) {
+			this.emit('error', new Error('BaseHalf\'s version was not set as the bundle\'s short version string: its Info.plist was not found, or has no such string.'));
+			return;
+		}
+		this.emit('end');
+	});
+}
+
 function packageTask(platform: string, arch: string, sourceFolderName: string, destinationFolderName: string, _opts?: { stats?: boolean }) {
 	const destination = path.join(path.dirname(root), destinationFolderName);
 	platform = platform || process.platform;
@@ -456,6 +483,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 			.pipe(util.fixWin32DirectoryPermissions())
 			.pipe(filter(['**', '!**/.github/**'], { dot: true })) // https://github.com/microsoft/vscode/issues/116523
 			.pipe(electron(electronConfig))
+			.pipe(baseHalfBundleVersion(platform))
 			.pipe(filter([
 				'**',
 				'!LICENSE',
