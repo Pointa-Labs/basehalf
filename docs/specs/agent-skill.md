@@ -203,9 +203,10 @@ still work there, because they write only to the user's home folder.
    with the `.bh/` sign, asks about the working folder and not the folders
    above, and mentions `upstream`. The body starts with how to tell a
    BaseHalf workspace. Its body names `.bh/mirror/<path>/badge.yaml`,
-   `.bh/mirror/<path>/upstream.yaml`, the `upstream` frontmatter key, and the
-   move command, contains every line of the launch instruction's shared
-   sections, and has fewer than 500 lines. Unit test.
+   `.bh/mirror/<path>/upstream.yaml`, and the `upstream` frontmatter key,
+   says that files can be moved with ordinary tools, contains every line of
+   the launch instruction's shared sections, and has fewer than 500 lines.
+   Unit test.
 2. Installing writes both files with exactly the bundled bytes and creates
    missing folders. The states are missing before, current after, and
    outdated after the file is changed. Removing deletes both files and the
@@ -229,6 +230,12 @@ still work there, because they write only to the user's home folder.
      nowhere outside that folder.
 
 ## Recorded trials
+
+The trials below are of version 1 of the skill text, which told agents to
+move files through `basehalf.workspace.move`. Version 2 says that ordinary
+tools are fine, because BaseHalf follows a moved item by itself
+([following moved items](following-moved-items.md)). Its trial is criterion
+26 of that specification and is recorded there.
 
 **Version 1, 2026-10-11, Claude Code with `claude-opus-5-5`.** Each run is
 one non-interactive session in a scratch copy of a seven-file workspace: a

@@ -198,6 +198,9 @@ class StoreRefusal extends Error {
 export class BaseHalfReferenceEditService extends Disposable implements IBaseHalfReferenceEditService {
 	declare readonly _serviceBrand: undefined;
 
+	/** Edits in progress that follow a move without anyone asking. */
+	private automaticEdits = 0;
+
 	private readonly _onDidCreateFrontmatter = this._register(new Emitter<IBaseHalfWorkspaceResource>());
 	readonly onDidCreateFrontmatter = this._onDidCreateFrontmatter.event;
 
@@ -274,6 +277,14 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	async moveIntoFile(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
+		if (options.automatic) {
+			this.automaticEdits++;
+			try {
+				return await this.moveIntoFile(node, { ...options, automatic: false });
+			} finally {
+				this.automaticEdits--;
+			}
+		}
 		const identity = this.identity(node.workspaceFolder);
 		const sidecar = baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath);
 		const bytes = await this.readOptional(sidecar, SIDECAR_MAX_BYTES, node.workspaceFolder);
@@ -1493,6 +1504,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	private showFirstFrontmatterNotice(node: IBaseHalfWorkspaceResource): void {
+		if (this.automaticEdits > 0) {
+			return;
+		}
 		if (this.storageService.getBoolean(BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY, StorageScope.APPLICATION, false)) {
 			return;
 		}

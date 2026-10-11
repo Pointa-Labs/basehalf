@@ -409,7 +409,8 @@ The texts for agents get shorter.
   - an item can be moved and renamed with ordinary tools;
   - entries name items by path, so an entry that names an old path is broken
     until it is updated, by the agent or by BaseHalf;
-  - never edit, move, or delete anything under `.bh/`.
+  - never move, rename, or delete anything under `.bh/`. Editing a list
+    there stays as the texts already describe it.
 - Where a card's description and connections are does not change, so the
   rest of both texts stays.
 

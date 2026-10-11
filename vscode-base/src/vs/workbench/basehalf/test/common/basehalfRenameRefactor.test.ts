@@ -12,13 +12,11 @@ import { IBaseHalfIndexedStore } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfUpstreamStoreKind } from '../../common/basehalfReferenceStore.js';
 import {
 	baseHalfComposeRenamePlan,
-	baseHalfIsSpellingOnlyMove,
 	baseHalfPlanRenameUpdate,
 	baseHalfPrimaryMoves,
 	baseHalfRelocateRenameStores,
 	baseHalfRemapMovedPath,
 	baseHalfSnapshotRenameStores,
-	baseHalfUpdateOnFileMove,
 	IBaseHalfPathMove,
 	IBaseHalfRenameStoreState,
 	IBaseHalfRenameUpdatePlan
@@ -144,11 +142,9 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			stores: snapshot.map(store => state(store.nodePath, 'markdown', store.entries, store.entries, {}, CASE_INSENSITIVE))
 		});
 		assert.deepStrictEqual({
-			spellingOnly: [baseHalfIsSpellingOnlyMove(moves, CASE_INSENSITIVE), baseHalfIsSpellingOnlyMove(moves, BASEHALF_EXACT_UPSTREAM_IDENTITY)],
 			snapshot: snapshot.map(store => store.nodePath),
 			plan: summary(plan)
 		}, {
-			spellingOnly: [true, false],
 			snapshot: ['a.md', 'c.md'],
 			plan: {
 				edits: ['a.md: docs/Guide.md→docs/guide.md', 'c.md: DOCS/GUIDE.md→docs/guide.md'],
@@ -316,19 +312,17 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		});
 	});
 
-	test('remaps paths on segment boundaries and reads the setting with a prompt fallback', () => {
+	test('remaps paths on segment boundaries', () => {
 		const moves = [{ from: 'docs', to: 'archive/docs' }];
 		assert.deepStrictEqual({
 			remapped: ['docs', 'docs/a/b.md', 'docs-2/a.md', 'Docs/a.md'].map(path => baseHalfRemapMovedPath(path, moves, BASEHALF_EXACT_UPSTREAM_IDENTITY) ?? null),
 			// The most specific move wins, whatever the order.
 			specific: ['docs/a/b.md', 'docs/a/c.md', 'docs/x.md'].map(path => baseHalfRemapMovedPath(path, [...moves, { from: 'docs/a', to: 'kept' }], BASEHALF_EXACT_UPSTREAM_IDENTITY)),
-			caseInsensitive: baseHalfRemapMovedPath('Docs/a.md', moves, CASE_INSENSITIVE),
-			settings: ['prompt', 'always', 'never', 'sometimes', undefined].map(baseHalfUpdateOnFileMove)
+			caseInsensitive: baseHalfRemapMovedPath('Docs/a.md', moves, CASE_INSENSITIVE)
 		}, {
 			remapped: ['archive/docs', 'archive/docs/a/b.md', null, null],
 			specific: ['kept/b.md', 'kept/c.md', 'archive/docs/x.md'],
-			caseInsensitive: 'archive/docs/a.md',
-			settings: ['prompt', 'always', 'never', 'prompt', 'prompt']
+			caseInsensitive: 'archive/docs/a.md'
 		});
 	});
 });

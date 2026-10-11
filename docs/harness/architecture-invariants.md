@@ -92,10 +92,10 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   the user confirms, as in the removal of earlier BaseHalf sections from root
   agent files in
   [workspace state and legacy cleanup](../specs/workspace-state-and-legacy-cleanup.md#confirmed-user-owned-root-files).
-  Agents use their own file tools. Agent Area Claude Code sessions that
-  receive the launch context move and rename files through the host
-  [agent move](../specs/reference-graph.md#agent-moves) operation; other
-  agents' moves still leave BaseHalf metadata behind.
+  Agents use their own file tools, also to move and rename files. BaseHalf
+  recognizes a moved item by its content and moves what it keeps for it; no
+  agent calls BaseHalf for that
+  ([following moved items](../specs/following-moved-items.md), D44).
 - BaseHalf assumes users do not read code and never open `.bh/`. No message,
   button, or repair step sends them to a file's source or to a hidden file;
   repairs are actions in BaseHalf's own interface (D41). Messages give reasons

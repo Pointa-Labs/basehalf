@@ -133,6 +133,12 @@ export interface IBaseHalfReferenceEditOptions {
 	 * no blocking store, and writes nothing, so the caller can re-plan.
 	 */
 	readonly plannedStructure?: readonly IBaseHalfReferenceStructureStamp[];
+	/**
+	 * The edit follows a move and no one asked for it. The notice that
+	 * explains the first connection saved inside a note is not shown for it,
+	 * and stays unshown for the first connection the user saves.
+	 */
+	readonly automatic?: boolean;
 }
 
 export type BaseHalfReferenceStoreOutcome = 'changed' | 'unchanged' | 'failed' | 'notAttempted';

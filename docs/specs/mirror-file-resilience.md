@@ -39,7 +39,9 @@ where a description or keyword such as `2024` or `true` had the same effect.
   They are reference truth: unreadable and invalid entries stay visible issues
   that only the user repairs ([reference graph](reference-graph.md)).
 - `appearance.yaml`, which has its own one-line grammar.
-- Following files that are moved or deleted outside BaseHalf.
+- Following items that are moved outside BaseHalf. That is specified in
+  [following moved items](following-moved-items.md), which relocates mirror
+  files under rules of its own.
 - Mirror files above their size limit. Reading one is an environmental
   failure, as defined below.
 
@@ -119,8 +121,9 @@ differences.
 - In a canvas, card rows and edge ends that start with the stored spelling of
   the folder are read under the folder's current spelling.
 - The next write stores the current spelling. Reading changes nothing on disk.
-- This does not follow a file or folder that was moved to another name
-  outside BaseHalf, which stays a non-goal.
+- A file or folder that was moved to another name outside BaseHalf is a
+  matter of [following moved items](following-moved-items.md), not of this
+  rule.
 
 ## Layout files
 
@@ -294,7 +297,10 @@ disk.
 - A `badge.yaml` with a content failure is left in place on retirement. On
   relocation it travels with its node as before: its `path` line is rewritten
   and every other byte is kept. The orphan sweep and the reappearance check
-  skip it.
+  skip it. Both run only after BaseHalf has compared the folder with what it
+  last saw, so that an item that was moved outside BaseHalf is followed
+  before anything of it is marked orphan
+  ([following moved items](following-moved-items.md#when-basehalf-compares)).
 
 A mirror directory that still holds such a file is not pruned.
 
@@ -317,7 +323,7 @@ are logged.
   not run are dropped, the lease is released, and later file operations
   proceed. Metadata that those stages would have moved or retired stays at its
   old mirror path, which is the state a move or delete outside BaseHalf
-  leaves. Empty mirror directories are not pruned after a skip. The skip is
+  leaves when BaseHalf does not recognize the item. Empty mirror directories are not pruned after a skip. The skip is
   logged with the operation and the stage.
 - Closing the notification without choosing shows it again.
 - While the notification is pending, another move or delete in that workspace

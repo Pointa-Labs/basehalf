@@ -11441,10 +11441,9 @@ async function assertMigrationMovesSeededLegacyPair(page) {
 
 // Rename a connected file through the Explorer. Its badge (description and
 // legacy text) follows the file, and so does the legacy `referenced_by` item
-// of the unmigrated pair. The rename refactor prompt offers to update far.md's
-// upstream entry: Skip leaves the entry naming the old path, dangling and
-// drawing no edge; Update rewrites it in place and the edge follows the file.
-// The step then restores the fixture bytes.
+// of the unmigrated pair. far.md's upstream entry is rewritten in place
+// without a question, and the edge follows the file. The step then restores
+// the fixture bytes.
 async function assertExplorerRenameCascadesMirror(page) {
 	const guideBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide.md');
 	const farBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'far.md');
@@ -11459,40 +11458,23 @@ async function assertExplorerRenameCascadesMirror(page) {
 	}
 	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
 
-	// Skip: far.md keeps the old path, which dangles and draws no edge.
+	// The entry of far.md is rewritten without a question, and the edge follows the file.
 	await renameExplorerEntry(page, 'guide.md', 'guide-renamed.md');
 	await waitUntil(() => fs.existsSync(renamedBadgePath) && fs.readFileSync(renamedBadgePath, 'utf8') === renamedBadge, 'badge.yaml to follow the renamed file with its description and legacy text');
 	await waitUntil(() => badgeMirrorIsAbsentOrCanonicalEmpty(path.join(guideBadgeDir, 'badge.yaml')), 'old badge.yaml to be absent or a canonical empty tombstone');
 	await waitUntil(() => fs.readFileSync(farBadgePath, 'utf8') === legacyFarRenamed, 'the unmigrated pair\'s legacy referenced_by item to follow the rename');
-	await clickNotificationAction(page, 'guide.md moved to docs/guide-renamed.md.', 'Skip', 20_000);
-	await assertCanvasEdgeGone(page, 'docs/guide.md', 'docs/far.md');
-	await assertCanvasEdgeGone(page, 'docs/guide-renamed.md', 'docs/far.md');
-	if (readWorkspaceFile('docs/far.md') !== farConnected) {
-		throw new Error('Skip changed another note\'s upstream list');
+	await waitUntil(() => readWorkspaceFile('docs/far.md') === farRenamed, 'far.md\'s upstream entry to be rewritten in place without a question', 20_000);
+	await assertCanvasEdgeVisible(page, 'docs/guide-renamed.md', 'docs/far.md');
+	if (await page.locator('.notifications-toasts .notification-list-item', { hasText: 'moved to' }).count() !== 0) {
+		throw new Error('A rename through the Explorer asked whether to update the entries that name the item');
 	}
 
-	// Rename back: nothing names the new path, so nothing is offered; the
-	// entry resolves again and the badges return home.
+	// Rename back: far.md returns to its exact bytes, and the badges return home.
 	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
-	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml'))
-		&& fs.readFileSync(path.join(guideBadgeDir, 'badge.yaml'), 'utf8') === LEGACY_GUIDE_BADGE, 'badge.yaml to follow the rename back');
-	await waitUntil(() => fs.readFileSync(farBadgePath, 'utf8') === LEGACY_FAR_BADGE, 'the legacy referenced_by item to follow the rename back');
-	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
-
-	// Update: far.md's entry is rewritten in place and the edge follows the file.
-	await renameExplorerEntry(page, 'guide.md', 'guide-renamed.md');
-	await clickNotificationAction(page, 'guide.md moved to docs/guide-renamed.md.', 'Update', 20_000);
-	await waitUntil(() => readWorkspaceFile('docs/far.md') === farRenamed, 'Update to rewrite far.md\'s upstream entry in place', 20_000);
-	await expectNotification(page, /Updated \d+ items?\./);
-	await assertCanvasEdgeVisible(page, 'docs/guide-renamed.md', 'docs/far.md');
-
-	// Rename back with Update: far.md returns to its exact bytes.
-	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
-	await clickNotificationAction(page, 'guide-renamed.md moved to docs/guide.md.', 'Update', 20_000);
-	await waitUntil(() => readWorkspaceFile('docs/far.md') === farConnected, 'Update to rewrite far.md\'s upstream entry back', 20_000);
+	await waitUntil(() => readWorkspaceFile('docs/far.md') === farConnected, 'far.md\'s upstream entry to be rewritten back', 20_000);
 	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml'))
 		&& fs.readFileSync(path.join(guideBadgeDir, 'badge.yaml'), 'utf8') === LEGACY_GUIDE_BADGE
-		&& fs.readFileSync(farBadgePath, 'utf8') === LEGACY_FAR_BADGE, 'the badges to follow the second rename back');
+		&& fs.readFileSync(farBadgePath, 'utf8') === LEGACY_FAR_BADGE, 'the badges to follow the rename back');
 	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
 
 	// Restore the fixture. The legacy badges go first, so no later detection

@@ -12,7 +12,7 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** Changes whenever the skill text changes, so that an installed copy of an
  * earlier text is offered an update. */
-export const BASEHALF_AGENT_SKILL_VERSION = '1';
+export const BASEHALF_AGENT_SKILL_VERSION = '2';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf

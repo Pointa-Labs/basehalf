@@ -100,6 +100,13 @@ In VS Code storage (this machine):
 | `basehalf.agentSkill.declinedVersion` | application | the version of the [agent skill](agent-skill.md) the user chose not to be asked about again |
 | `basehalf.canvas.pendingTemplateSetups.v2` | workspace | pending template setups ([reference graph](reference-graph.md#templates)) |
 
+In BaseHalf's application storage for the workspace (this machine), outside
+VS Code storage and outside the workspace folder:
+
+| File | Content |
+| --- | --- |
+| `<workspace storage>/basehalf/moved-items-<folder>.json`, one per workspace folder | what BaseHalf last saw in the folder: the paths of the items the canvas could show, the fingerprints of the followed items, the moves whose relocation has not finished, and the moves whose entries are still owed ([following moved items](following-moved-items.md#the-snapshot)) |
+
 ## Canvas viewport state
 
 `IBaseHalfCanvasViewportStateService` owns the viewport state.

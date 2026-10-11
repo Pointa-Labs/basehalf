@@ -67,7 +67,7 @@ suite('BaseHalfAgentSkill', () => {
 			'under the `upstream` key of its frontmatter',
 			'It is stored nowhere. Find it by searching',
 			'Read it from disk when you need it, and again before you rely on it later.',
-			'basehalf --run-operation \'{"operationId":"basehalf.workspace.move","parameters":{"from":"old/path.md","to":"new/path.md"}}\''
+			'You can move and rename files and folders with ordinary tools.'
 		];
 		assert.deepStrictEqual({
 			missing: phrases.filter(phrase => !body.includes(phrase)),

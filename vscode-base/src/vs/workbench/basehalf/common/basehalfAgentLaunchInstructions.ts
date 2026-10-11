@@ -7,7 +7,8 @@
  * The sections that the launch instruction and the BaseHalf agent skill have
  * in common, word for word: where BaseHalf keeps its metadata, relationships,
  * preserving relationships, and canvas workflows (agent launch context,
- * "Content contract").
+ * "Content contract"). They do not tell an agent how to move a file: BaseHalf
+ * follows a moved item by itself (following moved items).
  */
 export const BASEHALF_AGENT_SHARED_SECTIONS: readonly string[] = [
 	'## Where you are',
@@ -42,24 +43,18 @@ export const BASEHALF_AGENT_SHARED_SECTIONS: readonly string[] = [
 	'## Preserving relationships',
 	'',
 	'- When you rewrite or restructure a file, edit it in place and keep its frontmatter, including the upstream list, unchanged. Never delete and recreate it.',
-	'- To move or rename a file or folder, use this instead of `mv` or `git mv`:',
-	'',
-	'  ```sh',
-	'  basehalf --run-operation \'{"operationId":"basehalf.workspace.move","parameters":{"from":"old/path.md","to":"new/path.md"}}\'',
-	'  ```',
-	'',
-	'  `from` and `to` are full paths relative to the workspace folder, not to your current directory, and `to` is the new path, not a folder to move into. Write a `\'` in a path as `\'\\\'\'`. BaseHalf moves the item\'s metadata with it and updates the `upstream` entries that name it. Tell the user what the result lists under `skipped`, `incomplete`, or `notUpdated`, and leave those entries as they are.',
-	'- If the operation is refused, do not move the item: fix the request if the error is about a path, otherwise tell the user why. If it returned no result, `cancelled`, or a refusal about the terminal, check whether `from` still exists before doing anything else.',
-	'- Only if `basehalf` is not found, or it says Agent operations are available only inside a BaseHalf TUI Agent session, move the item yourself. Then update every `upstream` entry that names its old path, or a path inside it, including those in `.bh/mirror/**/upstream.yaml`: the one `.bh/` edit allowed without being asked. Tell the user that its BaseHalf metadata stayed at the old path (for a folder or a file that is not Markdown or `.bhnode`, that includes its own upstream list), and that moving it back and renaming it in BaseHalf restores it.',
+	'- You can move and rename files and folders with ordinary tools. BaseHalf recognizes the item at its new path, by its content, and moves what it keeps for it under `.bh/`.',
+	'- Entries name items by path, so an entry that names the old path of a moved item is broken until it is updated. BaseHalf updates them when it sees the move. You can update them yourself too.',
+	'- Never move, rename, or delete anything under `.bh/`. BaseHalf does that itself.',
 	'- Moving keeps a relationship; it does not change one.',
 	'- When the user asks you to create a note from other files, list those files under the new note\'s `upstream`. Otherwise add or remove entries only when the user asks.',
 	'- An older "BaseHalf workspace" section in `CLAUDE.md` or `AGENTS.md` that mentions `current_focus.yaml`, `references`, or `referenced_by` is out of date. Follow this instruction instead.',
 	'',
 	'## Canvas workflows',
 	'',
-	'- Before any other canvas workflow, run `basehalf --list-capabilities`. Its JSON is the only authority for recipes, slots, parameters, document formats, and every operation except `basehalf.workspace.move`.',
+	'- Before any canvas workflow, run `basehalf --list-capabilities`. Its JSON is the only authority for recipes, slots, parameters, document formats, and operations.',
 	'- Use `basehalf --run-node <workspace-relative .bhnode>` for a saved node.',
-	'- Use `basehalf --run-operation \'<json>\'` only for `basehalf.workspace.move` and for operations that discovery returned.',
+	'- Use `basehalf --run-operation \'<json>\'` only for operations that discovery returned.',
 	'- Never author attempts or results.',
 	'- Accepted runs continue after the session closes.',
 	'- These commands work only inside Agent Area terminals.'
@@ -92,7 +87,7 @@ export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS = [
 export const BASEHALF_AGENT_LAUNCH_POINTER = [
 	'# BaseHalf workspace',
 	'',
-	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area. The `basehalf` skill describes this workspace: where a card\'s description and its upstream and downstream connections are, how to move and rename files so that they keep them, and how to run canvas workflows. Use that skill before you read, write, move, or rename anything here.'
+	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area. The `basehalf` skill describes this workspace: where a card\'s description and its upstream and downstream connections are, what moving and renaming files does to them, and how to run canvas workflows. Use that skill before you read, write, move, or rename anything here.'
 ].join('\n');
 
 /** The Claude Code flag that appends {@link BASEHALF_AGENT_LAUNCH_INSTRUCTIONS}. */

@@ -19,11 +19,10 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 		const phrases = [
 			'relative to the workspace folder',
 			'keep its frontmatter, including the upstream list',
-			'update every `upstream` entry that names its old path',
-			'basehalf --run-operation \'{"operationId":"basehalf.workspace.move","parameters":{"from":"old/path.md","to":"new/path.md"}}\'',
-			'not to your current directory',
-			'do not move the item',
-			'Only if `basehalf` is not found',
+			// An agent moves files with its own tools: BaseHalf follows them.
+			'You can move and rename files and folders with ordinary tools.',
+			'an entry that names the old path of a moved item is broken until it is updated',
+			'Never move, rename, or delete anything under `.bh/`.',
 			'Never delete or regenerate `.bh/`',
 			'out of date',
 			'basehalf --list-capabilities',
@@ -40,12 +39,12 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'under the `upstream` key of its frontmatter',
 			'Markdown links never create relationships',
 			'edit it in place',
-			'"operationId":"basehalf.workspace.move"',
-			'update every `upstream` entry that names its old path',
+			'with ordinary tools',
+			'BaseHalf updates them when it sees the move',
 			'list those files under the new note\'s `upstream`',
 			'basehalf --list-capabilities',
 			'basehalf --run-node',
-			'only for `basehalf.workspace.move` and for operations that discovery returned',
+			'only for operations that discovery returned',
 			'Never author attempts or results',
 			'Accepted runs continue after the session closes',
 			'only inside Agent Area terminals'
@@ -55,9 +54,9 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 		assert.deepStrictEqual(positions, [...positions].sort((a, b) => a - b));
 	});
 
-	test('never points agents at the retired focus mirror or agent harness', () => {
+	test('never points agents at the retired focus mirror, the agent harness, or the retired move operation', () => {
 		assert.deepStrictEqual(
-			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
+			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness', 'basehalf.workspace.move', 'instead of `mv`'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
 			[]
 		);
 	});

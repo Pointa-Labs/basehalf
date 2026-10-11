@@ -80,6 +80,13 @@ export interface IBaseHalfReferenceRefactorApplyOptions {
 	 * into the input. The update waits for it before each attempt.
 	 */
 	readonly whenMovesSettled?: () => Promise<void>;
+	/**
+	 * The update adds no canvas undo step. An update that follows a move is
+	 * undone by moving the item back, which updates the entries back; with a
+	 * step of its own, one Undo would break every entry while the item kept
+	 * its new name.
+	 */
+	readonly noUndo?: boolean;
 }
 
 export interface IBaseHalfReferenceRefactorOutcome {
@@ -287,7 +294,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				continue;
 			}
 			try {
-				const result = await this.referenceEditService.moveIntoFile(node, { label: options.label });
+				const result = await this.referenceEditService.moveIntoFile(node, { label: options.label, automatic: options.noUndo === true });
 				collect(result);
 				if (result.changed) {
 					movedIntoFile.push(node);
@@ -299,7 +306,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				}
 			}
 		}
-		const undo = this.referenceEditService.pushUndoElement({ stores, changed: stores.some(store => store.outcome === 'changed') }, {
+		const undo = options.noUndo ? undefined : this.referenceEditService.pushUndoElement({ stores, changed: stores.some(store => store.outcome === 'changed') }, {
 			label: options.label,
 			resources: options.undoResources,
 			source: BASEHALF_CANVAS_UNDO_REDO_SOURCE,

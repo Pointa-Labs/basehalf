@@ -12,7 +12,6 @@ export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
 	AttachmentsDirectory: 'basehalf.editor.attachmentsDirectory',
 	CanvasDefaultZoom: 'basehalf.canvas.defaultZoom',
-	ReferencesUpdateOnFileMove: 'basehalf.references.updateOnFileMove',
 	AgentDefaultSession: 'basehalf.agent.defaultSession',
 	AgentsOfferSkill: 'basehalf.agents.offerSkill',
 	ModelServices: BASEHALF_MODEL_SERVICES_SETTING
@@ -26,17 +25,6 @@ export const BASEHALF_CANVAS_MAX_ZOOM = 4;
 export const BASEHALF_CANVAS_DEFAULT_ZOOM = 1;
 
 export const BASEHALF_AGENT_DEFAULT_SESSION: BaseHalfAgentSessionKind = 'tui-codex';
-
-/**
- * What a workbench move or rename does with the upstream entries that name
- * the moved path (reference graph, "Rename refactor"):
- * - `prompt`: one sticky notification per operation offers the update;
- * - `always`: updates without asking and reports it with an Undo action;
- * - `never`: does nothing, and the entries become dangling.
- */
-export type BaseHalfUpdateOnFileMove = 'prompt' | 'always' | 'never';
-export const BASEHALF_UPDATE_ON_FILE_MOVE_VALUES: readonly BaseHalfUpdateOnFileMove[] = ['prompt', 'always', 'never'];
-export const BASEHALF_UPDATE_ON_FILE_MOVE_DEFAULT: BaseHalfUpdateOnFileMove = 'prompt';
 
 // Exported so tests can restore BaseHalf settings after platform suites reset
 // the shared configuration registry.
@@ -65,18 +53,6 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			maximum: BASEHALF_CANVAS_MAX_ZOOM,
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('basehalf.canvas.defaultZoom', 'Controls the initial BaseHalf canvas zoom when a folder has no remembered canvas viewport on this machine.')
-		},
-		[BaseHalfSetting.ReferencesUpdateOnFileMove]: {
-			type: 'string',
-			default: BASEHALF_UPDATE_ON_FILE_MOVE_DEFAULT,
-			enum: [...BASEHALF_UPDATE_ON_FILE_MOVE_VALUES],
-			enumDescriptions: [
-				localize('basehalf.references.updateOnFileMove.prompt', 'Ask once per move whether to update the upstream lists that name the moved item.'),
-				localize('basehalf.references.updateOnFileMove.always', 'Update the upstream lists without asking, and offer Undo.'),
-				localize('basehalf.references.updateOnFileMove.never', 'Leave the upstream lists unchanged. Their entries for the old path show as broken until they are relinked.')
-			],
-			scope: ConfigurationScope.RESOURCE,
-			description: localize('basehalf.references.updateOnFileMove', 'Controls what happens to the upstream lists that name a file or folder when it is moved or renamed in BaseHalf. Folders that BaseHalf is set to leave alone always ask.')
 		},
 		[BaseHalfSetting.AgentDefaultSession]: {
 			type: 'string',

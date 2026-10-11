@@ -940,7 +940,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 		if (await this.nodeExists(workspaceFolder, move.from, 'file') || await this.nodeExists(workspaceFolder, move.from, 'folder')) {
 			// The old path names an item again: its card stays with it.
-			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
+			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'kept');
 			return;
 		}
 		if (!(await this.nodeExists(workspaceFolder, move.to, move.kind))) {

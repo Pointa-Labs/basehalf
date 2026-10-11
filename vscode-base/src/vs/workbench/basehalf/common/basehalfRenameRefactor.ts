@@ -3,9 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { URI } from '../../../base/common/uri.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
-import { BASEHALF_UPDATE_ON_FILE_MOVE_DEFAULT, BASEHALF_UPDATE_ON_FILE_MOVE_VALUES, BaseHalfSetting, BaseHalfUpdateOnFileMove } from './basehalfConfiguration.js';
 import { BaseHalfNodeUpstreamLifecycle } from './basehalfNodeDocument.js';
 import { BaseHalfReferenceRefusalReason, IBaseHalfUpstreamEntryReplacement } from './basehalfReferenceEdit.js';
 import { IBaseHalfUpstreamIdentity, IBaseHalfUpstreamItem } from './basehalfReferenceEntries.js';
@@ -14,19 +12,11 @@ import { BaseHalfUpstreamStoreKind } from './basehalfReferenceStore.js';
 
 /**
  * Pure planning of the rename refactor and Relink Everywhere (reference
- * graph, "Rename refactor"). A workbench move leaves the entries that name
- * the old path dangling; with the user's confirmation, or under
- * `basehalf.references.updateOnFileMove: always`, BaseHalf replaces them in
- * place. Relink Everywhere replaces a dangling path the same way.
+ * graph, "Rename refactor"). A move leaves the entries that name the old path
+ * dangling, and BaseHalf replaces them in place without asking (following
+ * moved items, "Entries are always updated"). Relink Everywhere replaces a
+ * dangling path the same way.
  */
-
-/** The setting that controls the rename refactor. */
-export const BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING = BaseHalfSetting.ReferencesUpdateOnFileMove;
-
-/** Reads the setting, falling back to `prompt` for an unknown value. */
-export function baseHalfUpdateOnFileMove(value: unknown): BaseHalfUpdateOnFileMove {
-	return BASEHALF_UPDATE_ON_FILE_MOVE_VALUES.includes(value as BaseHalfUpdateOnFileMove) ? value as BaseHalfUpdateOnFileMove : BASEHALF_UPDATE_ON_FILE_MOVE_DEFAULT;
-}
 
 /** One move of a path inside one workspace folder, in workspace-relative paths. */
 export interface IBaseHalfPathMove {
@@ -87,11 +77,6 @@ export function baseHalfEffectiveMoves(moves: readonly IBaseHalfPathMove[]): IBa
 export function baseHalfPrimaryMoves(moves: readonly IBaseHalfPathMove[], identity: IBaseHalfUpstreamIdentity): IBaseHalfPathMove[] {
 	const effective = baseHalfEffectiveMoves(moves);
 	return effective.filter(move => !effective.some(other => other !== move && identity.key(move.from).startsWith(`${identity.key(other.from)}/`)));
-}
-
-/** Whether every move only changes the spelling of its path under the folder's identity (a case-only rename on a case-insensitive file system). */
-export function baseHalfIsSpellingOnlyMove(moves: readonly IBaseHalfPathMove[], identity: IBaseHalfUpstreamIdentity): boolean {
-	return moves.length > 0 && moves.every(move => identity.key(move.from) === identity.key(move.to));
 }
 
 /** A store whose entries name a moved path. */
@@ -358,43 +343,3 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 	return { edits, skipped, leftAlone };
 }
 
-//#region Agent moves
-
-/**
- * The internal command behind the `basehalf.workspace.move` host operation
- * (reference graph, "Agent moves"). The node command handler validates the
- * request and resolves both paths; the rename refactor contribution runs the
- * workbench move and answers its plan without a prompt.
- */
-export const BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID = '_basehalf.workspace.agentMove';
-
-/** A validated agent move inside one workspace folder. */
-export interface IBaseHalfAgentMoveArgument {
-	readonly workspaceFolder: URI;
-	readonly source: URI;
-	readonly target: URI;
-	/** `source` and `target` as workspace-relative paths. */
-	readonly from: string;
-	readonly to: string;
-}
-
-/** What the rename refactor did with the entries that name a moved path. */
-export interface IBaseHalfAgentMoveUpstreamResult {
-	/** Downstream nodes whose upstream list changed. */
-	readonly updated: readonly string[];
-	/** Stores the update could not write, and entries it left alone, with reasons. */
-	readonly skipped: readonly string[];
-	/** Why the update did not run, when it did not. */
-	readonly notUpdated?: string;
-	/** Set when the reference index was partial, so unread stores may still name the old path. */
-	readonly incomplete?: string;
-}
-
-/** The result of the `basehalf.workspace.move` host operation. */
-export interface IBaseHalfAgentMoveResult {
-	readonly from: string;
-	readonly to: string;
-	readonly upstream: IBaseHalfAgentMoveUpstreamResult;
-}
-
-//#endregion

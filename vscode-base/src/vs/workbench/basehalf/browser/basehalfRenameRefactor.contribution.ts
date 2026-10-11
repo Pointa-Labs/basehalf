@@ -3,55 +3,51 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { DeferredPromise, timeout } from '../../../base/common/async.js';
-import { CancellationToken } from '../../../base/common/cancellation.js';
-import { CancellationError } from '../../../base/common/errors.js';
-import { Disposable } from '../../../base/common/lifecycle.js';
-import { basename, dirname, isEqual, relativePath as getRelativePath } from '../../../base/common/resources.js';
+import { RunOnceScheduler, timeout } from '../../../base/common/async.js';
+import { Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
+import { isEqual, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
-import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
-import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
-import { ConfigurationTarget, IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { FileOperation, IFileService } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
-import { INotificationHandle, INotificationService, IPromptChoice, Severity } from '../../../platform/notification/common/notification.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { IFileOperationUndoRedoInfo, IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
-import { IExplorerService } from '../../contrib/files/browser/files.js';
-import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
+import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfIsMirrorSubtree, baseHalfRemapSubtreeRel } from '../common/basehalfMirrorTree.js';
+import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../common/basehalfMovedItemsService.js';
+import { BaseHalfReferenceRefusalReason } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
-import { BaseHalfReferenceIndexState, IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
+import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
 import { BASEHALF_UPSTREAM_FRONTMATTER_WINDOW_BYTES, baseHalfUpstreamSidecarResource, baseHalfUpstreamStoreKind, readBaseHalfMarkdownUpstream, readBaseHalfSidecarUpstream } from '../common/basehalfReferenceStore.js';
 import {
-	BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING,
 	baseHalfComposeRenamePlan,
 	baseHalfEffectiveMoves,
-	baseHalfIsSpellingOnlyMove,
 	baseHalfPrimaryMoves,
 	baseHalfRelocateRenameStores,
-	baseHalfUpdateOnFileMove,
-	BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID,
-	IBaseHalfAgentMoveArgument,
-	IBaseHalfAgentMoveResult,
-	IBaseHalfAgentMoveUpstreamResult,
 	IBaseHalfPathMove,
-	IBaseHalfRenameUpdatePlan,
 	IBaseHalfRenamePlanState,
 	IBaseHalfRenameStore
 } from '../common/basehalfRenameRefactor.js';
+import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 import { IBaseHalfReferenceRefactorInput, IBaseHalfReferenceRefactorOutcome, IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
 /** How long an update that a move interrupted waits for moves in progress to finish. */
 const MOVE_SETTLE_TIMEOUT_MS = 10_000;
+/** How long after a trigger the entries that are still owed are tried again. */
+const OWED_RETRY_DELAY_MS = 500;
 const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+
+/**
+ * Why a store was not written that will not hold for good: the entry is
+ * owed, and is written when the reason has gone.
+ */
+const TEMPORARY_REFUSALS: ReadonlySet<BaseHalfReferenceRefusalReason | 'historical'> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading', 'running']);
 
 /** One workspace folder's part of a prepared move. */
 interface IPreparedRename {
@@ -59,18 +55,8 @@ interface IPreparedRename {
 	readonly pairs: readonly { readonly source: URI; readonly target: URI; readonly move: IBaseHalfPathMove }[];
 	/** The index snapshot, or `undefined` while the index was still building. */
 	readonly snapshot: readonly IBaseHalfRenameStore[] | undefined;
-	/** The old paths of the plans that were unanswered when the move was prepared: they own those entries. */
+	/** The old paths of the plans that were not written when the move was prepared: they own those entries. */
 	readonly exclude: readonly string[];
-	/** Set when the move is an agent move: its plan answers itself and reports here. */
-	readonly agent?: IAgentMoveRequest;
-}
-
-/** An agent move between its request and the end of its plan (reference graph, "Agent moves"). */
-interface IAgentMoveRequest {
-	/** What the plan did, or `undefined` when the move did not complete. */
-	readonly result: DeferredPromise<IBaseHalfAgentMoveUpstreamResult | undefined>;
-	/** Cancelled when the caller went away; the plan then reports like any other move. */
-	readonly token: CancellationToken;
 }
 
 /** A node whose store kind changed to its own file, with the entries its moved `upstream.yaml` holds. */
@@ -79,79 +65,54 @@ interface IStoreKindChange {
 	readonly entries: number;
 }
 
-interface IPromptInfo {
-	readonly atLeast: boolean;
-	readonly storeKindChanges: readonly IStoreKindChange[];
-	/** Stores the edit service would refuse, as "name (reason)". */
-	readonly skipped: readonly string[];
-}
-
 /**
- * An unanswered rename in one workspace folder. It stays pending, and keeps
- * composing with later moves, until it is skipped or its update is written.
+ * The entries of one move, or of several that composed, in one workspace
+ * folder. It stays pending, and keeps composing with later moves, until its
+ * update is written.
  */
 interface IPendingRename {
 	readonly workspaceFolder: URI;
 	state: IBaseHalfRenamePlanState;
-	/** The index was building when the move was prepared: snapshot once it is ready. */
+	/** The stores were not snapshotted before the move: they are found once the index is ready. */
 	deferred: boolean;
-	/** The user answered (or the plan settled): the prompt's actions do nothing any more. */
+	/** The plan was written or dropped. */
 	answered: boolean;
-	notification?: INotificationHandle;
-	promptInfo?: IPromptInfo;
-	/** An agent move: the plan never prompts and reports its result here. */
-	readonly agent?: IAgentMoveRequest;
-	/** The update's report is shown only when something needs the user's attention. */
-	reportQuietly?: boolean;
-}
-
-/** The most items one list of an agent move result holds. */
-const AGENT_MOVE_RESULT_MAX_ITEMS = 200;
-
-export function capAgentMoveList(items: readonly string[]): string[] {
-	return items.length <= AGENT_MOVE_RESULT_MAX_ITEMS
-		? [...items]
-		: [...items.slice(0, AGENT_MOVE_RESULT_MAX_ITEMS - 1), `… and ${items.length - AGENT_MOVE_RESULT_MAX_ITEMS + 1} more`];
 }
 
 /**
- * The rename refactor (reference graph, "Rename refactor"). When a node or
- * folder is moved or renamed through the workbench (any
- * `IWorkingCopyFileService` move: Explorer, canvas rename, drag-move,
- * paste-move, and undo or redo of a move), it offers to update the upstream
- * entries that name it:
+ * Keeps the upstream entries that name a moved item pointing at it (following
+ * moved items, "Entries are always updated"; reference graph, "Rename
+ * refactor"). After every move it rewrites them without asking and shows
+ * nothing:
  *
- * - The working-copy prepare step snapshots, from the index, every store whose
- *   entries name a moved path or a path inside a moved folder.
- * - After the move and its mirror cascade, the stores are mapped to their
- *   current paths. Unanswered plans compose with later moves.
- * - `basehalf.references.updateOnFileMove` decides: `prompt` shows one sticky
- *   notification per operation (closing it is Skip), `always` updates and
- *   reports with Undo, and `never` does nothing. A folder marked with the
- *   source-tree marker always prompts.
- * - Update re-plans from the stores' current content and runs as one
- *   multi-document operation and one canvas undo step. A plan being updated
- *   keeps composing with later moves until its write holds the workspace
- *   lease; a move that lands first makes it re-plan.
- * - A plan never rewrites entries that name the old paths of an earlier
- *   unanswered plan: that plan owns them and maps them through both moves.
- *
- * - An agent move (`basehalf.workspace.move`, reference graph "Agent moves")
- *   is a workbench move whose plan never prompts: it updates unless the
- *   setting is `never`, and reports what it did to the waiting operation.
- *
- * Moves outside the workbench are not refactored; Relink Everywhere repairs
- * their entries later.
+ * - **A move through the workbench** (any `IWorkingCopyFileService` move:
+ *   Explorer, canvas rename, drag-move, paste-move, and undo or redo of a
+ *   move). The prepare step snapshots, from the index, every store whose
+ *   entries name a moved path or a path inside a moved folder. After the move
+ *   and its mirror cascade the stores are mapped to their current paths.
+ * - **A move outside the workbench** that BaseHalf recognized. Its plan
+ *   starts when the card information is at the new path, and finds the
+ *   stores in the index, where the entries still name the old path.
+ * - Plans compose with later moves until their update is written. A plan
+ *   never rewrites entries that name the old paths of an earlier plan that
+ *   is not written yet: that plan owns them and maps them through both moves.
+ * - The update adds no undo step. Undoing a workbench move is a move back,
+ *   which updates the entries back.
+ * - **What is owed is remembered.** When a store could not be written for a
+ *   reason that passes (unsaved changes, a node that is running), or the
+ *   index had not seen every store, the move is kept with what BaseHalf last
+ *   saw and tried again: when the index finished a scan, when a document is
+ *   saved or reverted, when a run ends, and at open.
+ * - A folder marked with the source-tree marker is never rewritten by itself.
  */
 export class BaseHalfRenameRefactorContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.renameRefactor';
 
 	private readonly pending = new Set<IPendingRename>();
-	/** Agent moves between their request and their prepare step, by source and target. */
-	private readonly agentMoves = new Map<string, IAgentMoveRequest>();
 	/** Workbench moves prepared but not yet composed, by workspace folder. */
 	private readonly movesInFlight = new Map<string, number>();
 	private settleWaiters: (() => void)[] = [];
+	private readonly owedRetries = this._register(new DisposableMap<string, RunOnceScheduler>());
 	private disposed = false;
 
 	constructor(
@@ -162,30 +123,47 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IFileService private readonly fileService: IFileService,
-		@IExplorerService private readonly explorerService: IExplorerService,
-		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@INotificationService private readonly notificationService: INotificationService,
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
+		@IWorkingCopyService workingCopyService: IWorkingCopyService,
+		@IBaseHalfNodeExecutionService nodeExecutionService: IBaseHalfNodeExecutionService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
 		this._register(workingCopyFileService.addFileOperationPrecondition({
-			prepare: async (files, operation, undoInfo) => this.prepare(files, operation, undoInfo)
+			prepare: async (files, operation) => this.prepare(files, operation)
 		}));
-		this._register(CommandsRegistry.registerCommand(BASEHALF_WORKSPACE_AGENT_MOVE_COMMAND_ID, (_accessor, argument: IBaseHalfAgentMoveArgument, token?: CancellationToken) => this.agentMove(argument, token ?? CancellationToken.None)));
+		// An item that was moved outside BaseHalf: its entries follow once its card information did.
+		this._register(this.movedItemsService.onDidRelocate(event => this.register(event.workspaceFolder, event.moves.map(move => ({ from: move.from, to: move.to })), undefined, this.pendingOldPaths(event.workspaceFolder))));
+
+		// What is owed is tried again when the reason it was owed for may have gone.
+		this._register(this.referenceIndexService.onDidChange(event => {
+			if (event.full && (event.state === 'ready' || event.state === 'partial')) {
+				this.retryOwed(event.workspaceFolder);
+			}
+		}));
+		this._register(workingCopyService.onDidChangeDirty(workingCopy => {
+			const folder = this.contextService.getWorkspaceFolder(workingCopy.resource);
+			if (folder && !workingCopy.isDirty()) {
+				this.retryOwed(folder.uri);
+			}
+		}));
+		this._register(nodeExecutionService.onDidChange(() => this.retryOwedEverywhere()));
+		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
+			for (const added of event.added) {
+				void this.movedItemsService.whenCompared(added.uri).then(() => this.retryOwed(added.uri));
+			}
+		}));
+		for (const folder of this.contextService.getWorkspace().folders) {
+			void this.movedItemsService.whenCompared(folder.uri).then(() => this.retryOwed(folder.uri));
+		}
 	}
 
 	override dispose(): void {
 		this.disposed = true;
 		for (const plan of this.pending) {
 			plan.answered = true;
-			plan.notification?.close();
-			plan.agent?.result.complete({ updated: [], skipped: [], notUpdated: 'BaseHalf closed the window before the entries were updated' });
 		}
 		this.pending.clear();
-		for (const request of this.agentMoves.values()) {
-			request.result.complete(undefined);
-		}
-		this.agentMoves.clear();
 		this.releaseSettleWaiters();
 		super.dispose();
 	}
@@ -197,23 +175,14 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	 * never awaits, so it adds no await boundary ahead of the structural
 	 * commit barrier of the mirror cascade.
 	 */
-	private prepare(files: readonly SourceTargetPair[], operation: FileOperation, undoInfo: IFileOperationUndoRedoInfo | undefined): IWorkingCopyFileOperationPreconditionGuard | undefined {
+	private prepare(files: readonly SourceTargetPair[], operation: FileOperation): IWorkingCopyFileOperationPreconditionGuard | undefined {
 		if (operation !== FileOperation.MOVE) {
 			return undefined;
 		}
-		const groups = new Map<string, { readonly workspaceFolder: URI; readonly pairs: { readonly source: URI; readonly target: URI; readonly move: IBaseHalfPathMove }[]; agent?: IAgentMoveRequest }>();
-		let unplanned: IAgentMoveRequest | undefined;
+		const groups = new Map<string, { readonly workspaceFolder: URI; readonly pairs: { readonly source: URI; readonly target: URI; readonly move: IBaseHalfPathMove }[] }>();
 		for (const pair of files) {
 			if (!pair.source) {
 				continue;
-			}
-			// An agent move is recognized by its source and target. Undo and redo of
-			// it run as undoing, so they follow the setting like any other move.
-			const agentKey = this.agentMoveKey(pair.source, pair.target);
-			const agent = undoInfo?.isUndoing ? undefined : this.agentMoves.get(agentKey);
-			if (agent) {
-				this.agentMoves.delete(agentKey);
-				unplanned = agent;
 			}
 			const from = this.location(pair.source);
 			const to = this.location(pair.target);
@@ -228,14 +197,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				groups.set(key, group);
 			}
 			group.pairs.push({ source: pair.source, target: pair.target, move: { from: from.relativePath, to: to.relativePath } });
-			if (agent) {
-				group.agent = agent;
-				unplanned = undefined;
-			}
 		}
 		if (groups.size === 0) {
-			// Nothing to plan: an agent move reports that nothing named it.
-			unplanned?.result.complete({ updated: [], skipped: [] });
 			return undefined;
 		}
 		const prepared: IPreparedRename[] = [...groups.values()].map(group => {
@@ -266,10 +229,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				try {
 					if (completed.length > 0 && !this.disposed) {
 						this.didMove(prepared, completed);
-					} else {
-						for (const group of prepared) {
-							group.agent?.result.complete(undefined);
-						}
 					}
 				} finally {
 					for (const group of prepared) {
@@ -326,69 +285,61 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		}
 	}
 
-	/** Registers the plan of a completed move, synchronously, so later moves compose in order. */
+	/** Registers the plans of a completed workbench move, synchronously, so later moves compose in order. */
 	private didMove(prepared: readonly IPreparedRename[], completed: readonly SourceTargetPair[]): void {
 		for (const group of prepared) {
 			const moves = group.pairs
 				.filter(pair => completed.some(file => file.source && isEqual(file.source, pair.source) && isEqual(file.target, pair.target)))
 				.map(pair => pair.move);
-			if (moves.length === 0) {
-				group.agent?.result.complete(undefined);
+			if (moves.length > 0) {
+				this.register(group.workspaceFolder, moves, group.snapshot, group.exclude);
+			}
+		}
+	}
+
+	/**
+	 * Registers the plan of moves that have happened. Without a `snapshot` of
+	 * the stores from before the moves, the plan finds them in the index.
+	 */
+	private register(workspaceFolder: URI, moves: readonly IBaseHalfPathMove[], snapshot: readonly IBaseHalfRenameStore[] | undefined, exclude: readonly string[]): void {
+		if (this.disposed || moves.length === 0) {
+			return;
+		}
+		const identity = this.identity(workspaceFolder);
+		// Pending moves compose: the entries of a plan whose update has not
+		// written yet map through this move too.
+		for (const plan of [...this.pending]) {
+			if (!isEqual(plan.workspaceFolder, workspaceFolder)) {
 				continue;
 			}
-			const identity = this.identity(group.workspaceFolder);
-			// Pending moves compose: entries of an unanswered plan, or of one whose
-			// update has not written yet, map through this move too.
-			for (const plan of [...this.pending]) {
-				if (!isEqual(plan.workspaceFolder, group.workspaceFolder)) {
-					continue;
-				}
-				plan.state = baseHalfComposeRenamePlan(plan.state, moves, identity);
-				if (baseHalfEffectiveMoves(plan.state.moves).length === 0) {
-					this.settle(plan);
-					plan.agent?.result.complete({ updated: [], skipped: [], notUpdated: 'a later move put the item back where it was' });
-					plan.notification?.close();
-				} else if (!plan.answered && plan.notification && plan.promptInfo) {
-					plan.notification.updateMessage(this.promptMessage(plan, plan.promptInfo));
-				}
+			plan.state = baseHalfComposeRenamePlan(plan.state, moves, identity);
+			if (baseHalfEffectiveMoves(plan.state.moves).length === 0) {
+				this.settle(plan);
 			}
-			const plan: IPendingRename = {
-				workspaceFolder: group.workspaceFolder,
-				state: {
-					moves,
-					stores: group.snapshot ? baseHalfRelocateRenameStores(group.snapshot, moves, identity) : [],
-					storeKindChanges: moves.map(move => move.to),
-					...(group.exclude.length > 0 ? { exclude: group.exclude } : {})
-				},
-				deferred: !group.snapshot,
-				answered: false,
-				...(group.agent ? { agent: group.agent } : {})
-			};
-			this.pending.add(plan);
-			void timeout(0)
-				.then(() => this.process(plan))
-				.catch(error => this.logService.error('[BaseHalf] the rename refactor failed', error));
 		}
+		const plan: IPendingRename = {
+			workspaceFolder,
+			state: {
+				moves,
+				stores: snapshot ? baseHalfRelocateRenameStores(snapshot, moves, identity) : [],
+				storeKindChanges: moves.map(move => move.to),
+				...(exclude.length > 0 ? { exclude } : {})
+			},
+			deferred: !snapshot,
+			answered: false
+		};
+		this.pending.add(plan);
+		void timeout(0)
+			.then(() => this.process(plan))
+			.catch(error => this.logService.error('[BaseHalf] updating the upstream entries after a move failed', error));
 	}
 
+	/** Writes a plan, and remembers its moves when an entry is still owed afterwards. */
 	private async process(plan: IPendingRename): Promise<void> {
-		if (plan.agent) {
-			return this.processAgentMove(plan, plan.agent);
-		}
-		return this.processWithSetting(plan);
-	}
-
-	/** Answers a plan as the setting says: update, prompt, or do nothing. */
-	private async processWithSetting(plan: IPendingRename): Promise<void> {
 		if (plan.answered || this.disposed) {
 			return;
 		}
 		const folder = plan.workspaceFolder;
-		const setting = baseHalfUpdateOnFileMove(this.configurationService.getValue(BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, { resource: folder }));
-		if (setting === 'never') {
-			this.settle(plan);
-			return;
-		}
 		const indexState = await this.refactorService.whenIndexReady(folder);
 		if (plan.answered || this.disposed) {
 			return;
@@ -398,30 +349,23 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		if (plan.answered || this.disposed) {
 			return;
 		}
-		if (plan.state.stores.length === 0 && storeKindChanges.length === 0) {
+		// A folder marked with the source-tree marker is never rewritten by itself.
+		if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder)) {
 			this.settle(plan);
 			return;
 		}
-		// A folder marked with the source-tree marker always prompts.
-		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, folder);
 		if (plan.answered || this.disposed) {
 			return;
 		}
-		if (setting === 'always' && !marked) {
-			await this.update(plan);
-			return;
+		let blocked = false;
+		if (plan.state.stores.length === 0 && storeKindChanges.length === 0) {
+			this.settle(plan);
+		} else {
+			const outcome = await this.update(plan, storeKindChanges);
+			blocked = outcome !== undefined && (outcome.errors.length > 0 || outcome.plan.skipped.some(skip => TEMPORARY_REFUSALS.has(skip.reason)));
 		}
-		// Stores the edit service would refuse are listed before the user confirms.
-		const input = this.input(plan);
-		const preview = input && input.stores.length > 0 ? await this.refactorService.plan(folder, input) : undefined;
-		if (plan.answered || this.disposed) {
-			return;
-		}
-		this.prompt(plan, {
-			atLeast: indexState === 'partial',
-			storeKindChanges,
-			skipped: preview ? this.refactorService.skippedNames(preview) : []
-		});
+		// A partial index may not have seen every store that names the old paths.
+		this.owe(folder, baseHalfEffectiveMoves(plan.state.moves), blocked || indexState === 'partial');
 	}
 
 	private snapshotDeferred(plan: IPendingRename): void {
@@ -471,121 +415,26 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		return out;
 	}
 
-	//#endregion
-
-	//#region Prompt and update
-
-	private prompt(plan: IPendingRename, info: IPromptInfo): void {
-		plan.promptInfo = info;
-		const count = plan.state.stores.length;
-		const spelling = count > 0 && baseHalfIsSpellingOnlyMove(baseHalfEffectiveMoves(plan.state.moves), this.identity(plan.workspaceFolder));
-		const choices: IPromptChoice[] = [
-			{
-				label: spelling
-					? count === 1 ? localize('basehalf.renameRefactor.updateSpelling.one', "Update spelling in 1 item") : localize('basehalf.renameRefactor.updateSpelling', "Update spelling in {0} items", count)
-					: localize('basehalf.renameRefactor.update', "Update"),
-				run: () => this.update(plan)
-			},
-			{
-				label: localize('basehalf.renameRefactor.alwaysUpdate', "Always Update"),
-				run: async () => {
-					await this.configurationService.updateValue(BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, 'always', ConfigurationTarget.USER);
-					await this.update(plan);
-				}
-			},
-			{
-				label: localize('basehalf.renameRefactor.skip', "Skip"),
-				run: () => this.settle(plan)
-			}
-		];
-		plan.notification = this.notificationService.prompt(Severity.Info, this.promptMessage(plan, info), choices, {
-			sticky: true,
-			// Closing the notification without choosing is Skip.
-			onCancel: () => this.settle(plan)
-		});
-	}
-
-	private promptMessage(plan: IPendingRename, info: IPromptInfo): string {
-		const identity = this.identity(plan.workspaceFolder);
-		const moves = baseHalfPrimaryMoves(plan.state.moves, identity);
-		const count = plan.state.stores.length;
-		const parts: string[] = [];
-		if (count > 0) {
-			const spelling = baseHalfIsSpellingOnlyMove(baseHalfEffectiveMoves(plan.state.moves), identity);
-			if (moves.length === 1) {
-				const oldName = moves[0].from.slice(moves[0].from.lastIndexOf('/') + 1);
-				parts.push(spelling
-					? localize('basehalf.renameRefactor.renamed', "{0} was renamed to {1}.", oldName, moves[0].to)
-					: localize('basehalf.renameRefactor.moved', "{0} moved to {1}.", oldName, moves[0].to));
-			} else {
-				parts.push(localize('basehalf.renameRefactor.movedMany', "{0} items moved.", moves.length));
-			}
-			if (spelling) {
-				parts.push(count === 1 && !info.atLeast
-					? localize('basehalf.renameRefactor.spelling.one', "1 item lists it with the old spelling, which tools that match exact spelling won't find.")
-					: info.atLeast
-						? localize('basehalf.renameRefactor.spelling.atLeast', "At least {0} items list it with the old spelling, which tools that match exact spelling won't find.", count)
-						: localize('basehalf.renameRefactor.spelling', "{0} items list it with the old spelling, which tools that match exact spelling won't find.", count));
-			} else if (moves.length === 1) {
-				parts.push(count === 1 && !info.atLeast
-					? localize('basehalf.renameRefactor.count.one', "1 item lists it as upstream. Update it?")
-					: info.atLeast
-						? localize('basehalf.renameRefactor.count.atLeast', "At least {0} items list it as upstream. Update them?", count)
-						: localize('basehalf.renameRefactor.count', "{0} items list it as upstream. Update them?", count));
-			} else {
-				parts.push(count === 1 && !info.atLeast
-					? localize('basehalf.renameRefactor.countMany.one', "1 item lists them as upstream. Update it?")
-					: info.atLeast
-						? localize('basehalf.renameRefactor.countMany.atLeast', "At least {0} items list them as upstream. Update them?", count)
-						: localize('basehalf.renameRefactor.countMany', "{0} items list them as upstream. Update them?", count));
-			}
-			if (info.skipped.length > 0) {
-				parts.push(info.skipped.length === 1
-					? localize('basehalf.renameRefactor.skipped.one', "1 of them can't be updated: {0}.", this.refactorService.names(info.skipped))
-					: localize('basehalf.renameRefactor.skipped', "{0} of them can't be updated: {1}.", info.skipped.length, this.refactorService.names(info.skipped)));
-			}
-			parts.push(localize('basehalf.renameRefactor.skipNote', "If you skip, they keep the old path and will show a broken upstream entry."));
-		}
-		for (const change of info.storeKindChanges) {
-			const name = change.node.relativePath.slice(change.node.relativePath.lastIndexOf('/') + 1);
-			parts.push(change.entries === 1
-				? localize('basehalf.renameRefactor.storeKind.one', "{0} can now hold its upstream list itself. Move its 1 entry into the file?", name)
-				: localize('basehalf.renameRefactor.storeKind', "{0} can now hold its upstream list itself. Move its {1} entries into the file?", name, change.entries));
-		}
-		return parts.join(' ');
-	}
-
-	/**
-	 * Update: re-plans from the stores' current content and writes them as one
-	 * step. The plan stays pending, so later moves keep composing into it, until
-	 * the write is done; a move that lands before the write holds the lease
-	 * makes it re-plan from the composed plan.
-	 */
-	private async update(plan: IPendingRename): Promise<IBaseHalfReferenceRefactorOutcome | undefined> {
+	private async update(plan: IPendingRename, storeKindChanges: readonly IStoreKindChange[]): Promise<IBaseHalfReferenceRefactorOutcome | undefined> {
 		if (plan.answered || this.disposed) {
 			return undefined;
 		}
 		plan.answered = true;
 		const folder = plan.workspaceFolder;
 		try {
-			await this.refactorService.whenIndexReady(folder);
 			const moves = baseHalfPrimaryMoves(plan.state.moves, this.identity(folder));
 			if (!this.input(plan) || moves.length === 0) {
 				return undefined;
 			}
-			const storeKindChanges = await this.storeKindChanges(plan);
 			const outcome = await this.refactorService.update(folder, () => this.input(plan), {
 				label: localize('basehalf.renameRefactor.undoLabel', "Update upstream paths"),
 				undoResources: [this.parentCanvasResource(folder, moves[0].to)],
 				moveIntoFile: storeKindChanges.map(change => change.node),
-				whenMovesSettled: () => this.whenMovesSettled(folder)
+				whenMovesSettled: () => this.whenMovesSettled(folder),
+				noUndo: true
 			});
-			// An agent move reports through its result; the notification appears
-			// only when something needs the user's attention.
-			const quiet = plan.reportQuietly && !plan.agent?.token.isCancellationRequested
-				&& outcome?.errors.length === 0 && outcome.plan.skipped.length === 0 && outcome.plan.leftAlone.length === 0;
-			if (outcome && !quiet) {
-				this.refactorService.report(outcome, 'rename');
+			for (const error of outcome?.errors ?? []) {
+				this.logService.warn('[BaseHalf] an upstream entry could not be updated after a move', error);
 			}
 			return outcome;
 		} finally {
@@ -593,7 +442,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		}
 	}
 
-	/** What the plan updates now, or `undefined` once later moves undid it (or it was settled). */
+	/** What the plan updates now, or `undefined` once later moves undid it (or it was dropped). */
 	private input(plan: IPendingRename): IBaseHalfReferenceRefactorInput | undefined {
 		if (this.disposed || !this.pending.has(plan) || baseHalfEffectiveMoves(plan.state.moves).length === 0) {
 			return undefined;
@@ -608,178 +457,63 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 
 	//#endregion
 
-	//#region Agent moves
+	//#region Entries that are still owed
 
-	/**
-	 * Runs one agent move as an Explorer move and waits for its plan (reference
-	 * graph, "Agent moves"). The node command handler has validated both paths
-	 * and resolved them to their spelling on disk.
-	 */
-	private async agentMove(argument: IBaseHalfAgentMoveArgument, token: CancellationToken): Promise<IBaseHalfAgentMoveResult> {
-		if (token.isCancellationRequested || this.disposed) {
-			throw new CancellationError();
-		}
-		const key = this.agentMoveKey(argument.source, argument.target);
-		if (this.agentMoves.has(key)) {
-			throw new Error(`'${argument.from}' is already being moved to '${argument.to}'.`);
-		}
-		const request: IAgentMoveRequest = { result: new DeferredPromise(), token };
-		this.agentMoves.set(key, request);
-		const oldName = basename(argument.source);
-		const renamed = this.uriIdentityService.extUri.isEqual(dirname(argument.source), dirname(argument.target));
-		let failure: { readonly error: unknown } | undefined;
-		try {
-			// From here on the move is committed: it and its plan complete even if
-			// the caller goes away, so the token is not passed on.
-			await this.explorerService.applyBulkEdit([new ResourceFileEdit(argument.source, argument.target, { overwrite: false })], {
-				undoLabel: renamed
-					? localize('basehalf.agentMove.renameUndo', "Rename {0} to {1}", oldName, basename(argument.target))
-					: localize('basehalf.agentMove.moveUndo', "Move {0}", oldName),
-				progressLabel: renamed
-					? localize('basehalf.agentMove.renameProgress', "Renaming {0}", oldName)
-					: localize('basehalf.agentMove.moveProgress', "Moving {0}", oldName),
-				confirmBeforeUndo: this.configurationService.getValue<IFilesConfiguration>()?.explorer?.confirmUndo === UndoConfirmLevel.Verbose
+	/** Remembers, or forgets, that entries may still name the old paths of `moves`. */
+	private owe(workspaceFolder: URI, moves: readonly IBaseHalfPathMove[], owed: boolean): void {
+		const before = this.movedItemsService.getOwedEntryMoves(workspaceFolder);
+		let next = before.filter(known => !moves.some(move => move.from === known.from));
+		if (owed) {
+			// Moves compose: after `a` to `b` and `b` to `c`, entries that name `a` get `c`.
+			next = next.map(known => {
+				const later = moves.find(move => baseHalfIsMirrorSubtree(known.to, move.from));
+				return later ? { from: known.from, to: baseHalfRemapSubtreeRel(known.to, later.from, later.to) } : known;
 			});
-		} catch (error) {
-			failure = { error };
-		} finally {
-			// The prepare step claims the request; one it never saw had nothing to plan.
-			if (this.agentMoves.get(key) === request) {
-				this.agentMoves.delete(key);
-				request.result.complete(failure ? undefined : { updated: [], skipped: [] });
-			}
+			next.push(...moves.map(move => ({ from: move.from, to: move.to })));
 		}
-		const upstream = await request.result.p;
-		if (!upstream) {
-			throw failure?.error ?? new Error('The move did not complete.');
-		}
-		// A later stage that failed after the item moved does not undo the move: it is
-		// reported first, and each list is capped once.
-		const failureLine = failure ? [`the move completed, but BaseHalf then reported: ${failure.error instanceof Error ? failure.error.message : String(failure.error)}`] : [];
-		return {
-			from: argument.from,
-			to: argument.to,
-			upstream: {
-				...upstream,
-				updated: capAgentMoveList(upstream.updated),
-				skipped: capAgentMoveList([...failureLine, ...upstream.skipped])
-			}
-		};
-	}
-
-	/** The plan of an agent move: never prompts, updates unless the setting is `never`, and always reports. */
-	private async processAgentMove(plan: IPendingRename, request: IAgentMoveRequest): Promise<void> {
-		let result: IBaseHalfAgentMoveUpstreamResult = { updated: [], skipped: [] };
-		let promptInstead = false;
-		try {
-			if (plan.answered || this.disposed) {
-				return;
-			}
-			const folder = plan.workspaceFolder;
-			const setting = baseHalfUpdateOnFileMove(this.configurationService.getValue(BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING, { resource: folder }));
-			if (setting === 'never') {
-				this.settle(plan);
-				result = { updated: [], skipped: [], notUpdated: `${BASEHALF_REFERENCES_UPDATE_ON_FILE_MOVE_SETTING} is never` };
-				return;
-			}
-			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder)) {
-				// The marker appeared after validation: a marked folder always prompts.
-				promptInstead = true;
-				result = { updated: [], skipped: [], notUpdated: 'the workspace folder is marked as a BaseHalf source tree, so BaseHalf asks the user if any entries name the old path' };
-				return;
-			}
-			const indexState = await this.refactorService.whenIndexReady(folder);
-			if (plan.answered || this.disposed) {
-				return;
-			}
-			this.snapshotDeferred(plan);
-			const waiting = this.agentMoveWaitingEntries(plan);
-			if (plan.state.stores.length === 0 && (await this.storeKindChanges(plan)).length === 0) {
-				this.settle(plan);
-				result = this.agentMoveResult(undefined, waiting, indexState);
-				return;
-			}
-			plan.reportQuietly = true;
-			result = this.agentMoveResult(await this.update(plan), waiting, indexState);
-		} catch (error) {
-			result = { updated: [], skipped: [`the update failed: ${error instanceof Error ? error.message : String(error)}`] };
-		} finally {
-			request.result.complete(result);
-		}
-		if (promptInstead) {
-			await this.processWithSetting(plan);
+		if (next.length !== before.length || next.some((move, index) => move.from !== before[index].from || move.to !== before[index].to)) {
+			this.movedItemsService.setOwedEntryMoves(workspaceFolder, next);
 		}
 	}
 
-	/**
-	 * Stores whose entries name a moved path but that this plan leaves alone,
-	 * because the entries fall under the old path of an earlier plan that is
-	 * not settled yet (the `exclude` of the prepare step).
-	 */
-	private agentMoveWaitingEntries(plan: IPendingRename): string[] {
-		const exclude = plan.state.exclude;
-		if (!exclude?.length) {
-			return [];
+	private retryOwedEverywhere(): void {
+		for (const folder of this.contextService.getWorkspace().folders) {
+			this.retryOwed(folder.uri);
 		}
-		const moves = baseHalfEffectiveMoves(plan.state.moves);
-		const taken = new Set(this.refactorService.snapshot(plan.workspaceFolder, moves, exclude).map(store => store.nodePath));
-		const owned = new Set<string>();
-		for (const other of this.pending) {
-			if (other !== plan && isEqual(other.workspaceFolder, plan.workspaceFolder)) {
-				for (const store of other.state.stores) {
-					owned.add(store.nodePath);
-				}
+	}
+
+	private retryOwed(workspaceFolder: URI): void {
+		if (this.disposed || this.movedItemsService.getOwedEntryMoves(workspaceFolder).length === 0) {
+			return;
+		}
+		const key = workspaceFolder.toString();
+		let retry = this.owedRetries.get(key);
+		if (!retry) {
+			retry = new RunOnceScheduler(() => void this.writeOwed(workspaceFolder).catch(error => this.logService.error('[BaseHalf] updating the upstream entries that were still owed failed', error)), OWED_RETRY_DELAY_MS);
+			this.owedRetries.set(key, retry);
+		}
+		retry.schedule();
+	}
+
+	private async writeOwed(workspaceFolder: URI): Promise<void> {
+		if (this.disposed || [...this.pending].some(plan => isEqual(plan.workspaceFolder, workspaceFolder))) {
+			// A plan that is being written decides about what is owed when it is done.
+			return;
+		}
+		const owed: IBaseHalfOwedEntryMove[] = [];
+		for (const move of this.movedItemsService.getOwedEntryMoves(workspaceFolder)) {
+			// An old path that names an item again is that item's path now.
+			if (!(await this.fileService.exists(this.node(workspaceFolder, move.from).resource))) {
+				owed.push(move);
 			}
 		}
-		return this.refactorService.snapshot(plan.workspaceFolder, moves)
-			.filter(store => !taken.has(store.nodePath))
-			.map(store => owned.has(store.nodePath)
-				? `${store.nodePath} (its entry was left as it is: an earlier move of that path, not settled yet in BaseHalf, will update it)`
-				: `${store.nodePath} (its entry was left as it is because it names the old path of an earlier move that is not settled yet in BaseHalf; it stays broken until relinked)`);
-	}
-
-	private agentMoveResult(outcome: IBaseHalfReferenceRefactorOutcome | undefined, waiting: readonly string[], indexState: BaseHalfReferenceIndexState | undefined): IBaseHalfAgentMoveUpstreamResult {
-		const updated = [...new Set([...(outcome?.updated ?? []), ...(outcome?.movedIntoFile ?? [])].map(node => node.relativePath))];
-		const skipped = [
-			...(outcome ? this.agentMoveExclusions(outcome.plan) : []),
-			...waiting,
-			...(outcome?.errors ?? []).map(error => `the update failed: ${error instanceof Error ? error.message : String(error)}`)
-		];
-		return {
-			updated,
-			skipped,
-			...(indexState === 'partial' ? { incomplete: 'the reference index is partial, so stores it could not read may still name the old path' } : {})
-		};
-	}
-
-	/** Skipped stores and entries left alone, by workspace-relative path, for the agent's result. */
-	private agentMoveExclusions(plan: IBaseHalfRenameUpdatePlan): string[] {
-		return [
-			...plan.skipped.map(skip => {
-				switch (skip.reason) {
-					case 'historical':
-						return `${skip.node.relativePath} (its assigned inputs keep the paths they had when its attempt or result was made)`;
-					case 'upstreamOnly':
-						return `${skip.node.relativePath} (a result or output file, which can't receive upstream context)`;
-					case 'unreadable':
-						return `${skip.node.relativePath} (its upstream list can't be read)`;
-					default:
-						return skip.message ? `${skip.node.relativePath} (${skip.message.replace(/\.$/, '')})` : skip.node.relativePath;
-				}
-			}),
-			...plan.leftAlone.map(entry => entry.reason === 'resolves'
-				? `${entry.node.relativePath}: entry ${entry.entry} left as it is (that path names an item again)`
-				: `${entry.node.relativePath}: entry ${entry.entry} left as it is (the entry changed since the move)`)
-		];
+		this.movedItemsService.setOwedEntryMoves(workspaceFolder, owed);
+		this.register(workspaceFolder, owed, undefined, []);
 	}
 
 	//#endregion
 
 	//#region Helpers
-
-	private agentMoveKey(source: URI, target: URI): string {
-		return `${this.uriIdentityService.extUri.getComparisonKey(source)}\n${this.uriIdentityService.extUri.getComparisonKey(target)}`;
-	}
 
 	private location(resource: URI): { readonly workspaceFolder: URI; readonly relativePath: string } | undefined {
 		const folder = this.contextService.getWorkspaceFolder(resource);

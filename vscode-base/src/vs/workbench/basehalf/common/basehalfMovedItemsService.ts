@@ -35,6 +35,9 @@ export const BASEHALF_MOVED_ITEMS_FOLDER_FILE_LIMIT = 200;
 /** File events for more paths than this at once are answered by listing the folder. */
 export const BASEHALF_MOVED_ITEMS_RESCAN_THRESHOLD = 1000;
 
+/** How many moves whose entries are still owed are remembered. */
+export const BASEHALF_MOVED_ITEMS_OWED_LIMIT = 1000;
+
 const CANVAS_FILE_NAME = 'canvas.yaml';
 const READ_CONCURRENCY = 8;
 const SNAPSHOT_VERSION = 1;
@@ -57,6 +60,12 @@ export interface IBaseHalfRecognizedMoves {
 	readonly workspaceFolder: URI;
 	/** In the order to relocate them. */
 	readonly moves: readonly IBaseHalfMovedItem[];
+}
+
+/** A move whose entries may still name the old path. */
+export interface IBaseHalfOwedEntryMove {
+	readonly from: string;
+	readonly to: string;
 }
 
 /**
@@ -86,10 +95,20 @@ export interface IBaseHalfMovedItemsService {
 	getPendingMoves(workspaceFolder: URI): readonly IBaseHalfMovedItem[];
 	/**
 	 * Relocation reports the outcome of a move: `done` when the card
-	 * information is at the new path, `gone` when the new path names nothing
-	 * any more, so that the item can be paired again.
+	 * information is at the new path, `kept` when the old path names an item
+	 * again and nothing moved, and `gone` when the new path names nothing any
+	 * more, so that the item can be paired again.
 	 */
-	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'gone'): void;
+	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'kept' | 'gone'): void;
+	/** The card information of these items is at their new paths now. */
+	readonly onDidRelocate: Event<IBaseHalfRecognizedMoves>;
+	/**
+	 * The moves whose entries are still owed: a store could not be written
+	 * yet, or the index had not seen every store. They are kept across
+	 * restarts (following moved items, "Entries are always updated").
+	 */
+	getOwedEntryMoves(workspaceFolder: URI): readonly IBaseHalfOwedEntryMove[];
+	setOwedEntryMoves(workspaceFolder: URI, moves: readonly IBaseHalfOwedEntryMove[]): void;
 	/** A move through the workbench: the snapshot takes the new paths. */
 	acceptWorkbenchMove(workspaceFolder: URI, from: string, to: string): void;
 	/** A delete through the workbench: the snapshot forgets the item. */
@@ -107,6 +126,7 @@ interface IStoredSnapshot {
 	readonly fingerprints: Record<string, IStoredFingerprint>;
 	readonly followed: Record<string, BaseHalfCanvasItemKind>;
 	readonly pending: readonly IBaseHalfMovedItem[];
+	readonly owed?: readonly IBaseHalfOwedEntryMove[];
 }
 
 interface IDisappeared {
@@ -124,6 +144,7 @@ class FolderSnapshot {
 	readonly fingerprints = new Map<string, IStoredFingerprint>();
 	readonly followed = new Map<string, BaseHalfCanvasItemKind>();
 	pending: IBaseHalfMovedItem[] = [];
+	owed: IBaseHalfOwedEntryMove[] = [];
 
 	/** While running: what file events removed and added in the last window. */
 	readonly disappeared = new Map<string, IDisappeared>();
@@ -182,6 +203,8 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	readonly onDidRecognize = this._onDidRecognize.event;
 	private readonly _onDidChangeComparing = this._register(new Emitter<URI>());
 	readonly onDidChangeComparing = this._onDidChangeComparing.event;
+	private readonly _onDidRelocate = this._register(new Emitter<IBaseHalfRecognizedMoves>());
+	readonly onDidRelocate = this._onDidRelocate.event;
 
 	private readonly folders = new Map<string, FolderSnapshot>();
 	private readonly limiter = this._register(new Limiter<void>(READ_CONCURRENCY));
@@ -254,12 +277,27 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		return this.folders.get(workspaceFolder.toString())?.pending ?? [];
 	}
 
-	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'gone'): void {
+	getOwedEntryMoves(workspaceFolder: URI): readonly IBaseHalfOwedEntryMove[] {
+		return this.folders.get(workspaceFolder.toString())?.owed ?? [];
+	}
+
+	setOwedEntryMoves(workspaceFolder: URI, moves: readonly IBaseHalfOwedEntryMove[]): void {
+		const state = this.folders.get(workspaceFolder.toString());
+		if (state?.loaded) {
+			state.owed = moves.slice(-BASEHALF_MOVED_ITEMS_OWED_LIMIT);
+			this.scheduleSave(state);
+		}
+	}
+
+	acceptRelocated(workspaceFolder: URI, move: IBaseHalfMovedItem, outcome: 'done' | 'kept' | 'gone'): void {
 		const state = this.folders.get(workspaceFolder.toString());
 		if (!state) {
 			return;
 		}
 		state.pending = state.pending.filter(pending => pending.from !== move.from || pending.to !== move.to);
+		if (outcome === 'done') {
+			this._onDidRelocate.fire({ workspaceFolder, moves: [move] });
+		}
 		if (outcome === 'gone') {
 			// The new path is gone again: the item is where it was before it was
 			// paired, so that it can be paired with its final name.
@@ -377,6 +415,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				state.followed.set(path, kind);
 			}
 			state.pending = [...stored.pending];
+			state.owed = [...stored.owed ?? []];
 		}
 		state.loaded = true;
 		if (state.pending.length > 0) {
@@ -1060,7 +1099,8 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 			paths: [...state.paths.values()],
 			fingerprints: Object.fromEntries(state.fingerprints),
 			followed: Object.fromEntries(state.followed),
-			pending: state.pending
+			pending: state.pending,
+			owed: state.owed
 		};
 		try {
 			await this.fileService.writeFile(this.storageResource(state), VSBuffer.fromString(JSON.stringify(stored)));

@@ -33,7 +33,6 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf.editor.readingMode',
 			'basehalf.editor.attachmentsDirectory',
 			'basehalf.canvas.defaultZoom',
-			'basehalf.references.updateOnFileMove',
 			'basehalf.agent.defaultSession',
 			'basehalf.agents.offerSkill',
 			'basehalf.models.services'
@@ -53,11 +52,8 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.AttachmentsDirectory].default, 'attachments');
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].default, BASEHALF_CANVAS_DEFAULT_ZOOM);
-		assert.deepStrictEqual({
-			default: properties[BaseHalfSetting.ReferencesUpdateOnFileMove].default,
-			enum: properties[BaseHalfSetting.ReferencesUpdateOnFileMove].enum,
-			scope: properties[BaseHalfSetting.ReferencesUpdateOnFileMove].scope
-		}, { default: 'prompt', enum: ['prompt', 'always', 'never'], scope: ConfigurationScope.RESOURCE });
+		// Entries are always updated after a move: there is nothing to configure.
+		assert.strictEqual('basehalf.references.updateOnFileMove' in properties, false);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].default, BASEHALF_AGENT_DEFAULT_SESSION);
 		// Official connection metadata is an internal machine record. The user
