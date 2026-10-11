@@ -33,6 +33,7 @@ suite('BaseHalfReleaseNotes', () => {
 			'Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.',
 			'Connections from earlier versions move into your files after you confirm.',
 			'If BaseHalf can\'t read a card\'s upstream list, the badge offers Rebuild List, which keeps the connections it can read.',
+			'BaseHalf can install a skill for your agents, so that Claude Code, Codex, and others know where a card\'s description and connections are. It asks first, and adds it to the agents\' own settings, not to your folder.',
 			'Files and folders whose names look like numbers, such as 09, keep their place on the canvas.',
 			'When BaseHalf can\'t read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.',
 			'If BaseHalf can\'t finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.',

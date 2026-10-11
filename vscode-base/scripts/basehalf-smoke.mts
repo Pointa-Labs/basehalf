@@ -787,7 +787,7 @@ function createFixtureWorkspace(workspace) {
 	fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true });
 	// Deletes made by the smoke are permanent, so a run leaves nothing in the
 	// system trash of the machine it runs on.
-	fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'files.autoSaveDelay': 3_600_000, 'files.enableTrash': false }, null, '\t'), 'utf8');
+	fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'files.autoSaveDelay': 3_600_000, 'files.enableTrash': false, 'basehalf.agents.offerSkill': false }, null, '\t'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'README.md'), [
 		'# Smoke README',
 		'',

@@ -32,6 +32,7 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - Moving or renaming a file in BaseHalf offers to update the upstream lists that name it.
 - Connections from earlier versions move into your files after you confirm.
 - If BaseHalf can't read a card's upstream list, the badge offers Rebuild List, which keeps the connections it can read.
+- BaseHalf can install a skill for your agents, so that Claude Code, Codex, and others know where a card's description and connections are. It asks first, and adds it to the agents' own settings, not to your folder.
 
 ## Fewer Interruptions
 

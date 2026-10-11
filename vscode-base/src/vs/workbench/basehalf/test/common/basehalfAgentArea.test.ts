@@ -34,7 +34,7 @@ import {
 	baseHalfTuiSessionReceivesLaunchInstructions,
 	type IBaseHalfTuiSessionLaunchContext
 } from '../../common/basehalfAgentArea.js';
-import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS } from '../../common/basehalfAgentLaunchInstructions.js';
+import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS, BASEHALF_AGENT_LAUNCH_POINTER } from '../../common/basehalfAgentLaunchInstructions.js';
 import { isBaseHalfAgentExtensionSlot } from '../../common/basehalfWorkbenchProfile.js';
 
 suite('BaseHalfAgentArea', () => {
@@ -88,6 +88,37 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('terminal', local), undefined);
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-codex', local), undefined);
 		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-claude', local), undefined);
+	});
+
+	test('points at the BaseHalf skill instead of repeating it when Claude Code has the skill', () => {
+		const argsOf = (kind: BaseHalfAgentSessionKind, context: Partial<IBaseHalfTuiSessionLaunchContext> = {}) => baseHalfTuiSessionLaunchConfig(kind, {
+			isRemote: false,
+			os: OperatingSystem.Macintosh,
+			hasMarkedWorkspaceFolder: false,
+			agentSkillInstalled: true,
+			...context
+		})?.args;
+		const pointer = ['--append-system-prompt', BASEHALF_AGENT_LAUNCH_POINTER];
+
+		assert.deepStrictEqual({
+			claude: argsOf('tui-claude'),
+			withoutSkill: argsOf('tui-claude', { agentSkillInstalled: false }),
+			// The skill changes the text, never who receives launch context.
+			markedWorkspace: argsOf('tui-claude', { hasMarkedWorkspaceFolder: true }),
+			codex: argsOf('tui-codex'),
+			namesSkill: /`basehalf` skill/.test(BASEHALF_AGENT_LAUNCH_POINTER),
+			// A relaunch without launch context recognizes either text.
+			stripped: [baseHalfStripAgentLaunchInstructions(['--verbose', ...pointer]), baseHalfStripAgentLaunchInstructions(pointer)],
+			recognized: [baseHalfHasAgentLaunchInstructions(pointer), baseHalfHasAgentLaunchInstructions(['--append-system-prompt', 'something else'])]
+		}, {
+			claude: pointer,
+			withoutSkill: ['--append-system-prompt', BASEHALF_AGENT_LAUNCH_INSTRUCTIONS],
+			markedWorkspace: undefined,
+			codex: undefined,
+			namesSkill: true,
+			stripped: [['--verbose'], undefined],
+			recognized: [true, false]
+		});
 	});
 
 	test('passes launch context only to local Claude Code TUI sessions on macOS and Linux in unmarked workspaces', () => {

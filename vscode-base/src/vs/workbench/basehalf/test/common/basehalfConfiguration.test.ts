@@ -35,6 +35,7 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf.canvas.defaultZoom',
 			'basehalf.references.updateOnFileMove',
 			'basehalf.agent.defaultSession',
+			'basehalf.agents.offerSkill',
 			'basehalf.models.services'
 		]);
 

@@ -91,6 +91,7 @@ import {
 	IBaseHalfExtensionAgentProvider,
 	IBaseHalfExtensionAgentProviderResult
 } from '../common/basehalfAgentArea.js';
+import { IBaseHalfAgentSkillService } from '../common/basehalfAgentSkill.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import {
 	BaseHalfFocusDir,
@@ -433,6 +434,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@INotificationService private readonly notificationService: INotificationService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService,
+		@IBaseHalfAgentSkillService private readonly agentSkillService: IBaseHalfAgentSkillService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IWorkspaceTrustManagementService private readonly workspaceTrustManagementService: IWorkspaceTrustManagementService,
@@ -1244,9 +1246,14 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private async initializeTerminalPane(session: IBaseHalfRuntimeAgentSession, options: IBaseHalfCreateAgentTerminalOptions): Promise<void> {
 		try {
 			const hasMarkedWorkspaceFolder = session.kind === 'tui-claude' ? await this.hasMarkedWorkspaceFolder() : false;
+			// With the BaseHalf skill installed for Claude Code, the launch
+			// context only points at it. Read at each launch, so a session
+			// started after the user installs the skill uses the pointer.
+			const agentSkillInstalled = session.kind === 'tui-claude' && await this.agentSkillService.isInstalledFor('claude').catch(() => false);
 			const terminalOptions = this.createTerminalOptions(session.kind, session.label, options, {
 				hasMarkedWorkspaceFolder,
-				launchInstructions: session.launchInstructions.enabled
+				launchInstructions: session.launchInstructions.enabled,
+				agentSkillInstalled
 			});
 			const terminal = await this.terminalService.createTerminal(terminalOptions);
 			session.launchInstructions.didLaunch(baseHalfHasAgentLaunchInstructions(terminal.shellLaunchConfig.args));
@@ -2019,7 +2026,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		kind: BaseHalfAgentSessionKind,
 		label: string,
 		options: IBaseHalfCreateAgentTerminalOptions,
-		launch: { readonly hasMarkedWorkspaceFolder: boolean; readonly launchInstructions: boolean }
+		launch: { readonly hasMarkedWorkspaceFolder: boolean; readonly launchInstructions: boolean; readonly agentSkillInstalled: boolean }
 	): ICreateTerminalOptions | undefined {
 		const isRemote = !!this.remoteAgentService.getConnection();
 		const usesNodeRunBridge = baseHalfAgentSessionUsesLocalNodeRunBridge(kind, isRemote);

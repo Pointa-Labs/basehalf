@@ -7,7 +7,7 @@ import { Event } from '../../../base/common/event.js';
 import { IDisposable } from '../../../base/common/lifecycle.js';
 import { OperatingSystem } from '../../../base/common/platform.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
-import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS, BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG } from './basehalfAgentLaunchInstructions.js';
+import { BASEHALF_AGENT_LAUNCH_INSTRUCTIONS, BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, BASEHALF_AGENT_LAUNCH_POINTER } from './basehalfAgentLaunchInstructions.js';
 
 export const IBaseHalfAgentAreaService = createDecorator<IBaseHalfAgentAreaService>('baseHalfAgentAreaService');
 
@@ -191,6 +191,9 @@ export interface IBaseHalfTuiSessionLaunchContext {
 	/** False once this session relaunched without launch context because the
 	 *  installed CLI rejected the argument. */
 	readonly launchInstructions?: boolean;
+	/** Claude Code has the BaseHalf agent skill: the launch context is the
+	 *  short pointer to it instead of the full instruction. */
+	readonly agentSkillInstalled?: boolean;
 }
 
 /**
@@ -217,11 +220,16 @@ export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind, c
 		name: choice.label,
 		executable: choice.terminalCommand,
 		...(baseHalfTuiSessionReceivesLaunchInstructions(kind, context)
-			? { args: [BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, BASEHALF_AGENT_LAUNCH_INSTRUCTIONS] }
+			? { args: [BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG, context.agentSkillInstalled ? BASEHALF_AGENT_LAUNCH_POINTER : BASEHALF_AGENT_LAUNCH_INSTRUCTIONS] }
 			: {}),
 		waitOnExit: `${choice.label} session ended. Press any key to close it, or restart it from its tab.`,
 		hideFromUser: true
 	};
+}
+
+/** Whether an argument is the BaseHalf launch context: the full instruction, or the pointer to the agent skill. */
+function isAgentLaunchText(argument: string | undefined): boolean {
+	return argument === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS || argument === BASEHALF_AGENT_LAUNCH_POINTER;
 }
 
 /** Launch arguments with the BaseHalf launch instruction (flag and text) removed. */
@@ -231,7 +239,7 @@ export function baseHalfStripAgentLaunchInstructions(args: readonly string[] | s
 	}
 	const stripped: string[] = [];
 	for (let index = 0; index < args.length; index++) {
-		if (args[index] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && args[index + 1] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS) {
+		if (args[index] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && isAgentLaunchText(args[index + 1])) {
 			index++;
 			continue;
 		}
@@ -242,7 +250,7 @@ export function baseHalfStripAgentLaunchInstructions(args: readonly string[] | s
 
 /** Whether launch arguments carry the BaseHalf launch instruction. */
 export function baseHalfHasAgentLaunchInstructions(args: readonly string[] | string | undefined): boolean {
-	return Array.isArray(args) && args.some((arg, index) => arg === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && args[index + 1] === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS);
+	return Array.isArray(args) && args.some((arg, index) => arg === BASEHALF_AGENT_LAUNCH_INSTRUCTIONS_FLAG && isAgentLaunchText(args[index + 1]));
 }
 
 /** An exit this soon after a launch with the argument, before any user input,

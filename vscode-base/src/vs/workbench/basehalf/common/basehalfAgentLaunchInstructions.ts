@@ -4,20 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Launch-time context for Claude Code sessions that the Agent Area starts on
- * this machine. It is appended to Claude Code's system prompt with
- * `--append-system-prompt`, so BaseHalf never writes instructions into the
- * user's `CLAUDE.md` or `AGENTS.md`.
- *
- * The text is part of the application bundle (no local process can change
- * it) and must stay under 4 KiB in UTF-8. Its content and order follow the
- * agent launch context specification; tests lock the key phrases.
+ * The sections that the launch instruction and the BaseHalf agent skill have
+ * in common, word for word: where BaseHalf keeps its metadata, relationships,
+ * preserving relationships, and canvas workflows (agent launch context,
+ * "Content contract").
  */
-export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS = [
-	'# BaseHalf workspace',
-	'',
-	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area.',
-	'',
+export const BASEHALF_AGENT_SHARED_SECTIONS: readonly string[] = [
 	'## Where you are',
 	'',
 	'Ordinary files are the content. The hidden `.bh/` folder holds BaseHalf project metadata:',
@@ -71,6 +63,36 @@ export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS = [
 	'- Never author attempts or results.',
 	'- Accepted runs continue after the session closes.',
 	'- These commands work only inside Agent Area terminals.'
+];
+
+/**
+ * Launch-time context for Claude Code sessions that the Agent Area starts on
+ * this machine. It is appended to Claude Code's system prompt with
+ * `--append-system-prompt`, so BaseHalf never writes instructions into the
+ * user's `CLAUDE.md` or `AGENTS.md`.
+ *
+ * The text is part of the application bundle (no local process can change
+ * it) and must stay under 4 KiB in UTF-8. Its content and order follow the
+ * agent launch context specification; tests lock the key phrases.
+ */
+export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS = [
+	'# BaseHalf workspace',
+	'',
+	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area.',
+	'',
+	...BASEHALF_AGENT_SHARED_SECTIONS
+].join('\n');
+
+/**
+ * The launch instruction for a session whose Claude Code has the BaseHalf
+ * agent skill installed. The skill holds the shared sections, so this only
+ * says where the session runs and points at the skill (agent skill, "Agent
+ * Area sessions").
+ */
+export const BASEHALF_AGENT_LAUNCH_POINTER = [
+	'# BaseHalf workspace',
+	'',
+	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area. The `basehalf` skill describes this workspace: where a card\'s description and its upstream and downstream connections are, how to move and rename files so that they keep them, and how to run canvas workflows. Use that skill before you read, write, move, or rename anything here.'
 ].join('\n');
 
 /** The Claude Code flag that appends {@link BASEHALF_AGENT_LAUNCH_INSTRUCTIONS}. */

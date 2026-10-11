@@ -14,6 +14,7 @@ export const BaseHalfSetting = {
 	CanvasDefaultZoom: 'basehalf.canvas.defaultZoom',
 	ReferencesUpdateOnFileMove: 'basehalf.references.updateOnFileMove',
 	AgentDefaultSession: 'basehalf.agent.defaultSession',
+	AgentsOfferSkill: 'basehalf.agents.offerSkill',
 	ModelServices: BASEHALF_MODEL_SERVICES_SETTING
 } as const;
 export type BaseHalfSetting = typeof BaseHalfSetting[keyof typeof BaseHalfSetting];
@@ -85,6 +86,12 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			enumDescriptions: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.description),
 			scope: ConfigurationScope.WINDOW,
 			description: localize('basehalf.agent.defaultSession', 'Controls which Agent Area session is created when the Agent Area is opened with no active sessions.')
+		},
+		[BaseHalfSetting.AgentsOfferSkill]: {
+			type: 'boolean',
+			default: true,
+			scope: ConfigurationScope.WINDOW,
+			description: localize('basehalf.agents.offerSkill', 'Controls whether BaseHalf offers to install its skill for your agents when you open a folder. The skill tells agents such as Claude Code and Codex where a card\'s description and connections are.')
 		}
 	}
 };
