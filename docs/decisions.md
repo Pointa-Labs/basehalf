@@ -1149,10 +1149,12 @@ whether BaseHalf was running, which a user could not have known.
   overwritten silently, every step can be run again, what is not recognized
   is left as it is and never deleted, and limits come from measurement.
 
-## D46 — Every card has a saved place (NEW, 2026-10-11)
+## D46 — Every card has a saved place, and places stay out of git (NEW, 2026-10-11)
 
 **Decision.** Every card on a canvas has a place that is saved in its
-folder's layout under `.bh/`. A card gets its place when it first appears on
+folder's layout under `.bh/`. Layouts stay in the folder and are not shared
+through git: BaseHalf writes an ignore file of its own inside `.bh/` that
+hides them. Descriptions and connections are shared through git as before. A card gets its place when it first appears on
 a canvas, and after that only the user changes it. BaseHalf chooses the place
 once: the nearest place that is not taken to where the user pointed, and
 the end of the canvas when nobody pointed. It saves that place at once and by
@@ -1179,6 +1181,15 @@ alone. The tenth stores only what the user moved and lets the rest flow
 around it, and a new file shifts the icons after it. That was BaseHalf's
 method, and its problems came with the method.
 
+Places are kept out of git because they change far more often than anything
+else BaseHalf stores, and because BaseHalf is meant to be used by several
+people on one project. With the layout in git, moving one card left the
+folder changed in git all the time. Two people who moved cards in the same
+folder would get a conflict in a file that neither of them ever opens (D41).
+Git carries what a project means: its notes, descriptions, and connections.
+Where each person puts the cards is theirs. A shared arrangement, if it is
+wanted later, needs a way of its own, on purpose or live.
+
 **What was set aside.**
 - Keeping computed places and searching for free ones around the saved
   ones. This is the first version of the specification.
@@ -1187,10 +1198,15 @@ method, and its problems came with the method.
   feature. The rule does not need it, and a canvas would change its
   character at the first drag.
 - Remembering BaseHalf's own choices on this machine and writing to the
-  folder only when the user arranges something. It keeps "opening a folder
-  writes nothing". It also means two places for one kind of fact, and cards
-  nobody arranged could sit elsewhere on another machine. One place was
-  preferred.
+  folder only when the user arranges something. It means two places for one
+  kind of fact. One place was preferred.
+- Keeping all places in application storage in the user's home folder, as
+  agent tools keep their own state. That storage is kept by the folder's
+  path, so renaming, moving, or copying the folder would lose every
+  arrangement. In the folder and hidden from git, an arrangement stays with
+  its folder and git still shows nothing.
+- Leaving the ignoring to the user, as for `.bh/cache/` until now. A user
+  who does not read code cannot be asked to edit an ignore file.
 - Filling the first free gap from the top-left corner, as three of the
   desktop views do on a screen of fixed size. On a canvas the gaps between
   the user's cards mean something, and a card put there would look as if it
@@ -1206,8 +1222,16 @@ method, and its problems came with the method.
 - Refines D35 and D36 as [workspace state](specs/workspace-state-and-legacy-cleanup.md)
   records them: showing a folder's canvas now writes that folder's layout,
   so the first canvas shown in a workspace folder creates `.bh/` there.
-  BaseHalf still writes no agent guides, no focus state, and nothing into
-  the user's own files.
+  "Opening a folder writes nothing" becomes "opening a folder changes
+  nothing that git shows". BaseHalf still writes no agent guides, no focus
+  state, and nothing into the user's own files. It still never creates or
+  edits the user's `.gitignore`; the one ignore file it writes is inside
+  `.bh/`, and it also hides `.bh/cache/`, so nobody has to be told to ignore
+  that.
+- A layout is no longer shared through git, which earlier decisions gave as
+  a reason to keep it in the folder. A clone starts with the plain grid on
+  every canvas, and git history holds no arrangement. A folder that is
+  copied or moved keeps its arrangement.
 - Refines D43: `.bh/` is still how the agent skill recognizes a BaseHalf
   workspace. It now appears when a folder is first shown, not when the user
   first arranges or describes a card.
@@ -1215,8 +1239,6 @@ method, and its problems came with the method.
   renamed outside BaseHalf keeps its place also when the user never touched
   its card, and BaseHalf keeps a fingerprint for every such file. The cost
   is measured before the work is done.
-- A file that anyone adds to a shown folder changes that folder's layout,
-  and git shows both changes.
 - Cards are in name order only as far as they appeared together. A file
   that is added later is at the end.
 - A place BaseHalf chose is never written in a marked folder, which closes

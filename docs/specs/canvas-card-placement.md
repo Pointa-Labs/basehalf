@@ -1,12 +1,13 @@
 # Canvas card placement
 
-Status: Active (2026-10-11; rewritten the same day for D46 and reviewed
-once). Implementation in progress: until it lands, the code does what the
+Status: Active (2026-10-11; rewritten the same day for D46, reviewed once,
+and revised so that the layout stays out of git). Implementation in
+progress: until it lands, the code does what the
 first version of this document required, which is summarized under
 [The first version](#the-first-version). The specifications listed under
 [Specifications this changes](#specifications-this-changes) are updated in
 the commit that implements the part they describe.
-Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-new-2026-10-11)
+Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11)
 Related: [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -17,8 +18,10 @@ Related: [following moved items](following-moved-items.md),
 **Every card has a saved place. A card gets it when it first appears on a
 canvas. After that only the user changes it.**
 
-Everything below follows from this sentence or says how one part of it is
-carried out.
+Places are kept in the folder and are not shared through git.
+
+Everything below follows from these two sentences or says how one part of
+them is carried out.
 
 ## Problem
 
@@ -113,9 +116,11 @@ canvas file format, and one node-graph library.
 - None of the desktop views stores them in the folder it shows. Three keep
   them in the application's settings on the machine, two as file metadata
   that the system keeps.
-- BaseHalf differs on purpose. Its layout is in the folder, so that it
-  travels with the folder
-  ([workspace state](workspace-state-and-legacy-cleanup.md#what-basehalf-persists)).
+- BaseHalf keeps its layout in the folder, so that it stays with the folder
+  when the folder is renamed, moved, or copied. Application storage is kept
+  by the folder's path and would lose it then. Like the desktop views, it
+  does not make positions part of what the folder shares:
+  [places stay out of git](#places-stay-out-of-git).
 
 What BaseHalf takes from this: store every place; place a card once, when it
 appears, and store the place at once; put what arrives without a point after
@@ -128,6 +133,7 @@ not taken; keep no sorted mode; and leave sorting to a command the user runs.
 - No card moves unless the user moves it.
 - BaseHalf never puts a card on another card by its own choice.
 - One rule covers every way a card can come to be on a canvas.
+- Opening a folder or moving a card changes nothing that git shows.
 
 ## Non-goals
 
@@ -139,12 +145,23 @@ not taken; keep no sorted mode; and leave sorting to a command the user runs.
 - **Keeping the user from placing a card on another one.**
 - **Which folders and files become cards.** Folders whose names start with a
   dot, such as the ones agent tools add, are still cards.
-- **Keeping places anywhere but in the folder.** BaseHalf's own choices are
-  saved where the user's are.
+- **Sharing an arrangement.** Each copy of a folder has its own places. Two
+  people who work on one project through git each arrange their own canvas.
+  A way to share an arrangement on purpose, or to keep it in step live, can
+  be added later. Git is not that way: places change too often, and two
+  people who moved cards in one folder would get a conflict in a file
+  neither of them ever opens.
+- **Keeping places in two stores.** BaseHalf's own choices are saved where
+  the user's are.
+- **Reading aids.** The marks for read paragraphs are also personal and
+  change often, and they are still shared through git. That is a question of
+  its own.
 
 ## Terms
 
 - **Layout** of a folder: its `.bh/mirror/<folder>/canvas.yaml`.
+- **Ignore file**: `.bh/.gitignore`, which BaseHalf writes
+  ([places stay out of git](#places-stay-out-of-git)).
 - **Row**: a card row of a layout, with a path, a kind, a place, and a size.
 - **Place**: the `x` and `y` of a row.
 - **Chosen row**: a row whose place BaseHalf chose and that the user has not
@@ -356,16 +373,51 @@ the places that wait are saved with it as chosen rows. Over a layout that
 could not be read, that write saves a recovery copy first
 ([mirror file resilience](mirror-file-resilience.md#writing-over-content-that-could-not-be-read)).
 
+### Places stay out of git
+
+A layout holds the places and sizes of cards and the sides at which
+connection lines meet them. It does not hold which cards are connected, or
+their descriptions. Those are shared through git as before.
+
+- **The ignore file.** `.bh/.gitignore` has this content:
+
+  ```gitignore
+  # Written by BaseHalf. Card positions and BaseHalf's working files are
+  # not shared through git.
+  /.gitignore
+  canvas.yaml
+  !canvas.yaml/
+  /cache/
+  ```
+
+  - It hides itself, every layout, and `.bh/cache/`.
+  - The third rule keeps the mirror directory of a user's own file that is
+    named `canvas.yaml` visible, with the description in it.
+  - Tried in a git repository on 2026-10-11: the layouts, the ignore file,
+    and the cache did not show; the descriptions did, also the one of a file
+    named `canvas.yaml` and the one of the user's own `.gitignore`.
+- **When it is written.** Before BaseHalf writes a layout or anything under
+  `.bh/cache/` in a workspace folder, when the file is not there. When it
+  cannot be written, the layout is not written either, as for any
+  [write that fails](#when-a-place-cannot-be-saved).
+- **One that is there is left as it is**, whatever it holds. BaseHalf never
+  edits it.
+- **The user's own `.gitignore` is never touched**, and BaseHalf runs no git
+  command.
+- A folder that is not in git gets the file too. It does nothing there.
+
 ### What showing a canvas writes
 
 - Showing the canvas of a folder creates or extends that folder's layout.
   The first canvas shown in a workspace folder therefore creates `.bh/`
-  there.
+  there, with the ignore file.
+- Git shows none of it.
 - Only the folders whose canvas was shown get a layout.
 - Nothing else is written by showing a canvas: no description, no list of
   connections, no file of the user's.
-- The rule that opening a folder writes nothing is withdrawn
-  ([D46](../decisions.md#d46--every-card-has-a-saved-place-new-2026-10-11)).
+- The rule that opening a folder writes nothing becomes: opening a folder
+  changes nothing that git shows
+  ([D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11)).
 
 ### Every shown item is followed
 
@@ -416,16 +468,17 @@ A canvas shows at most 300 cards.
 
 ## Limits
 
-- **Other machines.** The layout is in the folder and travels with it. Two
-  machines that each show a folder for the first time, before either has the
-  other's layout, write two layouts. They can differ: the folder may hold
-  other items, and name order follows the system's language. Git then
-  reports a conflict in a file the user never opens. BaseHalf reads what it
-  can of that file and shows the notice for a layout it could not read
-  ([mirror file resilience](mirror-file-resilience.md#what-the-user-sees)).
-- **Changes the user did not make.** A file that an agent adds to a folder
-  whose canvas is shown adds a row to that folder's layout. In git the layout
-  changes together with the new file.
+- **A clone has no places.** A folder that is cloned from git, on another
+  computer or for another person, starts with every canvas in the plain
+  grid. An arrangement comes along only when the folder itself is copied or
+  moved.
+- **Git history does not hold an arrangement.** Going back to an earlier
+  commit leaves the places as they are.
+- **A layout that was committed before** stays in git until it is removed
+  from it there, and git keeps showing its changes. BaseHalf does not do
+  that for the user.
+- **A folder that two computers share through a file-sync service** shares
+  its layouts as files. The later write stands.
 - **A copy whose original is deleted later.** The copy is drawn as a new
   card at the end. When the original is deleted and following moved items
   takes the copy for the moved item, the copy's card goes to the place the
@@ -447,7 +500,8 @@ A canvas shows at most 300 cards.
 ## Compatibility
 
 None is needed (the product has not been released). A layout written by an
-earlier build is read as it is, and its rows are the user's. Cards that have
+earlier build is read as it is, and its rows are the user's. A layout that
+git already tracks stays tracked ([Limits](#limits)). Cards that have
 no row in it appear when their canvas is next drawn, at the end of that
 canvas. In that one drawing they leave the places the earlier build computed
 for them.
@@ -457,9 +511,12 @@ for them.
 When the part is implemented, the same commit updates:
 
 - [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md):
-  "Opening a folder no longer creates `.bh/` by itself", the description of
-  `canvas.yaml` in the table of what BaseHalf persists, and the release
-  notes;
+  "Opening a folder no longer creates `.bh/` by itself"; the table of what
+  BaseHalf persists, where `canvas.yaml` is no longer shared and the ignore
+  file is new; the sentences that BaseHalf does not create a `.gitignore`,
+  which now mean the user's, and that the layout travels with what is
+  committed; and the release notes, which no longer need to recommend
+  ignoring `.bh/cache/`;
 - [agent skill](agent-skill.md): when `.bh/` appears, the sentence that
   opening a folder writes nothing, and the skill's content and version where
   they say so;
@@ -477,10 +534,11 @@ When the part is implemented, the same commit updates:
   source-tree guard. A place that BaseHalf chose is never written in a
   marked folder unless the user changes that canvas;
 - [architecture invariants](../harness/architecture-invariants.md): the rule
-  itself, and the sentence on what BaseHalf writes without a user action.
+  itself, the sentence on what BaseHalf writes without a user action, and
+  "no `.gitignore` edits", which now means the user's file.
 
 The [harness](../harness/README.md) route and
-[D46](../decisions.md#d46--every-card-has-a-saved-place-new-2026-10-11) were
+[D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11) were
 written with this document.
 
 ## Acceptance criteria
@@ -567,13 +625,24 @@ written with this document.
 24. **Case only.** On a volume that ignores letter case, a file whose name
     changes only in case keeps its row, and no second row is written.
 25. **Nothing else.** Showing canvases writes only `canvas.yaml` files under
-    `.bh/mirror/`.
+    `.bh/mirror/` and the ignore file.
 26. **In the product.** With the notes folder of the trial of 2026-10-11,
     starting without layouts: opening it creates the layouts of the folders
     that are shown; twelve files added at once, a note moved into a folder
     of placed cards, and folders added by an agent tool are drawn without
     meeting another card; and in every frame every card that was there is
     where it was.
+
+27. **Git shows nothing.** In a git repository without `.bh/`: after the
+    folder is opened, canvases are shown, and cards are dragged, git reports
+    no change and no new file. After a card is described and connected, git
+    reports those files and no layout.
+28. **A file named like a layout.** A file of the user's that is named
+    `canvas.yaml` is described. Git reports its description.
+29. **The ignore file.** It is written before the first layout. One that is
+    there with other content is not changed. One that was deleted is written
+    again before the next layout write. The user's own `.gitignore` is
+    byte for byte what it was.
 
 ## Verification
 
@@ -582,8 +651,9 @@ written with this document.
 - Unit tests of the canvas mirror for a row that follows its item, a chosen
   row that gives way, and a card that comes back: criteria 11 to 16, 24.
 - Tests of the canvas with the moved-items service for how and when a place
-  is saved: criteria 1, 2, 3, 5, 10, 17 to 21, 25.
-- Smoke steps for criteria 1, 3, 10, 13, and 16.
+  is saved: criteria 1, 2, 3, 5, 10, 17 to 21, 25, 29.
+- Smoke steps for criteria 1, 3, 10, 13, and 16, and, in a fixture that is a
+  git repository, for 27 and 28 by what git itself reports.
 - Criterion 26 in the real window, with frames sampled as in the trial of
   2026-10-11.
 
