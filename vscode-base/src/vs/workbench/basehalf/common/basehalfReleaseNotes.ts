@@ -9,6 +9,34 @@ export function shouldShowBaseHalfReleaseNotes(previousVersion: string | undefin
 	return !!previousVersion && previousVersion !== currentVersion;
 }
 
+/**
+ * What a window does about the Release Notes page when it has started (app
+ * update, "After an update"). The version counts as shown once the page was
+ * opened: a window that did not have focus last leaves it to the one that
+ * had, or to the next start.
+ *
+ * `recorded` is the version the page was last shown for. `switchedOff`: the
+ * user or the start asked for no page.
+ */
+export async function showBaseHalfReleaseNotesAfterUpdate(options: {
+	readonly recorded: string | undefined;
+	readonly current: string;
+	readonly switchedOff: boolean;
+	readonly hadLastFocus: () => Promise<boolean>;
+	readonly show: () => Promise<unknown>;
+	readonly record: () => void;
+}): Promise<void> {
+	if (options.switchedOff || !shouldShowBaseHalfReleaseNotes(options.recorded, options.current)) {
+		// Nothing is owed for this version: a first start, the same version, or no page wanted.
+		options.record();
+		return;
+	}
+	if (await options.hadLastFocus()) {
+		await options.show();
+		options.record();
+	}
+}
+
 export function getBaseHalfReleaseNotesMarkdown(version: string): string {
 	return `# BaseHalf ${version}
 
@@ -41,6 +69,12 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 - Files and folders whose names look like numbers, such as 09, keep their place on the canvas.
 - When BaseHalf can't read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.
 - If BaseHalf can't finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.
+
+## Updates
+
+- From this version on, an update is downloaded once. If BaseHalf is closed while it downloads, the download goes on where it stopped the next time.
+- Once an update is ready, the next start of BaseHalf is the new version, also when BaseHalf was not closed in the usual way.
+- About and the update entry in the title bar show BaseHalf's own version.
 
 ## Your Files
 

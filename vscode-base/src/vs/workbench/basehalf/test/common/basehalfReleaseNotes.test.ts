@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BASEHALF_RELEASE_NOTES_COMMAND_ID, getBaseHalfReleaseNotesMarkdown, shouldShowBaseHalfReleaseNotes } from '../../common/basehalfReleaseNotes.js';
+import { BASEHALF_RELEASE_NOTES_COMMAND_ID, getBaseHalfReleaseNotesMarkdown, shouldShowBaseHalfReleaseNotes, showBaseHalfReleaseNotesAfterUpdate } from '../../common/basehalfReleaseNotes.js';
 
 suite('BaseHalfReleaseNotes', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -41,6 +41,9 @@ suite('BaseHalfReleaseNotes', () => {
 			'Files and folders whose names look like numbers, such as 09, keep their place on the canvas.',
 			'When BaseHalf can\'t read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.',
 			'If BaseHalf can\'t finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.',
+			'From this version on, an update is downloaded once. If BaseHalf is closed while it downloads, the download goes on where it stopped the next time.',
+			'Once an update is ready, the next start of BaseHalf is the new version, also when BaseHalf was not closed in the usual way.',
+			'About and the update entry in the title bar show BaseHalf\'s own version.',
 			'BaseHalf removes files that earlier versions kept for itself and no longer uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md, and remembers where you left each canvas on this computer.',
 			'Where you put your cards stays with the folder on your computer. It is not shared through git any more, so moving a card no longer shows up as a change there. Descriptions and connections are shared as before.',
 			'If you keep your notes in git: the removed files show up as deletions, and BaseHalf no longer edits .gitignore. It keeps card positions and its own working files out of git by itself. Card positions that an earlier version committed stay in git until you remove them there. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.'
@@ -55,5 +58,51 @@ suite('BaseHalfReleaseNotes', () => {
 		assert.strictEqual(shouldShowBaseHalfReleaseNotes(undefined, '0.4.1'), false);
 		assert.strictEqual(shouldShowBaseHalfReleaseNotes('0.4.1', '0.4.1'), false);
 		assert.strictEqual(shouldShowBaseHalfReleaseNotes('0.4.1', '0.5.0'), true);
+	});
+
+	test('a version counts as shown once its page was opened: a start in which it was not leaves it for the next', async () => {
+		/** One window after a start. What it did, and the version that is recorded afterwards. */
+		async function start(recorded: string | undefined, options: { readonly hadLastFocus?: boolean; readonly switchedOff?: boolean; readonly opens?: boolean } = {}) {
+			const did: string[] = [];
+			let after = recorded;
+			await showBaseHalfReleaseNotesAfterUpdate({
+				recorded,
+				current: '0.5.0',
+				switchedOff: options.switchedOff ?? false,
+				hadLastFocus: async () => options.hadLastFocus ?? true,
+				show: async () => {
+					if (options.opens === false) {
+						throw new Error('The page cannot be opened.');
+					}
+					did.push('shown');
+				},
+				record: () => {
+					did.push('recorded');
+					after = '0.5.0';
+				}
+			}).catch(error => did.push((error as Error).message));
+			return { did, after: after ?? null };
+		}
+
+		// After an update from 0.4.1: the window that did not have focus last, then the next start.
+		const withoutFocus = await start('0.4.1', { hadLastFocus: false });
+		const nextStart = await start(withoutFocus.after ?? undefined);
+		const startAfterThat = await start(nextStart.after ?? undefined);
+
+		assert.deepStrictEqual({
+			withoutFocus,
+			nextStart,
+			startAfterThat,
+			notOpened: await start('0.4.1', { opens: false }),
+			firstStartEver: await start(undefined),
+			switchedOff: await start('0.4.1', { switchedOff: true })
+		}, {
+			withoutFocus: { did: [], after: '0.4.1' },
+			nextStart: { did: ['shown', 'recorded'], after: '0.5.0' },
+			startAfterThat: { did: ['recorded'], after: '0.5.0' },
+			notOpened: { did: ['The page cannot be opened.'], after: '0.4.1' },
+			firstStartEver: { did: ['recorded'], after: '0.5.0' },
+			switchedOff: { did: ['recorded'], after: '0.5.0' }
+		});
 	});
 });

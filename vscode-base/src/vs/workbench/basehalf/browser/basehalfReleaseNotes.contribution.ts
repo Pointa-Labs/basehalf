@@ -15,7 +15,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { showLocalReleaseNotesInEditor } from '../../contrib/update/browser/update.js';
 import { IBrowserWorkbenchEnvironmentService } from '../../services/environment/browser/environmentService.js';
 import { IHostService } from '../../services/host/browser/host.js';
-import { BASEHALF_RELEASE_NOTES_COMMAND_ID, getBaseHalfReleaseNotesMarkdown, shouldShowBaseHalfReleaseNotes } from '../common/basehalfReleaseNotes.js';
+import { BASEHALF_RELEASE_NOTES_COMMAND_ID, getBaseHalfReleaseNotesMarkdown, showBaseHalfReleaseNotesAfterUpdate } from '../common/basehalfReleaseNotes.js';
 
 class ShowBaseHalfReleaseNotesAction extends Action2 {
 	constructor() {
@@ -57,18 +57,13 @@ class BaseHalfReleaseNotesContribution implements IWorkbenchContribution {
 		@ILogService logService: ILogService,
 	) {
 		const currentVersion = productService.basehalfVersion ?? productService.version;
-		const previousVersion = storageService.get(BaseHalfReleaseNotesContribution.LAST_VERSION_STORAGE_KEY, StorageScope.APPLICATION);
-		storageService.store(BaseHalfReleaseNotesContribution.LAST_VERSION_STORAGE_KEY, currentVersion, StorageScope.APPLICATION, StorageTarget.MACHINE);
-		if (!shouldShowBaseHalfReleaseNotes(previousVersion, currentVersion)
-			|| environmentService.skipReleaseNotes
-			|| configurationService.getValue<boolean>('update.showReleaseNotes') === false) {
-			return;
-		}
-		void hostService.hadLastFocus().then(hadLastFocus => {
-			if (hadLastFocus) {
-				return showLocalReleaseNotesInEditor(instantiationService, currentVersion, getBaseHalfReleaseNotesMarkdown(currentVersion));
-			}
-			return undefined;
+		void showBaseHalfReleaseNotesAfterUpdate({
+			recorded: storageService.get(BaseHalfReleaseNotesContribution.LAST_VERSION_STORAGE_KEY, StorageScope.APPLICATION),
+			current: currentVersion,
+			switchedOff: !!environmentService.skipReleaseNotes || configurationService.getValue<boolean>('update.showReleaseNotes') === false,
+			hadLastFocus: () => hostService.hadLastFocus(),
+			show: () => showLocalReleaseNotesInEditor(instantiationService, currentVersion, getBaseHalfReleaseNotesMarkdown(currentVersion)),
+			record: () => storageService.store(BaseHalfReleaseNotesContribution.LAST_VERSION_STORAGE_KEY, currentVersion, StorageScope.APPLICATION, StorageTarget.MACHINE)
 		}).catch(error => logService.warn('Unable to show BaseHalf release notes after update.', error));
 	}
 }
