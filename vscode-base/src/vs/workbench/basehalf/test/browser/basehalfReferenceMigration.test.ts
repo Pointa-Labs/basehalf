@@ -129,7 +129,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfReferenceEditService, disposables.add(instantiationService.createInstance(BaseHalfReferenceEditService)));
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
-	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
+	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 	instantiationService.stub(IBaseHalfNodeExecutionService, { onDidChange: Event.None, getActiveRun: () => undefined, acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	await index.whenReady(folder);

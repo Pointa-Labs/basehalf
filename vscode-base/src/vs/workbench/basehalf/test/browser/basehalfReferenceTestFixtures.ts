@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Event } from '../../../../base/common/event.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IFileQuery, ISearchComplete, ISearchService } from '../../../services/search/common/search.js';
@@ -19,6 +20,9 @@ export const baseHalfNoMovedItems: IBaseHalfMovedItemsService = {
 	setOwedEntryMoves: () => { },
 	isComparing: () => false,
 	whenCompared: async () => { },
+	isSettled: () => true,
+	whenSettled: async () => { },
+	holdSettled: () => Disposable.None,
 	compare: async () => { },
 	getPendingMoves: () => [],
 	acceptRelocated: () => { },

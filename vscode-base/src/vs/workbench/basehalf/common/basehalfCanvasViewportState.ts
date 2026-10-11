@@ -75,6 +75,13 @@ export interface IBaseHalfCanvasViewportStateService {
 	importLegacy(viewports: readonly IBaseHalfLegacyCanvasViewport[]): readonly URI[];
 	/** Forget the viewport of `folder` and of every folder below it. */
 	forgetSubtree(folder: URI): void;
+	/**
+	 * Carry the viewport of `from`, and of every folder below it, to the same
+	 * place below `to`: the folder was found there after it was moved outside
+	 * BaseHalf (following moved items, "What the user sees"). A folder that
+	 * already has a viewport at its new place keeps it.
+	 */
+	moveSubtree(from: URI, to: URI): void;
 
 	/**
 	 * Resolves once the legacy import of `workspaceFolder` settled in this
@@ -212,6 +219,28 @@ export class BaseHalfCanvasViewportStateService extends Disposable implements IB
 			}
 		}
 		if (removed) {
+			this.store(entries);
+		}
+	}
+
+	moveSubtree(from: URI, to: URI): void {
+		const entries = this.load();
+		const root = this.uriIdentityService.asCanonicalUri(from);
+		let moved = false;
+		for (const [key, viewport] of [...entries]) {
+			const resource = parseKey(key);
+			if (!resource || !this.uriIdentityService.extUri.isEqualOrParent(resource, root)) {
+				continue;
+			}
+			const suffix = this.uriIdentityService.extUri.relativePath(root, resource);
+			const target = this.key(suffix ? URI.joinPath(to, ...suffix.split('/')) : to);
+			entries.delete(key);
+			if (!entries.has(target)) {
+				entries.set(target, viewport);
+			}
+			moved = true;
+		}
+		if (moved) {
 			this.store(entries);
 		}
 	}

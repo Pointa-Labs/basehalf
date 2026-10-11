@@ -976,6 +976,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 			}
 		}
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
+		if (move.kind === 'folder') {
+			this.viewportStateService.moveSubtree(from.resource, to.resource);
+		}
 		this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
 		this.logService.info(`BaseHalf mirror cascade: the card of '${move.from}' followed it to '${move.to}'`);
 	}

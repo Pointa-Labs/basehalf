@@ -269,6 +269,7 @@ try {
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 			await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 			await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
+			await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -301,6 +302,7 @@ try {
 				'canvas-card-badge-preview-connectors',
 				'canvas-unreadable-badge-recovers',
 				'canvas-card-follows-outside-rename',
+				'canvas-follows-renamed-open-folder',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -338,6 +340,7 @@ try {
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 		await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 		await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
+		await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -474,6 +477,7 @@ try {
 			'canvas-card-badge-preview-connectors',
 			'canvas-unreadable-badge-recovers',
 			'canvas-card-follows-outside-rename',
+			'canvas-follows-renamed-open-folder',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -9531,6 +9535,51 @@ async function assertCanvasCardFollowsOutsideRename(page) {
 
 	fs.rmSync(path.join(workspacePath, after), { force: true });
 	fs.rmSync(mirror(after), { recursive: true, force: true });
+	await card(after).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+/**
+ * Following moved items: the folder whose canvas is open is renamed with the
+ * file system. The canvas shows the same folder at its new path, with its
+ * cards, and never the empty canvas with the file system's error text.
+ */
+async function assertCanvasFollowsRenamedOpenFolder(page) {
+	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	const before = 'follow-folder-before';
+	const after = 'follow-folder-after';
+
+	fs.mkdirSync(path.join(workspacePath, before));
+	fs.writeFileSync(path.join(workspacePath, before, 'inside.md'), '# A note inside a folder that is renamed outside the window\n\nThe canvas of the folder is open while it happens.\n', 'utf8');
+	// A described folder is followed, and its files are what it is recognized by.
+	fs.mkdirSync(mirror(before), { recursive: true });
+	fs.writeFileSync(path.join(mirror(before), 'badge.yaml'), `path: "${before}"\nkind: folder\ndescription: "A folder that is renamed while it is open"\n`, 'utf8');
+	await card(before).waitFor({ state: 'visible', timeout: 15_000 });
+	await card(before).dblclick();
+	await assertCanvasFolder(page, before);
+	await card(`${before}/inside.md`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForTimeout(3_000);
+
+	let sawError = false;
+	const watch = setInterval(() => {
+		void page.locator('.basehalf-canvas-empty').count().then(count => { sawError ||= count > 0; }).catch(() => undefined);
+	}, 100);
+	try {
+		fs.renameSync(path.join(workspacePath, before), path.join(workspacePath, after));
+		await assertCanvasFolder(page, after);
+		await card(`${after}/inside.md`).waitFor({ state: 'visible', timeout: 15_000 });
+	} finally {
+		clearInterval(watch);
+	}
+	if (sawError) {
+		throw new Error('The canvas showed an empty folder with an error while its folder was renamed outside the window');
+	}
+	await waitUntil(() => fs.existsSync(path.join(mirror(after), 'badge.yaml')) && !fs.existsSync(path.join(mirror(before), 'badge.yaml')), 'the description of the renamed folder to follow it');
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, after), { recursive: true, force: true });
+	fs.rmSync(mirror(after), { recursive: true, force: true });
+	fs.rmSync(mirror(before), { recursive: true, force: true });
 	await card(after).waitFor({ state: 'detached', timeout: 15_000 });
 }
 

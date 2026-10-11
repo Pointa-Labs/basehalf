@@ -8,7 +8,7 @@ import { VSBuffer } from '../../../base/common/buffer.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { hash } from '../../../base/common/hash.js';
-import { Disposable } from '../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { joinPath, relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { IEnvironmentService } from '../../../platform/environment/common/environment.js';
@@ -88,6 +88,20 @@ export interface IBaseHalfMovedItemsService {
 	isComparing(workspaceFolder: URI): boolean;
 	/** Resolves when the comparison at open has finished, or after `timeoutMs`. */
 	whenCompared(workspaceFolder: URI, timeoutMs?: number): Promise<void>;
+	/**
+	 * Whether nothing is in flight for the folder: no comparison is deciding
+	 * and no recognized move waits for its relocation. The canvas does not
+	 * redraw a folder before that, so that a moved item's card changes once.
+	 */
+	isSettled(workspaceFolder: URI): boolean;
+	/** Resolves when the folder {@link isSettled}, or after `timeoutMs`. */
+	whenSettled(workspaceFolder: URI, timeoutMs: number): Promise<void>;
+	/**
+	 * Keeps the folder from being settled until the result is disposed: the
+	 * entries that name an item that was just relocated are being rewritten,
+	 * and the canvas draws the item with its connections once that is done.
+	 */
+	holdSettled(workspaceFolder: URI): IDisposable;
 	/** Lists the folder and compares it with the snapshot, as at open. */
 	compare(workspaceFolder: URI): Promise<void>;
 
@@ -159,6 +173,8 @@ class FolderSnapshot {
 	loaded = false;
 	disposed = false;
 	comparing = 0;
+	/** Entry updates in progress that keep the folder from being settled. */
+	holds = 0;
 	firstEventAt: number | undefined;
 	scheduler: RunOnceScheduler | undefined;
 	saver: RunOnceScheduler | undefined;
@@ -205,6 +221,8 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 	readonly onDidChangeComparing = this._onDidChangeComparing.event;
 	private readonly _onDidRelocate = this._register(new Emitter<IBaseHalfRecognizedMoves>());
 	readonly onDidRelocate = this._onDidRelocate.event;
+	/** Fires when {@link isSettled} may have changed for a workspace folder. */
+	private readonly _onDidChangeSettled = this._register(new Emitter<void>());
 
 	private readonly folders = new Map<string, FolderSnapshot>();
 	private readonly limiter = this._register(new Limiter<void>(READ_CONCURRENCY));
@@ -268,6 +286,41 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		await (timeoutMs === undefined ? state.compared.p : Promise.race([state.compared.p, timeout(timeoutMs)]));
 	}
 
+	isSettled(workspaceFolder: URI): boolean {
+		const state = this.folders.get(workspaceFolder.toString());
+		return !state || (state.comparing === 0 && state.pending.length === 0 && state.holds === 0);
+	}
+
+	holdSettled(workspaceFolder: URI): IDisposable {
+		const state = this.folders.get(workspaceFolder.toString());
+		if (!state) {
+			return Disposable.None;
+		}
+		state.holds++;
+		return toDisposable(() => {
+			state.holds = Math.max(0, state.holds - 1);
+			this._onDidChangeSettled.fire();
+		});
+	}
+
+	async whenSettled(workspaceFolder: URI, timeoutMs: number): Promise<void> {
+		const deadline = Date.now() + timeoutMs;
+		while (!this.isSettled(workspaceFolder)) {
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) {
+				return;
+			}
+			const timer = timeout(remaining);
+			const changed = Event.toPromise(this._onDidChangeSettled.event);
+			try {
+				await Promise.race([changed, timer]);
+			} finally {
+				timer.cancel();
+				changed.cancel();
+			}
+		}
+	}
+
 	compare(workspaceFolder: URI): Promise<void> {
 		const state = this.folders.get(workspaceFolder.toString());
 		return state ? this.enqueue(state, () => this.compareWithDisk(state)) : Promise.resolve();
@@ -298,6 +351,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		if (outcome === 'done') {
 			this._onDidRelocate.fire({ workspaceFolder, moves: [move] });
 		}
+		this._onDidChangeSettled.fire();
 		if (outcome === 'gone') {
 			// The new path is gone again: the item is where it was before it was
 			// paired, so that it can be paired with its final name.
@@ -321,6 +375,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				state.disappeared.delete(path);
 			}
 		}
+		this.endComparisonWithNothingLeft(state);
 		this.scheduleSave(state);
 	}
 
@@ -335,7 +390,21 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				state.disappeared.delete(known);
 			}
 		}
+		this.endComparisonWithNothingLeft(state);
 		this.scheduleSave(state);
+	}
+
+	/**
+	 * The file events of a workbench move or delete can arrive before the
+	 * operation reports here. What they removed then waited for a comparison;
+	 * with nothing left to pair, that wait ends now, so the canvas is not held.
+	 */
+	private endComparisonWithNothingLeft(state: FolderSnapshot): void {
+		if (state.firstEventAt === undefined || [...state.disappeared.values()].some(item => item.pairedTo === undefined)) {
+			return;
+		}
+		state.firstEventAt = undefined;
+		this.setComparing(state, -1);
 	}
 
 	//#endregion
@@ -392,6 +461,7 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		state.comparing = Math.max(0, state.comparing + change);
 		if (before !== state.comparing > 0) {
 			this._onDidChangeComparing.fire(state.folder);
+			this._onDidChangeSettled.fire();
 		}
 	}
 

@@ -44,7 +44,7 @@ import { clearExplorerFileClipboardCut, explorerFileClipboardShouldMove, findVal
 import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { SideBySideEditor } from '../../common/editor.js';
+import { EditorsOrder, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { SettingsEditor2Input } from '../../services/preferences/common/preferencesEditorInput.js';
 import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js';
@@ -87,8 +87,9 @@ import {
 	IBaseHalfCanvasMirrorService,
 	IBaseHalfCanvasStateTransition
 } from '../common/basehalfCanvasMirror.js';
-import { baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
-import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
+import { baseHalfIsMirrorSubtree, baseHalfMirrorResource, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../common/basehalfMirrorTree.js';
+import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';
+import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import {
 	baseHalfCanvasNoteFormatOwnerKey,
 	baseHalfCanvasNoteFormatOwnersEqual,
@@ -1397,6 +1398,11 @@ const BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY = 10_000;
 const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH = 720;
 const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 
+/** How long the canvas waits with a redraw for an item that is being recognized at a new path. */
+const BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS = 2000;
+/** How long its first drawing waits for the comparison at open. */
+const BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS = 500;
+
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
 
@@ -1432,6 +1438,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	/** Renders started by `requestRender` that have not resolved yet. */
 	private rendersInFlight = 0;
 	private backgroundRenderTimer: number | undefined;
+	/** When the canvas first held a redraw for an item that is being recognized at a new path. */
+	private movedItemsHoldStarted: number | undefined;
+	private movedItemsHoldWaiting = false;
+	/** The first drawing waits for the comparison at open for a shorter time. */
+	private firstRenderHeld = false;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
 	private readonly badgeDescriptionDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft>();
 	private readonly badgeDescriptionRecoveryDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft[]>();
@@ -1585,9 +1596,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCardDetailSurfaceRegistryService private readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
 		@IBaseHalfCanvasResourceDeletionService private readonly canvasResourceDeletionService: IBaseHalfCanvasResourceDeletionService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
-		@ILifecycleService lifecycleService: ILifecycleService
+		@ILifecycleService lifecycleService: ILifecycleService,
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService
 	) {
 		super();
+		// An item that was moved outside BaseHalf: the open canvas and the open
+		// Card Detail follow it (following moved items, "What the user sees").
+		this._register(this.movedItemsService.onDidRelocate(event => {
+			for (const move of event.moves) {
+				void this.followMovedItem(event.workspaceFolder, move.from, move.to).catch(error => this.logService.error(error));
+			}
+		}));
 		// Flushes a pending settled viewport on dispose and when storage saves
 		// state, so the last gesture before closing is not lost.
 		this.viewportPersister = this._register(this.instantiationService.createInstance(BaseHalfCanvasViewportPersister));
@@ -1915,6 +1934,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					outcome.waitUntil(detailReconciliation);
 				}
 			}
+			// The folder whose canvas is open was moved: the canvas shows it at its new path.
+			const openFolder = this.canvasNavigationService.state.canvasFolder;
+			const folderEffect = openFolder && !detail ? baseHalfStructuralResourceOutcome(outcome, openFolder.workspaceFolder, openFolder.relativePath, openFolder.resource) : undefined;
+			if (openFolder && folderEffect?.kind === 'move') {
+				outcome.waitUntil(this.followOpenFolder(openFolder, folderEffect.resource));
+			}
 			if (outcome.workspaces.some(workspace => this.getCurrentFolder()?.workspaceFolder.toString() === workspace.toString())) {
 				this.requestRender();
 			}
@@ -2107,7 +2132,84 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
+	/**
+	 * While an item is being recognized at a new path and its card information
+	 * is on its way there, the canvas does not redraw: the card would leave
+	 * and come back. It waits two seconds at most, and half a second for the
+	 * comparison at open, and then draws what is on disk.
+	 */
+	private holdRenderForMovedItems(): boolean {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.movedItemsService.isSettled(folder.workspaceFolder)) {
+			this.movedItemsHoldStarted = undefined;
+			this.firstRenderHeld = true;
+			return false;
+		}
+		const now = Date.now();
+		this.movedItemsHoldStarted ??= now;
+		const limit = this.firstRenderHeld ? BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS : BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS;
+		const remaining = limit - (now - this.movedItemsHoldStarted);
+		if (remaining <= 0) {
+			this.firstRenderHeld = true;
+			return false;
+		}
+		if (!this.movedItemsHoldWaiting) {
+			this.movedItemsHoldWaiting = true;
+			void this.movedItemsService.whenSettled(folder.workspaceFolder, remaining).finally(() => {
+				this.movedItemsHoldWaiting = false;
+				if (!this.disposed) {
+					this.requestRender();
+				}
+			});
+		}
+		return true;
+	}
+
+	/** The canvas shows the folder it had open at the folder's new path, with the view it had. */
+	private async followOpenFolder(folder: IBaseHalfCanvasFolderState, resource: URI): Promise<void> {
+		if (this.canvasNavigationService.state.canvasFolder !== folder) {
+			return;
+		}
+		const viewport = this.viewportStateService.get(folder.resource);
+		if (viewport) {
+			this.viewportStateService.set(resource, viewport);
+		}
+		await this.canvasNavigationService.openFolderCanvas(resource, { source: folder.source, history: 'replace' });
+	}
+
+	private async followMovedItem(workspaceFolder: URI, from: string, to: string): Promise<void> {
+		const state = this.canvasNavigationService.state;
+		const moved = (item: IBaseHalfWorkspaceResource): URI | undefined => item.workspaceFolder.toString() === workspaceFolder.toString() && baseHalfIsMirrorSubtree(item.relativePath, from)
+			? URI.joinPath(workspaceFolder, ...baseHalfRemapSubtreeRel(item.relativePath, from, to).split('/'))
+			: undefined;
+		// An editor that is open on the old path, without unsaved changes, shows the item at its new path.
+		for (const { editor, groupId } of this.editorService.getEditors(EditorsOrder.SEQUENTIAL)) {
+			const relativePath = editor.resource ? this.uriIdentityService.extUri.relativePath(workspaceFolder, editor.resource) : undefined;
+			if (editor.resource && relativePath && baseHalfIsMirrorSubtree(relativePath, from) && !editor.isDirty()) {
+				const resource = URI.joinPath(workspaceFolder, ...baseHalfRemapSubtreeRel(relativePath, from, to).split('/'));
+				await this.editorService.replaceEditors([{ editor, replacement: { resource, options: { preserveFocus: true } } }], groupId);
+			}
+		}
+		const detail = state.cardDetail;
+		const detailResource = detail ? moved(detail) : undefined;
+		if (detail && detailResource) {
+			// One with unsaved changes is left as it is: it held the relocation back.
+			if (!this.workingCopyService.isDirty(detail.resource)) {
+				await this.canvasNavigationService.openCardDetail(detailResource, { source: detail.source, history: 'replace', expectedCardDetail: detail });
+			}
+			return;
+		}
+		const folder = state.canvasFolder;
+		const folderResource = folder && folder.relativePath !== '' ? moved(folder) : undefined;
+		if (folder && folderResource) {
+			await this.followOpenFolder(folder, folderResource);
+		}
+	}
+
 	private requestRender(): void {
+		if (this.holdRenderForMovedItems()) {
+			return;
+		}
 		this.rendersInFlight++;
 		void this.render().catch(error => {
 			if (this.disposed) {

@@ -312,7 +312,11 @@ suite('BaseHalfMovedItemsService', () => {
 		await fileService.move(resource('a.md'), resource('moved.md'));
 		service.acceptWorkbenchMove(folder, 'a.md', 'moved.md');
 		await fileService.del(resource('b.md'));
+		// The file events can arrive before the operation reports: the wait they started ends with the report.
+		await timeout(15);
+		const heldByEvents = service.isComparing(folder);
 		service.acceptWorkbenchDelete(folder, 'b.md');
+		const afterReport = [service.isComparing(folder), service.isSettled(folder)];
 		await fileService.writeFile(resource('later.md'), VSBuffer.fromString(note(5, [0])));
 		await settle();
 		service.dispose();
@@ -325,7 +329,9 @@ suite('BaseHalfMovedItemsService', () => {
 		await settle();
 		await timeout(timing.saveMs * 4);
 
-		assert.deepStrictEqual({ recognized, marked: marked.recognized, markedStored: await filesBelow(markedFiles, storage) }, {
+		assert.deepStrictEqual({ heldByEvents, afterReport, recognized, marked: marked.recognized, markedStored: await filesBelow(markedFiles, storage) }, {
+			heldByEvents: true,
+			afterReport: [false, true],
 			recognized: [],
 			marked: [],
 			markedStored: []

@@ -96,7 +96,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		instantiationService.stub(IBaseHalfBadgeMirrorService, session.add(new BaseHalfBadgeMirrorService(fileService)));
 		const canvasMirror = session.add(instantiationService.createInstance(BaseHalfCanvasMirrorService));
 		instantiationService.stub(IBaseHalfCanvasMirrorService, canvasMirror);
-		instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
+		instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
 		instantiationService.stub(IBaseHalfNodeExecutionService, { onDidChange: Event.None, getActiveRun: () => undefined, acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
@@ -195,7 +195,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			'.bh/mirror/old/sub/deep.md/badge.yaml': badge('old/sub/deep.md', 'Deep.'),
 			'.bh/mirror/canvas.yaml': canvas('', [row('a.md', 1), row('old', 2)])
 		});
-		await open(fileService);
+		const session = await open(fileService);
 		const orphanMarked = (await hidden(fileService))['mirror/gone.md/badge.yaml'].includes('orphan: true');
 
 		// The user describes the new card before BaseHalf has compared: that description stays.
@@ -209,12 +209,16 @@ suite('BaseHalfMovedItems (relocation)', () => {
 
 		assert.deepStrictEqual({
 			orphanMarked,
+			pending: session.movedItems.getPendingMoves(folder),
+			settled: session.movedItems.isSettled(folder),
 			taken: [after['mirror/c.md/badge.yaml'], after['mirror/a.md/badge.yaml']],
 			rootCanvas: after['mirror/canvas.yaml'],
 			orphanGaveWay: [after['mirror/gone.md/badge.yaml'], after['mirror/d.md/badge.yaml'], recovered.length, recovered.map(path => after[path])],
 			folder: Object.fromEntries(Object.entries(after).filter(([path]) => path.startsWith('mirror/new/') || path.startsWith('mirror/old/')))
 		}, {
 			orphanMarked: true,
+			pending: [],
+			settled: true,
 			// c keeps what the user wrote, and a's description is still where it was.
 			taken: [badge('c.md', 'Written for c.'), badge('a.md', 'About a.')],
 			// The row of `a.md` had a free place at `c.md`; the folder's row follows its folder.

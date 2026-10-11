@@ -132,6 +132,21 @@ suite('BaseHalfCanvasViewportState', () => {
 		);
 	});
 
+	test('carries the viewports of a folder that was found at a new path, and keeps a viewport that is already there', () => {
+		const { service } = create();
+		service.set(folder('docs'), user(1, 1));
+		service.set(folder('docs/a'), user(2, 2));
+		service.set(folder('docs-2'), user(3, 3));
+		service.set(folder('notes/a'), user(9, 9));
+
+		service.moveSubtree(folder('docs'), folder('notes'));
+
+		assert.deepStrictEqual(
+			['docs', 'docs/a', 'docs-2', 'notes', 'notes/a'].map(path => service.get(folder(path))?.x ?? null),
+			[null, null, 3, 1, 9]
+		);
+	});
+
 	test('imports legacy viewports only over missing or automatic ones', () => {
 		const { service } = create();
 		service.set(folder('fitted'), { x: 0, y: 0, zoom: 1, source: 'auto' });

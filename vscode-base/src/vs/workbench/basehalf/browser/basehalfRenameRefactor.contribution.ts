@@ -133,7 +133,11 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			prepare: async (files, operation) => this.prepare(files, operation)
 		}));
 		// An item that was moved outside BaseHalf: its entries follow once its card information did.
-		this._register(this.movedItemsService.onDidRelocate(event => this.register(event.workspaceFolder, event.moves.map(move => ({ from: move.from, to: move.to })), undefined, this.pendingOldPaths(event.workspaceFolder))));
+		this._register(this.movedItemsService.onDidRelocate(event => {
+			// The canvas draws the item with its connections once its entries are written.
+			const hold = this.movedItemsService.holdSettled(event.workspaceFolder);
+			void this.register(event.workspaceFolder, event.moves.map(move => ({ from: move.from, to: move.to })), undefined, this.pendingOldPaths(event.workspaceFolder)).finally(() => hold.dispose());
+		}));
 
 		// What is owed is tried again when the reason it was owed for may have gone.
 		this._register(this.referenceIndexService.onDidChange(event => {
@@ -292,7 +296,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				.filter(pair => completed.some(file => file.source && isEqual(file.source, pair.source) && isEqual(file.target, pair.target)))
 				.map(pair => pair.move);
 			if (moves.length > 0) {
-				this.register(group.workspaceFolder, moves, group.snapshot, group.exclude);
+				void this.register(group.workspaceFolder, moves, group.snapshot, group.exclude);
 			}
 		}
 	}
@@ -301,9 +305,9 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 	 * Registers the plan of moves that have happened. Without a `snapshot` of
 	 * the stores from before the moves, the plan finds them in the index.
 	 */
-	private register(workspaceFolder: URI, moves: readonly IBaseHalfPathMove[], snapshot: readonly IBaseHalfRenameStore[] | undefined, exclude: readonly string[]): void {
+	private register(workspaceFolder: URI, moves: readonly IBaseHalfPathMove[], snapshot: readonly IBaseHalfRenameStore[] | undefined, exclude: readonly string[]): Promise<void> {
 		if (this.disposed || moves.length === 0) {
-			return;
+			return Promise.resolve();
 		}
 		const identity = this.identity(workspaceFolder);
 		// Pending moves compose: the entries of a plan whose update has not
@@ -329,7 +333,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			answered: false
 		};
 		this.pending.add(plan);
-		void timeout(0)
+		return timeout(0)
 			.then(() => this.process(plan))
 			.catch(error => this.logService.error('[BaseHalf] updating the upstream entries after a move failed', error));
 	}
@@ -508,7 +512,7 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			}
 		}
 		this.movedItemsService.setOwedEntryMoves(workspaceFolder, owed);
-		this.register(workspaceFolder, owed, undefined, []);
+		await this.register(workspaceFolder, owed, undefined, []);
 	}
 
 	//#endregion
