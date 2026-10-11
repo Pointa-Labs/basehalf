@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { timeout } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
@@ -94,7 +94,7 @@ suite('BaseHalfMovedItemsService', () => {
 	 * its new path and reported as relocated, as the cascade does when nothing
 	 * holds it back.
 	 */
-	function start(fileService: FileService, relocates = false, named: () => readonly string[] = () => []) {
+	function start(fileService: FileService, relocates = false, named: () => readonly string[] = () => [], indexChanged: Event<{ readonly workspaceFolder: URI; readonly state: 'ready' }> = Event.None) {
 		const service = disposables.add(new BaseHalfMovedItemsService(
 			timing,
 			fileService,
@@ -103,7 +103,7 @@ suite('BaseHalfMovedItemsService', () => {
 			{ workspaceStorageHome: storage },
 			{ readCanvas: async () => null },
 			// The entries the reference index knows: the items that `named` lists.
-			{ getState: () => 'ready', getStores: () => [{ read: { items: named().map(path => ({ path })) } }] as unknown as ReturnType<IBaseHalfReferenceIndexService['getStores']>, onDidChange: Event.None },
+			{ getState: () => 'ready', getStores: () => [{ read: { items: named().map(path => ({ path })) } }] as unknown as ReturnType<IBaseHalfReferenceIndexService['getStores']>, onDidChange: indexChanged as IBaseHalfReferenceIndexService['onDidChange'] },
 			new NullLogService()
 		));
 		const recognized: string[] = [];
@@ -425,6 +425,42 @@ suite('BaseHalfMovedItemsService', () => {
 			unnamed: [],
 			viaTemporary: ['n.md -> m.md [file, sameContent]']
 		});
+	});
+
+	test('a temporary name below a followed folder is only passed through, also when it got a fingerprint meanwhile', async () => {
+		const fileService = await createFiles({ 'ideas/weekend.md': note(6), 'ideas/other.md': note(4, [0]) });
+		await describe(fileService, 'ideas', 'folder');
+		await describe(fileService, 'ideas/weekend.md');
+		// The reference index reports after every change, and the files below a followed folder get their fingerprints then.
+		const indexChanged = disposables.add(new Emitter<{ readonly workspaceFolder: URI; readonly state: 'ready' }>());
+		const { service, recognized } = start(fileService, true, undefined, indexChanged.event);
+		await service.whenCompared(folder);
+
+		await fileService.move(resource('ideas/weekend.md'), resource('ideas/weekend.tmp.md'));
+		await timeout(timing.quietMs / 2);
+		indexChanged.fire({ workspaceFolder: folder, state: 'ready' });
+		await timeout(timing.quietMs / 3);
+		await fileService.move(resource('ideas/weekend.tmp.md'), resource('ideas/saturday.md'));
+		await settle();
+
+		assert.deepStrictEqual(recognized, ['ideas/weekend.md -> ideas/saturday.md [file, sameContent]']);
+	});
+
+	test('a file that was just moved keeps what BaseHalf last saw of it until its events arrive', async () => {
+		const fileService = await createFiles({ 'a.md': note(6), 'b.md': note(5, [0]) });
+		await describe(fileService, 'a.md');
+		await describe(fileService, 'b.md');
+		const indexChanged = disposables.add(new Emitter<{ readonly workspaceFolder: URI; readonly state: 'ready' }>());
+		const { service, recognized } = start(fileService, false, undefined, indexChanged.event);
+		await service.whenCompared(folder);
+
+		// Many files are renamed at once. The events of the first ones have arrived
+		// and the index has reported, while the events of this one are still on their way.
+		await fileService.move(resource('a.md'), resource('a-2027.md'));
+		indexChanged.fire({ workspaceFolder: folder, state: 'ready' });
+		await settle();
+
+		assert.deepStrictEqual(recognized, ['a.md -> a-2027.md [file, sameContent]']);
 	});
 
 	test('an item that moves again before its card information has followed it is still one pair', async () => {

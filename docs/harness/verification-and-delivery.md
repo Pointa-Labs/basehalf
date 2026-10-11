@@ -48,7 +48,9 @@ BaseHalf cannot read, a note whose list BaseHalf keeps because the note cannot
 hold it, PDF branch, rename refactor, and migration of
 a seeded legacy pair), legacy workspace cleanup, folders whose names look like
 numbers (create, move a card beside them, delete), a description file that
-cannot be read recovering on the next save, the rich reveal highlight,
+cannot be read recovering on the next save, cards that follow files renamed
+from outside the window (one file, the folder whose canvas is open, and many
+files at once), the rich reveal highlight,
 card resizing with its rounded corner targets and indicator, and the video node
 flows. Extend its acceptance coverage when a
 changed workbench flow is not represented there.

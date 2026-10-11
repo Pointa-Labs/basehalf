@@ -217,6 +217,20 @@ it by path, and where an edit to the file changes nothing.
     comparison then goes by what was noted, under rule 1 as for any files
     with the same content. So a renamed folder is still one pair, and among
     several copies the file name still decides.
+  - **A file that only passed through.** A file without card information
+    that is gone again before a comparison saw it, or that arrived with the
+    content of a file that was just removed, is not something that
+    disappeared. It was a temporary name on the way to the final one. This
+    holds also when it got a fingerprint meanwhile as a file below a
+    followed folder: otherwise a quick rename through a temporary name
+    would leave two files with the same content that disappeared, and rule
+    1 would pair neither.
+  - **What was last seen is kept until the events say otherwise.** A file
+    that cannot be read when its fingerprint is refreshed keeps the
+    fingerprint it has. When many files are renamed at once their events
+    arrive in several batches, and between two batches the files of the
+    later ones are already gone from disk. Their fingerprints are what they
+    are recognized by when their events arrive.
   - After 60 seconds an unpaired item that disappeared is deleted, as far as
     BaseHalf is concerned, and is never paired with something that appears
     later. This is what keeps a new note from taking the card of a similar
@@ -363,6 +377,13 @@ workbench's move cascade is not safe to repeat: it retires what is at the
 destination, and it replaces rows and reading aids there. Relocation needs
 its own variant of those stages and never runs the workbench one.
 
+**One item costs the same in any folder.** Relocation reads only the item's
+own directory under `.bh/mirror/` and the layouts of the two parent folders.
+It does not walk the rest of the mirror tree, so that a rename of many files
+at once finishes inside the time the canvas waits. Measured in the trial of
+2026-10-11: about 30 ms per file, where walking the whole tree took about
+315 ms per file in a folder with 60 cards.
+
 **Pending pairs.** A paired item is kept with the snapshot as a pending pair
 until its relocation has finished: when it was held back, when the window
 closed in the middle, and when a stage failed for an environmental reason.
@@ -444,6 +465,10 @@ description. Only later would relocation bring it back.
   After that it draws what is on disk and corrects itself when relocation
   has finished. A card of a file that was deleted outside
   BaseHalf therefore stays for about a second before it goes.
+- **Each move gets its own wait.** The two seconds count from the first
+  change of one move. Once the folder is settled again, or another folder is
+  shown, the next change starts a new wait. A wait that ended at its limit
+  is not started again for the same move.
 - **At open.** The first drawing of a folder's canvas waits for the
   comparison of its workspace folder in the same way, for at most 500 ms.
 - **The user's own edits are kept.** A card that the user drags or resizes
@@ -645,7 +670,10 @@ with the same expectations.
     described, placed note from outside the window while BaseHalf runs, and
     does the same before a window reload with the note also edited. All four
     cards keep their description and their place. It also renames the folder
-    whose canvas is open and finds the same cards and no error text.
+    whose canvas is open and finds the same cards and no error text. And it
+    renames twelve placed notes of the open folder at once, after one of
+    them went through a temporary name: every card keeps its place and its
+    description, and in no frame is a card drawn anywhere else.
 26. **Agents.** Recorded once, not automated: with the new skill text,
     Claude Code and Codex each rename a described PDF, and rename and edit a
     described note, outside Agent Area with their own tools and with no
@@ -715,6 +743,56 @@ BaseHalf window: rename the PDF, and rename the note and tighten its wording.
 - From a recognized pair to the card, the path is the one that the tests and
   the smoke of criterion 25 cover. The trial did not open a window on these
   four folders.
+
+**Tried in the real window, 2026-10-11.** A folder of 82 invented personal
+notes, mostly Chinese, with diary and meeting templates, short memos, lists,
+long notes, PDFs and images; 65 cards described, 53 placed by hand, 15
+connections. A script moved files from outside the window and recorded every
+frame of the canvas.
+
+- **Twelve kinds of change**: rename, rename and rewrite at once, rename of
+  an unplaced card, move to another folder, rename of a folder from its
+  parent and while its canvas is open, rename of a PDF, two quick renames,
+  20 renames at once, delete, copy and then delete the original, and delete
+  one of two similar lists. In each, the card changed in one frame, about
+  1.7 to 2.1 seconds after the change on disk, at the same place and size
+  and with its description. No frame showed the item without a card, with
+  two cards, or at another place. No notification appeared. The connections
+  of a renamed card were missing for one frame.
+- **While the user is at it.** A note that was open in the main surface
+  when it was renamed stayed open and showed its new name, with no error
+  text. A card that was dragged 300 ms after its file was renamed, before
+  the canvas showed the new name, was saved at the place it was dragged to,
+  under the new path.
+- **Recognition on these notes.** Renamed only: 82 of 82. With a paragraph
+  added, 5% of the characters changed, the format changed, or the paragraphs
+  reordered: 79 to 81. The notes that were missed are the three diary pages
+  that hold only the template's headings, which have less than 32
+  characters to be recognized by. With one line in five rewritten: 73. With
+  two in five: 57. With three in five: 15. Of 6,642 ordered pairs of
+  different notes, 2 would be paired when one is deleted and the other
+  created: a note and its reworked second version. A deleted diary page or
+  meeting note and a new one from the same template: 0 of 30.
+- **Agents.** Claude Code and Codex, each with the skill text of version 2,
+  were asked in plain words to rename 20 diary pages, to sort a folder into
+  subfolders by subject, to rename a long note and tighten its wording, to
+  sort meeting notes by month, and, with BaseHalf closed, to rename a folder
+  and change the title line of every note in it. In all five runs every
+  described card that moved kept its description, 29 of 29, every card
+  placed by hand that stayed in its folder kept its place, the affected
+  connections pointed to the new paths, the canvas changed once, and the
+  agent left `.bh/` alone.
+- **What this found and what was changed for it.** Two quick renames below a
+  followed folder were not followed. Of 20 files renamed at once, 4 were
+  followed. The canvas was not held for a second move after a first one, and
+  drew the cards at automatic places before it corrected itself. Relocation
+  walked the whole mirror tree for every file. The rules "A file that only
+  passed through", "What was last seen is kept until the events say
+  otherwise", "One item costs the same in any folder", and "Each move gets
+  its own wait" are the fixes.
+- **Not changed.** A card that is moved to another folder keeps its
+  coordinates in that folder's layout, as it does on a move inside BaseHalf,
+  and can land on top of a card that is there.
 
 ## Open questions
 

@@ -1107,10 +1107,17 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		for (const [key, known] of [...state.paths]) {
 			if (baseHalfIsMirrorSubtree(known, path)) {
 				state.paths.delete(key);
+				const appeared = state.appeared.get(known);
 				state.appeared.delete(known);
 				const fingerprint = state.fingerprints.get(known);
 				const followedKind = state.followed.get(known);
-				if (fingerprint || followedKind) {
+				// A file without a card that is gone again before a comparison saw
+				// it, or that arrived with the content of a file that was just
+				// removed, was only passing through: a temporary name on the way to
+				// the final one. It is not something that disappeared, also when it
+				// got a fingerprint meanwhile as a file below a followed folder.
+				const passing = appeared !== undefined && followedKind === undefined && (appeared.held !== undefined || appeared.at >= state.comparedAt);
+				if ((fingerprint || followedKind) && !passing) {
 					state.disappeared.set(known, { at, fingerprint, followedKind });
 					recognizable = true;
 				}
@@ -1279,21 +1286,41 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 		}
 	}
 
-	/** Computes the fingerprint again when the file's size or modification time differs. */
+	/**
+	 * Computes the fingerprint again when the file's size or modification time
+	 * differs. A file that cannot be read right now keeps what BaseHalf last saw
+	 * of it: when it was just moved, the events that say so are still on their
+	 * way, and that is what it will be recognized by.
+	 */
 	private async refreshFingerprint(state: FolderSnapshot, path: string): Promise<void> {
+		const resource = this.resource(state, path);
+		let stat;
 		try {
-			const stat = await this.fileService.stat(this.resource(state, path));
-			const stored = state.fingerprints.get(path);
-			if (stored && stored.size === stat.size && stored.mtime === stat.mtime) {
-				return;
-			}
-			const fingerprint = await this.fingerprint(state, path, true);
-			if (fingerprint) {
-				state.fingerprints.set(path, { ...fingerprint, mtime: stat.mtime });
-			} else {
-				state.fingerprints.delete(path);
-			}
+			stat = await this.fileService.stat(resource);
 		} catch {
+			return;
+		}
+		const stored = state.fingerprints.get(path);
+		if (stored && stored.size === stat.size && stored.mtime === stat.mtime) {
+			return;
+		}
+		if (!stat.isFile || stat.isSymbolicLink) {
+			state.fingerprints.delete(path);
+			return;
+		}
+		let fingerprint;
+		try {
+			fingerprint = await baseHalfComputeFileFingerprint({
+				size: stat.size,
+				read: async (position, length) => (await this.fileService.readFile(resource, { position, length })).value
+			}, true);
+		} catch {
+			return;
+		}
+		if (fingerprint) {
+			state.fingerprints.set(path, { ...fingerprint, mtime: stat.mtime });
+		} else {
+			// An empty file has nothing to be recognized by.
 			state.fingerprints.delete(path);
 		}
 	}

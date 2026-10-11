@@ -1400,6 +1400,8 @@ const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
 
 /** How long the canvas waits with a redraw for an item that is being recognized at a new path. */
 const BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS = 2000;
+/** After that limit, how long the canvas remembers that it already waited for a move that has not settled. */
+const BASEHALF_CANVAS_MOVED_ITEMS_FORGET_MS = 120_000;
 /** How long its first drawing waits for the comparison at open. */
 const BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS = 500;
 
@@ -1440,6 +1442,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private backgroundRenderTimer: number | undefined;
 	/** When the canvas first held a redraw for an item that is being recognized at a new path. */
 	private movedItemsHoldStarted: number | undefined;
+	/** The folder the hold was started for. */
+	private movedItemsHoldFolder: string | undefined;
 	private movedItemsHoldWaiting = false;
 	/** The first drawing waits for the comparison at open for a shorter time. */
 	private firstRenderHeld = false;
@@ -2155,20 +2159,42 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return false;
 		}
 		const now = Date.now();
+		// Another folder is shown: what was waited for before says nothing about this one.
+		const shown = folder.resource.toString();
+		if (this.movedItemsHoldFolder !== shown) {
+			this.movedItemsHoldFolder = shown;
+			this.movedItemsHoldStarted = undefined;
+		}
 		this.movedItemsHoldStarted ??= now;
 		const limit = this.firstRenderHeld ? BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS : BASEHALF_CANVAS_MOVED_ITEMS_OPEN_HOLD_MS;
 		const remaining = limit - (now - this.movedItemsHoldStarted);
 		if (remaining <= 0) {
+			// The limit has passed: the canvas draws what is on disk, and is not
+			// held again for the same move.
 			this.firstRenderHeld = true;
 			return false;
 		}
 		if (!this.movedItemsHoldWaiting) {
 			this.movedItemsHoldWaiting = true;
+			const started = this.movedItemsHoldStarted;
+			const forget = () => {
+				// The next change on disk starts a wait of its own.
+				if (this.movedItemsHoldStarted === started && this.movedItemsService.isSettled(folder.workspaceFolder, folder.relativePath)) {
+					this.movedItemsHoldStarted = undefined;
+				}
+			};
 			void this.movedItemsService.whenSettled(folder.workspaceFolder, remaining, folder.relativePath).finally(() => {
 				this.movedItemsHoldWaiting = false;
-				if (!this.disposed) {
-					this.requestRender();
+				if (this.disposed) {
+					return;
 				}
+				forget();
+				if (this.movedItemsHoldStarted === started) {
+					// The limit ended the wait. Its start is forgotten once the move has
+					// settled, however long that takes.
+					void this.movedItemsService.whenSettled(folder.workspaceFolder, BASEHALF_CANVAS_MOVED_ITEMS_FORGET_MS, folder.relativePath).finally(forget);
+				}
+				this.requestRender();
 			});
 		}
 		return true;

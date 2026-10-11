@@ -150,11 +150,14 @@ export interface IBaseHalfMirrorTreeEntry {
  * is app-written; a symlinked directory inside it is hostile or an accident and
  * must not let the walk escape or loop). A missing mirror tree is an empty
  * result, never an error.
+ *
+ * With `below`, only that node's directory and what is under it is walked:
+ * what one item's move needs, whatever the size of the rest of the tree.
  */
-export async function baseHalfWalkMirror(fileService: IFileService, workspaceFolder: URI, fileName: string): Promise<IBaseHalfMirrorTreeEntry[]> {
+export async function baseHalfWalkMirror(fileService: IFileService, workspaceFolder: URI, fileName: string, below = ''): Promise<IBaseHalfMirrorTreeEntry[]> {
 	const out: IBaseHalfMirrorTreeEntry[] = [];
 	const stack: Array<{ readonly resource: URI; readonly relativePath: string }> = [
-		{ resource: baseHalfMirrorRoot(workspaceFolder), relativePath: '' }
+		{ resource: below ? URI.joinPath(baseHalfMirrorRoot(workspaceFolder), ...below.split('/')) : baseHalfMirrorRoot(workspaceFolder), relativePath: below }
 	];
 
 	while (stack.length > 0) {

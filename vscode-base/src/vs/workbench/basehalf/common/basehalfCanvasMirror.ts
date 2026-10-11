@@ -409,8 +409,8 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 	}
 
 	private async followNodeLocked(workspaceFolder: URI, from: string, to: string): Promise<void> {
-		const entries = await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml');
-		const sourceEntries = entries.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, from));
+		// Only the layouts of the item and below it: the rest of the tree is not read for one item's move.
+		const sourceEntries = await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml', from);
 		const oldParent = parentRel(from);
 		const newParent = parentRel(to);
 		const resources = new Map<string, IBaseHalfCanvasStructuralResource>();

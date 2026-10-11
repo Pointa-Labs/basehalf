@@ -270,6 +270,7 @@ try {
 			await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 			await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 			await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
+			await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -303,6 +304,7 @@ try {
 				'canvas-unreadable-badge-recovers',
 				'canvas-card-follows-outside-rename',
 				'canvas-follows-renamed-open-folder',
+				'canvas-cards-follow-many-outside-renames',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -341,6 +343,7 @@ try {
 		await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 		await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 		await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
+		await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -478,6 +481,7 @@ try {
 			'canvas-unreadable-badge-recovers',
 			'canvas-card-follows-outside-rename',
 			'canvas-follows-renamed-open-folder',
+			'canvas-cards-follow-many-outside-renames',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -9581,6 +9585,111 @@ async function assertCanvasFollowsRenamedOpenFolder(page) {
 	fs.rmSync(mirror(after), { recursive: true, force: true });
 	fs.rmSync(mirror(before), { recursive: true, force: true });
 	await card(after).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+/**
+ * Following moved items: many files of the open folder are renamed at once
+ * from outside the window, right after one of them went through a temporary
+ * name. Every card keeps its description and the place it was given, and no
+ * card is drawn anywhere else on the way.
+ */
+async function assertCanvasCardsFollowManyOutsideRenames(page) {
+	const folderName = 'follow-many';
+	const count = 12;
+	const number = index => String(index).padStart(2, '0');
+	const before = index => `${folderName}/note-${number(index)}.md`;
+	const after = index => `${folderName}/renamed-${number(index)}.md`;
+	const mirror = (...segments) => path.join(workspacePath, '.bh', 'mirror', ...segments);
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	const place = index => ({ x: (index % 4) * 340, y: Math.floor(index / 4) * 260 });
+	const description = index => `About note ${index} of the folder`;
+
+	fs.mkdirSync(path.join(workspacePath, folderName));
+	for (let index = 0; index < count; index++) {
+		fs.writeFileSync(path.join(workspacePath, before(index)), `# Note ${index}\n\nNote number ${index} of a folder whose files are renamed at once, with words of its own: item${index}, topic${index}, and remark${index}.\n`, 'utf8');
+	}
+	// The folder and three of its notes are described, and every card is placed by hand.
+	fs.mkdirSync(mirror(folderName), { recursive: true });
+	fs.writeFileSync(mirror(folderName, 'badge.yaml'), `path: "${folderName}"\nkind: folder\ndescription: "A folder whose files are renamed at once"\n`, 'utf8');
+	for (const index of [0, 1, 2]) {
+		fs.mkdirSync(mirror(before(index)), { recursive: true });
+		fs.writeFileSync(mirror(before(index), 'badge.yaml'), `path: "${before(index)}"\nkind: file\ndescription: "${description(index)}"\n`, 'utf8');
+	}
+	fs.writeFileSync(mirror(folderName, 'canvas.yaml'), [
+		`path: "${folderName}"`,
+		'cards:',
+		...Array.from({ length: count }, (_, index) => [`  - path: "${before(index)}"`, '    kind: file', `    x: ${place(index).x}`, `    y: ${place(index).y}`, '    width: 300', '    height: 220'].join('\n')),
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
+
+	await card(folderName).waitFor({ state: 'visible', timeout: 15_000 });
+	await card(folderName).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await card(before(count - 1)).waitFor({ state: 'visible', timeout: 15_000 });
+	// BaseHalf takes the fingerprints of what it follows after its quiet second.
+	await page.waitForTimeout(3_000);
+
+	// One note goes through a temporary name. Its card follows it, and the canvas has waited once.
+	const temporary = path.join(workspacePath, folderName, 'note-00.tmp.md');
+	fs.renameSync(path.join(workspacePath, before(0)), temporary);
+	await page.waitForTimeout(150);
+	fs.renameSync(temporary, path.join(workspacePath, after(0)));
+	await waitUntil(() => fs.readFileSync(mirror(after(0), 'badge.yaml'), 'utf8').includes(description(0)), 'the description to follow a note that was renamed through a temporary name', 15_000);
+	await card(after(0)).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForTimeout(1_500);
+
+	// Every frame while the other notes are renamed: the cards of the folder, and where they are drawn.
+	await page.evaluate(prefix => {
+		const cards = () => Array.from(document.querySelectorAll('.basehalf-canvas-card')).filter(element => element instanceof HTMLElement && element.dataset.basehalfCardPath?.startsWith(prefix));
+		const placeOf = element => {
+			const rect = element.getBoundingClientRect();
+			return `${Math.round(rect.x / 4)},${Math.round(rect.y / 4)}`;
+		};
+		const places = new Set(cards().map(placeOf));
+		const watch = { running: true, framesWithACardElsewhere: 0, fewestCards: cards().length };
+		globalThis.basehalfFollowMany = watch;
+		const tick = () => {
+			if (!watch.running) {
+				return;
+			}
+			const shown = cards();
+			watch.fewestCards = Math.min(watch.fewestCards, shown.length);
+			if (shown.some(element => !places.has(placeOf(element)))) {
+				watch.framesWithACardElsewhere++;
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	}, `${folderName}/`);
+
+	for (let index = 1; index < count; index++) {
+		fs.renameSync(path.join(workspacePath, before(index)), path.join(workspacePath, after(index)));
+	}
+	await waitUntil(() => {
+		const canvas = fs.readFileSync(mirror(folderName, 'canvas.yaml'), 'utf8');
+		return Array.from({ length: count }, (_, index) => index).every(index => canvas.includes(`path: "${after(index)}"`) && !canvas.includes(`path: "${before(index)}"`))
+			&& [1, 2].every(index => fs.readFileSync(mirror(after(index), 'badge.yaml'), 'utf8').includes(description(index)) && !fs.existsSync(mirror(before(index))));
+	}, 'every card to follow its note after many notes were renamed at once', 20_000);
+	for (let index = 0; index < count; index++) {
+		await card(after(index)).waitFor({ state: 'visible', timeout: 15_000 });
+	}
+	await page.waitForTimeout(1_000);
+	const watch = await page.evaluate(() => {
+		const state = globalThis.basehalfFollowMany;
+		state.running = false;
+		return { framesWithACardElsewhere: state.framesWithACardElsewhere, fewestCards: state.fewestCards };
+	});
+	const canvas = fs.readFileSync(mirror(folderName, 'canvas.yaml'), 'utf8');
+	const displaced = Array.from({ length: count }, (_, index) => index).filter(index => readCanvasCardNumber(canvas, after(index), 'x') !== place(index).x || readCanvasCardNumber(canvas, after(index), 'y') !== place(index).y);
+	if (displaced.length > 0 || watch.framesWithACardElsewhere > 0 || watch.fewestCards < count) {
+		throw new Error(`After ${count - 1} notes were renamed at once outside the window: ${displaced.length} cards lost the place they were given, the canvas drew a card elsewhere in ${watch.framesWithACardElsewhere} frames, and showed as few as ${watch.fewestCards} of ${count} cards`);
+	}
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(mirror(folderName), { recursive: true, force: true });
+	await card(folderName).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 async function assertCanvasUnreadableBadgeRecovers(page) {

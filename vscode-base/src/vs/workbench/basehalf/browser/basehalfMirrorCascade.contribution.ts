@@ -967,22 +967,20 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 
 		await this.canvasMirrorService.followNode(workspaceFolder, move.from, move.to, lease);
-		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'adhd.yaml')) {
-			if (baseHalfIsMirrorSubtree(entry.relativePath, move.from)) {
-				await this.adhdMirrorService.relocateAdhd(
-					this.workspaceNode(workspaceFolder, entry.relativePath),
-					this.workspaceNode(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to)),
-					{ keepTarget: true },
-					lease
-				);
-			}
+		// Only the item's own mirror directory is walked, so that one item costs
+		// the same in a folder with ten cards and in one with ten thousand.
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'adhd.yaml', move.from)) {
+			await this.adhdMirrorService.relocateAdhd(
+				this.workspaceNode(workspaceFolder, entry.relativePath),
+				this.workspaceNode(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to)),
+				{ keepTarget: true },
+				lease
+			);
 		}
 		for (const fileName of [BADGE_FILE_NAME, APPEARANCE_FILE_NAME, BASEHALF_UPSTREAM_SIDECAR_FILE_NAME]) {
-			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName)) {
-				if (baseHalfIsMirrorSubtree(entry.relativePath, move.from)) {
-					const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
-					await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
-				}
+			for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, fileName, move.from)) {
+				const targetPath = baseHalfRemapSubtreeRel(entry.relativePath, move.from, move.to);
+				await this.followMirrorFile(workspaceFolder, entry.resource, baseHalfMirrorResource(workspaceFolder, targetPath, fileName), fileName === BADGE_FILE_NAME ? targetPath : undefined);
 			}
 		}
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
