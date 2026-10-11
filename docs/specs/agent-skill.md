@@ -97,16 +97,20 @@ lines.
 The skill recognizes a BaseHalf workspace by its `.bh/` directory and by
 nothing else that BaseHalf writes.
 
-- `.bh/` appears when the user first arranges a card, describes one, or
-  connects into a file that keeps its list there. A folder that was only
-  opened has none, and has nothing of BaseHalf's for an agent to keep intact.
+- `.bh/` appears when a folder's canvas is first shown, because BaseHalf
+  saves the place of every card then
+  ([canvas card placement](canvas-card-placement.md#what-showing-a-canvas-writes)).
+  A folder that BaseHalf never showed has none. A folder that was only shown
+  holds card places and nothing an agent has to keep intact: places are not
+  shared through git, and BaseHalf follows a file that an agent moves.
 - There is no file that says BaseHalf is running. What the skill asks of an
   agent holds while BaseHalf is closed too: a file moved then still has a
   badge to carry along. The one thing that needs the running application, the
   `basehalf` command, reports by itself when it cannot be reached, and the
   skill says what to do then.
-- BaseHalf therefore writes no marker file, and opening a folder still writes
-  nothing ([workspace state](workspace-state-and-legacy-cleanup.md)).
+- BaseHalf therefore writes no marker file, and opening a folder changes
+  nothing that git shows
+  ([workspace state](workspace-state-and-legacy-cleanup.md)).
 - The description asks about the working folder only. Every agent session on
   the machine reads the description, also in folders that have nothing to do
   with BaseHalf. An agent may not read above its working folder without

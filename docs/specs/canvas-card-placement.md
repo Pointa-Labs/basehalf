@@ -352,9 +352,15 @@ A place that BaseHalf chose is written by itself, without a user action.
 - **Against what was read.** The write commits against the bytes it read,
   like a card move
   ([mirror file resilience](mirror-file-resilience.md#layout-files)). When
-  the layout changed in between, by another window or by a move, BaseHalf
-  reads it again and chooses again for the cards that still have no row. A
-  row that is there for a path is never changed by this write.
+  the layout changed in between, it is read again. A row that is there for a
+  path is never changed by this write.
+- **Checked again at the write.** A place was chosen against the layout as
+  the drawing read it. When a row that another window or a move wrote since
+  lies on it, the card is given the end of the canvas as it is at the write.
+  The card then moves once, from where it was drawn to where its row is.
+- **A file renamed in letter case only**, on a volume that ignores case, is
+  still that item. Its row takes the new spelling in the same write, with
+  the edge rows that name it.
 
 ### When a place cannot be saved
 
@@ -369,9 +375,16 @@ cards do not move either, and counts them as taken.
 | The write fails for an environmental reason, which includes a `.bh/` behind a symbolic link | It is logged. There is no message, because nothing the user did is waiting. BaseHalf tries again at the next drawing of that canvas. |
 
 In all three, a change the user makes on that canvas writes the layout, and
-the places that wait are saved with it as chosen rows. Over a layout that
-could not be read, that write saves a recovery copy first
-([mirror file resilience](mirror-file-resilience.md#writing-over-content-that-could-not-be-read)).
+the places that wait are saved with it as chosen rows.
+
+- They are saved before the user's own row, so that undo of the change puts
+  the card back at the place BaseHalf chose.
+- They are saved as they were drawn, also beside or under the card the user
+  just moved. The user saw them there.
+- Over a layout that could not be read, the user's write saves a recovery
+  copy first
+  ([mirror file resilience](mirror-file-resilience.md#writing-over-content-that-could-not-be-read)),
+  and the places are saved after it.
 
 ### Places stay out of git
 
@@ -444,6 +457,13 @@ whose card was shown is followed.
   is removed outside BaseHalf, not only a described or placed one. A card of
   a file that was deleted outside BaseHalf stays for about a second before
   it goes.
+- The redraw that follows that wait is a redraw for what happened on disk,
+  and obeys what every such redraw obeys: it does not replace a description
+  the user is typing, and it waits again when another item is being
+  recognized. Found on 2026-10-11: that redraw used to be drawn at once.
+  With few followed items it was rare. With every card followed it replaced
+  a description that was being typed in the smoke, in a different step at
+  each run.
 
 The cost of this is measured before the work is done
 ([Measurements](#measurements)).

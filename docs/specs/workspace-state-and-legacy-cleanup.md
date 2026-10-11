@@ -51,16 +51,22 @@ In the workspace, under `.bh/`:
 | --- | --- | --- |
 | `.bh/mirror/<path>/badge.yaml` | project metadata | description |
 | `.bh/mirror/<path>/upstream.yaml` | project metadata | the upstream list of a non-Markdown node (reference truth, [reference graph](reference-graph.md#sidecar-store)) |
-| `.bh/mirror/<folder>/canvas.yaml` | project metadata | card layout and edge anchor memory |
+| `.bh/mirror/<folder>/canvas.yaml` | kept in the folder, not shared through git | the place and size of every card, and edge anchor memory ([canvas card placement](canvas-card-placement.md)) |
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
-| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, and recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)); not meant for git |
+| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, and recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)); not shared through git |
+| `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
 
-BaseHalf does not create or edit `.gitignore`. Lines that earlier releases
-appended stay unless the user removes them. Project metadata may be committed,
-so that canvas layout, descriptions, and the upstream lists BaseHalf keeps travel
-with the folder. The release notes recommend ignoring `.bh/cache/`.
+BaseHalf does not create or edit the user's `.gitignore`. Lines that earlier
+releases appended there stay unless the user removes them. The one ignore
+file BaseHalf writes is its own, inside `.bh/`. It is written before the
+first layout or working file, and one that is there is left as it is.
+
+Project metadata may be committed, so that descriptions and the upstream
+lists BaseHalf keeps travel with the folder. Card places do not: they change
+too often, and each person arranges their own canvas (D46). Nobody has to be
+told to ignore `.bh/cache/` any more.
 
 `.bh/mirror/<path>/` holds the per-node files above. A workbench move or
 delete relocates or retires them through the mirror cascade
@@ -87,7 +93,11 @@ BaseHalf no longer writes any of these:
 - `.bh/agent-harness/`;
 - a section in `CLAUDE.md` or `AGENTS.md`.
 
-Opening a folder no longer creates `.bh/` by itself.
+Opening a folder changes nothing that git shows. Showing a folder's canvas
+saves the places of its cards, which creates `.bh/` with BaseHalf's ignore
+file and that folder's layout
+([canvas card placement](canvas-card-placement.md#what-showing-a-canvas-writes)).
+In a marked folder it writes nothing.
 
 In VS Code storage (this machine):
 
@@ -322,10 +332,18 @@ release that contains every slice states:
 - BaseHalf can install a skill for your agents, so that Claude Code, Codex,
   and others know where a card's description and connections are. It asks
   first, and adds it to the agents' own settings, not to your folder.
-- If you keep your notes in git: the removed files show up as deletions,
-  BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A
-  folder that ignores all of .bh/ does not share the upstream lists of PDFs,
-  folders, and other non-note files.
+- Every card keeps its place. When a file is added, its card goes after the
+  last card and no other card moves. BaseHalf never puts a card on top of
+  another one.
+- Where you put your cards stays with the folder on your computer. It is not
+  shared through git any more, so moving a card no longer shows up as a
+  change there. Descriptions and connections are shared as before.
+- If you keep your notes in git: the removed files show up as deletions, and
+  BaseHalf no longer edits .gitignore. It keeps card positions and its own
+  working files out of git by itself. Card positions that an earlier version
+  committed stay in git until you remove them there. A folder that ignores
+  all of .bh/ does not share the upstream lists of PDFs, folders, and other
+  non-note files.
 
 The statements are written for someone who does not read code (D41): they do
 not name file formats or show names in code formatting. The one statement
@@ -337,8 +355,10 @@ advice cannot be followed without it.
 1. On a fresh in-memory folder, a unit test runs the workspace-open
    contributions (cleanup, canvas open, the reference index build, and
    migration detection). It finds no resource under `.bh/` and no change to
-   `CLAUDE.md`, `AGENTS.md`, or `.gitignore`. The smoke confirms that the first
-   canvas render adds or changes nothing under `.bh/` in its seeded fixture. A
+   `CLAUDE.md`, `AGENTS.md`, or `.gitignore`. Drawing a canvas is what saves
+   card places ([canvas card placement](canvas-card-placement.md)): the
+   smoke confirms that the first canvas render writes only layouts under
+   `.bh/` in its seeded fixture, and that git reports no change. A
    grep over `src/vs/workbench/basehalf` for
    `focus.yaml|current_focus|agent-harness` finds only cleanup code, tests, and
    the launch instruction sentence that calls old sections out of date.

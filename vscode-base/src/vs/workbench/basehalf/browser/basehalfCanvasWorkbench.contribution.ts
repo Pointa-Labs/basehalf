@@ -57,13 +57,14 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
-	baseHalfCanvasTransferPosition,
+	baseHalfCanvasTransferPlaces,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH,
 	IBaseHalfCanvasBadgeMetadata,
 	IBaseHalfCanvasBounds,
+	IBaseHalfCanvasCard,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasItem,
@@ -71,6 +72,7 @@ import {
 	isBaseHalfCanvasEntry
 } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
+import { BaseHalfCanvasChosenPlaces } from '../common/basehalfCanvasChosenPlaces.js';
 import { baseHalfCanvasConnectionSummary, baseHalfCanvasDeleteImpact, baseHalfCanvasResolveSiblingUpstream, baseHalfNodeUpstreamWithSourceChanges, IBaseHalfCanvasDeleteImpactStore } from '../common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../common/basehalfReferenceEdit.js';
@@ -87,6 +89,7 @@ import {
 	IBaseHalfCanvasMirrorService,
 	IBaseHalfCanvasStateTransition
 } from '../common/basehalfCanvasMirror.js';
+import { baseHalfEnsureMirrorIgnoreFile } from '../common/basehalfMirrorIgnore.js';
 import { baseHalfIsMirrorSubtree, baseHalfMirrorResource, baseHalfMirrorRoot, baseHalfRemapSubtreeRel } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfMovedItemsService } from '../common/basehalfMovedItemsService.js';
 import { IBaseHalfActiveCanvasEditor, IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState, IBaseHalfCardDetailState, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
@@ -1397,6 +1400,8 @@ const BASEHALF_CANVAS_NOTE_EDITOR_UNDO_REDO_PRIORITY = 10_000;
 // stage rather than a media frame plus an internal header.
 const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH = 720;
 const BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT = 405;
+/** A node file is read to learn its kind before its card gets a place. A larger file keeps the default size. */
+const BASEHALF_CANVAS_NEW_NODE_READ_LIMIT = 1024 * 1024;
 
 /** How long the canvas waits with a redraw for an item that is being recognized at a new path. */
 const BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS = 2000;
@@ -1516,6 +1521,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private zoomMenuOutAction: HTMLButtonElement | undefined;
 	private zoomMenuPresetActions: readonly { readonly button: HTMLButtonElement; readonly zoom: number }[] = [];
 	private renderQueuedBehindGesture = false;
+	private chosenCanvasPlacesInstance: BaseHalfCanvasChosenPlaces | undefined;
+	/** The places BaseHalf chose for cards that appeared, until the layout holds them (canvas card placement). */
+	private get chosenCanvasPlaces(): BaseHalfCanvasChosenPlaces {
+		return this.chosenCanvasPlacesInstance ??= new BaseHalfCanvasChosenPlaces(this.fileService, this.canvasMirrorService, this.movedItemsService, this.logService);
+	}
+	/** The rows of the layout that the shown canvas was last drawn from. A row takes its place also when its item is gone. */
+	private renderedLayoutRows: readonly IBaseHalfCanvasCard[] = [];
 	private canvasLayoutReconcileQueuedBehindGesture = false;
 	private canvasLayoutReconcileGeneration = 0;
 	private readonly canvasInteractionEndWaiters = new Set<() => void>();
@@ -2021,20 +2033,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.disposed) {
 				return;
 			}
-			const cardDetail = this.canvasNavigationService.state.cardDetail;
-			if (cardDetail) {
-				void this.renderDetailBadge(cardDetail);
-				return;
-			}
-			if (this.deferCanvasBadgeRefreshWhileFocused()) {
-				return;
-			}
-			// A redraw that follows what happened on disk waits while an item of
-			// this folder is being recognized at a new path.
-			if (!this.holdRenderForMovedItems()) {
-				this.requestRender();
-			}
+			this.renderForDiskChange();
 		}, 100);
+	}
+
+	/**
+	 * A redraw for what happened on disk, not for what the user did on the
+	 * canvas. It never replaces a description the user is typing, and it waits
+	 * while an item of this folder is being recognized at a new path. Every
+	 * such redraw goes through here, also the one that follows that wait:
+	 * since every shown card is followed, the wait is common.
+	 */
+	private renderForDiskChange(): void {
+		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		if (cardDetail) {
+			void this.renderDetailBadge(cardDetail);
+			return;
+		}
+		if (this.deferCanvasBadgeRefreshWhileFocused()) {
+			return;
+		}
+		if (!this.holdRenderForMovedItems()) {
+			this.requestRender();
+		}
 	}
 
 	private patchRenderedNodeExecutionState(resource: URI, execution: IBaseHalfNodeExecutionState): void {
@@ -2194,7 +2215,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					// settled, however long that takes.
 					void this.movedItemsService.whenSettled(folder.workspaceFolder, BASEHALF_CANVAS_MOVED_ITEMS_FORGET_MS, folder.relativePath).finally(forget);
 				}
-				this.requestRender();
+				// Still a redraw for what happened on disk: it keeps a description that is being typed.
+				this.renderForDiskChange();
 			});
 		}
 		return true;
@@ -2392,9 +2414,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		let canvas: IBaseHalfCanvasFile | null = null;
 		let canvasWarning: string | undefined;
+		// BaseHalf saves the places it chooses only into a layout it could read in full.
+		let canvasReadInFull = false;
 		try {
 			const read = await this.canvasMirrorService.inspectCanvas(folder);
 			canvas = read.canvas;
+			canvasReadInFull = read.damage === undefined;
 			if (read.damage) {
 				canvasWarning = baseHalfCanvasLayoutNotice(read.damage);
 			}
@@ -2433,12 +2458,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.logService.warn(`BaseHalf card appearance issue for ${problem.relativePath}: ${problem.message}`);
 		}
 
+		// A card that appears gets its place in this drawing and keeps it (canvas
+		// card placement). The place depends on its size, so BaseHalf reads first
+		// what kind of node a new node file is.
+		const waitingPlaces = this.chosenCanvasPlaces.waitingFor(folder);
+		const newCardSizes = await this.sizesOfNewNodeCards(folder, stat, canvas, waitingPlaces);
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
 		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
 			canvas,
 			badges: badgeRead.badges,
-			relationships: connections.relationships
+			relationships: connections.relationships,
+			waiting: waitingPlaces,
+			newCardSizes,
+			pathKey: this.canvasPathKey(folder)
 		});
 		let badgeWarning: string | undefined;
 		const folderPrefix = folder.relativePath.length === 0 ? '' : `${folder.relativePath}/`;
@@ -2701,6 +2737,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
+		// The cards are drawn: the places BaseHalf chose for them are kept from
+		// now on, and saved when the layout can take them.
+		this.renderedLayoutRows = canvas?.cards ?? [];
+		this.chosenCanvasPlaces.drawn(folder, model.appeared);
+		if (canvasReadInFull) {
+			void this.chosenCanvasPlaces.save(
+				folder,
+				(stat.children ?? []).map(child => canvasChildPath(folder.relativePath, basename(child.resource))),
+				canvas,
+				{ pathKey: this.canvasPathKey(folder), respelled: model.respelled }
+			);
+		}
 		const retainedSurface = this.activeNodeLocalSurface;
 		if (retainedSurface?.sceneKey === currentSceneKey
 			&& items.some(item => item.path === retainedSurface.path
@@ -3114,6 +3162,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				async lease => {
 					const folder = this.folderForSceneMutation(sceneKey);
 					await this.resolveLiveCanvasNodes(sceneKey, folder, geometries);
+					// A change by the user writes the layout, and the places that wait are
+					// saved with it: first, so that undo of this change puts the card back
+					// at the place BaseHalf chose for it.
+					await this.chosenCanvasPlaces.saveWithUserChange(folder, lease);
 					const current = await this.canvasMirrorService.readCanvas(folder);
 					const cards: IBaseHalfCanvasCardStateTransition[] = geometries.map(geometry => ({
 						path: geometry.path,
@@ -3129,6 +3181,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					}));
 					committedTransition = { cards };
 					await this.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
+					// Over a layout that could not be read in full they could not be saved
+					// before. This write made it readable.
+					await this.chosenCanvasPlaces.saveWithUserChange(folder, lease);
 				}
 			);
 		} catch (error) {
@@ -3613,7 +3668,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			await this.assertExactCanvasNodeFile(transition.targetResource, transition.contents);
 			await this.applyCanvasConnectionTransition(transition.connection, true, lease);
 			try {
-				await this.moveExactCanvasNodeToStash(transition.targetResource, transition.contents, transition.stashResource);
+				await this.moveExactCanvasNodeToStash(transition.folder.workspaceFolder, transition.targetResource, transition.contents, transition.stashResource);
 			} catch (error) {
 				try {
 					await this.applyCanvasConnectionTransition(transition.connection, false, lease);
@@ -3630,7 +3685,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			await this.applyCanvasConnectionTransition(transition.connection, false, lease);
 		} catch (error) {
 			try {
-				await this.moveExactCanvasNodeToStash(transition.targetResource, transition.contents, transition.stashResource);
+				await this.moveExactCanvasNodeToStash(transition.folder.workspaceFolder, transition.targetResource, transition.contents, transition.stashResource);
 			} catch (rollbackError) {
 				throw new AggregateError([error, rollbackError], `Redo could not restore the connection and '${transition.targetPath}' changed before safe cleanup. The file was preserved.`);
 			}
@@ -3651,11 +3706,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async moveExactCanvasNodeToStash(resource: URI, expected: VSBuffer, stash: URI): Promise<void> {
+	private async moveExactCanvasNodeToStash(workspaceFolder: URI, resource: URI, expected: VSBuffer, stash: URI): Promise<void> {
 		await this.assertExactCanvasNodeFile(resource, expected);
 		if (await this.fileService.exists(stash)) {
 			throw new Error(`The private undo copy for '${basename(resource)}' already exists.`);
 		}
+		// An undo copy is a working file: git must not show it.
+		await baseHalfEnsureMirrorIgnoreFile(this.fileService, workspaceFolder);
 		await this.fileService.createFolder(dirname(stash));
 		await this.fileService.move(resource, stash, false);
 		const moved = await this.fileService.readFile(stash, {
@@ -5911,6 +5968,37 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			&& baseHalfCanvasItemsSharePreviewVersion(cached.item, item);
 	}
 
+	/**
+	 * The sizes of the node cards that are about to appear and are not drawn at
+	 * the default size. A video node is wider than a cell, and the place of a
+	 * card depends on its size. A file that cannot be read keeps the default.
+	 */
+	private async sizesOfNewNodeCards(
+		folder: IBaseHalfCanvasFolderState,
+		stat: IFileStat,
+		canvas: IBaseHalfCanvasFile | null,
+		waiting: ReadonlyMap<string, IBaseHalfCanvasCard> | undefined
+	): Promise<Map<string, { readonly width: number; readonly height: number }>> {
+		const sizes = new Map<string, { readonly width: number; readonly height: number }>();
+		const placed = new Set((canvas?.cards ?? []).map(card => card.path));
+		for (const child of stat.children ?? []) {
+			const name = basename(child.resource);
+			const path = canvasChildPath(folder.relativePath, name);
+			if (child.isDirectory || !name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) || placed.has(path) || waiting?.has(path)) {
+				continue;
+			}
+			try {
+				const content = await this.fileService.readFile(child.resource, { limits: { size: BASEHALF_CANVAS_NEW_NODE_READ_LIMIT } });
+				if (parseBaseHalfNodeDocumentBytes(content.value.buffer).kind === 'video') {
+					sizes.set(path, { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT });
+				}
+			} catch {
+				// Not a node BaseHalf can read: its card is drawn at the default size.
+			}
+		}
+		return sizes;
+	}
+
 	private scheduleCanvasLayoutReconciliation(): void {
 		if (this.canvasNavigationService.state.cardDetail) {
 			// Card detail covers the scene. Closing it always performs a fresh
@@ -5928,16 +6016,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const generation = ++this.canvasLayoutReconcileGeneration;
 		void this.reconcileCurrentCanvasLayout(generation).then(reconciled => {
-			if (!reconciled && !this.disposed && !this.holdRenderForMovedItems()) {
-				this.requestRender();
+			if (!reconciled && !this.disposed) {
+				this.renderForDiskChange();
 			}
 		}).catch(error => {
 			if (!this.disposed) {
 				this.logService.warn(error);
 				// The folder may be gone because it was just moved: that is not drawn as an error.
-				if (!this.holdRenderForMovedItems()) {
-					this.requestRender();
-				}
+				this.renderForDiskChange();
 			}
 		});
 	}
@@ -5975,8 +6061,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			folderRelativePath: folder.relativePath,
 			canvas,
 			badges: this.renderedBadges,
-			relationships: this.renderedRelationships
+			relationships: this.renderedRelationships,
+			// A card whose place is not saved yet stays where it was drawn.
+			waiting: this.chosenCanvasPlaces.waitingFor(folder),
+			pathKey: this.canvasPathKey(folder)
 		});
+		this.renderedLayoutRows = canvas?.cards ?? [];
 		if (model.items.length !== this.renderedItemsByPath.size
 			|| model.items.some(item => {
 				const rendered = this.renderedItemsByPath.get(item.path);
@@ -6803,17 +6893,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
+	/**
+	 * What two spellings of one path share on this folder's volume, so that a
+	 * file renamed in letter case only keeps its row (canvas card placement).
+	 */
+	private canvasPathKey(folder: IBaseHalfCanvasFolderState): (path: string) => string {
+		return path => this.uriIdentityService.extUri.getComparisonKey(joinPath(folder.workspaceFolder, path));
+	}
+
+	/**
+	 * What a new card must stay clear of on the shown canvas: the cards that are
+	 * drawn, and the rows of the layout whose items are gone, which keep their
+	 * places (canvas card placement, "Taken").
+	 */
+	private takenCanvasPlaces(except?: ReadonlySet<string>): IBaseHalfCanvasBounds[] {
+		const items = [...this.renderedItemsByPath.values()];
+		return [
+			...items.flatMap((item, index) => except?.has(item.path) ? [] : [baseHalfCanvasItemBounds(item, index, items.length)]),
+			...this.renderedLayoutRows.filter(row => !this.renderedItemsByPath.has(row.path) && !except?.has(row.path))
+		];
+	}
+
 	private avoidCanvasCreateOverlap(
 		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind,
 		extraOccupied: readonly IBaseHalfCanvasBounds[] = [],
 		sizeOverride?: { readonly width: number; readonly height: number }
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
-		const items = [...this.renderedItemsByPath.values()];
-		const occupied = [
-			...items.map((item, index) => baseHalfCanvasItemBounds(item, index, items.length)),
-			...extraOccupied
-		];
+		const occupied = [...this.takenCanvasPlaces(), ...extraOccupied];
 		const size = sizeOverride ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
@@ -6992,18 +7099,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const renderedItems = [...this.renderedItemsByPath.values()];
 		const sourceItem = this.renderedItemsByPath.get(cardDetail.relativePath);
 		const sourceIndex = sourceItem ? renderedItems.indexOf(sourceItem) : -1;
+		// Every card has its place, so the PDF's card stays where it is when a
+		// sibling is added (canvas card placement).
 		const sourceBounds = sourceItem && sourceIndex >= 0
 			? baseHalfCanvasItemBounds(sourceItem, sourceIndex, renderedItems.length)
 			: undefined;
-		if (sourceItem && sourceBounds && !sourceItem.card) {
-			// Persist the source's currently visible fallback geometry before adding a
-			// sibling. Otherwise the fallback grid changes and the PDF appears to move.
-			await this.canvasMirrorService.updateCardGeometry(folder, {
-				path: sourceItem.path,
-				kind: sourceItem.kind,
-				...sourceBounds
-			});
-		}
 
 		const context = await this.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
 		const sourceName = basename(resource);
@@ -7491,21 +7591,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			await clearExplorerFileClipboardCut(this.explorerService);
 		}
 
-		const paths: string[] = [];
+		// The user pointed at a place: the group keeps its block there, and a card
+		// whose slot is taken goes to the nearest open place (canvas card placement).
+		const paths = transfers.map(transfer => canvasChildPath(folder.relativePath, basename(transfer.target)));
+		const sizes = transfers.map(transfer => transfer.kind === 'folder'
+			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
+		const places = baseHalfCanvasTransferPlaces(canvasPosition, sizes, this.takenCanvasPlaces(new Set(paths)));
 		for (let index = 0; index < transfers.length; index++) {
 			const transfer = transfers[index];
-			const position = baseHalfCanvasTransferPosition(canvasPosition, index, transfers.length);
-			const name = basename(transfer.target);
-			const path = canvasChildPath(folder.relativePath, name);
-			paths.push(path);
+			const path = paths[index];
 			try {
 				await this.canvasMirrorService.updateCardGeometry(folder, {
 					path,
 					kind: transfer.kind,
-					x: position.x,
-					y: position.y,
-					width: transfer.kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH : BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
-					height: transfer.kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT : BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+					...places[index],
+					...sizes[index]
 				});
 			} catch (error) {
 				this.logService.warn(error);

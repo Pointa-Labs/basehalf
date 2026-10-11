@@ -153,6 +153,16 @@ export interface IBaseHalfCanvasStateTransition {
 	readonly edges?: readonly IBaseHalfCanvasEdgeStateTransition[];
 }
 
+export interface IBaseHalfCanvasSaveAppearedOptions {
+	/** Save the places as they were drawn, also where a row written since lies on one. */
+	readonly asDrawn?: boolean;
+	/**
+	 * Rows whose item is spelled differently now, on a volume where both
+	 * spellings are the same path. Each takes the new spelling.
+	 */
+	readonly respelled?: readonly { readonly from: string; readonly to: string }[];
+}
+
 export interface IBaseHalfCanvasMirrorService {
 	readonly _serviceBrand: undefined;
 
@@ -179,8 +189,12 @@ export interface IBaseHalfCanvasMirrorService {
 	 * BaseHalf does not write over content it could not read by itself: for a
 	 * layout that cannot be read in full nothing is written and the result is
 	 * `undefined`. Otherwise the result is the layout as it is now.
+	 *
+	 * A place that a row written since the drawing lies on is chosen again, at
+	 * the end of the canvas. With `asDrawn` the places are saved as they are:
+	 * that is for a change the user made on the canvas they were drawn on.
 	 */
-	saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null | undefined>;
+	saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease, options?: IBaseHalfCanvasSaveAppearedOptions): Promise<IBaseHalfCanvasFile | null | undefined>;
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
@@ -267,8 +281,9 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 		);
 	}
 
-	async saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null | undefined> {
-		if (appeared.length === 0 && gone.length === 0) {
+	async saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease, options: IBaseHalfCanvasSaveAppearedOptions = {}): Promise<IBaseHalfCanvasFile | null | undefined> {
+		const respelled = options.respelled ?? [];
+		if (appeared.length === 0 && gone.length === 0 && respelled.length === 0) {
 			return this.readCanvas(folder);
 		}
 		let damaged = false;
@@ -278,14 +293,37 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 				if (damaged) {
 					return existing;
 				}
+				// A row whose item is spelled differently now takes the new spelling,
+				// with the edge rows that name it. Nothing at the new spelling is replaced.
+				const taken = new Set(existing.cards.map(card => card.path));
+				const spelling = new Map(respelled.filter(row => taken.has(row.from) && !taken.has(row.to)).map(row => [row.from, row.to]));
+				const spell = (path: string) => spelling.get(path) ?? path;
 				const goneRows = new Set(gone);
-				const kept = existing.cards.filter(card => !(card.auto && goneRows.has(card.path)));
+				const kept = existing.cards
+					.filter(card => !(card.auto && goneRows.has(card.path) && !spelling.has(card.path)))
+					.map(card => spelling.has(card.path) ? { ...card, path: spell(card.path) } : card);
 				const present = new Set(kept.map(card => card.path));
-				const added = appeared.filter(card => !present.has(card.path));
-				if (added.length === 0 && kept.length === existing.cards.length) {
+				// The places were chosen against the layout as a drawing read it. A row
+				// that another window or a move wrote since can lie on one of them: that
+				// card is given the end of the canvas as it is now. With a change of the
+				// user's they are saved as drawn: the user saw them there.
+				const cards = [...kept];
+				for (const card of appeared) {
+					if (present.has(card.path)) {
+						continue;
+					}
+					cards.push(options.asDrawn || baseHalfCanvasIsOpen(card, cards)
+						? card
+						: { ...card, ...baseHalfCanvasEndPlace(cards, { width: card.width, height: card.height }, baseHalfCanvasRowSpan(cards, 1)) });
+				}
+				if (cards.length === kept.length && kept.length === existing.cards.length && spelling.size === 0) {
 					return existing;
 				}
-				return { ...existing, cards: [...kept, ...added] };
+				return {
+					...existing,
+					cards,
+					edges: spelling.size === 0 ? existing.edges : existing.edges.map(edge => ({ ...edge, from: spell(edge.from), to: spell(edge.to) }))
+				};
 			})
 		);
 		return damaged ? undefined : saved;

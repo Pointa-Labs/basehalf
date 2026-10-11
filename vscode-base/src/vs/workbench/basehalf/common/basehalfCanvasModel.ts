@@ -200,6 +200,8 @@ export interface IBaseHalfCanvasFolderModel {
 	 * for a write.
 	 */
 	readonly appeared: readonly IBaseHalfCanvasCard[];
+	/** The rows whose item is spelled differently now, on a volume where both spellings are the same path. */
+	readonly respelled: readonly { readonly from: string; readonly to: string }[];
 }
 
 export interface IBaseHalfCanvasModelOptions {
@@ -293,12 +295,20 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 
 	const pathKey = options.pathKey ?? (path => path);
 	const cardByPath = new Map((options.canvas?.cards ?? []).map(card => [pathKey(card.path), card]));
+	const respelled: { from: string; to: string }[] = [];
 	const folderRelativePath = options.folderRelativePath ?? '';
 	const allItems = eligibleChildren.map(stat => {
 		const name = basename(stat.resource);
 		const path = childPath(folderRelativePath, name);
 		const kind: BaseHalfCanvasItemKind = stat.isDirectory ? 'folder' : 'file';
-		const card = cardByPath.get(pathKey(path)) ?? options.waiting?.get(path);
+		// A row belongs to an item when their paths are the same path. An item
+		// that was renamed in letter case only, on a volume that ignores case, is
+		// still that item: it keeps its row, which takes the new spelling.
+		const row = cardByPath.get(pathKey(path));
+		if (row && row.path !== path) {
+			respelled.push({ from: row.path, to: path });
+		}
+		const card = row ? (row.path === path ? row : { ...row, path }) : options.waiting?.get(path);
 		const badge = options.badges?.get(path);
 		const relationships = options.relationships?.get(path);
 		return {
@@ -346,7 +356,8 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		edges: deriveCanvasEdges(items, options.canvas?.edges ?? []),
 		truncated: Math.max(0, allItems.length - items.length),
 		size: options.canvas?.size,
-		appeared: items.flatMap(item => isWaiting(item) ? [item.card!] : [])
+		appeared: items.flatMap(item => isWaiting(item) ? [item.card!] : []),
+		respelled: respelled.filter(row => items.some(item => item.path === row.to))
 	};
 }
 

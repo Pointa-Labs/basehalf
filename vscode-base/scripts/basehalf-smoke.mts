@@ -29,6 +29,16 @@ const AGENT_CREATED_CARD_CONTENT = [
 	''
 ].join('\n');
 const FAR_FIXTURE_CONTENT = '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n';
+// The file BaseHalf writes at `.bh/.gitignore` before it writes a layout, byte for byte.
+const BH_IGNORE_FILE = [
+	'# Written by BaseHalf. Card positions and BaseHalf\'s working files are',
+	'# not shared through git.',
+	'/.gitignore',
+	'canvas.yaml',
+	'!canvas.yaml/',
+	'/cache/',
+	''
+].join('\n');
 const LEGACY_REFERENCES_RECORD_PATH = path.join('.bh', 'legacy-references.yaml');
 // A complete legacy pair from a release before D37: guide.md's badge lists
 // far.md under `references`, and far.md's badge lists guide.md under
@@ -95,6 +105,8 @@ if (opts.verifyUninstalled || opts.verifyInstalled) {
 }
 // What the fixture holds under .bh/ before BaseHalf first opens it.
 const bhTreeBeforeLaunch = readBhTree();
+// What git shows of the fixture before BaseHalf first opens it.
+const gitStatusBeforeLaunch = gitStatusOfWorkspace();
 
 const electronPath = getDevElectronPath();
 
@@ -173,7 +185,7 @@ try {
 	}
 	if (!opts.settingsOnly && !opts.pluginOnly) {
 		await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
-		await step('first-canvas-render-writes-nothing-under-bh', () => assertFirstCanvasRenderWritesNothingUnderBh(page));
+		await step('first-canvas-render-saves-places-out-of-git', () => assertFirstCanvasRenderSavesPlacesOutOfGit(page));
 		await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 		await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 	}
@@ -256,7 +268,7 @@ try {
 					workspace: workspacePath,
 					checks: [
 						'fresh-canvas-framed',
-						'first-canvas-render-writes-nothing-under-bh',
+						'first-canvas-render-saves-places-out-of-git',
 						'root-titlebar-breadcrumb',
 						'canvas-grid-scoped-to-canvas',
 						'canvas-zoom-controls',
@@ -291,7 +303,7 @@ try {
 			workspace: workspacePath,
 			checks: [
 				'fresh-canvas-framed',
-				'first-canvas-render-writes-nothing-under-bh',
+				'first-canvas-render-saves-places-out-of-git',
 				'root-titlebar-breadcrumb',
 				'canvas-grid-scoped-to-canvas',
 				'canvas-double-click-create-menu',
@@ -458,7 +470,7 @@ try {
 			'canvas-visible',
 			'new-window-basehalf-welcome',
 			'fresh-canvas-framed',
-			'first-canvas-render-writes-nothing-under-bh',
+			'first-canvas-render-saves-places-out-of-git',
 			'root-titlebar-breadcrumb',
 			'canvas-grid-scoped-to-canvas',
 			'canvas-create-result-node-submenu',
@@ -837,6 +849,9 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), FAR_FIXTURE_CONTENT, 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
+	// The fixture is a folder that BaseHalf has written layouts in before: its
+	// ignore file is there, so the layouts below are on disk and not in git.
+	fs.writeFileSync(path.join(workspace, '.bh', '.gitignore'), BH_IGNORE_FILE, 'utf8');
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'badge.yaml'), [
 		'path: "README.md"',
 		'kind: file',
@@ -5631,15 +5646,84 @@ async function assertWorkspaceOpenInstallsNothing() {
 // folder therefore still has no .bh/ after its first canvas render. The wait
 // outlasts the viewport persist debounce and the bounded legacy-import wait,
 // so a delayed writer has run by the time the tree is compared.
-async function assertFirstCanvasRenderWritesNothingUnderBh(page) {
-	await page.waitForTimeout(1_000);
+// Every card has a saved place (canvas card placement). The first drawing of
+// a canvas gives the cards that had no row a place and saves it. That is the
+// only thing it writes, and git shows none of it.
+async function assertFirstCanvasRenderSavesPlacesOutOfGit(page) {
+	const layoutPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const shown = await page.locator('.basehalf-canvas-card[data-basehalf-card-path]').evaluateAll(cards => cards.map(card => card.getAttribute('data-basehalf-card-path')));
+	if (shown.length < 2 || !shown.includes('README.md')) {
+		throw new Error(`The root canvas must show the fixture's cards before their places are checked: ${JSON.stringify(shown)}`);
+	}
+	const rowsOf = () => {
+		const raw = fs.readFileSync(layoutPath, 'utf8');
+		return Object.fromEntries(shown.map(cardPath => [cardPath, readCanvasCardGeometry(raw, cardPath)]));
+	};
+	const deadline = Date.now() + 10_000;
+	while (Object.values(rowsOf()).some(row => row === undefined)) {
+		if (Date.now() > deadline) {
+			throw new Error(`Every shown card must get a row in the first drawing: ${JSON.stringify(rowsOf())}`);
+		}
+		await page.waitForTimeout(100);
+	}
+	const raw = fs.readFileSync(layoutPath, 'utf8');
+	const rows = rowsOf();
+	// The row the user had is as it was. Every other row is marked as BaseHalf's choice.
+	const expectedReadme = { x: -140, y: -110, width: 300, height: 220 };
+	if (JSON.stringify(rows['README.md']) !== JSON.stringify(expectedReadme) || /- path: "README\.md"\n(?: {4}.*\n)* {4}auto: true/.test(raw)) {
+		throw new Error(`The first drawing must not change a row that was there: ${JSON.stringify(rows['README.md'])}`);
+	}
+	const unmarked = shown.filter(cardPath => cardPath !== 'README.md' && !new RegExp(`- path: ${JSON.stringify(cardPath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n(?: {4}.*\\n)*? {4}auto: true`).test(raw));
+	if (unmarked.length > 0) {
+		throw new Error(`A place BaseHalf chose must be marked as its own choice: ${unmarked.join(', ')}`);
+	}
+	// What is drawn is what is stored.
+	const drawn = await readCanvasCardPlaces(page, shown);
+	const off = shown.filter(cardPath => Math.abs(drawn[cardPath].x - rows[cardPath].x) > 1 || Math.abs(drawn[cardPath].y - rows[cardPath].y) > 1);
+	if (off.length > 0) {
+		throw new Error(`A card must be drawn where its row says: ${JSON.stringify(off.map(cardPath => ({ cardPath, drawn: drawn[cardPath], row: rows[cardPath] })))}`);
+	}
+	// No two cards that BaseHalf placed meet.
+	const meets = (first, second) => first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
+	const overlapping = shown.flatMap((first, index) => shown.slice(index + 1).filter(second => meets(rows[first], rows[second])).map(second => `${first} on ${second}`));
+	if (overlapping.length > 0) {
+		throw new Error(`The first drawing must not put a card on another card: ${overlapping.join(', ')}`);
+	}
+
+	// Showing a canvas writes layouts and nothing else.
 	const after = readBhTree();
 	const changed = [...new Set([...Object.keys(bhTreeBeforeLaunch), ...Object.keys(after)])]
-		.filter(rel => bhTreeBeforeLaunch[rel] !== after[rel])
+		.filter(rel => bhTreeBeforeLaunch[rel] !== after[rel] && !rel.endsWith('/canvas.yaml') && !rel.endsWith('/'))
 		.sort();
 	if (changed.length > 0) {
-		throw new Error(`Opening the workspace and rendering its first canvas must not write under .bh/: ${changed.join(', ')}`);
+		throw new Error(`Opening the workspace and rendering its first canvas must write only layouts under .bh/: ${changed.join(', ')}`);
 	}
+	if (fs.readFileSync(path.join(workspacePath, '.bh', '.gitignore'), 'utf8') !== BH_IGNORE_FILE) {
+		throw new Error('The ignore file under .bh/ must be the one BaseHalf writes.');
+	}
+	// And git shows none of it.
+	const status = gitStatusOfWorkspace();
+	if (status !== gitStatusBeforeLaunch) {
+		throw new Error(`Opening the workspace and rendering its first canvas must change nothing that git shows.\nBefore:\n${gitStatusBeforeLaunch}\nAfter:\n${status}`);
+	}
+}
+
+// The canvas places of the given cards, as the scene draws them.
+async function readCanvasCardPlaces(page, cardPaths) {
+	return page.evaluate(paths => {
+		const places = {};
+		for (const cardPath of paths) {
+			const card = [...document.querySelectorAll('.basehalf-canvas-card[data-basehalf-card-path]')].find(element => element.getAttribute('data-basehalf-card-path') === cardPath);
+			const node = card?.closest('.react-flow__node');
+			const match = node ? /translate\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\)/.exec(node.style.transform) : undefined;
+			places[cardPath] = match ? { x: Number(match[1]), y: Number(match[2]) } : { x: NaN, y: NaN };
+		}
+		return places;
+	}, cardPaths);
+}
+
+function gitStatusOfWorkspace() {
+	return execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: workspacePath, encoding: 'utf8' });
 }
 
 // Every entry under the workspace's .bh/, keyed by workspace-relative path:

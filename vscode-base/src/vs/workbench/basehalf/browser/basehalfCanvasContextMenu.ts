@@ -47,6 +47,7 @@ import {
 	parseBaseHalfCanvasTemplate
 } from '../common/basehalfCanvasTemplate.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
+import { baseHalfEnsureMirrorIgnoreFile } from '../common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
@@ -1417,6 +1418,8 @@ async function undoTemplateCreation(
 	await assertTemplateMetadataState(runtime, plan, 'next', 'Undo did not remove anything.');
 	await applyTemplateMetadataPlan(runtime, plan, 'reverse', lease);
 	try {
+		// An undo copy is a working file: git must not show it.
+		await baseHalfEnsureMirrorIgnoreFile(runtime.fileService, runtime.workspaceFolder);
 		await runtime.fileService.createFolder(dirname(stashResource));
 		await runtime.fileService.move(runtime.projectResource, stashResource, false);
 		await assertTemplateStashPathSafe(runtime.fileService, runtime.workspaceFolder, stashResource);

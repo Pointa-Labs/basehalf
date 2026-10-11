@@ -440,10 +440,13 @@ suite('BaseHalfCanvasModel', () => {
 
 		assert.deepStrictEqual({
 			drawn: model.items.map(item => [item.path, ...place(item.card)!]),
-			appeared: model.appeared.map(card => card.path)
+			appeared: model.appeared.map(card => card.path),
+			// The row of `A.md` is the row of `a.md`: it is neither new nor gone, and takes the new spelling.
+			respelled: model.respelled
 		}, {
 			drawn: [['a.md', 0, 0], ['b.md', 340, 0], ['c.md', 680, 0]],
-			appeared: ['b.md', 'c.md']
+			appeared: ['b.md', 'c.md'],
+			respelled: [{ from: 'A.md', to: 'a.md' }]
 		});
 	});
 
