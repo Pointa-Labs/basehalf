@@ -15,11 +15,10 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IWorkingCopyFileOperationPreconditionGuard, IWorkingCopyFileService, SourceTargetPair } from '../../services/workingCopy/common/workingCopyFileService.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
-import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfIsMirrorSubtree, baseHalfRemapSubtreeRel } from '../common/basehalfMirrorTree.js';
-import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../common/basehalfMovedItemsService.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink } from '../common/basehalfMirrorTree.js';
+import { baseHalfComposeOwedEntryMoves, IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove } from '../common/basehalfMovedItemsService.js';
 import { BaseHalfReferenceRefusalReason } from '../common/basehalfReferenceEdit.js';
 import { baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
@@ -47,7 +46,7 @@ const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
  * Why a store was not written that will not hold for good: the entry is
  * owed, and is written when the reason has gone.
  */
-const TEMPORARY_REFUSALS: ReadonlySet<BaseHalfReferenceRefusalReason | 'historical'> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading', 'running']);
+const TEMPORARY_REFUSALS: ReadonlySet<string> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading', 'running']);
 
 /** One workspace folder's part of a prepared move. */
 interface IPreparedRename {
@@ -119,7 +118,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		@IWorkingCopyFileService workingCopyFileService: IWorkingCopyFileService,
 		@IBaseHalfReferenceRefactorService private readonly refactorService: IBaseHalfReferenceRefactorService,
 		@IBaseHalfReferenceIndexService private readonly referenceIndexService: IBaseHalfReferenceIndexService,
-		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IFileService private readonly fileService: IFileService,
@@ -344,7 +342,8 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			return;
 		}
 		const folder = plan.workspaceFolder;
-		const indexState = await this.refactorService.whenIndexReady(folder);
+		// Not `whenIndexReady` of the refactor service: that one shows progress.
+		const indexState = await this.referenceIndexService.whenReady(folder);
 		if (plan.answered || this.disposed) {
 			return;
 		}
@@ -431,8 +430,9 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				return undefined;
 			}
 			const outcome = await this.refactorService.update(folder, () => this.input(plan), {
+				// The label of the edit in the undo stack of a note that is open.
 				label: localize('basehalf.renameRefactor.undoLabel', "Update upstream paths"),
-				undoResources: [this.parentCanvasResource(folder, moves[0].to)],
+				undoResources: [],
 				moveIntoFile: storeKindChanges.map(change => change.node),
 				whenMovesSettled: () => this.whenMovesSettled(folder),
 				noUndo: true
@@ -463,18 +463,13 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 
 	//#region Entries that are still owed
 
-	/** Remembers, or forgets, that entries may still name the old paths of `moves`. */
+	/**
+	 * Remembers, or forgets, that entries may still name the old paths of
+	 * `moves`. What was owed before maps through these moves either way.
+	 */
 	private owe(workspaceFolder: URI, moves: readonly IBaseHalfPathMove[], owed: boolean): void {
 		const before = this.movedItemsService.getOwedEntryMoves(workspaceFolder);
-		let next = before.filter(known => !moves.some(move => move.from === known.from));
-		if (owed) {
-			// Moves compose: after `a` to `b` and `b` to `c`, entries that name `a` get `c`.
-			next = next.map(known => {
-				const later = moves.find(move => baseHalfIsMirrorSubtree(known.to, move.from));
-				return later ? { from: known.from, to: baseHalfRemapSubtreeRel(known.to, later.from, later.to) } : known;
-			});
-			next.push(...moves.map(move => ({ from: move.from, to: move.to })));
-		}
+		const next = baseHalfComposeOwedEntryMoves(before, moves, owed);
 		if (next.length !== before.length || next.some((move, index) => move.from !== before[index].from || move.to !== before[index].to)) {
 			this.movedItemsService.setOwedEntryMoves(workspaceFolder, next);
 		}
@@ -529,16 +524,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 			return undefined;
 		}
 		return { workspaceFolder: folder.uri, relativePath };
-	}
-
-	private parentCanvasResource(workspaceFolder: URI, relativePath: string): URI {
-		const parent = relativePath.includes('/') ? relativePath.slice(0, relativePath.lastIndexOf('/')) : '';
-		return this.canvasMirrorService.canvasResource({
-			resource: parent ? URI.joinPath(workspaceFolder, ...parent.split('/')) : workspaceFolder,
-			workspaceFolder,
-			relativePath: parent,
-			source: 'api'
-		});
 	}
 
 	private node(workspaceFolder: URI, relativePath: string): IBaseHalfWorkspaceResource {

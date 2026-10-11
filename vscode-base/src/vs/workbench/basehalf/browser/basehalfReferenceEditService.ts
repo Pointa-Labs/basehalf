@@ -199,7 +199,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	declare readonly _serviceBrand: undefined;
 
 	/** Edits in progress that follow a move without anyone asking. */
-	private automaticEdits = 0;
 
 	private readonly _onDidCreateFrontmatter = this._register(new Emitter<IBaseHalfWorkspaceResource>());
 	readonly onDidCreateFrontmatter = this._onDidCreateFrontmatter.event;
@@ -277,14 +276,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	}
 
 	async moveIntoFile(node: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
-		if (options.automatic) {
-			this.automaticEdits++;
-			try {
-				return await this.moveIntoFile(node, { ...options, automatic: false });
-			} finally {
-				this.automaticEdits--;
-			}
-		}
 		const identity = this.identity(node.workspaceFolder);
 		const sidecar = baseHalfUpstreamSidecarResource(node.workspaceFolder, node.relativePath);
 		const bytes = await this.readOptional(sidecar, SIDECAR_MAX_BYTES, node.workspaceFolder);
@@ -308,7 +299,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			{ node, operation: { kind: 'append', entries }, ownFile: true },
 			{ node, operation: { kind: 'deleteSidecar', expected: bytes, ...(leavesContent ? { preserve: true } : {}) } }
 		], options);
-		if (leavesContent) {
+		if (leavesContent && options.automatic) {
+			this.logService.info(`[BaseHalf] moved the upstream entries it could read into ${node.relativePath}; the rest could not be used and was removed`);
+		} else if (leavesContent) {
 			this.notificationService.info(localize('basehalf.references.moveIntoFilePartial', "BaseHalf moved the upstream entries it could read into {0}. The rest could not be used and was removed.", basename(node.resource)));
 		}
 		return result;
@@ -1148,7 +1141,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			}
 		} catch (error) {
 			const result = toResult(prepared);
-			this.reportFailure(result, error);
+			this.reportFailure(result, error, options);
 			throw error instanceof BaseHalfReferenceEditFailure ? new BaseHalfReferenceEditFailure(error.message, result) : new BaseHalfReferenceEditFailure(error instanceof Error ? error.message : String(error), result);
 		}
 		return toResult(prepared);
@@ -1413,7 +1406,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		let failure: unknown;
 		try {
 			if (await model.save({ ignoreErrorHandler: true, reason: SaveReason.EXPLICIT })) {
-				this.accepted(store);
+				this.accepted(store, options);
 				return;
 			}
 			failure = new Error(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)));
@@ -1439,7 +1432,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		throw new BaseHalfReferenceEditFailure(localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)), toResult([store]));
 	}
 
-	private accepted(store: IPreparedStore): void {
+	private accepted(store: IPreparedStore, options: IBaseHalfReferenceEditOptions): void {
 		store.outcome = 'changed';
 		// While the model is clean its value is the saved text; otherwise the
 		// planned text is the best known saved state until the watcher reports.
@@ -1447,7 +1440,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		this.referenceIndexService.acceptSavedContent(store.node, 'markdown', saved);
 		if (store.createdFrontmatter) {
 			this._onDidCreateFrontmatter.fire(store.node);
-			this.showFirstFrontmatterNotice(store.node);
+			if (!options.automatic) {
+				this.showFirstFrontmatterNotice(store.node);
+			}
 		}
 	}
 
@@ -1500,13 +1495,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				}
 			}
 		];
+		if (options.automatic) {
+			// Nobody asked for this change: it is taken back, and the entry stays owed.
+			this.logService.warn(`[BaseHalf] an upstream change to ${store.node.relativePath} that followed a move could not be saved and was taken back`);
+			void Promise.resolve(choices[1].run()).catch(error => this.logService.warn('[BaseHalf] could not take back an unsaved upstream change', error));
+			return;
+		}
 		this.notificationService.prompt(Severity.Error, localize('basehalf.references.notSaved', "The upstream change to {0} is not saved.", this.label(store.node.resource)), choices, { sticky: true });
 	}
 
 	private showFirstFrontmatterNotice(node: IBaseHalfWorkspaceResource): void {
-		if (this.automaticEdits > 0) {
-			return;
-		}
 		if (this.storageService.getBoolean(BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY, StorageScope.APPLICATION, false)) {
 			return;
 		}
@@ -1520,10 +1518,14 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		]);
 	}
 
-	private reportFailure(result: IBaseHalfReferenceEditResult, error: unknown): void {
+	private reportFailure(result: IBaseHalfReferenceEditResult, error: unknown, options: IBaseHalfReferenceEditOptions): void {
 		const changed = result.stores.filter(store => store.outcome === 'changed').map(store => this.storeLabel(store));
 		const unchanged = result.stores.filter(store => store.outcome !== 'changed').map(store => this.storeLabel(store));
 		this.logService.error(`[BaseHalf] upstream operation failed. Changed: ${changed.join(', ') || '(none)'}. Not changed: ${unchanged.join(', ') || '(none)'}.`, error);
+		if (options.automatic) {
+			// Nobody asked for this change: what could not be written stays owed and is tried again.
+			return;
+		}
 		if (error instanceof RecoveryCopyFailure) {
 			// No save was attempted, so no notice of a failed save exists.
 			this.notificationService.notify({ severity: Severity.Error, message: error.message });

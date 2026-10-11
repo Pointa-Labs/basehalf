@@ -1946,7 +1946,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			void detailReconciliation?.catch(error => this.logService.error(error));
 		}));
 		this._register(this.workspaceMutationCoordinator.onDidChangeResourceMutationFence(() => this.syncDetailMutationFence()));
-		this.requestRender();
+		// The first drawing waits a moment for the comparison at open.
+		if (!this.holdRenderForMovedItems()) {
+			this.requestRender();
+		}
 	}
 
 	override dispose(): void {
@@ -2022,7 +2025,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.deferCanvasBadgeRefreshWhileFocused()) {
 				return;
 			}
-			this.requestRender();
+			// A redraw that follows what happened on disk waits while an item of
+			// this folder is being recognized at a new path.
+			if (!this.holdRenderForMovedItems()) {
+				this.requestRender();
+			}
 		}, 100);
 	}
 
@@ -2133,14 +2140,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	/**
-	 * While an item is being recognized at a new path and its card information
-	 * is on its way there, the canvas does not redraw: the card would leave
-	 * and come back. It waits two seconds at most, and half a second for the
-	 * comparison at open, and then draws what is on disk.
+	 * While an item of the folder that is shown is being recognized at a new
+	 * path and its card information is on its way there, the canvas does not
+	 * redraw for what happened on disk: the card would leave and come back. It
+	 * waits two seconds at most, and half a second for the comparison at open,
+	 * and then draws what is on disk. Navigation and the user's own edits are
+	 * never held.
 	 */
 	private holdRenderForMovedItems(): boolean {
 		const folder = this.getCurrentFolder();
-		if (!folder || this.movedItemsService.isSettled(folder.workspaceFolder)) {
+		if (!folder || this.movedItemsService.isSettled(folder.workspaceFolder, folder.relativePath)) {
 			this.movedItemsHoldStarted = undefined;
 			this.firstRenderHeld = true;
 			return false;
@@ -2155,7 +2164,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (!this.movedItemsHoldWaiting) {
 			this.movedItemsHoldWaiting = true;
-			void this.movedItemsService.whenSettled(folder.workspaceFolder, remaining).finally(() => {
+			void this.movedItemsService.whenSettled(folder.workspaceFolder, remaining, folder.relativePath).finally(() => {
 				this.movedItemsHoldWaiting = false;
 				if (!this.disposed) {
 					this.requestRender();
@@ -2207,9 +2216,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private requestRender(): void {
-		if (this.holdRenderForMovedItems()) {
-			return;
-		}
 		this.rendersInFlight++;
 		void this.render().catch(error => {
 			if (this.disposed) {
@@ -3058,11 +3064,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void> {
-		if (geometries.length === 0) {
+	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, requested: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void> {
+		if (requested.length === 0) {
 			return;
 		}
 		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		// A card that is dragged while its item is being found at a new path is
+		// saved under that path, once the item's card information is there. No
+		// other card waits.
+		if (requested.some(geometry => this.movedItemsService.isMoving(queuedFolder.workspaceFolder, geometry.path))) {
+			await this.movedItemsService.whenSettled(queuedFolder.workspaceFolder, BASEHALF_CANVAS_MOVED_ITEMS_HOLD_MS, queuedFolder.relativePath);
+		}
+		const geometries = requested.map(geometry => {
+			const path = this.movedItemsService.resolveMovedPath(queuedFolder.workspaceFolder, geometry.path);
+			return path === undefined ? geometry : { ...geometry, path };
+		});
 		let committedTransition: IBaseHalfCanvasStateTransition | undefined;
 		const nodes = geometries.map(geometry => ({ path: geometry.path, kind: geometry.kind }));
 		try {
@@ -5879,15 +5895,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.canvasLayoutReconcileQueuedBehindGesture = true;
 			return;
 		}
+		// A layout that changes on disk while an item of this folder, or the
+		// folder itself, is being recognized at a new path is drawn with it.
+		if (this.holdRenderForMovedItems()) {
+			return;
+		}
 		const generation = ++this.canvasLayoutReconcileGeneration;
 		void this.reconcileCurrentCanvasLayout(generation).then(reconciled => {
-			if (!reconciled && !this.disposed) {
+			if (!reconciled && !this.disposed && !this.holdRenderForMovedItems()) {
 				this.requestRender();
 			}
 		}).catch(error => {
 			if (!this.disposed) {
 				this.logService.warn(error);
-				this.requestRender();
+				// The folder may be gone because it was just moved: that is not drawn as an error.
+				if (!this.holdRenderForMovedItems()) {
+					this.requestRender();
+				}
 			}
 		});
 	}

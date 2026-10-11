@@ -24,18 +24,21 @@ export const BASEHALF_FINGERPRINT_WINDOW_BYTES = 1024 * 1024;
 export const BASEHALF_FINGERPRINT_TEXT_MAX_BYTES = 1024 * 1024;
 /** A file is text when this many leading bytes hold no NUL. */
 export const BASEHALF_FINGERPRINT_TEXT_SAMPLE_BYTES = 8 * 1024;
-/** A file with more pieces keeps those with the smallest hashes. */
+/** A file with more distinct words keeps those with the smallest hashes. */
 export const BASEHALF_FINGERPRINT_MAX_PIECES = 512;
-/** Two text files are the same file when they share at least this much. */
+/**
+ * Two text files are the same file when they share at least this much, and
+ * at least this much of what was particular to the old one is in the new one.
+ */
 export const BASEHALF_MOVED_ITEM_SIMILARITY_MINIMUM = 0.5;
-/** ... and at least this many characters of the text that only they have. */
+/** ... and the words they share are at least this many characters. */
 export const BASEHALF_MOVED_ITEM_SHARED_MINIMUM = 32;
 /** Similarity is skipped beyond this many pairs of files to compare. */
 export const BASEHALF_MOVED_ITEM_SIMILARITY_PAIR_LIMIT = 1_000_000;
 
 /**
  * What BaseHalf remembers of a file's content. `pieces` holds, for each kept
- * piece of a text file, its 32-bit hash and its length, as consecutive
+ * word of a text file, its 32-bit hash and its weight, as consecutive
  * numbers.
  */
 export interface IBaseHalfFileFingerprint {
@@ -99,42 +102,61 @@ function isText(bytes: VSBuffer): boolean {
 	return true;
 }
 
-/**
- * A piece ends at a line break and, inside a line, after sentence punctuation.
- * Prose is often one paragraph per line; whole lines would make one changed
- * word cost the paragraph.
- */
-const PIECE_END = /(?<=[.!?;]\s)|(?<=[。！？；])/u;
+/** Scripts that are written without spaces between words: their characters are taken in pairs. */
+const UNSPACED_SCRIPT = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u;
 
 /**
- * The pieces of a text: each line, divided further at sentence ends, without
- * surrounding white space. Blank pieces are left out. Beyond
- * {@link BASEHALF_FINGERPRINT_MAX_PIECES} the pieces with the smallest hashes
- * are kept, so that two files keep the same ones.
+ * The pieces of a text are its words, in lower case, and for text in a
+ * script without spaces each pair of neighboring characters. A piece weighs
+ * its length times how often it occurs.
+ *
+ * Words and not lines or sentences: an agent that is asked to tighten a note
+ * rewords every sentence and keeps most of the words, and the note is still
+ * the same note. Beyond {@link BASEHALF_FINGERPRINT_MAX_PIECES} distinct
+ * pieces, those with the smallest hashes are kept, so that two versions of a
+ * file keep the same ones.
  */
 export function baseHalfTextPieces(text: string): Pick<IBaseHalfFileFingerprint, 'pieces' | 'sampled'> {
-	const found: { readonly hash: number; readonly length: number }[] = [];
-	for (const line of text.split(/\r\n|\r|\n/)) {
-		for (const part of line.split(PIECE_END)) {
-			const piece = part.trim();
-			if (piece.length > 0) {
-				found.push({ hash: stringHash(piece, 0) >>> 0, length: piece.length });
+	const weights = new Map<number, number>();
+	const add = (piece: string): void => {
+		const hash = stringHash(piece, 0) >>> 0;
+		weights.set(hash, (weights.get(hash) ?? 0) + piece.length);
+	};
+	for (const run of text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+		let word = '';
+		let previous = '';
+		for (const character of run) {
+			if (UNSPACED_SCRIPT.test(character)) {
+				if (word) {
+					add(word);
+					word = '';
+				}
+				if (previous) {
+					add(previous + character);
+				}
+				previous = character;
+			} else {
+				previous = '';
+				word += character;
 			}
 		}
+		if (word) {
+			add(word);
+		}
 	}
+	const found = [...weights].sort((a, b) => a[0] - b[0]);
 	const sampled = found.length > BASEHALF_FINGERPRINT_MAX_PIECES;
-	const kept = sampled ? found.sort((a, b) => a.hash - b.hash || a.length - b.length).slice(0, BASEHALF_FINGERPRINT_MAX_PIECES) : found;
 	const pieces: number[] = [];
-	for (const piece of kept) {
-		pieces.push(piece.hash, piece.length);
+	for (const [hash, weight] of sampled ? found.slice(0, BASEHALF_FINGERPRINT_MAX_PIECES) : found) {
+		pieces.push(hash, weight);
 	}
 	return sampled ? { pieces, sampled } : { pieces };
 }
 
 /**
- * In how many files each piece occurs. A piece that a third file also has is
- * a shared heading, a template, or the frame of a generated file: it says
- * nothing about which file a file is.
+ * In how many files each piece occurs. A piece that other files also have is
+ * an ordinary word, a shared heading, a template, or the frame of a generated
+ * file: the more files have it, the less it says about which file a file is.
  */
 export type BaseHalfPieceFrequency = ReadonlyMap<number, number>;
 
@@ -150,44 +172,52 @@ export function baseHalfPieceFrequency(fingerprints: Iterable<IBaseHalfFileFinge
 
 /**
  * How much of the larger of two text files the two share, from 0 to 1: the
- * length of their common pieces, counted with repetition, over the length of
- * the pieces of the larger file. Counting length and not pieces keeps a shared
- * heading from making two short notes look alike.
- *
- * With `frequency`, which must count both files, the pieces that a third file
- * also has are left out on both sides.
+ * weight of their common pieces over the weight of the pieces of the larger
+ * file.
  */
-export function baseHalfFingerprintSimilarity(a: IBaseHalfFileFingerprint, b: IBaseHalfFileFingerprint, frequency?: BaseHalfPieceFrequency): number {
-	return sharedText(a, b, frequency).similarity;
+export function baseHalfFingerprintSimilarity(a: IBaseHalfFileFingerprint, b: IBaseHalfFileFingerprint): number {
+	return sharedText(a, b, undefined).similarity;
 }
 
-function sharedText(a: IBaseHalfFileFingerprint, b: IBaseHalfFileFingerprint, frequency: BaseHalfPieceFrequency | undefined): { readonly similarity: number; readonly shared: number } {
-	if (!a.pieces || !b.pieces) {
-		return { similarity: 0, shared: 0 };
+/**
+ * What two text files share. `similarity` is how much of the larger file the
+ * two share, as written. `particular` is how much of what was particular to
+ * `gone` is in `appeared`: a piece that `n` other files also have counts with
+ * one part in `n + 1` of its weight, and `frequency` must count both files.
+ *
+ * Only the old file is weighed that way. New text in the new file is counted
+ * by the similarity, as what it is: weighed, a few new words that no other
+ * file has would outweigh the ordinary words that stayed.
+ */
+function sharedText(gone: IBaseHalfFileFingerprint, appeared: IBaseHalfFileFingerprint, frequency: BaseHalfPieceFrequency | undefined): { readonly similarity: number; readonly shared: number; readonly particular: number } {
+	if (!gone.pieces || !appeared.pieces) {
+		return { similarity: 0, shared: 0, particular: 0 };
 	}
 	// A sampled file kept its smallest hashes: compare within the range both cover.
-	const limit = Math.min(pieceHashLimit(a), pieceHashLimit(b));
-	const first = pieceWeights(a.pieces, limit);
-	const second = pieceWeights(b.pieces, limit);
+	const limit = Math.min(pieceHashLimit(gone), pieceHashLimit(appeared));
+	const first = pieceWeights(gone.pieces, limit);
+	const second = pieceWeights(appeared.pieces, limit);
 	let firstTotal = 0;
 	let secondTotal = 0;
 	let shared = 0;
+	let own = 0;
+	let ownKept = 0;
 	for (const [hash, weight] of first) {
 		const other = second.get(hash);
-		if (frequency && (frequency.get(hash) ?? 0) > (other === undefined ? 1 : 2)) {
-			continue;
-		}
+		// The two files themselves are not other files.
+		const part = frequency ? 1 / Math.max(1, (frequency.get(hash) ?? 0) - (other === undefined ? 0 : 1)) : 1;
 		firstTotal += weight;
-		shared += Math.min(weight, other ?? 0);
-	}
-	for (const [hash, weight] of second) {
-		if (frequency && (frequency.get(hash) ?? 0) > (first.has(hash) ? 2 : 1)) {
-			continue;
+		own += weight * part;
+		if (other !== undefined) {
+			shared += Math.min(weight, other);
+			ownKept += Math.min(weight, other) * part;
 		}
+	}
+	for (const weight of second.values()) {
 		secondTotal += weight;
 	}
 	const larger = Math.max(firstTotal, secondTotal);
-	return { similarity: larger === 0 ? 0 : shared / larger, shared };
+	return { similarity: larger === 0 ? 0 : shared / larger, shared, particular: own === 0 ? 0 : ownKept / own };
 }
 
 function pieceHashes(fingerprint: IBaseHalfFileFingerprint): Set<number> {
@@ -244,8 +274,13 @@ export interface IBaseHalfMovedItemsComparison {
 	readonly disappeared: readonly IBaseHalfFollowedItem[];
 	/** Every file the snapshot holds a fingerprint for that is gone, followed or not. */
 	readonly disappearedFingerprints: ReadonlyMap<string, IBaseHalfFileFingerprint>;
-	/** The files that appeared, with their sizes. */
-	readonly appearedFiles: readonly { readonly path: string; readonly size: number }[];
+	/**
+	 * The files that appeared, with their sizes. One that is `earlier` appeared
+	 * before an earlier comparison ran: BaseHalf saw it next to what disappears
+	 * now, as two items, so it is a new place only as a copy with the same
+	 * content.
+	 */
+	readonly appearedFiles: readonly { readonly path: string; readonly size: number; readonly earlier?: boolean }[];
 	/** The folders that appeared. */
 	readonly appearedFolders: ReadonlySet<string>;
 	/**
@@ -258,8 +293,6 @@ export interface IBaseHalfMovedItemsComparison {
 	readonly presentFingerprints?: Iterable<IBaseHalfFileFingerprint>;
 	/** The fingerprint of a file that appeared. */
 	fingerprint(path: string, withPieces: boolean): Promise<IBaseHalfFileFingerprint | undefined>;
-	/** Whether an item of this kind is at the path now. */
-	exists(path: string, kind: BaseHalfCanvasItemKind): Promise<boolean>;
 }
 
 /**
@@ -390,7 +423,7 @@ async function pairFiles(comparison: IBaseHalfMovedItemsComparison): Promise<Map
 
 	// Rule 2: mostly the same content, for the text files still unpaired.
 	const goneText = [...comparison.disappearedFingerprints].filter(([path, fingerprint]) => !pairs.has(path) && fingerprint.pieces);
-	const appearedText = comparison.appearedFiles.filter(file => !taken.has(file.path) && file.size > 0 && file.size <= BASEHALF_FINGERPRINT_TEXT_MAX_BYTES);
+	const appearedText = comparison.appearedFiles.filter(file => !taken.has(file.path) && !file.earlier && file.size > 0 && file.size <= BASEHALF_FINGERPRINT_TEXT_MAX_BYTES);
 	if (goneText.length === 0 || goneText.length * appearedText.length > BASEHALF_MOVED_ITEM_SIMILARITY_PAIR_LIMIT) {
 		return pairs;
 	}
@@ -401,13 +434,17 @@ async function pairFiles(comparison: IBaseHalfMovedItemsComparison): Promise<Map
 			appearedFingerprints.set(file.path, fingerprint);
 		}
 	}
-	// What a third file also has is left out: count every fingerprint once.
+	// What other files also have counts less: count every fingerprint once.
 	const frequency = baseHalfPieceFrequency([...comparison.presentFingerprints ?? [], ...comparison.disappearedFingerprints.values(), ...appearedFingerprints.values()]);
 	const candidates: { readonly from: string; readonly to: string; readonly score: number; readonly sameName: boolean }[] = [];
 	for (const [to, appeared] of appearedFingerprints) {
 		for (const [from, gone] of goneText) {
-			const { similarity, shared } = sharedText(gone, appeared, frequency);
-			if (similarity >= BASEHALF_MOVED_ITEM_SIMILARITY_MINIMUM && shared >= BASEHALF_MOVED_ITEM_SHARED_MINIMUM) {
+			if (gone.hash === appeared.hash) {
+				// The same content is rule 1's to decide, and it found several places.
+				continue;
+			}
+			const { similarity, shared, particular } = sharedText(gone, appeared, frequency);
+			if (similarity >= BASEHALF_MOVED_ITEM_SIMILARITY_MINIMUM && particular >= BASEHALF_MOVED_ITEM_SIMILARITY_MINIMUM && shared >= BASEHALF_MOVED_ITEM_SHARED_MINIMUM) {
 				candidates.push({ from, to, score: similarity, sameName: posix.basename(from) === posix.basename(to) });
 			}
 		}

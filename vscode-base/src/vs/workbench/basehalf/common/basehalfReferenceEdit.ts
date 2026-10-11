@@ -134,9 +134,11 @@ export interface IBaseHalfReferenceEditOptions {
 	 */
 	readonly plannedStructure?: readonly IBaseHalfReferenceStructureStamp[];
 	/**
-	 * The edit follows a move and no one asked for it. The notice that
-	 * explains the first connection saved inside a note is not shown for it,
-	 * and stays unshown for the first connection the user saves.
+	 * The edit follows a move and no one asked for it, so nothing is shown for
+	 * it. The notice that explains the first connection saved inside a note
+	 * stays unshown for the first connection the user saves. A change that
+	 * cannot be saved is taken back, and a write that fails is only logged:
+	 * the caller keeps the entry owed and tries again.
 	 */
 	readonly automatic?: boolean;
 }

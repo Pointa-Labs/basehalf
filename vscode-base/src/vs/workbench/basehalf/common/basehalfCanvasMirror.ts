@@ -442,20 +442,32 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			};
 			const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
 
+			// A layout that cannot be read in full is left as it is, on both sides:
+			// moving its readable rows would rewrite it, and filling it would replace it.
+			const damaged = (snapshot: IBaseHalfCanvasStructuralSnapshot): boolean => snapshot.read.exists && snapshot.read.damage !== undefined;
 			for (const entry of sourceEntries) {
 				const source = snapshotFor(entry.resource);
 				const target = snapshotFor(this.canvasResourceFor(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
+				if (damaged(source) || damaged(target)) {
+					continue;
+				}
 				const filled = fillFreeCanvasRows(target.next, source.next, swap);
 				target.next = filled.target;
 				source.next = filled.source;
 			}
 
 			const oldParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, oldParent));
+			if (damaged(oldParentSnapshot)) {
+				return;
+			}
 			if (oldParent === newParent) {
 				oldParentSnapshot.next = followNodeWithinParent(oldParentSnapshot.next, from, to);
 				return;
 			}
 			const newParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, newParent));
+			if (damaged(newParentSnapshot)) {
+				return;
+			}
 			const carried = oldParentSnapshot.next.cards.find(card => card.path === from);
 			if (!carried) {
 				return;

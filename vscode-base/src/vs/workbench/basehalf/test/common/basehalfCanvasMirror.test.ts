@@ -963,6 +963,32 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
+	test('followNode leaves a layout that cannot be read in full as it is, on both sides', async () => {
+		const good = ['path: "docs"', 'cards:', '  - path: "docs/a.md"', '    kind: file', '    x: 1', '    y: 20', '    width: 260', '    height: 140', 'edges: []', ''].join('\n');
+		const damaged = ['path: "docs"', 'cards:', '  - path: "docs/a.md"', '    kind: file', '    x: 1', '    y: 20', '    width: 260', '    height: 140', '  - path: "docs/b.md"', '    kind: file', '    x: oops', 'edges: []', ''].join('\n');
+		const unreadable = '<<<<<<< HEAD\npath: "notes"\n=======\n';
+		const source = new Map([['/work/.bh/mirror/docs/canvas.yaml', damaged]]);
+		const target = new Map([['/work/.bh/mirror/docs/canvas.yaml', good], ['/work/.bh/mirror/notes/canvas.yaml', unreadable]]);
+		const preserved: IBaseHalfCanvasPreservedEvent[] = [];
+		for (const files of [source, target]) {
+			const service = createService(files);
+			const listener = service.onDidPreserveUnreadableCanvas(event => preserved.push(event));
+			await service.followNode(workspaceFolder, 'docs', 'notes');
+			listener.dispose();
+		}
+
+		assert.deepStrictEqual({
+			source: [source.get('/work/.bh/mirror/docs/canvas.yaml') === damaged, source.has('/work/.bh/mirror/notes/canvas.yaml')],
+			target: [target.get('/work/.bh/mirror/docs/canvas.yaml') === good, target.get('/work/.bh/mirror/notes/canvas.yaml') === unreadable],
+			preserved: preserved.length
+		}, {
+			source: [true, false],
+			target: [true, true],
+			// Nothing was rewritten, so nothing had to be kept aside and nobody is told.
+			preserved: 0
+		});
+	});
+
 	test('relocateNode renames the parent card and edge endpoints in place on a same-parent rename', async () => {
 		const files = new Map([
 			['/work/.bh/mirror/canvas.yaml', [

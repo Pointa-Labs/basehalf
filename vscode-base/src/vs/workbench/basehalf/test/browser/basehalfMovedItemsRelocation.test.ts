@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { timeout } from '../../../../base/common/async.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { Event } from '../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
@@ -19,6 +19,8 @@ import { NullLogService } from '../../../../platform/log/common/log.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { testWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
 import { IFileQuery, ISearchComplete } from '../../../services/search/common/search.js';
+import { IWorkingCopy } from '../../../services/workingCopy/common/workingCopy.js';
+import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
@@ -84,9 +86,15 @@ suite('BaseHalfMovedItems (relocation)', () => {
 	}
 
 	/** BaseHalf opens on the files: the snapshot service and the cascade that relocates. */
-	async function open(fileService: FileService) {
+	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[] } = {}) {
 		const session = disposables.add(new DisposableStore());
 		const instantiationService = workbenchInstantiationService({ fileService: () => fileService }, session);
+		// Unsaved changes, as the working copy service reports them.
+		const dirtyChanged = session.add(new Emitter<IWorkingCopy>());
+		instantiationService.stub(IWorkingCopyService, {
+			onDidChangeDirty: dirtyChanged.event,
+			get dirtyWorkingCopies() { return (options.dirty?.() ?? []).map(resource => ({ resource }) as IWorkingCopy); }
+		} as Partial<IWorkingCopyService> as IWorkingCopyService);
 		const contextService = new TestContextService(testWorkspace(folder));
 		instantiationService.stub(IWorkspaceContextService, contextService);
 		instantiationService.stub(IBaseHalfEditorFlushService, new BaseHalfEditorFlushService());
@@ -104,7 +112,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			fileService,
 			new AllFilesSearch(fileService),
 			contextService,
-			{ workspaceStorageHome: URI.file('/storage') },
+			{ workspaceStorageHome: URI.file(options.storage ?? '/storage') },
 			canvasMirror,
 			{ getState: () => 'ready', getStores: () => [], onDidChange: Event.None },
 			new NullLogService()
@@ -113,7 +121,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		session.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		await movedItems.whenCompared(folder);
 		await settle();
-		return { movedItems, close: () => session.dispose() };
+		return { movedItems, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy) };
 	}
 
 	const resource = (path: string) => joinPath(folder, ...path.split('/'));
@@ -231,6 +239,74 @@ suite('BaseHalfMovedItems (relocation)', () => {
 				// The empty layout that retirement leaves; it is not card information.
 				'mirror/old/canvas.yaml': canvas('old', [])
 			}
+		});
+	});
+	test('a folder that is renamed while BaseHalf runs keeps the connection between its cards', async () => {
+		const edge = (folderPath: string) => ['edges:', `  - from: ${folderPath}/a.md`, '    from_anchor: east', `    to: ${folderPath}/b.md`, '    to_anchor: west', ''].join('\n');
+		const layout = (folderPath: string) => canvas(folderPath, [row(`${folderPath}/a.md`, 1), row(`${folderPath}/b.md`, 2)]).replace('edges: []\n', edge(folderPath));
+		const fileService = await createFiles({
+			'old/a.md': 'The first note of the folder, with text of its own.\n',
+			'old/b.md': 'The second note of the folder, about something else.\n',
+			'.bh/mirror/old/badge.yaml': badge('old', 'About the folder.').replace('kind: file', 'kind: folder'),
+			'.bh/mirror/old/a.md/badge.yaml': badge('old/a.md', 'About a.'),
+			'.bh/mirror/old/b.md/badge.yaml': badge('old/b.md', 'About b.'),
+			'.bh/mirror/old/canvas.yaml': layout('old')
+		});
+		const session = await open(fileService);
+
+		await fileService.move(resource('old'), resource('new'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual({ edges: after['mirror/new/canvas.yaml']?.split('\n').filter(line => /^\s+(- )?(from|to)(_anchor)?:/.test(line)).map(line => line.trim()), badges: [after['mirror/new/a.md/badge.yaml'], after['mirror/new/b.md/badge.yaml']], left: Object.keys(after).filter(path => path.startsWith('mirror/old/') && !path.endsWith('canvas.yaml')), pending: session.movedItems.getPendingMoves(folder) }, {
+			edges: ['- from: "new/a.md"', 'from_anchor: east', 'to: "new/b.md"', 'to_anchor: west'],
+			badges: [badge('new/a.md', 'About a.'), badge('new/b.md', 'About b.')],
+			left: [],
+			pending: []
+		});
+	});
+
+	test('an item with unsaved changes is held back and relocated when they are gone, and two windows end with the same result', async () => {
+		const files = {
+			'a.md': 'The first note, with enough text to be told apart.\n',
+			'p.pdf': `${PDF}body`,
+			'.bh/mirror/a.md/badge.yaml': badge('a.md', 'About a.'),
+			'.bh/mirror/p.pdf/badge.yaml': badge('p.pdf', 'About p.'),
+			'.bh/mirror/canvas.yaml': canvas('', [row('a.md', 1), row('p.pdf', 2)])
+		};
+		const held = await createFiles(files);
+		let dirty: URI[] = [resource('a.md')];
+		const session = await open(held, { dirty: () => dirty });
+		await held.move(resource('a.md'), resource('b.md'));
+		await settle();
+		const whileDirty = { badge: (await hidden(held))['mirror/a.md/badge.yaml'] !== undefined, pending: session.movedItems.getPendingMoves(folder).length, settled: session.movedItems.isSettled(folder) };
+		// The changes are discarded: no file event, only the working copy says so.
+		dirty = [];
+		session.dirtyChanged();
+		await settle();
+		const afterDiscard = await hidden(held);
+
+		// Two windows on one folder follow the same rename.
+		const shared = await createFiles(files);
+		const first = await open(shared, { storage: '/storage-1' });
+		const second = await open(shared, { storage: '/storage-2' });
+		await shared.move(resource('p.pdf'), resource('q.pdf'));
+		await settle();
+		await settle();
+		const both = await hidden(shared);
+
+		assert.deepStrictEqual({
+			whileDirty,
+			afterDiscard: [afterDiscard['mirror/b.md/badge.yaml'], afterDiscard['mirror/a.md/badge.yaml'], afterDiscard['mirror/canvas.yaml']],
+			both: [both['mirror/q.pdf/badge.yaml'], both['mirror/p.pdf/badge.yaml'], both['mirror/canvas.yaml']],
+			pending: [first.movedItems.getPendingMoves(folder).length, second.movedItems.getPendingMoves(folder).length]
+		}, {
+			// It waits for the user, and does not keep the canvas waiting meanwhile.
+			whileDirty: { badge: true, pending: 1, settled: true },
+			afterDiscard: [badge('b.md', 'About a.'), undefined, canvas('', [row('b.md', 1), row('p.pdf', 2)])],
+			both: [badge('q.pdf', 'About p.'), undefined, canvas('', [row('a.md', 1), row('q.pdf', 2)])],
+			pending: [0, 0]
 		});
 	});
 });

@@ -79,9 +79,11 @@ export interface IBaseHalfCanvasViewportStateService {
 	 * Carry the viewport of `from`, and of every folder below it, to the same
 	 * place below `to`: the folder was found there after it was moved outside
 	 * BaseHalf (following moved items, "What the user sees"). A folder that
-	 * already has a viewport at its new place keeps it.
+	 * already has a viewport at its new place keeps it. With `replace`, what
+	 * was stored at and below `to` for other folders is forgotten first: the
+	 * move replaced what was there.
 	 */
-	moveSubtree(from: URI, to: URI): void;
+	moveSubtree(from: URI, to: URI, replace?: boolean): void;
 
 	/**
 	 * Resolves once the legacy import of `workspaceFolder` settled in this
@@ -223,10 +225,22 @@ export class BaseHalfCanvasViewportStateService extends Disposable implements IB
 		}
 	}
 
-	moveSubtree(from: URI, to: URI): void {
+	moveSubtree(from: URI, to: URI, replace = false): void {
 		const entries = this.load();
 		const root = this.uriIdentityService.asCanonicalUri(from);
 		let moved = false;
+		if (replace) {
+			// A rename that only changes the spelling of the folder replaces nothing:
+			// what is stored for the destination is what moves.
+			const destination = this.uriIdentityService.asCanonicalUri(to);
+			for (const key of [...entries.keys()]) {
+				const resource = parseKey(key);
+				if (resource && this.uriIdentityService.extUri.isEqualOrParent(resource, destination) && !this.uriIdentityService.extUri.isEqualOrParent(resource, root)) {
+					entries.delete(key);
+					moved = true;
+				}
+			}
+		}
 		for (const [key, viewport] of [...entries]) {
 			const resource = parseKey(key);
 			if (!resource || !this.uriIdentityService.extUri.isEqualOrParent(resource, root)) {

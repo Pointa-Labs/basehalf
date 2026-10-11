@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { RunOnceScheduler } from '../../../base/common/async.js';
 import { Event } from '../../../base/common/event.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
@@ -42,7 +43,7 @@ import {
 	baseHalfRemapSubtreeRel,
 	baseHalfWalkMirror
 } from '../common/basehalfMirrorTree.js';
-import { BaseHalfMirrorCascadeStageError, baseHalfForgetCanvasViewportsForStructuralChange, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfPrepareStructuralDetail, baseHalfRelocateBadgeText, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
+import { BaseHalfMirrorCascadeStageError, baseHalfUpdateCanvasViewportsForStructuralChange, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfPrepareStructuralDetail, baseHalfRelocateBadgeText, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
@@ -171,10 +172,17 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		super();
 
 		// Items that were moved outside BaseHalf: their card information follows.
-		this._register(this.movedItemsService.onDidRecognize(event => this.enqueue(() => this.followMoves(event.workspaceFolder, event.moves))));
+		// Every pair that is still pending is tried with each comparison, not only the new ones.
+		this._register(this.movedItemsService.onDidRecognize(event => this.enqueue(() => this.followMoves(event.workspaceFolder, this.movedItemsService.getPendingMoves(event.workspaceFolder)))));
 		// A move that was held back is tried again when what held it back ends.
-		this._register(this.workingCopyService.onDidChangeDirty(() => this.retryPendingMoves()));
-		this._register(this.nodeExecutionService.onDidChange(() => this.retryPendingMoves()));
+		// Many of these events come in a row, and a run that reports progress has not ended.
+		const retry = this._register(new RunOnceScheduler(() => this.retryPendingMoves(), 100));
+		this._register(this.workingCopyService.onDidChangeDirty(() => retry.schedule()));
+		this._register(this.nodeExecutionService.onDidChange(event => {
+			if (!event.state) {
+				retry.schedule();
+			}
+		}));
 
 		this._register(workingCopyFileService.addFileOperationPrecondition({
 			prepare: (files, operation, undoInfo, token) => this.prepareStructuralDetail(files, operation, undoInfo, token)
@@ -456,7 +464,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 	}
 
 	private async handleOperation(operation: FileOperation.MOVE | FileOperation.DELETE, files: readonly SourceTargetPair[], lease: IBaseHalfWorkspaceMutationLease): Promise<void> {
-		baseHalfForgetCanvasViewportsForStructuralChange(this.viewportStateService, operation, files);
+		baseHalfUpdateCanvasViewportsForStructuralChange(this.viewportStateService, operation, files);
 		// A move or delete through the workbench is not something to recognize:
 		// what BaseHalf last saw takes it here.
 		for (const pair of files) {
@@ -951,8 +959,10 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const to = this.workspaceNode(workspaceFolder, move.to);
 		const heldBack = this.workingCopyService.dirtyWorkingCopies.some(workingCopy => this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, from.resource))
 			|| this.nodeExecutionService.getActiveRun(from.resource) !== undefined
-			|| this.nodeExecutionService.getActiveRun(to.resource) !== undefined;
+			|| this.nodeExecutionService.getActiveRun(to.resource) !== undefined
+			|| (move.kind === 'folder' && await this.holdsRunningNode(from.resource, to.resource));
 		if (heldBack) {
+			this.movedItemsService.acceptRelocated(workspaceFolder, move, 'held');
 			return;
 		}
 
@@ -981,6 +991,33 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		}
 		this.movedItemsService.acceptRelocated(workspaceFolder, move, 'done');
 		this.logService.info(`BaseHalf mirror cascade: the card of '${move.from}' followed it to '${move.to}'`);
+	}
+
+	/** Whether a node below a folder that was moved is running, under its old or its new path. */
+	private async holdsRunningNode(from: URI, to: URI): Promise<boolean> {
+		const stack = [to];
+		for (let visited = 0; stack.length > 0 && visited < 2000; visited++) {
+			let children;
+			try {
+				children = (await this.fileService.resolve(stack.pop()!)).children ?? [];
+			} catch {
+				continue;
+			}
+			for (const child of children) {
+				if (child.isSymbolicLink) {
+					continue;
+				}
+				if (child.isDirectory) {
+					stack.push(child.resource);
+					continue;
+				}
+				const relative = getRelativePath(to, child.resource);
+				if (this.nodeExecutionService.getActiveRun(child.resource) || (relative && this.nodeExecutionService.getActiveRun(URI.joinPath(from, ...relative.split('/'))))) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**

@@ -17,10 +17,10 @@ import { IBulkEditService } from '../../../../editor/browser/services/bulkEditSe
 import { TestConfigurationService } from '../../../../platform/configuration/test/common/testConfigurationService.js';
 import { IConfirmation, IConfirmationResult, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { FileService } from '../../../../platform/files/common/fileService.js';
-import { FileSystemProviderCapabilities, IFileService } from '../../../../platform/files/common/files.js';
+import { createFileSystemProviderError, FileSystemProviderCapabilities, FileSystemProviderErrorCode, IFileService, IFileWriteOptions, IStat } from '../../../../platform/files/common/files.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
-import { INotificationHandle, INotificationService, IPromptChoice, IPromptOptions, NoOpProgress, NotificationMessage, Severity } from '../../../../platform/notification/common/notification.js';
+import { INotification, INotificationHandle, INotificationService, IPromptChoice, IPromptOptions, NoOpProgress, NotificationMessage, Severity } from '../../../../platform/notification/common/notification.js';
 import { TestNotificationService } from '../../../../platform/notification/test/common/testNotificationService.js';
 import { IUndoRedoService, UndoRedoSource } from '../../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -34,7 +34,7 @@ import { TestContextService } from '../../../test/common/workbenchTestServices.j
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItem } from '../../common/basehalfMovedItems.js';
 import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove, IBaseHalfRecognizedMoves } from '../../common/basehalfMovedItemsService.js';
-import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
+import { IBaseHalfNodeExecutionEvent, IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
 import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
@@ -86,9 +86,28 @@ class TestFileSystemProvider extends InMemoryFileSystemProvider {
 		return super.capabilities & ~FileSystemProviderCapabilities.FileOpenReadWriteClose;
 	}
 
+	/** When set, a write of a file it accepts is refused by the file system. */
+	refuseWrite: ((resource: URI) => boolean) | undefined;
+
 	override async readFile(resource: URI): Promise<Uint8Array> {
 		await this.readGate?.(resource);
 		return super.readFile(resource);
+	}
+
+	override async writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> {
+		this.refuse(resource);
+		return super.writeFile(resource, content, opts);
+	}
+
+	override async writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		this.refuse(resource);
+		return super.writeFileExclusiveAtomic(resource, content);
+	}
+
+	private refuse(resource: URI): void {
+		if (this.refuseWrite?.(resource)) {
+			throw createFileSystemProviderError('The file system refused the write.', FileSystemProviderErrorCode.NoPermissions);
+		}
 	}
 }
 
@@ -129,6 +148,13 @@ class RecordedPrompt implements INotificationHandle {
 
 class RecordingNotificationService extends TestNotificationService {
 	readonly prompts: RecordedPrompt[] = [];
+	/** Every notification that is not a prompt: "nothing is shown" has to mean these too. */
+	readonly notified: string[] = [];
+
+	override notify(notification: INotification): INotificationHandle {
+		this.notified.push(String(notification.message));
+		return super.notify(notification);
+	}
 
 	override prompt(severity: Severity, message: string, choices: IPromptChoice[], options?: IPromptOptions): INotificationHandle {
 		const prompt = new RecordedPrompt(severity, message, choices, options);
@@ -208,7 +234,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	const runs = disposables.add(new Emitter<never>());
+	const runs = disposables.add(new Emitter<IBaseHalfNodeExecutionEvent>());
 	instantiationService.stub(IBaseHalfNodeExecutionService, {
 		onDidChange: runs.event,
 		getActiveRun: () => undefined,
@@ -247,7 +273,8 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		refactor,
 		undoRedo: instantiationService.get(IUndoRedoService),
 		movedItems,
-		runEnded: () => runs.fire(undefined as never),
+		// A run that has ended reports its node without a state.
+		runEnded: () => runs.fire({ resource: joinPath(folder, 'run.bhnode') }),
 		async delete(path) {
 			await workingCopyFileService.delete([{ resource: joinPath(folder, ...path.split('/')), recursive: true }], CancellationToken.None);
 		},
@@ -332,7 +359,7 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		const updated = await harness.tree();
 
 		assert.deepStrictEqual({
-			shown: harness.notifications.prompts.map(prompt => prompt.message),
+			shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified],
 			undoStep: harness.undoRedo.canUndo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
 			// A node that is running cannot be written now: the move is remembered for it.
 			owed: harness.movedItems.owed,
@@ -541,15 +568,51 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		await until(async () => (await harness.read('n2.md'))?.includes('b.md') === true && harness.movedItems.owed.length > 0, 'the store that could be written was not updated');
 		const blocked = { files: [await harness.read('n1.md'), await harness.read('n2.md')], owed: [...harness.movedItems.owed] };
 
+		// The item moves again while the entry is owed: what is owed leads to where the item is now.
+		await harness.move('b.md', 'c.md');
+		await until(async () => (await harness.read('n2.md'))?.includes('c.md') === true, 'the second move did not update the store that could be written');
+		await timeout(40);
+		const owedAfterSecondMove = [...harness.movedItems.owed];
+
 		// What blocked it is gone, and a run ends: BaseHalf tries again by itself.
 		blocker.dispose();
 		harness.runEnded();
-		await until(async () => (await harness.read('n1.md'))?.includes('b.md') === true && harness.movedItems.owed.length === 0, 'the entry that was owed was not written');
+		await until(async () => (await harness.read('n1.md'))?.includes('c.md') === true && harness.movedItems.owed.length === 0, 'the entry that was owed was not written');
 
-		assert.deepStrictEqual({ blocked, written: await harness.read('n1.md'), shown: harness.notifications.prompts.length }, {
+		assert.deepStrictEqual({ blocked, owedAfterSecondMove, written: await harness.read('n1.md'), shown: harness.notifications.prompts.length + harness.notifications.notified.length }, {
 			blocked: { files: [note, '---\nupstream:\n  - b.md\n---\n# N\n'], owed: [{ from: 'a.md', to: 'b.md' }] },
-			written: '---\nupstream:\n  - b.md\n---\n# N\n',
+			// One thing is owed: the entry still names the first path, and it has to end at the last.
+			owedAfterSecondMove: [{ from: 'a.md', to: 'c.md' }],
+			written: '---\nupstream:\n  - c.md\n---\n# N\n',
 			shown: 0
+		});
+	});
+
+	test('a write that the file system refuses shows nothing, also when another store was written, and is tried again', async () => {
+		const quote = '---\nA quote.\n---\nBody\n';
+		const kept = '.bh/mirror/quote.md/upstream.yaml';
+		const harness = await createHarness(disposables, {
+			'a.md': '# A\n',
+			'n.md': '---\nupstream:\n  - a.md\n---\n# N\n',
+			'quote.md': quote,
+			[kept]: 'upstream:\n  - a.md\n'
+		});
+		// The list is written to a temporary file next to it first.
+		harness.provider.refuseWrite = resource => resource.path.includes(kept);
+
+		await harness.move('a.md', 'b.md');
+		await until(() => harness.movedItems.owed.length > 0, 'the move whose entry could not be written is not owed');
+		await timeout(40);
+		const refused = { kept: await harness.read(kept), note: await harness.read('n.md'), owed: [...harness.movedItems.owed], shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified] };
+
+		// The file system accepts the write again, and a run ends: BaseHalf tries again by itself.
+		harness.provider.refuseWrite = undefined;
+		harness.runEnded();
+		await until(async () => (await harness.read(kept))?.includes('b.md') === true && harness.movedItems.owed.length === 0, 'the entry that was owed was not written');
+
+		assert.deepStrictEqual({ refused, shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified] }, {
+			refused: { kept: 'upstream:\n  - a.md\n', note: '---\nupstream:\n  - b.md\n---\n# N\n', owed: [{ from: 'a.md', to: 'b.md' }], shown: [] },
+			shown: []
 		});
 	});
 

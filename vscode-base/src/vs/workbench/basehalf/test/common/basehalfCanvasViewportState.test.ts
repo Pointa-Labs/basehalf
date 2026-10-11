@@ -20,7 +20,7 @@ import {
 	IBaseHalfCanvasViewport,
 	parseBaseHalfCanvasViewport
 } from '../../common/basehalfCanvasViewportState.js';
-import { baseHalfForgetCanvasViewportsForStructuralChange } from '../../common/basehalfMirrorCascadeOperation.js';
+import { baseHalfUpdateCanvasViewportsForStructuralChange } from '../../common/basehalfMirrorCascadeOperation.js';
 
 suite('BaseHalfCanvasViewportState', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -226,18 +226,19 @@ suite('BaseHalfCanvasViewportState', () => {
 
 		assert.deepStrictEqual([service.get(folder('a')), service.get(folder('b'))], [undefined, user(2, 2)]);
 	});
-	test('forgets viewports of a workbench folder move or delete, including the move destination', () => {
+	test('a workbench folder move carries its viewports over what the destination had, and a delete forgets them', () => {
 		const { service } = create();
 		for (const path of ['a', 'a/child', 'b', 'c', 'c/deep', 'keep']) {
-			service.set(folder(path), user(1, 1));
+			service.set(folder(path), user(path === 'b' ? 7 : 1, 1));
 		}
 
-		baseHalfForgetCanvasViewportsForStructuralChange(service, FileOperation.MOVE, [{ source: folder('a'), target: folder('b') }]);
-		baseHalfForgetCanvasViewportsForStructuralChange(service, FileOperation.DELETE, [{ target: folder('c') }]);
+		baseHalfUpdateCanvasViewportsForStructuralChange(service, FileOperation.MOVE, [{ source: folder('a'), target: folder('b') }]);
+		baseHalfUpdateCanvasViewportsForStructuralChange(service, FileOperation.DELETE, [{ target: folder('c') }]);
 
 		assert.deepStrictEqual(
-			['a', 'a/child', 'b', 'c', 'c/deep', 'keep'].map(path => service.get(folder(path)) !== undefined),
-			[false, false, false, false, false, true]
+			['a', 'a/child', 'b', 'b/child', 'c', 'c/deep', 'keep'].map(path => service.get(folder(path))?.x ?? null),
+			// `b` shows the view of `a`, not the one it had.
+			[null, null, 1, 1, null, null, 1]
 		);
 	});
 

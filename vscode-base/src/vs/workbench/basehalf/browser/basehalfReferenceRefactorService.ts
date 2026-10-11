@@ -141,8 +141,8 @@ export interface IBaseHalfReferenceRefactorService {
 	 * `undefined` (a later move undid the rename).
 	 */
 	update(workspaceFolder: URI, input: () => IBaseHalfReferenceRefactorInput | undefined, options: IBaseHalfReferenceRefactorApplyOptions): Promise<IBaseHalfReferenceRefactorOutcome | undefined>;
-	/** Shows the result: "Updated K items" with Undo, the skipped stores, and the entries left alone. */
-	report(outcome: IBaseHalfReferenceRefactorOutcome, kind: 'rename' | 'relink'): void;
+	/** Shows the result of Relink Everywhere: "Relinked K items" with Undo, the skipped stores, and the entries left alone. */
+	report(outcome: IBaseHalfReferenceRefactorOutcome): void;
 	/** Localized sentences naming the stores and entries a plan leaves out, with their reasons. */
 	describeExclusions(plan: IBaseHalfRenameUpdatePlan): string[];
 	/** Each skipped store as "name (reason)". */
@@ -256,7 +256,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				break;
 			}
 			try {
-				collect(await this.referenceEditService.apply(plan.edits.map(edit => this.storeEdit(edit)), { label: options.label, plannedStructure: [structure] }));
+				collect(await this.referenceEditService.apply(plan.edits.map(edit => this.storeEdit(edit)), { label: options.label, plannedStructure: [structure], automatic: options.noUndo === true }));
 				break;
 			} catch (error) {
 				if (error instanceof BaseHalfReferenceEditRefusal) {
@@ -376,21 +376,17 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 		};
 	}
 
-	report(outcome: IBaseHalfReferenceRefactorOutcome, kind: 'rename' | 'relink'): void {
+	report(outcome: IBaseHalfReferenceRefactorOutcome): void {
 		const parts: string[] = [];
 		const count = outcome.updated.length;
 		if (count > 0) {
-			parts.push(kind === 'relink'
-				? count === 1 ? localize('basehalf.references.relinked.one', "Relinked 1 item.") : localize('basehalf.references.relinked', "Relinked {0} items.", count)
-				: count === 1 ? localize('basehalf.references.updated.one', "Updated 1 item.") : localize('basehalf.references.updated', "Updated {0} items.", count));
+			parts.push(count === 1 ? localize('basehalf.references.relinked.one', "Relinked 1 item.") : localize('basehalf.references.relinked', "Relinked {0} items.", count));
 		}
 		for (const node of outcome.movedIntoFile) {
 			parts.push(localize('basehalf.references.movedIntoFile', "{0} now keeps its upstream list in the file.", basename(node.resource)));
 		}
 		if (count === 0 && outcome.movedIntoFile.length === 0) {
-			parts.push(kind === 'relink'
-				? localize('basehalf.references.relinked.none', "No upstream entries were relinked.")
-				: localize('basehalf.references.updated.none', "No upstream entries were updated."));
+			parts.push(localize('basehalf.references.relinked.none', "No upstream entries were relinked."));
 		}
 		parts.push(...this.describeExclusions(outcome.plan));
 		for (const error of outcome.errors) {
@@ -475,7 +471,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 		if (!outcome) {
 			return false;
 		}
-		this.report(outcome, 'relink');
+		this.report(outcome);
 		return outcome.updated.length > 0;
 	}
 

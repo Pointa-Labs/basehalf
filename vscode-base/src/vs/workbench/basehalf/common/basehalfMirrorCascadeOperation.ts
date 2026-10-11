@@ -207,21 +207,20 @@ export function baseHalfRelocateBadgeText(text: string, relativePath: string): s
 }
 
 /**
- * Canvas viewports are per-machine UI state keyed by folder resource. A
- * workbench move or delete forgets the viewport of the moved or deleted folder
- * and of every folder below it; a move also forgets whatever its destination
- * held before. This is plain storage, not a lease-guarded projection stage, so
- * it cannot fail a cascade.
+ * What a workbench move or delete does with the stored canvas views: a moved
+ * folder keeps its view, and those of the folders below it, at its new path;
+ * what was stored for a replaced destination or a deleted folder is forgotten.
  */
-export function baseHalfForgetCanvasViewportsForStructuralChange(
-	viewportState: Pick<IBaseHalfCanvasViewportStateService, 'forgetSubtree'>,
+export function baseHalfUpdateCanvasViewportsForStructuralChange(
+	viewportState: Pick<IBaseHalfCanvasViewportStateService, 'forgetSubtree' | 'moveSubtree'>,
 	operation: FileOperation.MOVE | FileOperation.DELETE,
 	files: readonly { readonly source?: URI; readonly target: URI }[]
 ): void {
 	for (const pair of files) {
 		if (operation === FileOperation.MOVE && pair.source) {
-			viewportState.forgetSubtree(pair.source);
+			viewportState.moveSubtree(pair.source, pair.target, true);
+		} else {
+			viewportState.forgetSubtree(pair.target);
 		}
-		viewportState.forgetSubtree(pair.target);
 	}
 }

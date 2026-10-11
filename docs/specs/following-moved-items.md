@@ -127,19 +127,20 @@ it by path, and where an edit to the file changes nothing.
   - its size in bytes and the SHA-256 of its content. For a file larger than
     16 MiB the hash covers three windows of 1 MiB: the first, the last, and
     the one at the middle;
-  - for a text file of at most 1 MiB, also its **pieces**. A piece is a
-    line, divided further after `.`, `!`, `?`, and `;` when white space
-    follows, and after `。`, `！`, `？`, and `；`. Notes are often written one
-    paragraph per line, and whole lines would make one changed word cost the
-    paragraph. For each piece that is not blank, BaseHalf keeps a 32-bit
-    hash of it without surrounding white space, and its length. A file with
-    more than 512 pieces keeps the 512 with the smallest hashes, so that two
-    versions of a file keep the same ones. A file is text when its first
-    8 KiB hold no NUL byte.
-- **Similarity** of two text files: the length of the pieces they share,
-  counted with repetition, divided by the length of the pieces of the larger
-  file. Counting length and not pieces keeps a shared heading or a shared
-  `---` from making two short notes look alike, as git's measure does.
+  - for a text file of at most 1 MiB, also its **pieces**: its words, in
+    lower case, and for text in a script without spaces between words each
+    pair of neighboring characters. For each distinct piece BaseHalf keeps a
+    32-bit hash and a weight, its length times how often it occurs. A file
+    with more than 512 distinct pieces keeps the 512 with the smallest
+    hashes, so that two versions of a file keep the same ones. A file is
+    text when its first 8 KiB hold no NUL byte.
+- **Similarity** of two text files: the weight of the pieces they share,
+  divided by the weight of the pieces of the larger file.
+- **Why words and not lines.** Git compares lines. An agent that is asked to
+  tighten a note rewords every sentence and keeps most of the words. In the
+  trial of 2026-10-11 two agents did exactly that, and no line and no
+  sentence of the note was left as it was, while two thirds and more of its
+  own words were.
 - **Snapshot**: what BaseHalf last saw in a workspace folder.
 - **Free place**: a place at the new path that holds nothing, or only the
   canonical empty file that retirement leaves behind
@@ -171,7 +172,9 @@ it by path, and where an edit to the file changes nothing.
   - again at open, when the file's size or modification time differs from
     the snapshot, as git refreshes its index.
 - An item that is followed only because an entry names it joins when the
-  reference index is `ready`, because only the index knows the entries.
+  reference index is `ready`, because only the index knows the entries. When
+  such an item moves, it stays followed at its new path while the entry that
+  still names its old path is owed.
 - A workbench move or delete updates the snapshot inside its own operation.
 - **The same path.** On a volume that ignores letter case or Unicode form, a
   path that differs from a snapshot path only in those is the same path. The
@@ -196,9 +199,24 @@ it by path, and where an edit to the file changes nothing.
     second, and at the latest ten seconds after the first of them. It pairs
     across the two lists by the rules below. A pair that was made earlier in
     the same 60 seconds still counts for a folder.
+  - **What an earlier comparison already saw.** A file that appeared before
+    an earlier comparison ran was there next to the file that disappears
+    now, and BaseHalf saw them as two items. It is that file's new place
+    only as a copy of it, with the same content, whose original was then
+    deleted. It is never paired by mostly the same content. Without this
+    rule, deleting one of two similar files that were made a moment ago
+    would hand its card and the entries that name it to the other.
   - Waiting for the quiet second is deliberate. A file that is renamed to a
     backup name and written again at its old name has not moved: its path is
     there again by then, so it did not disappear.
+  - **Noted when it happens.** When file events remove a file BaseHalf has
+    a fingerprint for, and a file with the same content appeared in those
+    events or shortly before, BaseHalf notes at once what that file holds.
+    An agent often rewrites a file right after renaming it, and nothing of
+    the old content may be left by the time the folder is quiet. The
+    comparison then goes by what was noted, under rule 1 as for any files
+    with the same content. So a renamed folder is still one pair, and among
+    several copies the file name still decides.
   - After 60 seconds an unpaired item that disappeared is deleted, as far as
     BaseHalf is concerned, and is never paired with something that appears
     later. This is what keeps a new note from taking the card of a similar
@@ -231,15 +249,24 @@ then acts on the pairs of followed items.
 1. **Same content.** A file that disappeared is paired with a file that
    appeared and has the same size and hash. When several files on either
    side share that content, files with the same file name are paired with
-   each other. Those that this does not decide are not paired.
+   each other. When exactly one file is left on each side after that, those
+   two are paired. Anything else is not paired.
 2. **Mostly the same content.** The text files that are still unpaired are
-   compared. Pieces that a third fingerprinted file also has are left out on
-   both sides: they are a shared heading, a template, or the frame of a
-   generated file, and say nothing about which file this is. A pair
-   qualifies when the similarity of what is left is at least one half and
-   the two share at least 32 characters of it. Pairs are taken in order of
-   similarity, highest first, each file at most once; between equal pairs,
-   one with the same file name comes first.
+   compared, of those that appeared only the ones that are new in this
+   comparison. Two files with the same content are not compared: rule 1
+   has decided about them. A pair qualifies when all of these hold:
+   - **Most of it is unchanged.** The similarity is at least one half, as
+     git asks.
+   - **What was particular to the old file is still there.** At least half
+     of the pieces of the file that disappeared are in the file that
+     appeared, when a piece counts less the more files have it: a piece
+     that *n* other fingerprinted files also have counts with one part in
+     *n* + 1 of its weight. Ordinary words, a shared heading, a template,
+     and the frame of a generated file then count for little.
+   - The pieces the two share weigh at least 32 characters.
+
+   Pairs are taken in order of similarity, highest first, each file at most
+   once; between equal pairs, one with the same file name comes first.
 3. **A folder follows its files.** A followed folder that disappeared is
    paired with a folder that appeared and received most of its files: more
    than half of the files that the snapshot holds a fingerprint for below it
@@ -248,7 +275,9 @@ then acts on the pairs of followed items.
    there keep their own cards, and the old folder's card stays behind.
 4. **Below a paired folder.** Every followed item below a paired folder that
    is still unpaired takes the same relative path below the folder's new
-   path, when an item of its kind is there.
+   path, as it does when a folder is moved through the workbench. An item
+   that is no longer there leaves its card information without an item at
+   the new path, as it would have at the old one.
 
 Anything else is not recognized, and today's behavior applies: the sweep at
 open marks its `badge.yaml` orphan, and the entries that name it show as
@@ -258,10 +287,29 @@ A file that appeared is fingerprinted only when a file disappeared in the
 same comparison. Rule 2 is skipped when the number of unpaired text files
 that disappeared times the number that appeared exceeds 1,000,000.
 
-Rule 2 can still pair two different files that share most of the text that
-only they have, when one is deleted and the other is created in the same
-comparison. The card of the deleted one then shows on the new one. This is
-accepted, as git accepts it, in place of a question.
+**Why rule 2 asks two questions.** Both earlier versions asked one, and
+both were measured on the 364 Markdown files of this repository
+([measurement](#verification)).
+
+- The first left out every piece that a third file also had and compared
+  what was left. That is right for whole sentences and wrong for words,
+  because other notes use the same words. It left 134 files with fewer than
+  32 characters of their own, among them nearly every file below 1 KB. Such
+  a file could never have been recognized after an edit.
+- The second counted such a piece less, in the same one comparison. Then a
+  few new words that no other file has outweigh the ordinary words that
+  stayed. A file of 35 lines with 3 lines replaced came out below one half.
+- Asked apart, the first question is the one git asks, and new text counts
+  in it as what it is. The second only looks at the old file, so new text
+  cannot weigh it down.
+
+Rule 2 can still pair two different files that are mostly the same text,
+when one is deleted and the other is created in the same comparison or in
+the minute after it: two
+copies with small differences, or two notes made from one template that
+hold little else when few other files have that template. The card of the
+deleted one then shows on the new one. This is accepted, as git accepts it,
+in place of a question.
 
 ## Relocation
 
@@ -281,7 +329,8 @@ to the new one.
    names an item of the same kind. Otherwise the item is skipped.
 3. **Held back**: an item with unsaved changes in an editor for its old path
    or below it, and a `.bhnode` that is running or a folder that holds one.
-   It becomes a pending pair.
+   It stays a pending pair. While it is held back it does not keep the
+   canvas from redrawing.
 4. **Mirror files and canvas rows** move piece by piece. A piece is one
    mirror file, or one row of a `canvas.yaml`.
    - A piece moves when its place at the new path is free. Then the piece at
@@ -292,6 +341,8 @@ to the new one.
    - Anything else at the new place stays as it is, and the piece stays at
      the old path. Nothing at the new path is replaced, retired, or
      rewritten.
+   - A layout file that BaseHalf cannot read in full is left as it is, at the
+     old path and at the new one. Moving its readable rows would rewrite it.
    - The one exception is an orphan `badge.yaml` at the new path, which
      belongs to an item that is gone. BaseHalf saves it as a
      [recovery copy](mirror-file-resilience.md) and the moved card takes its
@@ -319,6 +370,21 @@ BaseHalf tries every pending pair again at open, at each comparison, and
 when the editor or the run that held it back ends. A failure is logged. It
 shows no Retry and Skip notification: nothing the user did is waiting on it.
 
+An item can move again before its card information has followed it. Then
+there is still one pair for it, from where its card information is to where
+the item is now:
+
+- When the item of a pending pair is found at yet another path, or is moved
+  there through the workbench, the pair ends there, and its card information
+  goes to that path in one step. An item that is back at its old path needs
+  nothing.
+- When an item below a folder with a pending pair moves by itself, its own
+  pair starts below the folder's old path, where its card information still
+  is, and is relocated before the folder.
+- When a pair is relocated while a later move of the same item was being
+  recognized, the later pair starts at the path the card information has
+  reached.
+
 Nothing is added to the undo stack. Moving the item back is recognized like
 any other move.
 
@@ -336,7 +402,10 @@ move: a move this specification follows, and a move through the workbench.
   one Undo would break every entry while the file kept its new name.
 - **What is owed is remembered.** For each move BaseHalf keeps the old and
   the new path with the snapshot until no store that it may write names the
-  old path any more, or the old path names an item again. It tries again
+  old path any more, or the old path names an item again. A move outside the
+  workbench is owed from the moment its card information has followed, so
+  that a window that closes before the entries are written does not lose
+  them. It tries again
   when the reference index becomes `ready`, when a document is saved or
   reverted, when a `.bhnode` run ends, and at open. This covers a document
   with unsaved changes, a `.bhnode` that is running, and stores that a
@@ -368,15 +437,19 @@ description. Only later would relocation bring it back.
 - **One change, not two.** A paired item's card keeps its place, its size,
   and its description, and shows its new name. The canvas does not draw a
   state in which the card is gone or somewhere else. To make this hold, the
-  canvas does not redraw a folder from the removal of a followed item in it
-  until the comparison has finished and relocation is done, for at most two
-  seconds. After that it draws what is on disk and corrects itself when
-  relocation has finished. A card of a file that was deleted outside
+  canvas does not redraw a folder for what happened on disk, from the
+  removal of a followed item in it, of the folder itself, or of a folder
+  above it, until the comparison has finished and relocation is done, for at
+  most two seconds. Navigation and the user's own edits are drawn at once.
+  After that it draws what is on disk and corrects itself when relocation
+  has finished. A card of a file that was deleted outside
   BaseHalf therefore stays for about a second before it goes.
 - **At open.** The first drawing of a folder's canvas waits for the
   comparison of its workspace folder in the same way, for at most 500 ms.
 - **The user's own edits are kept.** A card that the user drags or resizes
   while relocation runs stays where they put it, and no warning appears.
+  When it is the card of the item that is being followed, its new place is
+  saved under the item's new path.
 - **Connections stay drawn.** The connections of a paired item are drawn to
   its card in the same redraw that shows its new name. The entries that name
   it are rewritten before that redraw, except those in a store that cannot
@@ -416,19 +489,21 @@ The texts for agents get shorter.
 
 ## What is recognized
 
-The answer is the same for every tool, and whether or not BaseHalf was
-running.
+The answer is the same for every tool. Where it depends on whether BaseHalf
+was running, the row says so.
 
 | What happened to the item | Recognized |
 | --- | --- |
 | Renamed or moved, content unchanged | Yes |
-| Renamed and edited, at least half of its text unchanged | Yes |
+| Renamed and edited or reworded, with at least half of its own words kept | Yes |
+| Renamed, and then rewritten completely while BaseHalf runs | Yes, paired at the rename |
 | A folder renamed as a whole, with more than half of its files recognizable | Yes, and the files in it that were rewritten come along |
 | A folder's files moved one by one to a new folder, within a minute while BaseHalf runs | Yes |
 | A folder renamed with most of its files rewritten | No |
 | Moved by copying and deleting the original | Yes |
+| Copied, the copy edited, and the original deleted in a later step, while BaseHalf runs | No: BaseHalf saw two files |
 | A PDF, image, or other file that is not text, renamed and changed | No |
-| Renamed and rewritten by more than half | No |
+| Renamed and rewritten by more than half while BaseHalf was closed, or in one step | No |
 | An empty file, or a folder that holds no file | No |
 | Deleted, and written again more than a minute later while BaseHalf runs | No |
 | Moved out of the workspace and brought back later | No |
@@ -555,11 +630,13 @@ with the same expectations.
     tests, the scene the canvas publishes equals what the reference index
     reports: a connection for each entry that names an item, and a broken
     entry for each that does not.
-23. **What files share with others says nothing.** Two notes whose only
-    common text is a heading are not paired. Two notes made from one
-    template, whose own text differs, are not paired, although the template
-    is most of each. Two `.bhnode` documents with the same frame and
-    different content are not paired.
+23. **What many files share says little.** Two notes whose only common text
+    is a heading are not paired. Two notes made from one template that
+    several other notes also use, whose own text differs, are not paired,
+    although the template is most of each. The same holds for two `.bhnode`
+    documents with the same frame and different content. A small note of
+    ordinary words, renamed and edited among notes that use the same words,
+    is paired, also when the edit adds words that no other file has.
 24. **A folder that was already there.** All files of a described folder are
     moved into another folder that existed before, and the old folder is
     deleted. The files keep their cards. The other folder's description is
@@ -589,20 +666,55 @@ with the same expectations.
 - A check of rule 2 against real notes before it ships: for the maintainer's
   own workspaces, how similar unrelated notes are to each other, so that one
   half is confirmed or replaced by a measured value.
+- The size of the snapshot before the limits are final. On 174 Markdown
+  files of this repository a stored fingerprint is about 3 KB of JSON, which
+  would be about 15 MiB for 5,000 followed notes, written whole at every
+  save.
+- The cost of an index that stays `partial`: every move then stays owed, up
+  to 1,000 of them, and is planned again at each retry.
 
-**First measurement, 2026-10-11**, on the 362 Markdown files of this
-repository, with the implementation of similarity:
+**Measurement, 2026-10-11**, on the 364 Markdown files of this repository,
+with the implementation's own recognition: one file disappears, one appears,
+and every other file is there.
 
-- Different files against each other, 65,341 pairs: 5 reach one half, and
-  99.5% are below 0.1. The 5 are files that are copies or close variants of
-  each other on purpose, such as `AGENTS.md` and `CLAUDE.md`, and two sibling
-  skill files at 0.59. No pair of unrelated documents reaches one half.
-- A file against its own older version: 7 of 7 changed files stay at or
-  above one half over 5 commits, and 10 of 13 over 30 commits. The 3 below
-  were replaced or largely rewritten.
+- **Different files**, 66,066 pairs. 74 share at least half as written, the
+  first question of rule 2. For 32 of them the pair is made when one is
+  deleted and the other created. All 32 are copies of each other, files made
+  from one template that hold little else, or two texts with most of their
+  wording in common: `AGENTS.md` and `CLAUDE.md`, the same `CONTRIBUTING.md`
+  in three extensions, the short `README.md` of the language extensions. The
+  other 42 use the same vocabulary for different things, such as the plans
+  of two phases, and are not paired.
+- **The same file, edited**, against its own older version under a new name:
+  16 of 16 changed files over 5 commits and 24 of 24 over 30 commits. Over
+  100 commits 4 of 12: the 8 that are not paired share less than half with
+  what they were.
+- **Every file, renamed and edited.** With a tenth of its lines replaced by
+  words that no other file has, 338 of 351 are paired. 11 of the 13 that are
+  not hold less than 200 characters. With a third of its lines replaced, 316
+  of 351.
+- **What an agent does to a note.** The two rewrites of the trial below have
+  a similarity of 0.83 and 0.69 with the note they came from. Both are
+  paired, alone and among the files of this repository.
 
-So one half separates an edited file from another file on this material.
-Technical documents are not personal notes, and the check above stays.
+So the two questions of rule 2, each at one half, separate an edited file
+from another file on this material. Technical documents are not personal
+notes, and the check above stays.
+
+**Trial for criterion 26, 2026-10-11.** A folder with a described PDF, a
+described note, and a second note whose entries name both. Claude Code and
+Codex each got two tasks in it, with the skill text of version 2 and no
+BaseHalf window: rename the PDF, and rename the note and tighten its wording.
+
+- All four runs renamed with `mv`, left `.bh/` as it was, and changed the
+  entries in the second note to the new path themselves.
+- The reworded note kept no line as it was.
+- BaseHalf's own service, opened on the folder as it was before each run,
+  closed, and opened again on what the agent left, recognized all four: the
+  PDF by the same content, the note by mostly the same content.
+- From a recognized pair to the card, the path is the one that the tests and
+  the smoke of criterion 25 cover. The trial did not open a window on these
+  four folders.
 
 ## Open questions
 

@@ -132,10 +132,14 @@ VS Code storage and outside the workspace folder:
     `IStorageService.onWillSaveState`.
   - A write that settles after its folder moved is dropped, because the scene
     must still be current.
-- **Move or delete.** A workbench folder move or delete forgets the stored
-  viewports for that folder and every folder below it.
+- **Move or delete.** A folder that is moved keeps its stored viewport, and
+  those of the folders below it, at its new path. This holds for a move
+  through the workbench and for a move outside it that BaseHalf followed
+  ([following moved items](following-moved-items.md#what-the-user-sees)).
+  What was stored for a destination that the move replaced, or for a folder
+  that is deleted, is forgotten.
 
-Viewports no longer travel with the folder or through git. A workspace opened
+Viewports do not travel through git or to another machine. A workspace opened
 on another machine, or under another workspace identity, fits on first open.
 
 ## Focus removal
