@@ -24,7 +24,7 @@ import { IWorkingCopyService } from '../../../services/workingCopy/common/workin
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
-import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
+import { IBaseHalfNodeExecutionEvent, IBaseHalfNodeExecutionService, IBaseHalfNodeExecutionState } from '../../browser/basehalfNodeExecutionService.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeMirrorService } from '../../common/basehalfBadgeMirror.js';
@@ -86,7 +86,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 	}
 
 	/** BaseHalf opens on the files: the snapshot service and the cascade that relocates. */
-	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[] } = {}) {
+	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[]; readonly running?: () => readonly URI[] } = {}) {
 		const session = disposables.add(new DisposableStore());
 		const instantiationService = workbenchInstantiationService({ fileService: () => fileService }, session);
 		// Unsaved changes, as the working copy service reports them.
@@ -104,8 +104,19 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		instantiationService.stub(IBaseHalfBadgeMirrorService, session.add(new BaseHalfBadgeMirrorService(fileService)));
 		const canvasMirror = session.add(instantiationService.createInstance(BaseHalfCanvasMirrorService));
 		instantiationService.stub(IBaseHalfCanvasMirrorService, canvasMirror);
-		instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-		instantiationService.stub(IBaseHalfNodeExecutionService, { onDidChange: Event.None, getActiveRun: () => undefined, acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+		// The stored views that were carried along with a folder.
+		const views: string[] = [];
+		instantiationService.stub(IBaseHalfCanvasViewportStateService, {
+			forgetSubtree: () => { },
+			moveSubtree: (from: URI, to: URI) => { views.push(`${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`); }
+		} as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
+		// Runs, as the node execution service reports them: a run that ended reports its node without a state.
+		const runs = session.add(new Emitter<IBaseHalfNodeExecutionEvent>());
+		instantiationService.stub(IBaseHalfNodeExecutionService, {
+			onDidChange: runs.event,
+			getActiveRun: (node: URI) => (options.running?.() ?? []).some(running => running.toString() === node.toString()) ? {} as IBaseHalfNodeExecutionState : undefined,
+			acquireStructuralOperation: async () => ({ dispose: () => { } })
+		} as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
 		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
 			timing,
@@ -121,7 +132,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		session.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		await movedItems.whenCompared(folder);
 		await settle();
-		return { movedItems, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy) };
+		return { movedItems, views, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy), runEnded: (node: URI) => runs.fire({ resource: node }) };
 	}
 
 	const resource = (path: string) => joinPath(folder, ...path.split('/'));
@@ -264,6 +275,72 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			badges: [badge('new/a.md', 'About a.'), badge('new/b.md', 'About b.')],
 			left: [],
 			pending: []
+		});
+	});
+
+	test('a pair that was held back while a new file took the old name leaves the card with that file, which is followed from there', async () => {
+		const fileService = await createFiles({
+			'a.md': 'The first note, with enough text to be told apart.\n',
+			'.bh/mirror/a.md/badge.yaml': badge('a.md', 'About a.'),
+			'.bh/mirror/canvas.yaml': canvas('', [row('a.md', 1)])
+		});
+		let dirty: URI[] = [resource('a.md')];
+		const session = await open(fileService, { dirty: () => dirty });
+		await fileService.move(resource('a.md'), resource('b.md'));
+		await settle();
+		// While the pair waits for the unsaved changes, a new file is written under the old name.
+		await fileService.writeFile(resource('a.md'), VSBuffer.fromString('Another note altogether, written under the old name.\n'));
+		await settle();
+		dirty = [];
+		session.dirtyChanged();
+		await settle();
+		const stayed = await hidden(fileService);
+		const pending = session.movedItems.getPendingMoves(folder).length;
+
+		// The file at the old name is an item like any other: its card follows it.
+		await fileService.move(resource('a.md'), resource('c.md'));
+		await settle();
+		await settle();
+		const followed = await hidden(fileService);
+
+		assert.deepStrictEqual({
+			stayed: [stayed['mirror/a.md/badge.yaml'], stayed['mirror/b.md/badge.yaml'], stayed['mirror/canvas.yaml']],
+			pending,
+			followed: [followed['mirror/c.md/badge.yaml'], followed['mirror/a.md/badge.yaml'], followed['mirror/canvas.yaml']]
+		}, {
+			stayed: [badge('a.md', 'About a.'), undefined, canvas('', [row('a.md', 1)])],
+			pending: 0,
+			followed: [badge('c.md', 'About a.'), undefined, canvas('', [row('c.md', 1)])]
+		});
+	});
+
+	test('a folder with a running node is held back until the run has ended, and takes its stored view along', async () => {
+		const fileService = await createFiles({
+			'shots/clip.bhnode': '{ "kind": "node", "title": "Harbor at dawn" }\n',
+			'shots/notes.md': 'Notes about the shots of the first scene.\n',
+			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder')
+		});
+		// The run was started under the old path.
+		let running: URI[] = [resource('shots/clip.bhnode')];
+		const session = await open(fileService, { running: () => running });
+		await fileService.move(resource('shots'), resource('scenes'));
+		await settle();
+		const whileRunning = await hidden(fileService);
+		const held = { badge: whileRunning['mirror/shots/badge.yaml'] !== undefined, moved: whileRunning['mirror/scenes/badge.yaml'] !== undefined, pending: session.movedItems.getPendingMoves(folder).length, settled: session.movedItems.isSettled(folder), views: [...session.views] };
+
+		// A report of progress ends nothing; the end of the run does.
+		running = [];
+		session.runEnded(resource('shots/clip.bhnode'));
+		await settle();
+		await settle();
+		const after = await hidden(fileService);
+
+		assert.deepStrictEqual({ held, after: [after['mirror/scenes/badge.yaml'], after['mirror/shots/badge.yaml']], pending: session.movedItems.getPendingMoves(folder).length, views: session.views }, {
+			// It waits for the run, and does not keep the canvas waiting meanwhile.
+			held: { badge: true, moved: false, pending: 1, settled: true, views: [] },
+			after: [badge('scenes', 'The shots of scene one.').replace('kind: file', 'kind: folder'), undefined],
+			pending: 0,
+			views: ['shots -> scenes']
 		});
 	});
 

@@ -12,7 +12,7 @@ import { Schemas } from '../../../../base/common/network.js';
 import { joinPath, relativePath as getRelativePath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
+import { IFileService, IStat } from '../../../../platform/files/common/files.js';
 import { FileService } from '../../../../platform/files/common/fileService.js';
 import { InMemoryFileSystemProvider } from '../../../../platform/files/common/inMemoryFilesystemProvider.js';
 import { NullLogService } from '../../../../platform/log/common/log.js';
@@ -61,14 +61,22 @@ class AllFilesSearch {
 	}
 }
 
+/** A file system that takes a moment to answer, as a disk does. */
+class SlowFileSystemProvider extends InMemoryFileSystemProvider {
+	override async stat(resource: URI): Promise<IStat> {
+		await timeout(4);
+		return super.stat(resource);
+	}
+}
+
 suite('BaseHalfMovedItemsService', () => {
 	const disposables = new DisposableStore();
 	teardown(() => disposables.clear());
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	async function createFiles(files: Record<string, string>): Promise<FileService> {
+	async function createFiles(files: Record<string, string>, provider = new InMemoryFileSystemProvider()): Promise<FileService> {
 		const fileService = disposables.add(new FileService(new NullLogService()));
-		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(new InMemoryFileSystemProvider())));
+		disposables.add(fileService.registerProvider(Schemas.file, disposables.add(provider)));
 		await fileService.createFolder(folder);
 		for (const [path, content] of Object.entries(files)) {
 			await fileService.writeFile(joinPath(folder, ...path.split('/')), VSBuffer.fromString(content));
@@ -632,6 +640,31 @@ suite('BaseHalfMovedItemsService', () => {
 			afterListing: ['docs/a.md -> docs/b.md [file, sameContent]'],
 			moved: 'docs/b.md',
 			unmoved: null
+		});
+	});
+
+	test('the folder is not settled from the removal of a followed item until the comparison has reported, also while it reads files', async () => {
+		const fileService = await createFiles({ 'a.md': note(6), 'keep.md': note(3, [0]) }, new SlowFileSystemProvider());
+		await describe(fileService, 'a.md');
+		const { service, recognized } = start(fileService);
+		await service.whenCompared(folder);
+		await settle();
+
+		await fileService.move(resource('a.md'), resource('b.md'));
+		const settled: boolean[] = [];
+		for (let waited = 0; recognized.length === 0 && waited < 2000; waited++) {
+			settled.push(service.isSettled(folder));
+			await timeout(1);
+		}
+		// Before the file events arrive nothing is known. After that, no moment may look settled.
+		const afterTheEvents = settled.slice(settled.indexOf(false));
+
+		assert.deepStrictEqual({ recognized, sawUnsettled: afterTheEvents.length > 0, settledMeanwhile: afterTheEvents.filter(value => value).length, settledWhilePending: service.isSettled(folder) }, {
+			recognized: ['a.md -> b.md [file, sameContent]'],
+			sawUnsettled: true,
+			settledMeanwhile: 0,
+			// Its card information has not followed yet.
+			settledWhilePending: false
 		});
 	});
 
