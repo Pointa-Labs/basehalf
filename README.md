@@ -25,7 +25,7 @@ materials.
 
 </div>
 
-**Status:** BaseHalf 0.4.1 is the current public macOS Apple Silicon release.
+**Status:** BaseHalf 0.5.0 is the current public macOS Apple Silicon release.
 It is usable, early, and changing quickly. The product has moved from the old
 hand-rolled Electron/core shell onto `vscode-base/`, where VS Code provides the
 application substrate and BaseHalf owns the canvas-first product layer.
@@ -195,7 +195,7 @@ release notes.
 
 ## Install
 
-1. Download `BaseHalf-0.4.1-darwin-arm64.dmg` from
+1. Download `BaseHalf-0.5.0-darwin-arm64.dmg` from
    [the latest release][latest-release].
 2. Open the DMG and drag `BaseHalf.app` into Applications.
 3. If macOS blocks first launch, remove the quarantine attribute:
@@ -276,10 +276,13 @@ packages/                            historical BaseHalf core/desktop material
    activation into BaseHalf folder canvases and card detail.
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
-5. **Fixed shell, extensible main canvas.** Curated domain plugins can add
+5. **Fixed shell, extensible main canvas.** The built-in AI Video adds
    main-canvas recipes and templates, card previews, and file-specific Card
    Detail projections without replacing the canvas model, BaseHalf navigation,
-   the sidebar, or Agent Area. See the [plugin architecture](docs/plugin-architecture.md).
+   the sidebar, or Agent Area. The plugin platform it is built on is frozen:
+   nothing can be installed or published. See
+   [built-in AI Video and the frozen plugin platform](docs/specs/built-in-ai-video-and-plugin-freeze.md)
+   and the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
    over the same Markdown working copy.
 7. **BaseHalf does not secretly edit user files.** Automated services never
