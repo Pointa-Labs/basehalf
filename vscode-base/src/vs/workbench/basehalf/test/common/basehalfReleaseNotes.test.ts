@@ -35,11 +35,13 @@ suite('BaseHalfReleaseNotes', () => {
 			'Connections from earlier versions move into your files after you confirm.',
 			'If BaseHalf can\'t read a card\'s upstream list, the badge offers Rebuild List, which keeps the connections it can read.',
 			'BaseHalf can install a skill for your agents, so that Claude Code, Codex, and others know where a card\'s description and connections are. It asks first, and adds it to the agents\' own settings, not to your folder.',
+			'Every card keeps its place. When a file is added, its card goes after the last card and no other card moves. BaseHalf never puts a card on top of another one.',
 			'Files and folders whose names look like numbers, such as 09, keep their place on the canvas.',
 			'When BaseHalf can\'t read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.',
 			'If BaseHalf can\'t finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.',
 			'BaseHalf removes files that earlier versions kept for itself and no longer uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md, and remembers where you left each canvas on this computer.',
-			'If you keep your notes in git: the removed files show up as deletions, BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.'
+			'Where you put your cards stays with the folder on your computer. It is not shared through git any more, so moving a card no longer shows up as a change there. Descriptions and connections are shared as before.',
+			'If you keep your notes in git: the removed files show up as deletions, and BaseHalf no longer edits .gitignore. It keeps card positions and its own working files out of git by itself. Card positions that an earlier version committed stay in git until you remove them there. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.'
 		];
 		assert.deepStrictEqual(statements.filter(statement => !markdown.includes(statement)), []);
 		// Written for someone who does not read code: no file formats, and

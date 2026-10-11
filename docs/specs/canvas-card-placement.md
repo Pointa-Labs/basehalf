@@ -282,6 +282,22 @@ take the nearest open place to their slot.
 
 A pointed place is the user's. Its row is not a chosen row.
 
+### A card the user just created is shown
+
+Some actions of the user's create a card without naming a point: a project
+from a template is one. Its card goes to the end of the canvas like any
+other, and the end can be out of sight.
+
+- When BaseHalf selects cards because the user just created them, and one of
+  them is not fully inside the visible part of the canvas, the view goes to
+  them, as it does for a note the user creates beside another card.
+- A card that is in sight leaves the view as it is.
+- This is only for the user's own action in BaseHalf. A card that a program
+  or an agent added does not move the view.
+
+Found in the smoke on 2026-10-11: the card of a project made from a template
+was at the end of the canvas, outside the window, and could not be clicked.
+
 ### What the user changes
 
 - A card the user drags or resizes is saved where they left it, also on top
@@ -404,8 +420,10 @@ their descriptions. Those are shared through git as before.
   ```
 
   - It hides itself, every layout, and `.bh/cache/`.
-  - The third rule keeps the mirror directory of a user's own file that is
-    named `canvas.yaml` visible, with the description in it.
+  - The third rule keeps a directory of that name visible: the mirror
+    directory of a user's own file that is named `canvas.yaml`, with the
+    description in it. See [Limits](#limits) for when such a file can have
+    one.
   - Tried in a git repository on 2026-10-11: the layouts, the ignore file,
     and the cache did not show; the descriptions did, also the one of a file
     named `canvas.yaml` and the one of the user's own `.gitignore`.
@@ -490,6 +508,7 @@ A canvas shows at most 300 cards.
 | A file is renamed, in BaseHalf or outside | Its card stays where it is. |
 | A card is dragged | It is where it was dropped, also on another card. No other card moves. |
 | A card is created at a point | It is at that point, or beside it when the point is taken. |
+| A project is created from a template | Its card is after the last card, and the view goes to it when it was out of sight. |
 | Files are dropped at a point | They are in a block at that point. A card whose slot is taken is beside the block. |
 | A card is moved into another folder | It is after the last card of that folder, with its size. |
 | That move is undone | The card is back where it was. |
@@ -508,6 +527,15 @@ A canvas shows at most 300 cards.
   that for the user.
 - **A folder that two computers share through a file-sync service** shares
   its layouts as files. The later write stands.
+- **A file of the user's that is named `canvas.yaml`.** What BaseHalf keeps
+  for a file is under a directory with the file's path, and a folder's
+  layout is the file `canvas.yaml` under the folder's path. For such a file
+  the two are the same path. This is as old as the mirror, and the same
+  holds for a file named like any other mirror file. It matters more now,
+  because every shown folder has a layout: in a shown folder such a file can
+  have no description. Where the directory was there first, the layout of
+  that folder cannot be written, and its cards keep the places they are
+  drawn at for the window only.
 - **A copy whose original is deleted later.** The copy is drawn as a new
   card at the end. When the original is deleted and following moved items
   takes the copy for the moved item, the copy's card goes to the place the
@@ -523,8 +551,9 @@ A canvas shows at most 300 cards.
 - **A workspace folder without a snapshot**, because it holds more than
   200,000 items, gets saved places like any other. Items renamed outside
   BaseHalf are not recognized there, so they appear as new cards.
-- **The new card can be outside the visible part of the canvas.** BaseHalf
-  does not move the view to it.
+- **A card that another program added can be outside the visible part of the
+  canvas.** BaseHalf does not move the view to it. Only a card the user just
+  created is [shown to them](#a-card-the-user-just-created-is-shown).
 
 ## Compatibility
 
@@ -671,7 +700,8 @@ written with this document.
     rule that would include the layouts, and when everything is added to git
     at once.
 28. **A file named like a layout.** A file of the user's that is named
-    `canvas.yaml` is described. Git reports its description.
+    `canvas.yaml`, in a folder that has no layout, has a description. Git
+    reports the description.
 29. **The ignore file.** It is written before the first layout. One that is
     there with other content is not changed. One that was deleted is written
     again before the next layout write. The user's own `.gitignore` is
@@ -681,12 +711,23 @@ written with this document.
 
 - Unit tests of the canvas model for the plain grid, the end of a canvas,
   the nearest open place, and the block: criteria 4, 6, 7, 8, 9, 22, 23.
-- Unit tests of the canvas mirror for a row that follows its item, a chosen
-  row that gives way, and a card that comes back: criteria 11 to 16, 24.
-- Tests of the canvas with the moved-items service for how and when a place
-  is saved: criteria 1, 2, 3, 5, 10, 17 to 21, 25, 29.
-- Smoke steps for criteria 1, 3, 10, 13, and 16, and, in a fixture that is a
-  git repository, for 27 and 28 by what git itself reports.
+- Unit tests of the canvas mirror for the mark, for saving the places of
+  cards that appeared, for the ignore file, for a row that follows its
+  item, and for a card that comes back: criteria 11, 12, 16, 29.
+- Unit tests of the chosen places, on a file system with the real mirror
+  service, for how and when a place is saved: criteria 1, 2, 3, 5, 17 to
+  21, 24, 25.
+- A test with the moved-items service and the cascade for a row that
+  BaseHalf chose and whose file is moved outside BaseHalf: criteria 12 to
+  15.
+- Smoke steps in the real window, in a fixture that is a git repository:
+  `first-canvas-render-saves-places-out-of-git` for criteria 1, 2, 25, and
+  27, and `canvas-new-files-go-to-the-end` for 3, 4, 6, 10, and 27, with
+  every frame sampled while files are added.
+  `canvas-card-follows-outside-rename` and
+  `canvas-cards-follow-many-outside-renames` cover criterion 13.
+- Criterion 28 was checked in a git repository by hand on 2026-10-11, when
+  the ignore rules were written.
 - Criterion 26 in the real window, with frames sampled as in the trial of
   2026-10-11.
 

@@ -122,7 +122,9 @@ it by path, and where an edit to the file changes nothing.
      `canvas.yaml`;
   3. the upstream entries in other items' stores that name its path, or for a
      folder a path inside it.
-- **Followed item**: an item that has any card information.
+- **Followed item**: an item that has any card information. Every card has
+  a row since [canvas card placement](canvas-card-placement.md), so every
+  item whose card was shown is followed, also one the user never touched.
 - **Fingerprint** of a file:
   - its size in bytes and the SHA-256 of its content. For a file larger than
     16 MiB the hash covers three windows of 1 MiB: the first, the last, and
@@ -163,7 +165,7 @@ it by path, and where an edit to the file changes nothing.
     [entry updates](#entries-are-always-updated) that are still owed.
 - It is kept in a file of its own in BaseHalf's application storage for the
   workspace on this machine. It is never written into the workspace folder,
-  so it adds nothing to git and opening a folder still writes nothing there.
+  so it adds nothing to git.
 - **When a fingerprint is computed.** From saved disk content, never from an
   unsaved buffer:
   - when an item becomes followed, or comes under a followed folder;
@@ -362,6 +364,21 @@ to the new one.
      [recovery copy](mirror-file-resilience.md) and the moved card takes its
      place.
    - A relocated `badge.yaml` gets its new `path` and loses an orphan mark.
+   - **A card row that BaseHalf chose** at the new path is not something of
+     the user's, and gives way
+     ([canvas card placement](canvas-card-placement.md#a-row-follows-its-item)).
+     It is there when the item was drawn as a new card before it was known
+     to be a moved one, or when an earlier run stopped after writing it. In
+     the same folder the row that follows replaces it, so the card has the
+     place and size it had. A row of the user's at the new path stands, as
+     above.
+   - **A card row that changes folder** does not keep its coordinates: they
+     belong to the canvas it left. It goes to the end of the other canvas
+     with its size, as a row BaseHalf chose, and a row BaseHalf chose that
+     is already there keeps its place and takes that size. A folder without
+     a layout gets no row, and the card appears when its canvas is first
+     drawn. Either way the row at the old path is then removed, and a second
+     run changes nothing.
 5. **Entries.** Once the reference index is `ready` or `partial`, it reads
    the stores at the new paths, including a kept upstream list that moved
    with its item. Then every entry that still names an old path, and whose
@@ -451,9 +468,9 @@ move: a move this specification follows, and a move through the workbench.
 The aim is that the user notices nothing. Without the rules below, a rename
 outside BaseHalf would be followed correctly and still look wrong. Today the
 canvas lists the folder again 100 ms after a file event. The card of the old
-name disappears. A card for the new name appears in an automatic grid slot,
-which can lie on top of other cards, with "Loading preview…" and without a
-description. Only later would relocation bring it back.
+name disappears. A card for the new name appears at the end of the canvas,
+with "Loading preview…" and without a description. Only later would
+relocation bring it back.
 
 - **One change, not two.** A paired item's card keeps its place, its size,
   and its description, and shows its new name. The canvas does not draw a
@@ -493,7 +510,12 @@ description. Only later would relocation bring it back.
 - **Nothing is announced.** No notification, no button, no list. BaseHalf
   logs each relocation.
 - **Not recognized.** As today: the item is a new card without a
-  description in an automatic place.
+  description at the end of the canvas.
+- **The redraw after the wait is still a redraw for what happened on disk.**
+  It does not replace a description the user is typing, and it waits again
+  when another item is being recognized. Every card is followed now, so the
+  wait is common
+  ([canvas card placement](canvas-card-placement.md#every-shown-item-is-followed)).
 
 ## What agents are told
 
@@ -534,7 +556,10 @@ was running, the row says so.
 | Moved out of the workspace and brought back later | No |
 
 An item that is not recognized is handled as today, whatever its kind: its
-description and its place stay at the old path.
+description stays at the old path, and so does a place the user gave it. A
+place that BaseHalf chose for it is removed once the item is given up
+([canvas card placement](canvas-card-placement.md#a-chosen-row-whose-item-is-gone)).
+At its new path it is a new card at the end of the canvas.
 
 ## Limits
 
@@ -792,8 +817,9 @@ frame of the canvas.
   its own wait" are the fixes.
 - **Changed after the trial.** A card that was moved to another folder kept
   its coordinates in that folder's layout and could land on a card that was
-  there. [Canvas card placement](canvas-card-placement.md) gives it the
-  nearest free place instead, for moves inside BaseHalf and outside it.
+  there. [Canvas card placement](canvas-card-placement.md) puts it at the
+  end of that folder's canvas instead, for moves inside BaseHalf and outside
+  it.
 
 ## Open questions
 

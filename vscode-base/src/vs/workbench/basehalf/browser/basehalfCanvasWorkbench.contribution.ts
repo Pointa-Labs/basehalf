@@ -1536,6 +1536,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private canvasNavigationEpoch = 0;
 	private pendingCanvasSelection: IBaseHalfPendingCanvasSelection | undefined;
 	private pendingCanvasFit: IBaseHalfPendingCanvasFit | undefined;
+	/** Cards the user just created that are shown to them once they are drawn (canvas card placement). */
+	private pendingCanvasReveal: { readonly sceneKey: string; readonly paths: readonly string[]; readonly owner: IBaseHalfCanvasPostCreateOwner } | undefined;
 	private pendingDetailNameEditResourceKey: string | undefined;
 	private pendingDetailEditorFocusResourceKey: string | undefined;
 	private fileDragDepth = 0;
@@ -2787,6 +2789,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderCanvasWarning(warning);
 		}
 
+		this.revealCreatedCanvasCards(currentSceneKey);
 		if (this.pendingCanvasFit
 			&& (!this.isCanvasPostCreateOwnerCurrent(this.pendingCanvasFit.owner)
 				|| this.pendingCanvasFit.viewportGeneration !== this.viewportRestoreGeneration)) {
@@ -6874,7 +6877,49 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.queueCanvasSelection(this.sceneKey(folder), paths);
+		// The user just created these cards. A card that nobody pointed at is at
+		// the end of the canvas, which can be out of sight: it is shown to them.
+		this.pendingCanvasReveal = { sceneKey: this.sceneKey(folder), paths, owner: this.captureCanvasPostCreateOwner() };
 		this.requestRender();
+	}
+
+	/** The part of the canvas that the window shows, in canvas coordinates. */
+	private visibleCanvasBounds(): IBaseHalfCanvasBounds {
+		const surface = this.surface.getBoundingClientRect();
+		const start = this.canvasScene.screenToCanvasPosition(surface.left, surface.top);
+		const end = this.canvasScene.screenToCanvasPosition(surface.right, surface.bottom);
+		return { x: start.x, y: start.y, width: Math.max(0, end.x - start.x), height: Math.max(0, end.y - start.y) };
+	}
+
+	/**
+	 * Brings the cards the user just created into view when one of them is not
+	 * fully inside the visible part of the canvas. It waits until all of them
+	 * are drawn, and does nothing for cards that are in sight already.
+	 */
+	private revealCreatedCanvasCards(sceneKey: string): void {
+		const reveal = this.pendingCanvasReveal;
+		if (!reveal) {
+			return;
+		}
+		if (reveal.sceneKey !== sceneKey || !this.isCanvasPostCreateOwnerCurrent(reveal.owner)) {
+			this.pendingCanvasReveal = undefined;
+			return;
+		}
+		const items = [...this.renderedItemsByPath.values()];
+		const bounds = reveal.paths.map(path => {
+			const index = items.findIndex(item => item.path === path);
+			return index < 0 ? undefined : baseHalfCanvasItemBounds(items[index], index, items.length);
+		});
+		if (bounds.some(card => card === undefined)) {
+			return;
+		}
+		this.pendingCanvasReveal = undefined;
+		const visible = this.visibleCanvasBounds();
+		const inSight = (card: IBaseHalfCanvasBounds) => card.x >= visible.x && card.y >= visible.y
+			&& card.x + card.width <= visible.x + visible.width && card.y + card.height <= visible.y + visible.height;
+		if (!this.pendingCanvasFit && bounds.some(card => !inSight(card!))) {
+			this.pendingCanvasFit = { sceneKey, paths: reveal.paths, owner: reveal.owner, viewportGeneration: this.viewportRestoreGeneration };
+		}
 	}
 
 	private canvasCreatePlacement(context: IBaseHalfCanvasActionContext | undefined): {

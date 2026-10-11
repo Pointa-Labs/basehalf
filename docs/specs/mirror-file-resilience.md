@@ -49,9 +49,11 @@ where a description or keyword such as `2024` or `true` had the same effect.
 
 - **Mirror file**: `canvas.yaml`, `badge.yaml`, or `adhd.yaml` under
   `.bh/mirror/`.
-- **Layout file**: `canvas.yaml`. It holds card positions, sizes, and edge
-  anchor memory. BaseHalf rewrites it on every card move, and a lost row costs
-  one automatic placement.
+- **Layout file**: `canvas.yaml`. It holds the place and size of every card
+  and edge anchor memory, and it is kept out of git
+  ([canvas card placement](canvas-card-placement.md)). BaseHalf rewrites it
+  on every card move and when a card appears. A lost row costs one new
+  place: its card appears again, at the end of the canvas.
 - **Annotation file**: `badge.yaml` (a description) or `adhd.yaml` (reading
   aids). The user authored its content.
 - **Content failure**: the bytes of a mirror file cannot be read as that
@@ -133,7 +135,9 @@ Reading a canvas never fails because of the file's content.
 
 - **Rows.** A card row is kept when it is a mapping with a string `path`, a
   `kind` of `file` or `folder`, finite `x` and `y`, and positive finite
-  `width` and `height`. A size is positive when it is still above zero at the
+  `width` and `height`. It may hold `auto: true`, which marks a place that
+  BaseHalf chose and the user has not changed. Any other `auto` value reads
+  as no mark: the row is then the user's, which BaseHalf never replaces. A size is positive when it is still above zero at the
   precision BaseHalf writes, so that every row it reads is a row it can write
   back. An edge row is kept when `from` and `to` are strings
   and both anchors are `north`, `east`, `south`, or `west`. Every other row is
@@ -156,12 +160,17 @@ Reading changes nothing on disk.
 | State | Canvas |
 | --- | --- |
 | readable | saved layout |
-| `partial` | saved layout for the readable rows; cards whose row was skipped are placed as cards that were never positioned; notice "Some saved card positions could not be read" |
-| `unreadable` | every card placed as never positioned; notice "This canvas's saved layout could not be read" |
-| environmental read failure | every card placed as never positioned; notice "The saved layout could not be loaded: <cause>" |
+| `partial` | saved layout for the readable rows; cards whose row was skipped appear as new cards, at the end of the canvas; notice "Some saved card positions could not be read" |
+| `unreadable` | every card appears as a new card, in the plain grid; notice "This canvas's saved layout could not be read" |
+| environmental read failure | every card appears as a new card, in the plain grid; notice "The saved layout could not be loaded: <cause>" |
 
 The notice is one line on the canvas. It does not block any interaction and
 goes away once the file is readable again.
+
+The places of cards that appear over a damaged or unloaded layout are not
+saved by BaseHalf itself. They are kept while the window is open and saved
+with the user's next change of that canvas
+([canvas card placement](canvas-card-placement.md#when-a-place-cannot-be-saved)).
 
 ### Writing over content that could not be read
 

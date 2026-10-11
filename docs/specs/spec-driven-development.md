@@ -129,6 +129,12 @@ non-goal. Moving cards, changing a card's appearance, or marking reading aids
 in a source directory opened as a workspace can still write `.bh/mirror/`
 there. The disposable-fixture rule below is what keeps the source trees clean.
 
+The gap covers only what a user action writes. The places that BaseHalf
+chooses for cards by itself are never written in a marked folder: showing a
+canvas there writes nothing
+([canvas card placement](canvas-card-placement.md#when-a-place-cannot-be-saved)).
+A card that the user moves there saves the places of that canvas with it.
+
 Coding agents working on BaseHalf must not read or follow any `.bh/` data found
 in these source directories, including legacy `current_focus.yaml` or
 `focus.yaml` files. Such data is accidental generated contamination, not

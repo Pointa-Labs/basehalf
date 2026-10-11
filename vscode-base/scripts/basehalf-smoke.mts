@@ -283,6 +283,7 @@ try {
 			await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 			await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 			await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
+			await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -317,6 +318,7 @@ try {
 				'canvas-card-follows-outside-rename',
 				'canvas-follows-renamed-open-folder',
 				'canvas-cards-follow-many-outside-renames',
+				'canvas-new-files-go-to-the-end',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -356,6 +358,7 @@ try {
 		await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 		await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 		await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
+		await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -494,6 +497,7 @@ try {
 			'canvas-card-follows-outside-rename',
 			'canvas-follows-renamed-open-folder',
 			'canvas-cards-follow-many-outside-renames',
+			'canvas-new-files-go-to-the-end',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -9774,6 +9778,123 @@ async function assertCanvasCardsFollowManyOutsideRenames(page) {
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
 	fs.rmSync(mirror(folderName), { recursive: true, force: true });
 	await card(folderName).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+// Canvas card placement: every card has a saved place. A folder that was never
+// shown is drawn as the plain grid, and that drawing saves a row for each card.
+// A file that is added afterwards goes to the end, no card that was there moves
+// in any frame, a card the user drags is saved where it was dropped, and git
+// shows none of the places.
+async function assertCanvasNewFilesGoToTheEnd(page) {
+	const folderName = 'placed';
+	const mirror = (...segments) => path.join(workspacePath, '.bh', 'mirror', ...segments);
+	const layoutPath = mirror(folderName, 'canvas.yaml');
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}/${name}"]`);
+	const note = name => fs.writeFileSync(path.join(workspacePath, folderName, name), `# ${name}\n\nA note of the folder that tests where cards go, with words of its own: ${name}-alpha, ${name}-beta.\n`, 'utf8');
+	const rowOf = name => {
+		const raw = fs.existsSync(layoutPath) ? fs.readFileSync(layoutPath, 'utf8') : '';
+		const row = readCanvasCardGeometry(raw, `${folderName}/${name}`);
+		return row ? { x: row.x, y: row.y, chosen: new RegExp(`- path: "${folderName}/${name.replace(/[.]/g, '\\.')}"\\n(?: {4}.*\\n)*? {4}auto: true`).test(raw) } : undefined;
+	};
+	const hiddenInGit = () => gitStatusOfWorkspace().split('\n').filter(line => line.includes('.bh/')).sort().join('\n');
+	const original = ['b.md', 'c.md', 'd.md'];
+	const added = ['a.md', 'x1.md', 'x2.md', 'x3.md'];
+	const gitBefore = hiddenInGit();
+
+	fs.mkdirSync(path.join(workspacePath, folderName));
+	original.forEach(note);
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await card('d.md').waitFor({ state: 'visible', timeout: 15_000 });
+
+	// The first drawing: the plain grid for three cards, saved as places BaseHalf chose.
+	await waitUntil(() => original.every(name => rowOf(name) !== undefined), 'the first drawing of a folder to save a row for every card', 15_000);
+	const first = Object.fromEntries(original.map(name => [name, rowOf(name)]));
+	const expectedFirst = { 'b.md': { x: 710, y: 690, chosen: true }, 'c.md': { x: 1050, y: 690, chosen: true }, 'd.md': { x: 1390, y: 690, chosen: true } };
+	if (JSON.stringify(first) !== JSON.stringify(expectedFirst)) {
+		throw new Error(`The first drawing of a folder must be the plain grid, saved as places BaseHalf chose: ${JSON.stringify(first)}`);
+	}
+
+	// Every frame while files are added: where the three cards that were there are drawn.
+	await page.evaluate(paths => {
+		const cardOf = cardPath => Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element instanceof HTMLElement && element.dataset.basehalfCardPath === cardPath);
+		const placeOf = element => {
+			const rect = element.getBoundingClientRect();
+			return `${Math.round(rect.x / 4)},${Math.round(rect.y / 4)}`;
+		};
+		const places = new Map(paths.map(cardPath => [cardPath, placeOf(cardOf(cardPath))]));
+		const watch = { running: true, framesWithACardElsewhere: 0, framesWithACardMissing: 0 };
+		globalThis.basehalfPlaced = watch;
+		const tick = () => {
+			if (!watch.running) {
+				return;
+			}
+			for (const [cardPath, place] of places) {
+				const element = cardOf(cardPath);
+				if (!element) {
+					watch.framesWithACardMissing++;
+				} else if (placeOf(element) !== place) {
+					watch.framesWithACardElsewhere++;
+				}
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	}, original.map(name => `${folderName}/${name}`));
+
+	// A file whose name sorts before all others, and then three at once.
+	note('a.md');
+	await card('a.md').waitFor({ state: 'visible', timeout: 15_000 });
+	await waitUntil(() => rowOf('a.md') !== undefined, 'a new file to get a saved place', 15_000);
+	added.slice(1).forEach(note);
+	for (const name of added) {
+		await card(name).waitFor({ state: 'visible', timeout: 15_000 });
+	}
+	await waitUntil(() => added.every(name => rowOf(name) !== undefined), 'every new file to get a saved place', 15_000);
+	await page.waitForTimeout(1_000);
+	const watch = await page.evaluate(() => {
+		const state = globalThis.basehalfPlaced;
+		state.running = false;
+		return { framesWithACardElsewhere: state.framesWithACardElsewhere, framesWithACardMissing: state.framesWithACardMissing };
+	});
+	const rows = Object.fromEntries([...original, ...added].map(name => [name, rowOf(name)]));
+	// It was not sorted in: it is beside the last card. The row of five cells is then full, and a new row starts.
+	const endPlaces = ['1730,690', '2070,690', '710,970', '1050,970'];
+	const addedPlaces = added.map(name => `${rows[name].x},${rows[name].y}`);
+	if (original.some(name => JSON.stringify(rows[name]) !== JSON.stringify(expectedFirst[name]))
+		|| addedPlaces[0] !== endPlaces[0]
+		|| [...addedPlaces].sort().join(' ') !== [...endPlaces].sort().join(' ')
+		|| added.some(name => !rows[name].chosen)
+		|| watch.framesWithACardElsewhere > 0 || watch.framesWithACardMissing > 0) {
+		throw new Error(`Files that are added must go to the end of the canvas, and no card that was there may move: ${JSON.stringify({ rows, watch })}`);
+	}
+
+	// The user drags a card: it is saved where it was dropped, as the user's, and no other row changes.
+	const box = await card('c.md').boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + 14);
+	await page.mouse.down();
+	await page.mouse.move(box.x + box.width / 2 + 60, box.y + 14 + 130, { steps: 8 });
+	await page.mouse.up();
+	await waitUntil(() => rowOf('c.md')?.chosen === false, 'a dragged card to be saved as the user\'s', 15_000);
+	const afterDrag = Object.fromEntries([...original, ...added].map(name => [name, rowOf(name)]));
+	// It went right and down by about the distance of the pointer, whatever the zoom is.
+	const moved = { x: afterDrag['c.md'].x - 1050, y: afterDrag['c.md'].y - 690 };
+	if ([...original, ...added].some(name => name !== 'c.md' && JSON.stringify(afterDrag[name]) !== JSON.stringify(rows[name]))
+		|| moved.x < 20 || moved.x > 200 || moved.y < 60 || moved.y > 400) {
+		throw new Error(`A drag must change the row of the dragged card and no other: ${JSON.stringify({ moved, afterDrag })}`);
+	}
+
+	// Git shows none of it: not the layouts, not the ignore file. The notes themselves are new files, as they should be.
+	const status = gitStatusOfWorkspace();
+	if (hiddenInGit() !== gitBefore || !status.includes(`${folderName}/a.md`)) {
+		throw new Error(`Card places must not show in git, and the notes must:\n${status}`);
+	}
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(mirror(folderName), { recursive: true, force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
 async function assertCanvasUnreadableBadgeRecovers(page) {

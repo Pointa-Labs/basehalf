@@ -37,6 +37,7 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 
 ## Fewer Interruptions
 
+- Every card keeps its place. When a file is added, its card goes after the last card and no other card moves. BaseHalf never puts a card on top of another one.
 - Files and folders whose names look like numbers, such as 09, keep their place on the canvas.
 - When BaseHalf can't read something it saved for a canvas or a card, it keeps working with what it can read and keeps a copy of the rest. It never asks you to open or fix a file.
 - If BaseHalf can't finish updating its cards and badges after you move or delete something, you can Retry or Skip instead of being blocked.
@@ -44,7 +45,8 @@ BaseHalf is moving onto a real VS Code substrate while keeping the product canva
 ## Your Files
 
 - BaseHalf removes files that earlier versions kept for itself and no longer uses. It offers to remove the sections it added to CLAUDE.md and AGENTS.md, and remembers where you left each canvas on this computer.
-- If you keep your notes in git: the removed files show up as deletions, BaseHalf no longer edits .gitignore, and we recommend ignoring .bh/cache/. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.
+- Where you put your cards stays with the folder on your computer. It is not shared through git any more, so moving a card no longer shows up as a change there. Descriptions and connections are shared as before.
+- If you keep your notes in git: the removed files show up as deletions, and BaseHalf no longer edits .gitignore. It keeps card positions and its own working files out of git by itself. Card positions that an earlier version committed stay in git until you remove them there. A folder that ignores all of .bh/ does not share the upstream lists of PDFs, folders, and other non-note files.
 
 ## Current Product Shape
 

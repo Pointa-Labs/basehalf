@@ -202,6 +202,77 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
+	test('a card that BaseHalf placed follows its file, and a card that was drawn as new before its file was known to be moved gets the old place', async () => {
+		/** The rows of a layout: a row that BaseHalf chose is marked with a star. */
+		const rows = (layout: string | undefined) => (layout ?? '').split('  - path: ').slice(1).map(text => {
+			const value = (name: string) => /^-?\d+/.exec(text.split(`    ${name}: `)[1] ?? '')?.[0];
+			return `${JSON.parse(text.split('\n')[0])}@${value('x')},${value('width')}${text.includes('auto: true') ? '*' : ''}`;
+		});
+		const chosen = (path: string, x: number) => [...row(path, x), '    auto: true'];
+
+		// Every card has a row, also one the user never touched. Its file is renamed outside BaseHalf.
+		const untouched = await createFiles({
+			'notes/a.md': '# A\n\nA note that nobody placed by hand.\n',
+			'notes/b.md': '# B\n\nAnother note with words of its own.\n',
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', [chosen('notes/a.md', 10), chosen('notes/b.md', 350)])
+		});
+		await open(untouched);
+		await untouched.move(resource('notes/a.md'), resource('notes/renamed.md'));
+		await settle();
+
+		// A copy is drawn as a new card, with a place BaseHalf chose. Then the original is deleted:
+		// the copy is the moved item, and its card takes the place and the size the original had.
+		const copied = await createFiles({
+			'notes/a.md': '# A\n\nThe note the user placed.\n',
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', [row('notes/a.md', 10)])
+		});
+		await open(copied);
+		await copied.copy(resource('notes/a.md'), resource('notes/copy.md'));
+		await settle();
+		await copied.writeFile(resource('.bh/mirror/notes/canvas.yaml'), VSBuffer.fromString(canvas('notes', [row('notes/a.md', 10), [...row('notes/copy.md', 350).map(line => line.replace('width: 260', 'width: 300')), '    auto: true']])));
+		await copied.del(resource('notes/a.md'));
+		await settle();
+
+		// The same, but the user had moved the copy's card: that row stands, and the row that would follow stays.
+		const copiedAndPlaced = await createFiles({
+			'notes/a.md': '# A\n\nThe note the user placed.\n',
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', [row('notes/a.md', 10)])
+		});
+		await open(copiedAndPlaced);
+		await copiedAndPlaced.copy(resource('notes/a.md'), resource('notes/copy.md'));
+		await settle();
+		await copiedAndPlaced.writeFile(resource('.bh/mirror/notes/canvas.yaml'), VSBuffer.fromString(canvas('notes', [row('notes/a.md', 10), row('notes/copy.md', 900)])));
+		await copiedAndPlaced.del(resource('notes/a.md'));
+		await settle();
+
+		// To another folder that has a layout: the end of that canvas, with its size, as a row BaseHalf chose.
+		// To a folder without one: nothing is written there.
+		const moved = await createFiles({
+			'notes/a.md': '# A\n\nThe note the user placed.\n',
+			'notes/c.md': '# C\n\nA third note with other words in it.\n',
+			'seen/x.md': '# X\n\nA card that is already there.\n',
+			'.bh/mirror/notes/canvas.yaml': canvas('notes', [row('notes/a.md', 10), row('notes/c.md', 700)]),
+			'.bh/mirror/seen/canvas.yaml': canvas('seen', [row('seen/x.md', 500)])
+		});
+		await open(moved);
+		await moved.move(resource('notes/a.md'), resource('seen/a.md'));
+		await moved.move(resource('notes/c.md'), resource('unseen/c.md'));
+		await settle();
+		const movedFiles = await hidden(moved);
+
+		assert.deepStrictEqual({
+			untouched: rows((await hidden(untouched))['mirror/notes/canvas.yaml']),
+			copied: rows((await hidden(copied))['mirror/notes/canvas.yaml']),
+			copiedAndPlaced: rows((await hidden(copiedAndPlaced))['mirror/notes/canvas.yaml']),
+			moved: { from: rows(movedFiles['mirror/notes/canvas.yaml']), seen: rows(movedFiles['mirror/seen/canvas.yaml']), unseen: movedFiles['mirror/unseen/canvas.yaml'] }
+		}, {
+			untouched: ['notes/renamed.md@10,260*', 'notes/b.md@350,260*'],
+			copied: ['notes/copy.md@10,260'],
+			copiedAndPlaced: ['notes/a.md@10,260', 'notes/copy.md@900,260'],
+			moved: { from: [], seen: ['seen/x.md@500,260', 'seen/a.md@840,260*'], unseen: undefined }
+		});
+	});
+
 	test('nothing at the new path is replaced, an orphan badge there gives way with a recovery copy, and a folder takes everything below it along', async () => {
 		const fileService = await createFiles({
 			'a.md': 'The first note, with enough text to be told apart.\n',

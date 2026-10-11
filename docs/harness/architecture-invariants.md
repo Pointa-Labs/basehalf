@@ -80,6 +80,14 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   committed, unreadable canvas layout is skipped and preserved as a recovery
   copy, and the mirror cascade always offers Skip
   ([mirror file resilience](../specs/mirror-file-resilience.md), D40).
+- Every card has a saved place. A card gets it when it first appears on a
+  canvas, and after that only the user changes it: no place is computed
+  again at a later drawing, and BaseHalf never puts a card on another one by
+  its own choice. Places are kept in the folder's layout and out of git, by
+  an ignore file of BaseHalf's own inside `.bh/`. A row records whether
+  BaseHalf chose its place. Only such a row gives way to the row that
+  follows a moved item, and only such a row is removed when its item is gone
+  ([canvas card placement](../specs/canvas-card-placement.md), D46).
 - BaseHalf changes an upstream value only through a reference operation that
   the user started or confirmed, or through the rename refactor of an agent
   move, as listed in
@@ -95,14 +103,19 @@ See [roadmap.md](../roadmap.md), public decisions D20–D23 and D39 in
   Agents use their own file tools, also to move and rename files. BaseHalf
   recognizes a moved item by its content and moves what it keeps for it; no
   agent calls BaseHalf for that
-  ([following moved items](../specs/following-moved-items.md), D44).
+  ([following moved items](../specs/following-moved-items.md), D44). What
+  BaseHalf writes by itself is its own: the card information it moves along
+  with an item, and the places of cards that appear. Opening a folder
+  changes nothing that git shows, and nothing is written by itself in a
+  marked folder.
 - BaseHalf assumes users do not read code and never open `.bh/`. No message,
   button, or repair step sends them to a file's source or to a hidden file;
   repairs are actions in BaseHalf's own interface (D41). Messages give reasons
   in plain words: no file-format terms, no path under `.bh/`, and no raw file
   system error text, which goes to the log.
 - BaseHalf writes no agent guides, no `.bh/agent-harness/`, no focus state,
-  and no `.gitignore` edits into workspaces. Agent Area Claude Code sessions
+  and no edits of the user's `.gitignore` into workspaces. Its one ignore
+  file is `.bh/.gitignore`. Agent Area Claude Code sessions
   receive BaseHalf context at launch instead, as defined in
   [agent launch context](../specs/agent-launch-context.md).
 - BaseHalf is the container that intelligence flows through, not an
