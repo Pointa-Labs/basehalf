@@ -896,6 +896,73 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual((await service.readCanvas(folder('')))?.cards[0].path, 'external.md');
 	});
 
+	test('followNode moves rows into free places only, replaces nothing, and can be run again', async () => {
+		const row = (path: string, x: number) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, '    y: 20', '    width: 260', '    height: 140'];
+		const edge = (from: string, to: string, anchor = 'east') => [`  - from: "${from}"`, `    from_anchor: ${anchor}`, `    to: "${to}"`, '    to_anchor: west'];
+		const canvas = (path: string, cards: string[][], edges: string[][] = []) => [`path: "${path}"`, 'cards:', ...cards.flat(), 'edges:', ...edges.flat(), ''].join('\n');
+		const summary = async (service: BaseHalfCanvasMirrorService, relativePath: string) => {
+			const file = await service.readCanvas(folder(relativePath));
+			return { cards: (file?.cards ?? []).map(card => `${card.path}@${card.x}`), edges: (file?.edges ?? []).map(item => `${item.from}>${item.to}:${item.from_anchor}`) };
+		};
+
+		// A rename inside one folder: the row and its edges take the new name.
+		const renamed = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)], [edge('old.md', 'b.md'), edge('b.md', 'old.md')])]]));
+		await renamed.followNode(workspaceFolder, 'old.md', 'new.md');
+		const once = await summary(renamed, '');
+		await renamed.followNode(workspaceFolder, 'old.md', 'new.md');
+
+		// The new name already has a row of its own: both rows stay, and so does the edge that would collide.
+		const taken = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('new.md', 99), row('b.md', 50)], [edge('old.md', 'b.md'), edge('new.md', 'b.md', 'north')])]]));
+		await taken.followNode(workspaceFolder, 'old.md', 'new.md');
+
+		// A run that stopped after writing the new row: the old one is all that is left to remove.
+		const interrupted = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('new.md', 10)])]]));
+		await interrupted.followNode(workspaceFolder, 'old.md', 'new.md');
+
+		// To another folder: the row goes to that folder's canvas when its place is free.
+		const moved = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)], [edge('old.md', 'b.md')])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 70)])]
+		]));
+		await moved.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		const movedTaken = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10)])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/old.md', 70)])]
+		]));
+		await movedTaken.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+
+		// A folder: its own canvas goes row by row, and its card in the parent follows.
+		const folderMove = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('docs', 10)])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/a.md', 1), row('docs/b.md', 2)], [edge('docs/a.md', 'docs/b.md')])],
+			['/work/.bh/mirror/notes/canvas.yaml', canvas('notes', [row('notes/b.md', 77)])]
+		]));
+		await folderMove.followNode(workspaceFolder, 'docs', 'notes');
+
+		assert.deepStrictEqual({
+			renamed: once,
+			renamedAgain: await summary(renamed, ''),
+			taken: await summary(taken, ''),
+			interrupted: await summary(interrupted, ''),
+			moved: [await summary(moved, ''), await summary(moved, 'docs')],
+			movedTaken: [await summary(movedTaken, ''), await summary(movedTaken, 'docs')],
+			folderMove: [await summary(folderMove, ''), await summary(folderMove, 'docs'), await summary(folderMove, 'notes')]
+		}, {
+			renamed: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
+			renamedAgain: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
+			taken: { cards: ['old.md@10', 'new.md@99', 'b.md@50'], edges: ['old.md>b.md:east', 'new.md>b.md:north'] },
+			interrupted: { cards: ['new.md@10'], edges: [] },
+			moved: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@70', 'docs/old.md@10'], edges: [] }],
+			movedTaken: [{ cards: ['old.md@10'], edges: [] }, { cards: ['docs/old.md@70'], edges: [] }],
+			// `notes/b.md` had a row of its own: the row of `docs/b.md` stays behind.
+			folderMove: [
+				{ cards: ['notes@10'], edges: [] },
+				{ cards: ['docs/b.md@2'], edges: [] },
+				{ cards: ['notes/b.md@77', 'notes/a.md@1'], edges: ['notes/a.md>notes/b.md:east'] }
+			]
+		});
+	});
+
 	test('relocateNode renames the parent card and edge endpoints in place on a same-parent rename', async () => {
 		const files = new Map([
 			['/work/.bh/mirror/canvas.yaml', [

@@ -181,6 +181,16 @@ export interface IBaseHalfCanvasMirrorService {
 	 * entity directory to target casing: source and target are the same provider
 	 * identity, so parse the still-old YAML and rewrite it in place. */
 	relocateNodeIdentity(workspaceFolder: URI, from: string, to: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	/**
+	 * A node was found at `to` after it was moved outside BaseHalf (following
+	 * moved items, "Relocation"). Each row moves on its own: its card row, the
+	 * rows of its own canvas subtree, and on a same-parent rename the edge rows
+	 * that name it. A row moves only when its place at the new path is free.
+	 * When the new place holds exactly that row, only the old one is removed.
+	 * Anything else stays where it is, on both sides. Unlike
+	 * {@link relocateNode} it replaces nothing and can be run again.
+	 */
+	followNode(workspaceFolder: URI, from: string, to: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	/** A node was deleted: drop its own canvas subtree plus the parent folder's
 	 *  card and any edges touching it. */
 	purgeNode(workspaceFolder: URI, path: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
@@ -388,6 +398,78 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			if (carried) {
 				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, { ...carried, path: to });
 			}
+		});
+	}
+
+	followNode(workspaceFolder: URI, from: string, to: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		if (from === to || baseHalfIsMirrorSubtree(to, from) || baseHalfIsMirrorSubtree(from, to)) {
+			return Promise.resolve();
+		}
+		return this.runWorkspaceMutation(workspaceFolder, lease, () => this.followNodeLocked(workspaceFolder, from, to));
+	}
+
+	private async followNodeLocked(workspaceFolder: URI, from: string, to: string): Promise<void> {
+		const entries = await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml');
+		const sourceEntries = entries.filter(entry => baseHalfIsMirrorSubtree(entry.relativePath, from));
+		const oldParent = parentRel(from);
+		const newParent = parentRel(to);
+		const resources = new Map<string, IBaseHalfCanvasStructuralResource>();
+		const addResource = (resource: URI, relativePath: string, order: number): void => {
+			const key = resource.toString();
+			const previous = resources.get(key);
+			if (previous && previous.relativePath !== relativePath) {
+				throw new Error(`Canvas relocation aliases two logical paths at ${key}`);
+			}
+			resources.set(key, { resource, relativePath, order: Math.max(previous?.order ?? order, order) });
+		};
+		// The new places are written before the old ones are cleared, so a run
+		// that stops in between leaves a row in both, never in neither.
+		for (const entry of sourceEntries) {
+			const targetRel = baseHalfRemapSubtreeRel(entry.relativePath, from, to);
+			addResource(this.canvasResourceFor(workspaceFolder, targetRel), targetRel, 20);
+			addResource(entry.resource, entry.relativePath, 80);
+		}
+		addResource(this.canvasResourceFor(workspaceFolder, newParent), newParent, oldParent === newParent ? 90 : 30);
+		addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent, 90);
+
+		await this.executeCanvasStructuralTransaction(workspaceFolder, [...resources.values()], snapshots => {
+			const snapshotFor = (resource: URI): IBaseHalfCanvasStructuralSnapshot => {
+				const snapshot = snapshots.get(resource.toString());
+				if (!snapshot) {
+					throw new Error(`Missing canvas transaction snapshot for ${resource.toString()}`);
+				}
+				return snapshot;
+			};
+			const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
+
+			for (const entry of sourceEntries) {
+				const source = snapshotFor(entry.resource);
+				const target = snapshotFor(this.canvasResourceFor(workspaceFolder, baseHalfRemapSubtreeRel(entry.relativePath, from, to)));
+				const filled = fillFreeCanvasRows(target.next, source.next, swap);
+				target.next = filled.target;
+				source.next = filled.source;
+			}
+
+			const oldParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, oldParent));
+			if (oldParent === newParent) {
+				oldParentSnapshot.next = followNodeWithinParent(oldParentSnapshot.next, from, to);
+				return;
+			}
+			const newParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, newParent));
+			const carried = oldParentSnapshot.next.cards.find(card => card.path === from);
+			if (!carried) {
+				return;
+			}
+			const incoming = { ...carried, path: to };
+			const existing = newParentSnapshot.next.cards.find(card => card.path === to);
+			if (existing && !canvasCardsEqual(existing, incoming)) {
+				return;
+			}
+			if (!existing) {
+				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
+			}
+			// Its edge rows connected it to the cards of the old folder: they drop there, as on a workbench move.
+			oldParentSnapshot.next = removeNodeFromParentCanvas(oldParentSnapshot.next, from);
 		});
 	}
 
@@ -871,6 +953,87 @@ function relocateNodeWithinParent(canvas: IBaseHalfCanvasFile, from: string, to:
 		// destination collision under the parser's established last-wins rule.
 		edges: lastByKey([...retainedEdges, ...remappedSourceEdges], edge => `${edge.from}\u0000${edge.to}`)
 	};
+}
+
+function canvasCardsEqual(first: IBaseHalfCanvasCard, second: IBaseHalfCanvasCard): boolean {
+	return first.path === second.path && first.kind === second.kind && first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height;
+}
+
+function canvasEdgesEqual(first: IBaseHalfCanvasEdge, second: IBaseHalfCanvasEdge): boolean {
+	return first.from === second.from && first.to === second.to && first.from_anchor === second.from_anchor && first.to_anchor === second.to_anchor;
+}
+
+/**
+ * Moves the rows of `source` into the free places of `target`, with their
+ * paths mapped by `swap`. A row whose place holds exactly that row leaves the
+ * source too. A row whose place holds anything else stays in the source, and
+ * the target keeps what it has.
+ */
+function fillFreeCanvasRows(target: IBaseHalfCanvasFile, source: IBaseHalfCanvasFile, swap: (path: string) => string): { readonly target: IBaseHalfCanvasFile; readonly source: IBaseHalfCanvasFile } {
+	const cards = [...target.cards];
+	const keptCards: IBaseHalfCanvasCard[] = [];
+	for (const card of source.cards) {
+		const incoming = { ...card, path: swap(card.path) };
+		const existing = cards.find(other => other.path === incoming.path);
+		if (!existing) {
+			cards.push(incoming);
+		} else if (!canvasCardsEqual(existing, incoming)) {
+			keptCards.push(card);
+		}
+	}
+	const edges = [...target.edges];
+	const keptEdges: IBaseHalfCanvasEdge[] = [];
+	for (const edge of source.edges) {
+		const incoming = { ...edge, from: swap(edge.from), to: swap(edge.to) };
+		const existing = edges.find(other => other.from === incoming.from && other.to === incoming.to);
+		if (!existing) {
+			edges.push(incoming);
+		} else if (!canvasEdgesEqual(existing, incoming)) {
+			keptEdges.push(edge);
+		}
+	}
+	const sizeMoves = source.size !== undefined && (target.size === undefined || (target.size.width === source.size.width && target.size.height === source.size.height));
+	const { size: targetSize, ...targetRest } = target;
+	const { size: sourceSize, ...sourceRest } = source;
+	const nextSize = targetSize ?? (sizeMoves ? sourceSize : undefined);
+	return {
+		target: { ...targetRest, ...(nextSize ? { size: nextSize } : {}), cards, edges },
+		source: { ...sourceRest, ...(sourceSize && !sizeMoves ? { size: sourceSize } : {}), cards: keptCards, edges: keptEdges }
+	};
+}
+
+/** {@link fillFreeCanvasRows} for one card that changed its name inside one canvas. */
+function followNodeWithinParent(canvas: IBaseHalfCanvasFile, from: string, to: string): IBaseHalfCanvasFile {
+	const swap = (path: string): string => path === from ? to : path;
+	let cards = canvas.cards;
+	const carried = cards.find(card => card.path === from);
+	if (carried) {
+		const incoming = { ...carried, path: to };
+		const existing = cards.find(card => card.path === to);
+		if (!existing) {
+			cards = cards.map(card => card === carried ? incoming : card);
+		} else if (canvasCardsEqual(existing, incoming)) {
+			cards = cards.filter(card => card !== carried);
+		}
+	}
+	const edges: IBaseHalfCanvasEdge[] = [];
+	for (const edge of canvas.edges) {
+		if (edge.from !== from && edge.to !== from) {
+			edges.push(edge);
+			continue;
+		}
+		const incoming = { ...edge, from: swap(edge.from), to: swap(edge.to) };
+		if (incoming.from === incoming.to) {
+			continue;
+		}
+		const existing = canvas.edges.find(other => other.from === incoming.from && other.to === incoming.to);
+		if (!existing) {
+			edges.push(incoming);
+		} else if (!canvasEdgesEqual(existing, incoming)) {
+			edges.push(edge);
+		}
+	}
+	return { ...canvas, cards, edges };
 }
 
 /** The folder a node lives in (its parent), as a canvas rel (`''` = root). */
