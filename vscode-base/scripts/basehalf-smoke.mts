@@ -268,6 +268,7 @@ try {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 			await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
+			await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -299,6 +300,7 @@ try {
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
 				'canvas-unreadable-badge-recovers',
+				'canvas-card-follows-outside-rename',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -335,6 +337,7 @@ try {
 
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 		await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
+		await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -470,6 +473,7 @@ try {
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
 			'canvas-unreadable-badge-recovers',
+			'canvas-card-follows-outside-rename',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -9491,6 +9495,45 @@ async function assertCanvasCreateResultNodeSubmenu(page) {
  * the description field stays usable, and saving keeps the old file as a
  * recovery copy.
  */
+/**
+ * Following moved items: a described file that is renamed with the file
+ * system, outside the workbench, keeps its description at the new name, and
+ * nothing of it is left under the old name.
+ */
+async function assertCanvasCardFollowsOutsideRename(page) {
+	const mirror = name => path.join(workspacePath, '.bh', 'mirror', name);
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${name}"]`);
+	const lit = name => page.waitForFunction(cardPath => {
+		const toggle = document.querySelector(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"] .basehalf-canvas-card-badge-toggle`);
+		return toggle instanceof HTMLElement && toggle.classList.contains('lit');
+	}, name, { timeout: 15_000 });
+	const before = 'follow-before.md';
+	const after = 'follow-after.md';
+	const description = 'Follows its file wherever it goes';
+
+	fs.writeFileSync(path.join(workspacePath, before), '# A note that is renamed outside the window\n\nIts card has a description, and the description has to follow it.\n', 'utf8');
+	await card(before).waitFor({ state: 'visible', timeout: 15_000 });
+	fs.mkdirSync(mirror(before), { recursive: true });
+	fs.writeFileSync(path.join(mirror(before), 'badge.yaml'), `path: "${before}"\nkind: file\ndescription: "${description}"\n`, 'utf8');
+	await lit(before);
+	// BaseHalf takes the new description into what it follows after its quiet second.
+	await page.waitForTimeout(3_000);
+
+	fs.renameSync(path.join(workspacePath, before), path.join(workspacePath, after));
+	await waitUntil(() => {
+		const badge = fs.readFileSync(path.join(mirror(after), 'badge.yaml'), 'utf8');
+		return badge.includes(`path: "${after}"`) && badge.includes(description) && !fs.existsSync(mirror(before));
+	}, 'the description to follow the file that was renamed outside the window', 15_000);
+	await lit(after);
+	if (await card(before).count() !== 0) {
+		throw new Error('A card was left for the old name of a file that was renamed outside the window');
+	}
+
+	fs.rmSync(path.join(workspacePath, after), { force: true });
+	fs.rmSync(mirror(after), { recursive: true, force: true });
+	await card(after).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
 async function assertCanvasUnreadableBadgeRecovers(page) {
 	const badgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
 	const recoveryRoot = path.join(workspacePath, '.bh', 'cache', 'recovered');

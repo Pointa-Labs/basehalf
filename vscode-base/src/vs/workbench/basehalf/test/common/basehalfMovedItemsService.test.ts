@@ -214,6 +214,24 @@ suite('BaseHalfMovedItemsService', () => {
 		});
 	});
 
+	test('an item that gets its card while BaseHalf runs is followed from then on', async () => {
+		const fileService = await createFiles({ 'paper.pdf': `${PDF}body` });
+		const { service, recognized } = start(fileService);
+		await service.whenCompared(folder);
+
+		// Not followed yet: a rename is nothing BaseHalf has to act on.
+		await fileService.move(resource('paper.pdf'), resource('paper-1.pdf'));
+		await settle();
+		const before = [...recognized];
+
+		await describe(fileService, 'paper-1.pdf');
+		await settle();
+		await fileService.move(resource('paper-1.pdf'), resource('paper-2.pdf'));
+		await settle();
+
+		assert.deepStrictEqual({ before, after: recognized }, { before: [], after: ['paper-1.pdf -> paper-2.pdf [file, sameContent]'] });
+	});
+
 	test('a file that is renamed to a backup name and written again has not moved, and a file that is copied before the original is deleted has', async () => {
 		const fileService = await createFiles({ 'report.pdf': `${PDF}first`, 'plan.md': note(6) });
 		await describe(fileService, 'report.pdf');

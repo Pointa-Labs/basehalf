@@ -131,6 +131,8 @@ class FolderSnapshot {
 	readonly appearedFolders = new Map<string, number>();
 	/** Files that changed and need a new fingerprint. */
 	readonly changed = new Set<string>();
+	/** Card information changed on disk: the followed set has to be collected again. */
+	followedChanged = false;
 
 	readonly compared = new DeferredPromise<void>();
 	loaded = false;
@@ -611,6 +613,11 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 			}
 			let relevant = false;
 			const now = Date.now();
+			// An item becomes followed when card information is written for it.
+			if ([...added, ...updated, ...deleted].some(resource => getRelativePath(state.folder, resource)?.startsWith('.bh/mirror/'))) {
+				state.followedChanged = true;
+				relevant = true;
+			}
 			for (const resource of deleted) {
 				const path = getRelativePath(state.folder, resource);
 				if (path) {
@@ -737,6 +744,10 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				void this.enqueue(state, async () => {
 					await this.compareLists(state);
 					await this.refreshChanged(state);
+					if (state.followedChanged) {
+						state.followedChanged = false;
+						await this.refreshFollowed(state);
+					}
 				}).finally(() => {
 					if (waited) {
 						this.setComparing(state, -1);
@@ -766,7 +777,15 @@ export class BaseHalfMovedItemsService extends Disposable implements IBaseHalfMo
 				followed.set(path, 'folder');
 			}
 		}
-		// An item that is on its way to a new path stays followed until it is paired or its window ends.
+		// The card information of an item that was just recognized is still at
+		// its old path: the item stays followed until relocation reports back.
+		for (const move of state.pending) {
+			for (const [path, kind] of state.followed) {
+				if (baseHalfIsMirrorSubtree(path, move.to) && !followed.has(path)) {
+					followed.set(path, kind);
+				}
+			}
+		}
 		state.followed.clear();
 		for (const [path, kind] of followed) {
 			state.followed.set(path, kind);
