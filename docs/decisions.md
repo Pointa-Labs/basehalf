@@ -8,11 +8,11 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D43 capture the current direction; D35–D38
+> (see notes inline). D12–D44 capture the current direction; D35–D38
 > (2026-09) revise parts of D12, D13, D14, D19, D24, D36, and D37 as noted inline,
 > D39 (2026-10) refines D21, D40 (2026-10) refines D12 and D19, D41
-> (2026-10) refines D37 and D40, D42 (2026-10) refines D37, and D43
-> (2026-10) refines D36.
+> (2026-10) refines D37 and D40, D42 (2026-10) refines D37, D43
+> (2026-10) refines D36, and D44 (2026-10) refines D37, D40, and D43.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -1066,3 +1066,82 @@ agent started anywhere.
 - A badge that changes is not announced to a running session. The skill says
   to read it from disk again.
 
+
+## D44 — A card's information follows its item, whoever moved it (NEW, 2026-10-11)
+
+**Decision.** An item that anyone renames or moves with ordinary tools keeps
+its card, with no command for agents, no background program, and no question
+to the user. BaseHalf does what git does. It keeps a snapshot of what it last
+saw in a workspace folder, compares it with what is there now, and pairs an
+item that disappeared with one that appeared when their content is the same
+or mostly the same. A folder follows its files. A paired item's card
+information is moved to the new path. What is not paired is a deletion, and
+BaseHalf asks nothing. There is one method for every kind of item, and card
+information stays where it is. See
+[following items moved outside BaseHalf](specs/following-moved-items.md).
+
+**Why.** Card information is stored under the item's path, and a path is the
+one thing every tool changes. Only a move through the workbench kept the two
+together. The move operation for agents, the instruction to use it instead
+of `mv`, and the orphan mark all worked around that, and they covered only
+sessions started in Agent Area while BaseHalf runs. In the trials of the
+agent skill (D43), Claude Code and Codex each renamed a described file from
+outside Agent Area, and the description stayed behind every time. A
+container cannot require what flows through it to use its own door.
+
+Git solved this long ago by not tracking renames at all and inferring them
+from content, and it trusts that inference when it merges. Content is also
+the only evidence that survives what agents do. Measured: Claude Code's edit
+tools replace the file, and Codex's patch tool renames by writing a new
+file, so the file system's identity for a file is lost either way. With
+content, the result no longer depends on which tool moved the item or on
+whether BaseHalf was running, which a user could not have known.
+
+**What was set aside.**
+- A program that runs all the time and watches the folders. It guesses from
+  the same evidence, runs on days the user does not use BaseHalf, and fails
+  without anyone noticing.
+- Making the move operation reachable from every terminal. It needs BaseHalf
+  to be running and every agent to know and follow the instruction.
+- Telling agents to move the files under `.bh/` themselves. It makes a
+  hidden format something agents edit, and it helps only agents that read
+  the skill.
+- The file system's identity for a file as evidence. Earlier drafts used it.
+  It needs a service of its own, and the tools above break it.
+- Asking the user when the evidence is unclear. An earlier draft had a
+  question, a review list, and a command for it. They served cases that are
+  rare, and the cost was new buttons in the product for everyone.
+- Putting a note's description into the note. Notes would then be handled
+  one way and every other item another. One general method was preferred.
+- Storing card information under a hash of the content, as git stores
+  objects. An agent finds a description by the item's path, and every edit
+  would move it.
+- An identifier written into every file. BaseHalf would have to change files
+  the user only looked at, and it cannot write into a PDF or a folder.
+
+**Consequences.**
+- Refines D37, D40, and D43: a move outside the workbench is no longer left
+  to the user; "following files that are moved outside BaseHalf" stops being
+  a non-goal of the mirror; and the skill and the launch instruction no
+  longer tell agents how to move files.
+- Where a description, an upstream list, and a layout are stored does not
+  change. A note's upstream list stays in the note, as D37 decided.
+- Entries that name a moved item are rewritten without asking after every
+  move, also a move through the workbench. The setting
+  `basehalf.references.updateOnFileMove` and its prompt are removed. Two
+  rules stand behind this: whatever BaseHalf can update by itself, it
+  updates by itself, and what the canvas shows is what is stored.
+- The snapshot is kept in application storage on this machine, not in the
+  workspace. A machine that never saw the old state cannot recognize the
+  move.
+- Two different notes made from one template can be paired when one is
+  deleted and the other is created between two comparisons. This is accepted
+  in place of a question, as git accepts it. The share of content that has
+  to match is checked against real notes before it ships.
+- A file that is renamed and rewritten by more than half, an empty file, and
+  a folder without files are not recognized.
+- Following a move never replaces what is at the new path. It is a
+  relocation of its own that can be run twice, not the workbench's move
+  cascade.
+- `basehalf.workspace.move` becomes unnecessary and is removed in a later
+  change.
