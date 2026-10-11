@@ -1342,3 +1342,38 @@ wanted later, needs a way of its own, on purpose or live.
   to the row that follows a moved item, and only such a row is removed when
   its item is gone. BaseHalf does neither to a place the user chose.
 - The user can still put a card on another card. BaseHalf does not.
+
+## D47 — An update is downloaded once and is there at the next start (NEW, 2026-10-12)
+
+**Decision.** BaseHalf keeps its own update service for macOS and stays
+without platform signing. What the service downloads and unpacks is kept
+under the version it belongs to, not under the run that fetched it. An
+interrupted download continues, a complete one is not fetched again, and an
+update that is ready replaces the installed application at the latest when
+BaseHalf is started the next time, whatever ended the run before. The update
+interface stays the one of the VS Code base. BaseHalf's own version is shown
+wherever a version is shown. See [app update](specs/app-update.md).
+
+**Why.** On 2026-10-12 the first update of an installed application was
+tried, after 0.5.0 had been published. A download of 460 MB was thrown away
+because the application was quit, the next start said nothing and began
+again, and after the update the application named the same version as
+before, the one of the VS Code base. The service had been written when the
+archive was small, and nothing had ever tested an update. The updater of the
+base cannot be used: on macOS it is Electron's, which needs a signed
+application. Other applications without platform signing sign their updates
+with a key of their own, as BaseHalf does, and their updaters are either
+bound to another application framework or replace the application while it
+runs, which BaseHalf cannot do because it reads from its bundle for as long
+as it runs.
+
+**Consequences.**
+- The update of an installed application is tried before a release is
+  published, with the real application.
+- Installed copies up to 0.5.0 keep the first version's behavior until they
+  have been updated once, and they refuse an archive above 500 MiB. The
+  release script refuses such an archive.
+- No dialog is added and nothing is asked. A download that BaseHalf starts by
+  itself stays as quiet as the base makes it.
+- Platform signing stays possible later. It would replace this service with
+  the updater of the base.
