@@ -15437,8 +15437,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.detailBadgeZone.classList.remove('open');
 				const retry = append(this.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle.issue')) as HTMLButtonElement;
 				retry.type = 'button';
-				retry.title = 'Badge metadata unavailable - retry';
-				retry.setAttribute('aria-label', 'Badge metadata unavailable. Retry');
+				retry.title = localize('basehalf.cardDetail.badge.unavailable', "Badge unavailable - retry");
+				retry.setAttribute('aria-label', localize('basehalf.cardDetail.badge.unavailableAria', "Badge unavailable. Retry"));
 				retry.setAttribute('aria-expanded', 'false');
 				retry.setAttribute('data-testid', 'card-detail-badge-toggle');
 				retry.setAttribute('data-badge-unavailable', 'true');
