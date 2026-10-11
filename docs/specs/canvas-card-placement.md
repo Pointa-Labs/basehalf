@@ -504,8 +504,8 @@ whose card was shown is followed.
   the first 200 files below every folder whose card was shown.
 - The canvas now waits for the comparison after any item of the shown folder
   is removed outside BaseHalf, not only a described or placed one. A card of
-  a file that was deleted outside BaseHalf stays for about a second before
-  it goes.
+  a file that was deleted outside BaseHalf stays for about half a second
+  before it goes.
 - The redraw that follows that wait is a redraw for what happened on disk,
   and obeys what every such redraw obeys: it does not replace a description
   the user is typing, and it waits again when another item is being
@@ -790,9 +790,9 @@ some described), as a git repository, with every layout removed first.
 | --- | --- |
 | The folder was opened | 10 cards in the plain grid, 10 rows saved, none on another. The ignore file was written. Git reported nothing new. |
 | Twelve files were added to the root at once | All drawn and saved after 0.47 s. In 237 frames no card that was there was drawn elsewhere or missing. No row changed. The twelve followed the last card. |
-| A note was moved outside the window into a folder whose canvas had been shown | Its row was at the end of that canvas after 1.2 s, as a place BaseHalf chose. No row of that folder changed. |
+| A note was moved outside the window into a folder whose canvas had been shown | Its row was at the end of that canvas after 0.5 s, as a place BaseHalf chose. No row of that folder changed. |
 | An agent tool's two folders were added | Their cards followed the last card. In the trial before this change they lay behind two folder cards. |
-| One of twenty notes was renamed outside, then the other nineteen at once | The new names showed after 1.6 s and 1.7 s. All twenty kept their place. Nobody had placed these cards by hand. |
+| One of twenty notes was renamed outside, then the other nineteen at once | The new names showed after 1.0 s and 1.3 s. All twenty kept their place. Nobody had placed these cards by hand. |
 | At the end | Git reported the notes, and the descriptions that had followed the renamed notes. No layout, no ignore file, no working file. |
 
 The smoke found two things that the unit tests had not: the redraw after the
@@ -840,20 +840,26 @@ with this one.
 | The same folder: the snapshot after its root was shown | 0.12 MiB | 3.4 MiB |
 | The same folder: the snapshot after the folder of 300 was shown too | 0.12 MiB | 3.5 MiB |
 | The same folder: the layout of the folder of 300 | none | 36 KiB |
-| A note of the 300 renamed outside: until its card shows the new name | 0.3 s, as a new card whose neighbours shift | 1.3 s, at its place |
-| The notes folder: one of twenty notes renamed outside, then nineteen at once | followed only where a card was described or placed | 1.6 s and 1.7 s, all twenty at their places |
+| A note of the 300 renamed outside: until its card shows the new name | 0.3 s, as a new card whose neighbours shift | 0.7 s, at its place |
+| The notes folder: one of twenty notes renamed outside, then nineteen at once | followed only where a card was described or placed | 1.0 s and 1.3 s, all twenty at their places |
+| The notes folder: a note moved outside into another folder, until its row is there | not followed unless described or placed | 0.5 s |
 
 - The first drawing is not later in a way that can be noticed.
 - A rename is followed inside the two seconds the canvas waits.
 - The snapshot grows by about 0.8 KiB for each file under a shown folder
   card, up to 200 files for each. A workspace in which 5,000 items were
   shown stays near 4 MiB, far below the limit.
-- A file that nobody had touched and that is renamed outside now takes a
-  second longer to show its new name. Before, it showed at once, in a new
-  place. That second is the wait of following moved items, and it is what
-  keeps the card where it was.
+- A file that nobody had touched and that is renamed outside now takes
+  about half a second longer to show its new name. Before, it showed at
+  once, in a new place. The wait is what keeps the card where it was.
 
-No limit had to be set.
+One number was changed by these measurements. With every card followed, the
+wait of following moved items is in every rename outside BaseHalf, and it
+was one second: the three rows above read 1.3 s, 1.6 s and 1.7 s, and
+1.2 s. One second had never been measured. It is 300 ms now
+([following moved items](following-moved-items.md#when-basehalf-compares)),
+and the rows show what was measured with it. The machine was under load
+during all of these runs.
 
 ## Open questions
 

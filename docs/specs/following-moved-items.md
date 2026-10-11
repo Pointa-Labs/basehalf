@@ -170,7 +170,7 @@ it by path, and where an edit to the file changes nothing.
   unsaved buffer:
   - when an item becomes followed, or comes under a followed folder;
   - again when a file event changed the file, once the folder's file events
-    have been quiet for one second;
+    have been quiet for 300 ms;
   - again at open, when the file's size or modification time differs from
     the snapshot, as git refreshes its index.
 - An item that is followed only because an entry names it joins when the
@@ -197,10 +197,27 @@ it by path, and where an edit to the file changes nothing.
   what file events removed that it has a fingerprint for or that is a
   followed folder, and what they added. An item stays on its list for 60
   seconds.
-  - A comparison runs when the folder's file events have been quiet for one
-    second, and at the latest ten seconds after the first of them. It pairs
+  - A comparison runs when the folder's file events have been quiet for
+    300 ms, and at the latest ten seconds after the first of them. It pairs
     across the two lists by the rules below. A pair that was made earlier in
     the same 60 seconds still counts for a folder.
+  - **Why 300 ms.** It was one second at first, a value nobody had measured,
+    and every rename outside BaseHalf showed a second late. Measured on
+    2026-10-11 with a watcher on the folder:
+    - the events of one operation arrive together: a rename, `mv`, a rename
+      through a temporary name, a save that renames the file to a backup
+      and writes it again, a save that replaces the file, a move that
+      writes a new file and deletes the old one;
+    - the events of many arrive in batches at most 53 ms apart: 20 and 200
+      renames in a loop, a folder of 200 files copied and its original
+      deleted, a branch checkout that renames 20 files;
+    - the file watcher itself hands on a change of more than 500 files in
+      batches 200 ms apart.
+
+    300 ms is longer than all of these. What it does not cover, no wait of
+    this kind can: an agent that renames a file with one tool call and
+    rewrites it with the next, seconds later. The rules "Noted when it
+    happens" and "What an earlier comparison already saw" are for that.
   - **What an earlier comparison already saw.** A file that appeared before
     an earlier comparison ran was there next to the file that disappears
     now, and BaseHalf saw them as two items. It is that file's new place
@@ -208,9 +225,9 @@ it by path, and where an edit to the file changes nothing.
     deleted. It is never paired by mostly the same content. Without this
     rule, deleting one of two similar files that were made a moment ago
     would hand its card and the entries that name it to the other.
-  - Waiting for the quiet second is deliberate. A file that is renamed to a
-    backup name and written again at its old name has not moved: its path is
-    there again by then, so it did not disappear.
+  - Waiting until the folder is quiet is deliberate. A file that is renamed
+    to a backup name and written again at its old name has not moved: its
+    path is there again by then, so it did not disappear.
   - **Noted when it happens.** When file events remove a file BaseHalf has
     a fingerprint for, and a file with the same content appeared in those
     events or shortly before, BaseHalf notes at once what that file holds.
@@ -482,7 +499,7 @@ relocation bring it back.
   most two seconds. Navigation and the user's own edits are drawn at once.
   After that it draws what is on disk and corrects itself when relocation
   has finished. A card of a file that was deleted outside
-  BaseHalf therefore stays for about a second before it goes.
+  BaseHalf therefore stays for about half a second before it goes.
 - **Each move gets its own wait.** The two seconds count from the first
   change of one move. Once the folder is settled again, or another folder is
   shown, the next change starts a new wait. A wait that ended at its limit
@@ -825,6 +842,8 @@ frame of the canvas.
 ## Open questions
 
 1. **The limits.** 16 MiB, 1 MiB and 512 pieces, 200 files per folder,
-   200,000 items, the one, ten, and 60 seconds, the time the canvas waits,
+   200,000 items, the ten and 60 seconds, the time the canvas waits,
    and one half and 32 characters for similarity are first values. The measurements under
-   Verification decide them. None blocks implementation.
+   Verification decide them. None blocks implementation. The quiet time
+   before a comparison was one second and is 300 ms since it was measured
+   ([When BaseHalf compares](#when-basehalf-compares)).

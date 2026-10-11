@@ -57,7 +57,17 @@ export interface IBaseHalfMovedItemsTiming {
 	readonly saveMs: number;
 }
 
-export const BASEHALF_MOVED_ITEMS_TIMING: IBaseHalfMovedItemsTiming = { quietMs: 1000, maxWaitMs: 10_000, windowMs: 60_000, saveMs: 2000 };
+/**
+ * `quietMs` is set from measurement (following moved items, "When BaseHalf
+ * compares"). The events of one operation reach a watcher together, or in
+ * batches no more than 53 ms apart: a rename, a rename through a temporary
+ * name, a save by backup, 200 renames in a loop, a branch checkout. The file
+ * watcher itself hands on a change of more than 500 files in batches 200 ms
+ * apart. 300 ms is longer than both, so that a comparison does not run in the
+ * middle of an operation. It was one second before, which made every rename
+ * outside BaseHalf show a second late for no gain.
+ */
+export const BASEHALF_MOVED_ITEMS_TIMING: IBaseHalfMovedItemsTiming = { quietMs: 300, maxWaitMs: 10_000, windowMs: 60_000, saveMs: 2000 };
 
 export interface IBaseHalfRecognizedMoves {
 	readonly workspaceFolder: URI;
