@@ -105,8 +105,10 @@ it by path, and where an edit to the file changes nothing.
   away and `a.md` is renamed to `b.md`. The card stays with the path.
 - A move between workspace folders.
 - A copy. A copy is a new item without a card.
-- Removing the `basehalf.workspace.move` operation. It becomes unnecessary
-  and is removed in a later change.
+- Keeping the `basehalf.workspace.move` operation. Tracking a rename that
+  someone has to announce is the model this specification replaces. The
+  operation is removed in the last step of this work, once the smoke shows
+  that following works.
 
 ## Terms
 

@@ -1143,5 +1143,8 @@ whether BaseHalf was running, which a user could not have known.
 - Following a move never replaces what is at the new path. It is a
   relocation of its own that can be run twice, not the workbench's move
   cascade.
-- `basehalf.workspace.move` becomes unnecessary and is removed in a later
-  change.
+- `basehalf.workspace.move` becomes unnecessary. It is removed in the last
+  step of this work, once the smoke shows that following works.
+- Open questions of this work are settled by what git does: nothing is
+  overwritten silently, every step can be run again, what is not recognized
+  is left as it is and never deleted, and limits come from measurement.
