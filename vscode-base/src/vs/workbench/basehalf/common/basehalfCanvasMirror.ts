@@ -13,7 +13,9 @@ import { FileOperationError, FileOperationResult, IFileService } from '../../../
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import {
-	baseHalfCanvasOpenPosition,
+	baseHalfCanvasEndPlace,
+	baseHalfCanvasIsOpen,
+	baseHalfCanvasRowSpan,
 	IBaseHalfCanvasCard,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
@@ -22,12 +24,14 @@ import {
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
+import { baseHalfEnsureMirrorIgnoreFile } from './basehalfMirrorIgnore.js';
 import { baseHalfPreserveMirrorBytes } from './basehalfMirrorRecovery.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfIsMirrorSubtree, baseHalfMirrorPathSegments, baseHalfRemapSubtreeRel, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 import {
 	baseHalfMirrorPathNamesNode,
 	BaseHalfMirrorWriteRejected,
 	baseHalfMirrorYamlAbsent,
+	baseHalfMirrorYamlBoolean,
 	baseHalfMirrorYamlItems,
 	baseHalfMirrorYamlMap,
 	baseHalfMirrorYamlNumber,
@@ -45,6 +49,7 @@ export const IBaseHalfCanvasMirrorService = createDecorator<IBaseHalfCanvasMirro
 const CANVAS_YAML_MAX_BYTES = 512 * 1024;
 const CANVAS_PATCH_MAX_ATTEMPTS = 3;
 const CANVAS_STRUCTURAL_TRANSACTION_MAX_ATTEMPTS = 3;
+const CANVAS_ROWS_THAT_LEFT_LIMIT = 200;
 const CANVAS_ANCHORS = new Set(['north', 'east', 'south', 'west']);
 
 interface IBaseHalfCanvasAbsentReadState {
@@ -164,6 +169,18 @@ export interface IBaseHalfCanvasMirrorService {
 	/** Atomically upsert a set of card geometries by path. An empty set is a
 	 *  read-only no-op and returns the current canvas (or null when absent). */
 	updateCardGeometries(folder: IBaseHalfCanvasFolderState, cards: readonly IBaseHalfCanvasCard[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null>;
+	/**
+	 * Saves the places BaseHalf chose for the cards that appeared in one drawing
+	 * (canvas card placement, "How a place is saved"). It only adds rows: a row
+	 * that is there for a path stays as it is. In the same write it removes the
+	 * rows of `gone` that BaseHalf chose and nobody changed, whose items are no
+	 * longer in the folder.
+	 *
+	 * BaseHalf does not write over content it could not read by itself: for a
+	 * layout that cannot be read in full nothing is written and the result is
+	 * `undefined`. Otherwise the result is the layout as it is now.
+	 */
+	saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null | undefined>;
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
@@ -201,6 +218,8 @@ export interface IBaseHalfCanvasMirrorService {
 export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalfCanvasMirrorService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mutex = createKeyedMutex();
+	/** By workspace folder, then by the path the row had. */
+	private readonly rowsThatLeft = new Map<string, Map<string, IBaseHalfCanvasCard>>();
 
 	private readonly _onDidPreserveUnreadableCanvas = this._register(new Emitter<IBaseHalfCanvasPreservedEvent>());
 	readonly onDidPreserveUnreadableCanvas = this._onDidPreserveUnreadableCanvas.event;
@@ -246,6 +265,30 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
 			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => upsertCanvasCards(existing, cards))
 		);
+	}
+
+	async saveAppearedCards(folder: IBaseHalfCanvasFolderState, appeared: readonly IBaseHalfCanvasCard[], gone: readonly string[], lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile | null | undefined> {
+		if (appeared.length === 0 && gone.length === 0) {
+			return this.readCanvas(folder);
+		}
+		let damaged = false;
+		const saved = await this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
+			this.patchCanvas(folder.workspaceFolder, folder.relativePath, (existing, read) => {
+				damaged = read.exists && read.damage !== undefined;
+				if (damaged) {
+					return existing;
+				}
+				const goneRows = new Set(gone);
+				const kept = existing.cards.filter(card => !(card.auto && goneRows.has(card.path)));
+				const present = new Set(kept.map(card => card.path));
+				const added = appeared.filter(card => !present.has(card.path));
+				if (added.length === 0 && kept.length === existing.cards.length) {
+					return existing;
+				}
+				return { ...existing, cards: [...kept, ...added] };
+			})
+		);
+		return damaged ? undefined : saved;
 	}
 
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
@@ -354,6 +397,11 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 		addResource(this.canvasResourceFor(workspaceFolder, newParent), newParent, oldParent === newParent ? 90 : 30);
 		addResource(this.canvasResourceFor(workspaceFolder, oldParent), oldParent, 90);
 
+		// The row the card had at `to` before a move made in BaseHalf took it
+		// away: undo puts the card back where it was (canvas card placement).
+		const back = this.rowsThatLeft.get(workspaceFolder.toString())?.get(to);
+		let left: IBaseHalfCanvasCard | undefined;
+
 		await this.executeCanvasStructuralTransaction(workspaceFolder, [...resources.values()], snapshots => {
 			const snapshotFor = (resource: URI): IBaseHalfCanvasStructuralSnapshot => {
 				const snapshot = snapshots.get(resource.toString());
@@ -363,6 +411,7 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 				return snapshot;
 			};
 			const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
+			left = undefined;
 
 			// Retirement and relocation are computed from ONE immutable snapshot set.
 			// Destination state is cleared first, every source is tombstoned second,
@@ -391,15 +440,34 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			}
 
 			const newParentSnapshot = snapshotFor(this.canvasResourceFor(workspaceFolder, newParent));
-			const carried = oldParentSnapshot.next.cards.find(card => card.path === from);
+			left = oldParentSnapshot.next.cards.find(card => card.path === from);
 			oldParentSnapshot.next = removeNodeFromParentCanvas(oldParentSnapshot.next, from);
 			if (retireDestination) {
 				newParentSnapshot.next = removeNodeFromParentCanvas(newParentSnapshot.next, to);
 			}
-			if (carried) {
-				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, carriedCanvasCard(newParentSnapshot.next, carried, to));
+			const incoming = carriedCanvasCard(newParentSnapshot.next, left, to, back);
+			if (incoming) {
+				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
 			}
 		});
+
+		this.rememberRowThatLeft(workspaceFolder, from, to, left);
+	}
+
+	/** Kept while the window is open and stored nowhere: the last rows that a move made in BaseHalf took out of a layout. */
+	private rememberRowThatLeft(workspaceFolder: URI, from: string, to: string, left: IBaseHalfCanvasCard | undefined): void {
+		const key = workspaceFolder.toString();
+		const rows = this.rowsThatLeft.get(key) ?? new Map<string, IBaseHalfCanvasCard>();
+		this.rowsThatLeft.set(key, rows);
+		// The card is at `to` now: what was remembered for that path is used up.
+		rows.delete(to);
+		if (left) {
+			rows.delete(from);
+			rows.set(from, left);
+			if (rows.size > CANVAS_ROWS_THAT_LEFT_LIMIT) {
+				rows.delete(rows.keys().next().value!);
+			}
+		}
 	}
 
 	followNode(workspaceFolder: URI, from: string, to: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
@@ -473,14 +541,19 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 			if (!carried) {
 				return;
 			}
-			// The place depends only on the row and on the other rows of the new
-			// folder, so a second run computes the same one and finds it there.
-			const incoming = carriedCanvasCard(newParentSnapshot.next, carried, to);
 			const existing = newParentSnapshot.next.cards.find(card => card.path === to);
-			if (existing && !canvasCardsEqual(existing, incoming)) {
+			if (existing && !existing.auto) {
+				// A row of the user's stands, and the row that would follow stays at the old path.
 				return;
 			}
-			if (!existing) {
+			// A row BaseHalf chose is there when the item was drawn as a new card
+			// before it was known to be a moved one, or when an earlier run of this
+			// move stopped after this write. It keeps its place and takes the size of
+			// the row that follows, so a second run changes nothing here.
+			const incoming = existing
+				? { ...existing, width: carried.width, height: carried.height }
+				: carriedCanvasCard(newParentSnapshot.next, carried, to);
+			if (incoming) {
 				newParentSnapshot.next = upsertCanvasCard(newParentSnapshot.next, incoming);
 			}
 			// Its edge rows connected it to the cards of the old folder: they drop there, as on a workbench move.
@@ -636,6 +709,8 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 	private async commitCanvasState(workspaceFolder: URI, resource: URI, canvas: IBaseHalfCanvasFile, expected: IBaseHalfCanvasReadState): Promise<IBaseHalfCanvasCommit> {
 		const contents = encodeCanvasFile(canvas, resource);
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
+		// Layouts stay out of git: the ignore file is there before any layout is.
+		await baseHalfEnsureMirrorIgnoreFile(this.fileService, workspaceFolder);
 		await this.fileService.createFolder(dirname(resource));
 		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
 		let preserved: IBaseHalfCanvasPreservedEvent | undefined;
@@ -768,13 +843,13 @@ export class BaseHalfCanvasMirrorService extends Disposable implements IBaseHalf
 	 *  file. A materialized canvas that becomes empty stays as canonical YAML,
 	 *  avoiding an unguarded delete after the guarded commit. The update applies
 	 *  to the readable layout, so content that cannot be read never refuses it. */
-	private patchCanvas(workspaceFolder: URI, folderRel: string, update: (existing: IBaseHalfCanvasFile) => IBaseHalfCanvasFile): Promise<IBaseHalfCanvasFile> {
+	private patchCanvas(workspaceFolder: URI, folderRel: string, update: (existing: IBaseHalfCanvasFile, read: IBaseHalfCanvasReadState) => IBaseHalfCanvasFile): Promise<IBaseHalfCanvasFile> {
 		const resource = this.canvasResourceFor(workspaceFolder, folderRel);
 		return this.mutex.runExclusive(resource.toString(), async () => {
 			for (let attempt = 0; attempt < CANVAS_PATCH_MAX_ATTEMPTS; attempt++) {
 				const read = await this.readCanvasStateAt(workspaceFolder, resource, folderRel);
 				const existing = read.canvas ?? { path: folderRel, cards: [], edges: [] };
-				const next = update(existing);
+				const next = update(existing, read);
 				if (next === existing) {
 					return next;
 				}
@@ -928,15 +1003,49 @@ function removeNodeFromParentCanvas(canvas: IBaseHalfCanvasFile, path: string): 
  * state is retired before the incoming source card/edges are mapped, so there
  * is exactly one target card and its geometry is the source identity's. */
 /**
- * The row of a card that is carried into another folder's layout: it keeps
- * its size, and its coordinates when that place is free of the rows that are
- * there. Otherwise it takes the nearest free place (canvas card placement).
- * The coordinates meant something in the folder it came from only.
+ * The row of a card that goes to another folder (canvas card placement). It
+ * keeps its size and goes to the end of that canvas, as a row BaseHalf chose:
+ * the coordinates it had belong to the canvas it left.
+ *
+ * - `back` is the row the card had in this folder before a move made in
+ *   BaseHalf took it away. It is restored when its place is still open, so
+ *   that undo puts the card where it was.
+ * - A folder without card rows gets none: the card appears with the others
+ *   when that canvas is first drawn.
+ *
+ * The place depends only on the other rows of the layout, so relocation of a
+ * followed item stays safe to repeat.
  */
-function carriedCanvasCard(canvas: IBaseHalfCanvasFile, carried: IBaseHalfCanvasCard, to: string): IBaseHalfCanvasCard {
-	const taken = canvas.cards.filter(card => card.path !== to).map(card => ({ x: card.x, y: card.y, width: card.width, height: card.height }));
-	const place = baseHalfCanvasOpenPosition({ x: carried.x, y: carried.y }, { width: carried.width, height: carried.height }, taken);
-	return { ...carried, path: to, x: place.x, y: place.y };
+function carriedCanvasCard(canvas: IBaseHalfCanvasFile, carried: IBaseHalfCanvasCard | undefined, to: string, back?: IBaseHalfCanvasCard): IBaseHalfCanvasCard | undefined {
+	const taken = canvas.cards.filter(card => card.path !== to);
+	if (back && baseHalfCanvasIsOpen(back, taken)) {
+		return { ...back, path: to };
+	}
+	if (!carried || taken.length === 0) {
+		return undefined;
+	}
+	const size = { width: carried.width, height: carried.height };
+	return { path: to, kind: carried.kind, ...baseHalfCanvasEndPlace(taken, size, baseHalfCanvasRowSpan(taken, 1)), ...size, auto: true };
+}
+
+/**
+ * What a row does that follows its item to a path where a row may already be
+ * (following moved items, "Relocation"):
+ * - `move`: nothing is there;
+ * - `drop`: the same row is there, as an earlier run of this move left it;
+ * - `replace`: a row BaseHalf chose is there. The item was drawn as a new card
+ *   before it was known to be a moved one, and that row gives way;
+ * - `keep`: a row of the user's is there. It stands, and the row that would
+ *   follow stays at the old path.
+ */
+function followingRow(incoming: IBaseHalfCanvasCard, existing: IBaseHalfCanvasCard | undefined): 'move' | 'drop' | 'replace' | 'keep' {
+	if (!existing) {
+		return 'move';
+	}
+	if (canvasCardsEqual(existing, incoming)) {
+		return 'drop';
+	}
+	return existing.auto ? 'replace' : 'keep';
 }
 
 function relocateNodeWithinParent(canvas: IBaseHalfCanvasFile, from: string, to: string, retireDestination: boolean): IBaseHalfCanvasFile {
@@ -997,15 +1106,16 @@ function canvasEdgesEqual(first: IBaseHalfCanvasEdge, second: IBaseHalfCanvasEdg
  * the target keeps what it has.
  */
 function fillFreeCanvasRows(target: IBaseHalfCanvasFile, source: IBaseHalfCanvasFile, swap: (path: string) => string): { readonly target: IBaseHalfCanvasFile; readonly source: IBaseHalfCanvasFile } {
-	const cards = [...target.cards];
+	let cards = [...target.cards];
 	const keptCards: IBaseHalfCanvasCard[] = [];
 	for (const card of source.cards) {
 		const incoming = { ...card, path: swap(card.path) };
 		const existing = cards.find(other => other.path === incoming.path);
-		if (!existing) {
-			cards.push(incoming);
-		} else if (!canvasCardsEqual(existing, incoming)) {
-			keptCards.push(card);
+		switch (followingRow(incoming, existing)) {
+			case 'move': cards.push(incoming); break;
+			case 'replace': cards = cards.map(other => other === existing ? incoming : other); break;
+			case 'keep': keptCards.push(card); break;
+			case 'drop': break;
 		}
 	}
 	const edges = [...target.edges];
@@ -1037,10 +1147,12 @@ function followNodeWithinParent(canvas: IBaseHalfCanvasFile, from: string, to: s
 	if (carried) {
 		const incoming = { ...carried, path: to };
 		const existing = cards.find(card => card.path === to);
-		if (!existing) {
-			cards = cards.map(card => card === carried ? incoming : card);
-		} else if (canvasCardsEqual(existing, incoming)) {
-			cards = cards.filter(card => card !== carried);
+		switch (followingRow(incoming, existing)) {
+			case 'move': cards = cards.map(card => card === carried ? incoming : card); break;
+			// The card has the place and the size it had under its old path.
+			case 'replace': cards = cards.filter(card => card !== existing).map(card => card === carried ? incoming : card); break;
+			case 'drop': cards = cards.filter(card => card !== carried); break;
+			case 'keep': break;
 		}
 	}
 	const edges: IBaseHalfCanvasEdge[] = [];
@@ -1157,6 +1269,9 @@ export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 				`    width: ${formatNumber(card.width)}`,
 				`    height: ${formatNumber(card.height)}`
 			);
+			if (card.auto) {
+				lines.push('    auto: true');
+			}
 		}
 	}
 
@@ -1339,7 +1454,9 @@ function decodeCanvasCard(node: YamlNode): IBaseHalfCanvasCard | string {
 	if (!size) {
 		return ' must have a positive width and height';
 	}
-	return { path, kind, x, y, width: size.width, height: size.height };
+	// Anything but `true` reads as a row of the user's, which BaseHalf never replaces.
+	const auto = baseHalfMirrorYamlBoolean(baseHalfMirrorYamlProperty(map, 'auto')) === true;
+	return { path, kind, x, y, width: size.width, height: size.height, ...(auto ? { auto } : {}) };
 }
 
 function decodeCanvasEdge(node: YamlNode): IBaseHalfCanvasEdge | string {

@@ -29,6 +29,7 @@ import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/bas
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeMirrorService } from '../../common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.js';
+import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnore.js';
 import { IBaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
@@ -172,6 +173,8 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			'.bh/mirror/papers/canvas.yaml': canvas('papers', [row('papers/x.pdf', 10)])
 		};
 		const expected = (name: string) => ({
+			// A layout was written, so the file that keeps layouts out of git is there.
+			'.gitignore': BASEHALF_MIRROR_IGNORE_CONTENT,
 			[`mirror/papers/${name}/appearance.yaml`]: 'color: "blue"\n',
 			[`mirror/papers/${name}/badge.yaml`]: badge(`papers/${name}`, 'The paper we build on.'),
 			[`mirror/papers/${name}/upstream.yaml`]: 'upstream:\n  - notes/plan.md\n',

@@ -9,6 +9,7 @@ import { dirname, relativePath as getRelativePath } from '../../../base/common/r
 import { URI } from '../../../base/common/uri.js';
 import { IFileService } from '../../../platform/files/common/files.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
+import { baseHalfEnsureMirrorIgnoreFile } from './basehalfMirrorIgnore.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from './basehalfMirrorTree.js';
 
 const RECOVERY_DIGEST_LENGTH = 12;
@@ -54,6 +55,8 @@ export async function baseHalfMirrorRecoveryResource(workspaceFolder: URI, mirro
 export async function baseHalfPreserveMirrorBytes(fileService: IFileService, workspaceFolder: URI, mirrorResource: URI, contents: VSBuffer): Promise<URI> {
 	const target = await baseHalfMirrorRecoveryResource(workspaceFolder, mirrorResource, contents);
 	await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, workspaceFolder, target);
+	// A recovery copy is a working file: git must not show it.
+	await baseHalfEnsureMirrorIgnoreFile(fileService, workspaceFolder);
 	await fileService.createFolder(dirname(target));
 	await baseHalfAssertBhPathComponentsNotSymbolicLink(fileService, workspaceFolder, target);
 	try {

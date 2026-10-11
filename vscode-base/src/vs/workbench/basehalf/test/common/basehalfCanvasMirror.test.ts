@@ -14,12 +14,15 @@ import {
 	IFileStat
 } from '../../../../platform/files/common/files.js';
 import { BaseHalfCanvasMirrorService, BaseHalfCanvasStateConflict, IBaseHalfCanvasPreservedEvent, serializeCanvasFile, upsertCanvasCard } from '../../common/basehalfCanvasMirror.js';
-import { baseHalfCanvasOpenPosition, IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasEdge } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
+import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnore.js';
 import { baseHalfMirrorRecoveryResource } from '../../common/basehalfMirrorRecovery.js';
 import { BaseHalfMirrorSymbolicLinkError } from '../../common/basehalfMirrorTree.js';
 import { BaseHalfMirrorWriteRejected } from '../../common/basehalfMirrorYaml.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
+
+const IGNORE_FILE_PATH = '/work/.bh/.gitignore';
 
 /** Names that an earlier reader mistook for numbers, booleans, or null, and names that need escaping. */
 const TRICKY_NAMES = ['09', '2024', '-3', '1.5', '1e21', 'true', 'false', 'null', '~', '', ' lead', 'trail ', '"q"', 'it\'s', 'back\\slash', 'a: b', 'a #b', 'line\nbreak', 'bell\u0007', 'ls\u2028x', '中文 笔记.md'];
@@ -896,13 +899,93 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual((await service.readCanvas(folder('')))?.cards[0].path, 'external.md');
 	});
 
-	test('followNode moves rows into free places only, replaces nothing, and can be run again', async () => {
-		const row = (path: string, x: number) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, '    y: 20', '    width: 260', '    height: 140'];
+	test('saves the places of cards that appeared: it adds rows, changes none, and removes only rows BaseHalf chose', async () => {
+		const chosen = (path: string, x: number): IBaseHalfCanvasCard => ({ path, kind: 'file', x, y: 20, width: 300, height: 220, auto: true });
+		const files = new Map([['/work/.bh/mirror/canvas.yaml', [
+			'path: ""',
+			'cards:',
+			'  - path: "mine.md"', '    kind: file', '    x: 10', '    y: 20', '    width: 300', '    height: 220',
+			'  - path: "chosen.md"', '    kind: file', '    x: 350', '    y: 20', '    width: 300', '    height: 220', '    auto: true',
+			'  - path: "gone-mine.md"', '    kind: file', '    x: 690', '    y: 20', '    width: 300', '    height: 220',
+			'  - path: "gone-chosen.md"', '    kind: file', '    x: 1030', '    y: 20', '    width: 300', '    height: 220', '    auto: true',
+			'edges: []',
+			''
+		].join('\n')]]);
+		const service = createService(files);
+
+		// Another window saved `chosen.md` first, and the user's row for `mine.md` is there: neither is changed.
+		const saved = await service.saveAppearedCards(folder(''), [chosen('mine.md', 999), chosen('chosen.md', 999), chosen('new.md', 1370)], ['gone-mine.md', 'gone-chosen.md', 'chosen.md-not-gone']);
+		const written = files.get('/work/.bh/mirror/canvas.yaml');
+		const again = await service.saveAppearedCards(folder(''), [chosen('new.md', 1)], []);
+
+		assert.deepStrictEqual({
+			rows: saved?.cards.map(card => `${card.path}@${card.x}${card.auto ? '*' : ''}`),
+			// The mark is one line of the row, and it is read back.
+			markWritten: written?.includes('  - path: "new.md"\n    kind: file\n    x: 1370\n    y: 20\n    width: 300\n    height: 220\n    auto: true\n'),
+			unchangedByASecondRun: files.get('/work/.bh/mirror/canvas.yaml') === written,
+			secondRun: again?.cards.length
+		}, {
+			rows: ['mine.md@10', 'chosen.md@350*', 'gone-mine.md@690', 'new.md@1370*'],
+			markWritten: true,
+			unchangedByASecondRun: true,
+			secondRun: 4
+		});
+	});
+
+	test('does not save chosen places over a layout it cannot read in full', async () => {
+		const damaged = 'path: ""\ncards:\n  - path: "a.md"\n    kind: file\n    x: 10\n    y: 20\n    width: 300\n    height: 220\n  - path: "broken.md"\n    kind: file\nedges: []\n';
+		const files = new Map([['/work/.bh/mirror/canvas.yaml', damaged]]);
+		const service = createService(files);
+
+		const saved = await service.saveAppearedCards(folder(''), [{ path: 'new.md', kind: 'file', x: 350, y: 20, width: 300, height: 220, auto: true }], []);
+
+		assert.deepStrictEqual({ saved, bytes: files.get('/work/.bh/mirror/canvas.yaml') === damaged, files: [...files.keys()] }, { saved: undefined, bytes: true, files: ['/work/.bh/mirror/canvas.yaml'] });
+	});
+
+	test('writes the ignore file before the first layout, leaves one that is there, and writes no layout without it', async () => {
+		const card: IBaseHalfCanvasCard = { path: 'a.md', kind: 'file', x: 10, y: 20, width: 300, height: 220 };
+		const first = new TestFileService(new Map());
+		first.ignoreFileThere = false;
+		await mirrorService(first as unknown as IFileService).updateCardGeometry(folder(''), card);
+		const firstFiles = [...first.files.keys()];
+		// Deleted, and written again before the next layout write.
+		first.files.delete(IGNORE_FILE_PATH);
+		await mirrorService(first as unknown as IFileService).updateCardGeometry(folder(''), { ...card, x: 50 });
+
+		// One that is there is left as it is, whatever it holds.
+		const edited = new TestFileService(new Map([[IGNORE_FILE_PATH, '# changed by someone\n']]));
+		edited.ignoreFileThere = false;
+		await mirrorService(edited as unknown as IFileService).updateCardGeometry(folder(''), card);
+
+		// It cannot be written: then no layout is written either, so git never shows one.
+		const failing = new TestFileService(new Map());
+		failing.ignoreFileThere = false;
+		failing.failNextWrite(IGNORE_FILE_PATH, new Error('disk full'));
+		const failed = await mirrorService(failing as unknown as IFileService).updateCardGeometry(folder(''), card).then(() => 'written', error => (error as Error).message);
+
+		assert.deepStrictEqual({
+			firstFiles,
+			content: first.files.get(IGNORE_FILE_PATH),
+			edited: edited.files.get(IGNORE_FILE_PATH),
+			failed,
+			failingFiles: [...failing.files.keys()]
+		}, {
+			firstFiles: [IGNORE_FILE_PATH, '/work/.bh/mirror/canvas.yaml'],
+			content: BASEHALF_MIRROR_IGNORE_CONTENT,
+			edited: '# changed by someone\n',
+			failed: 'disk full',
+			failingFiles: []
+		});
+	});
+
+	test('followNode moves rows into free places only, replaces nothing of the user\'s, and can be run again', async () => {
+		const row = (path: string, x: number, auto = false) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, '    y: 20', '    width: 260', '    height: 140', ...(auto ? ['    auto: true'] : [])];
 		const edge = (from: string, to: string, anchor = 'east') => [`  - from: "${from}"`, `    from_anchor: ${anchor}`, `    to: "${to}"`, '    to_anchor: west'];
 		const canvas = (path: string, cards: string[][], edges: string[][] = []) => [`path: "${path}"`, 'cards:', ...cards.flat(), 'edges:', ...edges.flat(), ''].join('\n');
+		// A row that BaseHalf chose is marked with a star.
 		const summary = async (service: BaseHalfCanvasMirrorService, relativePath: string) => {
 			const file = await service.readCanvas(folder(relativePath));
-			return { cards: (file?.cards ?? []).map(card => `${card.path}@${card.x}`), edges: (file?.edges ?? []).map(item => `${item.from}>${item.to}:${item.from_anchor}`) };
+			return { cards: (file?.cards ?? []).map(card => `${card.path}@${card.x}${card.auto ? '*' : ''}`), edges: (file?.edges ?? []).map(item => `${item.from}>${item.to}:${item.from_anchor}`) };
 		};
 
 		// A rename inside one folder: the row and its edges take the new name.
@@ -919,17 +1002,35 @@ suite('BaseHalfCanvasMirrorService', () => {
 		const interrupted = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('new.md', 10)])]]));
 		await interrupted.followNode(workspaceFolder, 'old.md', 'new.md');
 
-		// To another folder: the row goes to that folder's canvas when its place is free.
+		// The item was drawn as a new card before it was known to be a moved one:
+		// the row BaseHalf chose for it gives way, and the card has its old place.
+		const drawnFirst = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50), row('new.md', 400, true)])]]));
+		await drawnFirst.followNode(workspaceFolder, 'old.md', 'new.md');
+
+		// To another folder: the row goes to the end of that folder's canvas, as a row BaseHalf chose.
 		const moved = createService(new Map([
 			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)], [edge('old.md', 'b.md')])],
 			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 700)])]
 		]));
 		await moved.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		const movedOnce = [await summary(moved, ''), await summary(moved, 'docs')];
+		await moved.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		// A row of the user's is at the new path: it stands, and the row that would follow stays.
 		const movedTaken = createService(new Map([
 			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10)])],
 			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/old.md', 70)])]
 		]));
 		await movedTaken.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		// A row BaseHalf chose is at the new path, from a drawing or from a run that
+		// stopped after writing it: it keeps its place, and the old row goes.
+		const movedDrawnFirst = createService(new Map([
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10)])],
+			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', [row('docs/x.md', 700), row('docs/old.md', 1040, true)])]
+		]));
+		await movedDrawnFirst.followNode(workspaceFolder, 'old.md', 'docs/old.md');
+		// The other folder has no layout: nothing is written there, and the card appears when it is first drawn.
+		const movedIntoUnseen = createService(new Map([['/work/.bh/mirror/canvas.yaml', canvas('', [row('old.md', 10), row('b.md', 50)])]]));
+		await movedIntoUnseen.followNode(workspaceFolder, 'old.md', 'docs/old.md');
 
 		// A folder: its own canvas goes row by row, and its card in the parent follows.
 		const folderMove = createService(new Map([
@@ -944,16 +1045,24 @@ suite('BaseHalfCanvasMirrorService', () => {
 			renamedAgain: await summary(renamed, ''),
 			taken: await summary(taken, ''),
 			interrupted: await summary(interrupted, ''),
-			moved: [await summary(moved, ''), await summary(moved, 'docs')],
+			drawnFirst: await summary(drawnFirst, ''),
+			moved: movedOnce,
+			movedAgain: [await summary(moved, ''), await summary(moved, 'docs')],
 			movedTaken: [await summary(movedTaken, ''), await summary(movedTaken, 'docs')],
+			movedDrawnFirst: [await summary(movedDrawnFirst, ''), await summary(movedDrawnFirst, 'docs')],
+			movedIntoUnseen: [await summary(movedIntoUnseen, ''), await summary(movedIntoUnseen, 'docs')],
 			folderMove: [await summary(folderMove, ''), await summary(folderMove, 'docs'), await summary(folderMove, 'notes')]
 		}, {
 			renamed: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
 			renamedAgain: { cards: ['new.md@10', 'b.md@50'], edges: ['new.md>b.md:east', 'b.md>new.md:east'] },
 			taken: { cards: ['old.md@10', 'new.md@99', 'b.md@50'], edges: ['old.md>b.md:east', 'new.md>b.md:north'] },
 			interrupted: { cards: ['new.md@10'], edges: [] },
-			moved: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@10'], edges: [] }],
+			drawnFirst: { cards: ['new.md@10', 'b.md@50'], edges: [] },
+			moved: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@1040*'], edges: [] }],
+			movedAgain: [{ cards: ['b.md@50'], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@1040*'], edges: [] }],
 			movedTaken: [{ cards: ['old.md@10'], edges: [] }, { cards: ['docs/old.md@70'], edges: [] }],
+			movedDrawnFirst: [{ cards: [], edges: [] }, { cards: ['docs/x.md@700', 'docs/old.md@1040*'], edges: [] }],
+			movedIntoUnseen: [{ cards: ['b.md@50'], edges: [] }, { cards: [], edges: [] }],
 			// `notes/b.md` had a row of its own: the row of `docs/b.md` stays behind.
 			folderMove: [
 				{ cards: ['notes@10'], edges: [] },
@@ -963,49 +1072,62 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
-	test('a card carried into another folder keeps its place when it is free there and takes the nearest free place otherwise', async () => {
+	test('a card that goes to another folder is put at the end of that canvas with its size, and undo puts it back', async () => {
 		const row = (path: string, x: number, y: number) => [`  - path: "${path}"`, '    kind: file', `    x: ${x}`, `    y: ${y}`, '    width: 260', '    height: 140'];
 		const canvas = (path: string, cards: string[][]) => [`path: "${path}"`, 'cards:', ...cards.flat(), 'edges: []', ''].join('\n');
-		const size = { width: 260, height: 140 };
-		const places = async (service: BaseHalfCanvasMirrorService) => Object.fromEntries(((await service.readCanvas(folder('docs')))?.cards ?? []).map(card => [card.path, `${card.x},${card.y} ${card.width}x${card.height}`]));
+		// A row that BaseHalf chose is marked with a star.
+		const places = async (service: BaseHalfCanvasMirrorService, relativePath = 'docs') => Object.fromEntries(((await service.readCanvas(folder(relativePath)))?.cards ?? []).map(card => [card.path, `${card.x},${card.y} ${card.width}x${card.height}${card.auto ? '*' : ''}`]));
 		const files = (there: string[][]) => new Map([
-			['/work/.bh/mirror/canvas.yaml', canvas('', [row('a.md', 10, 20)])],
-			['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', there)]
+			['/work/.bh/mirror/canvas.yaml', canvas('', [row('a.md', 10, 20), row('b.md', 400, 20)])],
+			...(there.length > 0 ? [['/work/.bh/mirror/docs/canvas.yaml', canvas('docs', there)] as [string, string]] : [])
 		]);
-		const free = [row('docs/x.md', 900, 20)];
-		// A card of the other folder lies where the carried card was in its own folder.
-		const taken = [row('docs/x.md', 40, 30), row('docs/y.md', 900, 400)];
-		const nearest = baseHalfCanvasOpenPosition({ x: 10, y: 20 }, size, [{ x: 40, y: 30, ...size }, { x: 900, y: 400, ...size }]);
+		const one = [row('docs/x.md', 900, 20)];
+		// A card of the other folder lies where the card was in its own folder. That does not matter any more.
+		const two = [row('docs/x.md', 40, 30), row('docs/y.md', 900, 400)];
 
 		// Moved through the workbench.
-		const workbenchFree = createService(files(free));
-		await workbenchFree.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
-		const workbenchTaken = createService(files(taken));
-		await workbenchTaken.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const workbenchOne = createService(files(one));
+		await workbenchOne.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const workbenchTwo = createService(files(two));
+		await workbenchTwo.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
 		// Moved outside BaseHalf and followed, and followed a second time.
-		const followedFree = createService(files(free));
-		await followedFree.followNode(workspaceFolder, 'a.md', 'docs/a.md');
-		const followedTaken = createService(files(taken));
-		await followedTaken.followNode(workspaceFolder, 'a.md', 'docs/a.md');
-		const once = await places(followedTaken);
-		await followedTaken.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const followedTwo = createService(files(two));
+		await followedTwo.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const once = await places(followedTwo);
+		await followedTwo.followNode(workspaceFolder, 'a.md', 'docs/a.md');
+		// Into a folder that has no layout: nothing is written there.
+		const unseen = createService(files([]));
+		await unseen.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		const unseenThere = await places(unseen);
+		// Undo moves the item back: the row is as it was, also when nothing was written in the other folder.
+		await workbenchOne.relocateNode(workspaceFolder, 'docs/a.md', 'a.md');
+		await unseen.relocateNode(workspaceFolder, 'docs/a.md', 'a.md');
+		// Another card was put on the place meanwhile: the card that comes back goes to the end.
+		const takenMeanwhile = createService(files(one));
+		await takenMeanwhile.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
+		await takenMeanwhile.updateCardGeometry(folder(''), { path: 'b.md', kind: 'file', x: 20, y: 30, width: 260, height: 140 });
+		await takenMeanwhile.relocateNode(workspaceFolder, 'docs/a.md', 'a.md');
 
-		const kept = { 'docs/x.md': '900,20 260x140', 'docs/a.md': '10,20 260x140' };
-		const moved = { 'docs/x.md': '40,30 260x140', 'docs/y.md': '900,400 260x140', 'docs/a.md': `${nearest.x},${nearest.y} 260x140` };
+		const atTheEnd = { 'docs/x.md': '40,30 260x140', 'docs/y.md': '900,400 260x140', 'docs/a.md': '1240,400 260x140*' };
 		assert.deepStrictEqual({
-			nearestIsAnotherPlace: nearest.x !== 10 || nearest.y !== 20,
-			workbenchFree: await places(workbenchFree),
-			workbenchTaken: await places(workbenchTaken),
-			followedFree: await places(followedFree),
-			followedTaken: once,
-			followedAgain: await places(followedTaken)
+			workbenchOne: await places(workbenchOne),
+			workbenchTwo: await places(workbenchTwo),
+			followedTwo: once,
+			followedAgain: await places(followedTwo),
+			unseenThere,
+			back: [await places(workbenchOne, ''), await places(unseen, '')],
+			backAtTheEnd: await places(takenMeanwhile, '')
 		}, {
-			nearestIsAnotherPlace: true,
-			workbenchFree: kept,
-			workbenchTaken: moved,
-			followedFree: kept,
-			followedTaken: moved,
-			followedAgain: moved
+			workbenchOne: { 'docs/x.md': '900,20 260x140' },
+			workbenchTwo: atTheEnd,
+			followedTwo: atTheEnd,
+			followedAgain: atTheEnd,
+			unseenThere: {},
+			back: [
+				{ 'b.md': '400,20 260x140', 'a.md': '10,20 260x140' },
+				{ 'b.md': '400,20 260x140', 'a.md': '10,20 260x140' }
+			],
+			backAtTheEnd: { 'b.md': '20,30 260x140', 'a.md': '360,30 260x140*' }
 		});
 	});
 
@@ -1161,8 +1283,9 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual(files.get(targetOnlyPath), 'path: "notes/legacy"\ncards: []\nedges: []\n');
 	});
 
-	test('relocateNode carries card geometry into the new parent on a cross-folder move and drops in-parent edges', async () => {
+	test('relocateNode carries the card to the end of the new parent on a cross-folder move and drops in-parent edges', async () => {
 		const files = new Map([
+			['/work/.bh/mirror/docs/canvas.yaml', 'path: "docs"\ncards:\n  - path: "docs/x.md"\n    kind: file\n    x: 900\n    y: 20\n    width: 300\n    height: 220\nedges: []\n'],
 			['/work/.bh/mirror/canvas.yaml', [
 				'path: ""',
 				'cards:',
@@ -1185,8 +1308,9 @@ suite('BaseHalfCanvasMirrorService', () => {
 		await service.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
 
 		assert.strictEqual(files.get('/work/.bh/mirror/canvas.yaml'), 'path: ""\ncards: []\nedges: []\n');
+		// Its coordinates belonged to the canvas it left. It keeps its size and goes beside the last card there.
 		const target = await service.readCanvas(folder('docs'));
-		assert.deepStrictEqual(target?.cards[0], { path: 'docs/a.md', kind: 'file', x: 10, y: 20, width: 260, height: 140 });
+		assert.deepStrictEqual(target?.cards[1], { path: 'docs/a.md', kind: 'file', x: 1240, y: 20, width: 260, height: 140, auto: true });
 	});
 
 	test('relocateNode re-roots a folder subtree, swapping paths inside each canvas', async () => {
@@ -1411,19 +1535,23 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual(fileService.files.get(targetPath), target);
 	});
 
-	test('cross-parent card relocation compensates and carries the latest geometry', async () => {
+	test('cross-parent card relocation compensates and carries the latest size', async () => {
 		const sourcePath = '/work/.bh/mirror/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/docs/canvas.yaml';
 		const initial = 'path: ""\ncards:\n  - path: "a.md"\n    kind: file\n    x: 10\n    y: 20\n    width: 260\n    height: 140\nedges: []\n';
-		const external = initial.replace('x: 10', 'x: 99');
-		const fileService = new TestFileService(new Map([[sourcePath, initial]]));
-		fileService.writeExternallyAfterNextCreate(targetPath, () => fileService.replaceExternally(sourcePath, external));
+		// The user resized the card while the move was being written.
+		const external = initial.replace('width: 260', 'width: 480');
+		const fileService = new TestFileService(new Map([
+			[sourcePath, initial],
+			[targetPath, 'path: "docs"\ncards:\n  - path: "docs/x.md"\n    kind: file\n    x: 900\n    y: 20\n    width: 260\n    height: 140\nedges: []\n']
+		]));
+		fileService.runAfterNextWrite(targetPath, () => fileService.replaceExternally(sourcePath, external));
 		const service = mirrorService(fileService as unknown as IFileService);
 
 		await service.relocateNode(workspaceFolder, 'a.md', 'docs/a.md');
 
 		assert.strictEqual(await service.readCanvas(folder('')), null);
-		assert.strictEqual((await service.readCanvas(folder('docs')))?.cards[0].x, 99);
+		assert.deepStrictEqual((await service.readCanvas(folder('docs')))?.cards[1], { path: 'docs/a.md', kind: 'file', x: 1240, y: 20, width: 480, height: 140, auto: true });
 	});
 
 	test('same-resource identity relocation rewrites a folder canvas in place', async () => {
@@ -1608,9 +1736,12 @@ class TestFileService {
 	private readonly externalCreates = new Map<string, string>();
 	private readonly externalWritesAfterCommit = new Map<string, string>();
 	private readonly externalWritesAfterCreate = new Map<string, () => void>();
+	private readonly runsAfterWrite = new Map<string, () => void>();
 	private readonly externalWritesAfterRead = new Map<string, string>();
 	private readonly hardWriteFailures = new Map<string, Error>();
 	readonly symbolicLinks = new Set<string>();
+	/** Whether `.bh/.gitignore` reads as present when `files` does not hold it. */
+	ignoreFileThere = true;
 	createCount = 0;
 	writeCount = 0;
 	deleteCount = 0;
@@ -1626,6 +1757,11 @@ class TestFileService {
 	async readFile(resource: URI): Promise<{ value: VSBuffer; mtime: number; etag: string }> {
 		const raw = this.files.get(resource.fsPath);
 		if (raw === undefined) {
+			// Most tests are about one layout write: for them the ignore file is
+			// there already, so that it adds no write of its own.
+			if (this.ignoreFileThere && resource.fsPath === IGNORE_FILE_PATH) {
+				return { value: VSBuffer.fromString(''), mtime: 0, etag: '' };
+			}
 			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
 		}
 
@@ -1695,6 +1831,11 @@ class TestFileService {
 			this.externalWritesAfterCommit.delete(resource.fsPath);
 			this.replaceExternally(resource.fsPath, externalAfterCommit);
 		}
+		const afterWrite = this.runsAfterWrite.get(resource.fsPath);
+		if (afterWrite) {
+			this.runsAfterWrite.delete(resource.fsPath);
+			afterWrite();
+		}
 		return stat(resource, FileType.File);
 	}
 
@@ -1738,6 +1879,11 @@ class TestFileService {
 
 	writeExternallyAfterNextCreate(path: string, write: () => void): void {
 		this.externalWritesAfterCreate.set(path, write);
+	}
+
+	/** Runs once, right after the next write that replaces the file at `path`. */
+	runAfterNextWrite(path: string, run: () => void): void {
+		this.runsAfterWrite.set(path, run);
 	}
 
 	writeExternallyAfterNextRead(path: string, contents: string): void {

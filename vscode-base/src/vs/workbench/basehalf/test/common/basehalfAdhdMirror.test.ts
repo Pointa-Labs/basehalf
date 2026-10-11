@@ -16,6 +16,7 @@ import {
 import { NullLogService } from '../../../../platform/log/common/log.js';
 import { BaseHalfAdhdMirrorService, serializeAdhdFile } from '../../common/basehalfAdhdMirror.js';
 import { IBaseHalfWorkspaceResource } from '../../common/basehalfCanvasNavigation.js';
+import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnore.js';
 import { baseHalfMirrorRecoveryResource, IBaseHalfMirrorPreservedEvent } from '../../common/basehalfMirrorRecovery.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
@@ -466,6 +467,8 @@ suite('BaseHalfAdhdMirrorService', () => {
 		assert.deepStrictEqual(Object.fromEntries(fileService.files), {
 			'/work/.bh/mirror/a.md/adhd.yaml': 'path: "a.md"\nkind: file\n',
 			[targetPath]: adhdYaml('b.md', ['Mine']),
+			// A recovery copy is a working file: the ignore file is written before it.
+			'/work/.bh/.gitignore': BASEHALF_MIRROR_IGNORE_CONTENT,
 			[recoveryCopy.fsPath]: unreadable
 		});
 	});
