@@ -11363,7 +11363,12 @@ async function panCanvasToward(page, canvasBox, deltaX, deltaY) {
 			for (const xFraction of xFractions) {
 				const x = bounds.x + bounds.width * xFraction;
 				const y = bounds.y + bounds.height * yFraction;
-				if (document.elementFromPoint(x, y)?.closest('.react-flow__pane')) {
+				// A drag by the middle button moves the canvas from empty canvas, from a
+				// card, and from a connection. It does not from a toolbar or another
+				// surface that keeps the pointer, and such a surface can lie on the
+				// first point: the toolbar of a set is as wide as its names.
+				const hit = document.elementFromPoint(x, y);
+				if (hit?.closest('.react-flow__pane') && (hit.closest('.react-flow__node, .react-flow__edge') || !hit.closest('.nopan'))) {
 					return { x, y };
 				}
 			}
