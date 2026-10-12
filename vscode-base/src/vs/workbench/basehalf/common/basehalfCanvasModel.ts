@@ -16,8 +16,8 @@ export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
 export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
 export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
 export const BASEHALF_CANVAS_DEFAULT_HEIGHT = 1600;
-const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
-const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
+export const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
+export const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
 const BASEHALF_CANVAS_DEFAULT_PADDING = 96;
 
 const SKIP_NAMES = new Set([
@@ -438,9 +438,14 @@ const BASEHALF_CANVAS_CELL_HEIGHT = BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + B
 /** A row of new cards is at least this wide: five cells without the last gap. */
 const BASEHALF_CANVAS_MIN_ROW_WIDTH = 5 * BASEHALF_CANVAS_CELL_WIDTH - BASEHALF_CANVAS_GRID_COLUMN_GAP;
 
+/** The number of columns of the plain grid for this many cards. */
+export function baseHalfCanvasPlainGridColumns(total: number): number {
+	return Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
+}
+
 /** The grid of a folder whose cards all appear together. */
 function plainGrid(total: number): { readonly cols: number; readonly originX: number; readonly originY: number; readonly width: number } {
-	const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
+	const cols = baseHalfCanvasPlainGridColumns(total);
 	const usedCols = Math.max(1, Math.min(total, cols));
 	const rows = Math.max(1, Math.ceil(Math.max(1, total) / cols));
 	const width = (usedCols - 1) * BASEHALF_CANVAS_CELL_WIDTH + BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH;
