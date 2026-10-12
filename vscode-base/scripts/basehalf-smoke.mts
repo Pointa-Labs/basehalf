@@ -466,7 +466,6 @@ try {
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
-	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
 	// Viewing, editing, and navigating never write focus state into the
 	// workspace, and nothing installs agent guides, a harness, or a
 	// .gitignore later in the session either.
@@ -559,7 +558,6 @@ try {
 			'folder-quick-open-canvas',
 			'settings-basehalf-category',
 			'badge-closes-on-rich-editor-activation',
-			'release-notes-system-page',
 			'nothing-installed-after-session'
 		]
 	};
@@ -2279,49 +2277,6 @@ async function waitForExternalPluginProjection(page, marker) {
 
 async function waitForExternalPluginSourceFallback(page) {
 	await page.locator('.basehalf-card-detail.visible .basehalf-card-detail-surface.active .basehalf-card-detail-source').waitFor({ state: 'visible', timeout: 30_000 });
-}
-
-async function assertBaseHalfReleaseNotesSystemPage(page) {
-	await runCommand(page, 'Show Release Notes');
-	const frame = await activeReleaseNotesFrame(page);
-	await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).waitFor({ state: 'visible', timeout: 20_000 });
-	await frame.locator('body', { hasText: 'Release Notes open as a system page' }).waitFor({ state: 'visible', timeout: 20_000 });
-	// The page has to be what the main surface shows. A frame that is there
-	// and laid out can still be behind the editor area, where nobody sees it
-	// (app update, "After an update").
-	const onTop = await page.evaluate(() => {
-		const surface = document.querySelector('.part.editor.basehalf-canvas-host')?.getBoundingClientRect();
-		if (!surface) {
-			return 'no main surface';
-		}
-		const top = document.elementFromPoint(Math.round(surface.x + surface.width / 2), Math.round(surface.y + surface.height / 2));
-		return top instanceof HTMLIFrameElement && top.classList.contains('webview') ? 'the page' : `${top?.tagName.toLowerCase()}.${String(top?.className).split(/\s+/).slice(0, 3).join('.')}`;
-	});
-	if (onTop !== 'the page') {
-		throw new Error(`The Release Notes page is open and not shown: at the middle of the main surface is ${onTop}.`);
-	}
-	await assertNoEditorTabFor(page, 'Release Notes');
-	if (await page.locator('.basehalf-command-center-breadcrumbs').isVisible().catch(() => false)) {
-		throw new Error('BaseHalf file breadcrumbs remained visible over a system page');
-	}
-}
-
-async function activeReleaseNotesFrame(page) {
-	const started = Date.now();
-	let lastFrameUrls = [];
-	while (Date.now() - started < 20_000) {
-		const frames = page.frames();
-		lastFrameUrls = frames.map(frame => frame.url()).filter(Boolean);
-		for (const frame of frames) {
-			const hasReleaseNotes = await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).count().catch(() => 0);
-			if (hasReleaseNotes > 0) {
-				return frame;
-			}
-		}
-		await page.waitForTimeout(100);
-	}
-
-	throw new Error(`BaseHalf Release Notes webview was not ready. Frames: ${lastFrameUrls.join(', ')}`);
 }
 
 async function assertSourceControlPanel(page) {

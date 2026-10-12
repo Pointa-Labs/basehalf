@@ -391,8 +391,8 @@ export class UpdateTooltip extends Disposable {
 			this.releaseDateNode.style.display = 'none';
 		}
 
-		// Release notes button
-		this.releaseNotesVersion = version ?? this.productService.version;
+		// Release notes button. BaseHalf's notes are those of its own version.
+		this.releaseNotesVersion = version ?? this.productService.basehalfVersion ?? this.productService.version;
 		this.releaseNotesButton.style.display = this.releaseNotesVersion ? '' : 'none';
 		this.releaseNotesButton.style.marginRight = this.releaseNotesVersion ? 'auto' : '';
 		this.buttonBar.style.display = this.releaseNotesVersion ? '' : 'none';

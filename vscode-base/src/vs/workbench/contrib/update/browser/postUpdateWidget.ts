@@ -69,6 +69,13 @@ export class PostUpdateWidgetContribution extends Disposable implements IWorkben
 	}
 
 	private async tryShowOnStartup() {
+		if (this.productService.basehalfVersion) {
+			// BaseHalf shows nothing after an update (app update, "After an
+			// update"). This card would hold what the publisher of the base
+			// wrote about a version of the base, fetched from its site.
+			return;
+		}
+
 		if (!await this.hostService.hadLastFocus()) {
 			return;
 		}

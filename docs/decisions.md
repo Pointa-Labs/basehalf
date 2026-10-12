@@ -1381,3 +1381,31 @@ as it runs.
   itself stays as quiet as the base makes it.
 - Platform signing stays possible later. It would replace this service with
   the updater of the base.
+
+## D48 — Release notes are written once, on the releases page (NEW, 2026-10-12)
+
+**Decision.** Nothing opens in BaseHalf after an update. Release notes are
+written once for each release, on the releases page, and "Release Notes" in
+the application opens that page in the browser. BaseHalf holds no text of its
+own about what changed. See
+[app update](specs/app-update.md#after-an-update).
+
+**Why.** Until 0.5.0 the notes were written twice: on the releases page, and
+as a page inside the application, whose text was part of the source and held
+there by tests. That page opened by itself at the first start after an update
+and took the place of the canvas. On 2026-10-12 it turned out that it had been
+blank since June, behind the editor area, and that nobody had missed it. A
+small card in the title bar was tried in its place and not taken: it is one
+more text to write for each release, and one more thing between the user and
+the canvas. Writing the notes is work that is done once, where the release
+is.
+
+**Consequences.**
+- The text of the page, its tests, and its smoke step are removed.
+- A specification that asks for a sentence in the release notes asks it of
+  the notes on the releases page.
+- What the VS Code base would show after an update, a page or a card with
+  what its publisher wrote about the base, is off, and the two settings that
+  choose between them are hidden.
+- The update manifest keeps its notes field, which holds the same text as the
+  releases page. Nothing in BaseHalf shows it.

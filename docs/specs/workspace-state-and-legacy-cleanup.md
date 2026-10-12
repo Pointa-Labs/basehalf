@@ -302,6 +302,12 @@ Claude Code sessions receive the launch-time instruction defined in
 
 ## Release notes
 
+Release notes are written on the releases page and not in the application
+([D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12)).
+Until 0.5.0 the statements below were also the text of a page inside the
+application, and a unit test held them there. They are what the notes of the
+release say.
+
 Each delivery slice adds only the statements that are true in its build. The
 release that contains every slice states:
 

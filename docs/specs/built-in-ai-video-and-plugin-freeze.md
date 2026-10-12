@@ -77,8 +77,10 @@ Three things were true on 2026-10-11.
 5. Every way into AI Video works without the plugin surface: the starter
    template from the canvas, recipes from a node's settings, the Sequence view
    from a sequence file, and its commands from the Command Palette.
-6. The in-product release notes of the release that carries this change say
-   that AI Video is built in and that the Plugins library is gone.
+6. The release notes of the release that carries this change say that AI
+   Video is built in and that the Plugins library is gone. Since
+   [D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12)
+   they are on the releases page only.
 
 ### No plugin surface
 

@@ -70,6 +70,8 @@ looked the same.
   and it had no level, while BaseHalf gives the editor area one so that the
   canvas can be above or below it. The page was behind the editor area. The
   smoke asked whether the page was there and not whether it could be seen.
+  The clipping element takes the level now. The page itself is gone since
+  [D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12).
 - **Installed applications refuse an archive above 500 MiB.** The limit is
   built into every release so far. The archive of 0.5.0 is 438 MiB.
 - **Nothing tests an update.** The unit tests cover versions, the manifest,
@@ -277,13 +279,27 @@ not changed.
 
 ### After an update
 
-- The Release Notes page opens once in the first start of a new version, as
-  in the first version.
-- **The page is shown.** Its text is what the main surface shows: on top of
-  the editor area and of the canvas, not behind them. This holds for every
-  page that the main surface shows in a webview, however it was opened.
-- The version counts as shown when the page was opened. A start in which it
-  was not opened leaves it for the next.
+Decision: [D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12).
+
+- **Nothing opens after an update.** The first start of a new version shows
+  what every start shows. No page, no card, and no notice tells that the
+  version changed.
+- **Release notes are written once, on the releases page**, with the release
+  they belong to. BaseHalf holds no text of its own about what changed.
+- **"Release Notes" in the application opens that page in the browser.** The
+  command in the Help menu opens the notes of the running version, and the
+  button in the update tooltip those of the version that is offered. The
+  address is the releases page of the product configuration
+  (`basehalfReleasesUrl`) followed by `/tag/v` and the version. It opens
+  without a question: the pages of the project are among the addresses the
+  product configuration trusts.
+- The base's own ways to show something after an update are off: its page of
+  release notes, its card in the title bar, and the two settings that choose
+  between them. Both would show what the publisher of the base wrote about
+  the base.
+- **A page that the main surface shows in a webview is shown**: on top of the
+  editor area and of the canvas, not behind them. Up to 0.5.0 it was behind
+  the editor area ([the first version](#the-first-version)).
 
 ### Before a release
 
@@ -359,11 +375,11 @@ Unit tests unless another kind is named.
    aside stays beside another run.
 9. **The version.** About, the update tooltip, and the bundle's short version
    string show BaseHalf's version.
-10. **Release notes.** A start in which the page was not opened leaves the
-    version unrecorded, and the next start opens the page. An overlay that
-    clips takes the level that puts it above what it is placed over. Smoke:
-    with the page opened by its command, what is at the middle of the main
-    surface is the page.
+10. **Release notes.** The address for a version is the releases page of the
+    product configuration, `/tag/v`, and the version, and "Release Notes"
+    opens it outside the application. Nothing is registered that opens a
+    page at a start. An overlay that clips takes the level that puts it above
+    what it is placed over.
 11. **The size.** The release script refuses an archive above the limit that
     installed applications accept.
 12. **An installed application is updated.** Recorded for each release, with

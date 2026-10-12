@@ -117,6 +117,9 @@ export interface IProductConfiguration {
 	 *  feed manifest is compared against; independent of the upstream
 	 *  `version` in package.json. */
 	readonly basehalfVersion?: string;
+	/** The page that lists BaseHalf's releases. The notes of a release are at
+	 *  `<this>/tag/v<version>`, and they are the only release notes there are. */
+	readonly basehalfReleasesUrl?: string;
 	readonly basehalfPlugins?: {
 		/** Atomic pointer to an immutable catalog/signature pair. */
 		readonly catalogIndexUrl: string;
