@@ -29,8 +29,8 @@ or by tidying the canvas. Each is one step that the user can take back.
 Selecting several cards was never specified. The canvas used the marquee of
 its canvas library as it comes, on top of a selection that BaseHalf owns and
 that was built for one card. The user reported two faults, and reading the
-code on 2026-10-12 gave the causes below. The first is to be reproduced in
-the real window before the code changes.
+code on 2026-10-12 gave the causes below. Faults 1 to 3 were then
+[reproduced in the real window](#seen-in-the-real-window-before-the-change-2026-10-12).
 
 1. **A marquee does not select some cards.** The library marks every
    connection of a boxed card as selected, in the same step as the card.
@@ -559,8 +559,28 @@ Storage
   be drawn and still be covered.
 - Criterion 2 is measured in the real window with 300 and with 1,000 cards,
   frame by frame. The numbers are written here when they are measured.
-- Fault 1 of [Problem](#problem) is reproduced in the real window before
-  the code changes, and what was seen is written here.
+
+### Seen in the real window before the change, 2026-10-12
+
+A development window of 1440 × 900 on a fixture workspace outside the
+repository: four notes in one folder, `a.md` to `d.md`, and one connection
+from `a.md` to `b.md`. Each marquee was drawn with the real pointer, from
+empty canvas below the cards up into them.
+
+| The marquee touched | Selected afterwards |
+| --- | --- |
+| `c.md`, which has no connection | `c.md` |
+| `b.md`, the downstream card | no card, and the connection |
+| `a.md`, the upstream card | no card, and the connection |
+| `a.md` and `b.md` | no card, and the connection |
+| `c.md` and `d.md` | both cards |
+| all four, with `c.md` and `d.md` reached last | all four cards |
+
+- After the marquee over `c.md` alone, the element at the middle of the card
+  was the canvas library's rectangle and not the card. A click there changed
+  nothing, and a double click did not open the note for editing.
+- After the marquee over `c.md` and `d.md`, a drag from the middle of
+  `c.md` moved both cards. Afterwards only `c.md` was selected.
 
 ## Specifications this changes
 
