@@ -123,10 +123,12 @@ the next start.
 
 ## Non-goals
 
-- **Another interface.** The update interface stays the one of the VS Code
-  base: the entry in the title bar, its tooltip, the Manage menu, the
-  application menu, and the commands. No dialog is added. A download that
-  BaseHalf started by itself stays as quiet as the base makes it.
+- **Another interface.** The update interface is made of the parts of the VS
+  Code base: the entry in the title bar, the status element of its tooltip,
+  the Manage menu, the application menu, and the commands. No dialog is
+  added. A download that BaseHalf started by itself stays as quiet as the
+  base makes it. Only where the status element is shown is BaseHalf's own
+  ([where an update shows](#where-an-update-shows)).
 - **Asking before a download.** BaseHalf downloads an update by itself, as
   the base does, unless the connection is metered.
 - **Platform signing and notarization.** They would make Electron's updater
@@ -273,11 +275,34 @@ not changed.
 
 - **About**: "Version" is BaseHalf's version. The version of the base is on a
   line of its own.
-- **The update tooltip**: "Current Version" is BaseHalf's version. "Latest
+- **The status element**, on the About page: "Current Version" is BaseHalf's
+  version. "Latest
   Version" is the version of the update, shown once, and "Released" is the
   date of the update or nothing: not the date of the running version.
 - **The bundle**: its short version string, which Finder shows, is BaseHalf's
   version.
+
+### Where an update shows
+
+Decision: [D49](../decisions.md#d49--the-state-of-an-update-is-a-page-in-settings-not-a-card-new-2026-10-12).
+
+- **The title bar** shows the entry "Update" as the base does: when an update
+  can be downloaded, is downloaded, or is ready, and while a download that
+  the user asked for runs. Choosing it does what the state calls for:
+  download, install, or restart.
+- **The entry has no card.** Resting the pointer on it shows one line that
+  names the state. Nothing appears by itself.
+- **Settings, BaseHalf, About** holds what the card held, in the status
+  element of the base: the name, the running version, the version of an
+  update and its date when there is one, the state with its progress, and
+  "Release Notes". Below it is the one action the state calls for: Check
+  for Updates, Download, Install, or Restart to Update. A state without an
+  action has none.
+- The image beside the name is BaseHalf's icon, the one of the application.
+- Choosing the entry of the title bar in a state without an action, a
+  download that runs, opens the About page.
+- **A check that the user asked for and that failed** is told in a
+  notification. The base told it in the card.
 
 ### After an update
 
@@ -290,7 +315,7 @@ Decision: [D48](../decisions.md#d48--release-notes-are-written-once-on-the-relea
   they belong to. BaseHalf holds no text of its own about what changed.
 - **"Release Notes" in the application opens that page in the browser.** The
   command in the Help menu opens the notes of the running version, and the
-  button in the update tooltip those of the version that is offered. The
+  button on the About page those of the version that is offered. The
   address is the releases page of the product configuration
   (`basehalfReleasesUrl`) followed by `/tag/v` and the version. It opens
   without a question: the pages of the project are among the addresses the
@@ -375,8 +400,8 @@ Unit tests unless another kind is named.
    running version and below are removed, and what a dead run left under its
    process number. What a living run owns stays, and a bundle that was renamed
    aside stays beside another run.
-9. **The version.** About, the update tooltip, and the bundle's short version
-   string show BaseHalf's version.
+9. **The version.** The About dialog, the status element, and the bundle's
+   short version string show BaseHalf's version.
 10. **Release notes.** The address for a version is the releases page of the
     product configuration, `/tag/v`, and the version, and "Release Notes"
     opens it outside the application. Nothing is registered that opens a
@@ -398,6 +423,12 @@ Unit tests unless another kind is named.
     And the application of the release before, with the update service it
     was released with, becomes ready, is quit, and is the new version at the
     next start, which removes what that service left.
+13. **Where an update shows.** The action of the About page is Check for
+    Updates when idle, Download, Install, or Restart to Update when the state
+    calls for one, and none otherwise. A failed check that the user asked for
+    is told once, and one that BaseHalf started by itself is not. Smoke: the
+    About page is in Settings below BaseHalf and shows BaseHalf's version and
+    "Release Notes".
 
 ## Verification
 

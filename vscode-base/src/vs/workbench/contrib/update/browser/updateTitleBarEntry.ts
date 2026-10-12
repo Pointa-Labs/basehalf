@@ -18,6 +18,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import product from '../../../../platform/product/common/product.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { DisablementReason, IUpdateService, State, StateType } from '../../../../platform/update/common/update.js';
@@ -37,6 +38,15 @@ const DISABLED_REMINDER_LAST_SHOWN_KEY = 'update/disabledReminderLastShown';
 const DISABLED_REMINDER_PERIOD = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 const UPDATE_TITLE_BAR_SETTING = 'update.titleBar';
+
+/**
+ * BaseHalf: the entry has no card. What the card holds is on the About page of
+ * Settings, the entry names its state in one line, and nothing appears by
+ * itself (app update, "Where an update shows").
+ */
+const ENTRY_HAS_NO_CARD = !!product.basehalfVersion;
+/** The command of BaseHalf that opens the About page. */
+const OPEN_ABOUT_PAGE_COMMAND_ID = 'basehalf.about.open';
 
 const ACTIONABLE_STATES: readonly StateType[] = [StateType.AvailableForDownload, StateType.Downloaded, StateType.Ready];
 const DETAILED_STATES: readonly StateType[] = [...ACTIONABLE_STATES, StateType.CheckingForUpdates, StateType.Downloading, StateType.Updating, StateType.Overwriting];
@@ -198,6 +208,10 @@ export class UpdateTitleBarContribution extends Disposable implements IWorkbench
 				break;
 		}
 
+		if (ENTRY_HAS_NO_CARD) {
+			showTooltip = false;
+		}
+
 		if (showTooltip) {
 			this.tooltipVisible = true;
 			context = true;
@@ -252,6 +266,10 @@ export class UpdateTitleBarEntry extends BaseActionViewItem {
 	}
 
 	public showTooltip(focus = false) {
+		if (ENTRY_HAS_NO_CARD) {
+			return;
+		}
+
 		if (!this.element?.isConnected) {
 			this.showTooltipOnRender = true;
 			return;
@@ -273,6 +291,11 @@ export class UpdateTitleBarEntry extends BaseActionViewItem {
 	}
 
 	protected override getHoverContents(): IManagedHoverContent {
+		if (ENTRY_HAS_NO_CARD) {
+			// One line that names the state, read when the pointer rests on the entry.
+			return { markdown: async () => this.tooltip.title, markdownNotSupportedFallback: undefined };
+		}
+
 		return this.tooltip.domNode;
 	}
 
@@ -289,6 +312,11 @@ export class UpdateTitleBarEntry extends BaseActionViewItem {
 				commandId = 'update.restart';
 				break;
 			default:
+				if (ENTRY_HAS_NO_CARD) {
+					// A state without an action, a download that runs: its progress is on the About page.
+					await this.commandService.executeCommand(OPEN_ABOUT_PAGE_COMMAND_ID);
+					return;
+				}
 				this.showTooltip(true);
 				return;
 		}

@@ -483,6 +483,7 @@ import './contrib/opener/browser/opener.contribution.js';
 import './basehalf/browser/basehalfConfiguration.contribution.js';
 import './basehalf/browser/basehalfModelServices.contribution.js';
 import './basehalf/browser/basehalfReleaseNotes.contribution.js';
+import './basehalf/browser/basehalfAbout.contribution.js';
 import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/browser/basehalfNavigation.contribution.js';
 import './basehalf/browser/basehalfCardProjectionExtensionPoint.contribution.js';

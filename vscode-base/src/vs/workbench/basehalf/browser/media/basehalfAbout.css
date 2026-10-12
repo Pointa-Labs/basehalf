@@ -1,0 +1,82 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.basehalf-about {
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 26px clamp(20px, 3.2vw, 42px) 32px;
+	overflow: auto;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+}
+
+.basehalf-about h1 {
+	margin: 0;
+	font-size: 26px;
+	font-weight: 650;
+}
+
+.basehalf-about-content {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	max-width: 520px;
+	margin-top: 22px;
+}
+
+/* The status element of the base, on a page and not in a card. */
+.basehalf-about .update-tooltip {
+	min-width: 0;
+	max-width: none;
+	padding: 0;
+	font-size: var(--vscode-bodyFontSize);
+}
+
+.basehalf-about .update-tooltip .header .title {
+	font-size: 15px;
+}
+
+/* BaseHalf's own icon, the one of the application. */
+.basehalf-about .update-tooltip .product-logo {
+	padding: 0;
+	background-image: url('./basehalf-icon.png');
+}
+
+.basehalf-about .update-tooltip .button-bar {
+	justify-content: flex-start;
+}
+
+/* The action is the button below, one for every state. */
+.basehalf-about .update-tooltip .action-button {
+	display: none !important;
+}
+
+.basehalf-about-actions {
+	display: flex;
+}
+
+.basehalf-about-action {
+	padding: 6px 14px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: var(--vscode-cornerRadius-small);
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+
+.basehalf-about-action:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.basehalf-about-action:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.basehalf-about-action[hidden] {
+	display: none;
+}

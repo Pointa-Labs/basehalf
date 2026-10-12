@@ -1409,3 +1409,25 @@ is.
   choose between them are hidden.
 - The update manifest keeps its notes field, which holds the same text as the
   releases page. Nothing in BaseHalf shows it.
+
+## D49 — The state of an update is a page in Settings, not a card (NEW, 2026-10-12)
+
+**Decision.** The entry "Update" in the title bar has no card. What the card
+of the VS Code base held, the running version, the update, its progress, and
+"Release Notes", is on a page of its own: Settings, BaseHalf, About, with the
+one action the state calls for. See
+[app update](specs/app-update.md#where-an-update-shows).
+
+**Why.** The card appeared when the pointer rested on the entry, between the
+user and the canvas, and said little that the entry does not say. The image
+in it was the icon of the base and not BaseHalf's. The version and the
+release notes are things a user goes to look for, and Settings is where a
+user looks. Both parts were there: the base draws the state of an update in
+one element that needs no card around it, and Settings already holds a page
+of BaseHalf's own.
+
+**Consequences.**
+- A check that the user asked for and that fails is told in a notification,
+  because the card that told it is gone.
+- Choosing the entry while a download runs opens the About page.
+- The About dialog of the application menu stays.

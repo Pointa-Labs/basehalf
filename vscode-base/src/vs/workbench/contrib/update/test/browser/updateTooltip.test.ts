@@ -13,7 +13,7 @@ import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IMeteredConnectionService } from '../../../../../platform/meteredConnection/common/meteredConnection.js';
 import product from '../../../../../platform/product/common/product.js';
 import { IProductService } from '../../../../../platform/product/common/productService.js';
-import { IUpdate, State } from '../../../../../platform/update/common/update.js';
+import { IUpdate, State, UpdateType } from '../../../../../platform/update/common/update.js';
 import { UpdateTooltip } from '../../browser/updateTooltip.js';
 
 suite('Update tooltip', () => {
@@ -82,6 +82,22 @@ suite('Update tooltip', () => {
 			baseHalf: { current: 'Current Version: 0.5.0 (abc1234)', latest: 'Latest Version: 0.5.1', released: 'shown', ran: [['update.showCurrentReleaseNotes', '0.5.1']] },
 			foundAtAStart: { current: 'Current Version: 0.5.0 (abc1234)', latest: 'Latest Version: 0.5.1', released: null, ran: [['update.showCurrentReleaseNotes', '0.5.1']] },
 			base: { current: 'Current Version: 0.5.0 (abc1234)', latest: 'Latest Version: 1.129.0 (fedcba9)', released: 'shown', ran: [['update.showCurrentReleaseNotes', '1.129.0']] }
+		});
+	});
+
+	test('the state has one line that names it, and BaseHalf does not wish its users happy coding', () => {
+		const idle = (versions: { readonly basehalfVersion: string | undefined }) => {
+			const { tooltip } = tooltipOf(versions);
+			tooltip.renderState(State.Idle(UpdateType.Archive));
+			return [tooltip.title, tooltip.domNode.querySelector('.state-message')?.textContent ?? null];
+		};
+		const ready = tooltipOf({ basehalfVersion: '0.5.0' }).tooltip;
+		ready.renderState(State.Ready({ version: '0.5.1', productVersion: '0.5.1' }, false, false));
+
+		assert.deepStrictEqual({ baseHalf: idle({ basehalfVersion: '0.5.0' }), base: idle({ basehalfVersion: undefined }), ready: ready.title }, {
+			baseHalf: ['Up to Date', 'Automatic updates are enabled.'],
+			base: ['Up to Date', 'Automatic updates are enabled. Happy Coding!'],
+			ready: 'Restart to Update'
 		});
 	});
 });

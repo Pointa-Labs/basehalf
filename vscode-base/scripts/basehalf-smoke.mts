@@ -204,10 +204,11 @@ try {
 		if (opts.settingsOnly) {
 			await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 			await step('global-model-connections-editor', () => assertGlobalModelConnectionsEditor(page));
+			await step('settings-about-page', () => assertBaseHalfAboutPage(page));
 			console.log(JSON.stringify({
 				ok: true,
 				workspace: workspacePath,
-				checks: ['settings-basehalf-category', 'global-model-connections-editor']
+				checks: ['settings-basehalf-category', 'global-model-connections-editor', 'settings-about-page']
 			}, null, 2));
 		} else if (opts.pluginOnly) {
 			if (opts.externalPluginId) {
@@ -465,6 +466,7 @@ try {
 	await step('migration-moves-seeded-legacy-pair', () => assertMigrationMovesSeededLegacyPair(page));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
+	await step('settings-about-page', () => assertBaseHalfAboutPage(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	// Viewing, editing, and navigating never write focus state into the
 	// workspace, and nothing installs agent guides, a harness, or a
@@ -557,6 +559,7 @@ try {
 			'explorer-file-row-card-detail-no-tab',
 			'folder-quick-open-canvas',
 			'settings-basehalf-category',
+			'settings-about-page',
 			'badge-closes-on-rich-editor-activation',
 			'nothing-installed-after-session'
 		]
@@ -1975,6 +1978,35 @@ async function assertBaseHalfSettingsCategory(page) {
 			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'))
 			&& !text.includes('basehalf.models.services');
 	}, null, { timeout: 20_000 });
+}
+
+// The About page is in Settings below BaseHalf, and holds BaseHalf's own
+// version and the way to the release notes (app update, "Where an update
+// shows"). The smoke runs with updates switched off, so the state it shows
+// is that one.
+async function assertBaseHalfAboutPage(page) {
+	await runCommand(page, 'About BaseHalf');
+	const settingsEditor = page.locator('.settings-editor').first();
+	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
+	const about = settingsEditor.locator('.basehalf-about').first();
+	await about.waitFor({ state: 'visible', timeout: 20_000 });
+	await about.locator('h1', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^About$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+
+	const version = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8')).basehalfVersion;
+	const shown = (await about.innerText()).replace(/\s+/g, ' ');
+	if (!shown.includes(`Current Version: ${version}`) || !shown.includes('Release Notes') || !shown.includes('Updates Disabled')) {
+		throw new Error(`The About page does not show BaseHalf's version ${version}, the release notes, and the state of updates: ${shown}`);
+	}
+	// It is what the main surface shows.
+	const onTop = await page.evaluate(() => {
+		const rect = document.querySelector('.basehalf-about h1')?.getBoundingClientRect();
+		const top = rect ? document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) : null;
+		return top?.closest('.basehalf-about') ? 'the page' : `${top?.tagName.toLowerCase()}.${String(top?.className).split(/\s+/).slice(0, 3).join('.')}`;
+	});
+	if (onTop !== 'the page') {
+		throw new Error(`The About page is open and not shown: on top of its title is ${onTop}.`);
+	}
 }
 
 async function assertGlobalModelConnectionsEditor(page) {

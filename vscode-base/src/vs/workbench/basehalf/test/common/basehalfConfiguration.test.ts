@@ -76,16 +76,19 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf/canvas',
 			'basehalf/connections',
 			'basehalf/agentArea',
-			'basehalf/models'
+			'basehalf/models',
+			'basehalf/about'
 		]);
 		assert.deepStrictEqual(basehalf?.children?.map(child => child.settings), [
 			['basehalf.editor.*'],
 			['basehalf.canvas.*'],
 			['basehalf.references.*'],
 			['basehalf.agent.*'],
+			undefined,
 			undefined
 		]);
-		assert.strictEqual(basehalf?.children?.at(-1)?.custom, true);
+		// The two pages of BaseHalf's own: Models & Providers, and About.
+		assert.deepStrictEqual(basehalf?.children?.map(child => child.custom === true), [false, false, false, false, true, true]);
 	});
 
 	test('normalizes canvas default zoom using the product zoom range', () => {

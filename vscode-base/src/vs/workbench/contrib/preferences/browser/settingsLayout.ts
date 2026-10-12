@@ -205,6 +205,11 @@ export const tocData: ITOCEntry<string> = {
 					id: 'basehalf/models',
 					label: localize('basehalfModelsAndProviders', "Models & Providers"),
 					custom: true
+				},
+				{
+					id: 'basehalf/about',
+					label: localize('basehalfAbout', "About"),
+					custom: true
 				}
 			]
 		},

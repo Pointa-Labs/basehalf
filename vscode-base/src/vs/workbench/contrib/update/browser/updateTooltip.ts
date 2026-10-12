@@ -136,6 +136,11 @@ export class UpdateTooltip extends Disposable {
 		this.updateCurrentVersion();
 	}
 
+	/** The line that names the state that was rendered last, as "Restart to Update". */
+	public get title(): string {
+		return this.titleNode.textContent ?? '';
+	}
+
 	private updateCurrentVersion() {
 		// BaseHalf's own version, which is the one an update is compared with.
 		const productVersion = this.productService.basehalfVersion ?? this.productService.version;
@@ -282,6 +287,9 @@ export class UpdateTooltip extends Disposable {
 					this.renderMessage(
 						localize('updateTooltip.meteredConnectionMessage', "Automatic updates are paused because the network connection is metered."),
 						Codicon.radioTower);
+				} else if (this.productService.basehalfVersion) {
+					// BaseHalf is for notes. Its users do not code.
+					this.renderMessage(localize('updateTooltip.autoUpdateDefaultBaseHalf', "Automatic updates are enabled."), Codicon.check);
 				} else {
 					this.renderMessage(
 						localize('updateTooltip.autoUpdateDefault', "Automatic updates are enabled. Happy Coding!"),
