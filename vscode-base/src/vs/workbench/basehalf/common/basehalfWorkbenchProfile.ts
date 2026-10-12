@@ -470,6 +470,12 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// The sidebar, the canvas, and the Agent Area are separate rounded cards
 	// with a gap between them, as in VS Code's Modern UI.
 	'workbench.experimental.modernUI': true,
+	// The canvas and the Agent Area terminal have a dark palette of their own.
+	// A switch that the system makes by itself, for the appearance or for high
+	// contrast, therefore stays on a dark theme. A user can still pick a light
+	// theme in the Color Theme picker.
+	'workbench.preferredLightColorTheme': 'Dark 2026',
+	'workbench.preferredHighContrastLightColorTheme': 'Default High Contrast',
 	'workbench.editor.showTabs': 'none',
 	'breadcrumbs.enabled': false,
 	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents

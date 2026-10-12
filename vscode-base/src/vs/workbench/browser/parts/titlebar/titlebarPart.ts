@@ -15,7 +15,7 @@ import { IConfigurationService, IConfigurationChangeEvent } from '../../../../pl
 import { DisposableStore, IDisposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
 import { IBrowserWorkbenchEnvironmentService } from '../../../services/environment/browser/environmentService.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
-import { TITLE_BAR_ACTIVE_BACKGROUND, TITLE_BAR_ACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_BACKGROUND, TITLE_BAR_BORDER, WORKBENCH_BACKGROUND } from '../../../common/theme.js';
+import { MODERN_UI_INACTIVE_SHELL_BACKGROUND, MODERN_UI_SHELL_BACKGROUND, TITLE_BAR_ACTIVE_BACKGROUND, TITLE_BAR_ACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_BACKGROUND, TITLE_BAR_BORDER, WORKBENCH_BACKGROUND } from '../../../common/theme.js';
 import { isMacintosh, isWindows, isLinux, isWeb, isNative, platformLocale } from '../../../../base/common/platform.js';
 import { Color } from '../../../../base/common/color.js';
 import { EventType, EventHelper, Dimension, append, $, addDisposableListener, prepend, reset, getWindow, getWindowId, isAncestor, getActiveDocument, isHTMLElement } from '../../../../base/browser/dom.js';
@@ -372,6 +372,10 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 	}
 
 	protected onConfigurationChanged(event: IConfigurationChangeEvent): void {
+		if (event.affectsConfiguration(LayoutSettings.MODERN_UI)) {
+			this.updateStyles();
+		}
+
 
 		// Custom menu bar (disabled if auxiliary)
 		if (!this.isAuxiliary && !hasNativeMenu(this.configurationService, this.titleBarStyle) && (!isMacintosh || isWeb)) {
@@ -825,7 +829,9 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 				// the background color is the workbench background.
 				return color.isOpaque() ? color : color.makeOpaque(WORKBENCH_BACKGROUND(theme));
 			}) || '';
+			const shellBackground = this.getColor(this.isInactive ? MODERN_UI_INACTIVE_SHELL_BACKGROUND : MODERN_UI_SHELL_BACKGROUND) || this.getColor(MODERN_UI_SHELL_BACKGROUND) || titleBackground;
 			this.element.style.backgroundColor = titleBackground;
+			this.layoutService.getContainer(getWindow(this.element)).style.setProperty('--modern-ui-shell-background', shellBackground);
 
 			if (this.appIconBadge) {
 				this.appIconBadge.style.backgroundColor = titleBackground;
@@ -840,7 +846,7 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 			const titleForeground = this.getColor(this.isInactive ? TITLE_BAR_INACTIVE_FOREGROUND : TITLE_BAR_ACTIVE_FOREGROUND);
 			this.element.style.color = titleForeground || '';
 
-			const titleBorder = this.getColor(TITLE_BAR_BORDER);
+			const titleBorder = !this.isAuxiliary && this.configurationService.getValue<boolean>(LayoutSettings.MODERN_UI) === true ? undefined : this.getColor(TITLE_BAR_BORDER);
 			this.element.style.borderBottom = titleBorder ? `1px solid ${titleBorder}` : '';
 		}
 	}

@@ -13,7 +13,7 @@ import { FileCopiedContext, NEW_FILE_COMMAND_ID, NEW_FOLDER_COMMAND_ID } from '.
 import * as DOM from '../../../../../base/browser/dom.js';
 import { IWorkbenchLayoutService } from '../../../../services/layout/browser/layoutService.js';
 import { ExplorerDecorationsProvider } from './explorerDecorationsProvider.js';
-import { IWorkspaceContextService, WorkbenchState } from '../../../../../platform/workspace/common/workspace.js';
+import { isUntitledWorkspace, IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../../platform/workspace/common/workspace.js';
 import { IConfigurationService, IConfigurationChangeEvent } from '../../../../../platform/configuration/common/configuration.js';
 import { IKeybindingService } from '../../../../../platform/keybinding/common/keybinding.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -40,7 +40,8 @@ import { IAsyncDataTreeViewState } from '../../../../../base/browser/ui/tree/asy
 import { FuzzyScore } from '../../../../../base/common/filters.js';
 import { IClipboardService } from '../../../../../platform/clipboard/common/clipboardService.js';
 import { IFileService, FileSystemProviderCapabilities } from '../../../../../platform/files/common/files.js';
-import { IDisposable } from '../../../../../base/common/lifecycle.js';
+import { IDisposable, toDisposable } from '../../../../../base/common/lifecycle.js';
+import { IEnvironmentService } from '../../../../../platform/environment/common/environment.js';
 import { Event } from '../../../../../base/common/event.js';
 import { IViewDescriptorService } from '../../../../common/views.js';
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
@@ -153,7 +154,32 @@ export interface IExplorerViewPaneOptions extends IViewPaneOptions {
 	delegate: IExplorerViewContainerDelegate;
 }
 
+/**
+ * Marks the Explorer pane header as showing a name the user chose.
+ */
+export const PRESERVE_WORKSPACE_NAME_CASE_CLASS = 'preserve-workspace-name-case';
+
+/**
+ * Marks the part hosting the Explorer as showing a name the user chose in its
+ * merged (single view) title.
+ */
+export const PRESERVE_MERGED_WORKSPACE_NAME_CASE_CLASS = 'preserve-merged-workspace-name-case';
+
+/**
+ * Whether the Explorer title shows a name the user provided and therefore has to
+ * be rendered with its original casing. Untitled workspaces show a generated
+ * label and empty workbenches show a static label, so both keep the default casing.
+ */
+export function shouldPreserveWorkspaceNameCase(workbenchState: WorkbenchState, workspace: IWorkspace, environmentService: IEnvironmentService): boolean {
+	if (workbenchState === WorkbenchState.EMPTY) {
+		return false;
+	}
+
+	return !workspace.configuration || !isUntitledWorkspace(workspace.configuration, environmentService);
+}
+
 export class ExplorerView extends ViewPane implements IExplorerView {
+
 	static readonly TREE_VIEW_STATE_STORAGE_KEY: string = 'workbench.explorer.treeViewState';
 
 	private tree!: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>;
@@ -181,6 +207,7 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 	private viewVisibleContextKey: IContextKey<boolean>;
 
 	private setTreeInputPromise: Promise<void> | undefined;
+	private workspaceTitleContainer: HTMLElement | undefined;
 	private horizontalScrolling: boolean | undefined;
 
 	private dragHandler!: DelayedDragHandler;
@@ -218,6 +245,7 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		@ICommandService private readonly commandService: ICommandService,
 		@IOpenerService openerService: IOpenerService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
+		@IEnvironmentService private readonly environmentService: IEnvironmentService,
 		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -238,8 +266,8 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		this.viewHasSomeCollapsibleRootItem = ViewHasSomeCollapsibleRootItemContext.bindTo(contextKeyService);
 		this.viewVisibleContextKey = FoldersViewVisibleContext.bindTo(contextKeyService);
 
-
 		this.explorerService.registerView(this);
+		this._register(toDisposable(() => this.clearWorkspaceTitleContainer()));
 	}
 
 	get autoReveal() {
@@ -262,9 +290,24 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		// noop
 	}
 
+	override get headerVisible(): boolean {
+		return super.headerVisible;
+	}
+
+	override set headerVisible(visible: boolean) {
+		super.headerVisible = visible;
+		this.updateWorkspaceTitleCase();
+	}
+
 	override setVisible(visible: boolean): void {
+		if (!visible) {
+			this.clearWorkspaceTitleContainer();
+		}
 		this.viewVisibleContextKey.set(visible);
 		super.setVisible(visible);
+		if (visible) {
+			this.updateWorkspaceTitleContainer();
+		}
 	}
 
 	@memoize private get fileCopiedContextKey(): IContextKey<boolean> {
@@ -292,9 +335,33 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			titleElement.setAttribute('aria-label', this.ariaHeaderLabel);
 		};
 
-		this._register(this.contextService.onDidChangeWorkspaceName(setHeader));
+		this._register(this.contextService.onDidChangeWorkspaceName(() => {
+			setHeader();
+			this.updateWorkspaceTitleCase();
+		}));
+		this._register(this.contextService.onDidChangeWorkbenchState(() => this.updateWorkspaceTitleCase()));
 		this._register(this.labelService.onDidChangeFormatters(setHeader));
 		setHeader();
+	}
+
+	private updateWorkspaceTitleContainer(): void {
+		const workspaceTitleContainer = DOM.findParentWithClass(this.element, 'part') ?? undefined;
+		if (this.workspaceTitleContainer !== workspaceTitleContainer) {
+			this.workspaceTitleContainer?.classList.remove(PRESERVE_MERGED_WORKSPACE_NAME_CASE_CLASS);
+			this.workspaceTitleContainer = workspaceTitleContainer;
+		}
+		this.updateWorkspaceTitleCase();
+	}
+
+	private clearWorkspaceTitleContainer(): void {
+		this.workspaceTitleContainer?.classList.remove(PRESERVE_MERGED_WORKSPACE_NAME_CASE_CLASS);
+		this.workspaceTitleContainer = undefined;
+	}
+
+	private updateWorkspaceTitleCase(): void {
+		const preserveWorkspaceNameCase = shouldPreserveWorkspaceNameCase(this.contextService.getWorkbenchState(), this.contextService.getWorkspace(), this.environmentService);
+		this.element.classList.toggle(PRESERVE_WORKSPACE_NAME_CASE_CLASS, preserveWorkspaceNameCase);
+		this.workspaceTitleContainer?.classList.toggle(PRESERVE_MERGED_WORKSPACE_NAME_CASE_CLASS, preserveWorkspaceNameCase && this.isVisible() && !this.headerVisible);
 	}
 
 	protected override layoutBody(height: number, width: number): void {

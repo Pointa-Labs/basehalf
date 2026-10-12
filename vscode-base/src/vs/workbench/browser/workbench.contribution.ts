@@ -13,7 +13,7 @@ import { ConfigurationKeyValuePairs, ConfigurationMigrationWorkbenchContribution
 import { WorkbenchPhase, registerWorkbenchContribution2 } from '../common/contributions.js';
 import { NotificationsPosition, NotificationsSettings } from '../common/notifications.js';
 import { CustomEditorLabelService } from '../services/editor/common/customEditorLabelService.js';
-import { ActivityBarPosition, EditorActionsLocation, EditorTabsMode, LayoutSettings } from '../services/layout/browser/layoutService.js';
+import { ActivityBarPosition, EditorActionsLocation, EditorTabsMode, LayoutSettings, ModernUIDensity, ModernUIEditorTabStyle } from '../services/layout/browser/layoutService.js';
 import { defaultWindowTitle, defaultWindowTitleSeparator } from './parts/titlebar/windowTitle.js';
 
 const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -249,6 +249,16 @@ const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Con
 				'enum': ['default', 'compact'],
 				'default': 'default',
 				'markdownDescription': localize({ comment: ['{0}, {1} will be a setting name rendered as a link'], key: 'workbench.editor.tabHeight' }, "Controls the height of editor tabs. Also applies to the title control bar when {0} is not set to {1}.", '`#workbench.editor.showTabs#`', '`multiple`')
+			},
+			[LayoutSettings.MODERN_UI_DENSITY]: {
+				'type': 'string',
+				'enum': [ModernUIDensity.Default, ModernUIDensity.Compact],
+				'enumDescriptions': [
+					localize('windowDensityLayout.default', "Uses the standard spacing between workbench parts and a taller title bar in the Agents window."),
+					localize('windowDensityLayout.compact', "Removes the gaps between workbench parts and reduces their internal spacing to provide more room for content. Uses a shorter title bar in the Agents window."),
+				],
+				'default': ModernUIDensity.Default,
+				'markdownDescription': localize({ key: 'windowDensityLayout', comment: ['{0} is a placeholder for a setting identifier.'] }, "Controls the spacing density of the workbench layout. Applies in the Agents window and when {0} is enabled in the editor window.", '`#workbench.experimental.modernUI#`'),
 			},
 			'workbench.editor.pinnedTabSizing': {
 				'type': 'string',
@@ -809,9 +819,26 @@ const registry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Con
 			},
 			[LayoutSettings.MODERN_UI]: {
 				'type': 'boolean',
+				'default': true,
+				'description': localize('modernUI', "Controls whether the Modern UI Update is enabled. When on, the side bars and bottom panel are shown as floating cards with rounded corners and gaps, and a set of refreshed workbench styles is applied, matching the Agents window design."),
+				experiment: { mode: 'auto' },
+			},
+			[LayoutSettings.MODERN_UI_UPPERCASE_VIEW_HEADERS]: {
+				'type': 'boolean',
 				'default': false,
 				'tags': ['experimental'],
-				'description': localize('modernUI', "Controls whether the experimental Modern UI Update is enabled. When on, the side bars and bottom panel are shown as floating cards with rounded corners and gaps, and a set of refreshed workbench styles is applied, matching the Agents window design."),
+				'markdownDescription': localize({ key: 'modernUIUppercaseViewHeaders', comment: ['{0} is a placeholder for a setting identifier.'] }, "Controls whether view headers, side bar titles, and panel tabs use uppercase text when {0} is enabled.", '`#workbench.experimental.modernUI#`'),
+			},
+			[LayoutSettings.MODERN_UI_EDITOR_TAB_STYLE]: {
+				'type': 'string',
+				'enum': [ModernUIEditorTabStyle.Connected, ModernUIEditorTabStyle.Pill],
+				'enumDescriptions': [
+					localize('modernUIEditorTabStyle.connected', "Connect the active tab to the editor surface with an outside border and curved shoulders."),
+					localize('modernUIEditorTabStyle.pill', "Show editor tabs as separate rounded pills."),
+				],
+				'default': ModernUIEditorTabStyle.Connected,
+				'tags': ['experimental'],
+				'markdownDescription': localize({ key: 'modernUIEditorTabStyle', comment: ['{0} is a placeholder for a setting identifier.'] }, "Controls the editor tab style when {0} is enabled, and the chat and side-panel tab style in the Agents window. High contrast themes retain explicit selection and focus borders.", '`#workbench.experimental.modernUI#`'),
 			},
 		}
 	});

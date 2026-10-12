@@ -259,9 +259,10 @@ Done means:
 - BaseHalf canvas/card detail/Agent Area have stable responsive layout and no
   overlapping text or controls.
 - The workbench shows VS Code's default dark color theme and its card
-  layout, as the base implements them
+  layout, as VS Code 1.141 implements them
   ([workbench appearance](specs/workbench-appearance.md), D51). The canvas
-  and the Agent Area terminal still have a dark palette of their own.
+  and the Agent Area terminal still have a dark palette of their own, so a
+  light theme is not complete.
 - Dark/light/high-contrast themes use VS Code theme tokens instead of hardcoded
   one-off palettes where possible.
 

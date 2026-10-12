@@ -1491,45 +1491,63 @@ themselves.
 ## D51 — The product shows VS Code's color theme and its card layout (NEW, 2026-10-12)
 
 **Decision.** BaseHalf shows VS Code's default dark color theme and VS
-Code's Modern UI layout, both as the imported base implements them. The
-built-in default themes extension is an allowed and required extension
-family, and `workbench.experimental.modernUI` is on in the product's
-configuration defaults. BaseHalf writes no theme and no layout rules of its
-own for the workbench parts. See
+Code's Modern UI layout, as VS Code 1.141 implements them. The built-in
+default themes extension is an allowed and required extension family,
+`workbench.experimental.modernUI` is on, and the files of the layout were
+brought from the imported base (1.128) to their state in 1.141. BaseHalf
+writes no theme and no layout rules of its own for the workbench parts. A
+theme switch that the system makes by itself stays on a dark theme. See
 [workbench appearance](specs/workbench-appearance.md).
 
 **Why.** On 2026-10-12 the user compared BaseHalf with the current VS Code
 release: VS Code shows the sidebar and the right side as rounded cards, and
-its Git view has status colors, while BaseHalf's Git view was gray. Both had
-one cause. D22 made a curated extension allowlist with Git, GitHub, GitHub
-authentication, and the agent extensions. The color theme is an extension
-too, and the list left it out. So no theme was ever loaded: the window kept
-the colors VS Code paints before a theme loads, and colors that extensions
-contribute, the Git status colors among them, had no value. The card layout
-was in the base already, switched off by default.
+its Git view has status colors, while BaseHalf's Git view was gray. The gray
+had one cause. D22 made a curated extension allowlist with Git, GitHub,
+GitHub authentication, and the agent extensions. The color theme is an
+extension too, and the list left it out. So no theme was ever loaded: the
+window kept the colors VS Code paints before a theme loads, and colors that
+extensions contribute, the Git status colors among them, had no value.
 
-The product was not missing code. It was missing one admitted extension and
-one default.
+The card layout was in the base, switched off, in an early version. With it
+switched on the product had cards, but not the ones the user had seen:
+wider gaps, a smaller radius, another background. The user asked for the
+current VS Code source to be put under `reference/` and for the changes to
+be made against it. The layout is a closed part of the workbench: helpers in
+the layout service, the margins of each part, one stylesheet, and one
+module. Each file was merged three ways, with the import commit as the
+base, so a file that BaseHalf had not changed became the 1.141 file. After
+that the computed styles of both windows were read side by side until they
+agreed.
 
 **What was set aside.**
 - Giving the Git status colors a value in BaseHalf's own styles. The Git view
   is VS Code's (D22), and every other contributed color would stay without a
   value.
-- Rounded corners and gaps in BaseHalf's own styles. The base has them, and
-  a second set would have to follow every upstream change by hand.
-- Copying the Modern UI files of the current VS Code release into the base.
-  They grew from about 1,900 to about 4,900 lines since the import and
-  depend on changes in the editor tabs, the layout, and the theme service of
-  the same releases. Their refinements arrive with an update of the whole
-  base.
+- Rounded corners and gaps in BaseHalf's own styles. A second set would have
+  to follow every upstream change by hand.
+- Keeping the early version of the base and waiting for an update of the
+  whole base. It was the first proposal. The user wanted the look of the
+  current release now.
+- Bringing the whole editor area to 1.141 for the connected editor tabs. It
+  pulled in unrelated features of thirteen releases, and BaseHalf shows no
+  editor tabs.
+- A light palette for the canvas, so that light themes work. It is a design
+  task of its own (roadmap track 9). Until then the system cannot switch the
+  product to a light theme, and a user can still choose one.
+- Hiding `Preferences: Color Theme`. The command palette shows VS Code's
+  commands unfiltered, and no menu of the product offers the picker.
 
 **Consequences.**
 - Extends D22: the allowed built-in families are the default themes, Git,
   GitHub, and GitHub authentication.
 - The colors of the workbench parts change from the startup colors to the
   theme's: backgrounds, borders, buttons, selection, and focus.
-- The Color Theme picker now lists the themes of the default themes
-  extension. The canvas and the Agent Area terminal have a dark palette of
-  their own and do not follow a light theme yet (roadmap track 9).
+- About sixty files of the base are now at their 1.141 state while the rest
+  is at 1.128. `vscode-base/BASEHALF_UPSTREAM.md` lists them. An update of
+  the whole base takes upstream's version of each.
+- `reference/vscode` holds the source of VS Code 1.141.0. It was a link to
+  `vscode-base` before.
+- With a light theme chosen, the workbench parts are light and the canvas
+  and the Agent Area terminal stay dark.
 - The smoke fails when the theme is not loaded, so an allowlist change
   cannot bring the gray state back unnoticed.

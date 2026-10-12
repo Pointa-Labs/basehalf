@@ -1273,14 +1273,17 @@ async function assertProductThemeAndCards(page) {
 		state = await page.evaluate(() => {
 			const workbench = document.querySelector('.monaco-workbench');
 			const sidebar = document.querySelector('.part.sidebar');
+			const editor = document.querySelector('.part.editor');
 			return {
 				gitModifiedColor: getComputedStyle(workbench).getPropertyValue('--vscode-gitDecoration-modifiedResourceForeground').trim(),
 				themeClasses: [...workbench.classList].filter(name => name.startsWith('vscode-theme-')),
 				floatingPanels: workbench.classList.contains('floating-panels'),
-				sidebarRadius: sidebar ? parseFloat(getComputedStyle(sidebar).borderTopLeftRadius) : 0
+				sidebarRadius: sidebar ? parseFloat(getComputedStyle(sidebar).borderTopLeftRadius) : 0,
+				// The gap between the sidebar card and the canvas card.
+				cardGap: sidebar && editor ? Math.round(editor.getBoundingClientRect().left - sidebar.getBoundingClientRect().right) : -1
 			};
 		});
-		if (state.gitModifiedColor && state.themeClasses.length && state.floatingPanels && state.sidebarRadius > 0) {
+		if (state.gitModifiedColor && state.themeClasses.length && state.floatingPanels && state.sidebarRadius === 8 && state.cardGap === 4) {
 			return;
 		}
 		await page.waitForTimeout(200);
