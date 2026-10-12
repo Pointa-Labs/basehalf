@@ -1,6 +1,6 @@
 # Agent Area terminal identity, wheel input, and scrollbar
 
-Status: Active (2026-10-09; scrollbar added 2026-10-12)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
 [agent launch context](agent-launch-context.md)
@@ -31,6 +31,28 @@ report per row of accumulated scroll, and agents use their native terminal
 model there. With both changes, standard reports and a non-xterm.js identity,
 Claude Code in Agent Area answered each report with one frame within 6 to 8
 ms.
+
+The first version sent too many reports for a trackpad, and two-finger
+scrolling of Claude Code's transcript still felt jumpy. It doubled a precise
+delta, as the reference terminal does on macOS, and counted one row per cell
+height in CSS pixels: two reports per cell height of finger travel. The
+reference terminal receives the delta in points and counts rows by the cell
+height in device pixels, so on a display with a scale factor of 2 the doubling
+cancels out and it sends one report per cell height. Claude Code scrolls more
+rows per report as reports get denser. Measured on 2026-10-12 with Claude Code
+2.1.296, 120 Hz trackpad-shaped events, a cell height of 14 px, and an
+800-line transcript, over two runs:
+
+| Swipe | Reports per cell height | Reports | Transcript rows | Rows per update |
+| --- | --- | --- | --- | --- |
+| Slow, 220 px, about 16 rows of travel | 2 | 30 | 77 to 113 | median 3 to 4, up to 10 |
+| Slow, 220 px | 1 | 14 to 15 | 13 to 14 | 1 |
+| Medium, 635 px, about 45 rows of travel | 2 | 89 to 90 | 460 to 466 | median 9 to 12, up to 35 |
+| Medium, 635 px | 1 | 44 | 190 | median 6, up to 13 |
+
+The rows with two reports per cell height were recorded on the revised build
+with `terminal.integrated.mouseWheelScrollSensitivity` set to 2, which gives
+the first version's amount.
 
 ## Goals
 
@@ -104,16 +126,21 @@ ms.
 For each wheel event on a terminal that has a vertical delta and no Ctrl,
 Alt, Meta, or Shift key:
 
-1. **Amount.** The event is converted to pixels:
-   - A precise event contributes its vertical delta, in pixels, times 2, as
-     Ghostty does on macOS. A line delta counts one cell height per line and a
-     page delta counts the terminal's rows.
+1. **Amount.** The event is converted to rows, with a fraction:
+   - A precise event contributes its vertical delta in pixels divided by the
+     cell height, so one cell height of finger travel is one row on every
+     display and the content follows the fingers. This is the reference
+     terminal's amount on a display with a scale factor of 2. Its amount
+     varies with the scale factor; BaseHalf's does not. The amount is not
+     tuned to an agent. A line delta counts one row per line and a page delta
+     counts the terminal's rows.
    - A discrete event contributes at least one notch, and three rows per
-     notch, as Ghostty does on macOS.
+     notch, as Ghostty does on macOS. A notch is a whole number of rows
+     whatever the cell height.
    - Both are multiplied by `terminal.integrated.mouseWheelScrollSensitivity`.
-2. **Rows.** The terminal accumulates the pixels, with their sign. Each whole
-   cell height in the accumulator is one row, truncated toward zero. The
-   remainder stays for the next event, including after a change of direction.
+2. **Rows.** The terminal accumulates the amount, with its sign. Each whole
+   row in the accumulator is sent, truncated toward zero. The remainder stays
+   for the next event, including after a change of direction.
 3. **Dispatch.**
    - With wheel tracking, the terminal sends one wheel report per row, at the
      cell under the pointer. It uses xterm.js's own encoder, so the
@@ -189,7 +216,6 @@ terminal.
   and atlas maintenance do not depend on it.
 - Losing the WebGL context disposes the renderer, and atlas maintenance stops
   with it. VS Code's DOM fallback is unchanged.
-
 - If an xterm.js upgrade renames the classes that mark the scrollbar as shown
   or hidden, BaseHalf's opacity rules stop matching and xterm.js's own
   opacity applies. The scrollbar still hides where nothing can scroll. A test
@@ -200,14 +226,16 @@ terminal.
 1. A unit test of the terminal environment shows `TERM_PROGRAM=BaseHalf` and
    the given version, and no identity for a `strictEnv` launch.
 2. A unit test of the wheel conversion covers:
-   - accumulating precise deltas, with the remainder carried and a change of
-     direction;
-   - a discrete event yielding three rows per notch and at least one notch;
+   - accumulating precise deltas, with the remainder carried across a change
+     of direction;
+   - a discrete event yielding three rows per notch and at least one notch,
+     also at a cell height that is not a whole number of pixels;
    - line and page deltas;
    - sensitivity.
 3. A browser test with a real xterm.js terminal opened in the DOM shows:
    - with SGR mouse mode, a wheel event worth N rows sends N reports
-     `ESC [ < 64 ; col ; row M` for the cell under the pointer;
+     `ESC [ < 64 ; col ; row M` for the cell under the pointer, before its
+     dispatch returns;
    - with the default encoding, N default-encoded reports;
    - in the alternate buffer without mouse mode, N cursor sequences, with
      application cursor mode respected;
@@ -228,7 +256,7 @@ terminal.
    - the XTVERSION reply;
    - that a trackpad gesture of P pixels in one direction, over a program
      tracking the mouse in the alternate buffer, followed by two notches of a
-     physical wheel, produces ⌊2P ÷ cell height⌋ + 6 reports, within one.
+     physical wheel, produces ⌊P ÷ cell height⌋ + 6 reports, within one.
      The gesture is dispatched with Chromium's precise-scroll `wheelDelta` (three
      times the pixel delta). CDP-synthesized wheel events always carry one
      notch, so they stand in for the physical wheel.
@@ -239,15 +267,20 @@ terminal.
    - no scrollbar for a program in the alternate buffer while the pointer is
      over the terminal.
 7. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
-   logs `wheel accel: window (native)` and `TERM_PROGRAM=BaseHalf`. During a
-   medium swipe its transcript moves in steps of at most six rows per report,
-   with no stall of more than 100 ms while the wheel events continue.
+   logs `wheel accel: window (native)` and `TERM_PROGRAM=BaseHalf`. A slow
+   swipe moves its transcript one row per report and as far as the fingers
+   travel, within three rows. During a medium swipe the transcript moves at
+   most six rows per report on average, and it follows each report within
+   100 ms.
 
-   Recorded 2026-10-09 with Claude Code 2.1.295, 120 Hz trackpad-shaped
-   events, and a 400-line transcript, over two runs:
-   - **Slow swipe (218 px):** 31 to 33 transcript updates with a median step
-     of 2 rows and no gap over 63 ms. Under the old identity it was 5 updates,
-     3-row steps, and gaps of up to 359 ms.
-   - **Medium swipe (668 px):** no gap over 42 ms until the transcript's top,
-     at about five rows per report. Under the old identity there were gaps of
-     up to 133 ms.
+   Recorded 2026-10-12 with Claude Code 2.1.296, 120 Hz trackpad-shaped
+   events, a cell height of 14 px, and an 800-line transcript, over two runs
+   on a machine under load:
+   - **Slow swipe (220 px, about 16 rows of travel):** 14 to 15 reports moved
+     the transcript 13 to 14 rows in steps of one row, and it stopped with the
+     swipe. Each update came within 83 ms of its report, with a median of 15
+     to 17 ms.
+   - **Medium swipe (635 px, about 45 rows of travel):** 44 reports moved the
+     transcript 190 rows, 4.3 rows per report, in updates of a median of 6
+     rows and at most 13. Each update came within 34 ms of its report, with a
+     median of 7 to 8 ms.

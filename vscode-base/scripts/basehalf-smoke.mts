@@ -1873,7 +1873,8 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 	// A trackpad gesture, shaped like Chromium's precise macOS wheel events
 	// (wheelDelta is three times the pixel delta). CDP-synthesized wheel events
 	// always carry one notch, which reads as a physical wheel, so they serve as
-	// the two notches afterwards.
+	// the two notches afterwards. Their pixel delta is far from three rows, so
+	// that a notch counted as pixels changes the number of reports.
 	const deltas = [2, 3, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 3, 2, 1];
 	await page.evaluate(async ({ deltas, pointer }) => {
 		const screen = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .xterm-screen');
@@ -1883,8 +1884,8 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 		}
 	}, { deltas, pointer });
 	await page.mouse.move(pointer.x, pointer.y);
-	await page.mouse.wheel(0, -40);
-	await page.mouse.wheel(0, -40);
+	await page.mouse.wheel(0, -200);
+	await page.mouse.wheel(0, -200);
 	await page.waitForTimeout(500);
 	// The alternate buffer has no rows to scroll to, so the pointer over the
 	// terminal brings up no scrollbar.
@@ -1893,7 +1894,7 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 	const reports = await waitForActiveAgentAreaTerminalLine(page, 'BH_WHEEL_REPORTS=');
 	const [up, down] = String(reports).slice('BH_WHEEL_REPORTS='.length).split(',').map(Number);
 	const pixels = deltas.reduce((total, delta) => total + delta, 0);
-	const expected = Math.floor(2 * pixels / cellHeight) + 2 * 3;
+	const expected = Math.floor(pixels / cellHeight) + 2 * 3;
 	if (!(cellHeight > 0) || down !== 0 || Math.abs(up - expected) > 1) {
 		throw new Error(`Agent Area terminal sent ${up} up and ${down} down wheel reports for ${pixels}px of trackpad scroll and two wheel notches; expected ${expected} (cell height ${cellHeight}).`);
 	}
