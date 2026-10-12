@@ -192,6 +192,7 @@ try {
 		await step('first-canvas-render-saves-places-out-of-git', () => assertFirstCanvasRenderSavesPlacesOutOfGit(page));
 		await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 		await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
+		await step('product-theme-and-cards', () => assertProductThemeAndCards(page));
 	}
 		if (!opts.zoomOnly && !opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
@@ -1259,6 +1260,32 @@ async function visibleViewContainerTitles(page) {
 		})
 		.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
 		.filter(Boolean));
+}
+
+async function assertProductThemeAndCards(page) {
+	// The product color theme comes from the default themes extension. When it
+	// is not loaded the window keeps its startup colors, and a color that an
+	// extension contributes, such as a Git status color, has no value. The
+	// theme loads after the extensions are registered, so wait for it.
+	const started = Date.now();
+	let state;
+	while (Date.now() - started < 20_000) {
+		state = await page.evaluate(() => {
+			const workbench = document.querySelector('.monaco-workbench');
+			const sidebar = document.querySelector('.part.sidebar');
+			return {
+				gitModifiedColor: getComputedStyle(workbench).getPropertyValue('--vscode-gitDecoration-modifiedResourceForeground').trim(),
+				themeClasses: [...workbench.classList].filter(name => name.startsWith('vscode-theme-')),
+				floatingPanels: workbench.classList.contains('floating-panels'),
+				sidebarRadius: sidebar ? parseFloat(getComputedStyle(sidebar).borderTopLeftRadius) : 0
+			};
+		});
+		if (state.gitModifiedColor && state.themeClasses.length && state.floatingPanels && state.sidebarRadius > 0) {
+			return;
+		}
+		await page.waitForTimeout(200);
+	}
+	throw new Error(`The product theme or the card layout is not applied: ${JSON.stringify(state)}`);
 }
 
 async function assertStatusBarCurated(page) {

@@ -43,6 +43,8 @@ suite('BaseHalfAllowedExtensionsService', () => {
 	test('allows only BaseHalf curated product extension ids by default', () => {
 		const testObject = createService();
 
+		assert.strictEqual(testObject.isAllowed({ id: 'vscode.theme-defaults', publisherDisplayName: 'vscode' }), true);
+		assert.notStrictEqual(testObject.isAllowed({ id: 'vscode.theme-monokai', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github-authentication', publisherDisplayName: 'vscode' }), true);
@@ -56,10 +58,11 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.notStrictEqual(testObject.isAllowed({ id: 'ms-python.python', publisherDisplayName: 'Microsoft' }), true);
 	});
 
-	test('keeps required Git/GitHub built-in extensions available even when VS Code allowed extensions configuration is narrower', () => {
+	test('keeps required theme and Git/GitHub built-in extensions available even when VS Code allowed extensions configuration is narrower', () => {
 		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, { 'vscode.git': false, 'vscode.github': true });
 		const testObject = createService();
 
+		assert.strictEqual(testObject.isAllowed({ id: 'vscode.theme-defaults', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git-base', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github', publisherDisplayName: 'vscode' }), true);

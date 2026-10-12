@@ -217,6 +217,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.activityBar.location'], 'top');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.experimental.modernUI'], true);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.editor.showTabs'], 'none');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['breadcrumbs.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSave'], 'afterDelay');
@@ -293,6 +294,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 	});
 
 	test('allows only the curated extension families without wildcard marketplace exposure', () => {
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.theme-defaults'), true);
+		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.theme-monokai'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.git'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('VSCODE.GITHUB-AUTHENTICATION'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.github'), true);
@@ -324,7 +327,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 
 		assert.deepStrictEqual(
 			BASEHALF_ALLOWED_EXTENSION_FAMILIES.map(family => family.family),
-			['git', 'github', 'github-authentication', 'codex', 'claude', 'ai-video']
+			['theme', 'git', 'github', 'github-authentication', 'codex', 'claude', 'ai-video']
 		);
 	});
 

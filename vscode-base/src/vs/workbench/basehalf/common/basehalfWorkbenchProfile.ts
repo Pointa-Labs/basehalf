@@ -418,7 +418,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'ai-video';
+export type BaseHalfExtensionFamily = 'theme' | 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'ai-video';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -467,6 +467,9 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// vertical activity bar spends a persistent column on three icons, so the
 	// icons sit horizontally above the sidebar and the width goes to the canvas.
 	'workbench.activityBar.location': 'top',
+	// The sidebar, the canvas, and the Agent Area are separate rounded cards
+	// with a gap between them, as in VS Code's Modern UI.
+	'workbench.experimental.modernUI': true,
 	'workbench.editor.showTabs': 'none',
 	'breadcrumbs.enabled': false,
 	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents
@@ -603,6 +606,14 @@ export interface IBaseHalfAllowedExtensionFamily {
 }
 
 export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
+	{
+		family: 'theme',
+		builtInExtensionIds: ['vscode.theme-defaults'],
+		externalExtensionIds: [],
+		externalSlotIds: [],
+		source: 'extensions/theme-defaults/package.json',
+		reason: 'VS Code default themes supply the product color theme. Without it the window keeps its startup colors, and colors that extensions contribute, such as the Git status colors, have no value.'
+	},
 	{
 		family: 'git',
 		builtInExtensionIds: ['vscode.git', 'vscode.git-base'],
@@ -927,7 +938,7 @@ const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 );
 const REQUIRED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES
-		.filter(family => family.family === 'git' || family.family === 'github' || family.family === 'github-authentication')
+		.filter(family => family.family === 'theme' || family.family === 'git' || family.family === 'github' || family.family === 'github-authentication')
 		.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
 );
 const ALLOWED_EXTERNAL_EXTENSION_IDS = new Set<string>(

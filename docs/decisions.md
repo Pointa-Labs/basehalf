@@ -395,6 +395,8 @@ services and APIs can remain as compatibility plumbing for extensions.
 *Narrowed by D45: the Plugins library is removed and the sidebar has three
 areas.*
 
+*Extended by D51: the default themes extension is an allowed family too.*
+
 **Decision.** BaseHalf's left sidebar has exactly four product areas: Files,
 Git, Search, and a BaseHalf-owned Plugins library. Reuse VS Code's native
 Activity Bar/view-container lifecycle, Explorer/Search/SCM mechanics, the
@@ -1485,3 +1487,49 @@ themselves.
 - A card that is pointed at near the edge of the window is partly outside it
   until the user moves the canvas. A note opens for typing there all the
   same.
+
+## D51 — The product shows VS Code's color theme and its card layout (NEW, 2026-10-12)
+
+**Decision.** BaseHalf shows VS Code's default dark color theme and VS
+Code's Modern UI layout, both as the imported base implements them. The
+built-in default themes extension is an allowed and required extension
+family, and `workbench.experimental.modernUI` is on in the product's
+configuration defaults. BaseHalf writes no theme and no layout rules of its
+own for the workbench parts. See
+[workbench appearance](specs/workbench-appearance.md).
+
+**Why.** On 2026-10-12 the user compared BaseHalf with the current VS Code
+release: VS Code shows the sidebar and the right side as rounded cards, and
+its Git view has status colors, while BaseHalf's Git view was gray. Both had
+one cause. D22 made a curated extension allowlist with Git, GitHub, GitHub
+authentication, and the agent extensions. The color theme is an extension
+too, and the list left it out. So no theme was ever loaded: the window kept
+the colors VS Code paints before a theme loads, and colors that extensions
+contribute, the Git status colors among them, had no value. The card layout
+was in the base already, switched off by default.
+
+The product was not missing code. It was missing one admitted extension and
+one default.
+
+**What was set aside.**
+- Giving the Git status colors a value in BaseHalf's own styles. The Git view
+  is VS Code's (D22), and every other contributed color would stay without a
+  value.
+- Rounded corners and gaps in BaseHalf's own styles. The base has them, and
+  a second set would have to follow every upstream change by hand.
+- Copying the Modern UI files of the current VS Code release into the base.
+  They grew from about 1,900 to about 4,900 lines since the import and
+  depend on changes in the editor tabs, the layout, and the theme service of
+  the same releases. Their refinements arrive with an update of the whole
+  base.
+
+**Consequences.**
+- Extends D22: the allowed built-in families are the default themes, Git,
+  GitHub, and GitHub authentication.
+- The colors of the workbench parts change from the startup colors to the
+  theme's: backgrounds, borders, buttons, selection, and focus.
+- The Color Theme picker now lists the themes of the default themes
+  extension. The canvas and the Agent Area terminal have a dark palette of
+  their own and do not follow a light theme yet (roadmap track 9).
+- The smoke fails when the theme is not loaded, so an allowlist change
+  cannot bring the gray state back unnoticed.
