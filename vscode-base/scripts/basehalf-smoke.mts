@@ -10079,6 +10079,16 @@ async function assertCanvasNoteWheelScroll(page) {
 	await page.mouse.wheel(0, 60);
 	const scrolled = await settled(longPath, 'A scroll on a long note that the pointer was moved onto must move the note and not the canvas', now => now.scrollTop === 60 && now.viewport === rest.viewport);
 
+	// The box that cuts the text of the scrolled note is the card content: no band without text is left under the outline.
+	const cut = await card('long.md').evaluate(element => {
+		const body = element.querySelector('.basehalf-canvas-card-body')?.getBoundingClientRect();
+		const note = element.querySelector('.bh-md-preview')?.getBoundingClientRect();
+		return body && note ? { top: note.top - body.top, bottom: body.bottom - note.bottom } : undefined;
+	});
+	if (!cut || Math.abs(cut.top) > 0.5 || Math.abs(cut.bottom) > 0.5) {
+		throw new Error(`The text of a scrolled note must be cut at the top and the bottom of the card content: ${JSON.stringify(cut)}`);
+	}
+
 	// A scroll that starts on the canvas keeps moving the canvas when its events reach the note.
 	await canvasGestureOver(`.basehalf-canvas-card[data-basehalf-card-path="${longPath}"] .bh-md-preview`);
 	const panned = await state(longPath);

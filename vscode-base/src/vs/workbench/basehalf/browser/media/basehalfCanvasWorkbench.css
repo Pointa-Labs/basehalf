@@ -1217,10 +1217,14 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
-	--basehalf-canvas-note-content-padding: 8px 12px 12px;
+	--basehalf-canvas-note-inline-padding: 12px;
+	--basehalf-canvas-note-content-padding: 8px var(--basehalf-canvas-note-inline-padding) 12px;
 	--basehalf-canvas-note-scrollbar-width: 10px;
 	position: relative;
-	padding: var(--basehalf-canvas-note-content-padding);
+	/* Both projections of a Note scroll. The space around the text belongs to
+	 * what they scroll: held by this box, it would cut the text of a scrolled
+	 * Note short of the card's outline. */
+	padding: 0;
 	font-family: inherit;
 	white-space: normal;
 	mask-image: none;
@@ -3820,7 +3824,8 @@ body.basehalf-canvas-edge-reconnecting * {
  * as inert box space instead; both projections then keep the same line measure
  * at every Canvas zoom without introducing a resting pointer target. */
 .monaco-workbench .basehalf-canvas-card-preview.kind-markdown .bh-md-preview:not(.basehalf-canvas-markdown-inline) {
-	padding-right: var(--basehalf-canvas-note-scrollbar-width);
+	padding: var(--basehalf-canvas-note-content-padding);
+	padding-right: calc(var(--basehalf-canvas-note-inline-padding) + var(--basehalf-canvas-note-scrollbar-width));
 }
 
 .monaco-workbench .basehalf-canvas-note-empty {

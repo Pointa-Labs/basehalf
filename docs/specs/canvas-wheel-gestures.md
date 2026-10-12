@@ -136,6 +136,18 @@ behaves on the desktop.
   was opened, or the Note began to be edited), the rest of the gesture moves
   nothing.
 
+### Where the text of a scrolled Note is cut
+
+- The text of a Note at rest is cut at the top and at the bottom of the card
+  content, as the text of a Note that is being edited is. No band without
+  text is left between the card's outline and the text of a scrolled note.
+- The space around the text (8 flow pixels above its first block, 12 below
+  its last block) belongs to the scrolled content. It shows at the top and at
+  the bottom of the note and nowhere between.
+- This moves no text. A note that is not scrolled shows its text where it
+  did, and the text is at the same place at rest and while it is edited, at
+  every scroll position.
+
 ### A gesture the canvas owns
 
 - Every event pans the canvas, as before this specification.
@@ -211,6 +223,9 @@ again.
 12. A pan is running, and the window is busy for 400 ms. A wheel event that
     arrived in that time, with a long Note under the pointer, pans the canvas
     and does not scroll the note.
+13. A long Note at rest that was scrolled to its middle shows text up to the
+    top and the bottom of its card content. Scrolled back to its top, the
+    note shows its text where a note that was never scrolled shows it.
 
 ## Verification
 
@@ -218,8 +233,9 @@ again.
   timer that ends a gesture, on time and held up
   (`basehalfCanvasWheelGesture.test.ts`), and what happens to the wheel
   events in the document (`basehalfCanvasWheelGestures.test.ts`).
-- The smoke covers criteria 1, 3, 4, 5, the fitting-note case of 6, 9, and
-  the file change of 10.
+- The smoke covers criteria 1, 3, 4, 5, the fitting-note case of 6, 9, the
+  file change of 10, and the cut of 13 (the box that cuts the text of a
+  scrolled note is the card content).
 - Criteria 2, 7, 8, 11, 12, and the rest of 6 and 10 are checked in the real
   window when this behavior changes. Momentum and the feel of a real
   trackpad are checked by hand: a test cannot produce them.
