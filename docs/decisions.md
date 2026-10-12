@@ -920,6 +920,10 @@ heuristics.
   recognize `BaseHalf` instead.
 - The terminal reaches into xterm.js internals to encode wheel reports. A test
   pins them, and a missing internal falls back to xterm.js's own reports.
+- Refined 2026-10-12: a trackpad delta counts one row per cell height of
+  finger travel on every display. That is the reference terminal's amount on
+  a display with a scale factor of 2; on other displays its amount differs,
+  and BaseHalf's does not. See the specification for the measurement.
 
 ## D40 — Mirror metadata never blocks the user (NEW, 2026-10-10)
 

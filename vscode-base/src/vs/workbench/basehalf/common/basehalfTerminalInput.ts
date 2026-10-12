@@ -4,11 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * Ghostty on macOS doubles a precise (trackpad) delta before scaling it.
- */
-const PRECISE_DELTA_MULTIPLIER = 2;
-
-/**
  * Ghostty's default `mouse-scroll-multiplier` for a notch of a physical wheel.
  */
 const ROWS_PER_WHEEL_NOTCH = 3;
@@ -18,7 +13,8 @@ const WHEEL_DELTA_PAGE = 2;
 
 export interface IBaseHalfTerminalWheelDelta {
 	/**
-	 * The vertical delta, negative upward, in `deltaMode` units.
+	 * The vertical delta, negative upward, in `deltaMode` units. Pixels are
+	 * CSS pixels, like {@link IBaseHalfTerminalWheelMetrics.cellHeight}.
 	 */
 	readonly deltaY: number;
 	/**
@@ -46,12 +42,16 @@ export interface IBaseHalfTerminalWheelMetrics {
 
 /**
  * Turns wheel events into terminal rows with Ghostty's semantics (D39,
- * docs/specs/agent-area-terminal.md): scroll accumulates in pixels, and every
- * whole cell height is one row. The remainder, with its sign, carries over to
- * the next event.
+ * docs/specs/agent-area-terminal.md): scroll accumulates, and every whole row
+ * is sent. The remainder, with its sign, carries over to the next event.
+ *
+ * A precise (trackpad) delta counts one row per cell height of finger travel.
+ * That is the reference terminal's amount on a display with a scale factor of
+ * 2, where its doubling of the delta and its cell height in device pixels
+ * cancel out.
  */
 export class BaseHalfTerminalWheelAccumulator {
-	private pendingPixels = 0;
+	private pendingRows = 0;
 
 	/**
 	 * Adds a wheel event and returns the whole rows it completes, negative
@@ -61,21 +61,25 @@ export class BaseHalfTerminalWheelAccumulator {
 		if (delta.deltaY === 0 || metrics.cellHeight <= 0) {
 			return 0;
 		}
-		this.pendingPixels += wheelPixels(delta, metrics);
-		const rows = Math.trunc(this.pendingPixels / metrics.cellHeight);
-		this.pendingPixels -= rows * metrics.cellHeight;
+		this.pendingRows += wheelRows(delta, metrics);
+		const rows = Math.trunc(this.pendingRows);
+		this.pendingRows -= rows;
 		return rows === 0 ? 0 : rows; // no -0
 	}
 }
 
-function wheelPixels(delta: IBaseHalfTerminalWheelDelta, metrics: IBaseHalfTerminalWheelMetrics): number {
+/**
+ * The rows that `delta` is worth, with a fraction. A notch is a whole number
+ * of rows whatever the cell height.
+ */
+function wheelRows(delta: IBaseHalfTerminalWheelDelta, metrics: IBaseHalfTerminalWheelMetrics): number {
 	if (delta.discrete) {
-		return Math.sign(delta.deltaY) * Math.max(1, delta.notches) * ROWS_PER_WHEEL_NOTCH * metrics.cellHeight * metrics.sensitivity;
+		return Math.sign(delta.deltaY) * Math.max(1, delta.notches) * ROWS_PER_WHEEL_NOTCH * metrics.sensitivity;
 	}
-	const unit = delta.deltaMode === WHEEL_DELTA_LINE ? metrics.cellHeight
-		: delta.deltaMode === WHEEL_DELTA_PAGE ? metrics.rows * metrics.cellHeight
-			: 1;
-	return delta.deltaY * unit * PRECISE_DELTA_MULTIPLIER * metrics.sensitivity;
+	const rows = delta.deltaMode === WHEEL_DELTA_LINE ? delta.deltaY
+		: delta.deltaMode === WHEEL_DELTA_PAGE ? delta.deltaY * metrics.rows
+			: delta.deltaY / metrics.cellHeight;
+	return rows * metrics.sensitivity;
 }
 
 /**

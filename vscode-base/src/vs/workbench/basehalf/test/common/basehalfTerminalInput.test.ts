@@ -16,12 +16,12 @@ suite('BaseHalfTerminalInput', () => {
 		const precise = (deltaY: number, deltaMode = 0): IBaseHalfTerminalWheelDelta => ({ deltaY, deltaMode, discrete: false, notches: 0 });
 		const notch = (deltaY: number, notches: number): IBaseHalfTerminalWheelDelta => ({ deltaY, deltaMode: 0, discrete: true, notches });
 
-		test('counts precise deltas twice, one row per cell height, and carries the remainder across a change of direction', () => {
+		test('counts one row per cell height of precise deltas and carries the remainder across a change of direction', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			assert.deepStrictEqual(
-				[precise(-5), precise(-5), precise(-5), precise(-1), precise(3), precise(12), precise(4)].map(delta => accumulator.accept(delta, metrics)),
-				// pending pixels: -10, -20 → -4, -14, -16 → 0, 6, 30 → 14, 22 → 6
-				[0, -1, 0, -1, 0, 1, 1]
+				[precise(-10), precise(-10), precise(-10), precise(6), precise(24), precise(8), precise(10)].map(delta => accumulator.accept(delta, metrics)),
+				// pending sixteenths of a row: -10, -20 → -4, -14, -8, 16 → 0, 8, 18 → 2
+				[0, -1, 0, 0, 1, 0, 1]
 			);
 		});
 
@@ -33,11 +33,20 @@ suite('BaseHalfTerminalInput', () => {
 			);
 		});
 
+		test('keeps a notch at three rows when the cell height is not a whole number of pixels', () => {
+			const accumulator = new BaseHalfTerminalWheelAccumulator();
+			const zoomed = { ...metrics, cellHeight: 17 / 1.2 };
+			assert.deepStrictEqual(
+				[notch(-100, 1), notch(-100, 1), notch(100, 1), notch(100, 1)].map(delta => accumulator.accept(delta, zoomed)),
+				[-3, -3, 3, 3]
+			);
+		});
+
 		test('measures line deltas in cell heights and page deltas in terminal rows', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			assert.deepStrictEqual(
 				[precise(-1, 1), precise(0.5, 2)].map(delta => accumulator.accept(delta, metrics)),
-				[-2, 40]
+				[-1, 20]
 			);
 		});
 
@@ -45,8 +54,8 @@ suite('BaseHalfTerminalInput', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			const halved = { ...metrics, sensitivity: 0.5 };
 			assert.deepStrictEqual(
-				[precise(-16), notch(1, 1), notch(1, 1)].map(delta => accumulator.accept(delta, halved)),
-				// pending pixels: -16 → 0, 24 → 8, 32 → 0
+				[precise(-32), notch(1, 1), notch(1, 1)].map(delta => accumulator.accept(delta, halved)),
+				// pending rows: -1 → 0, 1.5 → 0.5, 2 → 0
 				[-1, 1, 2]
 			);
 		});
@@ -54,7 +63,7 @@ suite('BaseHalfTerminalInput', () => {
 		test('ignores events without a vertical delta or cell height', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			assert.deepStrictEqual(
-				[accumulator.accept(precise(0), metrics), accumulator.accept(precise(-40), { ...metrics, cellHeight: 0 }), accumulator.accept(precise(-8), metrics)],
+				[accumulator.accept(precise(0), metrics), accumulator.accept(precise(-40), { ...metrics, cellHeight: 0 }), accumulator.accept(precise(-16), metrics)],
 				[0, 0, -1]
 			);
 		});

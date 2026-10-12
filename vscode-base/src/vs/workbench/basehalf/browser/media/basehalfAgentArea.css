@@ -572,12 +572,19 @@
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar {
 	width: 12px !important;
 	background: transparent !important;
+}
+
+/* xterm.js decides whether the scrollbar is shown and hides it where nothing
+   can scroll, as under a full-screen TUI. Set the opacity and its transition
+   for the shown state only, so that a hidden scrollbar stays hidden and
+   leaves the way xterm.js hides it. */
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar.xterm-visible {
 	opacity: 0.64;
 	transition: opacity 0.12s ease-out;
 }
 
-.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper:hover .xterm .xterm-scrollable-element > .xterm-scrollbar,
-.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar:has(.xterm-slider.xterm-active) {
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper:hover .xterm .xterm-scrollable-element > .xterm-scrollbar.xterm-visible,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar.xterm-visible:has(.xterm-slider.xterm-active) {
 	opacity: 1;
 }
 
