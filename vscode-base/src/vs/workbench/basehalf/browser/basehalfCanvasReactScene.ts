@@ -3794,6 +3794,10 @@ function createCanvasSceneMount(
 
 			const onPointerDown = (event: PointerEvent): void => {
 				swallowClickUntil = 0;
+				if (gesture?.phase === 'pressed') {
+					// Its release never came. A new press takes its place.
+					gesture = undefined;
+				}
 				if (gesture || event.button !== 0 || !event.isPrimary || host.dataset.videoInputPickActive || !isCanvasElement(event.target)) {
 					return;
 				}
@@ -3832,6 +3836,11 @@ function createCanvasSceneMount(
 			const onPointerMove = (event: PointerEvent): void => {
 				const current = gesture;
 				if (!current || event.pointerId !== current.pointerId) {
+					return;
+				}
+				if (event.buttons === 0) {
+					// The button was released where no release reached the window.
+					finish(current, false);
 					return;
 				}
 				current.clientX = event.clientX;

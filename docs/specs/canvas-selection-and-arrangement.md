@@ -1,8 +1,6 @@
 # Canvas selection and arrangement
 
-Status: Active (2026-10-12). Implemented. The steps of the smoke that
-[Verification](#verification) names and the measurement of criterion 2 are
-still to be added.
+Status: Active (2026-10-12). Implemented.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
 Related: [canvas card placement](canvas-card-placement.md) (rows, chosen
 rows, list order, the plain grid),
@@ -488,9 +486,10 @@ Selection
 
 1. A marquee over cards with and without connections selects exactly the
    cards it touches. No connection is selected.
-2. While a marquee is drawn over 300 cards, every card it reaches shows the
-   outline in the same frame, and no request goes to the workbench between
-   the first movement and the release.
+2. While a marquee is drawn over a canvas of 300 cards, the most a canvas
+   shows, every card it reaches shows the outline in the same frame, and no
+   request goes to the workbench between the first movement and the
+   release.
 3. A marquee that touches one card and a click on that card give the same
    state: the same controls are shown, a double click opens or edits the
    card, and its resize targets and connection handles answer.
@@ -558,8 +557,11 @@ Storage
   unconnected cards: criteria 1, 3, 5 to 12, 15, 16, 20, 22, and 24. Each
   step also checks which element is at the pointer, because an element can
   be drawn and still be covered.
-- Criterion 2 is measured in the real window with 300 and with 1,000 cards,
-  frame by frame. The numbers are written here when they are measured.
+- Criterion 2 is measured in the real window on a canvas of 300 cards,
+  frame by frame ([measured](#measured-on-2026-10-12)).
+- The step `canvas-selection-and-arrangement` of the smoke covers criteria
+  1, 3, 5 to 12, 15, 16, 20, 22, and 24 on a folder of five notes that it
+  writes and removes.
 
 ### Seen in the real window before the change, 2026-10-12
 
@@ -631,6 +633,28 @@ The same window and workspace, with the real pointer and keyboard.
   the view was as before. Undo of a second tidy took it back and closed the
   question. Shift+Alt+F tidied, Keep closed the question and changed no
   place, and tidying the tidied canvas moved no card and asked nothing.
+
+### Measured on 2026-10-12
+
+A development window of 1440 × 900 on a display of 120 Hz, so that a frame
+is 8.3 ms. The canvas held 300 notes, 30 of them with a connection, at 20%
+zoom, the smallest. 242 cards were in the view, and those are the cards
+that the marquee and the set below hold. The pointer was the real one, and
+the time between frames was taken inside the window.
+
+| What was done | Frames | Median | 95 of 100 below | Longest | Over 50 ms |
+| --- | --- | --- | --- | --- | --- |
+| A marquee drawn across all 242 cards in two seconds | 536 | 8.3 ms | 16.6 ms | 33.5 ms | none |
+| The set of 242 cards moved for one second | 189 | 8.3 ms | 9.4 ms | 58.3 ms | one |
+
+- The outlines grew with the marquee, up to 227 cards in a frame before the
+  release. The cards get the outline in the handler of the pointer's move,
+  before the frame is drawn, and the workbench is asked only when the
+  marquee begins and when the button is released.
+- Arrange in a grid: the layout was saved 52 ms after the click.
+- Tidy Canvas on all 300 cards: the layout was saved after 51 ms and the
+  question stood after 288 ms. Two frames were longer than 50 ms, the
+  longest 100 ms. Revert gave the layout back as it was.
 
 ## Specifications this changes
 
