@@ -172,6 +172,23 @@ suite('BaseHalfAgentAreaTerminal', () => {
 		assert.deepStrictEqual({ unopened: typeof baseHalfXtermWheelReporter(unopened), opened: typeof baseHalfXtermWheelReporter(raw) }, { unopened: 'undefined', opened: 'function' });
 	});
 
+	test('finds the xterm.js scrollbar state classes that the Agent Area stylesheet keys on', async () => {
+		const store = disposables.add(new DisposableStore());
+		const { raw } = openTerminal(store);
+		const scrollbar = raw.element!.querySelector('.xterm-scrollable-element > .xterm-scrollbar.xterm-vertical')!;
+		const withoutScrollback = scrollbar.className;
+
+		await write(raw, '\r\n'.repeat(100));
+		scrollbar.parentElement!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+		await timeout(20);
+
+		assert.deepStrictEqual({ withoutScrollback, underThePointerWithScrollback: scrollbar.className, slider: scrollbar.querySelector(':scope > .xterm-slider')?.className }, {
+			withoutScrollback: 'xterm-invisible xterm-scrollbar xterm-vertical',
+			underThePointerWithScrollback: 'xterm-visible xterm-scrollbar xterm-vertical',
+			slider: 'xterm-slider'
+		});
+	});
+
 	test('answers XTVERSION as BaseHalf and leaves other parameters to xterm.js', async () => {
 		const store = disposables.add(new DisposableStore());
 		const { raw, data } = openTerminal(store);

@@ -1404,6 +1404,7 @@ async function assertAgentAreaTerminalCommand(page) {
 	await assertAgentAreaSurfaceKind(page, 'terminal');
 	await assertAgentAreaTerminalClipboardPaste(page);
 	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
+	await assertAgentAreaTerminalScrollbarFollowsScrollback(page);
 	await assertAgentAreaTerminalVersionAndWheelReports(page);
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
@@ -1791,6 +1792,56 @@ async function waitForActiveAgentAreaTerminalLine(page, prefix) {
 	return await handle.jsonValue();
 }
 
+function readAgentAreaTerminalScrollbar(page) {
+	return page.evaluate(() => {
+		const scrollbar = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .xterm-scrollable-element > .xterm-scrollbar.xterm-vertical');
+		const slider = scrollbar?.querySelector('.xterm-slider');
+		if (!(scrollbar instanceof HTMLElement) || !(slider instanceof HTMLElement)) {
+			return undefined;
+		}
+		const style = getComputedStyle(scrollbar);
+		return { opacity: style.opacity, pointerEvents: style.pointerEvents, trackHeight: scrollbar.offsetHeight, sliderHeight: slider.offsetHeight };
+	});
+}
+
+function agentAreaTerminalScrollbarIsShown(scrollbar) {
+	return scrollbar?.opacity === '1' && scrollbar.pointerEvents !== 'none' && scrollbar.sliderHeight < scrollbar.trackHeight;
+}
+
+function agentAreaTerminalScrollbarIsHidden(scrollbar) {
+	return scrollbar?.opacity === '0' && scrollbar.pointerEvents === 'none';
+}
+
+async function waitForAgentAreaTerminalScrollbar(page, isExpected, expectation) {
+	const deadline = Date.now() + 15_000;
+	let scrollbar;
+	do {
+		scrollbar = await readAgentAreaTerminalScrollbar(page);
+		if (isExpected(scrollbar)) {
+			return;
+		}
+		await page.waitForTimeout(100);
+	} while (Date.now() < deadline);
+	throw new Error(`Agent Area terminal scrollbar is not ${expectation}: ${JSON.stringify(scrollbar ?? 'no scrollbar element')}`);
+}
+
+// With more output than rows, the terminal shows its scrollbar while the
+// pointer is over it and hides it once the pointer has left
+// (docs/specs/agent-area-terminal.md).
+async function assertAgentAreaTerminalScrollbarFollowsScrollback(page) {
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.click();
+	await page.keyboard.insertText(`node -e "for (let row = 0; row < 200; row++) { console.log('BH_SCROLLBACK_' + row); }"`);
+	await page.keyboard.press('Enter');
+	await waitForActiveAgentAreaTerminalLine(page, 'BH_SCROLLBACK_199');
+
+	const box = await terminal.boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await waitForAgentAreaTerminalScrollbar(page, agentAreaTerminalScrollbarIsShown, 'shown, with a slider shorter than its track, while the pointer is over a terminal with scrollback');
+	await page.mouse.move(box.x / 2, box.y + box.height / 2);
+	await waitForAgentAreaTerminalScrollbar(page, agentAreaTerminalScrollbarIsHidden, 'hidden after the pointer left the terminal');
+}
+
 // Agent Area terminals answer XTVERSION as BaseHalf and turn a trackpad
 // gesture into one wheel report per accumulated row, Ghostty-style
 // (docs/specs/agent-area-terminal.md).
@@ -1835,6 +1886,9 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 	await page.mouse.wheel(0, -40);
 	await page.mouse.wheel(0, -40);
 	await page.waitForTimeout(500);
+	// The alternate buffer has no rows to scroll to, so the pointer over the
+	// terminal brings up no scrollbar.
+	await waitForAgentAreaTerminalScrollbar(page, agentAreaTerminalScrollbarIsHidden, 'hidden for a program in the alternate buffer under the pointer');
 	await page.keyboard.press('q');
 	const reports = await waitForActiveAgentAreaTerminalLine(page, 'BH_WHEEL_REPORTS=');
 	const [up, down] = String(reports).slice('BH_WHEEL_REPORTS='.length).split(',').map(Number);

@@ -1,6 +1,6 @@
-# Agent Area terminal identity and wheel input
+# Agent Area terminal identity, wheel input, and scrollbar
 
-Status: Active (2026-10-09)
+Status: Active (2026-10-09; scrollbar added 2026-10-12)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
 [agent launch context](agent-launch-context.md)
@@ -41,6 +41,7 @@ ms.
 - VS Code behaviors that key on the integrated-terminal identity keep working.
 - Claude Code's xterm.js-only glyph-atlas workaround, which no longer applies,
   is replaced by atlas maintenance in the terminal itself.
+- A terminal shows a scrollbar only where it has rows to scroll to.
 
 ## Non-goals
 
@@ -49,6 +50,8 @@ ms.
 - Horizontal wheel input, touch gestures, and wheel events with a modifier
   key, such as fast scroll and zoom. They keep xterm.js and VS Code behavior.
 - Changing any agent, or tuning reports for a particular agent.
+- A scrollbar for content that a TUI scrolls by itself. The terminal does not
+  know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
   Gemini CLI's VS Code extension auto-connect, work under the new identity.
 
@@ -149,6 +152,35 @@ combinations. Under the BaseHalf identity it no longer does.
   atlas that another terminal has just cleared does nothing.
 - A terminal using the DOM renderer does nothing.
 
+### Scrollbar
+
+A terminal's scrollbar shows where the viewport is within the rows of the
+active buffer. xterm.js decides whether it is shown and marks it
+`xterm-visible` or `xterm-invisible`. Until 2026-10-12 BaseHalf's stylesheet
+set the scrollbar's opacity in every state, and its selector outranked the
+xterm.js rule that hides the scrollbar. The scrollbar was therefore always
+painted. Where no row lies outside the viewport, the slider is as long as its
+track, so a full-screen TUI agent showed a bar over the whole height of the
+terminal.
+
+1. A terminal whose active buffer has no row outside the viewport shows no
+   scrollbar, and the scrollbar takes no pointer input. This is the state of a
+   shell whose output has not yet filled the terminal, and of every program in
+   the alternate buffer. A TUI that scrolls its own content, as Claude Code
+   does in its fullscreen renderer, therefore has no terminal scrollbar.
+2. A terminal whose active buffer has rows outside the viewport shows the
+   scrollbar while the pointer is over its rows, while the slider is dragged,
+   and while the viewport scrolls and for half a second after. Scrolling by
+   the user and by new output both count. It is hidden otherwise, and fades
+   out the way xterm.js fades it. The slider's length and position come from
+   xterm.js.
+3. The scrollbar is a 6 px rounded slider in a 12 px transparent track
+   without arrows. While xterm.js shows it, it is at full opacity when the
+   pointer is over the terminal or the slider is dragged, and dimmed
+   otherwise. BaseHalf sets neither the opacity nor its transition on a
+   scrollbar that xterm.js hides, so one that xterm.js hides at once
+   disappears at once.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -157,6 +189,11 @@ combinations. Under the BaseHalf identity it no longer does.
   and atlas maintenance do not depend on it.
 - Losing the WebGL context disposes the renderer, and atlas maintenance stops
   with it. VS Code's DOM fallback is unchanged.
+
+- If an xterm.js upgrade renames the classes that mark the scrollbar as shown
+  or hidden, BaseHalf's opacity rules stop matching and xterm.js's own
+  opacity applies. The scrollbar still hides where nothing can scroll. A test
+  pins the class names so that such an upgrade fails tests instead.
 
 ## Acceptance criteria
 
@@ -178,7 +215,9 @@ combinations. Under the BaseHalf identity it no longer does.
      xterm.js handles the event;
    - in X10 mode, xterm.js handles the event;
    - XTVERSION is answered with `BaseHalf(<version>)`;
-   - the xterm.js internals that wheel reports use exist.
+   - the xterm.js internals that wheel reports use exist;
+   - the xterm.js classes that mark the scrollbar as hidden without
+     scrollback, and as shown under the pointer with scrollback, exist.
 4. A unit test of atlas maintenance with a fake clock shows a clear after the
    third added page, coalesced to one frame, and a clear that the two-second
    interval defers rather than drops.
@@ -193,6 +232,12 @@ combinations. Under the BaseHalf identity it no longer does.
      The gesture is dispatched with Chromium's precise-scroll `wheelDelta` (three
      times the pixel delta). CDP-synthesized wheel events always carry one
      notch, so they stand in for the physical wheel.
+   - with more output than the terminal has rows, a scrollbar at full opacity
+     that takes pointer input and whose slider is shorter than its track while
+     the pointer is over the terminal, and no scrollbar once the pointer has
+     left;
+   - no scrollbar for a program in the alternate buffer while the pointer is
+     over the terminal.
 7. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
    logs `wheel accel: window (native)` and `TERM_PROGRAM=BaseHalf`. During a
    medium swipe its transcript moves in steps of at most six rows per report,
