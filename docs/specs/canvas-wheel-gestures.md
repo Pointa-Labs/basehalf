@@ -91,6 +91,11 @@ events do not change it, whatever is under the pointer by then.
 So the canvas owns every gesture that starts on a note that fits its card and
 on a card without a note.
 
+The canvas also owns a gesture that starts on the box of a set of selected
+cards. The box lies over its cards, so the first event is delivered to the
+box and not to a card, and a Note under the box does not scroll
+([canvas selection and arrangement](canvas-selection-and-arrangement.md#a-set)).
+
 An event with no movement in it (both deltas zero) never starts a gesture.
 Before a gesture it is left alone; inside a gesture it belongs to the
 gesture. An event with the zoom key or Ctrl held (pinch) is not part of any

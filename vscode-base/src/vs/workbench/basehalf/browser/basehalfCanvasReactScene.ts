@@ -33,6 +33,11 @@ import {
 } from '../common/basehalfCanvasEdgeReconnect.js';
 import { IBaseHalfCanvasSnapGuide } from '../common/basehalfCanvasSnap.js';
 import {
+	IBaseHalfCanvasArrangeCard,
+	baseHalfCanvasBoundingRect,
+	baseHalfCanvasCardsInMarquee
+} from '../common/basehalfCanvasArrangement.js';
+import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
 	BaseHalfCanvasSceneSelectionAction,
@@ -293,9 +298,29 @@ interface IBaseHalfCanvasNodeDragState {
 	cancelled: boolean;
 }
 
+/** A press on the scene that may become a marquee or a move of the set. */
+interface IBaseHalfCanvasScenePressGesture {
+	readonly kind: 'marquee' | 'move';
+	readonly pointerId: number;
+	readonly startClientX: number;
+	readonly startClientY: number;
+	/** The press was kept from the card, connection, or box under it. */
+	readonly taken: boolean;
+	clientX: number;
+	clientY: number;
+	phase: 'pressed' | 'opening' | 'active';
+	startFlow: { readonly x: number; readonly y: number } | undefined;
+	boxed: ReadonlySet<string>;
+	drag: IBaseHalfCanvasNodeDragState | undefined;
+	panned: boolean;
+	frame: number | undefined;
+}
+
 interface IBaseHalfCanvasConnectionStoreController {
 	cancel(): void;
 	clearClickStart(): void;
+	/** Moves the canvas by this many screen pixels. */
+	panBy(x: number, y: number): void;
 }
 
 type BaseHalfCanvasPendingEdgeMutation =
@@ -326,12 +351,15 @@ export function baseHalfCanvasSceneGeometryForCommit(
 ): IBaseHalfCanvasSceneGeometry {
 	const finiteOr = (value: number, fallbackValue: number, finalFallback: number): number =>
 		Number.isFinite(value) ? value : Number.isFinite(fallbackValue) ? fallbackValue : finalFallback;
+	// The layout keeps four decimal places. A geometry is committed as it is
+	// stored, so that undo finds the row that the commit wrote.
+	const stored = (value: number): number => Number(value.toFixed(4));
 	return {
 		...geometry,
-		x: finiteOr(geometry.x, fallback.x, 0),
-		y: finiteOr(geometry.y, fallback.y, 0),
-		width: Math.max(BASEHALF_CANVAS_MIN_CARD_WIDTH, finiteOr(geometry.width, fallback.width, BASEHALF_CANVAS_MIN_CARD_WIDTH)),
-		height: Math.max(BASEHALF_CANVAS_MIN_CARD_HEIGHT, finiteOr(geometry.height, fallback.height, BASEHALF_CANVAS_MIN_CARD_HEIGHT))
+		x: stored(finiteOr(geometry.x, fallback.x, 0)),
+		y: stored(finiteOr(geometry.y, fallback.y, 0)),
+		width: stored(Math.max(BASEHALF_CANVAS_MIN_CARD_WIDTH, finiteOr(geometry.width, fallback.width, BASEHALF_CANVAS_MIN_CARD_WIDTH))),
+		height: stored(Math.max(BASEHALF_CANVAS_MIN_CARD_HEIGHT, finiteOr(geometry.height, fallback.height, BASEHALF_CANVAS_MIN_CARD_HEIGHT)))
 	};
 }
 
@@ -456,6 +484,40 @@ function clearCardResizeState(element: HTMLElement, host: HTMLElement): void {
 	delete host.dataset.cardResizing;
 }
 
+/**
+ * What a press of the primary button on the scene becomes once it moves: a
+ * marquee, a move of the set by its box, or nothing that the scene owns.
+ * With Shift held a marquee begins anywhere on the scene, also on a card.
+ */
+export function baseHalfCanvasScenePressGesture(target: Element, shiftKey: boolean): 'marquee' | 'move' | undefined {
+	if (target.classList.contains('react-flow__pane')) {
+		return 'marquee';
+	}
+	const box = target.closest('.basehalf-canvas-set-box');
+	if (!shiftKey) {
+		return box ? 'move' : undefined;
+	}
+	if (!target.closest('.react-flow') || (!box && target.closest(CANVAS_SHIFT_MARQUEE_BLOCKED_SELECTOR))) {
+		return undefined;
+	}
+	return 'marquee';
+}
+
+/**
+ * How far the canvas moves in one frame for a pointer at `position` along a
+ * scene that is `size` long: towards the pointer's edge, faster the nearer
+ * the pointer is to it, and not at all away from the edges.
+ */
+export function baseHalfCanvasAutoPanStep(position: number, size: number): number {
+	if (position < CANVAS_AUTO_PAN_EDGE) {
+		return Math.min(1, (CANVAS_AUTO_PAN_EDGE - position) / CANVAS_AUTO_PAN_EDGE) * CANVAS_AUTO_PAN_SPEED;
+	}
+	if (position > size - CANVAS_AUTO_PAN_EDGE) {
+		return -Math.min(1, (position - (size - CANVAS_AUTO_PAN_EDGE)) / CANVAS_AUTO_PAN_EDGE) * CANVAS_AUTO_PAN_SPEED;
+	}
+	return 0;
+}
+
 export function captureBaseHalfCanvasNodeDragOrigins(
 	nodes: readonly { readonly id: string; readonly position: { readonly x: number; readonly y: number } }[],
 	ids: ReadonlySet<string>
@@ -545,6 +607,14 @@ const NOTE_TOOLBAR_SCREEN_HEIGHT = 36;
 const NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT = 72;
 const VIDEO_UPLOAD_TOOLBAR_SCREEN_WIDTH = 112;
 const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
+/** A press that moves no further than this, in screen pixels, is a click. */
+const CANVAS_PRESS_CLICK_DISTANCE = 4;
+/** The canvas moves while the pointer of a marquee or of a moved set is this near to the scene's edge, in screen pixels. */
+const CANVAS_AUTO_PAN_EDGE = 40;
+/** The furthest the canvas moves in one frame, in screen pixels. */
+const CANVAS_AUTO_PAN_SPEED = 15;
+/** With Shift held, a press on one of these still belongs to it and begins no marquee. */
+const CANVAS_SHIFT_MARQUEE_BLOCKED_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .basehalf-canvas-adjacent-chrome, .basehalf-canvas-card-connect-handle, .basehalf-canvas-card[data-note-editing="true"]';
 
 interface IBaseHalfCanvasScreenSpaceStyle extends CSSProperties {
 	readonly '--basehalf-canvas-zoom': string;
@@ -1641,7 +1711,10 @@ function createCanvasSceneMount(
 				state.cancelConnection();
 				store.setState({ connectionClickStartHandle: null });
 			},
-			clearClickStart: () => store.setState({ connectionClickStartHandle: null })
+			clearClickStart: () => store.setState({ connectionClickStartHandle: null }),
+			panBy: (x, y) => {
+				void store.getState().panBy({ x, y });
+			}
 		}), [store]);
 		vendor.useLayoutEffect(() => {
 			register(controller);
@@ -1968,6 +2041,44 @@ function createCanvasSceneMount(
 					}
 				}))
 			)
+		);
+	}
+
+	/**
+	 * The box of a set. It is worked out from the cards of this drawing, so it
+	 * is never anywhere but around them. It takes the pointer in its whole area:
+	 * the scene moves the set from a press on it, and a click changes nothing.
+	 */
+	function SetBox({ nodes, onToggleAt }: {
+		readonly nodes: readonly BaseHalfCanvasFlowNode[];
+		readonly onToggleAt: (clientX: number, clientY: number) => void;
+	}): ReactElement {
+		const viewport = vendor.useViewport();
+		const box = baseHalfCanvasBoundingRect(nodes.map(flowNodeRect));
+		if (!box) {
+			return h(vendor.Fragment);
+		}
+		return h(vendor.ViewportPortal, null,
+			h('div', {
+				className: 'basehalf-canvas-set-box',
+				role: 'group',
+				'aria-label': localize('basehalf.canvas.setBox', "{0} cards selected", nodes.length),
+				style: { left: box.x, top: box.y, width: box.width, height: box.height, borderWidth: 1 / viewport.zoom },
+				onClick: (event: ReactMouseEvent<HTMLElement>) => {
+					event.stopPropagation();
+					if (event.shiftKey) {
+						onToggleAt(event.clientX, event.clientY);
+					}
+				},
+				onDoubleClick: (event: ReactMouseEvent<HTMLElement>) => {
+					event.preventDefault();
+					event.stopPropagation();
+				},
+				onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+					event.preventDefault();
+					event.stopPropagation();
+				}
+			})
 		);
 	}
 
@@ -3336,6 +3447,319 @@ function createCanvasSceneMount(
 			}
 		}, [queueSelectionChanges, setLiveEdges]);
 
+		const toggleSetCardAt = vendor.useCallback((clientX: number, clientY: number): void => {
+			const flow = flowRef.current;
+			if (!flow) {
+				return;
+			}
+			const point = flow.screenToFlowPosition({ x: clientX, y: clientY });
+			// A selected card is drawn over the others, and a later card over an
+			// earlier one.
+			let card: BaseHalfCanvasFlowNode | undefined;
+			for (const node of nodesRef.current) {
+				const rect = flowNodeRect(node);
+				if (point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height
+					&& (!card?.selected || node.selected)) {
+					card = node;
+				}
+			}
+			if (!card) {
+				return;
+			}
+			const selected = new Set(nodesRef.current.filter(node => node.selected).map(node => node.id));
+			if (!selected.delete(card.id)) {
+				selected.add(card.id);
+			}
+			void requestSelection({ cardPaths: nodesRef.current.filter(node => selected.has(node.id)).map(node => node.id) });
+		}, [requestSelection]);
+
+		// What the gesture below calls. A gesture outlives the render it began in.
+		const sceneGesture = vendor.useRef({ applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome });
+		sceneGesture.current = { applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome };
+
+		// One gesture of the pointer on the scene at a time: a marquee, or a move
+		// of the set by its box (canvas selection and arrangement). While a
+		// marquee is drawn the workbench is asked nothing: the selection is
+		// cleared when it begins and set when the button is released.
+		vendor.useEffect(() => {
+			const view = host.ownerDocument.defaultView;
+			if (!view) {
+				return;
+			}
+			let gesture: IBaseHalfCanvasScenePressGesture | undefined;
+			let swallowClickUntil = 0;
+			const marquee = host.ownerDocument.createElement('div');
+			marquee.className = 'basehalf-canvas-marquee';
+			marquee.hidden = true;
+			host.appendChild(marquee);
+
+			const showBoxed = (next: ReadonlySet<string>, previous: ReadonlySet<string>): void => {
+				if (next.size === 0 && previous.size === 0) {
+					return;
+				}
+				const elementOf = new Map(nodesRef.current.map(node => [node.id, node.data.card.element]));
+				for (const path of previous) {
+					if (!next.has(path)) {
+						elementOf.get(path)?.classList.remove('marquee-selected');
+					}
+				}
+				for (const path of next) {
+					if (!previous.has(path)) {
+						elementOf.get(path)?.classList.add('marquee-selected');
+					}
+				}
+			};
+			const drawMarquee = (current: IBaseHalfCanvasScenePressGesture): void => {
+				const flow = flowRef.current;
+				if (!flow || !current.startFlow) {
+					return;
+				}
+				const pointer = flow.screenToFlowPosition({ x: current.clientX, y: current.clientY });
+				const next = new Set(baseHalfCanvasCardsInMarquee(nodesRef.current.map(flowNodeRect), {
+					x: Math.min(current.startFlow.x, pointer.x),
+					y: Math.min(current.startFlow.y, pointer.y),
+					width: Math.abs(pointer.x - current.startFlow.x),
+					height: Math.abs(pointer.y - current.startFlow.y)
+				}));
+				showBoxed(next, current.boxed);
+				current.boxed = next;
+				// The point of the press stays where it was on the canvas.
+				const start = flow.flowToScreenPosition(current.startFlow);
+				const bounds = host.getBoundingClientRect();
+				marquee.style.transform = `translate(${Math.min(start.x, current.clientX) - bounds.left}px, ${Math.min(start.y, current.clientY) - bounds.top}px)`;
+				marquee.style.width = `${Math.abs(current.clientX - start.x)}px`;
+				marquee.style.height = `${Math.abs(current.clientY - start.y)}px`;
+			};
+			const moveSet = (current: IBaseHalfCanvasScenePressGesture, final: boolean): void => {
+				const flow = flowRef.current;
+				const drag = current.drag;
+				if (!flow || !drag || drag.cancelled || !current.startFlow) {
+					return;
+				}
+				const pointer = flow.screenToFlowPosition({ x: current.clientX, y: current.clientY });
+				const dx = pointer.x - current.startFlow.x;
+				const dy = pointer.y - current.startFlow.y;
+				sceneGesture.current.applyNodesChange(drag.origins.map(origin => ({
+					id: origin.id,
+					type: 'position' as const,
+					position: { x: origin.x + dx, y: origin.y + dy },
+					dragging: !final
+				})), false);
+			};
+			const follow = (current: IBaseHalfCanvasScenePressGesture): void => {
+				if (current.kind === 'marquee') {
+					drawMarquee(current);
+				} else {
+					moveSet(current, false);
+				}
+			};
+			const autoPan = (current: IBaseHalfCanvasScenePressGesture): void => {
+				if (gesture !== current || current.phase !== 'active') {
+					return;
+				}
+				const bounds = host.getBoundingClientRect();
+				const x = baseHalfCanvasAutoPanStep(current.clientX - bounds.left, bounds.width);
+				const y = baseHalfCanvasAutoPanStep(current.clientY - bounds.top, bounds.height);
+				if (x !== 0 || y !== 0) {
+					connectionStoreController.current?.panBy(x, y);
+					current.panned = true;
+					follow(current);
+				}
+				current.frame = view.requestAnimationFrame(() => autoPan(current));
+			};
+			const capturePointer = (current: IBaseHalfCanvasScenePressGesture): void => {
+				try {
+					host.setPointerCapture(current.pointerId);
+				} catch {
+					// The pointer is gone. Its release ends the gesture.
+				}
+			};
+			const finish = (current: IBaseHalfCanvasScenePressGesture, cancelled: boolean): void => {
+				gesture = undefined;
+				if (current.frame !== undefined) {
+					view.cancelAnimationFrame(current.frame);
+				}
+				if (current.phase === 'pressed') {
+					return;
+				}
+				if (host.hasPointerCapture(current.pointerId)) {
+					host.releasePointerCapture(current.pointerId);
+				}
+				// The click that follows the release belongs to the gesture.
+				swallowClickUntil = view.performance.now() + 350;
+				if (current.kind === 'marquee') {
+					const boxed = current.boxed;
+					showBoxed(new Set(), boxed);
+					marquee.hidden = true;
+					const selects = current.phase === 'active' && !cancelled;
+					endInteraction();
+					if (selects) {
+						void sceneGesture.current.requestSelection({ cardPaths: nodesRef.current.filter(node => boxed.has(node.id)).map(node => node.id) });
+						host.focus({ preventScroll: true });
+					}
+				} else {
+					const drag = current.drag;
+					if (drag && !drag.cancelled && !cancelled) {
+						moveSet(current, true);
+						nodeDragState.current = undefined;
+						endInteraction();
+						sceneGesture.current.settleNodeDragChrome(drag);
+						view.requestAnimationFrame(() => sceneGesture.current.revealNodeDragChrome(drag));
+					}
+				}
+				if (current.panned && flowRef.current) {
+					sceneGesture.current.reportViewport(sceneKeyRef.current, flowRef.current.getViewport(), true);
+				}
+			};
+			const open = (current: IBaseHalfCanvasScenePressGesture): void => {
+				const flow = flowRef.current;
+				if (!flow) {
+					gesture = undefined;
+					return;
+				}
+				current.startFlow = flow.screenToFlowPosition({ x: current.startClientX, y: current.startClientY });
+				if (current.kind === 'move') {
+					const set = nodesRef.current.filter(node => node.selected);
+					if (set.length < 2) {
+						gesture = undefined;
+						return;
+					}
+					selectionIntents.current.invalidate();
+					pendingSelectionRequest.current = undefined;
+					const drag: IBaseHalfCanvasNodeDragState = {
+						sceneKey: sceneKeyRef.current,
+						structuralEpoch: structuralEpochRef.current,
+						token: ++nodeDragToken.current,
+						primaryPath: set[0].id,
+						selectionAtStart: set.map(node => node.id),
+						origins: captureBaseHalfCanvasNodeDragOrigins(nodesRef.current, new Set(set.map(node => node.id))),
+						cancelled: false
+					};
+					nodeDragState.current = drag;
+					current.drag = drag;
+					sceneGesture.current.suppressNodeDragChrome(drag);
+					beginInteraction();
+					capturePointer(current);
+					current.phase = 'active';
+					moveSet(current, false);
+					autoPan(current);
+					return;
+				}
+				current.phase = 'opening';
+				beginInteraction();
+				capturePointer(current);
+				void sceneGesture.current.requestSelection({}).then(cleared => {
+					if (gesture !== current) {
+						return;
+					}
+					if (!cleared) {
+						// A Note that is being edited could not be closed.
+						finish(current, true);
+						return;
+					}
+					current.phase = 'active';
+					marquee.hidden = false;
+					drawMarquee(current);
+					autoPan(current);
+				});
+			};
+
+			const onPointerDown = (event: PointerEvent): void => {
+				swallowClickUntil = 0;
+				if (gesture || event.button !== 0 || !event.isPrimary || host.dataset.videoInputPickActive || !isCanvasElement(event.target)) {
+					return;
+				}
+				const kind = baseHalfCanvasScenePressGesture(event.target, event.shiftKey);
+				if (!kind) {
+					return;
+				}
+				const taken = event.shiftKey && !event.target.classList.contains('react-flow__pane');
+				gesture = {
+					kind,
+					pointerId: event.pointerId,
+					startClientX: event.clientX,
+					startClientY: event.clientY,
+					taken,
+					clientX: event.clientX,
+					clientY: event.clientY,
+					phase: 'pressed',
+					startFlow: undefined,
+					boxed: new Set(),
+					drag: undefined,
+					panned: false,
+					frame: undefined
+				};
+				if (taken) {
+					// With Shift this press is a marquee or a Shift-click. It never
+					// drags the card or the connection under it.
+					event.stopPropagation();
+				}
+			};
+			const onMouseDown = (event: MouseEvent): void => {
+				// The canvas library begins the drag of a card from the mouse event.
+				if (gesture?.taken && event.button === 0) {
+					event.stopPropagation();
+				}
+			};
+			const onPointerMove = (event: PointerEvent): void => {
+				const current = gesture;
+				if (!current || event.pointerId !== current.pointerId) {
+					return;
+				}
+				current.clientX = event.clientX;
+				current.clientY = event.clientY;
+				if (current.phase === 'pressed') {
+					if (Math.hypot(event.clientX - current.startClientX, event.clientY - current.startClientY) > CANVAS_PRESS_CLICK_DISTANCE) {
+						open(current);
+					}
+				} else if (current.phase === 'active') {
+					follow(current);
+				}
+			};
+			const onPointerUp = (event: PointerEvent): void => {
+				if (gesture && event.pointerId === gesture.pointerId) {
+					finish(gesture, false);
+				}
+			};
+			const onPointerCancel = (event: PointerEvent): void => {
+				if (gesture && event.pointerId === gesture.pointerId) {
+					finish(gesture, true);
+				}
+			};
+			const onBlur = (): void => {
+				if (gesture) {
+					finish(gesture, true);
+				}
+			};
+			const onClick = (event: MouseEvent): void => {
+				if (view.performance.now() < swallowClickUntil) {
+					swallowClickUntil = 0;
+					event.stopPropagation();
+					event.preventDefault();
+				}
+			};
+			host.addEventListener('pointerdown', onPointerDown, true);
+			host.addEventListener('mousedown', onMouseDown, true);
+			host.addEventListener('click', onClick, true);
+			view.addEventListener('pointermove', onPointerMove, true);
+			view.addEventListener('pointerup', onPointerUp, true);
+			view.addEventListener('pointercancel', onPointerCancel, true);
+			view.addEventListener('blur', onBlur);
+			return () => {
+				host.removeEventListener('pointerdown', onPointerDown, true);
+				host.removeEventListener('mousedown', onMouseDown, true);
+				host.removeEventListener('click', onClick, true);
+				view.removeEventListener('pointermove', onPointerMove, true);
+				view.removeEventListener('pointerup', onPointerUp, true);
+				view.removeEventListener('pointercancel', onPointerCancel, true);
+				view.removeEventListener('blur', onBlur);
+				if (gesture) {
+					finish(gesture, true);
+				}
+				marquee.remove();
+			};
+		}, [beginInteraction, endInteraction]);
+
 		const beginConnection = vendor.useCallback((gesture: BaseHalfCanvasConnectionGesture, event?: MouseEvent | TouchEvent) => {
 			const start = pendingConnection.current.begin(sceneKeyRef.current, structuralEpochRef.current, gesture, {
 				rejectableTrailingClick: gesture === 'click' && (event?.detail ?? 0) > 0
@@ -4062,8 +4486,6 @@ function createCanvasSceneMount(
 			onEdgesDelete: removeEdges,
 			onNodeDragStart: beginNodeDrag,
 			onNodeDragStop: finishNodeDrag,
-			onSelectionStart: beginInteraction,
-			onSelectionEnd: endInteraction,
 			onNodeClick,
 			onNodeDoubleClick,
 			onNodeContextMenu,
@@ -4129,8 +4551,11 @@ function createCanvasSceneMount(
 			zoomOnScroll: false,
 			zoomOnPinch: videoInputPickGesturePolicy.viewportNavigationAllowed,
 			zoomOnDoubleClick: false,
-			selectionOnDrag: true,
-			selectionMode: vendor.SelectionMode.Partial,
+			// The scene draws the marquee and the box of a set itself. The
+			// library's marquee also marks connections, and its rectangle around
+			// selected cards is a second state beside the selection.
+			selectionOnDrag: false,
+			selectionKeyCode: null,
 			panOnDrag: videoInputPickGesturePolicy.viewportNavigationAllowed ? [1, 2] : false,
 			multiSelectionKeyCode: 'Shift',
 			onlyRenderVisibleElements: nodes.length > CANVAS_NODE_CULL_THRESHOLD
@@ -4181,7 +4606,10 @@ function createCanvasSceneMount(
 							? h(VideoSelectionControls, { node: selectedNodes[0], suppressed: adjacentChromeSuppressed })
 						: selectionSurface === 'structural'
 								? h(SelectionToolbar, { nodes: selectedNodes, invoke: invokeSelectionAction, suppressed: adjacentChromeSuppressed })
-								: null
+								: null,
+					selectedNodes.length >= 2
+						? h(SetBox, { nodes: selectedNodes, onToggleAt: toggleSetCardAt })
+						: null
 				)
 			)
 		);
@@ -4355,6 +4783,17 @@ function anchorFromHandle(value: string | null | undefined, fallback: BaseHalfCa
 
 function sceneEdgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
+}
+
+/** The rectangle of a card as the scene has it now. */
+function flowNodeRect(node: BaseHalfCanvasFlowNode): IBaseHalfCanvasArrangeCard {
+	return {
+		path: node.id,
+		x: node.position.x,
+		y: node.position.y,
+		width: node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width,
+		height: node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height
+	};
 }
 
 function numericStyle(value: string | number | undefined): number | undefined {

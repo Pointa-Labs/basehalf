@@ -1,8 +1,10 @@
 # Canvas selection and arrangement
 
-Status: Active (2026-10-12). Implementation not started: until it lands, the
-canvas selects with the canvas library's own marquee and has no arrange or
-tidy command. The specifications listed under
+Status: Active (2026-10-12). Implementation in progress. The marquee, the
+states of the selection, the set box, and moving a set are implemented.
+Arrange, Tidy Canvas, and the question that keeps or reverts a tidy are not
+yet: until they land, the set toolbar has no Arrange and the view controls
+have no Tidy Canvas. The specifications listed under
 [Specifications this changes](#specifications-this-changes) are updated in
 the commit that implements the part they describe.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
@@ -418,6 +420,9 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
   it was.
 - Each of the four is saved in one write of the layout. No drawing shows a
   part of it.
+- A place is saved with the four decimal places that the layout keeps, and
+  the change that undo holds has the same numbers. Otherwise undo does not
+  find the row it wrote and refuses.
 - Rows of the layout that have no card on the canvas are left as they are.
 - The four are steps of the canvas's undo, named for what they did. Undo
   and redo move the same cards and leave the selection as it is.
@@ -581,6 +586,39 @@ empty canvas below the cards up into them.
   nothing, and a double click did not open the note for editing.
 - After the marquee over `c.md` and `d.md`, a drag from the middle of
   `c.md` moved both cards. Afterwards only `c.md` was selected.
+
+One more fault showed while the change was checked, in the drag of one card,
+which this specification does not change. At 77% zoom a card that was
+dropped where nothing snaps was saved at `x: 1863.9047`. Undo then changed
+nothing: the layout keeps four decimal places, the change that undo held had
+the place as the pointer gave it, with more, and so the row on disk did not
+match. A card that snapped to another card was not affected, because its
+place was a whole number.
+
+### Checked in the real window after the change, 2026-10-12
+
+The same window and workspace, with the real pointer and keyboard.
+
+- Each of the six marquees of the table above selected exactly the cards it
+  touched, and no connection.
+- While a marquee over two cards was drawn, both showed the outline and
+  nothing was selected. After it, no outline was left over.
+- A marquee over `c.md` alone and a click on it gave the same state. The
+  element at the middle of the card was the card, and a double click opened
+  the note for editing.
+- In a set, the element over a card was the box. A click on a card and a
+  double click in a gap changed nothing.
+- A Shift-click on one card of a set of two left the other as the one
+  selected card, and a second Shift-click made the same set again.
+- A drag from a gap of the box moved both cards by the same amount and no
+  other card. The set was still selected, and the box was around the cards.
+- Undo put both cards back, with the box around them. Escape during a move
+  put them back as well.
+- With Shift held, a drag from the middle of `a.md` to `b.md` selected both
+  and moved neither.
+- A set made by Shift-click and a set made by a marquee had the same box
+  and the same toolbar.
+- One card that was dropped where nothing snaps went back on undo.
 
 ## Specifications this changes
 

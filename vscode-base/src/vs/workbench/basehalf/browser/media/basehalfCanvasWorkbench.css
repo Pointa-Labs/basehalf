@@ -461,6 +461,49 @@
 	pointer-events: none;
 }
 
+/* The marquee is drawn in screen pixels over the scene and takes no pointer. */
+.monaco-workbench .basehalf-canvas-marquee {
+	position: absolute;
+	left: 0;
+	top: 0;
+	z-index: 5;
+	box-sizing: border-box;
+	pointer-events: none;
+	background: var(--bh-canvas-marquee-fill);
+	border: 1px dashed var(--bh-canvas-geometry);
+}
+
+/*
+ * The box of a set lies over its cards, which the canvas library raises by
+ * 1000 when they are selected, and takes the pointer in its whole area. Its
+ * border width is set inline so that it stays one screen pixel at every zoom.
+ */
+.monaco-workbench .basehalf-canvas-set-box {
+	position: absolute;
+	z-index: 1001;
+	box-sizing: border-box;
+	pointer-events: auto;
+	cursor: grab;
+	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
+	border: 0 solid color-mix(in srgb, var(--bh-canvas-geometry) 45%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-node-drag-chrome="dragging"] .basehalf-canvas-set-box {
+	cursor: grabbing;
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-set-box {
+		background: transparent;
+		border-color: Highlight;
+	}
+
+	.monaco-workbench .basehalf-canvas-marquee {
+		background: transparent;
+		border-color: Highlight;
+	}
+}
+
 .monaco-workbench .basehalf-canvas-selection-toolbar,
 .monaco-workbench .basehalf-canvas-note-toolbar {
 	box-sizing: border-box;
@@ -980,7 +1023,10 @@ body.basehalf-canvas-edge-reconnecting * {
 	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-card.selected {
+/* A card in a marquee that is being drawn looks selected. It is selected
+ * when the button is released. */
+.monaco-workbench .basehalf-canvas-card.selected,
+.monaco-workbench .basehalf-canvas-card.marquee-selected {
 	border-color: var(--bh-canvas-active-border);
 	box-shadow: var(--bh-canvas-active-shadow);
 }
@@ -1001,6 +1047,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 @media (forced-colors: active) {
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.marquee-selected:not(:focus-visible),
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card[data-note-editing="true"]:not(:focus-visible) {
 		outline: 1px solid CanvasText;
 		outline-offset: 1px;

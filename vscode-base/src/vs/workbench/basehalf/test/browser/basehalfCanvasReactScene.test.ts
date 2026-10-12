@@ -15,11 +15,13 @@ import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasResizeCorner,
 	BaseHalfCanvasSelectionIntentCoordinator,
+	baseHalfCanvasAutoPanStep,
 	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasResizeStartSize,
 	baseHalfCanvasSceneCardIsNoteEditing,
 	baseHalfCanvasSceneGeometryForCommit,
 	baseHalfCanvasSceneNodeSize,
+	baseHalfCanvasScenePressGesture,
 	baseHalfCanvasSceneProjectsSelection,
 	baseHalfCanvasSceneShowsResizeControls,
 	baseHalfCanvasSceneVideoInputPickGesturePolicy,
@@ -75,6 +77,73 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(
 			resolveBaseHalfCanvasCardFocusPath(root as unknown as Element, [1]),
 			undefined
+		);
+	});
+
+	test('commits a geometry with the four decimal places that the layout stores', () => {
+		assert.deepStrictEqual(baseHalfCanvasSceneGeometryForCommit({
+			path: 'note.md',
+			kind: 'file',
+			x: 1271.8663878,
+			y: 845.59921,
+			width: 300.00004,
+			height: 220
+		}, {
+			x: 0,
+			y: 0,
+			width: 300,
+			height: 220
+		}), {
+			path: 'note.md',
+			kind: 'file',
+			x: 1271.8664,
+			y: 845.5992,
+			width: 300,
+			height: 220
+		});
+	});
+
+	test('a press becomes a marquee on empty canvas, a move on the set box, and a marquee anywhere on the scene with Shift', () => {
+		const flow = document.createElement('div');
+		flow.className = 'react-flow';
+		const pane = flow.appendChild(document.createElement('div'));
+		pane.className = 'react-flow__pane';
+		const card = pane.appendChild(document.createElement('div'));
+		card.className = 'basehalf-canvas-card';
+		const cardText = card.appendChild(document.createElement('p'));
+		const cardButton = card.appendChild(document.createElement('button'));
+		const handle = pane.appendChild(document.createElement('div'));
+		handle.className = 'basehalf-canvas-card-connect-handle';
+		const editingCard = pane.appendChild(document.createElement('div'));
+		editingCard.className = 'basehalf-canvas-card';
+		editingCard.dataset.noteEditing = 'true';
+		const editingText = editingCard.appendChild(document.createElement('p'));
+		const box = pane.appendChild(document.createElement('div'));
+		box.className = 'basehalf-canvas-set-box';
+		const toolbar = pane.appendChild(document.createElement('div'));
+		toolbar.className = 'basehalf-canvas-adjacent-chrome';
+		const outside = document.createElement('div');
+
+		const gestures = (shiftKey: boolean) => ({
+			pane: baseHalfCanvasScenePressGesture(pane, shiftKey),
+			card: baseHalfCanvasScenePressGesture(cardText, shiftKey),
+			cardButton: baseHalfCanvasScenePressGesture(cardButton, shiftKey),
+			handle: baseHalfCanvasScenePressGesture(handle, shiftKey),
+			editingNote: baseHalfCanvasScenePressGesture(editingText, shiftKey),
+			box: baseHalfCanvasScenePressGesture(box, shiftKey),
+			toolbar: baseHalfCanvasScenePressGesture(toolbar, shiftKey),
+			outside: baseHalfCanvasScenePressGesture(outside, shiftKey)
+		});
+		assert.deepStrictEqual({ plain: gestures(false), shift: gestures(true) }, {
+			plain: { pane: 'marquee', card: undefined, cardButton: undefined, handle: undefined, editingNote: undefined, box: 'move', toolbar: undefined, outside: undefined },
+			shift: { pane: 'marquee', card: 'marquee', cardButton: undefined, handle: undefined, editingNote: undefined, box: 'marquee', toolbar: undefined, outside: undefined }
+		});
+	});
+
+	test('the canvas moves towards the edge that the pointer is near, and faster the nearer it is', () => {
+		assert.deepStrictEqual(
+			[-10, 0, 20, 40, 500, 960, 980, 1000, 1010].map(position => baseHalfCanvasAutoPanStep(position, 1000)),
+			[15, 15, 7.5, 0, 0, 0, -7.5, -15, -15]
 		);
 	});
 

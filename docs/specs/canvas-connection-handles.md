@@ -24,7 +24,10 @@ the line shown while the Create from Connection menu is open.
 Not in scope, and unchanged:
 
 - When handles exist and when they are hidden: while a Note is being edited,
-  while the card is moved, and while it is resized.
+  while the card is moved, and while it is resized. The cards of a set of
+  selected cards show no handles either: the box of the set lies over their
+  capture circles and takes the pointer
+  ([canvas selection and arrangement](canvas-selection-and-arrangement.md#a-set)).
 - Snapping onto a target handle during a drag (a 48-pixel connection radius),
   click-to-connect, connecting into a card, and reconnecting an edge.
 - The Create from Connection menu itself, which the reference graph specifies.
