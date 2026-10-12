@@ -273,7 +273,9 @@ not changed.
 
 - **About**: "Version" is BaseHalf's version. The version of the base is on a
   line of its own.
-- **The update tooltip**: "Current Version" is BaseHalf's version.
+- **The update tooltip**: "Current Version" is BaseHalf's version. "Latest
+  Version" is the version of the update, shown once, and "Released" is the
+  date of the update or nothing: not the date of the running version.
 - **The bundle**: its short version string, which Finder shows, is BaseHalf's
   version.
 

@@ -372,7 +372,9 @@ export class UpdateTooltip extends Disposable {
 		// Latest version
 		const version = update?.productVersion;
 		if (version) {
-			const updateCommitId = update.version?.substring(0, 7);
+			// An update of BaseHalf names its version in both fields, and the
+			// version is not shown a second time in the place of a commit.
+			const updateCommitId = update.version !== version ? update.version?.substring(0, 7) : undefined;
 			this.latestVersionNode.textContent = updateCommitId
 				? localize('updateTooltip.latestVersionLabelWithCommit', "Latest Version: {0} ({1})", version, updateCommitId)
 				: localize('updateTooltip.latestVersionLabel', "Latest Version: {0}", version);
@@ -382,8 +384,9 @@ export class UpdateTooltip extends Disposable {
 			this.latestVersionNode.parentElement!.style.display = 'none';
 		}
 
-		// Release date
-		const releaseDate = update?.timestamp ?? tryParseDate(this.productService.date);
+		// Release date. That of the update when there is one, also when it is
+		// not known: the date of the running version is not the update's.
+		const releaseDate = update ? update.timestamp : tryParseDate(this.productService.date);
 		if (typeof releaseDate === 'number' && releaseDate > 0) {
 			this.releaseDateNode.textContent = localize('updateTooltip.releasedLabel', "Released {0}", formatDate(releaseDate));
 			this.releaseDateNode.style.display = '';
