@@ -1,13 +1,15 @@
 # Canvas card placement
 
 Status: Active (2026-10-11; rewritten the same day for D46, reviewed once,
-and revised so that the layout stays out of git). Implementation in
+and revised so that the layout stays out of git; revised on 2026-10-12 for
+D50, so that a place the user points at is taken as it is). Implementation in
 progress: until it lands, the code does what the
 first version of this document required, which is summarized under
 [The first version](#the-first-version). The specifications listed under
 [Specifications this changes](#specifications-this-changes) are updated in
 the commit that implements the part they describe.
-Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11)
+Decision: [D46](../decisions.md#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11),
+refined by [D50](../decisions.md#d50--a-place-the-user-points-at-is-taken-as-it-is-new-2026-10-12)
 Related: [following moved items](following-moved-items.md),
 [mirror file resilience](mirror-file-resilience.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md),
@@ -127,10 +129,15 @@ appears, and store the place at once; put what arrives without a point after
 what is there; put what arrives at a point at the nearest place to it that is
 not taken; keep no sorted mode; and leave sorting to a command the user runs.
 
+Since 2026-10-12 one card that the user points at is the exception to the
+fourth: it goes where the user pointed
+([A pointed place is taken as it is](#a-pointed-place-is-taken-as-it-is)).
+
 ## Goals
 
 - What a canvas shows is what its layout stores.
 - No card moves unless the user moves it.
+- A card that the user points at is where they pointed.
 - BaseHalf never puts a card on another card by its own choice.
 - One rule covers every way a card can come to be on a canvas.
 - Opening a folder or moving a card changes nothing that git shows.
@@ -175,8 +182,12 @@ not taken; keep no sorted mode; and leave sorting to a command the user runs.
   [the same path](following-moved-items.md#the-snapshot), so that on a
   volume that ignores letter case a rename that changes only the case is
   still that item.
-- **Pointed place**: the place a user action named for a new card. See
-  [Pointing](#pointing).
+- **Pointed place**: the place that the user named with the pointer for one
+  new card: a point on the canvas, or the point at which a connection line
+  was released. See [Pointing](#pointing).
+- **Computed place**: the place that BaseHalf works out for a card that the
+  user creates without pointing: the middle of the visible part of the
+  canvas, or beside the card that the new one is made from.
 - **Taken**: the rectangles of all rows of the layout, and of the places
   that [wait for a write](#when-a-place-cannot-be-saved).
 - **Open**: a rectangle is open when it is at least 40 away to the side, or
@@ -209,8 +220,11 @@ not taken; keep no sorted mode; and leave sorting to a command the user runs.
    node. BaseHalf chooses the place when it knows the size. For a node file
    it reads the kind of the node first.
 2. **Place.**
-   - It was pointed at: the [nearest open place](#the-nearest-open-place) to
-     the pointed place.
+   - The user pointed at it: the pointed place,
+     [as it is](#a-pointed-place-is-taken-as-it-is).
+   - BaseHalf computed a place for it, or it is one of a group that was
+     dropped at a point: the [nearest open place](#the-nearest-open-place)
+     to that place.
    - Otherwise: [the end of the canvas](#the-end-of-a-canvas).
 3. **Saved.** The row is written to the layout in the same drawing
    ([how a place is saved](#how-a-place-is-saved)). It is a chosen row,
@@ -254,33 +268,82 @@ In a folder whose cards are still in the plain grid, a new card therefore
 continues the last row, and starts the next row when the last one is full.
 This still holds after the user has moved some of the cards.
 
+### A pointed place is taken as it is
+
+Where one card goes that the user pointed at.
+
+- The card is put at the pointed place. BaseHalf does not move it: not for a
+  card that is there, not for the edge of the visible part of the canvas,
+  and not for a row whose item is gone.
+- So the card can lie on another card. The user put it there, as with a drag
+  ([What the user changes](#what-the-user-changes)).
+- The place does not depend on the zoom, on what the window shows, or on
+  what else is on the canvas.
+- The view does not move either. A card that is pointed at near the edge of
+  the window is partly outside it, and the user moves the canvas.
+
+Until 2026-10-12 a pointed card went to the nearest open place, and only
+places inside the visible part of the canvas counted. That day the user
+reported that cards made from connection lines came out in another direction
+or far away. The layout of their folder held seven such cards, and the same
+was done in the real window:
+
+- **The search goes in steps of a whole card**, right first, then below,
+  above, and left, whatever the direction of the line. In the user's folder
+  a card that reached 82 into another one was put 840 lower, and a card
+  whose line went to the left was put 680 to the right and 560 lower, below
+  the card it came from.
+- **A card that would reach past the edge of the window counted as not
+  open.** A card is 300 wide. At 100% that is every line released within
+  324 pixels of the right edge of the canvas. In the real window, with a
+  large card at 100%, the search then found nothing in the window, and the
+  card went to the end of the canvas: 1,288 lower, out of sight, and the
+  view stayed where it was.
+- **What the window shows decided where a card is saved.** The same line
+  gave another place at another zoom.
+
+A place that the user cannot predict from where they pointed is not the
+place they chose. The row of such a card was already the user's, not a
+chosen row. Now the place is too.
+
+**Why the view stays.** A first version of this change moved the view by the
+least distance that showed the whole card. The user set that aside the same
+day: someone who pulls a line to the left wants the card on the left, and
+expects to move the canvas next themselves. So nothing moves that the user
+did not move, neither the card nor the view.
+
 ### The nearest open place
 
-Where a card goes that was pointed at.
+Where a card goes whose place BaseHalf computed, and a card of a dropped
+group whose slot is taken.
 
-- The pointed place itself, when the card is open there.
+- The computed place itself, when the card is open there.
 - Otherwise the search goes outward from it in steps of the card's size plus
   the gaps: right, below, above, left, then the four diagonals, ring by ring,
   up to 31 rings.
 - For a card that the user creates on the canvas, only places inside the
-  visible part of the canvas count, the pointed place included, as before.
+  visible part of the canvas count, the computed place included, as before.
 - When nothing is found, the card goes to
   [the end of the canvas](#the-end-of-a-canvas).
 
 ### Pointing
 
-| User action | Pointed place |
+| User action | Place |
 | --- | --- |
-| Create a note or a folder at a point on the canvas | that point |
-| Create a card from a connection or from a selection in a PDF | the place next to the source card that the action computes today |
+| Create a card at a point on the canvas: a double-click on the canvas, or the canvas menu opened at that point | pointed: the card's top left corner is at that point |
+| Create a card from a connection line | pointed: the side of the new card that the line enters is centered on the point where the line was released |
+| Create a card without a point: the Create button, or a keyboard command | computed: the middle of the visible part of the canvas |
+| Create a note from a selection in a PDF | computed: beside the PDF's card |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
 | Anything else: a file that a program or an agent adds, a card that is dragged onto a folder card, a move in the file tree, a move outside BaseHalf | none |
 
 A group that is dropped at a point keeps its block where the block is open.
 The cards whose slots are open take them first. Then the others, in order,
-take the nearest open place to their slot.
+take the nearest open place to their slot. The user named one point for
+several cards, so BaseHalf arranges them.
 
-A pointed place is the user's. Its row is not a chosen row.
+The row of a card that got its place from any row of this table but the
+last is the user's. It is not a chosen row.
 
 ### A card the user just created is shown
 
@@ -294,6 +357,13 @@ other, and the end can be out of sight.
 - A card that is in sight leaves the view as it is.
 - This is only for the user's own action in BaseHalf. A card that a program
   or an agent added does not move the view.
+- **It is not for a card at a pointed place.** The user chose that place
+  with the window as it was, and the view stays
+  ([A pointed place is taken as it is](#a-pointed-place-is-taken-as-it-is)).
+- A card made with the Create button or a keyboard command is inside the
+  visible part of the canvas whenever a place there is open. When none is
+  open it is at the end of the canvas, and the view stays, as before
+  ([Limits](#limits)).
 
 Found in the smoke on 2026-10-11: the card of a project made from a template
 was at the end of the canvas, outside the window, and could not be clicked.
@@ -550,7 +620,9 @@ A canvas shows at most 300 cards.
 | A file is deleted | Its card goes. No other card moves, and the gap stays. |
 | A file is renamed, in BaseHalf or outside | Its card stays where it is. |
 | A card is dragged | It is where it was dropped, also on another card. No other card moves. |
-| A card is created at a point | It is at that point, or beside it when the point is taken. |
+| A card is created at a point | It is at that point, also when another card is there, and also when part of it is outside the window. The view stays. |
+| A card is created from a connection line | The line enters it where the line was released, whatever the direction of the line and whatever is beside that point. Near the edge of the window part of the card is outside it. The view stays, and the user moves the canvas. |
+| A card is created with the Create button | It is in the middle of the window, or at the nearest open place when the middle is taken. |
 | A project is created from a template | Its card is after the last card, and the view goes to it when it was out of sight. |
 | Files are dropped at a point | They are in a block at that point. A card whose slot is taken is beside the block. |
 | A card is moved into another folder | It is after the last card of that folder, with its size. |
@@ -588,19 +660,18 @@ A canvas shows at most 300 cards.
   takes the copy for the moved item, the copy's card goes to the place the
   original had.
 - **A row of the user's whose item is gone** keeps its place taken. A new
-  card is not put there, and the place looks empty.
-- **A size is not carried** into a folder whose canvas was never shown.
-- **A card that comes back** after the window was closed, or through a move
-  outside BaseHalf, goes to the end.
-- **Places that could not be saved** are kept for the window only. After a
-  reload they are chosen again, and come out differently when the list of
-  items changed meanwhile.
-- **A workspace folder without a snapshot**, because it holds more than
-  200,000 items, gets saved places like any other. Items renamed outside
-  BaseHalf are not recognized there, so they appear as new cards.
-- **A card that another program added can be outside the visible part of the
-  canvas.** BaseHalf does not move the view to it. Only a card the user just
-  created is [shown to them](#a-card-the-user-just-created-is-shown).
+  card is not put there, and the place looks empty. A card that the user
+  points at is put there all the same.
+- **A card that the user points at can cover another card.** A line that is
+  released just beside a card gives a new card that lies on it. BaseHalf
+  does not move either of them.
+- **A card that is pointed at near the edge of the window is partly outside
+  it.** The view stays where the user had it. A note that is created there
+  opens for typing all the same, also when its first line is outside the
+  window.
+- **A card made with the Create button can be out of sight.** When no place
+  in the window is open, it goes to the end of the canvas, and the view
+  stays where it is.
 
 ## Compatibility
 
@@ -676,10 +747,10 @@ written with this document.
    - The user's cards leave an empty stretch between them: it stays empty.
    - The last card is a video node: the next card is 40 to the right of it,
      and a new row starts 60 below it.
-8. **Pointed.** A card created at a point that is open is at that point. At
-   a point that is taken, it is at the nearest open place. When the visible
-   part of the canvas has no open place, it is at the end. Its row is the
-   user's.
+8. **Computed.** A card created with the Create button is in the middle of
+   the visible part of the canvas when it is open there. When the middle is
+   taken, it is at the nearest open place. When the visible part of the
+   canvas has no open place, it is at the end. Its row is the user's.
 9. **Dropped together.** Five files are dropped at a point where the first
    slot of their block is taken. Four are in their slots. The fifth is at
    the nearest open place to its slot. None meets a card that was there.
@@ -769,11 +840,38 @@ written with this document.
     another folder in BaseHalf, an item of the same name that is moved to
     the old path from a third folder is at the end, not at the place the
     first one had.
+34. **Pointed.** A card created at a point of the canvas has its top left
+    corner at that point. A card created from a connection line has the
+    middle of the side that the line enters at the point where the line was
+    released, for a line from each of the four sides. Both hold within one
+    screen pixel, at 40% and at 100%, and also:
+    - when the card reaches into another card or lies on it;
+    - when the card reaches past an edge of the visible part of the canvas;
+    - when a row whose item is gone is at that place.
+
+    The row has the place the card is drawn at and is the user's. No other
+    row changes.
+35. **The view stays.** Creating a card at a pointed place does not move
+    the view and does not change the zoom, also when the card reaches past
+    an edge of the visible part of the canvas. A note that is created partly
+    outside the window has the keyboard: what is typed goes into the note,
+    and nothing moves.
+36. **Not from the view.** The same line, released at the same place of the
+    canvas at two zooms and with the canvas moved, gives the same place
+    within one screen pixel.
 
 ## Verification
 
 - Unit tests of the canvas model for the plain grid, the end of a canvas,
   the nearest open place, and the block: criteria 4, 6, 7, 8, 9, 22, 23.
+- A unit test of the canvas scene for the place of a card made from a
+  line: criterion 34.
+- The smoke step `canvas-create-from-connection` for criteria 34 and 35 in
+  the real window: a line released where the card reaches past the edge of
+  the window, and a line released beside a card. On the code before D50 the
+  step fails: the card was 680 to the left of the release point and 560
+  above it.
+- Criteria 34 to 36 in the real window on 2026-10-12, as recorded below.
 - Unit tests of the canvas mirror for the mark, for saving the places of
   cards that appeared, for the ignore file, for a row that follows its
   item, and for a card that comes back: criteria 11, 12, 16, 29, 32, 33.
@@ -817,6 +915,35 @@ A review of the code found, among smaller things: a save that landed while
 the next drawing was being prepared moved its card; one listing of a folder
 was enough to remove a row; and a move that was held back lost a place that
 BaseHalf had chosen. Criteria 30 to 33 are for these.
+
+### Tried in the real window, 2026-10-12
+
+A folder like the user's own before the reported cards were made: a note of
+501 × 851, three other notes, and the row of a folder that is gone. The
+canvas was 980 × 803 screen pixels. Every line came from a side of the large
+note and ended in the menu's Note, or Image where it says so. Release points
+were whole screen pixels.
+
+| What was done | Before D50 | With D50 |
+| --- | --- | --- |
+| 100%: a line from the right side, released 150 to the right of the note | The card was at the end of the canvas, 351 to the right of and 1,288 below where it was pointed, out of sight. | The card is where it was pointed. 97% of it is in the window. |
+| 100%: a line from the left side, released 120 from the left edge of the canvas | At the end of the canvas, 1,598 lower | Where it was pointed. 40% of it is in the window. |
+| 150%: lines to the left, to the right, and up, released 46 to 60 from that edge of the canvas | Not tried here. The user's own two cards of that afternoon, from lines pulled to the left, were at (−24, 176) and (316, 176): the first two places of a new row at the end of the canvas, below the note. | Each where it was pointed, with 10% to 18% of the card in the window. The note had the keyboard, and what was typed went into it. |
+| 40%: a line from the top, released where the card reaches past the top of the window | 279 lower, one step of the search | Where it was pointed. A quarter of it is in the window. |
+| 40%: a line released so that the card reaches into the card made just before | Not tried. In the user's folder: 840 lower. | Where it was pointed, lying on that card |
+| 40%: a line released beside the row of the folder that is gone | Not tried | Where it was pointed |
+| 40%: lines from the right, left, top, and bottom side, and an Image node | Not tried | Each where it was pointed, with 0.0 screen pixels between the row and the point. No other row changed. |
+| The same point of the canvas at 40%, at 100% with the canvas moved, and at 60% with the canvas moved | Not tried | The rows were at (855.0, −401.3), (855.0, −402.3), and (855.0, −402.2): less than one screen pixel apart at each zoom. |
+| 100%: a double-click 100 from the right and 80 from the lower edge of the canvas, then New Note | Not tried | The card's top left corner is at the point. The rest of the card is outside the window. |
+| 100%: a double-click on empty canvas with room around it, then New Note | Not tried | At the point |
+
+With D50 the view was where it had been in every row, at the same zoom, and
+no element around the canvas had scrolled.
+
+One thing was built and taken back the same day. A first version moved the
+view by the least distance that showed the whole card, 33 to 224 screen
+pixels in these trials. The user did not want it
+([why the view stays](#a-pointed-place-is-taken-as-it-is)).
 
 ## Measurements
 

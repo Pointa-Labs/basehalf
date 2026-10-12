@@ -1259,7 +1259,8 @@ the end of the canvas when nobody pointed. It saves that place at once and by
 itself, in the same file as a place the user chose, and marks the row as its
 own choice. There is no sorted mode, and the one way BaseHalf will change a
 place the user has is a tidy command that the user runs. See
-[canvas card placement](specs/canvas-card-placement.md).
+[canvas card placement](specs/canvas-card-placement.md). D50 refines where
+one card goes that the user pointed at.
 
 **Why.** A canvas had two kinds of place: saved for the cards the user had
 moved, and computed at every drawing for all others. A computed place depends
@@ -1431,3 +1432,56 @@ of BaseHalf's own.
   because the card that told it is gone.
 - Choosing the entry while a download runs opens the About page.
 - The About dialog of the application menu stays.
+
+## D50 — A place the user points at is taken as it is (NEW, 2026-10-12)
+
+**Decision.** A card that the user creates at a point of the canvas, or from
+a connection line, is put exactly where the user pointed: with its top left
+corner at the point, or with the side that the line enters centered on the
+point where the line was released. BaseHalf does not move it for other
+cards, for the edge of the window, or for a row whose item is gone. The view
+stays where it is too: a card near the edge of the window is partly outside
+it, and the user moves the canvas. A place that BaseHalf works out by
+itself, the middle of the window for the Create button or beside a PDF's
+card, still goes to the nearest open place. See
+[canvas card placement](specs/canvas-card-placement.md#a-pointed-place-is-taken-as-it-is).
+
+**Why.** D46 put a pointed card at the nearest place that is not taken, and
+counted only places that the window showed. On 2026-10-12 the user reported
+that cards made from connection lines came out in another direction or far
+away. The search went in steps of a whole card in a fixed order, so a card
+that was a little too near to another one was put 840 lower, and a card
+whose line went to the left was put to the lower right. A card that would
+reach past the edge of the window counted as not open, which at 100% is
+every line released in the last 324 pixels of the canvas, and when nothing
+in the window was open the card went to the end of the canvas, out of sight.
+The place depended on the zoom and on what the window showed, which the user
+does not think of when they point. A row of such a card was already the
+user's and not BaseHalf's choice. With the place taken as it is, the rule
+can be said in one sentence.
+
+The user, the same day: a card should be made where the user chose. Someone
+who wants it on the left means the left, and expects to move the canvas next
+themselves.
+
+**What was set aside.**
+- A search for the place nearest to the point in the true sense, in small
+  steps. In a crowded part of a canvas it still puts the card somewhere the
+  user did not point, and the user cannot tell beforehand where.
+- Keeping the card inside the window by moving it less. The place would
+  still depend on the view.
+- Moving the view to show the card. It was built first, as the least move
+  that brings the whole card into the window, and taken back when the user
+  said that moving the canvas is theirs to do.
+
+**Consequences.**
+- Refines D46: "the nearest place that is not taken to where the user
+  pointed" now holds for a group of files dropped at a point and for a place
+  that BaseHalf computes. One card that the user points at is where they
+  pointed.
+- A card that the user points at can lie on another card, as a card that the
+  user drags there. BaseHalf still never puts a card on another one by its
+  own choice.
+- A card that is pointed at near the edge of the window is partly outside it
+  until the user moves the canvas. A note opens for typing there all the
+  same.

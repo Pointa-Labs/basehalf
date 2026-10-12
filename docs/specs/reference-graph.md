@@ -759,9 +759,11 @@ A connection's target must be a node that can be downstream (see
     entry in its initial bytes. There is no "created but not connected" state.
   - **Edge and placement.** The edge runs from the dragged handle to the
     opposite side of the new card. That side is centered on the release point.
-    The card moves only to avoid other cards or the edge of the visible
-    canvas. The anchor row is written as a connect writes it. In a marked
-    folder no row is written, and the edge uses default anchors.
+    The card is not moved from there, also when it reaches into another card
+    or past the edge of the visible canvas, and the view is not moved either
+    ([canvas card placement](canvas-card-placement.md#a-pointed-place-is-taken-as-it-is)).
+    The anchor row is written as a connect writes it. In a marked folder no
+    row is written, and the edge uses default anchors.
   - **Note** creates `untitled.md` (or the next free `untitled-N.md`). Its
     content is only a frontmatter block that lists the source. It opens for
     inline editing, as New Note does.

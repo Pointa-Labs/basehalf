@@ -1559,6 +1559,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		readonly context: IBaseHalfCanvasActionContext;
 		readonly request: BaseHalfCanvasSceneContextMenuRequest;
 		readonly createPosition?: { readonly x: number; readonly y: number };
+		/** The create position is one BaseHalf worked out, not a point the user named with the pointer. */
+		readonly createPositionComputed?: boolean;
 	} | undefined;
 	private activeNodeLocalSurface: IBaseHalfActiveNodeLocalSurface | undefined;
 	private activeCanvasNoteEditor: IBaseHalfActiveCanvasNoteEditor | undefined;
@@ -3515,14 +3517,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const createFocusOrigin = this.root.ownerDocument.activeElement;
 		const context = await this.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
 		const toAnchor = baseHalfCanvasOppositeAnchor(drop.fromAnchor);
-		const placement = this.avoidCanvasCreateOverlap({
-			canvasPosition: baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, {
-				width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
-				height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
-			}),
-			screenPosition: drop.anchor
-		}, 'note');
-		await this.createUntitledNote(folder, context, placement.canvasPosition, createOwner, createFocusOrigin, undefined, {
+		// The user pointed: the card is where the line was released. It is not
+		// moved for other cards or for the edge of the window, and neither is
+		// the view (canvas card placement).
+		const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, toAnchor, {
+			width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
+			height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+		});
+		await this.createUntitledNote(folder, context, canvasPosition, createOwner, createFocusOrigin, undefined, {
 			from: drop.from,
 			fromAnchor: drop.fromAnchor,
 			toAnchor
@@ -3598,15 +3600,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 				// Edge rows are anchor memory: a stale row for this pair is replaced.
 				const staleEdge = currentCanvas?.edges.find(candidate => candidate.from === edge.from && candidate.to === edge.to) ?? null;
-				const placement = this.avoidCanvasCreateOverlap({
-					canvasPosition: baseHalfCanvasConnectionTargetOrigin(drop.position, edge.to_anchor, targetSize),
-					screenPosition: drop.anchor
-				}, 'resultNode', currentCanvas?.cards, targetSize);
+				// The user pointed: the card is where the line was released.
+				const canvasPosition = baseHalfCanvasConnectionTargetOrigin(drop.position, edge.to_anchor, targetSize);
 				const card: NonNullable<IBaseHalfCanvasStateTransition['cards']>[number]['next'] = {
 					path: targetPath,
 					kind: 'file',
-					x: roundCanvasPosition(placement.canvasPosition.x),
-					y: roundCanvasPosition(placement.canvasPosition.y),
+					x: roundCanvasPosition(canvasPosition.x),
+					y: roundCanvasPosition(canvasPosition.y),
 					width: targetSize.width,
 					height: targetSize.height
 				};
@@ -5697,7 +5697,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		sceneKey: string,
 		structuralEpoch: number,
 		request: BaseHalfCanvasSceneContextMenuRequest,
-		createPosition?: { readonly x: number; readonly y: number }
+		createPosition?: { readonly x: number; readonly y: number },
+		createPositionComputed?: boolean
 	): void {
 		const folder = this.getCurrentFolder();
 		if (!folder || this.sceneKey(folder) !== sceneKey
@@ -5760,7 +5761,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				|| !this.workspaceMutationCoordinator.isStampCurrent(latest.workspaceFolder, this.sceneMutationStamp(latest, structuralEpoch))) {
 				return;
 			}
-			this.lastCanvasContextMenu = { context, request, createPosition };
+			this.lastCanvasContextMenu = { context, request, createPosition, createPositionComputed };
 			const menuId = request.kind === 'card' ? BASEHALF_CANVAS_CARD_CONTEXT_MENU : BASEHALF_CANVAS_PANE_CONTEXT_MENU;
 			this.contextMenuService.showContextMenu({
 				menuId,
@@ -5787,7 +5788,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.sceneKey(folder),
 			structuralStamp.structuralEpoch,
 			{ kind: 'pane', anchor: { x: anchorRect.right, y: anchorRect.bottom } },
-			{ x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 }
+			{ x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 },
+			true
 		);
 	}
 
@@ -6894,8 +6896,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const createSize = request.kind === 'create' && request.createKind === 'resultNode' && request.resultKind === 'video'
 			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
 			: undefined;
-		const placement = request.kind === 'create'
-			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind, [], createSize)
+		// A point the user named is taken as it is: the card is not moved for
+		// other cards or for the edge of the window, and neither is the view. A
+		// place BaseHalf computed goes to the nearest open place.
+		const placement = request.kind === 'create' && !initialPlacement.pointed
+			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind, createSize)
 			: initialPlacement;
 		if (request.kind === 'paste') {
 			const resources = await this.clipboardService.readResources();
@@ -7021,19 +7026,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
+	/**
+	 * Where a card goes that is created now: the point the user named with the
+	 * pointer when the create menu was opened there, and otherwise the middle of
+	 * the visible canvas, which is a place BaseHalf computed (canvas card
+	 * placement, "Pointing").
+	 */
 	private canvasCreatePlacement(context: IBaseHalfCanvasActionContext | undefined): {
 		readonly screenPosition: { readonly x: number; readonly y: number };
 		readonly canvasPosition: { readonly x: number; readonly y: number };
+		readonly pointed: boolean;
 	} {
 		const menu = this.lastCanvasContextMenu;
 		const surfaceRect = this.surface.getBoundingClientRect();
-		const screenPosition = menu && context && menu.context === context && menu.request.kind === 'pane'
+		const menuPosition = menu && context && menu.context === context && menu.request.kind === 'pane'
 			? menu.createPosition ?? (!isHTMLElement(menu.request.anchor) ? menu.request.anchor : undefined)
-				?? { x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 }
-			: { x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 };
+			: undefined;
+		const screenPosition = menuPosition ?? { x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 };
 		return {
 			screenPosition,
-			canvasPosition: this.canvasScene.screenToCanvasPosition(screenPosition.x, screenPosition.y)
+			canvasPosition: this.canvasScene.screenToCanvasPosition(screenPosition.x, screenPosition.y),
+			pointed: menuPosition !== undefined && !menu?.createPositionComputed
 		};
 	}
 
@@ -7065,10 +7078,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private avoidCanvasCreateOverlap(
 		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
 		kind: BaseHalfCanvasCreateKind,
-		extraOccupied: readonly IBaseHalfCanvasBounds[] = [],
 		sizeOverride?: { readonly width: number; readonly height: number }
 	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
-		const occupied = [...this.takenCanvasPlaces(), ...extraOccupied];
+		const occupied = this.takenCanvasPlaces();
 		const size = sizeOverride ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });

@@ -9447,6 +9447,130 @@ async function dropCanvasConnectionOnBlank(page, sourcePath) {
 	return blank;
 }
 
+// Where canvas coordinates are on screen, and the box of the canvas.
+async function readCanvasView(page) {
+	return page.evaluate(() => {
+		const viewport = document.querySelector('.react-flow__viewport');
+		const flow = document.querySelector('.react-flow');
+		const canvas = document.querySelector('.basehalf-canvas-cards');
+		if (!viewport || !flow || !canvas) {
+			throw new Error('Missing canvas view');
+		}
+		const matrix = new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
+		const origin = flow.getBoundingClientRect();
+		const box = canvas.getBoundingClientRect();
+		return { x: origin.left + matrix.e, y: origin.top + matrix.f, zoom: matrix.a, canvas: { left: box.left, top: box.top, right: box.right, bottom: box.bottom } };
+	});
+}
+
+// A point on empty canvas where a released connection line opens the create
+// menu: nothing is drawn there, and no card's handle is near enough to take the
+// line. `where` picks the point:
+// - 'rightEdge': 60 screen pixels inside the right edge of the canvas, so that
+//   a card created there reaches past the edge and is partly out of sight.
+// - 'besideCard': just left of a card other than `sourcePath`, level with its
+//   top, so that a card created there lies on that card.
+async function canvasConnectionReleasePoint(page, where, sourcePath) {
+	const point = await page.evaluate(({ where, sourcePath }) => {
+		const canvas = document.querySelector('.basehalf-canvas-cards')?.getBoundingClientRect();
+		const pane = document.querySelector('.react-flow__pane');
+		const viewport = document.querySelector('.react-flow__viewport');
+		if (!canvas || !pane || !viewport) {
+			throw new Error('Missing canvas for a connection release point');
+		}
+		const zoom = new DOMMatrixReadOnly(getComputedStyle(viewport).transform).a;
+		const nodes = [...document.querySelectorAll('.react-flow__node')].map(node => ({ path: node.getAttribute('data-id'), rect: node.getBoundingClientRect() }));
+		const handles = nodes.flatMap(({ rect }) => [
+			{ x: rect.left, y: rect.top + rect.height / 2 },
+			{ x: rect.right, y: rect.top + rect.height / 2 },
+			{ x: rect.left + rect.width / 2, y: rect.top },
+			{ x: rect.left + rect.width / 2, y: rect.bottom }
+		]);
+		// The connection radius is 48 canvas pixels, and a capture circle 24 screen pixels.
+		const clear = (x, y) => x > canvas.left + 50 && x < canvas.right - 50 && y > canvas.top + 50 && y < canvas.bottom - 50
+			&& document.elementFromPoint(x, y) === pane
+			&& handles.every(handle => Math.hypot(handle.x - x, handle.y - y) > Math.max(30, 60 * zoom));
+		if (where === 'rightEdge') {
+			const x = Math.round(canvas.right - 60);
+			for (const fraction of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) {
+				const y = Math.round(canvas.top + (canvas.bottom - canvas.top) * fraction);
+				if (clear(x, y)) {
+					return { x, y };
+				}
+			}
+			return undefined;
+		}
+		for (const { path, rect } of nodes) {
+			const x = Math.round(rect.left - 40 * zoom);
+			const y = Math.round(rect.top - 10 * zoom);
+			if (path !== sourcePath && clear(x, y)) {
+				return { x, y, beside: path };
+			}
+		}
+		return undefined;
+	}, { where, sourcePath });
+	if (!point) {
+		throw new Error(`No empty canvas point to release a connection line at: ${where}`);
+	}
+	return point;
+}
+
+// Drags a connection from `sourcePath` and releases it at `point`. Returns the
+// release point on screen and in canvas coordinates, and the view it was
+// released in.
+async function dropCanvasConnectionAt(page, sourcePath, point) {
+	await startCanvasConnectionDrag(page, sourcePath);
+	await page.mouse.move(point.x, point.y, { steps: 8 });
+	const view = await readCanvasView(page);
+	await page.mouse.up();
+	return { screen: { x: point.x, y: point.y }, canvas: { x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom }, view };
+}
+
+// A card created from a connection line is where the line was released: the
+// middle of its west side is at the release point, also when the card reaches
+// past the edge of the window or into another card. Nothing else moves for
+// it: no other card, and not the view, which is the user's to move (canvas
+// card placement, criteria 34 and 35).
+async function assertCanvasCardCreatedWhereLineWasReleased(page, canvasPath, cardPath, drop, otherRows) {
+	const screenPixel = 1 / drop.view.zoom + 0.01;
+	const released = candidate => candidate !== undefined
+		&& Math.abs(candidate.x - drop.canvas.x) <= screenPixel && Math.abs(candidate.y + candidate.height / 2 - drop.canvas.y) <= screenPixel;
+	// A drawing between the new file and its row can save another place for a
+	// moment, so the row is read until it is the card's own.
+	let row;
+	const deadline = Date.now() + 10_000;
+	while (!released(row = readCanvasCardGeometry(fs.readFileSync(canvasPath, 'utf8'), cardPath))) {
+		if (Date.now() > deadline) {
+			throw new Error(`${cardPath} must be where its line was released: ${JSON.stringify({ row, released: drop.canvas })}`);
+		}
+		await page.waitForTimeout(50);
+	}
+	const raw = fs.readFileSync(canvasPath, 'utf8');
+	const moved = Object.entries(otherRows).filter(([otherPath, before]) => before !== undefined && JSON.stringify(readCanvasCardGeometry(raw, otherPath)) !== JSON.stringify(before)).map(([otherPath]) => otherPath);
+	if (moved.length > 0) {
+		throw new Error(`Creating ${cardPath} must not change another card's row: ${moved.join(', ')}`);
+	}
+	// What is drawn is what is stored.
+	const drawnBy = Date.now() + 10_000;
+	for (; ;) {
+		const drawn = (await readCanvasCardPlaces(page, [cardPath]))[cardPath];
+		if (Math.abs(drawn.x - row.x) <= 1 && Math.abs(drawn.y - row.y) <= 1) {
+			break;
+		}
+		if (Date.now() > drawnBy) {
+			throw new Error(`${cardPath} must be drawn where its row says: ${JSON.stringify({ drawn, row })}`);
+		}
+		await page.waitForTimeout(50);
+	}
+	// The view stays where the user had it, after everything the create starts has run.
+	await page.waitForTimeout(500);
+	const view = await readCanvasView(page);
+	if (Math.abs(view.x - drop.view.x) > 0.5 || Math.abs(view.y - drop.view.y) > 0.5 || Math.abs(view.zoom - drop.view.zoom) > 0.001) {
+		throw new Error(`Creating ${cardPath} must not move the view: ${JSON.stringify({ before: drop.view, after: view })}`);
+	}
+	return row;
+}
+
 // The Create from Connection menu item `label`, after checking the menu opened
 // at the release point and not as Quick Input.
 async function connectionCreateMenuAction(page, release, label) {
@@ -9474,7 +9598,8 @@ async function connectionCreateMenuAction(page, release, label) {
 
 // Create from Connection: each item creates a node whose first bytes list the
 // source as upstream (D37), draws the edge, and leaves the source unchanged. A
-// created .bhnode, its card, and its edge go away in one canvas undo step.
+// created .bhnode, its card, and its edge go away in one canvas undo step. The
+// card is where the line was released, and the view stays where it is.
 async function assertCanvasCreateFromConnection(page) {
 	const source = 'README.md';
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
@@ -9492,10 +9617,22 @@ async function assertCanvasCreateFromConnection(page) {
 	// so an earlier step's leftover row can move it to `image-N.bhnode`.
 	const imageNodes = () => fs.readdirSync(workspacePath).filter(name => /^image(-\d+)?\.bhnode$/.test(name));
 	const imagesBefore = new Set(imageNodes());
-	await (await connectionCreateMenuAction(page, await dropCanvasConnectionOnBlank(page, source), 'Image')).click();
+	const rowsOfShownCards = async () => {
+		const raw = fs.readFileSync(canvasPath, 'utf8');
+		const shown = await page.locator('.basehalf-canvas-card[data-basehalf-card-path]').evaluateAll(cards => cards.map(card => card.getAttribute('data-basehalf-card-path')));
+		return Object.fromEntries(shown.map(cardPath => [cardPath, readCanvasCardGeometry(raw, cardPath)]));
+	};
+	// Released near the right edge of the canvas: the card reaches past it.
+	const rowsBeforeImage = await rowsOfShownCards();
+	const imageDrop = await dropCanvasConnectionAt(page, source, await canvasConnectionReleasePoint(page, 'rightEdge', source));
+	await (await connectionCreateMenuAction(page, imageDrop.screen, 'Image')).click();
 	let image;
 	await waitUntil(() => (image = imageNodes().find(name => !imagesBefore.has(name))) !== undefined, 'Create from Connection to create an image node');
 	const imagePath = path.join(workspacePath, image);
+	const imageRow = await assertCanvasCardCreatedWhereLineWasReleased(page, canvasPath, image, imageDrop, rowsBeforeImage);
+	if ((imageRow.x + imageRow.width) * imageDrop.view.zoom + imageDrop.view.x <= imageDrop.view.canvas.right) {
+		throw new Error(`The line must be released where the card reaches past the right edge of the canvas: ${JSON.stringify({ imageRow, view: imageDrop.view })}`);
+	}
 	const document = JSON.parse(fs.readFileSync(imagePath, 'utf8'));
 	if (document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== JSON.stringify([source]) || document.recipe !== undefined) {
 		throw new Error(`Create from Connection created the wrong Image document: ${JSON.stringify(document)}`);
@@ -9511,8 +9648,18 @@ async function assertCanvasCreateFromConnection(page) {
 	await assertCanvasEdgeGone(page, source, image);
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${image}"]`).waitFor({ state: 'detached', timeout: 10_000 });
 
-	await (await connectionCreateMenuAction(page, await dropCanvasConnectionOnBlank(page, source), 'Note')).click();
+	// Released just beside another card: the note lies on that card.
+	const rowsBeforeNote = await rowsOfShownCards();
+	const notePoint = await canvasConnectionReleasePoint(page, 'besideCard', source);
+	const noteDrop = await dropCanvasConnectionAt(page, source, notePoint);
+	await (await connectionCreateMenuAction(page, noteDrop.screen, 'Note')).click();
 	await waitUntil(() => fs.existsSync(notePath), 'Create from Connection to create untitled.md');
+	const noteRow = await assertCanvasCardCreatedWhereLineWasReleased(page, canvasPath, 'untitled.md', noteDrop, rowsBeforeNote);
+	const besideRow = rowsBeforeNote[notePoint.beside];
+	if (!besideRow || noteRow.x >= besideRow.x + besideRow.width || besideRow.x >= noteRow.x + noteRow.width
+		|| noteRow.y >= besideRow.y + besideRow.height || besideRow.y >= noteRow.y + noteRow.height) {
+		throw new Error(`The note released beside ${notePoint.beside} must lie on it: ${JSON.stringify({ noteRow, besideRow })}`);
+	}
 	const noteText = readWorkspaceFile('untitled.md');
 	if (noteText !== `---\nupstream:\n  - ${source}\n---\n`) {
 		throw new Error(`Create from Connection note must start with only its upstream frontmatter, got ${JSON.stringify(noteText)}`);
