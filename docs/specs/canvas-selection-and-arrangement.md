@@ -1,12 +1,8 @@
 # Canvas selection and arrangement
 
-Status: Active (2026-10-12). Implementation in progress. The marquee, the
-states of the selection, the set box, moving a set, and Arrange are
-implemented. Tidy Canvas and the question that keeps or reverts a tidy are
-not yet: until they land, the view controls have no Tidy Canvas. The
-specifications listed under
-[Specifications this changes](#specifications-this-changes) are updated in
-the commit that implements the part they describe.
+Status: Active (2026-10-12). Implemented. The steps of the smoke that
+[Verification](#verification) names and the measurement of criterion 2 are
+still to be added.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
 Related: [canvas card placement](canvas-card-placement.md) (rows, chosen
 rows, list order, the plain grid),
@@ -626,6 +622,15 @@ The same window and workspace, with the real pointer and keyboard.
   took Column back, and every row was again one that BaseHalf had chosen.
   The menu lay over the set box, and the arrow keys and Enter chose from
   it.
+- Tidy Canvas, on a canvas of five cards with one card that leads to two
+  others and two singles, two of the cards selected: every card went to the
+  place of the rules, the two cards were still selected, every card was in
+  view, and the question was asked. With the question open a card was
+  selected and another was moved. Revert then put every card back, also the
+  one that was moved, every row was again one that BaseHalf had chosen, and
+  the view was as before. Undo of a second tidy took it back and closed the
+  question. Shift+Alt+F tidied, Keep closed the question and changed no
+  place, and tidying the tidied canvas moved no card and asked nothing.
 
 ## Specifications this changes
 

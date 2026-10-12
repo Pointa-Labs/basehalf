@@ -228,6 +228,81 @@
 	transform: translateY(1px);
 }
 
+.monaco-workbench .basehalf-canvas-chrome-button:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:disabled:hover {
+	background-color: transparent;
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:disabled:active {
+	transform: none;
+}
+
+.monaco-workbench .basehalf-canvas-tidy {
+	width: 28px;
+	color: var(--vscode-icon-foreground);
+}
+
+/* The question after a tidy stands above the view controls and does not
+ * block the canvas. */
+.monaco-workbench .basehalf-canvas-tidy-question {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	left: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	box-sizing: border-box;
+	padding: 10px 12px;
+	white-space: nowrap;
+	pointer-events: auto;
+	color: var(--vscode-menu-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-bodyFontSize-small);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 10px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button {
+	height: 24px;
+	padding: 0 10px;
+	color: var(--vscode-button-secondaryForeground);
+	font: inherit;
+	background: var(--vscode-button-secondaryBackground);
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button.primary {
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button.primary:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button:focus-visible {
+	outline: 1px solid var(--bh-canvas-focus-ring);
+	outline-offset: 1px;
+}
+
 .monaco-workbench .basehalf-canvas-snap-toggle {
 	width: 28px;
 	color: var(--vscode-descriptionForeground);

@@ -51,6 +51,7 @@ import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js'
 import { IPathService } from '../../services/path/common/pathService.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
+import { status } from '../../../base/browser/ui/aria/aria.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
 	baseHalfCanvasItemBounds,
@@ -72,6 +73,7 @@ import {
 	isBaseHalfCanvasEntry
 } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
+import { baseHalfCanvasTidy } from '../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasChosenPlaces } from '../common/basehalfCanvasChosenPlaces.js';
 import { baseHalfCanvasConnectionSummary, baseHalfCanvasDeleteImpact, baseHalfCanvasResolveSiblingUpstream, baseHalfNodeUpstreamWithSourceChanges, IBaseHalfCanvasDeleteImpactStore } from '../common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
@@ -265,7 +267,7 @@ import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRic
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { IBaseHalfCardDetailSurfaceInstance, IBaseHalfCardDetailSurfaceRegistryService } from './cardDetail/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from './cardDetail/basehalfMediaCardDetail.js';
-import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
+import { BaseHalfCanvasReactScene, baseHalfCanvasTargetBlocksGraphShortcuts } from './basehalfCanvasReactScene.js';
 import { releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
 import {
 	BaseHalfCanvasInteractionRenderGate,
@@ -1323,6 +1325,19 @@ interface IBaseHalfCanvasMutationGuard {
 	run<T>(task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>, relatedStamps?: readonly IBaseHalfWorkspaceResourceMutationStamp[]): Promise<T>;
 }
 
+/** The question after a tidy, and what it needs to put the cards back. */
+interface IBaseHalfCanvasTidyQuestion {
+	readonly token: number;
+	readonly sceneKey: string;
+	readonly folder: IBaseHalfCanvasFolderState;
+	/** The rows of the cards that the tidy moved, as they were before it. */
+	readonly previous: ReadonlyMap<string, IBaseHalfCanvasCard>;
+	/** What the view showed before the tidy. */
+	readonly viewport: IBaseHalfCanvasSceneViewport;
+	readonly element: HTMLElement;
+	readonly listeners: DisposableStore;
+}
+
 interface IBaseHalfCanvasUndoNode {
 	readonly path: string;
 	readonly kind: IBaseHalfCanvasItem['kind'];
@@ -1428,6 +1443,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly createButton: HTMLButtonElement;
 	private readonly chrome: HTMLElement;
 	private readonly zoomControls: HTMLElement;
+	private readonly tidyButton: HTMLButtonElement;
 	private readonly snapToggle: HTMLButtonElement;
 	private readonly zoomValue: HTMLButtonElement;
 	private readonly surface: HTMLElement;
@@ -1527,6 +1543,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private autoFramedViewport: { readonly sceneKey: string; readonly generation: number } | undefined;
 	private canvasZoom = 1;
 	private canvasSnapEnabled = true;
+	private tidyRunning = false;
+	private tidySequence = 0;
+	private tidyQuestion: IBaseHalfCanvasTidyQuestion | undefined;
 	private zoomMenuOpen = false;
 	private zoomMenu: HTMLElement | undefined;
 	private zoomMenuInput: HTMLInputElement | undefined;
@@ -1700,6 +1719,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.zoomControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
 		this.zoomControls.setAttribute('role', 'group');
 		this.zoomControls.setAttribute('aria-label', localize('basehalf.canvas.viewControls', "Canvas view controls"));
+		this.tidyButton = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-tidy')) as HTMLButtonElement;
+		this.tidyButton.type = 'button';
+		this.tidyButton.setAttribute('data-testid', 'canvas-tidy');
+		const tidyIcon = append(this.tidyButton, $('span.codicon.codicon-type-hierarchy'));
+		tidyIcon.setAttribute('aria-hidden', 'true');
+		this._register(this.addDisposableListener(this.tidyButton, 'click', () => void this.tidyCanvas()));
+		this._register(toDisposable(() => this.closeTidyQuestion()));
 		this.snapToggle = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
 		this.snapToggle.type = 'button';
 		this.snapToggle.setAttribute('data-testid', 'canvas-snap-toggle');
@@ -1959,6 +1985,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 
 		this.updateCanvasLayer();
+		this.updateCanvasTidyChrome();
 		this.updateCanvasSnapChrome();
 		this.updateCanvasZoomChrome();
 		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
@@ -2778,6 +2805,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 		this.renderedSceneCards = Object.freeze(sceneCards);
 		this.renderedSceneEdges = Object.freeze(sceneEdges);
+		this.updateCanvasTidyChrome();
+		if (this.tidyQuestion && this.tidyQuestion.sceneKey !== currentSceneKey) {
+			// The user left the canvas that was tidied: the result is kept.
+			this.closeTidyQuestion();
+		}
 		this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
 		if (pendingSelection && (!pendingSelectionRequest
 			|| this.pendingCanvasSelection !== pendingSelectionRequest
@@ -3191,8 +3223,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, requested: readonly IBaseHalfCanvasSceneGeometry[], reason?: BaseHalfCanvasSceneGeometryReason): Promise<void> {
+		await this.commitCanvasGeometry(sceneKey, structuralEpoch, requested, reason === 'arrange'
+			? localize('basehalf.canvas.arrange.undo', "Arrange canvas cards")
+			: localize('basehalf.canvas.geometry.undo', "Move or resize canvas cards"));
+	}
+
+	/**
+	 * Saves the places and sizes of cards in one change of the layout and one
+	 * step of undo, and gives the scene the result. Returns what changed.
+	 */
+	private async commitCanvasGeometry(
+		sceneKey: string,
+		structuralEpoch: number,
+		requested: readonly IBaseHalfCanvasSceneGeometry[],
+		undoLabel: string,
+		didApplyUndoOrRedo?: (reverse: boolean) => void
+	): Promise<IBaseHalfCanvasStateTransition | undefined> {
 		if (requested.length === 0) {
-			return;
+			return undefined;
 		}
 		const queuedFolder = this.folderForSceneMutation(sceneKey);
 		// A card that is dragged while its item is being found at a new path is
@@ -3257,13 +3305,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (committedTransition && canvasStateTransitionChangesAnything(committedTransition)) {
 			this.pushCanvasUndoElement(
-				reason === 'arrange'
-					? localize('basehalf.canvas.arrange.undo', "Arrange canvas cards")
-					: localize('basehalf.canvas.geometry.undo', "Move or resize canvas cards"),
+				undoLabel,
 				queuedFolder,
 				nodes,
 				[],
-				(reverse, lease) => this.applyCanvasGeometryTransition(queuedFolder, nodes, committedTransition!, reverse, lease)
+				async (reverse, lease) => {
+					await this.applyCanvasGeometryTransition(queuedFolder, nodes, committedTransition!, reverse, lease);
+					didApplyUndoOrRedo?.(reverse);
+				}
 			);
 		}
 		if (this.isCurrentSceneKey(sceneKey) && this.renderedSceneStructuralEpoch === structuralEpoch) {
@@ -3284,6 +3333,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// card here used to replace hydrated contents with "Loading preview…"
 		// until asynchronous file reads completed. The mirror file event still
 		// provides canonical reconciliation, now with unchanged previews cached.
+		return committedTransition;
 	}
 
 	/**
@@ -16158,6 +16208,212 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 
+	private updateCanvasTidyChrome(): void {
+		const label = localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", isMacintosh ? '⇧⌥F' : localize('basehalf.canvas.tidyKey', "Shift+Alt+F"));
+		this.tidyButton.title = label;
+		this.tidyButton.setAttribute('aria-label', label);
+		this.tidyButton.disabled = this.renderedSceneCards.length < 2;
+	}
+
+	/**
+	 * Lays out every card of the canvas along its connections (canvas selection
+	 * and arrangement). It does not look at the selection. When a card moved,
+	 * the user is asked whether to keep the result.
+	 */
+	private async tidyCanvas(): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.tidyRunning || this.canvasNavigationService.state.cardDetail || this.cards.dataset.videoInputPickActive) {
+			return;
+		}
+		this.tidyRunning = true;
+		try {
+			// A Note that is being edited is closed first, as a click elsewhere
+			// closes it.
+			if (!await this.closeActiveCanvasNoteEditorAfterFormats()) {
+				return;
+			}
+			const sceneKey = this.sceneKey(folder);
+			if (!this.isCurrentSceneKey(sceneKey) || this.renderedSceneCards.length < 2) {
+				return;
+			}
+			const structuralEpoch = this.renderedSceneStructuralEpoch;
+			const cards = this.renderedSceneCards;
+			// A place is saved with the decimal places that the layout keeps.
+			const stored = (value: number): number => Number(value.toFixed(4));
+			const placeOf = new Map(baseHalfCanvasTidy(cards, this.renderedSceneEdges).map(place => [place.path, { x: stored(place.x), y: stored(place.y) }]));
+			const moved: IBaseHalfCanvasSceneGeometry[] = [];
+			for (const card of cards) {
+				const place = placeOf.get(card.path);
+				if (place && (place.x !== card.x || place.y !== card.y)) {
+					moved.push({ path: card.path, kind: card.kind, x: place.x, y: place.y, width: card.width, height: card.height });
+				}
+			}
+			const viewport = this.canvasScene.getViewport();
+			const token = ++this.tidySequence;
+			let transition: IBaseHalfCanvasStateTransition | undefined;
+			if (moved.length > 0) {
+				// Tidying again keeps the result of the tidy before.
+				this.closeTidyQuestion();
+				transition = await this.commitCanvasGeometry(sceneKey, structuralEpoch, moved, localize('basehalf.canvas.tidy.undo', "Tidy canvas"), reverse => {
+					// Undo of the tidy leaves nothing to keep or revert.
+					if (reverse && this.tidyQuestion?.token === token) {
+						this.closeTidyQuestion();
+					}
+				});
+			}
+			if (!this.isCurrentSceneKey(sceneKey)) {
+				return;
+			}
+			// The scene draws the new places in its next frames, and the view is
+			// fitted to what is drawn.
+			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => mainWindow.requestAnimationFrame(() => resolve())));
+			this.fitCanvasToScreen();
+			const previous = new Map<string, IBaseHalfCanvasCard>();
+			for (const card of transition?.cards ?? []) {
+				if (card.expected && card.next && (card.expected.x !== card.next.x || card.expected.y !== card.next.y)) {
+					previous.set(card.path, card.expected);
+				}
+			}
+			if (previous.size > 0) {
+				this.askToKeepTidy({ token, sceneKey, folder, previous, viewport });
+			}
+		} catch (error) {
+			this.reportCanvasMutationError(error);
+		} finally {
+			this.tidyRunning = false;
+		}
+	}
+
+	/** Asks whether to keep a tidy. The canvas stays usable while the question is open. */
+	private askToKeepTidy(tidy: Omit<IBaseHalfCanvasTidyQuestion, 'element' | 'listeners'>): void {
+		this.closeTidyQuestion();
+		const text = localize('basehalf.canvas.tidy.question', "Keep this arrangement?");
+		const listeners = new DisposableStore();
+		const element = DOM.append(this.chrome, DOM.$('.basehalf-canvas-tidy-question'));
+		element.setAttribute('role', 'group');
+		element.setAttribute('aria-label', text);
+		element.setAttribute('data-testid', 'canvas-tidy-question');
+		DOM.append(element, DOM.$('span.basehalf-canvas-tidy-question-text')).textContent = text;
+		const actions = DOM.append(element, DOM.$('.basehalf-canvas-tidy-question-actions'));
+		const revert = DOM.append(actions, DOM.$('button.basehalf-canvas-tidy-question-button')) as HTMLButtonElement;
+		revert.type = 'button';
+		revert.textContent = localize('basehalf.canvas.tidy.revert', "Revert");
+		revert.setAttribute('data-testid', 'canvas-tidy-revert');
+		const keep = DOM.append(actions, DOM.$('button.basehalf-canvas-tidy-question-button.primary')) as HTMLButtonElement;
+		keep.type = 'button';
+		keep.textContent = localize('basehalf.canvas.tidy.keep', "Keep");
+		keep.setAttribute('data-testid', 'canvas-tidy-keep');
+		const question: IBaseHalfCanvasTidyQuestion = { ...tidy, element, listeners };
+		listeners.add(this.addDisposableListener(revert, 'click', () => void this.revertTidy(question)));
+		listeners.add(this.addDisposableListener(keep, 'click', () => this.closeTidyQuestion()));
+		listeners.add(this.addDisposableListener(element, 'keydown', event => {
+			if (event.key === 'Escape' && !event.isComposing) {
+				event.preventDefault();
+				event.stopPropagation();
+				this.closeTidyQuestion();
+				this.tidyButton.focus();
+			}
+		}));
+		this.tidyQuestion = question;
+		status(text);
+	}
+
+	/** Closes the question after a tidy. The tidied places stay. */
+	private closeTidyQuestion(): void {
+		const question = this.tidyQuestion;
+		if (!question) {
+			return;
+		}
+		this.tidyQuestion = undefined;
+		question.listeners.dispose();
+		question.element.remove();
+	}
+
+	/**
+	 * Puts every card that the tidy moved back at the place it had before, also
+	 * a card that was moved again since. Only places go back: a size that
+	 * changed since stays, and a card that is gone is passed over.
+	 */
+	private async revertTidy(question: IBaseHalfCanvasTidyQuestion): Promise<void> {
+		if (this.tidyQuestion !== question) {
+			return;
+		}
+		this.closeTidyQuestion();
+		const { folder, sceneKey } = question;
+		if (!this.isCurrentSceneKey(sceneKey)) {
+			return;
+		}
+		try {
+			const structuralEpoch = this.renderedSceneStructuralEpoch;
+			const shown = new Set(this.renderedSceneCards.map(card => card.path));
+			let reverted: IBaseHalfCanvasStateTransition | undefined;
+			await this.workspaceMutationCoordinator.runSceneMutation(
+				folder.workspaceFolder,
+				this.sceneMutationStamp(folder, structuralEpoch),
+				async lease => {
+					await this.chosenCanvasPlaces.saveWithUserChange(folder, lease);
+					const current = await this.canvasMirrorService.readCanvas(folder);
+					const cards: IBaseHalfCanvasCardStateTransition[] = [];
+					for (const [path, before] of question.previous) {
+						const now = current?.cards.find(card => card.path === path);
+						if (!now || !shown.has(path) || (now.x === before.x && now.y === before.y && now.auto === before.auto)) {
+							continue;
+						}
+						// The row is again what it was: a place that BaseHalf had
+						// chosen is again a chosen row.
+						cards.push({
+							path,
+							expected: now,
+							next: { path, kind: now.kind, x: before.x, y: before.y, width: now.width, height: now.height, ...(before.auto ? { auto: true as const } : {}) }
+						});
+					}
+					if (cards.length > 0) {
+						reverted = { cards };
+						await this.canvasMirrorService.transitionCanvasState(folder, reverted, lease);
+					}
+				}
+			);
+			const transition = reverted;
+			if (transition?.cards) {
+				const rows = new Map(transition.cards.map(card => [card.path, card.next!]));
+				const nodes = [...rows.values()].map(row => ({ path: row.path, kind: row.kind }));
+				this.supersedeCanvasReadsBeforeGeometryCommit();
+				this.pushCanvasUndoElement(
+					localize('basehalf.canvas.tidy.revertUndo', "Revert tidy"),
+					folder,
+					nodes,
+					[],
+					(reverse, lease) => this.applyCanvasGeometryTransition(folder, nodes, transition, reverse, lease)
+				);
+				if (this.isCurrentSceneKey(sceneKey) && this.renderedSceneStructuralEpoch === structuralEpoch) {
+					this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => {
+						const row = rows.get(card.path);
+						return row ? { ...card, x: row.x, y: row.y } : card;
+					}));
+					this.canvasScene.update({
+						key: sceneKey,
+						structuralEpoch,
+						revision: this.renderSeq,
+						cards: this.renderedSceneCards,
+						edges: this.renderedSceneEdges
+					});
+				}
+			}
+			if (!this.isCurrentSceneKey(sceneKey)) {
+				return;
+			}
+			// The view goes back to what it showed before the tidy.
+			this.viewportRestoreGeneration++;
+			const { x, y, zoom } = question.viewport;
+			await this.canvasScene.setViewportCenter((this.cards.clientWidth / 2 - x) / zoom, (this.cards.clientHeight / 2 - y) / zoom, zoom);
+			if (this.isCurrentSceneKey(sceneKey)) {
+				this.scheduleViewportPersist(0, 'user', { folder, viewport: this.canvasScene.getViewport() });
+			}
+		} catch (error) {
+			this.reportCanvasMutationError(error);
+		}
+	}
+
 	private toggleCanvasSnap(): void {
 		this.canvasSnapEnabled = !this.canvasSnapEnabled;
 		this.canvasScene.setSnapEnabled(this.canvasSnapEnabled);
@@ -16468,6 +16724,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private onCanvasKeyDown(event: KeyboardEvent): void {
+		if (!this.canvasNavigationService.state.cardDetail && event.shiftKey && event.altKey && !event.metaKey && !event.ctrlKey
+			&& event.code === 'KeyF' && !event.isComposing && !baseHalfCanvasTargetBlocksGraphShortcuts(event.target)) {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.tidyCanvas();
+			return;
+		}
 		if (this.canvasNavigationService.state.cardDetail || !(event.metaKey || event.ctrlKey) || event.altKey) {
 			return;
 		}
