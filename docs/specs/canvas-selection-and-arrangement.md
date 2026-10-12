@@ -1,0 +1,577 @@
+# Canvas selection and arrangement
+
+Status: Active (2026-10-12). Implementation not started: until it lands, the
+canvas selects with the canvas library's own marquee and has no arrange or
+tidy command. The specifications listed under
+[Specifications this changes](#specifications-this-changes) are updated in
+the commit that implements the part they describe.
+Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
+Related: [canvas card placement](canvas-card-placement.md) (rows, chosen
+rows, list order, the plain grid),
+[canvas connection handles](canvas-connection-handles.md) (capture circles),
+[canvas wheel gestures](canvas-wheel-gestures.md),
+[canvas card resize](canvas-card-resize.md#terms) (flow and screen pixels),
+[reference graph](reference-graph.md) (connections),
+[architecture invariants](../harness/architecture-invariants.md)
+
+## The rules
+
+**What is selected decides what the canvas shows, not how it was selected.**
+One selected card is one card, whether it was clicked or boxed. Two or more
+selected cards are a set: one object with one box, one toolbar, and one way
+to move it.
+
+**BaseHalf moves cards only when the user asks for it**: by arranging a set
+or by tidying the canvas. Each is one step that the user can take back.
+
+## Problem
+
+Selecting several cards was never specified. The canvas used the marquee of
+its canvas library as it comes, on top of a selection that BaseHalf owns and
+that was built for one card. The user reported two faults, and reading the
+code on 2026-10-12 gave the causes below. The first is to be reproduced in
+the real window before the code changes.
+
+1. **A marquee does not select some cards.** The library marks every
+   connection of a boxed card as selected, in the same step as the card.
+   BaseHalf allows cards or one connection to be selected, never both, and
+   the kind that was marked last wins. The connection is always last, so the
+   cards are dropped and one connection is selected.
+2. **One card selected by a marquee is not the same as one card selected by
+   a click.** After any marquee the library lays its own rectangle over the
+   selected cards, also over one card. BaseHalf shows the controls of a
+   single card under it, and the rectangle takes every click, double click,
+   and resize that was meant for the card.
+3. A set that is moved by one of its cards is no longer a set afterwards:
+   only the dragged card stays selected.
+4. A set made by Shift-click and a set made by a marquee look and behave
+   differently, because only the marquee brings the library's rectangle.
+5. While the marquee is drawn, every change of the boxed cards is a request
+   to the workbench that is answered later, so the cards are marked late.
+6. There is no way to put cards in order. The
+   [placement specification](canvas-card-placement.md#open-questions) left
+   the tidy command open.
+
+## Scope
+
+In scope:
+
+- Selecting cards with a marquee.
+- The states of the selection, and what each shows.
+- A set of cards: its box, its toolbar, moving it.
+- Arranging a set in a grid, a row, or a column.
+- Tidying a whole canvas, with a question that keeps or reverts the result.
+
+Not in scope, and unchanged:
+
+- Everything a single selected card can do: its toolbar, the controls of a
+  Note or a video card, resizing, connecting, opening, editing, moving by
+  the arrow keys, its context menu.
+- Selecting a connection, and what a selected connection can do.
+- Moving the canvas and zooming.
+- How a place is saved and when BaseHalf chooses one
+  ([canvas card placement](canvas-card-placement.md)).
+- Card Detail. While it is open the canvas takes no input.
+
+## Terms
+
+- **Card rectangle**: the place and the size of a card's row, in flow
+  pixels. The caption above a card is not part of it.
+- **Empty canvas**: a point of the canvas scene where no card, connection,
+  capture circle, set box, toolbar, menu, or view control takes the pointer.
+- **Marquee**: the rectangle the user draws with the pointer to select
+  cards.
+- **Set**: two or more selected cards.
+- **Set box**: the smallest rectangle that holds the card rectangles of a
+  set.
+- **Connection**: a connection that the canvas draws between two of its
+  cards. It runs from the upstream card to the downstream card.
+- **Group**: cards of one canvas that connections join, directly or through
+  other cards, in either direction. A group has at least two cards.
+- **Single**: a card that no connection joins to another card of the canvas.
+- **List order**: as in
+  [canvas card placement](canvas-card-placement.md#terms): folders first,
+  then by name.
+- **Gaps**: 40 between two cards side by side and 60 between two cards one
+  above the other. These are the gaps of the plain grid.
+- **Wide gap**: 120. It is the distance between the columns of a group,
+  where a connection and its arrowhead are drawn, and between the blocks of
+  a tidied canvas.
+
+All sizes are in flow pixels unless a sentence says screen pixels.
+
+## What two other canvas products do
+
+Two canvas products of the same kind were tried in the window on
+2026-10-12, on test canvases, with every change undone afterwards. Both are
+built on the canvas library that BaseHalf uses, so what they do differently
+from BaseHalf is their choice and not a limit of the library. They are
+called the first and the second product here.
+
+| Behavior | First product | Second product |
+| --- | --- | --- |
+| A drag that begins on empty canvas | draws a marquee | draws a marquee |
+| Which cards a marquee selects | every card it touches | every card it touches |
+| Connections of the boxed cards | not selected | not tried: the test canvas had none |
+| Cards are marked while the marquee is drawn | yes | not observed |
+| A set after the marquee | a dashed box with a margin, a toolbar above it | a filled box without a margin, a toolbar above it |
+| A click on a card or in a gap inside the box | changes nothing | changes nothing |
+| A drag that begins anywhere inside the box | moves the set, which stays selected | moves the set, which stays selected |
+| Leaving the set | a click on empty canvas | a click on empty canvas |
+| A secondary click on the set | no menu | no menu |
+| A marquee with Shift held | replaces the selection | replaces the selection |
+| A set made by Shift-click | has no box and no toolbar | has the same box and toolbar |
+| A marquee that touches one card | the same as a click on that card | the card is marked, with no toolbar, and does not answer a click |
+| Undo of a move of the set | the cards go back, the box stays behind | the cards and the toolbar go back |
+| Escape, and the select-all key | do nothing | Escape is not reliable; the key selects the text of the page |
+| Arranging a set | grid, row, column | grid, and a layout that follows the connections |
+| Tidying the whole canvas | a button at the lower left | none |
+
+How the first product arranges and tidies:
+
+- A set is arranged from the upper left corner of its box, with a fixed
+  distance between cards and without changing a size. Four cards made a
+  grid of two columns, and eight a grid of three. Cards that are not in the
+  set are not looked at: an arranged card came to lie exactly on another
+  card. One undo took the arrangement back.
+- The order was mostly the order of the places, row by row. In one row two
+  cards changed places. The rule could not be worked out.
+- The tidy button does not look at the selection. It moves every card of
+  the canvas. Each group is laid out from left to right along its
+  connections, with the cards that follow one card stacked beside it.
+  Groups stand side by side and continue in a new row. Cards without a
+  connection come last. The view then shows the whole result.
+- After tidying, a small question beside the button offers to keep the
+  result or to revert it. It does not block the canvas: cards can be
+  clicked and moved while it is open. Revert put every card back where it
+  was before, also a card that had been moved in between.
+
+BaseHalf takes what both products agree on. Where they differ it takes the
+behavior that keeps one state for one selection: the second product's for a
+set made by Shift-click, the first product's for a marquee that touches one
+card. The box is drawn filled and without a margin, as the second product
+draws it. A box that stays behind and keys that select page text are faults
+and are not taken.
+
+## Required behavior
+
+### The states of the selection
+
+The selection is exactly one of these. What the canvas shows follows from
+the state alone.
+
+| State | What is selected | What the canvas shows |
+| --- | --- | --- |
+| Nothing | nothing | no selection controls |
+| One card | one card | that card's outline and its own controls, as before this specification |
+| A set | two or more cards | the outline of each card, the set box, the set toolbar |
+| A connection | one connection | as before this specification |
+
+- Cards and a connection are never selected together.
+- A way of selecting never leaves a mark of its own. One card that was
+  boxed, one card that was clicked, and the last card left by Shift-click
+  are the same state, show the same controls, and answer the pointer in the
+  same way.
+- The state changes at once when the number of selected cards changes:
+  - A Shift-click that adds a second card makes a set.
+  - A Shift-click that leaves one card of a set makes that card the one
+    selected card.
+  - When a selected card disappears from the canvas, because its item was
+    deleted or moved away by anyone, it leaves the selection, and the state
+    follows the number that is left.
+- A card that appears on the canvas is not added to the selection.
+
+### The marquee
+
+**Where it begins.** A press of the primary button that then moves more
+than 4 screen pixels draws a marquee when one of these holds:
+
+- The press is on empty canvas.
+- Shift is held and the press is on the canvas scene: also on a card, a
+  connection, or a set box. It is not on a toolbar, a menu, a view control,
+  or a Note that is being edited. This is how a marquee is begun on a
+  canvas that is full of cards.
+
+A press that moves less is a click and does what a click does there. So a
+Shift-click with an unsteady hand is still a Shift-click.
+
+A drag that begins on a card without Shift moves the card, and a drag that
+begins inside a set box without Shift [moves the set](#moving-a-set).
+
+**When it begins.** The selection is cleared as by a click on empty canvas.
+A Note that is being edited is closed first, as a click elsewhere closes
+it. When it cannot be closed, the selection stays as it was and no marquee
+is drawn.
+
+**While it is drawn.**
+
+- The marquee is drawn between the point of the press and the pointer.
+- A card is in the marquee when its card rectangle and the marquee share
+  any area. This is so for a card that is not drawn because it is out of
+  view.
+- Every card in the marquee shows the selected outline, in the same frame
+  in which the marquee reached it. A card that the marquee leaves loses the
+  outline. No toolbar, box, or handle is shown yet.
+- Connections are not marked and not selected.
+- Near the edge of the scene the canvas moves and the marquee grows with
+  it, as before this specification. The point of the press stays where it
+  was on the canvas.
+- Nothing is saved and nothing is sent to the workbench.
+
+**When the button is released.** The cards in the marquee are the
+selection:
+
+- none: nothing is selected;
+- one: that card is the one selected card;
+- two or more: they are a set.
+
+The canvas scene has the keyboard focus afterwards.
+
+Shift held during a marquee changes only where it may begin. The marquee
+replaces the selection. It does not add to it.
+
+No marquee is drawn while a video card waits for the user to pick an input.
+
+### A set
+
+**Each card** of a set shows the selected outline. It shows none of the
+controls of a single card: no resize targets, no connection handles, no
+Note controls, no video controls.
+
+**The set box** is the one thing a set has that a card has not.
+
+- It is drawn over the set's cards and connections and under the toolbars
+  and menus: a fill and a 1 screen pixel border in the canvas's own
+  selection colors, without a margin around the cards. The cards stay
+  readable through the fill in the light and the dark themes.
+- It is worked out from the card rectangles every time the canvas is drawn.
+  It is never kept by itself, so it cannot be anywhere else than around its
+  cards: not after a move, an undo, an arrangement, or a change made by an
+  agent.
+- It takes the pointer in its whole area, also over a card that lies inside
+  it without being part of the set.
+
+| Input on the set box | What happens |
+| --- | --- |
+| Press and drag, more than 4 screen pixels | The set [moves](#moving-a-set). |
+| Click, on a card or in a gap | Nothing changes. |
+| Double click | Nothing changes. Nothing is opened, edited, or created. |
+| Shift-click on a card of the set | That card leaves the selection. |
+| Shift-click on a card in the box that is not part of the set | That card joins the set. |
+| Shift-click in a gap | Nothing changes. |
+| Secondary click | Nothing changes, and no menu is shown. |
+| A wheel gesture that begins on it | The canvas moves. A Note under the box does not scroll. |
+
+**The set toolbar** stands above the box, or below it when there is no room
+above, as the toolbar of a single card does. From the left it has:
+
+1. the number of selected cards;
+2. **Arrange**, which opens a menu with **Grid**, **Row**, and **Column**
+   ([arranging a set](#arranging-a-set));
+3. **Duplicate**, **Copy Paths**, and **Delete**, as before this
+   specification.
+
+Delete, Backspace, and the duplicate key act on the whole set, as before.
+
+**Leaving the set.** A set ends when the user clicks on empty canvas, draws
+a marquee, selects a connection, opens the context menu of empty canvas or
+of a card outside the box, or goes to another canvas. It also ends when
+fewer than two of its cards are left.
+
+### Moving a set
+
+- A drag that begins anywhere in the set box moves every card of the set by
+  the same amount. The box, the toolbar, and the connections follow in
+  every frame.
+- The toolbar is hidden while the set moves and returns when it is dropped,
+  as the controls of a single card do.
+- Snap to cards acts on the set box as it acts on one card.
+- Near the edge of the scene the canvas moves, as when one card is dragged.
+- Escape during the move puts every card back, as for one card.
+- When the set is dropped it is still the selection, with the same cards.
+- The move is saved as one change and is one step of undo. Undo puts every
+  card back and leaves the selection as it is.
+
+### Arranging a set
+
+Arrange puts the cards of a set in order. It moves only the cards of the
+set, and it never changes a size.
+
+**Order.** The cards are put in rows by their places, and then read row by
+row from left to right:
+
+1. Sort the cards by their top edge, and among equal top edges by their
+   left edge.
+2. The first card begins a row. A card belongs to the row of the card that
+   began it when its top edge is above the vertical middle of that card.
+   Otherwise it begins the next row.
+3. Inside a row, sort by the left edge, and among equal left edges by list
+   order.
+
+So cards that stand roughly in a line keep their order from left to right,
+also when their top edges differ a little.
+
+**Where it starts.** The upper left corner of the result is the upper left
+corner of the set box before the arrangement.
+
+| Choice | Result |
+| --- | --- |
+| **Row** | One row. The top edges are level. Each card stands one side gap to the right of the card before it. |
+| **Column** | One column. The left edges are level. Each card stands one vertical gap below the card before it. |
+| **Grid** | As many columns as the square root of the number of cards, rounded up. The cards fill it row by row. A column is as wide as its widest card and a row as high as its highest card. A card stands at the left and the top of its cell. Columns are one side gap apart and rows one vertical gap apart. |
+
+- Cards outside the set are not moved and not looked at. An arranged card
+  can come to lie on another card, as a card can that the user drops there.
+- The set stays selected and its box follows.
+- The arrangement is saved as one change and is one step of undo.
+- A card whose place did not change keeps its row as it is.
+
+### Tidying a canvas
+
+**The button.** The view controls at the lower left of the canvas begin
+with a **Tidy Canvas** button, before Snap to Cards and the zoom control.
+Shift+Alt+F does the same while the canvas has the keyboard focus. The
+button is disabled while the canvas shows fewer than two cards and while a
+video card waits for the user to pick an input.
+
+**What it moves.** Every card of the canvas that is shown. It does not look
+at the selection, and the selection stays as it is. It never changes a
+size. A Note that is being edited is closed first, as a click elsewhere
+closes it. When it cannot be closed, nothing is tidied.
+
+**The layout** is a function of the cards, their sizes, their connections,
+and list order. The same canvas always gets the same result, and tidying a
+tidied canvas moves no card.
+
+1. **Groups and singles.** The cards are split into groups and singles.
+2. **A connection that closes a circle** is left out of the layout. Going
+   through the cards of a group in list order and following each
+   connection downstream, a connection that leads back to a card on the
+   way there is the one left out. It is still drawn.
+3. **Columns of a group.** A card that no connection of the group leads to
+   is in the first column. Every other card is one column to the right of
+   the rightmost card that leads to it.
+4. **Order in a column.** The first column is in list order. In every
+   further column a card comes before another when the uppermost card that
+   leads to it from the column before stands higher. Among cards with the
+   same such card, list order decides.
+5. **Places in a group.** A column is as wide as its widest card. Columns
+   are one wide gap apart. The cards of a column are stacked with one
+   vertical gap between them, with their left edges level. Every column is
+   centred on the same horizontal line, so that a card with several cards
+   after it stands beside their middle.
+6. **The singles** make one grid in list order, built as
+   [Arrange builds a grid](#arranging-a-set), but with as many columns as
+   the [plain grid](canvas-card-placement.md#terms) has for that number of
+   cards.
+7. **Blocks.** Each group is a block, and the grid of the singles is a
+   block. The groups come first, in the list order of their first cards.
+   The grid of the singles comes last. Blocks stand side by side, one wide
+   gap apart, with their top edges level. A block begins a new row when the
+   row has a block and would become wider than 2400 with it. A new row
+   begins at the left, one wide gap below the lowest edge of the row
+   above.
+8. **Where it starts.** The upper left corner of the result is the upper
+   left corner of the smallest rectangle that held all cards before.
+
+**After the layout** is applied:
+
+- The view shows all cards, as Fit to Screen does.
+- When at least one card moved, the [question](#keep-or-revert) is asked.
+  When no card moved, nothing else happens.
+- The tidy is saved as one change and is one step of undo.
+- A card whose place did not change keeps its row as it is.
+
+### Keep or revert
+
+After a tidy that moved a card, a small question stands above the Tidy
+Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
+
+- It does not block the canvas. Cards can be selected, moved, edited, and
+  created while it is open, and it stays where it is.
+- **Keep** closes the question. Nothing else changes.
+- **Revert** puts every card that the tidy moved back at the place it had
+  before the tidy, and closes the question.
+  - A card that the user moved again in the meantime goes back as well.
+  - A card that the tidy did not move stays where it is.
+  - A card that is no longer on the canvas is passed over, and a card that
+    appeared in the meantime stays where it is.
+  - Only places go back. A size that changed in the meantime stays.
+  - Each row is again what it was: a place that BaseHalf had chosen is
+    again a chosen row.
+  - The view goes back to what it showed before the tidy.
+  - The revert is one step of undo of its own.
+- The question closes, and the result is kept, when the user tidies again,
+  presses Escape while the question has the focus, or leaves the canvas for
+  another folder. Closing or reloading the window keeps the result.
+- Undo of the tidy closes the question, because nothing is left to keep or
+  revert. Redo of the tidy does not ask again.
+- The question belongs to the view controls and is hidden with them.
+
+### What is saved, and undo
+
+- Selecting saves nothing. The selection is not kept when the window is
+  closed and is not a step of undo.
+- A card that a move of a set, an arrangement, a tidy, or a revert put at a
+  new place has the user's row from then on, as a card has that the user
+  dragged. The revert is the exception stated above: it gives a row back as
+  it was.
+- Each of the four is saved in one write of the layout. No drawing shows a
+  part of it.
+- Rows of the layout that have no card on the canvas are left as they are.
+- The four are steps of the canvas's undo, named for what they did. Undo
+  and redo move the same cards and leave the selection as it is.
+
+### Keyboard and assistive technology
+
+- The set toolbar is reached and operated by the keyboard as the toolbar of
+  a single card is. Arrange opens a menu of three items that the arrow keys,
+  Enter, and Escape operate.
+- The set box is announced as a group with the number of selected cards.
+- Tidy Canvas has a name, and its tooltip shows the key.
+- The buttons of the question are reached by Tab. Keep is the default
+  button. The question is announced when it appears.
+- In a high contrast theme the set box is drawn with its border alone.
+
+### Failures
+
+- **The layout cannot be written.** The cards go back to their saved
+  places, and the user is told that the positions could not be saved, as
+  when one card cannot be saved. After a tidy that failed, no question is
+  asked.
+- **The canvas changes while a tidy or an arrangement is worked out**,
+  because an item was added, removed, or renamed. The command is worked out
+  on the cards that are shown when it is applied. A card that appears a
+  moment later gets its place as any new card does and is not part of the
+  result.
+- **A card of the set is carried to another path** while the set is moved.
+  It is saved under the new path, as for one card
+  ([following moved items](following-moved-items.md)).
+
+## Not in this version
+
+- A way to add to the selection with a marquee.
+- A key that selects every card, and a key that clears the selection.
+- A context menu for a set.
+- Moving a set with the arrow keys.
+- A control on the set box that creates a card downstream of the whole set.
+- Groups that are kept, and piles of cards. Public decision D33 keeps
+  grouping out until it has a document of its own.
+- Aligning or spreading cards without arranging them, and resizing a set.
+- A lasso.
+- Sharing an arrangement
+  ([canvas card placement](canvas-card-placement.md#non-goals)).
+
+## Constraints on the implementation
+
+- **One owner of the selection.** The workbench owns it, as before. The
+  marks of the canvas library are a copy of it. The library's own rectangle
+  around selected cards is not used, and the library's marking of
+  connections during a marquee does not reach the selection.
+- **The marquee asks the workbench twice**: once when it begins, to clear
+  the selection, and once when the button is released. The outlines in
+  between belong to the scene alone.
+- **The set box and the set toolbar are worked out from the card
+  rectangles** of the drawing in which they are shown.
+- **The order, the three arrangements, and the tidy layout are functions
+  without services**, so that unit tests cover them with plain numbers.
+- **An arrangement, a tidy, and a revert go through the write that saves a
+  move of cards**: one change of the layout and one undo element for all
+  cards.
+- **What the question needs to revert is kept in the window's memory.**
+  Nothing about it is written to disk.
+
+## Acceptance criteria
+
+Selection
+
+1. A marquee over cards with and without connections selects exactly the
+   cards it touches. No connection is selected.
+2. While a marquee is drawn over 300 cards, every card it reaches shows the
+   outline in the same frame, and no request goes to the workbench between
+   the first movement and the release.
+3. A marquee that touches one card and a click on that card give the same
+   state: the same controls are shown, a double click opens or edits the
+   card, and its resize targets and connection handles answer.
+4. A marquee that touches no card leaves nothing selected.
+5. A set made by a marquee and a set of the same cards made by Shift-click
+   show the same box and the same toolbar and answer the pointer in the
+   same way.
+6. In a set, a click or a double click on a card or in a gap of the box
+   changes nothing. A click on empty canvas ends the set.
+7. A Shift-click on a card of a set of two leaves the other card as the one
+   selected card, with the controls of a single card.
+8. With Shift held, a drag that begins on a card draws a marquee and does
+   not move the card. A Shift-click that moves 3 screen pixels is still a
+   Shift-click.
+9. A marquee that begins while a Note is being edited closes the Note
+   first, and the note's text is as the user left it.
+
+Moving
+
+10. A drag that begins in a gap of the set box moves every card of the set
+    by the same amount. After the drop the same cards are selected and the
+    box is around them.
+11. One undo after that move puts every card back, and the box is around
+    them again.
+12. Escape during the move puts every card back and saves nothing.
+
+Arranging
+
+13. Row, Column, and Grid give the places that the rules above give, for
+    cards of different sizes. The unit tests state the numbers.
+14. An arrangement moves no card outside the set and changes no size.
+15. One undo takes an arrangement back. The set is still selected.
+
+Tidying
+
+16. Tidy Canvas with two cards selected moves cards outside the selection
+    as well, and the two cards are still selected afterwards.
+17. In a group, every connection that is part of the layout runs from a
+    column to a column further right.
+18. A canvas with two groups and five singles gets the groups side by side
+    and the grid of the singles after them.
+19. Tidying a tidied canvas moves no card and asks nothing.
+20. The question stays open while a card is clicked and while one is moved.
+    Revert then puts every card back where it was before the tidy, also the
+    card that was moved, and the view is as before.
+21. After Revert, a row that was a chosen row before the tidy is one again.
+22. Keep closes the question and changes no place.
+23. A window that is reloaded while the question is open shows the tidied
+    canvas and no question.
+24. One undo takes a tidy back and closes the question.
+
+Storage
+
+25. A marquee, a Shift-click, and a click write nothing under `.bh/`.
+26. An arrangement, a tidy, and a revert each write the layout once.
+
+## Verification
+
+- Unit tests of the functions for the order, the three arrangements, and
+  the tidy layout: cards of different sizes, a group with a circle, a card
+  with several cards before it, singles only, groups only, and rows of
+  blocks that wrap.
+- Unit tests of the function that gives the state for a selection.
+- The smoke in the real window, on a fixture workspace with connected and
+  unconnected cards: criteria 1, 3, 5 to 12, 15, 16, 20, 22, and 24. Each
+  step also checks which element is at the pointer, because an element can
+  be drawn and still be covered.
+- Criterion 2 is measured in the real window with 300 and with 1,000 cards,
+  frame by frame. The numbers are written here when they are measured.
+- Fault 1 of [Problem](#problem) is reproduced in the real window before
+  the code changes, and what was seen is written here.
+
+## Specifications this changes
+
+- [Canvas card placement](canvas-card-placement.md): the tidy command it
+  left open is the one specified here, and the rows it writes are the
+  user's.
+- [Canvas wheel gestures](canvas-wheel-gestures.md): a wheel gesture that
+  begins on a set box moves the canvas.
+- [Canvas connection handles](canvas-connection-handles.md): the cards of a
+  set show no handles, and their capture circles are under the set box.
+
+## Open questions
+
+None that block implementation.

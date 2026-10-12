@@ -146,9 +146,11 @@ fourth: it goes where the user pointed
 
 - **A sorted mode.** Cards are in name order only as far as they appeared
   together. A file that is added later is not sorted in.
-- **The command that tidies a canvas.** It is planned and is the one way
-  BaseHalf will change places the user has, when the user runs it. It gets
-  its own section here before it is built.
+- **The commands that put cards in order.** Arranging selected cards and
+  tidying a canvas are the ways BaseHalf changes places the user has, and
+  only when the user runs them.
+  [Canvas selection and arrangement](canvas-selection-and-arrangement.md)
+  specifies them.
 - **Keeping the user from placing a card on another one.**
 - **Which folders and files become cards.** Folders whose names start with a
   dot, such as the ones agent tools add, are still cards.
@@ -627,7 +629,7 @@ A canvas shows at most 300 cards.
 | Files are dropped at a point | They are in a block at that point. A card whose slot is taken is beside the block. |
 | A card is moved into another folder | It is after the last card of that folder, with its size. |
 | That move is undone | The card is back where it was. |
-| The canvas has become untidy | Nothing changes by itself. The tidy command, when it exists, sorts the cards. |
+| The canvas has become untidy | Nothing changes by itself. The user can [tidy the canvas](canvas-selection-and-arrangement.md#tidying-a-canvas) or [arrange selected cards](canvas-selection-and-arrangement.md#arranging-a-set). |
 
 ## Limits
 
@@ -1005,6 +1007,7 @@ during all of these runs.
 
 ## Open questions
 
-None that block implementation. The tidy command is specified when it is
-built: what order it gives, what it does with rows of the user's whose items
-are gone, and how it is undone.
+None that block implementation. The tidy command is specified in
+[canvas selection and arrangement](canvas-selection-and-arrangement.md#tidying-a-canvas):
+the order it gives, that it leaves rows without a card as they are, and how
+it is kept, reverted, and undone.

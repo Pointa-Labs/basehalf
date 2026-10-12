@@ -1551,3 +1551,46 @@ agreed.
   and the Agent Area terminal stay dark.
 - The smoke fails when the theme is not loaded, so an allowlist change
   cannot bring the gray state back unnoticed.
+
+## D52 — Several selected cards are one object, and the user tidies a canvas on request (NEW, 2026-10-12)
+
+**Decision.** What is selected decides what the canvas shows, not how it was
+selected. One selected card is one card, whether it was clicked or boxed by
+a marquee. Two or more selected cards are a set: one box that takes the
+pointer in its whole area, one toolbar, and one way to move it. A click
+inside the box changes nothing, and a click on empty canvas ends the set. A
+marquee selects every card it touches and no connection. BaseHalf puts cards
+in order in two ways, and only when the user runs them: Arrange puts a set in
+a grid, a row, or a column, and Tidy Canvas lays out the whole canvas along
+its connections and then asks whether to keep or revert the result. See
+[canvas selection and arrangement](specs/canvas-selection-and-arrangement.md).
+
+**Why.** Selecting several cards had never been specified. The canvas used
+the marquee of its canvas library as it comes, on top of a selection that
+BaseHalf owns and that was built for one card. The two did not agree: a
+marquee dropped cards that have connections, one card boxed by a marquee was
+covered by a rectangle that a clicked card does not have, and a set that was
+moved was no longer a set. The user also had no way to put a canvas in
+order, which [D46](#d46--every-card-has-a-saved-place-and-places-stay-out-of-git-new-2026-10-11)
+had left to a command that the user runs.
+
+Two canvas products of the same kind, built on the same canvas library, were
+tried in the window. They agree on almost everything about a set, and the
+user judged what they agree on to be right, including that a click inside
+the box changes nothing. Where they differ, BaseHalf takes the behavior that
+keeps one state for one selection. Their faults, a box that stays behind
+after undo and keys that select the text of the page, are not taken.
+
+**Consequences.**
+- The set box is worked out from the cards every time the canvas is drawn,
+  so it cannot be anywhere but around them.
+- While a marquee is drawn, the workbench is asked nothing. It is asked when
+  the marquee begins and when the button is released.
+- An arrangement, a tidy, and a revert are each one write of the layout and
+  one step of undo. The cards they move have the user's rows afterwards.
+- Tidy Canvas does not look at the selection. Arrange does not look at the
+  cards outside the set, so an arranged card can lie on another card.
+- Adding to a selection with a marquee, a key that selects every card, a
+  context menu for a set, and groups that are kept are not part of this.
+  Grouping stays out as [D33](#d33--the-main-canvas-unifies-content-and-optional-execution-domain-plugins-contribute-recipes-new-2026-07-18)
+  decided.
