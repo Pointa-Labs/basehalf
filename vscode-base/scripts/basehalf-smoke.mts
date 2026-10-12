@@ -288,6 +288,7 @@ try {
 			await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 			await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 			await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
+			await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -323,6 +324,7 @@ try {
 				'canvas-follows-renamed-open-folder',
 				'canvas-cards-follow-many-outside-renames',
 				'canvas-new-files-go-to-the-end',
+				'canvas-note-wheel-scroll',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -363,6 +365,7 @@ try {
 		await step('canvas-follows-renamed-open-folder', () => assertCanvasFollowsRenamedOpenFolder(page));
 		await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 		await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
+		await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -502,6 +505,7 @@ try {
 			'canvas-follows-renamed-open-folder',
 			'canvas-cards-follow-many-outside-renames',
 			'canvas-new-files-go-to-the-end',
+			'canvas-note-wheel-scroll',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -6157,7 +6161,10 @@ async function assertCanvasZoomControls(page) {
 	if (await snapToggle.getAttribute('aria-pressed') !== 'true') {
 		throw new Error('Canvas snap toggle did not restore its enabled state');
 	}
-	await page.mouse.move(beforeGesture.center.x, beforeGesture.center.y);
+	// The scroll starts on empty canvas. In the middle the pointer would be
+	// moved onto a card, and a long note at rest takes such a scroll.
+	const emptyCanvas = await emptyCanvasPoint(page);
+	await page.mouse.move(emptyCanvas.x, emptyCanvas.y);
 	await page.mouse.wheel(80, 120);
 	await page.waitForFunction(previous => {
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
@@ -9899,6 +9906,176 @@ async function assertCanvasNewFilesGoToTheEnd(page) {
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
 }
 
+/** A point of the empty canvas, where a wheel or a click meets no card. */
+async function emptyCanvasPoint(page) {
+	const point = await page.evaluate(() => {
+		const pane = document.querySelector('.basehalf-canvas-cards .react-flow__pane');
+		if (!(pane instanceof HTMLElement)) {
+			return undefined;
+		}
+		const box = pane.getBoundingClientRect();
+		for (const y of [box.top + 28, box.bottom - 28, box.top + box.height / 2]) {
+			for (const x of [box.left + 28, box.right - 28]) {
+				if (document.elementFromPoint(x, y) === pane) {
+					return { x, y };
+				}
+			}
+		}
+		return undefined;
+	});
+	if (!point) {
+		throw new Error('The canvas has no empty place at its edges');
+	}
+	return point;
+}
+
+/**
+ * Canvas wheel gestures: a scroll that starts on a long note at rest moves
+ * the note, a scroll that starts on the canvas keeps moving the canvas over
+ * the note and over its editor, and the note keeps its place.
+ */
+async function assertCanvasNoteWheelScroll(page) {
+	const folderName = 'scrolled';
+	const longPath = `${folderName}/long.md`;
+	const longFile = path.join(workspacePath, folderName, 'long.md');
+	const longNote = paragraphs => [
+		'# Long',
+		'',
+		...Array.from({ length: paragraphs }, (_, index) => `Paragraph ${index + 1} of a note that is longer than its card, with enough words to fill a line or two.\n`)
+	].join('\n');
+	const card = name => page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}/${name}"]`);
+	const state = cardPath => page.evaluate(target => {
+		const element = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(candidate => candidate instanceof HTMLElement && candidate.dataset.basehalfCardPath === target);
+		const note = element?.querySelector('.bh-md-preview');
+		const viewport = document.querySelector('.react-flow__viewport');
+		return {
+			scrollTop: note instanceof HTMLElement ? note.scrollTop : undefined,
+			overflow: note instanceof HTMLElement ? note.scrollHeight - note.clientHeight : undefined,
+			editorScrollTop: element?.querySelector('.basehalf-canvas-note-editor.ready .basehalf-canvas-markdown-inline')?.scrollTop,
+			text: note?.textContent ?? '',
+			viewport: viewport instanceof HTMLElement ? getComputedStyle(viewport).transform : undefined
+		};
+	}, cardPath);
+	// Waits until the card is as described, and checks that it stays so.
+	const settled = async (cardPath, description, predicate) => {
+		const deadline = Date.now() + 10_000;
+		let last;
+		do {
+			last = await state(cardPath);
+			if (predicate(last)) {
+				await page.waitForTimeout(300);
+				last = await state(cardPath);
+				if (predicate(last)) {
+					return last;
+				}
+			}
+			await page.waitForTimeout(50);
+		} while (Date.now() < deadline);
+		throw new Error(`${description}: ${JSON.stringify({ ...last, text: last.text.length })}`);
+	};
+	// A scroll that starts on empty canvas and whose later events are delivered
+	// to `selector`, as they are once the canvas has brought it under the
+	// pointer. The events are sent in one task, so the quiet time cannot pass
+	// between them however busy the machine is.
+	const canvasGestureOver = async selector => {
+		await page.waitForTimeout(600);
+		const sent = await page.evaluate(targetSelector => {
+			const pane = document.querySelector('.basehalf-canvas-cards .react-flow__pane');
+			const target = document.querySelector(targetSelector);
+			if (!(pane instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+				return false;
+			}
+			const wheel = element => {
+				const box = element.getBoundingClientRect();
+				element.dispatchEvent(new WheelEvent('wheel', { deltaY: -30, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, bubbles: true, cancelable: true }));
+			};
+			wheel(pane);
+			for (let index = 0; index < 5; index++) {
+				wheel(target);
+			}
+			return true;
+		}, selector);
+		if (!sent) {
+			throw new Error(`The canvas gesture found no ${selector}`);
+		}
+		// The gesture ends, and the canvas reports its pan as ended.
+		await page.waitForTimeout(600);
+	};
+	const middleOf = async name => {
+		const box = await card(name).boundingBox();
+		return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+	};
+
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'fits.md'), '# Fits\n\nA note that fits its card.\n', 'utf8');
+	fs.writeFileSync(longFile, longNote(40), 'utf8');
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await card('long.md').waitFor({ state: 'visible', timeout: 15_000 });
+	await zoomCanvas(page, 'reset');
+	await centerCanvasCards(page, [card('long.md')]);
+	const rest = await settled(longPath, 'A long note at rest must hold more than its card shows', now => now.scrollTop === 0 && now.overflow > 400);
+
+	// The pointer is moved onto the note: a scroll moves the note and not the canvas.
+	const first = await middleOf('long.md');
+	await page.mouse.move(first.x, first.y);
+	await page.mouse.wheel(0, 60);
+	const scrolled = await settled(longPath, 'A scroll on a long note that the pointer was moved onto must move the note and not the canvas', now => now.scrollTop === 60 && now.viewport === rest.viewport);
+
+	// A scroll that starts on the canvas keeps moving the canvas when its events reach the note.
+	await canvasGestureOver(`.basehalf-canvas-card[data-basehalf-card-path="${longPath}"] .bh-md-preview`);
+	const panned = await state(longPath);
+	if (panned.scrollTop !== 60 || panned.viewport === scrolled.viewport) {
+		throw new Error(`A scroll that starts on the canvas must keep moving the canvas over a long note: ${JSON.stringify({ scrolled: scrolled.viewport, panned: panned.viewport, scrollTop: panned.scrollTop })}`);
+	}
+
+	// The pan has ended. The next scroll starts on the note and moves it.
+	const second = await middleOf('long.md');
+	await page.mouse.move(second.x, second.y);
+	await page.mouse.wheel(0, 50);
+	const pannedOn = await settled(longPath, 'A scroll that starts on a long note after a pan has ended must move the note', now => now.scrollTop === 110 && now.viewport === panned.viewport);
+
+	// A note that fits its card has nothing to scroll: the canvas moves.
+	const fits = await middleOf('fits.md');
+	await page.mouse.move(fits.x, fits.y);
+	await page.waitForTimeout(400);
+	await page.mouse.wheel(0, 30);
+	await settled(`${folderName}/fits.md`, 'A scroll on a note that fits its card must move the canvas', now => now.scrollTop === 0 && now.viewport !== pannedOn.viewport);
+
+	// The note keeps its place when it is selected, deselected, and redrawn.
+	const selectAt = await middleOf('long.md');
+	await page.mouse.click(selectAt.x, selectAt.y);
+	await waitForCanvasCardSelection(page, longPath);
+	await settled(longPath, 'A selected note must keep its scroll position', now => now.scrollTop === 110);
+	const empty = await emptyCanvasPoint(page);
+	await page.mouse.click(empty.x, empty.y);
+	await page.waitForFunction(target => !Array.from(document.querySelectorAll('.basehalf-canvas-card.selected')).some(element => element instanceof HTMLElement && element.dataset.basehalfCardPath === target), longPath, { timeout: 10_000 });
+	await settled(longPath, 'A deselected note must keep its scroll position', now => now.scrollTop === 110);
+	fs.writeFileSync(longFile, longNote(41), 'utf8');
+	await settled(longPath, 'A note that is redrawn after its file changed must keep its scroll position', now => now.text.includes('Paragraph 41') && now.scrollTop === 110);
+
+	// The editor opens where the note at rest was, and a scroll of the canvas goes on over it.
+	await centerCanvasCards(page, [card('long.md')]);
+	const editAt = await middleOf('long.md');
+	await page.mouse.dblclick(editAt.x, editAt.y);
+	const editor = await waitForCanvasNoteInlineEditor(page, longPath);
+	const editing = await settled(longPath, 'The editor must open where the note at rest was', now => now.editorScrollTop === 110);
+	await canvasGestureOver(`.basehalf-canvas-card[data-basehalf-card-path="${longPath}"] .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline`);
+	const afterEditorPan = await state(longPath);
+	if (afterEditorPan.editorScrollTop !== 110 || afterEditorPan.viewport === editing.viewport) {
+		throw new Error(`A scroll that starts on the canvas must keep moving the canvas over a note that is edited: ${JSON.stringify({ editing: editing.viewport, after: afterEditorPan.viewport, editorScrollTop: afterEditorPan.editorScrollTop })}`);
+	}
+	await page.keyboard.press('Escape');
+	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	await settled(longPath, 'A note must keep its scroll position when editing ends', now => now.scrollTop === 110);
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
 async function assertCanvasUnreadableBadgeRecovers(page) {
 	const badgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
 	const recoveryRoot = path.join(workspacePath, '.bh', 'cache', 'recovered');
@@ -12061,12 +12238,11 @@ async function scrollCanvasWorkbenchForCardDetail(page) {
 		if (!(root instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
 			throw new Error('Missing React Flow canvas viewport');
 		}
-		return {
-			transform: getComputedStyle(viewport).transform,
-			point: { x: root.getBoundingClientRect().left + 28, y: root.getBoundingClientRect().top + 28 }
-		};
+		return { transform: getComputedStyle(viewport).transform };
 	});
-	await page.mouse.move(before.point.x, before.point.y);
+	// On a card the pointer could be on a long note, which takes such a scroll.
+	const emptyCanvas = await emptyCanvasPoint(page);
+	await page.mouse.move(emptyCanvas.x, emptyCanvas.y);
 	await page.mouse.wheel(90, 180);
 	await page.waitForFunction(previous => {
 		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');

@@ -358,6 +358,10 @@ export interface IBaseHalfCanvasSceneDelegate {
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
 	didStartViewportInteraction(): void;
+	/** The content that the scene scrolls for a wheel gesture on a card (canvas
+	 *  wheel gestures), if this element of a card holds any. The element may be
+	 *  one that the card has since replaced and that is still on screen. */
+	cardScrollableContent(card: HTMLElement): HTMLElement | undefined;
 	didEndInteraction(): void;
 	reportError(error: unknown): void;
 }

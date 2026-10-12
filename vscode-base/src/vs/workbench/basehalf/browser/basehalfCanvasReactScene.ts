@@ -76,6 +76,7 @@ import {
 	resolveBaseHalfVideoComposerPlacement
 } from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
+import { installBaseHalfCanvasWheelGestures } from './basehalfCanvasWheelGestures.js';
 import type {
 	Connection,
 	Edge,
@@ -1339,6 +1340,7 @@ function createCanvasSceneMount(
 	function CardNode({ id, data, selected }: NodeProps<BaseHalfCanvasFlowNode>): ReactElement {
 		const hostRef = vendor.useRef<HTMLDivElement>(null);
 		const replacementFocusPath = vendor.useRef<readonly number[] | undefined>(undefined);
+		const replacementScrollPosition = vendor.useRef<number | undefined>(undefined);
 		const mountedCardRef = vendor.useRef({ card: data.card, height: data.card.height, retainPresentation: false });
 		const activeResizeRef = vendor.useRef<{
 			readonly card: IBaseHalfCanvasSceneCard;
@@ -1534,6 +1536,12 @@ function createCanvasSceneMount(
 					replacementFocusPath.current = isHTMLElement(active)
 						? captureBaseHalfCanvasCardFocusPath(data.card.element, active)
 						: undefined;
+					// A drawing without scrollable content, such as the badge face,
+					// keeps the place for the drawing that shows the content again.
+					const scrollableContent = delegate.cardScrollableContent(data.card.element);
+					if (scrollableContent) {
+						replacementScrollPosition.current = scrollableContent.scrollTop;
+					}
 					data.card.element.remove();
 				}
 			};
@@ -1578,6 +1586,14 @@ function createCanvasSceneMount(
 				level: presentation,
 				height
 			});
+			// A redrawn card shows the place its scrollable content was at. The
+			// content exists only now, after the presentation drew it.
+			const scrollPosition = replacementScrollPosition.current;
+			const scrollableContent = scrollPosition !== undefined ? delegate.cardScrollableContent(element) : undefined;
+			if (scrollableContent && scrollPosition !== undefined) {
+				replacementScrollPosition.current = undefined;
+				scrollableContent.scrollTop = scrollPosition;
+			}
 		}, [data.card, data.card.element, height, presentation, structuralSelectionVisible]);
 
 		return h(vendor.Fragment, null,
@@ -4021,6 +4037,14 @@ function createCanvasSceneMount(
 				host.removeEventListener('dblclick', onPaneDoubleClick, true);
 			};
 		}, [onPaneDoubleClick]);
+		vendor.useEffect(() => {
+			const wheelGestures = installBaseHalfCanvasWheelGestures(host, {
+				zoom: () => viewportRef.current.zoom,
+				card: path => nodesRef.current.find(node => node.id === path)?.data.card.element,
+				scrollableContent: card => delegate.cardScrollableContent(card)
+			});
+			return () => wheelGestures.dispose();
+		}, []);
 
 		const videoInputPickGesturePolicy = baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive);
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
