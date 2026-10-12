@@ -298,6 +298,7 @@ import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneCardPresentation,
 	IBaseHalfCanvasSceneEdge,
+	BaseHalfCanvasSceneGeometryReason,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
 	IBaseHalfCanvasSceneViewport,
@@ -1721,7 +1722,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
 		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
-			commitGeometry: (sceneKey, structuralEpoch, geometries) => this.commitSceneGeometry(sceneKey, structuralEpoch, geometries),
+			commitGeometry: (sceneKey, structuralEpoch, geometries, reason) => this.commitSceneGeometry(sceneKey, structuralEpoch, geometries, reason),
 			connect: (sceneKey, structuralEpoch, connection) => this.connectSceneEdge(sceneKey, structuralEpoch, connection),
 			showConnectionCreateMenu: (sceneKey, structuralEpoch, drop) => this.showConnectionCreateMenu(sceneKey, structuralEpoch, drop),
 			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
@@ -3189,7 +3190,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, requested: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void> {
+	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, requested: readonly IBaseHalfCanvasSceneGeometry[], reason?: BaseHalfCanvasSceneGeometryReason): Promise<void> {
 		if (requested.length === 0) {
 			return;
 		}
@@ -3256,7 +3257,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (committedTransition && canvasStateTransitionChangesAnything(committedTransition)) {
 			this.pushCanvasUndoElement(
-				localize('basehalf.canvas.geometry.undo', "Move or resize canvas cards"),
+				reason === 'arrange'
+					? localize('basehalf.canvas.arrange.undo', "Arrange canvas cards")
+					: localize('basehalf.canvas.geometry.undo', "Move or resize canvas cards"),
 				queuedFolder,
 				nodes,
 				[],

@@ -535,6 +535,61 @@
 	transform-origin: top center;
 }
 
+/* The toolbar of a set stays over the set box where the two meet at the edge
+ * of the view. */
+.monaco-workbench .basehalf-canvas-selection-toolbar.for-set {
+	z-index: 1002;
+}
+
+.monaco-workbench .basehalf-canvas-selection-arrange {
+	position: relative;
+	display: inline-flex;
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu {
+	position: absolute;
+	left: 0;
+	display: flex;
+	min-width: 112px;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 4px;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	border-radius: 8px;
+	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above .basehalf-canvas-arrange-menu {
+	bottom: calc(100% + 8px);
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below .basehalf-canvas-arrange-menu {
+	top: calc(100% + 8px);
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item {
+	height: 26px;
+	padding: 0 10px;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	text-align: left;
+	white-space: nowrap;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item:hover,
+.monaco-workbench .basehalf-canvas-arrange-menu-item:focus-visible {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground);
+	outline: none;
+}
+
 .monaco-workbench .basehalf-canvas-selection-count {
 	display: inline-flex;
 	min-width: 20px;

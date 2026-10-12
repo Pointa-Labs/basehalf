@@ -1,10 +1,10 @@
 # Canvas selection and arrangement
 
 Status: Active (2026-10-12). Implementation in progress. The marquee, the
-states of the selection, the set box, and moving a set are implemented.
-Arrange, Tidy Canvas, and the question that keeps or reverts a tidy are not
-yet: until they land, the set toolbar has no Arrange and the view controls
-have no Tidy Canvas. The specifications listed under
+states of the selection, the set box, moving a set, and Arrange are
+implemented. Tidy Canvas and the question that keeps or reverts a tidy are
+not yet: until they land, the view controls have no Tidy Canvas. The
+specifications listed under
 [Specifications this changes](#specifications-this-changes) are updated in
 the commit that implements the part they describe.
 Decision: [D52](../decisions.md#d52--several-selected-cards-are-one-object-and-the-user-tidies-a-canvas-on-request-new-2026-10-12)
@@ -619,6 +619,13 @@ The same window and workspace, with the real pointer and keyboard.
 - A set made by Shift-click and a set made by a marquee had the same box
   and the same toolbar.
 - One card that was dropped where nothing snaps went back on undo.
+- Arrange, on a set of three cards of a canvas with five: Column, Grid, and
+  Row gave the places of the rules, moved no card outside the set, and
+  changed no size. The set was still selected with the box around it. A card
+  whose place did not change kept the row that BaseHalf had chosen. One undo
+  took Column back, and every row was again one that BaseHalf had chosen.
+  The menu lay over the set box, and the arrow keys and Enter chose from
+  it.
 
 ## Specifications this changes
 

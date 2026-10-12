@@ -334,8 +334,11 @@ export interface IBaseHalfCanvasSceneFitOptions {
 	readonly padding?: number;
 }
 
+/** What changed the places that the scene commits, when it was not a move or a resize by the user's hand. */
+export type BaseHalfCanvasSceneGeometryReason = 'arrange';
+
 export interface IBaseHalfCanvasSceneDelegate {
-	commitGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void>;
+	commitGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[], reason?: BaseHalfCanvasSceneGeometryReason): Promise<void>;
 	connect(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void>;
 	/** Opens the Create from Connection menu at the drop's release point.
 	 *  Resolves when the menu has closed: `true` once a chosen node was
