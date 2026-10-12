@@ -677,6 +677,19 @@ The same window and workspace, with the real pointer and keyboard.
 - A marquee that began while the note of `c.md` was being edited closed the
   note and selected the cards it touched. The note held what had been
   typed.
+- A marquee, a click, and a Shift-click changed no file under `.bh/`.
+- The whole smoke passed on the last commit of the change, 129 steps.
+
+### Not run
+
+- Criterion 26. The window was not reloaded while the question was open.
+  What the question needs is kept in the window's memory alone, so a
+  reloaded window has none of it.
+- Criterion 31 was not counted write by write. An arrangement, a tidy, and
+  a revert each go through one change of the layout.
+- Tidy Canvas being disabled while a video card waits for an input, and the
+  look of the box and the question in a light and in a high contrast theme,
+  were not looked at in the window.
 
 ### Reviewed on 2026-10-12
 
