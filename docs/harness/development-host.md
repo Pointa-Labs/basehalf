@@ -108,9 +108,16 @@ older than the current session is safe.
 
 | Change | How it reaches the running host |
 | --- | --- |
-| `src/vs/**`, including CSS | Watchers rebuild `out/`; reload the window (`Developer: Reload Window`) |
+| `src/vs/**`, including CSS and a stylesheet that is new since the host started | Watchers rebuild `out/`; reload the window (`Developer: Reload Window`) |
 | `extensions/**` | Watchers rebuild; reload the window, or `Developer: Restart Extension Host` |
 | `src/vs/code/electron-main/**` and other main-process code | Quit and relaunch the host; a window reload does not restart the main process |
+
+The development host loads each stylesheet by a list that the main process
+hands to a window. A reload reads the list again, so a stylesheet that was
+added while the window was open is on it. Until 2026-10-12 a reload reused the
+list from when the window was opened, and the workbench then failed to load
+with `Failed to fetch dynamically imported module ... workbench.desktop.main.js`.
+A host that was started before that fix needs one relaunch.
 
 Hot reload replaces neither the scoped checks nor `npm run basehalf:smoke`. A
 behavior seen working in the development host is not verified until the checks

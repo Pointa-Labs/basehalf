@@ -40,6 +40,7 @@ import { IWindowState, ICodeWindow, ILoadEvent, WindowMode, WindowError, LoadRea
 import { IPolicyService } from '../../policy/common/policy.js';
 import { IUserDataProfile } from '../../userDataProfile/common/userDataProfile.js';
 import { IStateService } from '../../state/node/state.js';
+import { ICSSDevelopmentService } from '../../cssDev/node/cssDevService.js';
 import { IUserDataProfilesMainService } from '../../userDataProfile/electron-main/userDataProfile.js';
 import { ILoggerMainService } from '../../log/electron-main/loggerService.js';
 import { IInstantiationService } from '../../instantiation/common/instantiation.js';
@@ -690,7 +691,8 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		@IProtocolMainService protocolMainService: IProtocolMainService,
 		@IWindowsMainService private readonly windowsMainService: IWindowsMainService,
 		@IStateService stateService: IStateService,
-		@IInstantiationService instantiationService: IInstantiationService
+		@IInstantiationService instantiationService: IInstantiationService,
+		@ICSSDevelopmentService private readonly cssDevelopmentService: ICSSDevelopmentService
 	) {
 		super(configurationService, stateService, environmentMainService, logService);
 
@@ -1330,6 +1332,15 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		};
 		configuration.logLevel = this.loggerMainService.getLogLevel();
 		configuration.loggers = this.loggerMainService.getGlobalLoggers();
+
+		// BaseHalf: a development session can add a stylesheet while this window
+		// lives. The copy of the configuration holds the list from when the
+		// window was opened, and a stylesheet that is not on the list is loaded
+		// as a script, which fails the whole workbench. So a reload reads the
+		// list again.
+		if (this.cssDevelopmentService.isEnabled) {
+			configuration.cssModules = await this.cssDevelopmentService.getCssModules();
+		}
 
 		// Load config
 		this.load(configuration, { isReload: true, disableExtensions: cli?.['disable-extensions'] });
