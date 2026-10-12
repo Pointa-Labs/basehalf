@@ -1542,8 +1542,8 @@ agreed.
   GitHub, and GitHub authentication.
 - The colors of the workbench parts change from the startup colors to the
   theme's: backgrounds, borders, buttons, selection, and focus.
-- About sixty files of the base are now at their 1.141 state while the rest
-  is at 1.128. `vscode-base/BASEHALF_UPSTREAM.md` lists them. An update of
+- About seventy files of the base are now at their 1.141 state while the
+  rest is at 1.128. `vscode-base/BASEHALF_UPSTREAM.md` lists them. An update of
   the whole base takes upstream's version of each.
 - `reference/vscode` holds the source of VS Code 1.141.0. It was a link to
   `vscode-base` before.

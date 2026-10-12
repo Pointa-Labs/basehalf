@@ -95,6 +95,11 @@ files (terminal colors) hold a BaseHalf change among them.
 - `src/vs/workbench/test/browser/part.test.ts`
 - `src/vs/workbench/test/browser/parts/activitybar/activitybarPart.test.ts`
 - `src/vs/workbench/test/browser/window.test.ts`
+- `src/vs/code/electron-browser/workbench/partsSplash.ts`
+- `src/vs/code/electron-browser/workbench/workbench.ts`
+- `src/vs/code/test/electron-browser/partsSplash.test.ts`
+- `src/vs/platform/theme/common/themeService.ts`
+- `src/vs/platform/theme/electron-main/themeMainServiceImpl.ts`
 
 ### Partly at 1.141.0
 
@@ -116,6 +121,7 @@ have.
 - `src/vs/workbench/browser/parts/views/viewPaneContainer.ts`: upstream's file plus BaseHalf's `fillsToBottomEdge`.
 - `src/vs/workbench/browser/workbench.contribution.ts`: only the settings of Modern UI, without the two of the translucent pop-ups.
 - `src/vs/workbench/contrib/files/browser/views/explorerView.ts`: only the case of the workspace name in the title.
+- `src/vs/workbench/contrib/splash/browser/partsSplash.ts`: upstream's file, reading the theme with `getColorTheme` because this tree has no window-local theme overlays.
 - `src/vs/workbench/test/browser/workbenchTestServices.ts`: only the new members of the test layout and host services.
 - `src/vs/workbench/contrib/modernUI/test/browser/modernUI.contribution.test.ts`: upstream's file with one test skipped, which reads rules that the tab logic of 1.141 generates.
 - `src/vs/workbench/workbench.common.main.ts`: only the import of the module.
@@ -133,9 +139,9 @@ Upstream renamed it to `src/vs/workbench/contrib/modernUI/`.
   host.
 - The editor tab logic of 1.141 (`multiEditorTabsControl.ts` and the files
   around it). The tab stylesheets are at 1.141.0.
-- `src/vs/workbench/contrib/splash/browser/partsSplash.ts` and the splash
-  types in `src/vs/platform/theme/common/themeService.ts`: the picture a
-  window shows before it has loaded.
+- The window-local theme overlays of the theme service
+  (`registerColorThemeOverlay`, `getBaseColorTheme`). Only the Agents window
+  of VS Code uses them.
 - `src/vs/workbench/browser/actions/layoutActions.ts`: the icons of the
   layout density entries need two new codicons.
 - `src/vs/workbench/browser/parts/titlebar/media/titlebarpart.css` and the

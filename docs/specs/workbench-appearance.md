@@ -113,11 +113,21 @@ Not in scope, and unchanged:
 13. The title of the Files view shows the workspace name as the user wrote
     it. The base's early version of the layout capitalized each word of it.
 
+### Before the window has loaded
+
+14. The picture that a window shows before the workbench has loaded has the
+    same cards as the loaded window: each card where it was when the window
+    last saved its layout, with the same corner radius, border, and
+    background. It is VS Code's own code of 1.141.
+
 ## States and failure
 
 - **Before the theme is loaded.** A window starts with the startup colors and
   switches to the theme when the extensions are registered, as in VS Code.
   Both are the same dark scheme, so the switch is small.
+- **A window that has no saved layout yet.** The first window of a new
+  profile has nothing to draw the cards from and shows a plain background
+  until it has loaded.
 - **The theme extension is missing or fails to load.** The window keeps the
   startup colors, and status colors have no value. This is the former state
   of the product. The smoke step below fails in that case.
@@ -140,8 +150,6 @@ Not in scope, and unchanged:
   - the connected shape of editor tabs. The stylesheets are there, the tab
     logic is the base's. BaseHalf shows no editor tabs
     (`workbench.editor.showTabs` is `none`);
-  - the card shapes in the picture that a window shows before it has loaded.
-    A starting window shows the former rectangles for a moment.
 
 ## Acceptance criteria
 
@@ -158,7 +166,11 @@ Not in scope, and unchanged:
 5. With `extensions.allowed` set to a list that leaves out
    `vscode.theme-defaults`, the extension is still allowed.
 6. `vscode.theme-monokai` is not allowed.
-7. For the same workspace and window size, the position, size, margin,
+7. A window that is started a second time shows, before it has loaded, a
+   card for the sidebar, the canvas area, and the Agent Area at the positions
+   and sizes these parts had in the first run, each with a corner radius of
+   8 px.
+8. For the same workspace and window size, the position, size, margin,
    border, corner radius, and background of the sidebar, the canvas area, the
    Agent Area part, the status bar, and the rows and badges of Source Control
    are those of VS Code 1.141 with its activity bar at the top and its tabs
@@ -176,5 +188,9 @@ Not in scope, and unchanged:
   the Agent Area opens (`assertAgentAreaOwnsAuxiliaryBarChrome`).
 - The unit tests that came with the ported files: `modernUI.contribution`,
   `part`, `activitybarPart`, `decorationsService`, `window`.
-- Criterion 7 was measured once, on 2026-10-12, by reading the computed
-  styles of both windows side by side. It is not an automated check.
+- `partsSplash.test.ts` (in `vs/code/test/electron-browser`): the metrics
+  and colors of the picture before loading.
+- Criteria 7 and 8 were measured once, on 2026-10-12: criterion 7 by starting
+  a window twice and reading the picture of the second start, criterion 8 by
+  reading the computed styles of both products side by side. Neither is an
+  automated check.
