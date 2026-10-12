@@ -80,12 +80,20 @@ Not in scope, and unchanged:
 7. The layout is the base's own (`workbench/contrib/styleOverrides` and
    `workbench/browser/media/floatingPanels.css`). BaseHalf adds no rules of
    its own for the corners, the gaps, or the borders of the workbench parts.
+   Requirement 9 is the one exception.
 8. The setting stays a normal setting. A user who switches it off gets the
    former layout, where the parts meet without a gap.
+9. The Agent Area fills its card. In this layout the base keeps a gap of
+   5 px below the last pane of a view container, for panes that end in a
+   list. The Agent Area owns its whole part and paints its own background,
+   so a gap would show as a strip of another color under a terminal. Its
+   view container, and the container that hosts an extension agent's view
+   inside it, are created with `fillsToBottomEdge`, an option that BaseHalf
+   added to the base's view pane container for this.
 
 ### Git status colors
 
-9. With the theme loaded, the status letter of a changed file in Source
+10. With the theme loaded, the status letter of a changed file in Source
    Control and in Files has the theme's color for that status, and in Files
    the file name has it too. Nothing in BaseHalf sets these colors.
 
@@ -121,9 +129,11 @@ Not in scope, and unchanged:
    different colors, and none is the color of the file name beside it.
 3. The sidebar has rounded corners, and there is a gap between the sidebar
    and the canvas area, and between the canvas area and the Agent Area.
-4. With `extensions.allowed` set to a list that leaves out
+4. The top and the bottom of the Agent Area are within 1 px of the top and
+   the bottom of its part, with a terminal session and with no session.
+5. With `extensions.allowed` set to a list that leaves out
    `vscode.theme-defaults`, the extension is still allowed.
-5. `vscode.theme-monokai` is not allowed.
+6. `vscode.theme-monokai` is not allowed.
 
 ## Verification
 
@@ -133,4 +143,5 @@ Not in scope, and unchanged:
   stays allowed under a narrower `extensions.allowed`, and other theme
   extensions are not.
 - `npm run basehalf:smoke`, step `product-theme-and-cards`: criteria 1 and 3
-  in the running window.
+  in the running window. The Agent Area steps check criterion 4 each time
+  the Agent Area opens (`assertAgentAreaOwnsAuxiliaryBarChrome`).

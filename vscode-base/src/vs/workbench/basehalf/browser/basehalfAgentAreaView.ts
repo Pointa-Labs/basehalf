@@ -60,7 +60,9 @@ const agentAreaViewContainer = Registry.as<IViewContainersRegistry>(ViewContaine
 	id: BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID,
 	title: { value: 'Agent', original: 'Agent' },
 	icon: Codicon.robot,
-	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
+	// The Agent Area owns its whole part and paints its own background, so it
+	// reaches the bottom edge of the card.
+	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true, fillsToBottomEdge: true }]),
 	storageId: `${BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID}.state`,
 	hideIfEmpty: false,
 	order: 0

@@ -307,7 +307,7 @@ class BaseHalfViewContainerExtensionAgentProvider implements IBaseHalfExtensionA
 
 		clearNode(container);
 		const viewHost = append(container, $('.basehalf-agent-extension-view-host'));
-		const viewPaneContainer = this.instantiationService.createInstance(ViewPaneContainer, surface.viewContainerId, { mergeViewWithContainerWhenSingleView: true });
+		const viewPaneContainer = this.instantiationService.createInstance(ViewPaneContainer, surface.viewContainerId, { mergeViewWithContainerWhenSingleView: true, fillsToBottomEdge: true });
 		viewPaneContainer.create(viewHost);
 
 		const layout = () => {

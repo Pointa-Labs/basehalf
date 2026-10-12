@@ -52,6 +52,12 @@ MenuRegistry.appendMenuItem(MenuId.ViewContainerTitle, {
 
 export interface IViewPaneContainerOptions extends IPaneViewOptions {
 	mergeViewWithContainerWhenSingleView: boolean;
+	/**
+	 * The panes reach the bottom edge of the container also in Modern UI, where
+	 * a container otherwise keeps a gap below its last pane. For a container
+	 * whose content paints its own background to the edge.
+	 */
+	readonly fillsToBottomEdge?: boolean;
 }
 
 interface IViewPaneItem {
@@ -632,7 +638,7 @@ export class ViewPaneContainer<MementoType extends object = object> extends Comp
 			// pane does not sit flush against the part edge, matching the 4px
 			// horizontal margins on the pane headers. Add 1px for the part's bottom
 			// border so the visible gap lines up with the horizontal margins.
-			const bottomGap = this.layoutService.isFloatingPanelsEnabled() ? FLOATING_PANEL_MARGIN + 1 : 0;
+			const bottomGap = this.layoutService.isFloatingPanelsEnabled() && !this.options.fillsToBottomEdge ? FLOATING_PANEL_MARGIN + 1 : 0;
 			this.paneview.layout(Math.max(0, dimension.height - bottomGap), dimension.width);
 		}
 
