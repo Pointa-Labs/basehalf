@@ -112,6 +112,8 @@ called the first and the second product here.
 | Connections of the boxed cards | not selected | not tried: the test canvas had none |
 | Cards are marked while the marquee is drawn | yes | not observed |
 | A set after the marquee | a dashed box with a margin, a toolbar above it | a filled box without a margin, a toolbar above it |
+| The toolbar of a set | seven actions in four groups, most with the name beside the icon | five actions in three groups, icons alone, the name shown when the pointer rests on one |
+| The number of selected cards | not shown | not shown |
 | A click on a card or in a gap inside the box | changes nothing | changes nothing |
 | A drag that begins anywhere inside the box | moves the set, which stays selected | moves the set, which stays selected |
 | Leaving the set | a click on empty canvas | a click on empty canvas |
@@ -142,6 +144,12 @@ How the first product arranges and tidies:
   result or to revert it. It does not block the canvas: cards can be
   clicked and moved while it is open. Revert put every card back where it
   was before, also a card that had been moved in between.
+
+Before this specification the toolbar of a set began with the bare number
+of cards, followed by icons without names. Neither product shows that
+number, and both put the actions in groups. BaseHalf names its buttons as
+the first product does: its four actions fit, and a name needs no icon font
+and no resting pointer to be read.
 
 BaseHalf takes what both products agree on. Where they differ it takes the
 behavior that keeps one state for one selection: the second product's for a
@@ -265,13 +273,21 @@ would show its handles.
 | A connection line that is released on it | Nothing is connected and no menu opens, as on a card. |
 
 **The set toolbar** stands above the box, or below it when there is no room
-above, as the toolbar of a single card does. From the left it has:
+above, as the toolbar of a single card does. Every button shows its icon
+and its name beside it. A set has no card of its own that says what an icon
+means, and a toolbar that the icon font has not reached would otherwise be
+empty. The toolbar shows no number of cards. From the left it has three
+groups, with a thin line between them:
 
-1. the number of selected cards;
-2. **Arrange**, which opens a menu with **Grid**, **Row**, and **Column**
+1. **Arrange**, which opens a menu with **Grid**, **Row**, and **Column**
    ([arranging a set](#arranging-a-set));
-3. **Duplicate**, **Copy Paths**, and **Delete**, as before this
-   specification.
+2. **Duplicate** and **Copy Paths**;
+3. **Delete**, apart from the actions that keep the cards.
+
+The three actions of the last two groups do what they did before this
+specification. The toolbar is as wide as its names make it in the language
+of the window, and it is kept inside the view with that width. The number
+of selected cards is in the name that assistive technology reads.
 
 Delete, Backspace, and the duplicate key act on the whole set, as before.
 The arrow keys do nothing while a set is selected, also when one of its
@@ -678,6 +694,8 @@ The same window and workspace, with the real pointer and keyboard.
   note and selected the cards it touched. The note held what had been
   typed.
 - A marquee, a click, and a Shift-click changed no file under `.bh/`.
+- The toolbar of a set read Arrange, Duplicate, Copy Paths, Delete, with no
+  number, and stood inside the window.
 - The whole smoke passed on the last commit of the change, 129 steps.
 
 ### Not run

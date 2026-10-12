@@ -1977,6 +1977,16 @@ function createCanvasSceneMount(
 		const [focusIndex, setFocusIndex] = vendor.useState(0);
 		const [arrangeOpen, setArrangeOpen] = vendor.useState(false);
 		const arrangeRef = vendor.useRef<HTMLSpanElement>(null);
+		const toolbarRef = vendor.useRef<HTMLDivElement>(null);
+		// The buttons of a set carry their names, so the width depends on the
+		// language. It is measured, and it keeps the toolbar inside the view.
+		const [measuredWidth, setMeasuredWidth] = vendor.useState<number | undefined>(undefined);
+		vendor.useLayoutEffect(() => {
+			const width = toolbarRef.current?.offsetWidth;
+			if (width && width !== measuredWidth) {
+				setMeasuredWidth(width);
+			}
+		});
 		const paths = nodes.map(node => node.id);
 		const key = paths.join('\0');
 		vendor.useEffect(() => {
@@ -2013,7 +2023,7 @@ function createCanvasSceneMount(
 			viewport,
 			viewportWidth: host.clientWidth,
 			viewportHeight: host.clientHeight,
-			toolbarWidth: arranges ? 146 : 96
+			toolbarWidth: measuredWidth ?? (arranges ? 380 : 96)
 		});
 		const metadata: Record<BaseHalfCanvasSceneSelectionAction, { readonly label: string; readonly icon: string }> = {
 			rename: { label: baseHalfCanvasSceneSelectionRenameLabel(nodes.length === 1 && nodes[0].data.card.renameChangesPathOnly === true), icon: 'edit' },
@@ -2077,10 +2087,23 @@ function createCanvasSceneMount(
 			items[next]?.focus({ preventScroll: true });
 		};
 
+		// What a button shows. The buttons of a set carry their names beside the
+		// icon: a set has no card of its own to say what the icons mean.
+		const face = (icon: string, label: string, menu = false): ReactNode[] => arranges
+			? [
+				h('span', { key: 'icon', className: `codicon codicon-${icon}`, 'aria-hidden': true }),
+				h('span', { key: 'label', className: 'basehalf-canvas-selection-action-label' }, label),
+				menu ? h('span', { key: 'menu', className: 'basehalf-canvas-selection-action-menu codicon codicon-chevron-down', 'aria-hidden': true }) : null
+			]
+			: [];
+		const separator = (name: string): ReactNode => h('span', { key: name, className: 'basehalf-canvas-selection-separator', 'aria-hidden': true });
+
 		return h(vendor.ViewportPortal, null,
 			h('div', {
+				ref: toolbarRef,
 				className: `basehalf-canvas-selection-toolbar basehalf-canvas-adjacent-chrome ${placement.side}${arranges ? ' for-set' : ''} nodrag nopan nowheel`,
 				role: 'toolbar',
+				'data-selected-count': nodes.length,
 				'aria-label': nodes.length === 1
 					? localize('basehalf.canvas.selection.one', "Selected card actions")
 					: localize('basehalf.canvas.selection.many', "Actions for {0} selected cards", nodes.length),
@@ -2092,11 +2115,10 @@ function createCanvasSceneMount(
 				onPointerDown: (event: ReactPointerEvent<HTMLElement>) => event.stopPropagation(),
 				onClick: (event: ReactMouseEvent<HTMLElement>) => event.stopPropagation()
 			},
-				nodes.length > 1 ? h('span', { className: 'basehalf-canvas-selection-count' }, String(nodes.length)) : null,
 				arranges ? h('span', { ref: arrangeRef, className: 'basehalf-canvas-selection-arrange' },
 					h('button', {
 						type: 'button',
-						className: 'basehalf-canvas-selection-action codicon codicon-layout',
+						className: 'basehalf-canvas-selection-action labeled',
 						'data-toolbar-item': 'arrange',
 						title: arrangeLabel,
 						'aria-label': arrangeLabel,
@@ -2118,7 +2140,7 @@ function createCanvasSceneMount(
 							event.stopPropagation();
 							setArrangeOpen(open => !open);
 						}
-					}),
+					}, ...face('layout', arrangeLabel, true)),
 					arrangeOpen ? h('div', {
 						className: 'basehalf-canvas-arrange-menu',
 						role: 'menu',
@@ -2140,12 +2162,15 @@ function createCanvasSceneMount(
 						}
 					}, item.label))) : null
 				) : null,
-				...actions.map((action, actionIndex) => {
+				arranges ? separator('after-arrange') : null,
+				...actions.flatMap((action, actionIndex) => {
 					const index = actionIndex + firstAction;
-					return h('button', {
+					const button = h('button', {
 						key: action,
 						type: 'button',
-						className: `basehalf-canvas-selection-action codicon codicon-${metadata[action].icon}${action === 'delete' ? ' danger' : ''}`,
+						className: arranges
+							? `basehalf-canvas-selection-action labeled${action === 'delete' ? ' danger' : ''}`
+							: `basehalf-canvas-selection-action codicon codicon-${metadata[action].icon}${action === 'delete' ? ' danger' : ''}`,
 						'data-toolbar-item': action,
 						title: metadata[action].label,
 						'aria-label': metadata[action].label,
@@ -2157,7 +2182,9 @@ function createCanvasSceneMount(
 							event.stopPropagation();
 							invoke(action, paths);
 						}
-					});
+					}, ...face(metadata[action].icon, metadata[action].label));
+					// Delete stands apart from the actions that keep the cards.
+					return arranges && action === 'delete' ? [separator('before-delete'), button] : [button];
 				})
 			)
 		);

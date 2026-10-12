@@ -665,18 +665,6 @@
 	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-selection-count {
-	display: inline-flex;
-	min-width: 20px;
-	height: 28px;
-	align-items: center;
-	justify-content: center;
-	padding: 0 4px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
-	font-weight: 600;
-}
-
 .monaco-workbench .basehalf-canvas-selection-action {
 	display: inline-flex;
 	width: 28px;
@@ -690,6 +678,43 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
+}
+
+/* The buttons of a set carry their names beside the icon. */
+.monaco-workbench .basehalf-canvas-selection-action.labeled {
+	width: auto;
+	flex: 0 0 auto;
+	gap: 6px;
+	padding: 0 10px;
+	border-radius: 14px;
+	color: var(--vscode-menu-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: 12px;
+	line-height: 28px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .codicon {
+	color: var(--vscode-icon-foreground);
+	font-size: 16px;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .basehalf-canvas-selection-action-menu {
+	margin-left: -2px;
+	font-size: 12px;
+	opacity: 0.7;
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled.danger:hover > .codicon {
+	color: inherit;
+}
+
+.monaco-workbench .basehalf-canvas-selection-separator {
+	flex: none;
+	width: 1px;
+	height: 16px;
+	margin: 0 4px;
+	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
 }
 
 /*

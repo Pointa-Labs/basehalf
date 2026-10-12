@@ -10068,7 +10068,8 @@ async function assertCanvasSelectionAndArrangement(page) {
 				.sort(),
 			connections: document.querySelectorAll('.react-flow__edge.selected').length,
 			box: box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null,
-			count: document.querySelector('.basehalf-canvas-selection-count')?.textContent ?? null,
+			count: document.querySelector('.basehalf-canvas-selection-toolbar.for-set')?.getAttribute('data-selected-count') ?? null,
+			names: Array.from(document.querySelectorAll('.basehalf-canvas-selection-toolbar.for-set .basehalf-canvas-selection-action-label')).map(element => element.textContent),
 			outlines: document.querySelectorAll('.basehalf-canvas-card.marquee-selected').length,
 			question: document.querySelectorAll('[data-testid="canvas-tidy-question"]').length
 		};
@@ -10149,6 +10150,10 @@ async function assertCanvasSelectionAndArrangement(page) {
 	const set = await expectState({ cards: ['d.md', 'e.md'], connections: 0, box: true, count: '2' }, 'A marquee over two cards must make a set with a box and a toolbar');
 	if (set.outlines !== 0) {
 		throw new Error('No outline of the marquee may be left after it.');
+	}
+	// The toolbar of a set says what each of its buttons does, and shows no bare number.
+	if (!same(set.names, ['Arrange', 'Duplicate', 'Copy Paths', 'Delete']) || await page.locator('.basehalf-canvas-selection-count').count() !== 0) {
+		throw new Error(`The toolbar of a set must name its buttons: ${JSON.stringify(set.names)}`);
 	}
 
 	// The box takes the pointer: a click and a double click change nothing.
