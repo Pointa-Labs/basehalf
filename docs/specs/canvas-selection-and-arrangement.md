@@ -79,7 +79,8 @@ Not in scope, and unchanged:
   cards.
 - **Set**: two or more selected cards.
 - **Set box**: the smallest rectangle that holds the card rectangles of a
-  set.
+  set and the captions above them. A caption takes the pointer, so the box
+  holds it: a press on the name of a card of a set is a press on the box.
 - **Connection**: a connection that the canvas draws between two of its
   cards. It runs from the upstream card to the downstream card.
 - **Group**: cards of one canvas that connections join, directly or through
@@ -211,11 +212,13 @@ is drawn.
 - Connections are not marked and not selected.
 - Near the edge of the scene the canvas moves and the marquee grows with
   it, as before this specification. The point of the press stays where it
-  was on the canvas.
+  was on the canvas. A wheel that moves the canvas while the button is held
+  is followed in the same way.
 - Nothing is saved and nothing is sent to the workbench.
 
-**When the button is released.** The cards in the marquee are the
-selection:
+**When the button is released.** A marquee that is released while the
+selection is still being cleared, because a Note is closing, selects when
+that is done. The cards in the marquee are the selection:
 
 - none: nothing is selected;
 - one: that card is the one selected card;
@@ -232,7 +235,9 @@ No marquee is drawn while a video card waits for the user to pick an input.
 
 **Each card** of a set shows the selected outline. It shows none of the
 controls of a single card: no resize targets, no connection handles, no
-Note controls, no video controls.
+Note controls, no video controls. The card has no capture circles while it
+is part of a set, because the half of a circle that reaches outside the box
+would show its handles.
 
 **The set box** is the one thing a set has that a card has not.
 
@@ -257,6 +262,7 @@ Note controls, no video controls.
 | Shift-click in a gap | Nothing changes. |
 | Secondary click | Nothing changes, and no menu is shown. |
 | A wheel gesture that begins on it | The canvas moves. A Note under the box does not scroll. |
+| A connection line that is released on it | Nothing is connected and no menu opens, as on a card. |
 
 **The set toolbar** stands above the box, or below it when there is no room
 above, as the toolbar of a single card does. From the left it has:
@@ -268,6 +274,8 @@ above, as the toolbar of a single card does. From the left it has:
    specification.
 
 Delete, Backspace, and the duplicate key act on the whole set, as before.
+The arrow keys do nothing while a set is selected, also when one of its
+cards has the keyboard focus.
 
 **Leaving the set.** A set ends when the user clicks on empty canvas, draws
 a marquee, selects a connection, opens the context menu of empty canvas or
@@ -283,7 +291,9 @@ fewer than two of its cards are left.
   as the controls of a single card do.
 - Snap to cards acts on the set box as it acts on one card.
 - Near the edge of the scene the canvas moves, as when one card is dragged.
-- Escape during the move puts every card back, as for one card.
+- Escape during the move puts every card back, as for one card. No card
+  is left marked as being dragged: a card that was would have no capture
+  circles afterwards.
 - When the set is dropped it is still the selection, with the same cards.
 - The move is saved as one change and is one step of undo. Undo puts every
   card back and leaves the selection as it is.
@@ -326,7 +336,8 @@ corner of the set box before the arrangement.
 
 **The button.** The view controls at the lower left of the canvas begin
 with a **Tidy Canvas** button, before Snap to Cards and the zoom control.
-Shift+Alt+F does the same while the canvas has the keyboard focus. The
+Shift+Alt+F does the same while the keyboard focus is in the canvas and not
+in a place for typing, so also while a button of the canvas has it. The
 button is disabled while the canvas shows fewer than two cards and while a
 video card waits for the user to pick an input.
 
@@ -391,15 +402,21 @@ Canvas button: **Keep this arrangement?** with **Revert** and **Keep**.
   - A card that the user moved again in the meantime goes back as well.
   - A card that the tidy did not move stays where it is.
   - A card that is no longer on the canvas is passed over, and a card that
-    appeared in the meantime stays where it is.
+    appeared in the meantime stays where it is. A card whose item was
+    renamed in the meantime is passed over as well and stays at its tidied
+    place.
   - Only places go back. A size that changed in the meantime stays.
   - Each row is again what it was: a place that BaseHalf had chosen is
     again a chosen row.
   - The view goes back to what it showed before the tidy.
   - The revert is one step of undo of its own.
 - The question closes, and the result is kept, when the user tidies again,
-  presses Escape while the question has the focus, or leaves the canvas for
-  another folder. Closing or reloading the window keeps the result.
+  also when that tidy moves no card, presses Escape while the question has
+  the focus, or leaves the canvas for another folder. Closing or reloading
+  the window keeps the result.
+- When the question closes while one of its buttons has the keyboard focus,
+  the focus goes to the canvas. Undo and the keys of the canvas then work
+  without a click.
 - Undo of the tidy closes the question, because nothing is left to keep or
   revert. Redo of the tidy does not ask again.
 - The question belongs to the view controls and is hidden with them.
@@ -514,37 +531,47 @@ Moving
     box is around them.
 11. One undo after that move puts every card back, and the box is around
     them again.
-12. Escape during the move puts every card back and saves nothing.
+12. Escape during the move puts every card back and saves nothing. When
+    the set ends afterwards, its cards have their capture circles.
+13. The element at the caption of a card of a set is the box, and a drag
+    from there moves the set, which stays selected.
+14. The cards of a set have no capture circles, and another card has its
+    four.
+15. The arrow keys move no card of a set that was made by Shift-click, with
+    the focus on its last card.
 
 Arranging
 
-13. Row, Column, and Grid give the places that the rules above give, for
+16. Row, Column, and Grid give the places that the rules above give, for
     cards of different sizes. The unit tests state the numbers.
-14. An arrangement moves no card outside the set and changes no size.
-15. One undo takes an arrangement back. The set is still selected.
+17. An arrangement moves no card outside the set and changes no size.
+18. One undo takes an arrangement back. The set is still selected.
 
 Tidying
 
-16. Tidy Canvas with two cards selected moves cards outside the selection
+19. Tidy Canvas with two cards selected moves cards outside the selection
     as well, and the two cards are still selected afterwards.
-17. In a group, every connection that is part of the layout runs from a
+20. In a group, every connection that is part of the layout runs from a
     column to a column further right.
-18. A canvas with two groups and five singles gets the groups side by side
+21. A canvas with two groups and five singles gets the groups side by side
     and the grid of the singles after them.
-19. Tidying a tidied canvas moves no card and asks nothing.
-20. The question stays open while a card is clicked and while one is moved.
+22. Tidying a tidied canvas moves no card and asks nothing.
+23. The question stays open while a card is clicked and while one is moved.
     Revert then puts every card back where it was before the tidy, also the
     card that was moved, and the view is as before.
-21. After Revert, a row that was a chosen row before the tidy is one again.
-22. Keep closes the question and changes no place.
-23. A window that is reloaded while the question is open shows the tidied
+24. After Revert, a row that was a chosen row before the tidy is one again.
+25. Keep closes the question and changes no place.
+26. A window that is reloaded while the question is open shows the tidied
     canvas and no question.
-24. One undo takes a tidy back and closes the question.
+27. One undo takes a tidy back and closes the question.
+28. After Keep, and after Revert, undo works without a click on the canvas.
+29. Shift+Alt+F tidies while the Tidy Canvas button has the keyboard focus,
+    and a tidy that moves no card closes a question that is open.
 
 Storage
 
-25. A marquee, a Shift-click, and a click write nothing under `.bh/`.
-26. An arrangement, a tidy, and a revert each write the layout once.
+30. A marquee, a Shift-click, and a click write nothing under `.bh/`.
+31. An arrangement, a tidy, and a revert each write the layout once.
 
 ## Verification
 
@@ -554,14 +581,14 @@ Storage
   blocks that wrap.
 - Unit tests of the function that gives the state for a selection.
 - The smoke in the real window, on a fixture workspace with connected and
-  unconnected cards: criteria 1, 3, 5 to 12, 15, 16, 20, 22, and 24. Each
-  step also checks which element is at the pointer, because an element can
-  be drawn and still be covered.
+  unconnected cards. Each step also checks which element is at the pointer,
+  because an element can be drawn and still be covered.
 - Criterion 2 is measured in the real window on a canvas of 300 cards,
   frame by frame ([measured](#measured-on-2026-10-12)).
 - The step `canvas-selection-and-arrangement` of the smoke covers criteria
-  1, 3, 5 to 12, 15, 16, 20, 22, and 24 on a folder of five notes that it
-  writes and removes.
+  1, 3, 5 to 7, 10 to 14, 18, 19, 22 to 25, 27, and 28 on a folder of five
+  notes that it writes and removes. It leaves out the capture circles of
+  criterion 12, the drag of criterion 13, and Revert of criterion 28.
 
 ### Seen in the real window before the change, 2026-10-12
 
@@ -633,6 +660,29 @@ The same window and workspace, with the real pointer and keyboard.
   the view was as before. Undo of a second tidy took it back and closed the
   question. Shift+Alt+F tidied, Keep closed the question and changed no
   place, and tidying the tidied canvas moved no card and asked nothing.
+- After Keep, undo took the tidy back without a click on the canvas. With
+  the focus on the Tidy Canvas button, Shift+Alt+F tidied, and that tidy,
+  which moved no card, closed the open question.
+- In a set, the element at the caption of a card was the box, and a drag
+  from there moved the set, which stayed selected. The cards of the set had
+  no capture circles and another card had its four. After Escape during a
+  move and the end of the set, the cards had their circles again.
+- The arrow keys moved no card of a set made by Shift-click.
+- A marquee that began while the note of `c.md` was being edited closed the
+  note and selected the cards it touched. The note held what had been
+  typed.
+
+### Reviewed on 2026-10-12
+
+A second reader went through the change against this specification without
+running it, and tested the layout functions on 4,000 random canvases. What
+it found is fixed and is in the rules above: a caption outside the box, from
+which a set could still be dragged and then lost all cards but one; capture
+circles of a set's cards that reached outside the box; the keyboard focus
+that fell to the window when the question closed; the key that a focused
+button kept; a connection line released on the box; a card left marked as
+dragged after Escape; a marquee released before the selection was cleared;
+and a canvas moved by the wheel under a marquee.
 
 ### Measured on 2026-10-12
 

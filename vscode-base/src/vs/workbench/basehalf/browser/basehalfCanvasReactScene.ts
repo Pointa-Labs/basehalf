@@ -312,6 +312,8 @@ interface IBaseHalfCanvasScenePressGesture {
 	clientX: number;
 	clientY: number;
 	phase: 'pressed' | 'opening' | 'active';
+	/** The button was released while the marquee waited for the selection to clear. */
+	released: boolean;
 	startFlow: { readonly x: number; readonly y: number } | undefined;
 	boxed: ReadonlySet<string>;
 	drag: IBaseHalfCanvasNodeDragState | undefined;
@@ -530,17 +532,20 @@ export function captureBaseHalfCanvasNodeDragOrigins(
 		.map(node => Object.freeze({ id: node.id, x: node.position.x, y: node.position.y })));
 }
 
-export function restoreBaseHalfCanvasNodeDragOrigins<T extends { readonly id: string; readonly position: { readonly x: number; readonly y: number } }>(
+export function restoreBaseHalfCanvasNodeDragOrigins<T extends { readonly id: string; readonly position: { readonly x: number; readonly y: number }; readonly dragging?: boolean }>(
 	nodes: readonly T[],
 	origins: readonly IBaseHalfCanvasNodeDragOrigin[]
 ): T[] {
 	const byId = new Map(origins.map(origin => [origin.id, origin]));
 	return nodes.map(node => {
 		const origin = byId.get(node.id);
-		if (!origin || (node.position.x === origin.x && node.position.y === origin.y)) {
+		if (!origin || (node.position.x === origin.x && node.position.y === origin.y && !node.dragging)) {
 			return node;
 		}
-		return { ...node, position: { x: origin.x, y: origin.y } };
+		// The drag is over for this card. The changes that would say so are
+		// dropped once a drag is cancelled, and a card that still counted as
+		// dragged would get no capture circles.
+		return { ...node, position: { x: origin.x, y: origin.y }, ...(node.dragging ? { dragging: false } : {}) };
 	});
 }
 
@@ -2168,7 +2173,7 @@ function createCanvasSceneMount(
 		readonly onToggleAt: (clientX: number, clientY: number) => void;
 	}): ReactElement {
 		const viewport = vendor.useViewport();
-		const box = baseHalfCanvasBoundingRect(nodes.map(flowNodeRect));
+		const box = baseHalfCanvasBoundingRect(nodes.map(flowNodeRectWithCaption));
 		if (!box) {
 			return h(vendor.Fragment);
 		}
@@ -3542,8 +3547,11 @@ function createCanvasSceneMount(
 			}
 			endInteraction();
 			settleNodeDragChrome(drag);
+			// A set that was moved is still the set. One card that was dragged is
+			// the one selected card.
+			const movedSet = drag.selectionAtStart.length >= 2 && drag.selectionAtStart.includes(drag.primaryPath);
 			const settleSelection = drag.sceneKey === sceneKeyRef.current && drag.structuralEpoch === structuralEpochRef.current
-				? requestSelection({ cardPaths: [drag.primaryPath] })
+				? requestSelection({ cardPaths: movedSet ? drag.selectionAtStart : [drag.primaryPath] })
 				: Promise.resolve(false);
 			void settleSelection
 				.catch(error => delegate.reportError(error))
@@ -3601,6 +3609,7 @@ function createCanvasSceneMount(
 			})), true, 'arrange');
 		}, [applyNodesChange]);
 
+		const followSceneGesture = vendor.useRef<(() => void) | undefined>(undefined);
 		// What the gesture below calls. A gesture outlives the render it began in.
 		const sceneGesture = vendor.useRef({ applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome });
 		sceneGesture.current = { applyNodesChange, requestSelection, reportViewport, suppressNodeDragChrome, settleNodeDragChrome, revealNodeDragChrome };
@@ -3616,6 +3625,12 @@ function createCanvasSceneMount(
 			}
 			let gesture: IBaseHalfCanvasScenePressGesture | undefined;
 			let swallowClickUntil = 0;
+			// A wheel can move the canvas while the button is held.
+			followSceneGesture.current = () => {
+				if (gesture?.phase === 'active' && !gesture.released) {
+					follow(gesture);
+				}
+			};
 			const marquee = host.ownerDocument.createElement('div');
 			marquee.className = 'basehalf-canvas-marquee';
 			marquee.hidden = true;
@@ -3713,8 +3728,17 @@ function createCanvasSceneMount(
 				if (host.hasPointerCapture(current.pointerId)) {
 					host.releasePointerCapture(current.pointerId);
 				}
-				// The click that follows the release belongs to the gesture.
-				swallowClickUntil = view.performance.now() + 350;
+				if (!current.released) {
+					// The click that follows the release belongs to the gesture.
+					swallowClickUntil = view.performance.now() + 350;
+				}
+				if (current.kind === 'marquee' && current.phase === 'opening' && !cancelled && !current.released) {
+					// The selection is still being cleared, for example while a Note
+					// closes. The marquee selects when that is done.
+					current.released = true;
+					gesture = current;
+					return;
+				}
 				if (current.kind === 'marquee') {
 					const boxed = current.boxed;
 					showBoxed(new Set(), boxed);
@@ -3786,6 +3810,11 @@ function createCanvasSceneMount(
 						return;
 					}
 					current.phase = 'active';
+					if (current.released) {
+						drawMarquee(current);
+						finish(current, false);
+						return;
+					}
 					marquee.hidden = false;
 					drawMarquee(current);
 					autoPan(current);
@@ -3797,6 +3826,10 @@ function createCanvasSceneMount(
 				if (gesture?.phase === 'pressed') {
 					// Its release never came. A new press takes its place.
 					gesture = undefined;
+				}
+				if (gesture?.released) {
+					// A new press does not wait for a marquee that was let go.
+					finish(gesture, true);
 				}
 				if (gesture || event.button !== 0 || !event.isPrimary || host.dataset.videoInputPickActive || !isCanvasElement(event.target)) {
 					return;
@@ -3815,6 +3848,7 @@ function createCanvasSceneMount(
 					clientX: event.clientX,
 					clientY: event.clientY,
 					phase: 'pressed',
+					released: false,
 					startFlow: undefined,
 					boxed: new Set(),
 					drag: undefined,
@@ -3838,6 +3872,9 @@ function createCanvasSceneMount(
 				if (!current || event.pointerId !== current.pointerId) {
 					return;
 				}
+				if (current.released) {
+					return;
+				}
 				if (event.buttons === 0) {
 					// The button was released where no release reached the window.
 					finish(current, false);
@@ -3854,7 +3891,7 @@ function createCanvasSceneMount(
 				}
 			};
 			const onPointerUp = (event: PointerEvent): void => {
-				if (gesture && event.pointerId === gesture.pointerId) {
+				if (gesture && !gesture.released && event.pointerId === gesture.pointerId) {
 					finish(gesture, false);
 				}
 			};
@@ -3893,6 +3930,7 @@ function createCanvasSceneMount(
 				if (gesture) {
 					finish(gesture, true);
 				}
+				followSceneGesture.current = undefined;
 				marquee.remove();
 			};
 		}, [beginInteraction, endInteraction]);
@@ -4007,7 +4045,7 @@ function createCanvasSceneMount(
 				return;
 			}
 			const hit = host.ownerDocument.elementFromPoint(client.x, client.y);
-			if (hit?.closest('.react-flow__node, .react-flow__edge')) {
+			if (hit?.closest('.react-flow__node, .react-flow__edge, .basehalf-canvas-set-box')) {
 				return;
 			}
 			const flow = flowRef.current;
@@ -4240,6 +4278,14 @@ function createCanvasSceneMount(
 					return;
 				}
 				const selectedNodes = nodesRef.current.filter(node => node.selected);
+				if (selectedNodes.length >= 2 && !toolbarOwnsFocus
+					&& ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+					// The canvas library would move every selected card by the arrow
+					// keys of a focused card. A set is not moved by the keys.
+					event.preventDefault();
+					event.stopPropagation();
+					return;
+				}
 				if (!event.metaKey && !event.ctrlKey && !event.altKey
 					&& ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
 					&& selectedNodes.length === 1
@@ -4661,6 +4707,7 @@ function createCanvasSceneMount(
 				if (owner) {
 					reportViewport(owner, viewport, false);
 				}
+				followSceneGesture.current?.();
 			},
 			onMoveEnd: (_event, viewport) => {
 				const commandOwner = viewportCommandKey.current;
@@ -4826,8 +4873,11 @@ function createCanvasSceneMount(
 			return h(vendor.Fragment);
 		}
 		const captures: ReactNode[] = [];
+		// The cards of a set show no handles. The box covers only the inner half
+		// of a capture circle, so the circles of those cards are not drawn.
+		const set = nodes.filter(node => node.selected).length >= 2;
 		for (const node of nodes) {
-			if (node.dragging || baseHalfCanvasSceneCardIsNoteEditing(node.data.card)) {
+			if (node.dragging || (set && node.selected) || baseHalfCanvasSceneCardIsNoteEditing(node.data.card)) {
 				continue;
 			}
 			const bounds = {
@@ -4920,6 +4970,17 @@ function anchorFromHandle(value: string | null | undefined, fallback: BaseHalfCa
 
 function sceneEdgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
+}
+
+/**
+ * The rectangle of a card with the caption above it. The caption takes the
+ * pointer, so the box of a set holds it: a press on the name of a card of a
+ * set is a press on the box.
+ */
+function flowNodeRectWithCaption(node: BaseHalfCanvasFlowNode): IBaseHalfCanvasArrangeCard {
+	const rect = flowNodeRect(node);
+	const caption = BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT;
+	return { ...rect, y: rect.y - caption, height: rect.height + caption };
 }
 
 /** The rectangle of a card as the scene has it now. */

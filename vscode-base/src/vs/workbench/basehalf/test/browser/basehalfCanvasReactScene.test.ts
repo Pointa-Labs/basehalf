@@ -80,6 +80,27 @@ suite('BaseHalfCanvasReactScene', () => {
 		);
 	});
 
+	test('a cancelled drag leaves no card marked as being dragged', () => {
+		const untouched = { id: 'c', position: { x: 5, y: 5 }, dragging: true };
+		const nodes = [
+			{ id: 'a', position: { x: 40, y: 50 }, dragging: true },
+			{ id: 'b', position: { x: 10, y: 20 }, dragging: true },
+			untouched
+		];
+		const restored = restoreBaseHalfCanvasNodeDragOrigins(nodes, [{ id: 'a', x: 1, y: 2 }, { id: 'b', x: 10, y: 20 }]);
+		assert.deepStrictEqual(
+			{ restored, sameUntouched: restored[2] === untouched },
+			{
+				restored: [
+					{ id: 'a', position: { x: 1, y: 2 }, dragging: false },
+					{ id: 'b', position: { x: 10, y: 20 }, dragging: false },
+					{ id: 'c', position: { x: 5, y: 5 }, dragging: true }
+				],
+				sameUntouched: true
+			}
+		);
+	});
+
 	test('commits a geometry with the four decimal places that the layout stores', () => {
 		assert.deepStrictEqual(baseHalfCanvasSceneGeometryForCommit({
 			path: 'note.md',

@@ -10156,8 +10156,13 @@ async function assertCanvasSelectionAndArrangement(page) {
 	const dRect = await rectOf('d.md');
 	const eRect = await rectOf('e.md');
 	const gap = { x: (dRect.x + dRect.width + eRect.x) / 2, y: dCentre.y };
-	if (await elementAt(dCentre) !== 'basehalf-canvas-set-box' || await elementAt(gap) !== 'basehalf-canvas-set-box') {
-		throw new Error('The box of a set must be at the pointer over its cards and in its gaps.');
+	const dCaption = { x: dRect.x + 30, y: dRect.y - (dRect.y - set.box.top) / 2 };
+	if (await elementAt(dCentre) !== 'basehalf-canvas-set-box' || await elementAt(gap) !== 'basehalf-canvas-set-box' || await elementAt(dCaption) !== 'basehalf-canvas-set-box') {
+		throw new Error('The box of a set must be at the pointer over its cards, over their captions, and in its gaps.');
+	}
+	const circles = await page.evaluate(prefix => ['d.md', 'e.md', 'a.md'].map(name => document.querySelectorAll(`.basehalf-canvas-connect-capture[data-node-id="${prefix}${name}"]`).length), `${folderName}/`);
+	if (!same(circles, [0, 0, 4])) {
+		throw new Error(`The cards of a set must have no capture circles, and another card its four: ${JSON.stringify(circles)}`);
 	}
 	await page.mouse.click(dCentre.x, dCentre.y);
 	await page.mouse.dblclick(gap.x, gap.y);
@@ -10189,17 +10194,19 @@ async function assertCanvasSelectionAndArrangement(page) {
 		throw new Error(`A drag from a gap of the box must move the cards of the set by the same amount and no other card: ${JSON.stringify(movedRows)}`);
 	}
 	const movedState = await expectState({ cards: ['d.md', 'e.md'], connections: 0, box: true, count: '2' }, 'After it is moved, a set must still be the selection');
+	// The box holds the captions above its cards: its top edge is above the cards by the caption.
+	const boxIsAround = (box, rect) => !!box && Math.abs(box.left - rect.x) <= 3 && rect.y - box.top > 5 && rect.y - box.top < 45;
 	const movedD = await rectOf('d.md');
-	if (!movedState.box || Math.abs(movedState.box.left - movedD.x) > 3 || Math.abs(movedState.box.top - movedD.y) > 3) {
-		throw new Error(`After a move the box must be around its cards: ${JSON.stringify({ box: movedState.box, card: movedD })}`);
+	if (!boxIsAround(movedState.box, movedD)) {
+		throw new Error(`After a move the box must be around its cards and their captions: ${JSON.stringify({ box: movedState.box, card: movedD })}`);
 	}
 	await page.keyboard.press(undoKey);
 	await waitUntil(() => same(rowsOf(), first), 'undo to put the set back', 10_000);
 	await page.waitForTimeout(600);
 	const undoneState = await expectState({ cards: ['d.md', 'e.md'], connections: 0, box: true, count: '2' }, 'After undo of a move the set must still be the selection');
 	const undoneD = await rectOf('d.md');
-	if (!undoneState.box || Math.abs(undoneState.box.left - undoneD.x) > 3 || Math.abs(undoneState.box.top - undoneD.y) > 3) {
-		throw new Error(`After undo the box must be around its cards: ${JSON.stringify({ box: undoneState.box, card: undoneD })}`);
+	if (!boxIsAround(undoneState.box, undoneD)) {
+		throw new Error(`After undo the box must be around its cards and their captions: ${JSON.stringify({ box: undoneState.box, card: undoneD })}`);
 	}
 
 	// Escape during a move puts the set back and saves nothing.
@@ -10288,6 +10295,14 @@ async function assertCanvasSelectionAndArrangement(page) {
 	if ((await readState()).question !== 0 || !same(rowsOf(), tidied)) {
 		throw new Error(`Keep must close the question and change no place: ${JSON.stringify(rowsOf())}`);
 	}
+	// Keep leaves the focus on the canvas: undo works without a click, and so does the key of Tidy Canvas.
+	await page.keyboard.press(undoKey);
+	await waitUntil(() => same(rowsOf(), first), 'undo, right after Keep, to take the tidy back', 10_000);
+	await page.keyboard.press('Shift+Alt+KeyF');
+	await waitUntil(() => same(rowsOf(), tidied), 'Shift+Alt+F to tidy the canvas', 10_000);
+	await page.waitForTimeout(900);
+	await page.locator('[data-testid="canvas-tidy-keep"]').click();
+	await page.waitForTimeout(400);
 	// A tidied canvas: nothing moves and nothing is asked.
 	await page.locator('[data-testid="canvas-tidy"]').click();
 	await page.waitForTimeout(1_500);

@@ -25,8 +25,9 @@ Not in scope, and unchanged:
 
 - When handles exist and when they are hidden: while a Note is being edited,
   while the card is moved, and while it is resized. The cards of a set of
-  selected cards show no handles either: the box of the set lies over their
-  capture circles and takes the pointer
+  selected cards show no handles either: the box of the set takes the
+  pointer over them, and their capture circles are not there while they are
+  part of the set
   ([canvas selection and arrangement](canvas-selection-and-arrangement.md#a-set)).
 - Snapping onto a target handle during a drag (a 48-pixel connection radius),
   click-to-connect, connecting into a card, and reconnecting an edge.

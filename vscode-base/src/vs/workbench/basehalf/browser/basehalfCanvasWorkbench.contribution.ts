@@ -267,7 +267,7 @@ import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRic
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { IBaseHalfCardDetailSurfaceInstance, IBaseHalfCardDetailSurfaceRegistryService } from './cardDetail/basehalfCardDetailSurface.js';
 import { BaseHalfMediaCardDetail } from './cardDetail/basehalfMediaCardDetail.js';
-import { BaseHalfCanvasReactScene, baseHalfCanvasTargetBlocksGraphShortcuts } from './basehalfCanvasReactScene.js';
+import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
 import { releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
 import {
 	BaseHalfCanvasInteractionRenderGate,
@@ -1745,6 +1745,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
+		// Tidy Canvas is disabled while a video card waits for the user to pick
+		// an input.
+		const videoInputPickObserver = new mainWindow.MutationObserver(() => this.updateCanvasTidyChrome());
+		videoInputPickObserver.observe(this.cards, { attributes: true, attributeFilter: ['data-video-input-pick-active'] });
+		this._register(toDisposable(() => videoInputPickObserver.disconnect()));
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
 		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
@@ -2401,6 +2406,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = 0;
+			this.updateCanvasTidyChrome();
+			this.closeTidyQuestion();
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			this.cardListenerStores.clear();
@@ -2451,6 +2458,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
+			this.updateCanvasTidyChrome();
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			this.cardListenerStores.clear();
@@ -16212,7 +16220,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const label = localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", isMacintosh ? '⇧⌥F' : localize('basehalf.canvas.tidyKey', "Shift+Alt+F"));
 		this.tidyButton.title = label;
 		this.tidyButton.setAttribute('aria-label', label);
-		this.tidyButton.disabled = this.renderedSceneCards.length < 2;
+		this.tidyButton.disabled = this.renderedSceneCards.length < 2 || !!this.cards.dataset.videoInputPickActive;
 	}
 
 	/**
@@ -16251,9 +16259,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const viewport = this.canvasScene.getViewport();
 			const token = ++this.tidySequence;
 			let transition: IBaseHalfCanvasStateTransition | undefined;
+			// Tidying again keeps the result of the tidy before.
+			this.closeTidyQuestion();
 			if (moved.length > 0) {
-				// Tidying again keeps the result of the tidy before.
-				this.closeTidyQuestion();
 				transition = await this.commitCanvasGeometry(sceneKey, structuralEpoch, moved, localize('basehalf.canvas.tidy.undo', "Tidy canvas"), reverse => {
 					// Undo of the tidy leaves nothing to keep or revert.
 					if (reverse && this.tidyQuestion?.token === token) {
@@ -16267,6 +16275,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// The scene draws the new places in its next frames, and the view is
 			// fitted to what is drawn.
 			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => mainWindow.requestAnimationFrame(() => resolve())));
+			if (!this.isCurrentSceneKey(sceneKey)) {
+				return;
+			}
 			this.fitCanvasToScreen();
 			const previous = new Map<string, IBaseHalfCanvasCard>();
 			for (const card of transition?.cards ?? []) {
@@ -16311,7 +16322,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				event.preventDefault();
 				event.stopPropagation();
 				this.closeTidyQuestion();
-				this.tidyButton.focus();
 			}
 		}));
 		this.tidyQuestion = question;
@@ -16326,7 +16336,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.tidyQuestion = undefined;
 		question.listeners.dispose();
+		// A button of the question may hold the focus. Without it the focus
+		// would fall to the window, where the canvas takes no undo and no key.
+		const heldFocus = question.element.contains(question.element.ownerDocument.activeElement);
 		question.element.remove();
+		if (heldFocus) {
+			this.cards.focus({ preventScroll: true });
+		}
 	}
 
 	/**
@@ -16725,7 +16741,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private onCanvasKeyDown(event: KeyboardEvent): void {
 		if (!this.canvasNavigationService.state.cardDetail && event.shiftKey && event.altKey && !event.metaKey && !event.ctrlKey
-			&& event.code === 'KeyF' && !event.isComposing && !baseHalfCanvasTargetBlocksGraphShortcuts(event.target)) {
+			&& event.code === 'KeyF' && !event.isComposing
+			&& !(DOM.isHTMLElement(event.target) && (DOM.isEditableElement(event.target) || event.target.isContentEditable))) {
 			event.preventDefault();
 			event.stopPropagation();
 			void this.tidyCanvas();
