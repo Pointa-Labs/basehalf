@@ -62,6 +62,14 @@ looked the same.
 - **The Release Notes page can be skipped for good.** It opens once after the
   version changed, in the window that had focus last. The version is stored
   before that is checked, so a start without such a window never shows it.
+- **The Release Notes page is blank.** Found on 2026-10-12, after the rest of
+  this specification was implemented: up to 0.5.0 the page opens, the title
+  bar names it, and the main surface shows nothing, also when the page is
+  opened by its command. The page is put over the editor area by an element
+  that clips it to that area. An element that clips is a layer of its own,
+  and it had no level, while BaseHalf gives the editor area one so that the
+  canvas can be above or below it. The page was behind the editor area. The
+  smoke asked whether the page was there and not whether it could be seen.
 - **Installed applications refuse an archive above 500 MiB.** The limit is
   built into every release so far. The archive of 0.5.0 is 438 MiB.
 - **Nothing tests an update.** The unit tests cover versions, the manifest,
@@ -271,6 +279,9 @@ not changed.
 
 - The Release Notes page opens once in the first start of a new version, as
   in the first version.
+- **The page is shown.** Its text is what the main surface shows: on top of
+  the editor area and of the canvas, not behind them. This holds for every
+  page that the main surface shows in a webview, however it was opened.
 - The version counts as shown when the page was opened. A start in which it
   was not opened leaves it for the next.
 
@@ -349,7 +360,10 @@ Unit tests unless another kind is named.
 9. **The version.** About, the update tooltip, and the bundle's short version
    string show BaseHalf's version.
 10. **Release notes.** A start in which the page was not opened leaves the
-    version unrecorded, and the next start opens the page.
+    version unrecorded, and the next start opens the page. An overlay that
+    clips takes the level that puts it above what it is placed over. Smoke:
+    with the page opened by its command, what is at the middle of the main
+    surface is the page.
 11. **The size.** The release script refuses an archive above the limit that
     installed applications accept.
 12. **An installed application is updated.** Recorded for each release, with

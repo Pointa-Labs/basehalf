@@ -108,6 +108,11 @@ export class OverlayLayoutElement implements IDisposable {
 	 * Walk up from the anchor element to find the nearest ancestor with an explicit
 	 * z-index and place the overlay one level above it. This ensures the overlay sits
 	 * above modal layers or other stacking contexts.
+	 *
+	 * BaseHalf: a root that clips is a stacking context of its own, so the level
+	 * of the content does not reach outside it, and the root has to take the
+	 * level too. Without it the overlay is behind every anchor that is inside
+	 * an element with a level, which the editor area of BaseHalf is.
 	 */
 	private _updateZIndex(anchorElement: HTMLElement): void {
 		let zIndex = '';
@@ -119,6 +124,7 @@ export class OverlayLayoutElement implements IDisposable {
 			}
 		}
 		this.content.style.zIndex = zIndex;
+		this._root.style.zIndex = this._clippingAnchor ? zIndex : '';
 	}
 
 	private _updateClipping(clippingContainer: HTMLElement | undefined): void {

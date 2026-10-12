@@ -2286,6 +2286,20 @@ async function assertBaseHalfReleaseNotesSystemPage(page) {
 	const frame = await activeReleaseNotesFrame(page);
 	await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).waitFor({ state: 'visible', timeout: 20_000 });
 	await frame.locator('body', { hasText: 'Release Notes open as a system page' }).waitFor({ state: 'visible', timeout: 20_000 });
+	// The page has to be what the main surface shows. A frame that is there
+	// and laid out can still be behind the editor area, where nobody sees it
+	// (app update, "After an update").
+	const onTop = await page.evaluate(() => {
+		const surface = document.querySelector('.part.editor.basehalf-canvas-host')?.getBoundingClientRect();
+		if (!surface) {
+			return 'no main surface';
+		}
+		const top = document.elementFromPoint(Math.round(surface.x + surface.width / 2), Math.round(surface.y + surface.height / 2));
+		return top instanceof HTMLIFrameElement && top.classList.contains('webview') ? 'the page' : `${top?.tagName.toLowerCase()}.${String(top?.className).split(/\s+/).slice(0, 3).join('.')}`;
+	});
+	if (onTop !== 'the page') {
+		throw new Error(`The Release Notes page is open and not shown: at the middle of the main surface is ${onTop}.`);
+	}
 	await assertNoEditorTabFor(page, 'Release Notes');
 	if (await page.locator('.basehalf-command-center-breadcrumbs').isVisible().catch(() => false)) {
 		throw new Error('BaseHalf file breadcrumbs remained visible over a system page');
