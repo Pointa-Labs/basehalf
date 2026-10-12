@@ -387,7 +387,13 @@ tidied canvas moves no card.
 - When at least one card moved, the [question](#keep-or-revert) is asked.
   When no card moved, nothing else happens.
 - The tidy is saved as one change and is one step of undo.
-- A card whose place did not change keeps its row as it is.
+- A card whose place did not change keeps its row as it is, and takes no
+  part in the change: moving such a card afterwards does not keep undo from
+  taking the tidy back.
+- Which cards move is decided against the layout as it is saved, not
+  against what the canvas draws. The two differ for a moment after an undo,
+  and a tidy in that moment still moves every card that the layout has
+  elsewhere.
 
 ### Keep or revert
 
@@ -683,6 +689,10 @@ that fell to the window when the question closed; the key that a focused
 button kept; a connection line released on the box; a card left marked as
 dragged after Escape; a marquee released before the selection was cleared;
 and a canvas moved by the wheel under a marquee.
+
+The step of the smoke then found one more: a tidy right after an undo moved
+nothing, because it compared the new places with what the canvas still
+drew. It now compares them with the layout.
 
 ### Measured on 2026-10-12
 

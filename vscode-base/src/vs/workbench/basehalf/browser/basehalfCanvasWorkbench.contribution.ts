@@ -3239,13 +3239,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	/**
 	 * Saves the places and sizes of cards in one change of the layout and one
 	 * step of undo, and gives the scene the result. Returns what changed.
+	 *
+	 * With `placesOnly` the sizes in the layout stay as they are, and the change
+	 * holds only the cards whose place is new. The caller then need not know
+	 * what the layout holds: what the canvas draws can be a moment behind it,
+	 * for example right after an undo.
 	 */
 	private async commitCanvasGeometry(
 		sceneKey: string,
 		structuralEpoch: number,
 		requested: readonly IBaseHalfCanvasSceneGeometry[],
 		undoLabel: string,
-		didApplyUndoOrRedo?: (reverse: boolean) => void
+		didApplyUndoOrRedo?: (reverse: boolean) => void,
+		placesOnly = false
 	): Promise<IBaseHalfCanvasStateTransition | undefined> {
 		if (requested.length === 0) {
 			return undefined;
@@ -3262,7 +3268,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return path === undefined ? geometry : { ...geometry, path };
 		});
 		let committedTransition: IBaseHalfCanvasStateTransition | undefined;
-		const nodes = geometries.map(geometry => ({ path: geometry.path, kind: geometry.kind }));
+		let nodes = geometries.map(geometry => ({ path: geometry.path, kind: geometry.kind }));
 		try {
 			await this.workspaceMutationCoordinator.runSceneMutation(
 				queuedFolder.workspaceFolder,
@@ -3277,11 +3283,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					const current = await this.canvasMirrorService.readCanvas(folder);
 					const cards: IBaseHalfCanvasCardStateTransition[] = geometries.map(geometry => {
 						const expected = current?.cards.find(card => card.path === geometry.path) ?? null;
+						const width = placesOnly && expected ? expected.width : geometry.width;
+						const height = placesOnly && expected ? expected.height : geometry.height;
 						// A gesture that ends where it began changed nothing: a place
 						// BaseHalf chose stays one BaseHalf chose.
 						const unchanged = expected !== null && expected.kind === geometry.kind
 							&& expected.x === geometry.x && expected.y === geometry.y
-							&& expected.width === geometry.width && expected.height === geometry.height;
+							&& expected.width === width && expected.height === height;
 						return {
 							path: geometry.path,
 							expected,
@@ -3290,12 +3298,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 								kind: geometry.kind,
 								x: geometry.x,
 								y: geometry.y,
-								width: geometry.width,
-								height: geometry.height
+								width,
+								height
 							}
 						};
 					});
-					committedTransition = { cards };
+					// A card whose row stays as it is takes no part in the change: undo
+					// would otherwise refuse once such a card is moved afterwards.
+					committedTransition = { cards: placesOnly ? cards.filter(card => card.next !== card.expected) : cards };
 					await this.canvasMirrorService.transitionCanvasState(folder, committedTransition, lease);
 					// Over a layout that could not be read in full they could not be saved
 					// before. This write made it readable.
@@ -3311,6 +3321,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (committedTransition) {
 			this.supersedeCanvasReadsBeforeGeometryCommit();
 		}
+		if (placesOnly && committedTransition) {
+			const changed = new Set((committedTransition as IBaseHalfCanvasStateTransition).cards?.map(card => card.path));
+			nodes = nodes.filter(node => changed.has(node.path));
+		}
 		if (committedTransition && canvasStateTransitionChangesAnything(committedTransition)) {
 			this.pushCanvasUndoElement(
 				undoLabel,
@@ -3324,10 +3338,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			);
 		}
 		if (this.isCurrentSceneKey(sceneKey) && this.renderedSceneStructuralEpoch === structuralEpoch) {
-			const geometryByPath = new Map(geometries.map(geometry => [geometry.path, geometry]));
+			// With `placesOnly` the scene gets the rows that were written, which
+			// keep the sizes of the layout.
+			const committedRows = placesOnly ? (committedTransition as IBaseHalfCanvasStateTransition | undefined)?.cards?.flatMap(card => card.next ? [card.next] : []) : undefined;
+			const geometryByPath = new Map<string, Pick<IBaseHalfCanvasSceneGeometry, 'x' | 'y' | 'width' | 'height'>>((committedRows ?? geometries).map(geometry => [geometry.path, geometry]));
 			this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => {
 				const geometry = geometryByPath.get(card.path);
-				return geometry ? { ...card, ...geometry } : card;
+				return geometry ? { ...card, x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height } : card;
 			}));
 			this.canvasScene.update({
 				key: sceneKey,
@@ -16249,26 +16266,25 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// A place is saved with the decimal places that the layout keeps.
 			const stored = (value: number): number => Number(value.toFixed(4));
 			const placeOf = new Map(baseHalfCanvasTidy(cards, this.renderedSceneEdges).map(place => [place.path, { x: stored(place.x), y: stored(place.y) }]));
-			const moved: IBaseHalfCanvasSceneGeometry[] = [];
+			const places: IBaseHalfCanvasSceneGeometry[] = [];
 			for (const card of cards) {
 				const place = placeOf.get(card.path);
-				if (place && (place.x !== card.x || place.y !== card.y)) {
-					moved.push({ path: card.path, kind: card.kind, x: place.x, y: place.y, width: card.width, height: card.height });
+				if (place) {
+					places.push({ path: card.path, kind: card.kind, x: place.x, y: place.y, width: card.width, height: card.height });
 				}
 			}
 			const viewport = this.canvasScene.getViewport();
 			const token = ++this.tidySequence;
-			let transition: IBaseHalfCanvasStateTransition | undefined;
 			// Tidying again keeps the result of the tidy before.
 			this.closeTidyQuestion();
-			if (moved.length > 0) {
-				transition = await this.commitCanvasGeometry(sceneKey, structuralEpoch, moved, localize('basehalf.canvas.tidy.undo', "Tidy canvas"), reverse => {
-					// Undo of the tidy leaves nothing to keep or revert.
-					if (reverse && this.tidyQuestion?.token === token) {
-						this.closeTidyQuestion();
-					}
-				});
-			}
+			// The layout says which cards move. What the canvas draws can be a
+			// moment behind it, for example right after an undo.
+			const transition = await this.commitCanvasGeometry(sceneKey, structuralEpoch, places, localize('basehalf.canvas.tidy.undo', "Tidy canvas"), reverse => {
+				// Undo of the tidy leaves nothing to keep or revert.
+				if (reverse && this.tidyQuestion?.token === token) {
+					this.closeTidyQuestion();
+				}
+			}, true);
 			if (!this.isCurrentSceneKey(sceneKey)) {
 				return;
 			}
