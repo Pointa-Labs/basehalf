@@ -4,12 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { $, addDisposableListener, append, EventType, isHTMLElement } from '../../../../base/browser/dom.js';
-import { renderMarkdown } from '../../../../base/browser/markdownRenderer.js';
+import { allowedMarkdownHtmlTags, renderMarkdown } from '../../../../base/browser/markdownRenderer.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { MarkdownString } from '../../../../base/common/htmlContent.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import type { Token, Tokens } from '../../../../base/common/marked/marked.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { dirname, isEqual, joinPath } from '../../../../base/common/resources.js';
+import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { Range } from '../../../../editor/common/core/range.js';
@@ -208,10 +210,37 @@ export class BaseHalfCanvasMarkdownRequiresRichEditorError extends Error {
 	}
 }
 
+const storedMarkdownHtmlTags: ReadonlySet<string> = new Set(allowedMarkdownHtmlTags);
+
+/**
+ * HTML that a note may show as elements stays HTML. Any other HTML becomes
+ * text before it is rendered, so that it is shown as the author wrote it. The
+ * sanitizer would rebuild it from parsed elements instead, in lower case and
+ * with end tags the note does not have.
+ */
+function showOtherHtmlAsWritten(token: Token): void {
+	if (token.type !== 'html') {
+		return;
+	}
+	const names = [...token.raw.matchAll(/<\/?(?<name>[A-Za-z][A-Za-z0-9-]*)/g)].map(match => match.groups?.name.toLowerCase() ?? '');
+	if (names.length > 0 && names.every(name => storedMarkdownHtmlTags.has(name))) {
+		return;
+	}
+	// The renderer prints the text of a text token as it is, so the token
+	// carries its text already escaped.
+	const text = token as Tokens.Generic;
+	text.type = 'text';
+	text.text = escape(token.raw);
+	text.escaped = true;
+}
+
 /**
  * Renders a stored Markdown snapshot without the speculative token repair used
  * for partial streaming responses. A file projection must never invent source
  * characters that an editor could later mistake for user content.
+ *
+ * Every construct Markdown renders to is shown rendered, with the elements
+ * Card Detail's preview allows.
  */
 export function renderBaseHalfCanvasStoredMarkdown(
 	container: HTMLElement,
@@ -219,19 +248,25 @@ export function renderBaseHalfCanvasStoredMarkdown(
 	source: string,
 	onOpenLink?: (href: string) => void
 ): IDisposable {
-	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: false });
+	const markdown = new MarkdownString(source, { isTrusted: false, supportHtml: true });
 	markdown.baseUri = resource;
-	return renderMarkdown(markdown, {
+	const rendered = renderMarkdown(markdown, {
 		...(onOpenLink ? { actionHandler: onOpenLink } : {}),
 		fillInIncompleteTokens: false,
 		markedOptions: { gfm: true, breaks: true },
+		markedExtensions: [{ walkTokens: showOtherHtmlAsWritten }],
 		sanitizerConfig: {
 			replaceWithPlaintext: true,
-			allowedTags: {
-				override: ['a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'hr', 'li', 'ol', 'p', 'pre', 'strong', 'ul']
-			}
+			allowedTags: { override: allowedMarkdownHtmlTags }
 		}
 	}, container);
+	// A task item shows its box in place of the list bullet. The class is set
+	// here because a `:has()` rule on the canvas slows every card render.
+	// eslint-disable-next-line no-restricted-syntax
+	for (const box of rendered.element.querySelectorAll<HTMLInputElement>('li > input[type="checkbox"], li > p:first-child > input[type="checkbox"]')) {
+		box.closest('li')?.classList.add('bh-md-task');
+	}
+	return rendered;
 }
 
 /** Render only the authored Markdown body shared by resting and inline views. */

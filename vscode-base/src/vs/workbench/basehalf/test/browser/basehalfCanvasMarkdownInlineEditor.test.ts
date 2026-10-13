@@ -104,6 +104,115 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 		}
 	});
 
+	/** What a stored note shows: its elements by name, and the text a reader sees. */
+	function renderedNote(source: string): { readonly elements: Record<string, number>; readonly text: string; readonly root: HTMLElement; readonly dispose: () => void } {
+		const root = document.createElement('div');
+		const rendering = renderBaseHalfCanvasStoredMarkdown(root, URI.file('/notes/note.md'), source);
+		const elements: Record<string, number> = {};
+		for (const element of root.querySelectorAll('*')) {
+			const name = element.tagName.toLowerCase();
+			elements[name] = (elements[name] ?? 0) + 1;
+		}
+		return { elements, text: root.textContent ?? '', root, dispose: () => rendering.dispose() };
+	}
+
+	test('a stored table is shown as a table and not as its tags', () => {
+		const note = renderedNote([
+			'| 开始时间 | close |',
+			'|:---|---:|',
+			'| 11:00 | **24,747.3** |',
+			'| 12:00 | a<br>b |',
+			''
+		].join('\n'));
+		try {
+			assert.deepStrictEqual({
+				elements: note.elements,
+				cells: [...note.root.querySelectorAll('th, td')].map(cell => `${cell.getAttribute('align')}:${cell.textContent}`),
+				tagsShownAsText: /<\/?(?:table|thead|tbody|tr|th|td|br)\b/.test(note.text)
+			}, {
+				elements: { table: 1, thead: 1, tbody: 1, tr: 3, th: 2, td: 4, strong: 1, br: 1 },
+				cells: ['left:开始时间', 'right:close', 'left:11:00', 'right:24,747.3', 'left:12:00', 'right:ab'],
+				tagsShownAsText: false
+			});
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('every Markdown construct of a stored note is shown rendered', () => {
+		const note = renderedNote([
+			'#### Four',
+			'',
+			'##### Five',
+			'',
+			'###### Six',
+			'',
+			'- [ ] open',
+			'- [x] done',
+			'- plain',
+			'',
+			'![picture](images/p.png)',
+			'',
+			'H<sub>2</sub>O and <kbd>Cmd</kbd>',
+			''
+		].join('\n'));
+		try {
+			const boxes = [...note.root.querySelectorAll<HTMLInputElement>('input')];
+			assert.deepStrictEqual({
+				elements: note.elements,
+				boxes: boxes.map(box => `${box.type}:${box.checked}:${box.disabled}`),
+				taskItems: [...note.root.querySelectorAll('li')].map(item => item.classList.contains('bh-md-task')),
+				image: note.root.querySelector('img')?.getAttribute('src')?.endsWith('/notes/images/p.png'),
+				tagsShownAsText: /<\/?[a-z][a-z0-9]*\b[^<>]*>/i.test(note.text)
+			}, {
+				elements: { h4: 1, h5: 1, h6: 1, ul: 1, li: 3, input: 2, p: 2, img: 1, sub: 1, kbd: 1 },
+				boxes: ['checkbox:false:true', 'checkbox:true:true'],
+				taskItems: [true, true, false],
+				image: true,
+				tagsShownAsText: false
+			});
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('a stored note never becomes a live element or a command', () => {
+		const source = [
+			'<script>alert(1)</script>',
+			'',
+			'<iframe src="https://example.com"></iframe>',
+			'',
+			'A List<String> and <input type="text" value="typed">.',
+			'',
+			'<div><script>alert(2)</script></div>',
+			'',
+			'<!-- a comment -->',
+			'',
+			'[quit](command:workbench.action.quit)',
+			''
+		].join('\n');
+		const note = renderedNote(source);
+		try {
+			assert.deepStrictEqual({
+				live: ['script', 'iframe', 'input', 'string', 'div'].filter(name => note.elements[name]),
+				shownAsWritten: [
+					'<script>alert(1)</script>',
+					'<iframe src="https://example.com"></iframe>',
+					'A List<String> and <input type="text" value="typed">.',
+					'<div><script>alert(2)</script></div>',
+					'<!-- a comment -->'
+				].filter(text => !note.text.includes(text)),
+				commands: [...note.root.querySelectorAll<HTMLElement>('a')].map(link => link.dataset.href)
+			}, {
+				live: [],
+				shownAsWritten: [],
+				commands: []
+			});
+		} finally {
+			note.dispose();
+		}
+	});
+
 	test('resting Markdown renders the same frontmatter-free body as inline editing', () => {
 		const source = '---\r\ntitle: Hidden metadata\r\ntags:\r\n  - test\r\n---\r\n# Visible body\r\n\r\nBody text  \r\n';
 		const before = source;

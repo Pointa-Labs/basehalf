@@ -1634,3 +1634,28 @@ that cost for those who do need the mode.
 - A profile that already holds `on` keeps it. The product is not released,
   and no setting is migrated.
 - The canvas is not readable by a screen reader in either mode.
+
+## D54 — A note is shown rendered wherever it is read (NEW, 2026-10-13)
+
+**Decision.** A Markdown Note card shows the rendered form of its note: a
+table as a grid, an image as a picture, a task as a box, and the HTML that
+Markdown allows as elements. The characters of the file are for Card
+Detail's Source projection. The blocks that cannot be edited on the card
+stay rendered while the card is edited. See
+[note rendering](specs/note-rendering.md).
+
+**Why.** Since cards can be edited in place (2026-08-09), the card rendered
+only the sixteen elements its editor can edit and printed every other
+element as text. A pipe table appeared as `<table> <thead> <tr> <th>…`. The
+user of BaseHalf does not read code, and notes written by agents are full of
+tables. What can be edited in place and what can be shown are two questions:
+the first is the editor's limit, and it must not decide the second.
+
+**Consequences.**
+- A table is as wide as the card at most. With many columns on a narrow
+  card its words break; the user widens the card or opens Card Detail.
+- Images of a note are loaded when its card is drawn.
+- HTML outside the allowed elements is still shown as text, letter for
+  letter, and never becomes an element.
+- Card Detail's rich projection still shows a block it cannot edit as the
+  text of the file.

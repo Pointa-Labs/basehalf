@@ -291,6 +291,7 @@ try {
 			await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 			await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
 			await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
+			await step('canvas-note-renders-markdown', () => assertCanvasNoteRendersMarkdown(page));
 			await step('agent-creates-card', () => assertAgentCreatesCard(page));
 			await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 			await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -328,6 +329,7 @@ try {
 				'canvas-cards-follow-many-outside-renames',
 				'canvas-new-files-go-to-the-end',
 				'canvas-note-wheel-scroll',
+				'canvas-note-renders-markdown',
 				'agent-creates-card',
 				'canvas-connection-handle-capture',
 				'canvas-connect-into-note',
@@ -370,6 +372,7 @@ try {
 		await step('canvas-cards-follow-many-outside-renames', () => assertCanvasCardsFollowManyOutsideRenames(page));
 		await step('canvas-new-files-go-to-the-end', () => assertCanvasNewFilesGoToTheEnd(page));
 		await step('canvas-note-wheel-scroll', () => assertCanvasNoteWheelScroll(page));
+		await step('canvas-note-renders-markdown', () => assertCanvasNoteRendersMarkdown(page));
 		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('canvas-connection-handle-capture', () => assertCanvasConnectionHandleCapture(page));
 		await step('canvas-connect-into-note', () => assertCanvasConnectIntoNote(page));
@@ -511,6 +514,7 @@ try {
 			'canvas-cards-follow-many-outside-renames',
 			'canvas-new-files-go-to-the-end',
 			'canvas-note-wheel-scroll',
+			'canvas-note-renders-markdown',
 			'agent-creates-card',
 			'canvas-connection-handle-capture',
 			'canvas-connect-into-note',
@@ -10656,6 +10660,75 @@ async function assertCanvasNoteWheelScroll(page) {
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
 	await settled(longPath, 'A note must keep its scroll position when editing ends', now => now.scrollTop === 110);
+
+	await openRootCanvas(page);
+	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
+	fs.rmSync(path.join(workspacePath, '.bh', 'mirror', folderName), { recursive: true, force: true });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'detached', timeout: 15_000 });
+}
+
+// A note is shown rendered on its card: at rest, and in the blocks that stay
+// as they are while another block of the card is edited.
+async function assertCanvasNoteRendersMarkdown(page) {
+	const folderName = 'rendered';
+	const notePath = `${folderName}/table.md`;
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
+	const shown = () => card.evaluate(element => {
+		const note = element.querySelector('.basehalf-canvas-note-editor.ready .basehalf-canvas-markdown-inline') ?? element.querySelector('.bh-md-preview');
+		if (!(note instanceof HTMLElement)) {
+			return undefined;
+		}
+		const table = note.querySelector('table')?.getBoundingClientRect();
+		return {
+			headers: Array.from(note.querySelectorAll('thead th'), cell => cell.textContent).join('|'),
+			cells: note.querySelectorAll('tbody td').length,
+			linesInLastCell: note.querySelectorAll('tbody td:last-child br').length + 1,
+			smallHeadings: note.querySelectorAll('h4').length,
+			boxes: Array.from(note.querySelectorAll('li.bh-md-task input[type="checkbox"]'), box => box instanceof HTMLInputElement && box.checked && box.disabled ? 'done' : 'open').join('|'),
+			tagsAsText: /<\/?(?:table|thead|tbody|tr|th|td|br|h4|input)\b/.test(note.textContent ?? ''),
+			widerThanCard: note.scrollWidth - note.clientWidth,
+			table: table ? `${Math.round(table.width)}x${Math.round(table.height)}` : undefined
+		};
+	});
+	const columns = ['开始时间', 'ret_1h', 'ret_6h', 'ret_24h', 'vol_24h', 'buy_ratio', 'rel_volume', '标签 y'];
+
+	fs.mkdirSync(path.join(workspacePath, folderName), { recursive: true });
+	fs.writeFileSync(path.join(workspacePath, folderName, 'table.md'), [
+		'First paragraph.',
+		'',
+		`| ${columns.join(' | ')} |`,
+		`|${columns.map(() => '---').join('|')}|`,
+		'| 11:00 | +0.72% | +1.74% | +12.02% | 1.10% | 49.8% | 1.34 | up<br>next |',
+		'',
+		'#### Small heading',
+		'',
+		'- [ ] open',
+		'- [x] done',
+		''
+	].join('\n'), 'utf8');
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).dblclick();
+	await assertCanvasFolder(page, folderName);
+	await card.waitFor({ state: 'visible', timeout: 15_000 });
+	await zoomCanvas(page, 'reset');
+	await centerCanvasCards(page, [card]);
+	await card.locator('.bh-md-preview table').waitFor({ state: 'attached', timeout: 10_000 });
+
+	const rest = await shown();
+	const expected = { headers: columns.join('|'), cells: 8, linesInLastCell: 2, smallHeadings: 1, boxes: 'open|done', tagsAsText: false, widerThanCard: 0 };
+	if (JSON.stringify({ ...rest, table: undefined }) !== JSON.stringify(expected) || !rest.table) {
+		throw new Error(`A note at rest must show its table, small heading, and task boxes rendered and no wider than the card: ${JSON.stringify(rest)}`);
+	}
+
+	// The table cannot be edited on the card. It stays the same table while the paragraph is edited.
+	await card.locator('.bh-md-preview p', { hasText: 'First paragraph.' }).dblclick();
+	const editor = await waitForCanvasNoteInlineEditor(page, notePath);
+	const editing = await shown();
+	if (JSON.stringify(editing) !== JSON.stringify(rest)) {
+		throw new Error(`A table must look the same while another block of its note is edited: ${JSON.stringify({ rest, editing })}`);
+	}
+	await page.keyboard.press('Escape');
+	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
 
 	await openRootCanvas(page);
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });

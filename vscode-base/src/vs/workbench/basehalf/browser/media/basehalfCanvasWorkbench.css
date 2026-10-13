@@ -1522,6 +1522,10 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-markdown-inline-unit.unsupported {
 	cursor: default;
+	/* A fixed block keeps the line layout it has at rest. The editor around it
+	 * preserves white space, which would turn the line ends between its
+	 * elements into empty lines. */
+	white-space: normal;
 }
 
 .monaco-workbench .basehalf-canvas-markdown-conflict {
@@ -4038,6 +4042,9 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .bh-md-preview h1,
 .monaco-workbench .bh-md-preview h2,
 .monaco-workbench .bh-md-preview h3,
+.monaco-workbench .bh-md-preview h4,
+.monaco-workbench .bh-md-preview h5,
+.monaco-workbench .bh-md-preview h6,
 .monaco-workbench .bh-md-preview p,
 .monaco-workbench .bh-md-preview blockquote,
 .monaco-workbench .bh-md-preview pre,
@@ -4067,6 +4074,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-weight: 700;
 }
 
+.monaco-workbench .bh-md-preview h4,
+.monaco-workbench .bh-md-preview h5,
+.monaco-workbench .bh-md-preview h6 {
+	color: var(--bh-card-text-primary);
+	font-size: 13px;
+	font-weight: 700;
+}
+
 .monaco-workbench .bh-md-preview ul,
 .monaco-workbench .bh-md-preview ol {
 	padding-left: 22px;
@@ -4090,6 +4105,54 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .bh-md-preview a {
 	color: var(--vscode-textLink-foreground);
 	text-decoration: none;
+}
+
+/* A table takes at most the width of the card: its columns share that width
+ * and a cell wraps its text, so no column leaves the card at the right. */
+.monaco-workbench .bh-md-preview table {
+	max-width: 100%;
+	margin: 3px 0;
+	border-collapse: collapse;
+	border-spacing: 0;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.monaco-workbench .bh-md-preview th,
+.monaco-workbench .bh-md-preview td {
+	padding: 2px 5px;
+	border: 1px solid var(--bh-card-border-strong);
+	overflow-wrap: anywhere;
+	vertical-align: top;
+}
+
+.monaco-workbench .bh-md-preview th {
+	color: var(--bh-card-text-primary);
+	font-weight: 600;
+}
+
+.monaco-workbench .bh-md-preview th:not([align]) {
+	text-align: start;
+}
+
+.monaco-workbench .bh-md-preview img,
+.monaco-workbench .bh-md-preview video {
+	max-width: 100%;
+	height: auto;
+}
+
+/* The box of a task item stands where the bullet of a list item stands. A
+ * disabled box would swallow the press that drags the card. */
+.monaco-workbench .bh-md-preview li.bh-md-task {
+	list-style: none;
+}
+
+.monaco-workbench .bh-md-preview li.bh-md-task input[type="checkbox"] {
+	width: 13px;
+	height: 13px;
+	margin: 0 5px 0 -18px;
+	vertical-align: -2px;
+	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-folder-preview-list {
