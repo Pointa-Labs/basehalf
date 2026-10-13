@@ -10959,6 +10959,17 @@ async function assertCanvasNoteRendersMarkdown(page) {
 			tableHoldsMore: table.scrollWidth > table.clientWidth,
 			tableAt: Math.round(table.scrollLeft),
 			fades: `${/^linear-gradient\(to right, rgba\(0, 0, 0, 0\)/.test(mask) ? 'left' : ''}${/rgba\(0, 0, 0, 0\)\)$/.test(mask) ? 'right' : ''}`,
+			// The height of the table's box with whatever stands along its lower edge: empty space at rest, a scrollbar in the editor.
+			tableBoxHeight: table.offsetHeight,
+			code: Array.from(note.querySelectorAll('pre'), pre => {
+				const style = getComputedStyle(pre);
+				return {
+					size: `${Math.round(pre.getBoundingClientRect().width)}x${Math.round(pre.getBoundingClientRect().height)}`,
+					lines: Math.round((pre.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight)),
+					holdsMore: pre.scrollWidth > pre.clientWidth,
+					hasBackground: style.backgroundColor !== 'rgba(0, 0, 0, 0)'
+				};
+			}),
 			noteAt: note.scrollTop,
 			viewport: getComputedStyle(document.querySelector('.react-flow__viewport')).transform
 		};
@@ -10977,6 +10988,11 @@ async function assertCanvasNoteRendersMarkdown(page) {
 		'',
 		'- [ ] open',
 		'- [x] done',
+		'',
+		'```python',
+		'short = 1',
+		'next_ret = close.shift(-1) / close - 1               # one line of code that is longer than the card is wide',
+		'```',
 		''
 	].join('\n'), 'utf8');
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${folderName}"]`).waitFor({ state: 'visible', timeout: 15_000 });
@@ -10995,6 +11011,11 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	const comparable = state => JSON.stringify(state, Object.keys(expected));
 	if (comparable(rest) !== JSON.stringify(expected)) {
 		throw new Error(`A note at rest must show its table, small heading, and task boxes rendered, with a table of eight columns that is cut at the right and no wider note: ${JSON.stringify(rest)}`);
+	}
+	// A code block is a box with a background, and a line of code is not broken: two lines of code are two lines high.
+	const code = rest.code[0];
+	if (rest.code.length !== 1 || code.lines !== 2 || !code.holdsMore || !code.hasBackground) {
+		throw new Error(`A code block on a card must be a box of its own whose lines are not broken: ${JSON.stringify(rest.code)}`);
 	}
 
 	// A sideways scroll that begins on the table moves the table, and neither the note nor the canvas.
@@ -11018,7 +11039,12 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	const editor = await waitForCanvasNoteInlineEditor(page, notePath);
 	const editing = await shown();
 	if (JSON.stringify(editing) !== JSON.stringify(scrolled)) {
-		throw new Error(`A table must look the same, at the same sideways position, while another block of its note is edited: ${JSON.stringify({ scrolled, editing })}`);
+		throw new Error(`A table and a code block must look the same, at the same sideways position, while another block of their note is edited: ${JSON.stringify({ scrolled, editing })}`);
+	}
+	// In the editor the table has a scrollbar along its lower edge, as high as the note's own bar is wide.
+	const bar = await card.locator('.basehalf-canvas-note-editor table').first().evaluate(table => table.offsetHeight - table.clientHeight);
+	if (bar !== 10) {
+		throw new Error(`The scrollbar of a table in the card's editor must be 10 pixels high: ${bar}`);
 	}
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });

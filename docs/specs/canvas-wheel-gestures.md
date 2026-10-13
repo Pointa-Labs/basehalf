@@ -20,9 +20,9 @@ The rule is where the pointer is when the scroll begins. A scroll that begins
 on a long note scrolls the note. A scroll that begins anywhere else moves the
 canvas, and goes on moving it over whatever comes under the pointer.
 
-A table of a note can be wider than the card
+A table or a code block of a note can be wider than the card
 ([note rendering](note-rendering.md)). The same rule lets it be read: a
-sideways scroll that begins on such a table scrolls the table.
+sideways scroll that begins on such a table or code block scrolls it.
 
 ## Scope
 
@@ -61,8 +61,8 @@ Not in scope, and unchanged:
   edited and while its badge face is open.
 - **Sideways box**: an element inside scrollable content that holds more
   than it shows from left to right, and that the canvas scrolls sideways for
-  the user (the class `basehalf-canvas-scroll-sideways`). Today the only one
-  is a table of a Note at rest that is wider than the card.
+  the user (the class `basehalf-canvas-scroll-sideways`). Today these are a
+  table and a code block of a Note at rest that are wider than the card.
 - **Own-scroll surface**: an element with the `nowheel` class. It handles the
   wheel by itself: a Note being edited, a badge face, a toolbar, a player.
 
@@ -203,10 +203,10 @@ desktop.
   shorter, the position is the nearest one that exists.
 - A card that left the area near the viewport is drawn from the top when it
   returns (unchanged). The position is not saved to disk.
-- The sideways position of each table is kept when the Note starts and stops
-  being edited, as long as the note has the same number of tables then. A
-  card that is redrawn for another reason shows its tables from their left
-  end.
+- The sideways position of each table and code block is kept when the Note
+  starts and stops being edited, as long as the note has the same number of
+  them then. A card that is redrawn for another reason shows them from
+  their left end.
 
 ### What does not change
 

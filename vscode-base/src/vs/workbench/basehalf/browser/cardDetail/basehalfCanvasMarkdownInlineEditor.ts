@@ -242,28 +242,33 @@ export function renderBaseHalfCanvasStoredMarkdown(
 	for (const box of rendered.element.querySelectorAll<HTMLInputElement>('li > input[type="checkbox"], li > p:first-child > input[type="checkbox"]')) {
 		box.closest('li')?.classList.add('bh-md-task');
 	}
-	// A table that is wider than the card is its own box, which scrolls sideways.
-	// eslint-disable-next-line no-restricted-syntax
-	for (const table of rendered.element.querySelectorAll('table')) {
-		table.classList.add(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS);
+	// A table or a code block that is wider than the card is its own box, which
+	// the canvas scrolls sideways while the note is at rest.
+	for (const box of sidewaysBoxes(rendered.element)) {
+		box.classList.add(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS);
 	}
 	return rendered;
 }
 
+/**
+ * The tables and code blocks of a rendered note, at rest and in the editor.
+ * The editor draws the code blocks it edits itself, so they are found by
+ * what they are and not by a class.
+ */
 function sidewaysBoxes(note: HTMLElement): HTMLElement[] {
 	// eslint-disable-next-line no-restricted-syntax
-	return Array.from(note.getElementsByClassName(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS)).filter(isHTMLElement);
+	return Array.from(note.querySelectorAll<HTMLElement>('table, pre'));
 }
 
-/** How far each table of a rendered note is scrolled sideways, in the order of the note. */
+/** How far each table and code block of a rendered note is scrolled sideways, in the order of the note. */
 export function readBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement): number[] {
 	return sidewaysBoxes(note).map(box => box.scrollLeft);
 }
 
 /**
- * Shows the tables of a rendered note at the sideways positions another
- * rendering of the same note had. Positions of a note with another number of
- * tables do not say which table is which, and are dropped.
+ * Shows the tables and code blocks of a rendered note at the sideways
+ * positions another rendering of the same note had. Positions of a note with
+ * another number of them do not say which is which, and are dropped.
  */
 export function applyBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement, positions: readonly number[]): void {
 	const boxes = sidewaysBoxes(note);

@@ -178,6 +178,18 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 		}
 	});
 
+	test('the tables and code blocks of a stored note are the boxes the canvas scrolls sideways', () => {
+		const note = renderedNote('| a |\n|---|\n| 1 |\n\ntext\n\n```python\nx = 1  # a comment\n```\n\n    indented\n');
+		try {
+			assert.deepStrictEqual(
+				[...note.root.querySelectorAll('.basehalf-canvas-scroll-sideways')].map(box => `${box.tagName.toLowerCase()}: ${box.textContent?.replace(/\s+/g, ' ').trim()}`),
+				['table: a 1', 'pre: x = 1 # a comment', 'pre: indented']
+			);
+		} finally {
+			note.dispose();
+		}
+	});
+
 	test('a stored note never becomes a live element or a command', () => {
 		const source = [
 			'<script>alert(1)</script>',

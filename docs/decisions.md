@@ -1652,9 +1652,10 @@ tables. What can be edited in place and what can be shown are two questions:
 the first is the editor's limit, and it must not decide the second.
 
 **Consequences.**
-- A table keeps its words whole. One that is wider than the card is cut at
-  the right and scrolls sideways in its own box, by a sideways scroll that
-  begins on it.
+- A table keeps its words whole, and a code block keeps its lines unbroken.
+  One that is wider than the card is cut at the right and scrolls sideways
+  in its own box, by a sideways scroll that begins on it. In the card's
+  editor its scrollbar has the one look of the note's own scrollbar.
 - Images of a note are loaded when its card is drawn.
 - HTML outside the allowed elements is still shown as text, letter for
   letter, and never becomes an element.

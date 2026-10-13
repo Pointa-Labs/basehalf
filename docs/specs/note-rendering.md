@@ -112,15 +112,25 @@ Not in scope, and unchanged:
 7. A table keeps its words and numbers whole. Its columns narrow, and the
    text of their cells wraps between words, until the table fits the card.
    A column is never narrower than two letters of its text size.
-7a. A table that still does not fit is as wide as the card shows and is cut
-   at the right. It scrolls sideways inside its own box: at rest by a
-   sideways wheel gesture that begins on it
+7a. A code block is a box of its own, with a background that sets it apart
+   from the text, in the fixed-width font. Its lines are never broken: a
+   line of code ends where the author ended it, so that what is lined up in
+   the file is lined up on the card.
+7b. A table or a code block that does not fit is as wide as the card shows
+   and is cut at the right. It scrolls sideways inside its own box: at rest
+   by a sideways wheel gesture that begins on it
    ([canvas wheel gestures](canvas-wheel-gestures.md)), and while the card
    is edited as any scroll box does. The note itself is never wider than the
    card.
-7b. The side of such a table where columns are out of view fades out over 20
-   flow pixels. A table that fits, and a side with nothing beyond it, do not
-   fade.
+7c. The side of such a box where content is out of view fades out over 20
+   flow pixels. A box that shows all it holds, and a side with nothing
+   beyond it, do not fade.
+7d. While the card is edited, such a box shows a scrollbar along its lower
+   edge. The bar has the one look of the note's own scrollbar: the same
+   thickness, shape, and color, and it does not change when the pointer is
+   on it. At rest the box has no bar, and the height of the bar is empty
+   space in its place, so that nothing below the box moves when editing
+   starts and ends.
 8. An image is never wider than the card. It keeps its proportions.
 9. A task list item shows its box in place of the list bullet.
 10. Headings of level 4 to 6 are bold and not smaller than body text.
@@ -192,9 +202,11 @@ in the editor, by reading a block and writing it back:
 
 ## Limits
 
-- A table at rest has no scrollbar: a bar would take the press that drags
-  the card. A mouse without a sideways wheel scrolls it with Shift and the
-  wheel.
+- A table or a code block at rest has no scrollbar: a bar would take the
+  press that drags the card. A mouse without a sideways wheel scrolls it
+  with Shift and the wheel.
+- Every table and every code block has the height of a scrollbar as empty
+  space below it, also one that fits the card.
 - A table whose text has no place to wrap, such as a long address, is as
   wide as that text.
 - An HTML block that spans a blank line, such as `<details>` around
@@ -232,6 +244,13 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
    A table of two short columns on the same card does not fade.
 7. While a paragraph of the card is edited, a table in the same note is
    still a `table` element of the same width and height.
+7a. A code block with a line longer than the card shows that line unbroken:
+   the block holds more than it shows from left to right, and it is as high
+   as its number of lines. It has a background of its own. It has the same
+   width and height at rest and while the card is edited.
+7b. While the card is edited, the scrollbar of a table that is wider than
+   the card is 10 px high, and its thumb has the same style whether the
+   pointer is on it or not.
 
 8. In Card Detail's Preview projection, a cell of a table has a border and
    padding on every side.
@@ -258,7 +277,9 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
 - Smoke: `canvas-note-renders-markdown` covers criteria 1, 2 (heading and
-  boxes), 3 (`<br>`), 6, and 7 in the real window.
+  boxes), 3 (`<br>`), 6, 7, and 7a in the real window, and of 7b the height
+  of the bar. The look of the thumb under the pointer is a style rule and is
+  looked at in the real window.
 - Criteria 8 and 9 are measured in the real window by hand. They are style
   rules, and no test covers them.
 - Unit: `a note shows the same elements wherever it is rendered` covers the
