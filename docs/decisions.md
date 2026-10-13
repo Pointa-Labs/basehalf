@@ -1601,3 +1601,30 @@ after undo and keys that select the text of the page, are not taken.
   context menu for a set, and groups that are kept are not part of this.
   Grouping stays out as [D33](#d33--the-main-canvas-unifies-content-and-optional-execution-domain-plugins-contribute-recipes-new-2026-07-18)
   decided.
+
+## D53 — Screen reader mode is the user's choice, not a guess (NEW, 2026-10-13)
+
+**Decision.** BaseHalf's default for `editor.accessibilitySupport` is `off`.
+It does not enter screen reader mode because the operating system reports
+assistive technology, and it does not ask whether to. A user who needs the
+mode turns it on in the settings or with the command. In that mode an Agent
+Area terminal keeps its live region within a fixed size. See
+[screen reader mode](specs/screen-reader-mode.md).
+
+**Why.** A dictation tool that reads the window through the accessibility
+interface is assistive technology, and many more of BaseHalf's users dictate
+than use a screen reader. VS Code's default then turns the mode on and asks a
+question that such a user cannot judge; Yes stays in the settings for good.
+In the mode, the terminal collects every printed character in a live region
+that a full-screen agent scrolled with a trackpad never lets it empty.
+Scrolling Claude Code went from a steady 9.5 ms a frame to a main thread
+that was blocked nearly all the time within 35 seconds, and the canvas and
+the Agent Area's toggle slowed with it. The limit on the live region removes
+that cost for those who do need the mode.
+
+**Consequences.**
+- A screen reader user has to turn the mode on once. It is no longer
+  detected.
+- A profile that already holds `on` keeps it. The product is not released,
+  and no setting is migrated.
+- The canvas is not readable by a screen reader in either mode.

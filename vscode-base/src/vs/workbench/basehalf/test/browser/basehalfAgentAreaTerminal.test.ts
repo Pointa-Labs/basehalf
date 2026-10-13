@@ -13,7 +13,7 @@ import { runWithFakedTimers } from '../../../../base/test/common/timeTravelSched
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import type { IXtermCore } from '../../../contrib/terminal/browser/xterm-private.js';
 import type { XtermTerminal } from '../../../contrib/terminal/browser/xterm/xtermTerminal.js';
-import { baseHalfAnswerTerminalVersion, baseHalfInstallTerminalWheel, baseHalfXtermWheelReporter, BaseHalfTerminalAtlasMaintainer } from '../../browser/basehalfAgentAreaTerminal.contribution.js';
+import { BASEHALF_TERMINAL_LIVE_REGION_LIMIT, baseHalfAnswerTerminalVersion, baseHalfBoundTerminalLiveRegion, baseHalfInstallTerminalWheel, baseHalfXtermWheelReporter, BaseHalfTerminalAtlasMaintainer } from '../../browser/basehalfAgentAreaTerminal.contribution.js';
 
 type Terminal = XtermTerminal['raw'];
 type TerminalConstructor = new (options: { cols: number; rows: number; allowProposedApi?: boolean }) => Terminal;
@@ -189,6 +189,32 @@ suite('BaseHalfAgentAreaTerminal', () => {
 			underThePointerWithScrollback: 'xterm-visible xterm-scrollbar xterm-vertical',
 			slider: 'xterm-slider'
 		});
+	});
+
+	test('empties the live region of a terminal in screen reader mode once it holds more than the limit', async () => {
+		const store = disposables.add(new DisposableStore());
+		const { raw } = openTerminal(store);
+		raw.options.screenReaderMode = true;
+		store.add(baseHalfBoundTerminalLiveRegion(raw));
+		const liveRegion = raw.element!.querySelector('.xterm-accessibility > .live-region')!;
+		const lengthAfterAFrameWith = async (characters: number) => {
+			liveRegion.textContent = 'x'.repeat(characters);
+			const rendered = new Promise<void>(resolve => {
+				const listener = raw.onRender(() => {
+					listener.dispose();
+					resolve();
+				});
+			});
+			await write(raw, 'y');
+			await rendered;
+			return liveRegion.textContent!.length;
+		};
+
+		const belowTheLimit = await lengthAfterAFrameWith(BASEHALF_TERMINAL_LIVE_REGION_LIMIT - 1000);
+		const pastTheLimit = await lengthAfterAFrameWith(BASEHALF_TERMINAL_LIVE_REGION_LIMIT + 1000);
+
+		// xterm.js may add the character of the frame itself.
+		assert.deepStrictEqual({ kept: belowTheLimit >= BASEHALF_TERMINAL_LIVE_REGION_LIMIT - 1000, emptied: pastTheLimit <= 1 }, { kept: true, emptied: true });
 	});
 
 	test('answers XTVERSION as BaseHalf and leaves other parameters to xterm.js', async () => {

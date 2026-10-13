@@ -495,6 +495,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// open closes with it. A native menu is closed by the OS before the window
 	// is told.
 	'window.menuStyle': 'custom',
+	// Screen reader mode is the user's choice. VS Code's default turns it on
+	// whenever the system reports assistive technology, which a dictation tool
+	// is too, and in that mode the Agent Area terminal slows down without
+	// bound under a full-screen agent (docs/specs/screen-reader-mode.md).
+	'editor.accessibilitySupport': 'off',
 	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,

@@ -161,6 +161,32 @@ export function baseHalfInstallTerminalWheel(
 }
 
 /**
+ * The most characters that the live region of a terminal in screen reader
+ * mode may hold after a frame.
+ */
+export const BASEHALF_TERMINAL_LIVE_REGION_LIMIT = 4096;
+
+/**
+ * Keeps the live region of a terminal in screen reader mode from growing
+ * without bound (docs/specs/screen-reader-mode.md). xterm.js fills it with
+ * every printed character and empties it on a key press, on blur, or after 20
+ * line feeds. A full-screen program that is scrolled with a trackpad gives it
+ * none of the three, and each frame then costs more than the last.
+ */
+export function baseHalfBoundTerminalLiveRegion(raw: Pick<RawXtermTerminal, 'element' | 'onRender' | 'options'>): IDisposable {
+	return raw.onRender(() => {
+		if (!raw.options.screenReaderMode) {
+			return;
+		}
+		// eslint-disable-next-line no-restricted-syntax
+		const liveRegion = raw.element?.querySelector('.xterm-accessibility > .live-region');
+		if (liveRegion && (liveRegion.textContent?.length ?? 0) > BASEHALF_TERMINAL_LIVE_REGION_LIMIT) {
+			liveRegion.textContent = '';
+		}
+	});
+}
+
+/**
  * Clears the WebGL glyph atlas before it starts merging pages, following
  * {@link BaseHalfTerminalAtlasBudget}. This replaces the reset that Claude Code
  * performs only for terminals it recognizes as xterm.js (D39).
@@ -207,6 +233,7 @@ class BaseHalfAgentAreaTerminalContribution extends Disposable implements ITermi
 	xtermReady(xterm: IXtermTerminal & { raw: RawXtermTerminal }): void {
 		this._register(baseHalfAnswerTerminalVersion(xterm.raw, getTerminalProgramVersion(this.productService)));
 		this._register(baseHalfInstallTerminalWheel(xterm.raw, () => this.logService.warn('Agent Area terminal: xterm.js wheel-report internals are missing; wheel reports fall back to xterm.js.')));
+		this._register(baseHalfBoundTerminalLiveRegion(xterm.raw));
 		this._register(new BaseHalfTerminalAtlasMaintainer(
 			xterm.onDidAddTextureAtlasPage,
 			() => xterm.raw.clearTextureAtlas(),

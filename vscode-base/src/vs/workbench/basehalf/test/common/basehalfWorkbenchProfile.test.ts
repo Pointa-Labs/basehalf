@@ -215,6 +215,10 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'workbench.view.remote' && !surface.visible));
 	});
 
+	test('leaves screen reader mode off until the user turns it on', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['editor.accessibilitySupport'], 'off');
+	});
+
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.activityBar.location'], 'top');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.experimental.modernUI'], true);
