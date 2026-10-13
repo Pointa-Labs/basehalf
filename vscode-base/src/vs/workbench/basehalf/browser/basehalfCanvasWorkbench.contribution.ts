@@ -1390,6 +1390,8 @@ type BaseHalfCanvasInlineEdit =
 		readonly initialValue: string;
 		value: string;
 		selectionPending: boolean;
+		/** Why the name could not be applied, until an editor has shown it. */
+		failure?: string;
 	}
 	| {
 		readonly kind: 'create';
@@ -1401,6 +1403,8 @@ type BaseHalfCanvasInlineEdit =
 		readonly canvasPosition: { readonly x: number; readonly y: number };
 		value: string;
 		selectionPending: boolean;
+		/** Why the name could not be applied, until an editor has shown it. */
+		failure?: string;
 	};
 
 const TEXT_PREVIEW_MAX_BYTES = BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES;
@@ -1464,6 +1468,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly cardListeners = this._register(new DisposableStore());
 	private readonly cardListenerStores = this._register(new BaseHalfCanvasCardListenerStores());
 	private readonly inlineEditListeners = this._register(new DisposableStore());
+	/**
+	 * The rename editor of a card. It lives as long as its edit: a card that
+	 * shows it is kept across renders, and a card that is built anew takes it
+	 * over when the scene mounts it. The input so keeps the keyboard, its caret,
+	 * and a composition while other things on the canvas change.
+	 */
+	private inlineRenameEditor: {
+		readonly edit: BaseHalfCanvasInlineEdit;
+		readonly host: HTMLElement;
+		readonly store: DisposableStore;
+		readonly focus: () => void;
+	} | undefined;
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailTitleDisposables = this._register(new DisposableStore());
 	private readonly canvasUndoRedoSource = BASEHALF_CANVAS_UNDO_REDO_SOURCE;
@@ -1726,6 +1742,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		tidyIcon.setAttribute('aria-hidden', 'true');
 		this._register(this.addDisposableListener(this.tidyButton, 'click', () => void this.tidyCanvas()));
 		this._register(toDisposable(() => this.closeTidyQuestion()));
+		this._register(toDisposable(() => this.inlineRenameEditor?.store.dispose()));
 		this.snapToggle = append(this.zoomControls, $('button.basehalf-canvas-chrome-button.basehalf-canvas-snap-toggle')) as HTMLButtonElement;
 		this.snapToggle.type = 'button';
 		this.snapToggle.setAttribute('data-testid', 'canvas-snap-toggle');
@@ -2392,6 +2409,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			clearNode(this.inlineEditLayer);
 			this.inlineEditListeners.clear();
 			this.inlineEdit = undefined;
+			this.releaseEndedInlineRenameEditor();
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedRelationships = new Map();
@@ -2749,6 +2767,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.inlineEdit = undefined;
 			}
 		}
+		this.releaseEndedInlineRenameEditor();
 		this.resetCanvasBadgeDeferredRefresh();
 		this.cardListeners.clear();
 		const sceneCards = items.map((item, index) => {
@@ -2791,7 +2810,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				...bounds,
 				element,
 				updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
-				didMountElement: () => this.cardListenerStores.didMount(item.path, element),
+				didMountElement: () => this.didMountCardElement(item.path, element),
 				...(this.openBadgeFaces.has(item.path) || this.canvasNoteSurfacePath === item.path ? { forceInteractive: true as const } : {}),
 				...(this.canvasNoteSurfacePath === item.path ? { noteEditing: true as const } : {}),
 				...(connections.refusals.has(item.path) ? { upstreamRefusal: connections.refusals.get(item.path)! } : {})
@@ -6025,8 +6044,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private cardVisualKey(item: IBaseHalfCanvasItem): string {
 		const ownProblem = this.renderedBadgeProblems.get(item.path);
+		// Whether the card shows the rename editor. What is typed there is the
+		// editor's own state and rebuilds nothing.
 		const inlineRename = this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path
-			? { value: this.inlineEdit.value, selectionPending: this.inlineEdit.selectionPending }
+			? true
 			: undefined;
 		const badgeOpen = this.openBadgeFaces.has(item.path);
 		const view = badgeOpen ? this.renderedUpstreamViews.get(item.path) : undefined;
@@ -6061,13 +6082,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		sceneKey: string
 	): cached is IBaseHalfCanvasCardRenderCacheEntry {
 		const activeNote = this.activeCanvasNoteEditor;
+		const renaming = this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path;
+		// A card that shows the live rename editor is kept as any other card is.
+		// A card that was built for the editor and has not taken it yet is not.
+		const renameEditor = this.inlineRenameEditor;
+		const renameKeepsElement = !renaming
+			|| (!!cached && !!renameEditor && renameEditor.edit === this.inlineEdit && cached.element.contains(renameEditor.host));
 		if (cached
 			&& activeNote?.path === item.path
 			&& activeNote.card === cached.element
 			&& cached.sceneKey === sceneKey
 			&& this.uriIdentityService.extUri.isEqual(activeNote.state.resource, item.stat.resource)
 			&& !this.openBadgeFaces.has(item.path)
-			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)) {
+			&& !renaming) {
 			// The selected Note owns a live inline editor. Preserve its exact DOM identity
 			// across autosave-driven preview refreshes; selection teardown performs a
 			// stable flush before the card may return to its static preview.
@@ -6081,7 +6108,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			&& retainedNote.path === item.path
 			&& retainedNote.resourceKey === this.uriIdentityService.extUri.getComparisonKey(item.stat.resource)
 			&& !this.openBadgeFaces.has(item.path)
-			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
+			&& renameKeepsElement
 			&& (preview?.kind === 'loading'
 				|| ((preview?.kind === 'markdown' || preview?.kind === 'richRequired')
 					&& preview.kind === retainedNote.preview.kind
@@ -6101,7 +6128,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return !!cached
 			&& cached.sceneKey === sceneKey
 			&& !this.openBadgeFaces.has(item.path)
-			&& !(this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
+			&& renameKeepsElement
 			&& previewUnchanged
 			&& cached.visualKey === visualKey
 			&& baseHalfCanvasItemsSharePreviewVersion(cached.item, item);
@@ -6778,7 +6805,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					controls,
 					element,
 					updatePresentation: (presentation: IBaseHalfCanvasSceneCardPresentation) => this.cardPresentationUpdaters.get(element)?.(presentation),
-					didMountElement: () => this.cardListenerStores.didMount(currentItem.path, element),
+					didMountElement: () => this.didMountCardElement(currentItem.path, element),
 					...(this.openBadgeFaces.has(currentItem.path) || this.canvasNoteSurfacePath === currentItem.path ? { forceInteractive: true as const } : {}),
 					...(this.canvasNoteSurfacePath === currentItem.path ? { noteEditing: true as const } : {})
 				});
@@ -7471,13 +7498,47 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.uriIdentityService.extUri.isEqual(edit.resource, item.stat.resource)) {
 			return;
 		}
-		const identity = card.querySelector<HTMLElement>('.basehalf-canvas-card-caption-identity');
-		if (!identity) {
+		// The name is hidden. The editor comes when the scene mounts this
+		// element: until then it stays in the element that is on screen.
+		card.classList.add('inline-editing');
+		if (this.inlineRenameEditor?.edit !== edit) {
+			this.inlineRenameEditor?.store.dispose();
+			const host = $('.basehalf-canvas-inline-name-editor');
+			const store = new DisposableStore();
+			this.inlineRenameEditor = { edit, host, store, focus: this.renderInlineNameInput(host, edit, item.kind === 'folder', store) };
+		}
+	}
+
+	/** The scene has put a card's element into the document in place of the previous one. */
+	private didMountCardElement(path: string, element: HTMLElement): void {
+		this.cardListenerStores.didMount(path, element);
+		this.mountInlineRenameEditor(path, element);
+	}
+
+	/**
+	 * Puts the rename editor into the card element the scene has just mounted
+	 * and gives it the keyboard.
+	 */
+	private mountInlineRenameEditor(path: string, card: HTMLElement): void {
+		const editor = this.inlineRenameEditor;
+		if (!editor || editor.edit !== this.inlineEdit || editor.edit.kind !== 'rename' || editor.edit.path !== path
+			|| !card.classList.contains('inline-editing')) {
 			return;
 		}
-		card.classList.add('inline-editing');
-		const host = append(identity, $('.basehalf-canvas-inline-name-editor'));
-		this.renderInlineNameInput(host, edit, item.kind === 'folder');
+		if (!card.contains(editor.host)) {
+			card.querySelector('.basehalf-canvas-card-caption-identity')?.append(editor.host);
+		}
+		editor.focus();
+	}
+
+	/** Releases the rename editor of an edit that was accepted, cancelled, or replaced. */
+	private releaseEndedInlineRenameEditor(): void {
+		if (this.inlineRenameEditor && this.inlineRenameEditor.edit !== this.inlineEdit) {
+			// The element stays where it is: the card that shows it is replaced
+			// by the render that follows.
+			this.inlineRenameEditor.store.dispose();
+			this.inlineRenameEditor = undefined;
+		}
 	}
 
 	private renderInlineCreateEditor(folder: IBaseHalfCanvasFolderState): void {
@@ -7495,10 +7556,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const host = append(this.inlineEditLayer, $('.basehalf-canvas-inline-create-card'));
 		host.style.left = `${Math.max(12, Math.min(edit.anchor.x, this.surface.clientWidth - 292))}px`;
 		host.style.top = `${Math.max(12, Math.min(edit.anchor.y, this.surface.clientHeight - 64))}px`;
-		this.renderInlineNameInput(host, edit, edit.createKind === 'folder');
+		const focus = this.renderInlineNameInput(host, edit, edit.createKind === 'folder', this.inlineEditListeners);
+		mainWindow.setTimeout(focus, 0);
 	}
 
-	private renderInlineNameInput(host: HTMLElement, edit: BaseHalfCanvasInlineEdit, folder: boolean): void {
+	/**
+	 * Builds the name input of an inline edit into `host`.
+	 * @returns a function that gives the input the keyboard once it is in the
+	 * document. An input that lost the keyboard because its card was replaced
+	 * gets its caret back.
+	 */
+	private renderInlineNameInput(host: HTMLElement, edit: BaseHalfCanvasInlineEdit, folder: boolean, store: DisposableStore): () => void {
 		host.classList.add('nodrag', 'nopan', 'nowheel');
 		const icon = append(host, $(`span.basehalf-canvas-inline-name-icon.codicon.${folder ? 'codicon-folder' : 'codicon-file'}`));
 		icon.setAttribute('aria-hidden', 'true');
@@ -7512,7 +7580,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				? localize('basehalf.canvas.folderNamePlaceholder', "Folder name")
 				: localize('basehalf.canvas.fileNamePlaceholder', "filename.ext")
 		});
-		this.inlineEditListeners.add(inputBox);
+		store.add(inputBox);
 		inputBox.value = edit.value;
 		const extension = folder ? '' : extname(URI.file(edit.initialValue));
 		const selectionEnd = extension.length > 0 && extension.length < edit.initialValue.length
@@ -7545,7 +7613,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 			finishing = true;
-			const postCreateOwner = edit.kind === 'create' ? this.captureCanvasPostCreateOwner() : undefined;
+			const postCreateOwner = edit.kind === 'create' || keepOpenOnError ? this.captureCanvasPostCreateOwner() : undefined;
 			const name = inputBox.value;
 			edit.value = name;
 			inputBox.disable();
@@ -7578,27 +7646,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				await this.commitCanvasInlineEdit(edit, name, postCreateOwner);
 				this.lastCanvasContextMenu = undefined;
 				this.requestRender();
+				// Enter gives the keyboard back to the canvas, as Escape does, so
+				// the renamed card answers the keys of a selected card.
+				if (edit.kind === 'rename' && postCreateOwner && this.isCanvasPostCreateOwnerCurrent(postCreateOwner)) {
+					this.cards.focus({ preventScroll: true });
+				}
 			} catch (error) {
 				this.inlineEdit = edit;
 				finishing = false;
-				if (inputBox.element.isConnected) {
-					inputBox.enable();
-					inputBox.showMessage({
-						content: error instanceof Error ? error.message : String(error),
-						type: MessageType.ERROR
-					}, true);
+				inputBox.enable();
+				const failure = error instanceof Error ? error.message : String(error);
+				// While the name was being applied, the card may have been drawn
+				// without its editor, and a render may have released the editor.
+				// The next render shows the editor again, and the failure with it.
+				if (inputBox.element.isConnected && (edit.kind !== 'rename' || this.inlineRenameEditor?.edit === edit)) {
+					inputBox.showMessage({ content: failure, type: MessageType.ERROR }, true);
 					inputBox.focus();
 				} else {
+					edit.failure = failure;
 					this.requestRender();
 				}
 			}
 		};
 
-		this.inlineEditListeners.add(inputBox.onDidChange(value => {
+		store.add(inputBox.onDidChange(value => {
 			edit.value = value;
 			void refreshValidation();
 		}));
-		this.inlineEditListeners.add(DOM.addStandardDisposableListener(inputBox.inputElement, DOM.EventType.KEY_DOWN, (event: IKeyboardEvent) => {
+		store.add(DOM.addStandardDisposableListener(inputBox.inputElement, DOM.EventType.KEY_DOWN, (event: IKeyboardEvent) => {
 			event.stopPropagation();
 			const browserEvent = event.browserEvent;
 			const enter = event.equals(KeyCode.Enter) || browserEvent.key === 'Enter' || browserEvent.code === 'Enter';
@@ -7619,7 +7694,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.cancelCanvasInlineEdit(edit);
 			}
 		}));
-		this.inlineEditListeners.add(this.addDisposableListener(inputBox.inputElement, 'blur', () => {
+		store.add(this.addDisposableListener(inputBox.inputElement, 'blur', () => {
 			mainWindow.setTimeout(() => {
 				if (inputBox.element.isConnected && !finishing && this.inlineEdit === edit
 					&& inputBox.inputElement.ownerDocument.activeElement !== inputBox.inputElement) {
@@ -7627,16 +7702,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}, 0);
 		}));
-		mainWindow.setTimeout(() => {
-			if (this.inlineEdit === edit && inputBox.element.isConnected) {
+		let validated = false;
+		return () => {
+			if (this.inlineEdit !== edit || !inputBox.element.isConnected) {
+				return;
+			}
+			const input = inputBox.inputElement;
+			if (input.ownerDocument.activeElement !== input) {
+				const { selectionStart, selectionEnd: caretEnd, selectionDirection } = input;
 				inputBox.focus();
-				if (edit.selectionPending) {
-					edit.selectionPending = false;
-					inputBox.select({ start: 0, end: selectionEnd });
+				if (!edit.selectionPending && selectionStart !== null && caretEnd !== null) {
+					input.setSelectionRange(selectionStart, caretEnd, selectionDirection ?? undefined);
 				}
+			}
+			if (edit.selectionPending) {
+				edit.selectionPending = false;
+				inputBox.select({ start: 0, end: selectionEnd });
+			}
+			if (edit.failure !== undefined) {
+				inputBox.showMessage({ content: edit.failure, type: MessageType.ERROR }, true);
+				edit.failure = undefined;
+				validated = true;
+			} else if (!validated) {
+				// Once for every input: the create editor is built by every render.
+				validated = true;
 				void refreshValidation();
 			}
-		}, 0);
+		};
 	}
 
 	private cancelCanvasInlineEdit(edit: BaseHalfCanvasInlineEdit): void {
@@ -7676,13 +7768,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	): Promise<void> {
 		const target = joinPath(edit.parent, name);
 		if (edit.kind === 'rename') {
-			await this.canvasActionContextService.assertCurrent(edit.context);
-			await this.fileService.stat(edit.resource);
+			// A name does not depend on what the file holds: an agent may write a
+			// note while its name is edited. The stamp refuses an item that was
+			// moved or removed, and one that another operation is changing.
+			const gone = localize('basehalf.canvas.rename.gone', "This item was moved or removed while its name was edited.");
+			if (!this.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
+				throw new Error(gone);
+			}
+			let isDirectory: boolean | undefined;
+			try {
+				isDirectory = (await this.fileService.stat(edit.resource)).isDirectory;
+			} catch {
+				// Not there: refused below.
+			}
+			if (isDirectory !== edit.context.snapshot.isDirectory
+				|| !this.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
+				throw new Error(gone);
+			}
 			await this.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
 				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", edit.initialValue, name),
 				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", edit.initialValue),
 				confirmBeforeUndo: this.confirmExplorerUndo()
 			});
+			// Enter leaves the card selected under its new name.
+			const folder = this.getCurrentFolder();
+			if (postCreateOwner && folder && this.uriIdentityService.extUri.isEqual(folder.resource, edit.parent)) {
+				this.queueCanvasSelection(this.sceneKey(folder), [canvasChildPath(folder.relativePath, name)], postCreateOwner);
+			}
 			return;
 		}
 		const folder = this.getCurrentFolder();
@@ -7963,6 +8075,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		label.textContent = displayName;
 		label.title = displayName;
 		label.classList.toggle('danger', orphan);
+		// The name is the file name of a file that is there: a double click on
+		// it renames in place. A video card shows the title of its document.
+		label.classList.toggle('renamable', !orphan && !resultNode);
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
 		if (canShowBadgeFace) {
 			this.renderCardBadgeToggle(captionActions, item, badgeIssueCount, listeners);

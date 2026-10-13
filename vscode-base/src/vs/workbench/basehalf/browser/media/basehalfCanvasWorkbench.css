@@ -1144,7 +1144,10 @@ body.basehalf-canvas-edge-reconnecting * {
 	cursor: text;
 }
 
-.monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-caption-identity > :not(.basehalf-canvas-inline-name-editor) {
+/* The input takes the place of the name. The glyph of the card stays where it
+ * is, so the editor's own glyph is for an item that has no card yet. */
+.monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-label,
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-icon {
 	display: none;
 }
 
@@ -1298,7 +1301,9 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-label {
 	min-width: 0;
-	flex: 1;
+	/* As wide as its text: only the text shows the text cursor and takes the
+	 * double click that renames. */
+	flex: 0 1 auto;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1311,6 +1316,17 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-label.danger {
 	color: var(--bh-card-danger);
+}
+
+.monaco-workbench .basehalf-canvas-card-label.renamable {
+	cursor: text;
+}
+
+/* A drag and an input pick keep the card's cursor over the name. */
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card-label.renamable,
+.monaco-workbench .basehalf-canvas-card.basehalf-video-input-pick-candidate .basehalf-canvas-card-label.renamable,
+.monaco-workbench .basehalf-canvas-card.basehalf-video-input-pick-ineligible .basehalf-canvas-card-label.renamable {
+	cursor: inherit;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-toggle {

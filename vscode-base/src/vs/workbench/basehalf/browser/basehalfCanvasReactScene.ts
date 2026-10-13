@@ -878,6 +878,28 @@ export function baseHalfCanvasShouldOpenCreateMenu(
 		&& !event.shiftKey;
 }
 
+export type BaseHalfCanvasCardDoubleClickAction = 'rename' | 'editNote' | 'open';
+
+/**
+ * What a double click on a card does, from where it lands (canvas card name).
+ * A name that can be changed in place is renamed. A Note is edited from its
+ * body only, and every other card is opened.
+ */
+export function baseHalfCanvasCardDoubleClickAction(input: {
+	readonly onRenamableName: boolean;
+	readonly modifier: boolean;
+	readonly note: boolean;
+	readonly onNoteBody: boolean;
+}): BaseHalfCanvasCardDoubleClickAction | undefined {
+	if (input.onRenamableName && !input.modifier) {
+		return 'rename';
+	}
+	if (input.note) {
+		return input.onNoteBody ? 'editNote' : undefined;
+	}
+	return 'open';
+}
+
 export function baseHalfCanvasTargetBlocksGraphShortcuts(target: EventTarget | null): boolean {
 	if (!isCanvasElement(target)) {
 		return false;
@@ -1598,7 +1620,9 @@ function createCanvasSceneMount(
 			data.card.didMountElement?.();
 			const focusPath = replacementFocusPath.current;
 			replacementFocusPath.current = undefined;
-			if (focusPath) {
+			// A control that took the focus while its card was mounted keeps it:
+			// the rename editor of a card that was focused itself.
+			if (focusPath && !data.card.element.contains(data.card.element.ownerDocument.activeElement)) {
 				const target = resolveBaseHalfCanvasCardFocusPath(data.card.element, focusPath);
 				const focusTarget = isHTMLElement(target)
 					&& (target === data.card.element || target.matches('button, input, textarea, select, [tabindex]'))
@@ -4611,7 +4635,13 @@ function createCanvasSceneMount(
 				return;
 			}
 			const noteBody = isHTMLElement(event.target) && event.target.closest<HTMLElement>('.basehalf-canvas-card-body');
-			if (node.data.card.controls?.kind === 'note' && !noteBody) {
+			const action = baseHalfCanvasCardDoubleClickAction({
+				onRenamableName: isHTMLElement(event.target) && !!event.target.closest('.basehalf-canvas-card-label.renamable'),
+				modifier: event.shiftKey || event.metaKey || event.ctrlKey || event.altKey,
+				note: node.data.card.controls?.kind === 'note',
+				onNoteBody: !!noteBody
+			});
+			if (!action) {
 				return;
 			}
 			const noteFocusPoint = noteBody ? (() => {
@@ -4627,10 +4657,12 @@ function createCanvasSceneMount(
 				if (!selected) {
 					return;
 				}
-				const action = node.data.card.controls?.kind === 'note'
-					? delegate.editNote(node.data.sceneKey, node.data.structuralEpoch, node.id, noteFocusPoint)
-					: delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
-				void action.catch(error => delegate.reportError(error));
+				const result = action === 'rename'
+					? delegate.performSelectionAction(node.data.sceneKey, node.data.structuralEpoch, 'rename', [node.id])
+					: action === 'editNote'
+						? delegate.editNote(node.data.sceneKey, node.data.structuralEpoch, node.id, noteFocusPoint)
+						: delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id);
+				void result.catch(error => delegate.reportError(error));
 			});
 		}, [requestSelection]);
 		const onPaneDoubleClick = vendor.useCallback((event: MouseEvent) => {

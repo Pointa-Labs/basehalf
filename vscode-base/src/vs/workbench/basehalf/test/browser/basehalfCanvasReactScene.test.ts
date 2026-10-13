@@ -16,6 +16,7 @@ import {
 	BaseHalfCanvasResizeCorner,
 	BaseHalfCanvasSelectionIntentCoordinator,
 	baseHalfCanvasAutoPanStep,
+	baseHalfCanvasCardDoubleClickAction,
 	baseHalfCanvasInteractionOwnsEscape,
 	baseHalfCanvasResizeStartSize,
 	baseHalfCanvasSceneCardIsNoteEditing,
@@ -734,6 +735,30 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu({ ...event, button: 1 }, false), false);
 		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu({ ...event, shiftKey: true }, false), false);
 		assert.strictEqual(baseHalfCanvasShouldOpenCreateMenu(event, true), false);
+	});
+
+	test('a double click renames from a name that can be changed in place, and otherwise edits or opens', () => {
+		const onName = { onRenamableName: true, modifier: false, note: true, onNoteBody: false };
+		const offName = { ...onName, onRenamableName: false };
+		assert.deepStrictEqual({
+			noteName: baseHalfCanvasCardDoubleClickAction(onName),
+			folderName: baseHalfCanvasCardDoubleClickAction({ ...onName, note: false }),
+			noteNameWithModifier: baseHalfCanvasCardDoubleClickAction({ ...onName, modifier: true }),
+			folderNameWithModifier: baseHalfCanvasCardDoubleClickAction({ ...onName, note: false, modifier: true }),
+			noteCaption: baseHalfCanvasCardDoubleClickAction(offName),
+			noteBody: baseHalfCanvasCardDoubleClickAction({ ...offName, onNoteBody: true }),
+			folderCaption: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false }),
+			folderBody: baseHalfCanvasCardDoubleClickAction({ ...offName, note: false, onNoteBody: true })
+		}, {
+			noteName: 'rename',
+			folderName: 'rename',
+			noteNameWithModifier: undefined,
+			folderNameWithModifier: 'open',
+			noteCaption: undefined,
+			noteBody: 'editNote',
+			folderCaption: 'open',
+			folderBody: 'open'
+		});
 	});
 
 	test('clears one connection owner synchronously and rejects trailing completion', () => {

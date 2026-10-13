@@ -67,7 +67,9 @@ cannot be read recovering on the next save, cards that follow files renamed
 from outside the window (one file, the folder whose canvas is open, and many
 files at once), a long note at rest that a scroll moves while a scroll that
 started on the canvas keeps moving the canvas, the rich reveal highlight,
-card resizing with its rounded corner targets and indicator, selecting cards
+card resizing with its rounded corner targets and indicator, renaming a card
+from its name with an editor that stays as it is while files of the folder
+change, selecting cards
 with a marquee, the set of several selected cards with its box (moving it,
 arranging it, undo), Tidy Canvas with its question that keeps or reverts,
 the sidebar showing exactly Files, Git, and Search with no plugin command,

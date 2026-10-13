@@ -365,6 +365,7 @@ try {
 		await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 		await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
+		await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 		await step('canvas-unreadable-badge-recovers', () => assertCanvasUnreadableBadgeRecovers(page));
 		await step('canvas-card-follows-outside-rename', () => assertCanvasCardFollowsOutsideRename(page));
@@ -507,6 +508,7 @@ try {
 			'source-control-git-provider',
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
+			'canvas-inline-rename',
 			'canvas-card-badge-preview-connectors',
 			'canvas-unreadable-badge-recovers',
 			'canvas-card-follows-outside-rename',
@@ -8590,7 +8592,8 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 	await zoomCanvas(page, 'reset');
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 
-	await note.locator('.basehalf-canvas-card-caption-identity').dblclick();
+	// The glyph, not the name: a double click on the name renames in place.
+	await note.locator('.basehalf-canvas-card-caption-icon').dblclick();
 	await page.waitForTimeout(250);
 	if (await inlineEditor.host.count() !== 0
 		|| await staticPreview.getAttribute('data-smoke-preview-identity') !== staticPreviewIdentity) {
@@ -9815,9 +9818,11 @@ async function assertCanvasInlineRename(page) {
 
 	await readme.focus();
 	await page.keyboard.press('F2');
-	const commitInput = readme.locator('.basehalf-canvas-inline-name-input input');
-	await commitInput.fill('README-renamed.md');
-	await commitInput.press('Enter');
+	// Typed, not filled: the editor has the keyboard by itself, and the part
+	// before the extension is selected, so the typed name keeps the extension.
+	await waitForCanvasNameEditor(page, 'README.md', { value: 'README.md', selection: [0, 6] });
+	await page.keyboard.type('README-renamed');
+	await page.keyboard.press('Enter');
 	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to commit');
 	const renamed = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README-renamed.md"]');
 	await renamed.waitFor({ state: 'visible', timeout: 10_000 });
@@ -9829,6 +9834,264 @@ async function assertCanvasInlineRename(page) {
 	await restoreInput.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to restore the fixture');
 	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasCardNameRenamesInPlace(page);
+}
+
+/** Waits until the rename editor of a card is open with the keyboard, and checks what it holds. */
+async function waitForCanvasNameEditor(page, cardPath, expected) {
+	const selector = `.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"] .basehalf-canvas-inline-name-input input`;
+	await page.locator(selector).waitFor({ state: 'visible', timeout: 10_000 });
+	const read = () => page.evaluate(inputSelector => {
+		const input = document.querySelector(inputSelector);
+		return input instanceof HTMLInputElement
+			? { value: input.value, selection: [input.selectionStart, input.selectionEnd], focused: document.activeElement === input }
+			: undefined;
+	}, selector);
+	const wanted = JSON.stringify({ ...expected, focused: true });
+	const deadline = Date.now() + 5_000;
+	let seen;
+	do {
+		seen = await read();
+		if (JSON.stringify(seen) === wanted) {
+			return;
+		}
+		await page.waitForTimeout(50);
+	} while (Date.now() < deadline);
+	throw new Error(`The rename editor of ${cardPath} is not ready for typing: ${JSON.stringify({ expected, seen })}`);
+}
+
+/**
+ * The name of a card (canvas card name): the text cursor over the text alone,
+ * and the double click that renames in place.
+ */
+async function assertCanvasCardNameRenamesInPlace(page) {
+	const cardSelector = cardPath => `.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`;
+	const readme = page.locator(cardSelector('README.md'));
+	const docs = page.locator(cardSelector('docs'));
+	const docsBefore = await docs.boundingBox();
+	if (!docsBefore) {
+		throw new Error('The docs card has no place before the card name checks');
+	}
+	const caption = cardPath => page.evaluate(selector => {
+		const card = document.querySelector(selector);
+		const label = card?.querySelector('.basehalf-canvas-card-label');
+		const glyph = card?.querySelector('.basehalf-canvas-card-caption-icon');
+		const badge = card?.querySelector('.basehalf-canvas-card-badge-toggle');
+		const identity = card?.querySelector('.basehalf-canvas-card-caption-identity');
+		if (!card || !label || !glyph || !badge || !identity) {
+			return undefined;
+		}
+		const range = document.createRange();
+		range.selectNodeContents(label);
+		const labelBox = label.getBoundingClientRect();
+		const glyphBox = glyph.getBoundingClientRect();
+		const badgeBox = badge.getBoundingClientRect();
+		const middle = labelBox.top + labelBox.height / 2;
+		const cursorAt = (x, y) => {
+			const hit = document.elementFromPoint(x, y);
+			return hit ? getComputedStyle(hit).cursor : undefined;
+		};
+		const name = { x: labelBox.left + Math.min(12, labelBox.width / 2), y: middle };
+		const glyphPoint = { x: glyphBox.left + glyphBox.width / 2, y: glyphBox.top + glyphBox.height / 2 };
+		return {
+			name,
+			glyph: glyphPoint,
+			labelWidth: labelBox.width,
+			textWidth: range.getBoundingClientRect().width,
+			identityWidth: identity.getBoundingClientRect().width,
+			nameHit: document.elementFromPoint(name.x, name.y) === label,
+			rightOfNameHit: document.elementFromPoint(labelBox.right + 8, middle) === label,
+			cursors: {
+				name: cursorAt(name.x, name.y),
+				glyph: cursorAt(glyphPoint.x, glyphPoint.y),
+				rightOfName: cursorAt(labelBox.right + 8, middle),
+				badge: cursorAt(badgeBox.left + badgeBox.width / 2, badgeBox.top + badgeBox.height / 2)
+			}
+		};
+	}, cardSelector(cardPath));
+	const canvasState = () => page.evaluate(() => ({
+		editor: document.querySelector('.basehalf-canvas-inline-name-input input')?.closest('.basehalf-canvas-card')?.getAttribute('data-basehalf-card-path') ?? null,
+		selected: [...document.querySelectorAll('.basehalf-canvas-card.selected')].map(card => card.getAttribute('data-basehalf-card-path')),
+		noteEditing: document.querySelectorAll('.basehalf-canvas-card[data-note-editing="true"]').length,
+		cardDetail: !!document.querySelector('.basehalf-card-detail.visible')
+	}));
+	const expectState = async (expected, context) => {
+		const deadline = Date.now() + 5_000;
+		let seen;
+		do {
+			seen = await canvasState();
+			if (JSON.stringify(seen) === JSON.stringify(expected)) {
+				return;
+			}
+			await page.waitForTimeout(50);
+		} while (Date.now() < deadline);
+		throw new Error(`Unexpected canvas state ${context}: ${JSON.stringify({ expected, seen })}`);
+	};
+	const doubleClick = async point => {
+		await page.mouse.move(point.x, point.y);
+		await page.mouse.dblclick(point.x, point.y);
+	};
+
+	await centerCanvasCards(page, [readme]);
+	const atRest = await caption('README.md');
+	if (!atRest
+		|| atRest.cursors.name !== 'text'
+		|| atRest.cursors.glyph === 'text'
+		|| atRest.cursors.rightOfName === 'text'
+		|| atRest.cursors.badge === 'text'
+		|| !atRest.nameHit
+		|| atRest.rightOfNameHit
+		|| Math.abs(atRest.labelWidth - atRest.textWidth) > 1
+		|| atRest.labelWidth > atRest.identityWidth - 24) {
+		throw new Error(`The name of a card does not take the text cursor over its text alone: ${JSON.stringify(atRest)}`);
+	}
+
+	// A double click on the name: the editor, the keyboard, and nothing opened.
+	const placeBefore = await readme.boundingBox();
+	await doubleClick(atRest.name);
+	await waitForCanvasNameEditor(page, 'README.md', { value: 'README.md', selection: [0, 6] });
+	await expectState({ editor: 'README.md', selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a note');
+
+	// The editor is not disturbed by what happens in the folder meanwhile: a
+	// file of another card, and the very note that is being renamed. The caret
+	// stands inside the typed text, so a caret that went to the end shows.
+	await page.keyboard.type('README-by');
+	await page.keyboard.press('ArrowLeft');
+	await page.keyboard.press('ArrowLeft');
+	await page.evaluate(() => {
+		const input = document.querySelector('.basehalf-canvas-inline-name-input input');
+		const watch = { input, card: input?.closest('.basehalf-canvas-card'), lost: [] as string[], stop: false };
+		(window as typeof window & { __basehalfSmokeNameEditor?: typeof watch }).__basehalfSmokeNameEditor = watch;
+		const tick = () => {
+			if (!(input instanceof HTMLInputElement) || !input.isConnected || document.activeElement !== input
+				|| input.value !== 'README-by.md' || input.selectionStart !== 7 || input.selectionEnd !== 7) {
+				watch.lost.push(JSON.stringify(input instanceof HTMLInputElement
+					? { connected: input.isConnected, focused: document.activeElement === input, value: input.value, caret: [input.selectionStart, input.selectionEnd] }
+					: null));
+			}
+			if (!watch.stop && watch.lost.length < 5) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	});
+	const nameEditorWatch = () => page.evaluate(() => {
+		const watch = (window as typeof window & { __basehalfSmokeNameEditor?: { card: Element | null | undefined; lost: string[]; stop: boolean } }).__basehalfSmokeNameEditor;
+		if (!watch) {
+			return { lost: ['the watch of the rename editor is gone'], sameCard: true };
+		}
+		return {
+			lost: watch.lost,
+			sameCard: document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]') === watch.card
+		};
+	});
+	// Another card's file: the card of the editor is kept as it is.
+	const probePath = path.join(workspacePath, 'docs', 'name-editor-probe.md');
+	const readmePath = path.join(workspacePath, 'README.md');
+	const readmeBytes = fs.readFileSync(readmePath);
+	fs.writeFileSync(probePath, '# Written while a name is edited\n', 'utf8');
+	await page.waitForTimeout(1_200);
+	fs.rmSync(probePath);
+	await page.waitForTimeout(1_200);
+	const afterOtherFile = await nameEditorWatch();
+	if (afterOtherFile.lost.length > 0 || !afterOtherFile.sameCard) {
+		throw new Error(`The rename editor did not stay as it was while another file of the folder changed: ${JSON.stringify(afterOtherFile)}`);
+	}
+	// The note that is being renamed: its card is drawn again with other
+	// content, and the editor moves into the new drawing.
+	fs.writeFileSync(readmePath, Buffer.concat([readmeBytes, Buffer.from('\nname-editor-probe\n', 'utf8')]));
+	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	const afterOwnFile = await nameEditorWatch();
+	if (afterOwnFile.lost.length > 0 || afterOwnFile.sameCard) {
+		throw new Error(`The rename editor did not move into the new drawing of its card: ${JSON.stringify(afterOwnFile)}`);
+	}
+	fs.writeFileSync(readmePath, readmeBytes);
+	await readme.locator('.bh-md-preview p', { hasText: 'name-editor-probe' }).first().waitFor({ state: 'detached', timeout: 15_000 });
+	const lost = await page.evaluate(() => {
+		const watch = (window as typeof window & { __basehalfSmokeNameEditor?: { lost: string[]; stop: boolean } }).__basehalfSmokeNameEditor;
+		if (!watch) {
+			return ['the watch of the rename editor is gone'];
+		}
+		watch.stop = true;
+		return watch.lost;
+	});
+	if (lost.length > 0) {
+		throw new Error(`The rename editor did not stay as it was while the renamed note was written: ${lost.join(' ')}`);
+	}
+	// The caret is where it was: two characters before the end of the typed part.
+	await page.keyboard.press('ArrowRight');
+	await page.keyboard.press('ArrowRight');
+	await page.keyboard.type('-name');
+	await page.keyboard.press('Enter');
+	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to rename the note');
+	const byName = page.locator(cardSelector('README-by-name.md'));
+	await byName.waitFor({ state: 'visible', timeout: 10_000 });
+	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Enter in the rename editor');
+	const placeAfter = await byName.boundingBox();
+	if (!placeBefore || !placeAfter
+		|| Math.abs(placeAfter.x - placeBefore.x) > 1 || Math.abs(placeAfter.y - placeBefore.y) > 1
+		|| Math.abs(placeAfter.width - placeBefore.width) > 1 || Math.abs(placeAfter.height - placeBefore.height) > 1) {
+		throw new Error(`A card renamed from its name did not keep its place: ${JSON.stringify({ placeBefore, placeAfter })}`);
+	}
+
+	// Escape renames nothing. Then the fixture gets its name back.
+	const renamed = await caption('README-by-name.md');
+	await doubleClick(renamed.name);
+	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name.md', selection: [0, 14] });
+	await page.keyboard.type('thrown-away');
+	await page.keyboard.press('Escape');
+	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
+	if (!fs.existsSync(path.join(workspacePath, 'README-by-name.md')) || fs.existsSync(path.join(workspacePath, 'thrown-away.md'))) {
+		throw new Error('Escape in the rename editor renamed the note');
+	}
+	await doubleClick(renamed.name);
+	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name.md', selection: [0, 14] });
+	await page.keyboard.type('README');
+	await page.keyboard.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to restore the fixture');
+	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+	await expectState({ editor: null, selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after the fixture got its name back');
+
+	// The glyph of a note is not the name: nothing opens.
+	await doubleClick((await caption('README.md')).glyph);
+	await page.waitForTimeout(600);
+	await expectState({ editor: null, selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the glyph of a note');
+
+	// The name of a folder is renamed in place, and the folder is not entered.
+	await centerCanvasCards(page, [docs]);
+	const folder = await caption('docs');
+	if (!folder || folder.cursors.name !== 'text' || folder.cursors.glyph === 'text') {
+		throw new Error(`The name of a folder card does not take the text cursor: ${JSON.stringify(folder)}`);
+	}
+	await doubleClick(folder.name);
+	await waitForCanvasNameEditor(page, 'docs', { value: 'docs', selection: [0, 4] });
+	await expectState({ editor: 'docs', selected: ['docs'], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a folder');
+	await assertCanvasFolder(page, '');
+	await page.keyboard.press('Escape');
+	await expectState({ editor: null, selected: ['docs'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor of a folder');
+
+	// Hand the canvas back as the step found it: nothing selected, docs in place.
+	const emptyCanvas = await page.evaluate(() => {
+		const pane = document.querySelector('.react-flow__pane');
+		if (!pane) {
+			return undefined;
+		}
+		const rect = pane.getBoundingClientRect();
+		for (let y = rect.bottom - 48; y > rect.top + 48; y -= 48) {
+			for (let x = rect.right - 48; x > rect.left + 48; x -= 48) {
+				if (document.elementFromPoint(x, y) === pane) {
+					return { x, y };
+				}
+			}
+		}
+		return undefined;
+	});
+	if (!emptyCanvas) {
+		throw new Error('No empty canvas point to end the selection after the card name checks');
+	}
+	await page.mouse.click(emptyCanvas.x, emptyCanvas.y);
+	await expectState({ editor: null, selected: [], noteEditing: 0, cardDetail: false }, 'after the card name checks');
+	await panCanvasCardTo(page, docs, { x: docsBefore.x, y: docsBefore.y });
 }
 
 async function assertCanvasDoubleClickCreateMenu(page) {
