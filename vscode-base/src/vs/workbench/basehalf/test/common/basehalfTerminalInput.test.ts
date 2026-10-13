@@ -16,12 +16,20 @@ suite('BaseHalfTerminalInput', () => {
 		const precise = (deltaY: number, deltaMode = 0): IBaseHalfTerminalWheelDelta => ({ deltaY, deltaMode, discrete: false, notches: 0 });
 		const notch = (deltaY: number, notches: number): IBaseHalfTerminalWheelDelta => ({ deltaY, deltaMode: 0, discrete: true, notches });
 
-		test('counts one row per cell height of precise deltas and carries the remainder across a change of direction', () => {
+		test('accumulates precise deltas of less than a row, also across a change of direction, and drops the fraction once whole rows are sent', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			assert.deepStrictEqual(
-				[precise(-10), precise(-10), precise(-10), precise(6), precise(24), precise(8), precise(10)].map(delta => accumulator.accept(delta, metrics)),
-				// pending sixteenths of a row: -10, -20 → -4, -14, -8, 16 → 0, 8, 18 → 2
-				[0, -1, 0, 0, 1, 0, 1]
+				[precise(-10), precise(20), precise(10), precise(-20), precise(-12), precise(-4), precise(-40)].map(delta => accumulator.accept(delta, metrics)),
+				// pending sixteenths of a row: -10, 10, 20 → 0, -20 → 0, -12, -16 → 0, -40 → 0
+				[0, 0, 1, -1, 0, -1, -2]
+			);
+		});
+
+		test('sends a row whose parts add up to it but for rounding', () => {
+			const accumulator = new BaseHalfTerminalWheelAccumulator();
+			assert.deepStrictEqual(
+				Array.from({ length: 7 }, () => accumulator.accept(precise(2), { ...metrics, cellHeight: 14 })),
+				[0, 0, 0, 0, 0, 0, 1]
 			);
 		});
 
@@ -54,9 +62,9 @@ suite('BaseHalfTerminalInput', () => {
 			const accumulator = new BaseHalfTerminalWheelAccumulator();
 			const halved = { ...metrics, sensitivity: 0.5 };
 			assert.deepStrictEqual(
-				[precise(-32), notch(1, 1), notch(1, 1)].map(delta => accumulator.accept(delta, halved)),
-				// pending rows: -1 → 0, 1.5 → 0.5, 2 → 0
-				[-1, 1, 2]
+				[precise(-32), notch(1, 1), precise(16), notch(1, 1)].map(delta => accumulator.accept(delta, halved)),
+				// pending rows: -1 → 0, 1.5 → 0, 0.5, 2 → 0
+				[-1, 1, 0, 2]
 			);
 		});
 

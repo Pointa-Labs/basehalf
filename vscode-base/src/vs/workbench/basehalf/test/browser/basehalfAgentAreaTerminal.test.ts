@@ -60,16 +60,15 @@ suite('BaseHalfAgentAreaTerminal', () => {
 
 	/**
 	 * Dispatches a trackpad wheel event worth `rows` rows (negative upward)
-	 * with the pointer over column 3, row 2. It adds a part of a row that
-	 * differs by direction, so that a total of both directions does not end
-	 * on a row boundary, where rounding of the cell height would decide.
+	 * with the pointer over column 3, row 2. It adds a part of a row, which
+	 * the terminal drops, so that rounding of the cell height does not decide.
 	 */
 	function wheel(raw: Terminal, rows: number, init: WheelEventInit = {}): WheelEvent {
 		const cell = (raw as Terminal & { _core: IXtermCore })._core._renderService.dimensions.css.cell;
 		const screen = raw.element!.getElementsByClassName('xterm-screen')[0] as HTMLElement;
 		const box = screen.getBoundingClientRect();
 		const event = new WheelEvent('wheel', {
-			deltaY: Math.sign(rows) * (Math.abs(rows) + (rows < 0 ? 0.25 : 0.5)) * cell.height,
+			deltaY: Math.sign(rows) * (Math.abs(rows) + 0.25) * cell.height,
 			deltaMode: WheelEvent.DOM_DELTA_PIXEL,
 			clientX: box.left + cell.width * 2.5,
 			clientY: box.top + cell.height * 1.5,

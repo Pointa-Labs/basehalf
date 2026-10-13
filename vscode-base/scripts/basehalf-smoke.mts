@@ -1970,7 +1970,17 @@ async function assertAgentAreaTerminalVersionAndWheelReports(page) {
 	const reports = await waitForActiveAgentAreaTerminalLine(page, 'BH_WHEEL_REPORTS=');
 	const [up, down] = String(reports).slice('BH_WHEEL_REPORTS='.length).split(',').map(Number);
 	const pixels = deltas.reduce((total, delta) => total + delta, 0);
-	const expected = Math.floor(pixels / cellHeight) + 2 * 3;
+	// Less than a row accumulates; a row or more sends the whole rows and drops the fraction.
+	let pendingPixels = 0;
+	let trackpadRows = 0;
+	for (const delta of deltas) {
+		pendingPixels += delta;
+		if (pendingPixels >= cellHeight) {
+			trackpadRows += Math.floor(pendingPixels / cellHeight);
+			pendingPixels = 0;
+		}
+	}
+	const expected = trackpadRows + 2 * 3;
 	if (!(cellHeight > 0) || down !== 0 || Math.abs(up - expected) > 1) {
 		throw new Error(`Agent Area terminal sent ${up} up and ${down} down wheel reports for ${pixels}px of trackpad scroll and two wheel notches; expected ${expected} (cell height ${cellHeight}).`);
 	}

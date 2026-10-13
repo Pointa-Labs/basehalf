@@ -219,6 +219,13 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['editor.accessibilitySupport'], 'off');
 	});
 
+	test('gives the Agent Area terminal the reference terminal\'s default font size and row height', () => {
+		assert.deepStrictEqual(
+			[BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.fontSize'], BASEHALF_CONFIGURATION_DEFAULTS['terminal.integrated.lineHeight']],
+			[13, 1.15]
+		);
+	});
+
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.activityBar.location'], 'top');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.experimental.modernUI'], true);

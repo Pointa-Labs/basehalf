@@ -933,6 +933,12 @@ heuristics.
   the variable that Claude Code documents for a terminal with synchronized
   output that it does not detect. The terminal host also sends output that
   follows a quiet period without its 5 ms wait. The identity stays BaseHalf.
+- Refined 2026-10-13: measured against the reference terminal itself, with
+  the same gestures posted to both, BaseHalf still sent up to 1.7 times its
+  wheel reports. The reference terminal's rows are 17 points high where
+  BaseHalf's were 14 px, and it drops the fraction of a row whenever it sends
+  rows. BaseHalf takes both: the default font size and line height of the
+  Agent Area terminal give rows of 17 px, and the fraction is dropped.
 
 ## D40 — Mirror metadata never blocks the user (NEW, 2026-10-10)
 

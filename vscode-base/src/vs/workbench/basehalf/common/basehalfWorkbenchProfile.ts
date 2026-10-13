@@ -519,6 +519,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'chat.editor.claude.preferAgentHost': false,
 	'debug.internalConsoleOptions': 'neverOpen',
 	'search.useReplacePreview': false,
+	// Rows of 17 px, the reference terminal's at its default font size. A
+	// gesture scrolls by rows, so equal rows are part of scrolling like it
+	// (docs/specs/agent-area-terminal.md, Row height).
+	'terminal.integrated.fontSize': 13,
+	'terminal.integrated.lineHeight': 1.15,
 	// Ghostty renders the terminal palette directly. VS Code's default contrast
 	// remapping changes ANSI colors enough that Codex/TUI output looks muted.
 	'terminal.integrated.minimumContrastRatio': 1,

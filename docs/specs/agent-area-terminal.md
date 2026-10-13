@@ -1,6 +1,6 @@
 # Agent Area terminal identity, wheel input, and scrollbar
 
-Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12)
+Status: Active (2026-10-09; scrollbar added and precise wheel amount revised 2026-10-12; wheel rows and row height matched to the reference terminal 2026-10-13)
 Decision: [D39](../decisions.md#d39--agent-area-terminals-identify-as-basehalf-and-scroll-like-ghostty-new-2026-10-09)
 Related: [D21](../decisions.md#d21--right-side-is-agent-area-not-terminal-panel-new-2026-06-30),
 [agent launch context](agent-launch-context.md)
@@ -53,6 +53,36 @@ rows per report as reports get denser. Measured on 2026-10-12 with Claude Code
 The rows with two reports per cell height were recorded on the revised build
 with `terminal.integrated.mouseWheelScrollSensitivity` set to 2, which gives
 the first version's amount.
+
+One report per cell height still scrolled further than the reference
+terminal, and the user felt it. On 2026-10-13 the same trackpad gestures were
+posted as system events to the reference terminal, version 1.3.1 with its
+default font, and to BaseHalf. A program in each counted the wheel reports:
+
+| Gesture | Travel | Reference terminal, rows of 17 points | BaseHalf, rows of 14 px |
+| --- | --- | --- | --- |
+| Slow, 220 points, no momentum | 12.9 and 15.7 rows | 12 to 13 | 15 to 16 |
+| Medium, 635 points, with momentum | 37.4 and 45.4 rows | 27 | 46 |
+| Fast, 2,090 points, with momentum | 122.9 and 149.3 rows | 96 | 150 |
+
+Two things differ. The reference terminal's rows are taller, so the same
+travel is fewer rows. And it does not carry a remainder: once its accumulator
+holds one row or more, it sends the whole rows and starts again from zero.
+Its source says that it saves the remainder, and computes that remainder
+from the quotient before truncating it, which is zero. A swipe that covers
+1.6 rows with every event therefore scrolls one row an event. Read that way,
+its source gives 12, 26, and 94 reports for the three gestures; keeping the
+remainder would give 12, 37, and 122. Claude Code scrolls more rows per
+report as reports get denser, so BaseHalf's 46 against 27 is far more than
+1.7 times the distance.
+
+With the rows rule and the row height of this specification, the same
+gestures gave 12 to 13, 27, and 103 reports in BaseHalf. The slow and the
+medium gesture match the reference terminal. The fast one is 7 reports
+above its 96: the posted gesture holds six events of 48 points in a row, and
+the workbench's wheel classifier takes equal events of 40 points or more for
+notches of a physical wheel, which count three rows each. The reference
+terminal asks the operating system which device it is; a web page cannot.
 
 ## Goals
 
@@ -143,9 +173,12 @@ Alt, Meta, or Shift key:
      notch, as Ghostty does on macOS. A notch is a whole number of rows
      whatever the cell height.
    - Both are multiplied by `terminal.integrated.mouseWheelScrollSensitivity`.
-2. **Rows.** The terminal accumulates the amount, with its sign. Each whole
-   row in the accumulator is sent, truncated toward zero. The remainder stays
-   for the next event, including after a change of direction.
+2. **Rows.** The terminal accumulates the amount, with its sign, also across
+   a change of direction, while it is less than one row. Once the accumulator
+   holds one row or more, the terminal sends the whole rows, truncated toward
+   zero, and empties the accumulator: the fraction is dropped, as the
+   reference terminal drops it. A gesture that covers more than one row with
+   each event therefore scrolls less than its travel.
 3. **Dispatch.**
    - With wheel tracking, the terminal sends one wheel report per row, at the
      cell under the pointer. It uses xterm.js's own encoder, so the
@@ -163,6 +196,18 @@ Alt, Meta, or Shift key:
    xterm.js upgrade could cause, wheel reports fall back to xterm.js's
    behavior and a warning is logged once per terminal. A test pins those
    internals so that such an upgrade fails tests instead.
+
+### Row height
+
+The number of reports for a gesture depends on the height of a row, so equal
+rows are part of scrolling like the reference terminal.
+
+1. BaseHalf's default for `terminal.integrated.fontSize` is 13 and for
+   `terminal.integrated.lineHeight` 1.15. With the default font family on
+   macOS that gives rows of 17 px, the row height of the reference terminal
+   at its default font size, which is also 13.
+2. A user who sets another font size or line height gets other rows and a
+   proportionally different scroll distance, as in the reference terminal.
 
 ### Glyph atlas maintenance
 
@@ -296,8 +341,8 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
 1. A unit test of the terminal environment shows `TERM_PROGRAM=BaseHalf` and
    the given version, and no identity for a `strictEnv` launch.
 2. A unit test of the wheel conversion covers:
-   - accumulating precise deltas, with the remainder carried across a change
-     of direction;
+   - accumulating precise deltas of less than a row, also across a change of
+     direction, and dropping the fraction once whole rows are sent;
    - a discrete event yielding three rows per notch and at least one notch,
      also at a cell height that is not a whole number of pixels;
    - line and page deltas;
@@ -338,7 +383,8 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
    - the XTVERSION reply;
    - that a trackpad gesture of P pixels in one direction, over a program
      tracking the mouse in the alternate buffer, followed by two notches of a
-     physical wheel, produces ⌊P ÷ cell height⌋ + 6 reports, within one.
+     physical wheel, produces the reports of rule 2 for its events plus 6,
+     within one.
      The gesture is dispatched with Chromium's precise-scroll `wheelDelta` (three
      times the pixel delta). CDP-synthesized wheel events always carry one
      notch, so they stand in for the physical wheel.
@@ -348,7 +394,12 @@ Chinese transcript, and a slow swipe at 120 Hz, over two runs:
      left;
    - no scrollbar for a program in the alternate buffer while the pointer is
      over the terminal.
-9. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
+9. Recorded manual check: trackpad gestures posted as system events give, in
+   an Agent Area terminal with BaseHalf's default font, the number of wheel
+   reports that they give in the reference terminal with its default font,
+   for a slow gesture and for one with momentum. The Problem section holds
+   the record of 2026-10-13: 12 to 13 and 27 reports in both.
+10. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
    logs `wheel accel: window (native)`, `TERM_PROGRAM=BaseHalf`, and
    `DECSTBM: enabled`. After its scroll regions have moved the transcript, the
    screen is the same as after a repaint of every row (Ctrl+L). A slow
