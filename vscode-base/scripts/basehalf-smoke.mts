@@ -9950,6 +9950,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	const canvasState = () => page.evaluate(() => ({
 		editor: document.querySelector('.basehalf-canvas-inline-name-input input')?.closest('.basehalf-canvas-card')?.getAttribute('data-basehalf-card-path') ?? null,
 		selected: [...document.querySelectorAll('.basehalf-canvas-card.selected')].map(card => card.getAttribute('data-basehalf-card-path')),
+		toolbar: !!document.querySelector('.basehalf-canvas-selection-toolbar, .basehalf-canvas-note-toolbar'),
 		noteEditing: document.querySelectorAll('.basehalf-canvas-card[data-note-editing="true"]').length,
 		cardDetail: !!document.querySelector('.basehalf-card-detail.visible')
 	}));
@@ -10018,9 +10019,44 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 
 	// A double click on the name: the editor, the keyboard, and nothing opened.
 	const placeBefore = await readme.boundingBox();
-	await doubleClick(atRest.name);
+	// Changing a name selects no card: between the first press and the open
+	// editor no frame shows a selected card or the toolbar of one. The two
+	// clicks come as a person's do, so a toolbar that the first one brought up
+	// would have its frames.
+	await page.mouse.move(atRest.name.x, atRest.name.y);
+	await page.evaluate(() => {
+		const watch = { selected: 0, toolbar: 0, stop: false };
+		(window as typeof window & { __basehalfSmokeNameSelection?: typeof watch }).__basehalfSmokeNameSelection = watch;
+		const tick = () => {
+			if (document.querySelector('.basehalf-canvas-card.selected')) {
+				watch.selected++;
+			}
+			if (document.querySelector('.basehalf-canvas-selection-toolbar, .basehalf-canvas-note-toolbar')) {
+				watch.toolbar++;
+			}
+			if (!watch.stop) {
+				requestAnimationFrame(tick);
+			}
+		};
+		requestAnimationFrame(tick);
+	});
+	await page.mouse.click(atRest.name.x, atRest.name.y);
+	await page.waitForTimeout(200);
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after one click on the name of a note');
+	await page.mouse.click(atRest.name.x, atRest.name.y, { clickCount: 2 });
 	await waitForCanvasNameEditor(page, 'README.md', { value: 'README', selection: [0, 6] });
-	await expectState({ editor: 'README.md', selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a note');
+	await expectState({ editor: 'README.md', selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a double click on the name of a note');
+	const selectionFrames = await page.evaluate(() => {
+		const watch = (window as typeof window & { __basehalfSmokeNameSelection?: { selected: number; toolbar: number; stop: boolean } }).__basehalfSmokeNameSelection;
+		if (!watch) {
+			return { selected: -1, toolbar: -1 };
+		}
+		watch.stop = true;
+		return { selected: watch.selected, toolbar: watch.toolbar };
+	});
+	if (selectionFrames.selected !== 0 || selectionFrames.toolbar !== 0) {
+		throw new Error(`A double click on the name of a card showed the card selected on the way to its editor: ${JSON.stringify(selectionFrames)}`);
+	}
 
 	// The editor is not disturbed by what happens in the folder meanwhile: a
 	// file of another card, and the very note that is being renamed. The caret
@@ -10096,7 +10132,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to rename the note');
 	const byName = page.locator(cardSelector('README-by-name.md'));
 	await byName.waitFor({ state: 'visible', timeout: 10_000 });
-	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Enter in the rename editor');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after Enter in the rename editor');
 	const placeAfter = await byName.boundingBox();
 	if (!placeBefore || !placeAfter
 		|| Math.abs(placeAfter.x - placeBefore.x) > 1 || Math.abs(placeAfter.y - placeBefore.y) > 1
@@ -10152,7 +10188,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		throw new Error(`A name that can be used again is still marked: ${JSON.stringify(usable)}`);
 	}
 	await page.keyboard.press('Escape');
-	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
 	if (!fs.existsSync(path.join(workspacePath, 'README-by-name.md')) || fs.existsSync(path.join(workspacePath, 'abcdefgh.md'))) {
 		throw new Error('Escape in the rename editor renamed the note');
 	}
@@ -10162,12 +10198,13 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	await page.keyboard.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to restore the fixture');
 	await readme.waitFor({ state: 'visible', timeout: 10_000 });
-	await expectState({ editor: null, selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after the fixture got its name back');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after the fixture got its name back');
 
 	// The glyph of a note is not the name: nothing opens.
 	await doubleClick((await caption('README.md')).glyph);
 	await page.waitForTimeout(600);
-	await expectState({ editor: null, selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the glyph of a note');
+	// The glyph is the card: it selects it, and the card's toolbar comes up.
+	await expectState({ editor: null, selected: ['README.md'], toolbar: true, noteEditing: 0, cardDetail: false }, 'after a double click on the glyph of a note');
 
 	// The name of a folder is renamed in place, and the folder is not entered.
 	// Earlier steps leave cards where their drags ended, and one can lie over
@@ -10193,10 +10230,10 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	}
 	await doubleClick(folder.name);
 	await waitForCanvasNameEditor(page, folderPath, { value: folderPath, selection: [0, folderPath.length] });
-	await expectState({ editor: folderPath, selected: [folderPath], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a folder');
+	await expectState({ editor: folderPath, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a double click on the name of a folder');
 	await assertCanvasFolder(page, '');
 	await page.keyboard.press('Escape');
-	await expectState({ editor: null, selected: [folderPath], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor of a folder');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor of a folder');
 
 	// Hand the canvas back as the step found it: nothing selected, docs in place.
 	const emptyCanvas = await page.evaluate(() => {
@@ -10218,7 +10255,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		throw new Error('No empty canvas point to end the selection after the card name checks');
 	}
 	await page.mouse.click(emptyCanvas.x, emptyCanvas.y);
-	await expectState({ editor: null, selected: [], noteEditing: 0, cardDetail: false }, 'after the card name checks');
+	await expectState({ editor: null, selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after the card name checks');
 	await panCanvasCardTo(page, docs, { x: docsBefore.x, y: docsBefore.y });
 }
 

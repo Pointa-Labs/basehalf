@@ -7003,6 +7003,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				value: shownName,
 				selectionPending: true
 			};
+			// Changing a name is not selecting a card: the toolbar of a selected
+			// card would stand over the name that is being typed.
+			this.canvasScene.select({ cardPaths: [] });
 			this.requestRender();
 			return;
 		}
@@ -7825,11 +7828,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", fileName),
 				confirmBeforeUndo: this.confirmExplorerUndo()
 			});
-			// Enter leaves the card selected under its new name.
-			const folder = this.getCurrentFolder();
-			if (postCreateOwner && folder && this.uriIdentityService.extUri.isEqual(folder.resource, edit.parent)) {
-				this.queueCanvasSelection(this.sceneKey(folder), [canvasChildPath(folder.relativePath, name)], postCreateOwner);
-			}
 			return;
 		}
 		const folder = this.getCurrentFolder();
@@ -8113,6 +8111,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// The name is the file name of a file that is there: a double click on
 		// it renames in place. A video card shows the title of its document.
 		label.classList.toggle('renamable', !orphan && !resultNode);
+		if (!orphan && !resultNode) {
+			// The name is text. A click on it selects no card: the first click of
+			// the double click that edits it would bring the card's toolbar up
+			// over the name. A drag from it still moves the card.
+			listeners.add(this.addDisposableListener(label, 'click', event => event.stopPropagation()));
+		}
 		const captionActions = append(caption, $('.basehalf-canvas-card-caption-actions'));
 		if (canShowBadgeFace) {
 			this.renderCardBadgeToggle(captionActions, item, badgeIssueCount, listeners);

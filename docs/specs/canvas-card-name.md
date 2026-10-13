@@ -179,10 +179,14 @@ Two states come first:
 
 ### Input on the name target
 
+Changing a name is not selecting a card. A selected card shows a toolbar
+above it, and a toolbar that comes up over the name that is being typed is
+in the way of it.
+
 | Input | What happens |
 | --- | --- |
-| Double click, primary button, no modifier key | The card becomes the one selected card, and the rename editor opens in its caption. Nothing else opens: no note editor, no Card Detail, and a folder is not entered. |
-| Click | The card is selected, as by a click on the rest of the card. |
+| Double click, primary button, no modifier key | The rename editor opens in the caption. No card is selected: neither this one nor one that was selected before, so no toolbar is shown. Nothing else opens: no note editor, no Card Detail, and a folder is not entered. |
+| Click | Nothing. The name is text: a press on it selects no card and ends no selection. The card is selected from every other part of it. |
 | Press and drag | The card moves, as by a drag from the rest of the caption. No editor opens. |
 | Double click with Shift, Command, Control, or Alt held | As on the rest of the caption. |
 | Secondary click | The card's menu, as before. |
@@ -236,8 +240,11 @@ its text does not stand where the name stood.
 - It has the keyboard when it opens, whichever way it was opened. What the
   user types next replaces the selected part.
 - The title of Card Detail is renamed by the same rules, in its own input.
-- **Enter** renames the file. Afterwards the card is the one selected card
-  under its new name, and the canvas has the keyboard, as after Escape. A
+- **No card is selected while a name is edited**, whichever way the editor
+  was opened. F2 and Rename open it for a card that is selected: that
+  selection ends when the editor opens.
+- **Enter** renames the file. Afterwards no card is selected, and the canvas
+  has the keyboard, as after Escape. A
   name that was not changed closes the editor and renames nothing. A name
   that cannot be used keeps the editor open and shows why: an empty name, a
   name with a path separator, a name the file system does not take, the
@@ -311,7 +318,8 @@ card.
    name target ends left of the badge button.
 4. A double click on the name of a note opens the rename editor in that
    card with the name in it, without the extension, and all of it selected.
-   The card is the one selected card. No note editor and no Card Detail is
+   No card is selected and no toolbar is shown, in every frame from the
+   first press to the open editor. No note editor and no Card Detail is
    open.
 5. A double click on the name of a folder opens the rename editor, and the
    canvas still shows the same folder.
@@ -337,7 +345,12 @@ card.
 14. With the editor open, writing the file that is being renamed leaves the
     input in the document in every frame, with its text and its caret.
     Enter then renames the file.
-15. After Enter the renamed card is the one selected card.
+15. After Enter, and after Escape, no card is selected.
+24. A click on the name of a card selects nothing, and a card that was
+    selected stays selected. A click on the glyph of the same card selects
+    it.
+25. F2 on a selected card opens the editor, and no card is selected while it
+    is open.
 
 The name that is shown
 
@@ -377,8 +390,10 @@ The editor in place
   name of an item and the file name of a typed name, with the rows of the
   table above (criteria 16 and 17 as a rule). `basehalfUpstreamActions.test.ts`
   covers the rows of the lists (criterion 19).
-- Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, 12 to 15, and
-  20 to 23 in the real window. The press on the caption right of the text,
+- Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, 12 to 15, 20
+  to 23, and the click on a name of criterion 24 in the real window. It
+  makes its first double click at a person's speed and counts the frames
+  that show a selected card. The press on the caption right of the text,
   of criterion 22, was measured by hand: see below. It is part of the whole run and of the `--canvas-only`
   slice. It types with the keyboard and never fills the input,
   so an editor without the keyboard fails it. For criterion 14 it writes
@@ -442,6 +457,19 @@ The editor in place, in the same kind of window at 61% zoom:
 | A press on the caption between the text and the badge button | the element there was the caption. The file was renamed, as by a press outside. |
 | A name of 43 characters | the editor began where the name began and showed the name from its beginning, 147.8 pixels wide in a room of 152.7. |
 | The names of a folder and of a data file | the same: every offset 0, and as wide as the text. |
+
+A name is changed without a card being selected, in the same kind of
+window:
+
+| What was done | What was seen |
+| --- | --- |
+| A double click on the name of a card that was not selected, 220 ms between the two clicks, sampled on every frame until the editor was open | 138 frames: none with a selected card, none with a toolbar. |
+| Enter, and Escape | no card selected, no toolbar. |
+| A click on the name of a card | nothing selected. A click on its glyph: the card selected, with its toolbar. |
+| With one card selected, a click on the name of another card | the first card stayed selected. |
+| A double click on the name of the selected card, and F2 on a selected card | the editor opened, and no card was selected. |
+| A press on a name and a drag | the card moved, and the drag selected it, as a drag from anywhere does. |
+| A note edited in one card, then a double click on the name of another | the note editor closed, the name's editor opened, and no card was selected. |
 
 Before the change the same steps gave: no keyboard after F2 or a double
 click; another input element after every change in the folder, with the

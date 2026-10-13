@@ -4653,7 +4653,8 @@ function createCanvasSceneMount(
 					y: Math.max(0, (event.clientY - bounds.top) * scaleY)
 				};
 			})() : undefined;
-			void requestSelection({ cardPaths: [node.id] }).then(selected => {
+			// Changing a name selects no card, and it ends the selection there is.
+			void requestSelection({ cardPaths: action === 'rename' ? [] : [node.id] }).then(selected => {
 				if (!selected) {
 					return;
 				}
