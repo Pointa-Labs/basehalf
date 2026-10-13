@@ -64,6 +64,9 @@ the first version's amount.
 - Claude Code's xterm.js-only glyph-atlas workaround, which no longer applies,
   is replaced by atlas maintenance in the terminal itself.
 - A terminal shows a scrollbar only where it has rows to scroll to.
+- A program's output reaches the window as soon as the pty has delivered it,
+  so that a frame that answers a wheel report shows without a wait of the
+  terminal's own.
 
 ## Non-goals
 
@@ -71,7 +74,9 @@ the first version's amount.
   scrolling already keeps up with the trackpad and stays unchanged.
 - Horizontal wheel input, touch gestures, and wheel events with a modifier
   key, such as fast scroll and zoom. They keep xterm.js and VS Code behavior.
-- Changing any agent, or tuning reports for a particular agent.
+- Changing any agent, or tuning reports for a particular agent. Telling an
+  agent what the terminal supports, through a variable that the agent
+  documents for that purpose, is not tuning.
 - A scrollbar for content that a TUI scrolls by itself. The terminal does not
   know that position.
 - Making IDE companion integrations of TUI agents, such as Claude Code's or
@@ -208,6 +213,67 @@ terminal.
    scrollbar that xterm.js hides, so one that xterm.js hides at once
    disappears at once.
 
+### Output latency
+
+A full-screen program answers a wheel report with a frame. How soon that frame
+shows decides whether the content follows the fingers. Measured on 2026-10-12,
+a program that repaints at once answers a report through the pty in 0.2 ms.
+The terminal host, which reads the pty in a process of its own, kept every
+output for 5 ms before it sent it to the window, to bound the number of
+messages under a flood of output. The output of a program that answered at
+once reached the window 6.0 to 6.6 ms after the report. At 120 Hz the window
+draws a frame every 8.3 ms, so a frame that needed a few milliseconds more to
+be written missed the next frame of the window and showed one frame later.
+
+1. Output that follows a quiet period is sent to the window once the pty has
+   been silent for 0.25 ms. A quiet period means that the pty delivered
+   nothing for 5 ms. A pty delivers what a program writes at once in pieces of
+   1,024 bytes, a fraction of a millisecond apart. The silence keeps those
+   pieces in one message.
+2. The batch of 5 ms that began with that output stays open. What arrives
+   later in it goes in one message at its end, no later than before. Output
+   that follows other output within 5 ms is batched as before. A flood of
+   output therefore costs at most one message more than before for each quiet
+   period.
+3. This applies to every integrated terminal. The other users of the same
+   buffer, which carry terminal data to and from extensions, are unchanged.
+
+### Scroll regions for Claude Code
+
+Claude Code scrolls its fullscreen transcript in one of two ways. With scroll
+regions it asks the terminal to move the rows that stay and sends only the
+rows that appear. Without them it sends every row again. It uses scroll
+regions where it expects synchronized output (DEC mode 2026), and it decides
+that from the terminal's name when it starts, before the terminal has
+answered its query. It does not know the name BaseHalf. In an Agent Area
+terminal it therefore sent every row again, although the terminal supports
+synchronized output and says so.
+
+A repaint is slow to arrive. A pty on macOS passes 1,024 bytes at a time, and
+Claude Code writes the next piece about 1.1 ms after the last. The terminal
+shows nothing of a synchronized frame until its last piece. Measured on
+2026-10-12 with Claude Code 2.1.296, a terminal of 101 columns and 57 rows, a
+Chinese transcript, and a slow swipe at 120 Hz, over two runs:
+
+| Way of scrolling | Sent for one row | Frame complete after the report | Shown after the report |
+| --- | --- | --- | --- |
+| Every row again | about 3,200 characters, in 3 messages | 18 to 19 ms | 23 to 24 ms, the third frame |
+| Scroll regions | about 220 characters | 5 to 6 ms | 8 to 9 ms, the next frame |
+
+1. On macOS and Linux, the environment of every Agent Area terminal sets
+   `CLAUDE_CODE_FORCE_SYNC_OUTPUT=1`. Claude Code documents this variable for
+   a terminal that supports synchronized output and is not detected. It makes
+   no claim that the terminal does not keep: xterm.js implements synchronized
+   output and scroll regions. A launch configuration that sets the variable
+   itself keeps its own value.
+2. The variable names one agent because that agent reads no other statement
+   of this capability at the time it decides. It changes nothing for other
+   programs. BaseHalf sets no variable that changes how an agent interprets
+   input.
+3. On Windows the variable is not set. A pseudoconsole stands between the
+   program and the terminal there, and what it does with these sequences is
+   not verified.
+
 ## Failure and recovery
 
 - An agent that assumed xterm.js's sparse wheel reports receives the reports
@@ -216,6 +282,10 @@ terminal.
   and atlas maintenance do not depend on it.
 - Losing the WebGL context disposes the renderer, and atlas maintenance stops
   with it. VS Code's DOM fallback is unchanged.
+- A Claude Code that no longer reads `CLAUDE_CODE_FORCE_SYNC_OUTPUT` sends
+  every row again, as before. Scrolling is slower, and nothing breaks.
+- If Claude Code's scroll regions leave wrong rows on the screen, its
+  `CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1` makes it send every row again.
 - If an xterm.js upgrade renames the classes that mark the scrollbar as shown
   or hidden, BaseHalf's opacity rules stop matching and xterm.js's own
   opacity applies. The scrollbar still hides where nothing can scroll. A test
@@ -251,8 +321,20 @@ terminal.
    interval defers rather than drops.
 5. A unit test shows that window reuse and `--wait` recognize `BaseHalf` and
    no longer recognize `vscode`.
-6. The smoke test shows, in an Agent Area terminal:
+6. A unit test of the output buffer with a set clock shows:
+   - output after a quiet period sent once the terminal has been silent for
+     the quiet time, with the pieces that arrived meanwhile in one message;
+   - output that arrives later in the same batch sent at the end of the
+     batch;
+   - a batch that begins less than its length after other output not sent
+     early;
+   - a batch that never falls silent sent at its end.
+7. A unit test shows `CLAUDE_CODE_FORCE_SYNC_OUTPUT=1` in the environment of
+   an Agent Area terminal on macOS and Linux, absent on Windows, and a launch
+   configuration's own value kept.
+8. The smoke test shows, in an Agent Area terminal:
    - `TERM_PROGRAM=BaseHalf` and the product's version;
+   - `CLAUDE_CODE_FORCE_SYNC_OUTPUT=1` on macOS and Linux;
    - the XTVERSION reply;
    - that a trackpad gesture of P pixels in one direction, over a program
      tracking the mouse in the alternate buffer, followed by two notches of a
@@ -266,8 +348,10 @@ terminal.
      left;
    - no scrollbar for a program in the alternate buffer while the pointer is
      over the terminal.
-7. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
-   logs `wheel accel: window (native)` and `TERM_PROGRAM=BaseHalf`. A slow
+9. Recorded manual check: Claude Code in its fullscreen renderer in Agent Area
+   logs `wheel accel: window (native)`, `TERM_PROGRAM=BaseHalf`, and
+   `DECSTBM: enabled`. After its scroll regions have moved the transcript, the
+   screen is the same as after a repaint of every row (Ctrl+L). A slow
    swipe moves its transcript one row per report and as far as the fingers
    travel, within three rows. During a medium swipe the transcript moves at
    most six rows per report on average, and it follows each report within
@@ -284,3 +368,10 @@ terminal.
      transcript 190 rows, 4.3 rows per report, in updates of a median of 6
      rows and at most 13. Each update came within 34 ms of its report, with a
      median of 7 to 8 ms.
+
+   Recorded 2026-10-12 with Claude Code 2.1.296 started with
+   `CLAUDE_CODE_FORCE_SYNC_OUTPUT=1`, a terminal of 101 columns and 57 rows,
+   and transcripts in English and in Chinese: the log said `DECSTBM:
+   enabled`, and after each of 18 swipes, slow, medium, and fast, the screen
+   was the same as after Ctrl+L. The table under Scroll regions for Claude
+   Code holds the times.

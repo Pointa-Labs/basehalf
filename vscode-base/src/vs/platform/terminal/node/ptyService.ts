@@ -941,8 +941,18 @@ class PersistentTerminalProcess extends Disposable {
 			this._onDidChangeProperty.fire(e);
 		}));
 
-		// Data buffering to reduce the amount of messages going to the renderer
-		this._bufferer = new TerminalDataBufferer((_, data) => this._onProcessData.fire(data));
+		// Data buffering to reduce the amount of messages going to the renderer.
+		// Output that follows a quiet period goes once the pty has been silent
+		// for a moment, so that a program's frame does not wait for the end of
+		// a batch (docs/specs/agent-area-terminal.md, Output latency).
+		this._bufferer = new TerminalDataBufferer((_, data) => this._onProcessData.fire(data), {
+			quietTime: 0.25,
+			now: () => globalThis.performance.now(),
+			schedule: callback => {
+				const handle = setImmediate(callback);
+				return toDisposable(() => clearImmediate(handle));
+			}
+		});
 		this._register(this._bufferer.startBuffering(this._persistentProcessId, this._terminalProcess.onProcessData));
 
 		// Data recording for reconnect

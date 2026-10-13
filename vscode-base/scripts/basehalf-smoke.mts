@@ -1749,10 +1749,10 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
 	await terminal.click();
-	await page.keyboard.insertText(`node -e "console.log('BH_NO_COLOR='+(process.env.NO_COLOR||'<empty>')); console.log('BH_TERM='+process.env.TERM); console.log('BH_COLORTERM='+process.env.COLORTERM); console.log('BH_TERM_PROGRAM='+process.env.TERM_PROGRAM); console.log('BH_TERM_PROGRAM_VERSION='+process.env.TERM_PROGRAM_VERSION); console.log('BH_FORCE_COLOR='+(process.env.FORCE_COLOR||'<empty>')); console.log('BH_NODE_DISABLE_COLORS='+(process.env.NODE_DISABLE_COLORS||'<empty>')); process.stdout.write('\\x1b[31mBH_RED_SENTINEL\\x1b[0m \\x1b[36mBH_CYAN_SENTINEL\\x1b[0m\\n')"`);
+	await page.keyboard.insertText(`node -e "console.log('BH_NO_COLOR='+(process.env.NO_COLOR||'<empty>')); console.log('BH_TERM='+process.env.TERM); console.log('BH_COLORTERM='+process.env.COLORTERM); console.log('BH_TERM_PROGRAM='+process.env.TERM_PROGRAM); console.log('BH_TERM_PROGRAM_VERSION='+process.env.TERM_PROGRAM_VERSION); console.log('BH_SYNC_OUTPUT='+(process.env.CLAUDE_CODE_FORCE_SYNC_OUTPUT||'<empty>')); console.log('BH_FORCE_COLOR='+(process.env.FORCE_COLOR||'<empty>')); console.log('BH_NODE_DISABLE_COLORS='+(process.env.NODE_DISABLE_COLORS||'<empty>')); process.stdout.write('\\x1b[31mBH_RED_SENTINEL\\x1b[0m \\x1b[36mBH_CYAN_SENTINEL\\x1b[0m\\n')"`);
 	await page.keyboard.press('Enter');
 
-	await page.waitForFunction(expectedVersion => {
+	await page.waitForFunction(({ expectedVersion, expectedSyncOutput }) => {
 		const getActiveXtermBufferText = (): string => {
 			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
 			const buffer = wrapper?.xterm?.buffer?.active;
@@ -1772,11 +1772,12 @@ async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
 			&& text.includes('BH_COLORTERM=truecolor')
 			&& text.includes('BH_TERM_PROGRAM=BaseHalf')
 			&& text.includes(`BH_TERM_PROGRAM_VERSION=${expectedVersion}`)
+			&& text.includes(`BH_SYNC_OUTPUT=${expectedSyncOutput}`)
 			&& text.includes('BH_FORCE_COLOR=<empty>')
 			&& text.includes('BH_NODE_DISABLE_COLORS=<empty>')
 			&& text.includes('BH_RED_SENTINEL')
 			&& text.includes('BH_CYAN_SENTINEL');
-	}, product.basehalfVersion, { timeout: 20_000 });
+	}, { expectedVersion: product.basehalfVersion, expectedSyncOutput: process.platform === 'win32' ? '<empty>' : '1' }, { timeout: 20_000 });
 
 	await page.waitForFunction(() => {
 		const activeXtermHasPaletteText = (marker: string, paletteIndex: number): boolean => {

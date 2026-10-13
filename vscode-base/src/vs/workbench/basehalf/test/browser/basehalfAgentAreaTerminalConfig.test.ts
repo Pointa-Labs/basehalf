@@ -72,6 +72,24 @@ suite('BaseHalfAgentAreaTerminalConfig', () => {
 		});
 	});
 
+	test('declares synchronized output to Claude Code in the environment of every Agent Area terminal on macOS and Linux', () => {
+		const declared = (os: OperatingSystem, config?: IShellLaunchConfig) => (baseHalfCreateAgentAreaTerminalConfig('Terminal', config, false, os) as IShellLaunchConfig).env?.CLAUDE_CODE_FORCE_SYNC_OUTPUT;
+
+		assert.deepStrictEqual({
+			macOS: declared(OperatingSystem.Macintosh),
+			linux: declared(OperatingSystem.Linux),
+			windows: declared(OperatingSystem.Windows),
+			claudeCode: declared(OperatingSystem.Macintosh, { executable: 'claude' }),
+			ownValue: declared(OperatingSystem.Macintosh, { executable: 'claude', env: { CLAUDE_CODE_FORCE_SYNC_OUTPUT: '0' } })
+		}, {
+			macOS: '1',
+			linux: '1',
+			windows: undefined,
+			claudeCode: '1',
+			ownValue: '0'
+		});
+	});
+
 	test('launches Codex and plain terminals without launch arguments', () => {
 		const codex = baseHalfTuiSessionLaunchConfig('tui-codex', { isRemote: false, os: OperatingSystem.Linux, hasMarkedWorkspaceFolder: false });
 		assert.ok(codex);

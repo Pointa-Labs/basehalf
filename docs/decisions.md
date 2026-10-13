@@ -926,6 +926,13 @@ heuristics.
   finger travel on every display. That is the reference terminal's amount on
   a display with a scale factor of 2; on other displays its amount differs,
   and BaseHalf's does not. See the specification for the measurement.
+- Refined 2026-10-12: being a terminal that agents do not know by name has a
+  cost at their output. Claude Code chooses how to scroll from the terminal's
+  name before it has asked the terminal, and under an unknown name it sends
+  every row again for each row scrolled. Agent Area terminals therefore set
+  the variable that Claude Code documents for a terminal with synchronized
+  output that it does not detect. The terminal host also sends output that
+  follows a quiet period without its 5 ms wait. The identity stays BaseHalf.
 
 ## D40 — Mirror metadata never blocks the user (NEW, 2026-10-10)
 

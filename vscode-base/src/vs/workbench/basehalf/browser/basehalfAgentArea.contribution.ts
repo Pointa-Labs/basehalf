@@ -13,7 +13,7 @@ import { disposableTimeout } from '../../../base/common/async.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
-import { isMacintosh, OS } from '../../../base/common/platform.js';
+import { isMacintosh, OperatingSystem, OS } from '../../../base/common/platform.js';
 import { hasKey, isObject } from '../../../base/common/types.js';
 import { localize2 } from '../../../nls.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
@@ -149,17 +149,27 @@ const BASEHALF_GHOSTTY_TERMINAL_ENV: ITerminalEnvironment = {
 	CLICOLOR: '1',
 	CLICOLOR_FORCE: null
 };
+/**
+ * Tells Claude Code that the terminal supports synchronized output, which it
+ * does not detect under BaseHalf's name before it decides how to scroll. With
+ * it, Claude Code moves its transcript with scroll regions instead of sending
+ * every row again (docs/specs/agent-area-terminal.md, Scroll regions for
+ * Claude Code).
+ */
+const BASEHALF_SYNCHRONIZED_OUTPUT_ENV: ITerminalEnvironment = {
+	CLAUDE_CODE_FORCE_SYNC_OUTPUT: '1'
+};
 
 /**
  * The launch configuration of an Agent Area terminal. Launch arguments of a
  * plain shell launch configuration (such as a TUI session's launch
  * instruction) pass through unchanged.
  */
-export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean): ICreateTerminalOptions['config'] {
+export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], usesNodeRunBridge: boolean, os: OperatingSystem = OS): ICreateTerminalOptions['config'] {
 	const baseHalfAgentAreaNodeCommandBridge = usesNodeRunBridge ? true : undefined;
 	const isTransient = baseHalfAgentAreaNodeCommandBridge ? true : undefined;
 	if (!config) {
-		return { name: label, env: createAgentAreaTerminalEnv(), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
+		return { name: label, env: createAgentAreaTerminalEnv(os), hideFromUser: true, baseHalfAgentAreaNodeCommandBridge, isTransient };
 	}
 
 	if (hasKey(config, { extensionIdentifier: true })) {
@@ -171,7 +181,7 @@ export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICr
 		return {
 			executable: profile.path,
 			args: profile.args,
-			env: createAgentAreaTerminalEnv(profile.env),
+			env: createAgentAreaTerminalEnv(os, profile.env),
 			icon: profile.icon,
 			color: profile.color,
 			name: profile.overrideName ? profile.profileName : label,
@@ -184,7 +194,7 @@ export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICr
 	const shellLaunchConfig = config as IShellLaunchConfig;
 	return {
 		...shellLaunchConfig,
-		env: createAgentAreaTerminalEnv(shellLaunchConfig.env),
+		env: createAgentAreaTerminalEnv(os, shellLaunchConfig.env),
 		name: shellLaunchConfig.name ?? label,
 		hideFromUser: true,
 		baseHalfAgentAreaNodeCommandBridge,
@@ -192,9 +202,11 @@ export function baseHalfCreateAgentAreaTerminalConfig(label: string, config: ICr
 	};
 }
 
-function createAgentAreaTerminalEnv(env?: ITerminalEnvironment): ITerminalEnvironment {
+function createAgentAreaTerminalEnv(os: OperatingSystem, env?: ITerminalEnvironment): ITerminalEnvironment {
 	return {
 		...BASEHALF_GHOSTTY_TERMINAL_ENV,
+		// On Windows a pseudoconsole stands between the program and the terminal.
+		...(os === OperatingSystem.Windows ? undefined : BASEHALF_SYNCHRONIZED_OUTPUT_ENV),
 		...env
 	};
 }

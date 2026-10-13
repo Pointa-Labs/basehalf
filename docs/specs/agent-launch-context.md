@@ -41,6 +41,13 @@ These receive no launch context:
 
 ## Mechanism
 
+Launch context is the instruction text below. What an Agent Area terminal's
+environment declares to the programs in it, such as
+`CLAUDE_CODE_FORCE_SYNC_OUTPUT`, belongs to
+[Agent Area terminal](agent-area-terminal.md#scroll-regions-for-claude-code)
+and reaches every Agent Area terminal, whether or not it receives launch
+context.
+
 The instruction text is a string constant exported from
 `vs/workbench/basehalf/common/basehalfAgentLaunchInstructions.ts`. It is part of
 the application bundle, so no local process can change it.

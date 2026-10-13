@@ -5,6 +5,7 @@
 
 import assert from 'assert';
 import { Emitter } from '../../../../../base/common/event.js';
+import { toDisposable } from '../../../../../base/common/lifecycle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { TerminalDataBufferer } from '../../../../../platform/terminal/common/terminalDataBuffering.js';
 
@@ -154,5 +155,92 @@ suite('Workbench - TerminalDataBufferer', () => {
 		assert.strictEqual(data.get(1), '123');
 		assert.strictEqual(counter.get(2), 1);
 		assert.strictEqual(data.get(2), '4567');
+	});
+
+	suite('quiet flush', () => {
+		let now: number;
+		let checks: (() => void)[];
+		let sent: string[];
+		let quiet: TerminalDataBufferer;
+		const runChecks = () => {
+			for (const check of checks.splice(0)) {
+				check();
+			}
+		};
+
+		setup(() => {
+			now = 0;
+			checks = [];
+			sent = [];
+			quiet = store.add(new TerminalDataBufferer((_, e) => sent.push(e), {
+				quietTime: 1,
+				now: () => now,
+				schedule: callback => {
+					checks.push(callback);
+					return toDisposable(() => {
+						const index = checks.indexOf(callback);
+						if (index >= 0) {
+							checks.splice(index, 1);
+						}
+					});
+				}
+			}));
+		});
+
+		test('sends output after a quiet period once the terminal has been silent, and the rest of the batch at its end', async () => {
+			const terminalOnData = new Emitter<string>();
+			store.add(quiet.startBuffering(1, terminalOnData.event, 20));
+
+			terminalOnData.fire('a');
+			now = 0.5;
+			terminalOnData.fire('b');
+			runChecks();
+			now = 1.4;
+			runChecks();
+			const silentForLessThanTheQuietTime = [...sent];
+			now = 1.5;
+			runChecks();
+			const silentForTheQuietTime = [...sent];
+			now = 2;
+			terminalOnData.fire('c');
+			now = 10;
+			runChecks();
+			const laterInTheSameBatch = [...sent];
+			await wait(40);
+			const atTheEndOfTheBatch = [...sent];
+
+			// A batch that begins less than its length after other output is not sent early.
+			now = 15;
+			terminalOnData.fire('d');
+			const checksCloseBehindOtherOutput = checks.length;
+			await wait(40);
+			const closeBehindOtherOutput = [...sent];
+
+			now = 100;
+			terminalOnData.fire('e');
+			now = 101;
+			runChecks();
+
+			assert.deepStrictEqual({ silentForLessThanTheQuietTime, silentForTheQuietTime, laterInTheSameBatch, atTheEndOfTheBatch, checksCloseBehindOtherOutput, closeBehindOtherOutput, afterAnotherQuietPeriod: sent }, {
+				silentForLessThanTheQuietTime: [],
+				silentForTheQuietTime: ['ab'],
+				laterInTheSameBatch: ['ab'],
+				atTheEndOfTheBatch: ['ab', 'c'],
+				checksCloseBehindOtherOutput: 0,
+				closeBehindOtherOutput: ['ab', 'c', 'd'],
+				afterAnotherQuietPeriod: ['ab', 'c', 'd', 'e']
+			});
+		});
+
+		test('sends a batch at the end of its time when the terminal does not fall silent', async () => {
+			const terminalOnData = new Emitter<string>();
+			store.add(quiet.startBuffering(1, terminalOnData.event, 0));
+
+			terminalOnData.fire('a');
+			terminalOnData.fire('b');
+			await wait(0);
+
+			assert.deepStrictEqual({ sent, pendingChecks: checks.length }, { sent: ['ab'], pendingChecks: 0 });
+		});
 	});
 });
