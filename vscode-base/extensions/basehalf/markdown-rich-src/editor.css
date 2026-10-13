@@ -477,11 +477,14 @@ body,
 	cursor: default;
 }
 
+/* The block is as wide as the text column, so that Edit in Source stands at
+ * the right edge of the column and not on a short block's content. */
 .basehalf-raw-passthrough {
 	position: relative;
+	flex: 1 1 auto;
+	width: 100%;
+	min-width: 0;
 	margin: 4px 0;
-	padding-left: 8px;
-	border-left: 2px solid var(--vscode-panel-border);
 }
 
 .basehalf-raw-passthrough-edit {
@@ -497,17 +500,81 @@ body,
 	line-height: 16px;
 	cursor: pointer;
 	opacity: 0;
+	/* A button that is not shown takes no click from the content under it. */
+	pointer-events: none;
 	transition: opacity 0.1s ease-in-out;
 }
 
 .basehalf-raw-passthrough:hover .basehalf-raw-passthrough-edit,
 .basehalf-raw-passthrough-edit:focus-visible {
 	opacity: 1;
+	pointer-events: auto;
 }
 
 .basehalf-raw-passthrough-edit:hover {
 	color: var(--vscode-foreground);
 	border-color: var(--vscode-focusBorder);
+}
+
+/* A block the editor cannot edit is shown rendered, as the card shows it. */
+.basehalf-raw-passthrough-rendered {
+	color: var(--vscode-editor-foreground);
+	overflow-wrap: break-word;
+}
+
+.basehalf-raw-passthrough-rendered > :first-child {
+	margin-top: 0;
+}
+
+.basehalf-raw-passthrough-rendered > :last-child {
+	margin-bottom: 0;
+}
+
+.basehalf-raw-passthrough-rendered p,
+.basehalf-raw-passthrough-rendered ul,
+.basehalf-raw-passthrough-rendered ol,
+.basehalf-raw-passthrough-rendered blockquote,
+.basehalf-raw-passthrough-rendered details {
+	margin: 0 0 0.5em;
+}
+
+.basehalf-raw-passthrough-rendered a {
+	color: var(--vscode-textLink-foreground);
+}
+
+.basehalf-raw-passthrough-rendered img,
+.basehalf-raw-passthrough-rendered video {
+	max-width: 100%;
+	height: auto;
+}
+
+/* A table keeps the widths its columns need. When it is wider than the text
+ * column it scrolls sideways in its own box. */
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered table {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin: 0 0 0.5em;
+	overflow-x: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+	table-layout: auto;
+}
+
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered th,
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered td {
+	min-width: 0;
+	padding: 5px 12px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 28%, transparent);
+	vertical-align: top;
+}
+
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered th {
+	font-weight: 600;
+}
+
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered th:not([align]) {
+	text-align: start;
 }
 
 .basehalf-raw-passthrough pre {

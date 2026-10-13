@@ -66,6 +66,12 @@ import {
 	groupBaseHalfMarkdownContributions,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownMerge.js';
 import {
+	BASEHALF_NOTE_HTML_ATTRIBUTES,
+	BASEHALF_NOTE_HTML_TAGS,
+	baseHalfNoteMarkdownToHtml,
+} from '../../../src/vs/workbench/basehalf/common/basehalfNoteMarkdownHtml.js';
+import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
+import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
@@ -145,6 +151,40 @@ interface PassthroughProps {
 	hidden?: boolean;
 }
 
+/** The folder of the open note, as an address this document can load. Relative addresses of a rendered block are read from it. */
+const renderedNote = { baseUri: '' };
+
+/**
+ * The rendered form of Markdown that the editor cannot edit (note rendering):
+ * the elements and the text that the card shows for the same Markdown.
+ */
+function renderNoteMarkdown(source: string): DocumentFragment {
+	const rendered = dompurify.sanitize(baseHalfNoteMarkdownToHtml(source), {
+		ALLOWED_TAGS: [...BASEHALF_NOTE_HTML_TAGS],
+		ALLOWED_ATTR: [...BASEHALF_NOTE_HTML_ATTRIBUTES],
+		RETURN_DOM_FRAGMENT: true,
+	});
+	// An input is shown only as a check box that cannot be changed.
+	for (const input of Array.from(rendered.querySelectorAll('input'))) {
+		if (input.getAttribute('type') === 'checkbox') {
+			input.disabled = true;
+		} else {
+			input.replaceWith(document.createTextNode(input.outerHTML));
+		}
+	}
+	for (const media of Array.from(rendered.querySelectorAll('img, video, source'))) {
+		const address = media.getAttribute('src');
+		if (address && renderedNote.baseUri && !/^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(address)) {
+			try {
+				media.setAttribute('src', new URL(address, renderedNote.baseUri).toString());
+			} catch {
+				// An address that cannot be read stays as the author wrote it.
+			}
+		}
+	}
+	return rendered;
+}
+
 const rawPassthroughSpec = createBlockSpec(
 	{
 		type: BASEHALF_RAW_PASSTHROUGH_BLOCK,
@@ -169,9 +209,11 @@ const rawPassthroughSpec = createBlockSpec(
 			dom.className = 'basehalf-raw-passthrough';
 			dom.setAttribute('data-basehalf-raw-passthrough', '');
 
-			const pre = document.createElement('pre');
-			pre.textContent = (props.source ?? props.raw ?? '').replace(/^\n+|\n+$/g, '');
-			dom.appendChild(pre);
+			// The block is read here as it is read on the card: rendered.
+			const rendered = document.createElement('div');
+			rendered.className = 'basehalf-raw-passthrough-rendered';
+			rendered.appendChild(renderNoteMarkdown((props.source ?? props.raw ?? '').replace(/^\n+|\n+$/g, '')));
+			dom.appendChild(rendered);
 
 			// This block holds Markdown the rich projection cannot edit; the
 			// escape hatch jumps to the source projection at its lines.
@@ -777,6 +819,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.key = key;
 		state.resource = resource;
 		state.baseUri = baseUri;
+		renderedNote.baseUri = baseUri;
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
@@ -1512,6 +1555,7 @@ function MarkdownRichEditor(): JSX.Element {
 		pendingInit.current = undefined;
 		session.current.surface = payload.surface;
 		session.current.baseUri = payload.baseUri;
+		renderedNote.baseUri = payload.baseUri;
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
 		if (!merged) {

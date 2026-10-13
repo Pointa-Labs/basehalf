@@ -13608,6 +13608,14 @@ async function assertMarkdownRichPassthroughEditInSource(page) {
 	const frame = await activeMarkdownRichFrame(page);
 	const island = frame.locator('.basehalf-raw-passthrough', { hasText: 'raw html island' }).first();
 	await island.waitFor({ state: 'visible', timeout: 10_000 });
+	// The block cannot be edited here, and it is shown rendered: its element, and not its tags as text.
+	const islandShown = await island.evaluate(element => ({
+		elements: Array.from(element.querySelectorAll('.basehalf-raw-passthrough-rendered *'), child => child.tagName.toLowerCase()).join(' '),
+		text: element.querySelector('.basehalf-raw-passthrough-rendered')?.textContent?.trim()
+	}));
+	if (islandShown.elements !== 'div' || islandShown.text !== 'raw html island') {
+		throw new Error(`A block the rich projection cannot edit must be shown rendered: ${JSON.stringify(islandShown)}`);
+	}
 	await island.hover();
 
 	const edit = island.locator('.basehalf-raw-passthrough-edit');

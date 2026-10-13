@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { allowedMarkdownHtmlTags } from '../../../../base/browser/markdownRenderer.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
@@ -14,6 +15,7 @@ import {
 	resolveBaseHalfCanvasMarkdownInlineUnitAtPoint,
 	transformBaseHalfCanvasMarkdownOffset
 } from '../../browser/cardDetail/basehalfCanvasMarkdownInlineEditor.js';
+import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteMarkdownToHtml } from '../../common/basehalfNoteMarkdownHtml.js';
 
 suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -207,6 +209,27 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 				live: [],
 				shownAsWritten: [],
 				commands: []
+			});
+		} finally {
+			note.dispose();
+		}
+	});
+
+	test('a note shows the same elements wherever it is rendered', () => {
+		const source = '| a | b |\n|---|---|\n| 1<br>2 | H<sub>2</sub>O |\n\n<script>x</script> and List<String>\n';
+		const note = renderedNote(source);
+		try {
+			// Where the base renderer is not at hand, the same Markdown gives the same elements and text.
+			const elsewhere = document.createElement('div');
+			elsewhere.append(new DOMParser().parseFromString(baseHalfNoteMarkdownToHtml(source), 'text/html').body);
+			assert.deepStrictEqual({
+				tags: [...BASEHALF_NOTE_HTML_TAGS].sort(),
+				elements: [...elsewhere.querySelectorAll('body *')].map(element => element.tagName.toLowerCase()),
+				text: elsewhere.textContent?.replace(/\s+/g, ' ').trim()
+			}, {
+				tags: [...new Set(allowedMarkdownHtmlTags)].sort(),
+				elements: [...note.root.querySelectorAll('*')].map(element => element.tagName.toLowerCase()),
+				text: note.text.replace(/\s+/g, ' ').trim()
 			});
 		} finally {
 			note.dispose();

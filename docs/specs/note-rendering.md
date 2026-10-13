@@ -27,13 +27,17 @@ of BaseHalf does not read code, so a card full of tags is an unreadable card.
 
 The rule is that a place where a note is read shows the note rendered, and
 the characters of the file are for Card Detail's Source projection. This
-specification applies the rule to the card, and to tables in Card Detail.
+specification applies the rule to the card and to Card Detail.
 
-Card Detail showed tables in two ways that hid them. Its Preview projection
-drew a table without lines and without space between its cells, so the
-numbers of two columns ran together. Its rich projection cut a wide table
-at the right edge of the text column and showed no sign that the table
-could be scrolled.
+Card Detail's rich projection showed every block it cannot edit as the text
+of the file: a table with `<br>` in a cell appeared as lines of `|` and
+`---`, and a paragraph with `<sub>` as its tags.
+
+Card Detail also showed tables in two ways that hid them. Its Preview
+projection drew a table without lines and without space between its cells,
+so the numbers of two columns ran together. Its rich projection cut a wide
+table at the right edge of the text column and showed no sign that the
+table could be scrolled.
 
 ## Scope
 
@@ -45,14 +49,16 @@ In scope:
 - How a table and an image that are wider than the card are shown on it.
 - How Card Detail's Preview projection draws a table, and how its rich
   projection shows that a table is wider than the text column.
+- What Card Detail's rich projection shows for a block it cannot edit.
 
 Not in scope, and unchanged:
 
 - Which blocks can be edited on the card. A table, an image, a task list, a
   heading of level 4 to 6, and a block with HTML still open in Card Detail
   for editing.
-- Everything else in Card Detail's projections, and which blocks its rich
-  projection can edit.
+- Everything else in Card Detail's projections, which blocks its rich
+  projection can edit, and how such a block is saved: byte for byte, as
+  before.
 - The 8 KiB limit above which a card shows a label instead of the note.
 - Previews of text files, code files, and folders.
 - Front matter. It is not part of the shown note.
@@ -83,8 +89,9 @@ Not in scope, and unchanged:
    - tables, with the alignment of their columns and the formatting inside
      their cells;
    - the HTML elements that Card Detail's Preview projection renders
-     (`allowedMarkdownHtmlTags`), for example `<br>`, `<sub>`, `<kbd>`,
-     `<details>`, and a table written as HTML.
+     (`BASEHALF_NOTE_HTML_TAGS`, which a test keeps the same as the base
+     renderer's `allowedMarkdownHtmlTags`), for example `<br>`, `<sub>`,
+     `<kbd>`, `<details>`, and a table written as HTML.
 2. No markup of a construct in rule 1 is shown as text.
 3. A fixed block of a card being edited shows the same rendered form as the
    resting projection. Both come from one function
@@ -134,6 +141,21 @@ Not in scope, and unchanged:
     long as the table is wider than the box, also while it is not being
     scrolled.
 
+### A block the rich projection cannot edit
+
+15. Card Detail's rich projection shows a block it cannot edit in its
+    rendered form, by the rules 1, 2, 4, and 5 of the card. The elements and
+    the text are the same as on the card
+    (`baseHalfNoteMarkdownToHtml`, `BASEHALF_NOTE_HTML_TAGS`).
+16. The block is not edited in place. Edit in Source is offered on it as
+    before and opens the Source projection at its lines.
+17. A table in such a block keeps the widths its columns need and scrolls
+    sideways in its own box when it is wider than the text column. An image
+    is never wider than the text column, and its relative address is read
+    from the folder of the note.
+18. A comment that BaseHalf wrote itself (`<!-- bh:… -->`) stays hidden. Any
+    other HTML comment is shown as text, as on the card.
+
 ## Limits
 
 - A table at rest has no scrollbar: a bar would take the press that drags
@@ -143,12 +165,10 @@ Not in scope, and unchanged:
   wide as that text.
 - An HTML block that spans a blank line, such as `<details>` around
   paragraphs, is one element at rest and several blocks while the card is
-  edited. Its parts are then rendered one by one, and the folded text is
-  shown unfolded.
-- Card Detail's rich projection shows a block it cannot edit as the text of
-  the file, with Edit in Source. A table with `<br>` in a cell and a
-  paragraph with HTML are such blocks. On the card the same blocks are
-  rendered. This difference remains.
+  edited and in Card Detail's rich projection. Its parts are then rendered
+  one by one, and the folded text is shown unfolded.
+- A block that the rich projection cannot edit has no sign of that until
+  the pointer is on it, where Edit in Source appears.
 - A code block has no syntax colors on the card.
 - An image address that cannot be loaded shows the browser's broken image
   with its alternative text.
@@ -185,6 +205,13 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
    a text column 712 px wide is 10 px higher than its content: the height of
    its scrollbar. The box of a table that fits has no such height.
 
+10. In Card Detail's rich projection, a table with `a<br>b` in a cell is a
+    `table` element with two lines in that cell, `H<sub>2</sub>O` shows a
+    `sub` element, and the text of the editor contains none of `<br>`,
+    `<sub>`, `|---|`.
+11. Edit in Source on such a block opens the Source projection with the
+    lines of the block selected.
+
 ## Verification
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
@@ -192,3 +219,8 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   boxes), 3 (`<br>`), 6, and 7 in the real window.
 - Criteria 8 and 9 are measured in the real window by hand. They are style
   rules, and no test covers them.
+- Unit: `a note shows the same elements wherever it is rendered` covers the
+  claim of rule 15 that the card and the rich projection agree.
+- Smoke: `readme-rich-passthrough-edit-in-source` covers criterion 11 and,
+  for the HTML block of its note, that the block is shown rendered.
+  Criterion 10 is measured in the real window.
