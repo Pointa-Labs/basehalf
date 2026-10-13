@@ -1654,13 +1654,14 @@ the first is the editor's limit, and it must not decide the second.
 **Consequences.**
 - A table keeps its words whole, and a code block keeps its lines unbroken.
   One that is wider than the card is cut at the right and scrolls sideways
-  in its own box, by a sideways scroll that begins on it. In the card's
-  editor its scrollbar has the one look of the note's own scrollbar.
+  in its own box, by a sideways scroll that begins on it. While it is
+  scrolled a bar shows inside its lower edge, with one look; the bar takes
+  no space and is hidden otherwise.
 - Images of a note are loaded when its card is drawn.
 - HTML outside the allowed elements is still shown as text, letter for
   letter, and never becomes an element.
-- Card Detail's Preview projection draws a table with lines, and its rich
-  projection keeps the scrollbar of a wide table shown.
+- Card Detail's Preview projection draws a table with lines. In both of
+  its projections a wide table shows the same bar while it is scrolled.
 - Card Detail's rich projection shows a block it cannot edit rendered as
   well. The block is still not edited in place, and it is saved byte for
   byte.

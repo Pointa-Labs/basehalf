@@ -17,6 +17,7 @@ import { ITextFileService, TextFileOperationError, TextFileOperationResult } fro
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
+import { installBaseHalfSidewaysScrollbar } from '../basehalfSidewaysScrollbar.js';
 import { BaseHalfMarkdownRichTextModelDisk } from '../../common/basehalfMarkdownRichTextModel.js';
 
 /** The rendered preview shares the rich projection's frontmatter boundary. */
@@ -52,6 +53,12 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		const root = append(this.container, $('.basehalf-card-detail-markdown-preview'));
 		this.previewScroll = append(root, $('.basehalf-card-detail-markdown-preview-scroll'));
 		this.previewContent = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-content'));
+		// A table or a code block that is scrolled sideways shows one bar inside
+		// its lower edge, as on a card (note rendering).
+		this._register(installBaseHalfSidewaysScrollbar(this.previewScroll, {
+			boxSelector: '.basehalf-card-detail-markdown-preview-content table, .basehalf-card-detail-markdown-preview-content pre',
+			container: () => this.previewContent
+		}));
 		this.setSaveStatus('saving');
 
 		this._register(this.textFileService.files.onDidChangeDirty(model => {

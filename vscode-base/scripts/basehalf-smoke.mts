@@ -11198,8 +11198,9 @@ async function assertCanvasNoteRendersMarkdown(page) {
 			tableHoldsMore: table.scrollWidth > table.clientWidth,
 			tableAt: Math.round(table.scrollLeft),
 			fades: `${/^linear-gradient\(to right, rgba\(0, 0, 0, 0\)/.test(mask) ? 'left' : ''}${/rgba\(0, 0, 0, 0\)\)$/.test(mask) ? 'right' : ''}`,
-			// The height of the table's box with whatever stands along its lower edge: empty space at rest, a scrollbar in the editor.
+			// The height of the table's box. The bar of a scrolled table lies over the box and adds nothing to it.
 			tableBoxHeight: table.offsetHeight,
+			systemScrollbar: table.offsetHeight - table.clientHeight,
 			code: Array.from(note.querySelectorAll('pre'), pre => {
 				const style = getComputedStyle(pre);
 				return {
@@ -11212,6 +11213,21 @@ async function assertCanvasNoteRendersMarkdown(page) {
 			noteAt: note.scrollTop,
 			viewport: getComputedStyle(document.querySelector('.react-flow__viewport')).transform
 		};
+	});
+	// The bar of the note's table: whether it is shown, and whether it lies inside the lower edge of the table.
+	const bar = () => card.evaluate(element => {
+		const note = element.querySelector('.basehalf-canvas-note-editor.ready .basehalf-canvas-markdown-inline') ?? element.querySelector('.bh-md-preview');
+		const table = note?.querySelector('table');
+		const found = note?.querySelector('.basehalf-sideways-scrollbar');
+		if (!(table instanceof HTMLElement) || !(found instanceof HTMLElement)) {
+			return 'none';
+		}
+		const tableBox = table.getBoundingClientRect();
+		const barBox = found.getBoundingClientRect();
+		const inside = barBox.left >= tableBox.left && barBox.right <= tableBox.right && barBox.top >= tableBox.top && tableBox.bottom - barBox.bottom >= 0 && tableBox.bottom - barBox.bottom <= 4;
+		// The bar is as long, of the table's shown width, as that width is of the table's full width.
+		const proportional = Math.abs(barBox.width / tableBox.width - (table.clientWidth - 4) / table.scrollWidth) < 0.02;
+		return `${getComputedStyle(found).opacity === '1' ? 'shown' : 'hidden'}${inside && proportional ? ' inside the lower edge' : ' misplaced'}, takes ${getComputedStyle(found).pointerEvents === 'none' ? 'no press' : 'presses'}`;
 	});
 	const columns = ['开始时间', 'ret_1h', 'ret_6h', 'ret_24h', 'vol_24h', 'buy_ratio', 'rel_volume', '标签 y'];
 
@@ -11245,7 +11261,7 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	const rest = await shown();
 	const expected = {
 		headers: columns.join('|'), cells: 8, linesInLastCell: 2, smallHeadings: 1, boxes: 'open|done', tagsAsText: false,
-		noteWiderThanCard: 0, tableHoldsMore: true, tableAt: 0, fades: 'right', noteAt: 0
+		noteWiderThanCard: 0, tableHoldsMore: true, tableAt: 0, fades: 'right', systemScrollbar: 0, noteAt: 0
 	};
 	const comparable = state => JSON.stringify(state, Object.keys(expected));
 	if (comparable(rest) !== JSON.stringify(expected)) {
@@ -11270,8 +11286,15 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	if (JSON.stringify({ ...scrolled, tableAt: 0, fades: 'right' }) !== JSON.stringify(rest) || scrolled.tableAt !== 60 || scrolled.fades !== 'leftright') {
 		throw new Error(`A sideways scroll on a table wider than its card must move the table and nothing else: ${JSON.stringify({ rest, scrolled })}`);
 	}
-	// The quiet time passes, so that the double-click below is not part of the gesture.
-	await page.waitForTimeout(400);
+	// While the table is scrolled, its bar lies over it, inside its lower edge. Before and after there is none to see.
+	const barBeforeAnyScroll = rest.systemScrollbar === 0 ? 'none' : 'a system scrollbar';
+	const barWhileScrolled = await bar();
+	// The bar goes, and the quiet time passes, so that the double-click below is not part of the gesture.
+	await page.waitForTimeout(1_300);
+	const barAfterTheScroll = await bar();
+	if (barBeforeAnyScroll !== 'none' || barWhileScrolled !== 'shown inside the lower edge, takes no press' || barAfterTheScroll !== 'hidden inside the lower edge, takes no press') {
+		throw new Error(`The bar of a table must show inside its lower edge while the table is scrolled sideways, and at no other time: ${JSON.stringify({ barBeforeAnyScroll, barWhileScrolled, barAfterTheScroll })}`);
+	}
 
 	// The table cannot be edited on the card. It stays the same table, at the same place, while the paragraph is edited.
 	await card.locator('.bh-md-preview p', { hasText: 'First paragraph.' }).dblclick();
@@ -11280,16 +11303,27 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	if (JSON.stringify(editing) !== JSON.stringify(scrolled)) {
 		throw new Error(`A table and a code block must look the same, at the same sideways position, while another block of their note is edited: ${JSON.stringify({ scrolled, editing })}`);
 	}
-	// In the editor the table has a scrollbar along its lower edge, as high as the note's own bar is wide.
-	const bar = await card.locator('.basehalf-canvas-note-editor table').first().evaluate(table => table.offsetHeight - table.clientHeight);
-	if (bar !== 10) {
-		throw new Error(`The scrollbar of a table in the card's editor must be 10 pixels high: ${bar}`);
+	// Opening the editor put the table back where it was: that is no scroll, and shows no bar.
+	const barOnOpeningTheEditor = await bar();
+	// In the editor the table scrolls as any box does, and shows the same bar and no other.
+	const editorTableBox = await card.locator('.basehalf-canvas-note-editor table').first().boundingBox();
+	await page.mouse.move(editorTableBox.x + editorTableBox.width / 2, editorTableBox.y + editorTableBox.height / 2);
+	await page.mouse.wheel(-20, 0);
+	await page.waitForFunction(target => {
+		const table = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(candidate => candidate instanceof HTMLElement && candidate.dataset.basehalfCardPath === target)?.querySelector('.basehalf-canvas-note-editor table');
+		return table instanceof HTMLElement && Math.round(table.scrollLeft) === 40;
+	}, notePath, { timeout: 10_000 }).catch(() => undefined);
+	const scrolledInTheEditor = await shown();
+	const barInTheEditor = await bar();
+	if (JSON.stringify({ ...scrolledInTheEditor, tableAt: 60 }) !== JSON.stringify(scrolled) || scrolledInTheEditor.tableAt !== 40
+		|| barOnOpeningTheEditor !== 'none' || barInTheEditor !== 'shown inside the lower edge, takes no press') {
+		throw new Error(`A table in the card's editor must scroll sideways with the same bar as at rest: ${JSON.stringify({ scrolled, scrolledInTheEditor, barOnOpeningTheEditor, barInTheEditor })}`);
 	}
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
 	const after = await shown();
-	if (JSON.stringify(after) !== JSON.stringify(scrolled)) {
-		throw new Error(`A table must keep its sideways position when editing ends: ${JSON.stringify({ scrolled, after })}`);
+	if (JSON.stringify(after) !== JSON.stringify(scrolledInTheEditor)) {
+		throw new Error(`A table must keep its sideways position when editing ends: ${JSON.stringify({ scrolledInTheEditor, after })}`);
 	}
 
 	await openRootCanvas(page);

@@ -587,31 +587,35 @@ body,
 	word-break: break-word;
 }
 
-/* A table that is wider than the text column scrolls sideways in its own box.
- * Its bar stays shown, so that the columns out of view can be found. A webview
- * inherits a scrollbar color, and a bar drawn from that color hides itself
- * when it is not used; the box draws its own bar instead. */
-.basehalf-markdown-rich .bn-editor .tableWrapper {
-	scrollbar-color: auto;
+/* A table or a code block that is wider than the text column scrolls sideways
+ * in its own box. The system's bar grows and turns light under the pointer;
+ * the box shows the one bar below instead, while it is scrolled. */
+.basehalf-markdown-rich .bn-editor .tableWrapper,
+.basehalf-markdown-rich .bn-editor .basehalf-raw-passthrough-rendered table,
+.basehalf-markdown-rich .bn-editor .bn-block-content[data-content-type="codeBlock"] > pre {
+	scrollbar-width: none;
 }
 
-.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar {
-	height: 10px;
+/* The bar is placed in the page, which moves with what it holds. */
+.basehalf-markdown-rich-page {
+	position: relative;
 }
 
-.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-track,
-.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-corner {
-	background: transparent;
-}
-
-.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-thumb {
-	border: 2px solid transparent;
-	border-radius: 5px;
+/* The bar of a box that is being scrolled sideways. It lies over the box,
+ * inside its lower edge, takes no space and no press, and has one look. */
+.basehalf-sideways-scrollbar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1;
+	border-radius: 3px;
 	background: var(--vscode-scrollbarSlider-background);
-	background-clip: padding-box;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease-out;
 }
 
-.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-thumb:hover {
-	background: var(--vscode-scrollbarSlider-hoverBackground);
-	background-clip: padding-box;
+.basehalf-sideways-scrollbar.shown {
+	opacity: 1;
+	transition: none;
 }

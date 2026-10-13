@@ -72,6 +72,7 @@ import {
 	baseHalfNoteMarkdownToHtml,
 } from '../../../src/vs/workbench/basehalf/common/basehalfNoteMarkdownHtml.js';
 import dompurify from '../../../src/vs/base/browser/dompurify/dompurify.js';
+import { installBaseHalfSidewaysScrollbar } from '../../../src/vs/workbench/basehalf/browser/basehalfSidewaysScrollbar.js';
 import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
@@ -2033,6 +2034,23 @@ function MarkdownRichEditor(): JSX.Element {
 		dom.addEventListener('dblclick', onDoubleClick, true);
 		return () => dom.removeEventListener('dblclick', onDoubleClick, true);
 	}, [editor, vscode]);
+
+	// A table or a code block that is scrolled sideways shows one bar inside its
+	// lower edge, as on a card (note rendering). The bar is put into the page,
+	// outside what the editor draws.
+	useEffect(() => {
+		const scroll = scrollRef.current;
+		if (!scroll) {
+			return;
+		}
+		const scrollbar = installBaseHalfSidewaysScrollbar(scroll, {
+			boxSelector: '.tableWrapper, .basehalf-raw-passthrough-rendered table, .bn-block-content[data-content-type="codeBlock"] > pre',
+			container: box => box.closest<HTMLElement>('.basehalf-markdown-rich-page'),
+			// The box of an editable table is wider and higher than the table, for its handles.
+			anchor: box => box.classList.contains('tableWrapper') ? box.querySelector<HTMLElement>('table') : undefined,
+		});
+		return () => scrollbar.dispose();
+	}, []);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;

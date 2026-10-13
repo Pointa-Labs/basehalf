@@ -25,6 +25,7 @@ import type { BaseHalfMarkdownFormatCommand } from '../../common/basehalfMarkdow
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteShowsOtherHtmlAsWritten } from '../../common/basehalfNoteMarkdownHtml.js';
+import { restoreBaseHalfSidewaysScroll } from '../basehalfSidewaysScrollbar.js';
 
 const CANVAS_MARKDOWN_INLINE_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-markdown-inline-out';
 const CANVAS_MARKDOWN_INLINE_VENDOR_SCRIPT = 'canvasMarkdownInline.js';
@@ -275,7 +276,8 @@ export function applyBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement, pos
 	if (boxes.length !== positions.length) {
 		return;
 	}
-	boxes.forEach((box, index) => box.scrollLeft = positions[index]);
+	// The position is put back: the box shows no bar for it.
+	boxes.forEach((box, index) => restoreBaseHalfSidewaysScroll(box, positions[index]));
 }
 
 /** Render only the authored Markdown body shared by resting and inline views. */

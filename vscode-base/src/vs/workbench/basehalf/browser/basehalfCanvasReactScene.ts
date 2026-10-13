@@ -85,6 +85,7 @@ import {
 } from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
 import { installBaseHalfCanvasWheelGestures } from './basehalfCanvasWheelGestures.js';
+import { installBaseHalfSidewaysScrollbar } from './basehalfSidewaysScrollbar.js';
 import type {
 	Connection,
 	Edge,
@@ -4710,7 +4711,16 @@ function createCanvasSceneMount(
 				card: path => nodesRef.current.find(node => node.id === path)?.data.card.element,
 				scrollableContent: card => delegate.cardScrollableContent(card)
 			});
-			return () => wheelGestures.dispose();
+			// A table or a code block of a note shows one bar while it is scrolled
+			// sideways, at rest and in the card's editor (note rendering).
+			const sidewaysScrollbar = installBaseHalfSidewaysScrollbar(host, {
+				boxSelector: '.bh-md-preview table, .bh-md-preview pre',
+				container: box => box.closest<HTMLElement>('.bh-md-preview')
+			});
+			return () => {
+				wheelGestures.dispose();
+				sidewaysScrollbar.dispose();
+			};
 		}, []);
 
 		const videoInputPickGesturePolicy = baseHalfCanvasSceneVideoInputPickGesturePolicy(videoInputPickActive);

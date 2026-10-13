@@ -125,12 +125,16 @@ Not in scope, and unchanged:
 7c. The side of such a box where content is out of view fades out over 20
    flow pixels. A box that shows all it holds, and a side with nothing
    beyond it, do not fade.
-7d. While the card is edited, such a box shows a scrollbar along its lower
-   edge. The bar has the one look of the note's own scrollbar: the same
-   thickness, shape, and color, and it does not change when the pointer is
-   on it. At rest the box has no bar, and the height of the bar is empty
-   space in its place, so that nothing below the box moves when editing
-   starts and ends.
+7d. While such a box is scrolled sideways, a bar shows inside its lower
+   edge and says how far the box is scrolled. The bar lies over the box: it
+   takes no space, and nothing moves when it comes and goes. While the box
+   is not scrolled the bar is hidden; it fades out 0.8 s after the last
+   movement. It is the same bar at rest and while the card is edited.
+7e. The bar has one look: the color and the round ends of the note's own
+   scrollbar, 6 flow pixels high. The pointer does not change it. It takes
+   no press: a press on it goes to what lies under it, so the card is still
+   dragged from there. The system's own scrollbar, which grows and turns
+   light under the pointer, is not shown on these boxes.
 8. An image is never wider than the card. It keeps its proportions.
 9. A task list item shows its box in place of the list bullet.
 10. Headings of level 4 to 6 are bold and not smaller than body text.
@@ -147,9 +151,9 @@ Not in scope, and unchanged:
     wider than the text column, it scrolls sideways inside its own box, and
     the page does not scroll sideways.
 14. In the rich projection a table that is wider than the text column
-    scrolls sideways inside its own box. The box shows its scrollbar for as
-    long as the table is wider than the box, also while it is not being
-    scrolled.
+    scrolls sideways inside its own box.
+14a. In both projections a table or a code block that is scrolled sideways
+    shows the bar of rules 7d and 7e, and not the system's scrollbar.
 
 ### A block the rich projection cannot edit
 
@@ -202,11 +206,8 @@ in the editor, by reading a block and writing it back:
 
 ## Limits
 
-- A table or a code block at rest has no scrollbar: a bar would take the
-  press that drags the card. A mouse without a sideways wheel scrolls it
-  with Shift and the wheel.
-- Every table and every code block has the height of a scrollbar as empty
-  space below it, also one that fits the card.
+- The bar of a table or a code block cannot be dragged. A mouse without a
+  sideways wheel scrolls the box with Shift and the wheel.
 - A table whose text has no place to wrap, such as a long address, is as
   wide as that text.
 - An HTML block that spans a blank line, such as `<details>` around
@@ -248,15 +249,20 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
    the block holds more than it shows from left to right, and it is as high
    as its number of lines. It has a background of its own. It has the same
    width and height at rest and while the card is edited.
-7b. While the card is edited, the scrollbar of a table that is wider than
-   the card is 10 px high, and its thumb has the same style whether the
-   pointer is on it or not.
+7b. A table that is wider than the card and has not been scrolled shows no
+   bar. During a sideways scroll on it, at rest and while the card is
+   edited, the bar is shown inside the lower edge of the table, and its
+   length is to the shown width of the table as that width is to the full
+   width. A second after the scroll the bar is not shown. The table has the
+   same height with the bar and without it.
 
 8. In Card Detail's Preview projection, a cell of a table has a border and
    padding on every side.
-9. In Card Detail's rich projection, the box of a table of eight columns in
-   a text column 712 px wide is 10 px higher than its content: the height of
-   its scrollbar. The box of a table that fits has no such height.
+9. In Card Detail's rich projection, a table of eight columns in a text
+   column 712 px wide shows no bar until it is scrolled. A sideways scroll
+   on it shows the bar inside the lower edge of the table, and a second
+   later the bar is not shown. The box of the table has the same height
+   before, during, and after.
 
 10. In Card Detail's rich projection, a table with `a<br>b` in a cell is a
     `table` element with two lines in that cell, `H<sub>2</sub>O` shows a
@@ -277,9 +283,9 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
 - Smoke: `canvas-note-renders-markdown` covers criteria 1, 2 (heading and
-  boxes), 3 (`<br>`), 6, 7, and 7a in the real window, and of 7b the height
-  of the bar. The look of the thumb under the pointer is a style rule and is
-  looked at in the real window.
+  boxes), 3 (`<br>`), 6, 7, 7a, and 7b in the real window. Unit:
+  `basehalfSidewaysScrollbar.test.ts` covers where the bar stands and when
+  it is shown.
 - Criteria 8 and 9 are measured in the real window by hand. They are style
   rules, and no test covers them.
 - Unit: `a note shows the same elements wherever it is rendered` covers the

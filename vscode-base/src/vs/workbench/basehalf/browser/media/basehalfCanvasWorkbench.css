@@ -4093,6 +4093,8 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .bh-md-preview {
+	/* The bar of a table that is scrolled sideways is placed in this box. */
+	position: relative;
 	box-sizing: border-box;
 	width: 100%;
 	height: 100%;
@@ -4183,7 +4185,7 @@ body.basehalf-canvas-edge-reconnecting * {
  * up in the file is lined up on the card. */
 .monaco-workbench .bh-md-preview pre {
 	margin: 3px 0;
-	padding: 8px 10px 0;
+	padding: 8px 10px;
 	border-radius: 4px;
 	background: color-mix(in srgb, var(--bh-card-text-primary) 7%, transparent);
 	font-family: var(--monaco-monospace-font);
@@ -4221,58 +4223,44 @@ body.basehalf-canvas-edge-reconnecting * {
 
 /* A table or a code block that does not fit the card is cut at the right and
  * scrolls sideways in its own box. At rest the canvas scrolls it (canvas
- * wheel gestures): a bar would take the press that drags the card. The
- * height of the editor's bar is empty space here, so that the box is as high
- * at rest as while it is edited. */
+ * wheel gestures). */
 .monaco-workbench .bh-md-preview table,
 .monaco-workbench .bh-md-preview pre {
 	overflow-x: hidden;
-	padding-bottom: var(--basehalf-canvas-note-scrollbar-width);
 	animation: basehalf-canvas-note-sideways-fade linear both;
 	animation-timeline: scroll(self inline);
 }
 
-/* While the note is edited the box scrolls as any box does. Its bar has the
- * one look of the note's own bar, and the same under the pointer. */
+/* While the note is edited the box scrolls as any box does. The system's bar
+ * grows and turns light under the pointer; the box shows the one bar below
+ * instead, as it does at rest. */
 .monaco-workbench .basehalf-canvas-markdown-inline table,
 .monaco-workbench .basehalf-canvas-markdown-inline pre {
-	overflow-x: scroll;
-	padding-bottom: 0;
+	overflow-x: auto;
 }
 
 .monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar,
 .monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar {
-	width: 0;
-	height: var(--basehalf-canvas-note-scrollbar-width);
-}
-
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-track,
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-track-piece,
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-corner,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-track,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-track-piece,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-corner {
-	background: transparent;
-}
-
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-button,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-button {
 	display: none;
-	width: 0;
-	height: 0;
 }
 
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-thumb,
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-thumb:hover,
-.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar-thumb:active,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-thumb,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-thumb:hover,
-.monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar-thumb:active {
-	min-width: 28px;
-	border: 2px solid transparent;
-	border-radius: 5px;
+/* The bar of a box that is being scrolled sideways. It lies over the box,
+ * inside its lower edge, takes no space and no press, and has one look. */
+.monaco-workbench .basehalf-sideways-scrollbar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1;
+	border-radius: 3px;
 	background: var(--vscode-scrollbarSlider-background);
-	background-clip: padding-box;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease-out;
+}
+
+.monaco-workbench .basehalf-sideways-scrollbar.shown {
+	opacity: 1;
+	transition: none;
 }
 
 /* The side where content is out of view fades out. A box that shows all it
@@ -5615,6 +5603,8 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-preview-content {
+	/* The bar of a table that is scrolled sideways is placed in this box. */
+	position: relative;
 	max-width: 760px;
 	margin: 0 auto;
 	color: var(--vscode-editor-foreground);
@@ -5658,6 +5648,14 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-card-detail-markdown-preview-content img {
 	max-width: 100%;
+}
+
+/* The system's bar of a box that scrolls sideways grows and turns light under
+ * the pointer. The box shows the one bar of a note instead, while it is
+ * scrolled. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content table::-webkit-scrollbar,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre::-webkit-scrollbar {
+	display: none;
 }
 
 /* A table keeps the widths its columns need. When it is wider than the text
