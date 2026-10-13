@@ -1698,3 +1698,37 @@ is shown changes.
   done in the Files view.
 - Sentences that BaseHalf says about a file, such as the question before a
   delete, still say the file name.
+
+## D56 — A layout control is in the title bar, on the side of its part (NEW, 2026-10-13)
+
+**Decision.** The button that shows and hides the sidebar is at the left end
+of the title bar, on macOS right after the window buttons. The button of
+the Agent Area stays at the right end. The header of Card Detail holds no
+such button. See [layout controls](specs/layout-controls.md).
+
+**Why.** On 2026-10-13 the user pointed at two faults. The header of an open
+card had a button that hid the sidebar, and a card is the wrong place for
+it: the sidebar belongs to the window, and the header of a card holds what
+acts on the card. The title bar had the same control at its right end, the
+far end of the window from the sidebar. The user asked for it beside the
+window buttons, where macOS applications have it. The Agents window of the
+VS Code base already draws its title bar this way, so the mechanism is the
+base's own: a toolbar at the left end that draws the entries of a menu.
+
+**What was set aside.**
+- Moving all three layout controls to the left end. The control of the
+  Agent Area would then be far from the Agent Area.
+- Keeping the button in Card Detail as a second way. Two controls for one
+  state in one window is the fault the user named.
+- A button of BaseHalf's own. The command, its icons, its tooltip, and
+  Cmd+B are VS Code's and stay.
+
+**Consequences.**
+- The title bar of the VS Code base has a toolbar at its left end,
+  `MenuId.TitleBarLeft`. Upstream's title bar has none. An update of the
+  whole base has to carry it over
+  (`vscode-base/BASEHALF_UPSTREAM.md`).
+- A user who moves the sidebar to the right finds the control of the Agent
+  Area at the left end and the control of the sidebar in the right group.
+- "Focus on document", the name the Card Detail button had, is gone. Hiding
+  the sidebar is the same action and has one name.

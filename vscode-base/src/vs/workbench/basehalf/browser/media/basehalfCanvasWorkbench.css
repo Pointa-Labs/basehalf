@@ -5277,7 +5277,6 @@ body.basehalf-canvas-edge-reconnecting * {
 	background-color: color-mix(in srgb, var(--vscode-toolbar-activeBackground) 62%, transparent);
 }
 
-.monaco-workbench .basehalf-card-detail-focus,
 .monaco-workbench .basehalf-card-detail-close {
 	display: inline-flex;
 	align-items: center;
@@ -5292,20 +5291,15 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 16px;
 	line-height: 1;
 	cursor: pointer;
-}
-
-.monaco-workbench .basehalf-card-detail-close {
 	margin-left: 2px;
 }
 
-.monaco-workbench .basehalf-card-detail-focus:hover,
 .monaco-workbench .basehalf-card-detail-close:hover {
 	color: var(--vscode-icon-foreground);
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: none;
 }
 
-.monaco-workbench .basehalf-card-detail-focus:focus-visible,
 .monaco-workbench .basehalf-card-detail-close:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;

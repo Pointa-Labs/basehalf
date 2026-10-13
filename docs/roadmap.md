@@ -76,6 +76,9 @@ Done means:
   macOS bundle id, Windows identifiers, Linux executable/icon names, and
   GitHub auth callback scheme are not left as Code OSS defaults.
 - Activity bar/sidebar/editor/auxiliary layout matches BaseHalf direction.
+- The button that shows and hides the sidebar is at the left end of the
+  title bar, and the header of Card Detail holds no such button
+  ([layout controls](specs/layout-controls.md), D56).
 - VS Code-native Agent/Chat/Copilot/Sessions product surfaces are hidden unless
   explicitly remapped into Agent Area.
 - Generic extension marketplace UI is not exposed before the curated extension

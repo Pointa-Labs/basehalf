@@ -350,7 +350,9 @@ MenuRegistry.appendMenuItems([
 			order: 2
 		}
 	}, {
-		id: MenuId.LayoutControlMenu,
+		// The control of the part at the left edge of the window is at the left
+		// end of the title bar (docs/specs/layout-controls.md).
+		id: MenuId.TitleBarLeft,
 		item: {
 			group: 'navigation',
 			command: {
@@ -361,6 +363,7 @@ MenuRegistry.appendMenuItems([
 			},
 			when: ContextKeyExpr.and(
 				IsAuxiliaryWindowContext.negate(),
+				ContextKeyExpr.notEquals('config.workbench.layoutControl.enabled', false),
 				ContextKeyExpr.or(
 					ContextKeyExpr.equals('config.workbench.layoutControl.type', 'toggles'),
 					ContextKeyExpr.equals('config.workbench.layoutControl.type', 'both')),

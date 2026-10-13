@@ -511,6 +511,53 @@
 	display: none;
 }
 
+/* Left Tool Bar: the layout control of the part at the left edge of the window */
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .left-toolbar-container {
+	display: none;
+	order: 1;
+	padding-left: 8px;
+	flex-grow: 0;
+	flex-shrink: 0;
+	text-align: center;
+	position: relative;
+	z-index: 2500;
+	-webkit-app-region: no-drag;
+	height: 100%;
+}
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .left-toolbar-container:not(.has-no-actions) {
+	display: flex;
+	justify-content: center;
+}
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .left-toolbar-container .codicon {
+	color: inherit;
+}
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .left-toolbar-container .monaco-action-bar .action-item {
+	display: flex;
+}
+
+/* macOS: the room of the window buttons before the left tool bar. The window is still dragged here. */
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-controls-spacer {
+	flex: none;
+	width: 72px;
+	height: 100%;
+}
+
+.monaco-workbench.fullscreen .part.titlebar > .titlebar-container > .titlebar-left > .window-controls-spacer {
+	display: none;
+}
+
+/*
+ * macOS: beside the window buttons the tool bar is on their line. The buttons are centered in the
+ * whole height of the title bar, rounded up by half a pixel, while Modern UI centers the content of
+ * the title bar below a padding of 2px, which is 1px lower.
+ */
+.modern-ui.monaco-workbench.mac:not(.web):not(.fullscreen) .part.titlebar > .titlebar-container > .titlebar-left > .window-controls-spacer + .left-toolbar-container {
+	top: -1.5px;
+}
+
 /* Action Tool Bar Controls */
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-right > .action-toolbar-container {
 	display: none;

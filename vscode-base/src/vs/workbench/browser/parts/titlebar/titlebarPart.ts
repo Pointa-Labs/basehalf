@@ -514,6 +514,21 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 			this.centerAdjacentToolBarDisposable.add(centerAdjacentToolBar.onDidChangeMenuItems(() => this.updateCenterAdjacentToolBarOverflow()));
 		}
 
+		// Left Toolbar: the layout control of the part at the left edge of the window
+		// (docs/specs/layout-controls.md). Auxiliary windows show no layout controls.
+		if (!this.isAuxiliary && hasCustomTitlebar(this.configurationService, this.titleBarStyle)) {
+			const leftToolBarElement = append(this.leftContent, $('div.left-toolbar-container'));
+			this._register(this.instantiationService.createInstance(MenuWorkbenchToolBar, leftToolBarElement, MenuId.TitleBarLeft, {
+				contextMenu: MenuId.TitleBarContext,
+				hiddenItemStrategy: HiddenItemStrategy.NoHide,
+				telemetrySource: 'titlePart.left',
+				toolbarOptions: {
+					primaryGroup: () => true,
+				},
+				hoverDelegate: this.hoverDelegate
+			}));
+		}
+
 		// Create Toolbar Actions
 		if (hasCustomTitlebar(this.configurationService, this.titleBarStyle)) {
 			this.actionToolBarElement = append(this.rightContent, $('div.action-toolbar-container'));
@@ -541,6 +556,11 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 				// for something, except for web where a custom menu being supported). not putting the
 				// container helps with allowing to move the window when clicking very close to the
 				// window control buttons.
+				// The left toolbar follows the window buttons. A spacer keeps their room and,
+				// unlike the container, leaves the window draggable there.
+				if (!this.isAuxiliary && hasCustomTitlebar(this.configurationService, this.titleBarStyle)) {
+					prepend(this.leftContent, $('div.window-controls-spacer'));
+				}
 			} else if (getWindowControlsStyle(this.configurationService) === WindowControlsStyle.HIDDEN) {
 				// Linux/Windows: controls are explicitly disabled
 			} else {

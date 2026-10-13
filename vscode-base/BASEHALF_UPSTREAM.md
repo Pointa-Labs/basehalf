@@ -27,8 +27,9 @@ repository root holds the 1.141.0 source for this (an ignored folder).
 
 When the whole tree is updated from upstream later, take upstream's version
 of every file below and apply BaseHalf's own changes to it again. Only
-`viewPaneContainer.ts` (the option `fillsToBottomEdge`) and the two theme
-files (terminal colors) hold a BaseHalf change among them.
+`viewPaneContainer.ts` (the option `fillsToBottomEdge`), `titlebarPart.ts`
+(the tool bar at the left end, see below), and the two theme files (terminal
+colors) hold a BaseHalf change among them.
 
 ### Identical to 1.141.0
 - `extensions/theme-defaults/themes/dark_modern.json`
@@ -117,7 +118,7 @@ have.
 - `src/vs/workbench/browser/parts/globalCompositeBar.ts`: only `onDidChange` and `getHeight`.
 - `src/vs/workbench/browser/parts/notifications/notificationsViewer.ts`: only the row height that Modern UI sets.
 - `src/vs/workbench/browser/parts/sidebar/sidebarPart.ts`: only the changed argument of the composite bar.
-- `src/vs/workbench/browser/parts/titlebar/titlebarPart.ts`: only the shell background, the border, and the setting listener.
+- `src/vs/workbench/browser/parts/titlebar/titlebarPart.ts`: only the shell background, the border, and the setting listener; plus BaseHalf's tool bar at the left end.
 - `src/vs/workbench/browser/parts/views/viewPaneContainer.ts`: upstream's file plus BaseHalf's `fillsToBottomEdge`.
 - `src/vs/workbench/browser/workbench.contribution.ts`: only the settings of Modern UI, without the two of the translucent pop-ups.
 - `src/vs/workbench/contrib/files/browser/views/explorerView.ts`: only the case of the workspace name in the title.
@@ -149,3 +150,20 @@ Upstream renamed it to `src/vs/workbench/contrib/modernUI/`.
   changes belong to title bar and tab logic that was not taken.
 - `src/vs/workbench/test/browser/window.test.ts`: it tests a change of
   `window.ts` that is not part of the layout.
+
+## The tool bar at the left end of the title bar (2026-10-13)
+
+BaseHalf's own change, not upstream's. See public decision D56 and
+`docs/specs/layout-controls.md`. An update of the whole tree has to carry
+these over:
+
+- `src/vs/platform/actions/common/actions.ts`: `MenuId.TitleBarLeft`.
+- `src/vs/workbench/browser/parts/titlebar/titlebarPart.ts`: the tool bar
+  that draws that menu, and on macOS the room of the window buttons before
+  it.
+- `src/vs/workbench/browser/parts/titlebar/media/titlebarpart.css`: the
+  rules of both.
+- `src/vs/workbench/browser/actions/layoutActions.ts` and
+  `src/vs/workbench/browser/parts/auxiliarybar/auxiliaryBarActions.ts`: the
+  toggle of the part at the left edge is registered in that menu and not in
+  `MenuId.LayoutControlMenu`.

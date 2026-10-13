@@ -193,6 +193,7 @@ try {
 		await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 		await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 		await step('product-theme-and-cards', () => assertProductThemeAndCards(page));
+		await step('layout-control-at-the-left-end', () => assertLayoutControlAtTheLeftEnd(page));
 	}
 		if (!opts.zoomOnly && !opts.pluginOnly && !opts.contentOnly && !opts.settingsOnly) {
 		await step('canvas-double-click-create-menu', () => assertCanvasDoubleClickCreateMenu(page));
@@ -240,7 +241,7 @@ try {
 		} else if (opts.contentOnly) {
 			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
-			await step('card-detail-focus-document', () => assertCardDetailFocusDocument(page));
+			await step('card-detail-holds-no-layout-control', () => assertCardDetailHoldsNoLayoutControl(page));
 			await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
 			await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 			await step('quick-open-media', () => quickOpen(page, 'concept.svg'));
@@ -253,7 +254,7 @@ try {
 				ok: true,
 				workspace: workspacePath,
 				checks: [
-					'card-detail-focus-document',
+					'card-detail-holds-no-layout-control',
 					'readme-rich-file-attachment',
 					'readme-no-editor-tab',
 					'media-card-detail-projection',
@@ -394,7 +395,7 @@ try {
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-titlebar-breadcrumbs', () => assertBaseHalfTitlebarBreadcrumbs(page));
 	await step('readme-card-detail-compact-header', () => assertCardDetailCompactHeader(page));
-	await step('card-detail-focus-document', () => assertCardDetailFocusDocument(page));
+	await step('card-detail-holds-no-layout-control', () => assertCardDetailHoldsNoLayoutControl(page));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-save-status-hidden', () => assertMarkdownRichSaveStatusHidden(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
@@ -2509,22 +2510,76 @@ async function assertMediaCardDetail(page) {
 	throw new Error('Media projection webview did not render the local SVG');
 }
 
-async function assertCardDetailFocusDocument(page) {
-	const action = page.locator('.basehalf-card-detail-focus');
-	const sideBar = page.locator('[id="workbench.parts.sidebar"]');
-	await action.waitFor({ state: 'visible', timeout: 8_000 });
-	const initiallyVisible = await sideBar.isVisible();
+// Where the title bar shows the layout controls (docs/specs/layout-controls.md).
+function readLayoutControls(page) {
+	return page.evaluate(() => {
+		const labels = selector => Array.from(document.querySelectorAll(selector)).map(node => node.getAttribute('aria-label') ?? '');
+		const button = document.querySelector('.part.titlebar .titlebar-left .left-toolbar-container .action-label');
+		const rect = button?.getBoundingClientRect();
+		const topmost = rect ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
+		return {
+			left: labels('.part.titlebar .titlebar-left .left-toolbar-container .action-label'),
+			right: labels('.part.titlebar .titlebar-right .action-toolbar-container .action-label'),
+			rect: rect ? [rect.left, rect.top, rect.width, rect.height] : undefined,
+			// "Visible" does not see a control that another element covers.
+			onTop: !!button && !!topmost && (topmost === button || button.contains(topmost)),
+			fullscreen: !!document.querySelector('.monaco-workbench.fullscreen')
+		};
+	});
+}
 
-	await action.click();
-	await sideBar.waitFor({ state: initiallyVisible ? 'hidden' : 'visible', timeout: 8_000 });
-	if (await action.getAttribute('aria-pressed') !== String(initiallyVisible)) {
-		throw new Error('The document focus action did not mirror sidebar visibility');
+async function assertLayoutControlAtTheLeftEnd(page) {
+	const button = page.locator('.part.titlebar .titlebar-left .left-toolbar-container .action-label');
+	const sideBar = page.locator('[id="workbench.parts.sidebar"]');
+	await button.first().waitFor({ state: 'visible', timeout: 15_000 });
+	await sideBar.waitFor({ state: 'visible', timeout: 8_000 });
+
+	// The control of the sidebar is at the left end, once, and not in the
+	// right group.
+	const shown = await readLayoutControls(page);
+	if (shown.left.length !== 1 || !shown.left[0].startsWith('Toggle Primary Side Bar') || !shown.onTop) {
+		throw new Error(`The left end of the title bar does not hold the control of the sidebar: ${JSON.stringify(shown)}`);
+	}
+	if (shown.right.some(label => label.startsWith('Toggle Primary Side Bar'))) {
+		throw new Error(`The right group of the title bar still holds the control of the sidebar: ${JSON.stringify(shown.right)}`);
+	}
+	// On macOS it follows the window buttons.
+	if (process.platform === 'darwin' && !shown.fullscreen && Math.abs(shown.rect[0] - 80) > 0.5) {
+		throw new Error(`The control of the sidebar is not 80 px from the left edge of the window: ${JSON.stringify(shown.rect)}`);
 	}
 
-	// The action is an explicit view toggle, so leave the disposable smoke
-	// profile in exactly the state in which the learner entered Card Detail.
-	await action.click();
-	await sideBar.waitFor({ state: initiallyVisible ? 'visible' : 'hidden', timeout: 8_000 });
+	// It hides the sidebar and stays where it is.
+	await button.click();
+	await sideBar.waitFor({ state: 'hidden', timeout: 8_000 });
+	const hidden = await readLayoutControls(page);
+	if (JSON.stringify(hidden.rect) !== JSON.stringify(shown.rect) || !hidden.onTop) {
+		throw new Error(`The control of the sidebar moved when the sidebar was hidden: ${JSON.stringify({ shown: shown.rect, hidden: hidden.rect, onTop: hidden.onTop })}`);
+	}
+
+	// Leave the window as it was, with the pointer off the control so that its
+	// tooltip does not stay over the sidebar.
+	await button.click();
+	await sideBar.waitFor({ state: 'visible', timeout: 8_000 });
+	await page.mouse.move(640, await page.evaluate(() => window.innerHeight - 6));
+}
+
+async function assertCardDetailHoldsNoLayoutControl(page) {
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 8_000 });
+	// The header of a card holds what acts on the card: its views and Close.
+	const header = await page.evaluate(() => Array.from(document.querySelectorAll('.basehalf-card-detail.visible .basehalf-card-detail-actions button'))
+		.filter(node => node.getBoundingClientRect().width > 0)
+		.map(node => node.getAttribute('aria-label') ?? ''));
+	if (header.some(label => /side ?bar/i.test(label) || label === 'Focus on document') || header.at(-1) !== 'Close') {
+		throw new Error(`The header of Card Detail holds a layout control: ${JSON.stringify(header)}`);
+	}
+	if (await page.locator('.basehalf-card-detail-focus').count()) {
+		throw new Error('The header of Card Detail still holds the button that hides the sidebar');
+	}
+	// The control of the sidebar is in the title bar while a card is open.
+	const controls = await readLayoutControls(page);
+	if (controls.left.length !== 1 || !controls.left[0].startsWith('Toggle Primary Side Bar') || !controls.onTop) {
+		throw new Error(`The title bar does not hold the control of the sidebar while a card is open: ${JSON.stringify(controls)}`);
+	}
 }
 
 async function assertPdfCardDetail(page, expectedName = 'textbook.pdf') {

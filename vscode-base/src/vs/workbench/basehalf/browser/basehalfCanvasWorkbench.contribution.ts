@@ -1835,26 +1835,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailSaveStatusIcon.setAttribute('aria-hidden', 'true');
 		this.detailSaveStatusLabel = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-label'));
 		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
-		const focusDocument = append(detailActions, $('button.basehalf-card-detail-focus.codicon')) as HTMLButtonElement;
-		focusDocument.type = 'button';
-		const updateFocusDocumentAction = () => {
-			const sideBarVisible = this.layoutService.isVisible(Parts.SIDEBAR_PART);
-			focusDocument.className = `basehalf-card-detail-focus codicon codicon-${sideBarVisible ? 'layout-sidebar-left-off' : 'layout-sidebar-left'}`;
-			focusDocument.title = sideBarVisible
-				? localize('basehalf.cardDetail.focusDocument', "Focus on document")
-				: localize('basehalf.cardDetail.showSidebar', "Show sidebar");
-			focusDocument.setAttribute('aria-label', focusDocument.title);
-			focusDocument.setAttribute('aria-pressed', String(!sideBarVisible));
-		};
-		updateFocusDocumentAction();
-		this._register(this.addDisposableListener(focusDocument, 'click', () => {
-			this.layoutService.setPartHidden(this.layoutService.isVisible(Parts.SIDEBAR_PART), Parts.SIDEBAR_PART);
-		}));
-		this._register(this.layoutService.onDidChangePartVisibility(event => {
-			if (event.partId === Parts.SIDEBAR_PART) {
-				updateFocusDocumentAction();
-			}
-		}));
+		// No layout control here: the sidebar belongs to the window, and its
+		// control is in the title bar (docs/specs/layout-controls.md).
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
 		close.title = 'Close';
