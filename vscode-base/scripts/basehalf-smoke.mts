@@ -10101,17 +10101,33 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	await expectState({ editor: null, selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the glyph of a note');
 
 	// The name of a folder is renamed in place, and the folder is not entered.
-	await centerCanvasCards(page, [docs]);
-	const folder = await caption('docs');
-	if (!folder || folder.cursors.name !== 'text' || folder.cursors.glyph === 'text') {
+	// Earlier steps leave cards where their drags ended, and one can lie over
+	// the name of a folder: the folder whose name is on top is taken.
+	let folderPath;
+	let folder;
+	const seenFolders = {};
+	for (const candidate of ['docs', 'src']) {
+		await centerCanvasCards(page, [page.locator(cardSelector(candidate))]);
+		const seen = await caption(candidate);
+		seenFolders[candidate] = seen;
+		if (seen?.nameHit) {
+			folderPath = candidate;
+			folder = seen;
+			break;
+		}
+	}
+	if (!folderPath || !folder) {
+		throw new Error(`No folder card has its name on top for the card name checks: ${JSON.stringify(seenFolders)}`);
+	}
+	if (folder.cursors.name !== 'text' || folder.cursors.glyph === 'text') {
 		throw new Error(`The name of a folder card does not take the text cursor: ${JSON.stringify(folder)}`);
 	}
 	await doubleClick(folder.name);
-	await waitForCanvasNameEditor(page, 'docs', { value: 'docs', selection: [0, 4] });
-	await expectState({ editor: 'docs', selected: ['docs'], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a folder');
+	await waitForCanvasNameEditor(page, folderPath, { value: folderPath, selection: [0, folderPath.length] });
+	await expectState({ editor: folderPath, selected: [folderPath], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a folder');
 	await assertCanvasFolder(page, '');
 	await page.keyboard.press('Escape');
-	await expectState({ editor: null, selected: ['docs'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor of a folder');
+	await expectState({ editor: null, selected: [folderPath], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor of a folder');
 
 	// Hand the canvas back as the step found it: nothing selected, docs in place.
 	const emptyCanvas = await page.evaluate(() => {
