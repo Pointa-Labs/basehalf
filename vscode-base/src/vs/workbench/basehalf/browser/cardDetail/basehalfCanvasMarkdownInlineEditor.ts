@@ -398,6 +398,14 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		this.root.setAttribute('aria-multiline', 'true');
 		this._register(toDisposable(() => this.root.remove()));
 		this._register(addDisposableListener(this.root, EventType.KEY_DOWN, event => this.handleKeyDown(event)));
+		// This element can hold the focus so that it has it before the editor is
+		// there. Afterwards a press on the margin around the text must not leave
+		// the keyboard here, where nothing typed reaches the note.
+		this._register(addDisposableListener(this.root, EventType.FOCUS, event => {
+			if (event.target === this.root && !this.disposed) {
+				this.runtime?.focus();
+			}
+		}));
 		this._register(addDisposableListener(this.root, EventType.CLICK, event => this.handleEditableLinkClick(event)));
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
 			if (this.ownsResource(model.resource)) {

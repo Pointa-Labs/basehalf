@@ -8853,6 +8853,23 @@ async function assertCanvasNoteInlineWysiwygEditor(page) {
 		throw new Error(`Canvas inline WYSIWYG exposed Markdown markers or a link destination: ${JSON.stringify(visibleQuoteText)}`);
 	}
 	await assertNoCanvasNoteHeavyEditor(page, cardSelector, 'formatted inline WYSIWYG unit');
+	// A press on the margin around the text leaves the keyboard in the text,
+	// and the frame of the card stays the only frame: the editor's own element
+	// never holds the focus and never draws the ring of a focused element.
+	const quoteSurfaceBox = await quoteEditor.surface.boundingBox();
+	if (!quoteSurfaceBox) {
+		throw new Error('The Canvas inline editor has no box for the margin press');
+	}
+	await page.mouse.click(quoteSurfaceBox.x + 3, quoteSurfaceBox.y + quoteSurfaceBox.height / 2);
+	await page.waitForTimeout(150);
+	const afterMarginPress = await quoteEditor.surface.evaluate(surface => ({
+		focusInText: !!document.activeElement?.closest('.basehalf-canvas-markdown-inline > .ProseMirror'),
+		focusOnSurface: document.activeElement === surface,
+		ring: getComputedStyle(surface).outlineStyle
+	}));
+	if (!afterMarginPress.focusInText || afterMarginPress.focusOnSurface || afterMarginPress.ring !== 'none') {
+		throw new Error(`A press on the margin of the Canvas inline editor took the keyboard from the text: ${JSON.stringify(afterMarginPress)}`);
+	}
 	await page.keyboard.press('Escape');
 	await inlineEditor.host.waitFor({ state: 'detached', timeout: 15_000 });
 	if (fs.readFileSync(readmePath, 'utf8') !== originalMarkdown) {

@@ -1485,6 +1485,13 @@ body.basehalf-canvas-edge-reconnecting * {
 	user-select: text;
 }
 
+/* The frame of the card shows that its note is being edited. A press on the
+ * margin around the text leaves the focus on this element, and the ring the
+ * workbench draws for a focused element would be a second frame inside it. */
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline:focus {
+	outline: none;
+}
+
 /* Keep every part of the Note in Canvas coordinates. React Flow scales the
  * complete card; changing scrollbar layout with zoom would reflow text and
  * move the caret or scroll anchor inside an otherwise unchanged document. */
