@@ -1171,6 +1171,65 @@ body.basehalf-canvas-edge-reconnecting * {
 	width: 100%;
 }
 
+/* The editor of a card's name is the name made editable (canvas card name).
+ * Its text stands where the name stood, in the same type, without a frame,
+ * and it is as wide as what is typed. The rest of the row stays the caption:
+ * a press there goes to the card and ends the edit. */
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-editor {
+	gap: 0;
+	color: var(--bh-card-text-primary);
+	cursor: inherit;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox {
+	height: 24px;
+	/* The input box sets a border of one pixel on itself. */
+	border-width: 0 !important;
+	border-radius: 0;
+	outline: 0 !important;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 24px;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper {
+	height: 24px;
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input {
+	width: auto;
+	min-width: 2px;
+	max-width: 100%;
+	height: 24px;
+	padding: 0;
+	field-sizing: content;
+	font-weight: inherit;
+	letter-spacing: inherit;
+	text-overflow: clip;
+	outline: 0 !important;
+	cursor: text;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
+	color: var(--bh-card-text-tertiary);
+	font-weight: 400;
+}
+
+/* A name that cannot be used is marked in the text itself. */
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-editor.unusable .monaco-inputbox > .ibwrapper > .input,
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox.error > .ibwrapper > .input {
+	text-decoration: underline;
+	text-decoration-color: var(--vscode-inputValidation-errorBorder, var(--bh-card-danger));
+	text-underline-offset: 4px;
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
+	text-decoration: none;
+}
+
 .monaco-workbench .basehalf-canvas-card.folder {
 	background: var(--bh-card-folder);
 	border-color: var(--bh-card-folder-border);

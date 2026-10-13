@@ -82,8 +82,9 @@ Not in scope, and unchanged:
   with an ellipsis, and the name target then ends where the room ends. The
   glyph, the empty part of the caption right of the name, and the badge
   button are not part of it.
-- **Rename editor**: the input that takes the place of the name in the
-  caption while a card is renamed. The glyph stays where it is.
+- **Rename editor**: the name of a card while it is being changed. It is
+  the name made editable where it stands, not a box that is put over it.
+  The glyph stays where it is.
 
 ## What another canvas product does
 
@@ -195,6 +196,28 @@ double click
 A double click on the name of a card of a set changes nothing.
 
 ### The rename editor
+
+The editor is the name itself, made editable. Opening it must not look like
+something was opened: a box that appears over the name draws the eye, and
+its text does not stand where the name stood.
+
+- **Nothing moves.** The text of the editor begins where the text of the
+  name began and stands on the same line, in the same type: the same size,
+  weight, and color. Only the selection and the caret show that the name can
+  now be typed.
+- **No frame.** The editor has no border, no background, no ring for the
+  focus, and no rounded corners.
+- **As wide as its text.** The editor grows and shrinks with what is typed,
+  up to the room of the caption. A name that is longer than the room is
+  shown from its beginning, as the name was. The rest of the caption is the
+  caption: a press there is a press outside the editor.
+- **A name that cannot be used** is underlined in the color of an error
+  while it is typed, and nothing else appears: a message that comes and
+  goes with every letter is not editing in place. When Enter is refused for
+  such a name, the reason is shown below the caption until the name is
+  changed.
+- An empty editor shows a pale `Note name`, `Folder name`, or `filename.ext`
+  in the place of the name.
 
 - For a note it holds the name, without the extension, and all of it is
   selected. What is typed becomes the name, and the file keeps the
@@ -331,6 +354,21 @@ The name that is shown
     a note without its extension, and the row's tooltip is the path with
     it.
 
+The editor in place
+
+20. When the editor opens, the left edge and the vertical place of its text
+    are those of the name, to half a screen pixel, and its font size, font
+    weight, line height, and color are the name's.
+21. The editor draws no border, no background, and no outline, also while it
+    has the keyboard.
+22. The editor is as wide as its text: wider after a character is typed and
+    narrower after one is removed, and never wider than the room of the
+    caption. A press on the caption right of the text ends the edit as a
+    press outside does.
+23. While the name of another item of the folder stands in the editor, the
+    text is underlined and no message is shown. Enter then keeps the editor
+    open and shows the reason.
+
 ## Verification
 
 - Unit: `basehalfCanvasReactScene.test.ts` covers what a double click on a
@@ -339,8 +377,9 @@ The name that is shown
   name of an item and the file name of a typed name, with the rows of the
   table above (criteria 16 and 17 as a rule). `basehalfUpstreamActions.test.ts`
   covers the rows of the lists (criterion 19).
-- Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, and 12 to 15
-  in the real window. It is part of the whole run and of the `--canvas-only`
+- Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, 12 to 15, and
+  20 to 23 in the real window. The press on the caption right of the text,
+  of criterion 22, was measured by hand: see below. It is part of the whole run and of the `--canvas-only`
   slice. It types with the keyboard and never fills the input,
   so an editor without the keyboard fails it. For criterion 14 it writes
   other content into the note and checks that the card was drawn again. On
@@ -392,6 +431,18 @@ The name of a note (D55), in the same kind of window:
 | `data.csv` and the folder `drafts.md` | the editors held the file names: `data` selected, and all of `drafts.md`. |
 | `plan.md` opened in Card Detail | the title `plan`, the breadcrumb `workspace` and `plan`, and `workspace / plan.md` as the tooltip of its last part. The title's input held `plan`, and `plan-from-detail` typed there gave `plan-from-detail.md`. |
 
+The editor in place, in the same kind of window at 61% zoom:
+
+| What was done | What was seen |
+| --- | --- |
+| A double click on `untitled-3` | the text of the editor began at the same left edge as the name, on the same line, in the same size, weight, line height, and color: every offset was 0. The editor was 38.6 screen pixels wide, as the text of the name was. No border, background, or outline. |
+| The caption at rest and with the editor open, the caret at the end and hidden in its blink, compared pixel by pixel | no pixel of the name differed. The only difference was the badge button of the selected card. |
+| `-longer` typed, then twelve characters removed, then all | the editor was 66.9, then 17.9 screen pixels wide, and 40.1 when it was empty and showed `Note name`. |
+| The name of another note typed | the text was underlined in the error color, and no message was shown. |
+| A press on the caption between the text and the badge button | the element there was the caption. The file was renamed, as by a press outside. |
+| A name of 43 characters | the editor began where the name began and showed the name from its beginning, 147.8 pixels wide in a room of 152.7. |
+| The names of a folder and of a data file | the same: every offset 0, and as wide as the text. |
+
 Before the change the same steps gave: no keyboard after F2 or a double
 click; another input element after every change in the folder, with the
 caret at the end (`特征.mdX`); and a refused rename after the note was
@@ -399,6 +450,10 @@ rewritten.
 
 ## Open questions
 
+- **The title of Card Detail.** Its rename input is still a box of a fixed
+  width with a border, and its text stands three pixels right of the
+  title's. It follows the rules of the name, and not yet the rule that the
+  editor is the name in place.
 - **The name in a sentence.** A question before a delete and the name of a
   step of undo say the file name, so a note is `plan.md` there and `plan`
   on its card. Whether they say the name is open.

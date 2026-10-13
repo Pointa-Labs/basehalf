@@ -7594,7 +7594,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				: noteExtension
 					? localize('basehalf.canvas.noteNameInput', "Note name. Press Enter to confirm or Escape to cancel.")
 					: localize('basehalf.canvas.fileNameInput', "File name. Press Enter to confirm or Escape to cancel."),
-			inputBoxStyles: defaultInputBoxStyles,
+			// The editor of a card's name is the name made editable: it has the
+			// colors of the caption around it and no frame of its own.
+			inputBoxStyles: edit.kind === 'rename'
+				? { ...defaultInputBoxStyles, inputBackground: 'transparent', inputForeground: 'inherit', inputBorder: 'transparent' }
+				: defaultInputBoxStyles,
 			placeholder: folder
 				? localize('basehalf.canvas.folderNamePlaceholder', "Folder name")
 				: noteExtension
@@ -7622,7 +7626,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (sequence !== validationSequence || this.inlineEdit !== edit) {
 				return;
 			}
-			if (result) {
+			if (edit.kind === 'rename') {
+				// While the name of a card is typed, a name that cannot be used is
+				// only marked in the text. The reason is said when Enter is refused:
+				// a box that comes and goes with every letter is not editing in place.
+				inputBox.hideMessage();
+				host.classList.toggle('unusable', result?.type === MessageType.ERROR);
+			} else if (result) {
 				inputBox.showMessage({ content: result.content, type: result.type });
 			} else {
 				inputBox.hideMessage();
@@ -7739,6 +7749,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (edit.selectionPending) {
 				edit.selectionPending = false;
 				inputBox.select({ start: 0, end: selectionEnd });
+				// A name longer than its room is shown from its beginning, as the
+				// name at rest is.
+				input.scrollLeft = 0;
 			}
 			if (edit.failure !== undefined) {
 				inputBox.showMessage({ content: edit.failure, type: MessageType.ERROR }, true);

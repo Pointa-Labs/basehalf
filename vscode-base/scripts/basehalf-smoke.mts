@@ -9930,6 +9930,10 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 			glyph: glyphPoint,
 			text: label.textContent,
 			rows: [...card.querySelectorAll('.basehalf-canvas-folder-preview-label')].map(row => row.textContent),
+			labelLeft: labelBox.left,
+			labelTop: labelBox.top,
+			labelHeight: labelBox.height,
+			font: (style => `${style.fontSize} ${style.fontWeight} ${style.lineHeight} ${style.color}`)(getComputedStyle(label)),
 			labelWidth: labelBox.width,
 			textWidth: range.getBoundingClientRect().width,
 			identityWidth: identity.getBoundingClientRect().width,
@@ -9965,6 +9969,29 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		await page.mouse.move(point.x, point.y);
 		await page.mouse.dblclick(point.x, point.y);
 	};
+	// The rename editor as it is drawn: where its text stands, in what type,
+	// and whether anything frames it or says that the name cannot be used.
+	const nameEditor = () => page.evaluate(() => {
+		const input = document.querySelector('.basehalf-canvas-card .basehalf-canvas-inline-name-input input');
+		const frame = input?.closest('.monaco-inputbox');
+		if (!(input instanceof HTMLInputElement) || !frame) {
+			return undefined;
+		}
+		const box = input.getBoundingClientRect();
+		const style = getComputedStyle(input);
+		const frameStyle = getComputedStyle(frame);
+		const message = document.querySelector('.monaco-inputbox-message');
+		return {
+			left: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+			top: box.top,
+			height: box.height,
+			width: box.width,
+			font: `${style.fontSize} ${style.fontWeight} ${style.lineHeight} ${style.color}`,
+			frame: [style.borderLeftWidth, style.paddingLeft, style.backgroundColor, style.outlineStyle, frameStyle.borderLeftWidth, frameStyle.borderTopWidth, frameStyle.backgroundColor, frameStyle.outlineStyle].join(' '),
+			underlined: style.textDecorationLine.includes('underline'),
+			message: message && message.getClientRects().length > 0 ? message.textContent : null
+		};
+	});
 
 	await centerCanvasCards(page, [readme]);
 	const atRest = await caption('README.md');
@@ -10081,10 +10108,52 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	const renamed = await caption('README-by-name.md');
 	await doubleClick(renamed.name);
 	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name', selection: [0, 14] });
-	await page.keyboard.type('thrown-away');
+
+	// The editor is the name made editable: its text stands where the name
+	// stood, in the same type, and nothing frames it.
+	const opened = await nameEditor();
+	if (!opened || !renamed
+		|| Math.abs(opened.left - renamed.labelLeft) > 0.5
+		|| Math.abs(opened.top - renamed.labelTop) > 0.5
+		|| Math.abs(opened.height - renamed.labelHeight) > 0.5
+		|| Math.abs(opened.width - renamed.textWidth) > 1
+		|| opened.font !== renamed.font
+		|| opened.frame !== '0px 0px rgba(0, 0, 0, 0) none 0px 0px rgba(0, 0, 0, 0) none'
+		|| opened.underlined || opened.message !== null) {
+		throw new Error(`The rename editor is not the name in place: ${JSON.stringify({ opened, atRest: { left: renamed?.labelLeft, top: renamed?.labelTop, height: renamed?.labelHeight, width: renamed?.textWidth, font: renamed?.font } })}`);
+	}
+	// It is as wide as its text.
+	await page.keyboard.type('ab');
+	const short = await nameEditor();
+	await page.keyboard.type('cdefgh');
+	const longer = await nameEditor();
+	if (!short || !longer || !(short.width < opened.width - 20) || !(longer.width > short.width + 20)) {
+		throw new Error(`The rename editor is not as wide as its text: ${JSON.stringify({ opened: opened.width, short: short?.width, longer: longer?.width })}`);
+	}
+	// A name that cannot be used is marked in the text while it is typed, and
+	// the reason comes when Enter is refused.
+	await page.keyboard.type('/x');
+	await page.waitForTimeout(400);
+	const unusable = await nameEditor();
+	if (!unusable?.underlined || unusable.message !== null) {
+		throw new Error(`A name that cannot be used is not marked quietly while it is typed: ${JSON.stringify(unusable)}`);
+	}
+	await page.keyboard.press('Enter');
+	await page.waitForTimeout(600);
+	const refused = await nameEditor();
+	if (!refused?.underlined || !refused.message) {
+		throw new Error(`Enter on a name that cannot be used did not keep the editor open with the reason: ${JSON.stringify(refused)}`);
+	}
+	await page.keyboard.press('Backspace');
+	await page.keyboard.press('Backspace');
+	await page.waitForTimeout(400);
+	const usable = await nameEditor();
+	if (!usable || usable.underlined || usable.message !== null) {
+		throw new Error(`A name that can be used again is still marked: ${JSON.stringify(usable)}`);
+	}
 	await page.keyboard.press('Escape');
 	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
-	if (!fs.existsSync(path.join(workspacePath, 'README-by-name.md')) || fs.existsSync(path.join(workspacePath, 'thrown-away.md'))) {
+	if (!fs.existsSync(path.join(workspacePath, 'README-by-name.md')) || fs.existsSync(path.join(workspacePath, 'abcdefgh.md'))) {
 		throw new Error('Escape in the rename editor renamed the note');
 	}
 	await doubleClick(renamed.name);
