@@ -4107,22 +4107,55 @@ body.basehalf-canvas-edge-reconnecting * {
 	text-decoration: none;
 }
 
-/* A table takes at most the width of the card: its columns share that width
- * and a cell wraps its text, so no column leaves the card at the right. */
+/* A table keeps its words whole. Its columns narrow until it fits the card;
+ * a table that still does not fit is cut at the right and scrolls sideways in
+ * its own box. At rest the canvas scrolls it (canvas wheel gestures): a bar
+ * would take the press that drags the card. */
 .monaco-workbench .bh-md-preview table {
+	display: block;
+	width: max-content;
 	max-width: 100%;
 	margin: 3px 0;
+	overflow-x: hidden;
 	border-collapse: collapse;
 	border-spacing: 0;
 	font-size: 12px;
 	line-height: 1.4;
+	/* The card and its editor wrap text in two different ways. A table wraps
+	 * between words in both, so that it is the same table in both. */
+	white-space: normal;
+	overflow-wrap: normal;
+	word-break: normal;
+	animation: basehalf-canvas-note-table-fade linear both;
+	animation-timeline: scroll(self inline);
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline table {
+	overflow-x: auto;
+}
+
+/* The side where columns are out of view fades out. A table that fits has no
+ * scroll range, so the animation does not run and nothing fades. */
+@keyframes basehalf-canvas-note-table-fade {
+	0% {
+		mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+	}
+
+	1%,
+	99% {
+		mask-image: linear-gradient(to right, transparent, #000 20px, #000 calc(100% - 20px), transparent);
+	}
+
+	100% {
+		mask-image: linear-gradient(to right, transparent, #000 20px);
+	}
 }
 
 .monaco-workbench .bh-md-preview th,
 .monaco-workbench .bh-md-preview td {
+	min-width: 2em;
 	padding: 2px 5px;
 	border: 1px solid var(--bh-card-border-strong);
-	overflow-wrap: anywhere;
 	vertical-align: top;
 }
 

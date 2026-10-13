@@ -261,7 +261,7 @@ import {
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
-import { BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, renderBaseHalfCanvasStoredMarkdownBody } from './cardDetail/basehalfCanvasMarkdownInlineEditor.js';
+import { applyBaseHalfCanvasMarkdownSidewaysScroll, BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, readBaseHalfCanvasMarkdownSidewaysScroll, renderBaseHalfCanvasStoredMarkdownBody } from './cardDetail/basehalfCanvasMarkdownInlineEditor.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
@@ -5076,6 +5076,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	 */
 	private refreshActiveCanvasNoteFallback(active: IBaseHalfActiveCanvasNoteEditor): void {
 		const scrollTop = active.instance.getScrollTop();
+		const sidewaysScroll = active.instance.getSidewaysScroll();
 		const documentLength = active.instance.getDocumentLength();
 		if (documentLength !== undefined && documentLength > BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES) {
 			this.renderActiveCanvasNoteFullEditorFallback(active);
@@ -5108,6 +5109,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedCardPreviewsByPath.set(active.path, { item, preview });
 		}
 		active.fallback.scrollTop = scrollTop;
+		applyBaseHalfCanvasMarkdownSidewaysScroll(active.fallback, sidewaysScroll);
 	}
 
 	private renderActiveCanvasNoteFullEditorFallback(active: IBaseHalfActiveCanvasNoteEditor): void {
@@ -14421,6 +14423,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// The resting note stays the shown projection until here, and a wheel
 			// may have scrolled it since the editor began to open.
 			active.instance.setScrollTop(active.fallback.scrollTop);
+			active.instance.setSidewaysScroll(readBaseHalfCanvasMarkdownSidewaysScroll(active.fallback));
 			active.fallback.setAttribute('aria-hidden', 'true');
 			active.fallback.setAttribute('inert', '');
 			active.host.classList.add('ready');

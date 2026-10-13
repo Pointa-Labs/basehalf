@@ -22,6 +22,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileEditorModelState } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '../../common/basehalfCanvasScene.js';
+import { BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS } from '../../common/basehalfCanvasWheelGesture.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../common/basehalfMarkdownFormatting.js';
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
@@ -266,7 +267,35 @@ export function renderBaseHalfCanvasStoredMarkdown(
 	for (const box of rendered.element.querySelectorAll<HTMLInputElement>('li > input[type="checkbox"], li > p:first-child > input[type="checkbox"]')) {
 		box.closest('li')?.classList.add('bh-md-task');
 	}
+	// A table that is wider than the card is its own box, which scrolls sideways.
+	// eslint-disable-next-line no-restricted-syntax
+	for (const table of rendered.element.querySelectorAll('table')) {
+		table.classList.add(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS);
+	}
 	return rendered;
+}
+
+function sidewaysBoxes(note: HTMLElement): HTMLElement[] {
+	// eslint-disable-next-line no-restricted-syntax
+	return Array.from(note.getElementsByClassName(BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS)).filter(isHTMLElement);
+}
+
+/** How far each table of a rendered note is scrolled sideways, in the order of the note. */
+export function readBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement): number[] {
+	return sidewaysBoxes(note).map(box => box.scrollLeft);
+}
+
+/**
+ * Shows the tables of a rendered note at the sideways positions another
+ * rendering of the same note had. Positions of a note with another number of
+ * tables do not say which table is which, and are dropped.
+ */
+export function applyBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement, positions: readonly number[]): void {
+	const boxes = sidewaysBoxes(note);
+	if (boxes.length !== positions.length) {
+		return;
+	}
+	boxes.forEach((box, index) => box.scrollLeft = positions[index]);
 }
 
 /** Render only the authored Markdown body shared by resting and inline views. */
@@ -587,6 +616,16 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 	setScrollTop(scrollTop: number): void {
 		if (!this.disposed && Number.isFinite(scrollTop)) {
 			this.root.scrollTop = Math.max(0, scrollTop);
+		}
+	}
+
+	getSidewaysScroll(): number[] {
+		return readBaseHalfCanvasMarkdownSidewaysScroll(this.root);
+	}
+
+	setSidewaysScroll(positions: readonly number[]): void {
+		if (!this.disposed) {
+			applyBaseHalfCanvasMarkdownSidewaysScroll(this.root, positions);
 		}
 	}
 

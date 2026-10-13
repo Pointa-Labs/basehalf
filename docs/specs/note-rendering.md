@@ -102,9 +102,18 @@ Not in scope, and unchanged:
 
 ### How the rendered form is laid out on the card
 
-7. A table is never wider than the card. Its columns share the width of the
-   card, and the text of a cell wraps inside the cell. No column is cut off
-   at the right edge.
+7. A table keeps its words and numbers whole. Its columns narrow, and the
+   text of their cells wraps between words, until the table fits the card.
+   A column is never narrower than two letters of its text size.
+7a. A table that still does not fit is as wide as the card shows and is cut
+   at the right. It scrolls sideways inside its own box: at rest by a
+   sideways wheel gesture that begins on it
+   ([canvas wheel gestures](canvas-wheel-gestures.md)), and while the card
+   is edited as any scroll box does. The note itself is never wider than the
+   card.
+7b. The side of such a table where columns are out of view fades out over 20
+   flow pixels. A table that fits, and a side with nothing beyond it, do not
+   fade.
 8. An image is never wider than the card. It keeps its proportions.
 9. A task list item shows its box in place of the list bullet.
 10. Headings of level 4 to 6 are bold and not smaller than body text.
@@ -127,11 +136,11 @@ Not in scope, and unchanged:
 
 ## Limits
 
-- A table with many columns on a narrow card has narrow columns, and words
-  break inside them: eight columns on a card 300 px wide leave about three
-  letters to a line. The user widens the card or opens Card Detail. The card
-  does not scroll a table sideways, because the resting projection has one
-  scroll direction and the canvas owns the other.
+- A table at rest has no scrollbar: a bar would take the press that drags
+  the card. A mouse without a sideways wheel scrolls it with Shift and the
+  wheel.
+- A table whose text has no place to wrap, such as a long address, is as
+  wide as that text.
 - An HTML block that spans a blank line, such as `<details>` around
   paragraphs, is one element at rest and several blocks while the card is
   edited. Its parts are then rendered one by one, and the folded text is
@@ -162,8 +171,11 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 4. `<script>alert(1)</script>` and `<iframe src="x">` show as that text. The
    card contains no `script` and no `iframe` element.
 5. `[x](command:workbench.action.quit)` runs nothing when clicked.
-6. A table of eight columns on a card 300 px wide is not wider than the
-   resting projection (`scrollWidth` equals `clientWidth`).
+6. With a table of eight columns on a card 300 px wide, the resting
+   projection is not wider than it shows (`scrollWidth` equals
+   `clientWidth`), no cell breaks a word or a number, and the table holds
+   more than it shows. Its right side fades and its left side does not.
+   A table of two short columns on the same card does not fade.
 7. While a paragraph of the card is edited, a table in the same note is
    still a `table` element of the same width and height.
 

@@ -20,6 +20,10 @@ The rule is where the pointer is when the scroll begins. A scroll that begins
 on a long note scrolls the note. A scroll that begins anywhere else moves the
 canvas, and goes on moving it over whatever comes under the pointer.
 
+A table of a note can be wider than the card
+([note rendering](note-rendering.md)). The same rule lets it be read: a
+sideways scroll that begins on such a table scrolls the table.
+
 ## Scope
 
 In scope: what a wheel event moves when the pointer is over the canvas scene.
@@ -55,6 +59,10 @@ Not in scope, and unchanged:
   note. A note above 8 KiB shows a label instead of its text and has nothing
   to scroll. A card shows no scrollable content while its Note is being
   edited and while its badge face is open.
+- **Sideways box**: an element inside scrollable content that holds more
+  than it shows from left to right, and that the canvas scrolls sideways for
+  the user (the class `basehalf-canvas-scroll-sideways`). Today the only one
+  is a table of a Note at rest that is wider than the card.
 - **Own-scroll surface**: an element with the `nowheel` class. It handles the
   wheel by itself: a Note being edited, a badge face, a toolbar, a player.
 
@@ -83,13 +91,15 @@ events do not change it, whatever is under the pointer by then.
 1. The first event is on an own-scroll surface: that surface owns the
    gesture. BaseHalf leaves every event of the gesture alone, as before.
 2. The first event is on the card content of a card that shows scrollable
-   content taller than its box, and no mouse button is held: the gesture
-   **waits for its direction** (below). Then the content or the canvas owns
-   it.
+   content, no mouse button is held, and the content is taller than its box
+   or the event is on a sideways box that is wider than it shows: the
+   gesture **waits for its direction** (below). Then the content, the
+   sideways box, or the canvas owns it.
 3. Otherwise the canvas owns the gesture.
 
-So the canvas owns every gesture that starts on a note that fits its card and
-on a card without a note.
+So the canvas owns every gesture that starts on a card without a note, and
+on a note that fits its card unless the gesture starts on a table wider than
+the card.
 
 The canvas also owns a gesture that starts on the box of a set of selected
 cards. The box lies over its cards, so the first event is delivered to the
@@ -116,13 +126,19 @@ user means.
     wheel event counts as horizontal);
   - the content is not already at the end the movement points to: not at the
     top for a scroll up, not at the bottom for a scroll down.
+- Otherwise the sideways box that the gesture began on owns it if both hold:
+  - the movement so far is more horizontal than vertical (`|x| > |y|`);
+  - the box is not already at the end the movement points to: not at its
+    left end for a scroll to the left, not at its right end for a scroll to
+    the right.
 - Otherwise the canvas owns the gesture.
 - The new owner moves by everything that was held. No movement is lost.
 - A gesture that ends before it asked for 4 pixels moves nothing.
 
-So a sideways scroll over a note, and a scroll beyond the end that a note is
-already at, move the canvas. This is how a scroll area inside another one
-behaves on the desktop.
+So a sideways scroll over the text of a note, a scroll beyond the end that a
+note is already at, and a scroll beyond the end that a table is already at
+move the canvas. This is how a scroll area inside another one behaves on the
+desktop.
 
 ### A gesture the content owns
 
@@ -140,6 +156,20 @@ behaves on the desktop.
 - If the card no longer shows the content (the card is gone, its badge face
   was opened, or the Note began to be edited), the rest of the gesture moves
   nothing.
+
+### A gesture a sideways box owns
+
+- Each event scrolls the box sideways by `deltaX / zoom` flow pixels.
+  Fractions of a pixel add up across events.
+- The vertical part of each event is dropped. The note does not move up or
+  down while its table is being read sideways.
+- At its left or right end the box stops. The canvas does not move for the
+  rest of the gesture, momentum included.
+- The canvas viewport does not change, and no viewport interaction is
+  reported.
+- If the box is no longer shown (the card was redrawn or is gone, its badge
+  face was opened, or the Note began to be edited), the rest of the gesture
+  moves nothing.
 
 ### Where the text of a scrolled Note is cut
 
@@ -173,6 +203,10 @@ behaves on the desktop.
   shorter, the position is the nearest one that exists.
 - A card that left the area near the viewport is drawn from the top when it
   returns (unchanged). The position is not saved to disk.
+- The sideways position of each table is kept when the Note starts and stops
+  being edited, as long as the note has the same number of tables then. A
+  card that is redrawn for another reason shows its tables from their left
+  end.
 
 ### What does not change
 
@@ -231,6 +265,17 @@ again.
 13. A long Note at rest that was scrolled to its middle shows text up to the
     top and the bottom of its card content. Scrolled back to its top, the
     note shows its text where a note that was never scrolled shows it.
+14. The pointer is on a table of a Note at rest that is wider than the card.
+    A scroll to the right moves the table and brings its last column into
+    view. The canvas viewport and the vertical position of the note do not
+    change.
+15. On the same table, a scroll down moves the note when the note is longer
+    than its card, and the canvas when it is not. A scroll to the left on a
+    table at its left end moves the canvas.
+16. A sideways scroll that begins on the text of the same note, outside the
+    table, moves the canvas.
+17. After a table was scrolled sideways, double-clicking a paragraph of the
+    note shows the table at the same sideways position in the editor.
 
 ## Verification
 
@@ -240,7 +285,9 @@ again.
   events in the document (`basehalfCanvasWheelGestures.test.ts`).
 - The smoke covers criteria 1, 3, 4, 5, the fitting-note case of 6, 9, the
   file change of 10, and the cut of 13 (the box that cuts the text of a
-  scrolled note is the card content).
+  scrolled note is the card content), and in `canvas-note-renders-markdown`
+  criteria 14 and 17.
 - Criteria 2, 7, 8, 11, 12, and the rest of 6 and 10 are checked in the real
-  window when this behavior changes. Momentum and the feel of a real
+  window when this behavior changes. Criteria 15 and 16 are covered by the
+  unit tests. Momentum and the feel of a real
   trackpad are checked by hand: a test cannot produce them.

@@ -7,6 +7,7 @@ import { addDisposableListener, getWindow, isHTMLElement, isSVGElement } from '.
 import { combinedDisposable, IDisposable, MutableDisposable } from '../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../base/common/platform.js';
 import {
+	BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS,
 	BaseHalfCanvasWheelGestures,
 	IBaseHalfCanvasWheelDelta,
 	IBaseHalfCanvasWheelExtent,
@@ -17,6 +18,7 @@ import {
 const CARD_SELECTOR = '.basehalf-canvas-card';
 const CARD_CONTENT_SELECTOR = '.basehalf-canvas-card-content';
 const OWN_SCROLL_SELECTOR = '.nowheel';
+const SIDEWAYS_BOX_SELECTOR = `.${BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS}`;
 
 export interface IBaseHalfCanvasWheelGestureOptions {
 	/** The canvas zoom: screen pixels per flow pixel. */
@@ -63,7 +65,9 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 	// The card element of the running gesture: the one that was on screen when
 	// the gesture began, or the one that has replaced it since.
 	let gestureCard: { readonly path: string; element: HTMLElement } | undefined;
-	// Kept apart from `scrollTop`, which is rounded: fractions of a pixel add up here.
+	// The sideways box that the running gesture began on.
+	let gestureSidewaysBox: HTMLElement | undefined;
+	// Kept apart from `scrollTop` and `scrollLeft`, which are rounded: fractions of a pixel add up here.
 	let scrolled: { readonly element: HTMLElement; position: number } | undefined;
 	let redirecting = false;
 
@@ -88,21 +92,40 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 		return content ? { position: content.scrollTop, max: content.scrollHeight - content.clientHeight } : undefined;
 	};
 
-	const scroll = (path: string, deltaY: number): void => {
+	// A box that was redrawn is not the box the gesture began on.
+	const shownSidewaysBox = (path: string): HTMLElement | undefined => {
 		const content = shownContent(path);
-		if (!content) {
-			return;
-		}
+		return content && gestureSidewaysBox && content.contains(gestureSidewaysBox) ? gestureSidewaysBox : undefined;
+	};
+
+	const sidewaysExtent = (path: string): IBaseHalfCanvasWheelExtent | undefined => {
+		const box = shownSidewaysBox(path);
+		return box ? { position: box.scrollLeft, max: box.scrollWidth - box.clientWidth } : undefined;
+	};
+
+	// Moves `element` along one of its scroll directions by `delta` screen pixels.
+	const scrollBy = (element: HTMLElement, direction: 'scrollTop' | 'scrollLeft', max: number, delta: number): void => {
 		// A redrawn card has a new element, and something else may have scrolled this one.
-		if (scrolled?.element !== content || Math.abs(content.scrollTop - scrolled.position) >= 1) {
-			scrolled = { element: content, position: content.scrollTop };
+		if (scrolled?.element !== element || Math.abs(element[direction] - scrolled.position) >= 1) {
+			scrolled = { element, position: element[direction] };
 		}
 		const zoom = options.zoom();
-		scrolled.position = baseHalfCanvasWheelContentPosition(
-			{ position: scrolled.position, max: content.scrollHeight - content.clientHeight },
-			deltaY / (zoom > 0 ? zoom : 1)
-		);
-		content.scrollTop = scrolled.position;
+		scrolled.position = baseHalfCanvasWheelContentPosition({ position: scrolled.position, max }, delta / (zoom > 0 ? zoom : 1));
+		element[direction] = scrolled.position;
+	};
+
+	const scroll = (path: string, deltaY: number): void => {
+		const content = shownContent(path);
+		if (content) {
+			scrollBy(content, 'scrollTop', content.scrollHeight - content.clientHeight, deltaY);
+		}
+	};
+
+	const scrollSideways = (path: string, deltaX: number): void => {
+		const box = shownSidewaysBox(path);
+		if (box) {
+			scrollBy(box, 'scrollLeft', box.scrollWidth - box.clientWidth, deltaX);
+		}
 	};
 
 	const take = (event: WheelEvent): void => {
@@ -159,8 +182,9 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 			const element = target?.closest(CARD_CONTENT_SELECTOR)?.closest<HTMLElement>(CARD_SELECTOR);
 			const path = element?.dataset.basehalfCardPath;
 			gestureCard = element && path !== undefined ? { path, element } : undefined;
+			gestureSidewaysBox = target?.closest<HTMLElement>(SIDEWAYS_BOX_SELECTOR) ?? undefined;
 			return { ownScroll: !!target?.closest(OWN_SCROLL_SELECTOR), card: path, buttonHeld: event.buttons !== 0 };
-		}, extent);
+		}, extent, sidewaysExtent);
 		quietTime.value = afterQuietTime(() => gestures.end());
 		switch (step.kind) {
 			case 'hold':
@@ -169,6 +193,10 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 			case 'scroll':
 				take(event);
 				scroll(step.card, step.deltaY);
+				break;
+			case 'scrollSideways':
+				take(event);
+				scrollSideways(step.card, step.deltaX);
 				break;
 			case 'pan':
 				if (target && (step.held || target.closest(OWN_SCROLL_SELECTOR))) {

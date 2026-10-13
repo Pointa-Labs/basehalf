@@ -1652,8 +1652,9 @@ tables. What can be edited in place and what can be shown are two questions:
 the first is the editor's limit, and it must not decide the second.
 
 **Consequences.**
-- A table is as wide as the card at most. With many columns on a narrow
-  card its words break; the user widens the card or opens Card Detail.
+- A table keeps its words whole. One that is wider than the card is cut at
+  the right and scrolls sideways in its own box, by a sideways scroll that
+  begins on it.
 - Images of a note are loaded when its card is drawn.
 - HTML outside the allowed elements is still shown as text, letter for
   letter, and never becomes an element.

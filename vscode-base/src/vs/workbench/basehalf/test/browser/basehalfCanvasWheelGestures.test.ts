@@ -178,6 +178,44 @@ suite('BaseHalfCanvasWheelGestures', () => {
 		assert.deepStrictEqual({ scrollTop: long.note.scrollTop, panned: panned.length }, { scrollTop: 870, panned: 5 });
 	});
 
+	test('a sideways gesture that begins on a wide table scrolls the table and nothing else', () => {
+		const long = card('long.md', 1000);
+		// A table 100 pixels wide that holds 400 pixels of columns.
+		const table = element(long.text, 'basehalf-canvas-scroll-sideways');
+		table.style.width = '100px';
+		table.style.overflow = 'hidden';
+		element(table, 'columns').style.width = '400px';
+		const columns = table.firstElementChild as HTMLElement;
+		columns.style.height = '20px';
+
+		const onTheTable = [wheel(columns, { deltaX: 30, deltaY: 4 }), wheel(pane, { deltaX: 0.5, deltaY: 40 }), wheel(pane, { deltaX: 0.5 })];
+		const afterTheTable = { scrollLeft: table.scrollLeft, scrollTop: long.note.scrollTop };
+		quietTimePasses();
+		// Down on the table scrolls the note. Sideways on the text of the note moves the canvas.
+		wheel(columns, { deltaY: 30 });
+		quietTimePasses();
+		wheel(long.text, { deltaX: 30 });
+		quietTimePasses();
+		// The table is redrawn during a gesture: the rest of the gesture moves nothing.
+		zoom = 2;
+		wheel(columns, { deltaX: 60 });
+		const scrollLeft = table.scrollLeft;
+		const redrawn = element(long.text, 'basehalf-canvas-scroll-sideways');
+		table.remove();
+		const afterRedraw = wheel(pane, { deltaX: 60 });
+
+		assert.deepStrictEqual({ onTheTable, afterTheTable, scrollLeft, scrollTop: long.note.scrollTop, afterRedraw, redrawn: redrawn.scrollLeft, panned }, {
+			onTheTable: [true, true, true],
+			afterTheTable: { scrollLeft: 31, scrollTop: 0 },
+			// 31, and 60 screen pixels at a zoom of 2.
+			scrollLeft: 61,
+			scrollTop: 30,
+			afterRedraw: true,
+			redrawn: 0,
+			panned: [['text', 30, 0]]
+		});
+	});
+
 	test('the note moves as far on screen as the wheel asks at every zoom', () => {
 		const long = card('long.md', 1000);
 		zoom = 2;

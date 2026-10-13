@@ -31,8 +31,12 @@ suite('BaseHalfCanvasWheelGesture', () => {
 		readonly buttonHeld?: boolean;
 	}
 
-	/** Runs wheel events over cards whose notes are at `notes`, and says what each one moved. */
-	function run(notes: Record<string, IBaseHalfCanvasWheelExtent | undefined>, events: readonly ITestWheel[]): string[] {
+	/**
+	 * Runs wheel events over cards whose notes are at `notes`, and says what
+	 * each one moved. `tables` gives the table of a note that a gesture on that
+	 * note begins on.
+	 */
+	function run(notes: Record<string, IBaseHalfCanvasWheelExtent | undefined>, events: readonly ITestWheel[], tables: Record<string, IBaseHalfCanvasWheelExtent | undefined> = {}): string[] {
 		const gestures = new BaseHalfCanvasWheelGestures();
 		return events.map(event => {
 			if (event.afterQuietTime) {
@@ -41,10 +45,12 @@ suite('BaseHalfCanvasWheelGesture', () => {
 			const step = gestures.step(
 				{ deltaX: event.deltaX ?? 0, deltaY: event.deltaY ?? 0 },
 				() => ({ ownScroll: event.on === 'editor', card: event.on === 'editor' ? undefined : event.on, buttonHeld: event.buttonHeld === true }),
-				card => notes[card]
+				card => notes[card],
+				card => tables[card]
 			);
 			switch (step.kind) {
 				case 'scroll': return `${step.card} ${step.deltaY}`;
+				case 'scrollSideways': return `table of ${step.card} ${step.deltaX}`;
 				case 'pan': return `canvas ${step.deltaX},${step.deltaY}${step.held ? ' held' : ''}`;
 				default: return step.kind;
 			}
@@ -104,6 +110,35 @@ suite('BaseHalfCanvasWheelGesture', () => {
 		});
 	});
 
+	test('a sideways gesture that begins on a wide table scrolls the table', () => {
+		/** A table in the middle of its columns. */
+		const table: IBaseHalfCanvasWheelExtent = { position: 100, max: 300 };
+		const fits: IBaseHalfCanvasWheelExtent = { position: 0, max: 0 };
+		assert.deepStrictEqual({
+			// The table keeps the gesture, and the vertical part of its events is dropped.
+			sideways: run({ 'a.md': middle }, [{ on: 'a.md', deltaX: 30 }, { deltaX: 20, deltaY: 50 }, { on: 'editor', deltaX: 10 }], { 'a.md': table }),
+			downOnTheTable: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 30 }, { deltaX: 30 }], { 'a.md': table }),
+			held: run({ 'a.md': middle }, [{ on: 'a.md', deltaY: 1 }, { deltaX: 2 }, { deltaX: 6 }], { 'a.md': table }),
+			// A note that fits its card still has a table to scroll, and nothing to scroll down.
+			inANoteThatFits: run({ 'a.md': fits }, [{ on: 'a.md', deltaX: 30 }, { afterQuietTime: true, on: 'a.md', deltaY: 30 }], { 'a.md': table }),
+			leftAtTheLeftEnd: run({ 'a.md': middle }, [{ on: 'a.md', deltaX: -30 }], { 'a.md': { position: 0, max: 300 } }),
+			rightAtTheRightEnd: run({ 'a.md': middle }, [{ on: 'a.md', deltaX: 30 }], { 'a.md': { position: 299.5, max: 300 } }),
+			aTableThatFits: run({ 'a.md': fits }, [{ on: 'a.md', deltaX: 30 }], { 'a.md': fits }),
+			outsideTheTable: run({ 'a.md': middle }, [{ on: 'a.md', deltaX: 30 }]),
+			aButtonIsHeld: run({ 'a.md': middle }, [{ on: 'a.md', deltaX: 30, buttonHeld: true }], { 'a.md': table })
+		}, {
+			sideways: ['table of a.md 30', 'table of a.md 20', 'table of a.md 10'],
+			downOnTheTable: ['a.md 30', 'a.md 0'],
+			held: ['hold', 'hold', 'table of a.md 8'],
+			inANoteThatFits: ['table of a.md 30', 'canvas 0,30'],
+			leftAtTheLeftEnd: ['canvas -30,0'],
+			rightAtTheRightEnd: ['canvas 30,0'],
+			aTableThatFits: ['canvas 30,0'],
+			outsideTheTable: ['canvas 30,0'],
+			aButtonIsHeld: ['canvas 30,0']
+		});
+	});
+
 	test('an event without movement goes on with a gesture and never starts one', () => {
 		assert.deepStrictEqual({
 			first: run({ 'a.md': middle }, [{}, { on: 'a.md', deltaY: 30 }]),
@@ -117,7 +152,7 @@ suite('BaseHalfCanvasWheelGesture', () => {
 	test('a gesture moves nothing once its card shows no note', () => {
 		const notes: Record<string, IBaseHalfCanvasWheelExtent | undefined> = { 'a.md': middle };
 		const gestures = new BaseHalfCanvasWheelGestures();
-		const step = () => gestures.step({ deltaX: 0, deltaY: 30 }, () => ({ ownScroll: false, card: 'a.md', buttonHeld: false }), card => notes[card]).kind;
+		const step = () => gestures.step({ deltaX: 0, deltaY: 30 }, () => ({ ownScroll: false, card: 'a.md', buttonHeld: false }), card => notes[card], () => undefined).kind;
 
 		const shown = step();
 		notes['a.md'] = undefined;

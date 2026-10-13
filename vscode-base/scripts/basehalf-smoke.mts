@@ -10668,26 +10668,36 @@ async function assertCanvasNoteWheelScroll(page) {
 }
 
 // A note is shown rendered on its card: at rest, and in the blocks that stay
-// as they are while another block of the card is edited.
+// as they are while another block of the card is edited. A table that is wider
+// than the card scrolls sideways in its own box.
 async function assertCanvasNoteRendersMarkdown(page) {
 	const folderName = 'rendered';
 	const notePath = `${folderName}/table.md`;
 	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${notePath}"]`);
 	const shown = () => card.evaluate(element => {
 		const note = element.querySelector('.basehalf-canvas-note-editor.ready .basehalf-canvas-markdown-inline') ?? element.querySelector('.bh-md-preview');
-		if (!(note instanceof HTMLElement)) {
+		const table = note?.querySelector('table');
+		if (!(note instanceof HTMLElement) || !(table instanceof HTMLElement)) {
 			return undefined;
 		}
-		const table = note.querySelector('table')?.getBoundingClientRect();
+		const box = table.getBoundingClientRect();
+		const mask = getComputedStyle(table).maskImage;
 		return {
-			headers: Array.from(note.querySelectorAll('thead th'), cell => cell.textContent).join('|'),
-			cells: note.querySelectorAll('tbody td').length,
-			linesInLastCell: note.querySelectorAll('tbody td:last-child br').length + 1,
+			headers: Array.from(table.querySelectorAll('thead th'), cell => cell.textContent).join('|'),
+			cells: table.querySelectorAll('tbody td').length,
+			linesInLastCell: table.querySelectorAll('tbody td:last-child br').length + 1,
+			// A cell that broke a number would be higher than one line of text.
+			numberCellLines: Math.round(table.querySelector('tbody td:nth-child(2)').getBoundingClientRect().height / box.height * 10) / 10,
 			smallHeadings: note.querySelectorAll('h4').length,
-			boxes: Array.from(note.querySelectorAll('li.bh-md-task input[type="checkbox"]'), box => box instanceof HTMLInputElement && box.checked && box.disabled ? 'done' : 'open').join('|'),
+			boxes: Array.from(note.querySelectorAll('li.bh-md-task input[type="checkbox"]'), input => input instanceof HTMLInputElement && input.checked && input.disabled ? 'done' : 'open').join('|'),
 			tagsAsText: /<\/?(?:table|thead|tbody|tr|th|td|br|h4|input)\b/.test(note.textContent ?? ''),
-			widerThanCard: note.scrollWidth - note.clientWidth,
-			table: table ? `${Math.round(table.width)}x${Math.round(table.height)}` : undefined
+			noteWiderThanCard: note.scrollWidth - note.clientWidth,
+			table: `${Math.round(box.width)}x${Math.round(box.height)} holds ${table.scrollWidth}`,
+			tableHoldsMore: table.scrollWidth > table.clientWidth,
+			tableAt: Math.round(table.scrollLeft),
+			fades: `${/^linear-gradient\(to right, rgba\(0, 0, 0, 0\)/.test(mask) ? 'left' : ''}${/rgba\(0, 0, 0, 0\)\)$/.test(mask) ? 'right' : ''}`,
+			noteAt: note.scrollTop,
+			viewport: getComputedStyle(document.querySelector('.react-flow__viewport')).transform
 		};
 	});
 	const columns = ['开始时间', 'ret_1h', 'ret_6h', 'ret_24h', 'vol_24h', 'buy_ratio', 'rel_volume', '标签 y'];
@@ -10715,20 +10725,44 @@ async function assertCanvasNoteRendersMarkdown(page) {
 	await card.locator('.bh-md-preview table').waitFor({ state: 'attached', timeout: 10_000 });
 
 	const rest = await shown();
-	const expected = { headers: columns.join('|'), cells: 8, linesInLastCell: 2, smallHeadings: 1, boxes: 'open|done', tagsAsText: false, widerThanCard: 0 };
-	if (JSON.stringify({ ...rest, table: undefined }) !== JSON.stringify(expected) || !rest.table) {
-		throw new Error(`A note at rest must show its table, small heading, and task boxes rendered and no wider than the card: ${JSON.stringify(rest)}`);
+	const expected = {
+		headers: columns.join('|'), cells: 8, linesInLastCell: 2, smallHeadings: 1, boxes: 'open|done', tagsAsText: false,
+		noteWiderThanCard: 0, tableHoldsMore: true, tableAt: 0, fades: 'right', noteAt: 0
+	};
+	const comparable = state => JSON.stringify(state, Object.keys(expected));
+	if (comparable(rest) !== JSON.stringify(expected)) {
+		throw new Error(`A note at rest must show its table, small heading, and task boxes rendered, with a table of eight columns that is cut at the right and no wider note: ${JSON.stringify(rest)}`);
 	}
 
-	// The table cannot be edited on the card. It stays the same table while the paragraph is edited.
+	// A sideways scroll that begins on the table moves the table, and neither the note nor the canvas.
+	const tableBox = await card.locator('.bh-md-preview table').boundingBox();
+	await page.mouse.move(tableBox.x + tableBox.width / 2, tableBox.y + tableBox.height / 2);
+	await page.waitForTimeout(400);
+	await page.mouse.wheel(60, 0);
+	await page.waitForFunction(target => {
+		const table = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(candidate => candidate instanceof HTMLElement && candidate.dataset.basehalfCardPath === target)?.querySelector('.bh-md-preview table');
+		return table instanceof HTMLElement && Math.round(table.scrollLeft) === 60;
+	}, notePath, { timeout: 10_000 }).catch(() => undefined);
+	const scrolled = await shown();
+	if (JSON.stringify({ ...scrolled, tableAt: 0, fades: 'right' }) !== JSON.stringify(rest) || scrolled.tableAt !== 60 || scrolled.fades !== 'leftright') {
+		throw new Error(`A sideways scroll on a table wider than its card must move the table and nothing else: ${JSON.stringify({ rest, scrolled })}`);
+	}
+	// The quiet time passes, so that the double-click below is not part of the gesture.
+	await page.waitForTimeout(400);
+
+	// The table cannot be edited on the card. It stays the same table, at the same place, while the paragraph is edited.
 	await card.locator('.bh-md-preview p', { hasText: 'First paragraph.' }).dblclick();
 	const editor = await waitForCanvasNoteInlineEditor(page, notePath);
 	const editing = await shown();
-	if (JSON.stringify(editing) !== JSON.stringify(rest)) {
-		throw new Error(`A table must look the same while another block of its note is edited: ${JSON.stringify({ rest, editing })}`);
+	if (JSON.stringify(editing) !== JSON.stringify(scrolled)) {
+		throw new Error(`A table must look the same, at the same sideways position, while another block of its note is edited: ${JSON.stringify({ scrolled, editing })}`);
 	}
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
+	const after = await shown();
+	if (JSON.stringify(after) !== JSON.stringify(scrolled)) {
+		throw new Error(`A table must keep its sideways position when editing ends: ${JSON.stringify({ scrolled, after })}`);
+	}
 
 	await openRootCanvas(page);
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });
