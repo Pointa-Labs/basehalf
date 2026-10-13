@@ -240,6 +240,11 @@ its text does not stand where the name stood.
 - It has the keyboard when it opens, whichever way it was opened. What the
   user types next replaces the selected part.
 - The title of Card Detail is renamed by the same rules, in its own input.
+- **What is done inside the editor stays in the editor.** A click there
+  puts the caret where it lands, a double click selects a word, and a drag
+  selects text. None of them selects the card, moves it, or opens anything.
+  A secondary click there does nothing: the card's menu would take the
+  keyboard from the name.
 - **No card is selected while a name is edited**, whichever way the editor
   was opened. F2 and Rename open it for a card that is selected: that
   selection ends when the editor opens.
@@ -351,6 +356,10 @@ card.
     it.
 25. F2 on a selected card opens the editor, and no card is selected while it
     is open.
+26. With the editor open, a click in the middle of its text puts the caret
+    there, a double click selects a word, and a secondary click changes
+    nothing. After each of them the editor has the keyboard, no card is
+    selected, and no toolbar or menu is shown.
 
 The name that is shown
 
@@ -470,6 +479,7 @@ window:
 | A double click on the name of the selected card, and F2 on a selected card | the editor opened, and no card was selected. |
 | A press on a name and a drag | the card moved, and the drag selected it, as a drag from anywhere does. |
 | A note edited in one card, then a double click on the name of another | the note editor closed, the name's editor opened, and no card was selected. |
+| With the editor open: a click in the middle of the text, a double click on a word, a drag over the text, a secondary click | the caret went to the middle and a typed letter went in there, a word was selected, text was selected and the card did not move, and nothing changed. In every frame of each: no selected card, no toolbar, no menu. |
 
 Before the change the same steps gave: no keyboard after F2 or a double
 click; another input element after every change in the folder, with the

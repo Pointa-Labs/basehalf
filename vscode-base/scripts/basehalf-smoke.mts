@@ -10158,6 +10158,25 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		|| opened.underlined || opened.message !== null) {
 		throw new Error(`The rename editor is not the name in place: ${JSON.stringify({ opened, atRest: { left: renamed?.labelLeft, top: renamed?.labelTop, height: renamed?.labelHeight, width: renamed?.textWidth, font: renamed?.font } })}`);
 	}
+	// What is done inside the editor stays there: a click in the middle of the
+	// text puts the caret there, and no card is selected by it.
+	const editorBox = await page.locator('.basehalf-canvas-card .basehalf-canvas-inline-name-input input').boundingBox();
+	if (!editorBox) {
+		throw new Error('The rename editor has no box for the click inside it');
+	}
+	await page.mouse.click(editorBox.x + editorBox.width / 2, editorBox.y + editorBox.height / 2);
+	await page.waitForTimeout(400);
+	const caret = await page.evaluate(() => {
+		const input = document.querySelector('.basehalf-canvas-card .basehalf-canvas-inline-name-input input');
+		return input instanceof HTMLInputElement
+			? { start: input.selectionStart ?? -1, end: input.selectionEnd ?? -1, length: input.value.length, focused: document.activeElement === input }
+			: undefined;
+	});
+	if (!caret || !caret.focused || caret.start !== caret.end || caret.start <= 0 || caret.start >= caret.length) {
+		throw new Error(`A click in the middle of the rename editor did not put the caret there: ${JSON.stringify(caret)}`);
+	}
+	await expectState({ editor: 'README-by-name.md', selected: [], toolbar: false, noteEditing: 0, cardDetail: false }, 'after a click inside the rename editor');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
 	// It is as wide as its text.
 	await page.keyboard.type('ab');
 	const short = await nameEditor();

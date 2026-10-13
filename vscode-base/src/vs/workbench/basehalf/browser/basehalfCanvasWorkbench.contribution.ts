@@ -7516,6 +7516,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.inlineRenameEditor?.store.dispose();
 			const host = $('.basehalf-canvas-inline-name-editor');
 			const store = new DisposableStore();
+			// What is done inside the editor stays in the editor. The scene takes a
+			// click on anything of a card for a click on the card and selects it,
+			// and it answers a secondary click with the card's menu, which takes
+			// the keyboard from the name.
+			store.add(this.addDisposableListener(host, 'click', event => event.stopPropagation()));
+			store.add(this.addDisposableListener(host, 'contextmenu', event => {
+				event.preventDefault();
+				event.stopPropagation();
+			}));
 			this.inlineRenameEditor = { edit, host, store, focus: this.renderInlineNameInput(host, edit, item.kind === 'folder', store) };
 		}
 	}
