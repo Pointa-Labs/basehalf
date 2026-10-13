@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
+	baseHalfBlocksToMarkdown,
 	baseHalfMarkdownContentTokens,
 	baseHalfMarkdownLosesContent,
 	buildBaseHalfMarkdownLoadProjection,
@@ -381,6 +382,70 @@ suite('BaseHalfMarkdownProjection', () => {
 			assert.strictEqual(baseHalfMarkdownLosesContent('Keep <span data-x="1">this</span>', 'Keep this'), true);
 			assert.strictEqual(baseHalfMarkdownLosesContent('See [docs](docs/guide.md)', 'See docs'), false);
 			assert.strictEqual(baseHalfMarkdownLosesContent('> [docs/decisions.md D19](docs/decisions.md)', '> docs/decisions.md D19'), false);
+		});
+
+		test('a line break is kept whichever way it is written, and lost when it is gone', () => {
+			assert.deepStrictEqual({
+				// What the editor writes back for each block, as measured in the editor.
+				tableCell: baseHalfMarkdownLosesContent('| a |\n|---|\n| one<br>two |', '| a       |\n| ------- |\n| one<br>two |'),
+				selfClosing: baseHalfMarkdownLosesContent('| a |\n|---|\n| one<br/>two |', '| a       |\n| ------- |\n| one<br>two |'),
+				paragraph: baseHalfMarkdownLosesContent('one<br>two', 'one\\\ntwo'),
+				listItem: baseHalfMarkdownLosesContent('- one<br>two\n- three', '* one\\\ntwo\n* three'),
+				quote: baseHalfMarkdownLosesContent('> one<br>two', '> one\\\n> two'),
+				// A heading is one line: the backslash cuts it in two.
+				heading: baseHalfMarkdownLosesContent('# one<br>two', '# one\\\ntwo'),
+				oneOfTwoGone: baseHalfMarkdownLosesContent('one<br>two<br>three', 'one\\\ntwo three'),
+				withOtherHtml: baseHalfMarkdownLosesContent('H<sub>2</sub>O<br>next', 'H2O\\\nnext')
+			}, {
+				tableCell: false,
+				selfClosing: false,
+				paragraph: false,
+				listItem: false,
+				quote: false,
+				heading: true,
+				oneOfTwoGone: true,
+				withOtherHtml: true
+			});
+		});
+
+		test('a line break in a table cell is written as <br>, and nowhere else', async () => {
+			const cell = (...content: unknown[]) => ({ type: 'tableCell', content, props: { colspan: 1 } });
+			const blocks = [
+				{ id: 'p', type: 'paragraph', content: [{ type: 'text', text: 'one\ntwo \uE000', styles: {} }], children: [] },
+				{
+					id: 't', type: 'table', content: {
+						type: 'tableContent', rows: [{
+							cells: [
+								cell({ type: 'text', text: 'one\ntwo', styles: {} }, { type: 'link', href: 'a.md', content: [{ type: 'text', text: 'three\nfour', styles: { bold: true } }] }),
+								cell({ type: 'text', text: 'plain', styles: {} })
+							]
+						}]
+					},
+					children: [{ id: 'c', type: 'paragraph', content: [{ type: 'text', text: 'child\nline', styles: {} }], children: [] }]
+				}
+			];
+			const before = JSON.stringify(blocks);
+			/** Writes every text of the blocks it is given, with a line break as `/`. */
+			const texts = (value: unknown): string[] => Array.isArray(value)
+				? value.flatMap(texts)
+				: value && typeof value === 'object'
+					? (typeof (value as { text?: unknown }).text === 'string' ? [(value as { text: string }).text.replace(/\n/g, '/')] : Object.values(value).flatMap(texts))
+					: [];
+			let written: unknown[] = [];
+			const markdown = await baseHalfBlocksToMarkdown({ blocksToMarkdownLossy: given => { written = given; return texts(given).join(' | '); } }, blocks);
+
+			assert.deepStrictEqual({
+				markdown,
+				blocksUntouched: JSON.stringify(blocks) === before,
+				// A block without a table cell is handed to the writer as it is.
+				paragraphHandedOn: written[0] === blocks[0],
+				withoutTable: await baseHalfBlocksToMarkdown({ blocksToMarkdownLossy: given => given === blocks.slice(0, 1) ? 'same' : texts(given).join('') }, blocks.slice(0, 1))
+			}, {
+				markdown: 'one/two \uE000 | one<br>two | three<br>four | plain | child/line',
+				blocksUntouched: true,
+				paragraphHandedOn: true,
+				withoutTable: 'one/two \uE000'
+			});
 		});
 
 		test('does not flag formatting-only churn', () => {

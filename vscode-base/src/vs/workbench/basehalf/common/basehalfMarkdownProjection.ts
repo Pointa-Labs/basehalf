@@ -198,8 +198,64 @@ export function baseHalfMarkdownLosesContent(source: string, normalized: string)
 	}
 
 	return (
-		baseHalfMarkdownContentTokens(source) !== baseHalfMarkdownContentTokens(normalized)
+		baseHalfMarkdownContentTokens(withLineBreakWords(source)) !== baseHalfMarkdownContentTokens(withLineBreakWords(normalized))
 	);
+}
+
+/**
+ * A line break is kept whichever way it is written: as `<br>`, or as a
+ * backslash at the end of a line. Each becomes the same word, so that a block
+ * loses content when a line break of it is gone and not when it is written
+ * the other way.
+ */
+function withLineBreakWords(markdown: string): string {
+	return markdown
+		// A heading is one line. A backslash at its end is no line break of it:
+		// it cuts the heading in two.
+		.replace(/^(?<heading> {0,3}#{1,6}[ \t][^\n]*)\\(?<end>\r?\n)/gm, '$<heading>$<end>')
+		.replace(/<br\s*\/?>|\\\r?\n/gi, ' basehalflinebreak ');
+}
+
+/**
+ * Writes blocks as Markdown with the editor's writer, and a line break inside
+ * a table cell as `<br>`. A row of a table is one line: the editor's writer
+ * ends the line at the break, which cuts the row in two and the table with it.
+ */
+export async function baseHalfBlocksToMarkdown(writer: Pick<IBaseHalfMarkdownEditorApi, 'blocksToMarkdownLossy'>, blocks: unknown[]): Promise<string> {
+	// The breaks travel through the writer as a mark that no text of the blocks holds.
+	const text = JSON.stringify(blocks) ?? '';
+	let mark = '\uE000';
+	while (text.includes(mark)) {
+		mark += '\uE000';
+	}
+	const marked = withTableCellLineBreaksMarked(blocks, mark, false);
+	const markdown = await writer.blocksToMarkdownLossy(marked as unknown[]);
+	return marked === blocks ? markdown : markdown.split(mark).join('<br>');
+}
+
+/** Returns `value` itself when it holds no line break in a table cell. */
+function withTableCellLineBreaksMarked(value: unknown, mark: string, inCell: boolean): unknown {
+	if (Array.isArray(value)) {
+		const items = value.map(item => withTableCellLineBreaksMarked(item, mark, inCell));
+		return items.some((item, index) => item !== value[index]) ? items : value;
+	}
+	if (!isRecord(value)) {
+		return inCell && typeof value === 'string' && value.includes('\n') ? value.replace(/\n/g, mark) : value;
+	}
+	const cell = inCell || value.type === 'tableCell';
+	if (cell && value.type === 'text') {
+		return typeof value.text === 'string' && value.text.includes('\n') ? { ...value, text: value.text.replace(/\n/g, mark) } : value;
+	}
+	let copy: Record<string, unknown> | undefined;
+	for (const key of ['content', 'rows', 'cells', 'children']) {
+		// The children of a block are blocks of their own, outside the cell.
+		const marked = withTableCellLineBreaksMarked(value[key], mark, key === 'children' ? false : cell);
+		if (marked !== value[key]) {
+			copy ??= { ...value };
+			copy[key] = marked;
+		}
+	}
+	return copy ?? value;
 }
 
 export interface IBaseHalfMarkdownSegmentProjection {

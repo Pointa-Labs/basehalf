@@ -49,16 +49,16 @@ In scope:
 - How a table and an image that are wider than the card are shown on it.
 - How Card Detail's Preview projection draws a table, and how its rich
   projection shows that a table is wider than the text column.
-- What Card Detail's rich projection shows for a block it cannot edit.
+- What Card Detail's rich projection shows for a block it cannot edit, and
+  which blocks with a line break written as `<br>` it edits.
 
 Not in scope, and unchanged:
 
 - Which blocks can be edited on the card. A table, an image, a task list, a
   heading of level 4 to 6, and a block with HTML still open in Card Detail
   for editing.
-- Everything else in Card Detail's projections, which blocks its rich
-  projection can edit, and how such a block is saved: byte for byte, as
-  before.
+- Everything else in Card Detail's projections, and how a block that is not
+  edited is saved: byte for byte, as before.
 - The 8 KiB limit above which a card shows a label instead of the note.
 - Previews of text files, code files, and folders.
 - Front matter. It is not part of the shown note.
@@ -156,6 +156,40 @@ Not in scope, and unchanged:
 18. A comment that BaseHalf wrote itself (`<!-- bh:… -->`) stays hidden. Any
     other HTML comment is shown as text, as on the card.
 
+### Which blocks the rich projection edits
+
+The rich projection edits blocks in its own form and writes an edited block
+back as Markdown. Its writer cannot write everything it can read. Measured
+in the editor, by reading a block and writing it back:
+
+| The note has | Written back as | What the reader loses |
+| --- | --- | --- |
+| a table with `a<br>b` in a cell | a row cut in two lines | the table |
+| `H<sub>2</sub>O`, `<kbd>`, `<mark>` | `H2O` | the formatting |
+| `<img width="40">` | `![](…)` | the size |
+| `<details>` with a summary | a list item | the folding |
+| a table written as HTML | a pipe table | nothing in a plain table; merged cells in others |
+| `<!-- a comment -->` | nothing | the comment |
+
+19. The rich projection edits a block in place unless writing it back would
+    lose letters, digits, or line breaks of it. A block that would lose them
+    is shown as rules 15 to 18 say, and is not edited there.
+20. A line break is kept whichever way it is written. In a table cell the
+    rich projection writes it as `<br>`, because a row of a table is one
+    line. Everywhere else it writes it as a Markdown line break.
+21. So these are edited in place: a table with `<br>` in its cells, and a
+    paragraph, a list item, or a quote with `<br>`. A line break that the
+    user types into a table cell is saved as `<br>`.
+22. These are not edited in place, because the table above shows what they
+    would lose: a block with `<sub>`, `<sup>`, `<kbd>`, `<mark>`, or another
+    HTML element; an `<img>` element; `<details>`; a table written as HTML; a
+    comment; and a heading with `<br>`, whose line break cannot be written
+    back.
+23. A block that the user does not edit is saved byte for byte, whether it
+    is edited in place or not. A block that the user edits is written by the
+    editor: `<br/>` becomes `<br>`, and `<br>` outside a table becomes a
+    Markdown line break.
+
 ## Limits
 
 - A table at rest has no scrollbar: a bar would take the press that drags
@@ -212,6 +246,14 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 11. Edit in Source on such a block opens the Source projection with the
     lines of the block selected.
 
+12. In Card Detail's rich projection, a table with `a<br>b` in a cell is a
+    table that can be edited. After a letter is typed into another cell and
+    the note is saved, the file holds every row of the table on one line,
+    with `a<br>b` in that cell.
+13. A paragraph `one<br>two` can be edited there. `H<sub>2</sub>O` and
+    `# a<br>b` cannot.
+14. A note with such a table that is opened and not edited keeps every byte.
+
 ## Verification
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
@@ -221,6 +263,10 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
   rules, and no test covers them.
 - Unit: `a note shows the same elements wherever it is rendered` covers the
   claim of rule 15 that the card and the rich projection agree.
+- Unit: `basehalfMarkdownProjection.test.ts` covers criterion 13 and the
+  writing of a line break in a table cell. Criterion 12 is measured in the
+  real window. The fidelity corpus (`npm run basehalf:fidelity`) covers
+  criterion 14.
 - Smoke: `readme-rich-passthrough-edit-in-source` covers criterion 11 and,
   for the HTML block of its note, that the block is shown rendered.
   Criterion 10 is measured in the real window.

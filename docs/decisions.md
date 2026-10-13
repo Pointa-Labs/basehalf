@@ -1663,3 +1663,7 @@ the first is the editor's limit, and it must not decide the second.
 - Card Detail's rich projection shows a block it cannot edit rendered as
   well. The block is still not edited in place, and it is saved byte for
   byte.
+- The rich projection edits a block unless writing it back would lose
+  something the reader sees. A line break written as `<br>` is kept, in a
+  table cell as `<br>`, so a table with line breaks in its cells is edited
+  in place. A block with other HTML is not: the editor's writer drops it.

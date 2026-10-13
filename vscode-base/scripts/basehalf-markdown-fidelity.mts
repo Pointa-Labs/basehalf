@@ -61,6 +61,7 @@ const needles: Record<string, string> = {
 	'edge-whitespace.md': 'hard break',
 	'frontmatter.md': 'Content under frontmatter',
 	'html-and-comments.md': 'HTML block content',
+	'line-breaks.md': 'Line breaks in tables',
 	'links-and-refs.md': 'Links of every kind',
 	'no-trailing-newline.md': 'ends without a final newline',
 	'real-notes.md': 'Reading notes',

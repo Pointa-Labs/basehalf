@@ -40,6 +40,21 @@ for iteration. The compile-backed smoke remains the delivery check. Use
 disposable fixture workspaces; never point a setup or smoke flow at the
 repository root or `vscode-base/` as a product workspace.
 
+For changes to the rich Markdown projection (what it reads, which blocks it
+edits, and what it writes back):
+
+```bash
+cd vscode-base
+npm run basehalf:fidelity
+```
+
+It opens each note of `scripts/basehalf-fidelity-corpus/` in the real editor,
+makes the editor write it back, and fails when a byte of a file changes. A
+new corpus file needs an entry in the script's list of texts to wait for.
+The rich editor's bundle is rebuilt by the watch when a file under
+`extensions/basehalf/markdown-rich-src/` changes; after a change to a file it
+imports from `src/`, run `node extensions/basehalf/esbuild.markdownRich.mts`.
+
 The smoke currently covers canvas startup, hidden Open Editors, Quick Open,
 Quick Text Search, folder routing, the reference-graph flows (connect,
 disconnect, both reconnects, canvas undo after closing a note, Create from

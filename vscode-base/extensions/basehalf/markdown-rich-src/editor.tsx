@@ -52,6 +52,7 @@ import {
 } from '../../../src/vs/workbench/basehalf/common/basehalfAdhd.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
+	baseHalfBlocksToMarkdown,
 	buildBaseHalfMarkdownLoadProjection,
 	collectBaseHalfMarkdownSaveContributions,
 	projectBaseHalfMarkdownSegment,
@@ -754,7 +755,9 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => ({
 		tryParseMarkdownToBlocks: markdown => editor.tryParseMarkdownToBlocks(markdown),
-		blocksToMarkdownLossy: blocks => editor.blocksToMarkdownLossy(blocks as Parameters<typeof editor.blocksToMarkdownLossy>[0]),
+		blocksToMarkdownLossy: blocks => baseHalfBlocksToMarkdown({
+			blocksToMarkdownLossy: written => editor.blocksToMarkdownLossy(written as Parameters<typeof editor.blocksToMarkdownLossy>[0])
+		}, blocks),
 	}), [editor]);
 
 	const discardSelectionForNextSharedTransaction = useCallback(() => {
