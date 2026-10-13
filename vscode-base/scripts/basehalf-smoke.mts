@@ -1451,10 +1451,37 @@ async function assertAgentAreaTerminalCommand(page) {
 	await assertStockTerminalPanelHidden(page);
 }
 
+// A shell that is still starting can be ended, or lose part of its startup,
+// by a Control+C. The prompt is there once the terminal has text that no
+// longer changes.
+async function waitForAgentAreaTerminalPrompt(page) {
+	const deadline = Date.now() + 20_000;
+	let previous = '';
+	do {
+		const text = await page.evaluate(() => {
+			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
+			const buffer = wrapper?.xterm?.buffer?.active;
+			const lines: string[] = [];
+			for (let index = 0; buffer && index < buffer.length; index++) {
+				lines.push(buffer.getLine(index)?.translateToString(true) ?? '');
+			}
+			return lines.join('\n').trim();
+		});
+		if (text && text === previous) {
+			return;
+		}
+		previous = text;
+		await page.waitForTimeout(400);
+	} while (Date.now() < deadline);
+	throw new Error('The Agent Area terminal showed no settled shell prompt within 20 seconds.');
+}
+
 async function assertAgentAreaTerminalClipboardPaste(page) {
 	const marker = `BH_TYPELESS_PASTE_${Date.now()}`;
 	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
 	await terminal.click();
+	// The probe ends with Control+C, so the shell has to be at its prompt first.
+	await waitForAgentAreaTerminalPrompt(page);
 	const allowClipboardOverwrite = process.env.CI === 'true'
 		|| process.env.CI === '1'
 		|| process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
@@ -1497,17 +1524,26 @@ async function assertAgentAreaTerminalClipboardPaste(page) {
 				: 'Control+Shift+V';
 		await page.keyboard.press(pasteShortcut);
 		await page.waitForFunction(expected => {
-			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
+			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined } } } } | null;
 			const buffer = wrapper?.xterm?.buffer?.active;
 			if (!buffer) {
 				return false;
 			}
+			// The marker follows the prompt and may wrap onto the next row.
+			let logicalLine = '';
 			for (let index = 0; index < buffer.length; index++) {
-				if ((buffer.getLine(index)?.translateToString(true) ?? '').includes(expected)) {
+				const line = buffer.getLine(index);
+				const text = line?.translateToString(true) ?? '';
+				if (line?.isWrapped) {
+					logicalLine += text;
+					continue;
+				}
+				if (logicalLine.includes(expected)) {
 					return true;
 				}
+				logicalLine = text;
 			}
-			return false;
+			return logicalLine.includes(expected);
 		}, marker, { timeout: 15_000 });
 	} finally {
 		// Never execute the probe, and do not leave the smoke test's marker in the
