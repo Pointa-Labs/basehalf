@@ -5492,6 +5492,34 @@ body.basehalf-canvas-edge-reconnecting * {
 	max-width: 100%;
 }
 
+/* A table keeps the widths its columns need. When it is wider than the text
+ * column it scrolls sideways in its own box. */
+.monaco-workbench .basehalf-card-detail-markdown-preview-content table {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin-top: 0;
+	margin-bottom: 1em;
+	overflow-x: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th,
+.monaco-workbench .basehalf-card-detail-markdown-preview-content td {
+	padding: 5px 12px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 28%, transparent);
+	vertical-align: top;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th {
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th:not([align]) {
+	text-align: start;
+}
+
 .monaco-workbench .basehalf-card-detail-markdown-preview-selection-reveal {
 	animation: basehalf-card-detail-selection-reveal 1.6s ease-out;
 	border-radius: 4px;

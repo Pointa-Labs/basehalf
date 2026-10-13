@@ -519,3 +519,32 @@ body,
 	white-space: pre-wrap;
 	word-break: break-word;
 }
+
+/* A table that is wider than the text column scrolls sideways in its own box.
+ * Its bar stays shown, so that the columns out of view can be found. A webview
+ * inherits a scrollbar color, and a bar drawn from that color hides itself
+ * when it is not used; the box draws its own bar instead. */
+.basehalf-markdown-rich .bn-editor .tableWrapper {
+	scrollbar-color: auto;
+}
+
+.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar {
+	height: 10px;
+}
+
+.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-track,
+.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-thumb {
+	border: 2px solid transparent;
+	border-radius: 5px;
+	background: var(--vscode-scrollbarSlider-background);
+	background-clip: padding-box;
+}
+
+.basehalf-markdown-rich .bn-editor .tableWrapper::-webkit-scrollbar-thumb:hover {
+	background: var(--vscode-scrollbarSlider-hoverBackground);
+	background-clip: padding-box;
+}

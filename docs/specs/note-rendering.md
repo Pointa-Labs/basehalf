@@ -27,7 +27,13 @@ of BaseHalf does not read code, so a card full of tags is an unreadable card.
 
 The rule is that a place where a note is read shows the note rendered, and
 the characters of the file are for Card Detail's Source projection. This
-specification applies the rule to the card.
+specification applies the rule to the card, and to tables in Card Detail.
+
+Card Detail showed tables in two ways that hid them. Its Preview projection
+drew a table without lines and without space between its cells, so the
+numbers of two columns ran together. Its rich projection cut a wide table
+at the right edge of the text column and showed no sign that the table
+could be scrolled.
 
 ## Scope
 
@@ -37,14 +43,16 @@ In scope:
 - What a Markdown Note card shows, while it is edited on the canvas, for the
   blocks that cannot be edited there.
 - How a table and an image that are wider than the card are shown on it.
+- How Card Detail's Preview projection draws a table, and how its rich
+  projection shows that a table is wider than the text column.
 
 Not in scope, and unchanged:
 
 - Which blocks can be edited on the card. A table, an image, a task list, a
   heading of level 4 to 6, and a block with HTML still open in Card Detail
   for editing.
-- Card Detail's projections. In the rich projection a table that is wider
-  than the text column already scrolls sideways inside its own box.
+- Everything else in Card Detail's projections, and which blocks its rich
+  projection can edit.
 - The 8 KiB limit above which a card shows a label instead of the note.
 - Previews of text files, code files, and folders.
 - Front matter. It is not part of the shown note.
@@ -106,6 +114,17 @@ Not in scope, and unchanged:
 12. A fixed block has the same size and the same line breaks while the card
     is edited as it has at rest.
 
+### Tables in Card Detail
+
+13. In the Preview projection a table has a line around every cell and
+    space inside it. The table keeps the widths its columns need. When it is
+    wider than the text column, it scrolls sideways inside its own box, and
+    the page does not scroll sideways.
+14. In the rich projection a table that is wider than the text column
+    scrolls sideways inside its own box. The box shows its scrollbar for as
+    long as the table is wider than the box, also while it is not being
+    scrolled.
+
 ## Limits
 
 - A table with many columns on a narrow card has narrow columns, and words
@@ -148,8 +167,16 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 7. While a paragraph of the card is edited, a table in the same note is
    still a `table` element of the same width and height.
 
+8. In Card Detail's Preview projection, a cell of a table has a border and
+   padding on every side.
+9. In Card Detail's rich projection, the box of a table of eight columns in
+   a text column 712 px wide is 10 px higher than its content: the height of
+   its scrollbar. The box of a table that fits has no such height.
+
 ## Verification
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
 - Smoke: `canvas-note-renders-markdown` covers criteria 1, 2 (heading and
   boxes), 3 (`<br>`), 6, and 7 in the real window.
+- Criteria 8 and 9 are measured in the real window by hand. They are style
+  rules, and no test covers them.

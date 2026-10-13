@@ -1657,5 +1657,7 @@ the first is the editor's limit, and it must not decide the second.
 - Images of a note are loaded when its card is drawn.
 - HTML outside the allowed elements is still shown as text, letter for
   letter, and never becomes an element.
+- Card Detail's Preview projection draws a table with lines, and its rich
+  projection keeps the scrollbar of a wide table shown.
 - Card Detail's rich projection still shows a block it cannot edit as the
   text of the file.
