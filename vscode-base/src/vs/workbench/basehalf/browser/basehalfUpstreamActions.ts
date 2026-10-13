@@ -18,6 +18,7 @@ import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIde
 import { IFileQuery, ISearchService, QueryType } from '../../services/search/common/search.js';
 import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
 import { BASEHALF_CANVAS_UNDO_REDO_SOURCE } from '../common/basehalfCanvasEditing.js';
+import { baseHalfItemDisplayName } from '../common/basehalfCardDetail.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { BASEHALF_CANVAS_SKIP_NAMES, isBaseHalfCanvasPathEligible } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
@@ -391,7 +392,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 				return [{ label: localize('basehalf.upstream.picker.empty', "Nothing else to choose in this workspace folder.") }] as NodePick[];
 			}
 			return ordered.map((candidate): NodePick => ({
-				label: basename(candidate.resource),
+				label: baseHalfItemDisplayName(basename(candidate.resource), candidate.kind === 'folder'),
 				description: candidate.path,
 				...(candidate.description ? { detail: candidate.description } : {}),
 				candidate
@@ -597,7 +598,10 @@ export class BaseHalfUpstreamActions extends Disposable {
 					direction.setAttribute('aria-hidden', 'true');
 					const link = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 					link.type = 'button';
-					link.textContent = basename(downstream.node.resource);
+					// A downstream row does not say whether its item is a folder. It is
+					// named as a file: a note that keeps its list with BaseHalf is far
+					// more common than a folder that is named like a note.
+					link.textContent = baseHalfItemDisplayName(basename(downstream.node.resource), false);
 					link.title = downstream.node.relativePath;
 					listen(link, EventType.CLICK, event => {
 						event.preventDefault();
@@ -673,7 +677,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 			const target = entry.target;
 			const link = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 			link.type = 'button';
-			link.textContent = basename(target.resource);
+			link.textContent = baseHalfItemDisplayName(basename(target.resource), target.kind === 'folder');
 			link.title = target.relativePath;
 			listen(link, EventType.CLICK, event => {
 				event.preventDefault();

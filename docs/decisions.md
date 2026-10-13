@@ -1668,3 +1668,33 @@ the first is the editor's limit, and it must not decide the second.
   something the reader sees. A line break written as `<br>` is kept, in a
   table cell as `<br>`, so a table with line breaks in its cells is edited
   in place. A block with other HTML is not: the editor's writer drops it.
+
+## D55 — A note is named without its extension (NEW, 2026-10-13)
+
+**Decision.** Where BaseHalf names an item, a Markdown note is named by its
+file name without `.md`: on its card, in a folder card, in Card Detail, in
+the breadcrumb, and in the Upstream and Downstream lists. Every other file
+and every folder is named by its whole file name. The file is not changed.
+The rename editor of a note holds the name without the extension and keeps
+the extension. A path is shown as it is, and so are the Files view, Search,
+and Quick Open. See [canvas card name](specs/canvas-card-name.md).
+
+**Why.** A note is the kind of file BaseHalf is made for, and the glyph
+beside its name says what it is. Users do not read code (D41), and for them
+the extension is noise. In the rename editor it was worse than noise: it
+could be typed away, and the note became a file that BaseHalf no longer
+shows as a note. Other files are told apart by their extension alone, also
+when BaseHalf comes to show code, so the rule does not have to be taken back
+then. Canvas products of the same kind call a new node "Text node 1": there
+a title is a label in the product's own store. A BaseHalf card is a file
+that agents find by its name, so the file keeps its extension and only what
+is shown changes.
+
+**Consequences.**
+- `plan.md` beside a folder or a file `plan` shows the same name twice. The
+  glyphs differ.
+- The Files view shows `plan.md` and the canvas shows `plan`.
+- A note cannot be made into another kind of file from the canvas. That is
+  done in the Files view.
+- Sentences that BaseHalf says about a file, such as the question before a
+  delete, still say the file name.

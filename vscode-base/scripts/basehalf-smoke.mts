@@ -2375,7 +2375,7 @@ async function runNativePluginRuntimeActionIfVisible(page, library, required = f
 
 async function reopenExternalPluginFixture(page) {
 	await quickOpen(page, 'README.md');
-	await page.locator('.basehalf-card-detail-title', { hasText: 'README.md' }).waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-card-detail-title', { hasText: shownFileName('README.md') }).waitFor({ state: 'visible', timeout: 20_000 });
 	await quickOpen(page, path.basename(externalPluginFixturePath()));
 }
 
@@ -2451,9 +2451,14 @@ async function assertGitBranchCheckoutQuickPick(page) {
 	await quickInput.waitFor({ state: 'hidden', timeout: 20_000 });
 }
 
+/** The name BaseHalf shows for a file: a note has no extension there (canvas card name). */
+function shownFileName(relativePath) {
+	return path.basename(relativePath).replace(/(?<=.)\.(?:md|markdown)$/i, '');
+}
+
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
-	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-card-detail-title', { hasText: shownFileName(title) }).waitFor({ state: 'visible', timeout: 20_000 });
 	const activeSurface = page.locator('.basehalf-card-detail-surface.active');
 	await activeSurface.waitFor({ state: 'visible', timeout: 8_000 });
 	const richHost = activeSurface.locator('.basehalf-card-detail-markdown-rich-webview');
@@ -5692,12 +5697,17 @@ async function assertBaseHalfTitlebarBreadcrumbs(page) {
 	const breadcrumbs = page.locator('.basehalf-command-center-breadcrumbs');
 	await breadcrumbs.waitFor({ state: 'visible', timeout: 15_000 });
 	const labels = (await breadcrumbs.locator('.basehalf-command-center-breadcrumb-segment').allTextContents()).map(label => label.trim());
-	if (labels.length !== 2 || labels[0] !== path.basename(workspacePath) || labels[1] !== 'README.md') {
+	if (labels.length !== 2 || labels[0] !== path.basename(workspacePath) || labels[1] !== 'README') {
 		throw new Error(`Unexpected README breadcrumb path: ${JSON.stringify(labels)}`);
 	}
 	const current = breadcrumbs.locator('[aria-current="page"]');
-	if (await current.textContent() !== 'README.md') {
-		throw new Error('The current breadcrumb segment is not README.md');
+	if (await current.textContent() !== 'README') {
+		throw new Error('The current breadcrumb segment is not the name of README.md');
+	}
+	// The name of the open note has no extension in the title either.
+	const detailTitle = (await page.locator('.basehalf-card-detail-title').first().textContent())?.trim();
+	if (detailTitle !== 'README') {
+		throw new Error(`Card Detail names the open note ${JSON.stringify(detailTitle)}`);
 	}
 	const search = page.locator('.basehalf-command-center-search[aria-label]');
 	await search.waitFor({ state: 'visible', timeout: 10_000 });
@@ -6491,7 +6501,7 @@ async function assertNativeForwardOpensCardDetail(page, title, options = {}) {
 		}
 
 		await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
-		await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+		await page.locator('.basehalf-card-detail-title', { hasText: shownFileName(title) }).waitFor({ state: 'visible', timeout: 20_000 });
 		const activeSurface = page.locator('.basehalf-card-detail-surface.active');
 		const richHost = activeSurface.locator('.basehalf-card-detail-markdown-rich-webview');
 		await richHost.waitFor({ state: 'visible', timeout: 8_000 });
@@ -9822,8 +9832,8 @@ async function assertCanvasInlineRename(page) {
 	const input = readme.locator('.basehalf-canvas-inline-name-input input');
 	await input.waitFor({ state: 'visible', timeout: 10_000 });
 	const value = await input.inputValue();
-	if (value !== 'README.md') {
-		throw new Error(`Expected inline rename to retain the card name, got ${JSON.stringify(value)}`);
+	if (value !== 'README') {
+		throw new Error(`Expected inline rename to hold the name of the note, got ${JSON.stringify(value)}`);
 	}
 	if (await page.locator('.quick-input-widget').isVisible()) {
 		throw new Error('Canvas rename unexpectedly opened Quick Input instead of the card-local editor');
@@ -9835,9 +9845,9 @@ async function assertCanvasInlineRename(page) {
 
 	await readme.focus();
 	await page.keyboard.press('F2');
-	// Typed, not filled: the editor has the keyboard by itself, and the part
-	// before the extension is selected, so the typed name keeps the extension.
-	await waitForCanvasNameEditor(page, 'README.md', { value: 'README.md', selection: [0, 6] });
+	// Typed, not filled: the editor has the keyboard by itself. It holds the
+	// name of the note, all of it selected, and the file keeps its extension.
+	await waitForCanvasNameEditor(page, 'README.md', { value: 'README', selection: [0, 6] });
 	await page.keyboard.type('README-renamed');
 	await page.keyboard.press('Enter');
 	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to commit');
@@ -9851,6 +9861,11 @@ async function assertCanvasInlineRename(page) {
 	await restoreInput.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to restore the fixture');
 	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+	// The name that restored the fixture was filled in with its extension: it
+	// is the file name, and no second extension was added.
+	if (fs.existsSync(path.join(workspacePath, 'README.md.md'))) {
+		throw new Error('A note name typed with its extension got the extension twice');
+	}
 	await assertCanvasCardNameRenamesInPlace(page);
 }
 
@@ -9913,6 +9928,8 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		return {
 			name,
 			glyph: glyphPoint,
+			text: label.textContent,
+			rows: [...card.querySelectorAll('.basehalf-canvas-folder-preview-label')].map(row => row.textContent),
 			labelWidth: labelBox.width,
 			textWidth: range.getBoundingClientRect().width,
 			identityWidth: identity.getBoundingClientRect().width,
@@ -9951,6 +9968,15 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 
 	await centerCanvasCards(page, [readme]);
 	const atRest = await caption('README.md');
+	// A note is named without its extension, on its card and in a folder card.
+	const folderAtRest = await caption('docs');
+	if (!atRest || !folderAtRest
+		|| atRest.text !== 'README'
+		|| folderAtRest.text !== 'docs'
+		|| !folderAtRest.rows.some(row => row === 'guide' || row === 'far')
+		|| folderAtRest.rows.some(row => /\.md$/i.test(row ?? ''))) {
+		throw new Error(`A note is not named without its extension: ${JSON.stringify({ note: atRest?.text, folder: folderAtRest?.text, rows: folderAtRest?.rows })}`);
+	}
 	if (!atRest
 		|| atRest.cursors.name !== 'text'
 		|| atRest.cursors.glyph === 'text'
@@ -9966,7 +9992,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	// A double click on the name: the editor, the keyboard, and nothing opened.
 	const placeBefore = await readme.boundingBox();
 	await doubleClick(atRest.name);
-	await waitForCanvasNameEditor(page, 'README.md', { value: 'README.md', selection: [0, 6] });
+	await waitForCanvasNameEditor(page, 'README.md', { value: 'README', selection: [0, 6] });
 	await expectState({ editor: 'README.md', selected: ['README.md'], noteEditing: 0, cardDetail: false }, 'after a double click on the name of a note');
 
 	// The editor is not disturbed by what happens in the folder meanwhile: a
@@ -9981,7 +10007,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		(window as typeof window & { __basehalfSmokeNameEditor?: typeof watch }).__basehalfSmokeNameEditor = watch;
 		const tick = () => {
 			if (!(input instanceof HTMLInputElement) || !input.isConnected || document.activeElement !== input
-				|| input.value !== 'README-by.md' || input.selectionStart !== 7 || input.selectionEnd !== 7) {
+				|| input.value !== 'README-by' || input.selectionStart !== 7 || input.selectionEnd !== 7) {
 				watch.lost.push(JSON.stringify(input instanceof HTMLInputElement
 					? { connected: input.isConnected, focused: document.activeElement === input, value: input.value, caret: [input.selectionStart, input.selectionEnd] }
 					: null));
@@ -10054,7 +10080,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 	// Escape renames nothing. Then the fixture gets its name back.
 	const renamed = await caption('README-by-name.md');
 	await doubleClick(renamed.name);
-	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name.md', selection: [0, 14] });
+	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name', selection: [0, 14] });
 	await page.keyboard.type('thrown-away');
 	await page.keyboard.press('Escape');
 	await expectState({ editor: null, selected: ['README-by-name.md'], noteEditing: 0, cardDetail: false }, 'after Escape in the rename editor');
@@ -10062,7 +10088,7 @@ async function assertCanvasCardNameRenamesInPlace(page) {
 		throw new Error('Escape in the rename editor renamed the note');
 	}
 	await doubleClick(renamed.name);
-	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name.md', selection: [0, 14] });
+	await waitForCanvasNameEditor(page, 'README-by-name.md', { value: 'README-by-name', selection: [0, 14] });
 	await page.keyboard.type('README');
 	await page.keyboard.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-by-name.md')), 'the double-clicked name to restore the fixture');
@@ -12836,7 +12862,12 @@ async function assertNoteThatCannotHoldAListKeepsItWithBaseHalf(page) {
 	if (fs.readFileSync(notePath, 'utf8') !== original) {
 		throw new Error(`Connecting into the note changed the note: ${JSON.stringify(fs.readFileSync(notePath, 'utf8'))}`);
 	}
-	await noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="valid"]', { hasText: 'README.md' }).waitFor({ state: 'visible', timeout: 10_000 });
+	const readmeUpstreamRow = noteCard.locator('[data-testid="badge-upstream-row"][data-upstream-status="valid"]', { hasText: 'README' });
+	await readmeUpstreamRow.waitFor({ state: 'visible', timeout: 10_000 });
+	const readmeUpstreamLink = readmeUpstreamRow.locator('.basehalf-canvas-card-badge-link');
+	if (await readmeUpstreamLink.textContent() !== 'README' || await readmeUpstreamLink.getAttribute('title') !== 'README.md') {
+		throw new Error(`An Upstream row does not name a note without its extension and keep the path in its tooltip: ${JSON.stringify({ text: await readmeUpstreamLink.textContent(), title: await readmeUpstreamLink.getAttribute('title') })}`);
+	}
 	await closeCanvasBadgeFace(noteCard);
 	await assertCanvasEdgeVisible(page, 'README.md', note);
 

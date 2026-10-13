@@ -27,6 +27,7 @@ import { IEditorGroupsService } from '../../../services/editor/common/editorGrou
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { baseHalfItemDisplayName } from '../../../basehalf/common/basehalfCardDetail.js';
 
 const AI_DISABLED_SETTING = 'chat.disableAIFeatures';
 const AGENT_STATUS_ENABLED_SETTING = 'chat.agentsControl.enabled';
@@ -54,7 +55,8 @@ function baseHalfTitleBreadcrumbs(state: IBaseHalfCanvasNavigationState): readon
 	}];
 	for (let index = 0; index < parts.length; index++) {
 		entries.push({
-			label: parts[index],
+			// The last part of an open file is the item's name: a note has no extension there (D55).
+			label: state.cardDetail && index === parts.length - 1 ? baseHalfItemDisplayName(parts[index], false) : parts[index],
 			resource: joinPath(target.workspaceFolder, ...parts.slice(0, index + 1)),
 			path: [rootLabel, ...parts.slice(0, index + 1)].join(' / '),
 			current: index === parts.length - 1

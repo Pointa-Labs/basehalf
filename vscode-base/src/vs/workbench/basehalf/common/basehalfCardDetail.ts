@@ -222,6 +222,40 @@ export function isBaseHalfMarkdownResource(resource: URI): boolean {
 	return MARKDOWN_EXTENSIONS.has(extname(resource).toLowerCase());
 }
 
+/**
+ * The extension of a note's file name as it is written, or the empty string
+ * for a name that is not a note's. A name that is only the extension is not a
+ * note's.
+ */
+export function baseHalfNoteNameExtension(fileName: string): string {
+	const dot = fileName.lastIndexOf('.');
+	if (dot <= 0) {
+		return '';
+	}
+	const extension = fileName.slice(dot);
+	return MARKDOWN_EXTENSIONS.has(extension.toLowerCase()) ? extension : '';
+}
+
+/**
+ * The name BaseHalf shows for an item where it names the item (D55): a note
+ * by its file name without the extension, every other file and every folder
+ * by its file name.
+ */
+export function baseHalfItemDisplayName(fileName: string, isFolder: boolean): string {
+	const extension = isFolder ? '' : baseHalfNoteNameExtension(fileName);
+	return extension ? fileName.slice(0, -extension.length) : fileName;
+}
+
+/**
+ * The file name for a name typed into the rename editor of a note whose file
+ * has `extension`. A typed name that ends with the extension is the file name.
+ */
+export function baseHalfNoteFileName(typed: string, extension: string): string {
+	return typed.length > extension.length && typed.toLowerCase().endsWith(extension.toLowerCase())
+		? typed
+		: `${typed}${extension}`;
+}
+
 export function isBaseHalfMediaResource(resource: URI): boolean {
 	return isBaseHalfRenderableContentResource(resource);
 }

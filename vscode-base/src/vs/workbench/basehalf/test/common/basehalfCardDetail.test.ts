@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, defaultBaseHalfCardDetailProjection, isBaseHalfMarkdownResource, isBaseHalfMediaResource, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
+import { BaseHalfCardProjectionRegistryService, DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, defaultBaseHalfCardDetailProjection, isBaseHalfMarkdownResource, isBaseHalfMediaResource, normalizeBaseHalfCardDetailProjection } from '../../common/basehalfCardDetail.js';
 
 suite('BaseHalfCardDetail', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -53,6 +53,39 @@ suite('BaseHalfCardDetail', () => {
 		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/guide.markdown')), true);
 		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/guide.txt')), false);
 		assert.strictEqual(isBaseHalfMarkdownResource(URI.file('/workspace/docs/md')), false);
+	});
+
+	test('names a note without its extension and every other item by its file name', () => {
+		assert.deepStrictEqual(
+			[
+				['plan.md', false], ['Plan.MD', false], ['plan.markdown', false], ['v1.2.md', false],
+				['data.csv', false], ['index.ts', false], ['notes.mdx', false], ['plan', false],
+				['docs', true], ['drafts.md', true], ['.md', false]
+			].map(([fileName, isFolder]) => [
+				baseHalfItemDisplayName(fileName as string, isFolder as boolean),
+				baseHalfNoteNameExtension(fileName as string)
+			]),
+			[
+				['plan', '.md'], ['Plan', '.MD'], ['plan', '.markdown'], ['v1.2', '.md'],
+				['data.csv', ''], ['index.ts', ''], ['notes.mdx', ''], ['plan', ''],
+				['docs', ''], ['drafts.md', '.md'], ['.md', '']
+			]
+		);
+	});
+
+	test('gives a typed note name the extension its file had', () => {
+		assert.deepStrictEqual(
+			[
+				baseHalfNoteFileName('Draft', '.md'),
+				baseHalfNoteFileName('Draft', '.MD'),
+				baseHalfNoteFileName('draft.md', '.md'),
+				baseHalfNoteFileName('draft.MD', '.md'),
+				baseHalfNoteFileName('draft.txt', '.md'),
+				baseHalfNoteFileName('v1.2', '.markdown'),
+				baseHalfNoteFileName('.md', '.md')
+			],
+			['Draft.md', 'Draft.MD', 'draft.md', 'draft.MD', 'draft.txt.md', 'v1.2.markdown', '.md.md']
+		);
 	});
 
 	test('registers domain projections without widening a core union', () => {

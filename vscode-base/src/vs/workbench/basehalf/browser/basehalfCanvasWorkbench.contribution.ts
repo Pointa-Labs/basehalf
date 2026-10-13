@@ -116,7 +116,7 @@ import {
 	BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES
 } from '../common/basehalfCanvasPreview.js';
 import { BaseHalfCanvasViewportPersister, BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
-import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
@@ -1387,6 +1387,11 @@ type BaseHalfCanvasInlineEdit =
 		readonly resource: URI;
 		readonly parent: URI;
 		readonly path: string;
+		/**
+		 * The extension that the file of a note keeps. The editor then holds the
+		 * name without it. Empty for an item that is renamed by its file name.
+		 */
+		readonly extension: string;
 		readonly initialValue: string;
 		value: string;
 		selectionPending: boolean;
@@ -6985,14 +6990,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor?.path === item.path && !await this.closeActiveCanvasNoteEditorAfterFormats(false)) {
 				return;
 			}
+			const fileName = basename(item.stat.resource);
+			const shownName = baseHalfItemDisplayName(fileName, item.kind === 'folder');
 			this.inlineEdit = {
 				kind: 'rename',
 				context,
 				resource: item.stat.resource,
 				parent: dirname(item.stat.resource),
 				path: item.path,
-				initialValue: basename(item.stat.resource),
-				value: basename(item.stat.resource),
+				extension: item.kind === 'folder' ? '' : baseHalfNoteNameExtension(fileName),
+				initialValue: shownName,
+				value: shownName,
 				selectionPending: true
 			};
 			this.requestRender();
@@ -7571,18 +7579,31 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const icon = append(host, $(`span.basehalf-canvas-inline-name-icon.codicon.${folder ? 'codicon-folder' : 'codicon-file'}`));
 		icon.setAttribute('aria-hidden', 'true');
 		const inputHost = append(host, $('.basehalf-canvas-inline-name-input'));
+		// A note is renamed by its name: the file keeps the extension it has.
+		const noteExtension = edit.kind === 'rename' ? edit.extension : '';
+		const fileNameOf = (typed: string) => noteExtension ? baseHalfNoteFileName(typed, noteExtension) : typed;
+		// An empty name is refused as it is, before an extension makes it a name.
+		const validateTyped = (typed: string) => this.validateCanvasEntryName(
+			edit.parent,
+			typed.trim().length === 0 ? typed : fileNameOf(typed),
+			edit.kind === 'rename' ? edit.resource : undefined
+		);
 		const inputBox = new InputBox(inputHost, this.contextViewService, {
 			ariaLabel: folder
 				? localize('basehalf.canvas.folderNameInput', "Folder name. Press Enter to confirm or Escape to cancel.")
-				: localize('basehalf.canvas.fileNameInput', "File name. Press Enter to confirm or Escape to cancel."),
+				: noteExtension
+					? localize('basehalf.canvas.noteNameInput', "Note name. Press Enter to confirm or Escape to cancel.")
+					: localize('basehalf.canvas.fileNameInput', "File name. Press Enter to confirm or Escape to cancel."),
 			inputBoxStyles: defaultInputBoxStyles,
 			placeholder: folder
 				? localize('basehalf.canvas.folderNamePlaceholder', "Folder name")
-				: localize('basehalf.canvas.fileNamePlaceholder', "filename.ext")
+				: noteExtension
+					? localize('basehalf.canvas.noteNamePlaceholder', "Note name")
+					: localize('basehalf.canvas.fileNamePlaceholder', "filename.ext")
 		});
 		store.add(inputBox);
 		inputBox.value = edit.value;
-		const extension = folder ? '' : extname(URI.file(edit.initialValue));
+		const extension = folder || noteExtension ? '' : extname(URI.file(edit.initialValue));
 		const selectionEnd = extension.length > 0 && extension.length < edit.initialValue.length
 			? edit.initialValue.length - extension.length
 			: edit.initialValue.length;
@@ -7594,7 +7615,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const candidate = inputBox.value;
 			let result: { readonly content: string; readonly type: MessageType } | undefined;
 			try {
-				result = await this.validateCanvasEntryName(edit.parent, candidate, edit.kind === 'rename' ? edit.resource : undefined);
+				result = await validateTyped(candidate);
 			} catch (error) {
 				result = { content: error instanceof Error ? error.message : String(error), type: MessageType.ERROR };
 			}
@@ -7619,7 +7640,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			inputBox.disable();
 			let validation: { readonly content: string; readonly type: MessageType } | undefined;
 			try {
-				validation = await this.validateCanvasEntryName(edit.parent, name, edit.kind === 'rename' ? edit.resource : undefined);
+				validation = await validateTyped(name);
 			} catch (error) {
 				validation = { content: error instanceof Error ? error.message : String(error), type: MessageType.ERROR };
 			}
@@ -7637,13 +7658,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 				return;
 			}
-			if (edit.kind === 'rename' && name === edit.initialValue) {
+			if (edit.kind === 'rename' && (name === edit.initialValue || fileNameOf(name) === basename(edit.resource))) {
 				this.cancelCanvasInlineEdit(edit);
 				return;
 			}
 			this.inlineEdit = undefined;
 			try {
-				await this.commitCanvasInlineEdit(edit, name, postCreateOwner);
+				await this.commitCanvasInlineEdit(edit, fileNameOf(name), postCreateOwner);
 				this.lastCanvasContextMenu = undefined;
 				this.requestRender();
 				// Enter gives the keyboard back to the canvas, as Escape does, so
@@ -7785,9 +7806,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				|| !this.workspaceMutationCoordinator.isResourceStampCurrent(edit.context.workspaceFolder, edit.context.stamp)) {
 				throw new Error(gone);
 			}
+			const fileName = basename(edit.resource);
 			await this.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
-				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", edit.initialValue, name),
-				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", edit.initialValue),
+				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", fileName, name),
+				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", fileName),
 				confirmBeforeUndo: this.confirmExplorerUndo()
 			});
 			// Enter leaves the card selected under its new name.
@@ -14373,7 +14395,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const glyph = append(row, $('.basehalf-canvas-folder-preview-glyph'));
 				this.renderGlyph(glyph, badgeType(child.name, child.kind === 'folder'), child.kind === 'folder' ? 'var(--bh-card-folder-glyph)' : 'var(--bh-card-text-tertiary)', 12);
 				const label = append(row, $('.basehalf-canvas-folder-preview-label'));
-				label.textContent = child.kind === 'folder' ? `${child.name}/` : child.name;
+				const name = baseHalfItemDisplayName(child.name, child.kind === 'folder');
+				label.textContent = child.kind === 'folder' ? `${name}/` : name;
 				label.classList.toggle('folder', child.kind === 'folder');
 			}
 			const remaining = preview.total - preview.items.length;
@@ -15654,9 +15677,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (this.pendingDetailNameEditResourceKey !== resourceKey) {
 			const button = append(this.detailTitle, $('button.basehalf-card-detail-title-button')) as HTMLButtonElement;
 			button.type = 'button';
-			button.textContent = basename(cardDetail.resource);
+			button.textContent = baseHalfItemDisplayName(basename(cardDetail.resource), false);
 			button.title = localize('basehalf.cardDetail.rename', "Rename...");
-			button.setAttribute('aria-label', localize('basehalf.cardDetail.renameFile', "Rename {0}", basename(cardDetail.resource)));
+			button.setAttribute('aria-label', localize('basehalf.cardDetail.renameFile', "Rename {0}", baseHalfItemDisplayName(basename(cardDetail.resource), false)));
 			this.detailTitleDisposables.add(this.addDisposableListener(button, 'click', () => {
 				this.pendingDetailNameEditResourceKey = resourceKey;
 				this.requestRender();
@@ -15664,7 +15687,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		const initialValue = basename(cardDetail.resource);
+		// A note is renamed by its name, as on its card (canvas card name).
+		const fileName = basename(cardDetail.resource);
+		const noteExtension = baseHalfNoteNameExtension(fileName);
+		const fileNameOf = (typed: string) => noteExtension ? baseHalfNoteFileName(typed, noteExtension) : typed;
+		const initialValue = baseHalfItemDisplayName(fileName, false);
 		const inputHost = append(this.detailTitle, $('.basehalf-card-detail-title-input'));
 		const inputBox = new InputBox(inputHost, this.contextViewService, {
 			ariaLabel: localize('basehalf.cardDetail.nameInput', "File name. Press Enter to confirm or Escape to keep the current name."),
@@ -15677,7 +15704,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const validate = async (show: boolean): Promise<{ readonly content: string; readonly type: MessageType } | undefined> => {
 			const sequence = ++validationSequence;
-			const result = await this.validateCanvasEntryName(dirname(cardDetail.resource), inputBox.value, cardDetail.resource);
+			const typed = inputBox.value;
+			const result = await this.validateCanvasEntryName(dirname(cardDetail.resource), typed.trim().length === 0 ? typed : fileNameOf(typed), cardDetail.resource);
 			if (sequence === validationSequence && this.pendingDetailNameEditResourceKey === resourceKey && show) {
 				if (result) {
 					inputBox.showMessage({ content: result.content, type: result.type });
@@ -15723,8 +15751,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 
-			const name = inputBox.value;
-			if (name === initialValue) {
+			const name = fileNameOf(inputBox.value);
+			if (inputBox.value === initialValue || name === fileName) {
 				cancel();
 				return;
 			}
@@ -15733,8 +15761,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.pendingDetailEditorFocusResourceKey = target.toString();
 			try {
 				await this.explorerService.applyBulkEdit([new ResourceFileEdit(cardDetail.resource, target)], {
-					undoLabel: localize('basehalf.cardDetail.rename.undo', "Rename {0} to {1}", initialValue, name),
-					progressLabel: localize('basehalf.cardDetail.rename.progress', "Renaming {0}", initialValue),
+					undoLabel: localize('basehalf.cardDetail.rename.undo', "Rename {0} to {1}", fileName, name),
+					progressLabel: localize('basehalf.cardDetail.rename.progress', "Renaming {0}", fileName),
 					confirmBeforeUndo: this.confirmExplorerUndo()
 				});
 			} catch (error) {
@@ -15783,7 +15811,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 			inputBox.focus();
-			const extension = extname(cardDetail.resource);
+			const extension = noteExtension ? '' : extname(cardDetail.resource);
 			inputBox.select({ start: 0, end: extension.length > 0 ? initialValue.length - extension.length : initialValue.length });
 		}, 0);
 	}
@@ -17255,7 +17283,7 @@ function edgeId(from: string, to: string): string {
 }
 
 function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {
-	return preview?.kind === 'node' ? preview.document.title : item.name;
+	return preview?.kind === 'node' ? preview.document.title : baseHalfItemDisplayName(item.name, item.kind === 'folder');
 }
 
 function baseHalfNodeIdentityProblem(title: string, role: string): string | undefined {

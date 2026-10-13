@@ -1,6 +1,7 @@
 # Canvas card name
 
-Status: Active (2026-10-13)
+Status: Active (2026-10-13; the name of a note revised the same day for D55)
+Decision: [D55](../decisions.md)
 Related: [canvas selection and arrangement](canvas-selection-and-arrangement.md)
 (what a card of a set answers),
 [canvas card interaction continuity](canvas-card-interaction-continuity.md),
@@ -36,6 +37,8 @@ built on it:
 - A double click on a card's name changes the name in place.
 - The pointer shows that the name is text that can be changed, and it shows
   it only over the text.
+- A note is named without its extension, and its name cannot lose the
+  extension by a rename.
 - There is one rename editor. The double click opens the editor that F2 and
   Rename open.
 - The editor can be typed into at once, and it is not disturbed by what
@@ -45,6 +48,7 @@ built on it:
 
 In scope:
 
+- The name that BaseHalf shows for an item.
 - The part of a card's caption that takes the double click, and the pointer
   over it.
 - What a double click on it does.
@@ -53,9 +57,11 @@ In scope:
 
 Not in scope, and unchanged:
 
-- Which name a card shows. A note, another file, and a folder show the file
-  name with its extension. See [open questions](#open-questions).
-- The default name of a new note.
+- The file itself. A note is a file whose name ends with `.md` or
+  `.markdown`, whatever BaseHalf shows.
+- The default name of a new note: `untitled.md`, `untitled-1.md`, and so on.
+- The Files view, Search, and Quick Open. They list files and show file
+  names.
 - F2, and Rename in the toolbar and the menu.
 - The title of a video card. It is kept inside the card's document and is
   changed in the card's own surface.
@@ -65,7 +71,12 @@ Not in scope, and unchanged:
 
 - **Caption**: the row above a card. From the left it holds the kind glyph,
   the name, and the badge button.
-- **Name**: the text the caption shows for the card.
+- **Note**: a file whose name ends with `.md` or `.markdown`, in any letter
+  case.
+- **File name**: the name of the item on disk.
+- **Name**: what BaseHalf shows for an item where it names the item. For a
+  note it is the file name without its extension. For every other file and
+  for every folder it is the file name.
 - **Name target**: the element that shows the name. It is as wide as the
   text it shows. A name that is longer than the room of the caption is cut
   with an ellipsis, and the name target then ends where the room ends. The
@@ -99,6 +110,46 @@ file, and its name is the file's name. So the rules for a name that cannot
 be used are BaseHalf's own.
 
 ## Required behavior
+
+### The name that is shown
+
+A note is the kind of file BaseHalf is made for, and the glyph beside its
+name says that it is a note. Its extension says nothing more, and a user
+who does not read code has no use for it. Other files are told apart by
+their extension alone, as `index.ts` and `index.css` are, so they keep it.
+
+| Item | File name | Name |
+| --- | --- | --- |
+| A note | `plan.md`, `Plan.MD`, `plan.markdown` | `plan`, `Plan`, `plan` |
+| A note with dots in its name | `v1.2.md` | `v1.2` |
+| Another file | `data.csv`, `index.ts`, `notes.mdx` | the file name |
+| A folder, also one named like a note | `docs`, `drafts.md` | the file name |
+| A file that is only the extension | `.md` | `.md` |
+
+The name is shown, and not the file name:
+
+- in the caption of a card, and in the label that assistive technology reads
+  for the card;
+- in the rows of a folder card, which name what the folder holds;
+- in the title of Card Detail;
+- in the last part of the title bar's breadcrumb while a note is open;
+- in the rows of a card's Upstream and Downstream lists, and in the rows of
+  the picker that adds one.
+
+The file name or the path is shown as it is:
+
+- wherever a path is shown: the tooltip of a card, the tooltip of a row of a
+  list, the second line of a picker row, a copied reference;
+- in a sentence that BaseHalf says about a file: a question before a
+  delete, the name of a step of undo, a notification;
+- in the Files view, Search, and Quick Open.
+
+Two items of one folder can have the same name: `plan.md` beside a folder
+or a file `plan`. Their glyphs differ. Nothing is done to keep them apart.
+
+One row does not know what kind of item it names: a row of a Downstream
+list. It names its item as a file, so a folder that is named like a note is
+shown there without the ending. Everywhere else such a folder keeps it.
 
 ### Which names can be changed in place
 
@@ -145,10 +196,23 @@ A double click on the name of a card of a set changes nothing.
 
 ### The rename editor
 
-- It holds the file name. The part before the extension is selected. The
-  whole name is selected for a folder and for a file without an extension.
+- For a note it holds the name, without the extension, and all of it is
+  selected. What is typed becomes the name, and the file keeps the
+  extension it had, as it was written: `plan.MD` renamed to `Draft` is
+  `Draft.MD`.
+  - A typed name that ends with that extension is taken as the file name:
+    `draft.md` gives `draft.md`, not `draft.md.md`.
+  - Another extension is part of the name: `draft.txt` gives `draft.txt.md`,
+    which is shown as `draft.txt`. A note stays a note. Its kind is changed
+    in the Files view.
+  - A name that cannot be used is judged by the file name it would give.
+    An empty name is refused before an extension is added.
+- For another file it holds the file name, and the part before the
+  extension is selected. For a folder and for a file without an extension
+  the whole name is selected.
 - It has the keyboard when it opens, whichever way it was opened. What the
-  user types next replaces the selected part, and the extension stays.
+  user types next replaces the selected part.
+- The title of Card Detail is renamed by the same rules, in its own input.
 - **Enter** renames the file. Afterwards the card is the one selected card
   under its new name, and the canvas has the keyboard, as after Escape. A
   name that was not changed closes the editor and renames nothing. A name
@@ -223,9 +287,9 @@ card.
 3. A name that is longer than the caption ends with an ellipsis, and the
    name target ends left of the badge button.
 4. A double click on the name of a note opens the rename editor in that
-   card with the file name in it and the part before the extension
-   selected. The card is the one selected card. No note editor and no Card
-   Detail is open.
+   card with the name in it, without the extension, and all of it selected.
+   The card is the one selected card. No note editor and no Card Detail is
+   open.
 5. A double click on the name of a folder opens the rename editor, and the
    canvas still shows the same folder.
 6. Enter with another name renames the file. The card shows the new name at
@@ -240,8 +304,9 @@ card.
     double click on the glyph does.
 11. In a set, a double click on a name changes nothing.
 12. After F2, after Rename, and after a double click on the name, the input
-    is the element that has the keyboard, with the part before the
-    extension selected. Typing without a click replaces that part.
+    is the element that has the keyboard, with the name of a note or the
+    part before the extension of another file selected. Typing without a
+    click replaces that part.
 13. With the editor open and the caret inside the typed text, a file that
     is added to the folder, a file that is changed, and a file that is
     removed leave the same input element in the document, with the
@@ -251,11 +316,29 @@ card.
     Enter then renames the file.
 15. After Enter the renamed card is the one selected card.
 
+The name that is shown
+
+16. The card of `README.md` shows `README`, and the card of a file that is
+    not a note shows its file name. A folder named `drafts.md` shows
+    `drafts.md`.
+17. A name typed into the rename editor of `README.md` renames the file to
+    that name with `.md`. A typed name that ends with `.md` gives that file
+    name and no second extension.
+18. With a note open, the title of Card Detail and the last part of the
+    breadcrumb show the name without the extension, and the rename input of
+    the title holds it.
+19. A row of a folder card and a row of an Upstream or Downstream list name
+    a note without its extension, and the row's tooltip is the path with
+    it.
+
 ## Verification
 
 - Unit: `basehalfCanvasReactScene.test.ts` covers what a double click on a
   card does from where it lands, the kind of the card, and the keys held
-  (criteria 4, 5, 8, 10 as a rule).
+  (criteria 4, 5, 8, 10 as a rule). `basehalfCardDetail.test.ts` covers the
+  name of an item and the file name of a typed name, with the rows of the
+  table above (criteria 16 and 17 as a rule). `basehalfUpstreamActions.test.ts`
+  covers the rows of the lists (criterion 19).
 - Smoke: `canvas-inline-rename` covers criteria 1, 2, 4 to 8, and 12 to 15
   in the real window. It is part of the whole run and of the `--canvas-only`
   slice. It types with the keyboard and never fills the input,
@@ -292,6 +375,23 @@ and a data file. The pointer was moved and pressed as a user's is.
 | A name of 303 characters, Enter | the editor stayed open and said that the name is not valid on the file system. Another name then renamed the file. |
 | The note removed while its name was edited | the card and its editor left the canvas. |
 
+The name of a note (D55), in the same kind of window:
+
+| What was done | What was seen |
+| --- | --- |
+| A folder of `plan.md`, `untitled-3.md`, `Upper.MD`, `v1.2.md`, `data.csv`, `index.ts`, the folders `docs` and `drafts.md` | the cards `plan`, `untitled-3`, `Upper`, `v1.2`, `data.csv`, `index.ts`, `docs`, `drafts.md`. The rows of the two folder cards: `guide` and `inside`. |
+| A double click on `untitled-3` | the editor held `untitled-3`, all selected. |
+| Typed `特征`, Enter | the file `特征.md` |
+| Typed `feature.md`, Enter | the file `feature.md` |
+| Typed `feature.txt`, Enter | the file `feature.txt.md`, shown as `feature.txt` |
+| `Upper.MD`, typed `Renamed` | the file `Renamed.MD` |
+| `v1.2` | the editor held `v1.2`, all selected. |
+| An empty name, Enter | the editor stayed open: a name is required. |
+| `plan`, typed `Renamed` while `Renamed.MD` was there | the editor stayed open: the name exists. |
+| `plan`, typed `plan.md`, Enter | the editor closed and nothing was renamed. |
+| `data.csv` and the folder `drafts.md` | the editors held the file names: `data` selected, and all of `drafts.md`. |
+| `plan.md` opened in Card Detail | the title `plan`, the breadcrumb `workspace` and `plan`, and `workspace / plan.md` as the tooltip of its last part. The title's input held `plan`, and `plan-from-detail` typed there gave `plan-from-detail.md`. |
+
 Before the change the same steps gave: no keyboard after F2 or a double
 click; another input element after every change in the folder, with the
 caret at the end (`特征.mdX`); and a refused rename after the note was
@@ -299,9 +399,8 @@ rewritten.
 
 ## Open questions
 
-- **Whether a note's name is shown without `.md`.** A note is the kind of
-  file BaseHalf is made for, and its glyph already says what it is. Other
-  files need their extension to be told apart. This specification shows and
-  edits the file name as it is until that is decided.
+- **The name in a sentence.** A question before a delete and the name of a
+  step of undo say the file name, so a note is `plan.md` there and `plan`
+  on its card. Whether they say the name is open.
 - **Changing the title of a video card in place.** It needs a write to the
   card's document that does not collide with the card's own surface.

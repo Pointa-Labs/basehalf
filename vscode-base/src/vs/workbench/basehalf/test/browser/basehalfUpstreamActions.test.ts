@@ -198,7 +198,7 @@ suite('BaseHalfUpstreamActions', () => {
 				title: 'Upstream',
 				text: ['Context that flows into this card. Saved inside this file, so agents reading it see it too.'],
 				rows: [
-					{ status: 'valid', label: 'overview.md', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
+					{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
 					{ status: 'dangling', label: 'gone.md', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] },
 					{ status: 'invalid', label: '../overview.md', role: undefined, remove: undefined, actions: ['Use a/overview.md', 'Remove'] }
 				],
@@ -207,7 +207,7 @@ suite('BaseHalfUpstreamActions', () => {
 			{
 				title: 'Downstream',
 				text: [],
-				rows: [{ status: 'downstream', label: 'summary.md', role: undefined, remove: { disabled: false, title: 'Remove from the upstream of a/b/summary.md' }, actions: [] }],
+				rows: [{ status: 'downstream', label: 'summary', role: undefined, remove: { disabled: false, title: 'Remove from the upstream of a/b/summary.md' }, actions: [] }],
 				add: '+ Add Downstream'
 			}
 		]);
@@ -236,7 +236,7 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual((describe(render(sealed, view(sealed, [entry(0, 'a/overview.md', 'valid')], { upstreamOnly: 'reservedOutput', storeKind: 'sidecar' }))) as unknown[])[0], {
 			title: 'Upstream',
 			text: ['This file can\'t receive upstream context.'],
-			rows: [{ status: 'valid', label: 'overview.md', role: undefined, remove: undefined, actions: [] }],
+			rows: [{ status: 'valid', label: 'overview', role: undefined, remove: undefined, actions: [] }],
 			add: undefined
 		});
 
@@ -247,7 +247,7 @@ suite('BaseHalfUpstreamActions', () => {
 			entry(2, 'old.png', 'dangling', { binding: { sourcePath: 'old.png', slot: 'reference', order: 1 }, historical: true, issue: false })
 		], { storeKind: 'node', lifecycle: 'sealed' }))) as { rows: unknown[] }[])[0].rows;
 		assert.deepStrictEqual(rows, [
-			{ status: 'valid', label: 'overview.md', role: 'First frame', remove: { disabled: true, title: 'This input is part of a result. Copy the settings into a new Draft to change it.' }, actions: [] },
+			{ status: 'valid', label: 'overview', role: 'First frame', remove: { disabled: true, title: 'This input is part of a result. Copy the settings into a new Draft to change it.' }, actions: [] },
 			{ status: 'valid', label: 'book.pdf', role: 'Unassigned', remove: { disabled: false, title: 'Remove sources/book.pdf from upstream' }, actions: [] },
 			{ status: 'historical', label: 'old.png', role: 'reference', remove: undefined, actions: [] }
 		]);
@@ -259,7 +259,7 @@ suite('BaseHalfUpstreamActions', () => {
 			{ node: node('a/b/summary.md'), storeKind: 'markdown', entryIndex: 0 },
 			{ node: node('outputs/run/copy.md'), storeKind: 'markdown', entryIndex: 0 }
 		])) as { rows: { label: string; remove: unknown }[] }[])[1].rows.map(row => [row.label, !!row.remove]);
-		assert.deepStrictEqual(downstreamRows, [['summary.md', true], ['copy.md', false]]);
+		assert.deepStrictEqual(downstreamRows, [['summary', true], ['copy', false]]);
 	});
 
 	test('offers Rebuild List exactly on a list BaseHalf can rebuild, and rebuilds only after the user confirms', async () => {
