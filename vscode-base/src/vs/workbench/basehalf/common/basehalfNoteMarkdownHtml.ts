@@ -4,7 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Marked, type Token, type Tokens } from '../../../base/common/marked/marked.js';
-import { escape } from '../../../base/common/strings.js';
+
+// This module is also compiled into the rich editor's webview, whose type
+// check follows every import. Beside the Markdown parser it imports nothing:
+// `strings.js` would bring the workbench's events, timers, and observables
+// into that check, where they do not compile.
 
 /**
  * The HTML elements a note may show as elements (note rendering). Markdown
@@ -46,8 +50,13 @@ export function baseHalfNoteShowsOtherHtmlAsWritten(token: Token): void {
 	// carries its text already escaped.
 	const text = token as Tokens.Generic;
 	text.type = 'text';
-	text.text = escape(token.raw);
+	text.text = escapeHtmlText(token.raw);
 	text.escaped = true;
+}
+
+/** Escapes the three characters that would make text into HTML, as `escape` of the base strings does. */
+function escapeHtmlText(text: string): string {
+	return text.replace(/[<>&]/g, match => match === '<' ? '&lt;' : match === '>' ? '&gt;' : '&amp;');
 }
 
 /**
