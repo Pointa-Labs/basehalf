@@ -11036,6 +11036,8 @@ async function assertCanvasNoteWheelScroll(page) {
 			overflow: note instanceof HTMLElement ? note.scrollHeight - note.clientHeight : undefined,
 			editorScrollTop: element?.querySelector('.basehalf-canvas-note-editor.ready .basehalf-canvas-markdown-inline')?.scrollTop,
 			text: note?.textContent ?? '',
+			// The note drawn before its file changed carries this mark; a redrawn note does not.
+			marked: note instanceof HTMLElement && note.dataset.smokeDrawnBefore === 'true',
 			viewport: viewport instanceof HTMLElement ? getComputedStyle(viewport).transform : undefined
 		};
 	}, cardPath);
@@ -11145,8 +11147,12 @@ async function assertCanvasNoteWheelScroll(page) {
 	await page.mouse.click(empty.x, empty.y);
 	await page.waitForFunction(target => !Array.from(document.querySelectorAll('.basehalf-canvas-card.selected')).some(element => element instanceof HTMLElement && element.dataset.basehalfCardPath === target), longPath, { timeout: 10_000 });
 	await settled(longPath, 'A deselected note must keep its scroll position', now => now.scrollTop === 110);
+	// The card builds a long note in parts as far as it shows (note rendering),
+	// so the paragraph added at the end is not built yet: a new element tells
+	// that the note was redrawn.
+	await card('long.md').locator('.bh-md-preview').evaluate(note => note.setAttribute('data-smoke-drawn-before', 'true'));
 	fs.writeFileSync(longFile, longNote(41), 'utf8');
-	await settled(longPath, 'A note that is redrawn after its file changed must keep its scroll position', now => now.text.includes('Paragraph 41') && now.scrollTop === 110);
+	await settled(longPath, 'A note that is redrawn after its file changed must keep its scroll position', now => !now.marked && now.text.includes('Paragraph 1 ') && now.scrollTop === 110);
 
 	// The editor opens where the note at rest was, and a scroll of the canvas goes on over it.
 	await centerCanvasCards(page, [card('long.md')]);
@@ -11162,6 +11168,20 @@ async function assertCanvasNoteWheelScroll(page) {
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 10_000 });
 	await settled(longPath, 'A note must keep its scroll position when editing ends', now => now.scrollTop === 110);
+
+	// Drawn again, the note holds its first part only, and a scroll to its end
+	// builds the rest and shows its last paragraph (note rendering, rule 28).
+	await card('long.md').locator('.bh-md-preview').evaluate(note => note.setAttribute('data-smoke-drawn-before', 'true'));
+	fs.writeFileSync(longFile, longNote(40), 'utf8');
+	const drawnAgain = await settled(longPath, 'A note drawn again must hold only the parts it shows', now => !now.marked && now.text.includes('Paragraph 1 ') && !now.text.includes('Paragraph 40'));
+	await centerCanvasCards(page, [card('long.md')]);
+	const endAt = await middleOf('long.md');
+	await page.mouse.move(endAt.x, endAt.y);
+	await page.waitForTimeout(400);
+	for (let index = 0; index < 20; index++) {
+		await page.mouse.wheel(0, 300);
+	}
+	await settled(longPath, 'A scroll to the end of a long note must build its last part and show its last paragraph', now => now.text.includes('Paragraph 40') && now.overflow > drawnAgain.overflow && now.overflow - now.scrollTop < 1);
 
 	await openRootCanvas(page);
 	fs.rmSync(path.join(workspacePath, folderName), { recursive: true, force: true });

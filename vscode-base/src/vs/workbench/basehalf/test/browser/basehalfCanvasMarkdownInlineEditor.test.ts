@@ -8,13 +8,12 @@ import { allowedMarkdownHtmlTags } from '../../../../base/browser/markdownRender
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import {
-	collectBaseHalfCanvasMarkdownReferenceDefinitions,
 	computeBaseHalfCanvasMarkdownTextEdit,
 	renderBaseHalfCanvasStoredMarkdown,
-	renderBaseHalfCanvasStoredMarkdownBody,
 	resolveBaseHalfCanvasMarkdownInlineUnitAtPoint,
 	transformBaseHalfCanvasMarkdownOffset
 } from '../../browser/cardDetail/basehalfCanvasMarkdownInlineEditor.js';
+import { collectBaseHalfCanvasMarkdownReferenceDefinitions } from '../../common/basehalfCanvasPreview.js';
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteMarkdownToHtml } from '../../common/basehalfNoteMarkdownHtml.js';
 
 suite('BaseHalfCanvasMarkdownInlineEditor', () => {
@@ -248,32 +247,4 @@ suite('BaseHalfCanvasMarkdownInlineEditor', () => {
 		}
 	});
 
-	test('resting Markdown renders the same frontmatter-free body as inline editing', () => {
-		const source = '---\r\ntitle: Hidden metadata\r\ntags:\r\n  - test\r\n---\r\n# Visible body\r\n\r\nBody text  \r\n';
-		const before = source;
-		const unit = document.createElement('div');
-		const rendering = renderBaseHalfCanvasStoredMarkdownBody(unit, URI.file('/notes/frontmatter.md'), source);
-		try {
-			assert.strictEqual(unit.textContent?.includes('Hidden metadata'), false);
-			assert.strictEqual(unit.textContent?.includes('Visible body'), true);
-			assert.strictEqual(unit.textContent?.includes('Body text'), true);
-			assert.strictEqual(source, before);
-		} finally {
-			rendering.dispose();
-		}
-	});
-
-	test('frontmatter-only Markdown has an empty shared body projection', () => {
-		const unit = document.createElement('div');
-		const rendering = renderBaseHalfCanvasStoredMarkdownBody(
-			unit,
-			URI.file('/notes/metadata-only.md'),
-			'---\ntitle: Hidden metadata\n---\n'
-		);
-		try {
-			assert.strictEqual(unit.textContent, '');
-		} finally {
-			rendering.dispose();
-		}
-	});
 });

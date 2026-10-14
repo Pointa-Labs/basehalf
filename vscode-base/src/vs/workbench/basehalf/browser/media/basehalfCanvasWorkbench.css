@@ -4118,6 +4118,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	padding-right: calc(var(--basehalf-canvas-note-inline-padding) + var(--basehalf-canvas-note-scrollbar-width));
 }
 
+/* A part of a long note holds its blocks without a box of its own, so the
+ * blocks lie in the projection as they would if the note were built whole. */
+.monaco-workbench .bh-md-preview > .bh-md-part {
+	display: contents;
+}
+
 .monaco-workbench .basehalf-canvas-note-empty {
 	color: var(--bh-card-text-tertiary);
 	font-size: 13px;

@@ -14,6 +14,7 @@ import {
 	baseHalfCanvasWheelAfterQuietTime,
 	baseHalfCanvasWheelContentPosition
 } from '../common/basehalfCanvasWheelGesture.js';
+import { buildBaseHalfCanvasNotePartsTo } from './basehalfCanvasNoteParts.js';
 
 const CARD_SELECTOR = '.basehalf-canvas-card';
 const CARD_CONTENT_SELECTOR = '.basehalf-canvas-card-content';
@@ -89,7 +90,13 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 
 	const extent = (path: string): IBaseHalfCanvasWheelExtent | undefined => {
 		const content = shownContent(path);
-		return content ? { position: content.scrollTop, max: content.scrollHeight - content.clientHeight } : undefined;
+		if (!content) {
+			return undefined;
+		}
+		// A note built in parts has the parts ahead of its place built, so its
+		// end is the end of the note and not the end of what is built so far.
+		buildBaseHalfCanvasNotePartsTo(content, content.scrollTop);
+		return { position: content.scrollTop, max: content.scrollHeight - content.clientHeight };
 	};
 
 	// A box that was redrawn is not the box the gesture began on.
@@ -117,6 +124,8 @@ export function installBaseHalfCanvasWheelGestures(host: HTMLElement, options: I
 	const scroll = (path: string, deltaY: number): void => {
 		const content = shownContent(path);
 		if (content) {
+			const zoom = options.zoom();
+			buildBaseHalfCanvasNotePartsTo(content, content.scrollTop + deltaY / (zoom > 0 ? zoom : 1));
 			scrollBy(content, 'scrollTop', content.scrollHeight - content.clientHeight, deltaY);
 		}
 	};

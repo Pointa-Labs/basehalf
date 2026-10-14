@@ -84,6 +84,7 @@ import {
 	resolveBaseHalfVideoComposerPlacement
 } from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
+import { buildBaseHalfCanvasNotePartsTo } from './basehalfCanvasNoteParts.js';
 import { installBaseHalfCanvasWheelGestures } from './basehalfCanvasWheelGestures.js';
 import { installBaseHalfSidewaysScrollbar } from './basehalfSidewaysScrollbar.js';
 import type {
@@ -1695,6 +1696,8 @@ function createCanvasSceneMount(
 			const scrollableContent = scrollPosition !== undefined ? delegate.cardScrollableContent(element) : undefined;
 			if (scrollableContent && scrollPosition !== undefined) {
 				replacementScrollPosition.current = undefined;
+				// A note built in parts builds the parts that place shows first.
+				buildBaseHalfCanvasNotePartsTo(scrollableContent, scrollPosition);
 				scrollableContent.scrollTop = scrollPosition;
 			}
 		}, [data.card, data.card.element, height, presentation, structuralSelectionVisible]);

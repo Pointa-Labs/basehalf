@@ -1669,6 +1669,11 @@ the first is the editor's limit, and it must not decide the second.
   something the reader sees. A line break written as `<br>` is kept, in a
   table cell as `<br>`, so a table with line breaks in its cells is edited
   in place. A block with other HTML is not: the editor's writer drops it.
+- The length of a note follows the same split (2026-10-14). The card's
+  editor edits a note of up to 64 KiB; the card shows a note of up to 1 MiB.
+  It builds the note in parts, as far as the card shows and two of its
+  heights further, the way a notebook builds only the cells in view, so the
+  cost of a card no longer grows with the length of its note.
 
 ## D55 — A note is named without its extension (NEW, 2026-10-13)
 

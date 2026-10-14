@@ -113,7 +113,8 @@ import {
 	baseHalfCanvasMarkdownEditTarget,
 	baseHalfCanvasMarkdownPreviewSource,
 	baseHalfCanvasMarkdownSourceFitsInline,
-	BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES
+	baseHalfCanvasMarkdownSourceFitsShown,
+	BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES
 } from '../common/basehalfCanvasPreview.js';
 import { BaseHalfCanvasViewportPersister, BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
@@ -261,7 +262,8 @@ import {
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
-import { applyBaseHalfCanvasMarkdownSidewaysScroll, BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, readBaseHalfCanvasMarkdownSidewaysScroll, renderBaseHalfCanvasStoredMarkdownBody } from './cardDetail/basehalfCanvasMarkdownInlineEditor.js';
+import { applyBaseHalfCanvasMarkdownSidewaysScroll, BaseHalfCanvasMarkdownInlineEditor, BaseHalfCanvasMarkdownRequiresRichEditorError, IBaseHalfCanvasMarkdownInlineSelection, readBaseHalfCanvasMarkdownSidewaysScroll } from './cardDetail/basehalfCanvasMarkdownInlineEditor.js';
+import { buildAllBaseHalfCanvasNoteParts, buildBaseHalfCanvasNotePartsTo, renderBaseHalfCanvasNoteInParts } from './basehalfCanvasNoteParts.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
@@ -4213,8 +4215,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			: !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return;
 		}
-		const completePreview = this.renderedCardPreviewsByPath.get(path)?.preview.kind === 'markdown';
-		if (baseHalfCanvasMarkdownEditTarget(item.stat.size, completePreview) === 'richDetail') {
+		const markdownPreview = this.shownMarkdownPreview(path);
+		if (baseHalfCanvasMarkdownEditTarget(item.stat.size, markdownPreview) === 'richDetail') {
 			// Formatting requests are already owned by the pending inline-command
 			// lifecycle and must not wait on themselves through openSceneCard.
 			if (!acceptedFormatOwner) {
@@ -4327,8 +4329,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		const resourceKey = this.uriIdentityService.extUri.getComparisonKey(item.stat.resource);
-		const completePreview = this.renderedCardPreviewsByPath.get(path)?.preview.kind === 'markdown';
-		if (baseHalfCanvasMarkdownEditTarget(item.stat.size, completePreview) === 'richDetail') {
+		const markdownPreview = this.shownMarkdownPreview(path);
+		if (baseHalfCanvasMarkdownEditTarget(item.stat.size, markdownPreview) === 'richDetail') {
 			const pendingRich = this.queueMarkdownRichFormatCommand(resourceKey, command);
 			await this.openSceneCard(sceneKey, structuralEpoch, path);
 			const detail = this.canvasNavigationService.state.cardDetail;
@@ -5085,7 +5087,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const scrollTop = active.instance.getScrollTop();
 		const sidewaysScroll = active.instance.getSidewaysScroll();
 		const documentLength = active.instance.getDocumentLength();
-		if (documentLength !== undefined && documentLength > BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES) {
+		if (documentLength !== undefined && documentLength > BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES) {
 			this.renderActiveCanvasNoteFullEditorFallback(active);
 			return;
 		}
@@ -5094,7 +5096,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			active.fallback.scrollTop = scrollTop;
 			return;
 		}
-		if (!baseHalfCanvasMarkdownSourceFitsInline(text)) {
+		if (!baseHalfCanvasMarkdownSourceFitsShown(text)) {
 			this.renderActiveCanvasNoteFullEditorFallback(active);
 			return;
 		}
@@ -5115,6 +5117,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (item && this.uriIdentityService.extUri.isEqual(item.stat.resource, active.state.resource)) {
 			this.renderedCardPreviewsByPath.set(active.path, { item, preview });
 		}
+		// The editor holds every block. The projection it reveals holds as many,
+		// so it shows the same place and the same sideways positions. A note that
+		// has grown past the editor's size holds the parts down to that place.
+		if (baseHalfCanvasMarkdownSourceFitsInline(text)) {
+			buildAllBaseHalfCanvasNoteParts(active.fallback);
+		} else {
+			buildBaseHalfCanvasNotePartsTo(active.fallback, scrollTop);
+		}
 		active.fallback.scrollTop = scrollTop;
 		applyBaseHalfCanvasMarkdownSidewaysScroll(active.fallback, sidewaysScroll);
 	}
@@ -5122,9 +5132,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderActiveCanvasNoteFullEditorFallback(active: IBaseHalfActiveCanvasNoteEditor): void {
 		active.fallbackRendering.clear();
 		clearNode(active.fallback);
-		const placeholder = append(active.fallback, $('span.basehalf-canvas-note-empty.basehalf-canvas-note-full-editor-required'));
-		placeholder.setAttribute('data-testid', 'canvas-note-full-editor-required');
-		placeholder.textContent = CANVAS_MARKDOWN_FULL_EDITOR_LABEL;
+		appendCanvasNoteFullEditorLabel(active.fallback);
 		active.fallback.scrollTop = 0;
 		const richRequiredPreview = { kind: 'richRequired', text: CANVAS_MARKDOWN_FULL_EDITOR_LABEL } as const;
 		const mount = this.canvasNotePreviewMounts.get(active.card);
@@ -5132,7 +5140,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mount.preview = richRequiredPreview;
 		}
 
-		// The preview cache may still describe the inline-sized snapshot from before
+		// The preview cache may still describe the snapshot from before
 		// this edit. Replace it before the inline host is removed so a rapid
 		// second double-click cannot re-enter quick edit with stale metadata.
 		const item = this.renderedItemsByPath.get(active.path);
@@ -6452,7 +6460,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const kind = markdownPreviewKind(item.name);
-		if (kind === 'markdown' && item.stat.size !== undefined && item.stat.size > BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES) {
+		if (kind === 'markdown' && item.stat.size !== undefined && item.stat.size > BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES) {
 			return { kind: 'richRequired', text: CANVAS_MARKDOWN_FULL_EDITOR_LABEL };
 		}
 		try {
@@ -6460,7 +6468,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// full editor; no partial source may masquerade as the stored projection.
 			// The excerpt of any other text needs only the head of the file.
 			const contents = await this.fileService.readFile(item.stat.resource, kind === 'markdown'
-				? { limits: { size: BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES } }
+				? { limits: { size: BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES } }
 				: { length: CARD_EXCERPT_READ_BYTES });
 			const raw = contents.value.toString();
 			if (raw.includes('\u0000')) {
@@ -14462,10 +14470,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const card = this.renderedCardElementsByPath.get(path);
 		const renderedCard = this.renderedCardsByPath.get(path);
 		const mount = card ? this.canvasNotePreviewMounts.get(card) : undefined;
-		const completePreview = this.renderedCardPreviewsByPath.get(path)?.preview.kind === 'markdown';
+		const markdownPreview = this.shownMarkdownPreview(path);
 		if (!folder || !item || !card || !renderedCard || !mount
 			|| !isBaseHalfMarkdownResource(item.stat.resource)
-			|| baseHalfCanvasMarkdownEditTarget(item.stat.size, completePreview) !== 'inline'
+			|| baseHalfCanvasMarkdownEditTarget(item.stat.size, markdownPreview) !== 'inline'
 			|| renderedCard.element !== card
 			|| mount.path !== path
 			|| mount.resourceKey !== this.uriIdentityService.extUri.getComparisonKey(item.stat.resource)
@@ -14489,6 +14497,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (pendingFocus) {
 			this.pendingCanvasNoteFocus = undefined;
 		}
+		// The editor builds every block, and the projection under it stays the
+		// frame its closing reveals: it holds every part too (note rendering).
+		buildAllBaseHalfCanvasNoteParts(mount.fallback);
 		const fallbackScrollTop = mount.fallback.scrollTop;
 		mount.fallback.classList.add('basehalf-canvas-note-editor-fallback');
 		const host = append(mount.container, $('.basehalf-canvas-note-editor.basehalf-canvas-note-inline-editor.nodrag.nopan.nowheel'));
@@ -14630,12 +14641,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			empty.textContent = localize('basehalf.canvas.note.empty', "Double-click to edit");
 			return;
 		}
-		listeners.add(renderBaseHalfCanvasStoredMarkdownBody(
+		const rendering = renderBaseHalfCanvasNoteInParts(
 			container,
 			resource,
 			text,
 			href => this.openStaticMarkdownPreviewLink(href)
-		));
+		);
+		if (rendering) {
+			listeners.add(rendering);
+		} else {
+			appendCanvasNoteFullEditorLabel(container);
+		}
+	}
+
+	/** The text of a note whose whole projection its card holds, if it holds one. */
+	private shownMarkdownPreview(path: string): string | undefined {
+		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+		return preview?.kind === 'markdown' ? preview.text : undefined;
 	}
 
 	private openStaticMarkdownPreviewLink(href: string): void {
@@ -17247,6 +17269,13 @@ function mediaPreviewFromArtifact(kind: BaseHalfNodeArtifactKind, label: string)
 		return { kind, label };
 	}
 	return undefined;
+}
+
+/** The label a Note card shows instead of a note it cannot show. */
+function appendCanvasNoteFullEditorLabel(container: HTMLElement): void {
+	const label = append(container, $('span.basehalf-canvas-note-empty.basehalf-canvas-note-full-editor-required'));
+	label.setAttribute('data-testid', 'canvas-note-full-editor-required');
+	label.textContent = CANVAS_MARKDOWN_FULL_EDITOR_LABEL;
 }
 
 function markdownPreviewKind(name: string): 'markdown' | 'text' | 'code' {

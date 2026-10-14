@@ -56,9 +56,12 @@ Not in scope, and unchanged:
 - **Scrollable content**: content that a card gives the canvas to scroll for
   the user (`cardScrollableContent` of the scene delegate). Today the only
   one is the resting projection of a Markdown Note, which holds the whole
-  note. A note above 64 KiB ([note rendering](note-rendering.md#note-size))
-  shows a label instead of its text and has nothing to scroll. A card shows no scrollable content while its Note is being
-  edited and while its badge face is open.
+  note. A long note is built in parts as it is scrolled, and the canvas has
+  the parts a scroll needs built before it moves the note
+  ([note rendering](note-rendering.md#note-size-and-parts), rule 28). A note
+  above 1 MiB shows a label instead of its text and has nothing to scroll. A
+  card shows no scrollable content while its Note is being edited and while
+  its badge face is open.
 - **Sideways box**: an element inside scrollable content that holds more
   than it shows from left to right, and that the canvas scrolls sideways for
   the user (the class `basehalf-canvas-scroll-sideways`). Today these are a

@@ -19,6 +19,7 @@ import { IClipboardService } from '../../../../platform/clipboard/common/clipboa
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileEditorModelState } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { collectBaseHalfCanvasMarkdownReferenceDefinitions } from '../../common/basehalfCanvasPreview.js';
 import { IBaseHalfCanvasNoteEditPoint, IBaseHalfCanvasNoteFormatState } from '../../common/basehalfCanvasScene.js';
 import { BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS } from '../../common/basehalfCanvasWheelGesture.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../common/basehalfMarkdownFormatting.js';
@@ -31,37 +32,6 @@ const CANVAS_MARKDOWN_INLINE_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-
 const CANVAS_MARKDOWN_INLINE_VENDOR_SCRIPT = 'canvasMarkdownInline.js';
 const CANVAS_MARKDOWN_INLINE_VENDOR_STYLES = 'canvasMarkdownInline.css';
 const CANVAS_MARKDOWN_INLINE_EDIT_GROUP_DELAY = 650;
-
-export function collectBaseHalfCanvasMarkdownReferenceDefinitions(markdown: string): string {
-	const definitions: string[] = [];
-	const lines = markdown.split(/\r\n?|\n/);
-	let fence: { readonly marker: '`' | '~'; readonly length: number } | undefined;
-	for (let index = 0; index < lines.length; index++) {
-		const line = lines[index];
-		const fenceMatch = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-		if (fenceMatch) {
-			const marker = fenceMatch[1][0] as '`' | '~';
-			if (!fence) {
-				fence = { marker, length: fenceMatch[1].length };
-			} else if (fence.marker === marker
-				&& fenceMatch[1].length >= fence.length
-				&& fenceMatch[2].trim().length === 0) {
-				fence = undefined;
-			}
-			continue;
-		}
-		if (fence || !/^\s{0,3}\[[^\]\n]+\]:/.test(line)) {
-			continue;
-		}
-		definitions.push(line);
-		const title = lines[index + 1];
-		if (title && /^\s{1,3}(?:["'(])/.test(title)) {
-			definitions.push(title);
-			index++;
-		}
-	}
-	return definitions.join('\n');
-}
 
 export type BaseHalfCanvasMarkdownInlineSaveStatus = 'saving' | 'saved' | 'error';
 
@@ -278,17 +248,6 @@ export function applyBaseHalfCanvasMarkdownSidewaysScroll(note: HTMLElement, pos
 	}
 	// The position is put back: the box shows no bar for it.
 	boxes.forEach((box, index) => restoreBaseHalfSidewaysScroll(box, positions[index]));
-}
-
-/** Render only the authored Markdown body shared by resting and inline views. */
-export function renderBaseHalfCanvasStoredMarkdownBody(
-	container: HTMLElement,
-	resource: URI,
-	documentSource: string,
-	onOpenLink?: (href: string) => void
-): IDisposable {
-	const { body } = splitBaseHalfMarkdownFrontmatter(documentSource);
-	return renderBaseHalfCanvasStoredMarkdown(container, resource, body, onOpenLink);
 }
 
 let vendorPromise: Promise<IBaseHalfCanvasMarkdownInlineVendor> | undefined;

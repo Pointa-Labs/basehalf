@@ -39,6 +39,12 @@ so the numbers of two columns ran together. Its rich projection cut a wide
 table at the right edge of the text column and showed no sign that the
 table could be scrolled.
 
+A long note was not shown at all. A card built every block of its note,
+also the blocks below the part it shows, so the cost of a card grew with the
+length of its note, and a note above a size limit showed a label instead.
+The card now builds a note in parts, as far as it is shown and a little
+further, the way a notebook builds only the cells in view.
+
 ## Scope
 
 In scope:
@@ -51,9 +57,9 @@ In scope:
   projection shows that a table is wider than the text column.
 - What Card Detail's rich projection shows for a block it cannot edit, and
   which blocks with a line break written as `<br>` it edits.
-- How long a note can be and still be shown and edited on its card, and how
-  much of a text file, a code file, or a text result a card reads for its
-  excerpt.
+- How long a note can be and still be shown on its card, and edited there;
+  how the card builds a long note in parts; and how much of a text file, a
+  code file, or a text result a card reads for its excerpt.
 
 Not in scope, and unchanged:
 
@@ -77,6 +83,8 @@ Not in scope, and unchanged:
   the note is not being edited (`.bh-md-preview`).
 - **Fixed block**: a top-level block of a note that the card's editor cannot
   edit. It stays in its rendered form while the blocks around it are edited.
+- **Part**: a run of whole top-level blocks of a note that the resting
+  projection builds at once, about 2,000 characters long.
 
 ## Required behavior
 
@@ -207,19 +215,46 @@ in the editor, by reading a block and writing it back:
     editor: `<br/>` becomes `<br>`, and `<br>` outside a table becomes a
     Markdown line break.
 
-### Note size
+### Note size and parts
 
-24. A note of up to 64 KiB (65,536 bytes of its file in UTF-8, front matter
-    included) is shown on its card by the rules above, and a double click
-    edits it there. That is about 21,000 Chinese characters or 65,000 Latin
-    letters (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`).
-25. A larger note shows only the label "This Markdown file is too large for
-    quick edit. Double-click to open the full editor.", and a double click
-    opens it in Card Detail. The card shows the whole note or the label,
-    never a part of the note.
-26. A note that grows above 64 KiB while it is edited on the card stays in
-    the card's editor until the editor closes, and then shows the label.
-27. The card of a text file or a code file shows its first lines whatever
+24. A note of up to 1 MiB (1,048,576 bytes of its file in UTF-8, front
+    matter included) is shown on its card by the rules above. That is about
+    350,000 Chinese characters (`BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES`).
+25. A double click edits a note of up to 64 KiB (65,536 bytes) on its card
+    (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`). A double click on a larger
+    note opens it in Card Detail.
+26. A note above 1 MiB shows only the label "This Markdown file is too large
+    for quick edit. Double-click to open the full editor.", and a double
+    click opens it in Card Detail. A card shows the whole note or the label:
+    every block of a shown note can be reached by scrolling the card.
+27. A note that grows above 64 KiB while it is edited on the card stays in
+    the card's editor until the editor closes. The card then shows it by
+    rule 24, or shows the label when it has grown above 1 MiB.
+28. The resting projection builds a note in parts. When the card draws the
+    note, it builds the first part at once and, before that frame is shown,
+    the next parts down to two heights of the card below the bottom of what
+    the card shows. Before a scroll or a taller card would bring the end of
+    the built parts within those two heights, it builds the next parts the
+    same way. A built part stays until the card draws the note again.
+29. A note built in parts shows the same elements in the same order as the
+    note built whole. A part ends only between two top-level blocks, and
+    never inside an HTML element that one block opens and a later block
+    closes, such as `<details>` around paragraphs. Every part is built with
+    the definitions of the note's reference links, so a link whose
+    definition is in another part works.
+30. A part holds fewer than 100,000 characters, because the Markdown
+    renderer of the base cuts its text there. An HTML element that is still
+    open after 50,000 characters is ended between two blocks anyway (see
+    Limits). A note with a block of more than 90,000 characters, or with a
+    block that does not fit in a part together with the definitions of the
+    note's reference links, shows the label of rule 26.
+31. While the card's editor is open, the resting projection under it holds
+    every part, so that the note shows the same place and the same sideways
+    positions when the editor opens and when it closes. A note that has grown
+    above 64 KiB in the editor holds the parts down to the place the editor
+    shows: it shows the same place when the editor closes, and its tables
+    and code blocks are shown unscrolled.
+32. The card of a text file or a code file shows its first lines whatever
     the size of the file. It reads only the first 8 KiB of the file, and
     shows "Binary file" when they hold a NUL byte. A result node reads the
     text of its result the same way. A text result is never reported as
@@ -240,26 +275,40 @@ in the editor, by reading a block and writing it back:
 - A code block has no syntax colors on the card.
 - An image address that cannot be loaded shows the browser's broken image
   with its alternative text.
-- The 64 KiB of rule 24 is set by the time it takes to draw a note on its
-  card and to open the card's editor. Both build every block of the note in
-  the window, also the blocks the card does not show, so both grow with the
-  length of the note. A typed letter does not: the editor writes back only
-  the block that changed. Measured in the real window on 2026-10-14, with a
-  Chinese note repeated to each size, on a 120 Hz display:
-  - the card's editor opened in 47 ms for 1 KiB, 51 ms for 17 KiB, and
-    124 ms for 64 KiB;
-  - a typed letter reached the screen within 9 to 10 ms (95th percentile)
-    at every size, with no frame above 20 ms;
-  - a folder of 30 notes opened in 0.4 s at 8 KiB each and 1.1 s at 60 KiB
-    each (48,600 elements in the window). Panning and zooming it kept a
-    frame time of 8.3 ms with at most three frames above 20 ms per gesture,
-    and one frame of 125 ms at the start of the first zoom.
-  Before that day the limit was 8 KiB, left from a time when a card showed
-  the first 8 KiB of a note as a summary; it sent an ordinary article of
-  3,000 Chinese characters to Card Detail.
-- Every Note card on the canvas holds its whole note, also when it is out
-  of view and below the part the card shows. A canvas of many long notes
-  holds that much text.
+- The 64 KiB of rule 25 is set by the time it takes to open the card's
+  editor, which builds every block of the note at once. A typed letter does
+  not grow with the note: the editor writes back only the block that
+  changed. Measured in the real window on 2026-10-14, with a Chinese note
+  repeated to each size, on a 120 Hz display: the editor opened in 47 ms for
+  1 KiB, 51 ms for 17 KiB, and 124 ms for 64 KiB, and a typed letter
+  reached the screen within 9 to 10 ms (95th percentile) at every size.
+- The 1 MiB of rule 24 is set by the work the card still does on the whole
+  note when it draws it: it reads the file and finds the top-level blocks
+  of the whole note before it builds the first part. A note of 1 MiB was
+  shown within 77 to 93 ms of opening its folder, with 131 elements, and
+  finding its blocks took 26 ms of that (0.9 ms for 17 KiB).
+- Parts replaced building every block (2026-10-14). Measured in the real
+  window, two rounds each, with a machine under load:
+  - a folder of 30 notes opened in 0.25 to 0.32 s at 60 KiB each (1.07 to
+    1.10 s before), 0.23 to 0.26 s at 17 KiB (0.40 to 0.63 s), and 0.24 to
+    0.28 s at 8 KiB (0.37 to 0.64 s), with 5,554 elements in the window at
+    every size (48,604, 14,254, and 9,934 before). The longest frame of a
+    zoom was 24 ms (125 ms before), and panning had no frame above 20 ms;
+  - scrolling a note of 1 MiB at 6,000 px a second built the parts ahead
+    with no frame above 20 ms. Scrolling through all of it in 7 s, at
+    70,000 px a second, kept 95 % of frames within 12.2 ms and left 7 to
+    11 of 1,070 frames above 20 ms, the longest 30 ms.
+  Before parts, 0.8 s of the 1.1 s for 60 KiB went to the style and layout
+  of blocks that no card showed. Before that day the limit of a shown note
+  was 8 KiB, left from a time when a card showed the first 8 KiB of a note
+  as a summary; it sent an ordinary article of 3,000 Chinese characters to
+  Card Detail.
+- A card holds the parts it has built. After the whole note has been
+  scrolled through, the card holds the whole note until it draws the note
+  again.
+- A screen reader reads the built parts of a note at rest.
+- An HTML element that is still open after 50,000 characters (rule 30) is
+  shown as the card's editor shows such an element: its blocks one by one.
 
 ## Failure and recovery
 
@@ -320,15 +369,30 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     `# a<br>b` cannot.
 14. A note with such a table that is opened and not edited keeps every byte.
 
-15. A note of 65,536 bytes is shown on its card and a double click opens
-    the card's editor; a note of 65,537 bytes shows the label of rule 25. A
-    note of Chinese text is measured in the bytes of its UTF-8, not in
-    characters.
+15. A note of 65,536 bytes opens in the card's editor on a double click. A
+    note of 65,537 bytes is shown on its card and opens in Card Detail on a
+    double click. A note of 1,048,576 bytes is shown on its card; a note of
+    1,048,577 bytes shows the label of rule 26. A note of Chinese text is
+    measured in the bytes of its UTF-8, not in characters.
 16. In the real window, a note of about 64 KiB opens in the card's editor
     within 300 ms of the double click, and a letter typed into it is drawn
     within one frame of 60 Hz on the machine of the measurement.
 17. A text file of 100 KiB shows its first lines on its card, not "Preview
     unavailable".
+18. For every note of the test corpus, building it in parts of a few
+    hundred characters gives the same elements as building it whole. The
+    corpus holds a reference link whose definition is in another part,
+    `<details>` around paragraphs, a list with blank lines between its
+    items, a code block with blank lines, and a table.
+19. In the real window, a note of 1 MiB on a card of 300 by 220 holds fewer
+    than 400 elements after it is drawn. Scrolling it with the wheel from
+    its top shows every block in order and ends with its last block, and the
+    scroll never stops before that block.
+20. In the real window, a folder of 30 notes of 60 KiB opens within 0.6 s,
+    with fewer than 10,000 elements in the window.
+21. A long note scrolled down past its first parts and then edited on its
+    card shows the same blocks at the same place before the editor opens,
+    while it is open, and after it closes.
 
 ## Verification
 
@@ -348,6 +412,12 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 - Smoke: `readme-rich-passthrough-edit-in-source` covers criterion 11 and,
   for the HTML block of its note, that the block is shown rendered.
   Criterion 10 is measured in the real window.
-- Unit: `basehalfCanvasPreview.test.ts` covers the byte boundary of
-  criterion 15. Criteria 15 to 17 are measured in the real window on a
-  fixture workspace.
+- Unit: `basehalfCanvasPreview.test.ts` covers the byte boundaries of
+  criterion 15 and the parts of rules 29 and 30.
+  `basehalfCanvasNoteParts.test.ts` covers criterion 18 and the building of
+  rule 28 in a window of the unit test runner. Criteria 15 to 17 and 19 to
+  21 are measured in the real window on a fixture workspace. Smoke:
+  `canvas-note-wheel-scroll` draws a note of two parts, checks that only the
+  first is built, and scrolls it to its last paragraph; it also keeps the
+  place of the note when the note is redrawn and when its editor opens and
+  closes.
