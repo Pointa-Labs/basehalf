@@ -10,6 +10,14 @@ point below describe the frozen platform, not current product behavior. The
 runtime layers, the D34 implementation map, the manifest and host API, and
 the local data and workflow rules still apply to the built-in AI Video.
 
+> **Removed by D58.** Recipes, recipe executors, the reviewed model and
+> provider connection catalogs, connection validators, and model service
+> access for extensions are gone
+> ([D58](decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)). A Video node is a prompt over its
+> connections, run by the user's own providers
+> ([Video node](specs/video-node.md)). Where this page describes them,
+> it records the platform as it was built.
+
 This is the implementation map for decisions D25–D34 and the plugin rules of
 D37. Product decisions in [`decisions.md`](decisions.md) and the
 [reference graph](specs/reference-graph.md) remain authoritative.

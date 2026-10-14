@@ -4,6 +4,14 @@
 > ([D45](../decisions.md#d45--ai-video-is-built-in-and-the-plugin-platform-is-frozen-new-2026-10-11)).
 > The development host still works; submission and review do not.
 
+> **Removed by D58.** Recipes, recipe executors, the reviewed model and
+> provider connection catalogs, connection validators, and model service
+> access for extensions are gone
+> ([D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)). A Video node is a prompt over its
+> connections, run by the user's own providers
+> ([Video node](../specs/video-node.md)). Where this page describes them,
+> it records the platform as it was built.
+
 ## Development host
 
 The generated project includes a BaseHalf extension-development launch
