@@ -5,11 +5,13 @@
 
 import { $, append, clearNode } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { safeIntl } from '../../../../base/common/date.js';
 import { getErrorMessage } from '../../../../base/common/errors.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { ResourceMap } from '../../../../base/common/map.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { language } from '../../../../base/common/platform.js';
-import { basename, dirname } from '../../../../base/common/resources.js';
+import { basename, dirname, extname, isEqual, joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { localize } from '../../../../nls.js';
@@ -19,9 +21,20 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
-import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../common/basehalfContentRendering.js';
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
+import { formatBaseHalfVideoElapsed } from '../../common/basehalfVideoCardPresentation.js';
+import { IBaseHalfNodeResult, normalizeBaseHalfVideoResultGeneration } from '../../common/basehalfVideoNode.js';
+import { baseHalfVideoPanelDurationLabel, baseHalfVideoPanelModeLabel, baseHalfVideoPanelRatioLabel, baseHalfVideoPanelSoundLabel } from '../../common/basehalfVideoNodePanelPresentation.js';
+import {
+	BaseHalfVideoInputKind,
+	baseHalfVideoInputKindOfPath,
+	baseHalfVideoInputLabel,
+	baseHalfVideoModelLabel,
+	getBaseHalfVideoProviderPreset
+} from '../../common/basehalfVideoProviders.js';
+import '../media/basehalfVideoNode.css';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
 const pdfViewerScript = URI.joinPath(contentViewerMediaRoot, 'pdfViewer.js');
@@ -31,6 +44,113 @@ const PDF_VIEW_STATE_STORAGE_PREFIX = 'basehalf.pdfViewState.';
 
 export function baseHalfMediaKind(resource: URI): BaseHalfRenderableContentKind | undefined {
 	return baseHalfRenderableContentKind(resource);
+}
+
+/** The Video nodes whose videos were opened in Card Detail in this window, by video. */
+const videoNodes = new ResourceMap<URI>();
+const MAX_REMEMBERED_VIDEO_NODES = 64;
+/** The most node documents Card Detail reads to find the node that holds a video. */
+const MAX_NODES_SEARCHED = 200;
+const NODE_DOCUMENT_MAX_BYTES = 1024 * 1024;
+
+/**
+ * Tells Card Detail which Video node holds `video`, so it can say what made
+ * the video. The workbench calls it when it opens a node's video; otherwise
+ * Card Detail looks for the node in the folder the canvas shows.
+ */
+export function rememberBaseHalfVideoDetailNode(video: URI, node: URI): void {
+	videoNodes.delete(video);
+	videoNodes.set(video, node);
+	while (videoNodes.size > MAX_REMEMBERED_VIDEO_NODES) {
+		const oldest = videoNodes.keys().next().value;
+		if (!oldest) {
+			break;
+		}
+		videoNodes.delete(oldest);
+	}
+}
+
+export interface IBaseHalfVideoProvenanceRow {
+	readonly label: string;
+	readonly value: string;
+}
+
+export interface IBaseHalfVideoProvenanceInput {
+	/** Such as `Image 1`, or `Text` for a note whose text joined the prompt. */
+	readonly name: string;
+	readonly path: string;
+}
+
+/** What made a node's video, as Card Detail shows it below the video. */
+export interface IBaseHalfVideoProvenance {
+	readonly heading: string;
+	readonly rows: readonly IBaseHalfVideoProvenanceRow[];
+	readonly inputs: readonly IBaseHalfVideoProvenanceInput[];
+}
+
+/**
+ * What made a video: for a generated one, the model, the provider, the mode,
+ * the settings, the prompt, the inputs in order, and when it started and
+ * finished; for an imported one, that it was imported. `kindOf` tells the
+ * kind of an input, so inputs are named as the prompt names them.
+ */
+export function baseHalfVideoProvenance(
+	result: IBaseHalfNodeResult,
+	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath,
+	displayLanguage: string = language
+): IBaseHalfVideoProvenance {
+	if (result.source === 'imported') {
+		return Object.freeze({
+			heading: localize('basehalf.video.detail.imported', "Imported"),
+			rows: Object.freeze([
+				Object.freeze({ label: localize('basehalf.video.detail.source', "Source"), value: localize('basehalf.video.detail.importedValue', "This video was imported into the node.") }),
+				Object.freeze({ label: localize('basehalf.video.detail.file', "File"), value: result.artifact.path })
+			]),
+			inputs: Object.freeze([])
+		});
+	}
+	const generation = result.generation;
+	const request = generation.request;
+	const modelLabel = baseHalfVideoModelLabel(request.model);
+	const settings = [
+		baseHalfVideoPanelRatioLabel(request.ratio),
+		request.resolution,
+		baseHalfVideoPanelDurationLabel(request.duration),
+		baseHalfVideoPanelSoundLabel(request.audio)
+	].join(' · ');
+	const started = Date.parse(generation.startedAt);
+	const completed = Date.parse(generation.completedAt);
+	const format = safeIntl.DateTimeFormat(displayLanguage, { dateStyle: 'medium', timeStyle: 'medium' }).value;
+	const time = (value: number, fallback: string) => Number.isFinite(value) ? format.format(new Date(value)) : fallback;
+	const ordinals = { image: 0, video: 0, audio: 0 };
+	const inputs = request.inputs.map((path): IBaseHalfVideoProvenanceInput => {
+		const kind = kindOf(path);
+		const name = kind === 'image' || kind === 'video' || kind === 'audio'
+			? baseHalfVideoInputLabel(kind, ++ordinals[kind], displayLanguage)
+			: kind === 'text'
+				? localize('basehalf.video.detail.textInput', "Text")
+				: localize('basehalf.video.detail.otherInput', "Input");
+		return Object.freeze({ name, path });
+	});
+	const rows: IBaseHalfVideoProvenanceRow[] = [
+		{ label: localize('basehalf.video.detail.model', "Model"), value: modelLabel === request.model ? modelLabel : `${modelLabel} (${request.model})` },
+		{ label: localize('basehalf.video.detail.provider', "Provider"), value: getBaseHalfVideoProviderPreset(request.provider).label },
+		{ label: localize('basehalf.video.detail.mode', "Mode"), value: baseHalfVideoPanelModeLabel(request.mode) },
+		{ label: localize('basehalf.video.detail.settings', "Settings"), value: settings },
+		{ label: localize('basehalf.video.detail.prompt', "Prompt"), value: request.prompt.trim() || localize('basehalf.video.detail.noPrompt', "No prompt") },
+		{ label: localize('basehalf.video.detail.started', "Started"), value: time(started, generation.startedAt) },
+		{
+			label: localize('basehalf.video.detail.finished', "Finished"),
+			value: Number.isFinite(started) && Number.isFinite(completed) && completed >= started
+				? localize('basehalf.video.detail.finishedAfter', "{0}, after {1}", time(completed, generation.completedAt), formatBaseHalfVideoElapsed(completed - started))
+				: time(completed, generation.completedAt)
+		}
+	];
+	return Object.freeze({
+		heading: localize('basehalf.video.detail.generated', "Generated"),
+		rows: Object.freeze(rows.map(row => Object.freeze(row))),
+		inputs: Object.freeze(inputs)
+	});
 }
 
 /** Read-only local content projection built on VS Code's isolated webview. */
@@ -52,7 +172,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-media'));
@@ -91,6 +212,9 @@ export class BaseHalfMediaCardDetail extends Disposable {
 			this.webview.mountTo(this.webviewHost, mainWindow);
 			this._register(this.webview.onMessage(event => this.handleWebviewMessage(kind, state.resource, event.message)));
 			this.renderWebview(kind);
+			if (kind === 'video') {
+				void this.renderVideoProvenance(state);
+			}
 			this._register(this.webview.onFatalError(error => {
 				this.logService.error(`[BaseHalf] media webview failed: ${error.message}`);
 			}));
@@ -201,6 +325,132 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));
 		notice.textContent = message;
 	}
+
+	/** Below a node's video: what made it. A video that no Video node holds shows nothing more. */
+	private async renderVideoProvenance(state: IBaseHalfCardDetailState): Promise<void> {
+		let result: IBaseHalfNodeResult | undefined;
+		try {
+			result = await this.findVideoResult(state);
+		} catch (error) {
+			this.logService.warn('[BaseHalf] Card Detail could not find what made a video', error);
+		}
+		if (!result || this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
+			return;
+		}
+		const kinds = new Map<string, BaseHalfVideoInputKind>();
+		if (result.source === 'generated') {
+			for (const path of result.generation.request.inputs) {
+				kinds.set(path, await this.inputKind(state.workspaceFolder, path));
+			}
+		}
+		if (this.disposed) {
+			return;
+		}
+		const provenance = baseHalfVideoProvenance(result, path => kinds.get(path) ?? baseHalfVideoInputKindOfPath(path));
+		this.root.classList.add('has-video-provenance');
+		const section = append(this.root, $('section.bh-video-provenance'));
+		section.setAttribute('aria-label', localize('basehalf.video.detail.label', "What made this video"));
+		append(section, $('h2.bh-video-provenance-title')).textContent = provenance.heading;
+		const rows = append(section, $('dl.bh-video-provenance-rows'));
+		for (const row of provenance.rows) {
+			append(rows, $('dt')).textContent = row.label;
+			append(rows, $('dd')).textContent = row.value;
+		}
+		if (provenance.inputs.length) {
+			append(rows, $('dt')).textContent = localize('basehalf.video.detail.inputs', "Inputs");
+			const list = append(append(rows, $('dd')), $('ol.bh-video-provenance-inputs'));
+			for (const input of provenance.inputs) {
+				const item = append(list, $('li'));
+				append(item, $('span.bh-video-provenance-input-name')).textContent = input.name;
+				append(item, $('span.bh-video-provenance-input-path')).textContent = input.path;
+			}
+		}
+	}
+
+	/** The result of the Video node whose video this is: the node the workbench named, or one in the folder the canvas shows. */
+	private async findVideoResult(state: IBaseHalfCardDetailState): Promise<IBaseHalfNodeResult | undefined> {
+		const remembered = videoNodes.get(state.resource);
+		if (remembered) {
+			const result = await this.readVideoResult(remembered, state.relativePath);
+			if (result) {
+				return result;
+			}
+		}
+		const folders: URI[] = [];
+		const canvasFolder = this.canvasNavigationService.state.canvasFolder;
+		if (canvasFolder && isEqual(canvasFolder.workspaceFolder, state.workspaceFolder)) {
+			folders.push(canvasFolder.resource);
+		}
+		const own = dirname(state.resource);
+		if (!folders.some(folder => isEqual(folder, own))) {
+			folders.push(own);
+		}
+		let searched = 0;
+		for (const folder of folders) {
+			const children = (await this.fileService.resolve(folder)).children ?? [];
+			for (const child of children) {
+				if (child.isDirectory || extname(child.resource).toLowerCase() !== '.bhnode') {
+					continue;
+				}
+				if (++searched > MAX_NODES_SEARCHED) {
+					return undefined;
+				}
+				const result = await this.readVideoResult(child.resource, state.relativePath);
+				if (result) {
+					rememberBaseHalfVideoDetailNode(state.resource, child.resource);
+					return result;
+				}
+			}
+		}
+		return undefined;
+	}
+
+	/** The result of a Video node when it is the video at `videoPath`. */
+	private async readVideoResult(node: URI, videoPath: string): Promise<IBaseHalfNodeResult | undefined> {
+		const document = await this.readNodeDocument(node);
+		const result = document?.kind === 'video' && isRecord(document.result) ? document.result : undefined;
+		const artifact = result && isRecord(result.artifact) ? result.artifact : undefined;
+		if (!result || !artifact || artifact.path !== videoPath || typeof artifact.kind !== 'string' || typeof artifact.size !== 'number') {
+			return undefined;
+		}
+		const file = Object.freeze({ kind: artifact.kind, path: videoPath, size: artifact.size });
+		if (result.source === 'imported') {
+			return Object.freeze({ source: 'imported', artifact: file });
+		}
+		if (result.source !== 'generated') {
+			return undefined;
+		}
+		try {
+			return Object.freeze({ source: 'generated', artifact: file, generation: normalizeBaseHalfVideoResultGeneration(result.generation) });
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** The kind of an input: by its extension, or for a node by the file it shows. */
+	private async inputKind(workspaceFolder: URI, path: string): Promise<BaseHalfVideoInputKind> {
+		if (!path.toLowerCase().endsWith('.bhnode')) {
+			return baseHalfVideoInputKindOfPath(path);
+		}
+		const document = await this.readNodeDocument(joinPath(workspaceFolder, ...path.split('/')));
+		const artifact = document && isRecord(document.result) && isRecord(document.result.artifact) ? document.result.artifact : undefined;
+		const kind = artifact?.kind;
+		return kind === 'image' || kind === 'video' || kind === 'audio' ? kind : 'other';
+	}
+
+	private async readNodeDocument(node: URI): Promise<Record<string, unknown> | undefined> {
+		try {
+			const content = await this.fileService.readFile(node, { limits: { size: NODE_DOCUMENT_MAX_BYTES } });
+			const value: unknown = JSON.parse(content.value.toString());
+			return isRecord(value) ? value : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function baseHalfMediaWebviewHtml(kind: BaseHalfRenderableContentKind, resource: URI, viewerScript = pdfViewerScript, wasm = pdfiumWasm, pdfViewState?: IBaseHalfPdfViewState, fontSc = simplifiedChinesePdfFont): string {

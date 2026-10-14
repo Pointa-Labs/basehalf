@@ -20,7 +20,7 @@ import {
 	baseHalfVideoChannelDefaultName,
 	baseHalfVideoChannelKeyAddress,
 	createBaseHalfVideoChannelId,
-	normalizeBaseHalfVideoChannelEndpoint,
+	normalizeBaseHalfVideoChannelEndpointOrEmpty,
 	normalizeBaseHalfVideoChannelKey,
 	normalizeBaseHalfVideoChannelModels,
 	normalizeBaseHalfVideoChannelName,
@@ -132,7 +132,7 @@ export class BaseHalfVideoChannelService extends Disposable implements IBaseHalf
 			const next: IBaseHalfVideoChannel = Object.freeze({
 				...channel,
 				...(patch.name !== undefined ? { name: normalizeBaseHalfVideoChannelName(patch.name) } : {}),
-				...(patch.baseUrl !== undefined ? { baseUrl: normalizeBaseHalfVideoChannelEndpoint(patch.baseUrl) } : {}),
+				...(patch.baseUrl !== undefined ? { baseUrl: normalizeBaseHalfVideoChannelEndpointOrEmpty(patch.baseUrl) } : {}),
 				...(patch.models !== undefined ? { models: normalizeBaseHalfVideoChannelModels(patch.models) } : {})
 			});
 			if (next.name === channel.name && next.baseUrl === channel.baseUrl && sameModels(next.models, channel.models)) {

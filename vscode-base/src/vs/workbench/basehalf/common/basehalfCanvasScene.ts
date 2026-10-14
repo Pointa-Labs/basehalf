@@ -13,7 +13,8 @@ export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP = 8;
 export const BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT = 24;
 /** Mirrors `--bh-card-radius`; the corner resize targets follow this arc. */
 export const BASEHALF_CANVAS_CARD_CORNER_RADIUS = 22;
-export const BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT = 'basehalf-video-composer-layout';
+/** Dispatched on the element of the Video panel each time the scene places it; see {@link IBaseHalfCanvasSceneVideoPanelLayout}. */
+export const BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT = 'basehalf-video-panel-layout';
 export const BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP = 10;
 export const BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT = 36;
 
@@ -40,19 +41,26 @@ export interface IBaseHalfCanvasSceneCardPresentation {
 	readonly height: number;
 }
 
-export type BaseHalfCanvasSceneVideoAction = 'importResult' | 'openFullPreview' | 'copySettings' | 'showDetails' | 'more';
+/**
+ * The actions of the toolbar above a selected Video card (D58): Upload Video
+ * for an empty node, and Capture Frame, Reveal, and Open for a node with a
+ * video.
+ */
+export type BaseHalfCanvasSceneVideoAction = 'importResult' | 'captureFrame' | 'revealVideo' | 'openFullPreview';
+
+/** The frame that Capture Frame takes: the first, the one the card's player shows, or the last. */
+export type BaseHalfCanvasSceneVideoFrame = 'first' | 'current' | 'last';
 
 const BASEHALF_CANVAS_VIDEO_RESULT_ACTION_ORDER: readonly BaseHalfCanvasSceneVideoAction[] = Object.freeze([
-	'copySettings',
-	'showDetails',
-	'more',
+	'captureFrame',
+	'revealVideo',
 	'openFullPreview'
 ]);
 
 /**
- * Keeps the selected-video surface state-specific. Import belongs exclusively
- * to an empty Draft; a malformed projection must never mix that write action
- * with sealed-Result actions in one toolbar.
+ * Keeps the selected-video toolbar state-specific. Upload belongs only to an
+ * empty node; a malformed projection must never mix it with the actions of a
+ * node that has a video.
  */
 export function baseHalfCanvasSceneVideoSelectionActions(
 	actions: readonly BaseHalfCanvasSceneVideoAction[]
@@ -165,28 +173,37 @@ export interface IBaseHalfCanvasSceneViewport {
 }
 
 /**
- * Workbench-authored Video Composer content that the live scene positions next
- * to one card. The workbench owns the element and every product interaction
- * inside it; React Flow owns only mounting, visibility, and screen placement.
+ * The panel under a selected Video card (D58). The workbench builds the
+ * element and owns every interaction inside it; the scene owns only mounting,
+ * visibility, and its place on the screen. Publishing a surface again with the
+ * same element (for a new height) moves it without mounting it again, so the
+ * prompt keeps its text, selection, and input method state.
  */
-export interface IBaseHalfCanvasSceneVideoComposerSurface {
+export interface IBaseHalfCanvasSceneVideoPanelSurface {
 	readonly sceneKey: string;
 	readonly structuralEpoch: number;
 	readonly path: string;
 	readonly element: HTMLElement;
-	readonly screenWidth: number;
+	/** The panel's height in screen pixels. Its width is fixed. */
 	readonly screenHeight: number;
 }
 
-export interface IBaseHalfCanvasSceneVideoComposerLayout {
-	readonly placement: 'below';
+/**
+ * The detail of {@link BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT}: where the
+ * scene put the panel. Offsets are screen pixels from the canvas's top left
+ * corner, so the panel can keep its menus inside the canvas.
+ */
+export interface IBaseHalfCanvasSceneVideoPanelLayout {
+	readonly placement: 'below' | 'above' | 'clamped';
 	readonly visible: boolean;
-	/** Screen-space offset from the live canvas host, not a document coordinate. */
+	/** The card is being moved or resized and the panel follows it. */
+	readonly following: boolean;
 	readonly left: number;
-	/** Screen-space offset from the live canvas host, not a document coordinate. */
 	readonly top: number;
-	readonly screenWidth: number;
-	readonly screenHeight: number;
+	readonly width: number;
+	readonly height: number;
+	readonly canvasWidth: number;
+	readonly canvasHeight: number;
 }
 
 export interface IBaseHalfCanvasSceneSnapshot {
@@ -356,7 +373,8 @@ export interface IBaseHalfCanvasSceneDelegate {
 	copyNote(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
 	setNoteBackground(sceneKey: string, structuralEpoch: number, path: string, background: BaseHalfCanvasNoteBackground): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void>;
-	invokeVideoAction(sceneKey: string, structuralEpoch: number, path: string, action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement): Promise<void>;
+	/** Runs a toolbar action of a selected Video card. Capture Frame names the frame it takes. */
+	invokeVideoAction(sceneKey: string, structuralEpoch: number, path: string, action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): Promise<void>;
 	showCreateMenu(sceneKey: string, structuralEpoch: number, position: { readonly x: number; readonly y: number }): void;
 	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
@@ -371,10 +389,11 @@ export interface IBaseHalfCanvasSceneDelegate {
 
 export interface IBaseHalfCanvasSceneRenderer {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
-	setVideoComposerSurface(surface: IBaseHalfCanvasSceneVideoComposerSurface): void;
+	/** Shows the panel of the selected Video card, or moves it to a new height. */
+	setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void;
 	/** Clears only the surface that owns this exact element. This identity guard
-	 *  prevents a late close from an older session hiding a replacement surface. */
-	clearVideoComposerSurface(element: HTMLElement): void;
+	 *  prevents a late close from an older panel hiding a replacement panel. */
+	clearVideoPanelSurface(element: HTMLElement): void;
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;

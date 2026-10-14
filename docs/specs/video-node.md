@@ -314,14 +314,16 @@ Enter.
 
 ### Placement
 
-The panel is 512 px wide; its height follows its content, from 132 px
-without an input row to 220 px with one. It keeps that size at every zoom.
-It sits 10 px below the card, centered; above the card when there is no room
-below; inside the canvas, clamped, when there is room for neither. When the
-card is off the canvas, the panel is hidden. Opening the panel never pans or
-zooms the canvas. Moving or resizing the card takes the panel along. A menu
-or popover of the panel opens upward when there is no room below, stays
-inside the canvas, and scrolls inside itself.
+The panel is 512 px wide (narrower only on a canvas narrower than 536 px);
+its height follows its content, from 132 px without an input row to 220 px
+with one. It keeps that size at every zoom. It sits 10 px below the card,
+centered; above the card, clear of its name and toolbar, when there is no room
+below for the tallest panel; inside the canvas, clamped, when there is room
+for neither. When the card is off the canvas, the panel is hidden. Opening the
+panel never pans or zooms the canvas. Moving or resizing the card takes the
+panel along on the side it was on. A menu or popover of the panel opens
+upward when there is no room below, stays inside the canvas, and scrolls
+inside itself; a menu of the footer that opens below opens below the panel.
 
 ## The card
 
@@ -335,6 +337,7 @@ What a Video card shows follows the node's phase (`baseHalfVideoNodePhase`):
 | stopped | the glyph and "Stopped" |
 | video | the video, with controls when the card is selected |
 | video file missing | the glyph and "The video file is missing", with its path in the tooltip |
+| video that cannot be played | the glyph and "This video cannot be played here", with its path in the tooltip |
 
 The card keeps its size when a video arrives; the video is fitted inside it.
 
@@ -344,9 +347,11 @@ node is empty and does not generate. Above a card with a video it shows
 in Finder** (Explorer on Windows, the file manager elsewhere), and **Open**.
 
 - Capturing a frame writes a PNG of that frame into the node's folder,
-  named after the node and the frame (`Shot 1 first frame.png`, with a number
-  added when the name is taken). Its card appears to the right of the video
-  card. It is an ordinary image that the user can connect to another node.
+  named after the node and the frame (`Shot 1 first frame.png`, `Shot 1 last
+  frame.png`, or `Shot 1 frame at 3.2s.png` for the current frame, with a
+  number added when the name is taken). Its card appears to the right of the
+  video card. It is an ordinary image that the user can connect to another
+  node.
 - **Open** shows the video large in Card Detail, with what made it: model,
   provider, mode, settings, prompt, the inputs in order, and when it started
   and finished. An imported video says that it was imported.

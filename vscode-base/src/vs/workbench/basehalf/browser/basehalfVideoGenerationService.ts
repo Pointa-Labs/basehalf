@@ -269,6 +269,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			generating: isBaseHalfVideoTaskActive(fields.task),
 			model,
 			channelFound: choice !== undefined,
+			channelHasEndpoint: choice ? choice.channel.baseUrl.trim().length > 0 : undefined,
 			channelHasKey: choice?.channel.hasKey ?? false,
 			prompt,
 			plan
@@ -987,6 +988,8 @@ export function blockerMessage(blocker: BaseHalfVideoGenerateBlocker): string {
 			return localize('basehalf.video.blocker.noModel', "Choose a model first.");
 		case 'noChannel':
 			return localize('basehalf.video.blocker.noChannel', "No video provider on this computer offers this model. Add it in Video Providers.");
+		case 'noEndpoint':
+			return localize('basehalf.video.blocker.noEndpoint', "The video provider of this model has no endpoint. Enter it in Video Providers.");
 		case 'noKey':
 			return localize('basehalf.video.blocker.noKey', "The video provider of this model has no API key. Set it in Video Providers.");
 		case 'nothingToSend':

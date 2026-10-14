@@ -133,6 +133,11 @@ export function normalizeBaseHalfVideoChannelEndpoint(value: string): string {
 	return `${url.protocol}//${url.host}${path}`;
 }
 
+/** An endpoint as {@link normalizeBaseHalfVideoChannelEndpoint} takes it, or empty: a channel the user has not given an endpoint yet. */
+export function normalizeBaseHalfVideoChannelEndpointOrEmpty(value: string): string {
+	return value.trim() ? normalizeBaseHalfVideoChannelEndpoint(value) : '';
+}
+
 /** `localhost`, `127.0.0.1` and the rest of 127/8, and `::1`. */
 export function isBaseHalfLoopbackHost(hostname: string): boolean {
 	const host = hostname.toLowerCase().replace(/^\[(?<inner>.*)\]$/, '$<inner>');
@@ -250,7 +255,7 @@ function parseChannel(value: unknown): IBaseHalfVideoChannel | undefined {
 			id,
 			provider: provider as BaseHalfVideoProviderKind,
 			name: normalizeBaseHalfVideoChannelName(name),
-			baseUrl: normalizeBaseHalfVideoChannelEndpoint(baseUrl),
+			baseUrl: normalizeBaseHalfVideoChannelEndpointOrEmpty(baseUrl),
 			models: normalizeBaseHalfVideoChannelModels(models),
 			hasKey
 		});

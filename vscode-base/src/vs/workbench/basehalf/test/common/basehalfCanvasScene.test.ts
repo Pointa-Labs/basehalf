@@ -81,15 +81,15 @@ suite('BaseHalfCanvasScene', () => {
 		assert.strictEqual(baseHalfCanvasSceneSelectionSurface([note, video]), 'structural');
 	});
 
-	test('isolates empty Draft import from sealed Result actions', () => {
-		assert.deepStrictEqual(baseHalfCanvasSceneVideoSelectionActions([]), []);
-		assert.deepStrictEqual(
-			baseHalfCanvasSceneVideoSelectionActions(['more', 'copySettings', 'openFullPreview']),
-			['copySettings', 'more', 'openFullPreview']
-		);
-		assert.deepStrictEqual(
-			baseHalfCanvasSceneVideoSelectionActions(['showDetails', 'importResult', 'openFullPreview']),
-			['importResult']
-		);
+	test('keeps Upload Video of an empty node apart from the actions of a node with a video', () => {
+		assert.deepStrictEqual({
+			none: baseHalfCanvasSceneVideoSelectionActions([]),
+			ordered: baseHalfCanvasSceneVideoSelectionActions(['openFullPreview', 'revealVideo', 'captureFrame']),
+			uploadAlone: baseHalfCanvasSceneVideoSelectionActions(['captureFrame', 'importResult', 'openFullPreview'])
+		}, {
+			none: [],
+			ordered: ['captureFrame', 'revealVideo', 'openFullPreview'],
+			uploadAlone: ['importResult']
+		});
 	});
 });
