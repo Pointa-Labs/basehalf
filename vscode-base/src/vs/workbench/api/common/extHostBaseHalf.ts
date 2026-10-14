@@ -10,7 +10,6 @@ import { Emitter } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
 import { IExtensionDescription } from '../../../platform/extensions/common/extensions.js';
-import { validateBaseHalfNodePersistentId } from '../../basehalf/common/basehalfNodeDocument.js';
 import type * as vscode from 'vscode';
 import * as extHostProtocol from './extHost.protocol.js';
 import * as extHostTypes from './extHostTypes.js';
@@ -19,16 +18,6 @@ import { ExtHostWebview, ExtHostWebviews, shouldSerializeBuffersForPostMessage, 
 interface IBaseHalfProviderEntry {
 	readonly extension: IExtensionDescription;
 	readonly provider: vscode.basehalf.CardProjectionProvider;
-}
-
-interface IBaseHalfRecipeExecutorEntry {
-	readonly extension: IExtensionDescription;
-	readonly executor: vscode.basehalf.CanvasRecipeExecutor;
-}
-
-interface IBaseHalfModelProviderConnectionValidatorEntry {
-	readonly extension: IExtensionDescription;
-	readonly validator: vscode.basehalf.ModelProviderConnectionValidator;
 }
 
 interface IBaseHalfStructuralCleanupProviderEntry {
@@ -74,12 +63,8 @@ class ExtHostBaseHalfCardProjectionView extends Disposable implements vscode.bas
 export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 	private readonly proxy: extHostProtocol.MainThreadBaseHalfShape;
 	private readonly providers = new Map<string, IBaseHalfProviderEntry>();
-	private readonly recipeExecutors = new Map<string, IBaseHalfRecipeExecutorEntry>();
-	private readonly modelProviderConnectionValidators = new Map<string, IBaseHalfModelProviderConnectionValidatorEntry>();
 	private readonly structuralCleanupProviders = new Map<string, IBaseHalfStructuralCleanupProviderEntry>();
 	private readonly views = new Map<extHostProtocol.WebviewHandle, ExtHostBaseHalfCardProjectionView>();
-	private readonly modelServicesChangeEmitter = new Emitter<void>();
-	readonly onDidChangeModelServices = this.modelServicesChangeEmitter.event;
 
 	constructor(
 		mainContext: extHostProtocol.IMainContext,
@@ -114,66 +99,6 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 				this.proxy.$unregisterCardProjectionProvider(projectionId);
 			}
 		});
-	}
-
-	registerCanvasRecipeExecutor(
-		extension: IExtensionDescription,
-		recipeId: string,
-		executor: vscode.basehalf.CanvasRecipeExecutor
-	): vscode.Disposable {
-		const extensionId = extension.identifier.value.toLowerCase();
-		const id = recipeId.toLowerCase();
-		if (!id.startsWith(`${extensionId}.`)) {
-			throw new Error(`BaseHalf canvas recipe '${recipeId}' must start with '${extensionId}.'.`);
-		}
-		if (!extensionDeclaresCanvasRecipe(extension, id)) {
-			throw new Error(`BaseHalf canvas recipe '${recipeId}' is not declared in contributes.basehalfCanvasRecipes.`);
-		}
-		if (this.recipeExecutors.has(id)) {
-			throw new Error(`A BaseHalf canvas recipe executor for '${id}' is already registered in this extension host.`);
-		}
-		this.recipeExecutors.set(id, { extension, executor });
-		this.proxy.$registerCanvasRecipeExecutor(toExtensionData(extension), id);
-		return new extHostTypes.Disposable(() => {
-			if (this.recipeExecutors.get(id)?.executor === executor) {
-				this.recipeExecutors.delete(id);
-				this.proxy.$unregisterCanvasRecipeExecutor(id);
-			}
-		});
-	}
-
-	registerModelProviderConnectionValidator(
-		extension: IExtensionDescription,
-		specId: string,
-		validator: vscode.basehalf.ModelProviderConnectionValidator
-	): vscode.Disposable {
-		const extensionId = extension.identifier.value.toLowerCase();
-		const id = specId.trim().toLowerCase();
-		if (!id.startsWith(`${extensionId}.`)) {
-			throw new Error(`BaseHalf model provider connection '${specId}' must start with '${extensionId}.'.`);
-		}
-		if (!extensionDeclaresModelProviderCatalog(extension)) {
-			throw new Error(`Extension '${extensionId}' does not declare contributes.basehalfModelProviderCatalogs.`);
-		}
-		if (this.modelProviderConnectionValidators.has(id)) {
-			throw new Error(`A BaseHalf model provider connection validator for '${id}' is already registered in this extension host.`);
-		}
-		this.modelProviderConnectionValidators.set(id, { extension, validator });
-		this.proxy.$registerModelProviderConnectionValidator(toExtensionData(extension), id);
-		return new extHostTypes.Disposable(() => {
-			if (this.modelProviderConnectionValidators.get(id)?.validator === validator) {
-				this.modelProviderConnectionValidators.delete(id);
-				this.proxy.$unregisterModelProviderConnectionValidator(id);
-			}
-		});
-	}
-
-	getModelServices(extension: IExtensionDescription, capability?: vscode.basehalf.ModelCapability): Promise<readonly vscode.basehalf.ModelService[]> {
-		return this.proxy.$getModelServices(toBaseHalfExtensionIdentity(extension), capability);
-	}
-
-	getModelServiceAccess(extension: IExtensionDescription, snapshot: vscode.basehalf.ModelServiceAttemptSnapshot): Promise<vscode.basehalf.ModelServiceAccess | undefined> {
-		return this.proxy.$getModelServiceAccess(toBaseHalfExtensionIdentity(extension), snapshot);
 	}
 
 	async inspectCanvasNode(extension: IExtensionDescription, resource: vscode.Uri): Promise<vscode.basehalf.CanvasNodeState | undefined> {
@@ -221,10 +146,7 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 		}
 		this.views.clear();
 		this.providers.clear();
-		this.recipeExecutors.clear();
-		this.modelProviderConnectionValidators.clear();
 		this.structuralCleanupProviders.clear();
-		this.modelServicesChangeEmitter.dispose();
 	}
 
 	async $resolveCardProjection(
@@ -265,69 +187,6 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 		this.views.get(handle)?.setVisible(visible);
 	}
 
-	async $executeCanvasRecipe(
-		attemptHandle: string,
-		recipeId: string,
-		request: extHostProtocol.IBaseHalfCanvasRecipeExecutionRequestDto,
-		cancellation: CancellationToken
-	): Promise<extHostProtocol.IBaseHalfCanvasRecipeExecutionResultDto> {
-		const entry = this.recipeExecutors.get(recipeId.toLowerCase());
-		if (!entry) {
-			throw new Error(`No BaseHalf canvas recipe executor is registered for '${recipeId}'.`);
-		}
-		if (cancellation.isCancellationRequested) {
-			throw new CancellationError();
-		}
-		const progress: vscode.Progress<vscode.basehalf.CanvasRecipeProgress> = {
-			report: value => this.proxy.$reportCanvasRecipeProgress(attemptHandle, value)
-		};
-		const result = await Promise.resolve(entry.executor.execute(
-			reviveRecipeExecutionRequest(
-				request,
-				providerRequestId => this.proxy.$acknowledgeCanvasRecipeProviderRequestId(attemptHandle, providerRequestId),
-				(fingerprint, attemptId, kind) => this.proxy.$consumeCanvasRecipeProviderCreateAuthorization(attemptHandle, fingerprint, attemptId, kind),
-				failure => this.proxy.$reportCanvasRecipeProviderExecutionFailure(attemptHandle, failure)
-			),
-			progress,
-			cancellation
-		));
-		if (!result || typeof result !== 'object' || Array.isArray(result) || !result.artifact || typeof result.artifact !== 'object' || Array.isArray(result.artifact)) {
-			throw new Error(`BaseHalf canvas recipe executor '${recipeId}' returned no result.`);
-		}
-		const unknownResultProperty = Object.keys(result).find(key => !['artifact', 'providerRequestId', 'usage', 'cost'].includes(key));
-		if (unknownResultProperty) {
-			throw new Error(`BaseHalf canvas recipe executor '${recipeId}' result contains unsupported property '${unknownResultProperty}'.`);
-		}
-		const unknownArtifactProperty = Object.keys(result.artifact).find(key => !['id', 'outputId', 'kind', 'resource', 'label'].includes(key));
-		if (unknownArtifactProperty) {
-			throw new Error(`BaseHalf canvas recipe executor '${recipeId}' artifact contains unsupported property '${unknownArtifactProperty}'.`);
-		}
-		return {
-			artifact: {
-				id: validateBaseHalfNodePersistentId(result.artifact.id, `${recipeId}.artifact.id`),
-				outputId: result.artifact.outputId,
-				kind: result.artifact.kind,
-				resource: result.artifact.resource,
-				...(result.artifact.label === undefined ? {} : { label: result.artifact.label })
-			},
-			...(result.providerRequestId === undefined ? {} : { providerRequestId: result.providerRequestId }),
-			...(result.usage === undefined ? {} : { usage: result.usage }),
-			...(result.cost === undefined ? {} : { cost: result.cost })
-		};
-	}
-
-	async $validateModelProviderConnection(
-		specId: string,
-		request: extHostProtocol.IBaseHalfModelProviderConnectionValidationRequestDto,
-		cancellation: CancellationToken
-	): Promise<void> {
-		const entry = this.modelProviderConnectionValidators.get(specId);
-		if (!entry) {
-			throw new Error(`No BaseHalf model provider connection validator is registered for '${specId}'.`);
-		}
-		await entry.validator.validate(request, cancellation);
-	}
-
 	async $prepareCanvasStructuralCleanup(
 		extensionId: string,
 		resource: UriComponents,
@@ -355,9 +214,6 @@ export class ExtHostBaseHalf implements extHostProtocol.ExtHostBaseHalfShape {
 		}));
 	}
 
-	$onDidChangeModelServices(): void {
-		this.modelServicesChangeEmitter.fire();
-	}
 }
 
 function toBaseHalfExtensionIdentity(extension: IExtensionDescription): extHostProtocol.IBaseHalfExtensionIdentityDto {
@@ -367,70 +223,6 @@ function toBaseHalfExtensionIdentity(extension: IExtensionDescription): extHostP
 		location: extension.extensionLocation,
 		isBuiltin: extension.isBuiltin,
 		isUnderDevelopment: extension.isUnderDevelopment
-	};
-}
-
-function extensionDeclaresCanvasRecipe(extension: IExtensionDescription, recipeId: string): boolean {
-	const contributes = extension.contributes as unknown;
-	if (!isRecord(contributes)) {
-		return false;
-	}
-	const recipes = contributes.basehalfCanvasRecipes;
-	return Array.isArray(recipes) && recipes.some(candidate => isRecord(candidate)
-		&& typeof candidate.id === 'string'
-		&& candidate.id.toLowerCase() === recipeId);
-}
-
-function extensionDeclaresModelProviderCatalog(extension: IExtensionDescription): boolean {
-	const contributes = extension.contributes as unknown;
-	return isRecord(contributes) && Array.isArray(contributes.basehalfModelProviderCatalogs) && contributes.basehalfModelProviderCatalogs.length > 0;
-}
-
-function reviveRecipeExecutionRequest(
-	request: extHostProtocol.IBaseHalfCanvasRecipeExecutionRequestDto,
-	acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>,
-	consumeProviderCreateAuthorization: (fingerprint: string, attemptId: string, kind: 'new' | 'replacement') => Promise<void>,
-	reportProviderExecutionFailure: (failure: extHostProtocol.IBaseHalfCanvasProviderExecutionFailureDto) => Promise<void>
-): vscode.basehalf.CanvasRecipeExecutionRequest {
-	return {
-		attemptId: request.attemptId,
-		workspaceFolder: URI.revive(request.workspaceFolder),
-		node: reviveNodeSnapshot(request.node),
-		recipeId: request.recipeId,
-		prompt: request.prompt,
-		parameters: request.parameters as Readonly<Record<string, vscode.basehalf.CanvasRecipeValue>>,
-		...(request.modelServiceId === undefined ? {} : { modelServiceId: request.modelServiceId }),
-		...(request.modelService === undefined ? {} : { modelService: request.modelService }),
-		inputs: request.inputs.map(input => ({
-			edgeId: input.edgeId,
-			slotId: input.slotId,
-			order: input.order,
-			source: reviveNodeSnapshot(input.source)
-		})),
-		outputDirectory: URI.revive(request.outputDirectory),
-		...(request.providerTaskIntent === undefined ? {} : { providerTaskIntent: request.providerTaskIntent }),
-		...(request.providerRequestFingerprint === undefined ? {} : { providerRequestFingerprint: request.providerRequestFingerprint }),
-		...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId }),
-		...(request.providerRequestFingerprint === undefined ? {} : { consumeProviderCreateAuthorization }),
-		reportProviderExecutionFailure,
-		acknowledgeProviderRequestId
-	};
-}
-
-function reviveNodeSnapshot(node: extHostProtocol.IBaseHalfCanvasNodeSnapshotDto): vscode.basehalf.CanvasNodeSnapshot {
-	return {
-		id: node.id,
-		path: node.path,
-		kind: node.kind,
-		...(node.resource === undefined ? {} : { resource: URI.revive(node.resource) }),
-		...(node.result === undefined ? {} : {
-			result: {
-				id: node.result.id,
-				kind: node.result.kind,
-				resource: URI.revive(node.result.resource),
-				...(node.result.attemptId === undefined ? {} : { attemptId: node.result.attemptId })
-			}
-		})
 	};
 }
 
@@ -448,10 +240,6 @@ function reviveCanvasNodeState(state: extHostProtocol.IBaseHalfCanvasNodeStateDt
 			createdAt: attempt.createdAt,
 			...(attempt.startedAt === undefined ? {} : { startedAt: attempt.startedAt }),
 			...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
-			...(attempt.model === undefined ? {} : { model: attempt.model }),
-			...(attempt.providerRequestId === undefined ? {} : { providerRequestId: attempt.providerRequestId }),
-			...(attempt.usage === undefined ? {} : { usage: attempt.usage }),
-			...(attempt.cost === undefined ? {} : { cost: attempt.cost }),
 			...(attempt.error === undefined ? {} : { error: attempt.error })
 		}))
 	};
@@ -469,8 +257,4 @@ function reviveCanvasNodeResult(result: extHostProtocol.IBaseHalfCanvasNodeResul
 	return result.source === 'attempt'
 		? { source: 'attempt', attemptId: result.attemptId, artifact }
 		: { source: 'imported', artifact };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === 'object' && !Array.isArray(value);
 }

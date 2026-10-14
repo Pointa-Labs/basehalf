@@ -10,7 +10,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { join } from '../../../../base/common/path.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../log/common/log.js';
-import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, BaseHalfNodeCommandOutcome, IBaseHalfAgentCapabilityDiscoveryExtension, IBaseHalfAgentCapabilityDiscoveryRecipe, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfNodeCommandResponse } from '../../common/terminal.js';
+import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, BaseHalfNodeCommandOutcome, IBaseHalfAgentCapabilityDiscoveryExtension, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfNodeCommandResponse } from '../../common/terminal.js';
 import { BaseHalfNodeCommandServer, requestBaseHalfNodeCommand, resolveBaseHalfCliDirectory } from '../../node/basehalfNodeCommandBridge.js';
 
 suite('BaseHalfNodeCommandServer', () => {
@@ -26,11 +26,10 @@ suite('BaseHalfNodeCommandServer', () => {
 			}
 			return {
 				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+				type: 'runNode',
 				ok: true,
 				outcome: 'succeeded',
-				nodePath: request.relativePath,
-				attempt: { id: 'attempt-1', status: 'succeeded' },
-				result: { source: 'attempt', attemptId: 'attempt-1', artifactPath: 'outputs/node/attempt-1/video.mp4' }
+				nodePath: request.relativePath
 			};
 		}, new NullLogService());
 
@@ -61,17 +60,15 @@ suite('BaseHalfNodeCommandServer', () => {
 		}
 	});
 
-	test('CLI prints one JSON response and maps the final outcome to its exit code', async () => {
-		for (const [outcome, expectedExitCode] of [['succeeded', 0], ['failed', 1]] as const) {
+	test('CLI prints the path of the node that runs as one JSON response and maps the outcome to its exit code', async () => {
+		for (const [outcome, expectedExitCode] of [['succeeded', 0], ['rejected', 1]] as const) {
 			const server = new BaseHalfNodeCommandServer(async request => ({
 				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+				type: 'runNode' as const,
 				ok: outcome === 'succeeded',
 				outcome,
 				nodePath: request.type === 'runNode' ? request.relativePath : '',
-				attempt: { id: 'attempt-1', status: outcome },
-				...(outcome === 'succeeded'
-					? { result: { source: 'attempt' as const, attemptId: 'attempt-1', artifactPath: 'outputs/node/attempt-1/video.mp4' } }
-					: {})
+				...(outcome === 'rejected' ? { error: 'Choose a model first.' } : {})
 			}), new NullLogService());
 			try {
 				await server.start();
@@ -85,6 +82,34 @@ suite('BaseHalfNodeCommandServer', () => {
 				server.dispose();
 			}
 		}
+	});
+
+	test('rejects a run-node response that reports an attempt, a result, or a final outcome', async () => {
+		const started = { version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION, type: 'runNode', ok: true, outcome: 'succeeded', nodePath: 'shot.bhnode' };
+		const variants = [
+			{ ...started, attempt: { id: 'attempt-1', status: 'succeeded' } },
+			{ ...started, result: { source: 'attempt', attemptId: 'attempt-1', artifactPath: 'outputs/x.mp4' } },
+			{ ...started, ok: false, outcome: 'failed' },
+			{ ...started, ok: false, outcome: 'cancelled' },
+			{ ...started, ok: false }
+		];
+		const outcomes: string[] = [];
+		for (const variant of variants) {
+			const server = new BaseHalfNodeCommandServer(async () => variant as unknown as IBaseHalfNodeCommandResponse, new NullLogService());
+			try {
+				await server.start();
+				const response = await requestBaseHalfNodeCommand(server.ipcHandlePath, {
+					version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+					type: 'runNode',
+					cwd: '/work',
+					relativePath: 'shot.bhnode'
+				});
+				outcomes.push(`${response.outcome}: ${response.error}`);
+			} finally {
+				server.dispose();
+			}
+		}
+		assert.deepStrictEqual(outcomes, variants.map(() => 'rejected: Command response does not match the supported protocol.'));
 	});
 
 	test('CLI rejects a missing node path with one JSON response and a non-zero exit code', async () => {
@@ -223,7 +248,7 @@ suite('BaseHalfNodeCommandServer', () => {
 		assert.strictEqual((JSON.parse(valuedDiscovery.stdout) as { outcome: string }).outcome, 'rejected');
 	});
 
-	test('CLI discovers host, recipe, and extension capabilities through the private bridge without internal dispatch metadata', async () => {
+	test('CLI discovers host and extension capabilities through the private bridge without internal dispatch metadata', async () => {
 		const server = new BaseHalfNodeCommandServer(async request => {
 			assert.strictEqual(request.type, 'listCapabilities');
 			return capabilityDiscoveryResponse({
@@ -244,8 +269,7 @@ suite('BaseHalfNodeCommandServer', () => {
 						parameters: [{ name: 'sequence', type: 'uri', required: true, description: 'Sequence path.' }],
 						returns: { type: 'object', description: 'Inspection.' }
 					}]
-				}],
-				recipes: [sampleRecipe]
+				}]
 			});
 		}, new NullLogService());
 		try {
@@ -253,9 +277,10 @@ suite('BaseHalfNodeCommandServer', () => {
 			const result = await runCli(server.ipcHandlePath, ['--list-capabilities']);
 			assert.strictEqual(result.exitCode, 0);
 			assert.strictEqual(result.stdout.trim().split('\n').length, 1);
-			const response = JSON.parse(result.stdout) as { type: string; recipes: readonly unknown[]; extensions: readonly unknown[] };
+			const response = JSON.parse(result.stdout) as { type: string; extensions: readonly unknown[]; host: { nodeDocument: { documentVersion: number } } };
 			assert.strictEqual(response.type, 'listCapabilities');
-			assert.strictEqual(response.recipes.length, 1);
+			assert.strictEqual(Object.hasOwn(response, 'recipes'), false);
+			assert.strictEqual(response.host.nodeDocument.documentVersion, 5);
 			assert.strictEqual(response.extensions.length, 1);
 			assert.strictEqual(result.stdout.includes('command'), false);
 			assert.strictEqual(result.stdout.includes('extensionId'), false);
@@ -340,7 +365,7 @@ suite('BaseHalfNodeCommandServer', () => {
 		}
 	});
 
-	test('rejects discovery responses that describe the pre-D37 reference storage', async () => {
+	test('rejects discovery responses that describe recipes, version 4 nodes, or the pre-D37 reference storage', async () => {
 		const current = capabilityDiscoveryResponse();
 		const host = current.host!;
 		const legacyContextEdge: Record<string, unknown> = { ...host.contextEdge };
@@ -348,7 +373,11 @@ suite('BaseHalfNodeCommandServer', () => {
 			delete legacyContextEdge[key];
 		}
 		const variants = [
-			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, inputBinding: { ...host.nodeDocument.inputBinding, scope: 'direct-inbound-reference' } } } },
+			{ ...current, recipes: [] },
+			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, inputBinding: { scope: 'node-upstream', fields: ['sourcePath', 'slot', 'order'] } } } },
+			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, lifecycle: { attempts: 'host-owned', result: 'host-owned-single-file', retry: 'frozen-only' } } } },
+			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, authoring: { ...host.nodeDocument.authoring, hostOwnedFields: ['result', 'attempts'] } } } },
+			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, resultNodeSource: 'sealed-result' } } },
 			{ ...current, host: { ...host, contextEdge: legacyContextEdge } },
 			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, storedBy: 'both-ends' } } }
 		];
@@ -412,9 +441,9 @@ suite('BaseHalfNodeCommandServer', () => {
 					resolve({
 						version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 						ok: false,
-						outcome: 'cancelled',
+						outcome: 'rejected',
 						nodePath: request.relativePath,
-						attempt: { id: 'run-1', status: 'cancelled' }
+						error: 'The request was cancelled.'
 					});
 				});
 			}).finally(() => listener?.dispose());
@@ -449,18 +478,7 @@ suite('BaseHalfNodeCommandServer', () => {
 	});
 });
 
-const sampleRecipe: IBaseHalfAgentCapabilityDiscoveryRecipe = {
-	id: 'studio.workflow.render-image',
-	label: 'Render image',
-	description: 'Create one image from direct context.',
-	modelCapability: 'image',
-	inputs: [{ id: 'prompt', label: 'Prompt', accepts: ['text'], minItems: 1, maxItems: 1 }],
-	parameters: [{ id: 'quality', label: 'Quality', type: 'enum', default: 'standard', options: [{ value: 'standard', label: 'Standard' }] }],
-	outputs: [{ id: 'image', kind: 'image', extensions: ['.png'], minItems: 1, maxItems: 1, primary: true }]
-};
-
 function capabilityDiscoveryResponse(options: {
-	readonly recipes?: readonly IBaseHalfAgentCapabilityDiscoveryRecipe[];
 	readonly extensions?: readonly IBaseHalfAgentCapabilityDiscoveryExtension[];
 } = {}): IBaseHalfAgentCapabilityDiscoveryResponse {
 	return {
@@ -471,35 +489,33 @@ function capabilityDiscoveryResponse(options: {
 		host: {
 			nodeDocument: {
 				fileExtension: '.bhnode',
-				documentVersion: 4,
-				resultKinds: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'],
-				inputBinding: { scope: 'node-upstream', fields: ['sourcePath', 'slot', 'order'] },
-				lifecycle: { attempts: 'host-owned', result: 'host-owned-single-file', retry: 'frozen-only' },
+				documentVersion: 5,
+				nodeKinds: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'],
+				lifecycle: { task: 'host-owned', result: 'host-owned-single-file' },
 				runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 				authoring: {
-					contractVersion: 2,
+					contractVersion: 3,
 					schema: { type: 'object' },
 					examples: {},
-					hostOwnedFields: ['result', 'attempts'],
-					rules: ['Write only the published authorable fields.']
+					hostOwnedFields: ['task', 'result'],
+					rules: ['Write only title, prompt, upstream, and generation; BaseHalf owns task and result.']
 				}
 			},
 			contextEdge: {
 				source: 'direct-content',
-				resultNodeSource: 'sealed-result',
+				resultNodeSource: 'node-result',
 				target: 'direct-context',
 				autoRun: false,
 				recursive: false,
 				storedBy: 'downstream',
 				markdownFrontmatterKey: 'upstream',
 				nodeDocumentField: 'upstream',
-				roleAndOrderOwner: 'target-recipe-binding',
+				inputOrder: 'target-upstream-order',
 				label: 'none'
 			},
 			templates: [],
 			operations: []
 		},
-		recipes: options.recipes ?? [],
 		extensions: options.extensions ?? []
 	};
 }

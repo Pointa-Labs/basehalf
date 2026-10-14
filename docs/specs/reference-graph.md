@@ -86,8 +86,9 @@ listed A in `referenced_by`. That design had three problems:
    - add or remove an upstream or downstream entry in the badge editor;
    - Relink, Relink Everywhere, Remove, Use Workspace Path, and Move into File
      on an issue;
-   - creating a connected node (PDF branch, Create from Connection);
-   - Composer input changes;
+   - creating a connected node (PDF branch, Create from Connection, and the
+     node that generating again from a Video node with a video makes);
+   - a new order of a Video node's inputs in its panel;
    - template instantiation the user started;
    - the rename refactor after a move, which rewrites the entries that name
      the moved item without asking
@@ -95,9 +96,9 @@ listed A in `referenced_by`. That design had three problems:
    - a migration the user confirmed;
    - undo and redo of any of these.
 
-   Host lifecycle writes (attempt, lease, recovery, version 3 to 4
-   materialization) carry `upstream` through unchanged. No background process
-   changes an upstream value.
+   Writes of a Video node's prompt, settings, task, and result carry
+   `upstream` through unchanged. No background process changes an upstream
+   value.
 5. People, agents, and other tools may edit stores as ordinary text. Saved
    content is truth. BaseHalf never reverts it without an explicit user action.
 6. Reviewed plugins must not change upstream values. The host plugin APIs
@@ -154,11 +155,12 @@ These are **upstream-only**. BaseHalf refuses every change to their stores,
 removals and no-op removals included, and never writes their bytes:
 
 - files under the reserved outputs tree (`outputs/…`);
-- a file that is the sealed or imported Result artifact of any `.bhnode`.
+- a file that a `.bhnode` shows as its result (`result.artifact.path`),
+  imported or generated.
 
-Entries already present in a sealed Result artifact's bytes are still read.
-Files under the reserved outputs tree are not indexed as stores, because frozen
-run snapshots contain copies of source documents.
+Entries already present in the bytes of a file a node shows are still read.
+Files under the reserved outputs tree are not indexed as stores: the tree
+holds what generations wrote.
 
 ## Path grammar
 
@@ -190,10 +192,6 @@ Matching rules:
 - Validation is per entry. One invalid entry never hides the valid entries in
   the same list.
 - A later duplicate of an earlier entry is invalid.
-
-A `.bhnode` recipe binding keeps the stricter portable project-path grammar,
-`baseHalfProjectPathProblem`. An upstream entry that fails it may be listed but
-not bound. That is a readiness problem, not a parse error.
 
 ## Markdown store
 
@@ -299,52 +297,40 @@ comments, quoting, and the body stay byte-identical.
 
 ## Node document store
 
-- The `.bhnode` document version becomes 4 and gains a required top-level
-  `upstream` array. It sits outside `recipe` because nodes without a recipe
-  still receive context.
+- A `.bhnode` document is version 5 ([Video node](video-node.md#the-node-file)).
+  Its required top-level `upstream` array is the node's upstream list. For a
+  Video node it is also the node's inputs, in order.
 - The strict parser requires `upstream` to be an array and preserves its items
   verbatim on serialize. It never rejects the document because of an item. Each
-  of the following is a per-entry readiness problem that blocks submission of a
-  Draft and appears in Issues, while the node's other fields stay readable:
+  of the following is a per-entry problem that appears in Issues, while the
+  node's other fields stay readable. A Video node does not use such an item as
+  an input:
   - a non-string item;
   - an entry that violates the grammar;
   - a self entry;
   - a duplicate;
   - an entry past the 64th.
-- A version 3 document is read with `upstream` equal to the distinct
-  `recipe.inputBindings[].sourcePath` values, in binding order. It is written
-  as version 4 on the next host write. Unbound legacy references arrive through
-  [migration](#migration-from-legacy-badge-pairs).
-- Every binding's `sourcePath` must be an `upstream` entry. A violation is a
-  readiness problem, never a parse error.
-- **Connect into a node**:
-  - A Draft with a recipe: the same role assignment as today. Cancelling writes
-    nothing. The entry and its binding are one write. When the source is
-    already an unbound entry (for example a Composer Pick of existing
-    context), the existing entry is bound; it is never listed twice.
-  - A node with a recipe and an Attempt or Result: refused with today's
-    explanation to copy settings into a new Draft.
-  - A node without a recipe: adds an unbound entry.
-- **Disconnect**:
-  - An unbound entry can be disconnected in every state, so migrated or
-    agent-added entries can always be removed.
-  - Disconnecting a bound entry removes its binding and is allowed only in a
-    Draft.
-- **Refusals**:
-  - Every write is refused while a run lease is active ("This node is
-    running").
-  - A write that would exceed 64 entries is refused ("This node already has 64
-    upstream entries").
-- Copying settings into a new Draft starts it with `upstream: []` and no
-  bindings.
+- A document of an earlier version is unreadable: its card says so, the index
+  reads no list from it, and every write to it is refused. The product has not
+  launched, so nothing converts it.
+- **Connect into a node** appends an entry in every phase of the node: empty,
+  generating, ended without a video, and with a video. An entry that is
+  already listed is never listed twice. A generation records the inputs it
+  used when it starts (`task.request.inputs`, then
+  `result.generation.request.inputs`), so a later change of the list never
+  changes what made a video.
+- **Disconnect** removes the entry in every phase.
+- **Refusals**: a write that would exceed 64 entries is refused ("This node
+  already has 64 upstream entries").
+- A copy of a node starts with `upstream: []`.
 - Writes use the existing node-document writer (expected-bytes compare and
-  swap). Upstream and binding changes are one write. Composer input changes
-  go through the reference edit service with the whole planned document as the
-  expected and next state, so their undo restores the whole document and
-  refuses when any part of it changed since. Composer operations write no
-  `canvas.yaml` anchor rows; their edges use existing or default anchors.
-- Frozen Attempt manifests keep their fields in version 4, including each
-  input's `edgeId`, which remains derived as `<sourcePath>-><nodePath>`.
+  swap). The Video node store writes the whole document through the reference
+  edit service, with the bytes it read as the expected state and the planned
+  document as the next state. A write that finds the file changed is planned
+  again from the new bytes. With an undo label the write is one canvas undo
+  step, whose undo restores the whole document and refuses when any part of
+  it changed since. These writes add no `canvas.yaml` anchor rows; their edges
+  use existing or default anchors.
 
 ## Sidecar store
 
@@ -425,8 +411,8 @@ comments, quoting, and the body stay byte-identical.
   enumeration.
 - **Ownership.** A file belongs to the innermost workspace folder that contains
   it. An outer folder skips files owned by a nested folder.
-- **Sealed artifacts.** The index also reports the set of sealed and imported
-  Result artifact paths, taken from `.bhnode` documents.
+- **Result artifacts.** The index also reports the set of files that `.bhnode`
+  documents show as their result, imported or generated.
 
 ### States
 
@@ -479,7 +465,7 @@ does nothing.
 | --- | --- | --- |
 | Canvas edges | cards shown, no edges, and a "Loading connections" status | drawn; the status notes unscanned files |
 | Badge editor Downstream list, toggle counts | "Loading…", no counts | shown, marked incomplete |
-| Any Markdown store change (connect, remove, undo, redo) | waits up to 10 s, because the sealed-artifact check needs the index, then refuses with "Still loading connections" | allowed |
+| Any Markdown store change (connect, remove, undo, redo) | waits up to 10 s, because the result-artifact check needs the index, then refuses with "Still loading connections" | allowed |
 | Delete confirmation | "Checking connections…"; confirming is allowed | "at least N items" |
 | Rename refactor, Relink Everywhere, migration | wait for ready, with progress | proceed, and the prompt or report says "at least" |
 
@@ -507,9 +493,8 @@ will touch:
 - the target kind, including upstream-only targets;
 - whether the store is readable and writable;
 - the state of the Markdown model, and the flush (steps 2 and 3 below);
-- run leases;
 - the source-tree guard;
-- the sealed-document rules.
+- the upstream-only rules.
 
 If any store fails, the operation writes nothing and names the blocking stores.
 
@@ -625,9 +610,8 @@ there are none.
 - A sidecar BaseHalf will not edit in place is always shown as an issue, so
   Rebuild List is offered wherever a write to it is refused.
 
-The refusal rules of every other write apply: a running node, a marked
-folder, a read-only or unsaved document, and a symbolic link refuse the
-rebuild with their reason. After a rebuild the store is readable and writable,
+The refusal rules of every other write apply: a marked folder, a read-only or
+unsaved document, and a symbolic link refuse the rebuild with their reason. After a rebuild the store is readable and writable,
 and its issue is gone.
 
 ### Node documents and sidecars
@@ -734,7 +718,8 @@ A connection's target must be a node that can be downstream (see
 [Stores](#stores)). These connections are refused with an explanation:
 - into a note whose own `upstream` key BaseHalf cannot read or edit in place
   (the message names Rebuild List when it applies);
-- into a running `.bhnode`;
+- into a `.bhnode` that BaseHalf cannot read, such as one of an earlier
+  version;
 - into a node whose store needs a `.bh/` write in a marked folder (see
   [Source-tree guard](#source-tree-guard)).
 
@@ -769,17 +754,11 @@ A connection's target must be a node that can be downstream (see
     inline editing, as New Note does.
   - **Media and document kinds** create `<kind>.bhnode`, or the next
     `<kind>-N.bhnode` that has no file and no canvas row. The node is titled
-    with the kind and selected.
-    - Video has an implicit recipe when exactly one video generator is
-      installed. In that case the document also carries that recipe, its
-      defaults, and a binding of the source. When several input roles of the
-      recipe accept the source's content kind, **Video** opens a submenu of
-      those roles, and the chosen role is the binding. When no role accepts
-      it, **Video** is not offered, because an unbound entry would block the
-      run.
-    - Any other kind has no recipe and gets an unbound entry, as connecting
-      into a node without a recipe does. Recipes, including planning recipes,
-      are chosen later in the node's own surface.
+    with the kind and selected. It is an empty node of version 5 whose
+    `upstream` lists the source. **Video** is offered from every source: the
+    source becomes the new Video node's first input, and the node's panel
+    says how the generation uses it
+    ([Video node](video-node.md#inputs)).
   - **Cancel.** Escape or a click outside closes the menu and writes nothing.
   - **Undo.** For a `.bhnode`, one canvas undo step removes the node, its
     card, and its edge together. The connection lives in the file. A note is
@@ -804,7 +783,7 @@ undo step.
 | --- | --- |
 | Markdown file | keeps its bytes and entries. Entries that do not resolve show as dangling. A note whose list is kept in its sidecar starts with no upstream list, like a sidecar node. |
 | Folder | entries inside it that name other items in the original folder still name the originals. The copy confirmation states this. |
-| `.bhnode` | forked with `upstream: []` and no bindings |
+| `.bhnode` | forked with `upstream: []`: a new identity with the same title, and for a Video node the same prompt and settings, and no task or result |
 | Sidecar node | starts with no upstream list |
 
 ### First frontmatter notice
@@ -869,9 +848,6 @@ The card flip face and the Card Detail badge zone share one editor.
     `upstream` has its entries read, and edits to it are refused with the
     reason. An unreadable `.bhnode` is a node-document matter outside this
     specification.
-  - **Attempted or sealed `.bhnode`:** a dangling bound entry is a historical
-    input. It reads "Moved or deleted since this result was made", in a neutral
-    style, and is not counted as an issue.
 - **Counts.**
   - The collapsed summary and the card toggle tooltip show "↑N upstream · ↓M
     downstream", counting nodes in any folder, plus "· K issues" when there are
@@ -882,16 +858,17 @@ The card flip face and the Card Detail badge zone share one editor.
   - Upstream: "Nothing flows into this card yet. Add upstream, or drag a
     connection into it on the canvas."
   - Downstream: "Nothing draws on this card yet."
-- **Cannot be downstream** (reserved outputs, sealed or imported Result
-  artifacts): Upstream is shown read-only with "This <kind> can't receive
+- **Cannot be downstream** (reserved outputs, and files that nodes show):
+  Upstream is shown read-only with "This <kind> can't receive
   upstream context." There is no Add Upstream, and Remove is unavailable.
-- **`.bhnode` rows** show their binding role or "Unassigned". Outside a Draft,
-  × on a bound entry is disabled, and its tooltip gives the reason.
+- **`.bhnode` rows** are plain entries, and × removes one in every phase of
+  the node. A Video node's panel shows its inputs with their names and how a
+  generation uses them ([Video node](video-node.md#inputs)).
 
 ### Wording
 
 UI copy uses "upstream", "downstream", and "connection". It avoids
-"reference", which is also an AI Video input role.
+"reference", which also names a Video node's reference mode.
 
 Every string the reference interface shows is written for someone who does not
 read code (D41):
@@ -979,16 +956,13 @@ are moves and follow the same rules.
 - **Undo.** The update adds no undo step of its own. Undoing a workbench move
   is a move back, which updates the entries back.
 - **Scope.** Entries inside a moved folder that name other items in the same
-  folder are updated too. A `.bhnode` binding `sourcePath` that matches an
-  updated entry in a Draft is rewritten in the same write.
-- **Not written now, written later.** A store in a running `.bhnode`, and a
-  document with unsaved changes when auto-save is off, are written when the
-  run ends or the document is saved or reverted. Until then the entry is
-  broken and shows as broken.
+  folder are updated too. A `.bhnode` is updated in every phase, a generating
+  one included: its generation recorded its inputs when it started.
+- **Not written now, written later.** A document with unsaved changes when
+  auto-save is off is written when it is saved or reverted. Until then the
+  entry is broken and shows as broken.
 - **Never written:**
-  - sealed or imported Result artifacts;
-  - in attempted or sealed `.bhnode` documents, bound entries, which keep
-    their historical paths. Unbound entries in those documents are updated;
+  - files that nodes show;
   - anything in a marked folder.
 - **Case-only rename.** On a case-insensitive file system the entries still
   match. Their spelling is updated, because other systems match exact
@@ -1002,10 +976,9 @@ are moves and follow the same rules.
   move rewrites legacy `references` and `referenced_by` items that name moved
   paths in every `badge.yaml`, as releases before D37 did, so an unmigrated
   pair stays complete. This touches only legacy keys, never an upstream value.
-- **Removed cascades.** The existing automatic recipe-input rewrite stage of
-  the move cascade is removed. So are the destructive binding cleanup on delete
-  and every badge-graph rewrite of other badges. Bindings to a deleted source
-  stay and show as a missing source.
+- **Removed cascades.** The move cascade rewrites no node input of its own,
+  a delete removes no entry by itself, and no badge graph of other badges is
+  rewritten.
 - **Outside the workbench.** A move made outside it (terminal commands,
   including an agent's own file tools, and other applications) is followed
   when BaseHalf recognizes the item at its new path: the card information
@@ -1046,7 +1019,6 @@ Each pair ends in exactly one outcome:
   the upstream entry. A pair whose entry was already present is also migrated.
 - **Deferred.** The write was refused or not saved for a reason the user can
   fix. The legacy keys stay, and the pair is offered again. Deferral reasons:
-  - a running node;
   - unsaved changes with auto-save off;
   - a conflict;
   - a read-only file;
@@ -1061,8 +1033,6 @@ Each pair ends in exactly one outcome:
   - self;
   - a workspace-root or `.bh/` endpoint;
   - a downstream that cannot be downstream;
-  - an unbound pair into a `.bhnode` whose recipe already has an Attempt or
-    Result, because that context never flowed into the result;
   - an item the legacy grammar rejected, a path with a control character, or a
     malformed legacy key.
 
@@ -1138,36 +1108,33 @@ opens the report.
   `basehalf.canvas.pendingTemplateSetups.v2`. Version 1 records from an older
   build are discarded, with a warning that names the setup.
 
-## Execution
+## Generation
 
-- Node execution reads the node's own `upstream` and bindings from the leased
-  document. It no longer reads any other store.
-- Readiness checks apply only when a Draft is submitted. Three conditions block
-  submission:
-  - an upstream entry with no binding;
-  - a dangling entry (source missing);
-  - a binding whose source is not listed in `upstream`.
-- Exact Retry and restart recovery use only the frozen Attempt payload and never
-  read `upstream`. Upstream edits after the first Attempt never block or alter
-  Retry.
-- Markdown input revisions and executor text inputs remain whole-file,
-  frontmatter included. Adding or removing an upstream entry in a Markdown file
-  changes its revision, and nodes bound to that file report the source as
-  changed.
+- A Video node's generation reads the node's own `upstream`, in order, from
+  its file ([Video node](video-node.md#inputs)). It reads no other store.
+- A dangling entry is an input that is not there: the panel shows it dimmed
+  with its reason, and it is not sent.
+- A generation records the paths it used in its task's request when it
+  starts. Upstream edits afterwards never change a generation that runs or
+  the record of a video that exists.
+- Markdown inputs are read whole, without their frontmatter, when the
+  generation starts.
 
 ## Capability discovery
 
 Discovery describes the new model. The node command bridge version increases,
 because both ends validate these literals.
 
-- `host.nodeDocument.inputBinding.scope` is `node-upstream`.
-- `host.contextEdge` states four things:
+- `host.nodeDocument` names the version 5 document, its node kinds, the
+  fields BaseHalf owns (`task` and `result`), the run command, and the
+  authoring contract of a Video node.
+- `host.contextEdge` states five things:
   - the downstream stores the edge;
   - the Markdown store is the `upstream` frontmatter key;
   - the node store is the `upstream` field;
-  - role and order stay owned by the target's recipe binding.
-- The authoring rules state that each binding's source must be listed in the
-  node's `upstream`.
+  - a `.bhnode` entry stands for the file the node shows (`node-result`);
+  - a Video node uses its inputs in the order of its `upstream` list.
+- Discovery lists no recipes (D58).
 - `host.operations` lists the template operation when templates are
   installed, and nothing otherwise. Host operation ids are reserved,
   including the retired `basehalf.workspace.move`: a plugin capability that
@@ -1221,7 +1188,7 @@ In a marked folder:
 | Model changed between planning and applying | Re-plan once, then refuse |
 | Save fails | Notice with Retry and Revert Change |
 | Partial multi-document failure | Report lists changed and unchanged documents, and is logged |
-| Node running | Write refused: "This node is running" |
+| `.bhnode` of an earlier version | No edges from it; it shows as unreadable, and every write to it is refused |
 | Index building | See [Consumers before ready](#consumers-before-ready) |
 
 ## Delivery
@@ -1237,7 +1204,8 @@ slice 4, or slice 5 without slice 3.
 3. **Reference store flip (D37).**
    - Entry grammar, planner, the three stores, the index, and the edit service.
    - Canvas, undo, badge editor, issues, delete, and copy.
-   - `.bhnode` version 4, with execution, discovery, and the bridge version.
+   - `.bhnode` version 4, with execution, discovery, and the bridge version
+     (replaced by version 5, D58).
    - Plugin guard, template materialization with pending setups version 2, and
      migration.
 4. **Rename refactor, Relink Everywhere, and ADHD `line_base`.**
@@ -1268,18 +1236,17 @@ slice 4, or slice 5 without slice 3.
      changes nothing.
    - A dirty rich editor on B neither reports a conflict nor reverts the entry.
    - With auto-save off and unsaved text in B, the connect is refused.
-4. Connecting into a Draft `.bhnode` writes `upstream` and its binding in one
-   write. The node rules hold:
-   - A version 3 document is read with `upstream` derived from its bindings and
-     is written as version 4.
-   - A version 4 document with one invalid item opens, shows the issue, and
-     blocks submission.
-   - A bound disconnect outside a Draft is refused.
-   - Every write is refused under a run lease.
-   - Copy settings yields `upstream: []`.
+4. Connecting into a `.bhnode` appends to its `upstream` in one write. The
+   node rules hold:
+   - A version 4 document is unreadable, and every write to it is refused.
+   - A version 5 document with one invalid item opens, shows the issue, and
+     does not use the item as an input.
+   - Connecting and disconnecting work in every phase, a generating node and
+     a node with a video included.
+   - A copy yields `upstream: []`.
 5. The sidecar store and target rules hold:
    - Connecting into a folder or PDF writes its `upstream.yaml`.
-   - Connecting into an outputs file or a sealed artifact is refused.
+   - Connecting into an outputs file or a file a node shows is refused.
    - An empty entry, or an entry under `.bh/`, is reported as invalid.
    - Move into File moves sidecar entries into a Markdown file's frontmatter.
 6. The index behaves as specified:
@@ -1298,8 +1265,7 @@ slice 4, or slice 5 without slice 3.
      including stores in excluded paths, and lists the skipped ones.
    - Skip leaves entries dangling, and a terminal move produces no prompt.
    - Planner unit tests cover a folder move, a case-only rename, an entry that
-     names a sibling inside the moved folder, a running node, and a sealed node
-     with bound and unbound entries.
+     names a sibling inside the moved folder, and nodes in every phase.
 9. Migration:
    - Complete legacy pairs are written after confirmation.
    - Every processed pair is recorded before any key is removed.
@@ -1330,11 +1296,10 @@ slice 4, or slice 5 without slice 3.
       point, not Quick Input. Escape writes nothing.
     - Note creates a note whose first bytes list the source in `upstream`. It
       draws the edge and opens inline editing.
-    - Image creates an image `.bhnode` with `upstream` naming the source and
-      no recipe.
-    - With one video generator installed, Video from an image offers that
-      recipe's image roles. Choosing one writes the recipe and that binding in
-      the first bytes. Video is not offered from a text source.
+    - Image creates an empty image `.bhnode` of version 5 with `upstream`
+      naming the source.
+    - Video is offered from every source, a text source included, and
+      creates an empty Video node whose first input is the source.
     - One canvas undo removes a created `.bhnode`, its card, and its edge. A
       later canvas action, undone and redone in another folder, redoes that
       action and not the removed node.

@@ -336,6 +336,7 @@ group whose slot is taken.
 | Create a card from a connection line | pointed: the side of the new card that the line enters is centered on the point where the line was released |
 | Create a card without a point: the Create button, or a keyboard command | computed: the middle of the visible part of the canvas |
 | Create a note from a selection in a PDF | computed: beside the PDF's card |
+| Generate from a Video node that holds a video, in the window or with `basehalf --run-node` | computed: 40 to the right of the original card, for the new node ([Video node](video-node.md#generating-again)) |
 | Drop, paste, or move files and folders onto the canvas at a point | for the item at position *i* of *n*: slot *i* of a block of cells that starts at the point and has as many columns as the square root of *n*, rounded up, and at most 4 |
 | Anything else: a file that a program or an agent adds, a card that is dragged onto a folder card, a move in the file tree, a move outside BaseHalf | none |
 

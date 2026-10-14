@@ -12,7 +12,7 @@ import { INotificationService, Severity } from '../../../platform/notification/c
 import { IUndoRedoService, IWorkspaceUndoRedoElement, UndoRedoElementType, UndoRedoGroup, UndoRedoSource } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { baseHalfUserFacingErrorMessage } from './basehalfPlainFailureReason.js';
-import { IBaseHalfNodeDocument, IBaseHalfNodeInputBinding, IBaseHalfNodeUpstreamBindingRequest } from './basehalfNodeDocument.js';
+import { IBaseHalfNodeDocument } from './basehalfNodeDocument.js';
 import { IBaseHalfUpstreamItemValue } from './basehalfReferenceEntries.js';
 import { BaseHalfUpstreamStoreKind, baseHalfUpstreamItemsEqual } from './basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationStamp } from './basehalfWorkspaceMutation.js';
@@ -22,25 +22,22 @@ export const IBaseHalfReferenceEditService = createDecorator<IBaseHalfReferenceE
 /** Application-scope storage key of the one-time first-frontmatter notice. */
 export const BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY = 'basehalf.references.firstFrontmatterNotice.v1';
 
-/** How long a Markdown connect waits for the index's sealed-artifact check. */
+/** How long a Markdown connect waits for the index's result-artifact check. */
 export const BASEHALF_REFERENCE_INDEX_WAIT_MS = 10_000;
 /** How long the edit service waits for the open projections of a document to flush. */
 export const BASEHALF_REFERENCE_FLUSH_TIMEOUT_MS = 2_000;
 
 /**
- * The state of one store as canvas undo compares it: the ordered items
- * (valid and invalid) and, for `.bhnode` documents, the recipe bindings.
+ * The state of one store as canvas undo compares it: the ordered items, valid
+ * and invalid.
  */
 export interface IBaseHalfUpstreamStoreSnapshot {
 	readonly items: readonly IBaseHalfUpstreamItemValue[];
-	/** `.bhnode` only. */
-	readonly bindings?: readonly IBaseHalfNodeInputBinding[];
 	/**
 	 * `.bhnode` only, recorded by a `nodeDocument` operation: the whole
-	 * document in its serialized form. A Composer or node-surface save changes
-	 * other fields (title, prompt, recipe parameters) in the same write as the
-	 * upstream list and bindings, so canvas undo compares and restores the
-	 * whole document.
+	 * document in its serialized form. A Video node store write changes other
+	 * fields (the prompt, the settings, the order of the inputs) in the same
+	 * write, so canvas undo compares and restores the whole document.
 	 */
 	readonly document?: string;
 }
@@ -48,7 +45,6 @@ export interface IBaseHalfUpstreamStoreSnapshot {
 /** Whether two store snapshots are identical. */
 export function baseHalfUpstreamSnapshotsEqual(left: IBaseHalfUpstreamStoreSnapshot, right: IBaseHalfUpstreamStoreSnapshot): boolean {
 	return baseHalfUpstreamItemsEqual(left.items, right.items)
-		&& JSON.stringify(left.bindings ?? []) === JSON.stringify(right.bindings ?? [])
 		&& (left.document ?? null) === (right.document ?? null);
 }
 
@@ -58,18 +54,16 @@ export function baseHalfUpstreamSnapshotsEqual(left: IBaseHalfUpstreamStoreSnaps
  * in the Unicode form of the name on disk and without a trailing slash.
  */
 export type BaseHalfReferenceEditOperation =
-	/** Appends an entry (connect, Add Upstream, Add Downstream, Composer Pick).
-	 * `binding` (`.bhnode` Draft with a recipe only) binds it in the same
-	 * write; an already listed unbound entry is bound, never listed twice. */
-	| { readonly kind: 'add'; readonly entry: string; readonly binding?: IBaseHalfNodeUpstreamBindingRequest }
+	/** Appends an entry (connect, Add Upstream, Add Downstream, a Video node's
+	 * Pick on Canvas). An entry that is already listed is never listed twice. */
+	| { readonly kind: 'add'; readonly entry: string }
 	/** Removes every item naming the entry (disconnect, ×). */
 	| { readonly kind: 'remove'; readonly entry: string }
 	/** Replaces the entry in place (source-end reconnect, Relink). */
 	| { readonly kind: 'replace'; readonly from: string; readonly to: string }
 	/** Replaces several entries in place in one write (rename refactor, Relink
-	 * Everywhere). Each replacement follows `replace`; a `.bhnode` binding
-	 * whose `sourcePath` names a replaced entry of a Draft is rewritten in the
-	 * same write. With `onlyDangling`, the write re-checks under the workspace
+	 * Everywhere). Each replacement follows `replace`. With `onlyDangling`,
+	 * the write re-checks under the workspace
 	 * mutation lease that the old path of every replacement other than a
 	 * spelling-only one still names no node, and refuses the store with
 	 * `entryResolves` otherwise. */
@@ -93,12 +87,12 @@ export type BaseHalfReferenceEditOperation =
 	 * not the node's own store (undo of Move into File re-creates the node's
 	 * misplaced `sidecar`); it defaults to the node's own store. */
 	| { readonly kind: 'transition'; readonly from: IBaseHalfUpstreamStoreSnapshot; readonly to: IBaseHalfUpstreamStoreSnapshot; readonly store?: BaseHalfUpstreamStoreKind }
-	/** Composer input changes and node-surface saves of a `.bhnode` document:
-	 * writes `next`, whose upstream list and bindings change together with its
-	 * other fields, in one write when the document on disk still has the bytes
-	 * `expected`, and refuses with `changedSinceEdit` otherwise. Its result
-	 * snapshots carry the whole document, so canvas undo restores the other
-	 * fields with the list. `.bhnode` stores only. */
+	/** A Video node store write of a `.bhnode` document: writes `next`, whose
+	 * upstream list may change together with its other fields, in one write
+	 * when the document on disk still has the bytes `expected`, and refuses
+	 * with `changedSinceEdit` otherwise. Its result snapshots carry the whole
+	 * document, so canvas undo restores the other fields with the list.
+	 * `.bhnode` stores only. */
 	| { readonly kind: 'nodeDocument'; readonly expected: VSBuffer; readonly next: IBaseHalfNodeDocument };
 
 /** One in-place entry replacement of a `replaceEntries` operation. */
@@ -186,25 +180,16 @@ export type BaseHalfReferenceRefusalReason =
 	| 'notWritable'
 	/** Another tool keeps a value where the upstream list goes. */
 	| 'foreign'
-	/** The target is in the reserved outputs tree or is a sealed or imported
-	 * Result artifact: BaseHalf never changes its store, including removals. */
+	/** The target is in the reserved outputs tree or is the file a `.bhnode`
+	 * shows as its result: BaseHalf never changes its store, including removals. */
 	| 'upstreamOnly'
 	/** The Markdown or `.bhnode` store is a symbolic link, lies below one, or
 	 * resolves outside its workspace folder. BaseHalf never writes through links. */
 	| 'symbolicLink'
 	/** "Still loading connections": the index did not finish within 10 s. */
 	| 'indexLoading'
-	/** "This node is running". */
-	| 'running'
 	/** "This node already has 64 upstream entries". */
 	| 'limit'
-	/** A bound `.bhnode` entry or binding changes only in a Draft. */
-	| 'boundOutsideDraft'
-	/** A connect into a `.bhnode` with a recipe and an Attempt or Result:
-	 * "Copy its settings to a new Draft". */
-	| 'recipeFrozen'
-	/** A binding was requested for a node without a Draft recipe, or it conflicts. */
-	| 'binding'
 	/** A sidecar write in a folder marked with `.basehalf-no-workspace-setup`. */
 	| 'markedFolder'
 	/** The downstream node does not exist. */
@@ -297,7 +282,7 @@ export interface IBaseHalfReferenceEditService {
 	readonly onDidCreateFrontmatter: Event<IBaseHalfWorkspaceResource>;
 
 	/** Adds `entry` to `node`'s upstream list. */
-	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions, binding?: IBaseHalfNodeUpstreamBindingRequest): Promise<IBaseHalfReferenceEditResult>;
+	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
 	/** Removes `entry` from `node`'s upstream list. */
 	remove(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
 	/** Replaces `from` with `to` in place in `node`'s upstream list. */
@@ -308,7 +293,7 @@ export interface IBaseHalfReferenceEditService {
 	 * saved. If the add fails, `from` is not touched; if the removal fails
 	 * after the add, both entries remain. Either failure is reported.
 	 */
-	move(entry: string, from: IBaseHalfWorkspaceResource, to: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions, binding?: IBaseHalfNodeUpstreamBindingRequest): Promise<IBaseHalfReferenceEditResult>;
+	move(entry: string, from: IBaseHalfWorkspaceResource, to: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult>;
 	/**
 	 * Runs one operation over several stores: preflight of every store (which
 	 * writes nothing on failure), then every Markdown edit in one bulk edit and

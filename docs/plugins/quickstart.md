@@ -5,6 +5,14 @@
 > BaseHalf does not install or load plugins from the catalog, and submissions
 > are not accepted.
 
+> **Removed by D58.** Recipes, recipe executors, the reviewed model and
+> provider connection catalogs, connection validators, and model service
+> access for extensions are gone
+> ([D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)). A Video node is a prompt over its
+> connections, run by the user's own providers
+> ([Video node](../specs/video-node.md)). Where this page describes them,
+> it records the platform as it was built.
+
 ## Prerequisites
 
 - Node.js 22.12 or newer

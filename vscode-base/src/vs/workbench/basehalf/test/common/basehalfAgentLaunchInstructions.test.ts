@@ -43,10 +43,11 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'BaseHalf updates them when it sees the move',
 			'list those files under the new note\'s `upstream`',
 			'basehalf --list-capabilities',
+			'BaseHalf writes `task` and `result`',
 			'basehalf --run-node',
+			'prints the path of the node that runs',
 			'only for operations that discovery returned',
-			'Never author attempts or results',
-			'Accepted runs continue after the session closes',
+			'A generation continues after the session closes',
 			'only inside Agent Area terminals'
 		];
 		const positions = order.map(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.indexOf(phrase));
@@ -54,9 +55,9 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 		assert.deepStrictEqual(positions, [...positions].sort((a, b) => a - b));
 	});
 
-	test('never points agents at the retired focus mirror, the agent harness, or the retired move operation', () => {
+	test('never points agents at the retired focus mirror, the agent harness, the retired move operation, or recipes', () => {
 		assert.deepStrictEqual(
-			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness', 'basehalf.workspace.move', 'instead of `mv`'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
+			['.bh/current_focus.yaml', '/focus.yaml', 'agent-harness', 'basehalf.workspace.move', 'instead of `mv`', 'recipe', 'attempt', 'slot'].filter(phrase => BASEHALF_AGENT_LAUNCH_INSTRUCTIONS.includes(phrase)),
 			[]
 		);
 	});

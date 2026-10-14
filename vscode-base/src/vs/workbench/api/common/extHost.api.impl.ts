@@ -1953,21 +1953,6 @@ export function createApiFactoryAndRegisterActors(accessor: ServicesAccessor): I
 		};
 
 		const basehalf: typeof vscode.basehalf = {
-			get onDidChangeModelServices() {
-				return extHostBaseHalf.onDidChangeModelServices;
-			},
-			registerModelProviderConnectionValidator(specId, validator) {
-				return extHostBaseHalf.registerModelProviderConnectionValidator(extension, specId, validator);
-			},
-			registerCanvasRecipeExecutor(recipeId, executor) {
-				return extHostBaseHalf.registerCanvasRecipeExecutor(extension, recipeId, executor);
-			},
-			getModelServices(capability) {
-				return extHostBaseHalf.getModelServices(extension, capability);
-			},
-			getModelServiceAccess(snapshot) {
-				return extHostBaseHalf.getModelServiceAccess(extension, snapshot);
-			},
 			inspectCanvasNode(resource) {
 				return extHostBaseHalf.inspectCanvasNode(extension, resource);
 			},

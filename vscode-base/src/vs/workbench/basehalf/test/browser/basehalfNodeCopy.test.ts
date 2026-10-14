@@ -12,13 +12,12 @@ import { InMemoryFileSystemProvider } from '../../../../platform/files/common/in
 import { NullLogService } from '../../../../platform/log/common/log.js';
 import { BASEHALF_NODE_COPY_MAX_CANDIDATES, forkCopiedBaseHalfNodeTrees, forkPartiallyCopiedBaseHalfNodeTrees, prepareBaseHalfNodeCopyPlans } from '../../browser/basehalfNodeCopy.js';
 import {
-	beginBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
-	failBaseHalfNodeAttempt,
 	IBaseHalfNodeDocument,
 	parseBaseHalfNodeDocument,
 	serializeBaseHalfNodeDocument
 } from '../../common/basehalfNodeDocument.js';
+import { IBaseHalfVideoGenerationRecord } from '../../common/basehalfVideoNode.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 
 suite('BaseHalfNodeCopy', () => {
@@ -32,7 +31,7 @@ suite('BaseHalfNodeCopy', () => {
 		await fileService.createFolder(root);
 	});
 
-	test('turns every valid copied node into independent settings while leaving ordinary files untouched', async () => {
+	test('turns every valid copied node into a new node with the same title, prompt, and settings, leaving ordinary files untouched', async () => {
 		const source = URI.joinPath(root, 'Original shot');
 		const sourceNested = URI.joinPath(source, 'nested');
 		const target = URI.joinPath(root, 'Copied shot');
@@ -46,7 +45,7 @@ suite('BaseHalfNodeCopy', () => {
 		const ordinaryResource = URI.joinPath(target, 'brief.md');
 		const existingResource = URI.joinPath(target, 'existing.bhnode');
 		const original = nodeWithHistory();
-		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(2), kind: 'image', title: 'Existing', role: 'Keep' });
+		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(2), kind: 'image', title: 'Existing' });
 		await fileService.writeFile(sourceNodeResource, VSBuffer.fromString(serializeBaseHalfNodeDocument(original)));
 		await fileService.writeFile(sourceInvalidResource, VSBuffer.fromString('{ not a node }'));
 		const plans = await prepareBaseHalfNodeCopyPlans(fileService, [{ source, target }]);
@@ -68,20 +67,14 @@ suite('BaseHalfNodeCopy', () => {
 		const retained = parseBaseHalfNodeDocument((await fileService.readFile(existingResource)).value.toString());
 
 		assert.deepStrictEqual(forked.map(resource => resource.toString()), [nodeResource.toString()]);
-		assert.strictEqual(copied.id, baseHalfNodeTestId(3));
-		assert.strictEqual(copied.kind, 'image');
-		assert.strictEqual(copied.title, 'Hero frame');
-		assert.strictEqual(copied.role, 'Key visual');
-		assert.strictEqual(copied.prompt, 'A warm editorial hero frame.');
-		assert.strictEqual(copied.result, undefined);
-		assert.deepStrictEqual(copied.attempts, []);
-		assert.deepStrictEqual(copied.recipe, {
-			recipeId: 'official.image.generate',
-			modelServiceId: 'studio.image',
-			modelId: 'image-v2',
-			parameters: { aspectRatio: '16:9' },
-			inputBindings: []
-		});
+		assert.deepStrictEqual(copied, createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(3),
+			kind: 'video',
+			title: 'Hero shot',
+			prompt: 'A warm editorial hero shot.',
+			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+		}));
+		assert.deepStrictEqual([copied.upstream, copied.task, copied.result], [[], undefined, undefined]);
 		assert.strictEqual((await fileService.readFile(invalidResource)).value.toString(), '{ not a node }');
 		assert.strictEqual((await fileService.readFile(ordinaryResource)).value.toString(), 'Keep me');
 		assert.strictEqual(retained.id, baseHalfNodeTestId(2));
@@ -98,15 +91,9 @@ suite('BaseHalfNodeCopy', () => {
 			id: baseHalfNodeTestId(4),
 			kind: 'video',
 			title: 'Changed before copy',
-			role: 'Motion',
+			prompt: 'Image 1 opens the scene.',
 			upstream: ['frame.bhnode', 'notes/brief.md'],
-			recipe: {
-				recipeId: 'official.video.generate',
-				modelServiceId: 'studio.video',
-				modelId: 'video-v3',
-				parameters: { seconds: 8 },
-				inputBindings: [{ sourcePath: 'frame.bhnode', slot: 'image', order: 0 }]
-			}
+			generation: { model: 'video-v3', mode: 'reference', ratio: '9:16', resolution: '1080p', duration: 8, audio: false }
 		});
 		await fileService.writeFile(source, VSBuffer.fromString(serializeBaseHalfNodeDocument(changed)));
 		await fileService.writeFile(target, VSBuffer.fromString(serializeBaseHalfNodeDocument(changed)));
@@ -116,15 +103,10 @@ suite('BaseHalfNodeCopy', () => {
 		assert.strictEqual(copied.id, baseHalfNodeTestId(5));
 		assert.strictEqual(copied.kind, 'video');
 		assert.strictEqual(copied.title, 'Changed before copy');
+		assert.strictEqual(copied.prompt, 'Image 1 opens the scene.');
 		// The copy starts with no upstream list: its connections are not inherited.
 		assert.deepStrictEqual(copied.upstream, []);
-		assert.deepStrictEqual(copied.recipe, {
-			recipeId: 'official.video.generate',
-			modelServiceId: 'studio.video',
-			modelId: 'video-v3',
-			parameters: { seconds: 8 },
-			inputBindings: []
-		});
+		assert.deepStrictEqual(copied.generation, changed.generation);
 	});
 
 	test('fails closed when the source gains a result node after copy preparation', async () => {
@@ -162,8 +144,8 @@ suite('BaseHalfNodeCopy', () => {
 		);
 		const retained = parseBaseHalfNodeDocument((await fileService.readFile(targetNode)).value.toString());
 		assert.strictEqual(retained.id, baseHalfNodeTestId(1));
-		assert.strictEqual(retained.title, 'Hero frame');
-		assert.strictEqual(retained.attempts.length, 1);
+		assert.strictEqual(retained.title, 'Hero shot');
+		assert.strictEqual(retained.result?.source, 'generated');
 	});
 
 	test('keeps a newly materialized target unchanged when an unobserved late source disappeared', async () => {
@@ -191,7 +173,7 @@ suite('BaseHalfNodeCopy', () => {
 		await fileService.createFolder(target);
 		const sourceNode = URI.joinPath(source, 'removed.bhnode');
 		const targetNode = URI.joinPath(target, 'removed.bhnode');
-		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(10), kind: 'image', title: 'Keep', role: 'Existing' });
+		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(10), kind: 'image', title: 'Keep' });
 		await fileService.writeFile(sourceNode, VSBuffer.fromString(serializeBaseHalfNodeDocument(nodeWithHistory())));
 		await fileService.writeFile(targetNode, VSBuffer.fromString(serializeBaseHalfNodeDocument(existing)));
 		const plans = await prepareBaseHalfNodeCopyPlans(fileService, [{ source, target }]);
@@ -211,7 +193,7 @@ suite('BaseHalfNodeCopy', () => {
 		await fileService.createFolder(target);
 		const sourceNode = URI.joinPath(source, 'frame.bhnode');
 		const targetNode = URI.joinPath(target, 'frame.bhnode');
-		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(12), kind: 'image', title: 'Existing target', role: 'Keep' });
+		const existing = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(12), kind: 'image', title: 'Existing target' });
 		await fileService.writeFile(sourceNode, VSBuffer.fromString(serializeBaseHalfNodeDocument(nodeWithHistory())));
 		await fileService.writeFile(targetNode, VSBuffer.fromString(serializeBaseHalfNodeDocument(existing)));
 		const plans = await prepareBaseHalfNodeCopyPlans(fileService, [{ source, target }]);
@@ -245,7 +227,7 @@ suite('BaseHalfNodeCopy', () => {
 		const retained = parseBaseHalfNodeDocument((await fileService.readFile(target)).value.toString());
 		assert.strictEqual(retained.id, original.id);
 		assert.strictEqual(retained.title, 'Edited copied node');
-		assert.deepStrictEqual(retained.attempts, original.attempts);
+		assert.deepStrictEqual(retained.result, original.result);
 	});
 
 	test('bounds the number of result declarations inspected before a copy', async () => {
@@ -271,7 +253,7 @@ suite('BaseHalfNodeCopy', () => {
 		const targetCopied = URI.joinPath(target, 'copied.bhnode');
 		const targetUntouched = URI.joinPath(target, 'untouched.bhnode');
 		const copiedSource = nodeWithHistory();
-		const untouchedTarget = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(6), kind: 'audio', title: 'Existing', role: 'Keep' });
+		const untouchedTarget = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(6), kind: 'audio', title: 'Existing' });
 		await fileService.writeFile(sourceCopied, VSBuffer.fromString(serializeBaseHalfNodeDocument(copiedSource)));
 		await fileService.writeFile(sourceUntouched, VSBuffer.fromString(serializeBaseHalfNodeDocument(copiedSource)));
 		await fileService.writeFile(targetUntouched, VSBuffer.fromString(serializeBaseHalfNodeDocument(untouchedTarget)));
@@ -286,42 +268,35 @@ suite('BaseHalfNodeCopy', () => {
 		assert.deepStrictEqual(forked.map(resource => resource.toString()), [targetCopied.toString()]);
 		assert.strictEqual(separated.id, baseHalfNodeTestId(7));
 		assert.strictEqual(separated.result, undefined);
-		assert.deepStrictEqual(separated.attempts, []);
+		assert.strictEqual(separated.prompt, 'A warm editorial hero shot.');
 		assert.strictEqual(retained.id, baseHalfNodeTestId(6));
 		assert.strictEqual(retained.title, 'Existing');
 	});
 
 	function nodeWithHistory(): IBaseHalfNodeDocument {
-		let document = createBaseHalfNodeDocument({
+		const request: IBaseHalfVideoGenerationRecord = {
+			provider: 'ark',
+			model: 'doubao-seedance-2-5-260628',
+			prompt: 'A warm editorial hero shot.',
+			inputs: ['brief.md'],
+			mode: 'frames',
+			ratio: '16:9',
+			resolution: '720p',
+			duration: 5,
+			audio: true
+		};
+		return createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
-			kind: 'image',
-			title: 'Hero frame',
-			role: 'Key visual',
-			prompt: 'A warm editorial hero frame.',
-			recipe: {
-				recipeId: 'official.image.generate',
-				modelServiceId: 'studio.image',
-				modelId: 'image-v2',
-				parameters: { aspectRatio: '16:9' },
-				inputBindings: [{ sourcePath: 'brief.md', slot: 'prompt', order: 0 }]
+			kind: 'video',
+			title: 'Hero shot',
+			prompt: 'A warm editorial hero shot.',
+			upstream: ['brief.md'],
+			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true },
+			result: {
+				source: 'generated',
+				artifact: { kind: 'video', path: `outputs/${baseHalfNodeTestId(1)}/task-1.mp4`, size: 2048 },
+				generation: { taskId: 'task-1', remoteId: 'cgt-1', startedAt: '2026-10-15T08:00:00.000Z', completedAt: '2026-10-15T08:03:00.000Z', request }
 			}
-		});
-		document = beginBaseHalfNodeAttempt(document, {
-			id: 'run-1',
-			createdAt: '2026-07-18T10:01:00Z',
-			startedAt: '2026-07-18T10:01:00Z',
-			model: {
-				source: 'service',
-				connection: 'unavailable',
-				serviceId: 'studio.image',
-				capability: 'image',
-				modelId: 'image-v2'
-			},
-			inputs: []
-		});
-		return failBaseHalfNodeAttempt(document, 'run-1', {
-			completedAt: '2026-07-18T10:01:01Z',
-			error: 'Stopped'
 		});
 	}
 });

@@ -31,8 +31,6 @@ import { UndoRedoService } from '../../../../platform/undoRedo/common/undoRedoSe
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { TestStorageService } from '../../../test/common/workbenchTestServices.js';
-import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
-import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 import {
 	BASEHALF_CANVAS_CARD_CONTEXT_MENU,
 	BASEHALF_CANVAS_NEW_RESULT_NODE_MENU,
@@ -44,9 +42,9 @@ import {
 import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService } from '../../common/basehalfCanvasEditing.js';
 import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../common/basehalfCanvasNavigation.js';
-import { BaseHalfCanvasRecipeRegistryService, IBaseHalfCanvasRecipeRegistryService } from '../../common/basehalfCanvasRecipes.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../../common/basehalfCanvasTemplate.js';
-import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, createBaseHalfNodeDocument, parseBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { BaseHalfCanvasTemplateRegistryService, IBaseHalfCanvasTemplateRegistryService } from '../../common/basehalfCanvasTemplateRegistry.js';
+import { parseBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
@@ -127,35 +125,6 @@ suite('BaseHalf canvas context menu', () => {
 			await command.handler(accessor);
 		}
 		assert.deepStrictEqual(requests, resultCommands.map(([, kind]) => [undefined, 'resultNode', kind]));
-	});
-
-	test('registers a hidden workspace-only run command that delegates to the node execution service', async () => {
-		const command = CommandsRegistry.getCommand(BASEHALF_CANVAS_RUN_NODE_COMMAND_ID);
-		assert.ok(command);
-		assert.strictEqual(MenuRegistry.getMenuItems(MenuId.CommandPalette)
-			.filter(isIMenuItem)
-			.some(item => item.command.id === BASEHALF_CANVAS_RUN_NODE_COMMAND_ID), false);
-		const workspaceFolder = URI.file('/workspace');
-		const resource = URI.file('/workspace/frame.bhnode');
-		const result = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'image', title: 'Frame', role: 'result' });
-		let received: unknown;
-		const accessor = {
-			get: <T>(service: unknown): T => {
-				if (service === IWorkspaceContextService) {
-					return { getWorkspaceFolder: (candidate: URI) => candidate.path.startsWith('/workspace/') ? { uri: workspaceFolder, name: 'workspace', index: 0 } : null } as T;
-				}
-				if (service === IBaseHalfNodeExecutionService) {
-					return { run: async (node: unknown) => { received = node; return result; } } as T;
-				}
-				throw new Error('Unexpected service');
-			}
-		} as ServicesAccessor;
-
-		assert.strictEqual(await command.handler(accessor, resource), result);
-		assert.deepStrictEqual(received, { resource, workspaceFolder, relativePath: 'frame.bhnode' });
-		assert.doesNotThrow(() => JSON.stringify(result));
-		await assert.rejects(async () => command.handler(accessor, URI.file('/outside/frame.bhnode')), /inside the current workspace/);
-		assert.throws(() => command.handler(accessor, 'frame.bhnode'), /workspace node URI/);
 	});
 
 	test('normalizes template folder labels to portable project segments', () => {
@@ -313,7 +282,7 @@ suite('BaseHalf canvas context menu', () => {
 				{ path: 'script.md', contents: '# Script\n' },
 				{ path: 'shot.json', contents: '{}\n' }
 			],
-			nodes: [{ path: 'frame.bhnode', kind: 'image', title: 'Frame', role: 'Storyboard frame' }],
+			nodes: [{ path: 'frame.bhnode', kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.' }],
 			cards: [],
 			references: [
 				{ from: 'script.md', to: 'brief.md', fromAnchor: 'east', toAnchor: 'west' },
@@ -331,14 +300,15 @@ suite('BaseHalf canvas context menu', () => {
 			brief: await read('brief.md'),
 			script: await read('script.md'),
 			shot: await read('shot.json'),
-			frameUpstream: parseBaseHalfNodeDocument(await read('frame.bhnode')).upstream,
+			frame: (({ version, kind, title, prompt, upstream }) => ({ version, kind, title, prompt, upstream }))(parseBaseHalfNodeDocument(await read('frame.bhnode'))),
 			referenceEdits: harness.referenceEdits,
 			pending: harness.storageService.get(PENDING_TEMPLATE_SETUPS_STORAGE_KEY, StorageScope.WORKSPACE)
 		}, {
 			brief: '---\ntitle: Brief\nupstream:\n  - Starter/script.md\n---\n# Brief\n',
 			script: '---\nupstream:\n  - Starter/brief.md\n---\n# Script\n',
 			shot: '{}\n',
-			frameUpstream: ['Starter/shot.json'],
+			// A Video node of version 5, empty but for its title, prompt, and inputs.
+			frame: { version: 5, kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.', upstream: ['Starter/shot.json'] },
 			referenceEdits: [{
 				node: 'Starter/shot.json',
 				operation: {
@@ -497,17 +467,7 @@ async function createTemplateHarness(
 	const templateSource = options.templateSource ?? JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n\nKeep the subject centered.\n' }],
-		nodes: [{
-			path: 'frame.bhnode',
-			kind: 'image',
-			title: 'Frame',
-			role: 'Storyboard frame',
-			recipe: {
-				recipeId: 'studio.test.frame',
-				parameters: {},
-				inputBindings: [{ sourcePath: 'brief.md', slot: 'prompt', order: 0 }]
-			}
-		}],
+		nodes: [{ path: 'frame.bhnode', kind: 'image', title: 'Frame' }],
 		cards: [
 			{ path: 'brief.md', x: 40, y: 80, width: 240, height: 140 },
 			{ path: 'frame.bhnode', x: 380, y: 80, width: 260, height: 180 }
@@ -516,14 +476,8 @@ async function createTemplateHarness(
 	});
 	await fileService.createFile(joinPath(extensionLocation, 'starter.json'), VSBuffer.fromString(templateSource));
 
-	const recipes = disposables.add(new BaseHalfCanvasRecipeRegistryService());
-	disposables.add(recipes.registerRecipe('studio.test', {
-		id: 'studio.test.frame',
-		label: 'Frame',
-		inputs: [{ id: 'prompt', label: 'Prompt', accepts: ['text'], minItems: 1, maxItems: 1 }],
-		outputs: [{ id: 'frame', kind: 'image', extensions: ['.svg'], minItems: 1, maxItems: 1, primary: true }]
-	}));
-	disposables.add(recipes.registerTemplate('studio.test', extensionLocation, {
+	const templates = disposables.add(new BaseHalfCanvasTemplateRegistryService());
+	disposables.add(templates.registerTemplate('studio.test', extensionLocation, {
 		id: TEMPLATE_ID,
 		label: 'Starter',
 		resource: 'starter.json'
@@ -594,7 +548,7 @@ async function createTemplateHarness(
 		})
 	} as unknown as IWorkspaceContextService;
 	const services = new Map<unknown, unknown>([
-		[IBaseHalfCanvasRecipeRegistryService, recipes],
+		[IBaseHalfCanvasTemplateRegistryService, templates],
 		[IFileService, fileService],
 		[IBaseHalfCanvasNavigationService, navigation],
 		[IBaseHalfCanvasEditingService, editing],

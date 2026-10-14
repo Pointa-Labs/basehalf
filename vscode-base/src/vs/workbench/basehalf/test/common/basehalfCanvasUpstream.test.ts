@@ -10,7 +10,6 @@ import {
 	baseHalfCanvasConnectionSummary,
 	baseHalfCanvasDeleteImpact,
 	baseHalfCanvasResolveSiblingUpstream,
-	baseHalfNodeUpstreamWithSourceChanges,
 	baseHalfOrderUpstreamPickerCandidates,
 	baseHalfUniqueUpstreamNameMatch,
 	baseHalfUpstreamEntryMessage,
@@ -75,14 +74,13 @@ suite('BaseHalfCanvasUpstream', () => {
 		]);
 	});
 
-	test('explains dangling, historical, and invalid rows without the word reference', () => {
+	test('explains dangling and invalid rows without the word reference', () => {
 		const messages = [
-			baseHalfUpstreamEntryMessage({ status: 'dangling', problem: undefined, historical: false }),
-			baseHalfUpstreamEntryMessage({ status: 'dangling', problem: undefined, historical: true }),
-			baseHalfUpstreamEntryMessage({ status: 'invalid', problem: 'metadata', historical: false }),
-			baseHalfUpstreamEntryMessage({ status: 'invalid', problem: 'empty', historical: false })
+			baseHalfUpstreamEntryMessage({ status: 'dangling', problem: undefined }),
+			baseHalfUpstreamEntryMessage({ status: 'invalid', problem: 'metadata' }),
+			baseHalfUpstreamEntryMessage({ status: 'invalid', problem: 'empty' })
 		];
-		assert.strictEqual(messages[1], 'Moved or deleted since this result was made');
+		assert.strictEqual(messages[0], 'Nothing at this path. It was moved or deleted.');
 		assert.ok(messages.every(message => message.length > 0 && !/reference/i.test(message)));
 	});
 
@@ -92,7 +90,7 @@ suite('BaseHalfCanvasUpstream', () => {
 		const messages = [
 			...(['markdown', 'sidecar', 'node'] as const).flatMap(storeKind => storeProblems.map(problem => baseHalfUpstreamStoreProblemMessage(storeKind, problem))),
 			baseHalfUpstreamStoreProblemMessage('sidecar', undefined, 'permission denied'),
-			...entryProblems.map(problem => baseHalfUpstreamEntryMessage({ status: 'invalid', problem, historical: false }))
+			...entryProblems.map(problem => baseHalfUpstreamEntryMessage({ status: 'invalid', problem }))
 		];
 		assert.deepStrictEqual(messages.filter(message => message === '' || /`|frontmatter|yaml|toml|json|metadata|sidecar|\.bh|node document|\bkey\b|mapping|anchor|alias|scalar/i.test(message)), []);
 		assert.deepStrictEqual({
@@ -122,19 +120,14 @@ suite('BaseHalfCanvasUpstream', () => {
 		);
 	});
 
-	test('finds the downstream stores that name deleted items, leaving historical inputs and deleted stores alone', () => {
+	test('finds the downstream stores that name deleted items, nodes in every phase included, leaving deleted stores alone', () => {
 		const stores: IBaseHalfIndexedStore[] = [
 			markdownStore('notes/a.md', ['book.pdf', 'other.md']),
 			markdownStore('notes/b.md', ['src', 'src/inner.md', 'book.pdf']),
 			// Inside a deleted folder: it goes away with the folder.
 			markdownStore('src/inside.md', ['book.pdf']),
-			// A sealed node keeps its bound input as history; its unbound entry is removable.
-			{
-				...markdownStore('video.bhnode', ['book.pdf', 'src/inner.md']),
-				storeKind: 'node',
-				lifecycle: 'sealed',
-				bindings: [{ sourcePath: 'book.pdf', slot: 'reference', order: 0 }]
-			},
+			// A node's entries are removed whatever its phase.
+			{ ...markdownStore('video.bhnode', ['book.pdf', 'src/inner.md']), storeKind: 'node' },
 			// An inactive sidecar contributes nothing.
 			{ ...markdownStore('folder', ['book.pdf']), storeKind: 'sidecar', sidecarState: 'missingNode' }
 		];
@@ -143,17 +136,8 @@ suite('BaseHalfCanvasUpstream', () => {
 			[
 				{ node: 'notes/a.md', entries: ['book.pdf'] },
 				{ node: 'notes/b.md', entries: ['src', 'src/inner.md', 'book.pdf'] },
-				{ node: 'video.bhnode', entries: ['src/inner.md'] }
+				{ node: 'video.bhnode', entries: ['book.pdf', 'src/inner.md'] }
 			]
-		);
-	});
-
-	test('updates a node upstream list in place for Composer picks, replacements, and removals', () => {
-		const upstream = ['brief.md', { note: 'kept verbatim' }, 'Frame.png', 'old.png'];
-		assert.deepStrictEqual(
-			// Replace old.png with new.png; pick brief.md again (already listed) and frame.png (listed with other case).
-			baseHalfNodeUpstreamWithSourceChanges(upstream, ['old.png'], ['new.png', 'brief.md', 'frame.png'], CASE_INSENSITIVE),
-			['brief.md', { note: 'kept verbatim' }, 'Frame.png', 'new.png']
 		);
 	});
 

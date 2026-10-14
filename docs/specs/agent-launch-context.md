@@ -140,13 +140,17 @@ The instruction covers the following, in this order.
      date. Follow this instruction instead.
 4. **Canvas workflows.**
    - Before any canvas workflow, run `basehalf --list-capabilities`. Its JSON
-     is the only authority for recipes, slots, parameters, document formats,
-     and operations.
-   - Use `basehalf --run-node <workspace-relative .bhnode>` for a saved node.
+     is the only authority for node documents, templates, and operations.
+   - A Video node is a `.bhnode` whose `kind` is `video`. Write only its
+     `title`, `prompt`, `upstream`, and `generation`; BaseHalf writes `task`
+     and `result`. Its inputs are its `upstream` entries, in order
+     ([Video node](video-node.md#what-an-agent-may-write)).
+   - Use `basehalf --run-node <workspace-relative .bhnode>` to start a saved
+     Video node. It prints the path of the node that runs and does not wait
+     for the video.
    - Use `basehalf --run-operation '<json>'` only for operations that
      discovery returned.
-   - Never author attempts or results.
-   - Accepted runs continue after the session closes.
+   - A generation continues after the session closes.
    - These commands work only inside Agent Area terminals.
 
 ## Acceptance criteria

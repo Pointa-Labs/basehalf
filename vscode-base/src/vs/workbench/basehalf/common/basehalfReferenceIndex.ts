@@ -24,7 +24,6 @@ import {
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	baseHalfNodeUpstreamItemValues,
 	BaseHalfNodeUpstreamExtract,
-	BaseHalfNodeUpstreamLifecycle,
 	extractBaseHalfNodeUpstreamLenient
 } from './basehalfNodeDocument.js';
 import {
@@ -91,17 +90,8 @@ export interface IBaseHalfIndexedStore {
 	/** The Markdown file, the `.bhnode` document, or the `upstream.yaml`. */
 	readonly storeResource: URI;
 	readonly read: IBaseHalfUpstreamStoreRead;
-	/** `.bhnode` only: the node's lifecycle and bindings (lenient read). */
-	readonly lifecycle?: BaseHalfNodeUpstreamLifecycle;
-	readonly bindings?: readonly IBaseHalfIndexedBinding[];
 	/** Sidecars only. Only `active` sidecars contribute edges. */
 	readonly sidecarState?: BaseHalfUpstreamSidecarState;
-}
-
-export interface IBaseHalfIndexedBinding {
-	readonly sourcePath: string;
-	readonly slot?: string;
-	readonly order?: number;
 }
 
 /** One downstream node of a given node, derived from the stores. */
@@ -124,12 +114,6 @@ export interface IBaseHalfUpstreamEntryView extends IBaseHalfUpstreamItem {
 	readonly status: BaseHalfUpstreamEntryStatus;
 	/** The node a `valid` entry names. */
 	readonly target?: IBaseHalfUpstreamTarget;
-	/** `.bhnode`: the binding that uses this entry. */
-	readonly binding?: IBaseHalfIndexedBinding;
-	/** A dangling bound entry of an attempted or sealed `.bhnode`: a
-	 * historical input ("Moved or deleted since this result was made"),
-	 * shown in a neutral style and not counted as an issue. */
-	readonly historical: boolean;
 	/** An invalid entry that, read relative to the downstream file, names an
 	 * existing node: the workspace path for "Use <workspace path>". */
 	readonly workspacePath?: string;
@@ -149,8 +133,7 @@ export interface IBaseHalfUpstreamView {
 	readonly storeIssue: boolean;
 	readonly entries: readonly IBaseHalfUpstreamEntryView[];
 	/** Set when the node cannot be downstream: Upstream is read-only. */
-	readonly upstreamOnly?: 'reservedOutput' | 'sealedArtifact';
-	readonly lifecycle?: BaseHalfNodeUpstreamLifecycle;
+	readonly upstreamOnly?: 'reservedOutput' | 'resultArtifact';
 	/** A sidecar whose list could live in this Markdown or `.bhnode` file (the
 	 * issue offers Move into File). It contributes no edges when the file has
 	 * an `upstream` key of its own; otherwise it is this note's store, and
@@ -227,11 +210,11 @@ export interface IBaseHalfReferenceIndexService {
 	/** Stores that could not be read in the last scan or event. */
 	getStoreProblems(workspaceFolder: URI): readonly IBaseHalfReferenceStoreProblem[];
 
-	/** Workspace-relative paths of every sealed or imported Result artifact. */
-	getSealedArtifacts(workspaceFolder: URI): readonly string[];
-	/** Why a node can never be downstream, if it cannot. The sealed-artifact
+	/** Workspace-relative paths of every file a `.bhnode` shows as its result. */
+	getResultArtifacts(workspaceFolder: URI): readonly string[];
+	/** Why a node can never be downstream, if it cannot. The result-artifact
 	 * answer is complete only once the folder is `ready` or `partial`. */
-	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'sealedArtifact' | undefined;
+	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined;
 
 	/**
 	 * The reference edit service calls this after a BaseHalf save succeeds,
@@ -248,7 +231,7 @@ interface IStoreRecord extends IBaseHalfIndexedStore {
 	readonly content: string;
 	/** Target keys of valid entries; empty unless the store is active. */
 	readonly targets: readonly (readonly [string, number])[];
-	readonly sealedArtifactPath?: string;
+	readonly resultArtifactPath?: string;
 }
 
 interface IFolderIndex {
@@ -264,8 +247,8 @@ interface IFolderIndex {
 	/** target key → store key → entry index */
 	readonly downstream: Map<string, Map<string, number>>;
 	readonly problems: Map<string, IBaseHalfReferenceStoreProblem>;
-	/** artifact key → number of node documents sealing it */
-	readonly sealed: Map<string, { path: string; count: number }>;
+	/** artifact key → number of node documents that show it as their result */
+	readonly results: Map<string, { path: string; count: number }>;
 	generation: number;
 	scanned: DeferredPromise<void>;
 	pending: { readonly added: URI[]; readonly updated: URI[]; readonly deleted: URI[] } | undefined;
@@ -535,11 +518,11 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		return [...(this.folderIndex(workspaceFolder)?.problems.values() ?? [])];
 	}
 
-	getSealedArtifacts(workspaceFolder: URI): readonly string[] {
-		return [...(this.folderIndex(workspaceFolder)?.sealed.values() ?? [])].map(entry => entry.path).sort();
+	getResultArtifacts(workspaceFolder: URI): readonly string[] {
+		return [...(this.folderIndex(workspaceFolder)?.results.values() ?? [])].map(entry => entry.path).sort();
 	}
 
-	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'sealedArtifact' | undefined {
+	getUpstreamOnlyReason(node: IBaseHalfWorkspaceResource): 'reservedOutput' | 'resultArtifact' | undefined {
 		return this.upstreamOnly(this.folderIndex(node.workspaceFolder), node).upstreamOnly;
 	}
 
@@ -587,7 +570,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			sidecarsByNode: new Map(),
 			downstream: new Map(),
 			problems: new Map(),
-			sealed: new Map(),
+			results: new Map(),
 			generation: 0,
 			scanned: new DeferredPromise<void>(),
 			pending: undefined,
@@ -635,7 +618,7 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 		index.activeByNode.clear();
 		index.sidecarsByNode.clear();
 		index.downstream.clear();
-		index.sealed.clear();
+		index.results.clear();
 		index.problems.clear();
 		for (const [key, problem] of problems) {
 			index.problems.set(key, problem);
@@ -863,23 +846,19 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				}
 			}
 		}
-		const lifecycle = extract?.readable ? extract.lifecycle : undefined;
-		const bindings = extract?.readable ? extract.bindings : undefined;
-		const sealedArtifactPath = extract?.readable && extract.lifecycle === 'sealed' ? extract.resultArtifactPath : undefined;
+		const resultArtifactPath = extract?.readable ? extract.resultArtifactPath : undefined;
 		return {
 			node,
 			storeKind,
 			storeResource,
 			read,
-			...(lifecycle ? { lifecycle } : {}),
-			...(bindings ? { bindings } : {}),
-			...(sealedArtifactPath !== undefined ? { sealedArtifactPath } : {}),
+			...(resultArtifactPath !== undefined ? { resultArtifactPath } : {}),
 			...(sidecarState ? { sidecarState } : {}),
 			storeKey: this.resourceKey(storeResource),
 			nodeKey: this.resourceKey(node.resource),
 			// Only the upstream state matters: a body edit, a BOM, or a different
 			// read window never counts as a store change.
-			content: JSON.stringify([read, lifecycle ?? null, bindings ?? null, sealedArtifactPath ?? null]),
+			content: JSON.stringify([read, resultArtifactPath ?? null]),
 			targets
 		};
 	}
@@ -904,10 +883,10 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				stores.set(record.storeKey, entryIndex);
 			}
 		}
-		if (record.sealedArtifactPath !== undefined) {
-			const key = index.identity.key(record.sealedArtifactPath);
-			const current = index.sealed.get(key);
-			index.sealed.set(key, { path: record.sealedArtifactPath, count: (current?.count ?? 0) + 1 });
+		if (record.resultArtifactPath !== undefined) {
+			const key = index.identity.key(record.resultArtifactPath);
+			const current = index.results.get(key);
+			index.results.set(key, { path: record.resultArtifactPath, count: (current?.count ?? 0) + 1 });
 		}
 	}
 
@@ -928,13 +907,13 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				index.downstream.delete(target);
 			}
 		}
-		if (record.sealedArtifactPath !== undefined) {
-			const key = index.identity.key(record.sealedArtifactPath);
-			const current = index.sealed.get(key);
+		if (record.resultArtifactPath !== undefined) {
+			const key = index.identity.key(record.resultArtifactPath);
+			const current = index.results.get(key);
 			if (current && current.count > 1) {
-				index.sealed.set(key, { path: current.path, count: current.count - 1 });
+				index.results.set(key, { path: current.path, count: current.count - 1 });
 			} else {
-				index.sealed.delete(key);
+				index.results.delete(key);
 			}
 		}
 		return record;
@@ -1329,25 +1308,15 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 				issueCount: read.issue ? 1 : 0
 			};
 		}
-		const identity = index?.identity ?? baseHalfUpstreamIdentity(node.workspaceFolder, this.uriIdentityService.extUri);
-		const bindingsByKey = new Map<string, IBaseHalfIndexedBinding>();
-		for (const binding of record.bindings ?? []) {
-			bindingsByKey.set(identity.key(binding.sourcePath), binding);
-		}
-		const historicalAllowed = record.lifecycle === 'attempted' || record.lifecycle === 'sealed';
 		const entries: IBaseHalfUpstreamEntryView[] = [];
 		for (const item of read.items) {
-			const binding = item.path !== undefined ? bindingsByKey.get(identity.key(item.path)) : undefined;
 			if (item.path !== undefined) {
 				const target = await this.resolveTarget(node.workspaceFolder, item.path);
-				const historical = !target && historicalAllowed && !!binding;
 				entries.push({
 					...item,
 					status: target ? 'valid' : 'dangling',
 					...(target ? { target } : {}),
-					...(binding ? { binding } : {}),
-					historical,
-					issue: !target && !historical
+					issue: !target
 				});
 				continue;
 			}
@@ -1361,8 +1330,6 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			entries.push({
 				...item,
 				status: 'invalid',
-				...(binding ? { binding } : {}),
-				historical: false,
 				...(workspacePath !== undefined ? { workspacePath } : {}),
 				issue: true
 			});
@@ -1391,19 +1358,18 @@ export class BaseHalfReferenceIndexService extends Disposable implements IBaseHa
 			storeIssue,
 			entries,
 			...this.upstreamOnly(index, node),
-			...(record.lifecycle ? { lifecycle: record.lifecycle } : {}),
 			...(misplacedSidecar ? { misplacedSidecar } : {}),
 			...(readError !== undefined ? { readError } : {}),
 			issueCount: entries.filter(entry => entry.issue).length + (storeIssue ? 1 : 0) + (misplacedSidecar ? 1 : 0)
 		};
 	}
 
-	private upstreamOnly(index: IFolderIndex | undefined, node: IBaseHalfWorkspaceResource): { readonly upstreamOnly?: 'reservedOutput' | 'sealedArtifact' } {
+	private upstreamOnly(index: IFolderIndex | undefined, node: IBaseHalfWorkspaceResource): { readonly upstreamOnly?: 'reservedOutput' | 'resultArtifact' } {
 		if (isBaseHalfUpstreamReservedOutput(node.relativePath)) {
 			return { upstreamOnly: 'reservedOutput' };
 		}
-		if (index?.sealed.has(index.identity.key(node.relativePath))) {
-			return { upstreamOnly: 'sealedArtifact' };
+		if (index?.results.has(index.identity.key(node.relativePath))) {
+			return { upstreamOnly: 'resultArtifact' };
 		}
 		return {};
 	}
@@ -1474,8 +1440,6 @@ function toIndexedStore(record: IStoreRecord): IBaseHalfIndexedStore {
 		storeKind: record.storeKind,
 		storeResource: record.storeResource,
 		read: record.read,
-		...(record.lifecycle ? { lifecycle: record.lifecycle } : {}),
-		...(record.bindings ? { bindings: record.bindings } : {}),
 		...(record.sidecarState ? { sidecarState: record.sidecarState } : {})
 	};
 }

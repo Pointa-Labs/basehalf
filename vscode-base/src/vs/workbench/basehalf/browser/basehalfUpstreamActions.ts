@@ -33,7 +33,6 @@ import {
 	baseHalfUpstreamStoreProblemMessage,
 	IBaseHalfUpstreamPickerCandidate
 } from '../common/basehalfCanvasUpstream.js';
-import { IBaseHalfNodeUpstreamBindingRequest } from '../common/basehalfNodeDocument.js';
 import {
 	BaseHalfReferenceEditFailure,
 	BaseHalfReferenceEditRefusal,
@@ -61,11 +60,6 @@ export interface IBaseHalfUpstreamNodeCandidate extends IBaseHalfUpstreamPickerC
 	readonly description?: string;
 }
 
-/** The role picked for a connection into a `.bhnode` Draft with a recipe. */
-export type BaseHalfUpstreamBindingChoice =
-	| { readonly kind: 'proceed'; readonly binding?: IBaseHalfNodeUpstreamBindingRequest }
-	| { readonly kind: 'cancel' };
-
 export interface IBaseHalfUpstreamActionContext {
 	/** Paths of the cards on the current canvas, in canvas order, for picker ordering. */
 	readonly canvasCardPaths?: readonly string[];
@@ -74,8 +68,6 @@ export interface IBaseHalfUpstreamActionContext {
 	 * Defaults to the `canvas.yaml` of the downstream node's parent folder.
 	 */
 	readonly undoResources?: readonly URI[];
-	/** Asks for the input role when a connection enters a `.bhnode` Draft with a recipe. */
-	readonly chooseBinding?: (target: IBaseHalfUpstreamActionNode, sourcePath: string) => Promise<BaseHalfUpstreamBindingChoice>;
 	/** Called after an action wrote or was refused, and after each undo or redo of it. */
 	readonly onDidChange?: () => void;
 }
@@ -94,8 +86,6 @@ export interface IBaseHalfBadgeConnectionsOptions {
 	readonly openNode: (relativePath: string) => void;
 	/** Re-renders the editor after an action, moving focus to `focus`. */
 	readonly refresh: (focus: BaseHalfBadgeConnectionsFocusTarget) => void;
-	/** `.bhnode` only: the label of an input role. */
-	readonly roleLabel?: (slot: string) => string;
 }
 
 export interface IBaseHalfBadgeConnectionsControls {
@@ -220,12 +210,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 		if (!picked) {
 			return false;
 		}
-		const binding = context.chooseBinding ? await context.chooseBinding(node, picked.path) : { kind: 'proceed' as const };
-		if (binding.kind === 'cancel') {
-			return false;
-		}
 		const label = localize('basehalf.upstream.addUpstream.undo', "Add upstream");
-		return !!await this.run(label, node, context, () => this.referenceEditService.add(node, picked.path, { label }, binding.binding));
+		return !!await this.run(label, node, context, () => this.referenceEditService.add(node, picked.path, { label }));
 	}
 
 	/** **Add Downstream**: picks a node that can be downstream and lists this node in its store. */
@@ -240,12 +226,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 		if (!picked) {
 			return false;
 		}
-		const binding = context.chooseBinding ? await context.chooseBinding(picked, node.relativePath) : { kind: 'proceed' as const };
-		if (binding.kind === 'cancel') {
-			return false;
-		}
 		const label = localize('basehalf.upstream.addDownstream.undo', "Add downstream");
-		return !!await this.run(label, picked, context, () => this.referenceEditService.add(picked, node.relativePath, { label }, binding.binding));
+		return !!await this.run(label, picked, context, () => this.referenceEditService.add(picked, node.relativePath, { label }));
 	}
 
 	/** × on a Downstream row: removes this node from the other node's store. */
@@ -608,8 +590,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 						event.stopPropagation();
 						options.openNode(downstream.node.relativePath);
 					});
-					// A sealed or imported Result artifact keeps the bytes its node
-					// pins: BaseHalf never removes entries from it.
+					// The file a node shows as its result keeps the bytes it showed:
+					// BaseHalf never removes entries from it.
 					if (this.referenceIndexService.getUpstreamOnlyReason(downstream.node)) {
 						continue;
 					}
@@ -665,10 +647,9 @@ export class BaseHalfUpstreamActions extends Disposable {
 		listen: <K extends keyof HTMLElementEventMap>(element: HTMLElement, type: K, handler: (event: HTMLElementEventMap[K]) => void) => void
 	): void {
 		const { node, upstream: view, context } = options;
-		const bindingBlocked = view?.storeKind === 'node' && !!entry.binding && view.lifecycle !== 'draft';
 		const row = append(list, $('.basehalf-canvas-card-badge-row'));
 		row.setAttribute('data-testid', 'badge-upstream-row');
-		row.setAttribute('data-upstream-status', entry.historical ? 'historical' : entry.status);
+		row.setAttribute('data-upstream-status', entry.status);
 		row.setAttribute('data-upstream-index', String(entry.index));
 		const direction = append(row, $('span.basehalf-canvas-card-badge-direction.upstream'));
 		direction.textContent = '↑';
@@ -685,25 +666,16 @@ export class BaseHalfUpstreamActions extends Disposable {
 				options.openNode(target.relativePath);
 			});
 		} else {
-			row.classList.add(entry.historical ? 'historical' : 'upstream-issue');
+			row.classList.add('upstream-issue');
 			const text = append(row, $('span.basehalf-canvas-card-badge-entry-text'));
 			text.textContent = entry.text || localize('basehalf.upstream.entry.emptyText', "(empty)");
 			text.title = entry.text;
 		}
-		if (view?.storeKind === 'node') {
-			const role = append(row, $('span.basehalf-canvas-card-badge-role'));
-			role.textContent = entry.binding?.slot
-				? options.roleLabel?.(entry.binding.slot) ?? entry.binding.slot
-				: localize('basehalf.upstream.unassigned', "Unassigned");
-		}
 		if (entry.status === 'valid' && !readOnly) {
 			const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 			remove.type = 'button';
-			remove.title = bindingBlocked
-				? localize('basehalf.upstream.boundOutsideDraft', "This input is part of a result. Copy the settings into a new Draft to change it.")
-				: localize('basehalf.upstream.removeUpstream', "Remove {0} from upstream", entry.target?.relativePath ?? entry.text);
+			remove.title = localize('basehalf.upstream.removeUpstream', "Remove {0} from upstream", entry.target?.relativePath ?? entry.text);
 			remove.setAttribute('aria-label', remove.title);
-			remove.disabled = bindingBlocked;
 			listen(remove, EventType.CLICK, event => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -717,7 +689,7 @@ export class BaseHalfUpstreamActions extends Disposable {
 						options.refresh('add-upstream');
 					}
 				}).finally(() => {
-					remove.disabled = bindingBlocked;
+					remove.disabled = false;
 					row.removeAttribute('aria-busy');
 				});
 			});
@@ -728,9 +700,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 		}
 		const message = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
 		message.textContent = baseHalfUpstreamEntryMessage(entry);
-		if (entry.historical) {
-			return;
-		}
 		const actions = append(row, $('span.basehalf-canvas-card-badge-issue-actions'));
 		if (entry.status === 'dangling' && entry.path !== undefined && !readOnly) {
 			const entryPath = entry.path;
@@ -755,10 +724,6 @@ export class BaseHalfUpstreamActions extends Disposable {
 		if (!readOnly) {
 			const remove = button(actions, 'basehalf-canvas-card-badge-issue-action.subtle', localize('basehalf.upstream.removeAction', "Remove"), () => this.removeEntry(node, entry, context), 'add-upstream');
 			remove.setAttribute('data-testid', 'badge-upstream-remove');
-			if (bindingBlocked) {
-				remove.disabled = true;
-				remove.title = localize('basehalf.upstream.boundOutsideDraft', "This input is part of a result. Copy the settings into a new Draft to change it.");
-			}
 		}
 	}
 
@@ -853,8 +818,8 @@ export class BaseHalfUpstreamActions extends Disposable {
 		const view = issue.kind === 'entry' ? await this.referenceIndexService.resolveUpstream(issue.node).catch(() => undefined) : undefined;
 		const actions: ActionPick[] = [];
 		const entry = issue.entry;
-		// A node that can't be downstream (reserved outputs, sealed or imported
-		// Result artifacts) is read-only: its issues offer no action.
+		// A node that can't be downstream (reserved outputs, and the file a
+		// `.bhnode` shows as its result) is read-only: its issues offer no action.
 		const readOnly = !!this.referenceIndexService.getUpstreamOnlyReason(issue.node);
 		if (issue.kind === 'entry' && entry && !readOnly) {
 			if (entry.status === 'dangling' && entry.path !== undefined) {

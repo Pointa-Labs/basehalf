@@ -5,6 +5,14 @@
 > BaseHalf admits no reviewed plugin. The contribution points on this page
 > are still what the built-in AI Video uses.
 
+> **Removed by D58.** Recipes, recipe executors, the reviewed model and
+> provider connection catalogs, connection validators, and model service
+> access for extensions are gone
+> ([D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)). A Video node is a prompt over its
+> connections, run by the user's own providers
+> ([Video node](../specs/video-node.md)). Where this page describes them,
+> it records the platform as it was built.
+
 ## Product boundary
 
 A reviewed plugin extends the one BaseHalf canvas. The normal contribution is a

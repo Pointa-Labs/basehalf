@@ -1137,44 +1137,6 @@ export interface MainThreadCustomEditorsShape extends IDisposable {
 	$onContentChange(resource: UriComponents, viewType: string): void;
 }
 
-export interface IBaseHalfModelServiceDto {
-	readonly id: string;
-	readonly label: string;
-	readonly endpoint: string;
-	readonly providerId: string;
-	readonly deploymentId: string;
-	readonly region: string;
-	readonly connectionIdentity: string;
-	readonly capabilities: readonly ('text' | 'image' | 'video' | 'audio')[];
-	readonly authorization: 'bearer';
-	readonly configured: boolean;
-}
-
-export interface IBaseHalfModelServiceAccessDto extends Omit<IBaseHalfModelServiceDto, 'configured'> {
-	readonly credentialValues: Readonly<Record<string, string>>;
-	readonly apiKey?: string;
-}
-
-export interface IBaseHalfModelServiceAttemptSnapshotDto {
-	readonly serviceId: string;
-	readonly serviceLabel: string;
-	readonly connectionIdentity: string;
-	readonly capability: 'text' | 'image' | 'video' | 'audio';
-	readonly modelId?: string;
-	/** Opaque grant present only on the request for its active executor call. */
-	readonly accessToken?: string;
-}
-
-export interface IBaseHalfModelProviderConnectionValidationRequestDto {
-	readonly specId: string;
-	readonly endpoint: string;
-	readonly providerId: string;
-	readonly deploymentId: string;
-	readonly region: string;
-	readonly publicValues: Readonly<Record<string, string>>;
-	readonly credentialValues: Readonly<Record<string, string>>;
-}
-
 export interface IBaseHalfExtensionIdentityDto {
 	readonly id: ExtensionIdentifier;
 	readonly version: string;
@@ -1185,97 +1147,6 @@ export interface IBaseHalfExtensionIdentityDto {
 
 export type BaseHalfCanvasContentKindDto = 'text' | 'code' | 'file' | 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation';
 export type BaseHalfCanvasNodeKindDto = Exclude<BaseHalfCanvasContentKindDto, 'text' | 'code' | 'folder'>;
-
-export interface IBaseHalfCanvasArtifactSnapshotDto {
-	readonly id: string;
-	readonly kind: BaseHalfCanvasContentKindDto;
-	readonly resource: UriComponents;
-	readonly attemptId?: string;
-}
-
-export interface IBaseHalfCanvasNodeSnapshotDto {
-	readonly id: string;
-	readonly path: string;
-	readonly kind: BaseHalfCanvasContentKindDto;
-	readonly resource?: UriComponents;
-	readonly result?: IBaseHalfCanvasArtifactSnapshotDto;
-}
-
-export interface IBaseHalfCanvasRecipeInputDto {
-	readonly edgeId: string;
-	readonly slotId: string;
-	readonly order: number;
-	readonly source: IBaseHalfCanvasNodeSnapshotDto;
-}
-
-export type IBaseHalfCanvasProviderTaskIntentDto =
-	| { readonly kind: 'new' }
-	| { readonly kind: 'recover'; readonly providerRequestId: string }
-	| {
-		readonly kind: 'exact-retry';
-		readonly sourceAttemptId: string;
-		readonly providerRequestId?: string;
-		readonly sourceFailure?: IBaseHalfCanvasProviderExecutionFailureDto;
-		readonly replacementAuthorized: boolean;
-	};
-
-export interface IBaseHalfCanvasProviderExecutionFailureDto {
-	readonly kind: 'preparation' | 'submission-rejected' | 'submission-ambiguous' | 'remote-id-uncommitted' | 'poll-interrupted' | 'poll-window-exhausted' | 'remote-failed' | 'remote-cancelled' | 'protocol' | 'download' | 'artifact-invalid' | 'artifact-commit' | 'execution-ownership';
-	readonly retry: 'fresh-submit' | 'resume-existing' | 'replace-after-terminal-proof' | 'blocked';
-	readonly providerRequestId?: string;
-	readonly uncommittedProviderRequestId?: string;
-}
-
-export interface IBaseHalfCanvasRecipeExecutionRequestDto {
-	readonly attemptId: string;
-	readonly workspaceFolder: UriComponents;
-	readonly node: IBaseHalfCanvasNodeSnapshotDto;
-	readonly recipeId: string;
-	readonly prompt: string;
-	readonly parameters: Readonly<Record<string, unknown>>;
-	readonly modelServiceId?: string;
-	readonly modelService?: IBaseHalfModelServiceAttemptSnapshotDto;
-	readonly inputs: readonly IBaseHalfCanvasRecipeInputDto[];
-	readonly outputDirectory: UriComponents;
-	readonly providerTaskIntent?: IBaseHalfCanvasProviderTaskIntentDto;
-	readonly providerRequestFingerprint?: string;
-	readonly resumeProviderRequestId?: string;
-}
-
-export interface IBaseHalfCanvasRecipeProgressDto {
-	readonly message?: string;
-	readonly increment?: number;
-}
-
-export interface IBaseHalfCanvasRecipeArtifactDto {
-	readonly id: string;
-	readonly outputId: string;
-	readonly kind: BaseHalfCanvasNodeKindDto;
-	readonly resource: UriComponents;
-	readonly label?: string;
-}
-
-export interface IBaseHalfCanvasRecipeExecutionResultDto {
-	readonly artifact: IBaseHalfCanvasRecipeArtifactDto;
-	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfCanvasRecipeUsageDto;
-	readonly cost?: IBaseHalfCanvasRecipeCostDto;
-}
-
-export interface IBaseHalfCanvasRecipeUsageDto {
-	readonly inputTokens?: number;
-	readonly outputTokens?: number;
-	readonly cachedInputTokens?: number;
-	readonly images?: number;
-	readonly videoSeconds?: number;
-	readonly audioSeconds?: number;
-}
-
-export interface IBaseHalfCanvasRecipeCostDto {
-	readonly currency: string;
-	readonly amount: string;
-	readonly kind: 'actual' | 'estimated';
-}
 
 export type BaseHalfCanvasNodeAttemptStatusDto = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type BaseHalfCanvasNodeLifecycleDto = 'draft' | 'running' | 'result' | 'failed' | 'cancelled' | 'interrupted';
@@ -1290,19 +1161,13 @@ export interface IBaseHalfCanvasNodeResultArtifactDto {
 	readonly label?: string;
 }
 
+/** Version 5 nodes record no attempts (D58): the list is always empty. */
 export interface IBaseHalfCanvasNodeAttemptDto {
 	readonly id: string;
 	readonly status: BaseHalfCanvasNodeAttemptStatusDto;
 	readonly createdAt: string;
 	readonly startedAt?: string;
 	readonly completedAt?: string;
-	readonly model?:
-		| { readonly source: 'local' }
-		| ({ readonly source: 'service'; readonly connection: 'resolved' } & IBaseHalfModelServiceAttemptSnapshotDto)
-		| { readonly source: 'service'; readonly connection: 'unavailable'; readonly serviceId?: string; readonly capability: 'text' | 'image' | 'video' | 'audio'; readonly modelId?: string };
-	readonly providerRequestId?: string;
-	readonly usage?: IBaseHalfCanvasRecipeUsageDto;
-	readonly cost?: IBaseHalfCanvasRecipeCostDto;
 	readonly error?: string;
 }
 
@@ -1329,20 +1194,10 @@ export interface MainThreadBaseHalfShape extends IDisposable {
 	$registerCardProjectionProvider(extension: WebviewExtensionDescription, projectionId: string, options: { readonly retainContextWhenHidden?: boolean }, serializeBuffersForPostMessage: boolean): void;
 	$unregisterCardProjectionProvider(projectionId: string): void;
 	$setCardProjectionDirty(handle: WebviewHandle, dirty: boolean): void;
-	$registerCanvasRecipeExecutor(extension: WebviewExtensionDescription, recipeId: string): void;
-	$unregisterCanvasRecipeExecutor(recipeId: string): void;
-	$registerModelProviderConnectionValidator(extension: WebviewExtensionDescription, specId: string): void;
-	$unregisterModelProviderConnectionValidator(specId: string): void;
-	$reportCanvasRecipeProgress(attemptHandle: string, progress: IBaseHalfCanvasRecipeProgressDto): void;
-	$acknowledgeCanvasRecipeProviderRequestId(attemptHandle: string, providerRequestId: string): Promise<void>;
-	$consumeCanvasRecipeProviderCreateAuthorization(attemptHandle: string, fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void>;
-	$reportCanvasRecipeProviderExecutionFailure(attemptHandle: string, failure: IBaseHalfCanvasProviderExecutionFailureDto): Promise<void>;
 	$inspectCanvasNode(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents): Promise<IBaseHalfCanvasNodeStateDto | undefined>;
 	$applyProjectFileTransition(extension: IBaseHalfExtensionIdentityDto, resource: UriComponents, expected: VSBuffer, next: VSBuffer, label: string): Promise<void>;
 	$registerCanvasStructuralCleanupProvider(extension: IBaseHalfExtensionIdentityDto): void;
 	$unregisterCanvasStructuralCleanupProvider(extensionId: string): void;
-	$getModelServices(extension: IBaseHalfExtensionIdentityDto, capability?: 'text' | 'image' | 'video' | 'audio'): Promise<readonly IBaseHalfModelServiceDto[]>;
-	$getModelServiceAccess(extension: IBaseHalfExtensionIdentityDto, snapshot: IBaseHalfModelServiceAttemptSnapshotDto): Promise<IBaseHalfModelServiceAccessDto | undefined>;
 }
 
 export interface MainThreadWebviewViewsShape extends IDisposable {
@@ -1438,10 +1293,7 @@ export interface ExtHostBaseHalfShape {
 	$resolveCardProjection(resource: UriComponents, handle: WebviewHandle, projectionId: string, contentOptions: IWebviewContentOptions, visible: boolean, cancellation: CancellationToken): Promise<void>;
 	$disposeCardProjection(handle: WebviewHandle): void;
 	$setCardProjectionVisible(handle: WebviewHandle, visible: boolean): void;
-	$executeCanvasRecipe(attemptHandle: string, recipeId: string, request: IBaseHalfCanvasRecipeExecutionRequestDto, cancellation: CancellationToken): Promise<IBaseHalfCanvasRecipeExecutionResultDto>;
-	$validateModelProviderConnection(specId: string, request: IBaseHalfModelProviderConnectionValidationRequestDto, cancellation: CancellationToken): Promise<void>;
 	$prepareCanvasStructuralCleanup(extensionId: string, resource: UriComponents, cancellation: CancellationToken): Promise<readonly IBaseHalfProjectFileTransitionDto[]>;
-	$onDidChangeModelServices(): void;
 }
 
 export interface ExtHostWebviewViewsShape {

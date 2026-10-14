@@ -17,7 +17,6 @@ import { BaseHalfBadgeLegacyKey, baseHalfLegacyBadgePathAccepted, IBaseHalfBadge
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { baseHalfIsWorkspaceFolderMarked } from './basehalfLegacyCleanup.js';
 import { baseHalfAssertBhPathComponentsNotSymbolicLink } from './basehalfMirrorTree.js';
-import { BASEHALF_NODE_DOCUMENT_MAX_BYTES, extractBaseHalfNodeUpstreamLenient } from './basehalfNodeDocument.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, BaseHalfReferenceRefusalReason, IBaseHalfReferenceEditService } from './basehalfReferenceEdit.js';
 import { baseHalfUpstreamEntryGrammarProblem, baseHalfUpstreamEntryProblem, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
 import { IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from './basehalfReferenceIndex.js';
@@ -70,8 +69,8 @@ export interface IBaseHalfLegacyMalformedKey {
  * - `rootOrMetadata`: an endpoint is the workspace root or under `.bh/`.
  * - `invalidPath`: an endpoint the legacy grammar never accepted, or that no
  *   upstream entry can name (a control character).
- * - `cannotBeDownstream`: the downstream is in the reserved outputs tree or a
- *   sealed or imported Result artifact.
+ * - `cannotBeDownstream`: the downstream is in the reserved outputs tree or is
+ *   the file a `.bhnode` shows as its result.
  * - `malformedKey`: a legacy key whose value is not a list of paths.
  */
 export type BaseHalfLegacyDropReason = 'oneSided' | 'self' | 'rootOrMetadata' | 'invalidPath' | 'cannotBeDownstream' | 'malformedKey';
@@ -86,7 +85,6 @@ export type BaseHalfLegacyDropReason = 'oneSided' | 'self' | 'rootOrMetadata' | 
 export type BaseHalfLegacyDeferReason =
 	| 'otherWorkspaceFolder'
 	| 'symbolicLink'
-	| 'running'
 	| 'unsaved'
 	| 'conflict'
 	| 'readonly'
@@ -95,7 +93,6 @@ export type BaseHalfLegacyDeferReason =
 	| 'notWritable'
 	| 'saveFailed'
 	| 'missingDownstream'
-	| 'recipeFrozen'
 	| 'limit'
 	| 'beingMoved'
 	| 'indexLoading'
@@ -328,7 +325,6 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'symbolicLink': return localize('basehalf.migration.reason.symbolicLink', "It is a symbolic link or inside one");
 		case 'cannotBeDownstream': return localize('basehalf.migration.reason.cannotBeDownstream', "This file can't receive upstream context");
 		case 'malformedKey': return localize('basehalf.migration.reason.malformedKey', "The earlier connection list can't be read");
-		case 'running': return localize('basehalf.migration.reason.running', "The node is running");
 		case 'unsaved': return localize('basehalf.migration.reason.unsaved', "It has unsaved changes and auto-save is off");
 		case 'conflict': return localize('basehalf.migration.reason.conflict', "It has a save conflict");
 		case 'readonly': return localize('basehalf.migration.reason.readonly', "It is read-only");
@@ -337,7 +333,6 @@ export function baseHalfLegacyReasonLabel(reason: BaseHalfLegacyDropReason | Bas
 		case 'notWritable': return localize('basehalf.migration.reason.notWritable', "BaseHalf can't save connections into it because of how the file begins");
 		case 'saveFailed': return localize('basehalf.migration.reason.saveFailed', "The change could not be saved");
 		case 'missingDownstream': return localize('basehalf.migration.reason.missingDownstream', "The file no longer exists");
-		case 'recipeFrozen': return localize('basehalf.migration.reason.recipeFrozen', "The node already has an attempt or a result");
 		case 'limit': return localize('basehalf.migration.reason.limit', "The node already has 64 upstream entries");
 		case 'beingMoved': return localize('basehalf.migration.reason.beingMoved', "It was being moved");
 		case 'indexLoading': return localize('basehalf.migration.reason.indexLoading', "Connections were still loading");
@@ -545,8 +540,6 @@ interface IDownstreamInfo {
 	readonly node?: IBaseHalfWorkspaceResource;
 	readonly upstreamOnly?: boolean;
 	readonly view?: IBaseHalfUpstreamView;
-	/** A `.bhnode` with a recipe and an Attempt or Result. */
-	readonly frozen?: boolean;
 }
 
 interface IPendingRecord {
@@ -827,9 +820,6 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 		if (!view.writable) {
 			return deferred('notWritable', storeKind);
 		}
-		if (downstream.frozen) {
-			return deferred('recipeFrozen', storeKind);
-		}
 		return { ...pair, status: { kind: 'write' }, ...(storeKind ? { storeKind } : {}) };
 	}
 
@@ -850,17 +840,7 @@ export class BaseHalfReferenceMigrationService implements IBaseHalfReferenceMigr
 			this.logService.warn(`[BaseHalf] could not read the upstream list of ${node.resource.toString()}`, error);
 			return { exists: true, node };
 		}
-		let frozen = false;
-		if (view.storeKind === 'node' && view.readable) {
-			try {
-				const bytes = await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-				const extract = extractBaseHalfNodeUpstreamLenient(utf8Decoder.decode(bytes.value.buffer));
-				frozen = extract.readable && extract.hasRecipe && extract.lifecycle !== 'draft';
-			} catch (error) {
-				this.logService.warn(`[BaseHalf] could not read ${node.resource.toString()}`, error);
-			}
-		}
-		return { exists: true, node, view, frozen };
+		return { exists: true, node, view };
 	}
 
 	/** Whether the downstream store on disk lists the pair's upstream. */
@@ -1174,7 +1154,6 @@ function deferral(error: unknown): { readonly reason: BaseHalfLegacyDeferReason;
 
 function refusalDeferral(reason: BaseHalfReferenceRefusalReason): BaseHalfLegacyDeferReason {
 	switch (reason) {
-		case 'running': return 'running';
 		case 'unsaved': return 'unsaved';
 		case 'conflict': return 'conflict';
 		case 'readonly': return 'readonly';
@@ -1187,7 +1166,6 @@ function refusalDeferral(reason: BaseHalfReferenceRefusalReason): BaseHalfLegacy
 		case 'orphaned':
 		case 'missingNode':
 			return 'missingDownstream';
-		case 'recipeFrozen': return 'recipeFrozen';
 		case 'limit': return 'limit';
 		case 'beingMoved': return 'beingMoved';
 		case 'indexLoading': return 'indexLoading';

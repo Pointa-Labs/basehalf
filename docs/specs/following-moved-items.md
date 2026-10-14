@@ -389,7 +389,8 @@ relocated in one run ([many items at once](#many-items-at-once)).
 2. **Check again.** The old path still names nothing and the new path still
    names an item of the same kind. Otherwise the item is skipped.
 3. **Held back**: an item with unsaved changes in an editor for its old path
-   or below it, and a `.bhnode` that is running or a folder that holds one.
+   or below it, and a Video node that is generating or a folder that holds
+   one, under its old or its new path.
    It stays a pending pair. While it is held back it does not keep the
    canvas from redrawing.
 4. **Mirror files and canvas rows** move piece by piece. A piece is one
@@ -589,16 +590,15 @@ move: a move this specification follows, and a move through the workbench.
   that a window that closes before the entries are written does not lose
   them. It tries again
   when the reference index becomes `ready`, when a document is saved or
-  reverted, when a `.bhnode` run ends, and at open. This covers a document
-  with unsaved changes, a `.bhnode` that is running, and stores that a
-  `partial` index did not see. Moves compose: after `a` to `b` and `b` to
+  reverted, and at open. This covers a document with unsaved changes and
+  stores that a `partial` index did not see. A `.bhnode` is written at once
+  in every phase, a generating one included. Moves compose: after `a` to `b` and `b` to
   `c`, entries that name `a` or `b` get `c`. At most 1,000 moves are kept.
 - Until an owed entry is rewritten it is broken in the store and shows as
   broken, so the canvas and the store agree.
 - **A store that is never rewritten** stays as the
-  [rename refactor](reference-graph.md#rename-refactor) defines: sealed and
-  imported Result artifacts, and bound entries of attempted and sealed
-  `.bhnode` documents. They keep the old path on purpose.
+  [rename refactor](reference-graph.md#rename-refactor) defines: the files
+  that nodes show. They keep the old path on purpose.
 - **A marked folder** is never rewritten by itself, neither its notes nor its
   sidecars. The rename refactor asked there; with the question gone, it
   leaves the entries as they are.

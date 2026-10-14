@@ -8,16 +8,14 @@ import { CancellationToken } from '../../../base/common/cancellation.js';
 import { URI } from '../../../base/common/uri.js';
 import { BaseHalfCanvasAnchor } from './basehalfCanvasModel.js';
 import {
-	BASEHALF_NODE_MAX_BINDINGS,
-	BASEHALF_NODE_MAX_ID_LENGTH,
-	BASEHALF_NODE_PROMPT_MAX_LENGTH,
+	BASEHALF_NODE_KINDS,
+	BASEHALF_NODE_TITLE_MAX_LENGTH,
 	BASEHALF_PROJECT_PATH_MAX_LENGTH,
-	BaseHalfNodeJsonValue,
 	BaseHalfNodeKind,
 	baseHalfProjectPathKey,
-	baseHalfProjectPathProblem,
-	IBaseHalfNodeInputBinding
+	baseHalfProjectPathProblem
 } from './basehalfNodeDocument.js';
+import { BASEHALF_VIDEO_PROMPT_MAX_LENGTH } from './basehalfVideoNode.js';
 import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES } from './basehalfReferenceEntries.js';
 import {
 	isBaseHalfUpstreamMarkdownName,
@@ -46,29 +44,25 @@ export interface IBaseHalfCanvasCreateFromTemplateCommandResult {
 const MAX_ENTRIES = 100;
 const MAX_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TOTAL_TEXT_BYTES = 2 * 1024 * 1024;
-const MAX_PARAMETERS = 128;
-const MAX_PARAMETER_DEPTH = 12;
 const ANCHORS = new Set<BaseHalfCanvasAnchor>(['north', 'east', 'south', 'west']);
-const NODE_KINDS = new Set<BaseHalfNodeKind>(['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
+const NODE_KINDS = new Set<BaseHalfNodeKind>(BASEHALF_NODE_KINDS);
 
 export interface IBaseHalfCanvasTemplateTextFile {
 	readonly path: string;
 	readonly contents: string;
 }
 
-export interface IBaseHalfCanvasTemplateRecipe {
-	readonly recipeId: string;
-	readonly parameters: Readonly<Record<string, BaseHalfNodeJsonValue>>;
-	readonly inputBindings: readonly IBaseHalfNodeInputBinding[];
-}
-
+/**
+ * One `.bhnode` a template creates: an empty node of its kind. A Video node
+ * may start with a prompt; its connections come from the template's
+ * `references`.
+ */
 export interface IBaseHalfCanvasTemplateNode {
 	readonly path: string;
 	readonly kind: BaseHalfNodeKind;
 	readonly title: string;
-	readonly role: string;
+	/** Video nodes only. */
 	readonly prompt?: string;
-	readonly recipe?: IBaseHalfCanvasTemplateRecipe;
 }
 
 export interface IBaseHalfCanvasTemplateCard {
@@ -108,11 +102,11 @@ export class BaseHalfCanvasTemplateError extends Error {
 
 /**
  * Parses the static, declarative template format accepted from reviewed
- * extensions. Templates create host-owned files and references; they cannot
- * carry Attempts, Results, credentials, executable code, or private extension
- * state. A template never writes `upstream` itself: Markdown text files whose
- * frontmatter has an `upstream` key are rejected, and so are references whose
- * target cannot be downstream.
+ * extensions. Templates create host-owned files, empty nodes, and references;
+ * they cannot carry tasks, results, credentials, executable code, or private
+ * extension state. A template never writes `upstream` itself: Markdown text
+ * files whose frontmatter has an `upstream` key are rejected, and so are
+ * references whose target cannot be downstream.
  */
 export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemplate {
 	if (typeof source !== 'string' || VSBuffer.fromString(source).byteLength > BASEHALF_CANVAS_TEMPLATE_MAX_BYTES) {
@@ -148,11 +142,6 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 		if (!node.path.toLowerCase().endsWith('.bhnode')) {
 			throw invalid(`Template node '${node.path}' must use the .bhnode extension.`);
 		}
-		for (const binding of node.recipe?.inputBindings ?? []) {
-			if (!pathSet.has(binding.sourcePath)) {
-				throw invalid(`Template node '${node.path}' binds missing source '${binding.sourcePath}'.`);
-			}
-		}
 	}
 	assertUnique(cards.map(card => baseHalfProjectPathKey(card.path)), 'template card paths');
 	for (const card of cards) {
@@ -161,7 +150,6 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 		}
 	}
 	assertUnique(references.map(reference => `${baseHalfProjectPathKey(reference.from)}\u0000${baseHalfProjectPathKey(reference.to)}`), 'template references');
-	const referenceSet = new Set(references.map(reference => `${reference.from}\u0000${reference.to}`));
 	for (const reference of references) {
 		if (!pathSet.has(reference.from) || !pathSet.has(reference.to)) {
 			throw invalid(`Template reference '${reference.from}' to '${reference.to}' must connect created resources.`);
@@ -178,14 +166,6 @@ export function parseBaseHalfCanvasTemplate(source: string): IBaseHalfCanvasTemp
 			const read = readBaseHalfMarkdownUpstream(file.contents);
 			if (read.hasKey || read.issue) {
 				throw invalid(`Template text file '${file.path}' cannot declare an 'upstream' key in its frontmatter. Use template references instead.`);
-			}
-		}
-	}
-	for (const node of nodes) {
-		const recipe = node.recipe;
-		for (const binding of recipe?.inputBindings ?? []) {
-			if (!referenceSet.has(`${binding.sourcePath}\u0000${node.path}`)) {
-				throw invalid(`Template node '${node.path}' binds '${binding.sourcePath}' without a matching direct reference.`);
 			}
 		}
 	}
@@ -291,42 +271,19 @@ function parseTextFile(value: unknown, path: string): IBaseHalfCanvasTemplateTex
 
 function parseNode(value: unknown, path: string): IBaseHalfCanvasTemplateNode {
 	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['path', 'kind', 'title', 'role', 'prompt', 'recipe'], path);
+	assertOnlyKeys(candidate, ['path', 'kind', 'title', 'prompt'], path);
 	const kind = text(candidate.kind, `${path}.kind`, 16) as BaseHalfNodeKind;
 	if (!NODE_KINDS.has(kind)) {
 		throw invalid(`${path}.kind is not a supported node content kind.`);
 	}
-	const recipe = candidate.recipe === undefined ? undefined : parseRecipe(candidate.recipe, `${path}.recipe`);
+	if (candidate.prompt !== undefined && kind !== 'video') {
+		throw invalid(`${path}.prompt is allowed only for a Video node.`);
+	}
 	return Object.freeze({
 		path: projectPath(candidate.path, `${path}.path`),
 		kind,
-		title: text(candidate.title, `${path}.title`, 240),
-		role: text(candidate.role, `${path}.role`, 120),
-		...(candidate.prompt === undefined ? {} : { prompt: text(candidate.prompt, `${path}.prompt`, BASEHALF_NODE_PROMPT_MAX_LENGTH, true) }),
-		...(recipe ? { recipe } : {})
-	});
-}
-
-function parseRecipe(value: unknown, path: string): IBaseHalfCanvasTemplateRecipe {
-	const candidate = record(value, path);
-	assertOnlyKeys(candidate, ['recipeId', 'parameters', 'inputBindings'], path);
-	const parameters = jsonObject(candidate.parameters, `${path}.parameters`, 0, { remaining: MAX_PARAMETERS });
-	const inputBindings = array(candidate.inputBindings, `${path}.inputBindings`, BASEHALF_NODE_MAX_BINDINGS).map((entry, index) => {
-		const bindingPath = `${path}.inputBindings[${index}]`;
-		const binding = record(entry, bindingPath);
-		assertOnlyKeys(binding, ['sourcePath', 'slot', 'order'], bindingPath);
-		return Object.freeze({
-			sourcePath: projectPath(binding.sourcePath, `${bindingPath}.sourcePath`),
-			slot: text(binding.slot, `${bindingPath}.slot`, 120),
-			order: integer(binding.order, `${bindingPath}.order`, 0, 63)
-		});
-	});
-	assertUnique(inputBindings.map(binding => String(binding.order)), `${path} binding order`);
-	assertUnique(inputBindings.map(binding => baseHalfProjectPathKey(binding.sourcePath)), `${path} binding source path`);
-	return Object.freeze({
-		recipeId: identifier(candidate.recipeId, `${path}.recipeId`),
-		parameters: Object.freeze(parameters),
-		inputBindings: Object.freeze(inputBindings.sort((left, right) => left.order - right.order))
+		title: text(candidate.title, `${path}.title`, BASEHALF_NODE_TITLE_MAX_LENGTH),
+		...(candidate.prompt === undefined ? {} : { prompt: text(candidate.prompt, `${path}.prompt`, BASEHALF_VIDEO_PROMPT_MAX_LENGTH, true) })
 	});
 }
 
@@ -355,61 +312,11 @@ function parseReference(value: unknown, path: string): IBaseHalfCanvasTemplateRe
 	});
 }
 
-function jsonObject(value: unknown, path: string, depth: number, budget: { remaining: number }): Record<string, BaseHalfNodeJsonValue> {
-	if (depth > MAX_PARAMETER_DEPTH) {
-		throw invalid(`${path} exceeds the maximum nesting depth.`);
-	}
-	const candidate = record(value, path);
-	const result: Record<string, BaseHalfNodeJsonValue> = {};
-	for (const [key, entry] of Object.entries(candidate)) {
-		consume(budget, path);
-		if (!key || key.length > 128 || key === '__proto__' || key === 'constructor' || key === 'prototype') {
-			throw invalid(`${path} contains an invalid parameter name.`);
-		}
-		result[key] = jsonValue(entry, `${path}.${key}`, depth + 1, budget);
-	}
-	return result;
-}
-
-function jsonValue(value: unknown, path: string, depth: number, budget: { remaining: number }): BaseHalfNodeJsonValue {
-	consume(budget, path);
-	if (value === null || typeof value === 'boolean') {
-		return value;
-	}
-	if (typeof value === 'number') {
-		if (!Number.isFinite(value)) {
-			throw invalid(`${path} must be finite.`);
-		}
-		return value;
-	}
-	if (typeof value === 'string') {
-		return text(value, path, 16 * 1024, true);
-	}
-	if (Array.isArray(value)) {
-		if (depth > MAX_PARAMETER_DEPTH || value.length > MAX_PARAMETERS) {
-			throw invalid(`${path} is too complex.`);
-		}
-		return Object.freeze(value.map((entry, index) => jsonValue(entry, `${path}[${index}]`, depth + 1, budget)));
-	}
-	return Object.freeze(jsonObject(value, path, depth, budget));
-}
-
 function projectPath(value: unknown, path: string): string {
 	const result = text(value, path, BASEHALF_PROJECT_PATH_MAX_LENGTH);
 	const problem = baseHalfProjectPathProblem(result);
 	if (problem) {
 		throw invalid(`${path} ${problem}`);
-	}
-	return result;
-}
-
-function identifier(value: unknown, path: string): string {
-	if (typeof value !== 'string' || value.length > BASEHALF_NODE_MAX_ID_LENGTH || value.includes('\u0000')) {
-		throw invalid(`${path} is not a valid contribution identifier.`);
-	}
-	const result = value.trim();
-	if (result !== value || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*){2,}$/.test(result)) {
-		throw invalid(`${path} is not a valid contribution identifier.`);
 	}
 	return result;
 }
@@ -446,13 +353,6 @@ function text(value: unknown, path: string, maximum: number, allowEmpty = false)
 	return result;
 }
 
-function integer(value: unknown, path: string, minimum: number, maximum: number): number {
-	if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
-		throw invalid(`${path} must be an integer from ${minimum} to ${maximum}.`);
-	}
-	return value as number;
-}
-
 function finite(value: unknown, path: string, minimum: number, maximum: number): number {
 	if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
 		throw invalid(`${path} must be a finite number from ${minimum} to ${maximum}.`);
@@ -480,13 +380,6 @@ function assertNoPathPrefixCollisions(paths: readonly string[], path: string): v
 		if (keys[index].startsWith(`${keys[index - 1]}/`)) {
 			throw invalid(`${path} cannot create a file inside another created file.`);
 		}
-	}
-}
-
-function consume(budget: { remaining: number }, path: string): void {
-	budget.remaining--;
-	if (budget.remaining < 0) {
-		throw invalid(`${path} exceeds the parameter complexity limit.`);
 	}
 }
 

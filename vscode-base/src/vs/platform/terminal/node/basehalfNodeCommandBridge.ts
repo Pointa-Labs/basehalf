@@ -11,7 +11,6 @@ import { createRandomIPCHandle } from '../../../base/parts/ipc/node/ipc.net.js';
 import { ILogService } from '../../log/common/log.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
-	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES,
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES,
 	BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 	IBaseHalfAgentOperationCommandRequest,
@@ -384,11 +383,8 @@ function isBaseHalfNodeCommandResponse(value: unknown): value is IBaseHalfNodeCo
 	if (record.type === 'listCapabilities') {
 		if (record.outcome === 'succeeded') {
 			return record.ok === true
-				&& Object.keys(record).length === 7
+				&& Object.keys(record).length === 6
 				&& isCapabilityDiscoveryHost(record.host)
-				&& Array.isArray(record.recipes)
-				&& record.recipes.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES
-				&& isCapabilityDiscoveryRecipes(record.recipes)
 				&& Array.isArray(record.extensions)
 				&& record.extensions.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS
 				&& record.error === undefined
@@ -398,13 +394,15 @@ function isBaseHalfNodeCommandResponse(value: unknown): value is IBaseHalfNodeCo
 			&& record.ok === false
 			&& Object.keys(record).length === 5
 			&& record.host === undefined
-			&& record.recipes === undefined
 			&& record.extensions === undefined
 			&& isBoundedText(record.error, 16 * 1024);
 	}
-	return typeof record.ok === 'boolean'
-		&& ['succeeded', 'failed', 'cancelled', 'interrupted', 'rejected'].includes(String(record.outcome))
-		&& typeof record.nodePath === 'string';
+	return (record.type === undefined || record.type === 'runNode')
+		&& ['succeeded', 'rejected'].includes(String(record.outcome))
+		&& record.ok === (record.outcome === 'succeeded')
+		&& typeof record.nodePath === 'string'
+		&& hasOnlyKeys(record, ['version', 'ok', 'outcome', 'nodePath'], ['type', 'error'])
+		&& (record.outcome !== 'succeeded' || record.error === undefined);
 }
 
 function isCapabilityDiscoveryHost(value: unknown): boolean {
@@ -423,16 +421,16 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !value.operations.every(isCapabilityDiscoveryOperation)
 		|| new Set(value.operations.map(operation => (operation as Record<string, unknown>).id)).size !== value.operations.length
 		|| !isRecord(value.contextEdge)
-		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'storedBy', 'markdownFrontmatterKey', 'nodeDocumentField', 'roleAndOrderOwner', 'label'])
+		|| !hasOnlyKeys(value.contextEdge, ['source', 'resultNodeSource', 'target', 'autoRun', 'recursive', 'storedBy', 'markdownFrontmatterKey', 'nodeDocumentField', 'inputOrder', 'label'])
 		|| value.contextEdge.source !== 'direct-content'
-		|| value.contextEdge.resultNodeSource !== 'sealed-result'
+		|| value.contextEdge.resultNodeSource !== 'node-result'
 		|| value.contextEdge.target !== 'direct-context'
 		|| value.contextEdge.autoRun !== false
 		|| value.contextEdge.recursive !== false
 		|| value.contextEdge.storedBy !== 'downstream'
 		|| value.contextEdge.markdownFrontmatterKey !== 'upstream'
 		|| value.contextEdge.nodeDocumentField !== 'upstream'
-		|| value.contextEdge.roleAndOrderOwner !== 'target-recipe-binding'
+		|| value.contextEdge.inputOrder !== 'target-upstream-order'
 		|| value.contextEdge.label !== 'none'
 		|| !isRecord(value.nodeDocument)) {
 		return false;
@@ -455,27 +453,18 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		}
 	}
 	const document = value.nodeDocument;
-	const resultKinds = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'];
-	if (!hasOnlyKeys(document, ['fileExtension', 'documentVersion', 'resultKinds', 'inputBinding', 'lifecycle', 'runCommand', 'authoring'])
+	const nodeKinds = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'];
+	if (!hasOnlyKeys(document, ['fileExtension', 'documentVersion', 'nodeKinds', 'lifecycle', 'runCommand', 'authoring'])
 		|| document.fileExtension !== '.bhnode'
 		|| !Number.isSafeInteger(document.documentVersion)
 		|| (document.documentVersion as number) < 1
-		|| !Array.isArray(document.resultKinds)
-		|| document.resultKinds.length !== resultKinds.length
-		|| !document.resultKinds.every((kind, index) => kind === resultKinds[index])
-		|| !isRecord(document.inputBinding)
-		|| !hasOnlyKeys(document.inputBinding, ['scope', 'fields'])
-		|| document.inputBinding.scope !== 'node-upstream'
-		|| !Array.isArray(document.inputBinding.fields)
-		|| document.inputBinding.fields.length !== 3
-		|| document.inputBinding.fields[0] !== 'sourcePath'
-		|| document.inputBinding.fields[1] !== 'slot'
-		|| document.inputBinding.fields[2] !== 'order'
+		|| !Array.isArray(document.nodeKinds)
+		|| document.nodeKinds.length !== nodeKinds.length
+		|| !document.nodeKinds.every((kind, index) => kind === nodeKinds[index])
 		|| !isRecord(document.lifecycle)
-		|| !hasOnlyKeys(document.lifecycle, ['attempts', 'result', 'retry'])
-		|| document.lifecycle.attempts !== 'host-owned'
+		|| !hasOnlyKeys(document.lifecycle, ['task', 'result'])
+		|| document.lifecycle.task !== 'host-owned'
 		|| document.lifecycle.result !== 'host-owned-single-file'
-		|| document.lifecycle.retry !== 'frozen-only'
 		|| document.runCommand !== 'basehalf --run-node <workspace-relative-.bhnode-path>'
 		|| !isRecord(document.authoring)
 		|| !hasOnlyKeys(document.authoring, ['contractVersion', 'schema', 'examples', 'hostOwnedFields', 'rules'])
@@ -483,133 +472,12 @@ function isCapabilityDiscoveryHost(value: unknown): boolean {
 		|| !isRecord(document.authoring.schema)
 		|| !isRecord(document.authoring.examples)
 		|| !Array.isArray(document.authoring.hostOwnedFields)
-		|| !arraysEqual(document.authoring.hostOwnedFields, ['result', 'attempts'])
+		|| !arraysEqual(document.authoring.hostOwnedFields, ['task', 'result'])
 		|| !Array.isArray(document.authoring.rules)
 		|| !document.authoring.rules.every(rule => isBoundedText(rule, 500))) {
 		return false;
 	}
 	return isBoundedCapabilityJson(document.authoring);
-}
-
-function isCapabilityDiscoveryRecipes(value: readonly unknown[]): boolean {
-	const ids = new Set<string>();
-	for (const recipe of value) {
-		if (!isRecord(recipe)
-			|| !hasOnlyKeys(recipe, ['id', 'label', 'inputs', 'parameters', 'outputs'], ['description', 'icon', 'modelCapability', 'videoModelCatalogId'])
-			|| !isContributionId(recipe.id)
-			|| ids.has(recipe.id)
-			|| !isBoundedText(recipe.label, 80)
-			|| (recipe.description !== undefined && !isBoundedText(recipe.description, 500))
-			|| (recipe.icon !== undefined && (typeof recipe.icon !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(recipe.icon)))
-			|| (recipe.modelCapability !== undefined && !['text', 'image', 'video', 'audio'].includes(String(recipe.modelCapability)))
-			|| (recipe.modelCapability === 'video'
-				? !isContributionId(recipe.videoModelCatalogId) || !sameContributionOwner(recipe.id, recipe.videoModelCatalogId)
-				: recipe.videoModelCatalogId !== undefined)
-			|| !Array.isArray(recipe.inputs)
-			|| recipe.inputs.length > 16
-			|| !recipe.inputs.every(isCapabilityDiscoveryRecipeInput)
-			|| !hasUniqueLocalIds(recipe.inputs)
-			|| !Array.isArray(recipe.parameters)
-			|| recipe.parameters.length > 32
-			|| !recipe.parameters.every(isCapabilityDiscoveryRecipeParameter)
-			|| !hasUniqueLocalIds(recipe.parameters)
-			|| !Array.isArray(recipe.outputs)
-			|| recipe.outputs.length !== 1
-			|| !recipe.outputs.every(isCapabilityDiscoveryRecipeOutput)
-			|| !hasUniqueLocalIds(recipe.outputs)
-			|| !isRecord(recipe.outputs[0])
-			|| recipe.outputs[0].primary !== true
-			|| recipe.outputs[0].minItems !== 1
-			|| recipe.outputs[0].maxItems !== 1) {
-			return false;
-		}
-		ids.add(recipe.id);
-	}
-	return true;
-}
-
-function sameContributionOwner(left: unknown, right: unknown): boolean {
-	if (typeof left !== 'string' || typeof right !== 'string') {
-		return false;
-	}
-	return left.split('.', 2).join('.') === right.split('.', 2).join('.');
-}
-
-function isCapabilityDiscoveryRecipeInput(value: unknown): boolean {
-	const kinds = ['text', 'code', 'file', 'folder', 'image', 'video', 'audio', 'pdf', 'presentation'];
-	return isRecord(value)
-		&& hasOnlyKeys(value, ['id', 'label', 'accepts', 'minItems', 'maxItems'])
-		&& isLocalId(value.id)
-		&& isBoundedText(value.label, 80)
-		&& Array.isArray(value.accepts)
-		&& value.accepts.length > 0
-		&& value.accepts.length <= kinds.length
-		&& value.accepts.every(kind => kinds.includes(String(kind)))
-		&& new Set(value.accepts).size === value.accepts.length
-		&& isItemRange(value.minItems, value.maxItems);
-}
-
-function isCapabilityDiscoveryRecipeParameter(value: unknown): boolean {
-	if (!isRecord(value)
-		|| !isLocalId(value.id)
-		|| !isBoundedText(value.label, 80)
-		|| (value.required !== undefined && value.required !== true)) {
-		return false;
-	}
-	const baseKeys = ['id', 'label', 'type'];
-	const optionalBaseKeys = ['required'];
-	switch (value.type) {
-		case 'string':
-		case 'multiline': {
-			if (!hasOnlyKeys(value, baseKeys, [...optionalBaseKeys, 'default', 'minLength', 'maxLength'])
-				|| (value.default !== undefined && (typeof value.default !== 'string' || value.default.length > 100_000))
-				|| !isOptionalInteger(value.minLength, 0, 100_000)
-				|| !isOptionalInteger(value.maxLength, 1, 100_000)) {
-				return false;
-			}
-			return value.minLength === undefined || value.maxLength === undefined || (value.maxLength as number) >= (value.minLength as number);
-		}
-		case 'number':
-			return hasOnlyKeys(value, baseKeys, [...optionalBaseKeys, 'default', 'minimum', 'maximum', 'step'])
-				&& [value.default, value.minimum, value.maximum, value.step].every(entry => entry === undefined || (typeof entry === 'number' && Number.isFinite(entry)))
-				&& (value.minimum === undefined || value.maximum === undefined || (value.maximum as number) >= (value.minimum as number))
-				&& (value.step === undefined || (value.step as number) > 0);
-		case 'boolean':
-			return hasOnlyKeys(value, baseKeys, [...optionalBaseKeys, 'default'])
-				&& (value.default === undefined || typeof value.default === 'boolean');
-		case 'enum': {
-			if (!hasOnlyKeys(value, [...baseKeys, 'options'], [...optionalBaseKeys, 'default'])
-				|| !Array.isArray(value.options)
-				|| value.options.length < 1
-				|| value.options.length > 50
-				|| !value.options.every(option => isRecord(option)
-					&& hasOnlyKeys(option, ['value', 'label'])
-					&& isBoundedText(option.value, 100)
-					&& isBoundedText(option.label, 100))) {
-				return false;
-			}
-			const values = value.options.map(option => (option as Record<string, unknown>).value);
-			return new Set(values).size === values.length
-				&& (value.default === undefined || (typeof value.default === 'string' && values.includes(value.default)));
-		}
-		default:
-			return false;
-	}
-}
-
-function isCapabilityDiscoveryRecipeOutput(value: unknown): boolean {
-	return isRecord(value)
-		&& hasOnlyKeys(value, ['id', 'kind', 'extensions', 'minItems', 'maxItems'], ['primary'])
-		&& isLocalId(value.id)
-		&& ['file', 'image', 'video', 'audio', 'pdf', 'presentation'].includes(String(value.kind))
-		&& Array.isArray(value.extensions)
-		&& value.extensions.length > 0
-		&& value.extensions.length <= 16
-		&& value.extensions.every(extension => typeof extension === 'string' && /^\.[A-Za-z0-9][A-Za-z0-9.-]{0,15}$/.test(extension))
-		&& new Set(value.extensions).size === value.extensions.length
-		&& isItemRange(value.minItems, value.maxItems)
-		&& (value.primary === undefined || value.primary === true)
-		&& (value.primary !== true || (value.minItems === 1 && value.maxItems === 1));
 }
 
 function requestPath(request: IBaseHalfNodeCommandRequest): string {
@@ -707,29 +575,6 @@ function isCapabilityDiscoveryParameter(value: unknown): boolean {
 		&& value.values.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES
 		&& value.values.every(entry => isBoundedText(entry, 100))
 		&& new Set(value.values).size === value.values.length;
-}
-
-function hasUniqueLocalIds(values: readonly unknown[]): boolean {
-	const ids = values.map(value => isRecord(value) ? value.id : undefined);
-	return ids.every(isLocalId) && new Set(ids).size === ids.length;
-}
-
-function isLocalId(value: unknown): value is string {
-	return typeof value === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(value);
-}
-
-function isItemRange(minItems: unknown, maxItems: unknown): boolean {
-	return Number.isInteger(minItems)
-		&& Number.isInteger(maxItems)
-		&& (minItems as number) >= 0
-		&& (minItems as number) <= 64
-		&& (maxItems as number) >= 1
-		&& (maxItems as number) <= 64
-		&& (maxItems as number) >= (minItems as number);
-}
-
-function isOptionalInteger(value: unknown, minimum: number, maximum: number): boolean {
-	return value === undefined || (Number.isInteger(value) && (value as number) >= minimum && (value as number) <= maximum);
 }
 
 function arraysEqual(left: readonly unknown[], right: readonly unknown[]): boolean {

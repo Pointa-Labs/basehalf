@@ -21227,100 +21227,9 @@ declare module 'vscode' {
 
 	/**
 	 * BaseHalf host capabilities for reviewed domain plugins. These APIs keep
-	 * project surfaces inside the fixed BaseHalf shell and keep provider
-	 * credentials in application-global secret storage.
+	 * project surfaces inside the fixed BaseHalf shell.
 	 */
 	export namespace basehalf {
-		/** A model input or output family understood by the BaseHalf host. */
-		export type ModelCapability = 'text' | 'image' | 'video' | 'audio';
-
-		/** Public metadata for an application-global model connection. */
-		export interface ModelService {
-			/** Stable service identifier. */
-			readonly id: string;
-			/** User-facing service name. */
-			readonly label: string;
-			/** Reviewed official HTTPS endpoint. */
-			readonly endpoint: string;
-			/** Stable provider namespace used to match reviewed model catalogs. */
-			readonly providerId: string;
-			/** Provider deployment whose capability and endpoint rules apply. */
-			readonly deploymentId: string;
-			/** Provider region used by the reviewed capability and endpoint contract. */
-			readonly region: string;
-			/** Digest of the non-secret connection settings used to identify this connection. */
-			readonly connectionIdentity: string;
-			/** Model families exposed by this service. */
-			readonly capabilities: readonly ModelCapability[];
-			/** Credential transport required by the service. */
-			readonly authorization: 'bearer';
-			/** Whether the user has stored a credential when one is required. */
-			readonly configured: boolean;
-		}
-
-		/**
-		 * A short-lived connection snapshot. Never persist credentials into project data.
-		 */
-		export interface ModelServiceAccess extends Omit<ModelService, 'configured'> {
-			/** Credentials retrieved from application secret storage for the reviewed provider contract. */
-			readonly credentialValues: Readonly<Record<string, string>>;
-			/** Compatibility alias for providers whose reviewed credential field is `apiKey`. */
-			readonly apiKey?: string;
-		}
-
-		/** External model connection identity frozen by the host for one explicit attempt. */
-		export interface ModelServiceAttemptSnapshot {
-			/** Stable identifier of the selected service. */
-			readonly serviceId: string;
-			/** User-facing name captured for this attempt. */
-			readonly serviceLabel: string;
-			/** Digest of the non-secret connection settings captured for this attempt. */
-			readonly connectionIdentity: string;
-			/** Model family requested by the recipe. */
-			readonly capability: ModelCapability;
-			/** Optional provider model identifier selected for this run. */
-			readonly modelId?: string;
-			/** Opaque short-lived grant supplied only to the executor handling this attempt. */
-			readonly accessToken?: string;
-		}
-
-		/** Candidate official provider connection supplied only during an explicit user verification. */
-		export interface ModelProviderConnectionValidationRequest {
-			readonly specId: string;
-			readonly endpoint: string;
-			readonly providerId: string;
-			readonly deploymentId: string;
-			readonly region: string;
-			readonly publicValues: Readonly<Record<string, string>>;
-			readonly credentialValues: Readonly<Record<string, string>>;
-		}
-
-		/** Provider-owned, read-only credential probe run before the host stores a connection. */
-		export interface ModelProviderConnectionValidator {
-			validate(request: ModelProviderConnectionValidationRequest, token: CancellationToken): ProviderResult<void>;
-		}
-
-		/** Registers the validator for one connection spec declared by this extension's provider catalog. */
-		export function registerModelProviderConnectionValidator(specId: string, validator: ModelProviderConnectionValidator): Disposable;
-
-		/** An event that fires after the user's global model connections change. */
-		export const onDidChangeModelServices: Event<void>;
-
-		/**
-		 * Lists global model connections visible to the current reviewed plugin.
-		 *
-		 * @param capability Optional capability used to filter the result.
-		 * @returns Public connection metadata without credentials.
-		 */
-		export function getModelServices(capability?: ModelCapability): Thenable<readonly ModelService[]>;
-
-		/**
-		 * Resolves one model connection, including its short-lived credential snapshot.
-		 *
-		 * @param snapshot The exact immutable connection identity and grant supplied in the current attempt request.
-		 * @returns The connection snapshot, or `undefined` when the configured connection no longer matches.
-		 */
-		export function getModelServiceAccess(snapshot: ModelServiceAttemptSnapshot): Thenable<ModelServiceAccess | undefined>;
 
 		/** A content family rendered by the BaseHalf canvas host. */
 		export type CanvasContentKind =
@@ -21337,198 +21246,20 @@ declare module 'vscode' {
 		/** A stable result container rendered and versioned by the BaseHalf canvas host. */
 		export type CanvasNodeKind = Exclude<CanvasContentKind, 'text' | 'code' | 'folder'>;
 
-		/** JSON-compatible recipe configuration persisted by the BaseHalf host. */
-		export type CanvasRecipeValue =
-			| null
-			| boolean
-			| number
-			| string
-			| readonly CanvasRecipeValue[]
-			| { readonly [key: string]: CanvasRecipeValue };
-
-		/** A reviewed provider mode frozen into a video recipe Attempt. */
-		export type VideoGenerationMode =
-			| 'text-to-video'
-			| 'first-frame-to-video'
-			| 'first-last-frame-to-video'
-			| 'reference-to-video'
-			| 'video-edit'
-			| 'video-extension';
-
-		/** Direct input families used to resolve one reviewed video capability. */
-		export type VideoInputKind =
-			| 'text-prompt'
-			| 'first-frame'
-			| 'last-frame'
-			| 'reference-image'
-			| 'reference-video'
-			| 'source-video'
-			| 'audio';
-
-		/** Exact host-owned value persisted in the reserved `videoModelSnapshot` recipe parameter. */
-		export interface VideoModelSelectionSnapshot {
-			readonly schemaVersion: 1;
-			readonly catalogId: string;
-			readonly providerId: string;
-			readonly deploymentId: string;
-			readonly region: string;
-			readonly modelId: string;
-			readonly revision: string;
-			readonly mode: VideoGenerationMode;
-			readonly inputs: Readonly<Partial<Record<VideoInputKind, number>>>;
-		}
-
-		/** One host-verified artifact copied into the immutable attempt snapshot. */
-		export interface CanvasArtifactSnapshot {
-			readonly id: string;
-			readonly kind: CanvasContentKind;
-			readonly resource: Uri;
-			readonly attemptId?: string;
-		}
-
-		/** The bounded node state supplied to one recipe execution. */
-		export interface CanvasNodeSnapshot {
-			readonly id: string;
-			readonly path: string;
-			readonly kind: CanvasContentKind;
-			/** Host-created immutable declaration or source snapshot for this node. */
-			readonly resource?: Uri;
-			readonly result?: CanvasArtifactSnapshot;
-		}
-
-		/** A direct context edge bound to a recipe-local input slot. */
-		export interface CanvasRecipeInput {
-			readonly edgeId: string;
-			/** Recipe-local consumption metadata. This does not change the canvas edge meaning. */
-			readonly slotId: string;
-			readonly order: number;
-			readonly source: CanvasNodeSnapshot;
-		}
-
-		export type CanvasProviderTaskIntent =
-			| { readonly kind: 'new' }
-			| { readonly kind: 'recover'; readonly providerRequestId: string }
-			| {
-				readonly kind: 'exact-retry';
-				readonly sourceAttemptId: string;
-				readonly providerRequestId?: string;
-				readonly sourceFailure?: CanvasProviderExecutionFailure;
-				readonly replacementAuthorized: boolean;
-			};
-
-		export interface CanvasProviderExecutionFailure {
-			readonly kind: 'preparation' | 'submission-rejected' | 'submission-ambiguous' | 'remote-id-uncommitted' | 'poll-interrupted' | 'poll-window-exhausted' | 'remote-failed' | 'remote-cancelled' | 'protocol' | 'download' | 'artifact-invalid' | 'artifact-commit' | 'execution-ownership';
-			readonly retry: 'fresh-submit' | 'resume-existing' | 'replace-after-terminal-proof' | 'blocked';
-			readonly providerRequestId?: string;
-			readonly uncommittedProviderRequestId?: string;
-		}
-
-		/** Immutable inputs for one explicit canvas recipe execution. */
-			export interface CanvasRecipeExecutionRequest {
-				readonly attemptId: string;
-				readonly workspaceFolder: Uri;
-				readonly node: CanvasNodeSnapshot;
-				readonly recipeId: string;
-				/** Host-owned generation intent frozen into this Attempt. */
-				readonly prompt: string;
-				readonly parameters: Readonly<Record<string, CanvasRecipeValue>>;
-			/** Selected global model connection. Credentials remain available only through {@link getModelServiceAccess}. */
-			readonly modelServiceId?: string;
-			/** Host-frozen service identity. Pass this exact value to {@link getModelServiceAccess}. */
-			readonly modelService?: ModelServiceAttemptSnapshot;
-			readonly inputs: readonly CanvasRecipeInput[];
-			/** Unique host-selected directory for the ordinary local artifact from this attempt. */
-			readonly outputDirectory: Uri;
-			/** Explicit paid-task ownership semantics frozen by the host. */
-			readonly providerTaskIntent?: CanvasProviderTaskIntent;
-			/** Host-computed fingerprint bound to this immutable provider request. */
-			readonly providerRequestFingerprint?: string;
-			/** Existing durable remote task reused by an exact Retry. Do not submit a replacement task when present. */
-			readonly resumeProviderRequestId?: string;
-			/** Consumes the host's exact one-use create grant immediately before the provider create call. */
-			consumeProviderCreateAuthorization?(fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Thenable<void>;
-			/** Persists structured retry evidence before rejecting execution. */
-			reportProviderExecutionFailure?(failure: CanvasProviderExecutionFailure): Thenable<void>;
-			/** Durably persist a newly submitted remote task id before polling or any other fallible work. */
-			acknowledgeProviderRequestId(providerRequestId: string): Thenable<void>;
-		}
-
-		/** Bounded progress reported by a canvas recipe executor. */
-		export interface CanvasRecipeProgress {
-			readonly message?: string;
-			readonly increment?: number;
-		}
-
-		/** One ordinary local file returned by a canvas recipe executor. */
-		export interface CanvasRecipeArtifact {
-			/** Host-normalized persistent `.bhnode` identifier: input is at most 128 characters; its trimmed value matches `[A-Za-z0-9][A-Za-z0-9._:-]*`. */
-			readonly id: string;
-			readonly outputId: string;
-			readonly kind: CanvasNodeKind;
-			readonly resource: Uri;
-			readonly label?: string;
-		}
-
-		/** The single Result file returned to the host after one recipe execution. */
-		export interface CanvasRecipeExecutionResult {
-			/** The ordinary local file produced by the executor. */
-			readonly artifact: CanvasRecipeArtifact;
-			/** Optional request identifier reported by the external provider. */
-			readonly providerRequestId?: string;
-			/** Optional bounded usage reported by the executor. */
-			readonly usage?: CanvasRecipeUsage;
-			/** Optional monetary disclosure reported by the executor. */
-			readonly cost?: CanvasRecipeCost;
-		}
-
-		/** Structured, bounded usage disclosed by a recipe executor. */
-		export interface CanvasRecipeUsage {
-			/** Number of input tokens consumed. */
-			readonly inputTokens?: number;
-			/** Number of output tokens produced. */
-			readonly outputTokens?: number;
-			/** Number of cached input tokens reported by the provider. */
-			readonly cachedInputTokens?: number;
-			/** Number of images processed or produced. */
-			readonly images?: number;
-			/** Number of video seconds processed or produced. */
-			readonly videoSeconds?: number;
-			/** Number of audio seconds processed or produced. */
-			readonly audioSeconds?: number;
-		}
-
-		/** Monetary disclosure reported for one completed execution. */
-		export interface CanvasRecipeCost {
-			/** Currency or credit unit used by the provider. */
-			readonly currency: string;
-			/** Decimal amount represented as a string to avoid precision loss. */
-			readonly amount: string;
-			/** Whether the amount is final or an estimate. */
-			readonly kind: 'actual' | 'estimated';
-		}
-
-		/** Backend identity recorded for an immutable attempt, including unresolved explicit attempts. */
-		export type CanvasAttemptModel =
-			| { readonly source: 'local' }
-			| ({ readonly source: 'service'; readonly connection: 'resolved' } & ModelServiceAttemptSnapshot)
-			| {
-				readonly source: 'service';
-				readonly connection: 'unavailable';
-				readonly serviceId?: string;
-				readonly capability: ModelCapability;
-				readonly modelId?: string;
-			};
-
 		/** Availability of one immutable canvas-node artifact on local storage. */
 		export type CanvasArtifactIntegrity = 'available' | 'missing' | 'changed';
 
 		/** Lifecycle state of one immutable execution attempt. */
 		export type CanvasNodeAttemptStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
-		/** Stable product lifecycle of a result node. */
+		/**
+		 * Stable product lifecycle of a node: `result` when it holds its file,
+		 * `running` while its generation runs, `failed` or `cancelled` when its
+		 * last generation ended without a video, and `draft` otherwise.
+		 */
 		export type CanvasNodeLifecycle = 'draft' | 'running' | 'result' | 'failed' | 'cancelled' | 'interrupted';
 
-		/** The single ordinary local file sealed into a Result node. */
+		/** The single ordinary local file a node shows. */
 		export interface CanvasNodeResultArtifact {
 			readonly id: string;
 			readonly outputId: string;
@@ -21538,26 +21269,25 @@ declare module 'vscode' {
 			readonly label?: string;
 		}
 
-		/** Read-only audit record for one immutable execution attempt. */
+		/** An execution attempt. Nodes keep no attempts since `.bhnode` version 5. */
 		export interface CanvasNodeAttempt {
 			readonly id: string;
 			readonly status: CanvasNodeAttemptStatus;
 			readonly createdAt: string;
 			readonly startedAt?: string;
 			readonly completedAt?: string;
-			readonly model?: CanvasAttemptModel;
-			readonly providerRequestId?: string;
-			readonly usage?: CanvasRecipeUsage;
-			readonly cost?: CanvasRecipeCost;
 			readonly error?: string;
 		}
 
-		/** The immutable file identity that seals a Result node. */
+		/**
+		 * The file a node shows: one the user imported, or a generated video,
+		 * whose `attemptId` is the id of the generation that made it.
+		 */
 		export type CanvasNodeResult =
 			| { readonly source: 'imported'; readonly artifact: CanvasNodeResultArtifact }
 			| { readonly source: 'attempt'; readonly attemptId: string; readonly artifact: CanvasNodeResultArtifact };
 
-		/** Stable identity, lifecycle, Result, and append-only Attempt audit for one node. */
+		/** Stable identity, lifecycle, and result of one node. `attempts` is always empty. */
 		export interface CanvasNodeState {
 			readonly id: string;
 			readonly kind: CanvasNodeKind;
@@ -21567,13 +21297,12 @@ declare module 'vscode' {
 		}
 
 		/**
-		 * Reads one saved result node through the host-owned document and integrity model.
+		 * Reads one saved node through the host-owned document model.
 		 *
 		 * This is a read-only capability for reviewed domain plugins. It returns
-		 * `undefined` when the resource does not exist or is not a result-node document.
-		 * Dirty node documents must be saved before they can be inspected. A Result
-		 * exposes exactly one integrity-checked ordinary local file; Attempts are
-		 * append-only audit records and are never alternate selectable results.
+		 * `undefined` when the resource does not exist or is not a node document.
+		 * Dirty node documents must be saved before they can be inspected. A result
+		 * exposes exactly one ordinary local file, `available` while it exists.
 		 */
 		export function inspectCanvasNode(resource: Uri): Thenable<CanvasNodeState | undefined>;
 
@@ -21612,26 +21341,6 @@ declare module 'vscode' {
 
 		/** Registers at most one structural cleanup provider for this reviewed plugin. */
 		export function registerCanvasStructuralCleanupProvider(provider: CanvasStructuralCleanupProvider): Disposable;
-
-		/** Executes a recipe declared through `contributes.basehalfCanvasRecipes`. */
-		export interface CanvasRecipeExecutor {
-			execute(
-				request: CanvasRecipeExecutionRequest,
-				progress: Progress<CanvasRecipeProgress>,
-				token: CancellationToken
-			): ProviderResult<CanvasRecipeExecutionResult>;
-		}
-
-		/**
-		 * Registers the executor for one manifest-declared canvas recipe.
-		 *
-		 * The BaseHalf host continues to own references (stored once, in each
-		 * target node's `upstream` list), layout, the sealed Result,
-		 * and append-only Attempt audit. The execution contract supplies frozen direct inputs and
-		 * validates the returned ordinary local artifact. Executable plugins remain
-		 * trusted local software and are not an operating-system sandbox.
-		 */
-		export function registerCanvasRecipeExecutor(recipeId: string, executor: CanvasRecipeExecutor): Disposable;
 
 		/** A BaseHalf-owned card-detail surface backed by a plugin webview. */
 		export interface CardProjectionView {

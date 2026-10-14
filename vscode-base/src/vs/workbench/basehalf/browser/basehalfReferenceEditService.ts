@@ -42,9 +42,6 @@ import {
 	baseHalfNodeUpstreamItemValues,
 	BaseHalfNodeUpstreamEditError,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeInputBinding,
-	IBaseHalfNodeUpstreamBindingRequest,
-	isBaseHalfNodeDraft,
 	parseBaseHalfNodeDocument,
 	parseBaseHalfNodeDocumentBytes,
 	removeBaseHalfNodeUpstreamEntry,
@@ -100,10 +97,8 @@ import {
 	readBaseHalfSidecarUpstream
 } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease, IBaseHalfWorkspaceResourceMutationStamp } from '../common/basehalfWorkspaceMutation.js';
-import { BaseHalfNodeRunLeaseStore } from './basehalfNodeRunLease.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
-const RUN_LEASE_STALE_AFTER_MS = 30_000;
 const NODE_WRITE_TEMP_POSTFIX = '.basehalf-node-upstream-tmp';
 const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
@@ -191,9 +186,9 @@ class StoreRefusal extends Error {
  * canvas undo source) and saved; `.bhnode` documents through the node
  * document writer; sidecars with an expected-bytes compare and swap. Every
  * write runs under the workspace mutation lease of its folder. It never
- * changes the store of an upstream-only node (reserved outputs, sealed or
- * imported Result artifacts) and never writes a Markdown or `.bhnode` store
- * through a symbolic link.
+ * changes the store of an upstream-only node (reserved outputs, and the file
+ * a `.bhnode` shows as its result) and never writes a Markdown or `.bhnode`
+ * store through a symbolic link.
  */
 export class BaseHalfReferenceEditService extends Disposable implements IBaseHalfReferenceEditService {
 	declare readonly _serviceBrand: undefined;
@@ -202,8 +197,6 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 
 	private readonly _onDidCreateFrontmatter = this._register(new Emitter<IBaseHalfWorkspaceResource>());
 	readonly onDidCreateFrontmatter = this._onDidCreateFrontmatter.event;
-
-	private readonly runLeases: BaseHalfNodeRunLeaseStore;
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
@@ -222,13 +215,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
-		this.runLeases = new BaseHalfNodeRunLeaseStore(this.fileService, RUN_LEASE_STALE_AFTER_MS);
 	}
 
 	//#region Public API
 
-	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions, binding?: IBaseHalfNodeUpstreamBindingRequest): Promise<IBaseHalfReferenceEditResult> {
-		return this.apply([{ node, operation: { kind: 'add', entry, ...(binding ? { binding } : {}) } }], options);
+	add(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
+		return this.apply([{ node, operation: { kind: 'add', entry } }], options);
 	}
 
 	remove(node: IBaseHalfWorkspaceResource, entry: string, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
@@ -239,9 +231,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		return this.apply([{ node, operation: { kind: 'replace', from, to } }], options);
 	}
 
-	move(entry: string, from: IBaseHalfWorkspaceResource, to: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions, binding?: IBaseHalfNodeUpstreamBindingRequest): Promise<IBaseHalfReferenceEditResult> {
+	move(entry: string, from: IBaseHalfWorkspaceResource, to: IBaseHalfWorkspaceResource, options: IBaseHalfReferenceEditOptions): Promise<IBaseHalfReferenceEditResult> {
 		return this.apply([
-			{ node: to, operation: { kind: 'add', entry, ...(binding ? { binding } : {}) } },
+			{ node: to, operation: { kind: 'add', entry } },
 			{ node: from, operation: { kind: 'remove', entry } }
 		], options);
 	}
@@ -536,8 +528,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 
 	/**
 	 * A change to a Markdown store waits up to 10 s, because the
-	 * sealed-artifact check (which refuses every change to a sealed or
-	 * imported Result artifact) needs the index.
+	 * result-artifact check (which refuses every change to the file a
+	 * `.bhnode` shows as its result) needs the index.
 	 */
 	private async waitForIndex(targets: readonly IStoreTarget[], options: IBaseHalfReferenceEditOptions): Promise<void> {
 		for (const target of targets) {
@@ -607,9 +599,9 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 		if (addsEntries(operation) && !target.exists) {
 			throw new StoreRefusal('missingNode', this.message('missingNode', target.node.resource));
 		}
-		// Upstream-only nodes (the reserved outputs tree, sealed or imported
-		// Result artifacts): BaseHalf never changes their store, removals
-		// included, so a sealed artifact keeps the bytes its `.bhnode` pins.
+		// Upstream-only nodes (the reserved outputs tree, and the file a
+		// `.bhnode` shows as its result): BaseHalf never changes their store,
+		// removals included, so a node's file keeps the bytes it showed.
 		// Undo and redo are refused only when they would change the store.
 		const upstreamOnly = operation.kind !== 'deleteSidecar'
 			&& (isBaseHalfUpstreamReservedOutput(target.node.relativePath) || !!this.referenceIndexService.getUpstreamOnlyReason(target.node));
@@ -869,19 +861,16 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			this.logService.warn(`[BaseHalf] ${target.node.relativePath} can't be read`, error);
 			throw new StoreRefusal('unreadable', localize('basehalf.references.nodeUnreadable', "{0} can't be read.", basename(resource)));
 		}
-		// Every write is refused while a run lease is active.
-		const lease = await this.runLeases.inspect(target.node.workspaceFolder, document.id).catch(() => undefined);
-		if (lease && lease.state !== 'released' && !this.runLeases.isStale(lease)) {
-			throw new StoreRefusal('running', this.message('running', resource));
-		}
+		// A node accepts upstream changes in every phase: a generation records
+		// the inputs it used when it starts.
 		const operation = target.edit.operation;
 		if (operation.kind === 'rebuild') {
 			// A node document is one JSON value BaseHalf writes whole: there is
 			// no list inside it to write again.
 			throw new StoreRefusal('notWritable', localize('basehalf.references.rebuildUnavailable', "The upstream list of {0} can't be rebuilt.", basename(resource)));
 		}
-		// A Composer or node-surface save, and its undo, compare and restore the
-		// whole document, not only the list and bindings.
+		// A Video node store write, and its undo, compare and restore the whole
+		// document, not only the list.
 		const withDocument = operation.kind === 'nodeDocument'
 			|| (operation.kind === 'transition' && (operation.from.document !== undefined || operation.to.document !== undefined));
 		const expected = nodeSnapshot(document, withDocument);
@@ -900,12 +889,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			next = this.nextNodeDocument(document, operation, target.identity);
 		} catch (error) {
 			if (error instanceof BaseHalfNodeUpstreamEditError) {
-				const reason: BaseHalfReferenceRefusalReason = error.refusal === 'limit' ? 'limit'
-					: error.refusal === 'boundOutsideDraft' ? 'boundOutsideDraft'
-						: error.refusal === 'recipeFrozen' ? 'recipeFrozen'
-							: error.refusal === 'entryMissing' ? 'entryMissing'
-								: 'binding';
-				throw new StoreRefusal(reason, reason === 'binding' ? error.message : this.message(reason, resource));
+				const reason: BaseHalfReferenceRefusalReason = error.refusal;
+				throw new StoreRefusal(reason, this.message(reason, resource));
 			}
 			this.logService.warn(`[BaseHalf] the upstream change to ${target.node.relativePath} was not planned`, error);
 			throw new StoreRefusal('notWritable', localize('basehalf.references.nodeNotWritable', "This change can't be saved to {0}.", basename(resource)));
@@ -926,13 +911,12 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 	private nextNodeDocument(document: IBaseHalfNodeDocument, operation: InternalOperation, identity: IBaseHalfUpstreamIdentity): IBaseHalfNodeDocument {
 		switch (operation.kind) {
 			case 'add':
-				return addBaseHalfNodeUpstreamEntry(document, operation.entry, operation.binding, identity);
+				return addBaseHalfNodeUpstreamEntry(document, operation.entry, identity);
 			case 'remove':
 				return removeBaseHalfNodeUpstreamEntry(document, operation.entry, identity);
 			case 'replace':
 				return replaceBaseHalfNodeUpstreamEntry(document, operation.from, operation.to, identity);
 			case 'replaceEntries': {
-				// Each replacement also rewrites a Draft binding that names it.
 				let next = document;
 				for (const replacement of operation.replacements) {
 					next = replaceBaseHalfNodeUpstreamEntry(next, replacement.from, replacement.to, identity);
@@ -942,7 +926,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'append': {
 				let next = document;
 				for (const entry of operation.entries) {
-					next = addBaseHalfNodeUpstreamEntry(next, entry, undefined, identity);
+					next = addBaseHalfNodeUpstreamEntry(next, entry, identity);
 				}
 				return next;
 			}
@@ -956,11 +940,8 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				if (typeof item === 'string') {
 					const key = identity.key(baseHalfNormalizeUpstreamEntry(item));
 					const first = document.upstream.findIndex(candidate => typeof candidate === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(candidate)) === key);
-					if (first === operation.index) {
-						// The first occurrence owns the binding: the named helpers keep bindings consistent.
-						return operation.kind === 'removeAt'
-							? removeFirstOccurrence(document, operation.index, identity)
-							: replaceBaseHalfNodeUpstreamEntry(document, item, operation.to, identity);
+					if (first === operation.index && operation.kind === 'replaceAt') {
+						return replaceBaseHalfNodeUpstreamEntry(document, item, operation.to, identity);
 					}
 				}
 				const upstream: BaseHalfNodeJsonValue[] = [...document.upstream];
@@ -981,7 +962,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 				if (operation.to.document !== undefined) {
 					return parseBaseHalfNodeDocument(operation.to.document);
 				}
-				return setBaseHalfNodeUpstream(document, operation.to.items.map(itemToJson), operation.to.bindings ?? document.recipe?.inputBindings ?? []);
+				return setBaseHalfNodeUpstream(document, operation.to.items.map(itemToJson));
 			case 'nodeDocument':
 				return nextNodeDocumentSave(document, operation.next, identity);
 			case 'deleteSidecar':
@@ -1575,11 +1556,7 @@ export class BaseHalfReferenceEditService extends Disposable implements IBaseHal
 			case 'upstreamOnly': return localize('basehalf.references.upstreamOnly', "{0} can't receive upstream context.", file);
 			case 'symbolicLink': return localize('basehalf.references.symbolicLink', "{0} is a symbolic link or inside one. BaseHalf doesn't change files through links.", file);
 			case 'indexLoading': return localize('basehalf.references.indexLoading', "Still loading connections. Try again in a moment.");
-			case 'running': return localize('basehalf.references.running', "This node is running.");
 			case 'limit': return localize('basehalf.references.limit', "This node already has 64 upstream entries.");
-			case 'boundOutsideDraft': return localize('basehalf.references.boundOutsideDraft', "This input is part of a result. Copy the settings into a new Draft to change it.");
-			case 'recipeFrozen': return localize('basehalf.references.recipeFrozen', "{0} already has an attempt or sealed Result. Copy its settings to a new Draft before changing recipe inputs.", file);
-			case 'binding': return localize('basehalf.references.binding', "This input can't be assigned in {0}.", file);
 			case 'markedFolder': return localize('basehalf.references.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", file);
 			case 'missingNode': return localize('basehalf.references.missingNode', "{0} no longer exists.", file);
 			case 'invalidEntry': return localize('basehalf.references.invalidEntryGeneric', "This path can't be listed as upstream of {0}.", file);
@@ -1669,7 +1646,7 @@ function addsEntries(operation: InternalOperation): boolean {
 			return operation.to.items.some(item => !before.has(item.text));
 		}
 		case 'nodeDocument':
-			// Composer saves are single-store writes that may add entries.
+			// Video node store writes are single-store writes that may add entries.
 			return operation.next.upstream.length > 0;
 		default:
 			return false;
@@ -1693,22 +1670,17 @@ function entriesToWrite(operation: InternalOperation): readonly string[] {
 }
 
 /**
- * Validates a Composer or node-surface save of a `.bhnode` document: the same
- * node, no more than 64 entries when the list grows, and a binding change
- * only in a Draft.
+ * Validates a Video node store write of a `.bhnode` document: the same node,
+ * and no more than 64 entries when the list grows.
  */
 function nextNodeDocumentSave(document: IBaseHalfNodeDocument, next: IBaseHalfNodeDocument, identity: IBaseHalfUpstreamIdentity): IBaseHalfNodeDocument {
-	if (next.id !== document.id) {
-		throw new BaseHalfNodeUpstreamEditError('bindingConflict', 'The saved node document belongs to another node.');
+	if (next.id !== document.id || next.kind !== document.kind) {
+		throw new Error('The saved node document belongs to another node.');
 	}
 	const listed = new Set(document.upstream.flatMap(item => typeof item === 'string' ? [identity.key(baseHalfNormalizeUpstreamEntry(item))] : []));
 	const grows = next.upstream.some(item => typeof item === 'string' && !listed.has(identity.key(baseHalfNormalizeUpstreamEntry(item))));
 	if (grows && next.upstream.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES) {
 		throw new BaseHalfNodeUpstreamEditError('limit', `This node already has ${BASEHALF_UPSTREAM_MAX_NODE_ENTRIES} upstream entries.`);
-	}
-	const bindingsChanged = JSON.stringify(document.recipe?.inputBindings ?? []) !== JSON.stringify(next.recipe?.inputBindings ?? []);
-	if (bindingsChanged && !isBaseHalfNodeDraft(document)) {
-		throw new BaseHalfNodeUpstreamEditError('boundOutsideDraft', 'A binding can change only while this node is a Draft.');
 	}
 	return next;
 }
@@ -1731,16 +1703,15 @@ function readSnapshot(read: IBaseHalfUpstreamStoreRead): IBaseHalfUpstreamStoreS
 function nodeSnapshot(document: IBaseHalfNodeDocument, withDocument = false): IBaseHalfUpstreamStoreSnapshot {
 	return {
 		items: baseHalfNodeUpstreamItemValues(document.upstream),
-		bindings: [...(document.recipe?.inputBindings ?? [])],
 		...(withDocument ? { document: serializeBaseHalfNodeDocument(document) } : {})
 	};
 }
 
 function transitionState(current: IBaseHalfUpstreamStoreSnapshot, operation: { readonly from: IBaseHalfUpstreamStoreSnapshot; readonly to: IBaseHalfUpstreamStoreSnapshot }): TransitionState {
-	// A Markdown or sidecar store has only items. A `.bhnode` store also has
-	// bindings, and it carries the whole document exactly when the transition
-	// does (a Composer or node-surface save).
-	const comparable = (snapshot: IBaseHalfUpstreamStoreSnapshot): IBaseHalfUpstreamStoreSnapshot => current.bindings === undefined ? { items: snapshot.items } : snapshot;
+	// A store's snapshot carries the whole document exactly when the
+	// transition does (a `.bhnode` written by the Video node store); every
+	// other snapshot has only items.
+	const comparable = (snapshot: IBaseHalfUpstreamStoreSnapshot): IBaseHalfUpstreamStoreSnapshot => current.document === undefined ? { items: snapshot.items } : snapshot;
 	if (baseHalfUpstreamSnapshotsEqual(current, comparable(operation.from))) {
 		return 'from';
 	}
@@ -1756,23 +1727,6 @@ function itemToJson(item: IBaseHalfUpstreamItemValue): BaseHalfNodeJsonValue {
 	} catch {
 		return item.text;
 	}
-}
-
-/** Removes the first occurrence of a string entry and, in a Draft, its binding. */
-function removeFirstOccurrence(document: IBaseHalfNodeDocument, index: number, identity: IBaseHalfUpstreamIdentity): IBaseHalfNodeDocument {
-	const item = document.upstream[index] as string;
-	const key = identity.key(baseHalfNormalizeUpstreamEntry(item));
-	const upstream = document.upstream.filter((_, candidate) => candidate !== index);
-	const stillListed = upstream.some(candidate => typeof candidate === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(candidate)) === key);
-	const bindings: readonly IBaseHalfNodeInputBinding[] = document.recipe?.inputBindings ?? [];
-	const bound = bindings.some(binding => identity.key(binding.sourcePath) === key);
-	if (!bound || stillListed) {
-		return setBaseHalfNodeUpstream(document, upstream);
-	}
-	if (!isBaseHalfNodeDraft(document)) {
-		throw new BaseHalfNodeUpstreamEditError('boundOutsideDraft', 'A bound input can be disconnected only while this node is a Draft.');
-	}
-	return setBaseHalfNodeUpstream(document, upstream, bindings.filter(binding => identity.key(binding.sourcePath) !== key).map((binding, order) => ({ ...binding, order })));
 }
 
 /** Plans several list operations in sequence and folds them into one text plan.

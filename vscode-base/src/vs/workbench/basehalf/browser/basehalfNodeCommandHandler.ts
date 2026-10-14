@@ -14,11 +14,9 @@ import { IFileService } from '../../../platform/files/common/files.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
-	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES,
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES,
 	BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 	IBaseHalfAgentCapabilityDiscoveryExtension,
-	IBaseHalfAgentCapabilityDiscoveryRecipe,
 	IBaseHalfAgentCapabilityDiscoveryRequest,
 	IBaseHalfAgentCapabilityDiscoveryResponse,
 	IBaseHalfAgentOperationCommandRequest,
@@ -39,26 +37,35 @@ import {
 	validateBaseHalfAgentOperationReturn
 } from '../common/basehalfAgentCapabilities.js';
 import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasRecipeDescriptor, IBaseHalfCanvasRecipeRegistryService } from '../common/basehalfCanvasRecipes.js';
 import { BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID } from '../common/basehalfCanvasTemplate.js';
+import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
 import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
+	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_DOCUMENT_VERSION,
+	BASEHALF_NODE_KINDS,
 	baseHalfProjectPathProblem,
 	getBaseHalfNodeAgentAuthoringContract,
-	IBaseHalfNodeDocument
+	parseBaseHalfNodeDocumentBytes
 } from '../common/basehalfNodeDocument.js';
-import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
+import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 
+/**
+ * Answers the commands of `basehalf` in an Agent Area terminal: `--run-node`
+ * starts a Video node's generation exactly as Generate does, without a
+ * question, and answers once the task is in the node's file (D58).
+ * `--list-capabilities` and `--run-operation` describe and run what the host
+ * and admitted extensions offer.
+ */
 export class BaseHalfNodeCommandHandler {
 	constructor(
 		private readonly workspaceContextService: IWorkspaceContextService,
 		private readonly fileService: IFileService,
 		private readonly workingCopyService: IWorkingCopyService,
 		private readonly agentAreaService: IBaseHalfAgentAreaService,
-		private readonly executionService: IBaseHalfNodeExecutionService,
+		private readonly videoGenerationService: IBaseHalfVideoGenerationService,
 		private readonly agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
-		private readonly canvasRecipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
+		private readonly canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
 		private readonly commandService: ICommandService
 	) { }
 
@@ -85,21 +92,15 @@ export class BaseHalfNodeCommandHandler {
 				throw new CancellationError();
 			}
 			const node = await this.resolveNode(event);
+			await this.assertVideoNode(node);
 			if (cancellationToken.isCancellationRequested) {
 				throw new CancellationError();
 			}
-			const execution = this.executionService.run(node);
-			const attemptId = this.executionService.getActiveRun(node.resource)?.runId;
-			if (!attemptId) {
-				await execution;
-				throw new Error('The node submission did not enter the host Attempt lifecycle.');
-			}
-			// Once accepted by the host, execution belongs to the durable canvas
-			// node. Closing or switching an Agent renderer may abandon this RPC wait,
-			// but it must never cancel a paid/provider task. Cancellation remains an
-			// explicit node action addressed by node + attempt id.
-			const document = await execution;
-			return responseForCompletedAttempt(node.relativePath, attemptId, document);
+			// Once the generation starts it belongs to the node: closing the
+			// Agent session never stops it. No question is asked; the user asked
+			// the agent to work, and their own key pays (D58).
+			const running = await this.videoGenerationService.generate(node.resource);
+			return startedResponse(extUri.relativePath(node.workspaceFolder, running) ?? node.relativePath);
 		} catch (error) {
 			return rejectedResponse(event.request.relativePath, errorMessage(error));
 		}
@@ -124,16 +125,11 @@ export class BaseHalfNodeCommandHandler {
 			if (installedExtensions.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS) {
 				throw new Error('Too many reviewed Agent capabilities are installed to return safely.');
 			}
-			const installedRecipes = this.canvasRecipeRegistryService.getRecipes();
-			if (installedRecipes.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES) {
-				throw new Error('Too many reviewed canvas recipes are installed to return safely.');
-			}
-			const installedTemplates = this.canvasRecipeRegistryService.getTemplates();
+			const installedTemplates = this.canvasTemplateRegistryService.getTemplates();
 			if (installedTemplates.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES) {
 				throw new Error('Too many reviewed canvas templates are installed to return safely.');
 			}
 			const extensions = Object.freeze(installedExtensions.map(capability => capabilityDiscoveryExtension(capability)));
-			const recipes = Object.freeze(installedRecipes.map(recipe => capabilityDiscoveryRecipe(recipe)));
 			const templates = Object.freeze(installedTemplates.map(template => Object.freeze({
 				id: template.id,
 				label: template.label,
@@ -150,37 +146,32 @@ export class BaseHalfNodeCommandHandler {
 					nodeDocument: Object.freeze({
 						fileExtension: BASEHALF_NODE_DOCUMENT_EXTENSION,
 						documentVersion: BASEHALF_NODE_DOCUMENT_VERSION,
-						resultKinds: Object.freeze(['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const),
-						inputBinding: Object.freeze({
-							scope: 'node-upstream' as const,
-							fields: Object.freeze(['sourcePath', 'slot', 'order'] as const)
-						}),
+						nodeKinds: BASEHALF_NODE_KINDS,
 						lifecycle: Object.freeze({
-							attempts: 'host-owned' as const,
-							result: 'host-owned-single-file' as const,
-							retry: 'frozen-only' as const
+							task: 'host-owned' as const,
+							result: 'host-owned-single-file' as const
 						}),
 						runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 						authoring: getBaseHalfNodeAgentAuthoringContract()
 					}),
 					// D37: the downstream node stores each edge once, in its own
 					// `upstream` list; the reverse direction is derived by the host.
+					// D58: a Video node uses its inputs in that list's order.
 					contextEdge: Object.freeze({
 						source: 'direct-content' as const,
-						resultNodeSource: 'sealed-result' as const,
+						resultNodeSource: 'node-result' as const,
 						target: 'direct-context' as const,
 						autoRun: false as const,
 						recursive: false as const,
 						storedBy: 'downstream' as const,
 						markdownFrontmatterKey: 'upstream' as const,
 						nodeDocumentField: 'upstream' as const,
-						roleAndOrderOwner: 'target-recipe-binding' as const,
+						inputOrder: 'target-upstream-order' as const,
 						label: 'none' as const
 					}),
 					templates,
 					operations: hostOperations
 				}),
-				recipes,
 				extensions
 			};
 			if (VSBuffer.fromString(JSON.stringify(response)).byteLength > 1024 * 1024) {
@@ -253,7 +244,7 @@ export class BaseHalfNodeCommandHandler {
 	private resolveOperation(operationId: string): { readonly operation: IBaseHalfAgentOperationContribution; readonly host?: 'template' } {
 		const normalized = operationId.trim().toLowerCase();
 		if (normalized === BASEHALF_AGENT_CREATE_FROM_TEMPLATE_OPERATION_ID) {
-			const templateIds = this.canvasRecipeRegistryService.getTemplates().map(template => template.id);
+			const templateIds = this.canvasTemplateRegistryService.getTemplates().map(template => template.id);
 			if (templateIds.length === 0) {
 				throw new Error('No reviewed canvas template is installed.');
 			}
@@ -327,6 +318,20 @@ export class BaseHalfNodeCommandHandler {
 		};
 	}
 
+	/** Only a Video node generates. */
+	private async assertVideoNode(node: IBaseHalfWorkspaceResource): Promise<void> {
+		const content = await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
+		let kind: string;
+		try {
+			kind = parseBaseHalfNodeDocumentBytes(content.value.buffer).kind;
+		} catch (error) {
+			throw new Error(`'${node.relativePath}' can't be read: ${errorMessage(error)}`);
+		}
+		if (kind !== 'video') {
+			throw new Error(`Only a Video node runs; '${node.relativePath}' is not a Video node.`);
+		}
+	}
+
 	private async resolveCommandWorkspace(cwdValue: string): Promise<{ readonly cwd: URI; readonly workspaceFolder: { readonly uri: URI } }> {
 		if (!isAbsolute(cwdValue) || cwdValue.includes('\0')) {
 			throw new Error('Run the command from an absolute local workspace directory.');
@@ -393,29 +398,14 @@ export class BaseHalfNodeCommandHandler {
 	}
 }
 
-export function responseForCompletedAttempt(nodePath: string, attemptId: string, document: IBaseHalfNodeDocument): IBaseHalfRunNodeCommandResponse {
-	const attempt = document.attempts.find(candidate => candidate.id === attemptId);
-	if (!attempt || attempt.status === 'running') {
-		return rejectedResponse(nodePath, 'The host did not return a completed record for this attempt.');
-	}
-	const result = document.result?.source === 'attempt' && document.result.attemptId === attempt.id
-		? document.result
-		: undefined;
+/** The answer to `--run-node` once the generation's task is in the node's file. */
+export function startedResponse(nodePath: string): IBaseHalfRunNodeCommandResponse {
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
-		ok: attempt.status === 'succeeded' && result !== undefined,
-		outcome: attempt.status,
-		nodePath,
-		attempt: {
-			id: attempt.id,
-			status: attempt.status,
-			...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
-			...(attempt.error === undefined ? {} : { error: attempt.error })
-		},
-		...(result === undefined ? {} : {
-			result: { source: 'attempt', attemptId: result.attemptId, artifactPath: result.artifact.path }
-		}),
-		...(attempt.status === 'succeeded' || attempt.error === undefined ? {} : { error: attempt.error })
+		type: 'runNode',
+		ok: true,
+		outcome: 'succeeded',
+		nodePath
 	};
 }
 
@@ -519,69 +509,6 @@ function createFromTemplateOperation(templateIds: readonly string[]): IBaseHalfA
 			values: Object.freeze([...templateIds])
 		})]),
 		returns: Object.freeze({ type: 'object', description: 'Created template id and workspace-relative project path.' })
-	});
-}
-
-function capabilityDiscoveryRecipe(recipe: IBaseHalfCanvasRecipeDescriptor): IBaseHalfAgentCapabilityDiscoveryRecipe {
-	return Object.freeze({
-		id: recipe.id,
-		label: recipe.label,
-		...(recipe.description === undefined ? {} : { description: recipe.description }),
-		...(recipe.icon === undefined ? {} : { icon: recipe.icon }),
-		...(recipe.modelCapability === undefined ? {} : { modelCapability: recipe.modelCapability }),
-		...(recipe.videoModelCatalogId === undefined ? {} : { videoModelCatalogId: recipe.videoModelCatalogId }),
-		inputs: Object.freeze(recipe.inputs.map(input => Object.freeze({
-			id: input.id,
-			label: input.label,
-			accepts: Object.freeze([...input.accepts]),
-			minItems: input.minItems,
-			maxItems: input.maxItems
-		}))),
-		parameters: Object.freeze(recipe.parameters.map(parameter => {
-			const base = {
-				id: parameter.id,
-				label: parameter.label,
-				type: parameter.type,
-				...(parameter.required === true ? { required: true as const } : {})
-			};
-			switch (parameter.type) {
-				case 'string':
-				case 'multiline':
-					return Object.freeze({
-						...base,
-						...(parameter.default === undefined ? {} : { default: parameter.default }),
-						...(parameter.minLength === undefined ? {} : { minLength: parameter.minLength }),
-						...(parameter.maxLength === undefined ? {} : { maxLength: parameter.maxLength })
-					});
-				case 'number':
-					return Object.freeze({
-						...base,
-						...(parameter.default === undefined ? {} : { default: parameter.default }),
-						...(parameter.minimum === undefined ? {} : { minimum: parameter.minimum }),
-						...(parameter.maximum === undefined ? {} : { maximum: parameter.maximum }),
-						...(parameter.step === undefined ? {} : { step: parameter.step })
-					});
-				case 'boolean':
-					return Object.freeze({
-						...base,
-						...(parameter.default === undefined ? {} : { default: parameter.default })
-					});
-				case 'enum':
-					return Object.freeze({
-						...base,
-						...(parameter.default === undefined ? {} : { default: parameter.default }),
-						options: Object.freeze(parameter.options.map(option => Object.freeze({ value: option.value, label: option.label })))
-					});
-			}
-		})),
-		outputs: Object.freeze(recipe.outputs.map(output => Object.freeze({
-			id: output.id,
-			kind: output.kind,
-			extensions: Object.freeze([...output.extensions]),
-			minItems: output.minItems,
-			maxItems: output.maxItems,
-			...(output.primary === true ? { primary: true as const } : {})
-		})))
 	});
 }
 

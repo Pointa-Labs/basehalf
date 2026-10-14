@@ -35,8 +35,7 @@ import { workbenchInstantiationService } from '../../../test/browser/workbenchTe
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItemsService } from '../../common/basehalfMovedItemsService.js';
-import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
-import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
+import { IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceMigrationController } from '../../browser/basehalfReferenceMigration.contribution.js';
@@ -130,7 +129,7 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	instantiationService.stub(IBaseHalfNodeExecutionService, { onDidChange: Event.None, getActiveRun: () => undefined, acquireStructuralOperation: async () => ({ dispose: () => { } }) } as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+	instantiationService.stub(IBaseHalfVideoGenerationService, { onDidChangeProgress: Event.None, isGenerating: () => false } as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	await index.whenReady(folder);
 	for (const nested of settings.nestedFolders ?? []) {
@@ -193,9 +192,7 @@ function nodeDocument(id: number): string {
 	return serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 		id: baseHalfNodeTestId(id),
 		kind: 'video',
-		title: 'Clip',
-		role: 'Generated result',
-		recipe: { recipeId: 'ai-video.text-to-video', parameters: {}, inputBindings: [] }
+		title: 'Clip'
 	}));
 }
 
@@ -438,7 +435,7 @@ suite('BaseHalfReferenceMigration (services)', () => {
 		assert.deepStrictEqual(await harness.tree(), { 'a.md': '# A\n' });
 	});
 
-	test('the preflight defers a running node before confirmation, and each note is written once', async () => {
+	test('the preflight plans a node like a note, and each store is written once', async () => {
 		const harness = await createHarness(disposables, {
 			'a.md': '# A\n',
 			'c.md': '# C\n',
@@ -449,15 +446,14 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			'.bh/mirror/b.md/badge.yaml': badge('b.md', { referencedBy: ['a.md', 'c.md'] }),
 			'.bh/mirror/clip.bhnode/badge.yaml': badge('clip.bhnode', { referencedBy: ['a.md'] })
 		});
-		await new BaseHalfNodeRunLeaseStore(harness.fileService, 30_000).acquire(folder, baseHalfNodeTestId(2), 'clip.bhnode', 'owner', 'run', undefined);
 		const session = harness.session();
 		const plan = await session.plan(folder);
 		assert.deepStrictEqual({
 			planned: planned(plan),
 			counts: baseHalfLegacyPromptCounts(plan ? [plan] : [])
 		}, {
-			planned: ['a.md→b.md write', 'c.md→b.md write', 'a.md→clip.bhnode deferred running'],
-			counts: { connections: 2, notes: 1, nodeDocuments: 0, metadataItems: 0 }
+			planned: ['a.md→b.md write', 'c.md→b.md write', 'a.md→clip.bhnode write'],
+			counts: { connections: 3, notes: 1, nodeDocuments: 1, metadataItems: 0 }
 		});
 
 		harness.provider.writes.clear();
@@ -466,11 +462,13 @@ suite('BaseHalfReferenceMigration (services)', () => {
 			outcomes: outcomes(result),
 			counts: [result.moved, result.files],
 			b: await harness.read('b.md'),
+			clip: parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!).upstream,
 			writes: harness.provider.writes.get('/work/b.md')
 		}, {
-			outcomes: ['a.md→b.md migrated', 'c.md→b.md migrated', 'a.md→clip.bhnode deferred running'],
-			counts: [2, 1],
+			outcomes: ['a.md→b.md migrated', 'c.md→b.md migrated', 'a.md→clip.bhnode migrated'],
+			counts: [3, 2],
 			b: '---\nupstream:\n  - a.md\n  - c.md\n---\n# B\n',
+			clip: ['a.md'],
 			writes: 1
 		});
 	});

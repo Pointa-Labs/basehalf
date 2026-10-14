@@ -15,8 +15,8 @@ import { ITerminalInstanceService } from '../../contrib/terminal/browser/termina
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfAgentAreaService } from '../common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../common/basehalfAgentCapabilities.js';
-import { IBaseHalfCanvasRecipeRegistryService } from '../common/basehalfCanvasRecipes.js';
-import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
+import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
+import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfNodeCommandHandler } from './basehalfNodeCommandHandler.js';
 
 export class BaseHalfNodeCommandBackendGeneration {
@@ -49,9 +49,9 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 		@IFileService fileService: IFileService,
 		@IWorkingCopyService workingCopyService: IWorkingCopyService,
 		@IBaseHalfAgentAreaService agentAreaService: IBaseHalfAgentAreaService,
-		@IBaseHalfNodeExecutionService executionService: IBaseHalfNodeExecutionService,
+		@IBaseHalfVideoGenerationService videoGenerationService: IBaseHalfVideoGenerationService,
 		@IBaseHalfAgentCapabilityRegistryService agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
-		@IBaseHalfCanvasRecipeRegistryService canvasRecipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
+		@IBaseHalfCanvasTemplateRegistryService canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
 		@ICommandService commandService: ICommandService,
 		@ILogService private readonly logService: ILogService
 	) {
@@ -61,9 +61,9 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 			fileService,
 			workingCopyService,
 			agentAreaService,
-			executionService,
+			videoGenerationService,
 			agentCapabilityRegistryService,
-			canvasRecipeRegistryService,
+			canvasTemplateRegistryService,
 			commandService
 		);
 		for (const backend of terminalInstanceService.getRegisteredBackends()) {
@@ -140,7 +140,7 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 		try {
 			await backend.acceptBaseHalfNodeCommandResponse?.(event.requestId, response);
 		} catch (error) {
-			this.logService.error('BaseHalf could not return the node Attempt result to its Agent Area terminal', error);
+			this.logService.error('BaseHalf could not return the answer of a node command to its Agent Area terminal', error);
 		}
 	}
 }

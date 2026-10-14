@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Event } from '../../../../base/common/event.js';
 import { extUri } from '../../../../base/common/resources.js';
@@ -15,18 +16,12 @@ import { BASEHALF_NODE_COMMAND_BRIDGE_VERSION, IBaseHalfAgentOperationCommandReq
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { BaseHalfNodeCommandBackendGeneration } from '../../browser/basehalfNodeCommandBridge.contribution.js';
-import { BaseHalfNodeCommandHandler, responseForCompletedAttempt } from '../../browser/basehalfNodeCommandHandler.js';
-import { IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
+import { BaseHalfNodeCommandHandler } from '../../browser/basehalfNodeCommandHandler.js';
 import { IBaseHalfAgentAreaService } from '../../common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../../common/basehalfAgentCapabilities.js';
-import { IBaseHalfCanvasRecipeRegistryService } from '../../common/basehalfCanvasRecipes.js';
-import {
-	beginBaseHalfNodeAttempt,
-	completeBaseHalfNodeAttempt,
-	createBaseHalfNodeDocument,
-	failBaseHalfNodeAttempt,
-	IBaseHalfNodeDocument
-} from '../../common/basehalfNodeDocument.js';
+import { IBaseHalfCanvasTemplateRegistryService } from '../../common/basehalfCanvasTemplateRegistry.js';
+import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { BaseHalfVideoGenerationError, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 
 suite('BaseHalfNodeCommandBridge', () => {
@@ -46,38 +41,41 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(generation.isCurrent(generation.current), true);
 	});
 
-	test('runs a verified Agent Area node through the shared execution service', async () => {
+	test('starts the generation of a verified Agent Area Video node and prints the path of the node that runs', async () => {
 		const harness = createHarness();
 		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
 
-		assert.strictEqual(harness.runCalls.length, 1);
-		assert.strictEqual(harness.runCalls[0].relativePath, 'scenes/shot.bhnode');
-		assert.strictEqual(response?.ok, true);
-		assert.strictEqual(response?.outcome, 'succeeded');
-		if (!response || response.type === 'runOperation' || response.type === 'listCapabilities') {
-			throw new Error('Expected a node-run response.');
-		}
-		assert.strictEqual(response?.nodePath, 'scenes/shot.bhnode');
-		assert.strictEqual(response?.attempt?.id, 'run-1');
-		assert.strictEqual(response?.result?.attemptId, 'run-1');
-		assert.strictEqual(response?.result?.artifactPath, 'outputs/shot/run-1/artifacts/shot.mp4');
+		assert.deepStrictEqual(harness.generateCalls.map(resource => resource.path), ['/work/scenes/shot.bhnode']);
+		assert.deepStrictEqual(response, {
+			version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
+			type: 'runNode',
+			ok: true,
+			outcome: 'succeeded',
+			nodePath: 'scenes/shot.bhnode'
+		});
+	});
+
+	test('prints the path of the new node when the node already held a video', async () => {
+		const harness = createHarness({ generated: URI.file('/work/scenes/shot 2.bhnode') });
+		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
+		assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'scenes/shot 2.bhnode']);
 	});
 
 	test('ignores unknown processes but promptly rejects a released Agent Area process', async () => {
 		const wrongProcess = createHarness({ ownership: 'unknown' });
 		assert.strictEqual(await wrongProcess.handler.handle(requestEvent('/work', 'shot.bhnode')), undefined);
-		assert.strictEqual(wrongProcess.runCalls.length, 0);
+		assert.strictEqual(wrongProcess.generateCalls.length, 0);
 
 		const releasedProcess = createHarness({ ownership: 'released' });
 		assert.strictEqual((await releasedProcess.handler.handle(requestEvent('/work', 'shot.bhnode')))?.outcome, 'rejected');
-		assert.strictEqual(releasedProcess.runCalls.length, 0);
+		assert.strictEqual(releasedProcess.generateCalls.length, 0);
 
 		const wrongWorkspace = createHarness();
 		assert.strictEqual(await wrongWorkspace.handler.handle({ ...requestEvent('/work', 'shot.bhnode'), workspaceId: 'other' }), undefined);
-		assert.strictEqual(wrongWorkspace.runCalls.length, 0);
+		assert.strictEqual(wrongWorkspace.generateCalls.length, 0);
 	});
 
-	test('rejects dirty, non-portable, non-node, and symbolic-link targets before execution', async () => {
+	test('rejects dirty, non-portable, non-node, and symbolic-link targets before generating', async () => {
 		for (const [event, options] of [
 			[requestEvent('/work', 'dirty.bhnode'), { dirty: true }],
 			[requestEvent('/work', '../outside.bhnode'), {}],
@@ -87,36 +85,41 @@ suite('BaseHalfNodeCommandBridge', () => {
 			const harness = createHarness(options);
 			const response = await harness.handler.handle(event);
 			assert.strictEqual(response?.outcome, 'rejected');
-			assert.strictEqual(harness.runCalls.length, 0);
+			assert.strictEqual(harness.generateCalls.length, 0);
 		}
 	});
 
-	test('reports a completed failed attempt without changing its outcome to a rejection', () => {
-		const document = completedDocument('failed');
-		const response = responseForCompletedAttempt('shot.bhnode', 'run-1', document);
-		assert.strictEqual(response.ok, false);
-		assert.strictEqual(response.outcome, 'failed');
-		assert.strictEqual(response.attempt?.status, 'failed');
-		assert.strictEqual(response.result, undefined);
+	test('rejects a node that is not a Video node or cannot be read, without generating', async () => {
+		const image = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(2), kind: 'image', title: 'Frame' }));
+		const legacy = JSON.stringify({ version: 4, id: baseHalfNodeTestId(3), kind: 'video', title: 'Old', role: 'Clip', prompt: '', upstream: [], attempts: [] });
+		for (const [source, message] of [[image, /Only a Video node runs; 'shot\.bhnode' is not a Video node/], [legacy, /can't be read: document\.version 4 is no longer supported/]] as const) {
+			const harness = createHarness({ nodeSource: source });
+			const response = await harness.handler.handle(requestEvent('/work', 'shot.bhnode'));
+			assert.strictEqual(response?.outcome, 'rejected');
+			assert.match(response?.error ?? '', message);
+			assert.strictEqual(harness.generateCalls.length, 0);
+		}
 	});
 
-	test('keeps a host-owned attempt running when the Agent bridge disconnects', async () => {
-		let settleRun: ((document: IBaseHalfNodeDocument) => void) | undefined;
-		const runPromise = new Promise<IBaseHalfNodeDocument>(resolve => settleRun = resolve);
-		const harness = createHarness({ runPromise });
+	test('reports a generation the node cannot start as rejected, with its reason', async () => {
+		const harness = createHarness({ generationError: new BaseHalfVideoGenerationError('Choose a model first.') });
+		const response = await harness.handler.handle(requestEvent('/work', 'shot.bhnode'));
+		assert.deepStrictEqual([response?.ok, response?.outcome, response?.error], [false, 'rejected', 'Choose a model first.']);
+	});
+
+	test('keeps a started generation running when the Agent bridge disconnects', async () => {
+		let settleGeneration: ((resource: URI) => void) | undefined;
+		const generationPromise = new Promise<URI>(resolve => settleGeneration = resolve);
+		const harness = createHarness({ generationPromise });
 		const cancellation = new CancellationTokenSource();
 		try {
 			const responsePromise = harness.handler.handle(requestEvent('/work', 'shot.bhnode'), cancellation.token);
-			await harness.runStarted;
+			await harness.generationStarted;
 			cancellation.cancel();
-			assert.deepStrictEqual(harness.cancelCalls, []);
-			settleRun?.(completedDocument('succeeded'));
+			settleGeneration?.(URI.file('/work/shot.bhnode'));
 			const response = await responsePromise;
-			if (!response || response.type === 'runOperation' || response.type === 'listCapabilities') {
-				throw new Error('Expected a node-run response.');
-			}
-			assert.strictEqual(response?.outcome, 'succeeded');
-			assert.strictEqual(response?.result?.attemptId, 'run-1');
+			assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'shot.bhnode']);
+			assert.deepStrictEqual(harness.stopCalls, []);
 		} finally {
 			cancellation.dispose();
 		}
@@ -149,7 +152,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(harness.commandCalls[0].cancellationToken, CancellationToken.None);
 	});
 
-	test('lists the host contract, admitted recipes, and public reviewed extension metadata after verifying Agent Area ownership and cwd', async () => {
+	test('lists the host contract, the admitted templates, and public reviewed extension metadata after verifying Agent Area ownership and cwd', async () => {
 		const harness = createHarness({ reviewedOperation: true, templates: ['studio.workflow.starter'] });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
 		assert.strictEqual(response?.type, 'listCapabilities');
@@ -157,43 +160,40 @@ suite('BaseHalfNodeCommandBridge', () => {
 			throw new Error('Expected a capability discovery response.');
 		}
 		assert.strictEqual(response.outcome, 'succeeded');
+		assert.deepStrictEqual(Object.keys(response.host?.nodeDocument ?? {}), ['fileExtension', 'documentVersion', 'nodeKinds', 'lifecycle', 'runCommand', 'authoring']);
 		assert.strictEqual(response.host?.nodeDocument.fileExtension, '.bhnode');
-		assert.deepStrictEqual(response.host?.nodeDocument.resultKinds, ['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
+		assert.deepStrictEqual(response.host?.nodeDocument.nodeKinds, ['file', 'image', 'video', 'audio', 'pdf', 'presentation']);
 		assert.deepStrictEqual(response.host?.contextEdge, {
 			source: 'direct-content',
-			resultNodeSource: 'sealed-result',
+			resultNodeSource: 'node-result',
 			target: 'direct-context',
 			autoRun: false,
 			recursive: false,
 			storedBy: 'downstream',
 			markdownFrontmatterKey: 'upstream',
 			nodeDocumentField: 'upstream',
-			roleAndOrderOwner: 'target-recipe-binding',
+			inputOrder: 'target-upstream-order',
 			label: 'none'
 		});
 		assert.deepStrictEqual({
 			documentVersion: response.host?.nodeDocument.documentVersion,
-			inputBinding: response.host?.nodeDocument.inputBinding,
 			contractVersion: response.host?.nodeDocument.authoring.contractVersion,
-			upstreamRequired: ((response.host?.nodeDocument.authoring.schema as { required?: readonly string[] } | undefined)?.required ?? []).includes('upstream'),
-			bindingRule: (response.host?.nodeDocument.authoring.rules as readonly string[] | undefined)?.some(rule => rule.includes('must be listed in the node\'s upstream'))
+			hostOwnedFields: response.host?.nodeDocument.authoring.hostOwnedFields,
+			runCommand: response.host?.nodeDocument.runCommand
 		}, {
-			documentVersion: 4,
-			inputBinding: { scope: 'node-upstream', fields: ['sourcePath', 'slot', 'order'] },
-			contractVersion: 2,
-			upstreamRequired: true,
-			bindingRule: true
+			documentVersion: 5,
+			contractVersion: 3,
+			hostOwnedFields: ['task', 'result'],
+			runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>'
 		});
 		assert.deepStrictEqual(response.host?.nodeDocument.lifecycle, {
-			attempts: 'host-owned',
-			result: 'host-owned-single-file',
-			retry: 'frozen-only'
+			task: 'host-owned',
+			result: 'host-owned-single-file'
 		});
 		assert.deepStrictEqual(response.host?.operations.map(operation => operation.id), ['basehalf.canvas.create-from-template']);
 		assert.deepStrictEqual(response.host?.templates, [{ id: 'studio.workflow.starter', label: 'starter' }]);
 		assert.deepStrictEqual(response.host?.operations[0].parameters[0].values, ['studio.workflow.starter']);
-		assert.strictEqual(response.recipes?.length, 1);
-		assert.strictEqual(response.recipes?.[0].id, 'studio.workflow.render-image');
+		assert.strictEqual(Object.hasOwn(response, 'recipes'), false);
 		assert.strictEqual(response.extensions?.length, 1);
 		assert.deepStrictEqual(response.extensions?.[0], {
 			id: 'studio.workflow.capability',
@@ -219,6 +219,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			}]
 		});
 		const serialized = JSON.stringify(response);
+		assert.doesNotMatch(serialized, /recipe|binding|attempt/i);
 		assert.strictEqual(serialized.includes('studio.workflow.inspectSequence'), false);
 		assert.strictEqual(serialized.includes('extensionId'), false);
 		assert.strictEqual(serialized.includes('/work'), false);
@@ -344,7 +345,12 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly ownership?: 'owned' | 'released' | 'unknown';
 		readonly dirty?: boolean;
 		readonly symbolicLinkPath?: string;
-		readonly runPromise?: Promise<IBaseHalfNodeDocument>;
+		/** The text of every `.bhnode`; a Video node by default. */
+		readonly nodeSource?: string;
+		/** The node the generation runs in; the requested node by default. */
+		readonly generated?: URI;
+		readonly generationError?: Error;
+		readonly generationPromise?: Promise<URI>;
 		readonly reviewedOperation?: boolean;
 		readonly capabilityCount?: number;
 		readonly templates?: readonly string[];
@@ -356,11 +362,12 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly caseInsensitive?: boolean;
 		readonly nestedFolder?: string;
 	} = {}) {
-		const runCalls: Array<{ resource: URI; workspaceFolder: URI; relativePath: string }> = [];
-		const cancelCalls: Array<{ resource: URI; runId: string }> = [];
+		const generateCalls: URI[] = [];
+		const stopCalls: URI[] = [];
 		const commandCalls: Array<{ id: string; argument: unknown; cancellationToken?: CancellationToken }> = [];
-		let notifyRunStarted: (() => void) | undefined;
-		const runStarted = new Promise<void>(resolve => notifyRunStarted = resolve);
+		let notifyGenerationStarted: (() => void) | undefined;
+		const generationStarted = new Promise<void>(resolve => notifyGenerationStarted = resolve);
+		const nodeSource = options.nodeSource ?? serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'video', title: 'Shot' }));
 		let notifyCommandStarted: (() => void) | undefined;
 		const commandStarted = new Promise<void>(resolve => notifyCommandStarted = resolve);
 		const workspace = {
@@ -389,6 +396,10 @@ suite('BaseHalfNodeCommandBridge', () => {
 			realpath: async (resource: URI) => resource,
 			stat,
 			exists: async (resource: URI) => stat(resource).then(() => true, () => false),
+			readFile: async (resource: URI) => {
+				await stat(resource);
+				return { resource, value: VSBuffer.fromString(nodeSource) };
+			},
 			resolve: async (resource: URI) => {
 				await stat(resource);
 				const names = new Set((files ?? [])
@@ -406,19 +417,19 @@ suite('BaseHalfNodeCommandBridge', () => {
 			ownsTerminalProcess: () => options.ownership === undefined || options.ownership === 'owned',
 			terminalProcessOwnership: () => options.ownership ?? 'owned'
 		} as unknown as IBaseHalfAgentAreaService;
-		const execution = {
-			onDidChange: Event.None,
-			getActiveRun: () => ({ resource: URI.file('/work/scenes/shot.bhnode'), runId: 'run-1', phase: 'running' }),
-			run: (node: { resource: URI; workspaceFolder: URI; relativePath: string }) => {
-				runCalls.push(node);
-				notifyRunStarted?.();
-				return options.runPromise ?? Promise.resolve(completedDocument('succeeded'));
+		const generation = {
+			onDidChangeProgress: Event.None,
+			generate: (resource: URI) => {
+				generateCalls.push(resource);
+				notifyGenerationStarted?.();
+				if (options.generationError) {
+					return Promise.reject(options.generationError);
+				}
+				return options.generationPromise ?? Promise.resolve(options.generated ?? resource);
 			},
-			cancel: (resource: URI, runId: string) => {
-				cancelCalls.push({ resource, runId });
-				return true;
-			}
-		} as unknown as IBaseHalfNodeExecutionService;
+			stop: async (resource: URI) => { stopCalls.push(resource); },
+			isGenerating: () => false
+		} as unknown as IBaseHalfVideoGenerationService;
 		const operation = {
 			id: 'studio.workflow.sequence-inspect',
 			command: 'studio.workflow.inspectSequence',
@@ -456,23 +467,12 @@ suite('BaseHalfNodeCommandBridge', () => {
 				}))
 				: []
 		} as unknown as IBaseHalfAgentCapabilityRegistryService;
-		const recipe = {
-			extensionId: 'studio.workflow',
-			id: 'studio.workflow.render-image',
-			label: 'Render image',
-			description: 'Create one image from direct context.',
-			modelCapability: 'image' as const,
-			inputs: [{ id: 'prompt', label: 'Prompt', accepts: ['text'] as const, minItems: 1, maxItems: 1 }],
-			parameters: [{ id: 'quality', label: 'Quality', type: 'enum' as const, default: 'standard', options: [{ value: 'standard', label: 'Standard' }] }],
-			outputs: [{ id: 'image', kind: 'image' as const, extensions: ['.png'], minItems: 1, maxItems: 1, primary: true as const }]
-		};
-		const recipes = {
-			getRecipes: () => [recipe],
+		const templates = {
 			getTemplates: () => (options.templateCount === undefined
 				? options.templates ?? []
 				: Array.from({ length: options.templateCount }, (_, index) => `studio.workflow.template-${index}`))
 				.map(id => ({ id, label: id.split('.').at(-1) ?? id }))
-		} as unknown as IBaseHalfCanvasRecipeRegistryService;
+		} as unknown as IBaseHalfCanvasTemplateRegistryService;
 		const commands = {
 				executeCommand: async (id: string, argument: unknown, cancellationToken?: CancellationToken) => {
 					commandCalls.push({ id, argument, cancellationToken });
@@ -481,11 +481,11 @@ suite('BaseHalfNodeCommandBridge', () => {
 			}
 		} as unknown as ICommandService;
 		return {
-			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, execution, capabilities, recipes, commands),
-			runCalls,
-			cancelCalls,
+			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, generation, capabilities, templates, commands),
+			generateCalls,
+			stopCalls,
 			commandCalls,
-			runStarted,
+			generationStarted,
 			commandStarted
 		};
 	}
@@ -551,38 +551,4 @@ function operationDiscoveryEvent(cwd = '/work'): IBaseHalfNodeCommandRequestEven
 			cwd
 		}
 	};
-}
-
-function completedDocument(status: 'succeeded' | 'failed'): IBaseHalfNodeDocument {
-	const initial = createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(1),
-		kind: 'video',
-		title: 'Shot',
-		role: 'result',
-		recipe: { recipeId: 'basehalf.test.create-video', parameters: {}, inputBindings: [] }
-	});
-	const running = beginBaseHalfNodeAttempt(initial, {
-		id: 'run-1',
-		createdAt: '2026-07-18T00:00:00.000Z',
-		startedAt: '2026-07-18T00:00:00.000Z',
-		model: { source: 'local' },
-		inputs: []
-	});
-	if (status === 'failed') {
-		return failBaseHalfNodeAttempt(running, 'run-1', {
-			completedAt: '2026-07-18T00:00:01.000Z',
-			error: 'generation failed'
-		});
-	}
-	return completeBaseHalfNodeAttempt(running, 'run-1', {
-		completedAt: '2026-07-18T00:00:01.000Z',
-		artifact: {
-			id: 'artifact-1',
-			outputId: 'video',
-			kind: 'video',
-			path: 'outputs/shot/run-1/artifacts/shot.mp4',
-			sha256: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-			size: 1
-		}
-	});
 }

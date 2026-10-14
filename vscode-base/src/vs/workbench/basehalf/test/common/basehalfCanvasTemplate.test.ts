@@ -9,56 +9,57 @@ import { materializeBaseHalfCanvasTemplateUpstream, parseBaseHalfCanvasTemplate 
 
 suite('BaseHalfCanvasTemplate', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
-	const nonCanonicalContributionIds = [
-		'Studio.writer.create-document',
-		' studio.writer.create-document',
-		'studio.writer.create-document ',
-		'1studio.writer.create-document',
-		'studio.2writer.create-document',
-		'studio.writer.create_document',
-		`studio.writer.${'a'.repeat(115)}`
-	];
-
-	test('accepts host primitives without carrying run state or credentials', () => {
+	test('creates empty nodes with a title and, for a Video node, a prompt, and nothing that runs', () => {
 		const template = parseBaseHalfCanvasTemplate(JSON.stringify({
 			version: 1,
 			files: [{ path: 'brief.md', contents: '# Brief\n' }],
-			nodes: [{
-				path: 'frame.bhnode',
-				kind: 'image',
-				title: 'Frame',
-				role: 'storyboard',
-				prompt: 'A quiet station at night.',
-				recipe: {
-					recipeId: 'pointa.basehalf-ai-video.storyboard-frame',
-					parameters: { ratio: '9:16' },
-					inputBindings: [{ sourcePath: 'brief.md', slot: 'prompt', order: 0 }]
-				}
-			}],
+			nodes: [
+				{ path: 'shot.bhnode', kind: 'video', title: 'Shot 1', prompt: 'A quiet station at night.' },
+				{ path: 'frame.bhnode', kind: 'image', title: 'Frame' }
+			],
 			cards: [
 				{ path: 'brief.md', x: 0, y: 0, width: 300, height: 220 },
-				{ path: 'frame.bhnode', x: 380, y: 0, width: 300, height: 220 }
+				{ path: 'shot.bhnode', x: 380, y: 0, width: 300, height: 220 }
 			],
-			references: [{ from: 'brief.md', to: 'frame.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
+			references: [{ from: 'brief.md', to: 'shot.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
 		}));
 
-		assert.strictEqual(template.nodes[0].recipe?.inputBindings[0].sourcePath, 'brief.md');
-		assert.strictEqual(template.nodes[0].prompt, 'A quiet station at night.');
+		assert.deepStrictEqual(template.nodes, [
+			{ path: 'shot.bhnode', kind: 'video', title: 'Shot 1', prompt: 'A quiet station at night.' },
+			{ path: 'frame.bhnode', kind: 'image', title: 'Frame' }
+		]);
 		assert.deepStrictEqual(template.references[0], {
 			from: 'brief.md',
-			to: 'frame.bhnode',
+			to: 'shot.bhnode',
 			fromAnchor: 'east',
 			toAnchor: 'west'
 		});
-		assert.strictEqual(Object.hasOwn(template.nodes[0], 'runs'), false);
-		assert.strictEqual(Object.hasOwn(template.nodes[0].recipe!, 'modelServiceId'), false);
+	});
+
+	test('refuses the node fields of version 4: role, recipe, and runs', () => {
+		for (const [field, value] of [['role', 'shot'], ['recipe', { recipeId: 'pointa.basehalf-ai-video.generate-video', parameters: {}, inputBindings: [] }], ['runs', []]] as const) {
+			assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
+				version: 1,
+				files: [],
+				nodes: [{ path: 'shot.bhnode', kind: 'video', title: 'Shot 1', [field]: value }],
+				cards: [],
+				references: []
+			})), new RegExp(`unsupported property '${field}'`));
+		}
+		assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
+			version: 1,
+			files: [],
+			nodes: [{ path: 'frame.bhnode', kind: 'image', title: 'Frame', prompt: 'A frame.' }],
+			cards: [],
+			references: []
+		})), /prompt is allowed only for a Video node/);
 	});
 
 	test('bounds an optional host-owned node prompt', () => {
 		const source = (prompt: string) => JSON.stringify({
 			version: 1,
 			files: [],
-			nodes: [{ path: 'clip.bhnode', kind: 'video', title: 'Clip', role: 'clip', prompt }],
+			nodes: [{ path: 'clip.bhnode', kind: 'video', title: 'Clip', prompt }],
 			cards: [],
 			references: []
 		});
@@ -110,76 +111,19 @@ suite('BaseHalfCanvasTemplate', () => {
 		})), /cannot create a file inside another created file/);
 	});
 
-	test('accepts contribution identifiers with additional owned namespace segments', () => {
-		const template = parseBaseHalfCanvasTemplate(JSON.stringify({
-			version: 1,
-			files: [],
-			nodes: [{
-				path: 'frame.bhnode',
-				kind: 'image',
-				title: 'Frame',
-				role: 'frame',
-				recipe: {
-					recipeId: 'studio.workflow.image.generate-frame',
-					parameters: {},
-					inputBindings: []
-				}
-			}],
-			cards: [],
-			references: []
-		}));
-		assert.strictEqual(template.nodes[0].recipe?.recipeId, 'studio.workflow.image.generate-frame');
-	});
-
-	test('accepts only canonical contribution identifiers', () => {
-		for (const recipeId of nonCanonicalContributionIds) {
-			assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
-				version: 1,
-				files: [],
-				nodes: [{
-					path: 'result.bhnode',
-					kind: 'file',
-					title: 'Result',
-					role: 'result',
-					recipe: { recipeId, parameters: {}, inputBindings: [] }
-				}],
-				cards: [],
-				references: []
-			})), /not a valid contribution identifier/);
-		}
-	});
-
 	test('keeps editable text and code as ordinary project files instead of node documents', () => {
 		for (const kind of ['text', 'code']) {
 			assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
 				version: 1,
 				files: [],
-				nodes: [{ path: `${kind}.bhnode`, kind, title: kind, role: 'content' }],
+				nodes: [{ path: `${kind}.bhnode`, kind, title: kind }],
 				cards: [],
 				references: []
 			})), /supported node content kind/);
 		}
 	});
 
-	test('requires node bindings and cards to reference resources created by the template', () => {
-		assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
-			version: 1,
-			files: [],
-			nodes: [{
-				path: 'clip.bhnode',
-				kind: 'video',
-				title: 'Clip',
-				role: 'shot',
-				recipe: {
-					recipeId: 'pointa.basehalf-ai-video.shot-preview',
-					parameters: {},
-					inputBindings: [{ sourcePath: 'missing.md', slot: 'prompt', order: 0 }]
-				}
-			}],
-			cards: [],
-			references: []
-		})), /binds missing source/);
-
+	test('requires cards to reference resources created by the template', () => {
 		assert.throws(() => parseBaseHalfCanvasTemplate(JSON.stringify({
 			version: 1,
 			files: [{ path: 'brief.md', contents: 'Brief' }],
@@ -187,43 +131,6 @@ suite('BaseHalfCanvasTemplate', () => {
 			cards: [{ path: 'missing.md', x: 0, y: 0, width: 300, height: 220 }],
 			references: []
 		})), /matching file or node/);
-	});
-
-	test('allows direct context to remain unassigned while requiring every binding to have a reference', () => {
-		const incomingReference = { from: 'brief.md', to: 'clip.bhnode', fromAnchor: 'east', toAnchor: 'west' };
-		const executableWithUnassignedContext = parseBaseHalfCanvasTemplate(JSON.stringify({
-			version: 1,
-			files: [{ path: 'brief.md', contents: 'Brief' }],
-			nodes: [{
-				path: 'clip.bhnode',
-				kind: 'video',
-				title: 'Clip',
-				role: 'shot',
-				recipe: {
-					recipeId: 'studio.workflow.video.generate-clip',
-					parameters: {},
-					inputBindings: []
-				}
-			}],
-			cards: [],
-			references: [incomingReference]
-		}));
-		assert.deepStrictEqual(executableWithUnassignedContext.references, [incomingReference]);
-		assert.deepStrictEqual(executableWithUnassignedContext.nodes[0].recipe?.inputBindings, []);
-
-		const contentOnly = parseBaseHalfCanvasTemplate(JSON.stringify({
-			version: 1,
-			files: [{ path: 'brief.md', contents: 'Brief' }],
-			nodes: [{
-				path: 'clip.bhnode',
-				kind: 'video',
-				title: 'Clip',
-				role: 'shot'
-			}],
-			cards: [],
-			references: [incomingReference]
-		}));
-		assert.deepStrictEqual(contentOnly.references, [incomingReference]);
 	});
 
 	test('rejects template frontmatter upstream keys and targets that cannot be downstream', () => {
@@ -267,18 +174,8 @@ suite('BaseHalfCanvasTemplate', () => {
 				{ path: 'shots/shot.json', contents: '{}\n' }
 			],
 			nodes: [
-				{
-					path: 'shots/frame.bhnode',
-					kind: 'image',
-					title: 'Frame',
-					role: 'frame',
-					recipe: {
-						recipeId: 'studio.test.frame',
-						parameters: {},
-						inputBindings: [{ sourcePath: 'shots/script.md', slot: 'prompt', order: 0 }]
-					}
-				},
-				{ path: 'shots/audio.bhnode', kind: 'audio', title: 'Audio', role: 'audio' }
+				{ path: 'shots/frame.bhnode', kind: 'image', title: 'Frame' },
+				{ path: 'shots/audio.bhnode', kind: 'audio', title: 'Audio' }
 			],
 			cards: [],
 			references: [
@@ -310,28 +207,5 @@ suite('BaseHalfCanvasTemplate', () => {
 			materializeBaseHalfCanvasTemplateUpstream(template, '').files.get('shots/script.md'),
 			'---\r\ntitle: Script # keep\r\nupstream:\r\n  - brief.md\r\n---\r\nBody\r\n'
 		);
-	});
-
-	test('counts parameter object keys and scalar values with the public SDK complexity budget', () => {
-		const source = (count: number) => JSON.stringify({
-			version: 1,
-			files: [],
-			nodes: [{
-				path: 'result.bhnode',
-				kind: 'file',
-				title: 'Result',
-				role: 'result',
-				recipe: {
-					recipeId: 'studio.writer.create-document',
-					parameters: Object.fromEntries(Array.from({ length: count }, (_, index) => [`parameter-${index}`, index])),
-					inputBindings: []
-				}
-			}],
-			cards: [],
-			references: []
-		});
-
-		assert.doesNotThrow(() => parseBaseHalfCanvasTemplate(source(64)));
-		assert.throws(() => parseBaseHalfCanvasTemplate(source(65)), /parameter complexity limit/);
 	});
 });

@@ -1,7 +1,6 @@
 [
 	"authentication",
 	"basehalfAgentCapabilities",
-	"basehalfCanvasRecipes",
 	"basehalfCanvasTemplates",
 	"basehalfCardProjections",
 	"basehalfModelProviderCatalogs",
