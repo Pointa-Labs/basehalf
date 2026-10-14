@@ -17,11 +17,12 @@ export function baseHalfCanvasMarkdownPreviewSource(raw: string): string {
 }
 
 /**
- * The card's editor builds every block of its note when it opens, so opening
- * it takes longer for a longer note. At 64 KiB it opens in about 120 ms; see
- * the Note size rules of note rendering.
+ * The card's editor builds every block of its note when it opens, and joins
+ * the whole note with every typed letter, so both take longer for a longer
+ * note. At 128 KiB it opens in about 260 ms and draws a letter within a frame;
+ * see the Note size rules of note rendering.
  */
-export const BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES = 64 * 1024;
+export const BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES = 128 * 1024;
 
 /**
  * The resting projection builds a note in parts, but it still reads the file

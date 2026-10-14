@@ -35,13 +35,13 @@ suite('BaseHalfCanvasPreview', () => {
 		const note = '# Note\n';
 		assert.deepStrictEqual({
 			limit: BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES,
-			atLimit: baseHalfCanvasMarkdownEditTarget(65_536, note),
-			aboveLimit: baseHalfCanvasMarkdownEditTarget(65_537, note),
-			notShown: baseHalfCanvasMarkdownEditTarget(65_536, undefined),
+			atLimit: baseHalfCanvasMarkdownEditTarget(131_072, note),
+			aboveLimit: baseHalfCanvasMarkdownEditTarget(131_073, note),
+			notShown: baseHalfCanvasMarkdownEditTarget(131_072, undefined),
 			unknownSize: baseHalfCanvasMarkdownEditTarget(undefined, note),
-			unknownSizeOfALongNote: baseHalfCanvasMarkdownEditTarget(undefined, 'a'.repeat(65_537))
+			unknownSizeOfALongNote: baseHalfCanvasMarkdownEditTarget(undefined, 'a'.repeat(131_073))
 		}, {
-			limit: 65_536,
+			limit: 131_072,
 			atLimit: 'inline',
 			aboveLimit: 'richDetail',
 			notShown: 'richDetail',
@@ -51,12 +51,12 @@ suite('BaseHalfCanvasPreview', () => {
 	});
 
 	test('measures a live Markdown source with the same UTF-8 byte boundaries', () => {
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(65_536)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(65_537)), false);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(21_845)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(21_846)), false);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('😀'.repeat(16_384)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline(`${'😀'.repeat(16_384)}a`), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(131_072)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(131_073)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(43_690)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(43_691)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('😀'.repeat(32_768)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline(`${'😀'.repeat(32_768)}a`), false);
 		assert.strictEqual(BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES, 1_048_576);
 		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsShown('a'.repeat(1_048_576)), true);
 		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsShown('a'.repeat(1_048_577)), false);

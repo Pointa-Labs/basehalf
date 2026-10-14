@@ -220,14 +220,15 @@ in the editor, by reading a block and writing it back:
 24. A note of up to 1 MiB (1,048,576 bytes of its file in UTF-8, front
     matter included) is shown on its card by the rules above. That is about
     350,000 Chinese characters (`BASEHALF_CANVAS_NOTE_SHOWN_MAX_BYTES`).
-25. A double click edits a note of up to 64 KiB (65,536 bytes) on its card
+25. A double click edits a note of up to 128 KiB (131,072 bytes, about
+    43,000 Chinese characters) on its card
     (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`). A double click on a larger
     note opens it in Card Detail.
 26. A note above 1 MiB shows only the label "This Markdown file is too large
     for quick edit. Double-click to open the full editor.", and a double
     click opens it in Card Detail. A card shows the whole note or the label:
     every block of a shown note can be reached by scrolling the card.
-27. A note that grows above 64 KiB while it is edited on the card stays in
+27. A note that grows above 128 KiB while it is edited on the card stays in
     the card's editor until the editor closes. The card then shows it by
     rule 24, or shows the label when it has grown above 1 MiB.
 28. The resting projection builds a note in parts. When the card draws the
@@ -251,7 +252,7 @@ in the editor, by reading a block and writing it back:
 31. While the card's editor is open, the resting projection under it holds
     every part, so that the note shows the same place and the same sideways
     positions when the editor opens and when it closes. A note that has grown
-    above 64 KiB in the editor holds the parts down to the place the editor
+    above 128 KiB in the editor holds the parts down to the place the editor
     shows: it shows the same place when the editor closes, and its tables
     and code blocks are shown unscrolled.
 32. The card of a text file or a code file shows its first lines whatever
@@ -275,13 +276,30 @@ in the editor, by reading a block and writing it back:
 - A code block has no syntax colors on the card.
 - An image address that cannot be loaded shows the browser's broken image
   with its alternative text.
-- The 64 KiB of rule 25 is set by the time it takes to open the card's
-  editor, which builds every block of the note at once. A typed letter does
-  not grow with the note: the editor writes back only the block that
-  changed. Measured in the real window on 2026-10-14, with a Chinese note
-  repeated to each size, on a 120 Hz display: the editor opened in 47 ms for
-  1 KiB, 51 ms for 17 KiB, and 124 ms for 64 KiB, and a typed letter
-  reached the screen within 9 to 10 ms (95th percentile) at every size.
+- The 128 KiB of rule 25 is set by the card's editor. It builds every block
+  of the note when it opens, and with every typed letter it joins the text
+  of the whole note and compares it with the file, though it writes back
+  only the block that changed. So both opening and typing take longer for a
+  longer note. Measured in the real window on 2026-10-14 with the limit
+  lifted, on a Chinese note repeated to each size, with a machine under
+  load:
+
+  | Note | Opens in | Elements of the editor | A letter is drawn within (95 %) |
+  | --- | --- | --- | --- |
+  | 64 KiB | 0.18 s | 1,900 | 9 ms |
+  | 128 KiB | 0.26 s | 3,600 | 10 ms |
+  | 256 KiB | 0.53 s | 7,200 | 13 ms |
+  | 512 KiB | 0.95 s | 14,300 | 20.5 ms |
+  | 1 MiB | 2.0 s | 28,900 | 27.5 ms, every letter above 20 ms |
+
+  128 KiB is the largest size that keeps criterion 16. Of the 2.0 s at
+  1 MiB, about 0.9 s went to building the editable document, 0.25 s to
+  rendering every block for the editor's fixed view, and 0.12 s to building
+  every part of the resting projection under it. A card's editor without a
+  limit, as in a text editor that draws only the lines in view, would build
+  only the blocks in view and write back a changed block without joining the
+  whole note. Before 2026-10-14 the limit was 64 KiB, set before these
+  measurements.
 - The 1 MiB of rule 24 is set by the work the card still does on the whole
   note when it draws it: it reads the file and finds the top-level blocks
   of the whole note before it builds the first part. A note of 1 MiB was
@@ -369,12 +387,12 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     `# a<br>b` cannot.
 14. A note with such a table that is opened and not edited keeps every byte.
 
-15. A note of 65,536 bytes opens in the card's editor on a double click. A
-    note of 65,537 bytes is shown on its card and opens in Card Detail on a
+15. A note of 131,072 bytes opens in the card's editor on a double click. A
+    note of 131,073 bytes is shown on its card and opens in Card Detail on a
     double click. A note of 1,048,576 bytes is shown on its card; a note of
     1,048,577 bytes shows the label of rule 26. A note of Chinese text is
     measured in the bytes of its UTF-8, not in characters.
-16. In the real window, a note of about 64 KiB opens in the card's editor
+16. In the real window, a note of about 128 KiB opens in the card's editor
     within 300 ms of the double click, and a letter typed into it is drawn
     within one frame of 60 Hz on the machine of the measurement.
 17. A text file of 100 KiB shows its first lines on its card, not "Preview
