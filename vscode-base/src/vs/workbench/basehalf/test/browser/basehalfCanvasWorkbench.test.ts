@@ -5,10 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasVideoCardStatus, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
-import { createBaseHalfNodeDocument, IBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
-import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoTask } from '../../common/basehalfVideoNode.js';
-import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
+import { baseHalfCanvasCardPreviewCanRetainElement, baseHalfCanvasCardPreviewRenderKey, baseHalfCanvasLayoutNotice, baseHalfCanvasPendingSelectionIsReady, baseHalfCanvasPostCreateOwnerIsCurrent, baseHalfCanvasRetainedCardChromeIsStale, baseHalfCanvasZoomFromPercentInput, formatBaseHalfCanvasZoomPercent } from '../../browser/basehalfCanvasWorkbench.contribution.js';
 
 suite('BaseHalfCanvasWorkbench', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
@@ -73,30 +70,6 @@ suite('BaseHalfCanvasWorkbench', () => {
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 8, 11, navigationA), false);
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 7, 12, navigationA), false);
 		assert.strictEqual(baseHalfCanvasPostCreateOwnerIsCurrent(owner, 7, 11, navigationB), false);
-	});
-
-	test('says what a Video node card shows in each phase', () => {
-		const request: IBaseHalfVideoGenerationRecord = { provider: 'ark', model: 'seedance', prompt: '', inputs: [], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
-		const running: IBaseHalfVideoTask = { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', remoteId: 'cgt-1', request };
-		const node = (fields: Pick<IBaseHalfNodeDocument, 'task' | 'result'>) => createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'video', title: 'Shot 1', ...fields });
-		const withVideo = node({ result: { source: 'imported', artifact: { kind: 'video', path: 'assets/clip.mp4', size: 1 } } });
-		assert.deepStrictEqual([
-			baseHalfCanvasVideoCardStatus({ document: node({}) }),
-			baseHalfCanvasVideoCardStatus({ document: node({ task: { ...running, state: 'submitting', remoteId: undefined } }) }),
-			baseHalfCanvasVideoCardStatus({ document: node({ task: running }) }),
-			baseHalfCanvasVideoCardStatus({ document: node({ task: { ...running, state: 'failed', endedAt: '2026-10-15T08:01:00.000Z', error: 'The key was refused.' } }) }),
-			baseHalfCanvasVideoCardStatus({ document: node({ task: { ...running, state: 'stopped', endedAt: '2026-10-15T08:01:00.000Z' } }) }),
-			baseHalfCanvasVideoCardStatus({ document: withVideo }),
-			baseHalfCanvasVideoCardStatus({ document: withVideo, resultMissing: true })
-		], [
-			{ phase: 'empty' },
-			{ phase: 'generating', text: 'Generating' },
-			{ phase: 'generating', text: 'Generating' },
-			{ phase: 'failed', text: 'The key was refused.' },
-			{ phase: 'stopped', text: 'Stopped' },
-			{ phase: 'video' },
-			{ phase: 'video', text: 'The video file is missing', title: 'assets/clip.mp4' }
-		]);
 	});
 
 	test('accepts bounded canvas zoom percentages without turning invalid input into reset', () => {

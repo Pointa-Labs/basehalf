@@ -42,8 +42,8 @@ suite('BaseHalfVideoChannelService', () => {
 			{ provider: 'byteplus', name: 'BytePlus ModelArk', baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3', models: ['dreamina-seedance-2-0-mini-260615', 'seedance-1-5-pro-251215'], hasKey: false },
 			{ provider: 'dashscope', name: 'Alibaba Cloud Model Studio', baseUrl: 'https://dashscope.aliyuncs.com/api/v1', models: ['wan2.6-t2v', 'wan2.6-i2v'], hasKey: false },
 			{ provider: 'minimax', name: 'MiniMax', baseUrl: 'https://api.minimaxi.com/v1', models: ['MiniMax-Hailuo-02'], hasKey: false },
-			{ provider: 'gemini', name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', models: [], hasKey: false },
-			{ provider: 'openai', name: 'OpenAI Compatible', baseUrl: 'https://api.openai.com/v1', models: [], hasKey: false }
+			{ provider: 'gemini', name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', models: ['veo-3.1-generate-preview', 'veo-3.1-fast-generate-preview', 'veo-3.1-lite-generate-preview'], hasKey: false },
+			{ provider: 'openai', name: 'OpenAI Compatible', baseUrl: '', models: [], hasKey: false }
 		]);
 		assert.ok(service.getChannels().every(channel => new RegExp(`^${channel.provider}-[a-z0-9]{4}$`).test(channel.id)));
 

@@ -135,7 +135,7 @@ suite('BaseHalfVideoProvidersPage', () => {
 			typed: shownEndpoint?.value,
 			invalid: shownEndpoint?.getAttribute('aria-invalid')
 		}, {
-			baseUrl: 'https://api.openai.com/v1',
+			baseUrl: '',
 			errors: ['Use an address that starts with https://. An address with http:// is allowed only on this computer (localhost), because the key would travel unencrypted.'],
 			typed: 'http://relay.example.com/v1',
 			invalid: 'true'

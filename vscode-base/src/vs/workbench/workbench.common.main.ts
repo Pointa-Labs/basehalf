@@ -490,8 +490,6 @@ import './basehalf/browser/basehalfCardProjectionExtensionPoint.contribution.js'
 import './basehalf/browser/basehalfBuiltInCapabilities.contribution.js';
 import './basehalf/browser/basehalfPluginStructuralCleanupExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfCanvasTemplateExtensionPoint.contribution.js';
-import './basehalf/browser/basehalfModelProviderCatalogExtensionPoint.contribution.js';
-import './basehalf/browser/basehalfVideoModelCatalogExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfVideoNodeStore.js';
 import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';

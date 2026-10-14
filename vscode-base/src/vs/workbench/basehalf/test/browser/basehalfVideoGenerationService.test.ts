@@ -283,15 +283,18 @@ suite('BaseHalfVideoGenerationService', () => {
 		await attempt({ prompt: '', generation: settings(harness.channel) }, ['docs/plan.pdf']);
 		await attempt({ prompt: 'a', generation: settings(harness.channel), task: runningTask(harness) });
 
-		const keyless = await harness.channels.addChannel('openai');
-		await harness.channels.updateChannel(keyless.id, { models: ['relay-video-1'] });
-		await attempt({ prompt: 'a', generation: settings(keyless, { model: 'relay-video-1' }) });
+		const relay = await harness.channels.addChannel('openai');
+		await harness.channels.updateChannel(relay.id, { models: ['relay-video-1'] });
+		await attempt({ prompt: 'a', generation: settings(relay, { model: 'relay-video-1' }) });
+		await harness.channels.updateChannel(relay.id, { baseUrl: 'https://relay.example.com/v1' });
+		await attempt({ prompt: 'a', generation: settings(relay, { model: 'relay-video-1' }) });
 
 		assert.deepStrictEqual(messages, [
 			'Choose a model first.',
 			'No video provider on this computer offers this model. Add it in Video Providers.',
 			'Write a prompt or connect an input first.',
 			'This node is generating.',
+			'The video provider of this model has no endpoint. Enter it in Video Providers.',
 			'The video provider of this model has no API key. Set it in Video Providers.'
 		]);
 		assert.strictEqual(harness.commands.count(SUBMIT), 0);

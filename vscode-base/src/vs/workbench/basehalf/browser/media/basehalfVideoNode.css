@@ -1128,3 +1128,27 @@
 		background: Highlight;
 	}
 }
+
+/* --- Pick on Canvas ----------------------------------------------------------------------- */
+
+/* A calm line at the top of the canvas while the next click connects a card to a Video node. */
+.monaco-workbench .basehalf-canvas-workbench .basehalf-video-pick-banner {
+	position: absolute;
+	top: 12px;
+	left: 50%;
+	z-index: 30;
+	max-width: calc(100% - 48px);
+	padding: 6px 12px;
+	transform: translateX(-50%);
+	overflow: hidden;
+	color: var(--bh-card-text-primary, var(--vscode-foreground));
+	font-size: 12px;
+	line-height: 18px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	pointer-events: none;
+	background: var(--bh-card-surface, var(--vscode-editorWidget-background));
+	border: 1px solid var(--bh-card-border-strong, var(--vscode-widget-border));
+	border-radius: 999px;
+	box-shadow: 0 6px 18px rgb(5 6 7 / 28%);
+}

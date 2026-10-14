@@ -55,6 +55,7 @@ import {
 	baseHalfCanvasItemsSharePreviewVersion,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
+	BASEHALF_CANVAS_GRID_COLUMN_GAP,
 	baseHalfCanvasTransferPlaces,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
@@ -131,7 +132,16 @@ import {
 	serializeBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
 import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../common/basehalfCanvasContentKind.js';
-import { baseHalfVideoNodePhase, BaseHalfVideoNodePhase, IBaseHalfNodeArtifact } from '../common/basehalfVideoNode.js';
+import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGenerationSettings } from '../common/basehalfVideoNode.js';
+import { IHoverService } from '../../../platform/hover/browser/hover.js';
+import { ICommandService } from '../../../platform/commands/common/commands.js';
+import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost } from './basehalfVideoNodePanel.js';
+import { IBaseHalfVideoCard, renderBaseHalfVideoCard } from './basehalfVideoCard.js';
+import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from './basehalfVideoFrameCapture.js';
+import { rememberBaseHalfVideoDetailNode } from './cardDetail/basehalfMediaCardDetail.js';
+import { baseHalfVideoCardToolbarActions } from '../common/basehalfVideoCardPresentation.js';
+import { IBaseHalfVideoChannelService, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
+import { baseHalfVideoInitialSettings, getBaseHalfVideoModelProfile } from '../common/basehalfVideoProviders.js';
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
@@ -161,6 +171,7 @@ import {
 	BaseHalfCanvasSceneSelectionAction,
 	BaseHalfCanvasSceneCardControls,
 	BaseHalfCanvasSceneVideoAction,
+	BaseHalfCanvasSceneVideoFrame,
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
@@ -254,6 +265,14 @@ interface IBaseHalfPendingCanvasSelection {
 	readonly sceneKey: string;
 	readonly paths: readonly string[];
 	readonly owner: IBaseHalfCanvasPostCreateOwner;
+}
+
+/** The panel under the selected Video card (D58) and what it lives on. */
+interface IBaseHalfVideoPanelMount {
+	readonly sceneKey: string;
+	readonly path: string;
+	readonly panel: BaseHalfVideoNodePanel;
+	readonly store: DisposableStore;
 }
 
 interface IBaseHalfPendingCanvasFit {
@@ -353,36 +372,6 @@ export function baseHalfCanvasCardPreviewCanRetainElement(
 ): boolean {
 	return previous === next
 		|| (resultNode && baseHalfCanvasCardPreviewRenderKey(previous) === baseHalfCanvasCardPreviewRenderKey(next));
-}
-
-/**
- * What the card of a Video node says in its phase (video node, "The card"):
- * nothing while it is empty or shows its video; "Generating"; the error of a
- * failed task; "Stopped"; and "The video file is missing", with the path as
- * its tooltip, when the file is gone.
- */
-export function baseHalfCanvasVideoCardStatus(preview: Pick<Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>, 'document' | 'resultMissing' | 'verificationPending'>): {
-	readonly phase: BaseHalfVideoNodePhase;
-	readonly text?: string;
-	readonly title?: string;
-} {
-	const document = preview.document;
-	const phase = baseHalfVideoNodePhase(document);
-	switch (phase) {
-		case 'generating':
-			return { phase, text: localize('basehalf.canvas.videoCard.generating', "Generating") };
-		case 'failed':
-			return { phase, text: document.task?.error ?? localize('basehalf.canvas.videoCard.failed', "The generation failed.") };
-		case 'stopped':
-			return { phase, text: localize('basehalf.canvas.videoCard.stopped', "Stopped") };
-		case 'video':
-			if (preview.resultMissing) {
-				return { phase, text: localize('basehalf.canvas.videoCard.missing', "The video file is missing"), ...(document.result ? { title: document.result.artifact.path } : {}) };
-			}
-			return preview.verificationPending ? { phase, text: localize('basehalf.canvas.videoCard.checking', "Checking the video…") } : { phase };
-		default:
-			return { phase };
-	}
 }
 
 /**
@@ -731,6 +720,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private canvasInteractionEpoch = 0;
 	private canvasNavigationEpoch = 0;
 	private pendingCanvasSelection: IBaseHalfPendingCanvasSelection | undefined;
+	/** The panel under the selected Video card. */
+	private videoPanel: IBaseHalfVideoPanelMount | undefined;
+	/** A Video node just created: its panel takes the focus when it first shows. */
+	private videoPanelFocusPath: string | undefined;
+	/** A Video node that Generate made beside a node with a video: its card is selected once it is drawn. */
+	private pendingVideoNodeSelection: { readonly sceneKey: string; readonly path: string } | undefined;
+	/** The drawn Video cards, for the time their players show. */
+	private readonly videoCards = new Map<string, IBaseHalfVideoCard>();
+	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
+	private videoPanelSelectionToken = 0;
+	/** A single selected card whose preview is still loading: its panel shows once it is known to be a Video node. */
+	private videoPanelWanted: { readonly sceneKey: string; readonly path: string; readonly token: number } | undefined;
+	/** Pick on Canvas of the Video panel while it waits for a click. */
+	private videoInputPick: { readonly store: DisposableStore; finish(path: string | undefined): void } | undefined;
 	private pendingCanvasFit: IBaseHalfPendingCanvasFit | undefined;
 	/** Cards the user just created that are shown to them once they are drawn (canvas card placement). */
 	private pendingCanvasReveal: { readonly sceneKey: string; readonly paths: readonly string[]; readonly owner: IBaseHalfCanvasPostCreateOwner } | undefined;
@@ -797,7 +800,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasResourceDeletionService private readonly canvasResourceDeletionService: IBaseHalfCanvasResourceDeletionService,
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
 		@ILifecycleService lifecycleService: ILifecycleService,
-		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService
+		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
+		@IHoverService private readonly hoverService: IHoverService,
+		@ICommandService private readonly commandService: ICommandService,
+		@IBaseHalfVideoGenerationService private readonly videoGenerationService: IBaseHalfVideoGenerationService,
+		@IBaseHalfVideoChannelService private readonly videoChannelService: IBaseHalfVideoChannelService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open
@@ -827,6 +834,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.flushAllBadgeDescriptionWrites(),
 			{ id: 'join.basehalfBadgeDescriptions', label: localize('join.basehalfBadgeDescriptions', "Saving Badge prompts") }
 		)));
+		this._register(lifecycleService.onWillShutdown(event => event.join(
+			this.videoPanel?.panel.flush() ?? Promise.resolve(),
+			{ id: 'join.basehalfVideoPrompt', label: localize('join.basehalfVideoPrompt', "Saving the prompt of a Video node") }
+		)));
+		this._register(toDisposable(() => {
+			this.cancelVideoInputPick();
+			this.videoPanel?.store.dispose();
+			this.videoPanel = undefined;
+		}));
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -910,7 +926,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			copyNote: (sceneKey, structuralEpoch, path) => this.copySceneNote(sceneKey, structuralEpoch, path),
 			setNoteBackground: (sceneKey, structuralEpoch, path, background) => this.setSceneNoteBackground(sceneKey, structuralEpoch, path, background),
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
-			invokeVideoAction: (sceneKey, structuralEpoch, path, action, anchor) => this.invokeSceneVideoAction(sceneKey, structuralEpoch, path, action, anchor),
+			invokeVideoAction: (sceneKey, structuralEpoch, path, action, anchor, frame) => this.invokeSceneVideoAction(sceneKey, structuralEpoch, path, action, anchor, frame),
 			showCreateMenu: (sceneKey, structuralEpoch, position) => this.showSceneContextMenu(
 				sceneKey,
 				structuralEpoch,
@@ -1805,6 +1821,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
+		this.syncVideoPanelAfterRender(currentSceneKey, pendingSelection);
 		this.userRenderOwed = false;
 		// The cards are drawn: the places BaseHalf chose for them are kept from
 		// now on, and saved when the layout can take them.
@@ -2515,12 +2532,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
 		// The source is the node's only upstream entry in its first bytes (D37):
 		// creating the file is the connection.
+		const generation = kind === 'video' ? this.initialVideoGeneration() : undefined;
 		const document = createBaseHalfNodeDocument({
 			id: generateUuid(),
 			kind,
 			title: canvasResultNodeKindLabel(kind),
-			upstream: [drop.from]
+			upstream: [drop.from],
+			...(generation ? { generation } : {})
 		});
+		if (kind === 'video') {
+			this.videoPanelFocusPath = targetPath;
+		}
 		const targetSize = kind === 'video'
 			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
@@ -2876,6 +2898,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async prepareSceneSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean> {
+		const accepted = await this.prepareSceneNoteSelectionChange(sceneKey, structuralEpoch, paths);
+		if (accepted) {
+			this.followSelectionWithVideoPanel(sceneKey, paths);
+		}
+		return accepted;
+	}
+
+	private async prepareSceneNoteSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean> {
 		const folder = this.getCurrentFolder();
 		if (!folder || this.sceneKey(folder) !== sceneKey
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
@@ -4050,7 +4080,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		structuralEpoch: number,
 		path: string,
 		action: BaseHalfCanvasSceneVideoAction,
-		anchor: HTMLElement
+		_anchor: HTMLElement,
+		frame?: BaseHalfCanvasSceneVideoFrame
 	): Promise<void> {
 		const { folder, items } = await this.resolveSceneSelection(sceneKey, structuralEpoch, [path]);
 		const item = items[0];
@@ -4064,8 +4095,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			case 'importResult':
 				await this.importCanvasNodeResult(item);
 				return;
-			case 'openFullPreview':
+			case 'openFullPreview': {
+				const video = this.videoFileOf(item, preview);
+				if (video) {
+					rememberBaseHalfVideoDetailNode(video, item.stat.resource);
+				}
 				await this.openResultNodeContent(folder, item);
+				return;
+			}
+			case 'revealVideo': {
+				const video = this.videoFileOf(item, preview);
+				if (video) {
+					await this.commandService.executeCommand('revealFileInOS', video);
+				}
+				return;
+			}
+			case 'captureFrame':
+				await this.captureVideoFrame(folder, item, preview, frame ?? 'first');
 				return;
 		}
 	}
@@ -5250,26 +5296,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (preview?.kind !== 'node' || preview.document.kind !== 'video') {
 			return undefined;
 		}
-		const phase = baseHalfVideoNodePhase(preview.document);
-		if (phase !== 'video') {
-			// Upload Video while the node is empty and does not generate.
-			return {
-				kind: 'video',
-				actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>(phase === 'empty' && !preview.dirty ? ['importResult'] : [])
-			};
-		}
-		if (preview.verificationPending
-			|| preview.resultMissing
-			|| preview.resultMedia?.mediaKind !== 'video') {
+		if (preview.dirty || (preview.document.result && preview.verificationPending)) {
 			return { kind: 'video', actions: Object.freeze([]) };
 		}
 		return {
 			kind: 'video',
-			actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>([
-				'captureFrame',
-				'revealVideo',
-				'openFullPreview'
-			])
+			actions: baseHalfVideoCardToolbarActions(preview.document, {
+				generating: this.videoGenerationService.isGenerating(item.stat.resource),
+				videoExists: preview.resultMissing ? false : undefined
+			})
 		};
 	}
 
@@ -5886,12 +5921,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!name) {
 			throw new Error(`Too many ${label.toLowerCase()} outputs already use the default name.`);
 		}
-		// An empty node of its kind; a Video node starts with an empty prompt.
+		// An empty node of its kind; a Video node starts with an empty prompt and
+		// the model and settings of the last generation on this computer.
+		const generation = kind === 'video' ? this.initialVideoGeneration() : undefined;
 		const document = createBaseHalfNodeDocument({
 			id: generateUuid(),
 			kind,
-			title: label
+			title: label,
+			...(generation ? { generation } : {})
 		});
+		if (kind === 'video') {
+			this.videoPanelFocusPath = canvasChildPath(folder.relativePath, name);
+		}
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			contents: VSBuffer.fromString(serializeBaseHalfNodeDocument(document)),
 			postCreateOwner,
@@ -6986,7 +7027,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	): void {
 		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
 		if (preview.document.kind === 'video') {
-			this.renderVideoNodePreview(container, preview, interactive, listeners, card);
+			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card);
 			return;
 		}
 		const result = append(container, $('.basehalf-canvas-node-result'));
@@ -7004,46 +7045,368 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	/**
-	 * The card of a Video node by its phase (video node, "The card"): the glyph
-	 * while it is empty; the glyph and "Generating" while its task is active;
-	 * the glyph and the error of a failed task, whole in the tooltip; the glyph
-	 * and "Stopped"; the video, with controls while the card is selected; and
-	 * the glyph and "The video file is missing" when its file is gone. The card
-	 * keeps its size and the video is fitted inside it.
+	 * The card of a Video node, drawn by the Video card module in every phase
+	 * (video node, "The card"). The card follows a generation in this window by
+	 * itself, and continues one that the node's file records and no window
+	 * follows.
 	 */
 	private renderVideoNodePreview(
 		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
 		interactive: boolean,
 		listeners: DisposableStore,
 		card: HTMLElement
 	): void {
 		const document = preview.document;
-		const status = baseHalfCanvasVideoCardStatus(preview);
-		card.dataset.videoPhase = status.phase;
-		card.classList.toggle('empty-video-draft', status.phase === 'empty');
-		const stage = append(container, $('.basehalf-video-stage'));
-		if (status.phase === 'video' && status.text === undefined && preview.resultMedia?.mediaKind === 'video') {
-			const media = append(stage, $('.basehalf-video-stage-media'));
-			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
-			card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.video', "{0}, Video", document.title));
+		card.dataset.videoPhase = baseHalfVideoNodePhase(document);
+		card.classList.toggle('empty-video-draft', card.dataset.videoPhase === 'empty');
+		const video = this.videoFileOf(item, preview);
+		const handle = renderBaseHalfVideoCard(container, {
+			resource: item.stat.resource,
+			title: document.title,
+			fields: document,
+			...(video ? { video } : {}),
+			...(preview.resultMissing ? { videoExists: false } : {}),
+			interactive
+		}, { hoverService: this.hoverService, generationService: this.videoGenerationService });
+		listeners.add(handle);
+		this.videoCards.set(item.path, handle);
+		listeners.add(toDisposable(() => {
+			if (this.videoCards.get(item.path) === handle) {
+				this.videoCards.delete(item.path);
+			}
+		}));
+		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.label', "{0}, Video", document.title));
+	}
+
+	// --- the Video node panel (D58, video node, "The panel") ---------------------------------
+
+	/** The model and settings a new Video node starts with: those of the last generation on this computer. */
+	private initialVideoGeneration(): IBaseHalfVideoGenerationSettings | undefined {
+		const lastUsed = this.videoChannelService.getLastUsed();
+		if (!lastUsed) {
+			return undefined;
+		}
+		const choice = lastUsed.model ? this.videoChannelService.resolve(lastUsed) : undefined;
+		const profile = choice ? getBaseHalfVideoModelProfile(choice.channel.provider, choice.model) : undefined;
+		return baseHalfVideoInitialSettings(lastUsed, profile);
+	}
+
+	/** The video file a Video node shows, in its workspace folder. */
+	private videoFileOf(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): URI | undefined {
+		if (preview?.kind !== 'node' || !preview.document.result) {
+			return undefined;
+		}
+		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(item.stat.resource)?.uri;
+		return workspaceFolder ? joinPath(workspaceFolder, ...preview.document.result.artifact.path.split('/')) : undefined;
+	}
+
+	/** Whether the card shows a Video node; a node whose preview is still loading counts when `loading` says so. */
+	private isVideoNodeCard(path: string, loading: boolean): boolean | 'loading' {
+		if (!this.renderedItemsByPath.has(path)) {
+			return false;
+		}
+		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+		if (preview?.kind === 'node') {
+			return preview.document.kind === 'video';
+		}
+		return loading && preview?.kind === 'nodeLoading' ? 'loading' : false;
+	}
+
+	/** Shows the panel for a single selected Video card and closes it for any other selection. */
+	private followSelectionWithVideoPanel(sceneKey: string, paths: readonly string[]): void {
+		const token = ++this.videoPanelSelectionToken;
+		this.videoPanelWanted = undefined;
+		const path = paths.length === 1 ? paths[0] : undefined;
+		const video = path !== undefined ? this.isVideoNodeCard(path, true) : false;
+		if (path === undefined || video === false) {
+			void this.closeVideoPanel();
 			return;
 		}
-		const empty = append(stage, $('.basehalf-video-stage-empty'));
-		empty.classList.toggle('simple', status.phase === 'empty');
-		const glyph = append(empty, $('.basehalf-video-stage-glyph'));
-		glyph.setAttribute('aria-hidden', 'true');
-		this.renderGlyph(glyph, 'video', 'var(--bh-card-text-ghost)', status.phase === 'empty' ? 42 : 30);
-		if (status.text === undefined) {
-			card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.empty', "{0}, Video", document.title));
+		if (video === 'loading') {
+			void this.closeVideoPanel();
+			this.videoPanelWanted = { sceneKey, path, token };
 			return;
 		}
-		const hint = append(empty, $('.basehalf-video-stage-hint'));
-		hint.classList.toggle('failed', status.phase === 'failed');
-		hint.textContent = status.text;
-		hint.title = status.title ?? status.text;
-		hint.setAttribute('role', 'status');
-		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.state', "{0}, Video, {1}", document.title, status.text));
+		const show = (): void => {
+			if (this.disposed || token !== this.videoPanelSelectionToken || !this.isCurrentSceneKey(sceneKey)) {
+				return;
+			}
+			// A drag that selected the card keeps the panel away until the pointer is released.
+			if (this.canvasScene.isInteracting()) {
+				mainWindow.requestAnimationFrame(show);
+				return;
+			}
+			this.showVideoPanel(sceneKey, path);
+		};
+		show();
+	}
+
+	/** After a render: follows a selection the render applied, and keeps the open panel on its card. */
+	private syncVideoPanelAfterRender(sceneKey: string, appliedSelection: readonly string[] | undefined): void {
+		if (appliedSelection) {
+			this.followSelectionWithVideoPanel(sceneKey, appliedSelection);
+		}
+		const pendingNode = this.pendingVideoNodeSelection;
+		if (pendingNode && pendingNode.sceneKey === sceneKey && this.renderedItemsByPath.has(pendingNode.path)) {
+			this.pendingVideoNodeSelection = undefined;
+			this.canvasScene.select({ cardPaths: [pendingNode.path] });
+			this.followSelectionWithVideoPanel(sceneKey, [pendingNode.path]);
+		}
+		const wanted = this.videoPanelWanted;
+		if (wanted && (wanted.token !== this.videoPanelSelectionToken || wanted.sceneKey !== sceneKey)) {
+			this.videoPanelWanted = undefined;
+		} else if (wanted && this.isVideoNodeCard(wanted.path, false) === true) {
+			this.videoPanelWanted = undefined;
+			this.showVideoPanel(sceneKey, wanted.path);
+		}
+		const mount = this.videoPanel;
+		if (!mount) {
+			return;
+		}
+		if (mount.sceneKey !== sceneKey || this.canvasNavigationService.state.cardDetail || this.isVideoNodeCard(mount.path, true) === false) {
+			void this.closeVideoPanel();
+			return;
+		}
+		this.publishVideoPanel(mount);
+	}
+
+	private showVideoPanel(sceneKey: string, path: string): void {
+		const current = this.videoPanel;
+		if (current && current.sceneKey === sceneKey && current.path === path) {
+			this.publishVideoPanel(current);
+			return;
+		}
+		void this.closeVideoPanel();
+		const item = this.renderedItemsByPath.get(path);
+		if (!item) {
+			return;
+		}
+		const focusPrompt = this.videoPanelFocusPath === path;
+		if (focusPrompt) {
+			this.videoPanelFocusPath = undefined;
+		}
+		const store = new DisposableStore();
+		const panel = store.add(this.instantiationService.createInstance(BaseHalfVideoNodePanel, item.stat.resource, this.videoPanelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt }));
+		const mount: IBaseHalfVideoPanelMount = { sceneKey, path, panel, store };
+		this.videoPanel = mount;
+		store.add(panel.onDidChangeHeight(() => this.publishVideoPanel(mount)));
+		this.publishVideoPanel(mount);
+	}
+
+	private publishVideoPanel(mount: IBaseHalfVideoPanelMount): void {
+		if (this.videoPanel !== mount) {
+			return;
+		}
+		this.canvasScene.setVideoPanelSurface({
+			sceneKey: mount.sceneKey,
+			structuralEpoch: this.renderedSceneStructuralEpoch,
+			path: mount.path,
+			element: mount.panel.element,
+			screenHeight: mount.panel.height
+		});
+	}
+
+	/** Saves the panel's prompt and takes the panel away. */
+	private async closeVideoPanel(): Promise<void> {
+		const mount = this.videoPanel;
+		if (!mount) {
+			return;
+		}
+		this.videoPanel = undefined;
+		this.cancelVideoInputPick();
+		this.canvasScene.clearVideoPanelSurface(mount.panel.element);
+		try {
+			await mount.panel.flush();
+		} catch (error) {
+			this.logService.warn(error);
+		} finally {
+			mount.store.dispose();
+		}
+	}
+
+	private videoPanelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {
+		return {
+			pickCard: () => this.pickCardForVideoInput(path),
+			importFile: () => this.importFileForVideoInput(path),
+			focusCard: () => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
+			didGenerateInNode: resource => this.selectVideoNodeWhenDrawn(sceneKey, resource)
+		};
+	}
+
+	/** Selects a Video node that Generate made beside another, once its card is drawn. */
+	private selectVideoNodeWhenDrawn(sceneKey: string, resource: URI): void {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== sceneKey || !this.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource)) {
+			return;
+		}
+		const path = canvasChildPath(folder.relativePath, basename(resource));
+		if (this.renderedItemsByPath.has(path)) {
+			this.canvasScene.select({ cardPaths: [path] });
+			this.followSelectionWithVideoPanel(sceneKey, [path]);
+			return;
+		}
+		this.pendingVideoNodeSelection = { sceneKey, path };
+		this.requestRender();
+	}
+
+	/**
+	 * Pick on Canvas: the next click on a card connects it to the Video node.
+	 * The gesture of that click never reaches the canvas, so it selects or
+	 * moves nothing. A click on the blank canvas or Escape cancels; a click on
+	 * the node itself or on a folder keeps waiting.
+	 */
+	private pickCardForVideoInput(targetPath: string): Promise<string | undefined> {
+		this.cancelVideoInputPick();
+		return new Promise<string | undefined>(resolve => {
+			const store = new DisposableStore();
+			const pick = {
+				store,
+				finish: (path: string | undefined) => {
+					if (this.videoInputPick !== pick) {
+						return;
+					}
+					this.videoInputPick = undefined;
+					store.dispose();
+					resolve(path);
+				}
+			};
+			this.videoInputPick = pick;
+			this.cards.dataset.videoInputPickActive = 'true';
+			store.add(toDisposable(() => delete this.cards.dataset.videoInputPickActive));
+			const banner = DOM.append(this.root, DOM.$('.basehalf-video-pick-banner'));
+			banner.setAttribute('role', 'status');
+			banner.textContent = localize('basehalf.canvas.video.pickBanner', "Click a card to connect it to the Video node. Press Escape to cancel.");
+			store.add(toDisposable(() => banner.remove()));
+			let pressedPath: string | undefined | null = null;
+			const onPointer = (event: Event): void => {
+				const target = event.target;
+				if (!DOM.isHTMLElement(target) && !DOM.isSVGElement(target)) {
+					return;
+				}
+				if (!this.cards.contains(target) || target.closest('.bh-video-panel')) {
+					return;
+				}
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				if (event.type === 'pointerdown') {
+					pressedPath = target.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')?.dataset.basehalfCardPath;
+					return;
+				}
+				if (event.type !== 'click' || pressedPath === null) {
+					return;
+				}
+				const path = pressedPath;
+				pressedPath = null;
+				if (path === undefined) {
+					pick.finish(undefined);
+				} else if (path !== targetPath && this.renderedItemsByPath.get(path)?.stat.isDirectory !== true) {
+					pick.finish(path);
+				}
+			};
+			const targetDocument = this.cards.ownerDocument;
+			for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick']) {
+				store.add(DOM.addDisposableListener(targetDocument, type, onPointer, true));
+			}
+			store.add(DOM.addDisposableListener(targetDocument, 'keydown', event => {
+				if (event.key === 'Escape') {
+					event.preventDefault();
+					event.stopImmediatePropagation();
+					pick.finish(undefined);
+				}
+			}, true));
+		});
+	}
+
+	private cancelVideoInputPick(): void {
+		this.videoInputPick?.finish(undefined);
+	}
+
+	/** Import File… of the Video panel: copies the chosen file into the node's folder and returns its path. */
+	private async importFileForVideoInput(targetPath: string): Promise<string | undefined> {
+		const item = this.renderedItemsByPath.get(targetPath);
+		const folder = this.getCurrentFolder();
+		if (!item || !folder) {
+			return undefined;
+		}
+		const picked = await this.fileDialogService.showOpenDialog({
+			canSelectFiles: true,
+			canSelectFolders: false,
+			canSelectMany: false,
+			title: localize('basehalf.canvas.video.importInput', "Import a File for the Video Node"),
+			openLabel: localize('basehalf.canvas.video.importInputButton', "Import"),
+			filters: [{
+				name: localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text"),
+				extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'md', 'markdown', 'txt']
+			}]
+		});
+		const source = picked?.[0];
+		if (!source) {
+			return undefined;
+		}
+		const nodeFolder = dirname(item.stat.resource);
+		const name = basename(source);
+		if (this.uriIdentityService.extUri.isEqual(dirname(source), nodeFolder)) {
+			return canvasChildPath(folder.relativePath, name);
+		}
+		const dot = name.lastIndexOf('.');
+		const stem = dot > 0 ? name.slice(0, dot) : name;
+		const extension = dot > 0 ? name.slice(dot) : '';
+		for (let number = 1; number < 1000; number++) {
+			const candidate = number === 1 ? name : `${stem} ${number}${extension}`;
+			const target = joinPath(nodeFolder, candidate);
+			if (await this.fileService.exists(target)) {
+				continue;
+			}
+			await this.fileService.copy(source, target, false);
+			return canvasChildPath(folder.relativePath, candidate);
+		}
+		return undefined;
+	}
+
+	/** Capture Frame: writes the frame as a PNG beside the node; its card appears to the right of the video card. */
+	private async captureVideoFrame(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined, frame: BaseHalfCanvasSceneVideoFrame): Promise<void> {
+		const video = this.videoFileOf(item, preview);
+		if (!video || preview?.kind !== 'node') {
+			return;
+		}
+		let image: URI;
+		try {
+			image = await captureBaseHalfVideoFrame(this.fileService, {
+				video,
+				node: item.stat.resource,
+				title: preview.document.title,
+				frame,
+				currentTime: this.videoCards.get(item.path)?.currentTime
+			}, createBaseHalfVideoFrameReader(mainWindow));
+		} catch (error) {
+			this.logService.warn(error);
+			this.queueCanvasWarning(localize('basehalf.canvas.video.captureFailed', "BaseHalf could not capture that frame: {0}", error instanceof Error ? error.message : String(error)));
+			this.requestRender();
+			return;
+		}
+		await this.placeNewCardBeside(folder, item.path, image);
+	}
+
+	/** Gives the card of a new file a place right of another card, or the next open place there. */
+	private async placeNewCardBeside(folder: IBaseHalfCanvasFolderState, besidePath: string, resource: URI): Promise<void> {
+		const path = canvasChildPath(folder.relativePath, basename(resource));
+		try {
+			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
+				return;
+			}
+			const layout = await this.canvasMirrorService.readCanvas(folder);
+			const beside = layout?.cards.find(card => card.path === besidePath);
+			if (!layout || !beside) {
+				return;
+			}
+			const size = { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
+			const place = baseHalfCanvasOpenPosition({ x: beside.x + beside.width + BASEHALF_CANVAS_GRID_COLUMN_GAP, y: beside.y }, size, layout.cards.filter(card => card.path !== path));
+			await this.canvasMirrorService.updateCardGeometry(folder, { path, kind: 'file', x: place.x, y: place.y, ...size });
+		} catch (error) {
+			this.logService.warn(`[BaseHalf] could not place ${path} beside ${besidePath}`, error);
+		}
 	}
 
 	/**
