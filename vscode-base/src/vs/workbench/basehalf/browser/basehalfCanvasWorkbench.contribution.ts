@@ -137,7 +137,7 @@ import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from
 import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGenerationSettings } from '../common/basehalfVideoNode.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost } from './basehalfVideoNodePanel.js';
-import { IBaseHalfVideoCard, renderBaseHalfVideoCard } from './basehalfVideoCard.js';
+import { IBaseHalfVideoCard, IBaseHalfVideoCardInput, renderBaseHalfVideoCard } from './basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from './basehalfVideoFrameCapture.js';
 import { baseHalfVideoCardToolbarActions } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfVideoChannelService, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
@@ -355,6 +355,7 @@ type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'nodeLoading'; readonly text: string }
 	| { readonly kind: 'invalidNode'; readonly text: string }
 	| { readonly kind: 'text' | 'code' | 'markdown' | 'empty' | 'loading' | 'unavailable' | 'richRequired'; readonly text: string };
+type BaseHalfCanvasNodePreview = Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>;
 
 export function baseHalfCanvasCardPreviewRenderKey(preview: BaseHalfCanvasCardPreview | undefined): string {
 	return JSON.stringify(preview, (_key, value: unknown) => {
@@ -728,6 +729,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private pendingVideoNodeSelection: { readonly sceneKey: string; readonly path: string } | undefined;
 	/** The drawn Video cards, for the time their players show. */
 	private readonly videoCards = new Map<string, IBaseHalfVideoCard>();
+	/** The Video card drawn in each card element. */
+	private readonly videoCardBodies = new WeakMap<HTMLElement, IBaseHalfVideoCard>();
+	/** Shows a newer state of its Video node in a card element, which is kept. */
+	private readonly videoCardRetainers = new WeakMap<HTMLElement, (item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview) => void>();
 	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
 	private videoPanelSelectionToken = 0;
 	/** A single selected card whose preview is still loading: its panel shows once it is known to be a Video node. */
@@ -1776,6 +1781,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const visualKey = this.cardVisualKey(displayedItem);
 			const cached = previousRenderedCards.get(item.path);
 			const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, currentSceneKey)
+				|| this.retainVideoNodeCard(cached, displayedItem, preview, visualKey, currentSceneKey)
 				? cached.element
 				: this.createCard(displayedItem, bounds, preview, structuralStamp, currentSceneKey);
 			const controls = this.sceneCardControls(displayedItem, preview);
@@ -4739,9 +4745,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const cached = this.renderedCardPreviewsByPath.get(item.path);
 		if (!cached
 			|| cached.preview.kind === 'nodeLoading'
-			|| cached.preview.kind === 'unavailable'
-			|| !baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
+			|| cached.preview.kind === 'unavailable') {
 			return undefined;
+		}
+		if (!baseHalfCanvasItemsSharePreviewVersion(cached.item, item)) {
+			// The file of a Video node changes while the user works with it: the
+			// panel saves the prompt and the settings, and a generation records its
+			// task. Its card shows the last state until the new one is read, and then
+			// changes in place, so a playing video goes on playing (video node, "The
+			// card").
+			return isVideoNodePreview(cached.preview)
+				&& item.stat.isFile
+				&& this.uriIdentityService.extUri.isEqual(cached.item.stat.resource, item.stat.resource)
+				? cached.preview
+				: undefined;
 		}
 		if (item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)
 			&& cached.preview.kind !== 'node'
@@ -4783,6 +4800,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				message: ownProblem.message
 			} : undefined
 		});
+	}
+
+	/**
+	 * Keeps the card of a Video node whose node changed and shows the new state
+	 * in it, so that its player, and a video that plays in it, stay (video node,
+	 * "The card"). Anything else that changed rebuilds the card as before.
+	 */
+	private retainVideoNodeCard(
+		cached: IBaseHalfCanvasCardRenderCacheEntry | undefined,
+		item: IBaseHalfCanvasItem,
+		preview: BaseHalfCanvasCardPreview | undefined,
+		visualKey: string,
+		sceneKey: string
+	): cached is IBaseHalfCanvasCardRenderCacheEntry {
+		const retain = cached ? this.videoCardRetainers.get(cached.element) : undefined;
+		if (!cached
+			|| !retain
+			|| !isVideoNodePreview(cached.preview)
+			|| !isVideoNodePreview(preview)
+			|| cached.sceneKey !== sceneKey
+			|| cached.visualKey !== visualKey
+			|| this.openBadgeFaces.has(item.path)
+			|| (this.inlineEdit?.kind === 'rename' && this.inlineEdit.path === item.path)
+			|| !this.uriIdentityService.extUri.isEqual(cached.item.stat.resource, item.stat.resource)) {
+			return false;
+		}
+		retain(item, preview);
+		return true;
 	}
 
 	private canReuseRenderedCard(
@@ -5424,6 +5469,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const visualKey = this.cardVisualKey(displayedItem);
 				const cached = this.renderedCardsByPath.get(currentItem.path);
 				const element = this.canReuseRenderedCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey)
+					|| this.retainVideoNodeCard(cached, displayedItem, preview, visualKey, hydrationBatch.sceneKey)
 					? cached.element
 					: this.createCard(displayedItem, currentCard, preview, structuralStamp, hydrationBatch.sceneKey);
 				this.applyNoteBackground(element, isBaseHalfMarkdownResource(currentItem.stat.resource) ? this.renderedNoteBackgrounds.get(currentItem.path) ?? 'default' : undefined);
@@ -6746,6 +6792,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderInlineRenameEditor(card, item);
 		this.renderedCardElementsByPath.set(item.path, card);
 
+		// What the card shows. The card of a Video node takes the new state of its
+		// node in place (retainVideoNodeCard).
+		const shown = { item, preview };
 		let renderedPresentation: BaseHalfCanvasCardPresentation | undefined;
 		let renderedHeight: number | undefined;
 		const updatePresentation = (presentation: IBaseHalfCanvasSceneCardPresentation): void => {
@@ -6766,6 +6815,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 				return;
 			}
+			// A Video card that is selected or deselected keeps its player: only
+			// the player's controls come and go.
+			if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && presentationLevel !== 'shell'
+				&& !badgeOpen && isVideoNodePreview(shown.preview) && this.videoCardBodies.has(card)) {
+				renderedPresentation = presentationLevel;
+				card.dataset.previewLevel = presentationLevel;
+				this.updateVideoNodePreview(card, shown.item, shown.preview, presentationLevel === 'interactive');
+				return;
+			}
 			renderedPresentation = presentationLevel;
 			card.dataset.previewLevel = presentationLevel;
 			const nextListeners = new DisposableStore();
@@ -6780,12 +6838,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (badgeOpen && canShowBadgeFace) {
 				this.renderCardBadgeFace(body, item, nextListeners);
 			} else {
-				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card);
+				this.renderCardPreview(body, shown.item, shown.preview, orphan, presentationLevel === 'interactive', nextListeners, card);
 			}
-			this.renderFolderCoverage(active, item, preview);
+			this.renderFolderCoverage(active, shown.item, shown.preview);
 			this.restorePendingCanvasBadgeFocus(card, item.path);
 		};
 		this.cardPresentationUpdaters.set(card, updatePresentation);
+		if (isVideoNodePreview(preview)) {
+			this.videoCardRetainers.set(card, (nextItem, nextPreview) => {
+				shown.item = nextItem;
+				shown.preview = nextPreview;
+				const name = cardDisplayName(nextItem, nextPreview);
+				label.textContent = name;
+				label.title = name;
+				if (renderedPresentation !== undefined && renderedPresentation !== 'shell' && !badgeOpen) {
+					this.updateVideoNodePreview(card, nextItem, nextPreview, renderedPresentation === 'interactive');
+				}
+			});
+		}
 		updatePresentation({
 			level: 'shell',
 			height: bounds.height
@@ -7071,31 +7141,53 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderVideoNodePreview(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
-		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
+		preview: BaseHalfCanvasNodePreview,
 		interactive: boolean,
 		listeners: DisposableStore,
 		card: HTMLElement
 	): void {
-		const document = preview.document;
-		card.dataset.videoPhase = baseHalfVideoNodePhase(document);
-		card.classList.toggle('empty-video-draft', card.dataset.videoPhase === 'empty');
-		const video = this.videoFileOf(item, preview);
-		const handle = renderBaseHalfVideoCard(container, {
-			resource: item.stat.resource,
-			title: document.title,
-			fields: document,
-			...(video ? { video } : {}),
-			...(preview.resultMissing ? { videoExists: false } : {}),
-			interactive
-		}, { hoverService: this.hoverService, generationService: this.videoGenerationService });
+		const handle = renderBaseHalfVideoCard(container, this.videoCardInput(item, preview, interactive), { hoverService: this.hoverService, generationService: this.videoGenerationService });
 		listeners.add(handle);
 		this.videoCards.set(item.path, handle);
+		this.videoCardBodies.set(card, handle);
 		listeners.add(toDisposable(() => {
 			if (this.videoCards.get(item.path) === handle) {
 				this.videoCards.delete(item.path);
 			}
+			if (this.videoCardBodies.get(card) === handle) {
+				this.videoCardBodies.delete(card);
+			}
 		}));
-		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.label', "{0}, Video", document.title));
+		this.applyVideoNodeCardState(card, preview);
+	}
+
+	/** Shows a newer state of a Video node, or the card selected or not, in the Video card drawn in `card`. */
+	private updateVideoNodePreview(card: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean): void {
+		const handle = this.videoCardBodies.get(card);
+		if (!handle) {
+			return;
+		}
+		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
+		handle.update(this.videoCardInput(item, preview, interactive));
+		this.applyVideoNodeCardState(card, preview);
+	}
+
+	private videoCardInput(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview, interactive: boolean): IBaseHalfVideoCardInput {
+		const video = this.videoFileOf(item, preview);
+		return {
+			resource: item.stat.resource,
+			title: preview.document.title,
+			fields: preview.document,
+			...(video ? { video } : {}),
+			...(preview.resultMissing ? { videoExists: false } : {}),
+			interactive
+		};
+	}
+
+	private applyVideoNodeCardState(card: HTMLElement, preview: BaseHalfCanvasNodePreview): void {
+		card.dataset.videoPhase = baseHalfVideoNodePhase(preview.document);
+		card.classList.toggle('empty-video-draft', card.dataset.videoPhase === 'empty');
+		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.label', "{0}, Video", preview.document.title));
 	}
 
 	// --- the Video node panel (D58, video node, "The panel") ---------------------------------
@@ -10710,6 +10802,10 @@ function baseHalfReferenceLabel(relativePath: string): string {
 
 function edgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
+}
+
+function isVideoNodePreview(preview: BaseHalfCanvasCardPreview | undefined): preview is BaseHalfCanvasNodePreview {
+	return preview?.kind === 'node' && preview.document.kind === 'video';
 }
 
 function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): string {

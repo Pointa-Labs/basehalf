@@ -236,6 +236,10 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 			});
 		}
 		const video = this.video;
+		// A deselected card has no controls to stop its video with.
+		if (!interactive && !video.paused) {
+			video.pause();
+		}
 		video.controls = interactive;
 		video.tabIndex = interactive ? 0 : -1;
 		video.classList.toggle('nodrag', interactive);

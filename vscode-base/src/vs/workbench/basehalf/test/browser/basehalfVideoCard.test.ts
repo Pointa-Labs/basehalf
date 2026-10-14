@@ -140,21 +140,37 @@ suite('BaseHalfVideoCard', () => {
 		});
 	});
 
-	test('shows the video with its controls only while selected, keeps the player across updates, and says when the file is missing', () => {
+	test('shows the video with its controls only while selected, keeps the player across updates, pauses it when deselected, and says when the file is missing', () => {
 		const card = disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: false }, { hoverService }));
-		const player = container.querySelector<HTMLVideoElement>('video');
-		const resting = { controls: player?.controls, hidden: player?.getAttribute('aria-hidden'), face: container.querySelector<HTMLElement>('.bh-video-card-face')?.hidden };
+		const player = container.querySelector<HTMLVideoElement>('video')!;
+		const resting = { controls: player.controls, hidden: player.getAttribute('aria-hidden'), face: container.querySelector<HTMLElement>('.bh-video-card-face')?.hidden };
 		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: true });
-		const selected = { same: container.querySelector('video') === player, controls: player?.controls, label: player?.getAttribute('aria-label'), time: card.currentTime };
+		const selected = { same: container.querySelector('video') === player, controls: player.controls, label: player.getAttribute('aria-label'), time: card.currentTime };
+		// The video plays; the node changes while the card stays selected, and then the card is deselected.
+		let playing = true;
+		let pauses = 0;
+		Object.defineProperty(player, 'paused', { configurable: true, get: () => !playing });
+		player.pause = () => {
+			playing = false;
+			pauses++;
+		};
+		card.update({ resource: NODE, title: 'Shot 1', fields: { ...withVideo, prompt: 'Rain at dusk' }, video: VIDEO, videoExists: true, interactive: true });
+		const edited = { same: container.querySelector('video') === player, playing };
+		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: true, interactive: false });
+		const deselected = { same: container.querySelector('video') === player, controls: player.controls, pauses };
 		card.update({ resource: NODE, title: 'Shot 1', fields: withVideo, video: VIDEO, videoExists: false, interactive: true });
 		const face = container.querySelector<HTMLElement>('.bh-video-card-face')!;
 		assert.deepStrictEqual({
 			resting,
 			selected,
+			edited,
+			deselected,
 			missing: { state: card.element.dataset.state, player: container.querySelector('video'), message: text('.bh-video-card-message'), tooltip: hovers.get(face)?.() }
 		}, {
 			resting: { controls: false, hidden: 'true', face: true },
 			selected: { same: true, controls: true, label: 'Video player for Shot 1', time: 0 },
+			edited: { same: true, playing: true },
+			deselected: { same: true, controls: false, pauses: 1 },
 			missing: { state: 'missing', player: null, message: 'The video file is missing', tooltip: 'outputs/node-1/task-1.mp4' }
 		});
 	});

@@ -340,6 +340,10 @@ What a Video card shows follows the node's phase (`baseHalfVideoNodePhase`):
 | video that cannot be played | the glyph and "This video cannot be played here", with its path in the tooltip |
 
 The card keeps its size when a video arrives; the video is fitted inside it.
+The card changes in place when its node changes, as when the panel saves the
+prompt or a generation records its task, and when it is selected or
+deselected: its player stays, and a video that plays goes on playing while
+the card stays selected. Deselecting the card pauses the video where it is.
 
 Above a selected Video card, the toolbar shows **Upload Video** while the
 node is empty and does not generate. Above a card with a video it shows

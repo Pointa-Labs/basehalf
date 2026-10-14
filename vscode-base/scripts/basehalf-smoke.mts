@@ -95,6 +95,7 @@ const VIDEO_NODE_STEPS = Object.freeze([
 	'video-panel-placement',
 	'video-generate-writes-video',
 	'video-capture-frames',
+	'video-card-keeps-its-player',
 	'video-generate-again-makes-sibling',
 	'video-generation-fails-and-stops',
 	'video-agent-runs-node'
@@ -2864,6 +2865,7 @@ async function runVideoNodeSteps(page) {
 	await step('video-panel-placement', () => assertVideoPanelPlacement(page));
 	await step('video-generate-writes-video', () => assertVideoGenerateWritesVideo(page));
 	await step('video-capture-frames', () => assertVideoCaptureFrames(page));
+	await step('video-card-keeps-its-player', () => assertVideoCardKeepsItsPlayer(page));
 	await step('video-generate-again-makes-sibling', () => assertVideoGenerateAgainMakesSibling(page));
 	await step('video-generation-fails-and-stops', () => assertVideoGenerationFailsAndStops(page));
 	await step('video-agent-runs-node', () => assertVideoAgentRunsNode(page));
@@ -3254,6 +3256,81 @@ async function assertVideoCaptureFrames(page) {
 			throw new Error(`The card of ${name} must appear to the right of the video card: ${JSON.stringify({ video, row })}`);
 		}
 	}
+}
+
+// "The card": the card of a node changes in place when its node changes. A
+// video that plays in it goes on playing while the panel saves the prompt,
+// with no frame of the loading face, and pauses where it is when the card is
+// deselected; selecting the card again keeps the same player.
+async function assertVideoCardKeepsItsPlayer(page) {
+	const before = readVideoNode(VIDEO_NODE);
+	let panel = await selectVideoCard(page, VIDEO_NODE);
+	const started = await page.evaluate(async path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const video = card?.querySelector('.bh-video-card[data-state="video"] video.bh-video-card-video');
+		if (!card || !(video instanceof HTMLVideoElement)) {
+			return { error: 'The card has no video element' };
+		}
+		video.dataset.smokePlayer = 'kept';
+		video.muted = true;
+		video.loop = true;
+		const frames = [];
+		globalThis.__bhVideoCardFrames = frames;
+		globalThis.__bhVideoCardSampling = true;
+		const sample = () => {
+			const current = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+			const player = current?.querySelector('video.bh-video-card-video');
+			frames.push({
+				sameCard: current === card,
+				samePlayer: player === video,
+				loading: /Checking content/.test(current?.textContent ?? ''),
+				paused: video.paused
+			});
+			if (globalThis.__bhVideoCardSampling && frames.length < 5_000) {
+				requestAnimationFrame(sample);
+			}
+		};
+		try {
+			await video.play();
+		} catch (error) {
+			return { error: `The video did not play: ${String(error)}` };
+		}
+		requestAnimationFrame(sample);
+		return { time: video.currentTime };
+	}, VIDEO_NODE);
+	if (started.error) {
+		throw new Error(started.error);
+	}
+	const edited = `${before.prompt} Slowly.`;
+	await replaceVideoPrompt(page, panel, edited);
+	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === edited, 'the panel to save the edited prompt', 10_000);
+	// The canvas reads the changed node again and shows it in the same card.
+	await page.waitForTimeout(1_500);
+	const playing = await page.evaluate(() => {
+		globalThis.__bhVideoCardSampling = false;
+		const frames = globalThis.__bhVideoCardFrames ?? [];
+		return {
+			frames: frames.length,
+			replaced: frames.filter(frame => !frame.sameCard || !frame.samePlayer).length,
+			loading: frames.filter(frame => frame.loading).length,
+			paused: frames.filter(frame => frame.paused).length,
+			time: document.querySelector('video[data-smoke-player="kept"]')?.currentTime ?? null
+		};
+	});
+	if (playing.frames < 30 || playing.replaced !== 0 || playing.loading !== 0 || playing.paused !== 0 || !(playing.time > started.time)) {
+		throw new Error(`A playing video must go on playing in the same card while its node changes: ${JSON.stringify({ started, playing })}`);
+	}
+	const readPlayer = () => page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const video = card?.querySelector('video.bh-video-card-video');
+		return video instanceof HTMLVideoElement ? { kept: video.dataset.smokePlayer === 'kept', paused: video.paused, controls: video.controls } : null;
+	}, VIDEO_NODE);
+	await clickBlankVideoCanvas(page);
+	await waitForReading(readPlayer, seen => seen?.kept === true && seen.paused && !seen.controls, 'the deselected card to keep its player, paused and without controls');
+	panel = await selectVideoCard(page, VIDEO_NODE);
+	await waitForReading(readPlayer, seen => seen?.kept === true && seen.controls, 'the selected card to show the same player with its controls');
+	await replaceVideoPrompt(page, panel, before.prompt);
+	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === before.prompt, 'the panel to save the prompt again', 10_000);
 }
 
 // Criterion 17: Generate on a node that holds a video makes a node beside it
