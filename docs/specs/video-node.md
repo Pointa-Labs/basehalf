@@ -444,6 +444,11 @@ card. The original node and its video do not change.
   Generate does, and prints the path of the node that runs (a new node when
   the node held a video) once its task is recorded. It does not wait for the
   video. The node's file shows the progress and the result.
+- The command runs from any folder of the workspace in an Agent Area
+  terminal, also when the workspace was opened through a symbolic link: a
+  shell reports its folder by its real path (on macOS, a folder under `/tmp`
+  or `/var` is under `/private`), and BaseHalf finds the workspace folder by
+  comparing real paths.
 - No confirmation is asked: the user asked the agent to work, and the user's
   own key pays.
 - The skill that BaseHalf offers to agents describes the Video node fields,

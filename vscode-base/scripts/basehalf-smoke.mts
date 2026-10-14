@@ -107,13 +107,11 @@ const crashesPath = path.join(runRoot, 'crashes');
 const userDataDir = path.join(runRoot, 'user-data');
 const sharedDataDir = path.join(runRoot, 'shared-data');
 const extensionsDir = path.join(runRoot, 'extensions');
-// The window opens the workspace by its real path. The temporary folder of
-// macOS lies behind a symbolic link (/var is /private/var), a shell's working
-// folder is always the real path, and `basehalf --run-node` finds the
-// workspace from the working folder of the terminal it runs in. The other
-// folders keep the shorter path: the window's sockets live in user-data.
-fs.mkdirSync(path.join(runRoot, 'workspace'), { recursive: true });
-const workspacePath = fs.realpathSync(path.join(runRoot, 'workspace'));
+// On macOS the temporary folder lies behind a symbolic link (/var is
+// /private/var). The window opens the workspace by that path, while a shell in
+// its terminal reports the real one: `basehalf --run-node` must find the
+// workspace either way.
+const workspacePath = path.join(runRoot, 'workspace');
 // Where the window installs the BaseHalf skill instead of the home folder, so
 // the smoke never reads or changes the agents' settings of the machine it runs
 // on, and what the record of the selection agents can see does is the same on

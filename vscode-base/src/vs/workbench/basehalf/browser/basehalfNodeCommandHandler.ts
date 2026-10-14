@@ -336,9 +336,9 @@ export class BaseHalfNodeCommandHandler {
 		if (!isAbsolute(cwdValue) || cwdValue.includes('\0')) {
 			throw new Error('Run the command from an absolute local workspace directory.');
 		}
-		const cwd = URI.file(cwdValue);
-		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(cwd);
-		if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+		const cwd = await this.workspacePathOf(URI.file(cwdValue));
+		const workspaceFolder = cwd && this.workspaceContextService.getWorkspaceFolder(cwd);
+		if (!cwd || !workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
 			throw new Error('The command directory is not inside an open local workspace folder.');
 		}
 		await this.assertNoSymbolicLinks(workspaceFolder.uri, cwd);
@@ -352,6 +352,41 @@ export class BaseHalfNodeCommandHandler {
 			throw new Error('The command directory could not be verified inside the workspace.');
 		}
 		return { cwd, workspaceFolder };
+	}
+
+	/**
+	 * The directory by the name the workspace gives it. A shell reports its
+	 * directory with links resolved, so in a workspace opened through a link
+	 * (on macOS, any folder under /tmp or /var) the directory is found by
+	 * comparing real paths. The checks that follow see the workspace's name.
+	 */
+	private async workspacePathOf(directory: URI): Promise<URI | undefined> {
+		if (this.workspaceContextService.getWorkspaceFolder(directory)) {
+			return directory;
+		}
+		const realpath = async (resource: URI) => {
+			try {
+				return await this.fileService.realpath(resource);
+			} catch {
+				return undefined;
+			}
+		};
+		const real = await realpath(directory);
+		if (!real) {
+			return undefined;
+		}
+		let containing: { readonly folder: URI; readonly real: URI } | undefined;
+		for (const folder of this.workspaceContextService.getWorkspace().folders) {
+			const folderReal = folder.uri.scheme === 'file' ? await realpath(folder.uri) : undefined;
+			if (folderReal && extUri.isEqualOrParent(real, folderReal) && (!containing || containing.real.path.length < folderReal.path.length)) {
+				containing = { folder: folder.uri, real: folderReal };
+			}
+		}
+		if (!containing) {
+			return undefined;
+		}
+		const relative = extUri.relativePath(containing.real, real);
+		return relative ? URI.joinPath(containing.folder, ...relative.split('/')) : containing.folder;
 	}
 
 	private async resolveOperationResource(workspaceFolder: URI, relativePath: string): Promise<URI> {

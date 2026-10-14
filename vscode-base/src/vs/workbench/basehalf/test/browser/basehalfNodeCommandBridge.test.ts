@@ -55,6 +55,22 @@ suite('BaseHalfNodeCommandBridge', () => {
 		});
 	});
 
+	test('finds the command directory of a workspace opened through a link by its real path', async () => {
+		// The shell reports /private/work/scenes for /work/scenes, as macOS does under /tmp and /var.
+		const harness = createHarness({ linkedFrom: '/private' });
+		const response = await harness.handler.handle(requestEvent('/private/work/scenes', 'scenes/shot.bhnode'));
+		const outside = await harness.handler.handle(requestEvent('/private/elsewhere', 'scenes/shot.bhnode'));
+		assert.deepStrictEqual({
+			generated: harness.generateCalls.map(resource => resource.path),
+			response: response?.type === 'runNode' ? [response.ok, response.ok ? response.nodePath : undefined] : response,
+			outside: outside?.ok
+		}, {
+			generated: ['/work/scenes/shot.bhnode'],
+			response: [true, 'scenes/shot.bhnode'],
+			outside: false
+		});
+	});
+
 	test('prints the path of the new node when the node already held a video', async () => {
 		const harness = createHarness({ generated: URI.file('/work/scenes/shot 2.bhnode') });
 		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
@@ -361,6 +377,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly files?: readonly string[];
 		readonly caseInsensitive?: boolean;
 		readonly nestedFolder?: string;
+		/** The workspace folder is reached through a link: its real path starts with this. */
+		readonly linkedFrom?: string;
 	} = {}) {
 		const generateCalls: URI[] = [];
 		const stopCalls: URI[] = [];
@@ -371,7 +389,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 		let notifyCommandStarted: (() => void) | undefined;
 		const commandStarted = new Promise<void>(resolve => notifyCommandStarted = resolve);
 		const workspace = {
-			getWorkspace: () => ({ id: 'workspace' }),
+			getWorkspace: () => ({ id: 'workspace', folders: [{ uri: workspaceFolder }, ...(options.nestedFolder ? [{ uri: URI.file(options.nestedFolder) }] : [])] }),
 			getWorkspaceFolder: (resource: URI) => options.nestedFolder && extUri.isEqualOrParent(resource, URI.file(options.nestedFolder))
 				? { uri: URI.file(options.nestedFolder) }
 				: extUri.isEqualOrParent(resource, workspaceFolder) ? { uri: workspaceFolder } : undefined
@@ -393,7 +411,7 @@ suite('BaseHalfNodeCommandBridge', () => {
 			};
 		};
 		const fileService = {
-			realpath: async (resource: URI) => resource,
+			realpath: async (resource: URI) => options.linkedFrom && !resource.path.startsWith(`${options.linkedFrom}/`) ? URI.file(`${options.linkedFrom}${resource.path}`) : resource,
 			stat,
 			exists: async (resource: URI) => stat(resource).then(() => true, () => false),
 			readFile: async (resource: URI) => {
