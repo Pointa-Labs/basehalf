@@ -18,7 +18,6 @@ import {
 	BASEHALF_LEGACY_READING_MODE_SETTING,
 	BaseHalfSetting,
 	isBaseHalfAgentSessionKind,
-	migrateLegacyBaseHalfModelServices,
 	migrateLegacyBaseHalfReadingMode,
 	normalizeBaseHalfAgentDefaultSession,
 	normalizeBaseHalfCanvasZoom
@@ -34,8 +33,7 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf.editor.attachmentsDirectory',
 			'basehalf.canvas.defaultZoom',
 			'basehalf.agent.defaultSession',
-			'basehalf.agents.offerSkill',
-			'basehalf.models.services'
+			'basehalf.agents.offerSkill'
 		]);
 
 		const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
@@ -56,10 +54,9 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties['basehalf.references.updateOnFileMove'], undefined);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].default, BASEHALF_AGENT_DEFAULT_SESSION);
-		// Official connection metadata is an internal machine record. The user
-		// configures it through BaseHalf Settings, never the
-		// stock JSON/object setting renderer.
-		assert.strictEqual(properties[BaseHalfSetting.ModelServices], undefined);
+		// Video providers are machine-local records set up on the Video
+		// Providers page, never a setting.
+		assert.strictEqual(properties['basehalf.models.services'], undefined);
 
 		for (const key of keys) {
 			assert.strictEqual(key.startsWith('basehalf.git.'), false);
@@ -87,7 +84,7 @@ suite('BaseHalfConfiguration', () => {
 			undefined,
 			undefined
 		]);
-		// The two pages of BaseHalf's own: Models & Providers, and About.
+		// The two pages of BaseHalf's own: Video Providers, and About.
 		assert.deepStrictEqual(basehalf?.children?.map(child => child.custom === true), [false, false, false, false, true, true]);
 	});
 
@@ -122,25 +119,5 @@ suite('BaseHalfConfiguration', () => {
 			[BASEHALF_LEGACY_READING_MODE_SETTING, { value: undefined }]
 		]);
 		assert.deepStrictEqual(migrateLegacyBaseHalfReadingMode('yes', undefined), []);
-	});
-
-	test('deletes legacy model metadata from user settings after host-state migration', () => {
-		assert.deepStrictEqual(migrateLegacyBaseHalfModelServices({
-			legacy: {
-				label: 'Legacy',
-				endpoint: 'https://models.example.com/v1',
-				capabilities: ['video'],
-				authorization: 'bearer'
-			},
-			official: {
-				label: 'Official',
-				endpoint: 'https://models.example.com/v1',
-				providerId: 'example',
-				deploymentId: 'global',
-				region: 'global',
-				capabilities: ['video'],
-				authorization: 'bearer'
-			}
-		}), { value: undefined });
 	});
 });

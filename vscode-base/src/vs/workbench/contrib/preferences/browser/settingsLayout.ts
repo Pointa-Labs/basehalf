@@ -203,7 +203,7 @@ export const tocData: ITOCEntry<string> = {
 				},
 				{
 					id: 'basehalf/models',
-					label: localize('basehalfModelsAndProviders', "Models & Providers"),
+					label: localize('basehalfVideoProviders', "Video Providers"),
 					custom: true
 				},
 				{
