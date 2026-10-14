@@ -1738,3 +1738,69 @@ base's own: a toolbar at the left end that draws the entries of a menu.
   Area at the left end and the control of the sidebar in the right group.
 - "Focus on document", the name the Card Detail button had, is gone. Hiding
   the sidebar is the same action and has one name.
+
+## D58 — A Video node is a prompt over its connections, run by the user's own providers (NEW, 2026-10-15)
+
+**Decision.** A Video node is a `.bhnode` with a prompt, settings, and its
+connections. Its connections are its inputs, in the order of its `upstream`
+list: in frames mode the first image is the start frame and the second the
+end frame; in references mode images, videos, and audio are references;
+text inputs join the prompt. One panel under the selected card holds the
+inputs, the prompt, the model, the settings, and Generate. Generate runs at
+once, without a confirmation, also when an agent asks for it. The models come
+from channels that the user sets up with their own key: presets for
+Volcengine Ark, BytePlus ModelArk, Alibaba Cloud Model Studio, MiniMax,
+Google Gemini, and any relay that speaks the OpenAI `/videos` format. A
+generation records its provider task id in the node's file as soon as it has
+it, continues after a reload or a restart, and writes its video as an
+ordinary file under `outputs/`. A node with a video never runs again:
+generating from it makes a new node beside it. See
+[video node](specs/video-node.md).
+
+**Why.** On 2026-10-14 the user found the Video node confusing and pointed to
+an open-source canvas that does the same job more simply. A study of that
+canvas, of two canvas products for media work, and of our own window and code
+found the cause in three places, not in single bugs. The reviewed model
+catalog held eight models from three international providers and could not
+reach the provider the user actually uses or any newer model. The inputs were
+a second system of stored roles beside the connections, with its own state
+machine, while the other three products use the connections and their order.
+And the lifecycle was built for third-party plugins and paid-run safety
+(Attempts with byte-equal snapshots, request fingerprints, one-use grants,
+leases, a confirmation for every run) at a cost the user felt on every use: a
+dialog that lost the prompt, a panel that did not open on a new node, a
+confirmation sheet, a manual status check after a restart. About 29,000
+lines of source served one node, and no test made a video. The user then
+handed over the open choices; this decision records them.
+
+**What was set aside.**
+- Keeping the reviewed catalog and adding Seedance 2.5 to it. The next model
+  would need the same work, and relays would stay out of reach.
+- Stored input roles with role slots. Every product compared uses the order
+  of the connections; a stored role is a second truth beside the list.
+- Regenerating in place and keeping a history of videos in one node. One
+  node, one video keeps a file's identity stable under its card and its
+  connections, which D34 got right.
+- A confirmation before a paid run, and asking the user before an agent runs
+  a node. The user asked for the work, and the key is theirs.
+- User-written request scripts. A relay that speaks a supported format covers
+  the cases seen.
+
+**Consequences.**
+- D34's Draft, Attempt, and sealed-Result lifecycle is replaced. What stays
+  of it: a node's video never changes, and a new video makes a new node.
+- `.bhnode` version 5 drops `role`, `recipe`, and `attempts`. Version 4 files
+  are not read; the product has not launched.
+- Recipes, recipe executors, the three planning recipes, the reviewed model
+  and provider connection catalogs, connection validators, model service
+  access for extensions, and the paid-run authorization leave the product and
+  the frozen plugin platform. D45 said that changing the platform's code
+  needs its own decision; this is that decision for these parts. The rest of
+  the frozen platform stays.
+- D33 keeps its one canvas and one edge. Its recipe and executor model, which
+  only AI Video used, is gone.
+- A request that may have reached a provider is never sent again by itself.
+  The user is told to check the provider's console; a lost task can cost a
+  charge, which the user can see there.
+- Provider requests run in the built-in AI Video extension, because
+  providers refuse cross-origin requests from the window.

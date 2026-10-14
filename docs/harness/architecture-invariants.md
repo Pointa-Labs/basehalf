@@ -144,20 +144,22 @@ The first two points are owned by
   their tests. Changing or deleting them is a separate decision.
 - The shell is fixed. The host owns the sidebar, canvas, navigation,
   reference semantics, node lifecycle, credentials, and Agent Area. AI Video
-  adds recipes, a template, a file-specific Card Detail projection, structural
-  cleanup, and executors through the host's contribution points. This
-  boundary is internal, so both sides may change together. AI Video's project
-  file transitions and structural cleanups may not change any upstream value.
+  adds a template, a file-specific Card Detail projection, structural
+  cleanup, and the Video node's provider commands. This boundary is internal,
+  so both sides may change together. AI Video's project file transitions and
+  structural cleanups may not change any upstream value.
 - The initial extension ecosystem is curated around Git, GitHub,
   GitHub Authentication, Codex, and Claude rather than a general marketplace.
 - Workflow output is ordinary local user-owned data. Domain truth does not
   move into `.bh/mirror/` or an extension-private database.
-- Executable media follows Draft → immutable Attempt(s) → one sealed local-file
-  Result. A Result never switches files or runs again; changed settings create a
-  new Draft. AI Video contributes recipes, input roles, validation, and
-  executors without duplicating canvas or lifecycle truth.
+- A Video node's inputs are its connections, in the order of its `upstream`
+  list; no role is stored beside them. Its video is one ordinary file under
+  `outputs/`; a node with a video never runs again, and generating from it
+  makes a new node. A generation records its provider task id in the node's
+  file before it waits, never sends a request again by itself, and continues
+  after a restart ([video node](../specs/video-node.md)).
 
-See public decisions D26–D28, D33, D34, and D45.
+See public decisions D26–D28, D33, D45, and D58.
 [plugin-architecture.md](../plugin-architecture.md) and
 [plugin-development.md](../plugin-development.md) describe the frozen platform
 (D25, D29–D32) and the contribution points that AI Video still uses.

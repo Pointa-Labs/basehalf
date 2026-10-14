@@ -36,7 +36,7 @@ Three things were true on 2026-10-11.
 
 - Deleting the plugin platform's code, release tooling, infrastructure
   definitions, or developer packages.
-- Changing what AI Video contributes or how nodes run. D33 and D34 stand.
+- How a Video node runs. [Video node](video-node.md) owns it (D58).
 - A switch that turns AI Video off (D45).
 - Keeping plugins that earlier builds installed from the catalog running, or
   cleaning them up. The product is not launched; such installs stop running
@@ -53,9 +53,10 @@ Three things were true on 2026-10-11.
   application is updated.
 - **Profile copy.** An AI Video extension that an earlier build recorded in a
   user's extension profile, from the bundled payload or from the catalog.
-- **Admitted.** Allowed to contribute recipes, templates, card projections,
-  structural cleanups, agent capabilities, and model catalogs, and to use
-  global model connections.
+- **Admitted.** Allowed to contribute templates, card projections,
+  structural cleanups, and agent capabilities. Since D58, AI Video also
+  answers the Video node's provider commands; recipes and model catalogs are
+  gone.
 - **Plugin surface.** The Plugins item in the Activity Bar, the Plugins page
   in the center, the Manage Plugins command with its menu entry, and links
   that open a plugin.
@@ -70,13 +71,13 @@ Three things were true on 2026-10-11.
    only at the application's own extensions folder. An extension with the same
    identity anywhere else is not admitted.
 3. On the first start of a fresh profile, with no network and no user action,
-   AI Video's recipes, starter template, Sequence view, agent capabilities,
-   and model catalogs are available.
+   AI Video's starter template, Sequence view, agent capabilities, and the
+   Video node's provider commands are available.
 4. AI Video has the version that the application ships. It has no update,
    restore, enable, disable, or uninstall of its own.
 5. Every way into AI Video works without the plugin surface: the starter
-   template from the canvas, recipes from a node's settings, the Sequence view
-   from a sequence file, and its commands from the Command Palette.
+   template from the canvas, a Video node's panel, the Sequence view from a
+   sequence file, and its commands from the Command Palette.
 6. The release notes of the release that carries this change say that AI
    Video is built in and that the Plugins library is gone. Since
    [D48](../decisions.md#d48--release-notes-are-written-once-on-the-releases-page-new-2026-10-12)
@@ -92,8 +93,8 @@ Three things were true on 2026-10-11.
    nothing else. It shows no page and no error.
 10. No message, button, link, or setting names Plugins, installing a plugin,
     or the catalog. Where a message offered that as a repair, for example on a
-    node whose recipe is not available, it now says what is wrong in plain
-    words and offers only actions that exist (D41).
+    node that could not run, it now says what is wrong in plain words and
+    offers only actions that exist (D41).
 
 ### The frozen platform in the client
 
@@ -132,11 +133,9 @@ Three things were true on 2026-10-11.
 ## Failure and recovery
 
 - **The built-in copy does not load,** for example because the application is
-  damaged. AI Video's recipes are unavailable. A node says that its recipe
-  is not available and offers only the actions it still has. Models &
-  Providers and an unfinished template setup say that AI Video could not
-  start and that reinstalling BaseHalf repairs it. The rest of BaseHalf
-  works.
+  damaged. A Video node cannot generate: its generation fails with a message
+  that AI Video could not start and that reinstalling BaseHalf repairs it, as
+  does an unfinished template setup. The rest of BaseHalf works.
 - **A profile copy of AI Video has a higher version than the built-in copy.**
   The extension scanner then prefers the profile copy, which is not admitted,
   so AI Video is unavailable as in the case above. No distributed build can
@@ -184,8 +183,8 @@ Services:
 ## Acceptance criteria
 
 1. A packaged build, started offline on a fresh profile, offers AI Video's
-   recipes and starter template on the canvas and opens a sequence file in the
-   Sequence view, with no step in between.
+   starter template on the canvas and opens a sequence file in the Sequence
+   view, with no step in between.
 2. The packaged application contains AI Video in its built-in extensions
    folder and no separate plugin payload folder.
 3. The Activity Bar has exactly three items: Files, Git, and Search.
