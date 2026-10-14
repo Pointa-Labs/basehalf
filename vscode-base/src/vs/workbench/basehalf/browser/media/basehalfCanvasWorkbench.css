@@ -1,33 +1,44 @@
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Pointa Labs. All rights reserved.
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
- *--------------------------------------------------------------------------------------------*//*---------------------------------------------------------------------------------------------
- *  Copyright (c) Pointa Labs. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
 .monaco-workbench .part.editor.basehalf-canvas-host {
 	position: relative;
-}.monaco-workbench .part.editor.basehalf-canvas-host > .content {
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host > .content {
 	position: relative;
 	z-index: 1;
 	pointer-events: none;
-}.monaco-workbench .part.editor.basehalf-canvas-host > .content:not(.empty) {
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host > .content:not(.empty) {
 	pointer-events: auto;
-}.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .content {
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .content {
 	z-index: 0;
-}.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .basehalf-canvas-workbench {
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .basehalf-canvas-workbench {
 	z-index: 2;
-}.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty,
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty,
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .grid-view-container,
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .split-view-view,
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container,
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container > .editor-container,
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container > .title {
 	background: transparent !important;
-}.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-watermark-wrapper {
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-watermark-wrapper {
 	display: none;
-}.monaco-workbench .basehalf-canvas-workbench {
+}
+
+.monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 16px;
 	--bh-card-bg: #0b0c0d;
@@ -67,16 +78,24 @@
 	overflow: hidden;
 	background-color: var(--bh-card-bg);
 	color: var(--vscode-foreground);
-}@media (forced-colors: active) {.monaco-workbench .basehalf-canvas-workbench {
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-workbench {
 		--bh-canvas-active-border: CanvasText;
 		--bh-canvas-geometry: CanvasText;
 		--bh-canvas-geometry-strong: CanvasText;
 		--bh-canvas-focus-ring: Highlight;
 		--bh-canvas-intent: LinkText;
 		--bh-canvas-intent-soft: LinkText;
-	}}.monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open {
+	}
+}
+
+.monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open {
 	overflow: hidden;
-}.monaco-workbench .basehalf-canvas-create-button {
+}
+
+.monaco-workbench .basehalf-canvas-create-button {
 	position: absolute;
 	top: 12px;
 	right: 14px;
@@ -92,19 +111,29 @@
 	border: 1px solid transparent;
 	border-radius: 4px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-create-button.hidden {
+}
+
+.monaco-workbench .basehalf-canvas-create-button.hidden {
 	display: none;
-}.monaco-workbench .basehalf-canvas-create-button:hover {
+}
+
+.monaco-workbench .basehalf-canvas-create-button:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	border-color: var(--bh-card-border-strong);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-create-button:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-create-button:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	border-color: var(--bh-canvas-focus-ring);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-create-button:active {
+}
+
+.monaco-workbench .basehalf-canvas-create-button:active {
 	transform: translateY(1px);
-}.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::before {
+}
+
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::before {
 	position: absolute;
 	inset: 8px;
 	z-index: 7;
@@ -113,7 +142,9 @@
 	background-color: color-mix(in srgb, var(--bh-canvas-intent-soft) 42%, transparent);
 	border: 1px dashed var(--bh-canvas-intent);
 	border-radius: 6px;
-}.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::after {
+}
+
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::after {
 	position: absolute;
 	top: 50%;
 	left: 50%;
@@ -130,7 +161,9 @@
 	font-size: 12px;
 	font-weight: 600;
 	transform: translate(-50%, -50%);
-}.monaco-workbench .basehalf-canvas-chrome {
+}
+
+.monaco-workbench .basehalf-canvas-chrome {
 	position: absolute;
 	top: auto;
 	bottom: var(--basehalf-canvas-zoom-bottom-offset);
@@ -144,18 +177,24 @@
 	height: 28px;
 	box-sizing: border-box;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-chrome.hidden,
+}
+
+.monaco-workbench .basehalf-canvas-chrome.hidden,
 .monaco-workbench .part.editor.basehalf-canvas-host:not(.basehalf-canvas-on-top) > .basehalf-canvas-workbench .basehalf-canvas-chrome,
 .monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open .basehalf-canvas-chrome {
 	display: none;
-}.monaco-workbench .basehalf-canvas-zoom-controls {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-controls {
 	display: flex;
 	align-items: center;
 	gap: 2px;
 	flex: none;
 	height: 28px;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-chrome-button {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button {
 	display: inline-flex;
 	height: 28px;
 	align-items: center;
@@ -172,27 +211,40 @@
 	font-weight: 400;
 	cursor: pointer;
 	transition: background-color 100ms ease, color 100ms ease;
-}.monaco-workbench .basehalf-canvas-chrome-button:hover,
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:hover,
 .monaco-workbench .basehalf-canvas-chrome-button.open {
 	background-color: var(--vscode-toolbar-hoverBackground);
-}.monaco-workbench .basehalf-canvas-chrome-button:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	border-color: var(--bh-canvas-focus-ring);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-chrome-button:active {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:active {
 	transform: translateY(1px);
-}.monaco-workbench .basehalf-canvas-chrome-button:disabled {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:disabled {
 	opacity: 0.4;
 	cursor: default;
-}.monaco-workbench .basehalf-canvas-chrome-button:disabled:hover {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:disabled:hover {
 	background-color: transparent;
-}.monaco-workbench .basehalf-canvas-chrome-button:disabled:active {
+}
+
+.monaco-workbench .basehalf-canvas-chrome-button:disabled:active {
 	transform: none;
-}.monaco-workbench .basehalf-canvas-tidy {
+}
+
+.monaco-workbench .basehalf-canvas-tidy {
 	width: 28px;
 	color: var(--vscode-icon-foreground);
-}/* The question after a tidy stands above the view controls and does not
- * block the canvas. */
+}
 
 /* The question after a tidy stands above the view controls and does not
  * block the canvas. */
@@ -214,11 +266,15 @@
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 10px;
 	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
-}.monaco-workbench .basehalf-canvas-tidy-question-actions {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-actions {
 	display: flex;
 	justify-content: flex-end;
 	gap: 6px;
-}.monaco-workbench .basehalf-canvas-tidy-question-button {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button {
 	height: 24px;
 	padding: 0 10px;
 	color: var(--vscode-button-secondaryForeground);
@@ -227,28 +283,46 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-tidy-question-button:hover {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button:hover {
 	background: var(--vscode-button-secondaryHoverBackground);
-}.monaco-workbench .basehalf-canvas-tidy-question-button.primary {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button.primary {
 	color: var(--vscode-button-foreground);
 	background: var(--vscode-button-background);
-}.monaco-workbench .basehalf-canvas-tidy-question-button.primary:hover {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button.primary:hover {
 	background: var(--vscode-button-hoverBackground);
-}.monaco-workbench .basehalf-canvas-tidy-question-button:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-tidy-question-button:focus-visible {
 	outline: 1px solid var(--bh-canvas-focus-ring);
 	outline-offset: 1px;
-}.monaco-workbench .basehalf-canvas-snap-toggle {
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle {
 	width: 28px;
 	color: var(--vscode-descriptionForeground);
-}.monaco-workbench .basehalf-canvas-snap-toggle.active {
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle.active {
 	color: var(--vscode-icon-foreground);
-}.monaco-workbench .basehalf-canvas-snap-toggle .codicon {
+}
+
+.monaco-workbench .basehalf-canvas-snap-toggle .codicon {
 	font-size: var(--vscode-codiconFontSize);
-}.monaco-workbench .basehalf-canvas-zoom-value {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-value {
 	min-width: 44px;
 	padding: 0 var(--vscode-spacing-size80);
 	text-align: center;
-}.monaco-workbench .basehalf-canvas-zoom-menu {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu {
 	display: flex;
 	width: 188px;
 	box-sizing: border-box;
@@ -261,7 +335,9 @@
 	box-shadow: 0 8px 24px var(--vscode-widget-shadow);
 	font-family: var(--vscode-font-family);
 	transform: translateY(-8px);
-}.monaco-workbench .basehalf-canvas-zoom-input-shell {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell {
 	display: flex;
 	height: 32px;
 	align-items: center;
@@ -272,11 +348,17 @@
 	background: var(--vscode-input-background);
 	border: var(--vscode-strokeThickness) solid transparent;
 	border-radius: var(--vscode-cornerRadius-medium);
-}.monaco-workbench .basehalf-canvas-zoom-input-shell:focus-within {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell:focus-within {
 	border-color: var(--vscode-focusBorder);
-}.monaco-workbench .basehalf-canvas-zoom-input-shell.invalid {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-shell.invalid {
 	border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
-}.monaco-workbench .basehalf-canvas-zoom-input {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input {
 	min-width: 0;
 	height: 100%;
 	flex: 1;
@@ -288,18 +370,26 @@
 	font-family: inherit;
 	font-size: var(--vscode-bodyFontSize-small);
 	font-variant-numeric: tabular-nums;
-}.monaco-workbench .basehalf-canvas-zoom-input::selection {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input::selection {
 	color: var(--vscode-editor-selectionForeground, var(--vscode-input-foreground));
 	background: var(--vscode-editor-selectionBackground);
-}.monaco-workbench .basehalf-canvas-zoom-input-suffix {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-input-suffix {
 	flex: none;
 	margin-left: 8px;
 	color: var(--vscode-descriptionForeground);
 	font-size: var(--vscode-bodyFontSize-small);
-}.monaco-workbench .basehalf-canvas-zoom-menu-actions {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-actions {
 	display: flex;
 	flex-direction: column;
-}.monaco-workbench .basehalf-canvas-zoom-menu-action {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action {
 	display: flex;
 	width: 100%;
 	height: 32px;
@@ -315,68 +405,102 @@
 	font-size: var(--vscode-bodyFontSize);
 	text-align: left;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled),
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled),
 .monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible:not(:disabled) {
 	color: var(--vscode-menu-selectionForeground);
 	background: var(--vscode-menu-selectionBackground);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-zoom-menu-action:active:not(:disabled) {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:active:not(:disabled) {
 	transform: translateY(1px);
-}.monaco-workbench .basehalf-canvas-zoom-menu-action:disabled {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:disabled {
 	color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 	cursor: default;
 	opacity: 0.55;
-}.monaco-workbench .basehalf-canvas-zoom-menu-action.current .basehalf-canvas-zoom-menu-label {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action.current .basehalf-canvas-zoom-menu-label {
 	font-weight: var(--vscode-agents-fontWeight-semiBold);
-}.monaco-workbench .basehalf-canvas-zoom-menu-label {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-label {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-}.monaco-workbench .basehalf-canvas-zoom-menu-shortcut {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-shortcut {
 	flex: none;
 	margin-left: 12px;
 	color: var(--vscode-menu-foreground);
 	font-size: var(--vscode-bodyFontSize-xSmall);
 	opacity: 0.62;
-}.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled) .basehalf-canvas-zoom-menu-shortcut,
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-action:hover:not(:disabled) .basehalf-canvas-zoom-menu-shortcut,
 .monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible:not(:disabled) .basehalf-canvas-zoom-menu-shortcut {
 	color: var(--vscode-menu-selectionForeground);
-}.monaco-workbench .basehalf-canvas-zoom-menu-separator {
+}
+
+.monaco-workbench .basehalf-canvas-zoom-menu-separator {
 	height: 1px;
 	flex: none;
 	margin: var(--vscode-spacing-size60) var(--vscode-spacing-size40);
 	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
-}@media (forced-colors: active) {.monaco-workbench .basehalf-canvas-chrome-button:focus-visible,
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-chrome-button:focus-visible,
 	.monaco-workbench .basehalf-canvas-zoom-input-shell:focus-within {
 		border-color: Highlight;
-	}.monaco-workbench .basehalf-canvas-snap-toggle[aria-pressed="true"] {
+	}
+
+	.monaco-workbench .basehalf-canvas-snap-toggle[aria-pressed="true"] {
 		color: HighlightText;
 		background: Highlight;
-	}.monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible {
+	}
+
+	.monaco-workbench .basehalf-canvas-zoom-menu-action:focus-visible {
 		outline: 1px solid Highlight;
 		outline-offset: -2px;
-	}.monaco-workbench .basehalf-canvas-zoom-menu {
+	}
+
+	.monaco-workbench .basehalf-canvas-zoom-menu {
 		border-color: CanvasText;
 		box-shadow: none;
-	}}.monaco-workbench .basehalf-canvas-surface {
+	}
+}
+
+.monaco-workbench .basehalf-canvas-surface {
 	position: absolute;
 	inset: 0;
 	min-width: 0;
 	min-height: 0;
-}.monaco-workbench .basehalf-canvas-cards {
+}
+
+.monaco-workbench .basehalf-canvas-cards {
 	position: absolute;
 	inset: 0;
 	width: 100%;
 	height: 100%;
 	min-width: 0;
 	min-height: 0;
-}.monaco-workbench .basehalf-canvas-inline-edit-layer {
+}
+
+.monaco-workbench .basehalf-canvas-inline-edit-layer {
 	position: absolute;
 	inset: 0;
 	z-index: 5;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-inline-create-card {
+}
+
+.monaco-workbench .basehalf-canvas-inline-create-card {
 	position: absolute;
 	display: flex;
 	align-items: center;
@@ -389,11 +513,7 @@
 	border-radius: 6px;
 	box-shadow: 0 4px 14px rgb(7 8 9 / 42%);
 	pointer-events: auto;
-}/*
- * The scene host is a keyboard-event sink, not a selectable canvas object.
- * Keep it programmatically focusable without inheriting the workbench-wide
- * full-surface outline; cards, edges, and controls own localized focus states.
- */
+}
 
 /*
  * The scene host is a keyboard-event sink, not a selectable canvas object.
@@ -402,15 +522,19 @@
  */
 .monaco-workbench .basehalf-canvas-cards[tabindex="-1"]:focus {
 	outline: none;
-}.monaco-workbench .basehalf-canvas-card-host {
+}
+
+.monaco-workbench .basehalf-canvas-card-host {
 	width: 100%;
 	height: 100%;
-}.monaco-workbench .basehalf-canvas-overlay {
+}
+
+.monaco-workbench .basehalf-canvas-overlay {
 	position: absolute;
 	inset: 0;
 	z-index: 4;
 	pointer-events: none;
-}/* The marquee is drawn in screen pixels over the scene and takes no pointer. */
+}
 
 /* The marquee is drawn in screen pixels over the scene and takes no pointer. */
 .monaco-workbench .basehalf-canvas-marquee {
@@ -422,11 +546,7 @@
 	pointer-events: none;
 	background: var(--bh-canvas-marquee-fill);
 	border: 1px dashed var(--bh-canvas-geometry);
-}/*
- * The box of a set lies over its cards, which the canvas library raises by
- * 1000 when they are selected, and takes the pointer in its whole area. Its
- * border width is set inline so that it stays one screen pixel at every zoom.
- */
+}
 
 /*
  * The box of a set lies over its cards, which the canvas library raises by
@@ -441,22 +561,34 @@
 	cursor: grab;
 	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
 	border: 0 solid color-mix(in srgb, var(--bh-canvas-geometry) 45%, transparent);
-}.monaco-workbench .basehalf-canvas-react-island[data-node-drag-chrome="dragging"] .basehalf-canvas-set-box {
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-node-drag-chrome="dragging"] .basehalf-canvas-set-box {
 	cursor: grabbing;
-}@media (forced-colors: active) {.monaco-workbench .basehalf-canvas-set-box {
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-set-box {
 		background: transparent;
 		border-color: Highlight;
-	}.monaco-workbench .basehalf-canvas-marquee {
+	}
+
+	.monaco-workbench .basehalf-canvas-marquee {
 		background: transparent;
 		border-color: Highlight;
-	}}.monaco-workbench .basehalf-canvas-selection-toolbar,
+	}
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar,
 .monaco-workbench .basehalf-canvas-note-toolbar {
 	box-sizing: border-box;
 	color: var(--vscode-menu-foreground);
 	background: var(--vscode-menu-background);
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
-}.monaco-workbench .basehalf-canvas-selection-toolbar {
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar {
 	position: absolute;
 	z-index: 32;
 	display: flex;
@@ -466,23 +598,30 @@
 	padding: 3px;
 	border-radius: 18px;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-selection-toolbar.above {
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above {
 	transform: translate(-50%, calc(-100% - 10px)) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
 	transform-origin: bottom center;
-}.monaco-workbench .basehalf-canvas-selection-toolbar.below {
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below {
 	transform: translate(-50%, 10px) scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
 	transform-origin: top center;
-}/* The toolbar of a set stays over the set box where the two meet at the edge
- * of the view. */
+}
 
 /* The toolbar of a set stays over the set box where the two meet at the edge
  * of the view. */
 .monaco-workbench .basehalf-canvas-selection-toolbar.for-set {
 	z-index: 1002;
-}.monaco-workbench .basehalf-canvas-selection-arrange {
+}
+
+.monaco-workbench .basehalf-canvas-selection-arrange {
 	position: relative;
 	display: inline-flex;
-}.monaco-workbench .basehalf-canvas-arrange-menu {
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu {
 	position: absolute;
 	left: 0;
 	display: flex;
@@ -495,11 +634,17 @@
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 8px;
 	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
-}.monaco-workbench .basehalf-canvas-selection-toolbar.above .basehalf-canvas-arrange-menu {
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.above .basehalf-canvas-arrange-menu {
 	bottom: calc(100% + 8px);
-}.monaco-workbench .basehalf-canvas-selection-toolbar.below .basehalf-canvas-arrange-menu {
+}
+
+.monaco-workbench .basehalf-canvas-selection-toolbar.below .basehalf-canvas-arrange-menu {
 	top: calc(100% + 8px);
-}.monaco-workbench .basehalf-canvas-arrange-menu-item {
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item {
 	height: 26px;
 	padding: 0 10px;
 	color: inherit;
@@ -511,12 +656,16 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-arrange-menu-item:hover,
+}
+
+.monaco-workbench .basehalf-canvas-arrange-menu-item:hover,
 .monaco-workbench .basehalf-canvas-arrange-menu-item:focus-visible {
 	color: var(--vscode-menu-selectionForeground);
 	background: var(--vscode-menu-selectionBackground);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-selection-action {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action {
 	display: inline-flex;
 	width: 28px;
 	height: 28px;
@@ -529,7 +678,7 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
-}/* The buttons of a set carry their names beside the icon. */
+}
 
 /* The buttons of a set carry their names beside the icon. */
 .monaco-workbench .basehalf-canvas-selection-action.labeled {
@@ -543,27 +692,30 @@
 	font-size: 12px;
 	line-height: 28px;
 	white-space: nowrap;
-}.monaco-workbench .basehalf-canvas-selection-action.labeled > .codicon {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .codicon {
 	color: var(--vscode-icon-foreground);
 	font-size: 16px;
-}.monaco-workbench .basehalf-canvas-selection-action.labeled > .basehalf-canvas-selection-action-menu {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled > .basehalf-canvas-selection-action-menu {
 	margin-left: -2px;
 	font-size: 12px;
 	opacity: 0.7;
-}.monaco-workbench .basehalf-canvas-selection-action.labeled.danger:hover > .codicon {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.labeled.danger:hover > .codicon {
 	color: inherit;
-}.monaco-workbench .basehalf-canvas-selection-separator {
+}
+
+.monaco-workbench .basehalf-canvas-selection-separator {
 	flex: none;
 	width: 1px;
 	height: 16px;
 	margin: 0 4px;
 	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
-}/*
- * Every node-adjacent surface follows one selection-chrome lifecycle. The
- * React Flow portals remain mounted while a card moves so local editor state
- * survives. Generic chrome retracts; the Video panel follows the card instead
- * (see below).
- */
+}
 
 /*
  * Every node-adjacent surface follows one selection-chrome lifecycle. The
@@ -579,7 +731,9 @@
 	to {
 		translate: 0 0;
 	}
-}.monaco-workbench .basehalf-canvas-adjacent-chrome {
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome {
 	--basehalf-adjacent-chrome-retract-y: var(--basehalf-adjacent-chrome-travel, 6px);
 	opacity: 1;
 	visibility: visible;
@@ -587,9 +741,13 @@
 	animation: basehalf-canvas-adjacent-chrome-emerge 140ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 0ms;
 	will-change: translate;
-}.monaco-workbench .basehalf-canvas-adjacent-chrome[data-placement="below"] {
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-placement="below"] {
 	--basehalf-adjacent-chrome-retract-y: calc(0px - var(--basehalf-adjacent-chrome-travel, 6px));
-}.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+}
+
+.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
 .monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-panel-surface) {
 	opacity: 1;
 	visibility: hidden !important;
@@ -599,12 +757,17 @@
 	/* Retract first, then hide in one discrete step. Revealing begins at the
 	 * card edge and travels outward, so the chrome never cross-fades. */
 	transition: translate 88ms cubic-bezier(0.4, 0, 1, 1), visibility 0ms linear 88ms;
-}@media (prefers-reduced-motion: reduce) {.monaco-workbench .basehalf-canvas-adjacent-chrome {
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-adjacent-chrome {
 		translate: 0 0;
 		animation: none;
 		transition: none;
 		will-change: auto;
-	}.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
+	}
+
+	.monaco-workbench .basehalf-canvas-adjacent-chrome[data-chrome-state="suppressed"],
 	.monaco-workbench .basehalf-canvas-cards[data-node-drag-chrome] .basehalf-canvas-adjacent-chrome:not(.basehalf-canvas-video-panel-surface) {
 		opacity: 1;
 		visibility: hidden !important;
@@ -612,24 +775,31 @@
 		animation: none;
 		transition: none;
 		will-change: auto;
-	}}.monaco-workbench .basehalf-canvas-selection-action:hover {
+	}
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:hover {
 	background: var(--vscode-toolbar-hoverBackground);
-}.monaco-workbench .basehalf-canvas-selection-action.danger:hover {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action.danger:hover {
 	color: var(--vscode-errorForeground);
-}.monaco-workbench .basehalf-canvas-selection-action:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-selection-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}.monaco-workbench .basehalf-canvas-note-toolbar {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar {
 	z-index: 1001;
-}.monaco-workbench .basehalf-canvas-note-surface {
+}
+
+.monaco-workbench .basehalf-canvas-note-surface {
 	position: absolute;
 	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
 	transform-origin: top left;
-}/*
- * React Flow owns the live position of the Video panel. The panel stays at a
- * constant screen size while the canvas viewport transforms, and it follows
- * its card while the card moves or is resized.
- */
+}
 
 /*
  * React Flow owns the live position of the Video panel. The panel stays at a
@@ -644,15 +814,21 @@
 	pointer-events: auto;
 	transform: scale(calc(1 / var(--basehalf-canvas-zoom, 1)));
 	transform-origin: top left;
-}.monaco-workbench .basehalf-canvas-video-panel-surface[data-visible="false"] {
+}
+
+.monaco-workbench .basehalf-canvas-video-panel-surface[data-visible="false"] {
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-video-panel-surface[data-chrome-state="following"] {
+}
+
+.monaco-workbench .basehalf-canvas-video-panel-surface[data-chrome-state="following"] {
 	opacity: 1;
 	visibility: visible !important;
 	pointer-events: none !important;
 	animation: none;
 	transition: none;
-}.monaco-workbench .basehalf-canvas-note-toolbar {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar {
 	display: flex;
 	height: 36px;
 	align-items: center;
@@ -663,14 +839,11 @@
 	border-radius: 18px;
 	pointer-events: auto;
 	scrollbar-width: none;
-}.monaco-workbench .basehalf-canvas-note-toolbar::-webkit-scrollbar {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar::-webkit-scrollbar {
 	display: none;
-}/*
- * Result-video actions share the Note toolbar's screen-space material and
- * controls. The distinct class is the semantic hook used by keyboard
- * ownership and smoke coverage; actions only appear when the host advertises
- * a real command for the selected sealed Result.
- */
+}
 
 /*
  * Result-video actions share the Note toolbar's screen-space material and
@@ -681,24 +854,32 @@
 .monaco-workbench .basehalf-video-result-toolbar {
 	justify-content: flex-start;
 	overscroll-behavior-x: contain;
-}.monaco-workbench .basehalf-video-context-toolbar {
+}
+
+.monaco-workbench .basehalf-video-context-toolbar {
 	justify-content: center;
 	/* The menu of Capture Frame opens outside the toolbar. */
 	overflow: visible;
-}/* Capture Frame of the toolbar above a Video card, and its menu of frames. */
+}
 
 /* Capture Frame of the toolbar above a Video card, and its menu of frames. */
 .monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-capture-action {
 	width: 42px;
 	flex: 0 0 42px;
 	gap: 0;
-}.monaco-workbench .basehalf-video-result-toolbar-action > .codicon[class*='codicon-'] {
+}
+
+.monaco-workbench .basehalf-video-result-toolbar-action > .codicon[class*='codicon-'] {
 	font-size: 16px;
-}.monaco-workbench .basehalf-video-result-toolbar-action > .basehalf-video-capture-chevron.codicon[class*='codicon-'] {
+}
+
+.monaco-workbench .basehalf-video-result-toolbar-action > .basehalf-video-capture-chevron.codicon[class*='codicon-'] {
 	margin-left: -1px;
 	font-size: 10px;
 	opacity: 0.75;
-}.monaco-workbench .basehalf-video-capture-menu {
+}
+
+.monaco-workbench .basehalf-video-capture-menu {
 	position: absolute;
 	left: 0;
 	display: flex;
@@ -711,11 +892,17 @@
 	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
 	border-radius: 8px;
 	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
-}.monaco-workbench .basehalf-video-capture-menu.above {
+}
+
+.monaco-workbench .basehalf-video-capture-menu.above {
 	bottom: calc(100% + 6px);
-}.monaco-workbench .basehalf-video-capture-menu.below {
+}
+
+.monaco-workbench .basehalf-video-capture-menu.below {
 	top: calc(100% + 6px);
-}.monaco-workbench .basehalf-video-capture-menu-item {
+}
+
+.monaco-workbench .basehalf-video-capture-menu-item {
 	height: 26px;
 	flex: none;
 	padding: 0 10px;
@@ -728,12 +915,16 @@
 	text-align: left;
 	white-space: nowrap;
 	cursor: pointer;
-}.monaco-workbench .basehalf-video-capture-menu-item:hover,
+}
+
+.monaco-workbench .basehalf-video-capture-menu-item:hover,
 .monaco-workbench .basehalf-video-capture-menu-item:focus-visible {
 	color: var(--vscode-menu-selectionForeground);
 	background: var(--vscode-menu-selectionBackground);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-upload-action {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.basehalf-video-upload-action {
 	width: auto;
 	min-width: 0;
 	flex: 1 1 auto;
@@ -741,12 +932,16 @@
 	padding: 0 12px;
 	white-space: nowrap;
 	font-size: 12px;
-}.monaco-workbench .basehalf-canvas-note-toolbar-divider {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-divider {
 	width: 1px;
 	height: 16px;
 	margin: 0 2px;
 	background: var(--vscode-menu-separatorBackground, var(--vscode-widget-border));
-}.monaco-workbench .basehalf-canvas-note-toolbar-action {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action {
 	display: inline-flex;
 	width: 28px;
 	height: 28px;
@@ -763,51 +958,75 @@
 	font-weight: 600;
 	cursor: pointer;
 	transition: background-color 120ms ease, color 120ms ease;
-}.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
 	position: sticky;
 	right: 0;
 	z-index: 1;
 	margin-left: auto;
 	background: var(--vscode-menu-background);
 	box-shadow: -5px 0 7px var(--vscode-menu-background);
-}.monaco-workbench .basehalf-canvas-note-toolbar-action.active {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.active {
 	color: var(--vscode-foreground);
 	background: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
-}.monaco-workbench .basehalf-canvas-note-toolbar-action.mixed {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.mixed {
 	color: var(--vscode-foreground);
 	box-shadow: inset 0 -2px color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
-}.monaco-workbench .basehalf-canvas-note-toolbar-action:hover,
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:hover,
 .monaco-workbench .basehalf-canvas-note-toolbar-action.open:hover {
 	color: var(--vscode-menu-selectionForeground);
 	background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
-}.monaco-workbench .basehalf-canvas-note-toolbar-action:disabled {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:disabled {
 	cursor: default;
 	opacity: 0.38;
-}.monaco-workbench .basehalf-canvas-note-toolbar-action:active:not(:disabled) {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:active:not(:disabled) {
 	transform: translateY(1px);
-}.monaco-workbench .basehalf-canvas-note-toolbar-action:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-action.open {
 	color: var(--vscode-icon-foreground);
 	background: var(--vscode-menu-background);
-}.monaco-workbench .basehalf-canvas-note-toolbar-icon {
+}
+
+.monaco-workbench .basehalf-canvas-note-toolbar-icon {
 	display: block;
 	width: 18px;
 	height: 18px;
 	flex: 0 0 18px;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-note-background-swatch,
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch,
 .monaco-workbench .basehalf-canvas-note-background-option {
 	--basehalf-note-swatch: var(--bh-card-surface);
-}.monaco-workbench .basehalf-canvas-note-background-swatch {
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch {
 	box-sizing: border-box;
 	width: 16px;
 	height: 16px;
 	background: var(--basehalf-note-swatch);
 	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
 	border-radius: 50%;
-}.monaco-workbench .basehalf-canvas-note-background-palette {
+}
+
+.monaco-workbench .basehalf-canvas-note-background-palette {
 	z-index: 1002;
 	display: grid;
 	grid-template-columns: repeat(4, 28px);
@@ -821,7 +1040,9 @@
 	border-radius: 8px;
 	box-shadow: 0 4px 16px rgb(0 0 0 / 32%);
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-note-background-option {
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option {
 	box-sizing: border-box;
 	width: 24px;
 	height: 24px;
@@ -830,39 +1051,58 @@
 	border: 2px solid transparent;
 	border-radius: 50%;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-note-background-option:hover,
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option:hover,
 .monaco-workbench .basehalf-canvas-note-background-option:focus-visible {
 	border-color: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-note-background-option.active {
+}
+
+.monaco-workbench .basehalf-canvas-note-background-option.active {
 	border-color: var(--vscode-foreground);
 	box-shadow: 0 0 0 1px var(--vscode-menu-background) inset;
-}.monaco-workbench .basehalf-canvas-note-background-swatch.red,
-.monaco-workbench .basehalf-canvas-note-background-option.red { --basehalf-note-swatch: #392626; }.monaco-workbench .basehalf-canvas-note-background-swatch.orange,
-.monaco-workbench .basehalf-canvas-note-background-option.orange { --basehalf-note-swatch: #3b2c22; }.monaco-workbench .basehalf-canvas-note-background-swatch.yellow,
-.monaco-workbench .basehalf-canvas-note-background-option.yellow { --basehalf-note-swatch: #373320; }.monaco-workbench .basehalf-canvas-note-background-swatch.green,
-.monaco-workbench .basehalf-canvas-note-background-option.green { --basehalf-note-swatch: #22332a; }.monaco-workbench .basehalf-canvas-note-background-swatch.cyan,
-.monaco-workbench .basehalf-canvas-note-background-option.cyan { --basehalf-note-swatch: #203238; }.monaco-workbench .basehalf-canvas-note-background-swatch.blue,
-.monaco-workbench .basehalf-canvas-note-background-option.blue { --basehalf-note-swatch: #222f3d; }.monaco-workbench .basehalf-canvas-note-background-swatch.purple,
-.monaco-workbench .basehalf-canvas-note-background-option.purple { --basehalf-note-swatch: #30273c; }.monaco-workbench .basehalf-canvas-edge-path {
+}
+
+.monaco-workbench .basehalf-canvas-note-background-swatch.red,
+.monaco-workbench .basehalf-canvas-note-background-option.red { --basehalf-note-swatch: #392626; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.orange,
+.monaco-workbench .basehalf-canvas-note-background-option.orange { --basehalf-note-swatch: #3b2c22; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.yellow,
+.monaco-workbench .basehalf-canvas-note-background-option.yellow { --basehalf-note-swatch: #373320; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.green,
+.monaco-workbench .basehalf-canvas-note-background-option.green { --basehalf-note-swatch: #22332a; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.cyan,
+.monaco-workbench .basehalf-canvas-note-background-option.cyan { --basehalf-note-swatch: #203238; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.blue,
+.monaco-workbench .basehalf-canvas-note-background-option.blue { --basehalf-note-swatch: #222f3d; }
+.monaco-workbench .basehalf-canvas-note-background-swatch.purple,
+.monaco-workbench .basehalf-canvas-note-background-option.purple { --basehalf-note-swatch: #30273c; }
+
+.monaco-workbench .basehalf-canvas-edge-path {
 	fill: none;
 	stroke: var(--bh-card-text-ghost);
 	stroke-width: 1.5px;
 	stroke-linecap: round;
 	stroke-linejoin: round;
 	transition: stroke 150ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}.monaco-workbench .basehalf-canvas-edge-path.hover,
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.hover,
 .monaco-workbench .basehalf-canvas-edge-path.selected {
 	stroke: var(--bh-canvas-geometry-strong);
 	stroke-width: 2px;
-}.monaco-workbench .basehalf-canvas-edge-path.reconnecting {
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.reconnecting {
 	stroke: var(--bh-canvas-intent);
 	stroke-width: 2px;
-}.monaco-workbench .react-flow__edge:focus-visible .basehalf-canvas-edge-path {
+}
+
+.monaco-workbench .react-flow__edge:focus-visible .basehalf-canvas-edge-path {
 	stroke: var(--bh-canvas-focus-ring);
 	stroke-width: 2px;
-}/* The released connection line kept while Create from Connection is open:
- * the same stroke as React Flow's drag line. */
+}
 
 /* The released connection line kept while Create from Connection is open:
  * the same stroke as React Flow's drag line. */
@@ -870,30 +1110,42 @@
 	fill: none;
 	stroke: var(--xy-connectionline-stroke, var(--xy-connectionline-stroke-default));
 	stroke-width: var(--xy-connectionline-stroke-width, var(--xy-connectionline-stroke-width-default));
-}.monaco-workbench .basehalf-canvas-edge-hit {
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit {
 	fill: none;
 	stroke: transparent;
 	stroke-width: 20px;
 	pointer-events: stroke;
 	cursor: grab;
-}.monaco-workbench .basehalf-canvas-edge-hit:active {
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit:active {
 	cursor: grabbing;
-}body.basehalf-canvas-edge-reconnecting,
+}
+
+body.basehalf-canvas-edge-reconnecting,
 body.basehalf-canvas-edge-reconnecting * {
 	cursor: grabbing !important;
-}.monaco-workbench .basehalf-canvas-snap-guides {
+}
+
+.monaco-workbench .basehalf-canvas-snap-guides {
 	position: absolute;
 	inset: 0;
 	z-index: 4;
 	overflow: visible;
 	pointer-events: none;
 	color: color-mix(in srgb, var(--bh-canvas-geometry) 72%, transparent);
-}.monaco-workbench .basehalf-canvas-snap-guide-line {
+}
+
+.monaco-workbench .basehalf-canvas-snap-guide-line {
 	fill: none;
 	stroke: currentColor;
 	stroke-linecap: round;
 	opacity: 0.48;
-}.monaco-workbench .basehalf-canvas-card {
+}
+
+.monaco-workbench .basehalf-canvas-card {
 	position: relative;
 	z-index: 1;
 	display: flex;
@@ -913,11 +1165,25 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: visible;
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}.monaco-workbench .basehalf-canvas-card[data-note-background="red"] { --basehalf-canvas-note-background: #392626; }.monaco-workbench .basehalf-canvas-card[data-note-background="orange"] { --basehalf-canvas-note-background: #3b2c22; }.monaco-workbench .basehalf-canvas-card[data-note-background="yellow"] { --basehalf-canvas-note-background: #373320; }.monaco-workbench .basehalf-canvas-card[data-note-background="green"] { --basehalf-canvas-note-background: #22332a; }.monaco-workbench .basehalf-canvas-card[data-note-background="cyan"] { --basehalf-canvas-note-background: #203238; }.monaco-workbench .basehalf-canvas-card[data-note-background="blue"] { --basehalf-canvas-note-background: #222f3d; }.monaco-workbench .basehalf-canvas-card[data-note-background="purple"] { --basehalf-canvas-note-background: #30273c; }.monaco-workbench .basehalf-canvas-card[data-note-background]:not([data-note-background="default"]) {
+}
+
+.monaco-workbench .basehalf-canvas-card[data-note-background="red"] { --basehalf-canvas-note-background: #392626; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="orange"] { --basehalf-canvas-note-background: #3b2c22; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="yellow"] { --basehalf-canvas-note-background: #373320; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="green"] { --basehalf-canvas-note-background: #22332a; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="cyan"] { --basehalf-canvas-note-background: #203238; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="blue"] { --basehalf-canvas-note-background: #222f3d; }
+.monaco-workbench .basehalf-canvas-card[data-note-background="purple"] { --basehalf-canvas-note-background: #30273c; }
+
+.monaco-workbench .basehalf-canvas-card[data-note-background]:not([data-note-background="default"]) {
 	background: var(--basehalf-canvas-note-background);
-}.monaco-workbench .basehalf-canvas-card.inline-editing {
+}
+
+.monaco-workbench .basehalf-canvas-card.inline-editing {
 	cursor: default;
-}.monaco-workbench .basehalf-canvas-inline-name-editor {
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-editor {
 	display: flex;
 	flex: 1;
 	align-items: center;
@@ -927,30 +1193,34 @@ body.basehalf-canvas-edge-reconnecting * {
 	padding: 0;
 	background: transparent;
 	cursor: text;
-}/* The input takes the place of the name. The glyph of the card stays where it
- * is, so the editor's own glyph is for an item that has no card yet. */
+}
 
 /* The input takes the place of the name. The glyph of the card stays where it
  * is, so the editor's own glyph is for an item that has no card yet. */
 .monaco-workbench .basehalf-canvas-card.inline-editing .basehalf-canvas-card-label,
 .monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-icon {
 	display: none;
-}.monaco-workbench .basehalf-canvas-inline-name-editor,
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-editor,
 .monaco-workbench .basehalf-canvas-inline-create-card {
 	gap: 7px;
-}.monaco-workbench .basehalf-canvas-inline-name-icon {
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-icon {
 	flex: none;
 	color: var(--bh-card-text-secondary);
 	font-size: 16px;
-}.monaco-workbench .basehalf-canvas-inline-name-input {
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-input {
 	flex: 1;
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-inline-name-input .monaco-inputbox {
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-input .monaco-inputbox {
 	width: 100%;
-}/* The editor of a card's name is the name made editable (canvas card name).
- * Its text stands where the name stood, in the same type, without a frame,
- * and it is as wide as what is typed. The rest of the row stays the caption:
- * a press there goes to the card and ends the edit. */
+}
 
 /* The editor of a card's name is the name made editable (canvas card name).
  * Its text stands where the name stood, in the same type, without a frame,
@@ -961,7 +1231,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-primary);
 	cursor: inherit;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox {
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox {
 	height: 24px;
 	/* The input box sets a border of one pixel on itself. */
 	border-width: 0 !important;
@@ -971,9 +1243,13 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-weight: 600;
 	line-height: 24px;
 	letter-spacing: 0;
-}.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper {
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper {
 	height: 24px;
-}.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input {
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input {
 	width: auto;
 	min-width: 2px;
 	max-width: 100%;
@@ -986,10 +1262,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	outline: 0 !important;
 	cursor: text;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
 	color: var(--bh-card-text-tertiary);
 	font-weight: 400;
-}/* A name that cannot be used is marked in the text itself. */
+}
 
 /* A name that cannot be used is marked in the text itself. */
 .monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-editor.unusable .monaco-inputbox > .ibwrapper > .input,
@@ -997,16 +1275,21 @@ body.basehalf-canvas-edge-reconnecting * {
 	text-decoration: underline;
 	text-decoration-color: var(--vscode-inputValidation-errorBorder, var(--bh-card-danger));
 	text-underline-offset: 4px;
-}.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
+}
+
+.monaco-workbench .basehalf-canvas-card .basehalf-canvas-inline-name-input .monaco-inputbox > .ibwrapper > .input::placeholder {
 	text-decoration: none;
-}.monaco-workbench .basehalf-canvas-card.folder {
+}
+
+.monaco-workbench .basehalf-canvas-card.folder {
 	background: var(--bh-card-folder);
 	border-color: var(--bh-card-folder-border);
-}.monaco-workbench .basehalf-canvas-workbench .react-flow__node-basehalf-card:focus,
+}
+
+.monaco-workbench .basehalf-canvas-workbench .react-flow__node-basehalf-card:focus,
 .monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus:not(:focus-visible) {
 	outline: none;
-}/* A card in a marquee that is being drawn looks selected. It is selected
- * when the button is released. */
+}
 
 /* A card in a marquee that is being drawn looks selected. It is selected
  * when the button is released. */
@@ -1014,8 +1297,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card.marquee-selected {
 	border-color: var(--bh-canvas-active-border);
 	box-shadow: var(--bh-canvas-active-shadow);
-}/* The scene keeps the editing Note selected as an internal navigation owner,
- * but document editing must not look like a structural card selection. */
+}
 
 /* The scene keeps the editing Note selected as an internal navigation owner,
  * but document editing must not look like a structural card selection. */
@@ -1023,28 +1305,44 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-color: var(--bh-canvas-active-border);
 	box-shadow: var(--bh-canvas-active-shadow);
 	transition: none;
-}.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+}
+
+.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
 .monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
 	outline: 2px solid var(--bh-canvas-focus-ring);
 	outline-offset: 2px;
-}@media (forced-colors: active) {.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.selected:not(:focus-visible),
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card.marquee-selected:not(:focus-visible),
 	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card[data-note-editing="true"]:not(:focus-visible) {
 		outline: 1px solid CanvasText;
 		outline-offset: 1px;
-	}.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
+	}
+
+	.monaco-workbench .basehalf-canvas-workbench .basehalf-canvas-card:focus-visible,
 	.monaco-workbench .basehalf-canvas-react-island .react-flow__node-basehalf-card:focus-visible .basehalf-canvas-card {
 		outline: 2px solid Highlight;
 		outline-offset: 2px;
-	}}.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
+	}
+}
+
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) .basehalf-canvas-card {
 	z-index: 2;
-}.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card {
+}
+
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card {
 	cursor: grabbing;
-}.monaco-workbench .basehalf-canvas-card.connection-target {
+}
+
+.monaco-workbench .basehalf-canvas-card.connection-target {
 	border-color: var(--bh-canvas-intent);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--bh-canvas-intent) 70%, transparent), 0 10px 28px rgb(0 0 0 / 60%);
-}.monaco-workbench .basehalf-canvas-card-content {
+}
+
+.monaco-workbench .basehalf-canvas-card-content {
 	position: relative;
 	flex: 1;
 	min-width: 0;
@@ -1058,13 +1356,17 @@ body.basehalf-canvas-edge-reconnecting * {
 	 * rounded clip-path keeps every preview from taking the pointer in the
 	 * empty corners outside the card's outline, where the resize bands live. */
 	clip-path: inset(0 round var(--bh-card-inner-radius));
-}.monaco-workbench .basehalf-canvas-card-active {
+}
+
+.monaco-workbench .basehalf-canvas-card-active {
 	display: flex;
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
 	flex-direction: column;
-}.monaco-workbench .basehalf-canvas-card-caption {
+}
+
+.monaco-workbench .basehalf-canvas-card-caption {
 	position: absolute;
 	/* Absolute children resolve against the card's padding box. Offset the
 	 * one-pixel frame so the external identity aligns with the painted frame,
@@ -1081,25 +1383,33 @@ body.basehalf-canvas-edge-reconnecting * {
 	min-width: 0;
 	padding: 0 2px;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-card-caption-identity {
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-identity {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
 	flex: 1;
-}.monaco-workbench .basehalf-canvas-card-caption-icon {
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-icon {
 	flex: none;
 	display: flex;
 	align-items: center;
 	height: 20px;
-}.monaco-workbench .basehalf-canvas-card-caption-actions {
+}
+
+.monaco-workbench .basehalf-canvas-card-caption-actions {
 	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
 	gap: 4px;
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-card-label {
+}
+
+.monaco-workbench .basehalf-canvas-card-label {
 	min-width: 0;
 	/* As wide as its text: only the text shows the text cursor and takes the
 	 * double click that renames. */
@@ -1112,16 +1422,22 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-weight: 600;
 	line-height: 24px;
 	letter-spacing: 0;
-}.monaco-workbench .basehalf-canvas-card-label.danger {
+}
+
+.monaco-workbench .basehalf-canvas-card-label.danger {
 	color: var(--bh-card-danger);
-}.monaco-workbench .basehalf-canvas-card-label.renamable {
+}
+
+.monaco-workbench .basehalf-canvas-card-label.renamable {
 	cursor: text;
-}/* A drag and an input pick keep the card's cursor over the name. */
+}
 
 /* A drag and an input pick keep the card's cursor over the name. */
 .monaco-workbench .react-flow__node.dragging .basehalf-canvas-card-label.renamable {
 	cursor: inherit;
-}.monaco-workbench .basehalf-canvas-card-badge-toggle {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle {
 	position: relative;
 	flex: none;
 	display: inline-flex;
@@ -1137,26 +1453,38 @@ body.basehalf-canvas-edge-reconnecting * {
 	cursor: pointer;
 	opacity: 0.72;
 	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 80ms ease;
-}.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
 .monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-badge-toggle,
 .monaco-workbench .basehalf-canvas-card-badge-toggle:focus-visible,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.lit,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
 	opacity: 1;
-}.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
 .monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-badge-toggle {
 	border-color: var(--bh-card-border-strong);
-}.monaco-workbench .basehalf-canvas-card-badge-toggle:hover,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle:hover,
 .monaco-workbench .basehalf-canvas-card-badge-toggle:focus-visible {
 	border-color: var(--bh-card-border-strong);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-card-badge-toggle:active {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle:active {
 	transform: scale(0.94);
-}.monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
 	color: var(--bh-card-text-primary);
 	background: color-mix(in srgb, var(--bh-canvas-geometry) 12%, transparent);
 	border-color: var(--bh-canvas-geometry);
-}.monaco-workbench .basehalf-canvas-card-badge-dot {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-dot {
 	position: absolute;
 	top: -2px;
 	right: -2px;
@@ -1165,28 +1493,40 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 50%;
 	background: var(--bh-card-accent);
 	border: 1.5px solid var(--bh-card-bg);
-}.monaco-workbench .basehalf-canvas-card-badge-dot.issue {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-dot.issue {
 	background: var(--bh-card-warning);
-}.monaco-workbench .basehalf-canvas-card-badge-toggle.issue {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle.issue {
 	color: var(--bh-card-warning);
-}.monaco-workbench .basehalf-reference-issue-marker {
+}
+
+.monaco-workbench .basehalf-reference-issue-marker {
 	flex: none;
 	width: 6px;
 	height: 6px;
 	background: var(--bh-card-warning);
 	border-radius: 50%;
-}.monaco-workbench .basehalf-reference-issue-marker.overview {
+}
+
+.monaco-workbench .basehalf-reference-issue-marker.overview {
 	display: inline-block;
 	margin-left: 4px;
 	vertical-align: 0.08em;
-}.monaco-workbench .basehalf-canvas-card-body {
+}
+
+.monaco-workbench .basehalf-canvas-card-body {
 	flex: 1;
 	min-height: 0;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	border-radius: var(--bh-card-inner-radius);
-}.monaco-workbench .basehalf-canvas-card-preview {
+}
+
+.monaco-workbench .basehalf-canvas-card-preview {
 	flex: 1;
 	min-height: 0;
 	padding: 8px 12px 12px;
@@ -1200,7 +1540,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.5;
 	mask-image: linear-gradient(to bottom, #000 70%, transparent);
 	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
-}.monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-markdown {
 	--basehalf-canvas-note-inline-padding: 12px;
 	--basehalf-canvas-note-content-padding: 8px var(--basehalf-canvas-note-inline-padding) 12px;
 	--basehalf-canvas-note-scrollbar-width: 10px;
@@ -1213,7 +1555,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: normal;
 	mask-image: none;
 	-webkit-mask-image: none;
-}.monaco-workbench .basehalf-canvas-note-editor {
+}
+
+.monaco-workbench .basehalf-canvas-note-editor {
 	position: absolute;
 	inset: 0;
 	display: flex;
@@ -1223,13 +1567,21 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow: hidden;
 	background: transparent;
 	visibility: hidden;
-}.monaco-workbench .basehalf-canvas-note-inline-editor {
+}
+
+.monaco-workbench .basehalf-canvas-note-inline-editor {
 	background: var(--basehalf-canvas-note-background, var(--bh-card-surface));
-}.monaco-workbench .basehalf-canvas-note-editor.ready {
+}
+
+.monaco-workbench .basehalf-canvas-note-editor.ready {
 	visibility: visible;
-}.monaco-workbench .basehalf-canvas-note-editor-fallback[aria-hidden="true"] {
+}
+
+.monaco-workbench .basehalf-canvas-note-editor-fallback[aria-hidden="true"] {
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline {
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline {
 	display: flex;
 	flex-direction: column;
 	flex: 1;
@@ -1239,18 +1591,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	caret-color: var(--vscode-editorCursor-foreground);
 	cursor: text;
 	user-select: text;
-}/* The frame of the card shows that its note is being edited. A press on the
- * margin around the text leaves the focus on this element, and the ring the
- * workbench draws for a focused element would be a second frame inside it. */
+}
 
 /* The frame of the card shows that its note is being edited. A press on the
  * margin around the text leaves the focus on this element, and the ring the
  * workbench draws for a focused element would be a second frame inside it. */
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline:focus {
 	outline: none;
-}/* Keep every part of the Note in Canvas coordinates. React Flow scales the
- * complete card; changing scrollbar layout with zoom would reflow text and
- * move the caret or scroll anchor inside an otherwise unchanged document. */
+}
 
 /* Keep every part of the Note in Canvas coordinates. React Flow scales the
  * complete card; changing scrollbar layout with zoom would reflow text and
@@ -1258,15 +1606,21 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar {
 	width: var(--basehalf-canvas-note-scrollbar-width);
 	height: 0;
-}.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track,
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-track-piece,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-corner {
 	background: transparent;
-}.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-button {
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-button {
 	display: none;
 	width: 0;
 	height: 0;
-}.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb,
+}
+
+.monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:hover,
 .monaco-workbench .basehalf-canvas-note-editor .basehalf-canvas-markdown-inline::-webkit-scrollbar-thumb:active {
 	min-height: 28px;
@@ -1274,26 +1628,38 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 5px;
 	background: var(--vscode-scrollbarSlider-background);
 	background-clip: padding-box;
-}.monaco-workbench .basehalf-canvas-markdown-inline-unit {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit {
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror {
 	min-height: 100%;
 	outline: none;
 	white-space: pre-wrap;
 	word-wrap: break-word;
 	cursor: text;
-}.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror.ProseMirror-hideselection *::selection {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline > .ProseMirror.ProseMirror-hideselection *::selection {
 	background: transparent;
-}.monaco-workbench .basehalf-canvas-markdown-inline-unit [data-tight="true"] > li > p {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit [data-tight="true"] > li > p {
 	margin-block: 0;
 	padding-block: 0;
-}.monaco-workbench .basehalf-canvas-markdown-inline-unit.unsupported {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline-unit.unsupported {
 	cursor: default;
 	/* A fixed block keeps the line layout it has at rest. The editor around it
 	 * preserves white space, which would turn the line ends between its
 	 * elements into empty lines. */
 	white-space: normal;
-}.monaco-workbench .basehalf-canvas-markdown-conflict {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict {
 	position: sticky;
 	top: 0;
 	z-index: 2;
@@ -1310,13 +1676,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--vscode-editorError-foreground);
 	font-size: 11px;
 	line-height: 1.35;
-}.monaco-workbench .basehalf-canvas-markdown-conflict-label {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-label {
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-markdown-conflict-actions {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-actions {
 	display: flex;
 	flex: none;
 	gap: 5px;
-}.monaco-workbench .basehalf-canvas-markdown-conflict-action {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action {
 	padding: 2px 6px;
 	border: 1px solid var(--vscode-button-border, transparent);
 	border-radius: 3px;
@@ -1324,11 +1696,17 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--vscode-button-secondaryForeground);
 	font: inherit;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-markdown-conflict-action:hover {
+}
+
+.monaco-workbench .basehalf-canvas-markdown-conflict-action:hover {
 	background: var(--vscode-button-secondaryHoverBackground);
-}.monaco-workbench .basehalf-canvas-card[data-note-save-state="error"] {
+}
+
+.monaco-workbench .basehalf-canvas-card[data-note-save-state="error"] {
 	box-shadow: 0 0 0 1px var(--vscode-editorError-foreground) inset;
-}.monaco-workbench .basehalf-canvas-card-preview.kind-folder,
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-folder,
 .monaco-workbench .basehalf-canvas-card-preview.kind-media,
 .monaco-workbench .basehalf-canvas-card-preview.kind-node,
 .monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode,
@@ -1337,25 +1715,33 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
 	font-family: inherit;
 	color: var(--bh-card-text-tertiary);
-}.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode {
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-invalidNode {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 	padding: 9px 12px 10px;
 	mask-image: none;
 	-webkit-mask-image: none;
-}.monaco-workbench .basehalf-canvas-invalid-node-title {
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-title {
 	color: var(--vscode-errorForeground);
 	font-size: 11px;
 	font-weight: 600;
-}.monaco-workbench .basehalf-canvas-invalid-node-message {
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-message {
 	display: -webkit-box;
 	overflow: hidden;
 	font-size: 10px;
 	line-height: 1.35;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 3;
-}.monaco-workbench .basehalf-canvas-invalid-node-action {
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action {
 	align-self: flex-end;
 	margin-top: auto;
 	padding: 2px 0;
@@ -1365,13 +1751,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	font: inherit;
 	font-size: 11px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-invalid-node-action:hover {
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:hover {
 	color: var(--vscode-textLink-activeForeground);
 	text-decoration: underline;
-}.monaco-workbench .basehalf-canvas-invalid-node-action:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-invalid-node-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
-}.monaco-workbench .basehalf-canvas-card-preview.kind-node {
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-node {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
@@ -1379,7 +1771,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	mask-image: none;
 	-webkit-mask-image: none;
 	color: var(--bh-card-text-secondary);
-}.monaco-workbench .basehalf-canvas-card.node-kind-video .basehalf-canvas-card-preview.kind-node {
+}
+
+.monaco-workbench .basehalf-canvas-card.node-kind-video .basehalf-canvas-card-preview.kind-node {
 	gap: 0;
 	padding: 0;
 	font-family: inherit;
@@ -1387,19 +1781,25 @@ body.basehalf-canvas-edge-reconnecting * {
 	mask-image: none;
 	-webkit-mask-image: none;
 	background: var(--bh-card-surface);
-}.monaco-workbench .basehalf-canvas-node-result {
+}
+
+.monaco-workbench .basehalf-canvas-node-result {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
 	min-height: 0;
 	overflow: hidden;
-}.monaco-workbench .basehalf-canvas-node-result-label {
+}
+
+.monaco-workbench .basehalf-canvas-node-result-label {
 	margin-bottom: 3px;
 	color: var(--bh-card-text-tertiary);
 	font-size: 10px;
 	font-weight: 600;
 	line-height: 1.3;
-}.monaco-workbench .basehalf-canvas-node-result-value {
+}
+
+.monaco-workbench .basehalf-canvas-node-result-value {
 	display: -webkit-box;
 	overflow: hidden;
 	color: var(--bh-card-text-primary);
@@ -1408,18 +1808,33 @@ body.basehalf-canvas-edge-reconnecting * {
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 4;
 	white-space: normal;
-}.monaco-workbench .basehalf-canvas-node-result-media {
+}
+
+.monaco-workbench .basehalf-canvas-node-result-media {
 	flex: 1;
 	min-height: 44px;
 	overflow: hidden;
 	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
 	border-radius: 4px;
-}@keyframes basehalf-node-execution-spin {to { transform: rotate(360deg); }}@keyframes basehalf-node-progress-indeterminate {from { transform: translateX(-130%); }to { transform: translateX(370%); }}.monaco-workbench .basehalf-canvas-node-actions {
+}
+
+@keyframes basehalf-node-execution-spin {
+	to { transform: rotate(360deg); }
+}
+
+@keyframes basehalf-node-progress-indeterminate {
+	from { transform: translateX(-130%); }
+	to { transform: translateX(370%); }
+}
+
+.monaco-workbench .basehalf-canvas-node-actions {
 	display: flex;
 	justify-content: flex-end;
 	gap: 6px;
 	margin-top: auto;
-}.monaco-workbench .basehalf-canvas-node-action {
+}
+
+.monaco-workbench .basehalf-canvas-node-action {
 	min-width: 48px;
 	height: 26px;
 	padding: 0 10px;
@@ -1431,49 +1846,81 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 11px;
 	font-weight: 600;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-node-action:hover {
+}
+
+.monaco-workbench .basehalf-canvas-node-action:hover {
 	background: var(--vscode-button-hoverBackground);
-}.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"] {
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"] {
 	opacity: 0.52;
 	cursor: help;
-}.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"]:hover {
+}
+
+.monaco-workbench .basehalf-canvas-node-action[aria-disabled="true"]:hover {
 	background: var(--vscode-button-background);
-}.monaco-workbench .basehalf-canvas-node-action:focus-visible {
+}
+
+.monaco-workbench .basehalf-canvas-node-action:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
-}.monaco-workbench .basehalf-canvas-node-action:active {
+}
+
+.monaco-workbench .basehalf-canvas-node-action:active {
 	transform: scale(0.97);
-}@keyframes basehalf-video-popover-enter {from {
+}
+
+@keyframes basehalf-video-popover-enter {
+	from {
 		transform: translateY(4px);
-	}to {
+	}
+
+	to {
 		transform: translateY(0);
-	}}@keyframes basehalf-video-popover-enter-below {from {
+	}
+}
+
+@keyframes basehalf-video-popover-enter-below {
+	from {
 		transform: translateY(-4px);
-	}to {
+	}
+
+	to {
 		transform: translateY(0);
-	}}.monaco-workbench .basehalf-canvas-card-preview.kind-media {
+	}
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-media {
 	position: relative;
 	padding: 0;
 	mask-image: none;
 	-webkit-mask-image: none;
 	background: color-mix(in srgb, var(--bh-card-surface) 82%, black);
-}.monaco-workbench .basehalf-canvas-card-media-visual {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-visual {
 	display: block;
 	width: 100%;
 	height: 100%;
 	object-fit: contain;
 	background: rgb(0 0 0 / 16%);
 	user-select: none;
-}.monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-image .basehalf-canvas-card-media-visual {
 	object-fit: cover;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-card-media-transport {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-transport {
 	display: block;
 	width: calc(100% - 20px);
 	min-width: 0;
 	margin: auto 10px;
 	accent-color: var(--vscode-focusBorder);
-}.monaco-workbench .basehalf-canvas-card-media-idle {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle {
 	display: flex;
 	width: 100%;
 	height: 100%;
@@ -1485,24 +1932,34 @@ body.basehalf-canvas-edge-reconnecting * {
 	padding: 10px;
 	box-sizing: border-box;
 	color: var(--bh-card-text-tertiary);
-}.monaco-workbench .basehalf-canvas-card-media-idle-glyph {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-glyph {
 	display: flex;
 	opacity: 0.78;
-}.monaco-workbench .basehalf-canvas-card-media-idle-label {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-idle-label {
 	max-width: 100%;
 	overflow: hidden;
 	font-size: 10px;
 	line-height: 1.35;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-}.monaco-workbench .basehalf-canvas-card:not(.selected) .media-audio > .basehalf-canvas-card-media-transport,
+}
+
+.monaco-workbench .basehalf-canvas-card:not(.selected) .media-audio > .basehalf-canvas-card-media-transport,
 .monaco-workbench .basehalf-canvas-card.selected .media-audio > .basehalf-canvas-card-media-idle {
 	display: none;
-}.monaco-workbench .basehalf-canvas-card-preview.media-audio,
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.media-audio,
 .monaco-workbench .basehalf-canvas-node-result-media.media-audio {
 	display: flex;
 	align-items: center;
-}.monaco-workbench .basehalf-canvas-card-media-fallback {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback {
 	display: flex;
 	height: 100%;
 	min-height: 0;
@@ -1513,13 +1970,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	padding: 12px;
 	box-sizing: border-box;
 	color: var(--bh-card-text-tertiary);
-}.monaco-workbench .basehalf-canvas-card-media-fallback-glyph {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-glyph {
 	display: flex;
 	opacity: 0.76;
-}.monaco-workbench .basehalf-canvas-card-media-fallback-label {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-fallback-label {
 	font-size: 11px;
 	line-height: 1.35;
-}.monaco-workbench .basehalf-canvas-card-media-reload {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload {
 	border: 0;
 	padding: 0;
 	background: transparent;
@@ -1527,10 +1990,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	font: inherit;
 	font-size: 11px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-card-media-reload:hover {
+}
+
+.monaco-workbench .basehalf-canvas-card-media-reload:hover {
 	color: var(--vscode-textLink-activeForeground);
 	text-decoration: underline;
-}.monaco-workbench .bh-md-preview {
+}
+
+.monaco-workbench .bh-md-preview {
 	/* The bar of a table that is scrolled sideways is placed in this box. */
 	position: relative;
 	box-sizing: border-box;
@@ -1545,10 +2012,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 	font-size: 13px;
 	line-height: 1.45;
-}/* The resting projection must remain draggable across its entire body, so it
- * cannot own an invisible native scrollbar. Reserve the live editor's gutter
- * as inert box space instead; both projections then keep the same line measure
- * at every Canvas zoom without introducing a resting pointer target. */
+}
 
 /* The resting projection must remain draggable across its entire body, so it
  * cannot own an invisible native scrollbar. Reserve the live editor's gutter
@@ -1557,17 +2021,20 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-card-preview.kind-markdown .bh-md-preview:not(.basehalf-canvas-markdown-inline) {
 	padding: var(--basehalf-canvas-note-content-padding);
 	padding-right: calc(var(--basehalf-canvas-note-inline-padding) + var(--basehalf-canvas-note-scrollbar-width));
-}/* A part of a long note holds its blocks without a box of its own, so the
- * blocks lie in the projection as they would if the note were built whole. */
+}
 
 /* A part of a long note holds its blocks without a box of its own, so the
  * blocks lie in the projection as they would if the note were built whole. */
 .monaco-workbench .bh-md-preview > .bh-md-part {
 	display: contents;
-}.monaco-workbench .basehalf-canvas-note-empty {
+}
+
+.monaco-workbench .basehalf-canvas-note-empty {
 	color: var(--bh-card-text-tertiary);
 	font-size: 13px;
-}.monaco-workbench .bh-md-preview h1,
+}
+
+.monaco-workbench .bh-md-preview h1,
 .monaco-workbench .bh-md-preview h2,
 .monaco-workbench .bh-md-preview h3,
 .monaco-workbench .bh-md-preview h4,
@@ -1582,35 +2049,48 @@ body.basehalf-canvas-edge-reconnecting * {
 	padding-top: 3px;
 	padding-bottom: 3px;
 	line-height: 1.45;
-}.monaco-workbench .bh-md-preview h1 {
+}
+
+.monaco-workbench .bh-md-preview h1 {
 	color: var(--bh-card-text-primary);
 	font-size: 18px;
 	font-weight: 700;
-}.monaco-workbench .bh-md-preview h2 {
+}
+
+.monaco-workbench .bh-md-preview h2 {
 	color: var(--bh-card-text-primary);
 	font-size: 16px;
 	font-weight: 700;
-}.monaco-workbench .bh-md-preview h3 {
+}
+
+.monaco-workbench .bh-md-preview h3 {
 	color: var(--bh-card-text-primary);
 	font-size: 14px;
 	font-weight: 700;
-}.monaco-workbench .bh-md-preview h4,
+}
+
+.monaco-workbench .bh-md-preview h4,
 .monaco-workbench .bh-md-preview h5,
 .monaco-workbench .bh-md-preview h6 {
 	color: var(--bh-card-text-primary);
 	font-size: 13px;
 	font-weight: 700;
-}.monaco-workbench .bh-md-preview ul,
+}
+
+.monaco-workbench .bh-md-preview ul,
 .monaco-workbench .bh-md-preview ol {
 	padding-left: 22px;
-}.monaco-workbench .bh-md-preview blockquote {
+}
+
+.monaco-workbench .bh-md-preview blockquote {
 	padding-left: 10px;
 	border-left: 2px solid var(--bh-card-text-ghost);
-}.monaco-workbench .bh-md-preview code {
+}
+
+.monaco-workbench .bh-md-preview code {
 	font-family: var(--monaco-monospace-font);
 	font-size: 0.92em;
-}/* A code block is a box of its own. Its lines are not broken: what is lined
- * up in the file is lined up on the card. */
+}
 
 /* A code block is a box of its own. Its lines are not broken: what is lined
  * up in the file is lined up on the card. */
@@ -1624,12 +2104,16 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.5;
 	white-space: pre;
 	tab-size: 4;
-}.monaco-workbench .bh-md-preview pre code {
+}
+
+.monaco-workbench .bh-md-preview pre code {
 	font-size: inherit;
-}.monaco-workbench .bh-md-preview a {
+}
+
+.monaco-workbench .bh-md-preview a {
 	color: var(--vscode-textLink-foreground);
 	text-decoration: none;
-}/* A table keeps its words whole. Its columns narrow until it fits the card. */
+}
 
 /* A table keeps its words whole. Its columns narrow until it fits the card. */
 .monaco-workbench .bh-md-preview table {
@@ -1646,9 +2130,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: normal;
 	overflow-wrap: normal;
 	word-break: normal;
-}/* A table or a code block that does not fit the card is cut at the right and
- * scrolls sideways in its own box. At rest the canvas scrolls it (canvas
- * wheel gestures). */
+}
 
 /* A table or a code block that does not fit the card is cut at the right and
  * scrolls sideways in its own box. At rest the canvas scrolls it (canvas
@@ -1658,9 +2140,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow-x: hidden;
 	animation: basehalf-canvas-note-sideways-fade linear both;
 	animation-timeline: scroll(self inline);
-}/* While the note is edited the box scrolls as any box does. The system's bar
- * grows and turns light under the pointer; the box shows the one bar below
- * instead, as it does at rest. */
+}
 
 /* While the note is edited the box scrolls as any box does. The system's bar
  * grows and turns light under the pointer; the box shows the one bar below
@@ -1668,11 +2148,12 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-canvas-markdown-inline table,
 .monaco-workbench .basehalf-canvas-markdown-inline pre {
 	overflow-x: auto;
-}.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar,
+}
+
+.monaco-workbench .basehalf-canvas-markdown-inline table::-webkit-scrollbar,
 .monaco-workbench .basehalf-canvas-markdown-inline pre::-webkit-scrollbar {
 	display: none;
-}/* The bar of a box that is being scrolled sideways. It lies over the box,
- * inside its lower edge, takes no space and no press, and has one look. */
+}
 
 /* The bar of a box that is being scrolled sideways. It lies over the box,
  * inside its lower edge, takes no space and no press, and has one look. */
@@ -1686,11 +2167,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	pointer-events: none;
 	opacity: 0;
 	transition: opacity 0.3s ease-out;
-}.monaco-workbench .basehalf-sideways-scrollbar.shown {
+}
+
+.monaco-workbench .basehalf-sideways-scrollbar.shown {
 	opacity: 1;
 	transition: none;
-}/* The side where content is out of view fades out. A box that shows all it
- * holds has no scroll range, so the animation does not run and nothing fades. */
+}
 
 /* The side where content is out of view fades out. A box that shows all it
  * holds has no scroll range, so the animation does not run and nothing fades. */
@@ -1707,47 +2189,64 @@ body.basehalf-canvas-edge-reconnecting * {
 	100% {
 		mask-image: linear-gradient(to right, transparent, #000 20px);
 	}
-}.monaco-workbench .bh-md-preview th,
+}
+
+.monaco-workbench .bh-md-preview th,
 .monaco-workbench .bh-md-preview td {
 	min-width: 2em;
 	padding: 2px 5px;
 	border: 1px solid var(--bh-card-border-strong);
 	vertical-align: top;
-}.monaco-workbench .bh-md-preview th {
+}
+
+.monaco-workbench .bh-md-preview th {
 	color: var(--bh-card-text-primary);
 	font-weight: 600;
-}.monaco-workbench .bh-md-preview th:not([align]) {
+}
+
+.monaco-workbench .bh-md-preview th:not([align]) {
 	text-align: start;
-}.monaco-workbench .bh-md-preview img,
+}
+
+.monaco-workbench .bh-md-preview img,
 .monaco-workbench .bh-md-preview video {
 	max-width: 100%;
 	height: auto;
-}/* The box of a task item stands where the bullet of a list item stands. A
- * disabled box would swallow the press that drags the card. */
+}
 
 /* The box of a task item stands where the bullet of a list item stands. A
  * disabled box would swallow the press that drags the card. */
 .monaco-workbench .bh-md-preview li.bh-md-task {
 	list-style: none;
-}.monaco-workbench .bh-md-preview li.bh-md-task input[type="checkbox"] {
+}
+
+.monaco-workbench .bh-md-preview li.bh-md-task input[type="checkbox"] {
 	width: 13px;
 	height: 13px;
 	margin: 0 5px 0 -18px;
 	vertical-align: -2px;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-folder-preview-list {
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-list {
 	display: flex;
 	min-height: 0;
 	flex-direction: column;
 	gap: 1px;
-}.monaco-workbench .basehalf-canvas-folder-preview-row {
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-folder-preview-glyph {
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-glyph {
 	flex: none;
-}.monaco-workbench .basehalf-canvas-folder-preview-label {
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-label {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1756,14 +2255,20 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-family: var(--monaco-monospace-font);
 	font-size: 12px;
 	letter-spacing: 0;
-}.monaco-workbench .basehalf-canvas-folder-preview-label.folder {
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-label.folder {
 	font-family: inherit;
-}.monaco-workbench .basehalf-canvas-folder-preview-more,
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-more,
 .monaco-workbench .basehalf-canvas-folder-empty {
 	padding-left: 18px;
 	color: var(--bh-card-text-tertiary);
 	font-size: 11px;
-}.monaco-workbench .basehalf-canvas-folder-note {
+}
+
+.monaco-workbench .basehalf-canvas-folder-note {
 	margin-top: 4px;
 	padding-top: 6px;
 	border-top: 1px solid var(--bh-card-border);
@@ -1774,7 +2279,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
-}.monaco-workbench .basehalf-canvas-card-badge-face {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-face {
 	flex: 1;
 	min-height: 0;
 	display: flex;
@@ -1783,7 +2290,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	background: var(--bh-card-surface);
 	cursor: default;
 	user-select: text;
-}.monaco-workbench .basehalf-canvas-card-badge-scroll {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-scroll {
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
@@ -1791,7 +2300,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-}.monaco-workbench .basehalf-canvas-card-badge-prompt {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt {
 	box-sizing: border-box;
 	flex: none;
 	width: 100%;
@@ -1809,43 +2320,61 @@ body.basehalf-canvas-edge-reconnecting * {
 	cursor: text;
 	user-select: text;
 	transition: border-color 120ms ease, color 120ms ease;
-}.monaco-workbench .basehalf-canvas-card-badge-prompt:focus {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt:focus {
 	color: var(--bh-card-text-primary);
 	border-bottom-color: var(--bh-card-border-strong);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-card-badge-prompt::placeholder {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt::placeholder {
 	color: color-mix(in srgb, var(--bh-card-text-tertiary) 82%, transparent);
-}.monaco-workbench .basehalf-canvas-card-badge-section,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-section,
 .monaco-workbench .basehalf-canvas-card-badge-list {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
-}.monaco-workbench .basehalf-canvas-card-badge-section.reference-issues {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-section.reference-issues {
 	gap: 6px;
 	padding: 8px;
 	background: color-mix(in srgb, var(--bh-card-warning) 8%, transparent);
 	border: 1px solid color-mix(in srgb, var(--bh-card-warning) 32%, transparent);
 	border-radius: 6px;
-}.monaco-workbench .basehalf-canvas-card-badge-issues-title {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issues-title {
 	color: var(--bh-card-warning);
 	font-size: 10px;
 	font-weight: 600;
 	letter-spacing: 0.02em;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-row {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-row {
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
 	gap: 5px 7px;
 	min-width: 0;
-}.monaco-workbench .basehalf-canvas-card-badge-direction.issue {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-direction.issue {
 	color: var(--bh-card-warning);
-}.monaco-workbench .basehalf-canvas-card-badge-issue-message {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-message {
 	min-width: 100px;
 	flex: 1 1 120px;
 	color: var(--bh-card-text-tertiary);
 	font-size: 10px;
 	line-height: 1.35;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-action {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-action {
 	flex: none;
 	padding: 2px 6px;
 	color: var(--bh-card-text-primary);
@@ -1854,39 +2383,53 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 4px;
 	font: 10px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-action.subtle {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-action.subtle {
 	color: var(--bh-card-text-tertiary);
 	background: transparent;
 	border-color: var(--bh-card-border-strong);
-}.monaco-workbench .basehalf-canvas-card-badge-issue-action:hover,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-action:hover,
 .monaco-workbench .basehalf-canvas-card-badge-issue-action:focus-visible {
 	color: var(--bh-card-text-primary);
 	background: color-mix(in srgb, var(--bh-card-warning) 20%, transparent);
 	border-color: var(--bh-card-warning);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-action:disabled {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-action:disabled {
 	opacity: 0.55;
 	cursor: default;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-error {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-error {
 	flex-basis: 100%;
 	padding-left: 19px;
 	color: var(--bh-card-danger);
 	font-size: 10px;
 	line-height: 1.35;
-}.monaco-workbench .basehalf-canvas-card-badge-row {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row {
 	display: flex;
 	align-items: center;
 	gap: 7px;
 	min-width: 0;
 	min-height: 20px;
-}.monaco-workbench .basehalf-canvas-card-badge-direction {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-direction {
 	flex: none;
 	width: 12px;
 	color: var(--bh-card-text-ghost);
 	font-size: 12px;
 	line-height: 18px;
 	text-align: center;
-}.monaco-workbench .basehalf-canvas-card-badge-link,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-link,
 .monaco-workbench .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-canvas-card-add-downstream {
 	min-width: 0;
@@ -1900,32 +2443,44 @@ body.basehalf-canvas-edge-reconnecting * {
 	font: 12px/18px "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
 	text-align: left;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-card-badge-link:focus-visible,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-link:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-reference:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-downstream:focus-visible,
 .monaco-workbench .basehalf-canvas-card-badge-remove:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder, var(--bh-card-accent));
 	outline-offset: 2px;
-}.monaco-workbench .basehalf-canvas-card-add-reference,
+}
+
+.monaco-workbench .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-canvas-card-add-downstream {
 	align-self: flex-start;
 	color: var(--bh-card-text-ghost);
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-}.monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-reference,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-canvas-card-badge-list + .basehalf-canvas-card-add-downstream {
 	margin-top: 4px;
-}.monaco-workbench .basehalf-canvas-card-badge-link:hover,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-link:hover,
 .monaco-workbench .basehalf-canvas-card-add-reference:hover,
 .monaco-workbench .basehalf-canvas-card-add-downstream:hover,
 .monaco-workbench .basehalf-canvas-card-badge-link:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-reference:focus-visible,
 .monaco-workbench .basehalf-canvas-card-add-downstream:focus-visible {
 	color: var(--bh-card-accent);
-}.monaco-workbench .basehalf-canvas-card-add-reference:disabled,
+}
+
+.monaco-workbench .basehalf-canvas-card-add-reference:disabled,
 .monaco-workbench .basehalf-canvas-card-add-downstream:disabled {
 	opacity: 0.55;
 	cursor: wait;
-}.monaco-workbench .basehalf-canvas-card-badge-remove {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-remove {
 	flex: none;
 	width: 18px;
 	height: 18px;
@@ -1937,18 +2492,26 @@ body.basehalf-canvas-edge-reconnecting * {
 	cursor: pointer;
 	opacity: 0.42;
 	transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
-}.monaco-workbench .basehalf-canvas-card-badge-row:hover .basehalf-canvas-card-badge-remove,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row:hover .basehalf-canvas-card-badge-remove,
 .monaco-workbench .basehalf-canvas-card-badge-remove:focus-visible {
 	opacity: 1;
-}.monaco-workbench .basehalf-canvas-card-badge-remove:hover {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-remove:hover {
 	color: var(--bh-card-text-primary);
 	background: rgb(255 255 255 / 6%);
-}.monaco-workbench .basehalf-canvas-card-badge-remove:disabled {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-remove:disabled {
 	opacity: 0.3;
 	cursor: wait;
-}.monaco-workbench .basehalf-canvas-card-badge-row[aria-busy="true"] .basehalf-canvas-card-badge-link {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row[aria-busy="true"] .basehalf-canvas-card-badge-link {
 	opacity: 0.62;
-}/* Upstream and Downstream sections of the badge editor (D37). */
+}
 
 /* Upstream and Downstream sections of the badge editor (D37). */
 .monaco-workbench .basehalf-canvas-card-badge-section-title {
@@ -1956,66 +2519,92 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 10px;
 	font-weight: 600;
 	letter-spacing: 0.02em;
-}.monaco-workbench .basehalf-canvas-card-badge-helper,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-helper,
 .monaco-workbench .basehalf-canvas-card-badge-empty {
 	color: var(--bh-card-text-tertiary);
 	font-size: 10px;
 	line-height: 1.35;
-}.monaco-workbench .basehalf-canvas-card-badge-empty {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-empty {
 	color: var(--bh-card-text-ghost);
-}.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue,
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue,
 .monaco-workbench .basehalf-canvas-card-badge-issue-row.upstream-issue {
 	flex-wrap: wrap;
 	padding: 4px 6px;
 	background: color-mix(in srgb, var(--bh-card-warning) 8%, transparent);
 	border: 1px solid color-mix(in srgb, var(--bh-card-warning) 32%, transparent);
 	border-radius: 6px;
-}.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue .basehalf-canvas-card-badge-direction {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.upstream-issue .basehalf-canvas-card-badge-direction {
 	color: var(--bh-card-warning);
-}.monaco-workbench .basehalf-canvas-card-badge-row.historical {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.historical {
 	flex-wrap: wrap;
-}.monaco-workbench .basehalf-canvas-card-badge-entry-text {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-entry-text {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--bh-card-text-primary);
 	font: 12px/18px "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
-}.monaco-workbench .basehalf-canvas-card-badge-row.historical .basehalf-canvas-card-badge-entry-text {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row.historical .basehalf-canvas-card-badge-entry-text {
 	color: var(--bh-card-text-tertiary);
-}.monaco-workbench .basehalf-canvas-card-badge-role {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-role {
 	flex: none;
 	margin-left: auto;
 	color: var(--bh-card-text-tertiary);
 	font-size: 10px;
-}.monaco-workbench .basehalf-canvas-card-badge-issue-actions {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-issue-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 4px;
 	flex-basis: 100%;
 	padding-left: 19px;
-}.monaco-workbench .basehalf-canvas-card-badge-relink-slot:empty {
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-relink-slot:empty {
 	display: none;
-}.monaco-workbench .basehalf-canvas-card-coverage {
+}
+
+.monaco-workbench .basehalf-canvas-card-coverage {
 	flex: none;
 	height: 3px;
 	margin: 0 10px 6px;
 	border-radius: 2px;
 	background: color-mix(in srgb, var(--bh-card-border-strong) 60%, transparent);
 	overflow: hidden;
-}.monaco-workbench .basehalf-canvas-card-coverage-fill {
+}
+
+.monaco-workbench .basehalf-canvas-card-coverage-fill {
 	height: 100%;
 	border-radius: 2px;
 	background: var(--bh-card-accent);
 	opacity: 0.75;
-}/* Connection handle sizes are screen pixels: divide by the live canvas zoom. */
+}
 
 /* Connection handle sizes are screen pixels: divide by the live canvas zoom. */
 .monaco-workbench .basehalf-canvas-react-island {
 	--bh-connect-zoom: var(--basehalf-canvas-zoom, 1);
 	--bh-connect-size: calc(11px / var(--bh-connect-zoom));
 	--bh-connect-border: calc(2px / var(--bh-connect-zoom));
-}.monaco-workbench .basehalf-canvas-react-island .basehalf-canvas-card-connect-handle {
+}
+
+.monaco-workbench .basehalf-canvas-react-island .basehalf-canvas-card-connect-handle {
 	--bh-connect-scale: 1;
 
 	position: absolute;
@@ -2032,7 +2621,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	pointer-events: none;
 	cursor: crosshair;
 	transition: opacity 80ms ease;
-}.monaco-workbench .basehalf-canvas-card-connect-handle::before {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle::before {
 	content: '';
 	position: absolute;
 	left: 50%;
@@ -2046,9 +2637,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
 	pointer-events: none;
 	transition: transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
-}/* The handle's own hit target: the outside half of the snapped circle. It
- * stays above edges, so a side that already has an edge can start another;
- * inside the outline the card's content keeps the pointer. */
+}
 
 /* The handle's own hit target: the outside half of the snapped circle. It
  * stays above edges, so a side that already has an edge can start another;
@@ -2063,10 +2652,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-radius: 50%;
 	transform: translate(-50%, -50%);
 	pointer-events: inherit;
-}.monaco-workbench .basehalf-canvas-card-connect-handle.north::after { clip-path: inset(0 0 50% 0); }.monaco-workbench .basehalf-canvas-card-connect-handle.east::after { clip-path: inset(0 0 0 50%); }.monaco-workbench .basehalf-canvas-card-connect-handle.south::after { clip-path: inset(50% 0 0 0); }.monaco-workbench .basehalf-canvas-card-connect-handle.west::after { clip-path: inset(0 50% 0 0); }/* Capture circles lie below the viewport's edges and nodes (negative z-index
- * in the viewport's stacking context): cards and edges keep the pointer over
- * them. The scene sets --bh-connect-reach-limit (flow pixels) so a circle stays
- * on the straight part of its side. */
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.north::after { clip-path: inset(0 0 50% 0); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.east::after { clip-path: inset(0 0 0 50%); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.south::after { clip-path: inset(50% 0 0 0); }
+.monaco-workbench .basehalf-canvas-card-connect-handle.west::after { clip-path: inset(0 50% 0 0); }
 
 /* Capture circles lie below the viewport's edges and nodes (negative z-index
  * in the viewport's stacking context): cards and edges keep the pointer over
@@ -2077,7 +2668,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	left: 0;
 	top: 0;
 	z-index: -1;
-}.monaco-workbench .basehalf-canvas-connect-capture {
+}
+
+.monaco-workbench .basehalf-canvas-connect-capture {
 	--bh-connect-reach: max(
 		calc(var(--bh-connect-size) / 2),
 		min(calc(24px / var(--bh-connect-zoom)), var(--bh-connect-reach-limit, 9999px))
@@ -2090,81 +2683,109 @@ body.basehalf-canvas-edge-reconnecting * {
 	transform: translate(-50%, -50%);
 	pointer-events: auto;
 	cursor: crosshair;
-}.monaco-workbench .basehalf-canvas-react-island[data-card-resizing="true"] .basehalf-canvas-connect-capture {
+}
+
+.monaco-workbench .basehalf-canvas-react-island[data-card-resizing="true"] .basehalf-canvas-connect-capture {
 	pointer-events: none;
-}/* A pointer in a capture circle shows the card's handles and snaps that one. */
+}
 
 /* A pointer in a capture circle shows the card's handles and snaps that one. */
 .monaco-workbench .react-flow__node.basehalf-canvas-connect-near > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.snapped {
 	opacity: 1;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-card-connect-handle:hover,
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:hover,
 .monaco-workbench .basehalf-canvas-card-connect-handle.snapped {
 	/* 16 screen pixels across. */
 	--bh-connect-scale: calc(16 / 11);
-}.monaco-workbench .basehalf-canvas-card-connect-handle:hover::before,
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:hover::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.snapped::before {
 	border-color: var(--bh-canvas-intent-soft);
 	background: var(--bh-canvas-intent);
-}@media (prefers-reduced-motion: reduce) {.monaco-workbench .basehalf-canvas-card-connect-handle,
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-card-connect-handle,
 	.monaco-workbench .basehalf-canvas-card-connect-handle::before {
 		transition: none;
-	}}.monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
+	}
+}
+
+.monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
 .monaco-workbench .basehalf-canvas-card-connect-handle.clickconnecting,
 .monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible {
 	opacity: 1;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-card-connect-handle.editing,
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.editing,
 .monaco-workbench .react-flow__node.dragging > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-card-connect-handle {
 	opacity: 0 !important;
 	pointer-events: none !important;
 	transition: none;
-}.monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible::before {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle:focus-visible::before {
 	border-color: var(--vscode-focusBorder);
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 3px;
-}.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
 .monaco-workbench .basehalf-canvas-card-connect-handle.valid,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connection-target {
 	--bh-connect-scale: calc(16 / 11);
-}.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom::before,
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.valid::before,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connection-target::before {
 	border-color: var(--bh-canvas-intent-soft);
 	background: var(--bh-canvas-intent);
-}.monaco-workbench .react-flow__node.connection-target > .basehalf-canvas-card-connect-handle.connection-target {
+}
+
+.monaco-workbench .react-flow__node.connection-target > .basehalf-canvas-card-connect-handle.connection-target {
 	opacity: 1;
 	pointer-events: auto;
-}.monaco-workbench .basehalf-canvas-card-connect-handle.north {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.north {
 	top: 0;
 	left: 50%;
 	transform: translate(-50%, -50%);
-}.monaco-workbench .basehalf-canvas-card-connect-handle.east {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.east {
 	top: 50%;
 	right: 0;
 	transform: translate(50%, -50%);
-}.monaco-workbench .basehalf-canvas-card-connect-handle.south {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.south {
 	bottom: 0;
 	left: 50%;
 	transform: translate(-50%, 50%);
-}.monaco-workbench .basehalf-canvas-card-connect-handle.west {
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.west {
 	top: 50%;
 	left: 0;
 	transform: translate(-50%, -50%);
-}.monaco-workbench .basehalf-canvas-node-resizer-line {
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-line {
 	border-color: transparent !important;
-}/* A corner control is a square with one corner on its arc's center. The scene
- * sizes and places it per zoom; it never paints or takes the pointer itself, so
- * nothing square remains outside the card's rounded silhouette. Only the two
- * parts of its band are hit-tested, and both inherit React Flow's diagonal
- * resize cursor. */
+}
 
 /* A corner control is a square with one corner on its arc's center. The scene
  * sizes and places it per zoom; it never paints or takes the pointer itself, so
@@ -2179,7 +2800,9 @@ body.basehalf-canvas-edge-reconnecting * {
 	box-shadow: none !important;
 	outline: none !important;
 	pointer-events: none;
-}.monaco-workbench .basehalf-canvas-node-resize-corner {
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner {
 	position: absolute;
 	inset: 0;
 	display: block;
@@ -2190,11 +2813,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	/* The band's transparent stroke must stay transparent in forced colors; the
 	 * indicator already resolves to CanvasText through its geometry token. */
 	forced-color-adjust: none;
-}/* The outer layer stacks below the card, so the caption keeps the pointer where
- * it overlaps the band near a top corner. The inner layer stacks above the
- * card's content, so the strip just inside the rounded edge resizes instead of
- * moving the card. It stays inside the outline, never under the caption, and
- * below the connection handles. */
+}
 
 /* The outer layer stacks below the card, so the caption keeps the pointer where
  * it overlaps the band near a top corner. The inner layer stacks above the
@@ -2203,37 +2822,46 @@ body.basehalf-canvas-edge-reconnecting * {
  * below the connection handles. */
 .monaco-workbench .basehalf-canvas-node-resize-corner.inner {
 	z-index: 3;
-}.monaco-workbench .basehalf-canvas-node-resize-corner-band {
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner-band {
 	fill: none;
 	stroke: transparent;
 	pointer-events: stroke;
-}.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
+}
+
+.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
 	fill: none;
 	stroke: var(--bh-canvas-geometry-strong);
 	stroke-linecap: round;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 100ms ease;
-}.monaco-workbench .basehalf-canvas-node-resizer-handle:hover .basehalf-canvas-node-resize-corner-indicator {
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle:hover .basehalf-canvas-node-resize-corner-indicator {
 	opacity: 1;
-}/* Once a gesture moves the card, only the corner it started from keeps its
- * indicator, even after the pointer leaves that corner's band. */
+}
 
 /* Once a gesture moves the card, only the corner it started from keeps its
  * indicator, even after the pointer leaves that corner's band. */
 .monaco-workbench .react-flow__node.dragging > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-indicator,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resizing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-indicator {
 	opacity: 0;
-}.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="top-left"]) > .basehalf-canvas-node-resizer-handle.top.left .basehalf-canvas-node-resize-corner-indicator,
+}
+
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="top-left"]) > .basehalf-canvas-node-resizer-handle.top.left .basehalf-canvas-node-resize-corner-indicator,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="top-right"]) > .basehalf-canvas-node-resizer-handle.top.right .basehalf-canvas-node-resize-corner-indicator,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="bottom-left"]) > .basehalf-canvas-node-resizer-handle.bottom.left .basehalf-canvas-node-resize-corner-indicator,
 .monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-card-resize-corner="bottom-right"]) > .basehalf-canvas-node-resizer-handle.bottom.right .basehalf-canvas-node-resize-corner-indicator {
 	opacity: 1;
-}@media (prefers-reduced-motion: reduce) {.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-canvas-node-resize-corner-indicator {
 		transition: none;
-	}}/* The workbench marks the Note as editing before the React scene commits its
- * next render. Hide structural resize chrome from that same synchronous state
- * boundary so it cannot survive for one frame over the text editor. */
+	}
+}
 
 /* The workbench marks the Note as editing before the React scene commits its
  * next render. Hide structural resize chrome from that same synchronous state
@@ -2243,23 +2871,33 @@ body.basehalf-canvas-edge-reconnecting * {
 	opacity: 0 !important;
 	pointer-events: none !important;
 	transition: none !important;
-}.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-band {
+}
+
+.monaco-workbench .react-flow__node:has(.basehalf-canvas-card[data-note-editing="true"]) > .basehalf-canvas-node-resizer-handle .basehalf-canvas-node-resize-corner-band {
 	pointer-events: none !important;
-}.monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),
 .monaco-workbench .basehalf-canvas-node-resizer-handle.bottom:not(.left):not(.right),
 .monaco-workbench .basehalf-canvas-node-resizer-handle.left:not(.top):not(.bottom),
 .monaco-workbench .basehalf-canvas-node-resizer-handle.right:not(.top):not(.bottom) {
 	display: none;
-}.monaco-workbench .basehalf-file-glyph {
+}
+
+.monaco-workbench .basehalf-file-glyph {
 	flex: none;
 	display: block;
-}.monaco-workbench .basehalf-canvas-empty {
+}
+
+.monaco-workbench .basehalf-canvas-empty {
 	position: absolute;
 	top: 72px;
 	left: 22px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 13px;
-}.monaco-workbench .basehalf-canvas-empty-state {
+}
+
+.monaco-workbench .basehalf-canvas-empty-state {
 	position: absolute;
 	top: 50%;
 	left: 50%;
@@ -2269,14 +2907,20 @@ body.basehalf-canvas-edge-reconnecting * {
 	gap: 8px;
 	pointer-events: auto;
 	transform: translate(-50%, -50%);
-}.monaco-workbench .basehalf-canvas-empty-title {
+}
+
+.monaco-workbench .basehalf-canvas-empty-title {
 	color: var(--vscode-descriptionForeground);
 	font-size: 13px;
-}.monaco-workbench .basehalf-canvas-empty-actions {
+}
+
+.monaco-workbench .basehalf-canvas-empty-actions {
 	display: flex;
 	align-items: center;
 	gap: 4px;
-}.monaco-workbench .basehalf-canvas-empty-note,
+}
+
+.monaco-workbench .basehalf-canvas-empty-note,
 .monaco-workbench .basehalf-canvas-empty-import {
 	display: inline-flex;
 	align-items: center;
@@ -2290,36 +2934,52 @@ body.basehalf-canvas-edge-reconnecting * {
 	font: inherit;
 	font-size: 12px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-canvas-empty-note .codicon {
+}
+
+.monaco-workbench .basehalf-canvas-empty-note .codicon {
 	font-size: 14px;
-}.monaco-workbench .basehalf-canvas-empty-note-label {
+}
+
+.monaco-workbench .basehalf-canvas-empty-note-label {
 	font-weight: 500;
-}.monaco-workbench .basehalf-canvas-empty-note:hover,
+}
+
+.monaco-workbench .basehalf-canvas-empty-note:hover,
 .monaco-workbench .basehalf-canvas-empty-import:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	border-color: var(--bh-card-border-strong);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-empty-note:focus-visible,
+}
+
+.monaco-workbench .basehalf-canvas-empty-note:focus-visible,
 .monaco-workbench .basehalf-canvas-empty-import:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	border-color: var(--bh-canvas-focus-ring);
 	outline: none;
-}.monaco-workbench .basehalf-canvas-empty-note:active,
+}
+
+.monaco-workbench .basehalf-canvas-empty-note:active,
 .monaco-workbench .basehalf-canvas-empty-import:active {
 	transform: translateY(1px);
-}.monaco-workbench .basehalf-canvas-truncated {
+}
+
+.monaco-workbench .basehalf-canvas-truncated {
 	position: absolute;
 	left: 14px;
 	bottom: 58px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
-}.monaco-workbench .basehalf-canvas-connections-status {
+}
+
+.monaco-workbench .basehalf-canvas-connections-status {
 	position: absolute;
 	left: 14px;
 	bottom: 78px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
-}.monaco-workbench .basehalf-canvas-warning {
+}
+
+.monaco-workbench .basehalf-canvas-warning {
 	position: absolute;
 	top: 58px;
 	right: 18px;
@@ -2333,16 +2993,22 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid var(--vscode-inputValidation-warningBorder);
 	border-radius: 4px;
 	font-size: 12px;
-}.monaco-workbench .basehalf-card-detail {
+}
+
+.monaco-workbench .basehalf-card-detail {
 	position: absolute;
 	inset: 0;
 	z-index: 10;
 	display: none;
 	flex-direction: column;
 	background-color: var(--vscode-editor-background);
-}.monaco-workbench .basehalf-card-detail.visible {
+}
+
+.monaco-workbench .basehalf-card-detail.visible {
 	display: flex;
-}.monaco-workbench .basehalf-card-detail-header {
+}
+
+.monaco-workbench .basehalf-card-detail-header {
 	box-sizing: border-box;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -2351,19 +3017,25 @@ body.basehalf-canvas-edge-reconnecting * {
 	min-height: 36px;
 	padding: 0 6px 0 14px;
 	border-bottom: 1px solid var(--vscode-editorWidget-border);
-}.monaco-workbench .basehalf-card-detail-title-block {
+}
+
+.monaco-workbench .basehalf-card-detail-title-block {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
-}.monaco-workbench .basehalf-card-detail-title {
+}
+
+.monaco-workbench .basehalf-card-detail-title {
 	display: flex;
 	align-items: center;
 	min-width: 0;
 	overflow: hidden;
 	font-size: 13px;
 	font-weight: 600;
-}.monaco-workbench .basehalf-card-detail-title-button {
+}
+
+.monaco-workbench .basehalf-card-detail-title-button {
 	min-width: 0;
 	max-width: 100%;
 	padding: 2px 4px;
@@ -2376,39 +3048,54 @@ body.basehalf-canvas-edge-reconnecting * {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	cursor: text;
-}.monaco-workbench .basehalf-card-detail-title-button:hover {
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
-}.monaco-workbench .basehalf-card-detail-title-button:focus-visible {
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}.monaco-workbench .basehalf-card-detail-title-input {
+}
+
+.monaco-workbench .basehalf-card-detail-title-input {
 	width: min(360px, 42vw);
 	min-width: 120px;
-}.monaco-workbench .basehalf-card-detail-title-input .monaco-inputbox {
+}
+
+.monaco-workbench .basehalf-card-detail-title-input .monaco-inputbox {
 	width: 100%;
-}.monaco-workbench .basehalf-card-detail-meta {
+}
+
+.monaco-workbench .basehalf-card-detail-meta {
 	flex: none;
 	color: var(--vscode-descriptionForeground);
 	font-size: 11px;
 	line-height: 16px;
 	white-space: nowrap;
-}.monaco-workbench .basehalf-card-detail-meta:empty {
+}
+
+.monaco-workbench .basehalf-card-detail-meta:empty {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-actions {
+}
+
+.monaco-workbench .basehalf-card-detail-actions {
 	position: relative;
 	display: flex;
 	align-items: center;
 	justify-self: end;
 	gap: 4px;
 	flex: none;
-}/* Hidden while auto-save works; appears only as the "saving stopped
-   working" escape hatch (conflict/error), where clicking retries. */
+}
 
 /* Hidden while auto-save works; appears only as the "saving stopped
    working" escape hatch (conflict/error), where clicking retries. */
 .monaco-workbench .basehalf-card-detail-save-status {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"] {
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"] {
 	flex: none;
 	display: inline-flex;
 	align-items: center;
@@ -2427,11 +3114,15 @@ body.basehalf-canvas-edge-reconnecting * {
 	white-space: nowrap;
 	cursor: pointer;
 	animation: basehalf-detail-save-status-fade-in 180ms ease;
-}.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:hover,
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:hover,
 .monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: 1px solid var(--vscode-focusBorder);
-}.monaco-workbench .basehalf-card-detail-save-status-icon {
+}
+
+.monaco-workbench .basehalf-card-detail-save-status-icon {
 	flex: none;
 	display: inline-flex;
 	align-items: center;
@@ -2441,13 +3132,19 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 12px;
 	line-height: 12px;
 	color: currentColor;
-}.monaco-workbench .basehalf-card-detail-projections {
+}
+
+.monaco-workbench .basehalf-card-detail-projections {
 	display: none;
 	align-items: center;
 	gap: 0;
-}.monaco-workbench .basehalf-card-detail-projections.visible {
+}
+
+.monaco-workbench .basehalf-card-detail-projections.visible {
 	display: flex;
-}.monaco-workbench .basehalf-card-detail-projection {
+}
+
+.monaco-workbench .basehalf-card-detail-projection {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2461,17 +3158,25 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 16px;
 	line-height: 1;
 	cursor: pointer;
-}.monaco-workbench .basehalf-card-detail-projection:hover {
+}
+
+.monaco-workbench .basehalf-card-detail-projection:hover {
 	color: var(--vscode-icon-foreground);
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: none;
-}.monaco-workbench .basehalf-card-detail-projection:focus-visible {
+}
+
+.monaco-workbench .basehalf-card-detail-projection:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}.monaco-workbench .basehalf-card-detail-projection.checked {
+}
+
+.monaco-workbench .basehalf-card-detail-projection.checked {
 	color: var(--vscode-editor-foreground);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-activeBackground) 62%, transparent);
-}.monaco-workbench .basehalf-card-detail-close {
+}
+
+.monaco-workbench .basehalf-card-detail-close {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2486,26 +3191,40 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1;
 	cursor: pointer;
 	margin-left: 2px;
-}.monaco-workbench .basehalf-card-detail-close:hover {
+}
+
+.monaco-workbench .basehalf-card-detail-close:hover {
 	color: var(--vscode-icon-foreground);
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: none;
-}.monaco-workbench .basehalf-card-detail-close:focus-visible {
+}
+
+.monaco-workbench .basehalf-card-detail-close:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}@media (forced-colors: active) {.monaco-workbench .basehalf-card-detail-projection.checked {
+}
+
+@media (forced-colors: active) {
+	.monaco-workbench .basehalf-card-detail-projection.checked {
 		outline: 1px solid CanvasText;
 		outline-offset: -1px;
-	}}.monaco-workbench .basehalf-card-detail-badge {
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-badge {
 	flex: none;
 	display: flex;
 	flex-direction: column;
 	position: relative;
 	justify-self: center;
 	background-color: transparent;
-}.monaco-workbench .basehalf-card-detail-badge:empty {
+}
+
+.monaco-workbench .basehalf-card-detail-badge:empty {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-badge-toggle {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle {
 	position: relative;
 	display: flex;
 	align-items: center;
@@ -2518,36 +3237,60 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
-}.monaco-workbench .basehalf-card-detail-badge-toggle:hover {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
-}.monaco-workbench .basehalf-card-detail-badge-toggle:focus-visible {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: 1px solid var(--vscode-focusBorder);
-}.monaco-workbench .basehalf-card-detail-badge-toggle.issue {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle.issue {
 	color: var(--vscode-editorWarning-foreground);
 	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 9%, transparent);
-}.monaco-workbench .basehalf-reference-issue-marker.detail {
+}
+
+.monaco-workbench .basehalf-reference-issue-marker.detail {
 	position: absolute;
 	top: 4px;
 	right: 4px;
 	background: var(--vscode-editorWarning-foreground);
-}.monaco-workbench .basehalf-card-detail-badge.open .basehalf-card-detail-badge-toggle {
+}
+
+.monaco-workbench .basehalf-card-detail-badge.open .basehalf-card-detail-badge-toggle {
 	background-color: var(--vscode-button-secondaryBackground);
-}.monaco-workbench .basehalf-card-detail-badge-toggle .codicon,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle .codicon,
 .monaco-workbench .basehalf-card-detail-badge-toggle .basehalf-file-glyph {
 	flex: none;
 	font-size: 12px;
-}.monaco-workbench .basehalf-card-detail-badge-title {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-title {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-badge-chevron {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-chevron {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-badge:not(.open) .basehalf-card-detail-badge-chevron {
+}
+
+.monaco-workbench .basehalf-card-detail-badge:not(.open) .basehalf-card-detail-badge-chevron {
 	transform: rotate(-90deg);
-}.monaco-workbench .basehalf-card-detail-badge-summary {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-summary {
 	display: none;
-}.monaco-workbench .basehalf-card-detail-badge-summary.empty {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-summary.empty {
 	opacity: 0.8;
-}.monaco-workbench .basehalf-card-detail-badge-body {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body {
 	position: absolute;
 	top: calc(100% + 8px);
 	left: 50%;
@@ -2568,10 +3311,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	transform: translateX(-50%);
 	animation: basehalf-detail-badge-popover-in 110ms ease-out;
 	scrollbar-gutter: stable;
-}.monaco-workbench .basehalf-card-detail-badge-body:focus-visible {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt {
 	min-height: 24px;
 	max-height: 128px;
 	overscroll-behavior: contain;
@@ -2580,76 +3327,115 @@ body.basehalf-canvas-edge-reconnecting * {
 	border-bottom-color: transparent;
 	font-size: 13px;
 	line-height: 1.62;
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt.scrollable {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt.scrollable {
 	overflow-y: auto;
 	scrollbar-gutter: stable;
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt:focus {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt:focus {
 	color: var(--vscode-foreground);
 	border-bottom-color: color-mix(in srgb, var(--vscode-editorWidget-border) 82%, transparent);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt::placeholder {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt::placeholder {
 	color: var(--basehalf-detail-badge-ghost);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-list {
 	gap: 5px;
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-direction {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-direction {
 	color: var(--basehalf-detail-badge-ghost);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section.reference-issues {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section.reference-issues {
 	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 8%, transparent);
 	border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground) 30%, transparent);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issues-title,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issues-title,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-direction.issue {
 	color: var(--vscode-editorWarning-foreground);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-message,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-message,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section-title,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-helper,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-empty,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-role {
 	color: var(--vscode-descriptionForeground);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-action {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-issue-action {
 	color: var(--vscode-foreground);
 	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 10%, transparent);
 	border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground) 35%, transparent);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream {
 	color: var(--basehalf-detail-badge-ghost);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link {
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link {
 	max-width: min(320px, 48vw);
 	color: var(--vscode-textLink-foreground);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream {
 	padding: 1px 7px;
 	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 58%, transparent);
 	border-radius: 999px;
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:hover {
 	border-color: color-mix(in srgb, var(--vscode-foreground) 42%, transparent);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:focus-visible {
 	border-color: color-mix(in srgb, var(--vscode-focusBorder) 65%, transparent);
 	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
-}.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link:hover,
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-downstream:hover {
 	color: var(--vscode-textLink-foreground);
-}@keyframes basehalf-detail-badge-popover-in {from {
+}
+
+@keyframes basehalf-detail-badge-popover-in {
+	from {
 		opacity: 0;
 		transform: translateX(-50%) translateY(-2px) scale(0.985);
-	}to {
+	}
+
+	to {
 		opacity: 1;
 		transform: translateX(-50%) translateY(0) scale(1);
-	}}@media (prefers-reduced-motion: reduce) {.monaco-workbench .basehalf-card-detail-badge-body {
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-card-detail-badge-body {
 		animation: none;
-	}}.monaco-workbench .basehalf-card-detail-body {
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-body {
 	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
-}/* One retained layer per projection of the open document. A booting layer
-   stays hidden (visibility keeps layout and lets the webview/editor measure
-   and render) until its first meaningful frame, then the swap is atomic —
-   the previous projection remains visible until that moment. */
+}
 
 /* One retained layer per projection of the open document. A booting layer
    stays hidden (visibility keeps layout and lets the webview/editor measure
@@ -2659,53 +3445,75 @@ body.basehalf-canvas-edge-reconnecting * {
 	position: absolute;
 	inset: 0;
 	visibility: hidden;
-}.monaco-workbench .basehalf-card-detail-surface.active {
+}
+
+.monaco-workbench .basehalf-card-detail-surface.active {
 	visibility: visible;
-}.monaco-workbench .basehalf-card-detail-status {
+}
+
+.monaco-workbench .basehalf-card-detail-status {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding: 18px 22px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 13px;
-}.monaco-workbench .basehalf-card-detail-status.error {
+}
+
+.monaco-workbench .basehalf-card-detail-status.error {
 	color: var(--vscode-errorForeground);
-}.monaco-workbench .basehalf-card-detail-status-retry {
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry {
 	padding: 4px 10px;
 	border: 1px solid var(--vscode-button-border, transparent);
 	border-radius: 2px;
 	color: var(--vscode-button-foreground);
 	background: var(--vscode-button-background);
 	cursor: pointer;
-}.monaco-workbench .basehalf-card-detail-status-retry:hover {
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry:hover {
 	background: var(--vscode-button-hoverBackground);
-}.monaco-workbench .basehalf-card-detail-source {
+}
+
+.monaco-workbench .basehalf-card-detail-source {
 	display: flex;
 	flex-direction: column;
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-}.monaco-workbench .basehalf-card-detail-source-editor {
+}
+
+.monaco-workbench .basehalf-card-detail-source-editor {
 	flex: 1;
 	min-height: 0;
-}.monaco-workbench .basehalf-card-detail-source-notice {
+}
+
+.monaco-workbench .basehalf-card-detail-source-notice {
 	flex: none;
 	padding: 24px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 13px;
 	text-align: center;
-}.monaco-workbench .basehalf-card-detail-markdown-preview {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview {
 	display: flex;
 	flex-direction: column;
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-scroll {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-scroll {
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
 	padding: 48px max(28px, calc((100% - 760px) / 2)) 72px;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content {
 	/* The bar of a table that is scrolled sideways is placed in this box. */
 	position: relative;
 	max-width: 760px;
@@ -2713,35 +3521,45 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--vscode-editor-foreground);
 	font-size: 14px;
 	line-height: 1.65;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content h1,
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h1,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content h2,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content h3 {
 	margin-top: 1.4em;
 	margin-bottom: 0.7em;
 	line-height: 1.25;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content h1:first-child,
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content h1:first-child,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content h2:first-child,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content h3:first-child {
 	margin-top: 0;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content p,
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content p,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content ul,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content ol,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content blockquote,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
 	margin-top: 0;
 	margin-bottom: 1em;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content pre {
 	padding: 12px;
 	overflow: auto;
 	background-color: var(--vscode-textCodeBlock-background);
 	border-radius: 4px;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content code {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content code {
 	font-family: var(--monaco-monospace-font);
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content img {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content img {
 	max-width: 100%;
-}/* The system's bar of a box that scrolls sideways grows and turns light under
- * the pointer. The box shows the one bar of a note instead, while it is
- * scrolled. */
+}
 
 /* The system's bar of a box that scrolls sideways grows and turns light under
  * the pointer. The box shows the one bar of a note instead, while it is
@@ -2749,8 +3567,7 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-card-detail-markdown-preview-content table::-webkit-scrollbar,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content pre::-webkit-scrollbar {
 	display: none;
-}/* A table keeps the widths its columns need. When it is wider than the text
- * column it scrolls sideways in its own box. */
+}
 
 /* A table keeps the widths its columns need. When it is wider than the text
  * column it scrolls sideways in its own box. */
@@ -2763,42 +3580,63 @@ body.basehalf-canvas-edge-reconnecting * {
 	overflow-x: auto;
 	border-collapse: collapse;
 	border-spacing: 0;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content th,
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th,
 .monaco-workbench .basehalf-card-detail-markdown-preview-content td {
 	padding: 5px 12px;
 	border: 1px solid color-mix(in srgb, var(--vscode-editor-foreground) 28%, transparent);
 	vertical-align: top;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content th {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th {
 	font-weight: 600;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-content th:not([align]) {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-content th:not([align]) {
 	text-align: start;
-}.monaco-workbench .basehalf-card-detail-markdown-preview-selection-reveal {
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-preview-selection-reveal {
 	animation: basehalf-card-detail-selection-reveal 1.6s ease-out;
 	border-radius: 4px;
-}@keyframes basehalf-card-detail-selection-reveal {0% {
+}
+
+@keyframes basehalf-card-detail-selection-reveal {
+	0% {
 		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c00) 55%, transparent);
 		box-shadow: 0 0 0 2px var(--vscode-editor-findMatchBorder, transparent);
-	}100% {
+	}
+	100% {
 		background: transparent;
 		box-shadow: 0 0 0 0 transparent;
-	}}.monaco-workbench .basehalf-card-detail-markdown-rich {
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich {
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-}@keyframes basehalf-detail-save-status-fade-in {from {
+}
+
+@keyframes basehalf-detail-save-status-fade-in {
+	from {
 		opacity: 0;
-	}to {
+	}
+	to {
 		opacity: 1;
-	}}.monaco-workbench .basehalf-card-detail-markdown-rich-webview {
+	}
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-webview {
 	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow: hidden;
-}/* The iframe can load and measure while hidden, but it cannot take focus or
-   expose a half-initialized editor before its load/focus boundary settles. */
+}
 
 /* The iframe can load and measure while hidden, but it cannot take focus or
    expose a half-initialized editor before its load/focus boundary settles. */
@@ -2807,7 +3645,9 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-card-detail-markdown-rich-webview[data-basehalf-render-state="paused"] {
 	opacity: 0;
 	pointer-events: none;
-}.monaco-workbench .basehalf-card-detail-media,
+}
+
+.monaco-workbench .basehalf-card-detail-media,
 .monaco-workbench .basehalf-card-detail-media-webview {
 	position: relative;
 	width: 100%;
