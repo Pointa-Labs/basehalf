@@ -493,6 +493,7 @@ import './basehalf/browser/basehalfCanvasTemplateExtensionPoint.contribution.js'
 import './basehalf/browser/basehalfModelProviderCatalogExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfVideoModelCatalogExtensionPoint.contribution.js';
 import './basehalf/browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
+import './basehalf/browser/basehalfVideoNodeStore.js';
 import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';
 import './basehalf/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/browser/basehalfNodeFileOperations.contribution.js';
