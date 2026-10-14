@@ -6,7 +6,7 @@
 import './media/basehalfCanvasWorkbench.css';
 
 import * as DOM from '../../../base/browser/dom.js';
-import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isHTMLTextAreaElement, isSVGElement } from '../../../base/browser/dom.js';
+import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isSVGElement } from '../../../base/browser/dom.js';
 import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../base/browser/ui/contextview/contextview.js';
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
@@ -15,25 +15,23 @@ import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../base/common/platform.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
-import { safeIntl } from '../../../base/common/date.js';
 import { generateUuid } from '../../../base/common/uuid.js';
-import { equals as objectsEqual, stableStringify } from '../../../base/common/objects.js';
-import { IAction, Separator, SubmenuAction, toAction } from '../../../base/common/actions.js';
+import { stableStringify } from '../../../base/common/objects.js';
+import { IAction, Separator, toAction } from '../../../base/common/actions.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { FileAccess } from '../../../base/common/network.js';
 import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
 import { RedoCommand, UndoCommand } from '../../../editor/browser/editorExtensions.js';
 import { localize } from '../../../nls.js';
-import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
+import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../platform/clipboard/common/clipboardService.js';
 import { IDialogService, IFileDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { getPathForFile } from '../../../platform/dnd/browser/dnd.js';
-import { FileChangesEvent, FileOperationResult, FileSystemProviderCapabilities, IFileContent, IFileService, IFileStat, toFileOperationResult } from '../../../platform/files/common/files.js';
+import { FileChangesEvent, FileOperationResult, FileSystemProviderCapabilities, IFileService, IFileStat, toFileOperationResult } from '../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../platform/log/common/log.js';
-import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput/common/quickInput.js';
 import { IContextMenuService, IContextViewDelegate, IContextViewService } from '../../../platform/contextview/browser/contextView.js';
 import { defaultInputBoxStyles } from '../../../platform/theme/browser/defaultStyles.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
@@ -46,7 +44,6 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { EditorsOrder, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
-import { SettingsEditor2Input } from '../../services/preferences/common/preferencesEditorInput.js';
 import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js';
 import { IPathService } from '../../services/path/common/pathService.js';
 import { ITextFileService } from '../../services/textfile/common/textfiles.js';
@@ -75,13 +72,13 @@ import {
 import { IBaseHalfBadgeFile, IBaseHalfBadgeMirrorService, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
 import { baseHalfCanvasTidy } from '../common/basehalfCanvasArrangement.js';
 import { BaseHalfCanvasChosenPlaces } from '../common/basehalfCanvasChosenPlaces.js';
-import { baseHalfCanvasConnectionSummary, baseHalfCanvasDeleteImpact, baseHalfCanvasResolveSiblingUpstream, baseHalfNodeUpstreamWithSourceChanges, IBaseHalfCanvasDeleteImpactStore } from '../common/basehalfCanvasUpstream.js';
+import { baseHalfCanvasConnectionSummary, baseHalfCanvasDeleteImpact, baseHalfCanvasResolveSiblingUpstream, IBaseHalfCanvasDeleteImpactStore } from '../common/basehalfCanvasUpstream.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
-import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit, IBaseHalfUpstreamStoreSnapshot } from '../common/basehalfReferenceEdit.js';
-import { BASEHALF_UPSTREAM_MAX_NODE_ENTRIES, baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
+import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService, IBaseHalfReferenceStoreEdit } from '../common/basehalfReferenceEdit.js';
+import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpstreamIdentity } from '../common/basehalfReferenceEntries.js';
 import { BaseHalfReferenceIndexState, IBaseHalfIndexedDownstream, IBaseHalfReferenceIndexService, IBaseHalfUpstreamView } from '../common/basehalfReferenceIndex.js';
 import { baseHalfUpstreamStoreKind, planBaseHalfMarkdownUpstreamEdit } from '../common/basehalfReferenceStore.js';
-import { BaseHalfBadgeConnectionsFocusTarget, BaseHalfUpstreamActions, BaseHalfUpstreamBindingChoice, IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from './basehalfUpstreamActions.js';
+import { BaseHalfBadgeConnectionsFocusTarget, BaseHalfUpstreamActions, IBaseHalfUpstreamActionContext, IBaseHalfUpstreamActionNode } from './basehalfUpstreamActions.js';
 import { IBaseHalfCanvasAppearanceService } from '../common/basehalfCanvasAppearance.js';
 import { BaseHalfCanvasCardListenerStores } from '../common/basehalfCanvasCardListeners.js';
 import {
@@ -122,143 +119,19 @@ import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import {
-	analyzeBaseHalfNodeUpstream,
-	baseHalfNodeUpstreamItemValues,
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	BASEHALF_NODE_PROMPT_MAX_LENGTH,
 	BaseHalfNodeDocumentError,
-	BaseHalfNodeArtifactKind,
-	BaseHalfNodeJsonValue,
 	BaseHalfNodeKind,
 	createBaseHalfNodeDocument,
 	getBaseHalfNodeResultArtifact,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeInputBinding,
-	IBaseHalfNodeResultArtifact,
-	IBaseHalfNodeUpstreamAnalysis,
 	importBaseHalfNodeResult,
-	isBaseHalfNodeDraft,
 	parseBaseHalfNodeDocumentBytes,
-	parseBaseHalfNodeDocumentBytesForActiveHost,
 	serializeBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
-import {
-	BaseHalfCanvasContentKind,
-	baseHalfCanvasContentKindForPath,
-	baseHalfCanvasRecipeMatchesNodeKind,
-	compensateBaseHalfCanvasConnectedNodeCreate,
-	createBaseHalfCanvasConnectedNodeDocument,
-	getBaseHalfCanvasConnectionNodeTargets,
-	getBaseHalfCanvasDefaultNodeRole,
-	IBaseHalfCanvasConnectionNodeTarget,
-	IBaseHalfCanvasRecipeDescriptor,
-	IBaseHalfCanvasRecipeParameterDefinition,
-	IBaseHalfCanvasRecipeRegistryService,
-	resolveBaseHalfNodeImplicitVideoRecipe
-} from '../common/basehalfCanvasRecipes.js';
-import {
-	BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID,
-	BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID,
-	IBaseHalfModelServiceDescriptor,
-	IBaseHalfModelServiceService,
-	isBaseHalfPublicHttpsBearerModelServiceConfiguration
-} from '../common/basehalfModelServices.js';
-import {
-	IBaseHalfModelProviderCatalogService,
-	IBaseHalfRegisteredModelProviderConnectionSpec
-} from '../common/basehalfModelProviderCatalogs.js';
-import {
-	IBaseHalfModelConnectionCompletion,
-	IBaseHalfModelConnectionNavigationService
-} from '../common/basehalfModelConnectionNavigation.js';
-import { IBaseHalfVideoModelCatalogService } from '../common/basehalfVideoModelCatalogs.js';
-import {
-	BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID,
-	BASEHALF_VIDEO_GENERATION_MODES,
-	BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID,
-	BaseHalfVideoGenerationMode,
-	BaseHalfVideoInputKind,
-	BaseHalfVideoInputState,
-	BaseHalfVideoCapabilityResolution,
-	BaseHalfVideoModelScalar,
-	BaseHalfVideoSettings,
-	BaseHalfVideoSettingsNormalization,
-	baseHalfVideoModelMatchesServiceScope,
-	createBaseHalfVideoModelRegistry,
-	createBaseHalfVideoModelSelectionSnapshotFromCapability,
-	evaluateBaseHalfVideoInputs,
-	getBaseHalfVideoPromptMaxCharacters,
-	getBaseHalfVideoPromptProblem,
-	IBaseHalfSupportedVideoCapabilityResolution,
-	IBaseHalfVideoInputEvaluation,
-	IBaseHalfVideoModelDescriptor,
-	IBaseHalfVideoModelRegistry,
-	IBaseHalfVideoModelSelectionSnapshot,
-	IBaseHalfVideoSettingAdjustment,
-	parseBaseHalfVideoModelSelectionSnapshot,
-	resolveBaseHalfVideoModelSelectionSnapshot,
-	resolveBaseHalfVideoModelSelectionSnapshotCapability,
-	normalizeBaseHalfVideoSettings,
-	normalizeBaseHalfVideoSettingsForCapability
-} from '../common/basehalfVideoModels.js';
-import {
-	baseHalfVideoModelChoiceLogicalKey,
-	createBaseHalfVideoMessagePrecedencePresentation,
-	createBaseHalfVideoModelPickerPresentation,
-	createBaseHalfVideoModelSettingsPresentation,
-	createBaseHalfVideoSettingAdjustmentPresentations,
-	IBaseHalfVideoMessage,
-	IBaseHalfVideoMessageAction,
-	IBaseHalfVideoModelChoice,
-	IBaseHalfVideoModelPresentationEntry,
-	IBaseHalfVideoModelRowPresentation,
-	IBaseHalfVideoParameterPresentation,
-	mergeBaseHalfVideoSettingAdjustments,
-	reconcileBaseHalfVideoGenerationMethodSettings,
-	reconcileBaseHalfVideoModelSettings,
-	resolveBaseHalfVideoModelPickerFocus
-} from '../common/basehalfVideoModelSettingsPresentation.js';
-import {
-	acceptBaseHalfVideoCanvasPickSelection,
-	acquireBaseHalfVideoInputTransaction,
-	applyBaseHalfVideoInputMutationToDocument,
-	baseHalfVideoCanvasPickDraftRevisionIsCurrent,
-	baseHalfVideoCanvasPickSelectionIsActive,
-	baseHalfVideoInputTransactionIsCurrent,
-	BaseHalfVideoDirectEdgeState,
-	BaseHalfVideoInputMutationError,
-	BaseHalfVideoInputPresentationProblemKind,
-	beginBaseHalfVideoCanvasPick,
-	cancelBaseHalfVideoCanvasPick,
-	completeBaseHalfVideoCanvasPick,
-	confirmBaseHalfVideoDocumentWriteAcknowledgement,
-	consumeBaseHalfVideoCanvasPickDeferredFocus,
-	createBaseHalfVideoCanvasPickState,
-	createBaseHalfVideoDocumentWriteAcknowledgement,
-	createBaseHalfVideoInputTransactionOwnerState,
-	createBaseHalfVideoInputsPresentation,
-	failBaseHalfVideoCanvasPick,
-	getBaseHalfVideoCanvasPickInteraction,
-	getBaseHalfVideoInputsExecutionGate,
-	IBaseHalfVideoCanvasPickState,
-	IBaseHalfVideoDocumentWriteAcknowledgement,
-	IBaseHalfVideoInputMutationPlan,
-	IBaseHalfVideoInputPresentationProblem,
-	IBaseHalfVideoInputSourceState,
-	markBaseHalfVideoCanvasPickCommitting,
-	markBaseHalfVideoCanvasPickReady,
-	markBaseHalfVideoCanvasPickRevalidating,
-	observeBaseHalfVideoDocumentVersion,
-	planBaseHalfVideoFrameSwap,
-	planBaseHalfVideoInputPick,
-	planBaseHalfVideoInputRemove,
-	planBaseHalfVideoInputReplace,
-	planBaseHalfVideoInputRoleChange,
-	releaseBaseHalfVideoInputTransaction,
-	settleBaseHalfVideoDocumentWriteAcknowledgement,
-	updateBaseHalfVideoCanvasPickViewport
-} from '../common/basehalfVideoInputs.js';
+import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../common/basehalfCanvasContentKind.js';
+import { baseHalfVideoNodePhase, BaseHalfVideoNodePhase, IBaseHalfNodeArtifact } from '../common/basehalfVideoNode.js';
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
@@ -291,7 +164,6 @@ import {
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -309,57 +181,9 @@ import {
 	baseHalfCanvasConnectionTargetOrigin,
 	baseHalfCanvasOppositeAnchor
 } from '../common/basehalfCanvasScene.js';
-import {
-	BASEHALF_VIDEO_COMPOSER_HEIGHT,
-	BASEHALF_VIDEO_COMPOSER_WIDTH,
-	BaseHalfVideoComposerDirectManipulation,
-	createBaseHalfVideoComposerFooterPresentation,
-	IBaseHalfVideoComposerLayout
-} from '../common/basehalfVideoComposerPresentation.js';
 import type { BaseHalfMarkdownFormatCommand } from '../common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
-import { BaseHalfNodeArtifactIntegrity, baseHalfNodeImportedAssetDirectory, IBaseHalfNodeExecutionService, IBaseHalfNodeExecutionState, IBaseHalfNodeProviderRunAuthorization } from './basehalfNodeExecutionService.js';
-import {
-	BaseHalfNodeLocalDraftExitCoordinator,
-	BaseHalfNodeParameterDraftValue,
-	baseHalfNodeArtifactUsesTextPreview,
-	baseHalfNodeCanImportContentKind,
-	baseHalfNodeAttemptHasCompleteRetrySnapshot,
-	baseHalfNodeImportActionLabel,
-	baseHalfNodeImportObjectLabel,
-	baseHalfNodeLocalPrimaryActionOpensSurface,
-	baseHalfNodeLocalStatusToken,
-	baseHalfNodeLocalSurfaceTargetOwnsEscape,
-	chooseBaseHalfNodeConnectionSlot,
-	configureBaseHalfNodeLocalSurfaceAccessibility,
-	createBaseHalfNodeParameterDraft,
-	decodeBaseHalfNodeTextPreview,
-	getBaseHalfNodeAvailableInputSlots,
-	getBaseHalfNodeAssignableInputSlots,
-	getBaseHalfNodeInputResultLabel,
-	getBaseHalfNodeInputStructureProblem,
-	getBaseHalfNodeInputRows,
-	getBaseHalfNodeCardStatusText,
-	getBaseHalfNodeResultArtifactOpenProblem,
-	getBaseHalfNodeImportProblem,
-	getBaseHalfNodeLocalState,
-	getBaseHalfNodeLocalExecutionState,
-	getBaseHalfNodeModelSelectionProblem,
-	getBaseHalfNodeAttemptDisclosureLines,
-	getBaseHalfNodeAttemptSummary,
-	resolveBaseHalfNodeLocalSurfacePlacement,
-	resolveBaseHalfVideoComposerPopoverGeometryDismissReason,
-	resolveBaseHalfVideoComposerPopoverPlacement,
-	IBaseHalfNodeLocalConfigurationDraft,
-	IBaseHalfNodeInputResultIdentity,
-	isBaseHalfNodeCardStatusPositive,
-	mergeBaseHalfNodeLocalConfigurationDraft,
-	moveBaseHalfNodeInputBinding,
-	parseBaseHalfNodeParameterDraft,
-	resolveBaseHalfNodeLocalDraftExit,
-	resolveBaseHalfNodeRecipeDraft
-} from './basehalfNodeLocalSurface.js';
 import {
 	BaseHalfStructuralResourceOutcome,
 	baseHalfStructuralResourceOutcome,
@@ -373,552 +197,6 @@ interface IBaseHalfCanvasMediaPreview {
 	readonly text: string;
 	readonly mediaKind: 'image' | 'video' | 'audio' | 'pdf';
 	readonly resource: URI;
-}
-
-interface IBaseHalfNodeInboundSource {
-	readonly path: string;
-	readonly kind?: BaseHalfCanvasContentKind;
-	readonly resultIdentity?: IBaseHalfNodeInputResultIdentity;
-}
-
-interface IBaseHalfNodeInboundState {
-	readonly sources: readonly IBaseHalfNodeInboundSource[];
-	readonly problem?: string;
-}
-
-function baseHalfNodeInboundInputKinds(sources: readonly IBaseHalfNodeInboundSource[]): Map<string, BaseHalfCanvasContentKind> {
-	return new Map(sources.flatMap(source => source.kind === undefined ? [] : [[source.path, source.kind] as const]));
-}
-
-type BaseHalfVideoComposerOverlay = 'models' | 'settings' | 'inputs' | 'attempts';
-
-interface IBaseHalfVideoComposerModelState {
-	readonly registry: IBaseHalfVideoModelRegistry;
-	readonly inputs: BaseHalfVideoInputState;
-	readonly models: readonly IBaseHalfVideoModelDescriptor[];
-	readonly service?: IBaseHalfModelServiceDescriptor;
-	readonly descriptor?: IBaseHalfVideoModelDescriptor;
-	readonly mode?: BaseHalfVideoGenerationMode;
-	readonly resolution?: BaseHalfVideoCapabilityResolution;
-	readonly inputEvaluation?: IBaseHalfVideoInputEvaluation;
-	readonly normalization?: BaseHalfVideoSettingsNormalization;
-	readonly problem?: string;
-}
-
-export interface IBaseHalfCanvasVideoModelProblemActionContext {
-	readonly hasProblem: boolean;
-	readonly hasSelectedModel: boolean;
-	readonly hasConnection: boolean;
-	readonly connectionConfigured: boolean;
-	readonly connectionTransportSupported: boolean;
-	readonly connectionSetupAvailable: boolean;
-	readonly replacementConnectionAvailable: boolean;
-	readonly capabilityStatus?: BaseHalfVideoCapabilityResolution['status'];
-	readonly settingsStatus?: BaseHalfVideoSettingsNormalization['status'];
-	readonly hasPromptProblem: boolean;
-}
-
-/** Projects a model/configuration blocker into one concrete product action. */
-export function baseHalfCanvasVideoModelProblemAction(
-	context: IBaseHalfCanvasVideoModelProblemActionContext
-): IBaseHalfVideoMessageAction | undefined {
-	if (!context.hasProblem) {
-		return undefined;
-	}
-	if (context.capabilityStatus === 'supported') {
-		if (context.settingsStatus === 'unavailable') {
-			return Object.freeze({ id: 'adjust-settings', label: 'Adjust available settings' });
-		}
-		if (context.hasPromptProblem) {
-			return Object.freeze({ id: 'edit-prompt', label: 'Edit prompt' });
-		}
-		return Object.freeze({ id: 'apply-settings', label: 'Apply current settings' });
-	}
-	if (!context.hasSelectedModel) {
-		return Object.freeze({ id: 'choose-model', label: 'Choose a model' });
-	}
-	if (!context.hasConnection) {
-		if (context.replacementConnectionAvailable) {
-			return Object.freeze({ id: 'choose-model', label: 'Use available connection' });
-		}
-		return context.connectionSetupAvailable
-			? Object.freeze({ id: 'connect-model', label: 'Connect' })
-			: Object.freeze({ id: 'choose-model', label: 'Choose another model' });
-	}
-	if (!context.connectionConfigured || !context.connectionTransportSupported) {
-		return Object.freeze({ id: 'reconnect-model', label: 'Reconnect' });
-	}
-	return Object.freeze({ id: 'choose-model', label: 'Choose another model' });
-}
-
-export function baseHalfCanvasVideoConnectionBindingRequiresRebind(
-	exactDraftIdentity: boolean,
-	draftServiceExists: boolean,
-	usableServiceExists: boolean
-): boolean {
-	return exactDraftIdentity && !draftServiceExists && usableServiceExists;
-}
-
-const BASEHALF_VIDEO_MODE_LABELS: Readonly<Record<BaseHalfVideoGenerationMode, string>> = Object.freeze({
-	'text-to-video': 'Text to Video',
-	'first-frame-to-video': 'Start Frame',
-	'first-last-frame-to-video': 'Start + End Frames',
-	'reference-to-video': 'References',
-	'video-edit': 'Edit video',
-	'video-extension': 'Extend video'
-});
-
-function baseHalfVideoSettingsFromRecipeParameters(
-	parameters: Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined
-): BaseHalfVideoSettings {
-	if (!parameters) {
-		return Object.freeze({});
-	}
-	const settings: Record<string, BaseHalfVideoModelScalar> = {};
-	for (const [id, value] of Object.entries(parameters)) {
-		if (typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
-			settings[id] = value;
-		}
-	}
-	return Object.freeze(settings);
-}
-
-/**
- * Video settings keep their provider-neutral scalar types until save. The
- * generic local-surface draft predates numeric capability settings, so this
- * narrow adapter avoids converting numbers to lossy strings between renders.
- */
-function baseHalfVideoSettingsAsParameterDraft(
-	settings: BaseHalfVideoSettings,
-	snapshot?: IBaseHalfVideoModelSelectionSnapshot
-): Record<string, BaseHalfNodeParameterDraftValue> {
-	return {
-		...settings,
-		...(snapshot ? { [BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: snapshot } : {})
-	} as unknown as Record<string, BaseHalfNodeParameterDraftValue>;
-}
-
-function baseHalfCanonicalVideoParameterDraft(
-	catalogId: string,
-	resolution: IBaseHalfSupportedVideoCapabilityResolution,
-	inputs: BaseHalfVideoInputState,
-	normalization: Extract<BaseHalfVideoSettingsNormalization, { readonly status: 'ready' }>
-): Record<string, BaseHalfNodeParameterDraftValue> {
-	return baseHalfVideoSettingsAsParameterDraft(
-		normalization.values,
-		createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, resolution, inputs)
-	);
-}
-
-const EMPTY_BASEHALF_VIDEO_MODEL_REGISTRY = createBaseHalfVideoModelRegistry({ schemaVersion: 1, models: [] });
-const BASEHALF_VIDEO_INPUT_SOURCE_CHANGED_PROBLEM = 'The input source changed after it was attached.';
-
-function baseHalfVideoRegistryForRecipe(
-	service: IBaseHalfVideoModelCatalogService,
-	recipe: IBaseHalfCanvasRecipeDescriptor | undefined
-): IBaseHalfVideoModelRegistry {
-	return recipe?.modelCapability === 'video' && recipe.videoModelCatalogId
-		? service.getRegistry(recipe.videoModelCatalogId, recipe.extensionId)
-		: EMPTY_BASEHALF_VIDEO_MODEL_REGISTRY;
-}
-
-function baseHalfVideoSettingsFromParameterDraft(
-	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>
-): BaseHalfVideoSettings {
-	const settings: Record<string, BaseHalfVideoModelScalar> = {};
-	for (const [id, value] of Object.entries(draft as Readonly<Record<string, unknown>>)) {
-		if (typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
-			settings[id] = value;
-		}
-	}
-	return Object.freeze(settings);
-}
-
-function baseHalfVideoSnapshotFromParameterDraft(
-	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>,
-	expectedCatalogId: string | undefined
-): IBaseHalfVideoModelSelectionSnapshot | undefined {
-	if (!expectedCatalogId) {
-		return undefined;
-	}
-	const value = (draft as Readonly<Record<string, unknown>>)[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
-	if (value === undefined) {
-		return undefined;
-	}
-	try {
-		return parseBaseHalfVideoModelSelectionSnapshot(value, expectedCatalogId);
-	} catch {
-		return undefined;
-	}
-}
-
-function baseHalfVideoModelKeyFromParameterDraft(
-	draft: Readonly<Record<string, BaseHalfNodeParameterDraftValue>>,
-	expectedCatalogId: string | undefined
-): IBaseHalfVideoModelDescriptor['key'] | undefined {
-	const snapshot = baseHalfVideoSnapshotFromParameterDraft(draft, expectedCatalogId);
-	return snapshot ? Object.freeze({
-		provider: snapshot.providerId,
-		deployment: snapshot.deploymentId,
-		region: snapshot.region,
-		modelId: snapshot.modelId,
-		revision: snapshot.revision
-	}) : undefined;
-}
-
-function baseHalfVideoParameterDraftFromRecipeParameters(
-	parameters: Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined,
-	expectedCatalogId: string | undefined
-): Record<string, BaseHalfNodeParameterDraftValue> {
-	const settings = baseHalfVideoSettingsFromRecipeParameters(parameters);
-	if (!parameters || !expectedCatalogId || parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID] === undefined) {
-		return baseHalfVideoSettingsAsParameterDraft(settings);
-	}
-	try {
-		return baseHalfVideoSettingsAsParameterDraft(
-			settings,
-			parseBaseHalfVideoModelSelectionSnapshot(parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID], expectedCatalogId)
-		);
-	} catch {
-		return baseHalfVideoSettingsAsParameterDraft(settings);
-	}
-}
-
-function baseHalfVideoInputState(
-	prompt: string,
-	bindings: readonly IBaseHalfNodeInputBinding[],
-	inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>
-): BaseHalfVideoInputState {
-	const counts: Partial<Record<BaseHalfVideoInputKind, number>> = { 'text-prompt': 1 };
-	const appendInput = (kind: BaseHalfVideoInputKind): void => {
-		counts[kind] = (counts[kind] ?? 0) + 1;
-	};
-	for (const binding of bindings) {
-		const slot = binding.slot.toLowerCase();
-		const contentKind = inputKinds.get(binding.sourcePath);
-		if (slot === 'first-frame') {
-			appendInput('first-frame');
-		} else if (slot === 'last-frame') {
-			appendInput('last-frame');
-		} else if (slot === 'source-video') {
-			appendInput('source-video');
-		} else if (slot === 'audio' || contentKind === 'audio') {
-			appendInput('audio');
-		} else if (contentKind === 'image') {
-			appendInput('reference-image');
-		} else if (contentKind === 'video') {
-			appendInput('reference-video');
-		}
-	}
-	// The field itself participates in mode selection so users can choose a
-	// model before writing. Required prompt content is checked separately.
-	void prompt;
-	return Object.freeze(counts);
-}
-
-function baseHalfVideoInputEvaluationProblem(evaluation: IBaseHalfVideoInputEvaluation): string | undefined {
-	const problem = evaluation.problems[0];
-	if (!problem) {
-		return undefined;
-	}
-	if (problem.kind === 'too-few' && problem.input === 'first-frame') {
-		return localize('basehalf.canvas.videoComposer.addStartFrame', "Add Start Frame.");
-	}
-	if (problem.kind === 'too-few' && problem.input === 'last-frame') {
-		return localize('basehalf.canvas.videoComposer.addEndFrame', "Add End Frame.");
-	}
-	if (problem.kind === 'unsupported' && problem.input === 'first-frame') {
-		return localize('basehalf.canvas.videoComposer.reviewStartFrame', "Remove Start Frame or choose a generation method that uses it.");
-	}
-	if (problem.kind === 'unsupported' && problem.input === 'last-frame') {
-		return localize('basehalf.canvas.videoComposer.reviewEndFrame', "Remove End Frame or choose Start + End Frames.");
-	}
-	return problem.reason;
-}
-
-function baseHalfVideoInputPresentationProblemLabel(kind: BaseHalfVideoInputPresentationProblemKind): string {
-	switch (kind) {
-		case 'missing-start-frame':
-			return localize('basehalf.canvas.videoComposer.missingStartFrame', "Start Frame is required.");
-		case 'missing-end-frame':
-			return localize('basehalf.canvas.videoComposer.missingEndFrame', "End Frame is required.");
-		case 'source-missing':
-			return localize('basehalf.canvas.videoComposer.inputSourceMissing', "The source is missing.");
-		case 'source-changed':
-			return localize('basehalf.canvas.videoComposer.inputSourceChanged', "The source changed after it was attached.");
-		case 'source-unverified':
-			return localize('basehalf.canvas.videoComposer.inputSourceUnverified', "Save and verify the source before generating.");
-		case 'unused-role':
-			return localize('basehalf.canvas.videoComposer.inputRoleUnused', "The selected generation method does not use this role.");
-		case 'incompatible-role':
-			return localize('basehalf.canvas.videoComposer.inputRoleIncompatible', "This source is incompatible with its assigned role.");
-		case 'over-capacity':
-		case 'too-many':
-			return localize('basehalf.canvas.videoComposer.inputOverCapacity', "This role has too many inputs.");
-		case 'too-few':
-			return localize('basehalf.canvas.videoComposer.inputUnderCapacity', "This role needs another input.");
-		case 'unsupported-input':
-			return localize('basehalf.canvas.videoComposer.inputUnsupported', "The selected generation method does not accept this input.");
-	}
-}
-
-function baseHalfVideoInputPresentationProblemMessage(problem: IBaseHalfVideoInputPresentationProblem): string {
-	if (problem.sourcePath) {
-		switch (problem.kind) {
-			case 'source-missing':
-				return localize('basehalf.canvas.videoComposer.namedInputSourceMissing', "Input source '{0}' is missing.", problem.sourcePath);
-			case 'source-changed':
-				return localize('basehalf.canvas.videoComposer.namedInputSourceChanged', "Input source '{0}' changed after it was attached.", problem.sourcePath);
-			case 'source-unverified':
-				return localize('basehalf.canvas.videoComposer.namedInputSourceUnverified', "Save and verify input source '{0}' before generating.", problem.sourcePath);
-		}
-	}
-	return baseHalfVideoInputPresentationProblemLabel(problem.kind);
-}
-
-export function baseHalfCanvasVideoInputReadinessMessage(
-	problem: IBaseHalfVideoInputPresentationProblem
-): IBaseHalfVideoMessage {
-	const actionLabel = problem.kind === 'missing-start-frame'
-		? localize('basehalf.canvas.videoComposer.addStartFrame', "Add Start Frame.")
-		: problem.kind === 'missing-end-frame'
-			? localize('basehalf.canvas.videoComposer.addEndFrame', "Add End Frame.")
-			: localize('basehalf.canvas.videoComposer.reviewInputs', "Review inputs");
-	return Object.freeze({
-		kind: 'input-readiness-problem',
-		message: problem.kind === 'missing-start-frame' || problem.kind === 'missing-end-frame'
-			? actionLabel
-			: baseHalfVideoInputPresentationProblemMessage(problem),
-		action: Object.freeze({
-			id: 'review-inputs',
-			label: actionLabel
-		})
-	});
-}
-
-const BASEHALF_VIDEO_INPUTS_OVERLAY_FOCUS_PREFIX = 'video-overlay:inputs:';
-
-function baseHalfVideoCanvasPickOriginFocusKey(originFocusKey: string | undefined, role: string): string {
-	return originFocusKey?.startsWith(BASEHALF_VIDEO_INPUTS_OVERLAY_FOCUS_PREFIX)
-		? originFocusKey
-		: `video:input:${role}`;
-}
-
-function baseHalfVideoCanvasPickInputsOverlayFocusKey(returnFocusKey: string | undefined): string | undefined {
-	return returnFocusKey?.startsWith(BASEHALF_VIDEO_INPUTS_OVERLAY_FOCUS_PREFIX)
-		? returnFocusKey.slice(BASEHALF_VIDEO_INPUTS_OVERLAY_FOCUS_PREFIX.length)
-		: undefined;
-}
-
-export function baseHalfCanvasVideoPickCandidatePaths(
-	modelPaths: readonly string[],
-	targetNodePath: string
-): readonly string[] {
-	return Object.freeze(modelPaths.filter(sourcePath => sourcePath !== targetNodePath));
-}
-
-export function baseHalfCanvasVideoPickCandidateBatches(
-	modelPaths: readonly string[],
-	targetNodePath: string,
-	maximumBatchSize = 16
-): readonly (readonly string[])[] {
-	if (!Number.isInteger(maximumBatchSize) || maximumBatchSize < 1) {
-		throw new Error('Video input candidate batch size must be a positive integer.');
-	}
-	const paths = baseHalfCanvasVideoPickCandidatePaths(modelPaths, targetNodePath);
-	const batches: (readonly string[])[] = [];
-	for (let offset = 0; offset < paths.length; offset += maximumBatchSize) {
-		batches.push(Object.freeze(paths.slice(offset, offset + maximumBatchSize)));
-	}
-	return Object.freeze(batches);
-}
-
-export function baseHalfCanvasVideoPickMountedCandidatePaths(
-	mountedPaths: readonly string[],
-	candidatePaths: ReadonlySet<string>
-): readonly string[] {
-	return Object.freeze(mountedPaths.filter(path => candidatePaths.has(path)));
-}
-
-export function baseHalfCanvasVideoPickHasCandidateChange(
-	candidatePaths: Iterable<string>,
-	affects: (sourcePath: string) => boolean
-): boolean {
-	for (const sourcePath of candidatePaths) {
-		if (affects(sourcePath)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-export function baseHalfCanvasVideoPickRevisionDependencyPaths(
-	sourcePath: string,
-	artifactPath?: string
-): readonly string[] {
-	return Object.freeze([...new Set([sourcePath, ...(artifactPath ? [artifactPath] : [])])]);
-}
-
-export function baseHalfCanvasVideoPickCheckpointCanContinue(
-	state: IBaseHalfVideoCanvasPickState,
-	epoch: number,
-	transactionIsCurrent: boolean,
-	lifetimeIsCurrent: boolean,
-	surfaceIsConnected: boolean
-): boolean {
-	return transactionIsCurrent
-		&& lifetimeIsCurrent
-		&& surfaceIsConnected
-		&& state.epoch === epoch
-		&& state.request?.epoch === epoch
-		&& state.phase === 'preflighting';
-}
-
-export function baseHalfCanvasSetVideoInputPickActive(
-	cards: HTMLElement,
-	surface: HTMLElement,
-	targetNodePath: string,
-	active: boolean
-): void {
-	if (active) {
-		cards.dataset.videoInputPickActive = targetNodePath;
-		surface.classList.add('input-pick-active');
-		return;
-	}
-	if (cards.dataset.videoInputPickActive === targetNodePath) {
-		delete cards.dataset.videoInputPickActive;
-	}
-	surface.classList.remove('input-pick-active');
-}
-
-export function disposeBaseHalfCanvasVideoPickStore(
-	activePickStore: MutableDisposable<DisposableStore>,
-	pickStore: DisposableStore
-): boolean {
-	if (activePickStore.value === pickStore) {
-		activePickStore.clear();
-		return true;
-	}
-	pickStore.dispose();
-	return false;
-}
-
-function baseHalfVideoDocumentConfigurationProblem(
-	document: IBaseHalfNodeDocument,
-	recipe: IBaseHalfCanvasRecipeDescriptor | undefined,
-	modelServices: readonly IBaseHalfModelServiceDescriptor[],
-	registry: IBaseHalfVideoModelRegistry,
-	inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>
-): string | undefined {
-	if (document.kind !== 'video' || recipe?.modelCapability !== 'video' || !document.recipe) {
-		return undefined;
-	}
-	if (!recipe.videoModelCatalogId) {
-		return 'The selected video generator is not bound to a reviewed model catalog.';
-	}
-	const service = modelServices.find(candidate => candidate.id === document.recipe!.modelServiceId?.toLowerCase());
-	// The generic local-state projection owns missing/unconfigured connection
-	// messaging. Catalog validation begins only after an exact service exists.
-	if (!service?.configured) {
-		return undefined;
-	}
-	if (!isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)) {
-		return 'Reconnect this video model service with a public HTTPS endpoint and Bearer API key.';
-	}
-	const snapshotValue = document.recipe.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
-	if (snapshotValue === undefined || !document.recipe.modelId) {
-		return 'Choose a reviewed video model.';
-	}
-	let snapshot: IBaseHalfVideoModelSelectionSnapshot;
-	try {
-		snapshot = parseBaseHalfVideoModelSelectionSnapshot(snapshotValue, recipe.videoModelCatalogId);
-	} catch (error) {
-		return error instanceof Error ? error.message : 'The saved video model selection is invalid.';
-	}
-	if (snapshot.modelId !== document.recipe.modelId) {
-		return 'The saved video model selection does not match the selected model.';
-	}
-	const persisted = resolveBaseHalfVideoModelSelectionSnapshot(registry, recipe.videoModelCatalogId, service, snapshot);
-	if (persisted.status !== 'supported') {
-		return persisted.reason;
-	}
-	const currentInputs = baseHalfVideoInputState(document.prompt, document.recipe.inputBindings, inputKinds);
-	const current = registry.resolve({ ...persisted.descriptor.key, mode: snapshot.mode, inputs: currentInputs });
-	if (current.status !== 'supported') {
-		return current.reason;
-	}
-	const normalization = normalizeBaseHalfVideoSettings(current, baseHalfVideoSettingsFromRecipeParameters(document.recipe.parameters));
-	if (normalization.status !== 'ready') {
-		return normalization.reason;
-	}
-	const canonicalParameters = baseHalfCanonicalVideoParameterDraft(recipe.videoModelCatalogId, current, currentInputs, normalization);
-	if (!objectsEqual(document.recipe.parameters, canonicalParameters)) {
-		return 'Review the model settings and save this Draft again.';
-	}
-	return getBaseHalfVideoPromptProblem(current, document.prompt);
-}
-
-function layoutBaseHalfVideoComposerPopover(surface: HTMLElement, popover: HTMLElement, bounds?: DOMRect): boolean {
-	const surfaceRect = surface.getBoundingClientRect();
-	const kind = (['models', 'settings', 'inputs', 'attempts'] as const).find(candidate => popover.classList.contains(candidate));
-	const trigger = kind ? (surface.querySelector<HTMLElement>(`[data-video-composer-trigger="${kind}"]`)
-		?? (kind === 'inputs' ? surface.querySelector<HTMLElement>('.basehalf-video-composer-inputs') : undefined)) : undefined;
-	if (!kind || !trigger) {
-		return false;
-	}
-	const surfaceWindow = surface.ownerDocument.defaultView ?? mainWindow;
-	const viewportRect = bounds ?? new DOMRect(0, 0, surfaceWindow.innerWidth, surfaceWindow.innerHeight);
-	const placement = resolveBaseHalfVideoComposerPopoverPlacement({
-		kind,
-		composerPlacement: surface.dataset.placement === 'above' || surface.dataset.placement === 'clamped-above'
-			? surface.dataset.placement
-			: surface.dataset.placement === 'clamped-below' ? 'clamped-below' : 'below',
-		composer: surfaceRect,
-		trigger: trigger.getBoundingClientRect(),
-		viewport: viewportRect,
-		desiredHeight: popover.scrollHeight || 160,
-		alignment: kind === 'inputs' ? 'composer-leading' : kind === 'attempts' ? 'trigger-trailing' : 'trigger-leading'
-	});
-	popover.dataset.popoverPlacement = placement.placement;
-	popover.style.left = `${Math.round(placement.left)}px`;
-	popover.style.top = `${Math.round(placement.top)}px`;
-	popover.style.right = 'auto';
-	popover.style.bottom = 'auto';
-	popover.style.width = `${Math.round(placement.width)}px`;
-	popover.style.setProperty('--basehalf-video-popover-max-height', `${Math.max(48, Math.floor(placement.maxHeight))}px`);
-	return placement.width >= 48 && placement.maxHeight >= 48;
-}
-
-interface IBaseHalfVideoComposerPortalLayout extends IBaseHalfVideoComposerLayout {
-	readonly epoch: number;
-	readonly anchorChanged: boolean;
-	readonly viewportResized: boolean;
-	readonly viewportInteraction: boolean;
-	readonly manipulating?: BaseHalfVideoComposerDirectManipulation;
-}
-
-interface IBaseHalfRenderedNodeChrome {
-	readonly card: HTMLElement;
-	readonly title: string;
-	readonly status?: HTMLElement;
-	readonly action?: HTMLButtonElement;
-	readonly progress?: HTMLElement;
-	readonly progressValue?: HTMLElement;
-}
-
-interface IBaseHalfActiveNodeLocalSurface {
-	readonly sceneKey: string;
-	readonly path: string;
-	readonly resource: URI;
-	readonly nodeId: string;
-	readonly nodeKind: IBaseHalfNodeDocument['kind'];
-	hasDraftChanges(): boolean;
-	prepareForImport(): Promise<boolean>;
-	closeForSwitch(): Promise<boolean>;
-	closeForShutdown(): Promise<boolean>;
-	closeTransientOverlay(): void;
-	showVideoDetails(): Promise<void>;
-	rebindScene(sceneKey: string, structuralEpoch: number): void;
 }
 
 interface IBaseHalfActiveCanvasNoteEditor {
@@ -953,122 +231,6 @@ interface IBaseHalfCanvasNotePreviewMount {
 
 export function baseHalfCanvasRetainedCardChromeIsStale(mountedVisualKey: string, currentVisualKey: string): boolean {
 	return mountedVisualKey !== currentVisualKey;
-}
-
-export function baseHalfCanvasVideoOverlayNextFocusTarget(
-	requestedSemanticFocusTarget: HTMLElement | undefined,
-	connectedExactFocusTarget: HTMLElement | undefined,
-	restoredModelFocusTarget: HTMLElement | undefined,
-	fallbackFocusTarget: HTMLElement | undefined
-): HTMLElement | undefined {
-	return requestedSemanticFocusTarget ?? connectedExactFocusTarget ?? restoredModelFocusTarget ?? fallbackFocusTarget;
-}
-
-export function baseHalfCanvasVideoModelTypeaheadIndex(
-	rows: readonly { readonly typeaheadText: string }[],
-	focusedIndex: number,
-	buffer: string
-): number | undefined {
-	const prefix = buffer.normalize('NFKC').trim().toLocaleLowerCase();
-	if (!prefix || rows.length === 0) {
-		return undefined;
-	}
-	const startIndex = focusedIndex >= 0 ? focusedIndex + 1 : 0;
-	for (let offset = 0; offset < rows.length; offset++) {
-		const index = (startIndex + offset) % rows.length;
-		if (rows[index].typeaheadText.normalize('NFKC').trim().toLocaleLowerCase().startsWith(prefix)) {
-			return index;
-		}
-	}
-	return undefined;
-}
-
-export function baseHalfCanvasVideoModelIsTypeaheadKey(
-	key: string,
-	isComposing: boolean,
-	metaKey: boolean,
-	ctrlKey: boolean,
-	altKey: boolean
-): boolean {
-	return !isComposing && !metaKey && !ctrlKey && !altKey && key.length === 1 && !/\s/u.test(key);
-}
-
-export function baseHalfCanvasVideoModelNavigationIndex(
-	rowCount: number,
-	focusedIndex: number,
-	key: 'ArrowDown' | 'ArrowUp' | 'Home' | 'End'
-): number | undefined {
-	if (!Number.isInteger(rowCount) || rowCount <= 0 || !Number.isInteger(focusedIndex) || focusedIndex < 0 || focusedIndex >= rowCount) {
-		return undefined;
-	}
-	switch (key) {
-		case 'ArrowDown': return Math.min(focusedIndex + 1, rowCount - 1);
-		case 'ArrowUp': return Math.max(focusedIndex - 1, 0);
-		case 'Home': return 0;
-		case 'End': return rowCount - 1;
-	}
-}
-
-export function baseHalfCanvasVideoModelCapabilitySummary(
-	tokens: readonly { readonly kind: string; readonly label: string }[],
-	disambiguationLabel?: string
-): { readonly visible: string; readonly accessible: string } {
-	const uniqueTokens = tokens.filter((token, index) => tokens.findIndex(candidate => candidate.label === token.label) === index);
-	const priority = (kind: string): number => kind === 'resolution'
-		? 0
-		: kind === 'duration'
-			? 1
-			: kind === 'method'
-				? 2
-				: kind === 'audio'
-					? 3
-					: 4;
-	const prioritizedTokens = uniqueTokens
-		.map((token, index) => ({ token, index }))
-		.sort((left, right) => priority(left.token.kind) - priority(right.token.kind) || left.index - right.index)
-		.map(candidate => candidate.token.label);
-	const accessibleParts = [...(disambiguationLabel ? [disambiguationLabel] : []), ...uniqueTokens.map(token => token.label)];
-	const visibleParts = [...(disambiguationLabel ? [disambiguationLabel] : []), ...prioritizedTokens].slice(0, 3);
-	return {
-		visible: visibleParts.join(' · '),
-		accessible: accessibleParts.join(' · ')
-	};
-}
-
-export function baseHalfCanvasVideoMethodControlState(
-	option: { readonly enabled: boolean; readonly disabledReason?: string },
-	configurationMutable: boolean
-): { readonly disabled: boolean; readonly disabledReason?: string } {
-	return {
-		disabled: !configurationMutable || !option.enabled,
-		...(option.disabledReason ? { disabledReason: option.disabledReason } : {})
-	};
-}
-
-export function baseHalfCanvasVideoCanonicalAdjustmentState(
-	currentAdjustments: readonly IBaseHalfVideoSettingAdjustment[],
-	nextAdjustments: readonly IBaseHalfVideoSettingAdjustment[],
-	currentPreviousParameters: readonly IBaseHalfVideoParameterPresentation[],
-	openingParameters: readonly IBaseHalfVideoParameterPresentation[]
-): {
-	readonly adjustments: readonly IBaseHalfVideoSettingAdjustment[];
-	readonly previousParameters: readonly IBaseHalfVideoParameterPresentation[];
-} {
-	return {
-		adjustments: mergeBaseHalfVideoSettingAdjustments(currentAdjustments, nextAdjustments),
-		previousParameters: currentAdjustments.length > 0 && currentPreviousParameters.length > 0
-			? currentPreviousParameters
-			: openingParameters
-	};
-}
-
-export function baseHalfCanvasVideoRangeAccessibleNames(
-	parameterLabel: string
-): { readonly slider: string; readonly exactValue: string } {
-	return {
-		slider: localize('basehalf.canvas.videoComposer.parameterSlider', "{0} slider", parameterLabel),
-		exactValue: localize('basehalf.canvas.videoComposer.parameterExactValue', "{0} exact value", parameterLabel)
-	};
 }
 
 interface IBaseHalfCanvasPostCreateOwner {
@@ -1164,20 +326,10 @@ type BaseHalfCanvasCardPreview =
 	| {
 		readonly kind: 'node';
 		readonly document: IBaseHalfNodeDocument;
-		readonly execution?: IBaseHalfNodeExecutionState;
-		readonly recipe?: IBaseHalfCanvasRecipeDescriptor;
-		readonly videoConfiguration?:
-			| { readonly valid: true }
-			| { readonly valid: false; readonly problem: string };
-		readonly matchingRecipeCount: number;
-		readonly modelServices: readonly IBaseHalfModelServiceDescriptor[];
 		readonly resultMedia?: IBaseHalfCanvasMediaPreview;
 		readonly resultOutputText?: string;
-		readonly resultIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
-		readonly inputKinds: ReadonlyMap<string, BaseHalfCanvasContentKind>;
-		readonly directSourcePaths: readonly string[];
-		readonly directSourceProblems: ReadonlyMap<string, string>;
-		readonly graphProblem?: string;
+		/** The node records a file that is not there. */
+		readonly resultMissing?: true;
 		readonly verificationPending?: boolean;
 		readonly dirty: boolean;
 	}
@@ -1204,6 +356,36 @@ export function baseHalfCanvasCardPreviewCanRetainElement(
 }
 
 /**
+ * What the card of a Video node says in its phase (video node, "The card"):
+ * nothing while it is empty or shows its video; "Generating"; the error of a
+ * failed task; "Stopped"; and "The video file is missing", with the path as
+ * its tooltip, when the file is gone.
+ */
+export function baseHalfCanvasVideoCardStatus(preview: Pick<Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>, 'document' | 'resultMissing' | 'verificationPending'>): {
+	readonly phase: BaseHalfVideoNodePhase;
+	readonly text?: string;
+	readonly title?: string;
+} {
+	const document = preview.document;
+	const phase = baseHalfVideoNodePhase(document);
+	switch (phase) {
+		case 'generating':
+			return { phase, text: localize('basehalf.canvas.videoCard.generating', "Generating") };
+		case 'failed':
+			return { phase, text: document.task?.error ?? localize('basehalf.canvas.videoCard.failed', "The generation failed.") };
+		case 'stopped':
+			return { phase, text: localize('basehalf.canvas.videoCard.stopped', "Stopped") };
+		case 'video':
+			if (preview.resultMissing) {
+				return { phase, text: localize('basehalf.canvas.videoCard.missing', "The video file is missing"), ...(document.result ? { title: document.result.artifact.path } : {}) };
+			}
+			return preview.verificationPending ? { phase, text: localize('basehalf.canvas.videoCard.checking', "Checking the video…") } : { phase };
+		default:
+			return { phase };
+	}
+}
+
+/**
  * The one-line canvas notice for saved layout BaseHalf could not use (mirror
  * file resilience, "What the user sees"). The affected cards are placed as
  * cards that were never positioned, and every interaction keeps working.
@@ -1219,29 +401,6 @@ export function baseHalfCanvasPendingSelectionIsReady(
 	availablePaths: ReadonlySet<string>
 ): boolean {
 	return paths.length > 0 && paths.every(path => availablePaths.has(path));
-}
-
-/**
- * Builds the narrow durable checkpoint used before a Draft leaves the canvas
- * to unlock a model provider. Incomplete provider/model choices are never
- * serialized: authored identity and prompt advance while the last valid saved
- * recipe (or no recipe for a new node) remains the auditable configuration.
- */
-export function baseHalfCanvasProvisionalVideoDraftDocument(
-	document: IBaseHalfNodeDocument,
-	title: string,
-	role: string,
-	prompt: string
-): IBaseHalfNodeDocument | undefined {
-	if (document.kind !== 'video' || document.result || document.attempts.length > 0) {
-		return undefined;
-	}
-	return {
-		...document,
-		title: title.trim(),
-		role: role.trim(),
-		prompt
-	};
 }
 
 interface IBaseHalfCanvasCardPreviewCacheEntry {
@@ -1276,12 +435,6 @@ function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
 	}
 }
 
-const nodeAttemptDateFormatter = safeIntl.DateTimeFormat(undefined, {
-	month: 'short',
-	day: 'numeric',
-	hour: 'numeric',
-	minute: '2-digit'
-});
 type BaseHalfBadgeEditorFocusTarget = 'prompt' | BaseHalfBadgeConnectionsFocusTarget;
 type BaseHalfCanvasBadgeFocusTarget = BaseHalfBadgeEditorFocusTarget | 'toggle';
 interface IBaseHalfBadgeEditorControls {
@@ -1295,8 +448,6 @@ interface IBaseHalfBadgeEditorConnections {
 	readonly upstream: IBaseHalfUpstreamView | undefined;
 	readonly downstream: readonly IBaseHalfIndexedDownstream[];
 	readonly indexState: BaseHalfReferenceIndexState | undefined;
-	/** `.bhnode` only: labels of the node recipe's input roles. */
-	readonly roleLabels?: ReadonlyMap<string, string>;
 }
 interface IBaseHalfBadgeDescriptionDraft {
 	readonly node: IBaseHalfBadgeNode;
@@ -1353,8 +504,8 @@ interface IBaseHalfCanvasNodeDocumentTransition {
 
 /**
  * A canvas change that undo replays by exact states: card and anchor rows of
- * `canvas.yaml` and whole `.bhnode` documents (whose `upstream` list and
- * bindings travel inside the document bytes). Reference operations on other
+ * `canvas.yaml` and whole `.bhnode` documents (whose `upstream` list travels
+ * inside the document bytes). Reference operations on other
  * stores use the reference edit service's own undo element instead.
  */
 interface IBaseHalfCanvasConnectionTransition {
@@ -1362,15 +513,6 @@ interface IBaseHalfCanvasConnectionTransition {
 	readonly nodes: readonly IBaseHalfCanvasUndoNode[];
 	readonly canvas: IBaseHalfCanvasStateTransition;
 	readonly documents: readonly IBaseHalfCanvasNodeDocumentTransition[];
-}
-
-/** A Composer or node-surface save written through the reference edit service. */
-interface IBaseHalfNodeLocalSave {
-	readonly result: IBaseHalfReferenceEditResult;
-	/** The document as written, with its updated `upstream` list. */
-	readonly document: IBaseHalfNodeDocument;
-	/** The document bytes on disk after the save. */
-	readonly contents: VSBuffer;
 }
 
 interface IBaseHalfCanvasCreatedNodeTransition {
@@ -1538,8 +680,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderedCardPreviewsByPath = new Map<string, IBaseHalfCanvasCardPreviewCacheEntry>();
 	private renderedCardsByPath = new Map<string, IBaseHalfCanvasCardRenderCacheEntry>();
 	private renderedCardElementsByPath = new Map<string, HTMLElement>();
-	private renderedNodeChromeByPath = new Map<string, IBaseHalfRenderedNodeChrome>();
-	private renderedPathByResourceKey = new Map<string, string>();
 	private renderedSceneCards: readonly IBaseHalfCanvasSceneCard[] = [];
 	private renderedSceneEdges: readonly IBaseHalfCanvasSceneEdge[] = [];
 	private readonly cardPresentationUpdaters = new WeakMap<HTMLElement, (presentation: IBaseHalfCanvasSceneCardPresentation) => void>();
@@ -1547,8 +687,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private cardPreviewHydrationTimer: number | undefined;
 	private cardPreviewHydrationRunning = false;
 	private readonly cardPreviewVerificationQueue = new BaseHalfCanvasPreviewVerificationQueue();
-	private cardPreviewModelServicesGeneration = -1;
-	private cardPreviewModelServicesPromise: Promise<readonly IBaseHalfModelServiceDescriptor[]> | undefined;
 	private renderedSceneStructuralEpoch = 0;
 	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
 	private detailSurfaceResourceKey: string | undefined;
@@ -1606,7 +744,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		/** The create position is one BaseHalf worked out, not a point the user named with the pointer. */
 		readonly createPositionComputed?: boolean;
 	} | undefined;
-	private activeNodeLocalSurface: IBaseHalfActiveNodeLocalSurface | undefined;
 	private activeCanvasNoteEditor: IBaseHalfActiveCanvasNoteEditor | undefined;
 	private canvasNoteSurfacePath: string | undefined;
 	private pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
@@ -1622,15 +759,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private pendingCanvasNoteNavigationGuard: IBaseHalfPendingCanvasNoteNavigationGuard | undefined;
 	private readonly pendingCanvasSelectionFormatBarrier = new BaseHalfCanvasNoteFormatSelectionBarrier();
 	private readonly canvasNoteFocusLeaseOwner = new BaseHalfCanvasNoteFocusLeaseOwner();
-	private nodeLocalSurfaceOpenChain: Promise<void> = Promise.resolve();
-	private nodeLocalSurfaceIntent = 0;
-	private pendingVideoModelConnectionCompletion: IBaseHalfModelConnectionCompletion | undefined;
-	private videoModelConnectionResumeTimer: number | undefined;
-	private preparedSceneSelection: {
-		readonly sceneKey: string;
-		readonly structuralEpoch: number;
-		readonly paths: readonly string[];
-	} | undefined;
+	/** Bumped when a pending card open is cancelled: a late open that follows a selection that moved on does nothing. */
+	private cardOpenIntent = 0;
 	private disposed = false;
 
 	constructor(
@@ -1639,7 +769,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IFileService private readonly fileService: IFileService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
-		@ICommandService private readonly commandService: ICommandService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
 		@ITextFileService private readonly textFileService: ITextFileService,
@@ -1652,7 +781,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IContextViewService private readonly contextViewService: IContextViewService,
 		@IDialogService private readonly dialogService: IDialogService,
@@ -1663,12 +791,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBaseHalfCanvasEditingService private readonly canvasEditingService: IBaseHalfCanvasEditingService,
 		@IBaseHalfCanvasActionContextService private readonly canvasActionContextService: IBaseHalfCanvasActionContextService,
-		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
-		@IBaseHalfCanvasRecipeRegistryService private readonly canvasRecipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
-		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService,
-		@IBaseHalfModelProviderCatalogService private readonly modelProviderCatalogService: IBaseHalfModelProviderCatalogService,
-		@IBaseHalfModelConnectionNavigationService private readonly modelConnectionNavigationService: IBaseHalfModelConnectionNavigationService,
-		@IBaseHalfVideoModelCatalogService private readonly videoModelCatalogService: IBaseHalfVideoModelCatalogService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfCardProjectionRegistryService private readonly cardProjectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@IBaseHalfCardDetailSurfaceRegistryService private readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
@@ -1770,11 +892,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
 		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
-		// Tidy Canvas is disabled while a video card waits for the user to pick
-		// an input.
-		const videoInputPickObserver = new mainWindow.MutationObserver(() => this.updateCanvasTidyChrome());
-		videoInputPickObserver.observe(this.cards, { attributes: true, attributeFilter: ['data-video-input-pick-active'] });
-		this._register(toDisposable(() => videoInputPickObserver.disconnect()));
 		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
 		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
@@ -1893,30 +1010,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.scheduleBackgroundRender();
 			}
 		}));
-		this._register(this.nodeExecutionService.onDidChange(event => {
-			const folder = this.getCurrentFolder();
-			if (folder && isEqualOrParent(event.resource, folder.resource)) {
-				if (event.state) {
-					this.patchRenderedNodeExecutionState(event.resource, event.state);
-				} else {
-					this.scheduleBackgroundRender();
-				}
-			}
-		}));
-		this._register(this.canvasRecipeRegistryService.onDidChange(() => this.scheduleBackgroundRender()));
-		this._register(this.modelServiceService.onDidChange(() => {
-			this.cardPreviewVerificationQueue.reset();
-			this.cardPreviewModelServicesGeneration = -1;
-			this.cardPreviewModelServicesPromise = undefined;
-			this.scheduleBackgroundRender();
-		}));
-		this._register(this.modelConnectionNavigationService.onDidComplete(completion => {
-			if (completion.intent.returnTarget?.kind !== 'videoModel') {
-				return;
-			}
-			this.pendingVideoModelConnectionCompletion = completion;
-			this.scheduleVideoModelConnectionResume();
-		}));
 		this._register(this.workingCopyService.onDidChangeDirty(workingCopy => {
 			const folder = this.getCurrentFolder();
 			if (folder && isEqualOrParent(workingCopy.resource, folder.workspaceFolder)) {
@@ -1924,10 +1017,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
-		this._register(this.editorService.onDidActiveEditorChange(() => {
-			this.reconcileActiveEditor();
-			this.scheduleVideoModelConnectionResume();
-		}));
+		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) {
 				void this.canvasNavigationService.closeCardDetail();
@@ -2058,11 +1148,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mainWindow.clearTimeout(this.backgroundRenderTimer);
 			this.backgroundRenderTimer = undefined;
 		}
-		if (this.videoModelConnectionResumeTimer !== undefined) {
-			mainWindow.clearTimeout(this.videoModelConnectionResumeTimer);
-			this.videoModelConnectionResumeTimer = undefined;
-		}
-		this.pendingVideoModelConnectionCompletion = undefined;
 		if (this.badgeInteractionReleaseTimer !== undefined) {
 			mainWindow.clearTimeout(this.badgeInteractionReleaseTimer);
 			this.badgeInteractionReleaseTimer = undefined;
@@ -2116,65 +1201,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!this.holdRenderForMovedItems()) {
 			this.requestRender(true);
 		}
-	}
-
-	private patchRenderedNodeExecutionState(resource: URI, execution: IBaseHalfNodeExecutionState): void {
-		const path = this.renderedPathByResourceKey.get(this.uriIdentityService.extUri.getComparisonKey(resource));
-		const chrome = path ? this.renderedNodeChromeByPath.get(path) : undefined;
-		if (!chrome) {
-			return;
-		}
-
-		const state = getBaseHalfNodeLocalExecutionState(execution);
-		const statusText = getBaseHalfNodeCardStatusText(state);
-		chrome.card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(state.status);
-		chrome.card.dataset.nodeLifecycle = 'attempt';
-		if (chrome.card.dataset.nodeKind === 'video') {
-			const progressLabel = execution.progress === undefined ? '' : ` ${Math.round(Math.max(0, Math.min(100, execution.progress)))} percent`;
-			chrome.card.setAttribute('aria-label', `${chrome.title}, Video, ${statusText}${progressLabel}`);
-		}
-		const status = chrome.status;
-		if (status) {
-			status.textContent = statusText;
-			status.title = state.message;
-			status.setAttribute('aria-label', `${state.status}: ${state.message}`);
-			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(state));
-			status.classList.add('executing');
-		}
-
-		const action = chrome.action;
-		if (action) {
-			action.textContent = state.action.label;
-			action.dataset.nodeAction = state.action.kind;
-			action.setAttribute('aria-disabled', String(execution.phase === 'cancelling'));
-			action.title = `${state.action.label}: ${state.message}`;
-			action.setAttribute('aria-label', action.title);
-		}
-
-		const progress = chrome.progress;
-		if (progress) {
-			const value = chrome.progressValue;
-			progress.hidden = false;
-			progress.classList.toggle('indeterminate', execution.progress === undefined);
-			progress.setAttribute('aria-label', `${state.status}: ${state.message}`);
-			if (execution.progress === undefined) {
-				progress.removeAttribute('aria-valuemin');
-				progress.removeAttribute('aria-valuemax');
-				progress.removeAttribute('aria-valuenow');
-				if (value) {
-					value.style.width = '36%';
-				}
-			} else {
-				const bounded = Math.max(0, Math.min(100, execution.progress));
-				progress.setAttribute('aria-valuemin', '0');
-				progress.setAttribute('aria-valuemax', '100');
-				progress.setAttribute('aria-valuenow', String(Math.round(bounded)));
-				if (value) {
-					value.style.width = `${bounded}%`;
-				}
-			}
-		}
-
 	}
 
 	private deferCanvasBadgeRefreshWhileFocused(): boolean {
@@ -2389,9 +1415,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
-			if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
-				return;
-			}
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
@@ -2409,8 +1432,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedCardPreviewsByPath = new Map();
 			this.renderedCardsByPath = new Map();
 			this.renderedCardElementsByPath = new Map();
-			this.renderedNodeChromeByPath = new Map();
-			this.renderedPathByResourceKey = new Map();
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = 0;
@@ -2438,9 +1459,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.activeCanvasNoteEditor && !await this.closeActiveCanvasNoteEditor(false)) {
 				return;
 			}
-			if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
-				return;
-			}
 			this.cancelPendingCanvasNoteFormatCommands(pending => pending.sceneKey === this.sceneKey(folder));
 			if (!this.isRenderCurrent(seq)
 				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
@@ -2461,8 +1479,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedCardPreviewsByPath = new Map();
 			this.renderedCardsByPath = new Map();
 			this.renderedCardElementsByPath = new Map();
-			this.renderedNodeChromeByPath = new Map();
-			this.renderedPathByResourceKey = new Map();
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
@@ -2598,22 +1614,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 		}
-		const activeSurfaceBeforeModelUpdate = this.activeNodeLocalSurface;
-		const activeSurfaceItem = activeSurfaceBeforeModelUpdate
-			? items.find(item => item.path === activeSurfaceBeforeModelUpdate.path
-				&& this.uriIdentityService.extUri.isEqual(item.stat.resource, activeSurfaceBeforeModelUpdate.resource))
-			: undefined;
-		if (activeSurfaceBeforeModelUpdate
-			&& (activeSurfaceBeforeModelUpdate.sceneKey !== currentSceneKey
-				|| !activeSurfaceItem)) {
-			if (!await activeSurfaceBeforeModelUpdate.closeForSwitch()) {
-				return;
-			}
-			if (!this.isRenderCurrent(seq)
-				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
-				return;
-			}
-		}
 		const previews = new Map<string, BaseHalfCanvasCardPreview>();
 		const retainedResultNodePaths: string[] = [];
 		for (const item of items) {
@@ -2632,19 +1632,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					? { kind: 'nodeLoading', text: 'Checking content…' }
 					: { kind: 'loading', text: 'Loading preview…' }
 			);
-		}
-		const activeSurfaceAfterPreview = this.activeNodeLocalSurface;
-		const retainedSurfacePreview = activeSurfaceAfterPreview ? previews.get(activeSurfaceAfterPreview.path) : undefined;
-		if (activeSurfaceAfterPreview && retainedSurfacePreview?.kind === 'node'
-			&& (retainedSurfacePreview.document.id !== activeSurfaceAfterPreview.nodeId
-				|| retainedSurfacePreview.document.kind !== activeSurfaceAfterPreview.nodeKind)) {
-			if (!await activeSurfaceAfterPreview.closeForSwitch()) {
-				return;
-			}
-			if (!this.isRenderCurrent(seq)
-				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
-				return;
-			}
 		}
 		if (this.badgeInteractionRenderGate.defer() || this.deferRenderForSceneInteraction()) {
 			return;
@@ -2718,25 +1705,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}
 		}
-		const activeSurfaceBeforeSelectionCommit = this.activeNodeLocalSurface;
-		if (pendingSelection && activeSurfaceBeforeSelectionCommit
-			&& !(pendingSelection.length === 1 && pendingSelection[0] === activeSurfaceBeforeSelectionCommit.path)) {
-			const closed = await activeSurfaceBeforeSelectionCommit.closeForSwitch();
-			if (!this.isRenderCurrent(seq)
-				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
-				return;
-			}
-			if (!closed) {
-				this.pendingCanvasSelection = undefined;
-				pendingSelection = undefined;
-			}
-		}
-
 		clearNode(this.canvasOverlay);
 		clearNode(this.inlineEditLayer);
 		this.inlineEditListeners.clear();
 		const previousRenderedCards = this.renderedCardsByPath;
-		const previousRenderedNodeChrome = this.renderedNodeChromeByPath;
 		this.renderedBadges = badgeRead.badges;
 		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedRelationships = connections.relationships;
@@ -2749,8 +1721,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		]));
 		this.renderedCardsByPath = new Map();
 		this.renderedCardElementsByPath = new Map();
-		this.renderedNodeChromeByPath = new Map();
-		this.renderedPathByResourceKey = new Map(items.map(item => [this.uriIdentityService.extUri.getComparisonKey(item.stat.resource), item.path]));
 		if (this.inlineEdit?.kind === 'rename') {
 			const editedItem = this.renderedItemsByPath.get(this.inlineEdit.path);
 			if (!editedItem || !this.uriIdentityService.extUri.isEqual(editedItem.stat.resource, this.inlineEdit.resource)) {
@@ -2786,12 +1756,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.applyNoteBackground(element, isBaseHalfMarkdownResource(item.stat.resource) ? this.renderedNoteBackgrounds.get(item.path) ?? 'default' : undefined);
 			this.renderedCardElementsByPath.set(item.path, element);
 			this.renderedCardsByPath.set(item.path, { item, preview, visualKey, sceneKey: currentSceneKey, element });
-			if (cached?.element === element) {
-				const retainedChrome = previousRenderedNodeChrome.get(item.path);
-				if (retainedChrome) {
-					this.renderedNodeChromeByPath.set(item.path, retainedChrome);
-				}
-			}
 			return {
 				path: item.path,
 				kind: item.kind,
@@ -2848,12 +1812,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.chosenCanvasPlaces.drawn(folder, model.appeared);
 		if (canvasReadInFull) {
 			void this.chosenCanvasPlaces.save(folder, goneRows, model.respelled);
-		}
-		const retainedSurface = this.activeNodeLocalSurface;
-		if (retainedSurface?.sceneKey === currentSceneKey
-			&& items.some(item => item.path === retainedSurface.path
-				&& this.uriIdentityService.extUri.isEqual(item.stat.resource, retainedSurface.resource))) {
-			retainedSurface.rebindScene(currentSceneKey, structuralStamp.structuralEpoch);
 		}
 		if (this.canvasNoteSurfacePath && !this.tryMountCanvasNoteEditor(this.canvasNoteSurfacePath)) {
 			// An editing intent is allowed to precede the first complete Markdown
@@ -2931,8 +1889,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 		this.cardPreviewHydrationQueue.resetScene(folder ? this.sceneKey(folder) : 'no-folder');
 		this.cardPreviewVerificationQueue.reset();
-		this.cardPreviewModelServicesGeneration = -1;
-		this.cardPreviewModelServicesPromise = undefined;
 		if (this.cardPreviewHydrationTimer !== undefined) {
 			mainWindow.clearTimeout(this.cardPreviewHydrationTimer);
 			this.cardPreviewHydrationTimer = undefined;
@@ -3043,9 +1999,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private canvasUpstreamRefusal(node: IBaseHalfUpstreamActionNode, name: string, marked: boolean): string | undefined {
 		if (this.referenceIndexService.getUpstreamOnlyReason(node)) {
 			return localize('basehalf.canvas.connect.upstreamOnly', "{0} can't receive upstream context.", name);
-		}
-		if (node.kind === 'file' && name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) && this.nodeExecutionService.getActiveRun(node.resource)) {
-			return localize('basehalf.canvas.connect.running', "This node is running.");
 		}
 		if (marked && baseHalfUpstreamStoreKind(node.relativePath, node.kind === 'folder') === 'sidecar') {
 			return localize('basehalf.canvas.connect.markedFolder', "{0} is in a folder BaseHalf is set to leave alone.", name);
@@ -3188,8 +2141,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		await this.resolveLiveWorkspaceNodes(transition.folder.workspaceFolder, transition.nodes);
 
 		for (const document of documents) {
-			if (this.workingCopyService.isDirty(document.resource) || this.nodeExecutionService.getActiveRun(document.resource)) {
-				throw new Error(`Save '${basename(document.resource)}' and finish its active run before changing this connection.`);
+			if (this.workingCopyService.isDirty(document.resource)) {
+				throw new Error(`Save '${basename(document.resource)}' before changing this connection.`);
 			}
 			const current = await this.fileService.readFile(document.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
 			if (!current.value.equals(document.expected)) {
@@ -3387,74 +2340,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private async chooseConnectionInputSlot(
-		candidates: ReturnType<typeof getBaseHalfNodeAvailableInputSlots>,
-		sourcePath: string,
-		targetPath: string,
-		sourceKind: BaseHalfCanvasContentKind
-	): Promise<IBaseHalfCanvasRecipeDescriptor['inputs'][number] | undefined> {
-		const decision = await chooseBaseHalfNodeConnectionSlot(candidates, async choices => {
-			type SlotPick = IQuickPickItem & { readonly slot: IBaseHalfCanvasRecipeDescriptor['inputs'][number] };
-			const picked = await this.quickInputService.pick<SlotPick>(choices.map(slot => ({
-				label: slot.label,
-				slot
-			})), {
-				placeHolder: `Use '${sourcePath}' as which input to '${targetPath}'?`
-			});
-			return picked?.slot;
-		});
-		if (decision.kind === 'reject') {
-			this.queueCanvasWarning(`'${sourcePath}' cannot connect to '${targetPath}': its recipe has no available input role for ${sourceKind} content.`);
-			this.requestRender();
-			return undefined;
-		}
-		return decision.kind === 'bind' ? decision.slot : undefined;
-	}
-
-	/**
-	 * The input role of a connection entering a `.bhnode` (D37). Only a Draft
-	 * with a recipe asks for a role: the entry and its binding are one write,
-	 * and cancelling writes nothing. A node without a recipe takes an unbound
-	 * entry; a node with an Attempt or Result is refused by the edit service
-	 * ("Copy its settings to a new Draft").
-	 */
-	private async chooseNodeConnectionBinding(target: IBaseHalfUpstreamActionNode, sourcePath: string): Promise<BaseHalfUpstreamBindingChoice> {
-		if (target.kind !== 'file' || !target.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			return { kind: 'proceed' };
-		}
-		if (this.workingCopyService.isDirty(target.resource)) {
-			throw new Error(localize('basehalf.canvas.connect.nodeDirty', "Save '{0}' before changing its connections.", target.relativePath));
-		}
-		const content = await this.fileService.readFile(target.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		if (!document.recipe || !isBaseHalfNodeDraft(document)) {
-			return { kind: 'proceed' };
-		}
-		const identity = this.upstreamIdentity(target.workspaceFolder);
-		const sourceKey = identity.key(baseHalfNormalizeUpstreamEntry(sourcePath));
-		if (document.recipe.inputBindings.some(binding => identity.key(binding.sourcePath) === sourceKey)) {
-			// Already bound: the add is a no-op.
-			return { kind: 'proceed' };
-		}
-		const recipe = this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId);
-		if (!recipe) {
-			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not available. Choose an available recipe before connecting context.`);
-		}
-		if (!baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
-			throw new Error(`Recipe '${recipe.label}' no longer produces ${document.kind} content for '${target.relativePath}'. Choose a matching recipe before connecting context.`);
-		}
-		const sourceKind = await this.readWorkspaceContentKind(target.workspaceFolder, sourcePath);
-		const candidates = getBaseHalfNodeAvailableInputSlots(recipe, document.recipe.inputBindings, sourcePath, sourceKind);
-		const slot = await this.chooseConnectionInputSlot(candidates, sourcePath, target.relativePath, sourceKind);
-		return slot ? { kind: 'proceed', binding: { slot: slot.id } } : { kind: 'cancel' };
-	}
-
 	/** The reference operation context of the current canvas: its undo stack and re-render. */
 	private upstreamActionContext(folder: IBaseHalfCanvasFolderState | undefined, onDidChange: () => void): IBaseHalfUpstreamActionContext {
 		return {
 			canvasCardPaths: [...this.renderedItemsByPath.keys()],
 			...(folder ? { undoResources: [this.canvasMirrorService.canvasResource(folder)] } : {}),
-			chooseBinding: (target, sourcePath) => this.chooseNodeConnectionBinding(target, sourcePath),
 			onDidChange
 		};
 	}
@@ -3516,12 +2406,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.markCanvasUserInteraction();
 
-		let sourceKind: BaseHalfCanvasContentKind;
-		try {
-			sourceKind = await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, drop.from);
-		} catch (error) {
-			throw new Error(`'${drop.from}' changed before a node could be created from it.`, { cause: error });
-		}
 		// Resolves once the menu is closed: `true` after a chosen node was
 		// created. The scene keeps the released line until then.
 		return new Promise<boolean>(resolve => {
@@ -3532,18 +2416,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					resolve(false);
 				});
 			};
-			const nodeAction = (target: IBaseHalfCanvasConnectionNodeTarget): IAction => {
-				const id = `basehalf.canvas.createFromConnection.${target.kind}`;
-				const label = canvasResultNodeKindLabel(target.kind);
-				const create = (slot: IBaseHalfCanvasRecipeDescriptor['inputs'][number] | undefined) =>
-					run(() => this.createNodeFromConnection(sceneKey, structuralEpoch, drop, sourceKind, target, slot));
-				// Several roles accept the source: the chosen role is the binding.
-				return target.slots.length > 1
-					? new SubmenuAction(id, label, target.slots.map(slot => toAction({ id: `${id}.${slot.id}`, label: slot.label, run: create(slot) })))
-					: toAction({ id, label, run: create(target.slots[0]) });
-			};
-			const targets = getBaseHalfCanvasConnectionNodeTargets(this.canvasRecipeRegistryService.getRecipes(), sourceKind);
-			const isMedia = (target: IBaseHalfCanvasConnectionNodeTarget) => target.kind === 'image' || target.kind === 'video' || target.kind === 'audio';
+			// Every kind takes any source as its first input: a Video node uses
+			// it by its kind, and the other kinds keep it as context (D58).
+			const nodeAction = (kind: BaseHalfNodeKind): IAction => toAction({
+				id: `basehalf.canvas.createFromConnection.${kind}`,
+				label: canvasResultNodeKindLabel(kind),
+				run: run(() => this.createNodeFromConnection(sceneKey, structuralEpoch, drop, kind))
+			});
 			const actions: IAction[] = [
 				toAction({
 					id: 'basehalf.canvas.createFromConnection.note',
@@ -3551,9 +2430,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					run: run(() => this.createNoteFromConnection(sceneKey, structuralEpoch, drop))
 				}),
 				new Separator(),
-				...targets.filter(isMedia).map(nodeAction),
+				...(['image', 'video', 'audio'] as const).map(nodeAction),
 				new Separator(),
-				...targets.filter(target => !isMedia(target)).map(nodeAction)
+				...(['file', 'pdf', 'presentation'] as const).map(nodeAction)
 			];
 
 			mainWindow.setTimeout(() => {
@@ -3563,7 +2442,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					return;
 				}
 				this.lastCanvasContextMenu = undefined;
-				this.activeNodeLocalSurface?.closeTransientOverlay();
 				this.contextMenuService.showContextMenu({
 					getAnchor: () => drop.anchor,
 					getActions: () => actions,
@@ -3622,9 +2500,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		sceneKey: string,
 		structuralEpoch: number,
 		drop: IBaseHalfCanvasSceneConnectionDrop,
-		sourceKind: BaseHalfCanvasContentKind,
-		target: IBaseHalfCanvasConnectionNodeTarget,
-		slot: IBaseHalfCanvasRecipeDescriptor['inputs'][number] | undefined
+		kind: BaseHalfNodeKind
 	): Promise<void> {
 		const queuedFolder = this.folderForSceneMutation(sceneKey);
 		const stamp = this.sceneMutationStamp(queuedFolder, structuralEpoch);
@@ -3632,18 +2508,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.markCanvasUserInteraction();
-		const recipe = target.recipe;
-		if (recipe && this.canvasRecipeRegistryService.getRecipe(recipe.id) !== recipe) {
-			throw new Error(`'${recipe.label}' changed while it was being selected. Connect again.`);
-		}
 		const postCreateOwner = this.captureCanvasPostCreateOwner();
 
-		const name = await this.findAvailableConnectedNodeName(queuedFolder, target.kind);
+		const name = await this.findAvailableConnectedNodeName(queuedFolder, kind);
 		const targetPath = canvasChildPath(queuedFolder.relativePath, name);
 		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
-		const nodeId = generateUuid();
-		const document = createBaseHalfCanvasConnectedNodeDocument(target, nodeId, canvasResultNodeKindLabel(target.kind), drop.from, sourceKind, slot?.id);
-		const targetSize = target.kind === 'video'
+		// The source is the node's only upstream entry in its first bytes (D37):
+		// creating the file is the connection.
+		const document = createBaseHalfNodeDocument({
+			id: generateUuid(),
+			kind,
+			title: canvasResultNodeKindLabel(kind),
+			upstream: [drop.from]
+		});
+		const targetSize = kind === 'video'
 			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
 		const contents = VSBuffer.fromString(serializeBaseHalfNodeDocument(document));
@@ -3666,8 +2544,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			workspace: queuedFolder.workspaceFolder,
 			relativePath: targetPath
 		}]);
-		// The node document names its source in `upstream` and binds it in the
-		// same initial bytes (D37): creating the file is the connection.
 		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, queuedFolder.workspaceFolder);
 		let committed: IBaseHalfCanvasCreatedNodeTransition | undefined;
 		let failure: unknown;
@@ -3677,9 +2553,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			let canvasTransition: IBaseHalfCanvasStateTransition | undefined;
 			try {
 				this.folderForSceneMutation(sceneKey);
-				if (recipe && this.canvasRecipeRegistryService.getRecipe(recipe.id) !== recipe) {
-					throw new Error(`'${recipe.label}' is no longer installed.`);
-				}
 				const currentCanvas = await this.canvasMirrorService.readCanvas(queuedFolder);
 				if (await this.fileService.exists(baseHalfMirrorResource(queuedFolder.workspaceFolder, targetPath, 'badge.yaml'))
 					|| currentCanvas?.cards.some(candidate => candidate.path === targetPath)) {
@@ -3712,9 +2585,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					{ path: drop.from, kind: drop.fromKind },
 					{ path: targetPath, kind: 'file' }
 				]);
-				if (await this.readWorkspaceContentKind(queuedFolder.workspaceFolder, drop.from) !== sourceKind) {
-					throw new Error(`'${drop.from}' changed content kind before the node could be created.`);
-				}
 				await this.canvasMirrorService.transitionCanvasState(queuedFolder, canvasTransition, lease);
 				canvasApplied = true;
 				const connection: IBaseHalfCanvasConnectionTransition = {
@@ -3728,18 +2598,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				};
 				committed = { folder: queuedFolder, targetPath, targetResource, contents, stashResource, connection };
 			} catch (error) {
-				const rollbackErrors = await compensateBaseHalfCanvasConnectedNodeCreate({
-					canvasApplied,
-					fileCreated,
-					rollbackCanvas: async () => {
+				// The initial file is discarded rather than kept as undo state: no
+				// user-visible operation was committed.
+				const rollbackErrors = await settleEveryStep([
+					[canvasApplied, async () => {
 						if (canvasTransition) {
 							await this.canvasMirrorService.transitionCanvasState(queuedFolder, reverseCanvasStateTransition(canvasTransition, true), lease);
 						}
-					},
-					discardFile: async () => {
-						await this.discardExactCanvasNodeFile(targetResource, contents);
-					}
-				});
+					}],
+					[fileCreated, () => this.discardExactCanvasNodeFile(targetResource, contents)]
+				]);
 				failure = rollbackErrors.length > 0
 					? new AggregateError([error, ...rollbackErrors], `The result node could not be created and its safe cleanup did not fully complete. '${targetPath}' was not overwritten or deleted.`)
 					: error;
@@ -3838,8 +2706,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async assertExactCanvasNodeFile(resource: URI, expected: VSBuffer): Promise<void> {
-		if (this.workingCopyService.isDirty(resource) || this.nodeExecutionService.getActiveRun(resource)) {
-			throw new Error(`Save '${basename(resource)}' and finish its active run before changing this node.`);
+		if (this.workingCopyService.isDirty(resource)) {
+			throw new Error(`Save '${basename(resource)}' before changing this node.`);
 		}
 		const current = await this.fileService.readFile(resource, {
 			atomic: true,
@@ -3928,16 +2796,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			{ path: connection.to, kind: connection.toKind }
 		]);
 		const target = this.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
-		const binding = await this.chooseNodeConnectionBinding(target, connection.from);
-		if (binding.kind === 'cancel') {
-			// The canvas scene clears its optimistic edge after this promise
-			// settles; the next render reconciles it.
-			this.scheduleBackgroundRender();
-			return;
-		}
 		this.folderForSceneMutation(sceneKey);
 		const label = localize('basehalf.canvas.connect.undo', "Connect canvas nodes");
-		const result = await this.runCanvasReferenceOperation(folder, target, label, () => this.referenceEditService.add(target, connection.from, { label }, binding.binding));
+		const result = await this.runCanvasReferenceOperation(folder, target, label, () => this.referenceEditService.add(target, connection.from, { label }));
 		if (result) {
 			await this.rememberCanvasEdgeAnchors(folder, sceneKey, structuralEpoch, {
 				from: connection.from,
@@ -3983,91 +2844,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const previousTarget = this.workspaceNode(folder.workspaceFolder, previous.to, previous.toKind);
 		const nextTarget = this.workspaceNode(folder.workspaceFolder, connection.to, connection.toKind);
 		const label = localize('basehalf.canvas.reconnect.undo', "Reconnect canvas nodes");
-		let operation: (() => Promise<IBaseHalfReferenceEditResult>) | undefined;
-		if (previous.to === next.to) {
-			operation = await this.sourceEndReconnectOperation(previousTarget, previous.from, next.from, label);
-			if (!operation) {
-				this.scheduleBackgroundRender();
-				return;
-			}
-		} else {
-			const binding = await this.chooseNodeConnectionBinding(nextTarget, next.from);
-			if (binding.kind === 'cancel') {
-				this.scheduleBackgroundRender();
-				return;
-			}
-			operation = previous.from === next.from
-				? () => this.referenceEditService.move(next.from, previousTarget, nextTarget, { label }, binding.binding)
+		// A source-end reconnect replaces the entry in place, so a Video node's
+		// input keeps its place in the order; a target-end reconnect moves it.
+		const operation: () => Promise<IBaseHalfReferenceEditResult> = previous.to === next.to
+			? () => this.referenceEditService.replace(previousTarget, previous.from, next.from, { label })
+			: previous.from === next.from
+				? () => this.referenceEditService.move(next.from, previousTarget, nextTarget, { label })
 				: () => this.referenceEditService.apply([
-					{ node: nextTarget, operation: { kind: 'add', entry: next.from, ...(binding.binding ? { binding: binding.binding } : {}) } },
+					{ node: nextTarget, operation: { kind: 'add', entry: next.from } },
 					{ node: previousTarget, operation: { kind: 'remove', entry: previous.from } }
 				], { label });
-		}
 		this.folderForSceneMutation(sceneKey);
-		const run = operation;
-		const result = await this.runCanvasReferenceOperation(folder, nextTarget, label, () => run());
+		const result = await this.runCanvasReferenceOperation(folder, nextTarget, label, operation);
 		if (result) {
 			await this.rememberCanvasEdgeAnchors(folder, sceneKey, structuralEpoch, next);
 		}
 		this.requestRender();
-	}
-
-	/**
-	 * A source-end reconnect replaces the entry in place. In a `.bhnode` Draft
-	 * with a recipe whose entry is bound, the new source may not fit the old
-	 * role, so the role is chosen again and the entry and its binding change in
-	 * one write. Resolves `undefined` when the role choice was cancelled.
-	 */
-	private async sourceEndReconnectOperation(
-		target: IBaseHalfUpstreamActionNode,
-		from: string,
-		to: string,
-		label: string
-	): Promise<(() => Promise<IBaseHalfReferenceEditResult>) | undefined> {
-		const replace = () => this.referenceEditService.replace(target, from, to, { label });
-		if (target.kind !== 'file' || !target.relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			return replace;
-		}
-		if (this.workingCopyService.isDirty(target.resource)) {
-			throw new Error(localize('basehalf.canvas.connect.nodeDirty', "Save '{0}' before changing its connections.", target.relativePath));
-		}
-		const content = await this.fileService.readFile(target.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-		const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		const identity = this.upstreamIdentity(target.workspaceFolder);
-		const fromKey = identity.key(baseHalfNormalizeUpstreamEntry(from));
-		const bound = document.recipe?.inputBindings.find(binding => identity.key(binding.sourcePath) === fromKey);
-		if (!document.recipe || !bound || !isBaseHalfNodeDraft(document)) {
-			// Unbound entries follow the plain replace; a bound entry outside a
-			// Draft is refused by the edit service.
-			return replace;
-		}
-		const recipe = this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId);
-		if (!recipe || !baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind)) {
-			throw new Error(`Recipe '${document.recipe.recipeId}' for '${target.relativePath}' is not available. Choose an available recipe before reconnecting context.`);
-		}
-		const remaining = normalizeNodeInputBindings(document.recipe.inputBindings.filter(binding => binding !== bound));
-		const sourceKind = await this.readWorkspaceContentKind(target.workspaceFolder, to);
-		const slot = await this.chooseConnectionInputSlot(getBaseHalfNodeAvailableInputSlots(recipe, remaining, to, sourceKind), to, target.relativePath, sourceKind);
-		if (!slot) {
-			return undefined;
-		}
-		const expected: IBaseHalfUpstreamStoreSnapshot = {
-			items: baseHalfNodeUpstreamItemValues(document.upstream),
-			bindings: [...document.recipe.inputBindings]
-		};
-		const toKey = identity.key(baseHalfNormalizeUpstreamEntry(to));
-		const toListed = document.upstream.some(item => typeof item === 'string' && identity.key(baseHalfNormalizeUpstreamEntry(item)) === toKey);
-		const items = toListed
-			? expected.items.filter(item => !(item.scalar && identity.key(baseHalfNormalizeUpstreamEntry(item.text)) === fromKey))
-			: expected.items.map(item => item.scalar && identity.key(baseHalfNormalizeUpstreamEntry(item.text)) === fromKey ? { text: to, scalar: true } : item);
-		const nextSnapshot: IBaseHalfUpstreamStoreSnapshot = {
-			items,
-			bindings: normalizeNodeInputBindings([
-				...remaining.filter(binding => identity.key(binding.sourcePath) !== toKey),
-				{ sourcePath: to, slot: slot.id, order: remaining.length }
-			])
-		};
-		return () => this.referenceEditService.apply([{ node: target, operation: { kind: 'transition', from: expected, to: nextSnapshot } }], { label });
 	}
 
 	/** Disconnect on the canvas: removes `from` from `to`'s store. The anchor row is kept. */
@@ -4089,20 +2881,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
 			return false;
 		}
-		if (this.activeNodeLocalSurface && !(paths.length === 1 && paths[0] === this.activeNodeLocalSurface.path)) {
-			if (!await this.activeNodeLocalSurface.closeForSwitch()) {
-				return false;
-			}
-		}
-		if (!(paths.length === 1 && paths[0] === this.activeNodeLocalSurface?.path)) {
-			// Cancel an asynchronous file/model/input read that has not mounted its
-			// surface yet. A late open must never follow a selection that moved on.
-			this.nodeLocalSurfaceIntent++;
-		}
 		const notePath = this.canvasNoteSurfacePath ?? this.activeCanvasNoteEditor?.path;
 		const changesNote = notePath !== undefined && !(paths.length === 1 && paths[0] === notePath);
 		if (!changesNote) {
-			this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
 			return true;
 		}
 		const activeBeforeWait = this.activeCanvasNoteEditor;
@@ -4127,67 +2908,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (paths.length === 1 && paths[0] === active.path) {
 				return true;
 			}
-			const closed = await this.closeActiveCanvasNoteEditorAfterFormats();
-			if (closed) {
-				this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
-			}
-			return closed;
+			return this.closeActiveCanvasNoteEditorAfterFormats();
 		}
 		if (this.canvasNoteSurfacePath === notePath) {
 			this.clearPendingCanvasNoteFocus(notePath);
 			this.canvasNoteSurfacePath = undefined;
 			this.requestRender();
 		}
-		this.scheduleVideoComposerForSelection(sceneKey, structuralEpoch, paths);
 		return true;
-	}
-
-	private scheduleVideoComposerForSelection(sceneKey: string, structuralEpoch: number, paths: readonly string[]): void {
-		// Selection is accepted before React commits it. Remember that intent only
-		// while a Video preview is still hydrating; the scene-owned Composer portal
-		// itself is projected from the committed selection and needs no DOM polling.
-		const preparedSelection = {
-			sceneKey,
-			structuralEpoch,
-			paths: Object.freeze([...paths])
-		};
-		this.preparedSceneSelection = preparedSelection;
-		if (paths.length !== 1) {
-			return;
-		}
-		const path = paths[0];
-		const openWhenInteractionSettles = (): void => {
-			if (this.disposed || this.canvasNavigationService.state.cardDetail || this.preparedSceneSelection !== preparedSelection) {
-				return;
-			}
-			// A direct drag of an unselected Video accepts selection before the
-			// pointer is released. Keep the new Composer dormant until the gesture
-			// ends so adjacent chrome never appears underneath the pointer.
-			if (this.canvasScene.isInteracting()) {
-				mainWindow.requestAnimationFrame(openWhenInteractionSettles);
-				return;
-			}
-			const folder = this.getCurrentFolder();
-			const item = this.renderedItemsByPath.get(path);
-			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
-			const card = this.renderedCardElementsByPath.get(path);
-			if (!folder || this.sceneKey(folder) !== sceneKey
-				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
-				return;
-			}
-			if (!item || preview?.kind !== 'node' || preview.document.kind !== 'video' || !card) {
-				return;
-			}
-			void this.showNodeLocalSurface(item, card);
-		};
-		mainWindow.requestAnimationFrame(openWhenInteractionSettles);
-	}
-
-	private consumePreparedVideoComposer(path: string): void {
-		const preparedSelection = this.preparedSceneSelection;
-		if (preparedSelection?.paths.length === 1 && preparedSelection.paths[0] === path) {
-			this.preparedSceneSelection = undefined;
-		}
 	}
 
 	private async beginSceneNoteEdit(
@@ -5224,7 +3952,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private async openSceneCard(sceneKey: string, structuralEpoch: number, path: string): Promise<void> {
 		this.cancelPendingNodeActivation();
-		const intent = this.nodeLocalSurfaceIntent;
+		const intent = this.cardOpenIntent;
 		const folder = this.getCurrentFolder();
 		if (!folder || this.sceneKey(folder) !== sceneKey
 			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
@@ -5255,17 +3983,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const currentStampValid = !!currentFolder
 			&& this.sceneKey(currentFolder) === sceneKey
 			&& this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch));
-		if (this.nodeLocalSurfaceIntent !== intent
+		if (this.cardOpenIntent !== intent
 			|| !currentStampValid
 			|| !currentItem
 			|| !this.uriIdentityService.extUri.isEqual(currentItem.stat.resource, item.stat.resource)) {
 			return;
 		}
 		if (currentItem.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			const anchor = this.renderedCardElementsByPath.get(currentItem.path);
-			if (anchor) {
-				void this.openResultNodeContent(currentFolder, currentItem, anchor);
-			}
+			void this.openResultNodeContent(currentFolder, currentItem);
 			return;
 		}
 		if (currentItem.stat.isDirectory) {
@@ -5280,15 +4005,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private cancelPendingNodeActivation(): void {
-		this.nodeLocalSurfaceIntent++;
+		this.cardOpenIntent++;
 	}
 
 	private async openResultNodeFromActionContext(context: IBaseHalfCanvasActionContext): Promise<void> {
 		await this.canvasActionContextService.assertCurrent(context);
 		const folder = this.getCurrentFolder();
 		const item = this.renderedItemsByPath.get(context.relativePath);
-		const anchor = item ? this.renderedCardElementsByPath.get(item.path) : undefined;
-		if (!folder || !item || !anchor
+		if (!folder || !item
 			|| !this.uriIdentityService.extUri.isEqual(folder.workspaceFolder, context.workspaceFolder)
 			|| !this.uriIdentityService.extUri.isEqual(item.stat.resource, context.resource)
 			|| !item.name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
@@ -5296,32 +4020,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.markCanvasUserInteraction();
 		this.cancelPendingNodeActivation();
-		await this.openResultNodeContent(folder, item, anchor);
+		await this.openResultNodeContent(folder, item);
 	}
 
-	private async openResultNodeContent(
-		folder: IBaseHalfCanvasFolderState,
-		item: IBaseHalfCanvasItem,
-		anchor: HTMLElement
-	): Promise<void> {
+	/**
+	 * Opens the file a node shows. A node that shows nothing yet stays
+	 * selected on the canvas, where its card and panel are.
+	 */
+	private async openResultNodeContent(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<void> {
 		try {
 			const content = await this.fileService.readFile(item.stat.resource, {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 			});
-			const document = this.nodeExecutionService.getActiveRun(item.stat.resource)
-				? parseBaseHalfNodeDocumentBytesForActiveHost(content.value.buffer)
-				: parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const artifact = getBaseHalfNodeResultArtifact(document);
+			const artifact = getBaseHalfNodeResultArtifact(parseBaseHalfNodeDocumentBytes(content.value.buffer));
 			if (!artifact) {
-				await this.showNodeLocalSurface(item, anchor);
-				return;
-			}
-			const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact, { fresh: true });
-			if (integrity !== 'available') {
-				this.queueCanvasWarning(getBaseHalfNodeResultArtifactOpenProblem(artifact.path, integrity) ?? 'The sealed Result cannot be opened.');
-				this.requestRender();
-				await this.showNodeLocalSurface(item, anchor);
 				return;
 			}
 			await this.openNodeArtifactPath(folder, artifact.path);
@@ -5329,7 +4042,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.logService.warn(error);
 			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 			this.requestRender();
-			await this.showNodeLocalSurface(item, anchor);
 		}
 	}
 
@@ -5347,9 +4059,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			})()
 			: undefined;
 		if (action === 'more') {
-			if (this.activeNodeLocalSurface?.path === path) {
-				this.activeNodeLocalSurface.closeTransientOverlay();
-			}
 			const folder = this.getCurrentFolder();
 			const item = this.renderedItemsByPath.get(path);
 			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
@@ -5406,23 +4115,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.markCanvasUserInteraction();
 		switch (action) {
 			case 'importResult':
-				if (this.activeNodeLocalSurface?.path === path
-					&& !await this.activeNodeLocalSurface.prepareForImport()) {
-					return;
-				}
 				await this.importCanvasNodeResult(item);
 				return;
 			case 'openFullPreview':
-				await this.openResultNodeContent(folder, item, anchor);
+				await this.openResultNodeContent(folder, item);
 				return;
+			// A Video card no longer offers these: a copy starts a new node, and
+			// what made a video is shown with it in Card Detail.
 			case 'copySettings':
-				await this.copyCanvasNodeSettings(item);
-				return;
 			case 'showDetails':
-				await this.showNodeLocalSurface(item, anchor);
-				if (this.activeNodeLocalSurface?.path === path) {
-					await this.activeNodeLocalSurface.showVideoDetails();
-				}
 				return;
 		}
 	}
@@ -5455,9 +4156,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.cancelPendingNodeActivation();
-		if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
-			return;
-		}
 		if (action === 'rename') {
 			if (items.length !== 1) {
 				return;
@@ -5775,8 +4473,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					kind: 'transition',
 					from: snapshot,
 					to: {
-						items: snapshot.items.filter(item => !(item.scalar && removed.has(identity.key(baseHalfNormalizeUpstreamEntry(item.text))))),
-						...(snapshot.bindings ? { bindings: normalizeNodeInputBindings(snapshot.bindings.filter(binding => !removed.has(identity.key(binding.sourcePath)))) } : {})
+						items: snapshot.items.filter(item => !(item.scalar && removed.has(identity.key(baseHalfNormalizeUpstreamEntry(item.text)))))
 					}
 				}
 			});
@@ -5801,7 +4498,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		this.markCanvasUserInteraction();
-		this.activeNodeLocalSurface?.closeTransientOverlay();
 		if (request.kind === 'edge') {
 			mainWindow.setTimeout(() => {
 				const current = this.getCurrentFolder();
@@ -6059,9 +4755,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				problem: view.problem,
 				storeIssue: view.storeIssue,
 				upstreamOnly: view.upstreamOnly,
-				lifecycle: view.lifecycle,
 				misplaced: !!view.misplacedSidecar,
-				entries: view.entries.map(entry => [entry.index, entry.text, entry.status, entry.problem, entry.historical, entry.workspacePath, entry.binding?.slot, entry.target?.relativePath])
+				entries: view.entries.map(entry => [entry.index, entry.text, entry.status, entry.problem, entry.workspacePath, entry.target?.relativePath])
 			} : undefined,
 			ownProblem: ownProblem ? {
 				relativePath: ownProblem.relativePath,
@@ -6323,10 +5018,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const cached = previousRenderedCards.get(item.path);
 			return cached ? [[item.path, { ...cached, item }] as const] : [];
 		}));
-		this.renderedPathByResourceKey = new Map(model.items.map(item => [
-			this.uriIdentityService.extUri.getComparisonKey(item.stat.resource),
-			item.path
-		]));
 		this.renderedSceneCards = Object.freeze(nextCards);
 		this.renderedSceneEdges = Object.freeze(nextEdges);
 		this.canvasScene.update({
@@ -6341,7 +5032,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private async readCardPreview(
 		item: IBaseHalfCanvasItem,
-		modelServices: readonly IBaseHalfModelServiceDescriptor[],
 		verifyNodeState: boolean
 	): Promise<BaseHalfCanvasCardPreview> {
 		if (item.kind === 'folder') {
@@ -6377,18 +5067,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const raw = (await this.fileService.readFile(item.stat.resource, {
 					limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 				})).value.buffer;
-				const execution = this.nodeExecutionService.getActiveRun(item.stat.resource);
-				const document = execution
-					? parseBaseHalfNodeDocumentBytesForActiveHost(raw)
-					: parseBaseHalfNodeDocumentBytes(raw);
+				const document = parseBaseHalfNodeDocumentBytes(raw);
 				const folder = this.getCurrentFolder();
-				const inbound = folder
-					? await this.readNodeInboundSources(folder, item)
-					: { sources: Object.freeze([]), problem: 'Open this node in its project before running it.' };
-				const inputKinds = baseHalfNodeInboundInputKinds(inbound.sources);
-				const directSourceProblems = folder && verifyNodeState
-					? await this.readNodeDirectSourceProblems(folder, inbound.sources, document.recipe?.inputBindings)
-					: new Map<string, string>();
 				const artifact = getBaseHalfNodeResultArtifact(document);
 				const previousPreview = this.renderedCardPreviewsByPath.get(item.path)?.preview;
 				const previousArtifact = previousPreview?.kind === 'node'
@@ -6401,52 +5081,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					&& previousArtifact !== undefined
 					&& stableStringify(artifact) === stableStringify(previousArtifact);
 				// A corrected node stat or another unrelated render must not demote the
-				// same sealed artifact to a verification-pending face. Fresh hydration
-				// still follows and replaces this retained result if integrity changed.
+				// same result to a verification-pending face. Fresh hydration still
+				// follows and replaces this retained result if its file went missing.
 				const resultPreview = retainsVerifiedResultPreview
 					? {
 						...(previousPreview.resultMedia ? { resultMedia: previousPreview.resultMedia } : {}),
 						...(previousPreview.resultOutputText ? { resultOutputText: previousPreview.resultOutputText } : {}),
-						...(previousPreview.resultIntegrity ? { resultIntegrity: previousPreview.resultIntegrity } : {})
+						...(previousPreview.resultMissing ? { resultMissing: true as const } : {})
 					}
 					: folder ? await this.readNodeResultPreview(folder, document, verifyNodeState) : {};
-				const recipe = document.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
-				const matchingRecipeCount = this.canvasRecipeRegistryService.getRecipes()
-					.filter(candidate => baseHalfCanvasRecipeMatchesNodeKind(candidate, document.kind)).length;
-				const videoConfigurationProblem = baseHalfVideoDocumentConfigurationProblem(
-					document,
-					recipe,
-					modelServices,
-					baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, recipe),
-					inputKinds
-				);
 				return {
 					kind: 'node',
 					document,
-					...(execution === undefined ? {} : { execution }),
-					...(recipe === undefined ? {} : { recipe }),
-					...(document.kind === 'video' && recipe?.modelCapability === 'video'
-						? { videoConfiguration: videoConfigurationProblem
-							? { valid: false as const, problem: videoConfigurationProblem }
-							: { valid: true as const } }
-						: {}),
-					matchingRecipeCount,
-					modelServices,
-					inputKinds,
-					directSourcePaths: Object.freeze(inbound.sources.map(source => source.path)),
-					directSourceProblems,
 					...(verifyNodeState || retainsVerifiedResultPreview ? {} : { verificationPending: true }),
-					...(inbound.problem ? { graphProblem: inbound.problem } : {}),
 					dirty: this.workingCopyService.isDirty(item.stat.resource),
 					...resultPreview
 				};
 			} catch (error) {
-				const reason = error instanceof BaseHalfNodeDocumentError
-					? error.message
-					: 'The result node could not be read.';
+				// A node BaseHalf cannot read, a version 4 node among them, shows
+				// that it is unreadable; nothing reads it as something else (D58).
+				const reason = !(error instanceof BaseHalfNodeDocumentError)
+					? localize('basehalf.canvas.node.unreadableReason', "The node could not be read.")
+					: error.earlierVersion !== undefined
+						? localize('basehalf.canvas.node.earlierVersion', "An earlier BaseHalf saved this node in a form this version no longer reads.")
+						: error.message;
 				return {
 					kind: 'invalidNode',
-					text: `${reason.slice(0, 240)} Open source to repair it.`
+					text: reason.slice(0, 240)
 				};
 			}
 		}
@@ -6593,17 +5254,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private resolveCardPreviewModelServices(batch: IBaseHalfCanvasPreviewHydrationBatch): Promise<readonly IBaseHalfModelServiceDescriptor[]> {
-		if (this.cardPreviewModelServicesGeneration !== batch.generation || !this.cardPreviewModelServicesPromise) {
-			this.cardPreviewModelServicesGeneration = batch.generation;
-			this.cardPreviewModelServicesPromise = this.modelServiceService.getServices().catch(error => {
-				this.logService.warn(error);
-				return [];
-			});
-		}
-		return this.cardPreviewModelServicesPromise;
-	}
-
 	private async hydrateCardPreviews(
 		folder: IBaseHalfCanvasFolderState,
 		items: readonly IBaseHalfCanvasItem[],
@@ -6611,17 +5261,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		seq: number,
 		batch: IBaseHalfCanvasPreviewHydrationBatch
 	): Promise<void> {
-		// Ordinary content must never wait for credential-backed model discovery.
-		// New result nodes also get a safe, verification-pending face first. A
-		// result node with a complete cached face keeps that face until fresh
-		// verification completes, so its media element is never downgraded to a
-		// loading or verification-pending frame during unrelated canvas work.
+		// New nodes get a verification-pending face first. A node with a complete
+		// cached face keeps that face until fresh verification completes, so its
+		// media element is never downgraded to a loading or verification-pending
+		// frame during unrelated canvas work.
 		const initialItems = items.filter(item => {
 			const preview = this.renderedCardPreviewsByPath.get(item.path)?.preview;
 			return preview?.kind === 'loading' || preview?.kind === 'nodeLoading';
 		});
 		if (initialItems.length > 0
-			&& !await this.hydrateCardPreviewItems(folder, initialItems, [], false, structuralStamp, seq, batch)) {
+			&& !await this.hydrateCardPreviewItems(folder, initialItems, false, structuralStamp, seq, batch)) {
 			return;
 		}
 
@@ -6637,14 +5286,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				|| !this.cardPreviewHydrationQueue.isCurrent(batch)) {
 				return;
 			}
-			const modelServices = await this.resolveCardPreviewModelServices(batch);
-			if (!isCurrent()
-				|| !this.isRenderCurrent(seq)
-				|| !this.isCurrentSceneKey(batch.sceneKey)
-				|| !this.cardPreviewHydrationQueue.isCurrent(batch)) {
-				return;
-			}
-			await this.hydrateCardPreviewItems(folder, resultNodes, modelServices, true, structuralStamp, seq, batch, isCurrent);
+			await this.hydrateCardPreviewItems(folder, resultNodes, true, structuralStamp, seq, batch, isCurrent);
 		}, error => {
 			if (!this.disposed) {
 				this.logService.warn(error instanceof Error ? error.message : String(error));
@@ -6666,45 +5308,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (preview?.kind !== 'node' || preview.document.kind !== 'video') {
 			return undefined;
 		}
-		if (!preview.document.result) {
-			const importAvailable = !this.nodeExecutionService.getActiveRun(item.stat.resource)
-				&& !preview.dirty
-				&& getBaseHalfNodeImportProblem(preview.document) === undefined;
+		const phase = baseHalfVideoNodePhase(preview.document);
+		if (phase !== 'video') {
+			// Upload Video while the node is empty and does not generate.
 			return {
 				kind: 'video',
-				actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>(importAvailable ? ['importResult'] : [])
+				actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>(phase === 'empty' && !preview.dirty ? ['importResult'] : [])
 			};
 		}
 		if (preview.verificationPending
-			|| preview.resultIntegrity
+			|| preview.resultMissing
 			|| preview.resultMedia?.mediaKind !== 'video') {
 			return { kind: 'video', actions: Object.freeze([]) };
 		}
 		return {
 			kind: 'video',
-			actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>([
-				'copySettings',
-				'showDetails',
-				'more',
-				'openFullPreview'
-			])
+			actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>(['more', 'openFullPreview'])
 		};
-	}
-
-	private resolveLiveCanvasCard(path: string): HTMLElement | undefined {
-		const candidates = Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]'))
-			.filter(candidate => candidate.dataset.basehalfCardPath === path
-				&& candidate.isConnected
-				&& candidate.getClientRects().length > 0
-				&& candidate.closest('.react-flow__node') !== null);
-		return candidates.find(candidate => candidate.closest('.react-flow__node.selected') !== null)
-			?? candidates[candidates.length - 1];
 	}
 
 	private async hydrateCardPreviewItems(
 		folder: IBaseHalfCanvasFolderState,
 		items: readonly IBaseHalfCanvasItem[],
-		modelServices: readonly IBaseHalfModelServiceDescriptor[],
 		verifyNodeState: boolean,
 		structuralStamp: IBaseHalfWorkspaceMutationStamp,
 		seq: number,
@@ -6727,7 +5352,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 						...item,
 						stat: { ...item.stat, ...before, children: item.stat.children }
 					};
-					const preview = await this.readCardPreview(versionedItem, modelServices, verifyNodeState);
+					const preview = await this.readCardPreview(versionedItem, verifyNodeState);
 					const after = await this.fileService.stat(item.stat.resource);
 					if (before.etag !== after.etag
 						|| before.size !== after.size
@@ -6810,79 +5435,60 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (replacements.size === 0) {
 				continue;
 			}
-				this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => replacements.get(card.path) ?? card));
-				this.canvasScene.update({
+			this.renderedSceneCards = Object.freeze(this.renderedSceneCards.map(card => replacements.get(card.path) ?? card));
+			this.canvasScene.update({
 				key: hydrationBatch.sceneKey,
 				structuralEpoch: structuralStamp.structuralEpoch,
 				revision: seq,
 				cards: this.renderedSceneCards,
-					edges: this.renderedSceneEdges
-				});
-				const preparedSelection = this.preparedSceneSelection;
-				if (preparedSelection?.sceneKey === hydrationBatch.sceneKey
-					&& preparedSelection.structuralEpoch === structuralStamp.structuralEpoch
-					&& preparedSelection.paths.length === 1
-					&& replacements.has(preparedSelection.paths[0])) {
-					// React applies `.selected` to a replacement card in its layout
-					// effect. Re-arm the bounded retry from the accepted selection,
-					// instead of synchronously reading the not-yet-committed DOM.
-					this.scheduleVideoComposerForSelection(
-						hydrationBatch.sceneKey,
-						structuralStamp.structuralEpoch,
-						preparedSelection.paths
-					);
-				}
+				edges: this.renderedSceneEdges
+			});
 		}
 		return true;
 	}
 
+	/** What a node's card shows of the file the node shows, and whether that file is there. */
 	private async readNodeResultPreview(folder: IBaseHalfCanvasFolderState, document: IBaseHalfNodeDocument, verifyIntegrity: boolean): Promise<{
 		readonly resultMedia?: IBaseHalfCanvasMediaPreview;
 		readonly resultOutputText?: string;
-		readonly resultIntegrity?: Exclude<BaseHalfNodeArtifactIntegrity, 'available'>;
+		readonly resultMissing?: true;
 	}> {
 		const artifact = getBaseHalfNodeResultArtifact(document);
-		if (!artifact) {
-			return {};
-		}
-		if (!verifyIntegrity) {
+		if (!artifact || !verifyIntegrity) {
 			return {};
 		}
 		const outputPath = artifact.path;
 		const resource = joinPath(folder.workspaceFolder, ...outputPath.split('/'));
-		const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact);
-		if (integrity !== 'available') {
-			return { resultIntegrity: integrity };
+		let stat: IFileStat;
+		try {
+			stat = await this.fileService.resolve(resource, { resolveMetadata: true });
+		} catch {
+			return { resultMissing: true };
 		}
-		const media = mediaPreviewFromArtifact(artifact.kind, artifact.label ?? baseHalfReferenceLabel(artifact.path));
+		if (stat.isDirectory) {
+			return { resultMissing: true };
+		}
+		const media = mediaPreviewFromArtifact(document.kind, baseHalfReferenceLabel(outputPath));
 		if (media) {
-			let resolvedResource = resource;
-			try {
-				const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
-				if (stat.size !== artifact.size) {
-					return { resultIntegrity: 'changed' };
-				}
-				if (media.kind !== 'pdf') {
-					resolvedResource = resource.with({ query: `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}` });
-				}
-			} catch {
-				return { resultIntegrity: 'missing' };
-			}
+			const resolvedResource = media.kind === 'pdf'
+				? resource
+				: resource.with({ query: `basehalfCanvasVersion=${stat.mtime ?? 0}-${stat.size ?? 0}` });
 			return { resultMedia: { text: media.label, mediaKind: media.kind, resource: resolvedResource } };
 		}
-		if (!baseHalfNodeArtifactUsesTextPreview(artifact.kind, outputPath)) {
+		const contentKind = baseHalfCanvasContentKindForPath(outputPath, false);
+		if (document.kind !== 'file' || (contentKind !== 'text' && contentKind !== 'code')) {
 			return {};
 		}
 		try {
 			const contents = (await this.fileService.readFile(resource, { length: CARD_EXCERPT_READ_BYTES })).value;
-			const raw = decodeBaseHalfNodeTextPreview(contents);
+			const raw = decodeTextExcerpt(contents);
 			if (raw === undefined) {
 				return {};
 			}
 			const text = markdownPreviewKind(outputPath) === 'markdown' ? raw : cleanCardPreviewText(outputPath, raw);
 			return text ? { resultOutputText: text } : {};
 		} catch {
-			return { resultIntegrity: 'missing' };
+			return { resultMissing: true };
 		}
 	}
 
@@ -6936,9 +5542,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const requestOwner = this.captureCanvasPostCreateOwner();
 		const requestFocusOrigin = this.root.ownerDocument.activeElement;
 		this.cancelPendingNodeActivation();
-		if (this.activeNodeLocalSurface && !await this.activeNodeLocalSurface.closeForSwitch()) {
-			return;
-		}
 		const folder = this.getCurrentFolder();
 		if (!folder) {
 			return;
@@ -7337,11 +5940,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!name) {
 			throw new Error(`Too many ${label.toLowerCase()} outputs already use the default name.`);
 		}
+		// An empty node of its kind; a Video node starts with an empty prompt.
 		const document = createBaseHalfNodeDocument({
 			id: generateUuid(),
 			kind,
-			title: label,
-			role: getBaseHalfCanvasDefaultNodeRole(kind)
+			title: label
 		});
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			contents: VSBuffer.fromString(serializeBaseHalfNodeDocument(document)),
@@ -8075,7 +6678,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.classList.toggle('badge-open', badgeOpen);
 		card.setAttribute('aria-label', `${displayName} card`);
 		card.title = resultNode
-			? `${item.path} - click to select; double-click to open the sealed Result`
+			? `${item.path} - click to select; double-click to open the file it shows`
 			: item.kind === 'folder'
 			? `${item.path} - click to select; double-click to enter this folder`
 			: markdownNote
@@ -8149,7 +6752,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const nextListeners = new DisposableStore();
 			presentationListeners.value = nextListeners;
 			clearNode(content);
-			this.renderedNodeChromeByPath.delete(item.path);
 			if (presentationLevel === 'shell') {
 				return;
 			}
@@ -8157,7 +6759,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const active = append(content, $('.basehalf-canvas-card-active'));
 			const body = append(active, $('.basehalf-canvas-card-body'));
 			if (badgeOpen && canShowBadgeFace) {
-				this.renderCardBadgeFace(body, item, preview, nextListeners);
+				this.renderCardBadgeFace(body, item, nextListeners);
 			} else {
 				this.renderCardPreview(body, item, preview, orphan, presentationLevel === 'interactive', nextListeners, card);
 			}
@@ -8180,22 +6782,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.requestInlineRename(item);
 			} else if (event.key === 'Enter') {
 				event.preventDefault();
-				if ((event.metaKey || event.ctrlKey) && resultNode && preview?.kind === 'node') {
-					const state = nodeLocalStateForCardPreview(preview);
-					if (state.ready && (state.action.kind === 'run' || state.action.kind === 'retry')) {
-						void this.runCanvasNode(item);
-					} else {
-						this.queueCanvasWarning(state.message);
-						this.requestRender();
-					}
-					return;
-				}
 				if (resultNode) {
 					this.selectCard(item.path);
 					const folder = this.getCurrentFolder();
 					if (folder) {
 						this.cancelPendingNodeActivation();
-						void this.openResultNodeContent(folder, item, card);
+						void this.openResultNodeContent(folder, item);
 					}
 				} else if (markdownNote) {
 					this.selectCard(item.path);
@@ -8414,7 +7006,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderInvalidNodePreview(container: HTMLElement, item: IBaseHalfCanvasItem, message: string, listeners: DisposableStore): void {
 		const title = append(container, $('.basehalf-canvas-invalid-node-title'));
-		title.textContent = 'Invalid result node';
+		title.textContent = localize('basehalf.canvas.node.unreadable', "Unreadable node");
 		const detail = append(container, $('.basehalf-canvas-invalid-node-message'));
 		detail.textContent = message;
 		const action = append(container, $('button.basehalf-canvas-invalid-node-action')) as HTMLButtonElement;
@@ -8446,189 +7038,93 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		listeners: DisposableStore,
 		card: HTMLElement
 	): void {
-		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.attempts.length > 0 ? 'attempt' : 'draft';
+		card.dataset.nodeLifecycle = preview.document.result ? 'result' : preview.document.task ? 'task' : 'empty';
 		if (preview.document.kind === 'video') {
-			this.renderVideoNodePreview(container, item, preview, interactive, listeners, card);
+			this.renderVideoNodePreview(container, preview, interactive, listeners, card);
 			return;
 		}
 		const result = append(container, $('.basehalf-canvas-node-result'));
 		const resultLabel = append(result, $('.basehalf-canvas-node-result-label'));
-		resultLabel.textContent = 'Result';
+		resultLabel.textContent = localize('basehalf.canvas.node.result', "Result");
 		if (preview.resultMedia) {
 			const media = append(result, $('.basehalf-canvas-node-result-media'));
 			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
 		} else {
 			const resultValue = append(result, $('.basehalf-canvas-node-result-value'));
 			resultValue.textContent = nodePreviewResultLabel(preview);
-			resultValue.title = nodeResultTitle(preview.document, preview.resultOutputText);
+			resultValue.title = resultValue.textContent;
 		}
-
-		const activeExecution = this.nodeExecutionService.getActiveRun(item.stat.resource);
-		const localState = nodeLocalStateForCardPreview(activeExecution ? { ...preview, execution: activeExecution } : preview);
-		card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(localState.status);
-		let status: HTMLElement | undefined;
-		if (localState.message) {
-			status = append(container, $('.basehalf-canvas-node-status'));
-			status.textContent = getBaseHalfNodeCardStatusText(localState);
-			status.title = localState.message;
-			status.setAttribute('aria-label', `${localState.status}: ${localState.message}`);
-			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
-			status.classList.toggle('executing', !!activeExecution);
-			status.setAttribute('aria-live', 'polite');
-		}
-		const progress = append(container, $('.basehalf-canvas-node-progress'));
-		const progressValue = append(progress, $('.basehalf-canvas-node-progress-value'));
-		const executionProgress = activeExecution?.progress;
-		progress.hidden = !activeExecution;
-		progress.classList.toggle('indeterminate', activeExecution !== undefined && executionProgress === undefined);
-		progressValue.style.width = executionProgress === undefined ? '36%' : `${Math.max(0, Math.min(100, executionProgress))}%`;
-		progress.setAttribute('role', 'progressbar');
-		progress.setAttribute('aria-label', activeExecution ? `${localState.status}: ${localState.message}` : 'No active generation');
-		if (executionProgress !== undefined) {
-			progress.setAttribute('aria-valuemin', '0');
-			progress.setAttribute('aria-valuemax', '100');
-			progress.setAttribute('aria-valuenow', String(Math.round(Math.max(0, Math.min(100, executionProgress)))));
-		}
-		this.renderNodeActions(container, item, preview, localState, activeExecution, listeners, card, { status, progress, progressValue });
+		this.renderNodeActions(container, item, preview, listeners);
 	}
 
+	/**
+	 * The card of a Video node by its phase (video node, "The card"): the glyph
+	 * while it is empty; the glyph and "Generating" while its task is active;
+	 * the glyph and the error of a failed task, whole in the tooltip; the glyph
+	 * and "Stopped"; the video, with controls while the card is selected; and
+	 * the glyph and "The video file is missing" when its file is gone. The card
+	 * keeps its size and the video is fitted inside it.
+	 */
 	private renderVideoNodePreview(
 		container: HTMLElement,
-		item: IBaseHalfCanvasItem,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
 		interactive: boolean,
 		listeners: DisposableStore,
 		card: HTMLElement
 	): void {
-		const activeExecution = this.nodeExecutionService.getActiveRun(item.stat.resource);
-		const localState = nodeLocalStateForCardPreview(activeExecution ? { ...preview, execution: activeExecution } : preview);
-		const emptyDraft = !preview.document.result && preview.document.attempts.length === 0 && !activeExecution;
-		card.dataset.nodeStatus = baseHalfNodeLocalStatusToken(localState.status);
-		card.classList.toggle('empty-video-draft', emptyDraft);
-		card.setAttribute('aria-label', `${preview.document.title}, Video, ${getBaseHalfNodeCardStatusText(localState)}${activeExecution?.progress === undefined ? '' : ` ${Math.round(Math.max(0, Math.min(100, activeExecution.progress)))} percent`}`);
-
+		const document = preview.document;
+		const status = baseHalfCanvasVideoCardStatus(preview);
+		card.dataset.videoPhase = status.phase;
+		card.classList.toggle('empty-video-draft', status.phase === 'empty');
 		const stage = append(container, $('.basehalf-video-stage'));
-		stage.title = localState.message;
-		if (preview.resultMedia?.mediaKind === 'video' && !preview.resultIntegrity) {
+		if (status.phase === 'video' && status.text === undefined && preview.resultMedia?.mediaKind === 'video') {
 			const media = append(stage, $('.basehalf-video-stage-media'));
 			this.renderMediaPreview(media, { kind: 'media', ...preview.resultMedia }, interactive, listeners);
-		} else {
-			const empty = append(stage, $('.basehalf-video-stage-empty'));
-			empty.classList.toggle('simple', emptyDraft);
-			empty.setAttribute('aria-hidden', 'true');
-			const glyph = append(empty, $('.basehalf-video-stage-glyph'));
-			this.renderGlyph(glyph, 'video', 'var(--bh-card-text-ghost)', emptyDraft ? 42 : 30);
-			if (!emptyDraft) {
-				const hint = append(empty, $('.basehalf-video-stage-hint'));
-				hint.textContent = preview.verificationPending && preview.document.result
-					? localize('basehalf.canvas.videoStage.checking', "Checking the sealed video…")
-					: preview.document.recipe
-						? localize('basehalf.canvas.videoStage.configured', "Video Draft")
-						: localize('basehalf.canvas.videoStage.empty', "Video unavailable");
-			}
+			card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.video', "{0}, Video", document.title));
+			return;
 		}
-
-		let status: HTMLElement | undefined;
-		if (!emptyDraft && (!preview.document.result || preview.resultIntegrity || preview.verificationPending || activeExecution)) {
-			status = append(stage, $('.basehalf-canvas-node-status.basehalf-video-state'));
-			status.textContent = getBaseHalfNodeCardStatusText(localState);
-			status.title = localState.message;
-			status.setAttribute('role', 'status');
-			status.setAttribute('aria-live', 'polite');
-			status.setAttribute('aria-label', `${localState.status}: ${localState.message}`);
-			status.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
-			status.classList.toggle('executing', !!activeExecution);
+		const empty = append(stage, $('.basehalf-video-stage-empty'));
+		empty.classList.toggle('simple', status.phase === 'empty');
+		const glyph = append(empty, $('.basehalf-video-stage-glyph'));
+		glyph.setAttribute('aria-hidden', 'true');
+		this.renderGlyph(glyph, 'video', 'var(--bh-card-text-ghost)', status.phase === 'empty' ? 42 : 30);
+		if (status.text === undefined) {
+			card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.empty', "{0}, Video", document.title));
+			return;
 		}
-
-		const progress = append(stage, $('.basehalf-canvas-node-progress.basehalf-video-progress'));
-		const progressValue = append(progress, $('.basehalf-canvas-node-progress-value'));
-		const executionProgress = activeExecution?.progress;
-		progress.hidden = !activeExecution;
-		progress.classList.toggle('indeterminate', activeExecution !== undefined && executionProgress === undefined);
-		progressValue.style.width = executionProgress === undefined ? '36%' : `${Math.max(0, Math.min(100, executionProgress))}%`;
-		progress.setAttribute('role', 'progressbar');
-		progress.setAttribute('aria-label', activeExecution ? `${localState.status}: ${localState.message}` : localize('basehalf.canvas.videoProgress.inactive', "No active video generation"));
-		if (executionProgress !== undefined) {
-			progress.setAttribute('aria-valuemin', '0');
-			progress.setAttribute('aria-valuemax', '100');
-			progress.setAttribute('aria-valuenow', String(Math.round(Math.max(0, Math.min(100, executionProgress)))));
-		}
-
-		this.renderedNodeChromeByPath.set(item.path, {
-			card,
-			title: preview.document.title,
-			...(status ? { status } : {}),
-			progress,
-			progressValue
-		});
+		const hint = append(empty, $('.basehalf-video-stage-hint'));
+		hint.classList.toggle('failed', status.phase === 'failed');
+		hint.textContent = status.text;
+		hint.title = status.title ?? status.text;
+		hint.setAttribute('role', 'status');
+		card.setAttribute('aria-label', localize('basehalf.canvas.videoCard.state', "{0}, Video, {1}", document.title, status.text));
 	}
 
+	/**
+	 * The one action of an image, audio, file, PDF, or presentation node: an
+	 * empty node takes a file the user brings in, and a node with a file opens it.
+	 */
 	private renderNodeActions(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
 		preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>,
-		localState: ReturnType<typeof nodeLocalStateForCardPreview>,
-		activeExecution: IBaseHalfNodeExecutionState | undefined,
-		listeners: DisposableStore,
-		card: HTMLElement,
-		chrome: Omit<IBaseHalfRenderedNodeChrome, 'card' | 'title'>
+		listeners: DisposableStore
 	): void {
+		const document = preview.document;
 		const actions = append(container, $('.basehalf-canvas-node-actions'));
-		if (!baseHalfNodeLocalPrimaryActionOpensSurface(localState.action)) {
-			const edit = append(actions, $('button.basehalf-canvas-node-edit')) as HTMLButtonElement;
-			edit.classList.add('nodrag', 'nopan', 'nowheel');
-			edit.type = 'button';
-			edit.textContent = preview.document.attempts.length > 0 || preview.document.result ? 'Details' : 'Configure';
-			edit.title = preview.document.attempts.length > 0 || preview.document.result
-				? 'View this sealed node and its Attempts'
-				: 'Configure this Draft and view its Attempts';
-			edit.setAttribute('aria-label', edit.title);
-			listeners.add(this.addDisposableListener(edit, 'pointerdown', event => event.stopPropagation()));
-			listeners.add(this.addDisposableListener(edit, 'dblclick', event => {
-				event.preventDefault();
-				event.stopPropagation();
-			}));
-			listeners.add(this.addDisposableListener(edit, 'click', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.selectCard(item.path);
-				void this.showNodeLocalSurface(item, edit);
-			}));
-		}
 		const action = append(actions, $('button.basehalf-canvas-node-action')) as HTMLButtonElement;
 		action.classList.add('nodrag', 'nopan', 'nowheel');
 		action.type = 'button';
-		action.textContent = preview.document.kind === 'video' && preview.document.result && localState.action.kind === 'locate'
-			? localize('basehalf.canvas.video.open', "Open Video")
-			: localState.action.label;
-		action.dataset.nodeAction = localState.action.kind;
-		const isRunAction = localState.action.kind === 'run' || localState.action.kind === 'retry';
-		const actionUnavailable = (isRunAction && !localState.ready)
-			|| localState.action.kind === 'wait'
-			|| activeExecution?.phase === 'cancelling'
-			|| preview.execution?.phase === 'cancelling';
-		action.setAttribute('aria-disabled', String(actionUnavailable));
-		action.title = `${localState.action.label}: ${localState.message}`;
+		const opens = !!document.result;
+		action.textContent = opens
+			? localize('basehalf.canvas.node.open', "Open")
+			: localize('basehalf.canvas.node.import', "Import {0}", canvasResultNodeKindLabel(document.kind));
+		const unavailable = opens ? preview.resultMissing === true : preview.dirty;
+		action.setAttribute('aria-disabled', String(unavailable));
+		action.title = opens && preview.resultMissing
+			? localize('basehalf.canvas.node.fileMissing', "The file this node shows is missing: {0}", document.result?.artifact.path ?? '')
+			: action.textContent;
 		action.setAttribute('aria-label', action.title);
-		if (actionUnavailable && chrome.status) {
-			const statusElement = chrome.status;
-			listeners.add(this.addDisposableListener(action, 'focus', () => {
-				statusElement.textContent = localState.message;
-				statusElement.classList.add('explaining-action');
-			}));
-			listeners.add(this.addDisposableListener(action, 'blur', () => {
-				statusElement.textContent = getBaseHalfNodeCardStatusText(localState);
-				statusElement.classList.remove('explaining-action');
-			}));
-		}
-		this.renderedNodeChromeByPath.set(item.path, {
-			card,
-			title: preview.document.title,
-			...(chrome.status ? { status: chrome.status } : {}),
-			action,
-			...(chrome.progress ? { progress: chrome.progress } : {}),
-			...(chrome.progressValue ? { progressValue: chrome.progressValue } : {})
-		});
 		listeners.add(this.addDisposableListener(action, 'pointerdown', event => event.stopPropagation()));
 		listeners.add(this.addDisposableListener(action, 'dblclick', event => {
 			event.preventDefault();
@@ -8638,5506 +7134,40 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			event.preventDefault();
 			event.stopPropagation();
 			if (action.getAttribute('aria-disabled') === 'true') {
-				this.queueCanvasWarning(localState.message);
-				this.requestRender();
 				return;
 			}
 			this.selectCard(item.path);
-			switch (action.dataset.nodeAction) {
-				case 'cancel': {
-					const active = this.nodeExecutionService.getActiveRun(item.stat.resource);
-					if (active && this.nodeExecutionService.cancel(item.stat.resource, active.runId)) {
-						return;
-					}
-					this.queueCanvasWarning('That run already changed. The active run was not cancelled.');
-					this.requestRender();
-					return;
-				}
-				case 'wait':
-					return;
-				case 'add':
-				case 'configure':
-					void this.showNodeLocalSurface(item, action);
-					return;
-				case 'import':
-					void this.importCanvasNodeResult(item);
-					return;
-				case 'locate':
-					void this.locateNodeResult(item);
-					return;
-				case 'copy':
-					void this.copyCanvasNodeSettings(item);
-					return;
-				case 'recover':
-					void this.recoverInterruptedCanvasNode(item);
-					return;
-				case 'run':
-				case 'retry':
-					void this.runCanvasNode(item);
+			const folder = this.getCurrentFolder();
+			if (opens && folder) {
+				void this.openResultNodeContent(folder, item);
+			} else if (!opens) {
+				void this.importCanvasNodeResult(item);
 			}
 		}));
 	}
 
-	private async copyCanvasNodeSettings(item: IBaseHalfCanvasItem): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		try {
-			await this.performSceneSelectionAction(this.sceneKey(folder), this.renderedSceneStructuralEpoch, 'duplicate', [item.path]);
-		} catch (error) {
-			this.logService.warn(error);
-			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.requestRender();
-		}
-	}
-
-	private async recoverInterruptedCanvasNode(item: IBaseHalfCanvasItem): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		try {
-			await this.nodeExecutionService.recoverInterrupted({
-				resource: item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path
-			});
-		} catch (error) {
-			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-		} finally {
-			this.requestRender();
-		}
-	}
-
-	private async runCanvasNode(item: IBaseHalfCanvasItem): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		if (this.workingCopyService.isDirty(item.stat.resource)) {
-			this.queueCanvasWarning('Save this node before running it.');
-			this.requestRender();
-			return;
-		}
-		try {
-			const authorization = await this.confirmVideoProviderRun(item);
-			if (authorization === false) {
-				return;
-			}
-			await this.nodeExecutionService.run({
-				resource: item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path
-			}, authorization);
-		} catch (error) {
-			this.logService.warn(error);
-			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.requestRender();
-		}
-	}
-
-	private async confirmVideoProviderRun(item: IBaseHalfCanvasItem): Promise<false | Readonly<{
-		readonly providerAuthorization?: IBaseHalfNodeProviderRunAuthorization;
-	}>> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return false;
-		}
-		const content = await this.fileService.readFile(item.stat.resource, {
-			atomic: true,
-			limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-		});
-		const initialDocument = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		const initialRecipeState = initialDocument.recipe;
-		if (!initialRecipeState) {
-			return Object.freeze({});
-		}
-		const initialRecipe = this.canvasRecipeRegistryService.getRecipe(initialRecipeState.recipeId);
-		if (initialDocument.kind !== 'video' || initialRecipe?.modelCapability !== 'video' || !initialRecipe.videoModelCatalogId) {
-			return Object.freeze({});
-		}
-
-		// Authorization is created only after the host has completed the same
-		// provider preflight that run() will repeat. The disclosure below is derived
-		// from this exact document, never from a later mutable Composer snapshot.
-		const preflight = await this.nodeExecutionService.prepareProviderRun({
-			resource: item.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: item.path
-		});
-		const document = preflight.document;
-		const recipeState = document.recipe;
-		if (!recipeState) {
-			throw new Error('The provider preflight returned a Video Draft without a Recipe.');
-		}
-		const recipe = this.canvasRecipeRegistryService.getRecipe(recipeState.recipeId);
-		if (document.kind !== 'video' || recipe?.modelCapability !== 'video' || !recipe.videoModelCatalogId) {
-			throw new Error('The provider preflight no longer resolves to an executable reviewed Video Recipe.');
-		}
-
-		const snapshot = parseBaseHalfVideoModelSelectionSnapshot(
-			recipeState.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID],
-			recipe.videoModelCatalogId
-		);
-		const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, recipe);
-		const resolution = registry.resolve({
-			provider: snapshot.providerId,
-			deployment: snapshot.deploymentId,
-			region: snapshot.region,
-			modelId: snapshot.modelId,
-			revision: snapshot.revision,
-			mode: snapshot.mode,
-			inputs: snapshot.inputs
-		});
-		const services = await this.modelServiceService.getServices(undefined, 'video');
-		const service = services.find(candidate => candidate.id === recipeState.modelServiceId);
-		const providerLabel = service?.label ?? snapshot.providerId;
-		const modelLabel = resolution.status === 'supported' ? resolution.descriptor.label : snapshot.modelId;
-		const methodLabel = BASEHALF_VIDEO_MODE_LABELS[snapshot.mode];
-		let settingsLabel = localize('basehalf.canvas.videoAuthorization.settingsUnavailable', "No reviewed setting summary is available.");
-		if (resolution.status === 'supported') {
-			const normalization = normalizeBaseHalfVideoSettings(
-				resolution,
-				baseHalfVideoSettingsFromRecipeParameters(recipeState.parameters)
-			);
-			if (normalization.status === 'ready') {
-				const summary = createBaseHalfVideoModelSettingsPresentation(resolution, normalization).settingsSummary;
-				if (summary.length > 0) {
-					settingsLabel = summary.map(token => `${token.label}: ${token.value}`).join(' · ');
-				}
-			}
-		}
-
-		const retry = preflight.authorizationKind === 'replacement';
-		const confirmation = await this.dialogService.confirm({
-			type: 'warning',
-			message: retry
-				? localize('basehalf.canvas.videoAuthorization.retryMessage', "Retry video generation with {0}?", modelLabel)
-				: localize('basehalf.canvas.videoAuthorization.generateMessage', "Generate video with {0}?", modelLabel),
-			detail: [
-				localize('basehalf.canvas.videoAuthorization.provider', "Provider connection: {0}", providerLabel),
-				localize('basehalf.canvas.videoAuthorization.model', "Model: {0}", modelLabel),
-				localize('basehalf.canvas.videoAuthorization.method', "Method: {0}", methodLabel),
-				localize('basehalf.canvas.videoAuthorization.settings', "Settings: {0}", settingsLabel),
-				'',
-				retry
-					? localize('basehalf.canvas.videoAuthorization.retryDetail', "The existing task is inspected first. A new provider task is created only if the earlier task is proven failed or cancelled. The provider determines the exact charge.")
-					: localize('basehalf.canvas.videoAuthorization.generateDetail', "This action may create a paid provider task. The provider determines the exact charge.")
-			].join('\n'),
-			primaryButton: retry
-				? localize('basehalf.canvas.videoAuthorization.retryButton', "&&Retry")
-				: localize('basehalf.canvas.videoAuthorization.generateButton', "&&Generate")
-		});
-		if (!confirmation.confirmed) {
-			return false;
-		}
-		return Object.freeze({
-			providerAuthorization: Object.freeze({
-				kind: preflight.authorizationKind,
-				requestFingerprint: preflight.requestFingerprint
-			})
-		});
-	}
-
-	private scheduleVideoModelConnectionResume(): void {
-		if (!this.pendingVideoModelConnectionCompletion || this.videoModelConnectionResumeTimer !== undefined || this.disposed) {
-			return;
-		}
-		this.videoModelConnectionResumeTimer = mainWindow.setTimeout(() => {
-			this.videoModelConnectionResumeTimer = undefined;
-			void this.resumeVideoModelConnection();
-		}, 0);
-	}
-
-	private async resumeVideoModelConnection(): Promise<void> {
-		const completion = this.pendingVideoModelConnectionCompletion;
-		const target = completion?.intent.returnTarget;
-		if (!completion || target?.kind !== 'videoModel' || this.disposed) {
-			return;
-		}
-		// Completion fires immediately before Settings closes. Wait
-		// for its editor-change event so the Composer is mounted in the visible
-		// BaseHalf canvas rather than behind the settings editor.
-		if (this.editorService.activeEditor?.typeId === SettingsEditor2Input.ID) {
-			return;
-		}
-		const folder = this.getCurrentFolder();
-		if (!folder || this.sceneKey(folder) !== target.sceneKey || this.canvasNavigationService.state.cardDetail) {
-			this.pendingVideoModelConnectionCompletion = undefined;
-			return;
-		}
-		const item = this.renderedItemsByPath.get(target.nodePath);
-		const anchor = this.renderedCardElementsByPath.get(target.nodePath);
-		if (!item || !anchor?.isConnected || this.activeNodeLocalSurface) {
-			this.pendingVideoModelConnectionCompletion = undefined;
-			return;
-		}
-		await this.showNodeLocalSurface(item, anchor);
-	}
-
-	private showNodeLocalSurface(item: IBaseHalfCanvasItem, anchor: HTMLElement): Promise<void> {
-		const intent = ++this.nodeLocalSurfaceIntent;
-		const open = async () => {
-			if (intent !== this.nodeLocalSurfaceIntent) {
-				return;
-			}
-			// Direct actions (notably keyboard Enter) can ask for a Video Composer
-			// before React Flow's asynchronous selection transaction has retired an
-			// inline Note editor. Keep one authoring owner: finish the Note's format
-			// and save barrier before mounting the Composer, then recheck this open
-			// intent because either wait may have been superseded.
-			if (this.activeCanvasNoteEditor
-				&& (!await this.closeActiveCanvasNoteEditorAfterFormats(false) || intent !== this.nodeLocalSurfaceIntent)) {
-				return;
-			}
-			// A Note surface may be accepted but not mounted yet while a format/open
-			// transaction owns it. Its normal selection continuation will either
-			// retire it and schedule this Composer, or retain it; do not create a
-			// second invisible authoring owner in the meantime.
-			if (this.canvasNoteSurfacePath && !this.activeCanvasNoteEditor) {
-				return;
-			}
-			const active = this.activeNodeLocalSurface;
-			if (active?.path === item.path) {
-				return;
-			}
-			if (active && !await active.closeForSwitch()) {
-				this.selectCard(active.path);
-				return;
-			}
-			if (intent !== this.nodeLocalSurfaceIntent) {
-				return;
-			}
-			await this.openNodeLocalSurface(item, anchor, intent);
-		};
-		const queued = this.nodeLocalSurfaceOpenChain.then(open, open);
-		this.nodeLocalSurfaceOpenChain = queued.catch(error => {
-			this.logService.warn(error);
-			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.requestRender();
-		});
-		return this.nodeLocalSurfaceOpenChain;
-	}
-
-	private async openNodeLocalSurface(item: IBaseHalfCanvasItem, anchor: HTMLElement, intent: number): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-
-		let content: IFileContent;
-		let document: IBaseHalfNodeDocument;
-		try {
-			content = await this.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const active = this.nodeExecutionService.getActiveRun(item.stat.resource);
-			document = active
-				? parseBaseHalfNodeDocumentBytesForActiveHost(content.value.buffer)
-				: parseBaseHalfNodeDocumentBytes(content.value.buffer);
-		} catch (error) {
-			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.requestRender();
-			return;
-		}
-
-		let modelServices: readonly IBaseHalfModelServiceDescriptor[] = [];
-		try {
-			modelServices = await this.modelServiceService.getServices();
-		} catch (error) {
-			this.logService.warn(error);
-		}
-		let inbound = await this.readNodeInboundSources(folder, item);
-		const currentFolder = this.getCurrentFolder();
-		const resolveLiveCardAnchor = (): HTMLElement => {
-			const mapped = this.renderedCardElementsByPath.get(item.path);
-			return this.resolveLiveCanvasCard(item.path)
-				?? (mapped?.isConnected ? mapped : anchor);
-		};
-		const currentAnchor = resolveLiveCardAnchor();
-		if (intent !== this.nodeLocalSurfaceIntent
-			|| this.canvasNavigationService.state.cardDetail
-			|| !currentFolder
-			|| this.sceneKey(currentFolder) !== this.sceneKey(folder)
-			|| !currentAnchor.isConnected) {
-			return;
-		}
-		let inboundSources = inbound.sources;
-		let inputKinds = baseHalfNodeInboundInputKinds(inboundSources);
-		let inputResultIdentities = new Map(inboundSources.flatMap(source => source.resultIdentity
-			? [[source.path, source.resultIdentity] as const]
-			: []));
-		let directSourcePaths = Object.freeze(inboundSources.map(source => source.path));
-		let directSourceProblems: ReadonlyMap<string, string> = new Map();
-		let recipes = this.canvasRecipeRegistryService.getRecipes()
-			.filter(recipe => baseHalfCanvasRecipeMatchesNodeKind(recipe, document.kind));
-		const videoGeneratorRecipes = (): readonly IBaseHalfCanvasRecipeDescriptor[] => recipes;
-		const implicitVideoRecipe = resolveBaseHalfNodeImplicitVideoRecipe(document, recipes);
-		let selectedRecipeId = document.recipe?.recipeId ?? implicitVideoRecipe?.id ?? '';
-		let selectedRecipe = document.recipe
-			? this.canvasRecipeRegistryService.getRecipe(selectedRecipeId)
-			: implicitVideoRecipe;
-		if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
-			selectedRecipe = undefined;
-		}
-		let resultPreview: Awaited<ReturnType<BaseHalfCanvasWorkbenchContribution['readNodeResultPreview']>> = document.result
-			? await this.readNodeResultPreview(folder, document, true)
-			: {};
-		let verificationPending = false;
-		let draftParameters: Record<string, BaseHalfNodeParameterDraftValue> = selectedRecipe?.modelCapability === 'video'
-			? baseHalfVideoParameterDraftFromRecipeParameters(document.recipe?.parameters, selectedRecipe.videoModelCatalogId)
-			: selectedRecipe
-				? { ...createBaseHalfNodeParameterDraft(selectedRecipe, document.recipe?.parameters ?? {}) }
-				: {};
-		let localRecipeNeedsModelCleanup = !!selectedRecipe
-			&& selectedRecipe.modelCapability === undefined
-			&& !!(document.recipe?.modelServiceId || document.recipe?.modelId);
-		let draftModelServiceId = localRecipeNeedsModelCleanup ? undefined : document.recipe?.modelServiceId;
-		let draftModelId = localRecipeNeedsModelCleanup ? undefined : document.recipe?.modelId;
-		let draftVideoModelKey = selectedRecipe?.modelCapability === 'video'
-			? baseHalfVideoModelKeyFromParameterDraft(draftParameters, selectedRecipe.videoModelCatalogId)
-			: undefined;
-		let draftBindings = document.recipe?.inputBindings ?? [];
-		let draftTitle = document.title;
-		let draftRole = document.role;
-		let draftPrompt = document.prompt;
-		const videoComposer = document.kind === 'video';
-		if (videoComposer && document.result && !resultPreview.resultIntegrity) {
-			this.consumePreparedVideoComposer(item.path);
-			return;
-		}
-		let localSurfaceMode: 'configure' | 'attempts' = document.kind === 'video'
-			? 'configure'
-			: document.result || document.attempts.length > 0 ? 'attempts' : 'configure';
-		let videoComposerOverlay: BaseHalfVideoComposerOverlay | undefined;
-		let videoComposerOverlayFocusKey: string | undefined;
-		let videoInputCanvasPickState: IBaseHalfVideoCanvasPickState = createBaseHalfVideoCanvasPickState();
-		let attemptsVisibleCount = 50;
-		const expandedAttemptDisclosures = new Set<string>();
-		const removedConnections = new Set<string>();
-		const configurationDraft = (): IBaseHalfNodeLocalConfigurationDraft => ({
-			title: draftTitle,
-			role: draftRole,
-			prompt: draftPrompt,
-			recipeId: selectedRecipeId,
-			parameters: draftParameters,
-			...(draftModelServiceId === undefined ? {} : { modelServiceId: draftModelServiceId }),
-			...(draftModelId === undefined ? {} : { modelId: draftModelId }),
-			inputBindings: draftBindings
-		});
-		const configurationDraftFromDocument = (
-			candidate: IBaseHalfNodeDocument,
-			candidateRecipes: readonly IBaseHalfCanvasRecipeDescriptor[] = recipes
-		): IBaseHalfNodeLocalConfigurationDraft => {
-			const implicitRecipe = resolveBaseHalfNodeImplicitVideoRecipe(candidate, candidateRecipes);
-			const recipeId = candidate.recipe?.recipeId ?? implicitRecipe?.id ?? '';
-			const recipe = candidate.recipe
-				? this.canvasRecipeRegistryService.getRecipe(recipeId)
-				: implicitRecipe;
-			const matchingRecipe = recipe && baseHalfCanvasRecipeMatchesNodeKind(recipe, candidate.kind) ? recipe : undefined;
-			const preservesModelSelection = !matchingRecipe || matchingRecipe.modelCapability !== undefined;
-			return {
-				title: candidate.title,
-				role: candidate.role,
-				prompt: candidate.prompt,
-				recipeId,
-				parameters: matchingRecipe?.modelCapability === 'video'
-					? baseHalfVideoParameterDraftFromRecipeParameters(candidate.recipe?.parameters, matchingRecipe.videoModelCatalogId)
-					: matchingRecipe
-						? { ...createBaseHalfNodeParameterDraft(matchingRecipe, candidate.recipe?.parameters ?? {}) }
-						: {},
-				...(!preservesModelSelection || candidate.recipe?.modelServiceId === undefined ? {} : { modelServiceId: candidate.recipe.modelServiceId }),
-				...(!preservesModelSelection || candidate.recipe?.modelId === undefined ? {} : { modelId: candidate.recipe.modelId }),
-				inputBindings: candidate.recipe?.inputBindings ?? []
-			};
-		};
-		const applyConfigurationDraft = (draft: IBaseHalfNodeLocalConfigurationDraft): void => {
-			draftTitle = draft.title;
-			draftRole = draft.role;
-			draftPrompt = draft.prompt;
-			selectedRecipeId = draft.recipeId;
-			selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
-			if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
-				selectedRecipe = undefined;
-			}
-			draftParameters = { ...draft.parameters };
-			draftModelServiceId = draft.modelServiceId;
-			draftModelId = draft.modelId;
-			draftVideoModelKey = selectedRecipe?.modelCapability === 'video'
-				? baseHalfVideoModelKeyFromParameterDraft(draftParameters, selectedRecipe.videoModelCatalogId)
-				: undefined;
-			draftBindings = draft.inputBindings.map(binding => ({ ...binding }));
-		};
-		const documentConfigurationKey = (candidate: IBaseHalfNodeDocument): string => stableStringify({
-			title: candidate.title,
-			role: candidate.role,
-			prompt: candidate.prompt,
-			recipe: candidate.recipe ? {
-				recipeId: candidate.recipe.recipeId,
-				modelServiceId: candidate.recipe.modelServiceId,
-				modelId: candidate.recipe.modelId,
-				parameters: Object.entries(candidate.recipe.parameters).sort(([left], [right]) => left.localeCompare(right)),
-				inputBindings: candidate.recipe.inputBindings
-			} : undefined
-		});
-		const draftStateKeyFor = (draft: IBaseHalfNodeLocalConfigurationDraft, removed: readonly string[] = []): string => stableStringify({
-			...draft,
-			parameters: Object.entries(draft.parameters).sort(([left], [right]) => left.localeCompare(right)),
-			removedConnections: [...removed].sort()
-		});
-		const draftStateKey = () => draftStateKeyFor(configurationDraft(), [...removedConnections]);
-		let configurationBaseline = configurationDraftFromDocument(document);
-		let latestExternalConfiguration = configurationBaseline;
-		let savedDocumentConfigurationKey = documentConfigurationKey(document);
-		let videoInputTransactionOwnerState = createBaseHalfVideoInputTransactionOwnerState();
-		let syncVideoInputTransactionPresentation = () => { };
-		const acquireVideoInputTransaction = (): number | undefined => {
-			const acquisition = acquireBaseHalfVideoInputTransaction(videoInputTransactionOwnerState);
-			videoInputTransactionOwnerState = acquisition.state;
-			if (acquisition.transactionId !== undefined) {
-				syncVideoInputTransactionPresentation();
-			}
-			return acquisition.transactionId;
-		};
-		const releaseVideoInputTransaction = (transactionId: number): void => {
-			const nextState = releaseBaseHalfVideoInputTransaction(videoInputTransactionOwnerState, transactionId);
-			if (nextState === videoInputTransactionOwnerState) {
-				return;
-			}
-			videoInputTransactionOwnerState = nextState;
-			syncVideoInputTransactionPresentation();
-		};
-		let videoInputDocumentTransitionAck: {
-			readonly transactionId: number;
-			readonly acknowledgement: IBaseHalfVideoDocumentWriteAcknowledgement;
-		} | undefined;
-		const registerVideoInputDocumentTransition = (
-			transactionId: number,
-			previousKey: string,
-			nextKey: string,
-			previousEtag: string
-		): typeof videoInputDocumentTransitionAck => {
-			if (!baseHalfVideoInputTransactionIsCurrent(videoInputTransactionOwnerState, transactionId)) {
-				return undefined;
-			}
-			const previousAck = videoInputDocumentTransitionAck;
-			videoInputDocumentTransitionAck = {
-				transactionId,
-				acknowledgement: createBaseHalfVideoDocumentWriteAcknowledgement(
-					nextKey,
-					{ configurationKey: previousKey, etag: previousEtag },
-					previousAck?.acknowledgement.ownVersions
-				)
-			};
-			return previousAck;
-		};
-		const settleVideoInputDocumentTransition = (transactionId: number, expectedKey: string, observedKey: string, observedEtag: string): boolean => {
-			if (videoInputDocumentTransitionAck?.transactionId !== transactionId
-				|| videoInputDocumentTransitionAck.acknowledgement.expectedConfigurationKey !== expectedKey) {
-				return false;
-			}
-			const confirmation = confirmBaseHalfVideoDocumentWriteAcknowledgement(
-				videoInputDocumentTransitionAck.acknowledgement,
-				{ configurationKey: observedKey, etag: observedEtag }
-			);
-			videoInputDocumentTransitionAck = confirmation.acknowledgement
-				? { transactionId, acknowledgement: confirmation.acknowledgement }
-				: undefined;
-			return confirmation.confirmed;
-		};
-		const restoreVideoInputDocumentTransition = (
-			transactionId: number,
-			expectedKey: string,
-			previousAck: typeof videoInputDocumentTransitionAck
-		): void => {
-			if (videoInputDocumentTransitionAck?.transactionId === transactionId
-				&& videoInputDocumentTransitionAck.acknowledgement.expectedConfigurationKey === expectedKey) {
-				videoInputDocumentTransitionAck = previousAck;
-			}
-		};
-		const clearVideoInputDocumentTransition = (transactionId: number): void => {
-			if (videoInputDocumentTransitionAck?.transactionId === transactionId) {
-				videoInputDocumentTransitionAck = undefined;
-			}
-		};
-		let configurationConflict: readonly string[] | undefined;
-		let refreshFailure: string | undefined;
-		let savedDraftState = localRecipeNeedsModelCleanup
-			? `${draftStateKey()}\u0000legacy-model-selection`
-			: draftStateKey();
-			let modelConnectionResumeNotice: string | undefined;
-			let modelConnectionResumeAdjustments: readonly IBaseHalfVideoSettingAdjustment[] = [];
-		const pendingModelConnection = this.pendingVideoModelConnectionCompletion;
-		const pendingModelTarget = pendingModelConnection?.intent.returnTarget;
-		if (pendingModelConnection && pendingModelTarget?.kind === 'videoModel'
-			&& pendingModelTarget.sceneKey === this.sceneKey(folder)
-			&& pendingModelTarget.nodePath === item.path) {
-			// The returned path now owns this one-shot completion. Consume it even
-			// when its immutable document identity has become stale so a path reused
-			// by a different node can never inherit the model choice later.
-			this.pendingVideoModelConnectionCompletion = undefined;
-			const targetRecipe = recipes.find(candidate => candidate.id === pendingModelTarget.recipeId
-				&& candidate.modelCapability === 'video'
-				&& baseHalfCanvasRecipeMatchesNodeKind(candidate, document.kind));
-			const spec = this.modelProviderCatalogService.getConnectionSpec(pendingModelConnection.intent.specId);
-			const service = modelServices.find(candidate => candidate.id === pendingModelConnection.serviceId);
-			const catalogId = targetRecipe?.videoModelCatalogId;
-			const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, targetRecipe);
-			const descriptor = registry.models.find(candidate =>
-				candidate.key.provider === pendingModelTarget.modelKey.provider
-				&& candidate.key.deployment === pendingModelTarget.modelKey.deployment
-				&& candidate.key.region === pendingModelTarget.modelKey.region
-				&& candidate.key.modelId === pendingModelTarget.modelKey.modelId
-				&& candidate.key.revision === pendingModelTarget.modelKey.revision);
-			const mutable = !document.result && document.attempts.length === 0 && !this.nodeExecutionService.getActiveRun(item.stat.resource);
-			if (pendingModelTarget.documentId === document.id
-				&& mutable
-				&& targetRecipe
-				&& targetRecipe.extensionId === spec?.extensionId
-				&& catalogId === pendingModelTarget.catalogId
-				&& spec.capabilities.includes('video')
-				&& spec.providerId === pendingModelTarget.modelKey.provider
-				&& spec.deploymentId === pendingModelTarget.modelKey.deployment
-				&& spec.region === pendingModelTarget.modelKey.region
-				&& service?.configured
-				&& service.specId === spec.id
-				&& isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)
-					&& descriptor
-					&& !descriptor.availability
-					&& baseHalfVideoModelMatchesServiceScope(descriptor, service)) {
-					const candidate = baseHalfVideoSettingsFromParameterDraft(draftParameters);
-					const savedMode = candidate[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
-					const previousMode = typeof savedMode === 'string' && (BASEHALF_VIDEO_GENERATION_MODES as readonly string[]).includes(savedMode)
-						? savedMode as BaseHalfVideoGenerationMode
-						: undefined;
-					if (selectedRecipe?.id !== targetRecipe.id) {
-					// Recipe is an implementation detail of the user-facing model choice.
-					// Provider identity, snapshots, and parameters belong to that owner.
-					// Input bindings do not: retain them for capability reconciliation so
-					// incompatible roles remain explicit in Needs review.
-					selectedRecipeId = targetRecipe.id;
-					selectedRecipe = targetRecipe;
-					draftModelServiceId = undefined;
-					draftModelId = undefined;
-					draftVideoModelKey = undefined;
-						localRecipeNeedsModelCleanup = false;
-					}
-				draftModelServiceId = service.id;
-				draftModelId = descriptor.key.modelId;
-				draftVideoModelKey = descriptor.key;
-						const inputs = baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds);
-					const reconciliation = reconcileBaseHalfVideoModelSettings(descriptor, previousMode, candidate, inputs);
-					modelConnectionResumeAdjustments = reconciliation.normalization?.adjustments ?? [];
-					if (reconciliation.status === 'ready') {
-						const resolution = registry.resolveCapability({ ...descriptor.key, mode: reconciliation.mode });
-						if (resolution.status === 'supported') {
-							draftParameters = baseHalfVideoSettingsAsParameterDraft(
-								reconciliation.normalization.values,
-								createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, resolution, inputs)
-							);
-						}
-							modelConnectionResumeNotice = reconciliation.methodChanged && reconciliation.previousMode
-								? localize(
-									'basehalf.canvas.videoComposer.unlockedModelMethodReconciled',
-									"{0} is ready. Generation method changed from {1} to {2}.",
-									descriptor.label,
-									BASEHALF_VIDEO_MODE_LABELS[reconciliation.previousMode],
-									BASEHALF_VIDEO_MODE_LABELS[reconciliation.mode]
-								)
-								: localize(
-									'basehalf.canvas.videoComposer.modelUnlocked',
-									"{0} is ready. Review this Draft before generating.",
-									descriptor.label
-								);
-					} else {
-						if (reconciliation.normalization) {
-							draftParameters = baseHalfVideoSettingsAsParameterDraft(reconciliation.normalization.values);
-						}
-						modelConnectionResumeNotice = reconciliation.reason;
-					}
-					videoComposerOverlay = 'settings';
-			} else {
-				modelConnectionResumeNotice = localize(
-					'basehalf.canvas.videoComposer.modelUnlockTargetStale',
-					"That model setup no longer matches this editable Draft. Choose the model again."
-				);
-				videoComposerOverlay = 'models';
-			}
-		}
-		let allowNextHide = false;
-		let restoreFocusAfterIntentionalHide = true;
-		let disposeMountedVideoComposer: ((restoreFocus: boolean) => void) | undefined;
-		let configurationCurrentlyMutable = !document.result && document.attempts.length === 0;
-		let saveDraftImplementation: () => Promise<boolean> = async () => false;
-		let saveLockedModelNavigationDraftImplementation: () => Promise<boolean> = async () => false;
-		let checkpointVideoInputConfigurationImplementation: (transactionId: number) => Promise<boolean> = async () => false;
-		let pendingDraftSave: Promise<boolean> | undefined;
-		const runDraftSave = (implementation: () => Promise<boolean>): Promise<boolean> => {
-			if (pendingDraftSave) {
-				return pendingDraftSave;
-			}
-			const pending = Promise.resolve().then(() => implementation());
-			pendingDraftSave = pending;
-			pending.then(
-				() => {
-					if (pendingDraftSave === pending) {
-						pendingDraftSave = undefined;
-					}
-				},
-				() => {
-					if (pendingDraftSave === pending) {
-						pendingDraftSave = undefined;
-					}
-				}
-			);
-			return pending;
-		};
-		const saveDraft = (): Promise<boolean> => runDraftSave(saveDraftImplementation);
-		const saveLockedModelNavigationDraft = (): Promise<boolean> => runDraftSave(saveLockedModelNavigationDraftImplementation);
-		const checkpointVideoInputConfiguration = (transactionId: number): Promise<boolean> => runDraftSave(
-			() => checkpointVideoInputConfigurationImplementation(transactionId)
-		);
-		const draftExitCoordinator = new BaseHalfNodeLocalDraftExitCoordinator();
-		let revealConfigureMode = () => { };
-		const hasDraftChanges = () => draftStateKey() !== savedDraftState;
-		const focusAnchor = () => {
-			const liveAnchor = resolveLiveCardAnchor();
-			if (liveAnchor.isConnected) {
-				liveAnchor.focus({ preventScroll: true });
-				return;
-			}
-			this.root.focus({ preventScroll: true });
-		};
-		const hideIntentionally = async (restoreFocus = true): Promise<void> => {
-			this.consumePreparedVideoComposer(item.path);
-			if (videoComposer) {
-				disposeMountedVideoComposer?.(restoreFocus);
-				return;
-			}
-			allowNextHide = true;
-			restoreFocusAfterIntentionalHide = restoreFocus;
-			this.contextViewService.hideContextView();
-		};
-		const chooseDraftExit = async (): Promise<'save' | 'discard' | 'keep'> => {
-			if (videoComposer) {
-				if (!configurationCurrentlyMutable) {
-					const { result } = await this.dialogService.prompt<'discard'>({
-						message: 'Generation started before these edits were saved.',
-						detail: 'This Attempt uses the last saved prompt and settings. Copy anything you need from the Composer, then discard these local edits or keep it open.',
-						buttons: [{ label: 'Discard local edits', run: () => 'discard' }],
-						cancelButton: 'Keep Composer open'
-					});
-					return result ?? 'keep';
-				}
-				return 'save';
-			}
-			const { result } = await this.dialogService.prompt<'save' | 'discard'>({
-				message: `Save changes to '${draftTitle.trim() || item.name}'?`,
-				detail: 'Title, recipe, model, parameters, and input choices stay local only after they are saved.',
-				buttons: [
-					{ label: 'Save', run: () => 'save' },
-					{ label: 'Discard', run: () => 'discard' }
-				],
-				cancelButton: 'Keep editing'
-			});
-			return result ?? 'keep';
-		};
-		const requestLeaveSurface = (
-			after?: () => void | Promise<void>,
-			restoreFocus = true,
-			saveForExit: () => Promise<boolean> = saveDraft
-		): Promise<boolean> => {
-			return draftExitCoordinator.request(async () => {
-				if (pendingDraftSave) {
-					await pendingDraftSave;
-				}
-				let accepted = await resolveBaseHalfNodeLocalDraftExit(hasDraftChanges(), chooseDraftExit, saveForExit);
-				if (!accepted && videoComposer && configurationCurrentlyMutable && hasDraftChanges()) {
-					const { result } = await this.dialogService.prompt<'retry' | 'discard'>({
-						message: localize('basehalf.canvas.videoComposer.saveFailed', "The Video Draft could not be saved."),
-						detail: localize('basehalf.canvas.videoComposer.saveFailedDetail', "Fix the issue and retry, discard only the local Composer edits, or keep the Composer open."),
-						buttons: [
-							{ label: localize('basehalf.canvas.videoComposer.retrySave', "Retry Save"), run: () => 'retry' },
-							{ label: localize('basehalf.canvas.videoComposer.discardLocalEdits', "Discard Local Edits"), run: () => 'discard' }
-						],
-						cancelButton: localize('basehalf.canvas.videoComposer.keepOpen', "Keep Composer Open")
-					});
-					if (result === 'retry') {
-						accepted = await saveForExit();
-					} else if (result === 'discard') {
-						applyConfigurationDraft(configurationBaseline);
-						removedConnections.clear();
-						configurationConflict = undefined;
-						savedDraftState = draftStateKeyFor(configurationBaseline);
-						accepted = true;
-					}
-				}
-				if (!accepted) {
-					revealConfigureMode();
-					return false;
-				}
-				await hideIntentionally(restoreFocus);
-				await after?.();
-				return true;
-			});
-		};
-		const leaveSurface = async (after?: () => void | Promise<void>): Promise<void> => {
-			await requestLeaveSurface(after);
-		};
-		const recoverImplicitDismiss = (): Promise<boolean> => draftExitCoordinator.request(async () => {
-			if (pendingDraftSave) {
-				await pendingDraftSave;
-			}
-			return resolveBaseHalfNodeLocalDraftExit(hasDraftChanges(), chooseDraftExit, saveDraft);
-		});
-		let pendingImplicitDismissRecovery: Promise<void> | undefined;
-		const retainImplicitDismiss = (): void => {
-			if (pendingImplicitDismissRecovery) {
-				return;
-			}
-			const pending = (async () => {
-				let accepted = false;
-				try {
-					accepted = await recoverImplicitDismiss();
-				} catch (error) {
-					this.logService.warn(error);
-					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-				}
-					if (accepted) {
-						this.consumePreparedVideoComposer(item.path);
-						if (this.activeNodeLocalSurface === localSurfaceController) {
-						this.activeNodeLocalSurface = undefined;
-					}
-					focusAnchor();
-					return;
-				}
-			revealConfigureMode();
-				this.activeNodeLocalSurface = localSurfaceController;
-				if (!this.disposed) {
-					this.contextViewService.showContextView(delegate);
-				}
-			})();
-			pendingImplicitDismissRecovery = pending;
-			pending.then(
-				() => {
-					if (pendingImplicitDismissRecovery === pending) {
-						pendingImplicitDismissRecovery = undefined;
-					}
-				},
-				() => {
-					if (pendingImplicitDismissRecovery === pending) {
-						pendingImplicitDismissRecovery = undefined;
-					}
-				}
-			);
-		};
-		const readLatestSurfaceState = async () => {
-			const nextContent = await this.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const active = this.nodeExecutionService.getActiveRun(item.stat.resource);
-			const nextDocument = active
-				? parseBaseHalfNodeDocumentBytesForActiveHost(nextContent.value.buffer)
-				: parseBaseHalfNodeDocumentBytes(nextContent.value.buffer);
-			let nextModelServices = modelServices;
-			try {
-				nextModelServices = await this.modelServiceService.getServices();
-			} catch (error) {
-				this.logService.warn(error);
-			}
-			const nextInbound = await this.readNodeInboundSources(folder, item);
-			const nextInboundSources = nextInbound.sources;
-			const nextInputKinds = baseHalfNodeInboundInputKinds(nextInboundSources);
-			const nextInputResultIdentities = new Map(nextInboundSources.flatMap(source => source.resultIdentity
-				? [[source.path, source.resultIdentity] as const]
-				: []));
-			const [nextDirectSourceProblems, nextResultPreview] = await Promise.all([
-				this.readNodeDirectSourceProblems(folder, nextInboundSources, nextDocument.recipe?.inputBindings),
-				this.readNodeResultPreview(folder, nextDocument, true)
-			]);
-			return {
-				content: nextContent,
-				document: nextDocument,
-				modelServices: nextModelServices,
-				inbound: nextInbound,
-				inboundSources: nextInboundSources,
-				inputKinds: nextInputKinds,
-				inputResultIdentities: nextInputResultIdentities,
-				directSourcePaths: Object.freeze(nextInboundSources.map(source => source.path)),
-				directSourceProblems: nextDirectSourceProblems,
-				recipes: this.canvasRecipeRegistryService.getRecipes()
-					.filter(recipe => baseHalfCanvasRecipeMatchesNodeKind(recipe, nextDocument.kind)),
-				resultPreview: nextResultPreview
-			};
-		};
-
-		let showVideoDetails = async (): Promise<void> => { };
-		let closeVideoTransientOverlay = (): void => { };
-		let rebindVideoComposerScene = (_sceneKey: string, _structuralEpoch: number): void => { };
-		let updateVideoInputPickViewport = (_visible: boolean): void => { };
-		const localSurfaceController: IBaseHalfActiveNodeLocalSurface = {
-			sceneKey: this.sceneKey(folder),
-			path: item.path,
-			resource: item.stat.resource,
-			nodeId: document.id,
-			nodeKind: document.kind,
-			hasDraftChanges,
-			prepareForImport: () => hasDraftChanges() ? saveDraft() : Promise.resolve(true),
-			closeForSwitch: () => requestLeaveSurface(undefined, false),
-			closeForShutdown: () => requestLeaveSurface(undefined, false),
-			closeTransientOverlay: () => closeVideoTransientOverlay(),
-			showVideoDetails: () => showVideoDetails(),
-			rebindScene: (sceneKey, structuralEpoch) => rebindVideoComposerScene(sceneKey, structuralEpoch)
-		};
-		let focusLocalSurface = () => { };
-		const anchorRect = currentAnchor.getBoundingClientRect();
-		const anchorWindow = currentAnchor.ownerDocument.defaultView ?? mainWindow;
-		const localSurfaceWidth = videoComposer ? BASEHALF_VIDEO_COMPOSER_WIDTH : 400;
-		const placement = resolveBaseHalfNodeLocalSurfacePlacement(anchorRect, {
-			width: anchorWindow.innerWidth,
-			height: anchorWindow.innerHeight
-		});
-		const getLocalSurfaceAnchor = () => resolveLiveCardAnchor();
-		let renderedLocalSurface: HTMLElement | undefined;
-		const isNodeLocalSurfaceInteractionTarget = (target: EventTarget | null): boolean => {
-			if (!isHTMLElement(target) && !isSVGElement(target)) {
-				return false;
-			}
-			const videoToolbar = target.closest<HTMLElement>('.basehalf-video-context-toolbar');
-			const liveVideoCard = videoComposer ? resolveLiveCardAnchor() : undefined;
-			return renderedLocalSurface?.contains(target) === true
-				|| (videoComposer
-					&& (videoToolbar?.dataset.nodePath === item.path || liveVideoCard?.contains(target) === true));
-		};
-
-			const renderLocalSurface = (contextContainer: HTMLElement): IDisposable => {
-					const store = new DisposableStore();
-					const formListeners = new DisposableStore();
-					store.add(formListeners);
-					const canvasPickStore = new MutableDisposable<DisposableStore>();
-					store.add(canvasPickStore);
-					const surface = append(contextContainer, $('.basehalf-node-local-surface'));
-					renderedLocalSurface = surface;
-					store.add(toDisposable(() => {
-						if (renderedLocalSurface === surface) {
-							renderedLocalSurface = undefined;
-						}
-					}));
-					surface.dataset.nodePath = item.path;
-					if (videoComposer) {
-						surface.classList.add('basehalf-video-composer');
-						surface.style.setProperty('--basehalf-video-composer-width', `${localSurfaceWidth}px`);
-						surface.dataset.placement = 'below';
-					}
-				const videoInputTransactionControlSelector = [
-					'.basehalf-video-frame-slot-open',
-					'.basehalf-video-frame-slot-replace',
-					'.basehalf-video-frame-slot-remove',
-					'.basehalf-video-frame-swap',
-					'.basehalf-video-input-chip',
-					'.basehalf-video-input-review',
-					'.basehalf-video-input-add-trigger',
-					'.basehalf-video-input-role',
-					'.basehalf-video-input-replace',
-					'.basehalf-video-input-remove',
-					'.basehalf-video-input-add',
-					'.basehalf-video-input-pick-action',
-					'.basehalf-video-composer-primary'
-				].join(', ');
-				const syncTransactionPresentation = (): void => {
-					const busy = videoInputTransactionOwnerState.activeTransactionId !== undefined;
-					surface.classList.toggle('video-input-transaction-active', busy);
-					for (const control of surface.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(videoInputTransactionControlSelector)) {
-						if (busy) {
-							if (control.dataset.videoInputTransactionDisabled === undefined) {
-								control.dataset.videoInputTransactionDisabled = String(control.disabled);
-							}
-							control.disabled = true;
-						} else if (control.dataset.videoInputTransactionDisabled !== undefined) {
-							control.disabled = control.dataset.videoInputTransactionDisabled === 'true';
-							delete control.dataset.videoInputTransactionDisabled;
-						}
-					}
-				};
-				syncVideoInputTransactionPresentation = syncTransactionPresentation;
-				store.add(toDisposable(() => {
-					if (syncVideoInputTransactionPresentation === syncTransactionPresentation) {
-						syncVideoInputTransactionPresentation = () => { };
-					}
-				}));
-				const closeForExternalInteraction = (event: Event): void => {
-					if (draftExitCoordinator.isPending) {
-						return;
-					}
-					if (videoComposer) {
-						if (videoComposerOverlay && !surface.contains(event.target as Node)) {
-							closeVideoComposerOverlay(false);
-						}
-						return;
-					}
-					if (isNodeLocalSurfaceInteractionTarget(event.target)) {
-						return;
-					}
-					if (videoComposerOverlay) {
-						closeVideoComposerOverlay(false);
-						return;
-					}
-					if (hasDraftChanges()) {
-						event.preventDefault();
-						event.stopImmediatePropagation();
-						void requestLeaveSurface(undefined, false);
-						return;
-					}
-					void hideIntentionally(false);
-				};
-				store.add(this.addDisposableListener(surface.ownerDocument, 'pointerdown', closeForExternalInteraction, true));
-				store.add(this.addDisposableListener(surface, 'pointerdown', event => {
-					if (!videoComposerOverlay || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
-						return;
-					}
-					if (event.target.closest('.basehalf-video-composer-popover')
-						|| event.target.closest('.basehalf-video-model-trigger, .basehalf-video-settings-trigger, .basehalf-video-attempts-trigger, .basehalf-video-input-add-trigger')) {
-						return;
-					}
-					closeVideoComposerOverlay(false);
-				}, true));
-				const onSurfaceEscape = (event: KeyboardEvent): void => {
-					if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || draftExitCoordinator.isPending) {
-						return;
-					}
-					if (videoComposer) {
-						event.preventDefault();
-						event.stopPropagation();
-						if (!closeVideoComposerOverlay(true)) {
-							focusAnchor();
-						}
-						return;
-					}
-					if (baseHalfNodeLocalSurfaceTargetOwnsEscape(event.target)) {
-						return;
-					}
-					event.preventDefault();
-					event.stopPropagation();
-					void requestLeaveSurface();
-				};
-				if (videoComposer) {
-					store.add(this.addDisposableListener(surface, 'keydown', onSurfaceEscape));
-				} else {
-					store.add(this.addDisposableListener(surface.ownerDocument, 'keydown', onSurfaceEscape));
-				}
-					let runVideoDraftFromSurface = () => { };
-					store.add(this.addDisposableListener(surface, 'keydown', event => {
-						if (!videoComposer || event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)
-							|| event.defaultPrevented || event.isComposing || event.keyCode === 229) {
-							return;
-						}
-						event.preventDefault();
-						event.stopPropagation();
-						runVideoDraftFromSurface();
-					}));
-				let liveExecutionRunId = this.nodeExecutionService.getActiveRun(item.stat.resource)?.runId;
-				let refreshSequence = 0;
-				let refreshDisposed = false;
-				let surfaceComposing = false;
-				let pendingAfterComposition: (() => void) | undefined;
-				store.add(this.addDisposableListener(surface, 'compositionstart', () => {
-					surfaceComposing = true;
-				}, true));
-				store.add(this.addDisposableListener(surface, 'compositionend', () => {
-					surfaceComposing = false;
-					const pending = pendingAfterComposition;
-					pendingAfterComposition = undefined;
-					pending?.();
-				}, true));
-					let refreshLiveExecutionPresentation = () => { };
-					let refreshWorkingCopyPresentation = () => { };
-					let refreshVideoSurfacePresentation = () => { };
-					let queueSurfaceRefresh = () => { };
-				let renderedConfigureBody: HTMLElement | undefined;
-				let renderedAttemptsBody: HTMLElement | undefined;
-				let stableVideoPromptInput: HTMLTextAreaElement | undefined;
-					let videoSettingsNotice: string | undefined = modelConnectionResumeNotice
-					?? (localRecipeNeedsModelCleanup
-							? localize('basehalf.canvas.videoComposer.localModelCleanup', "This local generator no longer uses the legacy model selection. Save the Draft to remove it.")
-							: undefined);
-					let videoSettingsAdjustments: readonly IBaseHalfVideoSettingAdjustment[] = modelConnectionResumeAdjustments;
-					let videoSettingsAdjustmentPreviousParameters: readonly IBaseHalfVideoParameterPresentation[] = [];
-					let videoModelPickerRows: readonly IBaseHalfVideoModelRowPresentation[] = [];
-					let videoModelFocusTargets = new Map<string, HTMLElement>();
-					let videoModelTypeaheadBuffer = '';
-					let videoModelTypeaheadTimer: number | undefined;
-					let videoModelActivationProblem: string | undefined;
-				let renderedFocusTargets = new Map<string, HTMLElement>();
-				let renderedFocusKeys = new WeakMap<HTMLElement, string>();
-				const registerFocusTarget = <T extends HTMLElement>(element: T, key: string): T => {
-					renderedFocusTargets.set(key, element);
-					renderedFocusKeys.set(element, key);
-					return element;
-				};
-
-				const captureSurfacePresentation = () => {
-					const activeElement = surface.ownerDocument.activeElement;
-					const focused = isHTMLElement(activeElement) && surface.contains(activeElement)
-						? {
-							key: renderedFocusKeys.get(activeElement),
-							selectionStart: isHTMLInputElement(activeElement) || isHTMLTextAreaElement(activeElement)
-								? activeElement.selectionStart
-								: undefined,
-							selectionEnd: isHTMLInputElement(activeElement) || isHTMLTextAreaElement(activeElement)
-								? activeElement.selectionEnd
-								: undefined
-						}
-						: undefined;
-					return {
-						focused,
-						configureScrollTop: renderedConfigureBody?.scrollTop ?? 0,
-						attemptsScrollTop: renderedAttemptsBody?.scrollTop ?? 0
-					};
-				};
-				const restoreSurfacePresentation = (presentation: ReturnType<typeof captureSurfacePresentation>) => {
-					if (renderedConfigureBody) {
-						renderedConfigureBody.scrollTop = presentation.configureScrollTop;
-					}
-					if (renderedAttemptsBody) {
-						renderedAttemptsBody.scrollTop = presentation.attemptsScrollTop;
-					}
-					if (!presentation.focused?.key || !surface.isConnected) {
-						return;
-					}
-					const target = renderedFocusTargets.get(presentation.focused.key);
-					if (!target) {
-						return;
-					}
-					target.focus({ preventScroll: true });
-					if ((isHTMLInputElement(target) || isHTMLTextAreaElement(target))
-						&& presentation.focused.selectionStart !== undefined
-						&& presentation.focused.selectionEnd !== undefined) {
-						target.setSelectionRange(presentation.focused.selectionStart, presentation.focused.selectionEnd);
-					}
-				};
-				let showVideoComposerOverlay: (overlay: BaseHalfVideoComposerOverlay, focusKey?: string) => void = overlay => {
-					videoComposerOverlay = overlay;
-				};
-				let closeVideoComposerOverlay: (restoreFocus?: boolean) => boolean = () => false;
-				let cancelVideoInputCanvasPickForChildOverlay = (): boolean => true;
-
-				const renderSurface = () => {
-					const presentation = captureSurfacePresentation();
-					formListeners.clear();
-					const retainedPrompt = stableVideoPromptInput && surface.contains(stableVideoPromptInput)
-						? stableVideoPromptInput
-						: undefined;
-					if (retainedPrompt) {
-						surface.appendChild(retainedPrompt);
-					}
-					for (const child of [...surface.children]) {
-						if (child !== retainedPrompt) {
-							child.remove();
-						}
-					}
-					surface.dataset.view = videoComposer ? 'composer' : localSurfaceMode;
-					renderedConfigureBody = undefined;
-					renderedAttemptsBody = undefined;
-					renderedFocusTargets = new Map();
-					renderedFocusKeys = new WeakMap();
-					let refreshSaveState = () => { };
-					let refreshVideoPrimaryState = () => { };
-					const active = this.nodeExecutionService.getActiveRun(item.stat.resource);
-					const busy = !!active || document.attempts.some(attempt => attempt.status === 'running');
-					const configurationMutable = !busy && !document.result && document.attempts.length === 0;
-					const emptyVideoComposer = videoComposer
-						&& configurationMutable
-						&& !document.recipe
-						&& !draftModelServiceId
-						&& !draftModelId;
-					configurationCurrentlyMutable = configurationMutable;
-					const readActiveDirectSourcePaths = () => directSourcePaths.filter(path => !removedConnections.has(path));
-					const readStructuralProblem = () => selectedRecipe
-						? getBaseHalfNodeInputStructureProblem(selectedRecipe, draftBindings, inputKinds, readActiveDirectSourcePaths())
-						: undefined;
-					const readVideoModelState = (): IBaseHalfVideoComposerModelState => {
-						const catalogId = selectedRecipe?.modelCapability === 'video' ? selectedRecipe.videoModelCatalogId : undefined;
-						const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, selectedRecipe);
-						// Catalog availability and credential availability are separate. The
-						// picker must remain useful before the first connection exists, so it
-						// always presents the recipe-owned reviewed catalog and projects each
-						// model's current availability at render time.
-						const models = registry.models;
-						const service = modelServices.find(candidate => candidate.id === draftModelServiceId);
-						const inputs = baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds);
-						if (!catalogId) {
-							return { registry, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseGenerator', "Choose an installed video generator.") };
-						}
-						if (!service) {
-							return { registry, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseConnection', "Choose a video model connection.") };
-						}
-						if (!service.configured) {
-							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.connectionNeedsCredentials', "This video model connection needs credentials.") };
-						}
-						if (!isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)) {
-							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.connectionTransportUnsupported', "Reconnect this video model service with a public HTTPS endpoint and Bearer API key.") };
-						}
-						const matchingModels = registry.models.filter(model => baseHalfVideoModelMatchesServiceScope(model, service));
-						if (matchingModels.length === 0) {
-							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.noReviewedModels', "No reviewed video models match this connection.") };
-						}
-						const snapshot = baseHalfVideoSnapshotFromParameterDraft(draftParameters, catalogId);
-						if (!draftModelId) {
-							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
-						}
-						if (!snapshot) {
-							// A model can be chosen before its required image/video inputs exist.
-							// Preserve that exact in-memory catalog key so Settings can explain
-							// what is missing and can mint the immutable snapshot once the Draft
-							// becomes resolvable, without silently switching model revisions.
-							const descriptor = matchingModels.find(candidate => candidate.key.modelId === draftModelId
-								&& (!draftVideoModelKey
-									|| (candidate.key.provider === draftVideoModelKey.provider
-										&& candidate.key.deployment === draftVideoModelKey.deployment
-										&& candidate.key.region === draftVideoModelKey.region
-										&& candidate.key.revision === draftVideoModelKey.revision)));
-							if (!descriptor) {
-								return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
-							}
-							const settings = baseHalfVideoSettingsFromParameterDraft(draftParameters);
-							const requestedMode = settings[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
-							const mode = (typeof requestedMode === 'string'
-								? descriptor.modes.find(capability => capability.mode === requestedMode)?.mode
-								: undefined) ?? descriptor.modes[0]?.mode;
-							if (!mode) {
-								return { registry, service, inputs, models, descriptor, problem: localize('basehalf.canvas.videoComposer.noReviewedMode', "This reviewed model has no generation method.") };
-							}
-							const resolution = registry.resolveCapability({ ...descriptor.key, mode });
-							if (resolution.status !== 'supported') {
-								return { registry, service, inputs, models, descriptor, mode, resolution, problem: resolution.reason };
-							}
-							const inputEvaluation = evaluateBaseHalfVideoInputs(resolution, inputs);
-							const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, inputs, settings);
-							const inputProblem = baseHalfVideoInputEvaluationProblem(inputEvaluation);
-							const promptProblem = getBaseHalfVideoPromptProblem(resolution, draftPrompt);
-							return {
-								registry,
-								service,
-								inputs,
-								models,
-								descriptor,
-								mode,
-								resolution,
-								inputEvaluation,
-								normalization,
-								...(normalization.status === 'unavailable'
-									? { problem: normalization.reason }
-									: inputProblem
-										? { problem: inputProblem }
-										: promptProblem
-											? { problem: promptProblem }
-											: {})
-							};
-						}
-						if (snapshot.modelId !== draftModelId) {
-							return { registry, service, inputs, models, problem: localize('basehalf.canvas.videoComposer.chooseReviewedModel', "Choose a reviewed video model.") };
-						}
-						const persistedResolution = resolveBaseHalfVideoModelSelectionSnapshotCapability(registry, catalogId, service, snapshot);
-						if (persistedResolution.status !== 'supported') {
-							return {
-								registry,
-								service,
-								inputs,
-								models,
-								...(persistedResolution.status === 'unavailable' ? { descriptor: persistedResolution.descriptor } : {}),
-								resolution: persistedResolution,
-								problem: persistedResolution.reason
-							};
-						}
-						const descriptor = persistedResolution.descriptor;
-						const settings = baseHalfVideoSettingsFromParameterDraft(draftParameters);
-						const mode = persistedResolution.selection.mode;
-						const resolution = persistedResolution;
-						const inputEvaluation = evaluateBaseHalfVideoInputs(resolution, inputs);
-						const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, inputs, settings);
-						const inputProblem = baseHalfVideoInputEvaluationProblem(inputEvaluation);
-						const promptProblem = getBaseHalfVideoPromptProblem(resolution, draftPrompt);
-						const canonicalProblem = normalization.status === 'ready'
-							&& selectedRecipe?.videoModelCatalogId
-							&& !objectsEqual(
-								draftParameters,
-								baseHalfCanonicalVideoParameterDraft(selectedRecipe.videoModelCatalogId, resolution, inputs, normalization)
-							)
-							? localize('basehalf.canvas.videoComposer.reviewCanonicalSettings', "Review the model settings and save this Draft again.")
-							: undefined;
-						return {
-							registry,
-							service,
-							inputs,
-							models,
-							descriptor,
-							mode,
-							resolution,
-							inputEvaluation,
-							normalization,
-							...(normalization.status === 'unavailable'
-								? { problem: normalization.reason }
-								: inputProblem
-									? { problem: inputProblem }
-									: promptProblem
-										? { problem: promptProblem }
-										: canonicalProblem
-											? { problem: canonicalProblem }
-											: {})
-						};
-					};
-					const readVideoInputsPresentation = () => {
-						if (selectedRecipe?.modelCapability !== 'video') {
-							return undefined;
-						}
-						const state = readVideoModelState();
-						if (state.resolution?.status !== 'supported' || !state.inputEvaluation) {
-							return undefined;
-						}
-						const sourcePaths = [...new Set(draftBindings.map(binding => binding.sourcePath))];
-						const sources: IBaseHalfVideoInputSourceState[] = sourcePaths.map(sourcePath => {
-							const binding = draftBindings.find(candidate => candidate.sourcePath === sourcePath);
-							const kind = inputKinds.get(sourcePath);
-							const identity = inputResultIdentities.get(sourcePath);
-							const verificationProblem = directSourceProblems.get(sourcePath);
-							const sourceChanged = verificationProblem === BASEHALF_VIDEO_INPUT_SOURCE_CHANGED_PROBLEM;
-							return Object.freeze({
-								sourcePath,
-								...(identity ? { sourceId: identity.id } : {}),
-								title: sourcePath.split('/').at(-1) || sourcePath,
-								...(kind ? { kind } : {}),
-								saved: kind !== undefined && !verificationProblem,
-								integrity: kind === undefined
-									? 'missing' as const
-									: sourceChanged ? 'changed' as const
-										: verificationProblem ? 'unverified' as const : 'available' as const,
-								...(!verificationProblem && binding?.sourceRevision ? { revision: binding.sourceRevision } : {})
-							});
-						});
-						return Object.freeze({
-							state,
-							capability: state.resolution.capability,
-							sources: Object.freeze(sources),
-							presentation: createBaseHalfVideoInputsPresentation({
-								capability: state.resolution.capability,
-								recipeInputs: selectedRecipe.inputs,
-								bindings: draftBindings,
-								sources,
-								inputEvaluation: state.inputEvaluation
-							})
-						});
-					};
-					const readVideoModelProblemAction = (
-						state: IBaseHalfVideoComposerModelState
-					): IBaseHalfVideoMessageAction | undefined => {
-						const selectedDescriptor = selectedRecipe?.modelCapability === 'video' && draftModelId
-							? state.registry.models.find(candidate => candidate.key.modelId === draftModelId
-								&& (!draftVideoModelKey || (candidate.key.provider === draftVideoModelKey.provider
-									&& candidate.key.deployment === draftVideoModelKey.deployment
-									&& candidate.key.region === draftVideoModelKey.region
-									&& candidate.key.revision === draftVideoModelKey.revision)))
-							: undefined;
-						const selectedRecipeExtensionId = selectedRecipe?.extensionId;
-						const selectedConnectionSpec = selectedDescriptor && selectedRecipeExtensionId
-							? this.modelProviderCatalogService.getConnectionSpecs().find(spec => spec.extensionId === selectedRecipeExtensionId
-								&& spec.capabilities.includes('video')
-								&& spec.providerId === selectedDescriptor.key.provider
-								&& spec.deploymentId === selectedDescriptor.key.deployment
-								&& spec.region === selectedDescriptor.key.region)
-							: undefined;
-						const replacementConnection = selectedConnectionSpec && selectedDescriptor
-							? modelServices.find(service => service.specId === selectedConnectionSpec.id
-								&& service.configured
-								&& isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)
-								&& baseHalfVideoModelMatchesServiceScope(selectedDescriptor, service))
-							: undefined;
-						return baseHalfCanvasVideoModelProblemAction({
-						hasProblem: !!state.problem,
-						hasSelectedModel: !!draftModelId,
-						hasConnection: !!state.service,
-						connectionConfigured: !!state.service?.configured,
-						connectionTransportSupported: !!state.service && isBaseHalfPublicHttpsBearerModelServiceConfiguration(state.service),
-						connectionSetupAvailable: !!selectedConnectionSpec,
-						replacementConnectionAvailable: !!replacementConnection,
-						capabilityStatus: state.resolution?.status,
-						settingsStatus: state.normalization?.status,
-						hasPromptProblem: state.resolution?.status === 'supported'
-							&& state.normalization?.status === 'ready'
-							&& !!getBaseHalfVideoPromptProblem(state.resolution, draftPrompt)
-						});
-					};
-					const readVideoMessagePrecedence = (
-						transactionFailure?: string,
-						attemptProblem?: string
-					) => {
-						const messages: IBaseHalfVideoMessage[] = [];
-						if (transactionFailure) {
-							messages.push({ kind: 'transaction-failure', message: transactionFailure });
-						}
-						if (attemptProblem) {
-							messages.push({ kind: 'attempt-problem', message: attemptProblem });
-						}
-						const state = readVideoModelState();
-						const inputs = readVideoInputsPresentation();
-						const inputGate = inputs ? getBaseHalfVideoInputsExecutionGate(inputs.presentation) : undefined;
-						if (state.problem && !inputGate?.problem) {
-							const action = readVideoModelProblemAction(state);
-							messages.push({
-								kind: 'model-selection-problem',
-								message: state.problem,
-								...(action ? { action } : {})
-							});
-						}
-						if (inputGate?.problem) {
-							messages.push(baseHalfCanvasVideoInputReadinessMessage(inputGate.problem));
-						}
-						if (videoSettingsNotice) {
-							messages.push({
-								kind: videoSettingsAdjustments.length > 0 ? 'settings-adjustment' : 'information',
-								message: videoSettingsNotice
-							});
-						}
-						return createBaseHalfVideoMessagePrecedencePresentation(messages);
-					};
-					/** The saved node document's own `upstream` list and bindings (D37). */
-					const readVideoInputUpstream = async (): Promise<IBaseHalfNodeUpstreamAnalysis> => {
-						const saved = await this.fileService.readFile(item.stat.resource, { atomic: true, limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-						return analyzeBaseHalfNodeUpstream(parseBaseHalfNodeDocumentBytes(saved.value.buffer), item.path, this.upstreamIdentity(folder.workspaceFolder));
-					};
-					/**
-					 * A source's input state in the saved Draft: `present` when it is
-					 * bound and listed in `upstream`, `absent` when it is not bound (a
-					 * Pick of an already listed, unbound entry binds that entry), and
-					 * `inconsistent` when it is bound but not listed.
-					 */
-					const readVideoInputDirectEdgeState = async (
-						sourcePath: string,
-						upstreamAnalysis?: IBaseHalfNodeUpstreamAnalysis
-					): Promise<BaseHalfVideoDirectEdgeState> => {
-						const analysis = upstreamAnalysis ?? await readVideoInputUpstream();
-						const identity = this.upstreamIdentity(folder.workspaceFolder);
-						const key = identity.key(baseHalfNormalizeUpstreamEntry(sourcePath));
-						const listed = analysis.items.find(entry => entry.path !== undefined && identity.key(entry.path) === key);
-						if (listed) {
-							return analysis.bindingByIndex.has(listed.index) ? 'present' : 'absent';
-						}
-						return analysis.unlistedBindingPaths.some(path => identity.key(path) === key) ? 'inconsistent' : 'absent';
-					};
-					const inspectVideoInputSource = async (
-						sourcePath: string,
-						recordRevisionDependency?: (dependencyPath: string) => void
-					): Promise<IBaseHalfVideoInputSourceState> => {
-						const source = await this.readWorkspaceContentDescriptor(folder.workspaceFolder, sourcePath);
-						for (const dependencyPath of source.revisionDependencyPaths) {
-							recordRevisionDependency?.(dependencyPath);
-						}
-						const revision = await this.nodeExecutionService.getInputRevision(folder.workspaceFolder, sourcePath, { fresh: true });
-						return Object.freeze({
-							sourcePath,
-							...(source.resultIdentity ? { sourceId: source.resultIdentity.id } : {}),
-							title: sourcePath.split('/').at(-1) || sourcePath,
-							kind: source.kind,
-							saved: true,
-							integrity: 'available' as const,
-							revision,
-							revisionDependencyPaths: source.revisionDependencyPaths
-						});
-					};
-					const commitVideoInputPlan = async (
-						plan: IBaseHalfVideoInputMutationPlan,
-						expectedDraftState: string,
-						transactionId: number,
-						inspectedSources: readonly IBaseHalfVideoInputSourceState[] = [],
-						expectedDraftRevision?: string
-					): Promise<boolean> => {
-						if (!baseHalfVideoInputTransactionIsCurrent(videoInputTransactionOwnerState, transactionId)
-							|| !configurationMutable || draftStateKey() !== expectedDraftState || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-							this.queueCanvasWarning(localize(
-								'basehalf.canvas.videoComposer.inputCommitStale',
-								"The Video Draft changed before this input could be saved. Review the current inputs and try again."
-							));
-							this.requestRender();
-							return false;
-						}
-						const nextInputKinds = new Map(inputKinds);
-						for (const source of inspectedSources) {
-							if (source.kind) {
-								nextInputKinds.set(source.sourcePath, source.kind);
-							}
-						}
-						try {
-						let nextDocument = applyBaseHalfVideoInputMutationToDocument({ document, plan });
-						const persistedRecipe = this.canvasRecipeRegistryService.getRecipe(document.recipe!.recipeId);
-						const persistedSnapshotValue = document.recipe!.parameters[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID];
-						if (persistedRecipe?.modelCapability === 'video' && persistedRecipe.videoModelCatalogId && persistedSnapshotValue !== undefined) {
-							try {
-								const persistedSnapshot = parseBaseHalfVideoModelSelectionSnapshot(
-									persistedSnapshotValue,
-									persistedRecipe.videoModelCatalogId
-								);
-								const snapshotWithInputs = {
-									...persistedSnapshot,
-									inputs: baseHalfVideoInputState(document.prompt, plan.afterBindings, nextInputKinds)
-								} as unknown as BaseHalfNodeJsonValue;
-								nextDocument = createBaseHalfNodeDocument({
-									...nextDocument,
-									recipe: {
-										...nextDocument.recipe!,
-										parameters: {
-											...nextDocument.recipe!.parameters,
-											[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: snapshotWithInputs
-										}
-									}
-								});
-							} catch (error) {
-								this.logService.warn(error);
-							}
-						}
-						const persistedConfiguration = configurationDraftFromDocument(nextDocument);
-						const nextConfigurationKey = documentConfigurationKey(nextDocument);
-						const previousTransitionAck = registerVideoInputDocumentTransition(
-							transactionId,
-							savedDocumentConfigurationKey,
-							nextConfigurationKey,
-							content.etag
-						);
-						let saved: IBaseHalfNodeLocalSave;
-						try {
-							saved = await this.saveNodeLocalChanges(
-								folder,
-								item,
-								content.value,
-								nextDocument,
-								plan.graph.removeSourcePaths,
-								plan.graph.addSourcePaths,
-								new Map(inspectedSources.flatMap(source => source.revision === undefined
-									? []
-									: [[source.sourcePath, source.revision] as const])),
-								expectedDraftRevision
-							);
-						} catch (error) {
-							restoreVideoInputDocumentTransition(transactionId, nextConfigurationKey, previousTransitionAck);
-							throw error;
-						}
-						const confirmedContent = await this.fileService.readFile(item.stat.resource, {
-							atomic: true,
-							limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-						});
-						const confirmedDocument = parseBaseHalfNodeDocumentBytes(confirmedContent.value.buffer);
-						const confirmedConfigurationKey = documentConfigurationKey(confirmedDocument);
-						if (!settleVideoInputDocumentTransition(transactionId, nextConfigurationKey, confirmedConfigurationKey, confirmedContent.etag)) {
-							// The input and its `upstream` entry were one document write, so
-							// there is no separate connection to restore.
-							this.queueCanvasWarning(localize(
-								'basehalf.canvas.videoComposer.inputCommitUnconfirmedUpstream',
-								"The Video Draft changed before the saved input could be confirmed. Review the current inputs before trying again."
-							));
-							queueSurfaceRefresh();
-							return false;
-						}
-						this.pushNodeLocalUndo(localize('basehalf.canvas.videoInput.undo', "Change video input"), folder, saved);
-						document = saved.document;
-						content = confirmedContent;
-						draftBindings = plan.afterBindings.map(binding => ({ ...binding }));
-						configurationBaseline = persistedConfiguration;
-						latestExternalConfiguration = persistedConfiguration;
-						savedDocumentConfigurationKey = nextConfigurationKey;
-						const nextInbound = await this.readNodeInboundSources(folder, item);
-						inbound = nextInbound;
-						inboundSources = nextInbound.sources;
-						inputKinds = baseHalfNodeInboundInputKinds(inboundSources);
-						inputResultIdentities = new Map(inboundSources.flatMap(source => source.resultIdentity
-							? [[source.path, source.resultIdentity] as const]
-							: []));
-						directSourcePaths = Object.freeze(inboundSources.map(source => source.path));
-						directSourceProblems = await this.readNodeDirectSourceProblems(folder, inboundSources, nextDocument.recipe?.inputBindings);
-						const draftSnapshot = baseHalfVideoSnapshotFromParameterDraft(draftParameters, selectedRecipe?.videoModelCatalogId);
-						if (draftSnapshot) {
-							draftParameters = {
-								...draftParameters,
-								[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: {
-									...draftSnapshot,
-									inputs: baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds)
-								}
-							} as unknown as Record<string, BaseHalfNodeParameterDraftValue>;
-						}
-						savedDraftState = draftStateKeyFor(persistedConfiguration);
-						this.requestRender();
-						renderSurface();
-						queueSurfaceRefresh();
-						return true;
-					} catch (error) {
-						this.logService.warn(error);
-						this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-						queueSurfaceRefresh();
-						return false;
-					}
-				};
-					const startVideoInputCanvasPick = async (
-						role: BaseHalfVideoInputKind,
-						replaceSourcePath?: string,
-						restoreFocusTarget?: HTMLElement
-					): Promise<void> => {
-						if (!configurationMutable || !selectedRecipe) {
-							return;
-						}
-						const transactionId = acquireVideoInputTransaction();
-						if (transactionId === undefined) {
-							return;
-						}
-						let transactionActive = true;
-						const releasePickTransaction = (): void => {
-							if (!transactionActive) {
-								return;
-							}
-							transactionActive = false;
-							releaseVideoInputTransaction(transactionId);
-						};
-						const returnFocusKey = baseHalfVideoCanvasPickOriginFocusKey(
-							restoreFocusTarget ? renderedFocusKeys.get(restoreFocusTarget) : undefined,
-							role
-						);
-						const returnOverlayTriggerFocusKey = baseHalfVideoCanvasPickInputsOverlayFocusKey(returnFocusKey)
-							? videoComposerOverlayFocusKey
-							: undefined;
-						videoInputCanvasPickState = beginBaseHalfVideoCanvasPick(videoInputCanvasPickState, {
-							sceneKey: localSurfaceController.sceneKey,
-							targetNodePath: item.path,
-							targetNodeId: document.id,
-							expectedDraftRevision: content.etag,
-							recipeId: selectedRecipe.id,
-							requestedRole: role,
-							returnFocusKey
-						});
-						const epoch = videoInputCanvasPickState.epoch;
-						let lifetimeActive = true;
-						const pickStore = new DisposableStore();
-						const requestLifetimeIsCurrent = (): boolean => lifetimeActive
-							&& !pickStore.isDisposed
-							&& canvasPickStore.value === pickStore
-							&& baseHalfVideoInputTransactionIsCurrent(videoInputTransactionOwnerState, transactionId)
-							&& videoInputCanvasPickState.epoch === epoch
-							&& videoInputCanvasPickState.request?.epoch === epoch
-							&& surface.isConnected;
-						const requestIsCurrent = (): boolean => requestLifetimeIsCurrent()
-							&& videoInputCanvasPickState.phase !== 'idle';
-						const disposePickStore = (): boolean => disposeBaseHalfCanvasVideoPickStore(canvasPickStore, pickStore);
-						const cancelPickRequest = (): boolean => {
-							if (!requestIsCurrent() || !getBaseHalfVideoCanvasPickInteraction(videoInputCanvasPickState).cancelAllowed) {
-								return false;
-							}
-							videoInputCanvasPickState = cancelBaseHalfVideoCanvasPick(videoInputCanvasPickState, epoch);
-							disposePickStore();
-							releasePickTransaction();
-							return true;
-						};
-						const cancelPickForChildOverlay = (): boolean => {
-							return !requestIsCurrent() || cancelPickRequest();
-						};
-						pickStore.add(toDisposable(() => {
-							lifetimeActive = false;
-							baseHalfCanvasSetVideoInputPickActive(this.cards, surface, item.path, false);
-							if (transactionActive && videoInputCanvasPickState.phase !== 'committing') {
-								if (videoInputCanvasPickState.epoch === epoch && videoInputCanvasPickState.request?.epoch === epoch) {
-									videoInputCanvasPickState = failBaseHalfVideoCanvasPick(videoInputCanvasPickState, epoch);
-								}
-								clearVideoInputDocumentTransition(transactionId);
-								releasePickTransaction();
-							}
-						}));
-						pickStore.add(toDisposable(() => {
-							if (cancelVideoInputCanvasPickForChildOverlay === cancelPickForChildOverlay) {
-								cancelVideoInputCanvasPickForChildOverlay = () => true;
-							}
-						}));
-						canvasPickStore.value = pickStore;
-						if (canvasPickStore.value !== pickStore) {
-							disposePickStore();
-							return;
-						}
-						baseHalfCanvasSetVideoInputPickActive(this.cards, surface, item.path, true);
-						cancelVideoInputCanvasPickForChildOverlay = cancelPickForChildOverlay;
-						closeVideoComposerOverlay(false);
-						const candidateBatches = baseHalfCanvasVideoPickCandidateBatches(
-							[...this.renderedItemsByPath.keys()],
-							item.path
-						);
-						const candidatePaths = Object.freeze(candidateBatches.flat());
-						const candidatePathSet = new Set(candidatePaths);
-						const candidateRevisionDependencyPaths = new Set(candidatePaths);
-						pickStore.add(this.fileService.onDidFilesChange(event => {
-							if (!requestIsCurrent()) {
-								return;
-							}
-							const candidateChanged = baseHalfCanvasVideoPickHasCandidateChange(candidateRevisionDependencyPaths, sourcePath => event.affects(
-								joinPath(folder.workspaceFolder, ...sourcePath.split('/'))
-							));
-							if (candidateChanged) {
-								cancelPickRequest();
-								queueSurfaceRefresh();
-							}
-						}));
-						let checkpointed = false;
-						try {
-							checkpointed = await checkpointVideoInputConfiguration(transactionId);
-						} catch (error) {
-							if (requestLifetimeIsCurrent()) {
-								this.logService.warn(error);
-								this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-							}
-						}
-						if (!checkpointed || !baseHalfCanvasVideoPickCheckpointCanContinue(
-							videoInputCanvasPickState,
-							epoch,
-							baseHalfVideoInputTransactionIsCurrent(videoInputTransactionOwnerState, transactionId),
-							lifetimeActive && !pickStore.isDisposed && canvasPickStore.value === pickStore,
-							surface.isConnected
-						)) {
-							disposePickStore();
-							return;
-						}
-						const expectedDraftRevision = content.etag;
-						const videoInputs = readVideoInputsPresentation();
-						if (!videoInputs) {
-							disposePickStore();
-							return;
-						}
-						const inputRecipe = selectedRecipe;
-						const expectedDraftState = draftStateKey();
-						const roleLabel = role === 'first-frame'
-							? localize('basehalf.canvas.videoComposer.startFrame', "Start Frame")
-							: role === 'last-frame'
-								? localize('basehalf.canvas.videoComposer.endFrame', "End Frame")
-								: role;
-						const bannerHost = surface.closest<HTMLElement>('.monaco-workbench') ?? surface.ownerDocument.body;
-						const banner = append(bannerHost, $('.basehalf-video-input-pick-banner'));
-						banner.dataset.targetNodePath = item.path;
-						banner.setAttribute('role', 'status');
-						banner.setAttribute('aria-live', 'polite');
-						const bannerText = append(banner, $('.basehalf-video-input-pick-copy'));
-						bannerText.textContent = replaceSourcePath
-							? localize('basehalf.canvas.videoComposer.pickReplacement', "Choose a saved canvas source to replace {0}.", roleLabel)
-							: localize('basehalf.canvas.videoComposer.pickInput', "Choose a saved canvas source for {0}.", roleLabel);
-						const cancel = append(banner, $('button.basehalf-video-input-pick-cancel')) as HTMLButtonElement;
-						cancel.type = 'button';
-						cancel.textContent = localize('basehalf.canvas.videoComposer.cancelPick', "Cancel");
-						// Eligibility belongs to the complete canvas model, not the currently
-						// mounted React viewport. Newly mounted cards receive the cached result.
-						const presentedCards = new Set<HTMLElement>();
-						const eligibilityReasons = new Map<string, string | undefined>();
-						const collectMountedCandidateCards = (): ReadonlyMap<string, HTMLElement> => {
-							const mountedCards = new Map<string, HTMLElement>();
-							for (const card of this.root.querySelectorAll<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')) {
-								const path = card.dataset.basehalfCardPath;
-								if (path && card.isConnected) {
-									mountedCards.set(path, card);
-								}
-							}
-							const mountedCandidatePaths = baseHalfCanvasVideoPickMountedCandidatePaths(
-								[...mountedCards.keys()],
-								candidatePathSet
-							);
-							return new Map(mountedCandidatePaths.map(path => [path, mountedCards.get(path)!]));
-						};
-						const applyCandidatePresentation = (sourcePath: string, card: HTMLElement): void => {
-							presentedCards.add(card);
-							const inspected = eligibilityReasons.has(sourcePath);
-							const reason = eligibilityReasons.get(sourcePath);
-							card.classList.add('basehalf-video-input-pick-candidate');
-							card.classList.toggle('pending', !inspected);
-							card.classList.toggle('basehalf-video-input-pick-eligible', inspected && !reason);
-							card.classList.toggle('basehalf-video-input-pick-ineligible', inspected && !!reason);
-							if (reason) {
-								card.dataset.videoInputPickReason = reason;
-							} else {
-								delete card.dataset.videoInputPickReason;
-							}
-						};
-						let mountedCandidateCards = collectMountedCandidateCards();
-						for (const [sourcePath, card] of mountedCandidateCards) {
-							applyCandidatePresentation(sourcePath, card);
-						}
-						const view = surface.ownerDocument.defaultView;
-						if (view) {
-							let frame = 0;
-							const refreshCandidatePresentation = () => {
-								mountedCandidateCards = collectMountedCandidateCards();
-								for (const [sourcePath, card] of mountedCandidateCards) {
-									applyCandidatePresentation(sourcePath, card);
-								}
-								frame = view.requestAnimationFrame(refreshCandidatePresentation);
-							};
-							frame = view.requestAnimationFrame(refreshCandidatePresentation);
-							pickStore.add(toDisposable(() => view.cancelAnimationFrame(frame)));
-						}
-						const restoreCards = () => {
-							baseHalfCanvasSetVideoInputPickActive(this.cards, surface, item.path, false);
-							banner.remove();
-							for (const card of collectMountedCandidateCards().values()) {
-								presentedCards.add(card);
-							}
-							for (const card of presentedCards) {
-								card.classList.remove(
-									'basehalf-video-input-pick-candidate',
-									'basehalf-video-input-pick-eligible',
-									'basehalf-video-input-pick-ineligible',
-									'pending'
-								);
-								delete card.dataset.videoInputPickReason;
-							}
-						};
-						pickStore.add(toDisposable(restoreCards));
-						const cancelPick = (restoreFocus = true): void => {
-							if (videoInputCanvasPickState.epoch !== epoch) {
-								return;
-							}
-							const returnFocusKey = videoInputCanvasPickState.request?.returnFocusKey;
-							if (!cancelPickRequest()) {
-								return;
-							}
-							if (!restoreFocus) {
-								return;
-							}
-							const overlayFocusKey = baseHalfVideoCanvasPickInputsOverlayFocusKey(returnFocusKey);
-							if (overlayFocusKey) {
-								showVideoComposerOverlay('inputs', overlayFocusKey);
-								videoComposerOverlayFocusKey = returnOverlayTriggerFocusKey;
-								return;
-							}
-							const focusTarget = returnFocusKey ? renderedFocusTargets.get(returnFocusKey) : undefined;
-							if (focusTarget?.isConnected) {
-								focusTarget.focus({ preventScroll: true });
-							}
-						};
-						const cancelFromControl = (event: Event): void => {
-							event.preventDefault();
-							event.stopPropagation();
-							cancelPick();
-						};
-						// Pointer cancellation must run before an outer canvas interaction can
-						// rebuild and detach the fixed banner. Click remains for keyboard use.
-						pickStore.add(this.addDisposableListener(cancel, 'pointerdown', cancelFromControl));
-						pickStore.add(this.addDisposableListener(cancel, 'click', cancelFromControl));
-						const pickDraftRevisionIsCurrent = async (): Promise<boolean> => {
-							const latest = await this.fileService.readFile(item.stat.resource, {
-								atomic: true,
-								limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-							});
-							return requestIsCurrent()
-								&& latest.etag === expectedDraftRevision
-								&& (videoInputCanvasPickState.phase === 'preflighting'
-									|| baseHalfVideoCanvasPickDraftRevisionIsCurrent(videoInputCanvasPickState, epoch, latest.etag));
-						};
-						const retainCurrentPickRevision = async (): Promise<boolean> => {
-							try {
-								if (await pickDraftRevisionIsCurrent()) {
-									return true;
-								}
-							} catch (error) {
-								if (requestLifetimeIsCurrent()) {
-									this.logService.warn(error);
-								}
-							}
-							if (!requestLifetimeIsCurrent()) {
-								disposePickStore();
-								return false;
-							}
-							cancelPick(false);
-							queueSurfaceRefresh();
-							return false;
-						};
-						const eligible = new Map<string, { source: IBaseHalfVideoInputSourceState; edgeState: BaseHalfVideoDirectEdgeState }>();
-						let preflightComplete = false;
-						// Escape owns cancellation as soon as pick mode is visible, including
-						// while asynchronous source and graph preflight is still running.
-						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'keydown', event => {
-							if (!requestIsCurrent() || !getBaseHalfVideoCanvasPickInteraction(videoInputCanvasPickState).cancelAllowed || event.defaultPrevented || event.isComposing || event.keyCode === 229) {
-								return;
-							}
-							if (event.key === 'Escape') {
-								event.preventDefault();
-								event.stopImmediatePropagation();
-								cancelPick();
-								return;
-							}
-							if (!preflightComplete && (event.key === 'Enter' || event.key === ' ')) {
-								const activeElement = surface.ownerDocument.activeElement;
-								if (isHTMLElement(activeElement) && activeElement.closest('.basehalf-canvas-card[data-basehalf-card-path]')) {
-									event.preventDefault();
-									event.stopImmediatePropagation();
-									bannerText.textContent = localize('basehalf.canvas.videoComposer.checkingPickedInput', "Checking saved canvas sources…");
-								}
-							}
-						}, true));
-						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'pointerdown', event => {
-							if (!requestIsCurrent() || videoInputCanvasPickState.phase === 'committing' || preflightComplete || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
-								return;
-							}
-							const card = event.target.closest('.basehalf-canvas-card[data-basehalf-card-path]');
-							if (card) {
-								event.preventDefault();
-								event.stopImmediatePropagation();
-								bannerText.textContent = localize('basehalf.canvas.videoComposer.checkingPickedInput', "Checking saved canvas sources…");
-							}
-						}, true));
-						if (!await retainCurrentPickRevision()) {
-							return;
-						}
-						let preflightUpstream: IBaseHalfNodeUpstreamAnalysis;
-						try {
-							preflightUpstream = await readVideoInputUpstream();
-						} catch (error) {
-							if (!requestLifetimeIsCurrent()) {
-								disposePickStore();
-								return;
-							}
-							videoInputCanvasPickState = failBaseHalfVideoCanvasPick(videoInputCanvasPickState, epoch);
-							disposePickStore();
-							releasePickTransaction();
-							this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-							return;
-						}
-						if (!await retainCurrentPickRevision()) {
-							return;
-						}
-						let currentEdgeState: BaseHalfVideoDirectEdgeState | undefined;
-						if (replaceSourcePath) {
-							try {
-								currentEdgeState = await readVideoInputDirectEdgeState(replaceSourcePath, preflightUpstream);
-							} catch {
-								currentEdgeState = 'inconsistent';
-							}
-							if (!await retainCurrentPickRevision()) {
-								return;
-							}
-						}
-						for (const candidateBatch of candidateBatches) {
-							await Promise.all(candidateBatch.map(async sourcePath => {
-								let reason: string | undefined;
-								try {
-									const [source, edgeState] = await Promise.all([
-										inspectVideoInputSource(sourcePath, dependencyPath => candidateRevisionDependencyPaths.add(dependencyPath)),
-										readVideoInputDirectEdgeState(sourcePath, preflightUpstream)
-									]);
-									const sources = [...videoInputs.sources.filter(candidate => candidate.sourcePath !== sourcePath), source];
-									if (replaceSourcePath) {
-										planBaseHalfVideoInputReplace({
-											capability: videoInputs.capability,
-											recipeInputs: inputRecipe.inputs,
-											bindings: draftBindings,
-											sources,
-											sourcePath: replaceSourcePath,
-											replacementSourcePath: sourcePath,
-											currentEdgeState: currentEdgeState ?? 'inconsistent',
-											replacementEdgeState: edgeState
-										});
-									} else {
-										planBaseHalfVideoInputPick({
-											capability: videoInputs.capability,
-											recipeInputs: inputRecipe.inputs,
-											bindings: draftBindings,
-											sources,
-											sourcePath,
-											role,
-											edgeState
-										});
-									}
-									eligible.set(sourcePath, { source, edgeState });
-								} catch (error) {
-									reason = error instanceof Error ? error.message : String(error);
-								}
-							if (!requestIsCurrent()) {
-								releasePickTransaction();
-								return;
-								}
-								eligibilityReasons.set(sourcePath, reason);
-								const mountedCard = mountedCandidateCards.get(sourcePath);
-								if (mountedCard) {
-									applyCandidatePresentation(sourcePath, mountedCard);
-								}
-							}));
-							if (!await retainCurrentPickRevision()) {
-								return;
-							}
-						}
-						if (!requestIsCurrent()) {
-							return;
-						}
-						if (draftStateKey() !== expectedDraftState) {
-							cancelPick(false);
-							return;
-						}
-						videoInputCanvasPickState = markBaseHalfVideoCanvasPickReady(videoInputCanvasPickState, epoch, expectedDraftRevision);
-						videoInputCanvasPickState = updateBaseHalfVideoCanvasPickViewport(
-							videoInputCanvasPickState,
-							epoch,
-							surface.dataset.visibility !== 'anchor-offscreen'
-						);
-						preflightComplete = true;
-						if (eligible.size === 0) {
-							bannerText.textContent = localize('basehalf.canvas.videoComposer.noEligiblePick', "No saved canvas source is eligible for {0}. Press Escape to cancel.", roleLabel);
-						} else {
-							bannerText.textContent += ` ${localize('basehalf.canvas.videoComposer.pickKeyboardHint', "Select a highlighted card, or press Escape to cancel.")}`;
-						}
-						const acceptCard = async (card: HTMLElement): Promise<void> => {
-							const sourcePath = card.dataset.basehalfCardPath;
-							const preflight = sourcePath ? eligible.get(sourcePath) : undefined;
-							if (!sourcePath || !preflight || !requestIsCurrent()) {
-								if (sourcePath && !preflight) {
-									bannerText.textContent = card.dataset.videoInputPickReason
-										?? localize('basehalf.canvas.videoComposer.inputNotEligible', "That source is not eligible for this input.");
-								}
-								return;
-							}
-							const acceptedState = acceptBaseHalfVideoCanvasPickSelection(videoInputCanvasPickState, epoch);
-							if (acceptedState === videoInputCanvasPickState) {
-								return;
-							}
-							videoInputCanvasPickState = markBaseHalfVideoCanvasPickRevalidating(acceptedState, epoch);
-							try {
-								if (draftStateKey() !== expectedDraftState) {
-									cancelPick(false);
-									return;
-								}
-								if (!await retainCurrentPickRevision()) {
-									return;
-								}
-								const [source, edgeState] = await Promise.all([
-									inspectVideoInputSource(sourcePath),
-									readVideoInputDirectEdgeState(sourcePath)
-								]);
-								if (!await retainCurrentPickRevision()) {
-									return;
-								}
-								if (source.revision !== preflight.source.revision || edgeState !== preflight.edgeState) {
-									throw new Error('That source changed after pick mode opened. Reopen the picker to use its latest saved revision.');
-								}
-								const latestInputs = readVideoInputsPresentation();
-								if (!latestInputs || !selectedRecipe) {
-									throw new Error('The generation method changed while choosing an input.');
-								}
-								const sources = [...latestInputs.sources.filter(candidate => candidate.sourcePath !== sourcePath), source];
-								const replacementEdgeState = replaceSourcePath
-									? await readVideoInputDirectEdgeState(replaceSourcePath)
-									: undefined;
-								if (!await retainCurrentPickRevision()) {
-									return;
-								}
-								const plan = replaceSourcePath
-									? planBaseHalfVideoInputReplace({
-										capability: latestInputs.capability,
-										recipeInputs: selectedRecipe.inputs,
-										bindings: draftBindings,
-										sources,
-										sourcePath: replaceSourcePath,
-										replacementSourcePath: sourcePath,
-										currentEdgeState: replacementEdgeState!,
-										replacementEdgeState: edgeState
-									})
-									: planBaseHalfVideoInputPick({
-										capability: latestInputs.capability,
-										recipeInputs: selectedRecipe.inputs,
-										bindings: draftBindings,
-										sources,
-										sourcePath,
-										role,
-										edgeState
-									});
-								if (!await retainCurrentPickRevision()) {
-									return;
-								}
-								bannerText.textContent = localize('basehalf.canvas.videoComposer.savingPickedInput', "Saving selected input…");
-								videoInputCanvasPickState = markBaseHalfVideoCanvasPickCommitting(videoInputCanvasPickState, epoch);
-								cancel.disabled = true;
-								if (!await commitVideoInputPlan(plan, expectedDraftState, transactionId, [source], expectedDraftRevision)) {
-									if (videoInputCanvasPickState.epoch === epoch && videoInputCanvasPickState.request?.epoch === epoch) {
-										videoInputCanvasPickState = failBaseHalfVideoCanvasPick(videoInputCanvasPickState, epoch);
-									}
-									disposePickStore();
-									releasePickTransaction();
-									return;
-								}
-								const refreshedInputs = readVideoInputsPresentation();
-								const filledRoleVisibleInPresentation = !!refreshedInputs
-									&& baseHalfVideoCanvasPickSelectionIsActive(refreshedInputs.presentation, sourcePath, role);
-								const completedFocusKey = role === 'first-frame' || role === 'last-frame'
-									? `video:input:${role}`
-									: `video:input:${sourcePath}:slot`;
-								const completion = completeBaseHalfVideoCanvasPick(
-									videoInputCanvasPickState,
-									epoch,
-									filledRoleVisibleInPresentation,
-									completedFocusKey
-								);
-									videoInputCanvasPickState = completion.state;
-									releasePickTransaction();
-									disposePickStore();
-									if (completion.reopenInputs && completion.focusKey) {
-										showVideoComposerOverlay('inputs');
-										anchorWindow.requestAnimationFrame(() => {
-											renderedFocusTargets.get(completion.focusKey!)?.focus({ preventScroll: true });
-										});
-									}
-								} catch (error) {
-									if (!requestLifetimeIsCurrent()) {
-										disposePickStore();
-										return;
-									}
-									videoInputCanvasPickState = failBaseHalfVideoCanvasPick(videoInputCanvasPickState, epoch);
-									disposePickStore();
-									releasePickTransaction();
-									this.queueCanvasWarning(error instanceof BaseHalfVideoInputMutationError || error instanceof Error
-										? error.message
-										: String(error));
-								}
-						};
-						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'pointerdown', event => {
-							if (!requestIsCurrent() || !getBaseHalfVideoCanvasPickInteraction(videoInputCanvasPickState).acceptsSelection || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
-								return;
-							}
-							const card = event.target.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]');
-							if (!card) {
-								return;
-							}
-							event.preventDefault();
-							event.stopImmediatePropagation();
-							void acceptCard(card);
-						}, true));
-						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'click', event => {
-							if (!requestIsCurrent() || videoInputCanvasPickState.phase === 'committing' || (!isHTMLElement(event.target) && !isSVGElement(event.target))) {
-								return;
-							}
-							if (event.target.closest('.react-flow__pane, .basehalf-canvas-cards')
-								&& !event.target.closest('.basehalf-canvas-card[data-basehalf-card-path]')) {
-								cancelPick(false);
-							}
-						}, true));
-						pickStore.add(this.addDisposableListener(surface.ownerDocument, 'keydown', event => {
-							if (!requestIsCurrent() || event.defaultPrevented || event.isComposing || event.keyCode === 229) {
-								return;
-							}
-							if (event.key === 'Escape') {
-								event.preventDefault();
-								event.stopImmediatePropagation();
-								cancelPick();
-								return;
-							}
-							if (event.key !== 'Enter' && event.key !== ' ') {
-								return;
-							}
-							if (!getBaseHalfVideoCanvasPickInteraction(videoInputCanvasPickState).acceptsSelection) {
-								return;
-							}
-							const activeElement = surface.ownerDocument.activeElement;
-							const card = isHTMLElement(activeElement)
-								? activeElement.closest<HTMLElement>('.basehalf-canvas-card[data-basehalf-card-path]')
-								: undefined;
-							if (!card) {
-								return;
-							}
-							event.preventDefault();
-							event.stopImmediatePropagation();
-							void acceptCard(card);
-						}, true));
-					};
-					const readVideoCapabilityProblem = (): string | undefined => {
-						if (!videoComposer || selectedRecipe?.modelCapability !== 'video') {
-							return undefined;
-						}
-						const state = readVideoModelState();
-						const inputs = readVideoInputsPresentation();
-						const gate = inputs ? getBaseHalfVideoInputsExecutionGate(inputs.presentation) : undefined;
-						return state.problem ?? (gate?.problem ? baseHalfVideoInputPresentationProblemLabel(gate.problem.kind) : undefined);
-					};
-					const readVideoRecipeParameters = (): Readonly<Record<string, BaseHalfNodeJsonValue>> | undefined => {
-						if (selectedRecipe?.modelCapability === undefined) {
-							const parsed = selectedRecipe ? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters) : undefined;
-							return parsed?.valid ? parsed.parameters : undefined;
-						}
-						if (selectedRecipe.modelCapability !== 'video') {
-							return undefined;
-						}
-						const state = readVideoModelState();
-						const catalogId = selectedRecipe?.videoModelCatalogId;
-						if (!catalogId || state.normalization?.status !== 'ready' || state.resolution?.status !== 'supported') {
-							return undefined;
-						}
-						return {
-							...state.normalization.values,
-							[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, state.resolution, state.inputs)
-						} as unknown as Readonly<Record<string, BaseHalfNodeJsonValue>>;
-					};
-					const readDraftLocalState = () => {
-						const parsed = selectedRecipe && (!videoComposer || selectedRecipe.modelCapability === undefined)
-							? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters)
-							: undefined;
-						if (parsed && !parsed.valid) {
-							return {
-								ready: false,
-								status: 'Needs input' as const,
-								message: parsed.message,
-								action: { kind: 'configure' as const, label: 'Configure' }
-							};
-						}
-						const draftRecipe = resolveBaseHalfNodeRecipeDraft(
-							document,
-							selectedRecipeId,
-							selectedRecipe,
-							videoComposer && selectedRecipe?.modelCapability === 'video'
-								? readVideoRecipeParameters()
-								: parsed?.valid ? parsed.parameters : undefined,
-							draftModelServiceId,
-							draftModelId,
-							draftBindings
-						);
-						const draftDocument: IBaseHalfNodeDocument = { ...document, recipe: draftRecipe };
-						const videoConfigurationProblem = readVideoCapabilityProblem();
-						return getBaseHalfNodeLocalState(draftDocument, {
-							recipe: selectedRecipe,
-							...(videoComposer && selectedRecipe?.modelCapability === 'video'
-								? { videoConfiguration: videoConfigurationProblem
-									? { valid: false as const, problem: videoConfigurationProblem }
-									: { valid: true as const } }
-								: {}),
-							modelServices,
-							execution: this.nodeExecutionService.getActiveRun(item.stat.resource),
-							resultIntegrity: resultPreview.resultIntegrity,
-							dirty: this.workingCopyService.isDirty(item.stat.resource),
-							graphProblem: inbound.problem,
-							directSourcePaths: readActiveDirectSourcePaths(),
-							directSourceProblems,
-							verificationPending,
-							inputKinds,
-							matchingRecipeCount: recipes.length
-						});
-					};
-					const localState = readDraftLocalState();
-					const importProblem = getBaseHalfNodeImportProblem(document);
-
-					const modeButtons = new Map<'configure' | 'attempts', HTMLButtonElement>();
-					let refreshModePresentation = () => { };
-					let title: HTMLElement;
-					let role: HTMLElement;
-					if (videoComposer) {
-						title = append(surface, $('span.basehalf-video-composer-accessible-title'));
-						title.id = `basehalf-video-composer-title-${document.id}`;
-						title.textContent = localize('basehalf.canvas.videoComposer.label', "Generate video for {0}", draftTitle.trim() || localize('basehalf.canvas.untitled', "Untitled"));
-						role = append(surface, $('span.basehalf-video-composer-accessible-title'));
-						role.textContent = draftRole.trim();
-						surface.setAttribute('role', 'region');
-						surface.removeAttribute('aria-modal');
-						surface.setAttribute('aria-labelledby', title.id);
-						refreshLiveExecutionPresentation = () => refreshVideoPrimaryState();
-					} else {
-						const header = append(surface, $('.basehalf-node-local-header'));
-						const heading = append(header, $('.basehalf-node-local-heading'));
-						title = append(heading, $('.basehalf-node-local-title'));
-						title.textContent = draftTitle.trim() || 'Untitled';
-						configureBaseHalfNodeLocalSurfaceAccessibility(surface, title, document.id);
-						role = append(heading, $('.basehalf-node-local-role'));
-						role.textContent = `${nodeKindLabel(document.kind)} · ${draftRole.trim() || 'Role required'}`;
-						const close = append(header, $('button.basehalf-node-local-close.codicon.codicon-close')) as HTMLButtonElement;
-						registerFocusTarget(close, 'close');
-						close.type = 'button';
-						close.title = 'Close';
-						close.setAttribute('aria-label', 'Close node details');
-						formListeners.add(this.addDisposableListener(close, 'click', () => void leaveSurface()));
-
-						const modeSwitch = append(surface, $('.basehalf-node-local-mode-switch'));
-						modeSwitch.setAttribute('role', 'tablist');
-						modeSwitch.setAttribute('aria-label', 'Node details');
-						for (const candidate of ['configure', 'attempts'] as const) {
-							const modeButton = append(modeSwitch, $('button.basehalf-node-local-mode')) as HTMLButtonElement;
-							registerFocusTarget(modeButton, `mode:${candidate}`);
-							modeButtons.set(candidate, modeButton);
-							modeButton.type = 'button';
-							modeButton.dataset.nodeLocalMode = candidate;
-							modeButton.id = `basehalf-node-${candidate}-${document.id}`;
-							modeButton.setAttribute('aria-controls', `basehalf-node-${candidate}-panel-${document.id}`);
-							modeButton.textContent = candidate === 'configure'
-								? configurationMutable ? 'Configure' : 'Configuration'
-								: 'Attempts';
-							modeButton.classList.toggle('active', localSurfaceMode === candidate);
-							modeButton.classList.toggle('has-draft', candidate === 'configure' && hasDraftChanges());
-							modeButton.setAttribute('role', 'tab');
-							modeButton.setAttribute('aria-selected', String(localSurfaceMode === candidate));
-							modeButton.setAttribute('tabindex', localSurfaceMode === candidate ? '0' : '-1');
-							modeButton.setAttribute('aria-label', candidate === 'configure' && hasDraftChanges() ? 'Configure, unsaved changes' : modeButton.textContent);
-							formListeners.add(this.addDisposableListener(modeButton, 'click', () => {
-								if (localSurfaceMode === candidate) {
-									return;
-								}
-								localSurfaceMode = candidate;
-								renderSurface();
-							}));
-							formListeners.add(this.addDisposableListener(modeButton, 'keydown', event => {
-								if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') {
-									return;
-								}
-								event.preventDefault();
-								const next = event.key === 'ArrowLeft' || event.key === 'Home' ? 'configure' : 'attempts';
-								localSurfaceMode = next;
-								renderSurface();
-							}));
-						}
-
-						const readiness = append(surface, $('.basehalf-node-local-readiness'));
-						readiness.setAttribute('aria-live', 'polite');
-						readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(localState));
-						const readinessDot = append(readiness, $('.basehalf-node-local-readiness-dot'));
-						readinessDot.setAttribute('aria-hidden', 'true');
-						const readinessText = append(readiness, $('.basehalf-node-local-readiness-text'));
-						readinessText.textContent = localState.message;
-						refreshLiveExecutionPresentation = () => {
-							const nextState = readDraftLocalState();
-							readiness.classList.toggle('ready', isBaseHalfNodeCardStatusPositive(nextState));
-							readinessText.textContent = nextState.message;
-						};
-					}
-
-					if (configurationConflict?.length) {
-						const conflict = append(surface, $('.basehalf-node-local-conflict'));
-						conflict.setAttribute('role', 'alert');
-						const conflictTitle = append(conflict, $('.basehalf-node-local-conflict-title'));
-						conflictTitle.textContent = 'Configuration changed elsewhere';
-						const conflictMessage = append(conflict, $('.basehalf-node-local-conflict-message'));
-						conflictMessage.textContent = `${configurationConflict.join(', ')} changed in both places. Result and Attempts are refreshed, but your draft will not overwrite the saved configuration until you choose.`;
-						const conflictActions = append(conflict, $('.basehalf-node-local-conflict-actions'));
-						const useSaved = append(conflictActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(useSaved, 'conflict:use-saved');
-						useSaved.type = 'button';
-						useSaved.textContent = 'Use saved configuration';
-						useSaved.setAttribute('aria-label', 'Use the latest saved configuration');
-						formListeners.add(this.addDisposableListener(useSaved, 'click', () => void (async () => {
-							const confirmation = await this.dialogService.confirm({
-								message: 'Replace your unsaved changes with the latest saved configuration?',
-								detail: 'Result and Attempts are already up to date. Only the fields in Configure will be replaced.',
-								primaryButton: 'Use saved configuration'
-							});
-							if (!confirmation.confirmed) {
-								return;
-							}
-							applyConfigurationDraft(latestExternalConfiguration);
-							removedConnections.clear();
-							configurationBaseline = latestExternalConfiguration;
-							configurationConflict = undefined;
-							savedDraftState = draftStateKeyFor(latestExternalConfiguration);
-							renderSurface();
-						})()));
-						const keepLocal = append(conflictActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(keepLocal, 'conflict:keep-local');
-						keepLocal.type = 'button';
-						keepLocal.textContent = 'Keep my edits';
-						keepLocal.setAttribute('aria-label', 'Keep my edits over the latest saved configuration');
-						formListeners.add(this.addDisposableListener(keepLocal, 'click', () => {
-							configurationConflict = undefined;
-							renderSurface();
-						}));
-					}
-					if (refreshFailure) {
-						const failure = append(surface, $('.basehalf-node-local-conflict.refresh-failed'));
-						failure.setAttribute('role', 'status');
-						const failureTitle = append(failure, $('.basehalf-node-local-conflict-title'));
-						failureTitle.textContent = 'Could not refresh this node';
-						const failureMessage = append(failure, $('.basehalf-node-local-conflict-message'));
-						failureMessage.textContent = refreshFailure;
-					}
-
-					const body = append(surface, $('.basehalf-node-local-body'));
-					renderedConfigureBody = body;
-					if (!videoComposer) {
-						body.id = `basehalf-node-configure-panel-${document.id}`;
-						body.setAttribute('role', 'tabpanel');
-						body.setAttribute('aria-labelledby', `basehalf-node-configure-${document.id}`);
-					}
-					body.classList.add('mode-configure');
-					body.classList.toggle('video-composer-body', videoComposer);
-
-					if (videoComposer) {
-						const videoInputs = readVideoInputsPresentation();
-						const hasVideoInputCapacity = !!videoInputs && videoInputs.capability.inputs.some(input => {
-							if (input.kind === 'text-prompt' || input.maxItems === 0) {
-								return false;
-							}
-							const recipeInput = selectedRecipe?.inputs.find(candidate => candidate.id === input.kind);
-							const count = draftBindings.filter(binding => binding.slot === input.kind).length;
-							return !!recipeInput && count < Math.min(input.maxItems, recipeInput.maxItems);
-						});
-						if (videoInputs && (videoInputs.presentation.frameSlots.length > 0
-							|| videoInputs.presentation.ordinaryChips.length > 0
-							|| videoInputs.presentation.needsReview.length > 0
-							|| hasVideoInputCapacity)) {
-							const inputsRegion = append(body, $('.basehalf-video-composer-inputs'));
-							inputsRegion.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.inputsHeading', "Generation inputs"));
-							if (videoInputs.presentation.frameSlots.length > 0) {
-								const frameStrip = append(inputsRegion, $('.basehalf-video-frame-strip'));
-								frameStrip.setAttribute('role', 'group');
-								frameStrip.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.temporalFrames', "Temporal frames"));
-								for (const [index, slot] of videoInputs.presentation.frameSlots.entries()) {
-									if (index > 0) {
-										const connector = append(frameStrip, $('.basehalf-video-frame-connector.codicon.codicon-arrow-right'));
-										connector.setAttribute('aria-hidden', 'true');
-									}
-									const roleLabel = slot.role === 'first-frame'
-										? localize('basehalf.canvas.videoComposer.startFrame', "Start Frame")
-										: localize('basehalf.canvas.videoComposer.endFrame', "End Frame");
-									const slotRoot = append(frameStrip, $('.basehalf-video-frame-slot'));
-									slotRoot.dataset.frameRole = slot.role;
-									slotRoot.classList.toggle('empty', !slot.binding);
-									slotRoot.classList.toggle('problem', !!slot.problem);
-									const open = append(slotRoot, $('button.basehalf-video-frame-slot-open')) as HTMLButtonElement;
-									registerFocusTarget(open, `video:input:${slot.role}`);
-									open.type = 'button';
-									const role = append(open, $('.basehalf-video-frame-slot-role'));
-									role.textContent = roleLabel;
-									const source = append(open, $('.basehalf-video-frame-slot-source'));
-									source.textContent = slot.source?.title
-										?? (slot.binding?.sourcePath.split('/').at(-1) || localize('basehalf.canvas.videoComposer.chooseFrame', "Choose image"));
-									open.setAttribute('aria-label', slot.binding
-										? localize('basehalf.canvas.videoComposer.openFrameInput', "{0}: {1}. Open input settings.", roleLabel, source.textContent)
-										: localize('basehalf.canvas.videoComposer.addFrameInput', "Add {0}.", roleLabel));
-									formListeners.add(this.addDisposableListener(open, 'click', () => {
-										if (slot.binding) {
-											showVideoComposerOverlay('inputs', `input:${slot.binding.sourcePath}:slot`);
-											return;
-										}
-										void startVideoInputCanvasPick(slot.role, undefined, open);
-									}));
-									if (slot.problem) {
-										open.setAttribute('aria-description', baseHalfVideoInputPresentationProblemLabel(slot.problem.kind));
-									}
-									if (slot.binding) {
-										const binding = slot.binding;
-										const replace = append(slotRoot, $('button.basehalf-video-frame-slot-replace.codicon.codicon-replace')) as HTMLButtonElement;
-										registerFocusTarget(replace, `video:input:${slot.role}:replace`);
-										replace.type = 'button';
-										replace.disabled = !configurationMutable;
-										replace.title = localize('basehalf.canvas.videoComposer.replaceFrameInput', "Replace {0}", roleLabel);
-										replace.setAttribute('aria-label', replace.title);
-										formListeners.add(this.addDisposableListener(replace, 'click', () => {
-											void startVideoInputCanvasPick(slot.role, binding.sourcePath, replace);
-										}));
-										const remove = append(slotRoot, $('button.basehalf-video-frame-slot-remove.codicon.codicon-close')) as HTMLButtonElement;
-										registerFocusTarget(remove, `video:input:${slot.role}:remove`);
-										remove.type = 'button';
-										remove.disabled = !configurationMutable;
-										remove.title = localize('basehalf.canvas.videoComposer.removeFrameInput', "Remove {0}", roleLabel);
-										remove.setAttribute('aria-label', remove.title);
-										formListeners.add(this.addDisposableListener(remove, 'click', () => void (async () => {
-											const transactionId = acquireVideoInputTransaction();
-											if (transactionId === undefined) {
-												return;
-											}
-											const expectedDraftState = draftStateKey();
-											try {
-												const edgeState = await readVideoInputDirectEdgeState(binding.sourcePath);
-												const plan = planBaseHalfVideoInputRemove({
-													capability: videoInputs.capability,
-													recipeInputs: selectedRecipe!.inputs,
-													bindings: draftBindings,
-													sources: videoInputs.sources,
-													sourcePath: binding.sourcePath,
-													edgeState
-												});
-												await commitVideoInputPlan(plan, expectedDraftState, transactionId);
-											} catch (error) {
-												this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-												this.requestRender();
-											} finally {
-												releaseVideoInputTransaction(transactionId);
-											}
-										})()));
-									}
-								}
-								if (videoInputs.presentation.canSwapFrames) {
-									const swap = append(frameStrip, $('button.basehalf-video-frame-swap.codicon.codicon-arrow-swap')) as HTMLButtonElement;
-									registerFocusTarget(swap, 'video:input:swap');
-									swap.type = 'button';
-									swap.disabled = !configurationMutable;
-									swap.title = localize('basehalf.canvas.videoComposer.swapFrames', "Swap Start and End");
-									swap.setAttribute('aria-label', swap.title);
-									formListeners.add(this.addDisposableListener(swap, 'click', () => void (async () => {
-										const transactionId = acquireVideoInputTransaction();
-										if (transactionId === undefined) {
-											return;
-										}
-										try {
-											const expectedDraftState = draftStateKey();
-											const frameSources = await Promise.all(videoInputs.presentation.frameSlots
-												.flatMap(slot => slot.binding ? [slot.binding.sourcePath] : [])
-												.map(sourcePath => inspectVideoInputSource(sourcePath)));
-											const plan = planBaseHalfVideoFrameSwap({
-												capability: videoInputs.capability,
-												recipeInputs: selectedRecipe!.inputs,
-												bindings: draftBindings,
-												sources: [
-													...videoInputs.sources.filter(source => !frameSources.some(fresh => fresh.sourcePath === source.sourcePath)),
-													...frameSources
-												]
-											});
-											await commitVideoInputPlan(plan, expectedDraftState, transactionId, frameSources);
-										} catch (error) {
-											this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-											this.requestRender();
-										} finally {
-											releaseVideoInputTransaction(transactionId);
-										}
-									})()));
-								}
-							}
-							if (videoInputs.presentation.ordinaryChips.length > 0) {
-								const chips = append(inputsRegion, $('.basehalf-video-input-chip-strip'));
-								for (const input of videoInputs.presentation.ordinaryChips) {
-									const chip = append(chips, $('button.basehalf-video-input-chip')) as HTMLButtonElement;
-									registerFocusTarget(chip, `video:input:${input.binding.sourcePath}:slot`);
-									chip.type = 'button';
-									chip.textContent = `${input.binding.slot} · ${input.source?.title ?? input.binding.sourcePath}`;
-									formListeners.add(this.addDisposableListener(chip, 'click', () => showVideoComposerOverlay('inputs', `input:${input.binding.sourcePath}:slot`)));
-								}
-							}
-							if (videoInputs.presentation.needsReview.length > 0) {
-								const review = append(inputsRegion, $('button.basehalf-video-input-review')) as HTMLButtonElement;
-								registerFocusTarget(review, 'video:input:review');
-								review.type = 'button';
-								review.textContent = localize('basehalf.canvas.videoComposer.inputsNeedReview', "Needs review · {0}", videoInputs.presentation.needsReview.length);
-								review.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.reviewInputsCount', "Review {0} video inputs", videoInputs.presentation.needsReview.length));
-								formListeners.add(this.addDisposableListener(review, 'click', () => showVideoComposerOverlay('inputs', 'video:inputs')));
-							}
-							if (hasVideoInputCapacity) {
-								const addInput = append(inputsRegion, $('button.basehalf-video-input-add-trigger.codicon.codicon-add')) as HTMLButtonElement;
-								registerFocusTarget(addInput, 'video:inputs');
-								addInput.type = 'button';
-								addInput.dataset.videoComposerTrigger = 'inputs';
-								addInput.title = localize('basehalf.canvas.videoComposer.addInput', "Add input");
-								addInput.setAttribute('aria-label', addInput.title);
-								addInput.setAttribute('aria-haspopup', 'dialog');
-								addInput.setAttribute('aria-controls', `basehalf-video-inputs-popover-${document.id}`);
-								const showInputs = () => showVideoComposerOverlay('inputs', 'video:inputs');
-								formListeners.add(this.addDisposableListener(addInput, 'pointerdown', event => {
-									if (event.button === 0) {
-										showInputs();
-									}
-								}));
-								formListeners.add(this.addDisposableListener(addInput, 'click', event => {
-									if (event.detail === 0) {
-										showInputs();
-									}
-								}));
-							}
-						}
-						const promptSection = this.renderNodeLocalSection(body, 'Prompt');
-						promptSection.classList.add('basehalf-video-prompt-section');
-						const promptLabel = append(promptSection, $('label.basehalf-video-prompt-label')) as HTMLLabelElement;
-						promptLabel.textContent = localize('basehalf.canvas.videoComposer.prompt', "Video prompt");
-						if (configurationMutable) {
-							const promptInput = stableVideoPromptInput
-								?? $('textarea.basehalf-node-local-input.multiline.basehalf-video-prompt') as HTMLTextAreaElement;
-							stableVideoPromptInput = promptInput;
-							promptSection.appendChild(promptInput);
-							registerFocusTarget(promptInput, 'video:prompt');
-							promptInput.id = `basehalf-video-prompt-${document.id}`;
-							promptLabel.htmlFor = promptInput.id;
-							if (promptInput.value !== draftPrompt) {
-								promptInput.value = draftPrompt;
-							}
-							promptInput.rows = 3;
-							promptInput.maxLength = BASEHALF_NODE_PROMPT_MAX_LENGTH;
-							promptInput.placeholder = localize('basehalf.canvas.videoComposer.promptPlaceholder', "Describe the video you want to generate. Use @ to reference canvas material.");
-							promptInput.setAttribute('aria-label', promptLabel.textContent);
-							formListeners.add(this.addDisposableListener(promptInput, 'input', () => {
-								draftPrompt = promptInput.value;
-								refreshSaveState();
-								refreshLiveExecutionPresentation();
-							}));
-						} else {
-							promptLabel.remove();
-							const promptText = append(promptSection, $('.basehalf-video-prompt-copy'));
-							promptText.textContent = draftPrompt || localize('basehalf.canvas.videoComposer.noPrompt', "No prompt saved");
-							promptText.setAttribute('aria-label', `${localize('basehalf.canvas.videoComposer.prompt', "Video prompt")}: ${promptText.textContent}`);
-							if (hasDraftChanges()) {
-								promptText.classList.add('unsaved');
-								const unsavedNotice = append(promptSection, $('.basehalf-video-prompt-unsaved'));
-								unsavedNotice.textContent = localize('basehalf.canvas.videoComposer.unsavedFrozen', "Not included in the current Attempt");
-								unsavedNotice.setAttribute('role', 'status');
-							}
-						}
-					}
-					if (!videoComposer) {
-					const contentSection = this.renderNodeLocalSection(body, 'Content');
-					const contentDescription = append(contentSection, $('.basehalf-node-local-description'));
-					contentDescription.textContent = document.result
-						? `This ${baseHalfNodeImportObjectLabel(document.kind)} is the sealed Result. It cannot be replaced or reconfigured.`
-						: document.attempts.length > 0
-							? baseHalfNodeAttemptHasCompleteRetrySnapshot(document.attempts.at(-1)!)
-								? 'No Result was sealed. The configuration is locked; Retry uses the same saved settings.'
-								: 'No Result was sealed, and the last Attempt stopped before its complete execution snapshot was frozen. Copy settings into a new Draft.'
-							: document.recipe
-								? 'This Draft is configured. Run it once, or make changes before its first attempt.'
-								: 'Choose a recipe below, or import one local file as the Result.';
-					const contentActions = append(contentSection, $('.basehalf-node-local-content-actions'));
-					if (!importProblem) {
-						const importContent = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(importContent, 'content:import');
-						importContent.type = 'button';
-						importContent.textContent = baseHalfNodeImportActionLabel(document.kind);
-						importContent.disabled = busy || this.workingCopyService.isDirty(item.stat.resource);
-						importContent.title = importContent.disabled
-							? 'Save this Draft and finish its active attempt first'
-							: `${importContent.textContent} as the sealed Result`;
-						formListeners.add(this.addDisposableListener(importContent, 'click', () => {
-							if (!importContent.disabled) {
-								void leaveSurface(() => this.importCanvasNodeResult(item));
-							}
-						}));
-					}
-					const artifact = getBaseHalfNodeResultArtifact(document);
-					if (artifact && !verificationPending && !resultPreview.resultIntegrity) {
-						const openResult = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(openResult, 'content:open');
-						openResult.type = 'button';
-						openResult.textContent = `Open ${baseHalfNodeImportObjectLabel(document.kind)}`;
-						formListeners.add(this.addDisposableListener(openResult, 'click', () => void leaveSurface(() => this.locateNodeArtifact(artifact))));
-					}
-					if (document.result || document.attempts.length > 0) {
-						const copySettings = append(contentActions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(copySettings, 'content:copy-settings');
-						copySettings.type = 'button';
-						copySettings.textContent = 'Copy settings to new Draft';
-						copySettings.title = 'Create an independent Draft with the same recipe settings and no inherited Result or input bindings';
-						formListeners.add(this.addDisposableListener(copySettings, 'click', () => void leaveSurface(() => this.copyCanvasNodeSettings(item))));
-					}
-
-					const recipeSection = this.renderNodeLocalSection(body, 'Recipe');
-					const recipeSelect = append(recipeSection, $('select.basehalf-node-local-select')) as HTMLSelectElement;
-					registerFocusTarget(recipeSelect, 'recipe');
-					recipeSelect.setAttribute('aria-label', 'Recipe');
-					const emptyRecipe = append(recipeSelect, $('option')) as HTMLOptionElement;
-					emptyRecipe.value = '';
-					emptyRecipe.textContent = document.recipe ? 'No recipe' : recipes.length > 0 ? 'Choose a recipe' : 'No recipes installed';
-					if (selectedRecipeId && !selectedRecipe) {
-						const missing = append(recipeSelect, $('option')) as HTMLOptionElement;
-						missing.value = selectedRecipeId;
-						missing.textContent = `${selectedRecipeId} (not available)`;
-						missing.disabled = true;
-					}
-					for (const recipe of recipes) {
-						const option = append(recipeSelect, $('option')) as HTMLOptionElement;
-						option.value = recipe.id;
-						option.textContent = recipe.label;
-					}
-					recipeSelect.value = selectedRecipeId;
-					recipeSelect.disabled = !configurationMutable;
-					formListeners.add(this.addDisposableListener(recipeSelect, 'change', () => void (async () => {
-						const nextId = recipeSelect.value;
-						if (!nextId && selectedRecipeId && document.recipe) {
-							const confirmation = await this.dialogService.confirm({
-								message: `Remove the recipe from '${draftTitle.trim() || item.name}'?`,
-								detail: 'This empty Draft will have no runnable recipe until another one is chosen.',
-								primaryButton: 'Remove recipe'
-							});
-							if (!confirmation.confirmed) {
-								recipeSelect.value = selectedRecipeId;
-								return;
-							}
-						}
-						const nextRecipe = this.canvasRecipeRegistryService.getRecipe(nextId);
-						const preservesRecipe = nextRecipe?.id === document.recipe?.recipeId.toLowerCase();
-						selectedRecipeId = nextId;
-						selectedRecipe = nextRecipe;
-						draftParameters = nextRecipe
-							? { ...createBaseHalfNodeParameterDraft(nextRecipe, preservesRecipe ? document.recipe?.parameters ?? {} : {}) }
-							: {};
-						draftModelServiceId = preservesRecipe ? document.recipe?.modelServiceId : undefined;
-						draftModelId = preservesRecipe ? document.recipe?.modelId : undefined;
-						draftBindings = preservesRecipe ? document.recipe?.inputBindings ?? [] : [];
-						renderSurface();
-					})()));
-					if (selectedRecipe?.description) {
-						const description = append(recipeSection, $('.basehalf-node-local-description'));
-						description.textContent = selectedRecipe.description;
-					}
-
-					if (selectedRecipe?.modelCapability) {
-						const modelCapability = selectedRecipe.modelCapability;
-						const modelSection = this.renderNodeLocalSection(body, 'Model service');
-						const modelSelect = append(modelSection, $('select.basehalf-node-local-select')) as HTMLSelectElement;
-						registerFocusTarget(modelSelect, 'model:service');
-						modelSelect.setAttribute('aria-label', `${modelCapability} model service`);
-						const emptyModel = append(modelSelect, $('option')) as HTMLOptionElement;
-						emptyModel.value = '';
-						emptyModel.textContent = 'Choose a configured service';
-						for (const service of modelServices.filter(service => service.capabilities.includes(modelCapability))) {
-							const option = append(modelSelect, $('option')) as HTMLOptionElement;
-							option.value = service.id;
-							option.textContent = service.configured ? service.label : `${service.label} (needs key)`;
-							option.disabled = !service.configured;
-						}
-						modelSelect.value = draftModelServiceId ?? '';
-						modelSelect.disabled = !configurationMutable;
-						formListeners.add(this.addDisposableListener(modelSelect, 'change', () => {
-							draftModelServiceId = modelSelect.value || undefined;
-							renderSurface();
-						}));
-						const modelIdField = append(modelSection, $('.basehalf-node-local-field'));
-						const modelIdLabel = append(modelIdField, $('label.basehalf-node-local-label')) as HTMLLabelElement;
-						modelIdLabel.textContent = 'Model ID';
-						const modelIdInput = append(modelIdField, $('input.basehalf-node-local-input')) as HTMLInputElement;
-						registerFocusTarget(modelIdInput, 'model:id');
-						modelIdInput.id = `basehalf-node-model-id-${Date.now()}`;
-						modelIdLabel.htmlFor = modelIdInput.id;
-						modelIdInput.value = draftModelId ?? '';
-						modelIdInput.maxLength = 256;
-						modelIdInput.placeholder = 'Provider model identifier (optional)';
-						modelIdInput.disabled = !configurationMutable;
-						modelIdInput.setAttribute('aria-label', 'Model ID');
-						formListeners.add(this.addDisposableListener(modelIdInput, 'input', () => {
-							draftModelId = modelIdInput.value;
-							refreshSaveState();
-						}));
-						const manage = append(modelSection, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-						registerFocusTarget(manage, 'model:manage');
-						manage.type = 'button';
-						manage.textContent = 'Manage model services';
-						formListeners.add(this.addDisposableListener(manage, 'click', () => void leaveSurface(
-							async () => { await this.commandService.executeCommand(BASEHALF_MANAGE_MODEL_SERVICES_COMMAND_ID); }
-						)));
-					}
-
-					const standardParameters = selectedRecipe?.parameters ?? [];
-					if (selectedRecipe && standardParameters.length > 0) {
-						const parametersSection = this.renderNodeLocalSection(body, 'Parameters');
-						for (const parameter of standardParameters) {
-							const parameterInput = this.renderNodeLocalParameter(parametersSection, parameter, draftParameters[parameter.id], value => {
-								draftParameters[parameter.id] = value;
-								refreshSaveState();
-								refreshLiveExecutionPresentation();
-							}, formListeners);
-							parameterInput.disabled = !configurationMutable;
-							registerFocusTarget(parameterInput, `parameter:${parameter.id}`);
-						}
-					}
-
-					if (selectedRecipe) {
-						const inputRecipe = selectedRecipe;
-						const inputsSection = this.renderNodeLocalSection(body, 'Direct inputs');
-						const inputNote = append(inputsSection, $('.basehalf-node-local-description'));
-						inputNote.textContent = 'Connections provide direct context. Choose how this recipe uses each source.';
-						const slotSummary = append(inputsSection, $('.basehalf-node-local-slot-summary'));
-						for (const input of inputRecipe.inputs) {
-							const count = draftBindings.filter(binding => binding.slot === input.id).length;
-							const chip = append(slotSummary, $('.basehalf-node-local-slot'));
-							chip.textContent = `${input.label} ${count} · ${input.minItems}-${input.maxItems}`;
-						}
-						const inputRows = getBaseHalfNodeInputRows(inputRecipe, draftBindings, inputKinds, inputResultIdentities);
-						if (inputRows.length > 0) {
-							const list = append(inputsSection, $('.basehalf-node-local-list'));
-							for (const row of inputRows) {
-								const entry = append(list, $('.basehalf-node-local-input-row'));
-								entry.classList.toggle('invalid', !row.accepted);
-								const inputText = append(entry, $('.basehalf-node-local-input-text'));
-								const inputName = append(inputText, $('.basehalf-node-local-input-name'));
-								inputName.textContent = row.sourcePath;
-								const inputMeta = append(inputText, $('.basehalf-node-local-input-meta'));
-								const resultIdentityLabel = row.resultIdentity
-									? getBaseHalfNodeInputResultLabel(row.resultIdentity)
-									: undefined;
-								inputMeta.textContent = [
-									inputKinds.get(row.sourcePath) ?? 'missing',
-									resultIdentityLabel,
-									`position ${row.order + 1}`
-								].filter((value): value is string => value !== undefined).join(' · ');
-								if (row.resultIdentity) {
-									const resultKind = row.resultIdentity.source === 'attempt' ? 'generated' : 'imported';
-									inputMeta.title = `Bound ${resultKind} Result: ${row.resultIdentity.id}`;
-									inputMeta.setAttribute('aria-label', `${inputMeta.textContent}. Exact ${resultKind} Result ${row.resultIdentity.id}.`);
-								}
-								const slotSelect = append(entry, $('select.basehalf-node-local-compact-select')) as HTMLSelectElement;
-								registerFocusTarget(slotSelect, `input:${row.sourcePath}:slot`);
-								slotSelect.setAttribute('aria-label', `Input role for ${row.sourcePath}`);
-								const sourceKind = inputKinds.get(row.sourcePath);
-								const assignableSlots = sourceKind
-									? getBaseHalfNodeAssignableInputSlots(inputRecipe, draftBindings, row.sourcePath, sourceKind)
-									: [];
-								if (!assignableSlots.some(slot => slot.id === row.slot)) {
-									const unavailable = append(slotSelect, $('option')) as HTMLOptionElement;
-									unavailable.value = row.slot;
-									unavailable.textContent = `${row.slotLabel} (unavailable)`;
-									unavailable.disabled = true;
-								}
-								for (const slot of assignableSlots) {
-									const option = append(slotSelect, $('option')) as HTMLOptionElement;
-									option.value = slot.id;
-									option.textContent = slot.label;
-								}
-								slotSelect.value = row.slot;
-								slotSelect.disabled = !configurationMutable;
-								formListeners.add(this.addDisposableListener(slotSelect, 'change', () => {
-									draftBindings = normalizeNodeInputBindings(draftBindings.map(binding => binding.order === row.order
-										? { ...binding, slot: slotSelect.value }
-										: binding));
-									renderSurface();
-								}));
-								const sameSlotRows = inputRows.filter(candidate => candidate.slot === row.slot);
-								const sameSlotIndex = sameSlotRows.findIndex(candidate => candidate.sourcePath === row.sourcePath);
-								const moveUp = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-chevron-up')) as HTMLButtonElement;
-								registerFocusTarget(moveUp, `input:${row.sourcePath}:up`);
-								moveUp.type = 'button';
-								moveUp.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex <= 0;
-								moveUp.title = `Move ${row.sourcePath} earlier in ${row.slotLabel}`;
-								moveUp.setAttribute('aria-label', moveUp.title);
-								formListeners.add(this.addDisposableListener(moveUp, 'click', () => {
-									draftBindings = moveBaseHalfNodeInputBinding(draftBindings, row.sourcePath, -1);
-									renderSurface();
-								}));
-								const moveDown = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-chevron-down')) as HTMLButtonElement;
-								registerFocusTarget(moveDown, `input:${row.sourcePath}:down`);
-								moveDown.type = 'button';
-								moveDown.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource) || sameSlotIndex < 0 || sameSlotIndex >= sameSlotRows.length - 1;
-								moveDown.title = `Move ${row.sourcePath} later in ${row.slotLabel}`;
-								moveDown.setAttribute('aria-label', moveDown.title);
-								formListeners.add(this.addDisposableListener(moveDown, 'click', () => {
-									draftBindings = moveBaseHalfNodeInputBinding(draftBindings, row.sourcePath, 1);
-									renderSurface();
-								}));
-								const locate = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-go-to-file')) as HTMLButtonElement;
-								registerFocusTarget(locate, `input:${row.sourcePath}:open`);
-								locate.type = 'button';
-								locate.title = `Open ${row.sourcePath}`;
-								locate.setAttribute('aria-label', locate.title);
-								formListeners.add(this.addDisposableListener(locate, 'click', () => void leaveSurface(
-									async () => { await this.canvasNavigationService.openResource(joinPath(folder.workspaceFolder, ...row.sourcePath.split('/')), { source: 'api', pinned: true }); }
-								)));
-								const remove = append(entry, $('button.basehalf-node-local-icon.codicon.codicon-close')) as HTMLButtonElement;
-								registerFocusTarget(remove, `input:${row.sourcePath}:remove`);
-								remove.type = 'button';
-								remove.disabled = !configurationMutable || this.workingCopyService.isDirty(item.stat.resource);
-								remove.title = `Remove connection from ${row.sourcePath}`;
-								remove.setAttribute('aria-label', remove.title);
-								formListeners.add(this.addDisposableListener(remove, 'click', () => {
-									removedConnections.add(row.sourcePath);
-									draftBindings = normalizeNodeInputBindings(draftBindings.filter(binding => binding.order !== row.order));
-									renderSurface();
-								}));
-							}
-						}
-						const available = inboundSources.flatMap(source => source.kind === undefined ? [] : getBaseHalfNodeAvailableInputSlots(inputRecipe, draftBindings, source.path, source.kind)
-							.map(slot => ({ source, slot })));
-						if (available.length > 0) {
-							const addRow = append(inputsSection, $('.basehalf-node-local-add-input'));
-							const addSelect = append(addRow, $('select.basehalf-node-local-select')) as HTMLSelectElement;
-							registerFocusTarget(addSelect, 'input:add');
-							const placeholder = append(addSelect, $('option')) as HTMLOptionElement;
-							placeholder.value = '';
-							placeholder.textContent = 'Use connected context…';
-							for (const candidate of available) {
-								const option = append(addSelect, $('option')) as HTMLOptionElement;
-								option.value = `${candidate.source.path}\u0000${candidate.slot.id}`;
-								option.textContent = `${candidate.source.path} → ${candidate.slot.label}`;
-							}
-							addSelect.disabled = !configurationMutable;
-							formListeners.add(this.addDisposableListener(addSelect, 'change', () => {
-								const [sourcePath, slot] = addSelect.value.split('\u0000');
-								if (sourcePath && slot) {
-									removedConnections.delete(sourcePath);
-									draftBindings = normalizeNodeInputBindings([...draftBindings, { sourcePath, slot, order: draftBindings.length }]);
-									renderSurface();
-								}
-							}));
-						} else if (inputRows.length === 0) {
-							const empty = append(inputsSection, $('.basehalf-node-local-empty'));
-							empty.textContent = inboundSources.length === 0
-								? 'Connect context to this node to make inputs available.'
-								: 'Connected context is not compatible with this recipe.';
-						}
-					}
-
-					const detailsSection = this.renderNodeLocalSection(body, 'Details');
-					detailsSection.classList.add('low-priority');
-					const titleField = append(detailsSection, $('.basehalf-node-local-field'));
-					const titleLabel = append(titleField, $('label.basehalf-node-local-label')) as HTMLLabelElement;
-					titleLabel.textContent = 'Title';
-					const titleInput = append(titleField, $('input.basehalf-node-local-input')) as HTMLInputElement;
-					registerFocusTarget(titleInput, 'details:title');
-					titleInput.id = `basehalf-node-title-${document.id}`;
-					titleLabel.htmlFor = titleInput.id;
-					titleInput.value = draftTitle;
-					titleInput.maxLength = 240;
-					titleInput.disabled = !configurationMutable;
-					titleInput.setAttribute('aria-label', 'Node title');
-					formListeners.add(this.addDisposableListener(titleInput, 'input', () => {
-						draftTitle = titleInput.value;
-						title.textContent = draftTitle.trim() || 'Untitled';
-						refreshSaveState();
-					}));
-					const roleField = append(detailsSection, $('.basehalf-node-local-field'));
-					const roleLabel = append(roleField, $('label.basehalf-node-local-label')) as HTMLLabelElement;
-					roleLabel.textContent = 'Role';
-					const roleInput = append(roleField, $('input.basehalf-node-local-input')) as HTMLInputElement;
-					registerFocusTarget(roleInput, 'details:role');
-					roleInput.id = `basehalf-node-role-${document.id}`;
-					roleLabel.htmlFor = roleInput.id;
-					roleInput.value = draftRole;
-					roleInput.maxLength = 120;
-					roleInput.disabled = !configurationMutable;
-					roleInput.setAttribute('aria-label', 'Node role');
-					formListeners.add(this.addDisposableListener(roleInput, 'input', () => {
-						draftRole = roleInput.value;
-						role.textContent = `${nodeKindLabel(document.kind)} · ${draftRole.trim() || 'Role required'}`;
-						refreshSaveState();
-					}));
-					}
-
-					const attemptsBody = !videoComposer
-						? append(surface, $('.basehalf-node-local-body.mode-attempts'))
-						: undefined;
-					renderedAttemptsBody = attemptsBody;
-					if (attemptsBody) {
-						attemptsBody.id = `basehalf-node-attempts-panel-${document.id}`;
-						attemptsBody.setAttribute('role', 'tabpanel');
-						attemptsBody.setAttribute('aria-labelledby', `basehalf-node-attempts-${document.id}`);
-					}
-					if (attemptsBody && localSurfaceMode === 'attempts') {
-						this.renderNodeLocalAttempts(
-							attemptsBody,
-							document,
-							formListeners,
-							registerFocusTarget,
-							expandedAttemptDisclosures,
-							attemptsVisibleCount,
-							() => {
-								attemptsVisibleCount += 50;
-								renderSurface();
-							}
-						);
-					}
-
-					const footer = append(surface, $('.basehalf-node-local-footer'));
-					const footerMessage = append(footer, $('.basehalf-node-local-footer-message'));
-					footerMessage.setAttribute('role', 'status');
-					footerMessage.setAttribute('aria-live', 'polite');
-					let videoModel: HTMLButtonElement | undefined;
-					let videoSettings: HTMLButtonElement | undefined;
-					let videoAttempts: HTMLButtonElement | undefined;
-					let videoPrimary: HTMLButtonElement | undefined;
-					let refreshVideoMetadata = () => { };
-					if (videoComposer) {
-						const metadata = append(footer, $('.basehalf-video-composer-metadata'));
-						videoModel = append(metadata, $('button.basehalf-video-model-trigger')) as HTMLButtonElement;
-						registerFocusTarget(videoModel, 'video:model');
-						videoModel.type = 'button';
-						videoModel.dataset.videoComposerTrigger = 'models';
-						videoModel.setAttribute('aria-haspopup', 'dialog');
-						videoModel.setAttribute('aria-controls', `basehalf-video-models-popover-${document.id}`);
-						formListeners.add(this.addDisposableListener(videoModel, 'click', () => {
-							if (videoComposerOverlay === 'models') {
-								closeVideoComposerOverlay(true);
-							} else {
-								showVideoComposerOverlay('models', 'video:model');
-							}
-						}));
-						videoSettings = append(metadata, $('button.basehalf-video-settings-trigger')) as HTMLButtonElement;
-						registerFocusTarget(videoSettings, 'video:settings');
-						videoSettings.type = 'button';
-						videoSettings.dataset.videoComposerTrigger = 'settings';
-						videoSettings.setAttribute('aria-haspopup', 'dialog');
-						videoSettings.setAttribute('aria-controls', `basehalf-video-settings-popover-${document.id}`);
-						formListeners.add(this.addDisposableListener(videoSettings, 'click', () => {
-							if (videoComposerOverlay === 'settings') {
-								closeVideoComposerOverlay(true);
-							} else {
-								showVideoComposerOverlay('settings', 'video:settings');
-							}
-						}));
-						const controls = append(footer, $('.basehalf-video-composer-controls'));
-						if (document.attempts.length > 0) {
-							videoAttempts = append(controls, $('button.basehalf-video-composer-control.basehalf-video-attempts-trigger.codicon.codicon-history')) as HTMLButtonElement;
-							registerFocusTarget(videoAttempts, 'video:attempts');
-							videoAttempts.type = 'button';
-							videoAttempts.dataset.videoComposerTrigger = 'attempts';
-							videoAttempts.title = localize('basehalf.canvas.videoComposer.showAttempts', "Show video attempts");
-							videoAttempts.setAttribute('aria-label', videoAttempts.title);
-							videoAttempts.setAttribute('aria-haspopup', 'dialog');
-							videoAttempts.setAttribute('aria-controls', `basehalf-video-attempts-popover-${document.id}`);
-							formListeners.add(this.addDisposableListener(videoAttempts, 'click', () => {
-								if (videoComposerOverlay === 'attempts') {
-									closeVideoComposerOverlay(true);
-								} else {
-									showVideoComposerOverlay('attempts', 'video:attempts');
-								}
-							}));
-						}
-						if (!document.result) {
-							videoPrimary = append(controls, $('button.basehalf-video-composer-primary.codicon')) as HTMLButtonElement;
-							registerFocusTarget(videoPrimary, 'video:primary');
-							videoPrimary.type = 'button';
-						}
-
-						const overlayRoot = append(surface, $('.basehalf-video-composer-overlay-root'));
-						overlayRoot.dataset.nodePath = item.path;
-						const videoModelTrigger = videoModel;
-						const videoSettingsTrigger = videoSettings;
-						const overlayListeners = new DisposableStore();
-						formListeners.add(overlayListeners);
-						const resetVideoModelTypeahead = (): void => {
-							videoModelTypeaheadBuffer = '';
-							if (videoModelTypeaheadTimer !== undefined) {
-								anchorWindow.clearTimeout(videoModelTypeaheadTimer);
-								videoModelTypeaheadTimer = undefined;
-							}
-						};
-						formListeners.add(toDisposable(resetVideoModelTypeahead));
-						const overlayTriggers = new Map<BaseHalfVideoComposerOverlay, HTMLButtonElement>([
-							['models', videoModel],
-							['settings', videoSettings],
-							...(surface.querySelector<HTMLButtonElement>('.basehalf-video-input-add-trigger')
-								? [['inputs', surface.querySelector<HTMLButtonElement>('.basehalf-video-input-add-trigger')!] as const]
-								: []),
-							...(videoAttempts ? [['attempts', videoAttempts] as const] : [])
-						]);
-						const syncOverlayTriggers = () => {
-							for (const [candidate, trigger] of overlayTriggers) {
-								const open = videoComposerOverlay === candidate;
-								trigger.classList.toggle('active', open);
-								trigger.setAttribute('aria-expanded', String(open));
-							}
-							videoModelTrigger.classList.toggle('active', videoComposerOverlay === 'models');
-							videoModelTrigger.setAttribute('aria-expanded', String(videoComposerOverlay === 'models'));
-							videoSettingsTrigger.classList.toggle('active', videoComposerOverlay === 'settings');
-						};
-						const appendPopoverHeading = (popover: HTMLElement, text: string, id: string): void => {
-							const heading = append(popover, $('.basehalf-video-popover-heading'));
-							heading.id = id;
-							heading.textContent = text;
-						};
-						const applyVideoNormalization = (
-							resolution: IBaseHalfSupportedVideoCapabilityResolution,
-							candidate: unknown,
-							context?: string
-						) => {
-							const inputs = baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds);
-							const normalization = normalizeBaseHalfVideoSettingsForCapability(resolution, inputs, candidate);
-							const catalogId = selectedRecipe?.videoModelCatalogId;
-							if (!catalogId) {
-								videoSettingsNotice = localize('basehalf.canvas.videoComposer.generatorCatalogUnavailable', "The selected video generator has no reviewed model catalog.");
-								return normalization;
-							}
-							draftParameters = baseHalfVideoSettingsAsParameterDraft(
-								normalization.values,
-								createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, resolution, inputs)
-							);
-							if (normalization.adjustments.length > 0) {
-								videoSettingsAdjustments = mergeBaseHalfVideoSettingAdjustments(videoSettingsAdjustments, normalization.adjustments);
-							}
-							if (normalization.status === 'unavailable') {
-								videoSettingsNotice = normalization.reason;
-							} else {
-								videoSettingsNotice = context;
-							}
-							return normalization;
-						};
-						const currentVideoSettingsParameters = (): readonly IBaseHalfVideoParameterPresentation[] => {
-							const current = readVideoModelState();
-							return current.resolution?.status === 'supported' && current.normalization
-								? createBaseHalfVideoModelSettingsPresentation(current.resolution, current.normalization).parameters
-								: [];
-						};
-						const selectVideoDescriptor = (
-							registry: IBaseHalfVideoModelRegistry,
-							descriptor: IBaseHalfVideoModelDescriptor,
-							inputs: BaseHalfVideoInputState,
-							requestedMode?: BaseHalfVideoGenerationMode,
-							context?: string,
-							previousParameters: readonly IBaseHalfVideoParameterPresentation[] = [],
-							catalogId = selectedRecipe?.videoModelCatalogId
-						): boolean => {
-							const candidate = baseHalfVideoSettingsFromParameterDraft(draftParameters);
-							const savedMode = candidate[BASEHALF_VIDEO_GENERATION_MODE_PARAMETER_ID];
-							const previousMode = typeof savedMode === 'string' && (BASEHALF_VIDEO_GENERATION_MODES as readonly string[]).includes(savedMode)
-								? savedMode as BaseHalfVideoGenerationMode
-								: undefined;
-							const reconciliation = requestedMode
-								? reconcileBaseHalfVideoGenerationMethodSettings(descriptor, requestedMode, previousMode, candidate, inputs)
-								: reconcileBaseHalfVideoModelSettings(descriptor, previousMode, candidate, inputs);
-							if (reconciliation.status === 'unavailable') {
-								videoSettingsNotice = reconciliation.reason;
-								return false;
-							}
-							const resolution = registry.resolveCapability({ ...descriptor.key, mode: reconciliation.mode });
-							if (!catalogId || resolution.status !== 'supported') {
-								videoSettingsNotice = resolution.status === 'supported'
-									? localize('basehalf.canvas.videoComposer.generatorCatalogUnavailable', "The selected video generator has no reviewed model catalog.")
-									: resolution.reason;
-								return false;
-							}
-							draftModelId = descriptor.key.modelId;
-							draftVideoModelKey = descriptor.key;
-							videoSettingsAdjustments = reconciliation.normalization.adjustments;
-							videoSettingsAdjustmentPreviousParameters = previousParameters;
-							draftParameters = baseHalfVideoSettingsAsParameterDraft(
-								reconciliation.normalization.values,
-								createBaseHalfVideoModelSelectionSnapshotFromCapability(catalogId, resolution, inputs)
-							);
-							videoSettingsNotice = reconciliation.methodChanged && reconciliation.previousMode
-								? localize(
-									'basehalf.canvas.videoComposer.modelMethodReconciled',
-									"Generation method changed from {0} to {1} for the selected model.",
-									BASEHALF_VIDEO_MODE_LABELS[reconciliation.previousMode],
-									BASEHALF_VIDEO_MODE_LABELS[reconciliation.mode]
-								)
-								: context;
-							return true;
-						};
-						const renderVideoModelPicker = (
-							popover: HTMLElement,
-							headingId: string,
-							registerOverlayFocusTarget: <T extends HTMLElement>(element: T, key: string, preferred?: boolean) => T
-						): void => {
-							videoModelFocusTargets = new Map();
-							appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.modelsHeading', "Video models"), headingId);
-							if (videoModelActivationProblem) {
-								const notice = append(popover, $('.basehalf-video-capability-status.basehalf-video-model-picker-notice'));
-								notice.setAttribute('role', 'alert');
-								notice.textContent = videoModelActivationProblem;
-							}
-							const list = append(popover, $('.basehalf-video-model-list'));
-							list.dataset.videoOverlayScrollKey = 'models';
-							list.setAttribute('role', 'listbox');
-							list.setAttribute('aria-labelledby', headingId);
-							overlayListeners.add(this.addDisposableListener(list, 'wheel', event => event.stopPropagation()));
-							const providerSpecs = this.modelProviderCatalogService.getConnectionSpecs();
-							const modelEntries: Array<{
-								readonly recipe: IBaseHalfCanvasRecipeDescriptor;
-								readonly registry: IBaseHalfVideoModelRegistry;
-								readonly descriptor: IBaseHalfVideoModelDescriptor;
-								readonly spec?: IBaseHalfRegisteredModelProviderConnectionSpec;
-								readonly service?: IBaseHalfModelServiceDescriptor;
-								readonly usableService?: IBaseHalfModelServiceDescriptor;
-								readonly choice: IBaseHalfVideoModelChoice;
-								readonly presentation: IBaseHalfVideoModelPresentationEntry;
-								readonly exactDraftIdentity: boolean;
-							}> = [];
-								const draftService = modelServices.find(candidate => candidate.id === draftModelServiceId);
-							for (const recipe of videoGeneratorRecipes().filter(candidate => candidate.modelCapability === 'video' && candidate.videoModelCatalogId)) {
-								const registry = baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, recipe);
-								const ownedSpecs = providerSpecs.filter(spec => spec.extensionId === recipe.extensionId && spec.capabilities.includes('video'));
-								for (const descriptor of registry.models) {
-									const spec = ownedSpecs.find(candidate => candidate.providerId === descriptor.key.provider
-										&& candidate.deploymentId === descriptor.key.deployment
-										&& candidate.region === descriptor.key.region);
-									const service = spec ? modelServices.find(candidate => candidate.specId === spec.id) : undefined;
-									const usableService = service?.configured
-										&& isBaseHalfPublicHttpsBearerModelServiceConfiguration(service)
-										&& baseHalfVideoModelMatchesServiceScope(descriptor, service)
-										? service
-										: undefined;
-									const exactDraftIdentity = recipe.id === selectedRecipe?.id
-										&& descriptor.key.modelId === draftModelId
-										&& (draftVideoModelKey
-											? descriptor.key.provider === draftVideoModelKey.provider
-												&& descriptor.key.deployment === draftVideoModelKey.deployment
-												&& descriptor.key.region === draftVideoModelKey.region
-												&& descriptor.key.revision === draftVideoModelKey.revision
-											: !draftService || draftService.specId === spec?.id);
-									const connectionBindingMissing = baseHalfCanvasVideoConnectionBindingRequiresRebind(
-										exactDraftIdentity,
-										!!draftService,
-										!!usableService
-									);
-									const choice: IBaseHalfVideoModelChoice = Object.freeze({
-										recipeId: recipe.id,
-										catalogId: recipe.videoModelCatalogId!,
-										providerId: descriptor.key.provider,
-										deploymentId: descriptor.key.deployment,
-										region: descriptor.key.region,
-										modelId: descriptor.key.modelId,
-										revision: descriptor.key.revision,
-										...(spec ? { connectionSpecId: spec.id } : {}),
-										...(service ? { connectionServiceId: service.id } : {})
-									});
-									const presentation: IBaseHalfVideoModelPresentationEntry = Object.freeze({
-										choice,
-										descriptor,
-										connectionState: !spec ? 'unavailable' : connectionBindingMissing ? 'rebind-required' : usableService ? 'configured' : service ? 'needs-attention' : 'missing',
-										providerLabel: spec?.providerLabel ?? descriptor.key.provider,
-										deploymentLabel: spec?.label ?? descriptor.key.region,
-										groupLabel: `${spec?.providerLabel ?? descriptor.key.provider} · ${spec?.label ?? descriptor.key.region}`
-									});
-									modelEntries.push({ recipe, registry, descriptor, spec, service, usableService, choice, presentation, exactDraftIdentity });
-								}
-							}
-						const selectedEntry = modelEntries.find(entry => entry.exactDraftIdentity);
-							const selectedChoice = selectedEntry?.choice ?? (selectedRecipe?.modelCapability === 'video'
-								&& selectedRecipe.videoModelCatalogId && draftVideoModelKey && draftModelId
-								? Object.freeze({
-									recipeId: selectedRecipe.id,
-									catalogId: selectedRecipe.videoModelCatalogId,
-									providerId: draftVideoModelKey.provider,
-									deploymentId: draftVideoModelKey.deployment,
-									region: draftVideoModelKey.region,
-									modelId: draftModelId,
-									revision: draftVideoModelKey.revision,
-									...(draftService ? { connectionSpecId: draftService.specId, connectionServiceId: draftService.id } : {})
-								})
-								: undefined);
-							const pickerPresentation = createBaseHalfVideoModelPickerPresentation({
-								entries: modelEntries.map(entry => entry.presentation),
-								...(selectedChoice ? { selectedChoice } : {}),
-								...(!selectedEntry && selectedChoice ? {
-									staleSelection: {
-										choice: selectedChoice,
-										label: draftModelId ?? localize('basehalf.canvas.videoComposer.previousModel', "Previous model"),
-										reason: localize('basehalf.canvas.videoComposer.modelRevisionNeedsReview', "This saved model revision is no longer in the reviewed catalog. Choose a current model.")
-									}
-									} : {})
-								});
-								videoModelPickerRows = Object.freeze([
-									...(pickerPresentation.pinnedUnavailableSelection ? [pickerPresentation.pinnedUnavailableSelection] : []),
-									...pickerPresentation.rows
-								]);
-									const entryByKey = new Map(modelEntries.map(entry => [baseHalfVideoModelChoiceLogicalKey(entry.choice), entry] as const));
-							const visibleModelEntries = pickerPresentation.rows.flatMap(row => {
-							const entry = entryByKey.get(row.logicalKey);
-							return entry ? [{ ...entry, row }] : [];
-						});
-							const staleRow = pickerPresentation.pinnedUnavailableSelection;
-						if (!visibleModelEntries.length && !staleRow) {
-							const empty = append(list, $('.basehalf-video-popover-empty'));
-								empty.textContent = localize('basehalf.canvas.videoComposer.noReviewedModelsInstalled', "No reviewed video models are installed.");
-							return;
-						}
-
-									const providerGroups = new Map<string, typeof visibleModelEntries>();
-									const modelRowButtons: Array<{
-										readonly button: HTMLButtonElement;
-										readonly presentation: IBaseHalfVideoModelRowPresentation;
-									}> = [];
-								const wireModelRowKeyboard = (row: HTMLButtonElement, rowPresentation: IBaseHalfVideoModelRowPresentation): void => {
-									modelRowButtons.push({ button: row, presentation: rowPresentation });
-									overlayListeners.add(this.addDisposableListener(row, 'keydown', event => {
-										const currentIndex = modelRowButtons.findIndex(candidate => candidate.button === row);
-										const navigationKey = event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End'
-											? event.key
-											: undefined;
-										const nextIndex = navigationKey
-											? baseHalfCanvasVideoModelNavigationIndex(modelRowButtons.length, currentIndex, navigationKey)
-											: undefined;
-										if (nextIndex !== undefined) {
-											event.preventDefault();
-											event.stopPropagation();
-											for (const candidate of modelRowButtons) {
-												candidate.button.tabIndex = candidate === modelRowButtons[nextIndex] ? 0 : -1;
-											}
-											modelRowButtons[nextIndex].button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-											modelRowButtons[nextIndex].button.focus({ preventScroll: true });
-											return;
-										}
-										if (!baseHalfCanvasVideoModelIsTypeaheadKey(
-											event.key,
-											event.isComposing,
-											event.metaKey,
-											event.ctrlKey,
-											event.altKey
-										)) {
-											return;
-										}
-										event.preventDefault();
-										event.stopPropagation();
-										videoModelTypeaheadBuffer += event.key;
-										const typeaheadIndex = baseHalfCanvasVideoModelTypeaheadIndex(
-											modelRowButtons.map(candidate => candidate.presentation),
-											currentIndex,
-											videoModelTypeaheadBuffer
-										);
-										if (typeaheadIndex !== undefined) {
-											for (const candidate of modelRowButtons) {
-												candidate.button.tabIndex = candidate === modelRowButtons[typeaheadIndex] ? 0 : -1;
-											}
-											modelRowButtons[typeaheadIndex].button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-											modelRowButtons[typeaheadIndex].button.focus({ preventScroll: true });
-										}
-										if (videoModelTypeaheadTimer !== undefined) {
-											anchorWindow.clearTimeout(videoModelTypeaheadTimer);
-										}
-										videoModelTypeaheadTimer = anchorWindow.setTimeout(() => {
-											videoModelTypeaheadBuffer = '';
-											videoModelTypeaheadTimer = undefined;
-										}, 700);
-									}));
-								};
-							if (staleRow) {
-									const staleGroup = append(list, $('.basehalf-video-model-provider-group.basehalf-video-model-stale-group'));
-									const staleHeading = append(staleGroup, $('.basehalf-video-model-provider-heading'));
-									staleHeading.textContent = localize('basehalf.canvas.videoComposer.selectedModel', "Selected model");
-									const staleButton = append(staleGroup, $('button.basehalf-video-model-option.selected.exceptional')) as HTMLButtonElement;
-									staleButton.dataset.modelLogicalKey = staleRow.logicalKey;
-									staleButton.type = 'button';
-									staleButton.dataset.modelAvailability = staleRow.availability;
-									staleButton.setAttribute('aria-pressed', 'true');
-									staleButton.setAttribute('role', 'option');
-									staleButton.setAttribute('aria-selected', 'true');
-									staleButton.disabled = true;
-									staleButton.tabIndex = -1;
-									staleButton.title = staleRow.disabledReason ?? staleRow.label;
-									staleButton.setAttribute('aria-label', localize(
-										'basehalf.canvas.videoComposer.unavailableSelectedModel',
-										"{0}, current selection, unavailable.",
-										staleRow.label
-									));
-									if (staleRow.disabledReason) {
-										staleButton.setAttribute('aria-description', staleRow.disabledReason);
-									}
-									const staleIcon = append(staleButton, $('.basehalf-video-model-option-icon.codicon.codicon-server-process'));
-									staleIcon.setAttribute('aria-hidden', 'true');
-									const staleCopy = append(staleButton, $('.basehalf-video-model-option-copy'));
-									const staleLabel = append(staleCopy, $('.basehalf-video-model-option-label'));
-									staleLabel.textContent = staleRow.label;
-									const staleReason = append(staleCopy, $('.basehalf-video-model-option-meta.basehalf-video-model-option-reason'));
-									staleReason.textContent = staleRow.disabledReason ?? localize('basehalf.canvas.videoComposer.chooseCurrentModel', "Choose a current model.");
-									const staleState = append(staleButton, $('.basehalf-video-model-option-state'));
-									const staleStateIcon = append(staleState, $('.basehalf-video-model-option-state-icon.codicon.codicon-circle-slash'));
-									staleStateIcon.setAttribute('aria-hidden', 'true');
-								}
-									for (const entry of visibleModelEntries) {
-										const providerId = entry.spec?.providerId ?? entry.descriptor.key.provider;
-									const group = providerGroups.get(providerId) ?? [];
-									group.push(entry);
-									providerGroups.set(providerId, group);
-									}
-									for (const [providerId, providerEntries] of providerGroups) {
-										const providerGroup = append(list, $('.basehalf-video-model-provider-group'));
-										providerGroup.dataset.providerId = providerId;
-										if (pickerPresentation.showScopeHeadings && providerGroups.size > 1) {
-											const providerHeading = append(providerGroup, $('.basehalf-video-model-provider-heading'));
-											providerHeading.textContent = providerEntries[0].spec?.providerLabel ?? providerId;
-										}
-										const specGroups = new Map<string, typeof visibleModelEntries>();
-										for (const entry of providerEntries) {
-											const specId = entry.spec?.id ?? `${entry.descriptor.key.deployment}/${entry.descriptor.key.region}`;
-										const group = specGroups.get(specId) ?? [];
-									group.push(entry);
-									specGroups.set(specId, group);
-										}
-										for (const [specId, specEntries] of specGroups) {
-											const specGroup = append(providerGroup, $('.basehalf-video-model-spec-group'));
-											specGroup.dataset.specId = specId;
-											if (pickerPresentation.showScopeHeadings && specGroups.size > 1) {
-												const specHeading = append(specGroup, $('.basehalf-video-model-spec-heading'));
-												specHeading.textContent = specEntries[0].spec?.label ?? specId;
-											}
-								for (const { recipe, registry, descriptor, spec, service, usableService, row: rowPresentation } of specEntries) {
-									const selected = rowPresentation.selected;
-									const unavailable = rowPresentation.availability === 'unavailable';
-									const connectionRequired = rowPresentation.availability === 'connection-required';
-									const connectionNeedsAttention = connectionRequired && !!service;
-									const visibleReason = unavailable || connectionNeedsAttention ? rowPresentation.disabledReason : undefined;
-									const actionable = configurationMutable && !unavailable;
-										const focusToken = `${recipe.id}:${descriptor.key.provider}:${descriptor.key.deployment}:${descriptor.key.region}:${descriptor.key.modelId}:${descriptor.key.revision}`;
-										const row = append(specGroup, $('button.basehalf-video-model-option')) as HTMLButtonElement;
-										if (actionable) {
-											registerOverlayFocusTarget(row, `model:${focusToken}`, selected);
-											videoModelFocusTargets.set(rowPresentation.logicalKey, row);
-										}
-										row.dataset.modelLogicalKey = rowPresentation.logicalKey;
-										row.type = 'button';
-										row.dataset.providerId = descriptor.key.provider;
-										row.dataset.modelId = descriptor.key.modelId;
-										row.dataset.modelAvailability = rowPresentation.availability;
-										if (spec) {
-											row.dataset.specId = spec.id;
-										}
-										row.classList.toggle('selected', selected);
-										row.classList.toggle('exceptional', !!visibleReason);
-										row.setAttribute('role', 'option');
-										row.setAttribute('aria-selected', String(selected));
-										row.setAttribute('aria-pressed', String(selected));
-										row.disabled = !actionable;
-										row.tabIndex = selected && actionable ? 0 : -1;
-										const icon = append(row, $('.basehalf-video-model-option-icon.codicon.codicon-server-process'));
-										icon.setAttribute('aria-hidden', 'true');
-										const copy = append(row, $('.basehalf-video-model-option-copy'));
-										const label = append(copy, $('.basehalf-video-model-option-label'));
-										label.textContent = rowPresentation.label;
-										const meta = append(copy, $('.basehalf-video-model-option-meta'));
-										const capabilitySummary = baseHalfCanvasVideoModelCapabilitySummary(
-											rowPresentation.capabilityTokens,
-											rowPresentation.disambiguationLabel
-										);
-										meta.textContent = visibleReason ?? capabilitySummary.visible;
-										meta.classList.toggle('basehalf-video-model-option-reason', !!visibleReason);
-										const connectionState = append(row, $('.basehalf-video-model-option-state'));
-										const stateIconClass = unavailable
-											? 'codicon-circle-slash'
-											: connectionRequired
-												? connectionNeedsAttention ? 'codicon-warning' : 'codicon-lock'
-												: selected ? 'codicon-check' : undefined;
-										if (stateIconClass) {
-											const stateIcon = append(connectionState, $(`.basehalf-video-model-option-state-icon.codicon.${stateIconClass}`));
-											stateIcon.setAttribute('aria-hidden', 'true');
-										}
-										const availabilityLabel = unavailable
-											? localize('basehalf.canvas.videoComposer.unavailable', "Unavailable")
-											: connectionRequired
-												? connectionNeedsAttention
-													? localize('basehalf.canvas.videoComposer.reconnect', "Reconnect")
-													: localize('basehalf.canvas.videoComposer.connect', "Connect")
-											: selected && rowPresentation.action === 'select'
-												? localize('basehalf.canvas.videoComposer.useAvailableConnection', "Use available connection")
-												: selected
-													? localize('basehalf.canvas.videoComposer.selected', "Selected")
-													: localize('basehalf.canvas.videoComposer.available', "Available");
-								row.title = rowPresentation.disabledReason
-											?? localize('basehalf.canvas.videoComposer.useModel', "Use {0}.", descriptor.label);
-								row.setAttribute('aria-label', [rowPresentation.label, capabilitySummary.accessible, availabilityLabel].filter(Boolean).join(', '));
-										if (rowPresentation.disabledReason) {
-											row.setAttribute('aria-description', rowPresentation.disabledReason);
-										}
-											if (!actionable) {
-												continue;
-											}
-											wireModelRowKeyboard(row, rowPresentation);
-											overlayListeners.add(this.addDisposableListener(row, 'click', () => {
-										if (selected && rowPresentation.action === 'none') {
-												closeVideoComposerOverlay(true);
-												return;
-											}
-											if (rowPresentation.action === 'select' && usableService) {
-												const previousNotice = videoSettingsNotice;
-												const activated = selectVideoDescriptor(
-													registry,
-													descriptor,
-													baseHalfVideoInputState(draftPrompt, draftBindings, inputKinds),
-													undefined,
-													localize('basehalf.canvas.videoComposer.modelChanged', "Model changed to {0}.", descriptor.label),
-													currentVideoSettingsParameters(),
-													recipe.videoModelCatalogId
-												);
-												if (!activated) {
-													videoModelActivationProblem = videoSettingsNotice
-														?? localize('basehalf.canvas.videoComposer.modelSelectionFailed', "Could not select this model.");
-													videoSettingsNotice = previousNotice;
-													showVideoComposerOverlay('models', `model:${focusToken}`);
-													return;
-												}
-												selectedRecipeId = recipe.id;
-												selectedRecipe = recipe;
-												localRecipeNeedsModelCleanup = false;
-												draftModelServiceId = usableService.id;
-												videoModelActivationProblem = undefined;
-												refreshVideoMetadata();
-												refreshSaveState();
-												refreshLiveExecutionPresentation();
-												closeVideoComposerOverlay(true);
-												return;
-											}
-											if (rowPresentation.action !== 'connect') {
-												return;
-											}
-											if (!spec) {
-												return;
-											}
-											const target = {
-												kind: 'videoModel' as const,
-												sceneKey: localSurfaceController.sceneKey,
-												nodePath: item.path,
-												documentId: document.id,
-												recipeId: recipe.id,
-												catalogId: recipe.videoModelCatalogId!,
-												modelKey: { ...descriptor.key }
-											};
-											void requestLeaveSurface(async () => {
-												await this.commandService.executeCommand(BASEHALF_CONFIGURE_MODEL_SERVICE_COMMAND_ID, {
-													specId: spec.id,
-													catalogId: target.catalogId,
-													recipeId: target.recipeId,
-													modelKey: target.modelKey,
-													nodePath: target.nodePath,
-													documentId: target.documentId,
-													sceneKey: target.sceneKey
-												});
-											}, false, saveLockedModelNavigationDraft).catch(error => {
-												this.logService.warn(error);
-												this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-												this.requestRender();
-											});
-										}));
-									}
-								}
-							}
-							if (modelRowButtons.length > 0 && !modelRowButtons.some(candidate => candidate.button.tabIndex === 0)) {
-								modelRowButtons[0].button.tabIndex = 0;
-							}
-						};
-						const renderVideoComposerOverlay = (focusKey?: string): void => {
-							const activeBeforeRender = surface.ownerDocument.activeElement;
-							const previousOverlayFocusKey = isHTMLElement(activeBeforeRender) && overlayRoot.contains(activeBeforeRender)
-								? renderedFocusKeys.get(activeBeforeRender)
-								: undefined;
-							const previousModelFocusedLogicalKey = isHTMLElement(activeBeforeRender) && overlayRoot.contains(activeBeforeRender)
-								? activeBeforeRender.dataset.modelLogicalKey
-								: undefined;
-							const previousModelPickerRows = videoModelPickerRows;
-							const previousScrollPositions = new Map<string, number>();
-							for (const element of overlayRoot.getElementsByTagName('*')) {
-								if (isHTMLElement(element) && element.dataset.videoOverlayScrollKey) {
-									previousScrollPositions.set(element.dataset.videoOverlayScrollKey, element.scrollTop);
-								}
-							}
-							overlayListeners.clear();
-							clearNode(overlayRoot);
-							syncOverlayTriggers();
-							if (!videoComposerOverlay) {
-								overlayRoot.hidden = true;
-								return;
-							}
-							overlayRoot.hidden = false;
-							overlayRoot.dataset.overlay = videoComposerOverlay;
-							const popover = append(overlayRoot, $(`.basehalf-video-composer-popover.${videoComposerOverlay}`));
-							popover.id = `basehalf-video-${videoComposerOverlay}-popover-${document.id}`;
-							popover.setAttribute('role', 'dialog');
-							popover.setAttribute('aria-modal', 'false');
-							const headingId = `${popover.id}-title`;
-							popover.setAttribute('aria-labelledby', headingId);
-							let firstOverlayFocusTarget: HTMLElement | undefined;
-							let preferredOverlayFocusTarget: HTMLElement | undefined;
-								const registerOverlayFocusTarget = <T extends HTMLElement>(element: T, key: string, preferred = false): T => {
-									registerFocusTarget(element, `video-overlay:${videoComposerOverlay}:${key}`);
-									firstOverlayFocusTarget ??= element;
-									if ((preferred || key === focusKey) && !preferredOverlayFocusTarget) {
-										preferredOverlayFocusTarget = element;
-								}
-								return element;
-						};
-							if (videoComposerOverlay === 'models') {
-								renderVideoModelPicker(popover, headingId, registerOverlayFocusTarget);
-							} else if (videoComposerOverlay === 'settings') {
-								const state = readVideoModelState();
-								appendPopoverHeading(popover, state.descriptor
-									? localize('basehalf.canvas.videoComposer.settingsHeadingForModel', "Video generation settings for {0}", state.descriptor.label)
-									: localize('basehalf.canvas.videoComposer.settingsHeading', "Video generation settings"), headingId);
-								const scroll = append(popover, $('.basehalf-video-settings-scroll'));
-								scroll.dataset.videoOverlayScrollKey = 'settings';
-
-									if (selectedRecipe?.modelCapability === 'video') {
-									let reviewedSource: { readonly url: string; readonly verifiedAt: string } | undefined;
-									if (state.resolution?.status === 'supported' && state.normalization) {
-										const settingsPresentation = createBaseHalfVideoModelSettingsPresentation(state.resolution, state.normalization);
-										reviewedSource = settingsPresentation.source;
-
-									const wireRadioButtons = (buttons: readonly HTMLButtonElement[]): void => {
-										for (const button of buttons) {
-											overlayListeners.add(this.addDisposableListener(button, 'keydown', event => {
-												if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-													return;
-												}
-												const enabled = buttons.filter(candidate => !candidate.disabled);
-												const currentIndex = enabled.indexOf(button);
-												if (currentIndex < 0 || enabled.length < 2) {
-													return;
-												}
-												const next = event.key === 'Home'
-													? enabled[0]
-													: event.key === 'End'
-														? enabled[enabled.length - 1]
-														: enabled[(currentIndex + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) + enabled.length) % enabled.length];
-												event.preventDefault();
-												next.focus();
-												next.click();
-											}));
-										}
-									};
-									const commitMethod = (mode: BaseHalfVideoGenerationMode): void => {
-										selectVideoDescriptor(
-											state.registry,
-											state.descriptor!,
-										state.inputs,
-										mode,
-										localize('basehalf.canvas.videoComposer.methodChanged', "Generation method changed to {0}.", BASEHALF_VIDEO_MODE_LABELS[mode]),
-										settingsPresentation.parameters
-									);
-										refreshVideoMetadata();
-										refreshSaveState();
-										refreshLiveExecutionPresentation();
-										renderSurface();
-									};
-									const modeField = append(scroll, $('.basehalf-video-popover-field.basehalf-video-capability-field'));
-									const modeLabel = append(modeField, $('.basehalf-video-popover-label'));
-									modeLabel.textContent = localize('basehalf.canvas.videoComposer.generateMethod', "Generate method");
-									if (settingsPresentation.methods.control === 'fixed') {
-										const fixedMethod = append(modeField, $('.basehalf-video-fixed-method'));
-										fixedMethod.textContent = settingsPresentation.methods.options[0]?.label ?? localize('basehalf.canvas.videoComposer.noReviewedMode', "No reviewed method");
-										const fixedDescription = append(modeField, $('.basehalf-video-popover-description'));
-										fixedDescription.textContent = localize('basehalf.canvas.videoComposer.fixedMethod', "This model exposes one reviewed generation method.");
-									} else if (settingsPresentation.methods.control === 'listbox') {
-										const select = registerOverlayFocusTarget(
-											append(modeField, $('select.basehalf-video-listbox.basehalf-video-method-listbox')) as HTMLSelectElement,
-											'mode:listbox',
-											focusKey === 'video:settings'
-										);
-										select.setAttribute('aria-label', modeLabel.textContent);
-										select.disabled = !configurationMutable;
-										for (const optionPresentation of settingsPresentation.methods.options) {
-											const option = append(select, $('option')) as HTMLOptionElement;
-											const optionState = baseHalfCanvasVideoMethodControlState(optionPresentation, configurationMutable);
-											option.value = optionPresentation.mode;
-											option.textContent = optionState.disabledReason
-												? `${optionPresentation.label} — ${optionState.disabledReason}`
-												: optionPresentation.label;
-											option.disabled = optionState.disabled;
-											if (optionState.disabledReason) {
-												option.title = optionState.disabledReason;
-												option.setAttribute('aria-description', optionState.disabledReason);
-											}
-										}
-										select.value = state.resolution.selection.mode;
-										overlayListeners.add(this.addDisposableListener(select, 'change', () => {
-											const selectedMethod = settingsPresentation.methods.options.find(option => option.mode === select.value);
-											if (selectedMethod?.enabled) {
-												commitMethod(selectedMethod.mode);
-											}
-										}));
-									} else {
-										const modes = append(modeField, $('.basehalf-video-segmented.basehalf-video-mode-segmented'));
-										modes.setAttribute('role', 'radiogroup');
-										modes.setAttribute('aria-label', modeLabel.textContent);
-										const modeButtons: HTMLButtonElement[] = [];
-										for (const optionPresentation of settingsPresentation.methods.options) {
-											const optionState = baseHalfCanvasVideoMethodControlState(optionPresentation, configurationMutable);
-											const modeButton = append(modes, $('button.basehalf-video-segment')) as HTMLButtonElement;
-											if (!optionState.disabled) {
-												registerOverlayFocusTarget(
-													modeButton,
-													`mode:${optionPresentation.mode}`,
-													focusKey === 'video:settings' && optionPresentation.selected
-												);
-											}
-											modeButton.type = 'button';
-											modeButton.textContent = optionPresentation.label;
-											modeButton.classList.toggle('selected', optionPresentation.selected);
-											modeButton.setAttribute('role', 'radio');
-											modeButton.setAttribute('aria-checked', String(optionPresentation.selected));
-											modeButton.tabIndex = optionPresentation.selected && !optionState.disabled ? 0 : -1;
-											modeButton.disabled = optionState.disabled;
-											if (optionState.disabledReason) {
-												const reason = append(modeField, $('.basehalf-video-option-inline-reason'));
-												reason.id = `${popover.id}-mode-${optionPresentation.mode}-reason`;
-												reason.textContent = `${optionPresentation.label}: ${optionState.disabledReason}`;
-												modeButton.title = optionState.disabledReason;
-												modeButton.setAttribute('aria-describedby', reason.id);
-											}
-											modeButtons.push(modeButton);
-											overlayListeners.add(this.addDisposableListener(modeButton, 'click', () => {
-												if (!optionState.disabled) {
-													commitMethod(optionPresentation.mode);
-												}
-											}));
-										}
-										if (!modeButtons.some(button => button.tabIndex === 0)) {
-											const firstEnabledMode = modeButtons.find(button => !button.disabled);
-											if (firstEnabledMode) {
-												firstEnabledMode.tabIndex = 0;
-											}
-										}
-										wireRadioButtons(modeButtons);
-									}
-
-									for (const [parameterIndex, parameter] of settingsPresentation.parameters.entries()) {
-										const field = append(scroll, $('.basehalf-video-popover-field.basehalf-video-capability-field'));
-										field.classList.toggle('disabled', !parameter.enabled);
-										const label = append(field, $('.basehalf-video-popover-label'));
-										const parameterDomId = `${popover.id}-parameter-${parameterIndex}`;
-										const describedControls: HTMLElement[] = [];
-										label.id = `${parameterDomId}-label`;
-										label.textContent = parameter.label;
-										if (parameter.description) {
-											const description = append(field, $('.basehalf-video-popover-description'));
-											description.textContent = parameter.description;
-										}
-										const commitValue = (value: BaseHalfVideoModelScalar, key: string): void => {
-											applyVideoNormalization(state.resolution as IBaseHalfSupportedVideoCapabilityResolution, {
-												...state.normalization!.values,
-												[parameter.parameterId]: value
-											});
-											refreshVideoMetadata();
-											refreshSaveState();
-											refreshLiveExecutionPresentation();
-											showVideoComposerOverlay('settings', key);
-										};
-									const selectedValue = parameter.value;
-									if (parameter.control === 'fixed') {
-										const fixedValue = append(field, $('.basehalf-video-fixed-parameter'));
-										fixedValue.textContent = parameter.valueLabel ?? localize('basehalf.canvas.videoComposer.reviewedFixedValue', "Reviewed fixed value");
-										const fixedDescription = append(field, $('.basehalf-video-popover-description'));
-										fixedDescription.textContent = localize('basehalf.canvas.videoComposer.fixedParameter', "This model fixes this setting to one reviewed value.");
-									} else if (parameter.control === 'listbox' && parameter.options) {
-											const select = registerOverlayFocusTarget(
-												append(field, $('select.basehalf-video-listbox')) as HTMLSelectElement,
-												`parameter:${parameter.parameterId}:listbox`,
-												focusKey === `parameter:${parameter.parameterId}:listbox`
-											);
-											select.setAttribute('aria-label', parameter.label);
-											select.disabled = !configurationMutable || !parameter.enabled;
-											for (const optionPresentation of parameter.options) {
-												const option = append(select, $('option')) as HTMLOptionElement;
-												option.value = `${typeof optionPresentation.value}:${String(optionPresentation.value)}`;
-												option.textContent = optionPresentation.enabled ? optionPresentation.label : `${optionPresentation.label} — ${optionPresentation.unavailableReason ?? localize('basehalf.canvas.videoComposer.unavailable', "Unavailable")}`;
-												option.disabled = !optionPresentation.enabled;
-												if (optionPresentation.value === selectedValue) {
-													option.selected = true;
-												}
-											}
-											overlayListeners.add(this.addDisposableListener(select, 'change', () => {
-												const selectedOption = parameter.options?.find(option => `${typeof option.value}:${String(option.value)}` === select.value);
-												if (selectedOption?.enabled) {
-													commitValue(selectedOption.value, `parameter:${parameter.parameterId}:listbox`);
-												}
-											}));
-										} else if (parameter.control === 'segmented' && parameter.options) {
-											const segmented = append(field, $('.basehalf-video-segmented'));
-											segmented.setAttribute('role', 'radiogroup');
-											segmented.setAttribute('aria-label', parameter.label);
-											const buttons: HTMLButtonElement[] = [];
-											for (const option of parameter.options) {
-												const selected = selectedValue === option.value;
-												const key = `parameter:${parameter.parameterId}:${typeof option.value}:${String(option.value)}`;
-												const button = registerOverlayFocusTarget(
-													append(segmented, $('button.basehalf-video-segment')) as HTMLButtonElement,
-													key,
-													selected
-												);
-												button.type = 'button';
-												button.textContent = option.label;
-												button.classList.toggle('selected', selected);
-												button.setAttribute('role', 'radio');
-												button.setAttribute('aria-checked', String(selected));
-												button.tabIndex = selected ? 0 : -1;
-											button.disabled = !configurationMutable || !parameter.enabled || !option.enabled;
-											if (option.unavailableReason) {
-												button.title = option.unavailableReason;
-												button.setAttribute('aria-description', option.unavailableReason);
-												const optionReason = append(field, $('.basehalf-video-option-inline-reason'));
-												optionReason.textContent = `${option.label}: ${option.unavailableReason}`;
-											}
-												buttons.push(button);
-												overlayListeners.add(this.addDisposableListener(button, 'click', () => commitValue(option.value, key)));
-											}
-											wireRadioButtons(buttons);
-										} else if (parameter.control === 'boolean') {
-											const segmented = append(field, $('.basehalf-video-segmented'));
-											segmented.setAttribute('role', 'radiogroup');
-											segmented.setAttribute('aria-label', parameter.label);
-											const buttons: HTMLButtonElement[] = [];
-											for (const option of [{ value: true, label: localize('basehalf.canvas.videoComposer.on', "On") }, { value: false, label: localize('basehalf.canvas.videoComposer.off', "Off") }]) {
-												const selected = selectedValue === option.value;
-												const key = `parameter:${parameter.parameterId}:${String(option.value)}`;
-												const button = registerOverlayFocusTarget(
-													append(segmented, $('button.basehalf-video-segment')) as HTMLButtonElement,
-													key,
-													selected
-												);
-												button.type = 'button';
-												button.textContent = option.label;
-												button.classList.toggle('selected', selected);
-												button.setAttribute('role', 'radio');
-												button.setAttribute('aria-checked', String(selected));
-												button.tabIndex = selected ? 0 : -1;
-												button.disabled = !configurationMutable || !parameter.enabled;
-												buttons.push(button);
-												overlayListeners.add(this.addDisposableListener(button, 'click', () => commitValue(option.value, key)));
-											}
-											wireRadioButtons(buttons);
-										} else if (parameter.control === 'range' && parameter.minimum !== undefined && parameter.maximum !== undefined && parameter.step !== undefined) {
-											const rangeRow = append(field, $('.basehalf-video-range-row'));
-											const input = registerOverlayFocusTarget(
-												append(rangeRow, $('input.basehalf-video-range')) as HTMLInputElement,
-												`parameter:${parameter.parameterId}`
-											);
-											const numericValue = typeof selectedValue === 'number' ? selectedValue : parameter.minimum;
-											const rangeAccessibleNames = baseHalfCanvasVideoRangeAccessibleNames(parameter.label);
-											input.type = 'range';
-											input.min = String(parameter.minimum);
-											input.max = String(parameter.maximum);
-											input.step = String(parameter.step);
-											input.value = String(numericValue);
-											input.disabled = !configurationMutable || !parameter.enabled;
-											input.setAttribute('aria-label', rangeAccessibleNames.slider);
-											const numericInput = registerOverlayFocusTarget(
-												append(rangeRow, $('input.basehalf-video-range-number')) as HTMLInputElement,
-												`parameter:${parameter.parameterId}:number`
-											);
-											numericInput.type = 'number';
-											numericInput.min = input.min;
-											numericInput.max = input.max;
-											numericInput.step = input.step;
-											numericInput.value = input.value;
-											numericInput.disabled = input.disabled;
-											numericInput.setAttribute('aria-label', rangeAccessibleNames.exactValue);
-											describedControls.push(input, numericInput);
-											if (parameter.unit) {
-												const unit = append(rangeRow, $('.basehalf-video-range-unit'));
-												unit.id = `${parameterDomId}-unit`;
-												unit.textContent = parameter.unit;
-												for (const control of describedControls) {
-													control.setAttribute('aria-describedby', unit.id);
-												}
-											}
-											const commitRange = (source: HTMLInputElement): void => {
-												const value = Number(source.value);
-												if (Number.isFinite(value)) {
-													commitValue(value, source === input ? `parameter:${parameter.parameterId}` : `parameter:${parameter.parameterId}:number`);
-												}
-											};
-											overlayListeners.add(this.addDisposableListener(input, 'change', () => commitRange(input)));
-											overlayListeners.add(this.addDisposableListener(numericInput, 'change', () => commitRange(numericInput)));
-										}
-										if (parameter.disabledReason) {
-											const reason = append(field, $('.basehalf-video-parameter-reason'));
-											reason.id = `${parameterDomId}-disabled-reason`;
-											reason.textContent = parameter.disabledReason;
-											field.setAttribute('aria-description', parameter.disabledReason);
-											for (const control of describedControls) {
-												const describedBy = [control.getAttribute('aria-describedby'), reason.id].filter(Boolean).join(' ');
-												control.setAttribute('aria-describedby', describedBy);
-											}
-										}
-									}
-
-									const adjustments = videoSettingsAdjustments.length > 0
-										? createBaseHalfVideoSettingAdjustmentPresentations(videoSettingsAdjustments, settingsPresentation.parameters, videoSettingsAdjustmentPreviousParameters)
-										: settingsPresentation.adjustments;
-									if (adjustments.length > 0) {
-										const adjustmentSection = append(scroll, $('.basehalf-video-settings-adjustments'));
-										const adjustmentHeading = append(adjustmentSection, $('.basehalf-video-settings-section-label'));
-										adjustmentHeading.textContent = localize('basehalf.canvas.videoComposer.adjustedSettings', "Adjusted settings");
-										const adjustmentList = append(adjustmentSection, $('ul'));
-										for (const adjustment of adjustments) {
-											const item = append(adjustmentList, $('li'));
-											const transition = adjustment.kind === 'removed'
-												? localize('basehalf.canvas.videoComposer.adjustmentRemoved', "{0} was removed", adjustment.previousValueLabel ?? localize('basehalf.canvas.videoComposer.previousSavedValue', "Previous saved value"))
-												: adjustment.previousValueLabel === undefined
-													? localize('basehalf.canvas.videoComposer.adjustmentDefaulted', "set to {0}", adjustment.valueLabel ?? localize('basehalf.canvas.videoComposer.reviewedValue', "Reviewed value"))
-													: localize('basehalf.canvas.videoComposer.adjustmentChanged', "{0} → {1}", adjustment.previousValueLabel, adjustment.valueLabel ?? localize('basehalf.canvas.videoComposer.reviewedValue', "Reviewed value"));
-											item.textContent = `${adjustment.parameterLabel}: ${transition}. ${adjustment.reason}`;
-										}
-									}
-								}
-
-								const statusText = readVideoMessagePrecedence().primaryMessage?.message;
-								if (statusText) {
-									const status = append(scroll, $('.basehalf-video-capability-status'));
-									status.setAttribute('role', 'status');
-									status.setAttribute('aria-live', 'polite');
-									status.textContent = statusText;
-								}
-								if (reviewedSource) {
-									const reviewedSourceDetails = append(scroll, $('details.basehalf-video-reviewed-source')) as HTMLDetailsElement;
-									const sourceSummary = append(reviewedSourceDetails, $('summary'));
-									sourceSummary.textContent = localize('basehalf.canvas.videoComposer.reviewedModelInformation', "Reviewed model information");
-									const sourceLink = append(reviewedSourceDetails, $('a.basehalf-video-reviewed-source-link')) as HTMLAnchorElement;
-									sourceLink.href = reviewedSource.url;
-									sourceLink.target = '_blank';
-									sourceLink.rel = 'noopener noreferrer';
-									sourceLink.textContent = localize('basehalf.canvas.videoComposer.officialModelDocumentation', "Official model documentation");
-									const reviewedAt = append(reviewedSourceDetails, $('.basehalf-video-reviewed-at'));
-									reviewedAt.textContent = localize('basehalf.canvas.videoComposer.reviewedAt', "Reviewed {0}", reviewedSource.verifiedAt);
-								}
-									} else if (selectedRecipe && selectedRecipe.modelCapability === undefined) {
-									if (selectedRecipe.description) {
-										const description = append(scroll, $('.basehalf-video-popover-description'));
-										description.textContent = selectedRecipe.description;
-									}
-									for (const parameter of selectedRecipe.parameters) {
-										const input = this.renderNodeLocalParameter(
-											scroll,
-											parameter,
-											draftParameters[parameter.id],
-											value => {
-												draftParameters[parameter.id] = value;
-												refreshVideoMetadata();
-												refreshSaveState();
-												refreshLiveExecutionPresentation();
-											},
-											overlayListeners
-										);
-										input.disabled = !configurationMutable;
-										registerOverlayFocusTarget(input, `local-parameter:${parameter.id}`, focusKey === 'video:settings');
-										}
-										const parsed = parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters);
-										const blockingProblem = !parsed.valid ? parsed.message : readStructuralProblem();
-										const statusText = blockingProblem ?? videoSettingsNotice;
-									if (statusText) {
-										const status = append(scroll, $('.basehalf-video-capability-status'));
-										status.setAttribute('role', 'status');
-										status.setAttribute('aria-live', 'polite');
-										status.textContent = statusText;
-									}
-									} else if (videoSettingsNotice) {
-										const status = append(scroll, $('.basehalf-video-capability-status'));
-										status.setAttribute('role', 'status');
-										status.setAttribute('aria-live', 'polite');
-										status.textContent = videoSettingsNotice;
-									}
-								} else if (videoComposerOverlay === 'inputs') {
-								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.inputsHeading', "Generation inputs"), headingId);
-								if (!selectedRecipe) {
-									const empty = append(popover, $('.basehalf-video-popover-empty'));
-									empty.textContent = localize('basehalf.canvas.videoComposer.chooseGeneratorForInputs', "Choose a generator to assign connected context.");
-								} else {
-									const videoInputs = readVideoInputsPresentation();
-									const activeRoleIds = videoInputs
-										? new Set(videoInputs.capability.inputs.filter(input => input.kind !== 'text-prompt' && input.maxItems > 0).map(input => input.kind))
-										: undefined;
-									const bindingPresentations = new Map(videoInputs?.presentation.bindings.map(input => [input.binding.sourcePath, input]) ?? []);
-									const rows = getBaseHalfNodeInputRows(selectedRecipe, draftBindings, inputKinds, inputResultIdentities);
-									const list = append(popover, $('.basehalf-video-popover-list'));
-									list.dataset.videoOverlayScrollKey = 'inputs';
-									for (const row of rows) {
-										const entry = append(list, $('.basehalf-video-popover-row'));
-										const bindingPresentation = bindingPresentations.get(row.sourcePath);
-										entry.classList.toggle('needs-review', !!bindingPresentation?.blocking);
-										if (bindingPresentation) {
-											entry.dataset.inputStatus = bindingPresentation.status;
-										}
-										const text = append(entry, $('.basehalf-video-input-text'));
-										const name = append(text, $('.basehalf-video-popover-row-title'));
-										name.textContent = row.sourcePath;
-										const meta = append(text, $('.basehalf-video-popover-row-meta'));
-										meta.textContent = [
-											inputKinds.get(row.sourcePath) ?? localize('basehalf.canvas.videoComposer.missingInput', "Missing"),
-											...(bindingPresentation?.problem ? [baseHalfVideoInputPresentationProblemLabel(bindingPresentation.problem.kind)] : [])
-										].join(' · ');
-										const slot = registerOverlayFocusTarget(
-											append(entry, $('select.basehalf-video-input-role')) as HTMLSelectElement,
-											`input:${row.sourcePath}:slot`
-										);
-										for (const candidate of getBaseHalfNodeAssignableInputSlots(selectedRecipe, draftBindings, row.sourcePath, inputKinds.get(row.sourcePath) ?? 'file')
-											.filter(candidate => !activeRoleIds || activeRoleIds.has(candidate.id as BaseHalfVideoInputKind))) {
-											const option = append(slot, $('option')) as HTMLOptionElement;
-											option.value = candidate.id;
-											option.textContent = candidate.label;
-										}
-										slot.value = row.slot;
-										slot.disabled = !configurationMutable;
-										overlayListeners.add(this.addDisposableListener(slot, 'change', () => void (async () => {
-											const transactionId = acquireVideoInputTransaction();
-											if (transactionId === undefined) {
-												slot.value = row.slot;
-												return;
-											}
-											const nextRole = slot.value as BaseHalfVideoInputKind;
-											const expectedDraftState = draftStateKey();
-											try {
-												const confirmation = await this.dialogService.confirm({
-													message: localize('basehalf.canvas.videoComposer.confirmInputRole', "Change {0} from {1} to {2}?", row.sourcePath, row.slot, nextRole),
-													detail: localize('basehalf.canvas.videoComposer.confirmInputRoleDetail', "Source: {0}. Current role: {1}. New role: {2}. The source connection stays in place.", row.sourcePath, row.slot, nextRole),
-													primaryButton: localize('basehalf.canvas.videoComposer.changeInputRole', "Change role")
-												});
-												if (!confirmation.confirmed) {
-													showVideoComposerOverlay('inputs', `input:${row.sourcePath}:slot`);
-													return;
-												}
-												const source = await inspectVideoInputSource(row.sourcePath);
-												const plan = planBaseHalfVideoInputRoleChange({
-													capability: videoInputs!.capability,
-													recipeInputs: selectedRecipe!.inputs,
-													bindings: draftBindings,
-													sources: [...videoInputs!.sources.filter(candidate => candidate.sourcePath !== row.sourcePath), source],
-													sourcePath: row.sourcePath,
-													role: nextRole
-												});
-												if (!await commitVideoInputPlan(plan, expectedDraftState, transactionId, [source])) {
-													showVideoComposerOverlay('inputs', `input:${row.sourcePath}:slot`);
-												}
-											} catch (error) {
-												this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-												this.requestRender();
-												showVideoComposerOverlay('inputs', `input:${row.sourcePath}:slot`);
-											} finally {
-												releaseVideoInputTransaction(transactionId);
-											}
-										})()));
-										const replace = registerOverlayFocusTarget(
-											append(entry, $('button.basehalf-video-input-replace.codicon.codicon-replace')) as HTMLButtonElement,
-											`input:${row.sourcePath}:replace`
-										);
-										replace.type = 'button';
-										replace.disabled = !configurationMutable || !bindingPresentation?.actions.includes('replace');
-										replace.title = localize('basehalf.canvas.videoComposer.replaceInput', "Replace input from canvas");
-										replace.setAttribute('aria-label', replace.title);
-										overlayListeners.add(this.addDisposableListener(replace, 'click', () => {
-											void startVideoInputCanvasPick(row.slot as BaseHalfVideoInputKind, row.sourcePath, replace);
-										}));
-										const remove = registerOverlayFocusTarget(
-											append(entry, $('button.basehalf-video-input-remove.codicon.codicon-close')) as HTMLButtonElement,
-											`input:${row.sourcePath}:remove`
-										);
-										remove.type = 'button';
-										remove.disabled = !configurationMutable;
-										remove.title = localize('basehalf.canvas.videoComposer.removeInput', "Remove input");
-										remove.setAttribute('aria-label', remove.title);
-										overlayListeners.add(this.addDisposableListener(remove, 'click', () => void (async () => {
-											const transactionId = acquireVideoInputTransaction();
-											if (transactionId === undefined) {
-												return;
-											}
-											const expectedDraftState = draftStateKey();
-											try {
-												const edgeState = await readVideoInputDirectEdgeState(row.sourcePath);
-												const plan = planBaseHalfVideoInputRemove({
-													capability: videoInputs!.capability,
-													recipeInputs: selectedRecipe!.inputs,
-													bindings: draftBindings,
-													sources: videoInputs!.sources,
-													sourcePath: row.sourcePath,
-													edgeState
-												});
-												await commitVideoInputPlan(plan, expectedDraftState, transactionId);
-											} catch (error) {
-												this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-												this.requestRender();
-											} finally {
-												releaseVideoInputTransaction(transactionId);
-											}
-										})()));
-									}
-									const available = inboundSources.flatMap(source => source.kind === undefined ? [] : getBaseHalfNodeAvailableInputSlots(selectedRecipe!, draftBindings, source.path, source.kind)
-										.filter(slot => !activeRoleIds || activeRoleIds.has(slot.id as BaseHalfVideoInputKind))
-										.map(slot => ({ source, slot })));
-									if (available.length > 0) {
-										const add = registerOverlayFocusTarget(
-											append(popover, $('select.basehalf-video-input-add')) as HTMLSelectElement,
-											'input:add'
-										);
-										const placeholder = append(add, $('option')) as HTMLOptionElement;
-										placeholder.value = '';
-										placeholder.textContent = localize('basehalf.canvas.videoComposer.addConnectedInput', "Add connected context…");
-										for (const candidate of available) {
-											const option = append(add, $('option')) as HTMLOptionElement;
-											option.value = `${candidate.source.path}\u0000${candidate.slot.id}`;
-											option.textContent = `${candidate.source.path} → ${candidate.slot.label}`;
-										}
-										add.disabled = !configurationMutable;
-										overlayListeners.add(this.addDisposableListener(add, 'change', () => {
-											const [sourcePath, slotId] = add.value.split('\u0000');
-											if (sourcePath && slotId) {
-												removedConnections.delete(sourcePath);
-												draftBindings = normalizeNodeInputBindings([...draftBindings, { sourcePath, slot: slotId, order: draftBindings.length }]);
-												refreshSaveState();
-												showVideoComposerOverlay('inputs', 'video:inputs');
-											}
-										}));
-									} else if (rows.length === 0) {
-										const empty = append(popover, $('.basehalf-video-popover-empty'));
-										empty.textContent = inboundSources.length === 0
-											? localize('basehalf.canvas.videoComposer.connectContext', "Pick a saved canvas source to add an input.")
-											: localize('basehalf.canvas.videoComposer.noCompatibleContext', "Connected context is not compatible with this generator.");
-									}
-									if (videoInputs) {
-										const pickRoles = videoInputs.capability.inputs.filter(input => {
-											if (input.kind === 'text-prompt' || input.maxItems === 0) {
-												return false;
-											}
-											const recipeInput = selectedRecipe!.inputs.find(candidate => candidate.id === input.kind);
-											const count = draftBindings.filter(binding => binding.slot === input.kind).length;
-											return !!recipeInput && count < Math.min(input.maxItems, recipeInput.maxItems);
-										});
-										if (pickRoles.length > 0) {
-											const pickActions = append(popover, $('.basehalf-video-input-pick-actions'));
-											for (const input of pickRoles) {
-												const roleLabel = input.kind === 'first-frame'
-													? localize('basehalf.canvas.videoComposer.startFrame', "Start Frame")
-													: input.kind === 'last-frame'
-														? localize('basehalf.canvas.videoComposer.endFrame', "End Frame")
-														: input.kind;
-												const pick = registerOverlayFocusTarget(
-													append(pickActions, $('button.basehalf-video-input-pick-action.codicon.codicon-target')) as HTMLButtonElement,
-													`input:pick:${input.kind}`
-												);
-											pick.type = 'button';
-											pick.disabled = !configurationMutable;
-											pick.textContent = localize('basehalf.canvas.videoComposer.pickRoleFromCanvas', "Pick {0} from canvas", roleLabel);
-											pick.setAttribute('aria-label', pick.textContent);
-												overlayListeners.add(this.addDisposableListener(pick, 'click', () => {
-													void startVideoInputCanvasPick(input.kind, undefined, pick);
-												}));
-											}
-										}
-									}
-								}
-							} else {
-								appendPopoverHeading(popover, localize('basehalf.canvas.videoComposer.attempts', "Video attempts"), headingId);
-								const attempts = append(popover, $('.basehalf-video-attempts-scroll'));
-								attempts.dataset.videoOverlayScrollKey = 'attempts';
-								this.renderNodeLocalAttempts(attempts, document, overlayListeners, registerFocusTarget, expandedAttemptDisclosures, attemptsVisibleCount, () => {
-									attemptsVisibleCount += 50;
-									showVideoComposerOverlay('attempts');
-								});
-								const newestAttempt = [...document.attempts]
-									.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-								firstOverlayFocusTarget = newestAttempt
-									? renderedFocusTargets.get(`attempt:${newestAttempt.id}:details`)
-									: renderedFocusTargets.get('attempts:load-more');
-							}
-							for (const element of popover.getElementsByTagName('*')) {
-								if (isHTMLElement(element) && element.dataset.videoOverlayScrollKey) {
-									element.scrollTop = previousScrollPositions.get(element.dataset.videoOverlayScrollKey) ?? 0;
-								}
-							}
-							layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect());
-							const exactFocusTarget = previousOverlayFocusKey
-								? renderedFocusTargets.get(previousOverlayFocusKey)
-								: undefined;
-							const connectedExactFocusTarget = exactFocusTarget?.isConnected && popover.contains(exactFocusTarget)
-								? exactFocusTarget
-								: undefined;
-								const restoredModelFocus = videoComposerOverlay === 'models' && previousModelFocusedLogicalKey
-									? resolveBaseHalfVideoModelPickerFocus(
-										previousModelPickerRows,
-										videoModelPickerRows,
-										previousModelFocusedLogicalKey
-									)
-									: undefined;
-								const restoredModelFocusTarget = restoredModelFocus?.kind === 'row'
-									? videoModelFocusTargets.get(restoredModelFocus.logicalKey)
-									: restoredModelFocus?.kind === 'trigger'
-										? videoModelTrigger
-										: undefined;
-								const nextFocusTarget = baseHalfCanvasVideoOverlayNextFocusTarget(
-									undefined,
-									connectedExactFocusTarget,
-									restoredModelFocusTarget,
-								previousOverlayFocusKey || focusKey ? preferredOverlayFocusTarget ?? firstOverlayFocusTarget : undefined
-							);
-								if (nextFocusTarget) {
-									anchorWindow.requestAnimationFrame(() => {
-										const target = nextFocusTarget === videoModelTrigger && nextFocusTarget.isConnected
-											? nextFocusTarget
-											: nextFocusTarget.isConnected && popover.contains(nextFocusTarget)
-											? nextFocusTarget
-										: preferredOverlayFocusTarget?.isConnected && popover.contains(preferredOverlayFocusTarget)
-											? preferredOverlayFocusTarget
-												: firstOverlayFocusTarget?.isConnected && popover.contains(firstOverlayFocusTarget)
-													? firstOverlayFocusTarget
-													: undefined;
-										if (target) {
-											if (popover.contains(target)) {
-												target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-											}
-										target.focus({ preventScroll: true });
-									}
-								});
-							}
-						};
-							closeVideoComposerOverlay = (restoreFocus = false): boolean => {
-								if (!videoComposerOverlay) {
-									return false;
-								}
-								const focusKey = videoComposerOverlayFocusKey;
-								if (videoComposerOverlay === 'models') {
-									resetVideoModelTypeahead();
-									videoModelActivationProblem = undefined;
-								}
-								videoComposerOverlay = undefined;
-							videoComposerOverlayFocusKey = undefined;
-							renderVideoComposerOverlay();
-							if (restoreFocus && focusKey) {
-								renderedFocusTargets.get(focusKey)?.focus({ preventScroll: true });
-							}
-								return true;
-							};
-							closeVideoTransientOverlay = () => {
-								closeVideoComposerOverlay(false);
-							};
-						showVideoComposerOverlay = (overlay, focusKey) => {
-							if (!cancelVideoInputCanvasPickForChildOverlay()) {
-								return;
-							}
-							if (videoComposerOverlay === 'models' && overlay !== 'models') {
-								resetVideoModelTypeahead();
-							}
-							const activeBeforeShow = surface.ownerDocument.activeElement;
-							const updatesOpenOverlay = videoComposerOverlay === overlay
-								&& isHTMLElement(activeBeforeShow)
-								&& overlayRoot.contains(activeBeforeShow);
-							if (overlay === 'settings' && selectedRecipe?.videoModelCatalogId) {
-								const state = readVideoModelState();
-								if (state.resolution?.status === 'supported' && state.normalization?.status === 'ready') {
-									const canonical = baseHalfCanonicalVideoParameterDraft(
-										selectedRecipe.videoModelCatalogId,
-										state.resolution,
-										state.inputs,
-										state.normalization
-									);
-									if (!objectsEqual(draftParameters, canonical)) {
-										const adjustmentState = baseHalfCanvasVideoCanonicalAdjustmentState(
-											videoSettingsAdjustments,
-											state.normalization.adjustments,
-											videoSettingsAdjustmentPreviousParameters,
-											createBaseHalfVideoModelSettingsPresentation(state.resolution, state.normalization).parameters
-										);
-										videoSettingsAdjustments = adjustmentState.adjustments;
-										videoSettingsAdjustmentPreviousParameters = adjustmentState.previousParameters;
-										draftParameters = canonical;
-										videoSettingsNotice = localize(
-											'basehalf.canvas.videoComposer.reviewedCanonicalSettings',
-											"Updated this Draft to the current reviewed settings."
-										);
-									}
-								}
-							}
-							videoComposerOverlay = overlay;
-							// An in-popover choice may request a precise focus target after the
-							// schema-driven body is rebuilt. It must not replace the trigger that
-							// originally opened the popover, because Escape returns to that trigger.
-							if (!updatesOpenOverlay) {
-								videoComposerOverlayFocusKey = focusKey ?? videoComposerOverlayFocusKey;
-							}
-							renderVideoComposerOverlay(focusKey);
-							refreshVideoMetadata();
-							refreshSaveState();
-							refreshVideoPrimaryState();
-						};
-						refreshVideoMetadata = () => {
-							if (!videoModel || !videoSettings) {
-								return;
-							}
-							const state = readVideoModelState();
-							const promptMaximum = state.resolution?.status === 'supported'
-								? getBaseHalfVideoPromptMaxCharacters(state.resolution)
-								: undefined;
-							if (stableVideoPromptInput) {
-								stableVideoPromptInput.maxLength = promptMaximum ?? BASEHALF_NODE_PROMPT_MAX_LENGTH;
-								stableVideoPromptInput.title = promptMaximum === undefined
-									? ''
-									: localize('basehalf.canvas.videoComposer.promptLimit', "Up to {0} characters for the selected generation method", promptMaximum.toLocaleString('en-US'));
-							}
-							const localRecipe = selectedRecipe?.modelCapability === undefined ? selectedRecipe : undefined;
-							const selectedCatalogDescriptor = selectedRecipe?.modelCapability === 'video' && draftModelId
-								? baseHalfVideoRegistryForRecipe(this.videoModelCatalogService, selectedRecipe).models.find(candidate => candidate.key.modelId === draftModelId
-									&& (!draftVideoModelKey || (candidate.key.provider === draftVideoModelKey.provider
-										&& candidate.key.deployment === draftVideoModelKey.deployment
-										&& candidate.key.region === draftVideoModelKey.region
-										&& candidate.key.revision === draftVideoModelKey.revision)))
-								: undefined;
-							const selectedModelUnavailable = !!draftModelId && (!selectedCatalogDescriptor
-								|| !!selectedCatalogDescriptor.availability
-								|| !selectedCatalogDescriptor.modes.some(mode => !mode.availability));
-							const selectedModelConnectionRequired = !!selectedCatalogDescriptor && !selectedModelUnavailable
-								&& (!state.service?.configured
-									|| !isBaseHalfPublicHttpsBearerModelServiceConfiguration(state.service)
-									|| !baseHalfVideoModelMatchesServiceScope(selectedCatalogDescriptor, state.service));
-							const modelLabel = localRecipe?.label
-								?? state.descriptor?.label
-								?? selectedCatalogDescriptor?.label
-								?? draftModelId
-								?? localize('basehalf.canvas.videoComposer.chooseModel', "Choose model");
-							clearNode(videoModel);
-							const modelAvailability = selectedModelUnavailable
-								? 'unavailable'
-								: selectedModelConnectionRequired ? 'connection-required' : 'available';
-							videoModel.dataset.modelAvailability = modelAvailability;
-							const modelIcon = append(videoModel, $(`.codicon.${selectedModelUnavailable ? 'codicon-circle-slash' : selectedModelConnectionRequired ? 'codicon-lock' : 'codicon-server-process'}`));
-							modelIcon.setAttribute('aria-hidden', 'true');
-							const modelText = append(videoModel, $('.basehalf-video-trigger-label'));
-							modelText.textContent = modelLabel;
-							const modelAvailabilityLabel = selectedModelUnavailable
-								? localize('basehalf.canvas.videoComposer.unavailable', "Unavailable")
-								: selectedModelConnectionRequired
-									? localize('basehalf.canvas.videoComposer.connectionRequired', "Connection required")
-									: draftModelId
-										? localize('basehalf.canvas.videoComposer.selected', "Selected")
-										: localize('basehalf.canvas.videoComposer.chooseModel', "Choose model");
-							videoModel.title = `${modelLabel} — ${modelAvailabilityLabel}`;
-							videoModel.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.modelTriggerWithState', "Generator: {0}. {1}.", modelLabel, modelAvailabilityLabel));
-							clearNode(videoSettings);
-							const settingValues: string[] = [];
-							const settingsUnavailable = selectedRecipe?.modelCapability === 'video' && !!draftModelId
-								&& (state.resolution?.status !== 'supported' || state.normalization?.status === 'unavailable');
-							videoSettings.classList.toggle('unavailable', settingsUnavailable);
-							videoSettings.dataset.settingsState = settingsUnavailable ? 'unavailable' : 'ready';
-							if (localRecipe) {
-								for (const parameter of localRecipe.parameters) {
-									const value = draftParameters[parameter.id];
-									if (value === undefined || settingValues.length >= 4) {
-										continue;
-									}
-									settingValues.push(parameter.type === 'boolean'
-										? `${parameter.label} ${value ? localize('basehalf.canvas.videoComposer.on', "On") : localize('basehalf.canvas.videoComposer.off', "Off")}`
-										: String(value));
-								}
-							} else if (state.resolution?.status === 'supported' && state.normalization) {
-								const presentation = createBaseHalfVideoModelSettingsPresentation(state.resolution, state.normalization);
-								settingValues.push(...presentation.settingsSummary.map(token => token.value));
-							}
-							if (settingValues.length === 0) {
-								const empty = append(videoSettings, $('.basehalf-video-composer-metadata-empty'));
-								empty.textContent = localize('basehalf.canvas.videoComposer.chooseModelSettings', "Choose model settings");
-							} else {
-								for (const value of settingValues) {
-									const entry = append(videoSettings, $('.basehalf-video-composer-metadata-item'));
-									entry.textContent = value;
-								}
-							}
-							videoSettings.title = settingValues.join(' · ') || localize('basehalf.canvas.videoComposer.chooseModelSettings', "Choose model settings");
-							videoSettings.setAttribute('aria-label', localize('basehalf.canvas.videoComposer.settingsTrigger', "Video settings: {0}", videoSettings.title));
-							if (settingsUnavailable && state.problem) {
-								videoSettings.setAttribute('aria-description', state.problem);
-							} else {
-								videoSettings.removeAttribute('aria-description');
-							}
-							syncOverlayTriggers();
-						};
-						refreshVideoMetadata();
-						renderVideoComposerOverlay();
-						refreshVideoSurfacePresentation = () => {
-							refreshVideoMetadata();
-							refreshSaveState();
-							if (videoComposerOverlay) {
-								renderVideoComposerOverlay();
-							}
-						};
-					}
-					const save = !videoComposer ? append(footer, $('button.basehalf-node-local-save')) as HTMLButtonElement : undefined;
-					if (save) {
-						registerFocusTarget(save, 'save');
-						save.type = 'button';
-						save.textContent = 'Save';
-						save.setAttribute('aria-label', 'Save node changes');
-					}
-					const recipeDraftIsValid = () => !selectedRecipe
-						|| (videoComposer && selectedRecipe.modelCapability === 'video'
-							? !!readVideoRecipeParameters() && !readStructuralProblem()
-							: parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters).valid && !readStructuralProblem());
-					const readModelSelectionProblem = () => videoComposer && selectedRecipe?.modelCapability === 'video'
-						? readVideoCapabilityProblem()
-						: selectedRecipe?.modelCapability
-							? getBaseHalfNodeModelSelectionProblem(draftModelServiceId, draftModelId)
-							: undefined;
-					const activateVideoPrimary = async (): Promise<void> => {
-						if (videoInputTransactionOwnerState.activeTransactionId !== undefined
-							&& (!cancelVideoInputCanvasPickForChildOverlay()
-								|| videoInputTransactionOwnerState.activeTransactionId !== undefined)) {
-							return;
-						}
-						const nextState = readDraftLocalState();
-						switch (nextState.action.kind) {
-							case 'run':
-							case 'retry':
-								if (hasDraftChanges() && !await saveDraft()) {
-									return;
-								}
-								if (nextState.action.kind === 'run' && !nextState.ready) {
-									footerMessage.textContent = nextState.message;
-									return;
-								}
-								await this.runCanvasNode(item);
-								return;
-							case 'cancel': {
-								const activeRun = this.nodeExecutionService.getActiveRun(item.stat.resource);
-								if (!activeRun || !this.nodeExecutionService.cancel(item.stat.resource, activeRun.runId)) {
-									footerMessage.textContent = 'That generation already changed; nothing was cancelled.';
-								}
-								return;
-							}
-							case 'locate':
-								await requestLeaveSurface(() => this.locateNodeResult(item), false);
-								return;
-							case 'copy':
-								await requestLeaveSurface(() => this.copyCanvasNodeSettings(item), false);
-								return;
-							case 'recover':
-								await this.recoverInterruptedCanvasNode(item);
-								return;
-							case 'import':
-								await requestLeaveSurface(() => this.importCanvasNodeResult(item), false);
-								return;
-							case 'add':
-							case 'configure': {
-								const needsGenerator = !selectedRecipe;
-								const needsModel = needsGenerator || nextState.status === 'Provider missing';
-								const precedenceAction = videoComposer ? readVideoMessagePrecedence().primaryAction?.id : undefined;
-								if (precedenceAction === 'edit-prompt') {
-									closeVideoComposerOverlay(false);
-									stableVideoPromptInput?.focus({ preventScroll: true });
-									return;
-								}
-								const overlay: BaseHalfVideoComposerOverlay = precedenceAction === 'review-inputs'
-									? 'inputs'
-									: precedenceAction === 'choose-model'
-										|| precedenceAction === 'connect-model'
-										|| precedenceAction === 'reconnect-model'
-										|| needsModel
-										? 'models'
-										: 'settings';
-								showVideoComposerOverlay(overlay, needsGenerator || needsModel ? 'video:model' : `video:${overlay}`);
-								return;
-							}
-							case 'wait':
-								footerMessage.textContent = nextState.message;
-						}
-					};
-					runVideoDraftFromSurface = () => {
-						const action = readDraftLocalState().action.kind;
-						if (action === 'run' || action === 'retry') {
-							void activateVideoPrimary();
-						}
-					};
-					refreshVideoPrimaryState = () => {
-						if (!videoPrimary) {
-							return;
-						}
-						const nextState = readDraftLocalState();
-						videoPrimary.dataset.nodeAction = nextState.action.kind;
-						videoPrimary.dataset.nodeStatus = baseHalfNodeLocalStatusToken(nextState.status);
-						const setupActionLabel = videoComposer
-							? readVideoMessagePrecedence().primaryAction?.label
-							: undefined;
-						const actionLabel = nextState.action.kind === 'locate'
-							? 'Open video'
-							: nextState.action.kind === 'copy'
-								? 'New Draft'
-								: nextState.action.kind === 'add' || nextState.action.kind === 'configure'
-									? setupActionLabel ?? 'Set up video'
-								: nextState.action.kind === 'cancel'
-									? 'Cancel'
-									: nextState.action.kind === 'recover'
-									? 'Check status'
-									: nextState.action.kind === 'retry' ? 'Retry' : 'Generate';
-						videoPrimary.textContent = '';
-						videoPrimary.classList.remove('codicon-arrow-up', 'codicon-debug-stop', 'codicon-play', 'codicon-add', 'codicon-refresh');
-						videoPrimary.classList.add(nextState.action.kind === 'cancel'
-							? 'codicon-debug-stop'
-							: nextState.action.kind === 'locate'
-								? 'codicon-play'
-								: nextState.action.kind === 'copy'
-									? 'codicon-add'
-									: nextState.action.kind === 'recover'
-										? 'codicon-refresh'
-										: 'codicon-arrow-up');
-						const editProblem = configurationConflict?.length || refreshFailure
-							|| baseHalfNodeIdentityProblem(draftTitle, draftRole)
-							|| readModelSelectionProblem()
-							|| !recipeDraftIsValid()
-							|| this.workingCopyService.isDirty(item.stat.resource);
-						videoPrimary.disabled = videoInputTransactionOwnerState.activeTransactionId !== undefined
-							|| nextState.action.kind === 'wait'
-							|| nextState.status === 'Cancelling'
-							|| ((nextState.action.kind === 'run' || nextState.action.kind === 'retry') && (!nextState.ready || !!editProblem));
-						videoPrimary.title = `${actionLabel}: ${nextState.message}`;
-						videoPrimary.setAttribute('aria-label', videoPrimary.title);
-					};
-					if (videoPrimary) {
-						formListeners.add(this.addDisposableListener(videoPrimary, 'click', () => { void activateVideoPrimary(); }));
-					}
-					refreshModePresentation = () => {
-						body.hidden = !videoComposer && localSurfaceMode !== 'configure';
-						if (attemptsBody) {
-							attemptsBody.hidden = localSurfaceMode !== 'attempts';
-						}
-						footer.hidden = !videoComposer && (localSurfaceMode !== 'configure' || !configurationMutable);
-						if (save) {
-							save.hidden = !configurationMutable;
-						}
-						for (const [candidate, modeButton] of modeButtons) {
-							const activeMode = localSurfaceMode === candidate;
-							const hasUnsavedDraft = candidate === 'configure' && hasDraftChanges();
-							modeButton.classList.toggle('active', activeMode);
-							modeButton.classList.toggle('has-draft', hasUnsavedDraft);
-							modeButton.setAttribute('aria-selected', String(activeMode));
-							modeButton.setAttribute('tabindex', activeMode ? '0' : '-1');
-							modeButton.setAttribute('aria-label', hasUnsavedDraft
-								? 'Configure, unsaved changes'
-								: candidate === 'configure' ? configurationMutable ? 'Configure' : 'Configuration' : 'Attempts');
-						}
-					};
-					revealConfigureMode = () => {
-						if (videoComposer) {
-							showVideoComposerOverlay('settings', 'video:settings');
-							return;
-						}
-						localSurfaceMode = 'configure';
-						refreshModePresentation();
-						modeButtons.get('configure')?.focus();
-					};
-					refreshSaveState = () => {
-						const dirty = this.workingCopyService.isDirty(item.stat.resource);
-						const nextState = readDraftLocalState();
-						const identityProblem = baseHalfNodeIdentityProblem(draftTitle, draftRole);
-						const modelSelectionProblem = readModelSelectionProblem();
-						const unchanged = !hasDraftChanges();
-						const transactionFailure = configurationConflict?.length
-							? 'Resolve the saved-configuration conflict before saving.'
-							: refreshFailure
-								? 'Wait for this node to refresh before saving.'
-								: undefined;
-						const videoMessage = videoComposer
-							? readVideoMessagePrecedence(transactionFailure).primaryMessage?.message
-							: undefined;
-						footerMessage.textContent = !videoComposer && transactionFailure
-							? transactionFailure
-								: !configurationMutable && !unchanged
-									? 'Generation started before these edits were saved. They are not part of this Attempt.'
-									: dirty
-										? 'Save the open source editor before changing this node.'
-										: identityProblem ?? (emptyVideoComposer
-											? ''
-											: videoMessage ?? modelSelectionProblem ?? readStructuralProblem() ?? (!nextState.ready ? nextState.message : ''));
-						if (save) {
-							save.disabled = !configurationMutable || unchanged || !!configurationConflict?.length || !!refreshFailure || !!identityProblem || !!modelSelectionProblem || !recipeDraftIsValid() || dirty;
-							save.title = unchanged
-								? 'No changes to save'
-								: footerMessage.textContent || 'Save node changes';
-						}
-						refreshVideoPrimaryState();
-						refreshModePresentation();
-					};
-					refreshWorkingCopyPresentation = refreshSaveState;
-					refreshSaveState();
-					checkpointVideoInputConfigurationImplementation = async transactionId => {
-						if (!baseHalfVideoInputTransactionIsCurrent(videoInputTransactionOwnerState, transactionId)
-							|| !configurationMutable
-							|| !selectedRecipe
-							|| selectedRecipe.modelCapability !== 'video'
-							|| !selectedRecipe.videoModelCatalogId
-							|| this.workingCopyService.isDirty(item.stat.resource)
-							|| !!configurationConflict?.length
-							|| !!refreshFailure
-							|| this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-							return false;
-						}
-						const state = readVideoModelState();
-						if (state.resolution?.status !== 'supported' || state.normalization?.status !== 'ready') {
-							return false;
-						}
-						const persistedBindings = document.recipe?.inputBindings ?? [];
-						const persistedInputs = baseHalfVideoInputState(document.prompt, persistedBindings, inputKinds);
-						const parameters: Readonly<Record<string, BaseHalfNodeJsonValue>> = {
-							...state.normalization.values,
-							[BASEHALF_VIDEO_MODEL_SNAPSHOT_PARAMETER_ID]: createBaseHalfVideoModelSelectionSnapshotFromCapability(
-								selectedRecipe.videoModelCatalogId,
-								state.resolution,
-								persistedInputs
-							) as unknown as BaseHalfNodeJsonValue
-						};
-						const nextRecipe = resolveBaseHalfNodeRecipeDraft(
-							document,
-							selectedRecipeId,
-							selectedRecipe,
-							parameters,
-							draftModelServiceId,
-							draftModelId,
-							persistedBindings
-						);
-						if (!nextRecipe) {
-							return false;
-						}
-						const nextDocument: IBaseHalfNodeDocument = { ...document, recipe: nextRecipe };
-						const nextConfigurationKey = documentConfigurationKey(nextDocument);
-						if (nextConfigurationKey === savedDocumentConfigurationKey) {
-							return true;
-						}
-						const persistedConfiguration = configurationDraftFromDocument(nextDocument);
-						const previousConfigurationBaseline = configurationBaseline;
-						const previousLatestExternalConfiguration = latestExternalConfiguration;
-						const previousSavedDocumentConfigurationKey = savedDocumentConfigurationKey;
-						const previousSavedDraftState = savedDraftState;
-						const previousConfigurationConflict = configurationConflict;
-						// A refresh that began before this checkpoint can otherwise publish the
-						// previous document after the write and look like an external rollback.
-						refreshSequence++;
-						const previousTransitionAck = registerVideoInputDocumentTransition(
-							transactionId,
-							previousSavedDocumentConfigurationKey,
-							nextConfigurationKey,
-							content.etag
-						);
-						configurationBaseline = persistedConfiguration;
-						latestExternalConfiguration = persistedConfiguration;
-						savedDocumentConfigurationKey = nextConfigurationKey;
-						savedDraftState = draftStateKeyFor(persistedConfiguration);
-						configurationConflict = undefined;
-						try {
-							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
-							const confirmedContent = await this.fileService.readFile(item.stat.resource, {
-								atomic: true,
-								limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-							});
-							const confirmedDocument = parseBaseHalfNodeDocumentBytes(confirmedContent.value.buffer);
-							const confirmedConfigurationKey = documentConfigurationKey(confirmedDocument);
-							if (!settleVideoInputDocumentTransition(transactionId, nextConfigurationKey, confirmedConfigurationKey, confirmedContent.etag)) {
-								configurationBaseline = previousConfigurationBaseline;
-								latestExternalConfiguration = previousLatestExternalConfiguration;
-								savedDocumentConfigurationKey = previousSavedDocumentConfigurationKey;
-								savedDraftState = previousSavedDraftState;
-								configurationConflict = previousConfigurationConflict;
-								this.queueCanvasWarning(localize(
-									'basehalf.canvas.videoComposer.inputCheckpointUnconfirmed',
-									"The Video Draft changed before the input checkpoint could be confirmed. Review the current configuration before trying again."
-								));
-								queueSurfaceRefresh();
-								return false;
-							}
-							this.pushNodeLocalUndo(localize('basehalf.canvas.videoInput.checkpointUndo', "Update video input configuration"), folder, saved);
-							document = nextDocument;
-							content = confirmedContent;
-							configurationBaseline = persistedConfiguration;
-							latestExternalConfiguration = persistedConfiguration;
-							savedDocumentConfigurationKey = nextConfigurationKey;
-							configurationConflict = undefined;
-							savedDraftState = draftStateKeyFor(persistedConfiguration);
-							queueSurfaceRefresh();
-							return true;
-						} catch (error) {
-							restoreVideoInputDocumentTransition(transactionId, nextConfigurationKey, previousTransitionAck);
-							if (savedDocumentConfigurationKey === nextConfigurationKey) {
-								configurationBaseline = previousConfigurationBaseline;
-								latestExternalConfiguration = previousLatestExternalConfiguration;
-								savedDocumentConfigurationKey = previousSavedDocumentConfigurationKey;
-								savedDraftState = previousSavedDraftState;
-								configurationConflict = previousConfigurationConflict;
-							}
-							this.logService.warn(error);
-							this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-							queueSurfaceRefresh();
-							return false;
-						}
-					};
-					saveDraftImplementation = async () => {
-						if (baseHalfNodeIdentityProblem(draftTitle, draftRole)
-							|| readModelSelectionProblem()
-							|| !recipeDraftIsValid() || this.workingCopyService.isDirty(item.stat.resource)
-							|| !!configurationConflict?.length || !!refreshFailure || !configurationMutable || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-							return false;
-						}
-						if (save) {
-							save.disabled = true;
-						}
-						footerMessage.textContent = 'Saving...';
-						const latestParameters = selectedRecipe && (!videoComposer || selectedRecipe.modelCapability === undefined)
-							? parseBaseHalfNodeParameterDraft(selectedRecipe, draftParameters)
-							: undefined;
-						const nextRecipe = resolveBaseHalfNodeRecipeDraft(
-							document,
-							selectedRecipeId,
-							selectedRecipe,
-							videoComposer && selectedRecipe?.modelCapability === 'video'
-								? readVideoRecipeParameters()
-								: latestParameters?.valid ? latestParameters.parameters : undefined,
-							draftModelServiceId,
-							draftModelId,
-							draftBindings
-						);
-						const nextDocument: IBaseHalfNodeDocument = {
-							...document,
-							title: draftTitle.trim(),
-							role: draftRole.trim(),
-							prompt: draftPrompt,
-							recipe: nextRecipe
-						};
-						try {
-							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, [...removedConnections]);
-							this.pushNodeLocalUndo(localize('basehalf.canvas.nodeEdit.undo', "Edit result node"), folder, saved);
-							const persistedConfiguration = configurationDraftFromDocument(nextDocument);
-							document = saved.document;
-							content = { ...content, value: saved.contents };
-							localRecipeNeedsModelCleanup = false;
-							videoSettingsNotice = undefined;
-							videoSettingsAdjustments = [];
-							videoSettingsAdjustmentPreviousParameters = [];
-							applyConfigurationDraft(persistedConfiguration);
-							configurationBaseline = persistedConfiguration;
-							latestExternalConfiguration = persistedConfiguration;
-							savedDocumentConfigurationKey = documentConfigurationKey(nextDocument);
-							configurationConflict = undefined;
-							savedDraftState = draftStateKey();
-							this.requestRender();
-							return true;
-						} catch (error) {
-							this.logService.warn(error);
-							footerMessage.textContent = 'This node changed while saving. Refreshing the saved configuration…';
-							if (save) {
-								save.disabled = false;
-							}
-							queueSurfaceRefresh();
-							return false;
-						}
-					};
-					saveLockedModelNavigationDraftImplementation = async () => {
-						if (baseHalfNodeIdentityProblem(draftTitle, draftRole)
-							|| this.workingCopyService.isDirty(item.stat.resource)
-							|| !!configurationConflict?.length || !!refreshFailure || !configurationMutable
-							|| this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-							return false;
-						}
-						// A complete Draft still uses the normal save, including its validated
-						// recipe and graph edits. Only an unresolved locked-provider choice
-						// takes the narrower prompt checkpoint below.
-						if (!readModelSelectionProblem() && recipeDraftIsValid()) {
-							return saveDraftImplementation();
-						}
-					const nextDocument = baseHalfCanvasProvisionalVideoDraftDocument(
-							document,
-							draftTitle,
-							draftRole,
-							draftPrompt
-						);
-					if (!nextDocument) {
-						return false;
-					}
-					const currentBindings = draftBindings;
-					const currentRemovedConnections = new Set(removedConnections);
-						if (save) {
-							save.disabled = true;
-						}
-						footerMessage.textContent = localize(
-							'basehalf.canvas.videoComposer.savingBeforeModelSetup',
-							"Saving this Draft before model setup..."
-						);
-						try {
-							// Incomplete recipe/model state and pending graph removals are not a
-							// valid disk contract. Preserve the last persisted recipe and write
-							// only the authored identity/prompt checkpoint.
-							const saved = await this.saveNodeLocalChanges(folder, item, content.value, nextDocument, []);
-							this.pushNodeLocalUndo(localize('basehalf.canvas.nodeEdit.undo', "Edit result node"), folder, saved);
-						const persistedConfiguration = configurationDraftFromDocument(nextDocument);
-						document = nextDocument;
-						content = { ...content, value: saved.contents };
-						applyConfigurationDraft(persistedConfiguration);
-						const persistedDraftState = draftStateKey();
-						draftBindings = currentBindings;
-						removedConnections.clear();
-						for (const path of currentRemovedConnections) {
-							removedConnections.add(path);
-						}
-						configurationBaseline = persistedConfiguration;
-							latestExternalConfiguration = persistedConfiguration;
-							savedDocumentConfigurationKey = documentConfigurationKey(nextDocument);
-							configurationConflict = undefined;
-						localRecipeNeedsModelCleanup = !!selectedRecipe
-								&& selectedRecipe.modelCapability === undefined
-								&& !!(nextDocument.recipe?.modelServiceId || nextDocument.recipe?.modelId);
-						videoSettingsNotice = undefined;
-						videoSettingsAdjustments = [];
-						videoSettingsAdjustmentPreviousParameters = [];
-						savedDraftState = localRecipeNeedsModelCleanup
-							? `${persistedDraftState}\u0000legacy-model-selection`
-							: persistedDraftState;
-							this.requestRender();
-							return true;
-						} catch (error) {
-							this.logService.warn(error);
-							footerMessage.textContent = localize(
-								'basehalf.canvas.videoComposer.saveBeforeModelSetupFailed',
-								"This Draft changed before its prompt could be saved. Refreshing the saved configuration..."
-							);
-							if (save) {
-								save.disabled = false;
-							}
-							queueSurfaceRefresh();
-							return false;
-						}
-					};
-					if (save) {
-						formListeners.add(this.addDisposableListener(save, 'click', async () => {
-							if (await saveDraft()) {
-								await hideIntentionally();
-							}
-						}));
-					}
-					syncTransactionPresentation();
-					restoreSurfacePresentation(presentation);
-				};
-				showVideoDetails = () => {
-					const overlay: BaseHalfVideoComposerOverlay = document.result || document.attempts.length > 0 ? 'attempts' : 'settings';
-					showVideoComposerOverlay(overlay, `video:${overlay}`);
-					return Promise.resolve();
-				};
-
-				const changedBindingPaths = (
-					base: readonly IBaseHalfNodeInputBinding[],
-					local: readonly IBaseHalfNodeInputBinding[]
-				): ReadonlySet<string> => {
-					const signature = (bindings: readonly IBaseHalfNodeInputBinding[]) => new Map(bindings.map(binding => [
-						binding.sourcePath,
-						`${binding.slot}\u0000${binding.order}`
-					]));
-					const baseByPath = signature(base);
-					const localByPath = signature(local);
-					return new Set([...baseByPath.keys(), ...localByPath.keys(), ...removedConnections]
-						.filter(path => baseByPath.get(path) !== localByPath.get(path) || removedConnections.has(path)));
-				};
-				const directInputProjectionKey = (
-					paths: readonly string[],
-					kinds: ReadonlyMap<string, BaseHalfCanvasContentKind>,
-					problems: ReadonlyMap<string, string>
-				): string => stableStringify({
-					paths: [...paths].sort(),
-					kinds: [...kinds].sort(([left], [right]) => left.localeCompare(right)),
-					problems: [...problems].sort(([left], [right]) => left.localeCompare(right))
-				});
-					const applyLatestSurfaceState = (latest: Awaited<ReturnType<typeof readLatestSurfaceState>>): void => {
-						const localBeforeRefresh = configurationDraft();
-						const exactVideoModelKeyBeforeRefresh = draftVideoModelKey;
-						const hadDraftChanges = hasDraftChanges();
-					const previouslyNeededLocalModelCleanup = localRecipeNeedsModelCleanup;
-					const nextExternalConfiguration = configurationDraftFromDocument(latest.document, latest.recipes);
-					const nextDocumentConfigurationKey = documentConfigurationKey(latest.document);
-					const documentTransitionAck = videoInputDocumentTransitionAck;
-					let observedDocumentVersionWasOwn = false;
-					const savedConfigurationChanged = nextDocumentConfigurationKey !== savedDocumentConfigurationKey;
-					if (documentTransitionAck) {
-						const observation = observeBaseHalfVideoDocumentVersion(
-							documentTransitionAck.acknowledgement,
-							{ configurationKey: nextDocumentConfigurationKey, etag: latest.content.etag },
-							true
-						);
-						videoInputDocumentTransitionAck = {
-							transactionId: documentTransitionAck.transactionId,
-							acknowledgement: observation.classification === 'expected'
-								? settleBaseHalfVideoDocumentWriteAcknowledgement(observation.acknowledgement)
-								: observation.acknowledgement
-						};
-						observedDocumentVersionWasOwn = observation.classification === 'expected';
-						if (observation.classification === 'own-intermediate' || observation.classification === 'own-echo') {
-							if (observation.rereadRequired) {
-								queueSurfaceRefresh();
-							}
-							verificationPending = false;
-							refreshFailure = undefined;
-							return;
-						}
-						if (observation.classification === 'external') {
-							videoInputDocumentTransitionAck = undefined;
-						}
-					}
-					const directInputProjectionChanged = directInputProjectionKey(
-						directSourcePaths,
-						inputKinds,
-						directSourceProblems
-					) !== directInputProjectionKey(
-						latest.directSourcePaths,
-						latest.inputKinds,
-						latest.directSourceProblems
-					);
-					if ((!observedDocumentVersionWasOwn && latest.content.etag !== content.etag) || directInputProjectionChanged) {
-						canvasPickStore.clear();
-					}
-					const previousSourcePaths = new Set(directSourcePaths);
-					const nextSourcePaths = new Set(latest.directSourcePaths);
-					const changedSourcePaths = new Set([...previousSourcePaths, ...nextSourcePaths]
-						.filter(path => previousSourcePaths.has(path) !== nextSourcePaths.has(path)));
-
-					content = latest.content;
-					document = latest.document;
-					modelServices = latest.modelServices;
-					inbound = latest.inbound;
-					inboundSources = latest.inboundSources;
-					inputKinds = latest.inputKinds;
-					inputResultIdentities = latest.inputResultIdentities;
-					directSourcePaths = latest.directSourcePaths;
-					directSourceProblems = latest.directSourceProblems;
-					recipes = latest.recipes;
-					resultPreview = latest.resultPreview;
-					verificationPending = false;
-					latestExternalConfiguration = nextExternalConfiguration;
-					refreshFailure = undefined;
-
-					if (savedConfigurationChanged) {
-						const merged = mergeBaseHalfNodeLocalConfigurationDraft(
-							configurationBaseline,
-							localBeforeRefresh,
-							nextExternalConfiguration
-						);
-						applyConfigurationDraft(merged.draft);
-						configurationBaseline = nextExternalConfiguration;
-						savedDocumentConfigurationKey = nextDocumentConfigurationKey;
-						savedDraftState = draftStateKeyFor(nextExternalConfiguration);
-						configurationConflict = merged.conflicts.length ? merged.conflicts : undefined;
-					} else if (!hadDraftChanges && !configurationConflict?.length) {
-						applyConfigurationDraft(nextExternalConfiguration);
-						configurationBaseline = nextExternalConfiguration;
-						savedDraftState = draftStateKeyFor(nextExternalConfiguration);
-						} else {
-							selectedRecipe = this.canvasRecipeRegistryService.getRecipe(selectedRecipeId);
-						if (selectedRecipe && !baseHalfCanvasRecipeMatchesNodeKind(selectedRecipe, document.kind)) {
-							selectedRecipe = undefined;
-							}
-						}
-						if (!draftVideoModelKey
-							&& exactVideoModelKeyBeforeRefresh
-							&& selectedRecipeId === localBeforeRefresh.recipeId
-							&& draftModelServiceId === localBeforeRefresh.modelServiceId
-							&& draftModelId === localBeforeRefresh.modelId) {
-							// A not-yet-resolvable model selection has no persisted snapshot yet.
-							// Preserve its exact revision across unrelated hydration (for example a
-							// title-only external write) instead of falling back to the first model
-							// sharing the same provider model id.
-							draftVideoModelKey = exactVideoModelKeyBeforeRefresh;
-						}
-						localRecipeNeedsModelCleanup = !!selectedRecipe
-						&& selectedRecipe.modelCapability === undefined
-						&& !!(document.recipe?.modelServiceId || document.recipe?.modelId);
-					if (localRecipeNeedsModelCleanup) {
-						if (!savedDraftState.endsWith('\u0000legacy-model-selection')) {
-							savedDraftState = `${savedDraftState}\u0000legacy-model-selection`;
-						}
-						videoSettingsNotice = localize('basehalf.canvas.videoComposer.localModelCleanup', "This local generator no longer uses the legacy model selection. Save the Draft to remove it.");
-					} else if (previouslyNeededLocalModelCleanup) {
-						videoSettingsNotice = undefined;
-					}
-
-					if (changedSourcePaths.size > 0) {
-						const locallyChangedPaths = changedBindingPaths(configurationBaseline.inputBindings, configurationDraft().inputBindings);
-						if ([...changedSourcePaths].some(path => locallyChangedPaths.has(path))) {
-							configurationConflict = Object.freeze([...new Set([...(configurationConflict ?? []), 'Direct inputs'])]);
-						}
-					}
-					if (!videoComposer && (document.result || document.attempts.length > 0) && localSurfaceMode === 'configure' && !hasDraftChanges()) {
-						localSurfaceMode = 'attempts';
-					}
-					liveExecutionRunId = this.nodeExecutionService.getActiveRun(item.stat.resource)?.runId;
-				};
-					queueSurfaceRefresh = () => {
-						const sequence = ++refreshSequence;
-						void readLatestSurfaceState().then(latest => {
-						const apply = () => {
-							if (refreshDisposed || sequence !== refreshSequence) {
-								return;
-							}
-							if (latest.document.id !== localSurfaceController.nodeId || latest.document.kind !== localSurfaceController.nodeKind) {
-								void requestLeaveSurface(undefined, false).then(accepted => {
-									if (accepted && !this.disposed) {
-										this.requestRender();
-									}
-								});
-								return;
-							}
-							const previousConfigurationKey = documentConfigurationKey(document);
-								const previousStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
-								applyLatestSurfaceState(latest);
-								if (videoComposer && document.result && !resultPreview.resultIntegrity) {
-									disposeMountedVideoComposer?.(false);
-									this.requestRender();
-									return;
-								}
-								const nextStructureKey = `${document.result ? 'result' : 'draft'}:${document.attempts.length}:${liveExecutionRunId ?? 'idle'}`;
-								if (videoComposer && previousConfigurationKey === documentConfigurationKey(document) && previousStructureKey === nextStructureKey) {
-									refreshVideoSurfacePresentation();
-								} else {
-									renderSurface();
-								}
-								};
-						if (surfaceComposing) {
-							pendingAfterComposition = apply;
-						} else {
-							apply();
-						}
-					}, error => {
-						const apply = () => {
-							if (refreshDisposed || sequence !== refreshSequence) {
-								return;
-							}
-							this.logService.warn(error);
-							verificationPending = false;
-							refreshFailure = (error instanceof Error ? error.message : String(error)).slice(0, 400);
-							renderSurface();
-						};
-						if (surfaceComposing) {
-							pendingAfterComposition = apply;
-						} else {
-							apply();
-						}
-					});
-				};
-
-				store.add(this.nodeExecutionService.onDidChange(event => {
-					if (!this.uriIdentityService.extUri.isEqual(event.resource, item.stat.resource)) {
-						return;
-					}
-					if (event.state?.runId && event.state.runId === liveExecutionRunId) {
-						refreshLiveExecutionPresentation();
-						return;
-					}
-					liveExecutionRunId = event.state?.runId;
-					queueSurfaceRefresh();
-				}));
-				store.add(this.fileService.onDidFilesChange(event => {
-					const affectsDirectSource = directSourcePaths.some(path => event.affects(joinPath(folder.workspaceFolder, ...path.split('/'))));
-					const resultArtifact = getBaseHalfNodeResultArtifact(document);
-					const affectsResultArtifact = !!resultArtifact && event.affects(joinPath(folder.workspaceFolder, ...resultArtifact.path.split('/')));
-					// The node's `upstream` list lives in its own document (D37).
-					if (event.affects(item.stat.resource) || affectsDirectSource || affectsResultArtifact) {
-						queueSurfaceRefresh();
-					}
-				}));
-				store.add(this.canvasRecipeRegistryService.onDidChange(() => queueSurfaceRefresh()));
-				store.add(this.modelServiceService.onDidChange(() => queueSurfaceRefresh()));
-				store.add(this.videoModelCatalogService.onDidChange(() => queueSurfaceRefresh()));
-				store.add(this.workingCopyService.onDidChangeDirty(workingCopy => {
-					if (this.uriIdentityService.extUri.isEqual(workingCopy.resource, item.stat.resource)) {
-						refreshWorkingCopyPresentation();
-					}
-					if (this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, folder.workspaceFolder)) {
-						queueSurfaceRefresh();
-					}
-				}));
-					store.add(toDisposable(() => {
-					refreshDisposed = true;
-					refreshSequence++;
-					pendingAfterComposition = undefined;
-						refreshLiveExecutionPresentation = () => { };
-						refreshWorkingCopyPresentation = () => { };
-						refreshVideoSurfacePresentation = () => { };
-							queueSurfaceRefresh = () => { };
-						runVideoDraftFromSurface = () => { };
-					}));
-
-				renderSurface();
-				focusLocalSurface = () => {
-					const target = videoComposer
-						? (renderedFocusTargets.get('video:prompt')
-							?? renderedFocusTargets.get('video:primary')
-							?? renderedFocusTargets.get('video:settings'))
-						: (renderedFocusTargets.get(`mode:${localSurfaceMode}`)
-							?? renderedFocusTargets.get('content:import')
-							?? renderedFocusTargets.get('recipe')
-							?? renderedFocusTargets.get('close'));
-					target?.focus({ preventScroll: true });
-				};
-				updateVideoInputPickViewport = visible => {
-					const request = videoInputCanvasPickState.request;
-					if (request) {
-						videoInputCanvasPickState = updateBaseHalfVideoCanvasPickViewport(
-							videoInputCanvasPickState,
-							request.epoch,
-							visible
-						);
-					}
-					const focus = consumeBaseHalfVideoCanvasPickDeferredFocus(videoInputCanvasPickState, {
-						sceneKey: localSurfaceController.sceneKey,
-						targetNodePath: item.path,
-						targetNodeId: document.id,
-						selected: this.activeNodeLocalSurface === localSurfaceController,
-						visible
-					});
-					videoInputCanvasPickState = focus.state;
-					if (focus.focusKey) {
-						anchorWindow.requestAnimationFrame(() => {
-							renderedFocusTargets.get(focus.focusKey!)?.focus({ preventScroll: true });
-						});
-					}
-				};
-					store.add(toDisposable(() => {
-						focusLocalSurface = () => { };
-						showVideoDetails = async () => { };
-						closeVideoTransientOverlay = () => { };
-						updateVideoInputPickViewport = () => { };
-					}));
-				queueSurfaceRefresh();
-				return store;
-			};
-		const delegate: IContextViewDelegate = {
-			getAnchor: getLocalSurfaceAnchor,
-			anchorAlignment: placement.anchorAlignment,
-			anchorAxisAlignment: placement.anchorAxisAlignment,
-			anchorPosition: placement.anchorPosition,
-			canRelayout: true,
-			focus: () => focusLocalSurface(),
-			render: renderLocalSurface,
-			onHide: () => {
-						this.consumePreparedVideoComposer(item.path);
-						if (allowNextHide) {
-							allowNextHide = false;
-							if (this.activeNodeLocalSurface === localSurfaceController) {
-								this.activeNodeLocalSurface = undefined;
-							}
-							if (restoreFocusAfterIntentionalHide) {
-								focusAnchor();
-							}
-							return;
-						}
-						if (hasDraftChanges()) {
-							// Keep the controller reachable while the hidden surface's decision
-							// is pending. Shutdown and another surface switch join this promise.
-							retainImplicitDismiss();
-							return;
-						}
-						if (this.activeNodeLocalSurface === localSurfaceController) {
-							this.activeNodeLocalSurface = undefined;
-						}
-						focusAnchor();
-				}
-		};
-		if (intent !== this.nodeLocalSurfaceIntent || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-		this.activeNodeLocalSurface = localSurfaceController;
-		// The prepared selection is an auto-open intent, not durable selection
-		// state. Consume it only after the surface has successfully mounted so later
-		// integrity/model hydration cannot replay the open and dismiss Composer.
-		this.consumePreparedVideoComposer(item.path);
-		if (videoComposer) {
-			const mount = $('.basehalf-video-composer-mount');
-			mount.dataset.nodePath = item.path;
-			const lifetime = this._register(new DisposableStore());
-			lifetime.add(renderLocalSurface(mount));
-			const navigationEditor: IBaseHalfActiveCanvasEditor = {
-				resource: item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path,
-				supportsCanvasProjectionHandoff: false,
-				prepareToClose: () => requestLeaveSurface(undefined, false)
-			};
-			this.canvasNavigationService.setActiveCanvasEditor(navigationEditor);
-			lifetime.add(toDisposable(() => {
-				if (this.canvasNavigationService.activeCanvasEditor === navigationEditor) {
-					this.canvasNavigationService.setActiveCanvasEditor(undefined);
-				}
-			}));
-			let pendingInitialFocus = true;
-			let latestPortalLayoutEpoch = -1;
-			const onPortalLayout = (event: Event) => {
-				const detail = (event as CustomEvent<IBaseHalfVideoComposerPortalLayout>).detail;
-				const surface = renderedLocalSurface;
-				if (!detail || !surface?.isConnected || detail.epoch < latestPortalLayoutEpoch) {
-					return;
-				}
-				latestPortalLayoutEpoch = detail.epoch;
-				const preLayoutDismissReason = resolveBaseHalfVideoComposerPopoverGeometryDismissReason(detail, true);
-				if (preLayoutDismissReason !== undefined) {
-					closeVideoTransientOverlay();
-				}
-				updateVideoInputPickViewport(detail.visible);
-				surface.dataset.placement = detail.placement;
-				surface.dataset.visibility = detail.visibility;
-				if (detail.manipulating) {
-					surface.dataset.directManipulation = detail.manipulating;
-				} else {
-					delete surface.dataset.directManipulation;
-				}
-				surface.style.setProperty('--basehalf-video-composer-width', `${detail.screenWidth}px`);
-				surface.style.setProperty('--basehalf-video-composer-height', `${detail.screenHeight}px`);
-				const footerPresentation = createBaseHalfVideoComposerFooterPresentation(detail.screenWidth);
-				surface.dataset.footerDensity = footerPresentation.density;
-				surface.style.setProperty('--basehalf-video-model-max-width', `${footerPresentation.modelMaximumWidth}px`);
-				const popover = surface.querySelector<HTMLElement>('.basehalf-video-composer-popover');
-				const popoverFits = popover?.isConnected
-					? layoutBaseHalfVideoComposerPopover(surface, popover, this.cards.getBoundingClientRect())
-					: true;
-				if (preLayoutDismissReason === undefined
-					&& resolveBaseHalfVideoComposerPopoverGeometryDismissReason(detail, popoverFits) !== undefined) {
-					closeVideoTransientOverlay();
-				}
-				if (detail.manipulating && surface.contains(surface.ownerDocument.activeElement)) {
-					focusAnchor();
-				}
-				if (detail.visibility === 'anchor-offscreen' && surface.contains(surface.ownerDocument.activeElement)) {
-					const pickBanner = [...surface.ownerDocument.querySelectorAll<HTMLElement>('.basehalf-video-input-pick-banner')]
-						.find(candidate => candidate.dataset.targetNodePath === item.path);
-					const pickCancel = pickBanner?.querySelector<HTMLButtonElement>('.basehalf-video-input-pick-cancel');
-					if (pickCancel?.isConnected) {
-						pickCancel.focus({ preventScroll: true });
-					} else {
-						this.root.focus({ preventScroll: true });
-					}
-				}
-				if (pendingInitialFocus && detail.visible && !detail.manipulating && !detail.viewportInteraction) {
-					pendingInitialFocus = false;
-					mainWindow.requestAnimationFrame(() => {
-						mainWindow.requestAnimationFrame(() => {
-							if (mounted && mount.isConnected && this.activeNodeLocalSurface === localSurfaceController) {
-								focusLocalSurface();
-							}
-						});
-					});
-				}
-			};
-			mount.addEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout);
-			lifetime.add(toDisposable(() => mount.removeEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout)));
-			let mounted = true;
-			const publishVideoComposerSurface = (sceneKey: string, structuralEpoch: number): void => {
-				if (!mounted) {
-					return;
-				}
-				this.canvasScene.setVideoComposerSurface({
-					sceneKey,
-					structuralEpoch,
-					path: item.path,
-					element: mount,
-					screenWidth: localSurfaceWidth,
-					screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT
-				});
-			};
-			rebindVideoComposerScene = publishVideoComposerSurface;
-			disposeMountedVideoComposer = restoreFocus => {
-				if (!mounted) {
-					return;
-				}
-				mounted = false;
-				this.canvasScene.clearVideoComposerSurface(mount);
-				lifetime.dispose();
-				if (this.activeNodeLocalSurface === localSurfaceController) {
-					this.activeNodeLocalSurface = undefined;
-				}
-				if (restoreFocus) {
-					focusAnchor();
-				}
-			};
-			publishVideoComposerSurface(this.sceneKey(folder), this.renderedSceneStructuralEpoch);
-			return;
-		}
-		this.contextViewService.showContextView(delegate);
-	}
-
 	/**
-	 * Saves a Composer or node-surface edit as one expected-bytes write of the
-	 * node document. The node's `upstream` list and its bindings live in that
-	 * document (D37), so added sources are appended to `upstream` (an already
-	 * listed entry is never listed twice) and removed sources leave it in the
-	 * same write. `canvas.yaml` anchor rows are kept: they are anchor memory.
-	 *
-	 * Composer input changes are reference operations, so the write goes
-	 * through the reference edit service: it is refused while a run lease is
-	 * active or the node is being moved, and when the document no longer has
-	 * `expectedContents`. Push its canvas undo step with `pushNodeLocalUndo`.
+	 * Brings a file the user chooses into an empty node as its result (Upload
+	 * Video for a Video node): the file is copied to `assets/<node id>/` in the
+	 * workspace folder and the node records it. Only a node with no result and,
+	 * for a Video node, no generation takes one.
 	 */
-	private async saveNodeLocalChanges(
-		folder: IBaseHalfCanvasFolderState,
-		item: IBaseHalfCanvasItem,
-		expectedContents: VSBuffer,
-		nextDocument: IBaseHalfNodeDocument,
-		removedSourcePaths: readonly string[],
-		addedSourcePaths: readonly string[] = [],
-		expectedSourceRevisions: ReadonlyMap<string, string> = new Map(),
-		expectedTargetRevision?: string
-	): Promise<IBaseHalfNodeLocalSave> {
-		const identity = this.upstreamIdentity(folder.workspaceFolder);
-		const removedKeys = new Set(removedSourcePaths.map(path => identity.key(baseHalfNormalizeUpstreamEntry(path))));
-		const addedSources = [...new Set(addedSourcePaths.map(baseHalfNormalizeUpstreamEntry))];
-		if (addedSources.some(path => removedKeys.has(identity.key(path)))) {
-			throw new Error('One input source cannot be added and removed in the same node edit.');
-		}
-		const upstream = baseHalfNodeUpstreamWithSourceChanges(nextDocument.upstream, removedSourcePaths, addedSources, identity);
-		if (upstream.length > BASEHALF_UPSTREAM_MAX_NODE_ENTRIES && upstream.length > nextDocument.upstream.length) {
-			throw new Error(localize('basehalf.canvas.nodeEdit.upstreamLimit', "This node already has {0} upstream entries.", BASEHALF_UPSTREAM_MAX_NODE_ENTRIES));
-		}
-		const documentWithUpstream: IBaseHalfNodeDocument = { ...nextDocument, upstream };
-		const nextContents = VSBuffer.fromString(serializeBaseHalfNodeDocument(documentWithUpstream));
-		for (const [sourcePath, expectedRevision] of expectedSourceRevisions) {
-			const currentRevision = await this.nodeExecutionService.getInputRevision(
-				folder.workspaceFolder,
-				sourcePath,
-				{ fresh: true }
-			);
-			if (currentRevision !== expectedRevision) {
-				throw new Error(`Input source '${sourcePath}' changed before this node edit could be saved.`);
-			}
-		}
-		if (expectedTargetRevision) {
-			const latest = await this.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			if (latest.etag !== expectedTargetRevision) {
-				throw new Error('The Video Draft changed while the selected input was being checked. Review the current inputs and try again.');
-			}
-		}
-		const node = { resource: item.stat.resource, workspaceFolder: folder.workspaceFolder, relativePath: item.path };
-		const label = localize('basehalf.canvas.nodeEdit.label', "Save {0}", item.name);
-		const result = await this.referenceEditService.apply([{
-			node,
-			operation: { kind: 'nodeDocument', expected: expectedContents, next: documentWithUpstream }
-		}], { label });
-		return {
-			result,
-			// The document as written, with its updated `upstream` list.
-			document: documentWithUpstream,
-			contents: result.changed ? nextContents : expectedContents
-		};
-	}
-
-	/**
-	 * One canvas undo step for a Composer or node-surface save. Undo restores
-	 * the whole document while it still holds what the save wrote, and refuses
-	 * with "<file> changed since this edit" otherwise.
-	 */
-	private pushNodeLocalUndo(label: string, folder: IBaseHalfCanvasFolderState, saved: IBaseHalfNodeLocalSave): void {
-		this.referenceEditService.pushUndoElement(saved.result, {
-			label,
-			resources: [this.canvasMirrorService.canvasResource(folder)],
-			source: this.canvasUndoRedoSource,
-			onDidRun: () => this.scheduleBackgroundRender()
-		});
-	}
-
-	/**
-	 * The direct sources of a node: its own upstream entries (D37). A dangling
-	 * entry keeps its path with an unknown kind, so one missing source does not
-	 * discard readable siblings. Invalid entries are issues, not sources.
-	 */
-	private async readNodeInboundSources(folder: IBaseHalfCanvasFolderState, item: IBaseHalfCanvasItem): Promise<IBaseHalfNodeInboundState> {
-		try {
-			const view = await this.referenceIndexService.readUpstream({
-				resource: item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path
-			});
-			if (!view.readable) {
-				return Object.freeze({
-					sources: Object.freeze([]),
-					problem: localize('basehalf.canvas.node.upstreamUnreadable', "Fix the upstream list of this node before running it.")
-				});
-			}
-			const sources: IBaseHalfNodeInboundSource[] = [];
-			for (const entry of view.entries) {
-				if (entry.path === undefined) {
-					continue;
-				}
-				if (entry.status !== 'valid') {
-					sources.push(Object.freeze({ path: entry.path }));
-					continue;
-				}
-				try {
-					sources.push(await this.readWorkspaceContentDescriptor(folder.workspaceFolder, entry.path));
-				} catch (error) {
-					if (toFileOperationResult(error) !== FileOperationResult.FILE_NOT_FOUND) {
-						throw error;
-					}
-					sources.push(Object.freeze({ path: entry.path }));
-				}
-			}
-			return Object.freeze({ sources: Object.freeze(sources.sort((left, right) => left.path.localeCompare(right.path))) });
-		} catch (error) {
-			this.logService.warn(error);
-			return Object.freeze({
-				sources: Object.freeze([]),
-				problem: 'Direct context could not be read. Reopen the node and try again.'
-			});
-		}
-	}
-
-	private async readWorkspaceContentKind(workspaceFolder: URI, path: string): Promise<BaseHalfCanvasContentKind> {
-		return (await this.readWorkspaceContentDescriptor(workspaceFolder, path)).kind;
-	}
-
-	private async readWorkspaceContentDescriptor(
-		workspaceFolder: URI,
-		path: string
-	): Promise<IBaseHalfNodeInboundSource & {
-		readonly kind: BaseHalfCanvasContentKind;
-		readonly revisionDependencyPaths: readonly string[];
-	}> {
-		const resource = joinPath(workspaceFolder, ...path.split('/'));
-		const stat = await this.fileService.resolve(resource, { resolveMetadata: true });
-		if (!stat.isDirectory && path.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			const source = await this.fileService.readFile(resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-			const sourceDocument = parseBaseHalfNodeDocumentBytes(source.value.buffer);
-			const artifact = getBaseHalfNodeResultArtifact(sourceDocument);
-			const resultIdentity = sourceDocument.result?.source === 'attempt'
-				? { source: 'attempt' as const, id: sourceDocument.result.attemptId }
-				: sourceDocument.result?.source === 'imported'
-					? { source: 'imported' as const, id: sourceDocument.result.artifact.id }
-					: undefined;
-			return Object.freeze({
-				path,
-				kind: sourceDocument.kind,
-				revisionDependencyPaths: baseHalfCanvasVideoPickRevisionDependencyPaths(path, artifact?.path),
-				...(resultIdentity === undefined ? {} : { resultIdentity: Object.freeze(resultIdentity) })
-			});
-		}
-		return Object.freeze({
-			path,
-			kind: baseHalfCanvasContentKindForPath(path, stat.isDirectory),
-			revisionDependencyPaths: baseHalfCanvasVideoPickRevisionDependencyPaths(path)
-		});
-	}
-
-	private async readNodeDirectSourceProblems(
-		folder: IBaseHalfCanvasFolderState,
-		sources: readonly IBaseHalfNodeInboundSource[],
-		bindings: readonly IBaseHalfNodeInputBinding[] = []
-	): Promise<ReadonlyMap<string, string>> {
-		const checks = await Promise.all(sources.map(async source => {
-			try {
-				const revision = await this.nodeExecutionService.getInputRevision(folder.workspaceFolder, source.path, { fresh: true });
-				const binding = bindings.find(candidate => candidate.sourcePath === source.path);
-				if (binding?.sourceRevision !== undefined && binding.sourceRevision !== revision) {
-					return [source.path, BASEHALF_VIDEO_INPUT_SOURCE_CHANGED_PROBLEM] as const;
-				}
-				return undefined;
-				} catch (error) {
-					const reason = error instanceof Error ? error.message : String(error);
-					return [source.path, reason.slice(0, 400)] as const;
-				}
-			}));
-		return new Map(checks.filter((entry): entry is readonly [string, string] => entry !== undefined));
-	}
-
-	private renderNodeLocalSection(container: HTMLElement, label: string): HTMLElement {
-		const section = append(container, $('.basehalf-node-local-section'));
-		const heading = append(section, $('.basehalf-node-local-section-title'));
-		heading.textContent = label;
-		return section;
-	}
-
-	private renderNodeLocalParameter(
-		container: HTMLElement,
-		parameter: IBaseHalfCanvasRecipeParameterDefinition,
-		value: BaseHalfNodeParameterDraftValue,
-		onChange: (value: BaseHalfNodeParameterDraftValue) => void,
-		listeners: DisposableStore
-	): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
-		const field = append(container, $('.basehalf-node-local-field'));
-		const label = append(field, $('label.basehalf-node-local-label')) as HTMLLabelElement;
-		label.textContent = parameter.required ? `${parameter.label} · required` : parameter.label;
-		if (parameter.type === 'multiline') {
-			const input = append(field, $('textarea.basehalf-node-local-input.multiline')) as HTMLTextAreaElement;
-			input.value = typeof value === 'string' ? value : '';
-			input.rows = 3;
-			label.htmlFor = input.id = `basehalf-node-${parameter.id}-${Date.now()}`;
-			input.setAttribute('aria-label', parameter.label);
-			listeners.add(this.addDisposableListener(input, 'input', () => onChange(input.value)));
-			return input;
-		}
-		if (parameter.type === 'enum') {
-			const input = append(field, $('select.basehalf-node-local-select')) as HTMLSelectElement;
-			if (!parameter.required && parameter.default === undefined) {
-				const unset = append(input, $('option')) as HTMLOptionElement;
-				unset.value = '';
-				unset.textContent = 'Not set';
-			}
-			for (const optionValue of parameter.options) {
-				const option = append(input, $('option')) as HTMLOptionElement;
-				option.value = optionValue.value;
-				option.textContent = optionValue.label;
-			}
-			input.value = typeof value === 'string' ? value : '';
-			label.htmlFor = input.id = `basehalf-node-${parameter.id}-${Date.now()}`;
-			input.setAttribute('aria-label', parameter.label);
-			listeners.add(this.addDisposableListener(input, 'change', () => onChange(input.value || undefined)));
-			return input;
-		}
-		if (parameter.type === 'boolean') {
-			const input = append(field, $('select.basehalf-node-local-select')) as HTMLSelectElement;
-			if (!parameter.required && parameter.default === undefined) {
-				const unset = append(input, $('option')) as HTMLOptionElement;
-				unset.value = '';
-				unset.textContent = 'Not set';
-			}
-			for (const [optionValue, optionLabel] of [['true', 'On'], ['false', 'Off']] as const) {
-				const option = append(input, $('option')) as HTMLOptionElement;
-				option.value = optionValue;
-				option.textContent = optionLabel;
-			}
-			input.value = value === undefined ? '' : String(value);
-			label.htmlFor = input.id = `basehalf-node-${parameter.id}-${Date.now()}`;
-			input.setAttribute('aria-label', parameter.label);
-			listeners.add(this.addDisposableListener(input, 'change', () => onChange(input.value ? input.value === 'true' : undefined)));
-			return input;
-		}
-		const input = append(field, $('input.basehalf-node-local-input')) as HTMLInputElement;
-		input.type = parameter.type === 'number' ? 'number' : 'text';
-		input.value = typeof value === 'string' ? value : '';
-		if (parameter.type === 'number') {
-			if (parameter.minimum !== undefined) {
-				input.min = String(parameter.minimum);
-			}
-			if (parameter.maximum !== undefined) {
-				input.max = String(parameter.maximum);
-			}
-			if (parameter.step !== undefined) {
-				input.step = String(parameter.step);
-			}
-		}
-		label.htmlFor = input.id = `basehalf-node-${parameter.id}-${Date.now()}`;
-		input.setAttribute('aria-label', parameter.label);
-		listeners.add(this.addDisposableListener(input, 'input', () => onChange(input.value || undefined)));
-		return input;
-	}
-
-	private renderNodeLocalAttempts(
-		container: HTMLElement,
-		document: IBaseHalfNodeDocument,
-		listeners: DisposableStore,
-		registerFocusTarget: <T extends HTMLElement>(element: T, key: string) => T,
-		expandedDisclosures: Set<string>,
-		visibleCount: number,
-		onLoadMore: () => void
-	): void {
-		const attemptsSection = this.renderNodeLocalSection(container, 'Attempts');
-		const attempts = [...document.attempts]
-			.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-		if (attempts.length === 0) {
-			const empty = append(attemptsSection, $('.basehalf-node-local-empty'));
-			empty.textContent = document.result?.source === 'imported'
-				? 'This Result was imported; no generation attempts were made.'
-				: 'No attempts yet.';
-			return;
-		}
-		const list = append(attemptsSection, $('.basehalf-node-local-attempts'));
-		for (const attempt of attempts.slice(0, visibleCount)) {
-			const resultArtifact = document.result?.source === 'attempt' && document.result.attemptId === attempt.id
-				? document.result.artifact
-				: undefined;
-			const row = append(list, $('.basehalf-node-local-attempt-row'));
-			const text = append(row, $('.basehalf-node-local-attempt-text'));
-			const title = append(text, $('.basehalf-node-local-attempt-title'));
-			title.textContent = `${nodeAttemptStatusLabel(attempt.status)} · ${formatNodeAttemptTime(attempt.completedAt ?? attempt.startedAt ?? attempt.createdAt)}`;
-			const detail = append(text, $('.basehalf-node-local-attempt-detail'));
-			detail.textContent = getBaseHalfNodeAttemptSummary(attempt, resultArtifact?.label ?? resultArtifact?.path);
-			detail.title = detail.textContent;
-			const actions = append(row, $('.basehalf-node-local-attempt-actions'));
-			const disclosureLines = getBaseHalfNodeAttemptDisclosureLines(attempt, resultArtifact);
-			const details = append(actions, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-			registerFocusTarget(details, `attempt:${attempt.id}:details`);
-			details.type = 'button';
-			details.textContent = 'Details';
-			const disclosure = append(row, $('.basehalf-node-local-attempt-disclosure'));
-			disclosure.hidden = !expandedDisclosures.has(attempt.id);
-			details.setAttribute('aria-expanded', String(!disclosure.hidden));
-			disclosure.textContent = disclosureLines.join('\n');
-			listeners.add(this.addDisposableListener(details, 'click', () => {
-				disclosure.hidden = !disclosure.hidden;
-				if (disclosure.hidden) {
-					expandedDisclosures.delete(attempt.id);
-				} else {
-					expandedDisclosures.add(attempt.id);
-				}
-				details.setAttribute('aria-expanded', String(!disclosure.hidden));
-			}));
-		}
-		if (attempts.length > visibleCount) {
-			const loadMore = append(attemptsSection, $('button.basehalf-node-local-link')) as HTMLButtonElement;
-			registerFocusTarget(loadMore, 'attempts:load-more');
-			loadMore.type = 'button';
-			loadMore.textContent = `Load ${Math.min(50, attempts.length - visibleCount)} older attempts`;
-			loadMore.setAttribute('aria-label', `${loadMore.textContent}; ${attempts.length - visibleCount} remain`);
-			listeners.add(this.addDisposableListener(loadMore, 'click', onLoadMore));
-		}
-	}
-
 	private async importCanvasNodeResult(item: IBaseHalfCanvasItem): Promise<void> {
 		const folder = this.getCurrentFolder();
 		if (!folder || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		try {
-			if (this.workingCopyService.isDirty(item.stat.resource) || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-				throw new Error('Save this Draft and finish its active attempt before importing a Result.');
+			if (this.workingCopyService.isDirty(item.stat.resource)) {
+				throw new Error(localize('basehalf.canvas.import.dirty', "Save {0} before importing a file into it.", item.name));
 			}
 			const content = await this.fileService.readFile(item.stat.resource, {
 				atomic: true,
 				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
 			});
 			const document = parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const importProblem = getBaseHalfNodeImportProblem(document);
-			if (importProblem) {
-				throw new Error(importProblem);
-			}
-			if (document.attempts.some(attempt => attempt.status === 'running')) {
-				throw new Error('Finish the active attempt before importing a Result.');
+			if (document.result || document.task) {
+				throw new Error(localize('basehalf.canvas.import.notEmpty', "{0} already shows a file or has a generation. Import into a new empty node.", document.title));
 			}
 			await this.importNodeResult(folder, item, content.value, document);
 		} catch (error) {
@@ -14153,13 +7183,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		expectedContents: VSBuffer,
 		document: IBaseHalfNodeDocument
 	): Promise<void> {
-		const importProblem = getBaseHalfNodeImportProblem(document);
-		if (importProblem) {
-			throw new Error(importProblem);
-		}
-		const importLabel = baseHalfNodeImportActionLabel(document.kind);
+		const importLabel = localize('basehalf.canvas.node.import', "Import {0}", canvasResultNodeKindLabel(document.kind));
 		const resources = await this.fileDialogService.showOpenDialog({
-			title: `${importLabel} as Result`,
+			title: importLabel,
 			openLabel: importLabel,
 			defaultUri: folder.resource,
 			canSelectFiles: true,
@@ -14171,30 +7197,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 		try {
-			if (this.workingCopyService.isDirty(item.stat.resource) || this.nodeExecutionService.getActiveRun(item.stat.resource)) {
-				throw new Error('Save this Draft and finish its active attempt before importing a Result.');
+			if (this.workingCopyService.isDirty(item.stat.resource)) {
+				throw new Error(localize('basehalf.canvas.import.dirty', "Save {0} before importing a file into it.", item.name));
 			}
 			const stat = await this.fileService.resolve(source, { resolveMetadata: true });
 			if (!stat.isFile || stat.isSymbolicLink) {
-				throw new Error('Choose a regular local file.');
+				throw new Error(localize('basehalf.canvas.import.notFile', "Choose a regular file."));
 			}
 			const importedKind = baseHalfCanvasContentKindForPath(basename(source), false);
-			if (!baseHalfNodeCanImportContentKind(document.kind, importedKind)) {
-				throw new Error(`Choose a ${document.kind} file for this node. '${basename(source)}' is ${importedKind} content.`);
+			if (!baseHalfNodeAcceptsContentKind(document.kind, importedKind)) {
+				throw new Error(localize('basehalf.canvas.import.wrongKind', "Choose a file of the node's kind. {0} is not one.", basename(source)));
 			}
 			const incrementalNaming = this.configurationService.getValue<IFilesConfiguration>().explorer.incrementalNaming;
-			const assetDirectory = baseHalfNodeImportedAssetDirectory(folder.workspaceFolder, document.id);
 			const target = await findValidPasteFileTargetForResource(
 				this.fileService,
 				this.dialogService,
-				assetDirectory,
+				joinPath(folder.workspaceFolder, 'assets', document.id),
 				{ resource: source, isDirectory: false, allowOverwrite: false },
 				incrementalNaming === 'disabled' ? 'smart' : incrementalNaming
 			);
 			if (!target) {
 				return;
 			}
-			const artifact = await this.nodeExecutionService.copyImportedResult(folder.workspaceFolder, source, target, document.kind);
+			const targetPath = this.uriIdentityService.extUri.relativePath(folder.workspaceFolder, target);
+			if (!targetPath || await this.fileService.exists(target)) {
+				throw new Error(localize('basehalf.canvas.import.targetTaken', "The file could not be copied into this folder."));
+			}
+			const copied = await this.fileService.copy(source, target, false);
+			const artifact: IBaseHalfNodeArtifact = { kind: document.kind, path: targetPath, size: copied.size };
 			try {
 				await this.fileService.writeFileWithExpectedContents(
 					item.stat.resource,
@@ -14203,7 +7233,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					{ atomic: { postfix: '.basehalf-node-import-tmp' } }
 				);
 			} catch (error) {
-				throw new Error(`The node changed before the import could be saved. The copied file '${artifact.path}' was kept as ordinary project data.`, { cause: error });
+				throw new Error(localize('basehalf.canvas.import.changed', "{0} changed before the import could be saved. The copied file {1} was kept.", item.name, targetPath), { cause: error });
 			}
 			this.contextViewService.hideContextView();
 			this.requestRender();
@@ -14212,51 +7242,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 			this.requestRender();
 		}
-	}
-
-	private async locateNodeResult(item: IBaseHalfCanvasItem): Promise<void> {
-		try {
-			const content = await this.fileService.readFile(item.stat.resource, {
-				atomic: true,
-				limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES }
-			});
-			const document = this.nodeExecutionService.getActiveRun(item.stat.resource)
-				? parseBaseHalfNodeDocumentBytesForActiveHost(content.value.buffer)
-				: parseBaseHalfNodeDocumentBytes(content.value.buffer);
-			const artifact = getBaseHalfNodeResultArtifact(document);
-			if (artifact) {
-				await this.locateNodeArtifact(artifact);
-			}
-		} catch (error) {
-			this.logService.warn(error);
-			this.queueCanvasWarning('The Result changed before it could be opened. Reopen the node and try again.');
-			this.requestRender();
-		}
-	}
-
-	private async locateNodeArtifact(
-		artifact: IBaseHalfNodeResultArtifact
-	): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		const path = artifact.path;
-		try {
-			const integrity = await this.nodeExecutionService.getArtifactIntegrity(folder.workspaceFolder, artifact, { fresh: true });
-			const problem = getBaseHalfNodeResultArtifactOpenProblem(path, integrity);
-			if (problem) {
-				this.queueCanvasWarning(problem);
-				this.requestRender();
-				return;
-			}
-		} catch (error) {
-			this.logService.warn(error);
-			this.queueCanvasWarning(`The sealed Result could not be verified: '${path}'. Restore the original file or copy the settings into a new Draft.`);
-			this.requestRender();
-			return;
-		}
-		await this.openNodeArtifactPath(folder, path);
 	}
 
 	private async openNodeArtifactPath(folder: IBaseHalfCanvasFolderState, path: string): Promise<void> {
@@ -14681,7 +7666,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderCardBadgeFace(
 		container: HTMLElement,
 		item: IBaseHalfCanvasItem,
-		preview: BaseHalfCanvasCardPreview | undefined,
 		listeners: DisposableStore
 	): void {
 		const face = append(container, $('.basehalf-canvas-card-badge-face'));
@@ -14725,20 +7709,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderBadgeEditorContent(body, node, item.badge, this.renderedBadgeProblems.get(item.path), {
 			upstream: this.renderedUpstreamViews.get(item.path),
 			downstream: this.renderedIndexState === 'building' ? [] : this.referenceIndexService.getDownstream(node),
-			indexState: this.renderedIndexState,
-			roleLabels: this.nodeRoleLabels(preview?.kind === 'node' ? preview.document : undefined)
+			indexState: this.renderedIndexState
 		}, mutationGuard,
 		disposable => listeners.add(disposable),
 		focusTarget => {
 			this.pendingCanvasBadgeFocus = { path: item.path, target: focusTarget };
 			this.requestRender();
 		});
-	}
-
-	/** The labels of a node recipe's input roles, for `.bhnode` Upstream rows. */
-	private nodeRoleLabels(document: IBaseHalfNodeDocument | undefined): ReadonlyMap<string, string> | undefined {
-		const recipe = document?.recipe ? this.canvasRecipeRegistryService.getRecipe(document.recipe.recipeId) : undefined;
-		return recipe ? new Map(recipe.inputs.map(input => [input.id, input.label])) : undefined;
 	}
 
 	/**
@@ -14790,8 +7767,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			refresh: focus => {
 				this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
 				refresh(focus);
-			},
-			...(connections.roleLabels ? { roleLabel: (slot: string) => connections.roleLabels?.get(slot) ?? slot } : {})
+			}
 		});
 		return { ...(prompt ? { prompt } : {}), ...controls };
 	}
@@ -15357,10 +8333,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private async vetoShutdownForUnsavedCanvasDrafts(): Promise<boolean> {
 		if (!await this.canvasNavigationService.flushActiveEditor()) {
-			return true;
-		}
-		const nodeSurface = this.activeNodeLocalSurface;
-		if (nodeSurface?.hasDraftChanges() && !await nodeSurface.closeForShutdown()) {
 			return true;
 		}
 		return this.vetoShutdownForUnsavedBadgeDrafts();
@@ -16092,7 +9064,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		let badge: IBaseHalfBadgeFile | null;
 		let ownProblem: IBaseHalfBadgeReadProblem | undefined;
 		let upstream: IBaseHalfUpstreamView | undefined;
-		let roleLabels: ReadonlyMap<string, string> | undefined;
 		try {
 			// The description lives in badge.yaml; the connections come from the
 			// node's own store, read directly so the Upstream list never depends
@@ -16107,14 +9078,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				upstream = await this.referenceIndexService.readUpstream(node);
 			} catch (error) {
 				this.logService.warn(`BaseHalf card detail upstream list unreadable for ${node.relativePath}`, error);
-			}
-			if (upstream?.storeKind === 'node') {
-				try {
-					const content = await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } });
-					roleLabels = this.nodeRoleLabels(parseBaseHalfNodeDocumentBytes(content.value.buffer));
-				} catch {
-					// Rows fall back to the role ids.
-				}
 			}
 		} catch (error) {
 			this.logService.warn(`BaseHalf card detail badge graph unreadable for ${node.relativePath}`, error);
@@ -16250,7 +9213,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			node,
 			badgeForDisplay,
 			ownProblem,
-			{ upstream, downstream, indexState, ...(roleLabels ? { roleLabels } : {}) },
+			{ upstream, downstream, indexState },
 			this.resourceMutationGuard(cardDetail.workspaceFolder, structuralStamp, resourceIdentity),
 			disposable => this.detailBadgeDisposables.add(disposable),
 			focusTarget => {
@@ -16413,7 +9376,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const label = localize('basehalf.canvas.tidy', "Tidy Canvas ({0})", isMacintosh ? '⇧⌥F' : localize('basehalf.canvas.tidyKey', "Shift+Alt+F"));
 		this.tidyButton.title = label;
 		this.tidyButton.setAttribute('aria-label', label);
-		this.tidyButton.disabled = this.renderedSceneCards.length < 2 || !!this.cards.dataset.videoInputPickActive;
+		this.tidyButton.disabled = this.renderedSceneCards.length < 2;
 	}
 
 	/**
@@ -16423,7 +9386,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	 */
 	private async tidyCanvas(): Promise<void> {
 		const folder = this.getCurrentFolder();
-		if (!folder || this.tidyRunning || this.canvasNavigationService.state.cardDetail || this.cards.dataset.videoInputPickActive) {
+		if (!folder || this.tidyRunning || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 		this.tidyRunning = true;
@@ -17165,6 +10128,38 @@ registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfC
 
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
 
+/**
+ * Runs every step whose condition holds, in order, also after one fails, and
+ * returns every failure so none hides the first one.
+ */
+async function settleEveryStep(steps: readonly (readonly [boolean, () => Promise<void>])[]): Promise<readonly unknown[]> {
+	const errors: unknown[] = [];
+	for (const [applies, step] of steps) {
+		if (!applies) {
+			continue;
+		}
+		try {
+			await step();
+		} catch (error) {
+			errors.push(error);
+		}
+	}
+	return errors;
+}
+
+/**
+ * The head of a text file. The head may end inside a character; streaming
+ * leaves that character out instead of refusing the head.
+ */
+function decodeTextExcerpt(contents: VSBuffer): string | undefined {
+	try {
+		const raw = new TextDecoder('utf-8', { fatal: true }).decode(contents.buffer, { stream: true });
+		return raw.includes('\u0000') ? undefined : raw;
+	} catch {
+		return undefined;
+	}
+}
+
 function reverseCanvasStateTransition(transition: IBaseHalfCanvasStateTransition, reverse: boolean): IBaseHalfCanvasStateTransition {
 	if (!reverse) {
 		return transition;
@@ -17264,7 +10259,7 @@ function mediaPreview(name: string): { readonly kind: 'image' | 'video' | 'audio
 	return undefined;
 }
 
-function mediaPreviewFromArtifact(kind: BaseHalfNodeArtifactKind, label: string): { readonly kind: 'image' | 'video' | 'audio' | 'pdf'; readonly label: string } | undefined {
+function mediaPreviewFromArtifact(kind: BaseHalfNodeKind, label: string): { readonly kind: 'image' | 'video' | 'audio' | 'pdf'; readonly label: string } | undefined {
 	if (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'pdf') {
 		return { kind, label };
 	}
@@ -17323,44 +10318,6 @@ function cardDisplayName(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardP
 	return preview?.kind === 'node' ? preview.document.title : baseHalfItemDisplayName(item.name, item.kind === 'folder');
 }
 
-function baseHalfNodeIdentityProblem(title: string, role: string): string | undefined {
-	if (!title.trim()) {
-		return 'Enter a title for this node.';
-	}
-	if (title.length > 240 || title.includes('\u0000')) {
-		return 'The node title is invalid.';
-	}
-	if (!role.trim()) {
-		return 'Describe this node\'s role.';
-	}
-	if (role.length > 120 || role.includes('\u0000')) {
-		return 'The node role is invalid.';
-	}
-	return undefined;
-}
-
-function nodeKindLabel(kind: IBaseHalfNodeDocument['kind']): string {
-	return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
-}
-
-function nodeAttemptStatusLabel(status: IBaseHalfNodeDocument['attempts'][number]['status']): string {
-	switch (status) {
-		case 'running': return 'Running';
-		case 'succeeded': return 'Succeeded';
-		case 'failed': return 'Failed';
-		case 'cancelled': return 'Cancelled';
-		case 'interrupted': return 'Interrupted';
-	}
-}
-
-function formatNodeAttemptTime(value: string): string {
-	const time = Date.parse(value);
-	if (Number.isNaN(time)) {
-		return value;
-	}
-	return nodeAttemptDateFormatter.value.format(time);
-}
-
 function nodeResultLabel(document: IBaseHalfNodeDocument, outputText?: string): string {
 	const text = outputText?.trim().replace(/\s+/g, ' ');
 	if (text) {
@@ -17370,46 +10327,18 @@ function nodeResultLabel(document: IBaseHalfNodeDocument, outputText?: string): 
 	if (artifact) {
 		return baseHalfReferenceLabel(artifact.path);
 	}
-	return document.attempts.length > 0 ? 'No Result' : 'Empty Draft';
+	return localize('basehalf.canvas.node.empty', "Empty");
 }
 
 function nodePreviewResultLabel(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>): string {
+	if (preview.document.result && preview.resultMissing) {
+		return localize('basehalf.canvas.node.missing', "The file is missing");
+	}
 	return preview.verificationPending && !!preview.document.result
-		? 'Checking Result…'
+		? localize('basehalf.canvas.node.checking', "Checking the file…")
 		: nodeResultLabel(preview.document, preview.resultOutputText);
 }
 
-function nodeResultTitle(document: IBaseHalfNodeDocument, outputText?: string): string {
-	if (outputText?.trim()) {
-		const text = outputText.trim();
-		return text.length > 1024 ? `${text.slice(0, 1021)}...` : text;
-	}
-	return getBaseHalfNodeResultArtifact(document)?.path ?? (document.attempts.length > 0 ? 'No Result was produced' : 'Empty Draft');
-}
-
-function normalizeNodeInputBindings(bindings: readonly IBaseHalfNodeInputBinding[]): readonly IBaseHalfNodeInputBinding[] {
-	return bindings
-		.slice()
-		.sort((left, right) => left.order - right.order || left.sourcePath.localeCompare(right.sourcePath) || left.slot.localeCompare(right.slot))
-		.map((binding, order) => ({ ...binding, order }));
-}
-
-function nodeLocalStateForCardPreview(preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>) {
-	return getBaseHalfNodeLocalState(preview.document, {
-		recipe: preview.recipe,
-		...(preview.videoConfiguration ? { videoConfiguration: preview.videoConfiguration } : {}),
-		modelServices: preview.modelServices,
-		execution: preview.execution,
-		resultIntegrity: preview.resultIntegrity,
-		dirty: preview.dirty,
-		graphProblem: preview.graphProblem,
-		directSourcePaths: preview.directSourcePaths,
-		directSourceProblems: preview.directSourceProblems,
-		verificationPending: preview.verificationPending,
-		inputKinds: preview.inputKinds,
-		matchingRecipeCount: preview.matchingRecipeCount
-	});
-}
 
 function canvasChildPath(parent: string, name: string): string {
 	return parent ? `${parent}/${name}` : name;

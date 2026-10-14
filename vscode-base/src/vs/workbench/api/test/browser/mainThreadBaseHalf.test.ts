@@ -5,21 +5,16 @@
 
 import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
-import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { toDisposable } from '../../../../base/common/lifecycle.js';
-import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { mock } from '../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { IFileContent, IFileService, IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
-import { IBaseHalfModelServiceService } from '../../../basehalf/common/basehalfModelServices.js';
 import { IBaseHalfPluginAdmissionService } from '../../../basehalf/common/basehalfPluginAdmissionService.js';
 import { IBaseHalfProjectFileTransitionService } from '../../../basehalf/common/basehalfProjectFileTransitions.js';
-import { IBaseHalfCanvasRecipeRegistryService, IBaseHalfCanvasRecipeRuntimeProvider, IBaseHalfCanvasRecipeRuntimeService } from '../../../basehalf/common/basehalfCanvasRecipes.js';
-import { IBaseHalfNodeExecutionService } from '../../../basehalf/browser/basehalfNodeExecutionService.js';
-import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../basehalf/common/basehalfNodeDocument.js';
+import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../../basehalf/common/basehalfNodeDocument.js';
+import { IBaseHalfVideoGenerationRecord, IBaseHalfVideoTask } from '../../../basehalf/common/basehalfVideoNode.js';
 import { baseHalfNodeTestId } from '../../../basehalf/test/common/basehalfNodeTestFixtures.js';
 import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { ExtHostBaseHalfShape, IBaseHalfExtensionIdentityDto } from '../../common/extHost.protocol.js';
@@ -66,7 +61,6 @@ suite('MainThreadBaseHalf', () => {
 			new class extends mock<IBaseHalfPluginAdmissionService>() { override isAllowedContributor(): boolean { return true; } },
 			undefined!,
 			undefined,
-			undefined,
 			transitionService
 		));
 		await mainThread.$applyProjectFileTransition(
@@ -110,62 +104,67 @@ suite('MainThreadBaseHalf', () => {
 		assert.strictEqual(existsCalls, 1);
 	});
 
-	test('returns one freshly verified sealed Result instead of selectable versions', async () => {
-		const resource = URI.file('/workspace/clip.bhnode');
-		const artifact = {
-			id: 'clip', outputId: 'video', kind: 'video' as const,
-			path: 'assets/clip-node/clip.mp4', sha256: 'A'.repeat(43), size: 42,
-			label: 'Final clip'
-		};
-		const source = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip',
-			result: { source: 'imported', artifact }
-		}));
-		const admissionService = new class extends mock<IBaseHalfPluginAdmissionService>() {
-			override isAllowedContributor(): boolean { return true; }
-		};
-		const fileService = new class extends mock<IFileService>() {
-			override exists(): Promise<boolean> { return Promise.resolve(true); }
-			override realpath(candidate: URI): Promise<URI> { return Promise.resolve(candidate); }
-			override stat(candidate: URI): Promise<IFileStatWithPartialMetadata> {
-				return Promise.resolve({
-					resource: candidate, name: 'clip.bhnode', isFile: true, isDirectory: false, isSymbolicLink: false,
-					mtime: 1, ctime: 1, etag: '1', size: source.length, readonly: false, locked: false, executable: false
-				});
+	test('reports a Video node with a generated video as a result whose file is available', async () => {
+		const node = videoNode({
+			result: {
+				source: 'generated',
+				artifact: { kind: 'video', path: `outputs/${baseHalfNodeTestId(1)}/task-1.mp4`, size: 42 },
+				generation: { taskId: 'task-1', remoteId: 'cgt-1', startedAt: '2026-10-15T08:00:00.000Z', completedAt: '2026-10-15T08:03:00.000Z', request: request() }
 			}
-				override readFile(): Promise<IFileContent> {
-					return Promise.resolve(fileContent(resource, source));
+		});
+		const inspected = await inspect(node, new Set([`/workspace/outputs/${baseHalfNodeTestId(1)}/task-1.mp4`]));
+		assert.deepStrictEqual(inspected && { ...inspected, result: inspected.result && { ...inspected.result, artifact: { ...inspected.result.artifact, resource: URI.revive(inspected.result.artifact.resource).path } } }, {
+			id: baseHalfNodeTestId(1),
+			kind: 'video',
+			lifecycle: 'result',
+			result: {
+				source: 'attempt',
+				attemptId: 'task-1',
+				artifact: {
+					id: 'task-1',
+					outputId: 'generated',
+					kind: 'video',
+					resource: `/workspace/outputs/${baseHalfNodeTestId(1)}/task-1.mp4`,
+					integrity: 'available',
+					label: 'task-1.mp4'
 				}
-		};
-		const workspaceContextService = new class extends mock<IWorkspaceContextService>() {
-			override getWorkspaceFolder(): IWorkspaceFolder {
-				return { uri: URI.file('/workspace'), name: 'workspace', index: 0, toResource: path => URI.joinPath(URI.file('/workspace'), path) };
-			}
-		};
-		const verified: { readonly path: string; readonly fresh: boolean | undefined }[] = [];
-		const nodeExecutionService = new class extends mock<IBaseHalfNodeExecutionService>() {
-			override getActiveRun(): undefined { return undefined; }
-			override getArtifactIntegrity(_workspaceFolder: URI, artifact: { readonly path: string }, options?: { readonly fresh?: boolean }): Promise<'available'> {
-				verified.push({ path: artifact.path, fresh: options?.fresh });
-				return Promise.resolve('available');
-			}
-		};
-		const mainThread = disposables.add(createMainThread(admissionService, fileService, workspaceContextService, nodeExecutionService));
+			},
+			attempts: []
+		});
+	});
 
-		const inspected = await mainThread.$inspectCanvasNode(extensionIdentity(), resource);
-		assert.strictEqual(inspected?.lifecycle, 'result');
-		assert.strictEqual(inspected?.result?.source, 'imported');
-		assert.strictEqual(inspected?.result?.artifact.resource.path, '/workspace/assets/clip-node/clip.mp4');
-		assert.strictEqual(inspected?.result?.artifact.outputId, 'video');
-		assert.strictEqual(inspected?.result?.artifact.label, 'Final clip');
-		assert.deepStrictEqual(inspected?.attempts, []);
-		assert.deepStrictEqual(verified, [{ path: 'assets/clip-node/clip.mp4', fresh: true }]);
+	test('reports an imported file as an imported result, and a missing file as missing', async () => {
+		const node = videoNode({ result: { source: 'imported', artifact: { kind: 'video', path: 'assets/clip.mp4', size: 42 } } });
+		const available = await inspect(node, new Set(['/workspace/assets/clip.mp4']));
+		assert.deepStrictEqual([available?.lifecycle, available?.result?.source, available?.result?.artifact.integrity, available?.result?.artifact.outputId], ['result', 'imported', 'available', 'imported']);
+		const missing = await inspect(node, new Set());
+		assert.deepStrictEqual([missing?.lifecycle, missing?.result?.artifact.integrity], ['result', 'missing']);
+	});
+
+	test('reports a Video node without a video by its phase and with no result, so Sequence refuses it', async () => {
+		const running: IBaseHalfVideoTask = { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', remoteId: 'cgt-1', request: request() };
+		const cases: readonly [IBaseHalfNodeDocument, string][] = [
+			[videoNode({}), 'draft'],
+			[videoNode({ task: { id: 'task-1', state: 'submitting', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', request: request() } }), 'running'],
+			[videoNode({ task: running }), 'running'],
+			[videoNode({ task: { ...running, state: 'failed', endedAt: '2026-10-15T08:01:00.000Z', error: 'The key was refused.' } }), 'failed'],
+			[videoNode({ task: { ...running, state: 'stopped', endedAt: '2026-10-15T08:01:00.000Z' } }), 'cancelled']
+		];
+		for (const [node, lifecycle] of cases) {
+			const inspected = await inspect(node, new Set());
+			assert.deepStrictEqual(inspected, { id: baseHalfNodeTestId(1), kind: 'video', lifecycle, attempts: [] });
+		}
+	});
+
+	test('does not report a version 4 node', async () => {
+		const legacy = JSON.stringify({ version: 4, id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip', prompt: '', upstream: [], attempts: [] });
+		assert.strictEqual(await inspectSource(legacy, new Set()), undefined);
 	});
 
 	test('does not expose node bytes when the verified path changes during the read', async () => {
 		const resource = URI.file('/workspace/clip.bhnode');
 		const source = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip'
+			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip'
 		}));
 		let nodeRealpathCalls = 0;
 		const fileService = new class extends mock<IFileService>() {
@@ -197,7 +196,7 @@ suite('MainThreadBaseHalf', () => {
 	test('does not expose node bytes when file identity changes during the read', async () => {
 		const resource = URI.file('/workspace/clip.bhnode');
 		const source = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', role: 'clip'
+			id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip'
 		}));
 		let statCalls = 0;
 		const fileService = new class extends mock<IFileService>() {
@@ -224,10 +223,10 @@ suite('MainThreadBaseHalf', () => {
 	test('does not expose node bytes when same-size content changes without an identity update', async () => {
 		const resource = URI.file('/workspace/clip.bhnode');
 		const first = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'image', title: 'Frame', role: 'clip'
+			id: baseHalfNodeTestId(1), kind: 'image', title: 'Frame'
 		}));
 		const second = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1), kind: 'video', title: 'Frame', role: 'clip'
+			id: baseHalfNodeTestId(1), kind: 'audio', title: 'Frame'
 		}));
 		assert.strictEqual(first.length, second.length);
 		let readCalls = 0;
@@ -306,158 +305,6 @@ suite('MainThreadBaseHalf', () => {
 		assert.strictEqual(await mainThread.$inspectCanvasNode(extensionIdentity(), URI.file('/workspace/link.bhnode')), undefined);
 	});
 
-	test('grants model credentials only to the matching active recipe execution', async () => {
-		let runtimeProvider: IBaseHalfCanvasRecipeRuntimeProvider | undefined;
-		let accessCalls = 0;
-		let artifactId: unknown = 'image';
-		let grantedSnapshot: Parameters<MainThreadBaseHalf['$getModelServiceAccess']>[1] | undefined;
-		const proxy = new class extends mock<ExtHostBaseHalfShape>() {
-			override $onDidChangeModelServices(): void { }
-				override async $executeCanvasRecipe(_attemptHandle: string, _recipeId: string, request: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2]): Promise<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']> extends Promise<infer TResult> ? TResult : never> {
-					assert.strictEqual(request.prompt, 'Render frame.');
-					assert.ok(request.modelService?.accessToken);
-				grantedSnapshot = request.modelService;
-				assert.ok(await mainThread.$getModelServiceAccess(extensionIdentity(), request.modelService));
-				assert.strictEqual(await mainThread.$getModelServiceAccess(
-					{ ...extensionIdentity(), id: new ExtensionIdentifier('other.workflow') },
-					request.modelService
-				), undefined);
-				return { artifact: { id: artifactId as string, outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') } };
-			}
-		};
-		const recipeRegistry = new class extends mock<IBaseHalfCanvasRecipeRegistryService>() {
-			override getRecipe(): never {
-				return { id: 'reviewed.workflow.render', extensionId: 'reviewed.workflow' } as never;
-			}
-		};
-		const recipeRuntime = new class extends mock<IBaseHalfCanvasRecipeRuntimeService>() {
-			override registerExecutor(_recipeId: string, provider: IBaseHalfCanvasRecipeRuntimeProvider) {
-				runtimeProvider = provider;
-				return toDisposable(() => undefined);
-			}
-		};
-		const modelServices = new class extends mock<IBaseHalfModelServiceService>() {
-			override onDidChange = Event.None;
-			override getAccess(): Promise<never> {
-				accessCalls++;
-				return Promise.resolve({ id: 'studio.images' } as never);
-			}
-		};
-		const context = { getProxy: () => proxy } as unknown as IExtHostContext;
-		const mainThread = disposables.add(new MainThreadBaseHalf(
-			context, undefined!, undefined!, undefined!, undefined!, recipeRegistry, recipeRuntime,
-			modelServices, undefined!, undefined!, undefined!, undefined!, undefined!, undefined!,
-			new class extends mock<IBaseHalfPluginAdmissionService>() { override isAllowedContributor(): boolean { return true; } }
-		));
-		mainThread.$registerCanvasRecipeExecutor({ id: { value: 'reviewed.workflow' } } as never, 'reviewed.workflow.render');
-		assert.ok(runtimeProvider);
-		await runtimeProvider.execute({
-			attemptId: 'attempt-1', workspaceFolder: URI.file('/workspace'),
-			node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
-			recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
-			modelService: {
-				serviceId: 'studio.images', serviceLabel: 'Studio Images',
-				connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
-			},
-			inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-1'),
-			acknowledgeProviderRequestId: async () => undefined
-		}, { report() { } }, CancellationToken.None);
-		assert.strictEqual(accessCalls, 1);
-		assert.ok(grantedSnapshot);
-		assert.strictEqual(await mainThread.$getModelServiceAccess(extensionIdentity(), grantedSnapshot), undefined);
-
-		artifactId = 'image/frame';
-		await assert.rejects(
-			() => runtimeProvider!.execute({
-				attemptId: 'attempt-2', workspaceFolder: URI.file('/workspace'),
-				node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
-				recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
-				modelService: {
-					serviceId: 'studio.images', serviceLabel: 'Studio Images',
-					connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
-				},
-				inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-2'),
-				acknowledgeProviderRequestId: async () => undefined
-			}, { report() { } }, CancellationToken.None),
-			/reviewed\.workflow\.render\.artifact\.id contains unsupported characters/
-		);
-	});
-
-	test('retains an active model grant while a cancelled executor is still settling', async () => {
-		let runtimeProvider: IBaseHalfCanvasRecipeRuntimeProvider | undefined;
-		let requestSeen: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2] | undefined;
-		let cancellationSeen: CancellationToken | undefined;
-		let resolveExecutor: ((result: Awaited<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']>>) => void) | undefined;
-		const executorResult = new Promise<Awaited<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']>>>(resolve => {
-			resolveExecutor = resolve;
-		});
-		const proxy = new class extends mock<ExtHostBaseHalfShape>() {
-			override $onDidChangeModelServices(): void { }
-			override $executeCanvasRecipe(
-				_attemptHandle: string,
-				_recipeId: string,
-				request: Parameters<ExtHostBaseHalfShape['$executeCanvasRecipe']>[2],
-				cancellation: CancellationToken
-			): Promise<Awaited<ReturnType<ExtHostBaseHalfShape['$executeCanvasRecipe']>>> {
-				requestSeen = request;
-				cancellationSeen = cancellation;
-				return executorResult;
-			}
-		};
-		const recipeRegistry = new class extends mock<IBaseHalfCanvasRecipeRegistryService>() {
-			override getRecipe(): never {
-				return { id: 'reviewed.workflow.render', extensionId: 'reviewed.workflow' } as never;
-			}
-		};
-		const recipeRuntime = new class extends mock<IBaseHalfCanvasRecipeRuntimeService>() {
-			override registerExecutor(_recipeId: string, provider: IBaseHalfCanvasRecipeRuntimeProvider) {
-				runtimeProvider = provider;
-				return toDisposable(() => undefined);
-			}
-		};
-		const modelServices = new class extends mock<IBaseHalfModelServiceService>() {
-			override onDidChange = Event.None;
-			override getAccess(): Promise<never> {
-				return Promise.resolve({ id: 'studio.images' } as never);
-			}
-		};
-		const context = { getProxy: () => proxy } as unknown as IExtHostContext;
-		const mainThread = disposables.add(new MainThreadBaseHalf(
-			context, undefined!, undefined!, undefined!, undefined!, recipeRegistry, recipeRuntime,
-			modelServices, undefined!, undefined!, undefined!, undefined!, undefined!, undefined!,
-			new class extends mock<IBaseHalfPluginAdmissionService>() { override isAllowedContributor(): boolean { return true; } }
-		));
-		mainThread.$registerCanvasRecipeExecutor({ id: { value: 'reviewed.workflow' } } as never, 'reviewed.workflow.render');
-		assert.ok(runtimeProvider);
-		const cancellation = disposables.add(new CancellationTokenSource());
-		const execution = runtimeProvider.execute({
-			attemptId: 'attempt-1', workspaceFolder: URI.file('/workspace'),
-			node: { id: 'node-1', path: 'frame.bhnode', kind: 'image' },
-			recipeId: 'reviewed.workflow.render', prompt: 'Render frame.', parameters: {}, modelServiceId: 'studio.images',
-			modelService: {
-				serviceId: 'studio.images', serviceLabel: 'Studio Images',
-				connectionIdentity: `sha256:${'A'.repeat(43)}`, capability: 'image'
-			},
-			inputs: [], outputDirectory: URI.file('/workspace/outputs/attempt-1'),
-			acknowledgeProviderRequestId: async () => undefined
-		}, { report() { } }, cancellation.token);
-		let settled = false;
-		void execution.then(() => { settled = true; }, () => { settled = true; });
-		await Promise.resolve();
-		assert.ok(requestSeen?.modelService);
-
-		cancellation.cancel();
-		await Promise.resolve();
-		assert.strictEqual(cancellationSeen?.isCancellationRequested, true);
-		assert.strictEqual(settled, false);
-		assert.ok(await mainThread.$getModelServiceAccess(extensionIdentity(), requestSeen.modelService));
-
-		assert.ok(resolveExecutor);
-		resolveExecutor({ artifact: { id: 'image', outputId: 'primary', kind: 'image', resource: URI.file('/workspace/outputs/attempt-1/image.png') } });
-		await execution;
-		assert.strictEqual(settled, true);
-		assert.strictEqual(await mainThread.$getModelServiceAccess(extensionIdentity(), requestSeen.modelService), undefined);
-	});
 });
 
 function createMainThread(
@@ -466,16 +313,10 @@ function createMainThread(
 	workspaceContextService: IWorkspaceContextService = new class extends mock<IWorkspaceContextService>() {
 		override getWorkspaceFolder(): IWorkspaceFolder | null { return null; }
 	},
-	nodeExecutionService: IBaseHalfNodeExecutionService = undefined!,
 	projectFileTransitionService: IBaseHalfProjectFileTransitionService = undefined!,
 ): MainThreadBaseHalf {
-	const proxy = new class extends mock<ExtHostBaseHalfShape>() {
-		override $onDidChangeModelServices(): void { }
-	};
+	const proxy = new class extends mock<ExtHostBaseHalfShape>() { };
 	const context = { getProxy: () => proxy } as unknown as IExtHostContext;
-	const modelServiceService = new class extends mock<IBaseHalfModelServiceService>() {
-		override onDidChange = Event.None;
-	};
 	const workingCopyService = new class extends mock<IWorkingCopyService>() {
 		override isDirty(): boolean { return false; }
 	};
@@ -485,10 +326,6 @@ function createMainThread(
 		undefined!,
 		undefined!,
 		undefined!,
-		undefined!,
-		undefined!,
-		modelServiceService,
-		nodeExecutionService,
 		fileService,
 		workspaceContextService,
 		workingCopyService,
@@ -496,6 +333,46 @@ function createMainThread(
 		undefined!,
 		admissionService,
 	);
+}
+
+/** Inspects `/workspace/clip.bhnode` holding `node`; `files` are the other files that exist. */
+function inspect(node: IBaseHalfNodeDocument, files: ReadonlySet<string>) {
+	return inspectSource(serializeBaseHalfNodeDocument(node), files);
+}
+
+async function inspectSource(source: string, files: ReadonlySet<string>) {
+	const resource = URI.file('/workspace/clip.bhnode');
+	const fileService = new class extends mock<IFileService>() {
+		override exists(): Promise<boolean> { return Promise.resolve(true); }
+		override realpath(candidate: URI): Promise<URI> { return Promise.resolve(candidate); }
+		override stat(candidate: URI): Promise<IFileStatWithPartialMetadata> {
+			if (candidate.path === resource.path) {
+				return Promise.resolve(fileStat(candidate, source.length));
+			}
+			return files.has(candidate.path) ? Promise.resolve(fileStat(candidate, 42)) : Promise.reject(new Error('missing'));
+		}
+		override readFile(candidate: URI): Promise<IFileContent> {
+			return Promise.resolve(fileContent(candidate, source));
+		}
+	};
+	const mainThread = createMainThread(
+		new class extends mock<IBaseHalfPluginAdmissionService>() { override isAllowedContributor(): boolean { return true; } },
+		fileService,
+		workspaceContextService()
+	);
+	try {
+		return await mainThread.$inspectCanvasNode(extensionIdentity(), resource);
+	} finally {
+		mainThread.dispose();
+	}
+}
+
+function videoNode(fields: Pick<IBaseHalfNodeDocument, 'task' | 'result'>): IBaseHalfNodeDocument {
+	return createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'video', title: 'Clip', prompt: 'A slow orbit.', ...fields });
+}
+
+function request(): IBaseHalfVideoGenerationRecord {
+	return { provider: 'ark', model: 'doubao-seedance-2-5-260628', prompt: 'A slow orbit.', inputs: [], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
 }
 
 function workspaceContextService(): IWorkspaceContextService {

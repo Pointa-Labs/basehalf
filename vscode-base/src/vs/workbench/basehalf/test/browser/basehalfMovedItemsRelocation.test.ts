@@ -24,7 +24,6 @@ import { IWorkingCopyService } from '../../../services/workingCopy/common/workin
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
-import { IBaseHalfNodeExecutionEvent, IBaseHalfNodeExecutionService, IBaseHalfNodeExecutionState } from '../../browser/basehalfNodeExecutionService.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfBadgeMirrorService, IBaseHalfBadgeMirrorService } from '../../common/basehalfBadgeMirror.js';
@@ -33,6 +32,7 @@ import { BASEHALF_MIRROR_IGNORE_CONTENT } from '../../common/basehalfMirrorIgnor
 import { IBaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 import { BaseHalfMovedItemsService, IBaseHalfMovedItemsService, IBaseHalfMovedItemsTiming } from '../../common/basehalfMovedItemsService.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
@@ -87,7 +87,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 	}
 
 	/** BaseHalf opens on the files: the snapshot service and the cascade that relocates. */
-	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[]; readonly running?: () => readonly URI[] } = {}) {
+	async function open(fileService: FileService, options: { readonly storage?: string; readonly dirty?: () => readonly URI[]; readonly generating?: () => readonly URI[] } = {}) {
 		const session = disposables.add(new DisposableStore());
 		const instantiationService = workbenchInstantiationService({ fileService: () => fileService }, session);
 		// Unsaved changes, as the working copy service reports them.
@@ -111,13 +111,13 @@ suite('BaseHalfMovedItems (relocation)', () => {
 			forgetSubtree: () => { },
 			moveSubtree: (from: URI, to: URI) => { views.push(`${getRelativePath(folder, from)} -> ${getRelativePath(folder, to)}`); }
 		} as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-		// Runs, as the node execution service reports them: a run that ended reports its node without a state.
-		const runs = session.add(new Emitter<IBaseHalfNodeExecutionEvent>());
-		instantiationService.stub(IBaseHalfNodeExecutionService, {
-			onDidChange: runs.event,
-			getActiveRun: (node: URI) => (options.running?.() ?? []).some(running => running.toString() === node.toString()) ? {} as IBaseHalfNodeExecutionState : undefined,
-			acquireStructuralOperation: async () => ({ dispose: () => { } })
-		} as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+		// Generations, as the generation service reports them: progress names the node, and a node that has ended is not generating.
+		const progress = session.add(new Emitter<URI>());
+		const isGenerating = (node: URI) => (options.generating?.() ?? []).some(generating => generating.toString() === node.toString());
+		instantiationService.stub(IBaseHalfVideoGenerationService, {
+			onDidChangeProgress: progress.event,
+			isGenerating
+		} as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
 		instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 		const movedItems = session.add(new BaseHalfMovedItemsService(
 			timing,
@@ -133,7 +133,7 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		session.add(instantiationService.createInstance(BaseHalfMirrorCascadeContribution));
 		await movedItems.whenCompared(folder);
 		await settle();
-		return { movedItems, views, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy), runEnded: (node: URI) => runs.fire({ resource: node }) };
+		return { movedItems, views, close: () => session.dispose(), dirtyChanged: () => dirtyChanged.fire({} as IWorkingCopy), generationChanged: (node: URI) => progress.fire(node) };
 	}
 
 	const resource = (path: string) => joinPath(folder, ...path.split('/'));
@@ -468,30 +468,34 @@ suite('BaseHalfMovedItems (relocation)', () => {
 		});
 	});
 
-	test('a folder with a running node is held back until the run has ended, and takes its stored view along', async () => {
+	test('a folder with a generating Video node is held back until the generation has ended, and takes its stored view along', async () => {
 		const fileService = await createFiles({
 			'shots/clip.bhnode': '{ "kind": "node", "title": "Harbor at dawn" }\n',
 			'shots/notes.md': 'Notes about the shots of the first scene.\n',
 			'.bh/mirror/shots/badge.yaml': badge('shots', 'The shots of scene one.').replace('kind: file', 'kind: folder')
 		});
-		// The run was started under the old path.
-		let running: URI[] = [resource('shots/clip.bhnode')];
-		const session = await open(fileService, { running: () => running });
+		// The generation was started under the old path.
+		let generating: URI[] = [resource('shots/clip.bhnode')];
+		const session = await open(fileService, { generating: () => generating });
 		await fileService.move(resource('shots'), resource('scenes'));
 		await settle();
-		const whileRunning = await hidden(fileService);
-		const held = { badge: whileRunning['mirror/shots/badge.yaml'] !== undefined, moved: whileRunning['mirror/scenes/badge.yaml'] !== undefined, pending: session.movedItems.getPendingMoves(folder).length, settled: session.movedItems.isSettled(folder), views: [...session.views] };
+		const whileGenerating = await hidden(fileService);
+		const held = { badge: whileGenerating['mirror/shots/badge.yaml'] !== undefined, moved: whileGenerating['mirror/scenes/badge.yaml'] !== undefined, pending: session.movedItems.getPendingMoves(folder).length, settled: session.movedItems.isSettled(folder), views: [...session.views] };
 
-		// A report of progress ends nothing; the end of the run does.
-		running = [];
-		session.runEnded(resource('shots/clip.bhnode'));
+		// A report of progress ends nothing; the end of the generation does.
+		session.generationChanged(resource('shots/clip.bhnode'));
+		await settle();
+		const stillHeld = (await hidden(fileService))['mirror/shots/badge.yaml'] !== undefined;
+		generating = [];
+		session.generationChanged(resource('shots/clip.bhnode'));
 		await settle();
 		await settle();
 		const after = await hidden(fileService);
 
-		assert.deepStrictEqual({ held, after: [after['mirror/scenes/badge.yaml'], after['mirror/shots/badge.yaml']], pending: session.movedItems.getPendingMoves(folder).length, views: session.views }, {
-			// It waits for the run, and does not keep the canvas waiting meanwhile.
+		assert.deepStrictEqual({ held, stillHeld, after: [after['mirror/scenes/badge.yaml'], after['mirror/shots/badge.yaml']], pending: session.movedItems.getPendingMoves(folder).length, views: session.views }, {
+			// It waits for the generation, and does not keep the canvas waiting meanwhile.
 			held: { badge: true, moved: false, pending: 1, settled: true, views: [] },
+			stillHeld: true,
 			after: [badge('scenes', 'The shots of scene one.').replace('kind: file', 'kind: folder'), undefined],
 			pending: 0,
 			views: ['shots -> scenes']

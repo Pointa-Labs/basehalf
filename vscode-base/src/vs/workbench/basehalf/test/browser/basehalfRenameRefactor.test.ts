@@ -29,13 +29,12 @@ import { BulkEditService } from '../../../contrib/bulkEdit/browser/bulkEditServi
 import { IExplorerService } from '../../../contrib/files/browser/files.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { IWorkingCopyFileService } from '../../../services/workingCopy/common/workingCopyFileService.js';
+import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
-import { TestContextService } from '../../../test/common/workbenchTestServices.js';
+import { TestContextService, TestWorkingCopy } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfMirrorCascadeContribution } from '../../browser/basehalfMirrorCascade.contribution.js';
 import { IBaseHalfMovedItem } from '../../common/basehalfMovedItems.js';
 import { IBaseHalfMovedItemsService, IBaseHalfOwedEntryMove, IBaseHalfRecognizedMoves } from '../../common/basehalfMovedItemsService.js';
-import { IBaseHalfNodeExecutionEvent, IBaseHalfNodeExecutionService } from '../../browser/basehalfNodeExecutionService.js';
-import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
 import { IBaseHalfPluginStructuralDeleteCleanupService } from '../../browser/basehalfPluginStructuralDeleteCleanup.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
 import { BaseHalfReferenceRefactorService, IBaseHalfReferenceRefactorService } from '../../browser/basehalfReferenceRefactorService.js';
@@ -47,7 +46,8 @@ import { BaseHalfCanvasMirrorService, IBaseHalfCanvasMirrorService } from '../..
 import { IBaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfCanvasViewportStateService } from '../../common/basehalfCanvasViewportState.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
-import { createBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import { BaseHalfReferenceIndexService, IBaseHalfReferenceIndexService } from '../../common/basehalfReferenceIndex.js';
 import { BaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
@@ -182,8 +182,8 @@ interface IHarness {
 	readonly refactor: IBaseHalfReferenceRefactorService;
 	readonly undoRedo: IUndoRedoService;
 	readonly movedItems: TestMovedItems;
-	/** A node run ended. */
-	runEnded(): void;
+	/** A document was saved. */
+	documentSaved(): void;
 	move(from: string, to: string, isUndoing?: boolean): Promise<void>;
 	/** A permanent workbench delete (the harness has no trash). */
 	delete(path: string): Promise<void>;
@@ -194,7 +194,7 @@ interface IHarness {
 	tree(): Promise<Record<string, string>>;
 }
 
-async function createHarness(disposables: DisposableStore, files: Record<string, string>, options: { readonly structuralRefusal?: string; readonly partialIndex?: boolean } = {}): Promise<IHarness> {
+async function createHarness(disposables: DisposableStore, files: Record<string, string>, options: { readonly generating?: readonly string[]; readonly partialIndex?: boolean } = {}): Promise<IHarness> {
 	const fileService = disposables.add(new FileService(new NullLogService()));
 	const provider = disposables.add(new TestFileSystemProvider());
 	disposables.add(fileService.registerProvider(Schemas.file, provider));
@@ -234,17 +234,10 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 	instantiationService.stub(IBaseHalfBadgeMirrorService, disposables.add(new BaseHalfBadgeMirrorService(fileService)));
 	instantiationService.stub(IBaseHalfCanvasMirrorService, disposables.add(instantiationService.createInstance(BaseHalfCanvasMirrorService)));
 	instantiationService.stub(IBaseHalfCanvasViewportStateService, { forgetSubtree: () => { }, moveSubtree: () => { } } as Partial<IBaseHalfCanvasViewportStateService> as IBaseHalfCanvasViewportStateService);
-	const runs = disposables.add(new Emitter<IBaseHalfNodeExecutionEvent>());
-	instantiationService.stub(IBaseHalfNodeExecutionService, {
-		onDidChange: runs.event,
-		getActiveRun: () => undefined,
-		acquireStructuralOperation: async () => {
-			if (options.structuralRefusal) {
-				throw new Error(options.structuralRefusal);
-			}
-			return { dispose: () => { } };
-		}
-	} as Partial<IBaseHalfNodeExecutionService> as IBaseHalfNodeExecutionService);
+	instantiationService.stub(IBaseHalfVideoGenerationService, {
+		onDidChangeProgress: Event.None,
+		isGenerating: (resource: URI) => (options.generating ?? []).some(path => resource.path === joinPath(folder, ...path.split('/')).path)
+	} as Partial<IBaseHalfVideoGenerationService> as IBaseHalfVideoGenerationService);
 	instantiationService.stub(IBaseHalfPluginStructuralDeleteCleanupService, { stageDelete: async () => [] } as Partial<IBaseHalfPluginStructuralDeleteCleanupService> as IBaseHalfPluginStructuralDeleteCleanupService);
 	const refactor = instantiationService.createInstance(BaseHalfReferenceRefactorService);
 	if (options.partialIndex) {
@@ -273,8 +266,14 @@ async function createHarness(disposables: DisposableStore, files: Record<string,
 		refactor,
 		undoRedo: instantiationService.get(IUndoRedoService),
 		movedItems,
-		// A run that has ended reports its node without a state.
-		runEnded: () => runs.fire({ resource: joinPath(folder, 'run.bhnode') }),
+		documentSaved: () => {
+			const document = new TestWorkingCopy(joinPath(folder, 'saved.md'));
+			const registration = instantiationService.get(IWorkingCopyService).registerWorkingCopy(document);
+			document.setDirty(true);
+			document.setDirty(false);
+			registration.dispose();
+			document.dispose();
+		},
 		async delete(path) {
 			await workingCopyFileService.delete([{ resource: joinPath(folder, ...path.split('/')), recursive: true }], CancellationToken.None);
 		},
@@ -317,20 +316,19 @@ async function until(condition: () => boolean | Promise<boolean>, message: strin
 	assert.fail(message);
 }
 
-function nodeDocument(id: number, upstream: string[], bindings: { sourcePath: string; slot: string; order: number }[]): string {
+function nodeDocument(id: number, upstream: string[], task?: IBaseHalfNodeDocument['task']): string {
 	return serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 		id: baseHalfNodeTestId(id),
 		kind: 'video',
 		title: 'Clip',
-		role: 'Generated result',
 		upstream,
-		recipe: { recipeId: 'ai-video.text-to-video', parameters: {}, inputBindings: bindings }
+		...(task ? { task } : {})
 	}));
 }
 
-function upstreamOf(text: string | undefined): { upstream: unknown; bindings: unknown } {
+function upstreamOf(text: string | undefined): { upstream: unknown; task: unknown } {
 	const document = parseBaseHalfNodeDocument(text ?? '');
-	return { upstream: document.upstream, bindings: document.recipe?.inputBindings.map(binding => binding.sourcePath) };
+	return { upstream: document.upstream, task: document.task?.state };
 }
 
 suite('BaseHalfRenameRefactor (workbench moves)', () => {
@@ -347,48 +345,53 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			'hidden/h.md': '---\nupstream: [docs/a.md]\n---\n',
 			'pic.png': 'png',
 			'.bh/mirror/pic.png/upstream.yaml': 'upstream:\n  - docs\n',
-			'draft.bhnode': nodeDocument(1, ['docs/a.md', 'other.md'], [{ sourcePath: 'docs/a.md', slot: 'brief', order: 0 }]),
-			'running.bhnode': nodeDocument(2, ['docs/a.md'], [])
+			'clip.bhnode': nodeDocument(1, ['docs/a.md', 'other.md']),
+			'generating.bhnode': nodeDocument(2, ['docs/a.md'], {
+				id: 'task-1',
+				state: 'running',
+				startedAt: '2026-10-15T08:00:00.000Z',
+				channel: 'ark-1',
+				remoteId: 'cgt-1',
+				request: { provider: 'ark', model: 'seedance', prompt: '', inputs: ['docs/a.md'], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+			})
 		};
-		const harness = await createHarness(disposables, fixture);
-		await new BaseHalfNodeRunLeaseStore(harness.fileService, 30_000).acquire(folder, baseHalfNodeTestId(2), 'running.bhnode', 'owner', 'run', undefined);
+		const harness = await createHarness(disposables, fixture, { generating: ['generating.bhnode'] });
 		const before = await harness.tree();
 
 		await harness.move('docs', 'archive');
-		await until(async () => (await harness.read('notes.md'))?.includes('archive/a.md') === true && harness.movedItems.owed.length > 0, 'the entries were not updated after the move');
+		await until(async () => (await harness.read('notes.md'))?.includes('archive/a.md') === true && (await harness.read('generating.bhnode'))?.includes('archive/a.md') === true, 'the entries were not updated after the move');
 		const updated = await harness.tree();
 
 		assert.deepStrictEqual({
 			shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified],
 			undoStep: harness.undoRedo.canUndo(BASEHALF_CANVAS_UNDO_REDO_SOURCE),
-			// A node that is running cannot be written now: the move is remembered for it.
 			owed: harness.movedItems.owed,
 			files: {
 				'archive/b.md': updated['archive/b.md'],
 				'notes.md': updated['notes.md'],
 				'hidden/h.md': updated['hidden/h.md'],
 				'.bh/mirror/pic.png/upstream.yaml': updated['.bh/mirror/pic.png/upstream.yaml'],
-				draft: upstreamOf(updated['draft.bhnode']),
-				running: upstreamOf(updated['running.bhnode'])
+				clip: upstreamOf(updated['clip.bhnode']),
+				generating: upstreamOf(updated['generating.bhnode'])
 			}
 		}, {
 			shown: [],
 			undoStep: false,
-			owed: [{ from: 'docs', to: 'archive' }],
+			owed: [],
 			files: {
 				'archive/b.md': '---\nupstream:\n  - archive/a.md\n---\n# B\n',
 				'notes.md': '---\ntitle: Notes\nupstream:\n  - archive/a.md\n  - archive\n  - other.md\n---\n# Notes\n',
 				'hidden/h.md': '---\nupstream:\n  - archive/a.md\n---\n',
 				'.bh/mirror/pic.png/upstream.yaml': 'upstream:\n  - archive\n',
-				// The Draft's binding follows its entry in the same write.
-				draft: { upstream: ['archive/a.md', 'other.md'], bindings: ['archive/a.md'] },
-				running: { upstream: ['docs/a.md'], bindings: [] }
+				clip: { upstream: ['archive/a.md', 'other.md'], task: undefined },
+				// A node that is generating is written at once; its task stays.
+				generating: { upstream: ['archive/a.md'], task: 'running' }
 			}
 		});
 
 		// Undoing the move is a move back, which updates the entries back.
 		await harness.move('archive', 'docs', true);
-		const restored = ['notes.md', '.bh/mirror/pic.png/upstream.yaml', 'draft.bhnode'];
+		const restored = ['notes.md', '.bh/mirror/pic.png/upstream.yaml', 'clip.bhnode', 'generating.bhnode'];
 		await until(async () => (await harness.read('notes.md')) === before['notes.md'], 'moving the folder back did not update the entries back');
 		const undone = await harness.tree();
 		assert.deepStrictEqual({
@@ -396,7 +399,7 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 			undone: [undone['docs/b.md'], undone['hidden/h.md'], ...restored.map(path => undone[path] === before[path])],
 			shown: harness.notifications.prompts.length
 		}, {
-			undone: ['---\nupstream:\n  - docs/a.md\n---\n# B\n', '---\nupstream:\n  - docs/a.md\n---\n', true, true, true],
+			undone: ['---\nupstream:\n  - docs/a.md\n---\n# B\n', '---\nupstream:\n  - docs/a.md\n---\n', true, true, true, true],
 			shown: 0
 		});
 	});
@@ -574,9 +577,9 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		await timeout(40);
 		const owedAfterSecondMove = [...harness.movedItems.owed];
 
-		// What blocked it is gone, and a run ends: BaseHalf tries again by itself.
+		// What blocked it is gone, and a document is saved: BaseHalf tries again by itself.
 		blocker.dispose();
-		harness.runEnded();
+		harness.documentSaved();
 		await until(async () => (await harness.read('n1.md'))?.includes('c.md') === true && harness.movedItems.owed.length === 0, 'the entry that was owed was not written');
 
 		assert.deepStrictEqual({ blocked, owedAfterSecondMove, written: await harness.read('n1.md'), shown: harness.notifications.prompts.length + harness.notifications.notified.length }, {
@@ -605,9 +608,9 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 		await timeout(40);
 		const refused = { kept: await harness.read(kept), note: await harness.read('n.md'), owed: [...harness.movedItems.owed], shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified] };
 
-		// The file system accepts the write again, and a run ends: BaseHalf tries again by itself.
+		// The file system accepts the write again, and a document is saved: BaseHalf tries again by itself.
 		harness.provider.refuseWrite = undefined;
-		harness.runEnded();
+		harness.documentSaved();
 		await until(async () => (await harness.read(kept))?.includes('b.md') === true && harness.movedItems.owed.length === 0, 'the entry that was owed was not written');
 
 		assert.deepStrictEqual({ refused, shown: [...harness.notifications.prompts.map(prompt => prompt.message), ...harness.notifications.notified] }, {

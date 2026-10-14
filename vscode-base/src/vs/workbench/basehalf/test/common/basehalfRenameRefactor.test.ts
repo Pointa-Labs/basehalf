@@ -53,7 +53,7 @@ function state(path: string, storeKind: BaseHalfUpstreamStoreKind, current: read
 function summary(plan: IBaseHalfRenameUpdatePlan) {
 	return {
 		edits: plan.edits.map(edit => `${edit.node.relativePath}: ${edit.replacements.map(replacement => `${replacement.from}→${replacement.to}`).join(', ')}`),
-		skipped: plan.skipped.map(skip => `${skip.node.relativePath}: ${skip.reason}${skip.entries ? ` ${skip.entries.join(', ')}` : ''}`),
+		skipped: plan.skipped.map(skip => `${skip.node.relativePath}: ${skip.reason}`),
 		leftAlone: plan.leftAlone.map(entry => `${entry.node.relativePath}: ${entry.entry} ${entry.reason}`)
 	};
 }
@@ -113,13 +113,12 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 			exists: () => false,
 			stores: [
 				state('subject/b.md', 'markdown', ['topic/a.md', 'root.md'], stores[0].entries),
-				state('subject/clip.bhnode', 'node', ['topic/b.md'], stores[1].entries, { lifecycle: 'draft', bindings: [{ sourcePath: 'topic/b.md' }] })
+				state('subject/clip.bhnode', 'node', ['topic/b.md'], stores[1].entries)
 			]
 		});
 		assert.deepStrictEqual({ stores: stores.map(store => store.nodePath), plan: summary(plan) }, {
 			stores: ['subject/b.md', 'subject/clip.bhnode'],
 			plan: {
-				// A Draft's binding follows its entry in the same write (edit service).
 				edits: ['subject/b.md: topic/a.md→subject/a.md', 'subject/clip.bhnode: topic/b.md→subject/b.md'],
 				skipped: [],
 				leftAlone: []
@@ -154,14 +153,14 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		});
 	});
 
-	test('a running node, an upstream-only node, and an unreadable store are skipped with their reasons', () => {
+	test('an upstream-only store, an unreadable store, and a store with unsaved changes are skipped with their reasons', () => {
 		const moves: IBaseHalfPathMove[] = [{ from: 'a.md', to: 'b.md' }];
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
 			identity: BASEHALF_EXACT_UPSTREAM_IDENTITY,
 			exists: () => false,
 			stores: [
-				state('clip.bhnode', 'node', ['a.md'], ['a.md'], { lifecycle: 'draft', blocking: { reason: 'running', message: 'This node is running.' } }),
+				state('clip.bhnode', 'node', ['a.md'], ['a.md'], { blocking: { reason: 'beingMoved', message: 'clip.bhnode is being moved.' } }),
 				state('renders/final.md', 'markdown', ['a.md'], ['a.md'], { upstreamOnly: true }),
 				state('broken.md', 'markdown', [], ['a.md'], { items: undefined }),
 				state('dirty.md', 'markdown', ['a.md'], ['a.md'], { blocking: { reason: 'unsaved', message: 'Save or revert dirty.md first.' } }),
@@ -171,28 +170,27 @@ suite('BaseHalfRenameRefactor (planner)', () => {
 		assert.deepStrictEqual({ plan: summary(plan), messages: plan.skipped.map(skip => skip.message ?? null) }, {
 			plan: {
 				edits: ['notes.md: a.md→b.md'],
-				skipped: ['broken.md: unreadable', 'clip.bhnode: running', 'dirty.md: unsaved', 'renders/final.md: upstreamOnly'],
+				skipped: ['broken.md: unreadable', 'clip.bhnode: beingMoved', 'dirty.md: unsaved', 'renders/final.md: upstreamOnly'],
 				leftAlone: []
 			},
-			messages: [null, 'This node is running.', 'Save or revert dirty.md first.', null]
+			messages: [null, 'clip.bhnode is being moved.', 'Save or revert dirty.md first.', null]
 		});
 	});
 
-	test('a sealed node keeps its bound entries at their historical paths and updates its unbound entries', () => {
+	test('a node is updated in every phase: while it generates and after it has a video', () => {
 		const moves: IBaseHalfPathMove[] = [{ from: 'docs', to: 'archive' }];
 		const plan = baseHalfPlanRenameUpdate({
 			moves,
 			identity: BASEHALF_EXACT_UPSTREAM_IDENTITY,
 			exists: () => false,
 			stores: [
-				state('sealed.bhnode', 'node', ['docs/brief.md', 'docs/notes.md'], ['docs/brief.md', 'docs/notes.md'], { lifecycle: 'sealed', bindings: [{ sourcePath: 'docs/brief.md' }] }),
-				state('attempted.bhnode', 'node', ['docs/brief.md'], ['docs/brief.md'], { lifecycle: 'attempted', bindings: [{ sourcePath: 'docs/brief.md' }] }),
-				state('draft.bhnode', 'node', ['docs/brief.md'], ['docs/brief.md'], { lifecycle: 'draft', bindings: [{ sourcePath: 'docs/brief.md' }] })
+				state('shown.bhnode', 'node', ['docs/brief.md', 'docs/notes.md'], ['docs/brief.md', 'docs/notes.md']),
+				state('generating.bhnode', 'node', ['docs/brief.md'], ['docs/brief.md'])
 			]
 		});
 		assert.deepStrictEqual(summary(plan), {
-			edits: ['draft.bhnode: docs/brief.md→archive/brief.md', 'sealed.bhnode: docs/notes.md→archive/notes.md'],
-			skipped: ['attempted.bhnode: historical docs/brief.md', 'sealed.bhnode: historical docs/brief.md'],
+			edits: ['generating.bhnode: docs/brief.md→archive/brief.md', 'shown.bhnode: docs/brief.md→archive/brief.md, docs/notes.md→archive/notes.md'],
+			skipped: [],
 			leftAlone: []
 		});
 	});

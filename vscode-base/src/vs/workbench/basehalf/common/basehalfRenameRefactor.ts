@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
-import { BaseHalfNodeUpstreamLifecycle } from './basehalfNodeDocument.js';
 import { BaseHalfReferenceRefusalReason, IBaseHalfUpstreamEntryReplacement } from './basehalfReferenceEdit.js';
 import { IBaseHalfUpstreamIdentity, IBaseHalfUpstreamItem } from './basehalfReferenceEntries.js';
 import { IBaseHalfIndexedStore } from './basehalfReferenceIndex.js';
@@ -206,9 +205,6 @@ export interface IBaseHalfRenameStoreState {
 	readonly storeKind: BaseHalfUpstreamStoreKind;
 	/** The current items, valid and invalid; `undefined` when the store can't be read. */
 	readonly items: readonly IBaseHalfUpstreamItem[] | undefined;
-	/** `.bhnode` only. */
-	readonly lifecycle?: BaseHalfNodeUpstreamLifecycle;
-	readonly bindings?: readonly { readonly sourcePath: string }[];
 	/** The entries recorded when the move was prepared. */
 	readonly snapshotEntries: readonly string[];
 	readonly upstreamOnly: boolean;
@@ -217,21 +213,16 @@ export interface IBaseHalfRenameStoreState {
 }
 
 /**
- * Why a store, or some of its entries, is left out:
- * - a refusal of the reference edit service (`running`, `unsaved`,
- *   `markedFolder`, `upstreamOnly`, `unreadable`, …);
- * - `historical`: bound entries of an attempted or sealed `.bhnode` keep the
- *   paths they had when the attempt or result was made.
+ * Why a store is left out: a refusal of the reference edit service
+ * (`unsaved`, `markedFolder`, `upstreamOnly`, `unreadable`, …).
  */
-export type BaseHalfRenameSkipReason = BaseHalfReferenceRefusalReason | 'historical';
+export type BaseHalfRenameSkipReason = BaseHalfReferenceRefusalReason;
 
 export interface IBaseHalfRenameSkip {
 	readonly node: IBaseHalfWorkspaceResource;
 	readonly reason: BaseHalfRenameSkipReason;
 	/** The edit service's explanation, when it refused the store. */
 	readonly message?: string;
-	/** `historical`: the bound entries that keep their paths. */
-	readonly entries?: readonly string[];
 }
 
 /**
@@ -275,8 +266,7 @@ export interface IBaseHalfRenameUpdateInput {
  * the new one. Entries inside a moved folder that name other items of that
  * folder are covered like any other store. Stores the edit service refuses
  * (`blocking`), upstream-only nodes, and unreadable stores are skipped with
- * their reason; in an attempted or sealed `.bhnode`, bound entries keep their
- * historical paths while unbound entries are updated.
+ * their reason.
  */
 export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBaseHalfRenameUpdatePlan {
 	const { identity, moves } = input;
@@ -298,10 +288,7 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 			skipped.push({ node, reason: 'unreadable' });
 			continue;
 		}
-		const frozen = store.storeKind === 'node' && (store.lifecycle === 'attempted' || store.lifecycle === 'sealed');
-		const bound = new Set((store.bindings ?? []).map(binding => identity.key(binding.sourcePath)));
 		const replacements: IBaseHalfUpstreamEntryReplacement[] = [];
-		const historical: string[] = [];
 		const listed = new Set<string>();
 		const selfKey = identity.key(node.relativePath);
 		for (const item of store.items) {
@@ -321,10 +308,6 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 				leftAlone.push({ node, entry: item.text, reason: 'resolves' });
 				continue;
 			}
-			if (frozen && bound.has(identity.key(item.path))) {
-				historical.push(item.text);
-				continue;
-			}
 			replacements.push({ from: item.path, to: target });
 		}
 		for (const entry of store.snapshotEntries) {
@@ -332,9 +315,6 @@ export function baseHalfPlanRenameUpdate(input: IBaseHalfRenameUpdateInput): IBa
 			if (!listed.has(identity.key(path))) {
 				leftAlone.push({ node, entry, reason: 'changed' });
 			}
-		}
-		if (historical.length > 0) {
-			skipped.push({ node, reason: 'historical', entries: historical });
 		}
 		if (replacements.length > 0) {
 			edits.push({ node, storeKind: store.storeKind, replacements });

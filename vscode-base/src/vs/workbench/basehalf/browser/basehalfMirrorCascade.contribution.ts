@@ -47,7 +47,7 @@ import { BaseHalfMirrorCascadeStageError, baseHalfUpdateCanvasViewportsForStruct
 import { BASEHALF_UPSTREAM_SIDECAR_FILE_NAME } from '../common/basehalfReferenceStore.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
-import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
+import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 import { IBaseHalfOwnedStagedDeleteCleanup, IBaseHalfPluginStructuralDeleteCleanupService, rollbackBaseHalfUncompletedDeleteCleanups, settleBaseHalfStagedDeleteCleanups } from './basehalfPluginStructuralDeleteCleanup.js';
 
 const BADGE_FILE_NAME = 'badge.yaml';
@@ -166,7 +166,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@IBaseHalfCanvasViewportStateService private readonly viewportStateService: IBaseHalfCanvasViewportStateService,
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
-		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
+		@IBaseHalfVideoGenerationService private readonly videoGenerationService: IBaseHalfVideoGenerationService,
 		@IBaseHalfPluginStructuralDeleteCleanupService private readonly pluginStructuralDeleteCleanupService: IBaseHalfPluginStructuralDeleteCleanupService,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService
@@ -180,8 +180,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		// Many of these events come in a row, and a run that reports progress has not ended.
 		const retry = this._register(new RunOnceScheduler(() => this.retryPendingMoves(), 100));
 		this._register(this.workingCopyService.onDidChangeDirty(() => retry.schedule()));
-		this._register(this.nodeExecutionService.onDidChange(event => {
-			if (!event.state) {
+		this._register(this.videoGenerationService.onDidChangeProgress(resource => {
+			if (!this.videoGenerationService.isGenerating(resource)) {
 				retry.schedule();
 			}
 		}));
@@ -239,38 +239,30 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		if (operation === FileOperation.MOVE && baseHalfMoveCrossesWorkspaceRoots(files, resource => this.contextService.getWorkspaceFolder(resource)?.uri)) {
 			throw new Error(localize('basehalf.mirrorCascade.crossRootMove', "Moving an item between workspace folders is not supported, because upstream lists can only name items in their own workspace folder."));
 		}
-		const executionFence = await this.nodeExecutionService.acquireStructuralOperation(operation, files, token);
 		const affectedPaths = this.operationAffectedPaths(files);
 		const workspaces = this.operationWorkspaces(files);
 		if (affectedPaths.length === 0 || workspaces.length === 0) {
-			return executionFence;
+			return;
 		}
 		const pendingRecovery = this.pendingRecoveryFor(workspaces);
 		if (pendingRecovery) {
-			executionFence.dispose();
 			throw new Error(localize('basehalf.mirrorCascade.recoveryPending', "BaseHalf is still updating its cards and badges after an earlier change ({0}). Choose Retry or Skip in Notifications before moving or deleting these items again.", pendingRecovery.description));
 		}
 
 		// This is deliberately the first await boundary in BaseHalf's prepare:
 		// commit order is the order operations reach this hard barrier after VS
 		// Code participants complete, not the order of un-awaited API calls.
-		let context: IBaseHalfPreparedStructuralOperation;
-		try {
-			context = {
-				operation,
-				reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
-				undoRedoGroup: undoInfo?.undoRedoGroup,
-				stagedDeleteCleanups: [],
-				completedFileCount: 0,
-				deleteCleanupsSettled: false,
-				finalizationSucceeded: false,
-				finalized: false,
-				published: false
-			};
-		} catch (error) {
-			executionFence.dispose();
-			throw error;
-		}
+		const context: IBaseHalfPreparedStructuralOperation = {
+			operation,
+			reservation: this.workspaceMutationCoordinator.reserveStructural(workspaces, affectedPaths),
+			undoRedoGroup: undoInfo?.undoRedoGroup,
+			stagedDeleteCleanups: [],
+			completedFileCount: 0,
+			deleteCleanupsSettled: false,
+			finalizationSucceeded: false,
+			finalized: false,
+			published: false
+		};
 		let fence: IDisposable | undefined;
 		try {
 			await context.reservation.ready;
@@ -315,12 +307,10 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 						void this.abortPreparedOperation(context);
 					}
 					fence?.dispose();
-					executionFence.dispose();
 				}
 			};
 		} catch (error) {
 			fence?.dispose();
-			executionFence.dispose();
 			await this.abortPreparedOperation(context);
 			throw error;
 		}
@@ -1030,9 +1020,9 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		const from = this.workspaceNode(workspaceFolder, move.from);
 		const to = this.workspaceNode(workspaceFolder, move.to);
 		const heldBack = this.workingCopyService.dirtyWorkingCopies.some(workingCopy => this.uriIdentityService.extUri.isEqualOrParent(workingCopy.resource, from.resource))
-			|| this.nodeExecutionService.getActiveRun(from.resource) !== undefined
-			|| this.nodeExecutionService.getActiveRun(to.resource) !== undefined
-			|| (move.kind === 'folder' && await this.holdsRunningNode(from.resource, to.resource));
+			|| this.videoGenerationService.isGenerating(from.resource)
+			|| this.videoGenerationService.isGenerating(to.resource)
+			|| (move.kind === 'folder' && await this.holdsGeneratingNode(from.resource, to.resource));
 		return { ...(heldBack ? { outcome: 'held' as const } : {}), withoutMirrorDirectory };
 	}
 
@@ -1067,8 +1057,8 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 		await this.pruneEmptyMirrorDirectories([{ workspaceFolder, description: `${move.from} to ${move.to}, moved outside BaseHalf`, stages: [], prune: move.from }]);
 	}
 
-	/** Whether a node below a folder that was moved is running, under its old or its new path. */
-	private async holdsRunningNode(from: URI, to: URI): Promise<boolean> {
+	/** Whether a Video node below a folder that was moved is generating, under its old or its new path. */
+	private async holdsGeneratingNode(from: URI, to: URI): Promise<boolean> {
 		const stack = [to];
 		for (let visited = 0; stack.length > 0 && visited < 2000; visited++) {
 			let children;
@@ -1086,7 +1076,7 @@ export class BaseHalfMirrorCascadeContribution extends Disposable implements IWo
 					continue;
 				}
 				const relative = getRelativePath(to, child.resource);
-				if (this.nodeExecutionService.getActiveRun(child.resource) || (relative && this.nodeExecutionService.getActiveRun(URI.joinPath(from, ...relative.split('/'))))) {
+				if (this.videoGenerationService.isGenerating(child.resource) || (relative && this.videoGenerationService.isGenerating(URI.joinPath(from, ...relative.split('/'))))) {
 					return true;
 				}
 			}

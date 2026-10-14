@@ -6,8 +6,7 @@
 import { localize } from '../../../nls.js';
 import type { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import type { IBaseHalfIndexedStore, IBaseHalfUpstreamEntryView } from './basehalfReferenceIndex.js';
-import type { BaseHalfNodeJsonValue } from './basehalfNodeDocument.js';
-import { BASEHALF_EXACT_UPSTREAM_IDENTITY, baseHalfNormalizeUpstreamEntry, BaseHalfUpstreamEntryProblem, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
+import { BASEHALF_EXACT_UPSTREAM_IDENTITY, BaseHalfUpstreamEntryProblem, IBaseHalfUpstreamIdentity } from './basehalfReferenceEntries.js';
 import type { BaseHalfUpstreamStoreKind, BaseHalfUpstreamStoreProblem } from './basehalfReferenceStore.js';
 
 /**
@@ -145,15 +144,13 @@ export function baseHalfCanvasConnectionSummary(counts: IBaseHalfCanvasConnectio
 	return parts.join(' · ');
 }
 
-/** Why one Upstream row is shown in a warning style (or, for historical inputs, a neutral one). */
-export function baseHalfUpstreamEntryMessage(entry: Pick<IBaseHalfUpstreamEntryView, 'status' | 'problem' | 'historical'>): string {
+/** Why one Upstream row is shown in a warning style. */
+export function baseHalfUpstreamEntryMessage(entry: Pick<IBaseHalfUpstreamEntryView, 'status' | 'problem'>): string {
 	if (entry.status === 'valid') {
 		return '';
 	}
 	if (entry.status === 'dangling') {
-		return entry.historical
-			? localize('basehalf.upstream.entry.historical', "Moved or deleted since this result was made")
-			: localize('basehalf.upstream.entry.dangling', "Nothing at this path. It was moved or deleted.");
+		return localize('basehalf.upstream.entry.dangling', "Nothing at this path. It was moved or deleted.");
 	}
 	return baseHalfUpstreamEntryProblemMessage(entry.problem);
 }
@@ -253,9 +250,8 @@ export interface IBaseHalfCanvasDeleteImpactStore {
 
 /**
  * The downstream stores that name any of `deletedPaths` (or a path inside a
- * deleted folder). Stores that are themselves deleted, inactive sidecars, and
- * the historical bound inputs of attempted or sealed `.bhnode` documents are
- * left out: removing those would change no user-visible connection.
+ * deleted folder). Stores that are themselves deleted and inactive sidecars
+ * are left out: removing those would change no user-visible connection.
  */
 export function baseHalfCanvasDeleteImpact(
 	stores: readonly IBaseHalfIndexedStore[],
@@ -278,11 +274,7 @@ export function baseHalfCanvasDeleteImpact(
 		if ((store.sidecarState !== undefined && store.sidecarState !== 'active') || !store.read.readable || isDeleted(store.node.relativePath)) {
 			continue;
 		}
-		const historical = store.lifecycle === 'attempted' || store.lifecycle === 'sealed';
-		const bound = new Set((store.bindings ?? []).map(binding => identity.key(binding.sourcePath)));
-		const entries = store.read.items.flatMap(item => item.path !== undefined
-			&& isDeleted(item.path)
-			&& !(historical && bound.has(identity.key(item.path)))
+		const entries = store.read.items.flatMap(item => item.path !== undefined && isDeleted(item.path)
 			? [{ index: item.index, text: item.text, path: item.path }]
 			: []);
 		if (entries.length > 0) {
@@ -315,31 +307,4 @@ export function baseHalfCanvasResolveSiblingUpstream(
 		resolved.push(siblingByKey.get(key) ?? path);
 	}
 	return resolved;
-}
-
-/**
- * A `.bhnode` `upstream` list after a Composer edit (D37): removed sources
- * leave the list, added sources are appended unless an item already names
- * them (never listed twice), and every other item keeps its position and
- * source value.
- */
-export function baseHalfNodeUpstreamWithSourceChanges(
-	upstream: readonly BaseHalfNodeJsonValue[],
-	removedSourcePaths: readonly string[],
-	addedSourcePaths: readonly string[],
-	identity: IBaseHalfUpstreamIdentity = BASEHALF_EXACT_UPSTREAM_IDENTITY
-): BaseHalfNodeJsonValue[] {
-	const itemKey = (value: BaseHalfNodeJsonValue) => typeof value === 'string' ? identity.key(baseHalfNormalizeUpstreamEntry(value)) : undefined;
-	const removed = new Set(removedSourcePaths.map(path => identity.key(baseHalfNormalizeUpstreamEntry(path))));
-	const next = upstream.filter(value => {
-		const key = itemKey(value);
-		return key === undefined || !removed.has(key);
-	});
-	for (const path of addedSourcePaths.map(baseHalfNormalizeUpstreamEntry)) {
-		const key = identity.key(path);
-		if (!removed.has(key) && !next.some(value => itemKey(value) === key)) {
-			next.push(path);
-		}
-	}
-	return next;
 }

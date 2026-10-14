@@ -23,20 +23,11 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../platform/
 import { IUndoRedoService, UndoRedoElementType } from '../../../platform/undoRedo/common/undoRedo.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 import { IWorkingCopyService } from '../../services/workingCopy/common/workingCopyService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, BASEHALF_CANVAS_UNDO_REDO_SOURCE, IBaseHalfCanvasEditingService, IBaseHalfCanvasPostCreateIntent } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { IBaseHalfCanvasMirrorService, IBaseHalfCanvasStateTransition } from '../common/basehalfCanvasMirror.js';
-import {
-	BaseHalfCanvasContentKind,
-	IBaseHalfCanvasRecipeInput,
-	IBaseHalfCanvasRecipeRegistryService,
-	baseHalfCanvasContentKindForPath,
-	resolveBaseHalfCanvasRecipeParameters,
-	validateBaseHalfCanvasRecipeInputs
-} from '../common/basehalfCanvasRecipes.js';
 import {
 	BASEHALF_CANVAS_CREATE_FROM_TEMPLATE_COMMAND_ID,
 	IBaseHalfCanvasCreateFromTemplateCommandArguments,
@@ -46,11 +37,12 @@ import {
 	materializeBaseHalfCanvasTemplateUpstream,
 	parseBaseHalfCanvasTemplate
 } from '../common/basehalfCanvasTemplate.js';
+import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
 import { baseHalfIsWorkspaceFolderMarked } from '../common/basehalfLegacyCleanup.js';
 import { baseHalfEnsureMirrorIgnoreFile } from '../common/basehalfMirrorIgnore.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
-import { BASEHALF_CANVAS_RUN_NODE_COMMAND_ID, BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeJsonValue, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, IBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
+import { BASEHALF_NODE_DOCUMENT_EXTENSION, BASEHALF_NODE_DOCUMENT_MAX_BYTES, BaseHalfNodeKind, baseHalfProjectPathKey, baseHalfProjectPathProblem, createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../common/basehalfNodeDocument.js';
 import { IBaseHalfReferenceEditService } from '../common/basehalfReferenceEdit.js';
 import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
@@ -146,32 +138,6 @@ interface IBaseHalfPendingTemplateSetupPick extends IQuickPickItem {
 	readonly setup: IBaseHalfPendingTemplateSetup;
 }
 
-registerAction2(class BaseHalfCanvasRunNodeAction extends Action2 {
-	constructor() {
-		super({
-			id: BASEHALF_CANVAS_RUN_NODE_COMMAND_ID,
-			title: localize2('basehalf.canvas.runNode', "Run Canvas Node")
-		});
-	}
-
-	override run(accessor: ServicesAccessor, argument: unknown): Promise<IBaseHalfNodeDocument> {
-		if (!URI.isUri(argument) || argument.query || argument.fragment) {
-			throw new Error(localize('basehalf.canvas.runNode.uriRequired', "A workspace node URI is required."));
-		}
-		const workspaceFolder = accessor.get(IWorkspaceContextService).getWorkspaceFolder(argument);
-		const relativePath = workspaceFolder ? getRelativePath(workspaceFolder.uri, argument) : undefined;
-		if (!workspaceFolder || !relativePath || baseHalfProjectPathProblem(relativePath)
-			|| !relativePath.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION)) {
-			throw new Error(localize('basehalf.canvas.runNode.workspaceNodeRequired', "The URI must identify a node inside the current workspace."));
-		}
-		return accessor.get(IBaseHalfNodeExecutionService).run({
-			resource: argument,
-			workspaceFolder: workspaceFolder.uri,
-			relativePath
-		});
-	}
-});
-
 registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 	constructor() {
 		super({
@@ -187,7 +153,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		if (!commandArguments.templateId) {
 			throw new Error(localize('basehalf.canvas.template.idRequired', "A canvas template id is required."));
 		}
-		const recipes = accessor.get(IBaseHalfCanvasRecipeRegistryService);
+		const templates = accessor.get(IBaseHalfCanvasTemplateRegistryService);
 		const fileService = accessor.get(IFileService);
 		const navigation = accessor.get(IBaseHalfCanvasNavigationService);
 		const editing = accessor.get(IBaseHalfCanvasEditingService);
@@ -201,7 +167,7 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		const undoRedoService = accessor.get(IUndoRedoService);
 		const workingCopyService = accessor.get(IWorkingCopyService);
 		const workspaceContextService = accessor.get(IWorkspaceContextService);
-		const descriptor = recipes.getTemplate(commandArguments.templateId);
+		const descriptor = templates.getTemplate(commandArguments.templateId);
 		if (!descriptor) {
 			throw new Error(localize('basehalf.canvas.template.notFound', "Canvas template '{0}' is not available.", commandArguments.templateId));
 		}
@@ -209,11 +175,6 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 		throwIfTemplateCreationCancelled(cancellationToken);
 		const templateSource = raw.value.toString();
 		const template = parseBaseHalfCanvasTemplate(templateSource);
-		const createdKinds = new Map<string, BaseHalfCanvasContentKind>([
-			...template.files.map(file => [file.path, baseHalfCanvasContentKindForPath(file.path, false)] as const),
-			...template.nodes.map(node => [node.path, node.kind] as const)
-		]);
-		const validatedParameters = validateTemplateRecipes(template, recipes, createdKinds);
 
 		const currentFolder = commandArguments.targetFolder
 			? canvasFolderForTemplateTarget(workspaceContextService, commandArguments.targetFolder)
@@ -242,23 +203,14 @@ registerAction2(class BaseHalfCanvasCreateFromTemplateAction extends Action2 {
 			));
 		}
 		throwIfTemplateCreationCancelled(cancellationToken);
+		// Every node starts empty: a Video node with its prompt, if the template
+		// has one, and its inputs from the template's references.
 		const nodeDocuments = new Map(template.nodes.map(node => [node.path, serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 			id: generateUuid(),
 			kind: node.kind,
 			title: node.title,
-			role: node.role,
-			prompt: node.prompt ?? '',
-			upstream: upstream.nodes.get(node.path) ?? [],
-			...(node.recipe ? {
-				recipe: {
-					recipeId: node.recipe.recipeId,
-					parameters: validatedParameters.get(node.path)!,
-					inputBindings: node.recipe.inputBindings.map(binding => ({
-						...binding,
-						sourcePath: joinCanvasPath(projectRelativePath, binding.sourcePath)
-					}))
-				}
-			} : {})
+			...(node.prompt !== undefined ? { prompt: node.prompt } : {}),
+			upstream: upstream.nodes.get(node.path) ?? []
 		}))]));
 		const allFiles: readonly IBaseHalfTemplateProjectFile[] = [
 			...template.files.map(file => ({ path: file.path, contents: VSBuffer.fromString(upstream.files.get(file.path) ?? file.contents) })),
@@ -398,7 +350,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		const dialogService = accessor.get(IDialogService);
 		const quickInputService = accessor.get(IQuickInputService);
 		const workspaceContextService = accessor.get(IWorkspaceContextService);
-		const recipes = accessor.get(IBaseHalfCanvasRecipeRegistryService);
+		const templates = accessor.get(IBaseHalfCanvasTemplateRegistryService);
 		const fileService = accessor.get(IFileService);
 		const canvasMirror = accessor.get(IBaseHalfCanvasMirrorService);
 		const referenceEditService = accessor.get(IBaseHalfReferenceEditService);
@@ -438,7 +390,7 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 		if (!workspaceFolder) {
 			throw new Error(localize('basehalf.canvas.template.resumeWorkspaceMissing', "The workspace folder for this incomplete setup is not open."));
 		}
-		const descriptor = recipes.getTemplate(setup.templateId);
+		const descriptor = templates.getTemplate(setup.templateId);
 		if (!descriptor) {
 			throw new Error(localize('basehalf.canvas.template.resumeTemplateMissing', "'{0}' is not available, so this setup cannot be finished. If it stays unavailable after BaseHalf has started, AI Video could not start, and reinstalling BaseHalf repairs it.", setup.templateLabel));
 		}
@@ -461,7 +413,6 @@ registerAction2(class BaseHalfCanvasResumeTemplateSetupAction extends Action2 {
 			));
 		}
 		const template = parseBaseHalfCanvasTemplate(templateSource);
-		validateTemplateRecipes(template, recipes);
 		await finishPendingTemplateSetup({
 			pending: setup,
 			template,
@@ -882,43 +833,6 @@ interface IBaseHalfTemplateSetupRuntime {
 	readonly undoRedoService: IUndoRedoService;
 	readonly workingCopyService: IWorkingCopyService;
 	readonly confirmBeforeUndo: boolean;
-}
-
-function validateTemplateRecipes(
-	template: IBaseHalfCanvasTemplate,
-	recipes: IBaseHalfCanvasRecipeRegistryService,
-	createdKinds = new Map<string, BaseHalfCanvasContentKind>([
-		...template.files.map(file => [file.path, baseHalfCanvasContentKindForPath(file.path, false)] as const),
-		...template.nodes.map(node => [node.path, node.kind] as const)
-	])
-): ReadonlyMap<string, Readonly<Record<string, BaseHalfNodeJsonValue>>> {
-	const validatedParameters = new Map<string, Readonly<Record<string, BaseHalfNodeJsonValue>>>();
-	for (const node of template.nodes) {
-		if (!node.recipe) {
-			continue;
-		}
-		const recipe = recipes.getRecipe(node.recipe.recipeId);
-		if (!recipe) {
-			throw new Error(localize('basehalf.canvas.template.recipeMissing', "Template recipe '{0}' is not available.", node.recipe.recipeId));
-		}
-		const primary = recipe.outputs.find(output => output.primary === true)!;
-		if (primary.kind !== node.kind) {
-			throw new Error(localize('basehalf.canvas.template.recipeOutputMismatch', "Template node '{0}' is {1}, but recipe '{2}' produces {3}.", node.path, node.kind, recipe.label, primary.kind));
-		}
-		validatedParameters.set(node.path, resolveBaseHalfCanvasRecipeParameters(recipe, node.recipe.parameters));
-		const inputs: IBaseHalfCanvasRecipeInput[] = node.recipe.inputBindings.map(binding => ({
-			edgeId: `${binding.sourcePath}->${node.path}`,
-			slotId: binding.slot,
-			order: binding.order,
-			source: {
-				id: binding.sourcePath,
-				path: binding.sourcePath,
-				kind: createdKinds.get(binding.sourcePath)!
-			}
-		}));
-		validateBaseHalfCanvasRecipeInputs(recipe, inputs);
-	}
-	return validatedParameters;
 }
 
 async function finishPendingTemplateSetup(runtime: IBaseHalfTemplateSetupRuntime, initialError?: unknown): Promise<void> {

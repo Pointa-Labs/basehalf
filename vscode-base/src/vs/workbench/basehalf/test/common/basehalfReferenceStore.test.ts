@@ -299,7 +299,7 @@ suite('BaseHalfReferenceStore', () => {
 
 	test('detects plugin transitions that change an upstream value, including a broken fence', () => {
 		const note = '---\ntitle: x\nupstream:\n  - a.md\n---\nBody\n';
-		const node = JSON.stringify({ version: 4, title: 'x', upstream: ['a.md'] });
+		const node = JSON.stringify({ version: 5, title: 'x', upstream: ['a.md'] });
 		assert.deepStrictEqual([
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('Body', 'New body')),
 			baseHalfTransitionChangesUpstream('n.md', note, note.replace('title: x', 'title: y')),

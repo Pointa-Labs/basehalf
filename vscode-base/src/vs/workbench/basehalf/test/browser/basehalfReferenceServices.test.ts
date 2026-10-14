@@ -30,13 +30,13 @@ import { ITextFileService } from '../../../services/textfile/common/textfiles.js
 import { workbenchInstantiationService } from '../../../test/browser/workbenchTestServices.js';
 import { TestContextService } from '../../../test/common/workbenchTestServices.js';
 import { BaseHalfReferenceEditService } from '../../browser/basehalfReferenceEditService.js';
-import { BaseHalfNodeRunLeaseStore } from '../../browser/basehalfNodeRunLease.js';
 import { BaseHalfAdhdMirrorService, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfEditorFlushService, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../common/basehalfMarkdownProjection.js';
 import { baseHalfMarkdownRichDocumentKey } from '../../common/basehalfMarkdownRichLiveDocument.js';
 import { createBaseHalfNodeDocument, IBaseHalfNodeDocument, parseBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
+import { IBaseHalfVideoGenerationRecord } from '../../common/basehalfVideoNode.js';
 import {
 	BASEHALF_REFERENCES_FIRST_FRONTMATTER_NOTICE_STORAGE_KEY,
 	BaseHalfReferenceEditFailure,
@@ -266,23 +266,19 @@ async function disposeModel(harness: IHarness, path: string): Promise<void> {
 	assert.strictEqual(harness.textFileService.files.get(resource), undefined);
 }
 
-function nodeDocument(id: number, options: { upstream?: string[]; bindings?: { sourcePath: string; slot: string; order: number }[]; version?: 3 } = {}): string {
-	const document = createBaseHalfNodeDocument({
+function nodeDocument(id: number, options: { upstream?: string[]; result?: IBaseHalfNodeDocument['result'] } = {}): string {
+	return serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 		id: baseHalfNodeTestId(id),
 		kind: 'video',
 		title: 'Clip',
-		role: 'Generated result',
 		...(options.upstream ? { upstream: options.upstream } : {}),
-		recipe: { recipeId: 'ai-video.text-to-video', parameters: {}, inputBindings: options.bindings ?? [] }
-	});
-	const serialized = serializeBaseHalfNodeDocument(document);
-	if (options.version === 3) {
-		const legacy = JSON.parse(serialized);
-		delete legacy.upstream;
-		legacy.version = 3;
-		return `${JSON.stringify(legacy, null, '\t')}\n`;
-	}
-	return serialized;
+		...(options.result ? { result: options.result } : {})
+	}));
+}
+
+/** A Video node that shows `path`, a file the user brought in. */
+function nodeShowing(id: number, path: string, upstream?: string[]): string {
+	return nodeDocument(id, { upstream, result: { source: 'imported', artifact: { kind: 'video', path, size: 1 } } });
 }
 
 suite('BaseHalfReferenceIndexService', () => {
@@ -302,7 +298,7 @@ suite('BaseHalfReferenceIndexService', () => {
 			'.bh/mirror/docs/upstream.yaml': 'upstream:\n  - notes/a.md\n',
 			'.bh/mirror/notes/a.md/upstream.yaml': 'upstream:\n  - b.md\n',
 			'.bh/mirror/missing.pdf/upstream.yaml': 'upstream:\n  - b.md\n',
-			'clip.bhnode': nodeDocument(1, { upstream: ['b.md', 'notes/a.md'], bindings: [{ sourcePath: 'notes/a.md', slot: 'brief', order: 0 }] }),
+			'clip.bhnode': nodeDocument(1, { upstream: ['b.md', 'notes/a.md'] }),
 			'node_modules/pkg/readme.md': '---\nupstream:\n  - b.md\n---\n',
 			'outputs/run/copy.md': '---\nupstream:\n  - b.md\n---\n',
 			'CLAUDE.md': '---\nupstream:\n  - b.md\n---\n',
@@ -402,18 +398,24 @@ suite('BaseHalfReferenceIndexService', () => {
 		assert.deepStrictEqual((await state()).downstreamOfA, ['own.md:sidecar', 'toml.md:sidecar']);
 	});
 
-	test('marks dangling bound entries of attempted nodes as historical and reports sealed artifacts', async () => {
-		const sealed = JSON.parse(nodeDocument(2, { upstream: ['gone.md'], bindings: [{ sourcePath: 'gone.md', slot: 'brief', order: 0 }] }));
-		sealed.result = { source: 'imported', artifact: { id: 'a', outputId: 'o', kind: 'video', path: 'renders/final.md', sha256: 'A'.repeat(43), size: 1 } };
+	test('reports a dangling entry of a node with a video as an issue, and the file a node shows as upstream-only', async () => {
 		const harness = await createHarness(disposables, {
-			'result.bhnode': JSON.stringify(sealed),
+			'result.bhnode': nodeShowing(2, 'renders/final.md', ['gone.md']),
 			'renders/final.md': '# final\n'
 		});
 		const view = await harness.index.resolveUpstream(harness.node('result.bhnode'));
-		assert.deepStrictEqual(view.entries.map(entry => [entry.status, entry.historical, entry.issue, entry.binding?.slot]), [['dangling', true, false, 'brief']]);
-		assert.deepStrictEqual(harness.index.getSealedArtifacts(folder), ['renders/final.md']);
-		assert.strictEqual(harness.index.getUpstreamOnlyReason(harness.node('renders/final.md')), 'sealedArtifact');
+		assert.deepStrictEqual(view.entries.map(entry => [entry.status, entry.issue]), [['dangling', true]]);
+		assert.deepStrictEqual(harness.index.getResultArtifacts(folder), ['renders/final.md']);
+		assert.strictEqual(harness.index.getUpstreamOnlyReason(harness.node('renders/final.md')), 'resultArtifact');
 		assert.strictEqual(harness.index.getUpstreamOnlyReason(harness.node('outputs/x.md')), 'reservedOutput');
+	});
+
+	test('reads no upstream list from a version 4 node', async () => {
+		const legacy = JSON.stringify({ version: 4, id: baseHalfNodeTestId(3), kind: 'video', title: 'Old', role: 'Clip', prompt: '', upstream: ['a.md'], attempts: [] });
+		const harness = await createHarness(disposables, { 'a.md': '# A\n', 'old.bhnode': legacy });
+		assert.deepStrictEqual(harness.index.getDownstream(harness.node('a.md')), []);
+		assert.strictEqual((await refusal(harness.edit.add(harness.node('old.bhnode'), 'a.md', options))).reason, 'unreadable');
+		assert.strictEqual(await harness.read('old.bhnode'), legacy);
 	});
 
 	test('updates on external frontmatter edits, deletions, and folder moves', async () => {
@@ -712,77 +714,64 @@ suite('BaseHalfReferenceEditService', () => {
 		});
 	});
 
-	test('connecting into a Draft node writes upstream and its binding in one write', async () => {
+	test('connecting into a node appends to its upstream list in one write', async () => {
 		const harness = await createHarness(disposables, {
 			'brief.md': '# Brief\n',
-			'clip.bhnode': nodeDocument(3, { version: 3 }),
+			'clip.bhnode': nodeDocument(3, { upstream: ['loose.md'] }),
 			'loose.md': ''
 		});
-		await harness.edit.add(harness.node('clip.bhnode'), 'brief.md', options, { slot: 'brief' });
-		const written = parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!);
-		assert.deepStrictEqual([JSON.parse((await harness.read('clip.bhnode'))!).version, written.upstream, written.recipe?.inputBindings], [
-			4,
-			['brief.md'],
-			[{ sourcePath: 'brief.md', slot: 'brief', order: 0 }]
-		]);
+		await harness.edit.add(harness.node('clip.bhnode'), 'brief.md', options);
+		const text = (await harness.read('clip.bhnode'))!;
+		assert.deepStrictEqual([JSON.parse(text).version, parseBaseHalfNodeDocument(text).upstream], [5, ['loose.md', 'brief.md']]);
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('brief.md')).map(entry => entry.node.relativePath), ['clip.bhnode']);
 	});
 
-	test('canvas undo and redo of a node connect restore upstream and binding together', async () => {
+	test('canvas undo and redo of a node connect restore its upstream list', async () => {
 		const harness = await createHarness(disposables, { 'brief.md': '# Brief\n', 'clip.bhnode': nodeDocument(6) });
 		const source = new UndoRedoSource();
-		const result = await harness.edit.add(harness.node('clip.bhnode'), 'brief.md', options, { slot: 'brief' });
+		const result = await harness.edit.add(harness.node('clip.bhnode'), 'brief.md', options);
 		harness.edit.pushUndoElement(result, { label: 'Connect', resources: [joinPath(folder, '.bh', 'mirror', 'canvas.yaml')], source });
-		const state = async () => {
-			const document = parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!);
-			return [document.upstream, document.recipe?.inputBindings.map(binding => binding.slot)];
-		};
+		const state = async () => parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!).upstream;
 		await harness.undoRedo.undo(source);
-		assert.deepStrictEqual(await state(), [[], []]);
+		assert.deepStrictEqual(await state(), []);
 		await harness.undoRedo.redo(source);
-		assert.deepStrictEqual(await state(), [['brief.md'], ['brief']]);
+		assert.deepStrictEqual(await state(), ['brief.md']);
 	});
 
-	test('refuses node writes under a run lease and bound disconnects outside a Draft', async () => {
-		const running = createBaseHalfNodeDocument({
+	test('connects and disconnects a node in every phase, while it generates and after it has a video', async () => {
+		const request: IBaseHalfVideoGenerationRecord = { provider: 'ark', model: 'seedance', prompt: '', inputs: ['brief.md'], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
+		const generating = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(4),
 			kind: 'video',
 			title: 'Clip',
-			role: 'Generated result',
 			upstream: ['brief.md', 'loose.md'],
-			recipe: { recipeId: 'r', parameters: {}, inputBindings: [{ sourcePath: 'brief.md', slot: 'brief', order: 0 }] },
-			attempts: [{
-				id: 'attempt-1', status: 'failed', createdAt: '2026-08-13T08:00:00.000Z', startedAt: '2026-08-13T08:00:01.000Z', completedAt: '2026-08-13T08:00:02.000Z',
-				prompt: '', recipe: { recipeId: 'r', parameters: {}, inputBindings: [{ sourcePath: 'brief.md', slot: 'brief', order: 0 }] },
-				model: { source: 'local' }, inputs: [], error: 'offline'
-			}]
+			task: { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', remoteId: 'cgt-1', request }
+		}));
+		const harness = await createHarness(disposables, {
+			'brief.md': '',
+			'loose.md': '',
+			'new.md': '',
+			'clip.bhnode': generating,
+			'shown.bhnode': nodeShowing(5, 'final.mp4', ['brief.md']),
+			'final.mp4': ''
 		});
-		const harness = await createHarness(disposables, { 'brief.md': '', 'loose.md': '', 'clip.bhnode': serializeBaseHalfNodeDocument(running) });
-		const bound = await refusal(harness.edit.remove(harness.node('clip.bhnode'), 'brief.md', options));
-		assert.strictEqual(bound.reason, 'boundOutsideDraft');
-		await harness.edit.remove(harness.node('clip.bhnode'), 'loose.md', options);
-		assert.deepStrictEqual(parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!).upstream, ['brief.md']);
-
-		assert.strictEqual((await refusal(harness.edit.add(harness.node('clip.bhnode'), 'loose.md', options))).reason, 'recipeFrozen');
-
-		const lease = await new BaseHalfNodeRunLeaseStore(harness.fileService, 30_000).acquire(folder, running.id, 'clip.bhnode', 'owner', 'run', undefined);
-		assert.strictEqual(lease.kind, 'acquired');
-		const busy = await refusal(harness.edit.remove(harness.node('clip.bhnode'), 'brief.md', options));
-		assert.deepStrictEqual([busy.reason, busy.message], ['running', 'This node is running.']);
+		await harness.edit.remove(harness.node('clip.bhnode'), 'brief.md', options);
+		await harness.edit.add(harness.node('clip.bhnode'), 'new.md', options);
+		await harness.edit.remove(harness.node('shown.bhnode'), 'brief.md', options);
+		await harness.edit.add(harness.node('shown.bhnode'), 'new.md', options);
+		const clip = parseBaseHalfNodeDocument((await harness.read('clip.bhnode'))!);
+		const shown = parseBaseHalfNodeDocument((await harness.read('shown.bhnode'))!);
+		assert.deepStrictEqual([clip.upstream, clip.task?.state, shown.upstream, shown.result?.artifact.path], [['loose.md', 'new.md'], 'running', ['new.md'], 'final.mp4']);
 	});
 
-	test('connecting into a folder or PDF writes its sidecar; outputs and sealed artifacts are refused', async () => {
-		const sealed = JSON.parse(nodeDocument(5));
-		sealed.recipe = undefined;
-		delete sealed.recipe;
-		sealed.result = { source: 'imported', artifact: { id: 'a', outputId: 'o', kind: 'video', path: 'final.md', sha256: 'A'.repeat(43), size: 1 } };
+	test('connecting into a folder or PDF writes its sidecar; outputs and the files nodes show are refused', async () => {
 		const harness = await createHarness(disposables, {
 			'note.md': '# N\n',
 			'docs/x.txt': '',
 			'book.pdf': '%PDF',
 			'outputs/run/copy.md': '# copy\n',
 			'final.md': '# final\n',
-			'result.bhnode': JSON.stringify(sealed)
+			'result.bhnode': nodeShowing(5, 'final.md')
 		});
 		await harness.edit.add(harness.node('docs'), 'note.md', options);
 		await harness.edit.add(harness.node('book.pdf'), 'note.md', options);
@@ -1126,16 +1115,13 @@ suite('BaseHalfReferenceEditService', () => {
 		}
 	});
 
-	test('never changes a sealed Result artifact, removals included', async () => {
-		const sealed = JSON.parse(nodeDocument(8));
-		delete sealed.recipe;
-		sealed.result = { source: 'imported', artifact: { id: 'a', outputId: 'o', kind: 'video', path: 'final.md', sha256: 'A'.repeat(43), size: 1 } };
+	test('never changes the file a node shows, removals included', async () => {
 		const artifact = '---\nupstream:\n  - note.md\n---\n# final\n';
 		const harness = await createHarness(disposables, {
 			'note.md': '# N\n',
 			'other.md': '# O\n',
 			'final.md': artifact,
-			'result.bhnode': JSON.stringify(sealed)
+			'result.bhnode': nodeShowing(8, 'final.md')
 		});
 		// Its entries are still read, so the edge into it is drawn.
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('note.md')).map(entry => entry.node.relativePath), ['final.md']);
@@ -1182,17 +1168,12 @@ suite('BaseHalfReferenceEditService', () => {
 		assert.deepStrictEqual([refused.reason, await harness.read('linked/b.md')], ['symbolicLink', '# B\n']);
 	});
 
-	test('a Composer save writes the whole node document once, and canvas undo restores it', async () => {
+	test('a Video node store write replaces the whole node document once, and canvas undo restores it', async () => {
 		const harness = await createHarness(disposables, { 'brief.md': '# Brief\n', 'clip.bhnode': nodeDocument(9) });
 		const source = new UndoRedoSource();
 		const before = (await harness.read('clip.bhnode'))!;
 		const document = parseBaseHalfNodeDocument(before);
-		const next = {
-			...document,
-			prompt: 'Use the brief',
-			upstream: ['brief.md'],
-			recipe: { ...document.recipe!, inputBindings: [{ sourcePath: 'brief.md', slot: 'brief', order: 0 }] }
-		};
+		const next = { ...document, prompt: 'Use the brief', upstream: ['brief.md'] };
 		const save = (expected: string, nextDocument: IBaseHalfNodeDocument) => harness.edit.apply([{
 			node: harness.node('clip.bhnode'),
 			operation: { kind: 'nodeDocument', expected: VSBuffer.fromString(expected), next: nextDocument }
@@ -1215,9 +1196,9 @@ suite('BaseHalfReferenceEditService', () => {
 		await harness.undoRedo.undo(source);
 		assert.deepStrictEqual([await harness.read('clip.bhnode'), harness.notifications.messages], [edited, ['clip.bhnode changed since this edit.']]);
 
-		// Under a run lease the save is refused.
-		await new BaseHalfNodeRunLeaseStore(harness.fileService, 30_000).acquire(folder, document.id, 'clip.bhnode', 'owner', 'run', undefined);
-		assert.strictEqual((await refusal(save(edited, { ...parseBaseHalfNodeDocument(edited), prompt: 'while running' }))).reason, 'running');
+		// A write may not give the node another identity or kind.
+		await assert.rejects(save(edited, { ...parseBaseHalfNodeDocument(edited), id: baseHalfNodeTestId(99) }));
+		assert.strictEqual(await harness.read('clip.bhnode'), edited);
 	});
 
 	test('a node document step joins its node\'s undo stack, so an older undone card step never takes its redo', async () => {
@@ -1244,7 +1225,7 @@ suite('BaseHalfReferenceEditService', () => {
 			operation: {
 				kind: 'nodeDocument',
 				expected: VSBuffer.fromString(before),
-				next: { ...document, upstream: ['brief.md'], recipe: { ...document.recipe!, inputBindings: [{ sourcePath: 'brief.md', slot: 'brief', order: 0 }] } }
+				next: { ...document, upstream: ['brief.md'] }
 			}
 		}], options);
 		const element = harness.edit.pushUndoElement(result, { label: 'Change video input', resources: [canvas], source });

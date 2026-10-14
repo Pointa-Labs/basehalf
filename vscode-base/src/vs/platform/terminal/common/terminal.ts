@@ -329,13 +329,15 @@ export function isIntegratedTerminalProgram(termProgram: string | undefined): bo
 
 export const BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV = 'BASEHALF_NODE_COMMAND_BRIDGE_HOOK';
 /**
- * Version 3 (D37): capability discovery describes downstream-owned upstream
- * lists (`inputBinding.scope: 'node-upstream'` and the `contextEdge` storage
- * literals). Both ends validate these literals, so they change together.
+ * Version 4 (D58): `.bhnode` version 5. A node run starts a Video node's
+ * generation and answers with the node that runs; discovery lists no recipes,
+ * and its `nodeDocument` and `contextEdge` literals describe inputs in
+ * upstream order. Both ends validate these literals, so they change together.
  */
-export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 3;
+export const BASEHALF_NODE_COMMAND_BRIDGE_VERSION = 4;
 
-export type BaseHalfNodeCommandOutcome = 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | 'rejected';
+/** `succeeded`: the generation started and its task is in the node's file. */
+export type BaseHalfNodeCommandOutcome = 'succeeded' | 'rejected';
 
 export interface IBaseHalfRunNodeCommandRequest {
 	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
@@ -363,27 +365,17 @@ export interface IBaseHalfAgentCapabilityDiscoveryRequest {
 /** A single JSON request accepted from a BaseHalf-owned Agent Area terminal. */
 export type IBaseHalfNodeCommandRequest = IBaseHalfRunNodeCommandRequest | IBaseHalfAgentOperationCommandRequest | IBaseHalfAgentCapabilityDiscoveryRequest;
 
-export interface IBaseHalfNodeCommandAttemptResult {
-	readonly id: string;
-	readonly status: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-	readonly completedAt?: string;
-	readonly error?: string;
-}
-
-export interface IBaseHalfNodeCommandSealedResult {
-	readonly source: 'attempt';
-	readonly attemptId: string;
-	readonly artifactPath: string;
-}
-
 export interface IBaseHalfRunNodeCommandResponse {
 	readonly version: typeof BASEHALF_NODE_COMMAND_BRIDGE_VERSION;
 	readonly ok: boolean;
 	readonly outcome: BaseHalfNodeCommandOutcome;
 	readonly type?: 'runNode';
+	/**
+	 * The workspace-relative path of the node that runs: the requested node, or
+	 * a new node beside it when the requested node already held a video. For a
+	 * rejected request, the path that was asked for.
+	 */
 	readonly nodePath: string;
-	readonly attempt?: IBaseHalfNodeCommandAttemptResult;
-	readonly result?: IBaseHalfNodeCommandSealedResult;
 	readonly error?: string;
 }
 
@@ -398,7 +390,6 @@ export interface IBaseHalfAgentOperationCommandResponse {
 }
 
 export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS = 256;
-export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_RECIPES = 256;
 export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES = 256;
 
 export type BaseHalfAgentCapabilityDiscoveryJsonValue = null | boolean | number | string | readonly BaseHalfAgentCapabilityDiscoveryJsonValue[] | { readonly [key: string]: BaseHalfAgentCapabilityDiscoveryJsonValue };
@@ -406,16 +397,12 @@ export type BaseHalfAgentCapabilityDiscoveryJsonValue = null | boolean | number 
 export interface IBaseHalfAgentCapabilityDiscoveryNodeDocument {
 	readonly fileExtension: '.bhnode';
 	readonly documentVersion: number;
-	readonly resultKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
-	readonly inputBinding: {
-		/** Every binding's `sourcePath` must be an entry of the node's own `upstream`. */
-		readonly scope: 'node-upstream';
-		readonly fields: readonly ['sourcePath', 'slot', 'order'];
-	};
+	readonly nodeKinds: readonly ('file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
 	readonly lifecycle: {
-		readonly attempts: 'host-owned';
+		/** The generation that runs, written by BaseHalf only. */
+		readonly task: 'host-owned';
+		/** The one file a node shows, written by BaseHalf only. */
 		readonly result: 'host-owned-single-file';
-		readonly retry: 'frozen-only';
 	};
 	readonly runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>';
 	readonly authoring: Readonly<Record<string, BaseHalfAgentCapabilityDiscoveryJsonValue>>;
@@ -425,7 +412,8 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 	readonly nodeDocument: IBaseHalfAgentCapabilityDiscoveryNodeDocument;
 	readonly contextEdge: {
 		readonly source: 'direct-content';
-		readonly resultNodeSource: 'sealed-result';
+		/** A `.bhnode` upstream stands for the file it shows. */
+		readonly resultNodeSource: 'node-result';
 		readonly target: 'direct-context';
 		readonly autoRun: false;
 		readonly recursive: false;
@@ -435,7 +423,8 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly markdownFrontmatterKey: 'upstream';
 		/** A `.bhnode` target lists its upstream in this top-level field. */
 		readonly nodeDocumentField: 'upstream';
-		readonly roleAndOrderOwner: 'target-recipe-binding';
+		/** A Video node uses its inputs in the order of its `upstream` list. */
+		readonly inputOrder: 'target-upstream-order';
 		readonly label: 'none';
 	};
 	readonly templates: readonly {
@@ -444,54 +433,6 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly description?: string;
 	}[];
 	readonly operations: readonly IBaseHalfAgentCapabilityDiscoveryOperation[];
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryRecipeInput {
-	readonly id: string;
-	readonly label: string;
-	readonly accepts: readonly ('text' | 'code' | 'file' | 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation')[];
-	readonly minItems: number;
-	readonly maxItems: number;
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryRecipeEnumOption {
-	readonly value: string;
-	readonly label: string;
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryRecipeParameter {
-	readonly id: string;
-	readonly label: string;
-	readonly type: 'string' | 'multiline' | 'number' | 'boolean' | 'enum';
-	readonly required?: true;
-	readonly default?: string | number | boolean;
-	readonly minLength?: number;
-	readonly maxLength?: number;
-	readonly minimum?: number;
-	readonly maximum?: number;
-	readonly step?: number;
-	readonly options?: readonly IBaseHalfAgentCapabilityDiscoveryRecipeEnumOption[];
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryRecipeOutput {
-	readonly id: string;
-	readonly kind: 'file' | 'image' | 'video' | 'audio' | 'pdf' | 'presentation';
-	readonly extensions: readonly string[];
-	readonly minItems: number;
-	readonly maxItems: number;
-	readonly primary?: true;
-}
-
-export interface IBaseHalfAgentCapabilityDiscoveryRecipe {
-	readonly id: string;
-	readonly label: string;
-	readonly description?: string;
-	readonly icon?: string;
-	readonly modelCapability?: 'text' | 'image' | 'video' | 'audio';
-	readonly videoModelCatalogId?: string;
-	readonly inputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeInput[];
-	readonly parameters: readonly IBaseHalfAgentCapabilityDiscoveryRecipeParameter[];
-	readonly outputs: readonly IBaseHalfAgentCapabilityDiscoveryRecipeOutput[];
 }
 
 export interface IBaseHalfAgentCapabilityDiscoveryDocument {
@@ -536,7 +477,6 @@ export interface IBaseHalfAgentCapabilityDiscoveryResponse {
 	readonly ok: boolean;
 	readonly outcome: 'succeeded' | 'rejected';
 	readonly host?: IBaseHalfAgentCapabilityDiscoveryHost;
-	readonly recipes?: readonly IBaseHalfAgentCapabilityDiscoveryRecipe[];
 	readonly extensions?: readonly IBaseHalfAgentCapabilityDiscoveryExtension[];
 	readonly error?: string;
 }

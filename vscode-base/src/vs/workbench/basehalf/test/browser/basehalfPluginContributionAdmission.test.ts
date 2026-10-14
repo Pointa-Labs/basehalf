@@ -13,11 +13,11 @@ import { IEnvironmentService } from '../../../../platform/environment/common/env
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { ExtensionIdentifier, IExtensionDescription, TargetPlatform } from '../../../../platform/extensions/common/extensions.js';
 import { InMemoryStorageService } from '../../../../platform/storage/common/storage.js';
-import { BaseHalfCanvasRecipeExtensionPointContribution } from '../../browser/basehalfCanvasRecipeExtensionPoint.contribution.js';
+import { BaseHalfCanvasTemplateExtensionPointContribution } from '../../browser/basehalfCanvasTemplateExtensionPoint.contribution.js';
 import { BaseHalfAgentCapabilityExtensionPointContribution } from '../../browser/basehalfAgentCapabilityExtensionPoint.contribution.js';
 import { BaseHalfCardProjectionExtensionPointContribution } from '../../browser/basehalfCardProjectionExtensionPoint.contribution.js';
 import { BaseHalfCardDetailSurfaceRegistryService } from '../../browser/cardDetail/basehalfCardDetailSurface.js';
-import { BaseHalfCanvasRecipeRegistryService, IBaseHalfCanvasRecipeContribution, IBaseHalfCanvasTemplateContribution } from '../../common/basehalfCanvasRecipes.js';
+import { BaseHalfCanvasTemplateRegistryService, IBaseHalfCanvasTemplateContribution } from '../../common/basehalfCanvasTemplateRegistry.js';
 import { BaseHalfAgentCapabilityRegistryService, IBaseHalfAgentCapabilityContribution } from '../../common/basehalfAgentCapabilities.js';
 import { BaseHalfCardProjectionRegistryService } from '../../common/basehalfCardDetail.js';
 import { BaseHalfPluginAdmissionService, hashBaseHalfPluginInstall } from '../../common/basehalfPluginAdmissionService.js';
@@ -33,18 +33,17 @@ interface ITestProjectionContribution {
 suite('BaseHalfPluginContributionAdmission', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('rebuilds recipes, templates, and projections from full admitted extension state', async () => {
+	test('rebuilds templates, Agent capabilities, and projections from full admitted extension state', async () => {
 		const storage = new InMemoryStorageService();
 		const files = pluginFileService();
 		const admission = new BaseHalfPluginAdmissionService(storage, { isExtensionDevelopment: false } as unknown as IEnvironmentService, files);
-		const recipes = new BaseHalfCanvasRecipeRegistryService();
+		const templates = new BaseHalfCanvasTemplateRegistryService();
 		const agentCapabilities = new BaseHalfAgentCapabilityRegistryService();
 		const projections = new BaseHalfCardProjectionRegistryService();
 		const surfaces = new BaseHalfCardDetailSurfaceRegistryService();
-		const recipeContribution = new BaseHalfCanvasRecipeExtensionPointContribution(recipes, admission);
+		const templateContribution = new BaseHalfCanvasTemplateExtensionPointContribution(templates, admission);
 		const agentCapabilityContribution = new BaseHalfAgentCapabilityExtensionPointContribution(agentCapabilities, admission);
 		const projectionContribution = new BaseHalfCardProjectionExtensionPointContribution({} as IInstantiationService, projections, surfaces, admission);
-		const recipePoint = extensionPoint<IBaseHalfCanvasRecipeContribution[]>('basehalfCanvasRecipes');
 		const templatePoint = extensionPoint<IBaseHalfCanvasTemplateContribution[]>('basehalfCanvasTemplates');
 		const projectionPoint = extensionPoint<ITestProjectionContribution[]>('basehalfCardProjections');
 		const agentCapabilityPoint = extensionPoint<IBaseHalfAgentCapabilityContribution[]>('basehalfAgentCapabilities');
@@ -52,34 +51,29 @@ suite('BaseHalfPluginContributionAdmission', () => {
 		try {
 			const location = URI.file('/extensions/reviewed-workflow');
 			const firstInstalledContentSha256 = await hashBaseHalfPluginInstall(files, location);
-			recipePoint.acceptUsers([recipeUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.render')]);
 			templatePoint.acceptUsers([templateUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.starter')]);
 			projectionPoint.acceptUsers([projectionUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.detail')]);
 			agentCapabilityPoint.acceptUsers([agentCapabilityUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.sequence-capability')]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render'), undefined);
-			assert.strictEqual(recipes.getTemplate('reviewed.workflow.starter'), undefined);
+			assert.strictEqual(templates.getTemplate('reviewed.workflow.starter'), undefined);
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail'), undefined);
 			assert.strictEqual(agentCapabilities.getCapability('reviewed.workflow.sequence-capability'), undefined);
+			// Recipes are gone (D58): nothing can contribute one.
+			assert.strictEqual(ExtensionsRegistry.getExtensionPoints().some(point => point.name === 'basehalfCanvasRecipes'), false);
 
 			const firstSha256 = 'a'.repeat(64);
 			admission.replaceVerifiedPlugins([{ extensionId: 'reviewed.workflow', versions: [{ version: '1.0.0', sha256: firstSha256, installedContentSha256: firstInstalledContentSha256 }] }]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render'), undefined);
 			assert.ok(await admission.verifyAndRecordInstall({ extensionId: 'reviewed.workflow', version: '1.0.0', sha256: firstSha256, extensionLocation: location, expectedInstalledContentSha256: firstInstalledContentSha256 }));
-			assert.ok(recipes.getRecipe('reviewed.workflow.render'));
-			assert.ok(recipes.getTemplate('reviewed.workflow.starter'));
+			assert.ok(templates.getTemplate('reviewed.workflow.starter'));
 			assert.ok(projections.getProjection('reviewed.workflow.detail'));
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail')?.icon, 'codicon-file-code');
 			assert.deepStrictEqual(projections.getProjection('reviewed.workflow.detail')?.selector?.extensions, ['.story-board']);
 			assert.ok(agentCapabilities.getCapability('reviewed.workflow.sequence-capability'));
 
-			recipePoint.acceptUsers([recipeUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.render-v2')]);
 			templatePoint.acceptUsers([templateUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.starter-v2')]);
 			projectionPoint.acceptUsers([projectionUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.detail-v2')]);
 			agentCapabilityPoint.acceptUsers([agentCapabilityUser('reviewed.workflow', '1.0.0', location, 'reviewed.workflow.sequence-capability-v2')]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render'), undefined);
-			assert.ok(recipes.getRecipe('reviewed.workflow.render-v2'));
-			assert.strictEqual(recipes.getTemplate('reviewed.workflow.starter'), undefined);
-			assert.ok(recipes.getTemplate('reviewed.workflow.starter-v2'));
+			assert.strictEqual(templates.getTemplate('reviewed.workflow.starter'), undefined);
+			assert.ok(templates.getTemplate('reviewed.workflow.starter-v2'));
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail'), undefined);
 			assert.ok(projections.getProjection('reviewed.workflow.detail-v2'));
 			assert.strictEqual(agentCapabilities.getCapability('reviewed.workflow.sequence-capability'), undefined);
@@ -87,52 +81,43 @@ suite('BaseHalfPluginContributionAdmission', () => {
 
 			const updatedLocation = URI.file('/extensions/reviewed-workflow-updated');
 			const secondInstalledContentSha256 = await hashBaseHalfPluginInstall(files, updatedLocation);
-			recipePoint.acceptUsers([recipeUser('reviewed.workflow', '2.0.0', updatedLocation, 'reviewed.workflow.render-v3')]);
 			templatePoint.acceptUsers([templateUser('reviewed.workflow', '2.0.0', updatedLocation, 'reviewed.workflow.starter-v3')]);
 			projectionPoint.acceptUsers([projectionUser('reviewed.workflow', '2.0.0', updatedLocation, 'reviewed.workflow.detail-v3')]);
 			agentCapabilityPoint.acceptUsers([agentCapabilityUser('reviewed.workflow', '2.0.0', updatedLocation, 'reviewed.workflow.sequence-capability-v3')]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render-v2'), undefined);
-			assert.strictEqual(recipes.getTemplate('reviewed.workflow.starter-v2'), undefined);
+			assert.strictEqual(templates.getTemplate('reviewed.workflow.starter-v2'), undefined);
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail-v2'), undefined);
 			assert.strictEqual(agentCapabilities.getCapability('reviewed.workflow.sequence-capability-v2'), undefined);
 
 			const secondSha256 = 'b'.repeat(64);
 			admission.replaceVerifiedPlugins([{ extensionId: 'reviewed.workflow', versions: [{ version: '2.0.0', sha256: secondSha256, installedContentSha256: secondInstalledContentSha256 }] }]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render-v3'), undefined);
 			assert.ok(await admission.verifyAndRecordInstall({ extensionId: 'reviewed.workflow', version: '2.0.0', sha256: secondSha256, extensionLocation: updatedLocation, expectedInstalledContentSha256: secondInstalledContentSha256 }));
-			assert.ok(recipes.getRecipe('reviewed.workflow.render-v3'));
-			assert.ok(recipes.getTemplate('reviewed.workflow.starter-v3'));
+			assert.ok(templates.getTemplate('reviewed.workflow.starter-v3'));
 			assert.ok(projections.getProjection('reviewed.workflow.detail-v3'));
 			assert.ok(agentCapabilities.getCapability('reviewed.workflow.sequence-capability-v3'));
 
 			admission.replaceVerifiedPlugins([]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render-v3'), undefined);
-			assert.strictEqual(recipes.getTemplate('reviewed.workflow.starter-v3'), undefined);
+			assert.strictEqual(templates.getTemplate('reviewed.workflow.starter-v3'), undefined);
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail-v3'), undefined);
 			assert.strictEqual(agentCapabilities.getCapability('reviewed.workflow.sequence-capability-v3'), undefined);
 
 			admission.replaceVerifiedPlugins([{ extensionId: 'reviewed.workflow', versions: [{ version: '2.0.0', sha256: secondSha256, installedContentSha256: secondInstalledContentSha256 }] }]);
-			assert.ok(recipes.getRecipe('reviewed.workflow.render-v3'));
 			assert.ok(agentCapabilities.getCapability('reviewed.workflow.sequence-capability-v3'));
-			recipePoint.acceptUsers([]);
 			templatePoint.acceptUsers([]);
 			projectionPoint.acceptUsers([]);
 			agentCapabilityPoint.acceptUsers([]);
-			assert.strictEqual(recipes.getRecipe('reviewed.workflow.render-v3'), undefined);
-			assert.strictEqual(recipes.getTemplate('reviewed.workflow.starter-v3'), undefined);
+			assert.strictEqual(templates.getTemplate('reviewed.workflow.starter-v3'), undefined);
 			assert.strictEqual(projections.getProjection('reviewed.workflow.detail-v3'), undefined);
 			assert.strictEqual(agentCapabilities.getCapability('reviewed.workflow.sequence-capability-v3'), undefined);
 		} finally {
-			recipePoint.acceptUsers([]);
 			templatePoint.acceptUsers([]);
 			projectionPoint.acceptUsers([]);
 			agentCapabilityPoint.acceptUsers([]);
 			agentCapabilityContribution.dispose();
 			projectionContribution.dispose();
-			recipeContribution.dispose();
+			templateContribution.dispose();
 			surfaces.dispose();
 			projections.dispose();
-			recipes.dispose();
+			templates.dispose();
 			agentCapabilities.dispose();
 			admission.dispose();
 			storage.dispose();
@@ -160,15 +145,6 @@ function extensionPoint<T>(name: string): ExtensionPoint<T> {
 	const point = ExtensionsRegistry.getExtensionPoints().find(candidate => candidate.name === name);
 	assert.ok(point, `Missing extension point '${name}'.`);
 	return point as ExtensionPoint<T>;
-}
-
-function recipeUser(extensionId: string, version: string, location: URI, contributionId: string): IExtensionPointUser<IBaseHalfCanvasRecipeContribution[]> {
-	const value: IBaseHalfCanvasRecipeContribution[] = [{
-		id: contributionId,
-		label: 'Render',
-		outputs: [{ id: 'primary', kind: 'image', extensions: ['.png'], minItems: 1, maxItems: 1, primary: true }]
-	}];
-	return extensionPointUser(extensionId, version, location, value, { basehalfCanvasRecipes: value });
 }
 
 function templateUser(extensionId: string, version: string, location: URI, contributionId: string): IExtensionPointUser<IBaseHalfCanvasTemplateContribution[]> {

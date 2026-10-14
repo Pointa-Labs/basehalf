@@ -5,39 +5,24 @@
 
 import { mainWindow } from '../../../base/browser/window.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
-import { CancellationToken, CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { CancellationTokenSource } from '../../../base/common/cancellation.js';
 import { Disposable, DisposableMap } from '../../../base/common/lifecycle.js';
-import { extUri } from '../../../base/common/resources.js';
+import { basename, extUri } from '../../../base/common/resources.js';
 import { generateUuid } from '../../../base/common/uuid.js';
 import { URI, UriComponents } from '../../../base/common/uri.js';
 import { IFileContent, IFileService, IFileStatWithPartialMetadata } from '../../../platform/files/common/files.js';
-import { IProgress } from '../../../platform/progress/common/progress.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../contrib/webview/browser/webview.js';
 import { IBaseHalfExtensionCardProjectionRuntimeService, IBaseHalfExtensionCardProjectionSession } from '../../basehalf/browser/cardDetail/basehalfExtensionCardProjection.js';
-import { IBaseHalfNodeExecutionService } from '../../basehalf/browser/basehalfNodeExecutionService.js';
 import { IBaseHalfCardDetailState } from '../../basehalf/common/basehalfCanvasNavigation.js';
 import { IBaseHalfCardProjectionRegistryService } from '../../basehalf/common/basehalfCardDetail.js';
 import {
-	IBaseHalfCanvasNodeSnapshot,
-	IBaseHalfCanvasRecipeExecutionRequest,
-	IBaseHalfCanvasRecipeExecutionResult,
-	IBaseHalfCanvasRecipeProgress,
-	IBaseHalfCanvasRecipeRegistryService,
-	IBaseHalfCanvasRecipeRuntimeService
-} from '../../basehalf/common/basehalfCanvasRecipes.js';
-import { BaseHalfModelCapability, IBaseHalfModelServiceService } from '../../basehalf/common/basehalfModelServices.js';
-import {
 	BASEHALF_NODE_DOCUMENT_EXTENSION,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
-	BASEHALF_NODE_MAX_ID_LENGTH,
 	IBaseHalfNodeDocument,
-	IBaseHalfNodeResultArtifact,
-	normalizeBaseHalfNodeAttemptFailure,
-	parseBaseHalfNodeDocumentBytes,
-	parseBaseHalfNodeDocumentBytesForActiveHost,
-	validateBaseHalfNodePersistentId
+	parseBaseHalfNodeDocumentBytes
 } from '../../basehalf/common/basehalfNodeDocument.js';
+import { IBaseHalfNodeResult } from '../../basehalf/common/basehalfVideoNode.js';
 import { IBaseHalfPluginAdmissionService, IBaseHalfPluginContributorIdentity } from '../../basehalf/common/basehalfPluginAdmissionService.js';
 import { IBaseHalfPluginStructuralCleanupService } from '../../basehalf/common/basehalfPluginStructuralCleanup.js';
 import { IBaseHalfProjectFileTransitionService } from '../../basehalf/common/basehalfProjectFileTransitions.js';
@@ -143,19 +128,8 @@ class MainThreadBaseHalfCardProjectionSession extends Disposable implements IBas
 export class MainThreadBaseHalf extends Disposable implements extHostProtocol.MainThreadBaseHalfShape {
 	private readonly proxy: extHostProtocol.ExtHostBaseHalfShape;
 	private readonly registrations = this._register(new DisposableMap<string>());
-	private readonly recipeRegistrations = this._register(new DisposableMap<string>());
-	private readonly modelProviderConnectionValidatorRegistrations = this._register(new DisposableMap<string>());
 	private readonly structuralCleanupRegistrations = this._register(new DisposableMap<string>());
 	private readonly sessions = new Map<extHostProtocol.WebviewHandle, MainThreadBaseHalfCardProjectionSession>();
-	private readonly recipeAttempts = new Map<string, {
-		readonly progress: IProgress<IBaseHalfCanvasRecipeProgress>;
-		readonly acknowledgeProviderRequestId: (providerRequestId: string) => Promise<void>;
-		readonly consumeProviderCreateAuthorization?: NonNullable<IBaseHalfCanvasRecipeExecutionRequest['consumeProviderCreateAuthorization']>;
-		readonly reportProviderExecutionFailure?: NonNullable<IBaseHalfCanvasRecipeExecutionRequest['reportProviderExecutionFailure']>;
-		readonly cancellation: CancellationTokenSource;
-		readonly extensionId: string;
-		readonly modelService?: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto;
-	}>();
 
 	constructor(
 		context: IExtHostContext,
@@ -163,10 +137,6 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IBaseHalfCardProjectionRegistryService private readonly projectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@IBaseHalfExtensionCardProjectionRuntimeService private readonly runtimeService: IBaseHalfExtensionCardProjectionRuntimeService,
-		@IBaseHalfCanvasRecipeRegistryService private readonly recipeRegistryService: IBaseHalfCanvasRecipeRegistryService,
-		@IBaseHalfCanvasRecipeRuntimeService private readonly recipeRuntimeService: IBaseHalfCanvasRecipeRuntimeService,
-		@IBaseHalfModelServiceService private readonly modelServiceService: IBaseHalfModelServiceService,
-		@IBaseHalfNodeExecutionService private readonly nodeExecutionService: IBaseHalfNodeExecutionService,
 		@IFileService private readonly fileService: IFileService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
@@ -176,7 +146,6 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 	) {
 		super();
 		this.proxy = context.getProxy(extHostProtocol.ExtHostContext.ExtHostBaseHalf);
-		this._register(this.modelServiceService.onDidChange(() => this.proxy.$onDidChangeModelServices()));
 	}
 
 	$registerCardProjectionProvider(
@@ -221,93 +190,6 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.sessions.get(handle)?.setDirty(dirty);
 	}
 
-	$registerCanvasRecipeExecutor(extension: extHostProtocol.WebviewExtensionDescription, recipeId: string): void {
-		const extensionId = extension.id.value.toLowerCase();
-		const id = recipeId.toLowerCase();
-		if (!id.startsWith(`${extensionId}.`)) {
-			throw new Error(`BaseHalf canvas recipe '${recipeId}' must start with '${extensionId}.'.`);
-		}
-		const recipe = this.recipeRegistryService.getRecipe(id);
-		if (!recipe || recipe.extensionId !== extensionId) {
-			throw new Error(`BaseHalf canvas recipe '${recipeId}' is not declared by extension '${extensionId}'.`);
-		}
-		const registration = this.recipeRuntimeService.registerExecutor(id, {
-			extensionId,
-			execute: (request, progress, token) => this.executeCanvasRecipe(extensionId, id, request, progress, token)
-		});
-		this.recipeRegistrations.set(id, registration);
-	}
-
-	$unregisterCanvasRecipeExecutor(recipeId: string): void {
-		this.recipeRegistrations.deleteAndDispose(recipeId.toLowerCase());
-	}
-
-	$registerModelProviderConnectionValidator(extension: extHostProtocol.WebviewExtensionDescription, specId: string): void {
-		const extensionId = extension.id.value.toLowerCase();
-		const id = specId.trim().toLowerCase();
-		this.modelProviderConnectionValidatorRegistrations.set(id, this.modelServiceService.registerConnectionValidator(id, extensionId, {
-			validate: (connection, token) => this.proxy.$validateModelProviderConnection(id, {
-				specId: connection.specId,
-				endpoint: connection.endpoint,
-				providerId: connection.providerId,
-				deploymentId: connection.deploymentId,
-				region: connection.region,
-				publicValues: connection.publicValues,
-				credentialValues: connection.secretValues
-			}, token)
-		}));
-	}
-
-	$unregisterModelProviderConnectionValidator(specId: string): void {
-		this.modelProviderConnectionValidatorRegistrations.deleteAndDispose(specId.trim().toLowerCase());
-	}
-
-	$reportCanvasRecipeProgress(attemptHandle: string, progress: extHostProtocol.IBaseHalfCanvasRecipeProgressDto): void {
-		const attempt = this.recipeAttempts.get(attemptHandle);
-		if (!attempt || !progress || typeof progress !== 'object') {
-			return;
-		}
-		const message = typeof progress.message === 'string' ? progress.message.slice(0, 500) : undefined;
-		const increment = typeof progress.increment === 'number' && Number.isFinite(progress.increment)
-			? Math.max(0, Math.min(100, progress.increment))
-			: undefined;
-		if (message !== undefined || increment !== undefined) {
-			attempt.progress.report({
-				...(message === undefined ? {} : { message }),
-				...(increment === undefined ? {} : { increment })
-			});
-		}
-	}
-
-	async $acknowledgeCanvasRecipeProviderRequestId(attemptHandle: string, providerRequestId: string): Promise<void> {
-		const attempt = this.recipeAttempts.get(attemptHandle);
-		if (!attempt) {
-			throw new Error('This canvas recipe Attempt is no longer active.');
-		}
-		if (typeof providerRequestId !== 'string'
-			|| providerRequestId.length > BASEHALF_NODE_MAX_ID_LENGTH
-			|| !/^[A-Za-z0-9][A-Za-z0-9._:/@+~-]*$/.test(providerRequestId)) {
-			throw new Error('The video provider returned an invalid request id.');
-		}
-		await attempt.acknowledgeProviderRequestId(providerRequestId);
-	}
-
-	async $consumeCanvasRecipeProviderCreateAuthorization(attemptHandle: string, fingerprint: string, attemptId: string, kind: 'new' | 'replacement'): Promise<void> {
-		const attempt = this.recipeAttempts.get(attemptHandle);
-		if (!attempt?.consumeProviderCreateAuthorization) {
-			throw new Error('This canvas recipe Attempt has no provider create authorization.');
-		}
-		await attempt.consumeProviderCreateAuthorization(fingerprint, attemptId, kind);
-	}
-
-	async $reportCanvasRecipeProviderExecutionFailure(attemptHandle: string, failure: extHostProtocol.IBaseHalfCanvasProviderExecutionFailureDto): Promise<void> {
-		const attempt = this.recipeAttempts.get(attemptHandle);
-		if (!attempt?.reportProviderExecutionFailure) {
-			throw new Error('This canvas recipe Attempt cannot accept provider failure evidence.');
-		}
-		await attempt.reportProviderExecutionFailure(normalizeBaseHalfNodeAttemptFailure(failure, 'providerFailure'));
-	}
-
 	async $inspectCanvasNode(
 		extension: extHostProtocol.IBaseHalfExtensionIdentityDto,
 		resource: UriComponents
@@ -349,45 +231,30 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		}
 		let document: IBaseHalfNodeDocument;
 		try {
-			document = this.nodeExecutionService.getActiveRun(nodeResource)
-				? parseBaseHalfNodeDocumentBytesForActiveHost(verifiedSource.value.buffer)
-				: parseBaseHalfNodeDocumentBytes(verifiedSource.value.buffer);
+			document = parseBaseHalfNodeDocumentBytes(verifiedSource.value.buffer);
 		} catch {
 			return undefined;
 		}
-		const latest = document.attempts.at(-1);
+		// The shape stays the one Sequence reads (D58): a node with a video is a
+		// `result`, a task maps to its phase, and version 5 nodes keep no attempts.
 		const lifecycle: extHostProtocol.BaseHalfCanvasNodeLifecycleDto = document.result
 			? 'result'
-			: latest?.status === 'running' || this.nodeExecutionService.getActiveRun(nodeResource)
+			: document.task?.state === 'submitting' || document.task?.state === 'running'
 				? 'running'
-				: latest?.status === 'failed' || latest?.status === 'cancelled' || latest?.status === 'interrupted'
-					? latest.status
-					: 'draft';
-		const resultArtifact = document.result === undefined
+				: document.task?.state === 'failed'
+					? 'failed'
+					: document.task?.state === 'stopped'
+						? 'cancelled'
+						: 'draft';
+		const result = document.result === undefined
 			? undefined
-			: await this.toCanvasNodeResultArtifactDto(workspaceFolder.uri, document.result.artifact);
-		const result: extHostProtocol.IBaseHalfCanvasNodeResultDto | undefined = document.result === undefined || resultArtifact === undefined
-			? undefined
-			: document.result.source === 'attempt'
-				? { source: 'attempt', attemptId: document.result.attemptId, artifact: resultArtifact }
-				: { source: 'imported', artifact: resultArtifact };
+			: await this.toCanvasNodeResultDto(workspaceFolder.uri, document, document.result);
 		return {
 			id: document.id,
 			kind: document.kind,
 			lifecycle,
 			...(result === undefined ? {} : { result }),
-			attempts: document.attempts.map(attempt => ({
-				id: attempt.id,
-				status: attempt.status,
-				createdAt: attempt.createdAt,
-				...(attempt.startedAt === undefined ? {} : { startedAt: attempt.startedAt }),
-				...(attempt.completedAt === undefined ? {} : { completedAt: attempt.completedAt }),
-				model: attempt.model,
-				...(attempt.providerRequestId === undefined ? {} : { providerRequestId: attempt.providerRequestId }),
-				...(attempt.usage === undefined ? {} : { usage: attempt.usage }),
-				...(attempt.cost === undefined ? {} : { cost: attempt.cost }),
-				...(attempt.error === undefined ? {} : { error: attempt.error })
-			}))
+			attempts: []
 		};
 	}
 
@@ -452,23 +319,6 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 		this.structuralCleanupRegistrations.deleteAndDispose(extensionId.toLowerCase());
 	}
 
-	$getModelServices(extension: extHostProtocol.IBaseHalfExtensionIdentityDto, capability?: BaseHalfModelCapability): Promise<readonly extHostProtocol.IBaseHalfModelServiceDto[]> {
-		return this.modelServiceService.getServices(reviveBaseHalfExtensionIdentity(extension), capability);
-	}
-
-	$getModelServiceAccess(extension: extHostProtocol.IBaseHalfExtensionIdentityDto, snapshot: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto): Promise<extHostProtocol.IBaseHalfModelServiceAccessDto | undefined> {
-		const contributor = reviveBaseHalfExtensionIdentity(extension);
-		const grant = [...this.recipeAttempts.values()].find(attempt => attempt.extensionId === contributor.extensionId.toLowerCase()
-			&& attempt.modelService?.accessToken !== undefined
-			&& attempt.modelService.accessToken === snapshot.accessToken
-			&& sameModelServiceAttemptSnapshot(attempt.modelService, snapshot));
-		if (!grant?.modelService) {
-			return Promise.resolve(undefined);
-		}
-		const { accessToken: _accessToken, ...frozenSnapshot } = grant.modelService;
-		return this.modelServiceService.getAccess(contributor, frozenSnapshot);
-	}
-
 	override dispose(): void {
 		// An Extension Host restart tears down the customer before constructing a
 		// replacement. Dispose every live webview session so card detail can show
@@ -477,82 +327,37 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			session.dispose();
 		}
 		this.sessions.clear();
-		for (const attempt of this.recipeAttempts.values()) {
-			attempt.cancellation.dispose(true);
-		}
-		this.recipeAttempts.clear();
 		super.dispose();
 	}
 
-	private async executeCanvasRecipe(
-		extensionId: string,
-		recipeId: string,
-		request: IBaseHalfCanvasRecipeExecutionRequest,
-		progress: IProgress<IBaseHalfCanvasRecipeProgress>,
-		token: CancellationToken
-	): Promise<IBaseHalfCanvasRecipeExecutionResult> {
-		const attemptHandle = generateUuid();
-		const cancellation = new CancellationTokenSource(token);
-		const modelService = request.modelService
-			? { ...request.modelService, accessToken: generateUuid() }
-			: undefined;
-		this.recipeAttempts.set(attemptHandle, {
-			progress,
-			acknowledgeProviderRequestId: request.acknowledgeProviderRequestId,
-			...(request.consumeProviderCreateAuthorization === undefined ? {} : { consumeProviderCreateAuthorization: request.consumeProviderCreateAuthorization }),
-			...(request.reportProviderExecutionFailure === undefined ? {} : { reportProviderExecutionFailure: request.reportProviderExecutionFailure }),
-			cancellation,
-			extensionId,
-			...(modelService === undefined ? {} : { modelService })
-		});
-		try {
-			const result = await this.proxy.$executeCanvasRecipe(
-				attemptHandle,
-				recipeId,
-				toRecipeExecutionRequestDto(request, modelService),
-				cancellation.token
-			);
-			if (!result || typeof result !== 'object' || Array.isArray(result) || !result.artifact || typeof result.artifact !== 'object' || Array.isArray(result.artifact)) {
-				throw new Error(`BaseHalf canvas recipe '${recipeId}' returned an invalid result.`);
-			}
-			const unknownResultProperty = Object.keys(result).find(key => !['artifact', 'providerRequestId', 'usage', 'cost'].includes(key));
-			if (unknownResultProperty) {
-				throw new Error(`BaseHalf canvas recipe '${recipeId}' result contains unsupported property '${unknownResultProperty}'.`);
-			}
-			const unknownArtifactProperty = Object.keys(result.artifact).find(key => !['id', 'outputId', 'kind', 'resource', 'label'].includes(key));
-			if (unknownArtifactProperty) {
-				throw new Error(`BaseHalf canvas recipe '${recipeId}' artifact contains unsupported property '${unknownArtifactProperty}'.`);
-			}
-			return {
-				artifact: {
-					id: validateBaseHalfNodePersistentId(result.artifact.id, `${recipeId}.artifact.id`),
-					outputId: result.artifact.outputId,
-					kind: result.artifact.kind,
-					resource: URI.revive(result.artifact.resource),
-					...(result.artifact.label === undefined ? {} : { label: result.artifact.label })
-				},
-				...(result.providerRequestId === undefined ? {} : { providerRequestId: result.providerRequestId }),
-				...(result.usage === undefined ? {} : { usage: result.usage }),
-				...(result.cost === undefined ? {} : { cost: result.cost })
-			};
-		} finally {
-			this.recipeAttempts.delete(attemptHandle);
-			cancellation.dispose();
-		}
-	}
-
-	private async toCanvasNodeResultArtifactDto(
+	/**
+	 * A generated video is reported as the result of an attempt whose id is its
+	 * task id; an imported file keeps its own source. The artifact is available
+	 * while its file exists.
+	 */
+	private async toCanvasNodeResultDto(
 		workspaceFolder: URI,
-		artifact: IBaseHalfNodeResultArtifact
-	): Promise<extHostProtocol.IBaseHalfCanvasNodeResultArtifactDto> {
-		return {
-			id: artifact.id,
-			outputId: artifact.outputId,
-			kind: artifact.kind,
-			resource: URI.joinPath(workspaceFolder, ...artifact.path.split('/')),
-			integrity: await this.nodeExecutionService.getArtifactIntegrity(workspaceFolder, artifact, { fresh: true }),
-			...(artifact.label === undefined ? {} : { label: artifact.label })
+		document: IBaseHalfNodeDocument,
+		result: IBaseHalfNodeResult
+	): Promise<extHostProtocol.IBaseHalfCanvasNodeResultDto> {
+		const resource = URI.joinPath(workspaceFolder, ...result.artifact.path.split('/'));
+		let integrity: extHostProtocol.BaseHalfCanvasArtifactIntegrityDto;
+		try {
+			integrity = (await this.fileService.stat(resource)).isFile ? 'available' : 'missing';
+		} catch {
+			integrity = 'missing';
+		}
+		const artifact: extHostProtocol.IBaseHalfCanvasNodeResultArtifactDto = {
+			id: result.source === 'generated' ? result.generation.taskId : document.id,
+			outputId: result.source,
+			kind: document.kind,
+			resource,
+			integrity,
+			label: basename(resource)
 		};
+		return result.source === 'generated'
+			? { source: 'attempt', attemptId: result.generation.taskId, artifact }
+			: { source: 'imported', artifact };
 	}
 }
 
@@ -585,59 +390,5 @@ function reviveBaseHalfExtensionIdentity(extension: extHostProtocol.IBaseHalfExt
 		extensionLocation: URI.revive(extension.location),
 		isBuiltin: extension.isBuiltin,
 		isUnderDevelopment: extension.isUnderDevelopment
-	};
-}
-
-function toRecipeExecutionRequestDto(
-	request: IBaseHalfCanvasRecipeExecutionRequest,
-	modelService?: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto
-): extHostProtocol.IBaseHalfCanvasRecipeExecutionRequestDto {
-	return {
-		attemptId: request.attemptId,
-		workspaceFolder: request.workspaceFolder,
-		node: toNodeSnapshotDto(request.node),
-		recipeId: request.recipeId,
-		prompt: request.prompt,
-		parameters: request.parameters,
-		...(request.modelServiceId === undefined ? {} : { modelServiceId: request.modelServiceId }),
-		...(modelService === undefined ? {} : { modelService }),
-		inputs: request.inputs.map(input => ({
-			edgeId: input.edgeId,
-			slotId: input.slotId,
-			order: input.order,
-			source: toNodeSnapshotDto(input.source)
-		})),
-		outputDirectory: request.outputDirectory,
-		...(request.providerTaskIntent === undefined ? {} : { providerTaskIntent: request.providerTaskIntent }),
-		...(request.providerRequestFingerprint === undefined ? {} : { providerRequestFingerprint: request.providerRequestFingerprint }),
-		...(request.resumeProviderRequestId === undefined ? {} : { resumeProviderRequestId: request.resumeProviderRequestId })
-	};
-}
-
-function sameModelServiceAttemptSnapshot(
-	left: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto,
-	right: extHostProtocol.IBaseHalfModelServiceAttemptSnapshotDto
-): boolean {
-	return left.serviceId === right.serviceId
-		&& left.serviceLabel === right.serviceLabel
-		&& left.connectionIdentity === right.connectionIdentity
-		&& left.capability === right.capability
-		&& left.modelId === right.modelId;
-}
-
-function toNodeSnapshotDto(node: IBaseHalfCanvasNodeSnapshot): extHostProtocol.IBaseHalfCanvasNodeSnapshotDto {
-	return {
-		id: node.id,
-		path: node.path,
-		kind: node.kind,
-		...(node.resource === undefined ? {} : { resource: node.resource }),
-		...(node.result === undefined ? {} : {
-			result: {
-				id: node.result.id,
-				kind: node.result.kind,
-				resource: node.result.resource,
-				...(node.result.attemptId === undefined ? {} : { attemptId: node.result.attemptId })
-			}
-		})
 	};
 }

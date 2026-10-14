@@ -47,7 +47,6 @@ function entry(index: number, text: string, status: IBaseHalfUpstreamEntryView['
 		problem: valid ? undefined : 'absolute',
 		status,
 		...(status === 'valid' ? { target: { ...node(text), kind: 'file' as const } } : {}),
-		historical: false,
 		issue: status !== 'valid',
 		...extra
 	};
@@ -161,8 +160,7 @@ suite('BaseHalfUpstreamActions', () => {
 			context: {},
 			addListener: disposable => store.add(disposable),
 			openNode: () => { },
-			refresh: () => { },
-			roleLabel: slot => slot === 'firstFrame' ? 'First frame' : slot
+			refresh: () => { }
 		});
 		return container;
 	}
@@ -231,7 +229,7 @@ suite('BaseHalfUpstreamActions', () => {
 		assert.deepStrictEqual((describe(render(note, view(note, []))) as { text: string[] }[])[1].text, ['Nothing draws on this card yet.']);
 	});
 
-	test('keeps upstream-only nodes read-only and blocks bound inputs outside a Draft', () => {
+	test('keeps upstream-only nodes read-only, and the entries of a node removable in every phase', () => {
 		const sealed = node('outputs/run/frame.png');
 		assert.deepStrictEqual((describe(render(sealed, view(sealed, [entry(0, 'a/overview.md', 'valid')], { upstreamOnly: 'reservedOutput', storeKind: 'sidecar' }))) as unknown[])[0], {
 			title: 'Upstream',
@@ -242,14 +240,14 @@ suite('BaseHalfUpstreamActions', () => {
 
 		const video = node('video.bhnode');
 		const rows = (describe(render(video, view(video, [
-			entry(0, 'a/overview.md', 'valid', { binding: { sourcePath: 'a/overview.md', slot: 'firstFrame', order: 0 } }),
+			entry(0, 'a/overview.md', 'valid'),
 			entry(1, 'sources/book.pdf', 'valid'),
-			entry(2, 'old.png', 'dangling', { binding: { sourcePath: 'old.png', slot: 'reference', order: 1 }, historical: true, issue: false })
-		], { storeKind: 'node', lifecycle: 'sealed' }))) as { rows: unknown[] }[])[0].rows;
+			entry(2, 'old.png', 'dangling')
+		], { storeKind: 'node' }))) as { rows: unknown[] }[])[0].rows;
 		assert.deepStrictEqual(rows, [
-			{ status: 'valid', label: 'overview', role: 'First frame', remove: { disabled: true, title: 'This input is part of a result. Copy the settings into a new Draft to change it.' }, actions: [] },
-			{ status: 'valid', label: 'book.pdf', role: 'Unassigned', remove: { disabled: false, title: 'Remove sources/book.pdf from upstream' }, actions: [] },
-			{ status: 'historical', label: 'old.png', role: 'reference', remove: undefined, actions: [] }
+			{ status: 'valid', label: 'overview', role: undefined, remove: { disabled: false, title: 'Remove a/overview.md from upstream' }, actions: [] },
+			{ status: 'valid', label: 'book.pdf', role: undefined, remove: { disabled: false, title: 'Remove sources/book.pdf from upstream' }, actions: [] },
+			{ status: 'dangling', label: 'old.png', role: undefined, remove: undefined, actions: ['Relink…', 'Relink Everywhere…', 'Remove'] }
 		]);
 
 		// A downstream that can't be downstream keeps its row but has no ×:

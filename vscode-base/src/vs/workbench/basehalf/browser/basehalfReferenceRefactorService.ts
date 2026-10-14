@@ -511,11 +511,7 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 				read = readBaseHalfMarkdownUpstream(text, options);
 			} else if (storeKind === 'node') {
 				const text = utf8Decoder.decode((await this.fileService.readFile(node.resource, { limits: { size: BASEHALF_NODE_DOCUMENT_MAX_BYTES } })).value.buffer);
-				const extract = extractBaseHalfNodeUpstreamLenient(text);
-				read = baseHalfNodeUpstreamStoreRead(extract, store.nodePath, identity);
-				if (extract.readable) {
-					return { ...base, storeKind, items: read.readable ? read.items : undefined, lifecycle: extract.lifecycle, bindings: extract.bindings };
-				}
+				read = baseHalfNodeUpstreamStoreRead(extractBaseHalfNodeUpstreamLenient(text), store.nodePath, identity);
 			} else {
 				const sidecar = baseHalfUpstreamSidecarResource(workspaceFolder, store.nodePath);
 				await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, sidecar);
@@ -577,8 +573,6 @@ export class BaseHalfReferenceRefactorService implements IBaseHalfReferenceRefac
 	private skipText(skip: IBaseHalfRenameSkip): string {
 		const name = basename(skip.node.resource);
 		switch (skip.reason) {
-			case 'historical':
-				return localize('basehalf.references.skip.historical', "{0} (its assigned inputs keep the paths they had when its attempt or result was made)", name);
 			case 'upstreamOnly':
 				return localize('basehalf.references.skip.upstreamOnly', "{0} (a result or output file, which can't receive upstream context)", name);
 			case 'unreadable':

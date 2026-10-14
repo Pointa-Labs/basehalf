@@ -10,789 +10,327 @@ import {
 	analyzeBaseHalfNodeUpstream,
 	BASEHALF_NODE_DOCUMENT_MAX_BYTES,
 	BASEHALF_NODE_DOCUMENT_VERSION,
-	BaseHalfNodeUpstreamEditError,
-	extractBaseHalfNodeUpstreamLenient,
-	removeBaseHalfNodeUpstreamEntry,
-	replaceBaseHalfNodeUpstreamEntry,
-	setBaseHalfNodeUpstream,
-	BASEHALF_NODE_PROMPT_MAX_LENGTH,
+	BASEHALF_NODE_KINDS,
 	BaseHalfNodeDocumentError,
-	IBaseHalfNodeDocument,
-	IBaseHalfNodeRecipe,
-	IBaseHalfNodeResultArtifact,
+	BaseHalfNodeUpstreamEditError,
 	baseHalfIsReservedOutputTreePath,
-	baseHalfNodeRecipeReferencesPath,
-	beginBaseHalfNodeAttempt,
-	cancelBaseHalfNodeAttempt,
-	completeBaseHalfNodeAttempt,
 	createBaseHalfNodeDocument,
-	failBaseHalfNodeAttempt,
+	extractBaseHalfNodeUpstreamLenient,
 	forkBaseHalfNodeDocument,
-	freezeBaseHalfNodeAttemptInputs,
-	freezeBaseHalfNodeAttemptExecution,
-	freezeBaseHalfNodeAttemptModel,
-	freezeBaseHalfNodeAttemptProviderRequestId,
-	freezeBaseHalfNodeAttemptSnapshotManifest,
-	replaceBaseHalfNodeAttemptProviderRequestId,
 	getBaseHalfNodeAgentAuthoringContract,
-	getBaseHalfNodeReadiness,
 	getBaseHalfNodeResultArtifact,
+	getBaseHalfNodeVideoFields,
+	IBaseHalfNodeDocument,
 	importBaseHalfNodeResult,
-	interruptBaseHalfNodeAttempt,
-	normalizeBaseHalfNodeAttemptFailure,
 	parseBaseHalfNodeDocument,
 	parseBaseHalfNodeDocumentBytes,
-	parseBaseHalfNodeDocumentForActiveHost,
-	remapBaseHalfNodeRecipeInputBindings,
-	removeBaseHalfNodeRecipeInputBindings,
+	removeBaseHalfNodeUpstreamEntry,
+	replaceBaseHalfNodeUpstreamEntry,
 	serializeBaseHalfNodeDocument,
-	updateBaseHalfNodePrompt
+	setBaseHalfNodeUpstream,
+	withBaseHalfNodeVideoFields
 } from '../../common/basehalfNodeDocument.js';
+import {
+	baseHalfVideoNodePhase,
+	beginBaseHalfVideoTask,
+	IBaseHalfNodeArtifact,
+	IBaseHalfVideoGenerationRecord,
+	IBaseHalfVideoGenerationSettings,
+	IBaseHalfVideoTask
+} from '../../common/basehalfVideoNode.js';
 import { baseHalfNodeTestId } from './basehalfNodeTestFixtures.js';
 
 suite('BaseHalfNodeDocument', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('creates and round-trips the small deeply frozen v4 document', () => {
-		const document = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(1),
+	test('writes a Video node as version 5 with exactly the documented fields, in order', () => {
+		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 5);
+		const running = configuredVideo({ task: runningTask() });
+		const written = JSON.parse(serializeBaseHalfNodeDocument(running));
+		assert.deepStrictEqual(Object.keys(written), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'task']);
+		assert.deepStrictEqual(parse(written), running);
+		assert.ok(Object.isFrozen(running) && Object.isFrozen(running.upstream) && Object.isFrozen(running.task));
+
+		const generated = configuredVideo({ result: generatedResult() });
+		assert.deepStrictEqual(Object.keys(JSON.parse(serializeBaseHalfNodeDocument(generated))), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'result']);
+		assert.deepStrictEqual(parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(generated)), generated);
+		assert.deepStrictEqual(getBaseHalfNodeResultArtifact(generated), videoArtifact());
+	});
+
+	test('reads the example of the Video node specification as it is written', () => {
+		const document = parse({
+			version: 5,
+			id: '7766b3bb-c97d-4126-80eb-cb3f4fa82bc8',
 			kind: 'video',
-			title: 'Launch film',
-			role: 'Generated result',
-			recipe: recipe()
+			title: 'Shot 1',
+			prompt: '图片1里的人骑车经过海边，镜头缓慢跟随',
+			upstream: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
+			generation: { channel: 'ark-3f2a', model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true },
+			task: runningTask()
 		});
-		const serialized = serializeBaseHalfNodeDocument(document);
-		const parsed = parseBaseHalfNodeDocument(serialized);
-
-		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 4);
-		assert.deepStrictEqual(Object.keys(parsed), ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'recipe', 'attempts']);
-		assert.deepStrictEqual(parsed, document);
-		assert.deepStrictEqual(parsed.upstream, parsed.recipe?.inputBindings.map(binding => binding.sourcePath));
-		assert.ok(serialized.endsWith('\n'));
-		assert.strictEqual(Object.isFrozen(parsed), true);
-		assert.strictEqual(Object.isFrozen(parsed.upstream), true);
-		assert.strictEqual(Object.isFrozen(parsed.recipe), true);
-		assert.strictEqual(Object.isFrozen(parsed.recipe?.parameters), true);
-		assert.strictEqual(Object.isFrozen(parsed.recipe?.inputBindings), true);
-		assert.strictEqual(Object.isFrozen(parsed.attempts), true);
+		assert.strictEqual(baseHalfVideoNodePhase(document), 'generating');
 	});
 
-	test('round-trips captured Draft input identity while preserving legacy bindings', () => {
-		const captured = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(7),
+	test('shows a version 3 or version 4 file as unreadable, naming the version', () => {
+		const v4 = {
+			version: 4,
+			id: baseHalfNodeTestId(2),
 			kind: 'video',
-			title: 'Input identity',
+			title: 'Legacy',
 			role: 'Generated result',
-			recipe: {
-				...recipe(),
-				inputBindings: [{
-					sourcePath: 'frames/start.bhnode',
-					slot: 'first-frame',
-					order: 0,
-					sourceId: baseHalfNodeTestId(8),
-					sourceRevision: 'sha256:frame-v1'
-				}]
-			}
-		});
-		const roundTripped = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(captured));
-		assert.deepStrictEqual(roundTripped.recipe?.inputBindings, captured.recipe?.inputBindings);
-		assert.strictEqual(Object.isFrozen(roundTripped.recipe?.inputBindings[0]), true);
-
-		const legacy = parse({
-			...captured,
-			recipe: {
-				...captured.recipe,
-				inputBindings: [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0 }]
-			}
-		});
-		assert.deepStrictEqual(legacy.recipe?.inputBindings, [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0 }]);
-		assert.throws(() => parse({
-			...captured,
-			recipe: {
-				...captured.recipe,
-				inputBindings: [{ sourcePath: 'frames/start.bhnode', slot: 'first-frame', order: 0, sourceRevision: '' }]
-			}
-		}), /sourceRevision/);
-	});
-
-	test('rejects v2 and every retired lifecycle field without migration', () => {
-		const empty = emptyDraft();
-		assert.throws(() => parse({ ...empty, version: 2 }), /Unsupported node document version '2'/);
-		for (const key of ['current', 'revisions', 'versions', 'selection', 'runs']) {
-			assert.throws(() => parse({ ...empty, [key]: key === 'current' ? { source: 'empty', outputPaths: [] } : [] }), new RegExp(`unsupported property '${key}'`));
-		}
-	});
-
-	test('publishes only agent-authorable draft fields', () => {
-		const contract = getBaseHalfNodeAgentAuthoringContract();
-		const schema = contract.schema as {
-			readonly required: readonly string[];
-			readonly properties: Readonly<Record<string, unknown>>;
+			prompt: '',
+			upstream: [],
+			recipe: { recipeId: 'ai-video.text-to-video', parameters: {}, inputBindings: [] },
+			attempts: []
 		};
-		assert.deepStrictEqual(schema.required, ['version', 'id', 'kind', 'title', 'role', 'prompt', 'upstream', 'attempts']);
-		assert.strictEqual((schema.properties.result as boolean), false);
-		assert.deepStrictEqual(contract.hostOwnedFields, ['result', 'attempts']);
-		assert.strictEqual(contract.contractVersion, 2);
-		assert.ok((contract.rules as readonly string[]).some(rule => /sourcePath must be listed in the node's upstream/.test(rule)));
-		const examples = contract.examples as Readonly<Record<string, unknown>>;
-		for (const example of Object.values(examples)) {
-			const parsed = parse(example);
-			assert.strictEqual(parsed.version, 4);
-			assert.deepStrictEqual(parsed.attempts, []);
-			assert.strictEqual(parsed.result, undefined);
-			assert.deepStrictEqual(getBaseHalfNodeReadiness(parsed, { nodePath: 'result.bhnode' }).code === 'upstreamInvalid', false);
+		assert.throws(() => parse(v4), (error: unknown) => error instanceof BaseHalfNodeDocumentError
+			&& error.message === 'document.version 4 is no longer supported: this node was saved by an earlier BaseHalf.'
+			&& error.earlierVersion === 4);
+		assert.throws(() => parse({ ...v4, version: 3 }), /document.version 3 is no longer supported/);
+		assert.throws(() => parse({ ...emptyVideo(), version: 6 }), (error: unknown) => error instanceof BaseHalfNodeDocumentError
+			&& /document.version must be 5; it is '6'/.test(error.message)
+			&& error.earlierVersion === undefined);
+		const withoutVersion: Record<string, unknown> = { ...emptyVideo() };
+		delete withoutVersion.version;
+		assert.throws(() => parse(withoutVersion), /document.version must be 5/);
+	});
+
+	test('refuses an unknown field with its path', () => {
+		for (const field of ['role', 'recipe', 'attempts', 'lifecycle']) {
+			assert.throws(() => parse({ ...emptyVideo(), [field]: [] }), new RegExp(`^BaseHalfNodeDocumentError: document\\.${field} is not a known field\\.$`));
 		}
-		assert.deepStrictEqual((examples.configured as { upstream: unknown }).upstream, ['brief.md']);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), seed: 3 } }), /document\.generation\.seed is not a known field/);
+		assert.throws(() => parse({ ...configuredVideo({ task: runningTask() }), task: { ...runningTask(), progress: 3 } }), /document\.task\.progress is not a known field/);
+		assert.throws(() => parse({ ...emptyVideo(), result: { source: 'imported', artifact: { ...videoArtifact(), sha256: 'x' } } }), /document\.result\.artifact\.sha256 is not a known field/);
+		assert.throws(() => parse({ ...emptyVideo(), result: { source: 'imported', artifact: videoArtifact(), generation: {} } }), /document\.result\.generation is not a known field/);
 	});
 
-	test('requires a caller-supplied canonical UUID and a supported result kind', () => {
-		assert.throws(() => parse({ ...emptyDraft(), id: 'node-1' }), /canonical lowercase UUID/);
-		assert.throws(() => parse({ ...emptyDraft(), id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'.toUpperCase() }), /canonical lowercase UUID/);
-		assert.throws(() => parse({ ...emptyDraft(), kind: 'text' }), /document.kind/);
-		assert.throws(() => parse({ ...emptyDraft(), unknown: true }), /unsupported property 'unknown'/);
+	test('refuses a Video node with a task and a result together', () => {
+		const together = { ...configuredVideo({ result: generatedResult() }), task: failedTask() };
+		assert.throws(() => parse(together), /^BaseHalfNodeDocumentError: document\.task cannot be set while document\.result is set/);
+		assert.throws(() => createBaseHalfNodeDocument({ id: baseHalfNodeTestId(3), kind: 'video', title: 'Both', task: failedTask(), result: generatedResult() }), BaseHalfNodeDocumentError);
 	});
 
-	test('persists a host-owned prompt before a recipe exists and freezes it into the first Attempt', () => {
-		const empty = emptyDraft();
-		assert.strictEqual(empty.recipe, undefined);
-		assert.strictEqual(empty.prompt, '');
-
-		const prompted = updateBaseHalfNodePrompt(empty, 'A slow orbit around a walnut speaker.');
-		assert.strictEqual(parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(prompted)).prompt, prompted.prompt);
-
-		const configured = createBaseHalfNodeDocument({
-			...prompted,
-			recipe: recipe()
-		});
-		const running = start(configured);
-		assert.strictEqual(running.attempts[0].prompt, prompted.prompt);
-		assert.throws(() => updateBaseHalfNodePrompt(running, 'Different intent'), /prompt is frozen/);
-		assert.throws(() => parse({ ...running, prompt: 'Different intent' }), /document.prompt is frozen/);
+	test('refuses the video fields on every other kind of node', () => {
+		for (const kind of BASEHALF_NODE_KINDS.filter(kind => kind !== 'video')) {
+			const node = { version: 5, id: baseHalfNodeTestId(4), kind, title: 'Other', upstream: [] };
+			assert.deepStrictEqual(Object.keys(JSON.parse(serializeBaseHalfNodeDocument(parse(node)))), ['version', 'id', 'kind', 'title', 'upstream']);
+			assert.throws(() => parse({ ...node, prompt: 'A prompt' }), /document\.prompt is allowed only on a Video node/);
+			assert.throws(() => parse({ ...node, generation: settings() }), /document\.generation is allowed only on a Video node/);
+			assert.throws(() => parse({ ...node, task: failedTask() }), /document\.task is allowed only on a Video node/);
+		}
+		const image = { version: 5, id: baseHalfNodeTestId(4), kind: 'image', title: 'Frame', upstream: [] };
+		assert.throws(() => parse({ ...image, result: { ...generatedResult(), artifact: { ...videoArtifact(), kind: 'image', path: 'outputs/x/frame.png' } } }), /document\.result\.source 'generated' is allowed only on a Video node/);
+		assert.throws(() => parse({ ...image, result: { source: 'imported', artifact: videoArtifact() } }), /document\.result\.artifact\.kind must match document\.kind 'image'/);
 	});
 
-	test('bounds prompt text while preserving intentional tabs and line breaks', () => {
-		const multiline = updateBaseHalfNodePrompt(emptyDraft(), 'First line\n\tSecond line\r\n');
-		assert.strictEqual(multiline.prompt, 'First line\n\tSecond line\r\n');
-		assert.strictEqual(updateBaseHalfNodePrompt(emptyDraft(), 'x'.repeat(BASEHALF_NODE_PROMPT_MAX_LENGTH)).prompt.length, BASEHALF_NODE_PROMPT_MAX_LENGTH);
-		assert.throws(() => updateBaseHalfNodePrompt(emptyDraft(), 'x'.repeat(BASEHALF_NODE_PROMPT_MAX_LENGTH + 1)), /prompt is too long/);
-		assert.throws(() => updateBaseHalfNodePrompt(emptyDraft(), 'unsafe\u0000prompt'), /cannot contain NUL/);
-		assert.throws(() => updateBaseHalfNodePrompt(emptyDraft(), 'unsafe\u0001prompt'), /cannot contain control characters/);
+	test('requires a prompt on a Video node and checks the video fields through the video contract', () => {
+		const withoutPrompt: Record<string, unknown> = { ...emptyVideo() };
+		delete withoutPrompt.prompt;
+		assert.throws(() => parse(withoutPrompt), /^BaseHalfNodeDocumentError: document\.prompt is required on a Video node\.$/);
+		assert.throws(() => parse({ ...emptyVideo(), prompt: 7 }), /document\.prompt must be a string/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), mode: 'storyboard' } }), /^BaseHalfNodeDocumentError: document\.generation\.mode must be frames or reference\.$/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), duration: 0 } }), /document\.generation\.duration/);
+		const { remoteId: _remoteId, ...withoutRemoteId } = runningTask();
+		assert.throws(() => parse({ ...emptyVideo(), task: withoutRemoteId }), /document\.task\.remoteId is required while the task is running/);
+		assert.throws(() => parse({ ...emptyVideo(), prompt: 'a'.repeat(64 * 1024 + 1) }), /document\.prompt is longer than/);
 	});
 
-	test('keeps the prompt immutable after a failed Attempt', () => {
-		const running = start(createBaseHalfNodeDocument({
-			...configuredDraft(),
-			prompt: 'Frozen failed intent'
+	test('creates an empty node of every kind; a Video node starts with an empty prompt', () => {
+		for (const kind of BASEHALF_NODE_KINDS) {
+			const node = createBaseHalfNodeDocument({ id: baseHalfNodeTestId(5), kind, title: 'New' });
+			assert.deepStrictEqual(node.upstream, []);
+			assert.strictEqual(node.result, undefined);
+			assert.strictEqual(node.prompt, kind === 'video' ? '' : undefined);
+		}
+		assert.throws(() => createBaseHalfNodeDocument({ id: 'NOT-A-UUID', kind: 'video', title: 'Bad' }), /document\.id must be/);
+		assert.throws(() => createBaseHalfNodeDocument({ id: '7766B3BB-C97D-4126-80EB-CB3F4FA82BC8', kind: 'video', title: 'Bad' }), /document\.id must be a canonical lowercase UUID/);
+		assert.throws(() => createBaseHalfNodeDocument({ id: baseHalfNodeTestId(5), kind: 'video', title: '   ' }), /document\.title cannot be empty/);
+	});
+
+	test('imports a file only into an empty node', () => {
+		const imported = importBaseHalfNodeResult(emptyVideo(), { kind: 'video', path: 'assets/clip.mp4', size: 10 });
+		assert.deepStrictEqual(imported.result, { source: 'imported', artifact: { kind: 'video', path: 'assets/clip.mp4', size: 10 } });
+		assert.strictEqual(baseHalfVideoNodePhase(imported), 'video');
+		assert.throws(() => importBaseHalfNodeResult(imported, { kind: 'video', path: 'assets/other.mp4', size: 10 }), /already shows a file/);
+		assert.throws(() => importBaseHalfNodeResult(configuredVideo({ task: failedTask() }), videoArtifact()), /has a generation/);
+		assert.throws(() => importBaseHalfNodeResult(emptyVideo(), { kind: 'image', path: 'assets/frame.png', size: 1 }), /must match document\.kind 'video'/);
+		const image = importBaseHalfNodeResult(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(6), kind: 'image', title: 'Frame' }), { kind: 'image', path: 'assets/frame.png', size: 1 });
+		assert.deepStrictEqual(Object.keys(JSON.parse(serializeBaseHalfNodeDocument(image))), ['version', 'id', 'kind', 'title', 'upstream', 'result']);
+	});
+
+	test('a copy keeps the title, prompt, and settings, and has no upstream entries, task, or result', () => {
+		const source = configuredVideo({ result: generatedResult() });
+		const copy = forkBaseHalfNodeDocument(source, baseHalfNodeTestId(30));
+		assert.deepStrictEqual(copy, createBaseHalfNodeDocument({
+			id: baseHalfNodeTestId(30),
+			kind: 'video',
+			title: source.title,
+			prompt: source.prompt,
+			generation: source.generation
 		}));
-		const failed = failBaseHalfNodeAttempt(running, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'provider unavailable'
-		});
-		assert.strictEqual(failed.attempts[0].prompt, 'Frozen failed intent');
-		assert.throws(() => updateBaseHalfNodePrompt(failed, 'Changed after failure'), /prompt is frozen/);
-		assert.throws(() => parse({ ...failed, prompt: 'Changed after failure' }), /document.prompt is frozen/);
+		assert.deepStrictEqual([copy.upstream, copy.task, copy.result], [[], undefined, undefined]);
+		const failedCopy = forkBaseHalfNodeDocument(configuredVideo({ task: failedTask() }), baseHalfNodeTestId(31));
+		assert.strictEqual(failedCopy.task, undefined);
+		const image = importBaseHalfNodeResult(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(6), kind: 'image', title: 'Frame', upstream: ['a.md'] }), { kind: 'image', path: 'assets/frame.png', size: 1 });
+		assert.deepStrictEqual(forkBaseHalfNodeDocument(image, baseHalfNodeTestId(32)), createBaseHalfNodeDocument({ id: baseHalfNodeTestId(32), kind: 'image', title: 'Frame' }));
 	});
 
-	test('starts one durable running attempt and every reader preserves it', () => {
-		const running = start(configuredDraft());
-		const source = serializeBaseHalfNodeDocument(running);
-
-		assert.strictEqual(running.attempts[0].status, 'running');
-		assert.deepStrictEqual(running.attempts[0].recipe, running.recipe);
-		assert.strictEqual(parseBaseHalfNodeDocument(source).attempts[0].status, 'running');
-		assert.strictEqual(parseBaseHalfNodeDocumentForActiveHost(source).attempts[0].status, 'running');
-		assert.throws(() => beginBaseHalfNodeAttempt(running, beginOptions('attempt-2')), /already has an active attempt/);
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(running), { ready: false, code: 'busy' });
+	test('replaces the video fields of a Video node and keeps every other field', () => {
+		const node = configuredVideo({});
+		const next = withBaseHalfNodeVideoFields(node, { ...getBaseHalfNodeVideoFields(node), prompt: 'A new prompt' });
+		assert.deepStrictEqual({ ...next, prompt: node.prompt }, node);
+		assert.strictEqual(next.prompt, 'A new prompt');
+		const started = withBaseHalfNodeVideoFields(node, beginBaseHalfVideoTask(getBaseHalfNodeVideoFields(node), {
+			id: 'task-2',
+			startedAt: '2026-10-15T09:00:00.000Z',
+			channel: 'ark-3f2a',
+			request: request()
+		}));
+		assert.deepStrictEqual([started.task?.state, started.upstream, started.title], ['submitting', node.upstream, node.title]);
+		assert.throws(() => withBaseHalfNodeVideoFields(createBaseHalfNodeDocument({ id: baseHalfNodeTestId(6), kind: 'image', title: 'Frame' }), { prompt: 'x' }), /document\.kind must be video/);
 	});
 
-	test('requires the running attempt to be unique and last', () => {
-		const first = start(configuredDraft());
-		const second = { ...first.attempts[0], id: 'attempt-2' };
-		assert.throws(() => parse({ ...first, attempts: [first.attempts[0], second] }), /more than one running attempt/);
-		const failed = failBaseHalfNodeAttempt(first, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'offline'
-		});
-		const retry = start(failed, 'attempt-2');
-		assert.throws(() => parse({ ...retry, attempts: [retry.attempts[1], retry.attempts[0]] }), /running attempt must be the last/);
-	});
-
-	test('freezes model and direct-input snapshots only while an attempt is running', () => {
-		const draft = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(2),
-			kind: 'video',
-			title: 'Input film',
-			role: 'Generated result',
-			recipe: recipeWithInput()
-		});
-		const preparing = beginBaseHalfNodeAttempt(draft, {
-			...beginOptions('attempt-input'),
-			inputs: []
-		});
-		const withInputs = freezeBaseHalfNodeAttemptInputs(preparing, 'attempt-input', [{
-			sourcePath: 'briefs/launch.md',
-			slot: 'brief',
-			order: 0,
-			revision: 'sha256:brief-v1'
-		}]);
-		assert.throws(() => freezeBaseHalfNodeAttemptInputs(withInputs, 'attempt-input', withInputs.attempts[0].inputs), /already has frozen inputs/);
-
-		const failed = failBaseHalfNodeAttempt(withInputs, 'attempt-input', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'provider unavailable'
-		});
-		assert.throws(() => freezeBaseHalfNodeAttemptModel(failed, 'attempt-input', { source: 'local' }), /is not running/);
-		assert.strictEqual(Object.isFrozen(failed.attempts[0].recipe), true);
-		assert.strictEqual(Object.isFrozen(failed.attempts[0].inputs), true);
-	});
-
-	test('persists one provider task id while an asynchronous attempt is running', () => {
-		const running = start(configuredDraft());
-		const submitted = freezeBaseHalfNodeAttemptProviderRequestId(running, 'attempt-1', 'provider/task-42');
-		assert.strictEqual(submitted.attempts[0].providerRequestId, 'provider/task-42');
-		assert.strictEqual(parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(submitted)).attempts[0].providerRequestId, 'provider/task-42');
-		assert.strictEqual(freezeBaseHalfNodeAttemptProviderRequestId(submitted, 'attempt-1', 'provider/task-42').attempts[0].providerRequestId, 'provider/task-42');
-		assert.throws(
-			() => freezeBaseHalfNodeAttemptProviderRequestId(submitted, 'attempt-1', 'provider/task-43'),
-			/already has a different provider request id/
-		);
-		assert.throws(() => replaceBaseHalfNodeAttemptProviderRequestId(
-			submitted,
-			'attempt-1',
-			'provider/task-42',
-			'provider/task-43'
-		), /has no authorization to replace/);
-		const source = interruptBaseHalfNodeAttempt(submitted, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'Provider polling stopped.'
-		});
-		let retry = beginBaseHalfNodeAttempt(source, {
-			...beginOptions('attempt-2'),
-			createdAt: '2026-08-13T08:02:00.000Z',
-			startedAt: '2026-08-13T08:02:00.000Z'
-		});
-		retry = freezeBaseHalfNodeAttemptProviderRequestId(retry, 'attempt-2', 'provider/task-42');
-		retry = freezeBaseHalfNodeAttemptExecution(retry, 'attempt-2', {
-			requestFingerprint: `v1:${'A'.repeat(43)}`,
-			intent: {
-				kind: 'exact-retry',
-				sourceAttemptId: 'attempt-1',
-				providerRequestId: 'provider/task-42',
-				replacementAuthorized: true
-			}
-		});
-		const resubmitted = replaceBaseHalfNodeAttemptProviderRequestId(
-			retry,
-			'attempt-2',
-			'provider/task-42',
-			'provider/task-43'
-		);
-		assert.strictEqual(resubmitted.attempts[1].providerRequestId, 'provider/task-43');
-		assert.throws(
-			() => replaceBaseHalfNodeAttemptProviderRequestId(resubmitted, 'attempt-2', 'provider/task-42', 'provider/task-44'),
-			/no longer has the expected provider request id/
-		);
-		const failed = failBaseHalfNodeAttempt(submitted, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'provider failed after submission'
-		});
-		assert.strictEqual(failed.attempts[0].providerRequestId, 'provider/task-42');
-	});
-
-	test('round-trips immutable provider intent and structured Retry evidence', () => {
-		const fingerprint = `v1:${'A'.repeat(43)}`;
-		const authorized = freezeBaseHalfNodeAttemptExecution(start(configuredDraft()), 'attempt-1', {
-			requestFingerprint: fingerprint,
-			intent: { kind: 'new' }
-		});
-		const acknowledged = freezeBaseHalfNodeAttemptProviderRequestId(authorized, 'attempt-1', 'provider/task-42');
-		const interrupted = interruptBaseHalfNodeAttempt(acknowledged, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'Provider polling stopped.',
-			failure: {
-				kind: 'poll-interrupted',
-				retry: 'resume-existing',
-				providerRequestId: 'provider/task-42'
-			}
-		});
-		const parsed = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(interrupted));
-		assert.deepStrictEqual(parsed.attempts[0].execution, {
-			requestFingerprint: fingerprint,
-			intent: { kind: 'new' }
-		});
-		assert.deepStrictEqual(parsed.attempts[0].failure, {
-			kind: 'poll-interrupted',
-			retry: 'resume-existing',
-			providerRequestId: 'provider/task-42'
-		});
-		assert.strictEqual(Object.isFrozen(parsed.attempts[0].execution), true);
-		assert.strictEqual(Object.isFrozen(parsed.attempts[0].failure), true);
-		assert.throws(
-			() => normalizeBaseHalfNodeAttemptFailure({ kind: 'submission-ambiguous', retry: 'fresh-submit' }),
-			/retry must be 'blocked'/
-		);
-		assert.throws(
-			() => normalizeBaseHalfNodeAttemptFailure({ kind: 'remote-failed', retry: 'blocked' }),
-			/providerRequestId is required/
-		);
-		assert.throws(() => interruptBaseHalfNodeAttempt(authorized, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'Rejected before acceptance.',
-			failure: { kind: 'submission-rejected', retry: 'fresh-submit' }
-		}), /requires terminal status 'failed'/);
-		assert.throws(() => failBaseHalfNodeAttempt(acknowledged, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'Polling stopped.',
-			failure: {
-				kind: 'poll-interrupted',
-				retry: 'resume-existing',
-				providerRequestId: 'provider/task-42'
-			}
-		}), /requires terminal status 'interrupted'/);
-	});
-
-	test('round-trips the durable Attempt snapshot manifest and keeps legacy v3 Attempts readable', () => {
-		const draft = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(2),
-			kind: 'video',
-			title: 'Input film',
-			role: 'Generated result',
-			recipe: recipeWithInput()
-		});
-		const running = beginBaseHalfNodeAttempt(draft, {
-			...beginOptions('attempt-input'),
-			inputs: [{
-				sourcePath: 'briefs/launch.md',
-				slot: 'brief',
-				order: 0,
-				revision: 'sha256:brief-v1'
-			}]
-		});
-		const runRoot = `outputs/${draft.id}/attempt-input`;
-		const manifest = {
-			version: 1 as const,
-			nodePath: 'film.bhnode',
-			frozenNodePath: `${runRoot}/inputs/node.bhnode`,
-			frozenNodeDigest: 'A'.repeat(43),
-			executorExtensionId: 'test.workflow',
-			videoModelCatalogId: 'test.workflow.models',
-			inputs: [{
-				edgeId: 'briefs/launch.md->film.bhnode',
-				slot: 'brief',
-				order: 0,
-				revision: 'sha256:brief-v1',
-				sourceId: 'briefs/launch.md',
-				sourcePath: 'briefs/launch.md',
-				sourceKind: 'text' as const,
-				snapshotPath: `${runRoot}/inputs/000-launch.md`,
-				snapshotDigest: 'B'.repeat(43),
-				resultId: 'briefs/launch.md',
-				resultKind: 'text' as const
-			}]
-		};
-		const frozen = freezeBaseHalfNodeAttemptSnapshotManifest(running, 'attempt-input', manifest);
-		const parsed = parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(frozen));
-		assert.deepStrictEqual(parsed.attempts[0].snapshotManifest, manifest);
-		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest), true);
-		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest?.inputs), true);
-		assert.strictEqual(Object.isFrozen(parsed.attempts[0].snapshotManifest?.inputs[0]), true);
-		assert.deepStrictEqual(
-			parseBaseHalfNodeDocument(serializeBaseHalfNodeDocument(running)).attempts[0].snapshotManifest,
-			undefined
-		);
-
-		assert.throws(() => freezeBaseHalfNodeAttemptSnapshotManifest(running, 'attempt-input', {
-			...manifest,
-			inputs: [{ ...manifest.inputs[0], revision: 'sha256:changed' }]
-		}), /must match the frozen Attempt input tuple/);
-		assert.throws(() => freezeBaseHalfNodeAttemptSnapshotManifest(frozen, 'attempt-input', {
-			...manifest,
-			frozenNodeDigest: 'C'.repeat(43)
-		}), /already has a different snapshot manifest/);
-		assert.throws(() => parse({
-			...frozen,
-			attempts: [{
-				...frozen.attempts[0],
-				snapshotManifest: { ...manifest, frozenNodePath: '../outside/node.bhnode' }
-			}]
-		}), /cannot contain empty, current, or parent path segments/);
-	});
-
-	test('retries in the same node with the exact frozen recipe snapshot', () => {
-		const first = start(configuredDraft());
-		const failed = failBaseHalfNodeAttempt(first, 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'temporary provider failure',
-			providerRequestId: 'provider-request-1',
-			usage: { inputTokens: 4 },
-			cost: { currency: 'USD', amount: '0.02', kind: 'actual' }
-		});
-		const retry = start(failed, 'attempt-2');
-
-		assert.strictEqual(retry.attempts.length, 2);
-		assert.deepStrictEqual(retry.attempts[0].recipe, retry.attempts[1].recipe);
-		assert.deepStrictEqual(retry.recipe, retry.attempts[0].recipe);
-		assert.strictEqual(retry.attempts[0].providerRequestId, 'provider-request-1');
-		assert.deepStrictEqual(retry.attempts[0].usage, { inputTokens: 4 });
-		assert.deepStrictEqual(retry.attempts[0].cost, { currency: 'USD', amount: '0.02', kind: 'actual' });
-	});
-
-	test('freezes the live recipe after the first attempt', () => {
-		const failed = failBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'offline'
-		});
-		const changedRecipe = { ...failed.recipe!, parameters: { prompt: 'different intent' } };
-		assert.throws(() => parse({ ...failed, recipe: changedRecipe }), /recipe is frozen/);
-		assert.throws(() => remapBaseHalfNodeRecipeInputBindings(failedWithInput(), 'briefs', 'moved'), /recipe is frozen/);
-		assert.throws(() => removeBaseHalfNodeRecipeInputBindings(failedWithInput(), 'briefs/launch.md'), /recipe is frozen/);
-	});
-
-	test('still remaps and removes bindings from an unattempted draft', () => {
-		const draft = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(3),
-			kind: 'video',
-			title: 'Draft',
-			role: 'Generated result',
-			recipe: recipeWithInput()
-		});
-		const moved = remapBaseHalfNodeRecipeInputBindings(draft, 'briefs', 'inputs');
-		assert.strictEqual(moved.recipe?.inputBindings[0].sourcePath, 'inputs/launch.md');
-		assert.strictEqual(baseHalfNodeRecipeReferencesPath(moved, 'inputs'), true);
-		const removed = removeBaseHalfNodeRecipeInputBindings(moved, 'inputs/launch.md');
-		assert.deepStrictEqual(removed.recipe?.inputBindings, []);
-	});
-
-	test('success atomically seals exactly one result artifact', () => {
-		const completed = completeBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			artifact: artifact(),
-			providerRequestId: 'provider-request-1',
-			usage: { videoSeconds: 5 },
-			cost: { currency: 'USD', amount: '0.30', kind: 'actual' }
-		});
-
-		assert.strictEqual(completed.attempts[0].status, 'succeeded');
-		assert.deepStrictEqual(completed.result, {
-			source: 'attempt',
-			attemptId: 'attempt-1',
-			artifact: artifact()
-		});
-		assert.deepStrictEqual(getBaseHalfNodeResultArtifact(completed), artifact());
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(completed), { ready: false, code: 'sealed' });
-		assert.strictEqual(Object.isFrozen(completed.result), true);
-		assert.strictEqual(Object.isFrozen(completed.result?.artifact), true);
-	});
-
-	test('forbids replacing a sealed result or adding another successful attempt', () => {
-		const completed = completeBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			artifact: artifact()
-		});
-		assert.throws(() => beginBaseHalfNodeAttempt(completed, beginOptions('attempt-2')), /sealed result node/);
-		assert.throws(() => completeBaseHalfNodeAttempt(completed, 'attempt-1', {
-			completedAt: '2026-08-13T08:02:00.000Z',
-			artifact: { ...artifact(), id: 'replacement' }
-		}), /is not running/);
-		assert.throws(() => importBaseHalfNodeResult(completed, { ...artifact(), id: 'replacement' }), /sealed result cannot be replaced/);
-
-		const duplicate = { ...completed.attempts[0], id: 'attempt-2' };
-		assert.throws(() => parse({ ...completed, attempts: [completed.attempts[0], duplicate] }), /more than one successful attempt/);
-	});
-
-	test('requires an attempt result to point to the unique final success', () => {
-		const completed = completeBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			artifact: artifact()
-		});
-		const { result: _result, ...withoutResult } = completed;
-		assert.throws(() => parse(withoutResult), /successful attempt requires its sealed attempt result/);
-		assert.throws(() => parse({ ...completed, result: { ...completed.result, attemptId: 'missing' } }), /must point to the unique successful attempt/);
-		assert.throws(() => parse({ ...completed, result: { ...completed.result, artifact: { ...artifact(), kind: 'image' } } }), /must match document.kind/);
-	});
-
-	test('imports only into an empty unconfigured draft and seals it', () => {
-		const imported = importBaseHalfNodeResult(emptyDraft(), artifact());
-		assert.deepStrictEqual(imported.result, { source: 'imported', artifact: artifact() });
-		assert.deepStrictEqual(imported.attempts, []);
-		assert.strictEqual(imported.recipe, undefined);
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(imported), { ready: false, code: 'sealed' });
-		assert.throws(() => importBaseHalfNodeResult(configuredDraft(), artifact()), /empty draft with no recipe or attempts/);
-		assert.throws(() => parse({ ...imported, recipe: recipe() }), /empty draft with no recipe or attempts/);
-	});
-
-	test('records failed, cancelled, and interrupted attempts without artifacts', () => {
-		const failed = failBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'provider failed'
-		});
-		assert.strictEqual(failed.attempts[0].status, 'failed');
-		assert.strictEqual(failed.result, undefined);
-
-		const cancelled = cancelBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			error: 'user cancelled'
-		});
-		assert.strictEqual(cancelled.attempts[0].status, 'cancelled');
-
-		const interrupted = interruptBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			error: 'host exited',
-			providerRequestId: 'provider-request-1',
-			usage: { inputTokens: 2 },
-			cost: { currency: 'USD', amount: '0', kind: 'actual' }
-		});
-		assert.strictEqual(interrupted.attempts[0].status, 'interrupted');
-		assert.strictEqual(interrupted.attempts[0].completedAt, undefined);
-	});
-
-	test('enforces terminal lifecycle timestamps and audit disclosures', () => {
-		const running = start(configuredDraft());
-		const submitted = parse({
-			...running,
-			attempts: [{ ...running.attempts[0], providerRequestId: 'too-early' }]
-		});
-		assert.strictEqual(submitted.attempts[0].providerRequestId, 'too-early');
-		assert.throws(() => parse({
-			...running,
-			attempts: [{ ...running.attempts[0], usage: { videoSeconds: 5 } }]
-		}), /running attempts cannot contain completed usage or cost/);
-		assert.throws(() => parse({
-			...running,
-			attempts: [{ ...running.attempts[0], status: 'failed', completedAt: '2026-08-13T08:01:00.000Z' }]
-		}), /failed attempts require an error message/);
-		assert.throws(() => failBaseHalfNodeAttempt(running, 'attempt-1', {
-			completedAt: '2026-08-13T07:59:00.000Z',
-			error: 'clock error'
-		}), /cannot precede the attempt start/);
-	});
-
-	test('forks authored setup but never aliases a result or attempt history', () => {
-		const completed = completeBaseHalfNodeAttempt(start(configuredDraft()), 'attempt-1', {
-			completedAt: '2026-08-13T08:01:00.000Z',
-			artifact: artifact()
-		});
-		const fork = forkBaseHalfNodeDocument(completed, baseHalfNodeTestId(9));
-		assert.strictEqual(fork.id, baseHalfNodeTestId(9));
-		assert.strictEqual(fork.kind, completed.kind);
-		assert.strictEqual(fork.result, undefined);
-		assert.deepStrictEqual(fork.attempts, []);
-		assert.deepStrictEqual(fork.recipe?.inputBindings, []);
-		assert.strictEqual(fork.prompt, completed.prompt);
-		assert.strictEqual(updateBaseHalfNodePrompt(fork, 'Fresh Draft intent').prompt, 'Fresh Draft intent');
-	});
-
-	test('reports structural model and source readiness for unsealed drafts', () => {
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(emptyDraft()), { ready: false, code: 'notExecutable' });
-		const draft = createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(4),
-			kind: 'video',
-			title: 'Service film',
-			role: 'Generated result',
-			recipe: {
-				...recipeWithInput(),
-				modelServiceId: 'studio.video',
-				modelId: 'video-v3'
-			}
-		});
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(draft, { availableModelServiceIds: [] }), { ready: false, code: 'modelServiceUnavailable' });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(draft, {
-			availableModelServiceIds: ['studio.video'],
-			availableSourcePaths: []
-		}), { ready: false, code: 'sourceUnavailable', missingSourcePaths: ['briefs/launch.md'] });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(draft, {
-			availableModelServiceIds: ['studio.video'],
-			availableSourcePaths: ['briefs/launch.md']
-		}), { ready: true, code: 'ready' });
-	});
-
-	test('keeps paths portable and protects derived metadata', () => {
+	test('keeps paths portable and reserves only the root outputs tree', () => {
 		for (const path of ['/absolute.mp4', '../escape.mp4', 'C:/escape.mp4', '.bh/private.mp4', 'folder\\file.mp4', 'CON.mp4']) {
-			assert.throws(() => importBaseHalfNodeResult(emptyDraft(), { ...artifact(), path }), BaseHalfNodeDocumentError);
+			assert.throws(() => importBaseHalfNodeResult(emptyVideo(), { kind: 'video', path, size: 1 }), BaseHalfNodeDocumentError);
 		}
 		assert.strictEqual(baseHalfIsReservedOutputTreePath('outputs/video.mp4'), true);
 		assert.strictEqual(baseHalfIsReservedOutputTreePath('Outputs/video.mp4'), true);
 		assert.strictEqual(baseHalfIsReservedOutputTreePath('archive/outputs/video.mp4'), false);
 	});
 
-	test('rejects malformed artifacts, model snapshots, and unbounded JSON', () => {
-		assert.throws(() => importBaseHalfNodeResult(emptyDraft(), { ...artifact(), sha256: 'hex-is-not-supported' }), /unpadded Base64 SHA-256/);
-		assert.throws(() => importBaseHalfNodeResult(emptyDraft(), { ...artifact(), kind: 'image' }), /must match document.kind/);
-		assert.throws(() => beginBaseHalfNodeAttempt(configuredDraft(), {
-			...beginOptions('attempt-1'),
-			model: {
-				source: 'service',
-				connection: 'unavailable',
-				serviceId: 'studio.video',
-				capability: 'video'
-			}
-		}), /must identify the recipe's configured model service/);
-		const tooDeep: Record<string, unknown> = {};
-		let cursor = tooDeep;
-		for (let index = 0; index < 20; index++) {
-			cursor.next = {};
-			cursor = cursor.next as Record<string, unknown>;
-		}
-		assert.throws(() => createBaseHalfNodeDocument({
-			id: baseHalfNodeTestId(5),
-			kind: 'video',
-			title: 'Too deep',
-			role: 'Generated result',
-			recipe: { ...recipe(), parameters: tooDeep as never }
-		}), /maximum JSON nesting depth/);
-	});
-
 	test('enforces the UTF-8 byte budget and rejects invalid UTF-8 bytes', () => {
-		const oversized = JSON.stringify({ ...emptyDraft(), padding: 'a'.repeat(BASEHALF_NODE_DOCUMENT_MAX_BYTES) });
+		const oversized = JSON.stringify({ ...emptyVideo(), prompt: 'a'.repeat(BASEHALF_NODE_DOCUMENT_MAX_BYTES) });
 		assert.throws(() => parseBaseHalfNodeDocument(oversized), /exceeds/);
 		assert.throws(() => parseBaseHalfNodeDocumentBytes(new Uint8Array([0xC3, 0x28])), /valid UTF-8/);
-		const bytes = new TextEncoder().encode(serializeBaseHalfNodeDocument(emptyDraft()));
-		assert.deepStrictEqual(parseBaseHalfNodeDocumentBytes(bytes), emptyDraft());
+		const bytes = new TextEncoder().encode(serializeBaseHalfNodeDocument(emptyVideo()));
+		assert.deepStrictEqual(parseBaseHalfNodeDocumentBytes(bytes), emptyVideo());
 	});
 });
 
 suite('BaseHalfNodeDocument upstream', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('reads version 3 with upstream derived from its bindings and writes version 4', () => {
-		const v3 = {
-			version: 3,
-			id: baseHalfNodeTestId(20),
-			kind: 'video',
-			title: 'Legacy',
-			role: 'Generated result',
-			prompt: '',
-			recipe: {
-				...recipe(),
-				inputBindings: [
-					{ sourcePath: 'b.md', slot: 'style', order: 1 },
-					{ sourcePath: 'a.md', slot: 'brief', order: 0 }
-				]
-			},
-			attempts: []
-		};
-		const parsed = parse(v3);
-		assert.strictEqual(parsed.version, 4);
-		assert.deepStrictEqual(parsed.upstream, ['a.md', 'b.md']);
-		const written = JSON.parse(serializeBaseHalfNodeDocument(parsed));
-		assert.deepStrictEqual([written.version, written.upstream], [4, ['a.md', 'b.md']]);
-		assert.throws(() => parse({ ...v3, upstream: [] }), /unsupported property 'upstream'/);
-	});
-
-	test('requires an upstream array and preserves every item verbatim', () => {
-		const draft = emptyDraft();
-		const withoutUpstream: Record<string, unknown> = { ...draft };
+	test('requires an upstream array and keeps every item verbatim', () => {
+		const node = emptyVideo();
+		const withoutUpstream: Record<string, unknown> = { ...node };
 		delete withoutUpstream.upstream;
-		assert.throws(() => parse(withoutUpstream), /document.upstream must be an array/);
-		assert.throws(() => parse({ ...draft, upstream: 'a.md' }), /document.upstream must be an array/);
+		assert.throws(() => parse(withoutUpstream), /document\.upstream must be an array/);
+		assert.throws(() => parse({ ...node, upstream: 'a.md' }), /document\.upstream must be an array/);
 
 		const odd = [' spaced.md ', 42, { path: 'x' }, '', 'node.bhnode', 'a.md', 'A.md', 'docs/'];
-		const parsed = parse({ ...draft, upstream: odd });
+		const parsed = parse({ ...node, upstream: odd });
 		assert.deepStrictEqual(parsed.upstream, odd);
 		assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(parsed)).upstream, odd);
-		assert.deepStrictEqual(analyzeBaseHalfNodeUpstream(parsed, 'node.bhnode').items.map(item => item.problem ?? item.path), [
+		assert.deepStrictEqual(analyzeBaseHalfNodeUpstream(parsed, 'node.bhnode').map(item => item.problem ?? item.path), [
 			' spaced.md ', 'notString', 'notString', 'empty', 'self', 'a.md', 'duplicate', 'docs'
 		]);
+		const tooMany = parse({ ...node, upstream: Array.from({ length: 66 }, (_, index) => `n${index}.md`) });
+		assert.deepStrictEqual(analyzeBaseHalfNodeUpstream(tooMany, 'x.bhnode').filter(item => item.problem).map(item => [item.index, item.problem]), [[64, 'overLimit'], [65, 'overLimit']]);
 	});
 
-	test('reports per-entry readiness problems that block submission while the node stays readable', () => {
-		const tooMany = Array.from({ length: 66 }, (_, index) => `n${index}.md`);
-		const invalid = parse({ ...configuredDraft(), upstream: ['a.md', 7, 'a.md'] });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(invalid, { nodePath: 'x.bhnode' }).invalidUpstream?.map(item => item.problem), ['notString', 'duplicate']);
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(invalid).code, 'ready');
-		const overLimit = parse({ ...configuredDraft(), upstream: tooMany });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(overLimit, { nodePath: 'x.bhnode' }).invalidUpstream?.map(item => item.index), [64, 65]);
-
-		const unlisted = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: [] });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(unlisted, { nodePath: 'x.bhnode' }), {
-			ready: false, code: 'bindingNotInUpstream', unlistedBindingPaths: ['briefs/launch.md']
-		});
-		const unbound = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'extra.md'] });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(unbound, { nodePath: 'x.bhnode' }), {
-			ready: false, code: 'upstreamUnbound', unboundUpstreamPaths: ['extra.md']
-		});
-		const bound = parse({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md'] });
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(bound, { nodePath: 'x.bhnode', availableSourcePaths: [] }), {
-			ready: false, code: 'sourceUnavailable', missingSourcePaths: ['briefs/launch.md']
-		});
-		assert.deepStrictEqual(getBaseHalfNodeReadiness(bound, { nodePath: 'x.bhnode', availableSourcePaths: ['Briefs/Launch.md'] }), { ready: true, code: 'ready' });
+	test('adds, removes, and replaces entries in every phase', () => {
+		const phases = [
+			emptyVideo(),
+			configuredVideo({ task: runningTask() }),
+			configuredVideo({ task: failedTask() }),
+			configuredVideo({ result: generatedResult() })
+		];
+		for (const node of phases) {
+			const added = addBaseHalfNodeUpstreamEntry(node, 'notes/extra.md/');
+			assert.deepStrictEqual(added.upstream, [...node.upstream, 'notes/extra.md']);
+			assert.deepStrictEqual({ ...added, upstream: node.upstream }, node);
+			assert.strictEqual(addBaseHalfNodeUpstreamEntry(added, 'Notes/Extra.md'), added);
+			assert.deepStrictEqual(removeBaseHalfNodeUpstreamEntry(added, 'notes/extra.md'), node);
+			const replaced = replaceBaseHalfNodeUpstreamEntry(added, 'notes/extra.md', 'notes/renamed.md');
+			assert.deepStrictEqual(replaced.upstream, [...node.upstream, 'notes/renamed.md']);
+			assert.strictEqual(removeBaseHalfNodeUpstreamEntry(node, 'never-listed.md'), node);
+		}
 	});
 
-	test('adds an entry and its binding in one write and never lists an entry twice', () => {
-		const draft = configuredDraft();
-		const unbound = addBaseHalfNodeUpstreamEntry(draft, 'notes/a.md');
-		assert.deepStrictEqual([unbound.upstream, unbound.recipe?.inputBindings], [['notes/a.md'], []]);
-		assert.strictEqual(addBaseHalfNodeUpstreamEntry(unbound, 'notes/a.md'), unbound);
-		const bound = addBaseHalfNodeUpstreamEntry(unbound, 'notes/a.md', { slot: 'brief' });
-		assert.deepStrictEqual([bound.upstream, bound.recipe?.inputBindings], [['notes/a.md'], [{ sourcePath: 'notes/a.md', slot: 'brief', order: 0 }]]);
-		const second = addBaseHalfNodeUpstreamEntry(bound, 'frames/start.png/', { slot: 'first-frame' });
-		assert.deepStrictEqual([second.upstream, second.recipe?.inputBindings.map(binding => [binding.sourcePath, binding.order])], [
-			['notes/a.md', 'frames/start.png'],
-			[['notes/a.md', 0], ['frames/start.png', 1]]
-		]);
-		assert.throws(() => addBaseHalfNodeUpstreamEntry(emptyDraft(), 'x.md', { slot: 'brief' }), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'noDraftRecipe');
+	test('replaces an entry in place, or removes it when the new entry is already listed', () => {
+		const node = configuredVideo({});
+		assert.deepStrictEqual(replaceBaseHalfNodeUpstreamEntry(node, 'frames/start.png', 'frames/first.png').upstream, ['frames/first.png', 'frames/end.png', 'notes/scene.md']);
+		assert.deepStrictEqual(replaceBaseHalfNodeUpstreamEntry(node, 'frames/start.png', 'notes/scene.md').upstream, ['frames/end.png', 'notes/scene.md']);
+		assert.strictEqual(replaceBaseHalfNodeUpstreamEntry(node, 'gone.md', 'notes/scene.md'), node);
+		assert.throws(() => replaceBaseHalfNodeUpstreamEntry(node, 'gone.md', 'new.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'entryMissing');
 	});
 
 	test('refuses a write past 64 entries', () => {
-		const full = parse({ ...emptyDraft(), upstream: Array.from({ length: 64 }, (_, index) => `n${index}.md`) });
+		const full = parse({ ...emptyVideo(), upstream: Array.from({ length: 64 }, (_, index) => `n${index}.md`) });
 		assert.throws(() => addBaseHalfNodeUpstreamEntry(full, 'one-more.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'limit' && /already has 64 upstream entries/.test(error.message));
 		assert.strictEqual(addBaseHalfNodeUpstreamEntry(full, 'n3.md'), full);
 		assert.strictEqual(removeBaseHalfNodeUpstreamEntry(full, 'n3.md').upstream.length, 63);
+		assert.throws(() => setBaseHalfNodeUpstream(full, [...full.upstream, 'x.md']), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'limit');
 	});
 
-	test('disconnects unbound entries in every state and bound entries only in a Draft', () => {
-		const draft = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'loose.md'] });
-		const unboundRemoved = removeBaseHalfNodeUpstreamEntry(draft, 'loose.md');
-		assert.deepStrictEqual(unboundRemoved.upstream, ['briefs/launch.md']);
-		const boundRemoved = removeBaseHalfNodeUpstreamEntry(draft, 'briefs/launch.md');
-		assert.deepStrictEqual([boundRemoved.upstream, boundRemoved.recipe?.inputBindings], [['loose.md'], []]);
-
-		const attempted = start(draft);
-		assert.deepStrictEqual(removeBaseHalfNodeUpstreamEntry(attempted, 'loose.md').upstream, ['briefs/launch.md']);
-		assert.throws(() => addBaseHalfNodeUpstreamEntry(attempted, 'new.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'recipeFrozen');
-		assert.strictEqual(addBaseHalfNodeUpstreamEntry(attempted, 'loose.md'), attempted);
-		const imported = importBaseHalfNodeResult(emptyDraft(), { ...artifact(), kind: 'video' });
-		assert.deepStrictEqual(addBaseHalfNodeUpstreamEntry(imported, 'context.md').upstream, ['context.md']);
-		assert.throws(() => removeBaseHalfNodeUpstreamEntry(attempted, 'briefs/launch.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'boundOutsideDraft');
-		assert.throws(() => setBaseHalfNodeUpstream(attempted, attempted.upstream, []), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'boundOutsideDraft');
-		assert.strictEqual(removeBaseHalfNodeUpstreamEntry(attempted, 'never-listed.md'), attempted);
+	test('a new input order changes the upstream list and nothing else', () => {
+		const node = configuredVideo({ result: generatedResult() });
+		const swapped = setBaseHalfNodeUpstream(node, ['frames/end.png', 'frames/start.png', 'notes/scene.md']);
+		assert.deepStrictEqual(swapped.upstream, ['frames/end.png', 'frames/start.png', 'notes/scene.md']);
+		assert.deepStrictEqual({ ...swapped, upstream: node.upstream }, node);
+		assert.strictEqual(setBaseHalfNodeUpstream(node, [...node.upstream]), node);
 	});
 
-	test('replaces an entry in place and carries its binding in a Draft', () => {
-		const draft = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['x.md', 'briefs/launch.md'] });
-		const replaced = replaceBaseHalfNodeUpstreamEntry(draft, 'briefs/launch.md', 'briefs/v2.md');
-		assert.deepStrictEqual([replaced.upstream, replaced.recipe?.inputBindings.map(binding => binding.sourcePath)], [['x.md', 'briefs/v2.md'], ['briefs/v2.md']]);
-		assert.deepStrictEqual(replaceBaseHalfNodeUpstreamEntry(draft, 'x.md', 'briefs/launch.md').upstream, ['briefs/launch.md']);
-		assert.throws(() => replaceBaseHalfNodeUpstreamEntry(draft, 'gone.md', 'new.md'), (error: unknown) => error instanceof BaseHalfNodeUpstreamEditError && error.refusal === 'entryMissing');
-	});
-
-	test('copy settings starts a Draft with upstream [] and no bindings', () => {
-		const source = createBaseHalfNodeDocument({ ...configuredDraft(), recipe: recipeWithInput(), upstream: ['briefs/launch.md', 'loose.md'] });
-		const fork = forkBaseHalfNodeDocument(source, baseHalfNodeTestId(30));
-		assert.deepStrictEqual([fork.upstream, fork.recipe?.inputBindings], [[], []]);
-	});
-
-	test('extracts upstream leniently when other fields are malformed', () => {
-		const malformed = JSON.stringify({ version: 4, upstream: ['a.md', 3], attempts: 'broken', recipe: { inputBindings: [{ sourcePath: 'a.md', slot: 'brief', order: 0 }] }, result: { artifact: { path: 'outputs/x.png' } } });
+	test('extracts the upstream list of a version 5 node leniently, and nothing else', () => {
+		const malformed = JSON.stringify({ version: 5, upstream: ['a.md', 3], task: 'broken', result: { artifact: { path: 'outputs/x/clip.mp4' } } });
 		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(malformed), {
 			readable: true,
-			version: 4,
 			upstream: ['a.md', 3],
-			bindings: [{ sourcePath: 'a.md', slot: 'brief', order: 0 }],
-			lifecycle: 'sealed',
-			resultArtifactPath: 'outputs/x.png',
-			hasRecipe: true
+			resultArtifactPath: 'outputs/x/clip.mp4'
 		});
-		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 3, recipe: { inputBindings: [{ sourcePath: 'b.md', order: 1 }, { sourcePath: 'a.md', order: 0 }] }, attempts: [{}] })), {
-			readable: true,
-			version: 3,
-			upstream: ['a.md', 'b.md'],
-			bindings: [{ sourcePath: 'a.md', order: 0 }, { sourcePath: 'b.md', order: 1 }],
-			lifecycle: 'attempted',
-			hasRecipe: true
-		});
-		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient('{').readable, false);
-		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 4, upstream: 'a.md' })).readable, false);
-		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 9 })).readable, false);
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 5, upstream: [] })), { readable: true, upstream: [] });
+		const v4 = extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 4, upstream: ['a.md'], recipe: { inputBindings: [] }, attempts: [] }));
+		assert.deepStrictEqual(v4, { readable: false, reason: 'document.version 4 is no longer supported: this node was saved by an earlier BaseHalf.' });
+		assert.strictEqual(extractBaseHalfNodeUpstreamLenient('{').readable, false);
+		assert.strictEqual(extractBaseHalfNodeUpstreamLenient('[]').readable, false);
+		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 5, upstream: 'a.md' })).readable, false);
+		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 9 })).readable, false);
+	});
+});
+
+suite('BaseHalfNodeDocument agent authoring', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('publishes the fields an agent may write and keeps the task and result for BaseHalf', () => {
+		const contract = getBaseHalfNodeAgentAuthoringContract() as Record<string, any>;
+		assert.strictEqual(contract.contractVersion, 3);
+		assert.deepStrictEqual(contract.hostOwnedFields, ['task', 'result']);
+		assert.deepStrictEqual(contract.schema.required, ['version', 'id', 'kind', 'title', 'prompt', 'upstream']);
+		assert.deepStrictEqual(Object.keys(contract.schema.properties), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'task', 'result']);
+		assert.deepStrictEqual([contract.schema.properties.task, contract.schema.properties.result], [false, false]);
+		assert.deepStrictEqual(contract.schema.properties.kind, { const: 'video' });
+		assert.deepStrictEqual(contract.schema.properties.version, { const: 5 });
+		for (const example of Object.values(contract.examples)) {
+			const document = parse(example);
+			assert.deepStrictEqual([document.task, document.result], [undefined, undefined]);
+			assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(document)), example);
+		}
+		assert.ok(contract.rules.some((rule: string) => rule.includes('basehalf --run-node')));
+		assert.doesNotMatch(JSON.stringify(contract), /recipe|attempt|binding|role/i);
+	});
+
+	test('reads an agent-written Video node with a title, prompt, upstream, and settings, ready to run', () => {
+		const written = {
+			version: 5,
+			id: baseHalfNodeTestId(40),
+			kind: 'video',
+			title: 'Shot 3',
+			prompt: 'Image 1 slowly turns into Image 2.',
+			upstream: ['frames/a.png', 'frames/b.png'],
+			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: false }
+		};
+		const document = parse(written);
+		assert.strictEqual(baseHalfVideoNodePhase(document), 'empty');
+		assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(document)), written);
+		const started = withBaseHalfNodeVideoFields(document, beginBaseHalfVideoTask(getBaseHalfNodeVideoFields(document), {
+			id: 'task-1',
+			startedAt: '2026-10-15T08:00:00.000Z',
+			channel: 'ark-3f2a',
+			request: { ...request(), prompt: document.prompt!, inputs: ['frames/a.png', 'frames/b.png'] }
+		}));
+		assert.strictEqual(baseHalfVideoNodePhase(started), 'generating');
 	});
 });
 
@@ -800,85 +338,77 @@ function parse(value: unknown): IBaseHalfNodeDocument {
 	return parseBaseHalfNodeDocument(JSON.stringify(value));
 }
 
-function emptyDraft(): IBaseHalfNodeDocument {
+function emptyVideo(): IBaseHalfNodeDocument {
+	return createBaseHalfNodeDocument({ id: baseHalfNodeTestId(1), kind: 'video', title: 'Shot 1' });
+}
+
+function configuredVideo(fields: { readonly task?: IBaseHalfVideoTask; readonly result?: IBaseHalfNodeDocument['result'] }): IBaseHalfNodeDocument {
 	return createBaseHalfNodeDocument({
 		id: baseHalfNodeTestId(1),
 		kind: 'video',
-		title: 'Launch film',
-		role: 'Generated result'
+		title: 'Shot 1',
+		prompt: 'The rider in Image 1 cycles along the coast.',
+		upstream: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
+		generation: { ...settings(), channel: 'ark-3f2a', model: 'doubao-seedance-2-5-260628' },
+		...fields
 	});
 }
 
-function configuredDraft(): IBaseHalfNodeDocument {
-	return createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(1),
-		kind: 'video',
-		title: 'Launch film',
-		role: 'Generated result',
-		recipe: recipe()
-	});
+function settings(): IBaseHalfVideoGenerationSettings {
+	return { mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
 }
 
-function recipe(): IBaseHalfNodeRecipe {
+function request(): IBaseHalfVideoGenerationRecord {
 	return {
-		recipeId: 'ai-video.text-to-video',
-		parameters: { prompt: 'A quiet orbit around the product', duration: 5 },
-		inputBindings: []
+		provider: 'ark',
+		model: 'doubao-seedance-2-5-260628',
+		prompt: 'The rider in Image 1 cycles along the coast.',
+		inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
+		mode: 'frames',
+		ratio: 'adaptive',
+		resolution: '720p',
+		duration: 5,
+		audio: true
 	};
 }
 
-function recipeWithInput(): IBaseHalfNodeRecipe {
+function runningTask(): IBaseHalfVideoTask {
 	return {
-		...recipe(),
-		inputBindings: [{ sourcePath: 'briefs/launch.md', slot: 'brief', order: 0 }]
+		id: '20261015T080000-k3f9',
+		state: 'running',
+		startedAt: '2026-10-15T08:00:00.000Z',
+		channel: 'ark-3f2a',
+		remoteId: 'cgt-20261015080001-abcd',
+		request: request()
 	};
 }
 
-function beginOptions(id: string) {
+function failedTask(): IBaseHalfVideoTask {
 	return {
-		id,
-		createdAt: '2026-08-13T08:00:00.000Z',
-		startedAt: '2026-08-13T08:00:01.000Z',
-		model: { source: 'local' as const },
-		inputs: []
+		id: '20261015T080000-k3f9',
+		state: 'failed',
+		startedAt: '2026-10-15T08:00:00.000Z',
+		endedAt: '2026-10-15T08:01:00.000Z',
+		channel: 'ark-3f2a',
+		error: 'The key was refused.',
+		request: request()
 	};
 }
 
-function start(document: IBaseHalfNodeDocument, id = 'attempt-1'): IBaseHalfNodeDocument {
-	return beginBaseHalfNodeAttempt(document, beginOptions(id));
+function videoArtifact(): IBaseHalfNodeArtifact {
+	return { kind: 'video', path: `outputs/${baseHalfNodeTestId(1)}/20261015T080000-k3f9.mp4`, size: 1024 };
 }
 
-function artifact(): IBaseHalfNodeResultArtifact {
+function generatedResult(): NonNullable<IBaseHalfNodeDocument['result']> {
 	return {
-		id: 'artifact-1',
-		outputId: 'video-main',
-		kind: 'video',
-		path: 'outputs/launch-film.mp4',
-		sha256: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-		size: 1024,
-		label: 'Launch film'
+		source: 'generated',
+		artifact: videoArtifact(),
+		generation: {
+			taskId: '20261015T080000-k3f9',
+			remoteId: 'cgt-20261015080001-abcd',
+			startedAt: '2026-10-15T08:00:00.000Z',
+			completedAt: '2026-10-15T08:03:00.000Z',
+			request: request()
+		}
 	};
-}
-
-function failedWithInput(): IBaseHalfNodeDocument {
-	const draft = createBaseHalfNodeDocument({
-		id: baseHalfNodeTestId(8),
-		kind: 'video',
-		title: 'Input film',
-		role: 'Generated result',
-		recipe: recipeWithInput()
-	});
-	const running = beginBaseHalfNodeAttempt(draft, {
-		...beginOptions('attempt-input'),
-		inputs: [{
-			sourcePath: 'briefs/launch.md',
-			slot: 'brief',
-			order: 0,
-			revision: 'sha256:brief-v1'
-		}]
-	});
-	return failBaseHalfNodeAttempt(running, 'attempt-input', {
-		completedAt: '2026-08-13T08:01:00.000Z',
-		error: 'offline'
-	});
 }

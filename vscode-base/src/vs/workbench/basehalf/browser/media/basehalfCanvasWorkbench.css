@@ -1807,6 +1807,15 @@ body.basehalf-canvas-edge-reconnecting * {
 	line-height: 1.4;
 }
 
+/* A failed task's error shows in two lines at most; the tooltip has all of it. */
+.monaco-workbench .basehalf-video-stage-hint.failed {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow-wrap: anywhere;
+}
+
 .monaco-workbench .basehalf-video-state {
 	position: absolute;
 	right: 10px;

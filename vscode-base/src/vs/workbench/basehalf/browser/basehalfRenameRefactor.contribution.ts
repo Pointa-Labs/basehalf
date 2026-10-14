@@ -32,7 +32,6 @@ import {
 	IBaseHalfRenamePlanState,
 	IBaseHalfRenameStore
 } from '../common/basehalfRenameRefactor.js';
-import { IBaseHalfNodeExecutionService } from './basehalfNodeExecutionService.js';
 import { IBaseHalfReferenceRefactorInput, IBaseHalfReferenceRefactorOutcome, IBaseHalfReferenceRefactorService } from './basehalfReferenceRefactorService.js';
 
 const SIDECAR_MAX_BYTES = 64 * 1024;
@@ -46,7 +45,7 @@ const utf8Decoder = new TextDecoder('utf-8', { ignoreBOM: true });
  * Why a store was not written that will not hold for good: the entry is
  * owed, and is written when the reason has gone.
  */
-const TEMPORARY_REFUSALS: ReadonlySet<string> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading', 'running']);
+const TEMPORARY_REFUSALS: ReadonlySet<string> = new Set<BaseHalfReferenceRefusalReason>(['beingMoved', 'flushFailed', 'unsaved', 'conflict', 'error', 'indexLoading']);
 
 /** One workspace folder's part of a prepared move. */
 interface IPreparedRename {
@@ -98,10 +97,11 @@ interface IPendingRename {
  * - The update adds no undo step. Undoing a workbench move is a move back,
  *   which updates the entries back.
  * - **What is owed is remembered.** When a store could not be written for a
- *   reason that passes (unsaved changes, a node that is running), or the
- *   index had not seen every store, the move is kept with what BaseHalf last
- *   saw and tried again: when the index finished a scan, when a document is
- *   saved or reverted, when a run ends, and at open.
+ *   reason that passes (unsaved changes, a move in progress), or the index
+ *   had not seen every store, the move is kept with what BaseHalf last saw
+ *   and tried again: when the index finished a scan, when a document is saved
+ *   or reverted, and at open. A Video node that is generating is written at
+ *   once: its upstream list and its task are written with compare and swap.
  * - A folder marked with the source-tree marker is never rewritten by itself.
  */
 export class BaseHalfRenameRefactorContribution extends Disposable implements IWorkbenchContribution {
@@ -123,7 +123,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		@IFileService private readonly fileService: IFileService,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
 		@IWorkingCopyService workingCopyService: IWorkingCopyService,
-		@IBaseHalfNodeExecutionService nodeExecutionService: IBaseHalfNodeExecutionService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -149,7 +148,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 				this.retryOwed(folder.uri);
 			}
 		}));
-		this._register(nodeExecutionService.onDidChange(() => this.retryOwedEverywhere()));
 		this._register(this.contextService.onDidChangeWorkspaceFolders(event => {
 			for (const added of event.added) {
 				void this.movedItemsService.whenCompared(added.uri).then(() => this.retryOwed(added.uri));
@@ -472,12 +470,6 @@ export class BaseHalfRenameRefactorContribution extends Disposable implements IW
 		const next = baseHalfComposeOwedEntryMoves(before, moves, owed);
 		if (next.length !== before.length || next.some((move, index) => move.from !== before[index].from || move.to !== before[index].to)) {
 			this.movedItemsService.setOwedEntryMoves(workspaceFolder, next);
-		}
-	}
-
-	private retryOwedEverywhere(): void {
-		for (const folder of this.contextService.getWorkspace().folders) {
-			this.retryOwed(folder.uri);
 		}
 	}
 
