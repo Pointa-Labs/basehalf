@@ -29,19 +29,19 @@ suite('BaseHalfCanvasPreview', () => {
 	});
 
 	test('admits inline editing only for a complete projection within the byte gate', () => {
-		assert.strictEqual(BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES, 8192);
-		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8192, true), 'inline');
-		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8193, true), 'richDetail');
-		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(8192, false), 'richDetail');
+		assert.strictEqual(BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES, 65_536);
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(65_536, true), 'inline');
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(65_537, true), 'richDetail');
+		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(65_536, false), 'richDetail');
 		assert.strictEqual(baseHalfCanvasMarkdownEditTarget(undefined, true), 'inline');
 	});
 
 	test('measures a live Markdown source with the same UTF-8 byte boundary', () => {
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(8192)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(8193)), false);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(2730)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(2731)), false);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('😀'.repeat(2048)), true);
-		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline(`${'😀'.repeat(2048)}a`), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(65_536)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('a'.repeat(65_537)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(21_845)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('春'.repeat(21_846)), false);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline('😀'.repeat(16_384)), true);
+		assert.strictEqual(baseHalfCanvasMarkdownSourceFitsInline(`${'😀'.repeat(16_384)}a`), false);
 	});
 });

@@ -1412,7 +1412,8 @@ type BaseHalfCanvasInlineEdit =
 		failure?: string;
 	};
 
-const TEXT_PREVIEW_MAX_BYTES = BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES;
+/** An excerpt shows the first lines of a file, so only its head is read, whatever its size. */
+const CARD_EXCERPT_READ_BYTES = 8192;
 const CANVAS_MARKDOWN_FULL_EDITOR_LABEL = localize(
 	'basehalf.canvas.note.fullEditorRequired',
 	"This Markdown file is too large for quick edit. Double-click to open the full editor."
@@ -5131,7 +5132,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mount.preview = richRequiredPreview;
 		}
 
-		// The preview cache may still describe the <=8 KiB snapshot from before
+		// The preview cache may still describe the inline-sized snapshot from before
 		// this edit. Replace it before the inline host is removed so a rapid
 		// second double-click cannot re-enter quick edit with stale metadata.
 		const item = this.renderedItemsByPath.get(active.path);
@@ -6451,15 +6452,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const kind = markdownPreviewKind(item.name);
-		if (kind === 'markdown' && item.stat.size !== undefined && item.stat.size > TEXT_PREVIEW_MAX_BYTES) {
+		if (kind === 'markdown' && item.stat.size !== undefined && item.stat.size > BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES) {
 			return { kind: 'richRequired', text: CANVAS_MARKDOWN_FULL_EDITOR_LABEL };
 		}
 		try {
-			// This is an all-or-nothing gate: oversized Markdown files require the
+			// A note is all or nothing: an oversized Markdown file requires the
 			// full editor; no partial source may masquerade as the stored projection.
-			const contents = await this.fileService.readFile(item.stat.resource, {
-				limits: { size: TEXT_PREVIEW_MAX_BYTES }
-			});
+			// The excerpt of any other text needs only the head of the file.
+			const contents = await this.fileService.readFile(item.stat.resource, kind === 'markdown'
+				? { limits: { size: BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES } }
+				: { length: CARD_EXCERPT_READ_BYTES });
 			const raw = contents.value.toString();
 			if (raw.includes('\u0000')) {
 				return { kind: 'unavailable', text: 'Binary file' };
@@ -6864,9 +6866,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return {};
 		}
 		try {
-			const contents = (await this.fileService.readFile(resource, {
-				limits: { size: TEXT_PREVIEW_MAX_BYTES }
-			})).value;
+			const contents = (await this.fileService.readFile(resource, { length: CARD_EXCERPT_READ_BYTES })).value;
 			const raw = decodeBaseHalfNodeTextPreview(contents);
 			if (raw === undefined) {
 				return {};

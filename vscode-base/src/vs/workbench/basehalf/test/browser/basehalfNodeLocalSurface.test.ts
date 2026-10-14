@@ -1043,6 +1043,8 @@ suite('BaseHalfNodeLocalSurface', () => {
 		assert.strictEqual(decodeBaseHalfNodeTextPreview(VSBuffer.fromString('# Plan\n')), '# Plan\n');
 		assert.strictEqual(decodeBaseHalfNodeTextPreview(VSBuffer.wrap(new Uint8Array([0x66, 0x00, 0x6f]))), undefined);
 		assert.strictEqual(decodeBaseHalfNodeTextPreview(VSBuffer.wrap(new Uint8Array([0xc3, 0x28]))), undefined);
+		// The head of a long result can end inside a character: 春 is e6 98 a5.
+		assert.strictEqual(decodeBaseHalfNodeTextPreview(VSBuffer.wrap(new Uint8Array([0x66, 0xe6, 0x98]))), 'f');
 	});
 
 	test('explains model and direct-input readiness without changing edge semantics', () => {

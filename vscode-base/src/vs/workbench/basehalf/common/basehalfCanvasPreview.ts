@@ -14,7 +14,13 @@ export function baseHalfCanvasMarkdownPreviewSource(raw: string): string {
 	return raw;
 }
 
-export const BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES = 8192;
+/**
+ * A card builds every block of its note, at rest and in its editor, so
+ * drawing the card and opening the editor take longer for a longer note.
+ * At 64 KiB the editor opens in about 120 ms; see the Note size rules of
+ * note rendering.
+ */
+export const BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES = 64 * 1024;
 
 /**
  * Apply the Canvas inline boundary to the current source, not JavaScript's

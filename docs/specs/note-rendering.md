@@ -51,6 +51,9 @@ In scope:
   projection shows that a table is wider than the text column.
 - What Card Detail's rich projection shows for a block it cannot edit, and
   which blocks with a line break written as `<br>` it edits.
+- How long a note can be and still be shown and edited on its card, and how
+  much of a text file, a code file, or a text result a card reads for its
+  excerpt.
 
 Not in scope, and unchanged:
 
@@ -59,8 +62,8 @@ Not in scope, and unchanged:
   for editing.
 - Everything else in Card Detail's projections, and how a block that is not
   edited is saved: byte for byte, as before.
-- The 8 KiB limit above which a card shows a label instead of the note.
-- Previews of text files, code files, and folders.
+- What the excerpt of a text file, a code file, or a folder shows: the first
+  lines, as before.
 - Front matter. It is not part of the shown note.
 
 ## Terms
@@ -204,6 +207,24 @@ in the editor, by reading a block and writing it back:
     editor: `<br/>` becomes `<br>`, and `<br>` outside a table becomes a
     Markdown line break.
 
+### Note size
+
+24. A note of up to 64 KiB (65,536 bytes of its file in UTF-8, front matter
+    included) is shown on its card by the rules above, and a double click
+    edits it there. That is about 21,000 Chinese characters or 65,000 Latin
+    letters (`BASEHALF_CANVAS_MARKDOWN_INLINE_MAX_BYTES`).
+25. A larger note shows only the label "This Markdown file is too large for
+    quick edit. Double-click to open the full editor.", and a double click
+    opens it in Card Detail. The card shows the whole note or the label,
+    never a part of the note.
+26. A note that grows above 64 KiB while it is edited on the card stays in
+    the card's editor until the editor closes, and then shows the label.
+27. The card of a text file or a code file shows its first lines whatever
+    the size of the file. It reads only the first 8 KiB of the file, and
+    shows "Binary file" when they hold a NUL byte. A result node reads the
+    text of its result the same way. A text result is never reported as
+    missing because it is long.
+
 ## Limits
 
 - The bar of a table or a code block cannot be dragged. A mouse without a
@@ -219,6 +240,26 @@ in the editor, by reading a block and writing it back:
 - A code block has no syntax colors on the card.
 - An image address that cannot be loaded shows the browser's broken image
   with its alternative text.
+- The 64 KiB of rule 24 is set by the time it takes to draw a note on its
+  card and to open the card's editor. Both build every block of the note in
+  the window, also the blocks the card does not show, so both grow with the
+  length of the note. A typed letter does not: the editor writes back only
+  the block that changed. Measured in the real window on 2026-10-14, with a
+  Chinese note repeated to each size, on a 120 Hz display:
+  - the card's editor opened in 47 ms for 1 KiB, 51 ms for 17 KiB, and
+    124 ms for 64 KiB;
+  - a typed letter reached the screen within 9 to 10 ms (95th percentile)
+    at every size, with no frame above 20 ms;
+  - a folder of 30 notes opened in 0.4 s at 8 KiB each and 1.1 s at 60 KiB
+    each (48,600 elements in the window). Panning and zooming it kept a
+    frame time of 8.3 ms with at most three frames above 20 ms per gesture,
+    and one frame of 125 ms at the start of the first zoom.
+  Before that day the limit was 8 KiB, left from a time when a card showed
+  the first 8 KiB of a note as a summary; it sent an ordinary article of
+  3,000 Chinese characters to Card Detail.
+- Every Note card on the canvas holds its whole note, also when it is out
+  of view and below the part the card shows. A canvas of many long notes
+  holds that much text.
 
 ## Failure and recovery
 
@@ -279,6 +320,16 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
     `# a<br>b` cannot.
 14. A note with such a table that is opened and not edited keeps every byte.
 
+15. A note of 65,536 bytes is shown on its card and a double click opens
+    the card's editor; a note of 65,537 bytes shows the label of rule 25. A
+    note of Chinese text is measured in the bytes of its UTF-8, not in
+    characters.
+16. In the real window, a note of about 64 KiB opens in the card's editor
+    within 300 ms of the double click, and a letter typed into it is drawn
+    within one frame of 60 Hz on the machine of the measurement.
+17. A text file of 100 KiB shows its first lines on its card, not "Preview
+    unavailable".
+
 ## Verification
 
 - Unit: `basehalfCanvasMarkdownInlineEditor.test.ts` covers criteria 1 to 5.
@@ -297,3 +348,6 @@ far as Markdown defines it, and the rest is shown as text (rule 4).
 - Smoke: `readme-rich-passthrough-edit-in-source` covers criterion 11 and,
   for the HTML block of its note, that the block is shown rendered.
   Criterion 10 is measured in the real window.
+- Unit: `basehalfCanvasPreview.test.ts` covers the byte boundary of
+  criterion 15. Criteria 15 to 17 are measured in the real window on a
+  fixture workspace.

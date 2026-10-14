@@ -905,9 +905,13 @@ export function baseHalfNodeArtifactUsesTextPreview(kind: BaseHalfNodeArtifactKi
 	return contentKind === 'text' || contentKind === 'code';
 }
 
+/**
+ * Decode the head of a text result. The head may end inside a character;
+ * streaming leaves that character out instead of rejecting the head.
+ */
 export function decodeBaseHalfNodeTextPreview(contents: VSBuffer): string | undefined {
 	try {
-		const raw = new TextDecoder('utf-8', { fatal: true }).decode(contents.buffer);
+		const raw = new TextDecoder('utf-8', { fatal: true }).decode(contents.buffer, { stream: true });
 		return raw.includes('\u0000') ? undefined : raw;
 	} catch {
 		return undefined;
