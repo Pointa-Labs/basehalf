@@ -438,7 +438,7 @@ test('Veo long-running prediction: inline images, the operation, and a download 
 			keyToStorage: storage.received.map(entry => entry.headers['x-goog-api-key'] ?? null)
 		}, {
 			remoteId: 'models/veo-3.1-generate-preview/operations/op123',
-			sent: { instances: [{ prompt: 'A bicycle passes the sea at dusk.', image: ['mimeType', 'data'], lastFrame: 'image/png' }], parameters: { aspectRatio: '9:16', resolution: '1080p', durationSeconds: 8 } },
+			sent: { instances: [{ prompt: 'A bicycle passes the sea at dusk.', image: ['mimeType', 'data'], lastFrame: 'image/png' }], parameters: { aspectRatio: '9:16', resolution: '1080p', durationSeconds: '8' } },
 			key: true,
 			filtered: { state: 'failed', message: 'The prompt was blocked.' },
 			traversal: 'rejected',

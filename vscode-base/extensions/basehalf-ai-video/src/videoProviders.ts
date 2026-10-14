@@ -983,7 +983,8 @@ const VEO: VideoFormat = {
 			parameters.resolution = request.resolution.toLowerCase();
 		}
 		if (request.duration !== -1) {
-			parameters.durationSeconds = request.duration;
+			// The Gemini API documents the seconds as a string: "4", "6", or "8".
+			parameters.durationSeconds = String(request.duration);
 		}
 		const model = request.model.replace(/^models\//, '');
 		const answer = await call.json(request, bind(VEO, request, call), {
