@@ -300,7 +300,7 @@ export function stopBaseHalfVideoTask<T extends IBaseHalfVideoNodeFields>(node: 
 }
 
 /** Ends the generation with its video. The task leaves the node; its record moves into the result. */
-export function completeBaseHalfVideoTask<T extends IBaseHalfVideoNodeFields>(node: T, taskId: string, artifact: IBaseHalfNodeArtifact, completedAt: string): T {
+export function completeBaseHalfVideoTask<T extends IBaseHalfVideoNodeFields>(node: T, taskId: string, artifact: IBaseHalfNodeArtifact, completedAt: string): Omit<T, 'task'> & { readonly result: IBaseHalfNodeResult } {
 	const task = activeTask(node, taskId);
 	if (task.state !== 'running' || task.remoteId === undefined) {
 		throw error('Only a running task can complete.');
@@ -318,7 +318,7 @@ export function completeBaseHalfVideoTask<T extends IBaseHalfVideoNodeFields>(no
 		artifact: Object.freeze({ kind: artifact.kind, path: artifact.path, size: artifact.size }),
 		generation
 	});
-	return { ...rest, result } as T;
+	return { ...rest, result };
 }
 
 /**
@@ -403,7 +403,6 @@ function text(value: unknown, path: string, maxLength: number, allowLineBreaks: 
 	if (trimmed.length > maxLength) {
 		throw error(`${path} is longer than ${maxLength} characters.`);
 	}
-	// eslint-disable-next-line no-control-regex
 	if ((allowLineBreaks ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/ : /[\u0000-\u001F]/).test(trimmed)) {
 		throw error(`${path} contains control characters.`);
 	}

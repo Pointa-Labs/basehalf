@@ -24,7 +24,7 @@ import { FileAccess } from '../../../base/common/network.js';
 import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
 import { RedoCommand, UndoCommand } from '../../../editor/browser/editorExtensions.js';
 import { localize } from '../../../nls.js';
-import { CommandsRegistry } from '../../../platform/commands/common/commands.js';
+import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../platform/clipboard/common/clipboardService.js';
 import { IDialogService, IFileDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { getPathForFile } from '../../../platform/dnd/browser/dnd.js';
@@ -134,11 +134,9 @@ import {
 import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../common/basehalfCanvasContentKind.js';
 import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGenerationSettings } from '../common/basehalfVideoNode.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
-import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost } from './basehalfVideoNodePanel.js';
 import { IBaseHalfVideoCard, renderBaseHalfVideoCard } from './basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from './basehalfVideoFrameCapture.js';
-import { rememberBaseHalfVideoDetailNode } from './cardDetail/basehalfMediaCardDetail.js';
 import { baseHalfVideoCardToolbarActions } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfVideoChannelService, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
 import { baseHalfVideoInitialSettings, getBaseHalfVideoModelProfile } from '../common/basehalfVideoProviders.js';
@@ -151,7 +149,7 @@ import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdown
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { IBaseHalfCardDetailSurfaceInstance, IBaseHalfCardDetailSurfaceRegistryService } from './cardDetail/basehalfCardDetailSurface.js';
-import { BaseHalfMediaCardDetail } from './cardDetail/basehalfMediaCardDetail.js';
+import { BaseHalfMediaCardDetail, rememberBaseHalfVideoDetailNode } from './cardDetail/basehalfMediaCardDetail.js';
 import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
 import { releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
 import {
