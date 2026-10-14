@@ -5,12 +5,13 @@
 
 import { _electron } from '@playwright/test';
 import { execFileSync } from 'child_process';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import process from 'process';
 import { fileURLToPath } from 'url';
+import { filesContaining, pngSize, recordVideoNodeStates, solidPng, startVideoSmokeProvider } from './basehalf-smoke-video.mts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(__dirname);
@@ -62,13 +63,56 @@ const LEGACY_FAR_BADGE = [
 const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 const SMOKE_WINDOW_CONTENT_SIZE = Object.freeze({ width: 1280, height: 860 });
+// The Video node steps (D58) work in a folder of their own with two images,
+// against the local test provider of basehalf-smoke-video.mts.
+const VIDEO_FOLDER = 'video-smoke';
+const VIDEO_NODE = `${VIDEO_FOLDER}/video.bhnode`;
+// What Generate makes beside VIDEO_NODE once that holds a video.
+const VIDEO_SIBLING_NODE = `${VIDEO_FOLDER}/video 2.bhnode`;
+// The second node made from the create menu, for generations that end without a video.
+const VIDEO_SECOND_NODE = `${VIDEO_FOLDER}/video-2.bhnode`;
+const VIDEO_AGENT_NODE = `${VIDEO_FOLDER}/agent-shot.bhnode`;
+const VIDEO_START_IMAGE = `${VIDEO_FOLDER}/start.png`;
+const VIDEO_END_IMAGE = `${VIDEO_FOLDER}/end.png`;
+const VIDEO_MODEL = 'doubao-seedance-2-5-260628';
+// A model id the user adds to the channel; BaseHalf gives it the general profile.
+const VIDEO_USER_MODEL = 'smoke-relay-video-model';
+const VIDEO_PROMPT = 'A cyclist rides along the sea at dusk, the camera follows slowly';
+// The prompt once `@` has typed the name of the end frame into it.
+const VIDEO_PROMPT_WITH_NAME = `${VIDEO_PROMPT} Image 2`;
+// The test provider makes a video in this long; Generate first asks 3 s after the task is made.
+const VIDEO_PROVIDER_DURATION_MS = 2_000;
+// The relay holds each create request this long, so the node's file is read while it is `submitting`.
+const VIDEO_PROVIDER_CREATE_HOLD_MS = 1_500;
+const VIDEO_GENERATION_TIMEOUT_MS = 60_000;
+const VIDEO_NODE_STEPS = Object.freeze([
+	'video-node-create-opens-panel',
+	'video-node-prompt-saves-without-dialog',
+	'video-providers-add-channel',
+	'video-panel-model-and-settings',
+	'video-provider-key-stays-secret',
+	'video-panel-inputs-and-names',
+	'video-panel-placement',
+	'video-generate-writes-video',
+	'video-capture-frames',
+	'video-generate-again-makes-sibling',
+	'video-generation-fails-and-stops',
+	'video-agent-runs-node'
+]);
+const videoSmoke = { provider: undefined, channelId: undefined };
 const runRoot = opts.output ?? fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-smoke-'));
 const logsPath = path.join(runRoot, 'logs');
 const crashesPath = path.join(runRoot, 'crashes');
 const userDataDir = path.join(runRoot, 'user-data');
 const sharedDataDir = path.join(runRoot, 'shared-data');
 const extensionsDir = path.join(runRoot, 'extensions');
-const workspacePath = path.join(runRoot, 'workspace');
+// The window opens the workspace by its real path. The temporary folder of
+// macOS lies behind a symbolic link (/var is /private/var), a shell's working
+// folder is always the real path, and `basehalf --run-node` finds the
+// workspace from the working folder of the terminal it runs in. The other
+// folders keep the shorter path: the window's sockets live in user-data.
+fs.mkdirSync(path.join(runRoot, 'workspace'), { recursive: true });
+const workspacePath = fs.realpathSync(path.join(runRoot, 'workspace'));
 // Where the window installs the BaseHalf skill instead of the home folder, so
 // the smoke never reads or changes the agents' settings of the machine it runs
 // on, and what the record of the selection agents can see does is the same on
@@ -142,7 +186,6 @@ const env = {
 	...(opts.packagedApp ? { NODE_ENV: undefined, VSCODE_DEV: undefined } : { NODE_ENV: 'development', VSCODE_DEV: '1' }),
 	VSCODE_CLI: '1',
 	BASEHALF_SMOKE_AGENT_SKILL_HOME: smokeHome,
-	BASEHALF_SMOKE_PROVIDER_VALIDATION: '1',
 	TERM: 'dumb',
 	COLORTERM: '',
 	NO_COLOR: '1',
@@ -203,12 +246,12 @@ try {
 
 		if (opts.settingsOnly) {
 			await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
-			await step('global-model-connections-editor', () => assertGlobalModelConnectionsEditor(page));
+			await step('video-providers-page', () => assertVideoProvidersPage(page));
 			await step('settings-about-page', () => assertBaseHalfAboutPage(page));
 			console.log(JSON.stringify({
 				ok: true,
 				workspace: workspacePath,
-				checks: ['settings-basehalf-category', 'global-model-connections-editor', 'settings-about-page']
+				checks: ['settings-basehalf-category', 'video-providers-page', 'settings-about-page']
 			}, null, 2));
 		} else if (opts.pluginOnly) {
 			if (opts.externalPluginId) {
@@ -223,12 +266,14 @@ try {
 			} else {
 				await step('no-plugin-surface', () => assertNoPluginSurface(page));
 				await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
+				await runVideoNodeSteps(page);
 				console.log(JSON.stringify({
 					ok: true,
 					workspace: workspacePath,
 					checks: [
 						'video-workflow-template',
-						'no-plugin-surface'
+						'no-plugin-surface',
+						...VIDEO_NODE_STEPS
 					]
 				}, null, 2));
 			}
@@ -437,6 +482,7 @@ try {
 	await step('pdf-grow-three-branches', () => assertPdfGrowsThreeBranches(page));
 	await step('no-plugin-surface', () => assertNoPluginSurface(page));
 	await step('video-workflow-template', () => assertVideoWorkflowTemplate(page));
+	await runVideoNodeSteps(page);
 
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
 	// The reveal highlight is transient, so assert it right after navigation.
@@ -552,6 +598,7 @@ try {
 			'source-card-detail-flush-on-navigation',
 			'media-card-detail-projection-no-tab',
 			'video-workflow-template',
+			...VIDEO_NODE_STEPS,
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
 			'quick-text-search-repeated-selection-focus',
@@ -583,6 +630,7 @@ try {
 	if (app) {
 		await closeElectronApplication(app);
 	}
+	await stopVideoSmokeProvider();
 
 	if (!opts.keep && !opts.output && !smokeFailed) {
 		fs.rmSync(runRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -708,8 +756,9 @@ Options:
 	  --zoom-only         Run the lower-left zoom and card-snapping controls slice.
 	  --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
   --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
-  --plugin-only       Check that there is no plugin surface and run the built-in AI Video slice.
-  --settings-only     Run BaseHalf Settings and its Models & Providers section.
+  --plugin-only       Check that there is no plugin surface and run the built-in AI Video slice,
+                      with the Video node steps against the local test provider.
+  --settings-only     Run BaseHalf Settings and its Video Providers page.
   --new-window-only   Open a new empty window and verify the BaseHalf Welcome surface.
   --external-plugin-id <id>
                       Run the reviewed remote-plugin lifecycle slice. Refused while
@@ -2056,8 +2105,7 @@ async function assertBaseHalfSettingsCategory(page) {
 		const text = (settingsEditor?.textContent ?? '').replace(/\s+/g, ' ');
 		return text.includes('BaseHalf')
 			&& text.includes('ADHD')
-			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'))
-			&& !text.includes('basehalf.models.services');
+			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'));
 	}, null, { timeout: 20_000 });
 }
 
@@ -2090,50 +2138,55 @@ async function assertBaseHalfAboutPage(page) {
 	}
 }
 
-async function assertGlobalModelConnectionsEditor(page) {
-	await runCommand(page, 'Models & Providers');
+// The Video Providers page (D58, video node, "Providers and channels") is in
+// Settings below BaseHalf, in the place of the former Models & Providers page,
+// and opens from its command.
+async function openVideoProvidersPage(page) {
+	await runCommand(page, 'Video Providers');
 	const settingsEditor = page.locator('.settings-editor').first();
 	await settingsEditor.waitFor({ state: 'visible', timeout: 20_000 });
-	const editor = settingsEditor.locator('.basehalf-model-connections').first();
-	await editor.waitFor({ state: 'visible', timeout: 20_000 });
-	await editor.locator('h1', { hasText: /^Models & Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-	const selectedTocEntry = settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^Models & Providers$/ });
-	await selectedTocEntry.waitFor({ state: 'visible', timeout: 15_000 });
+	const providers = settingsEditor.locator('.basehalf-video-providers').first();
+	await providers.waitFor({ state: 'visible', timeout: 20_000 });
+	await providers.locator('h1', { hasText: /^Video Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await settingsEditor.locator('.settings-toc-container .monaco-list-row.selected .settings-toc-entry', { hasText: /^Video Providers$/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	if (await page.locator('.quick-input-widget:visible').count() !== 0) {
-		throw new Error('Models & Providers remained inside QuickInput instead of opening inside Settings');
+		throw new Error('Video Providers remained inside QuickInput instead of opening inside Settings');
 	}
-	const copy = ((await editor.textContent()) ?? '').replace(/\s+/g, ' ').trim();
-	if (copy.includes('Add Model Service')
-		|| copy.includes('Endpoint')
-		|| copy.includes('Provider ID')
-		|| copy.includes('Deployment ID')
-		|| copy.includes('Authorization')) {
-		throw new Error(`Models & Providers exposed the retired generic connection contract: ${copy}`);
-	}
-	const providerRows = editor.locator('.basehalf-model-provider-row');
-	if (await providerRows.count() > 0) {
-		const firstRow = providerRows.first();
-		if (await firstRow.getAttribute('data-provider-id') !== 'byteplus'
-			|| await firstRow.getAttribute('data-connection-state') !== 'locked'
-			|| await firstRow.locator('.basehalf-model-provider-status').getAttribute('aria-label') !== 'Locked') {
-			throw new Error('The Models & Providers list is not backed by official declarative contracts');
-		}
-		await firstRow.getByText('BytePlus', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
-		await editor.locator('.basehalf-model-connection-detail-copy p', { hasText: /^2 video models$/ }).waitFor({ state: 'visible', timeout: 10_000 });
-		await firstRow.focus();
-		await firstRow.press('ArrowDown');
-		const secondRow = editor.locator('.basehalf-model-provider-row[aria-current="page"][data-provider-id="minimax"]');
-		await secondRow.waitFor({ state: 'visible', timeout: 10_000 });
-		await secondRow.press('Home');
-		await editor.locator('.basehalf-model-provider-row[aria-current="page"][data-provider-id="byteplus"]').waitFor({ state: 'visible', timeout: 10_000 });
-	} else {
-		await editor.getByText('No model providers are available yet.', { exact: false }).waitFor({ state: 'visible', timeout: 15_000 });
-	}
-	if (await editor.locator('button[data-action="close"]').count() !== 0) {
-		throw new Error('Models & Providers retained its retired standalone-editor close action');
-	}
+	return providers;
+}
+
+async function closeVideoProvidersPage(page, providers) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
-	await editor.waitFor({ state: 'hidden', timeout: 15_000 });
+	await providers.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+// A new profile has no provider, and Add Provider… offers the six presets of
+// the specification. The retired Models & Providers page is gone.
+async function assertVideoProvidersPage(page) {
+	const providers = await openVideoProvidersPage(page);
+	if (await page.locator('.basehalf-model-connections').count() !== 0) {
+		throw new Error('The retired Models & Providers page is still mounted beside Video Providers');
+	}
+	await providers.locator('.basehalf-video-providers-empty', { hasText: 'No providers yet.' }).waitFor({ state: 'visible', timeout: 15_000 });
+	const presets = await openVideoProviderPresetMenu(page, providers);
+	const labels = await presets.evaluateAll(actions => actions.map(action => (action.textContent ?? '').trim()));
+	const expected = ['Volcengine Ark', 'BytePlus ModelArk', 'Alibaba Cloud Model Studio', 'MiniMax', 'Google Gemini', 'OpenAI Compatible'];
+	if (JSON.stringify(labels) !== JSON.stringify(expected)) {
+		throw new Error(`Add Provider… must offer the six presets ${JSON.stringify(expected)}, got ${JSON.stringify(labels)}`);
+	}
+	await page.keyboard.press('Escape');
+	await presets.first().waitFor({ state: 'hidden', timeout: 10_000 });
+	await closeVideoProvidersPage(page, providers);
+}
+
+// Opens the preset menu of Add Provider… and returns its actions.
+async function openVideoProviderPresetMenu(page, providers) {
+	await providers.locator('.basehalf-video-providers-header .basehalf-video-providers-add').click();
+	const actions = page.locator('.context-view.monaco-menu-container .action-label').filter({ visible: true });
+	await actions.first().waitFor({ state: 'visible', timeout: 10_000 });
+	// The menu takes pointer input 100 ms after it opened (see clickCanvasCreateAction).
+	await page.waitForTimeout(150);
+	return actions;
 }
 
 // The plugin platform is frozen and AI Video is built in
@@ -2792,6 +2845,1031 @@ async function assertVideoWorkflowTemplate(page) {
 	if (fs.existsSync(path.join(workspacePath, '.bh', 'mirror', workflowName, 'brief.md', 'badge.yaml'))) {
 		throw new Error('The starter workflow wrote a badge for a template connection');
 	}
+}
+
+// --- The Video node (D58, docs/specs/video-node.md) ------------------------------------------
+//
+// Acceptance criteria 2, 4, 6, 8 to 17, 19, and 20, the two frames of 3, and
+// the choice of a user's model id of 7, through the window and against the
+// local test provider with its test key; no paid provider is called. The
+// steps run in order, each where the one before ended.
+
+async function runVideoNodeSteps(page) {
+	await step('video-node-create-opens-panel', () => assertVideoNodeCreateOpensPanel(page));
+	await step('video-node-prompt-saves-without-dialog', () => assertVideoNodePromptSavesWithoutDialog(page));
+	await step('video-providers-add-channel', () => assertVideoProvidersAddChannel(page));
+	await step('video-panel-model-and-settings', () => assertVideoPanelModelAndSettings(page));
+	await step('video-provider-key-stays-secret', () => assertVideoProviderKeyStaysSecret(page));
+	await step('video-panel-inputs-and-names', () => assertVideoPanelInputsAndNames(page));
+	await step('video-panel-placement', () => assertVideoPanelPlacement(page));
+	await step('video-generate-writes-video', () => assertVideoGenerateWritesVideo(page));
+	await step('video-capture-frames', () => assertVideoCaptureFrames(page));
+	await step('video-generate-again-makes-sibling', () => assertVideoGenerateAgainMakesSibling(page));
+	await step('video-generation-fails-and-stops', () => assertVideoGenerationFailsAndStops(page));
+	await step('video-agent-runs-node', () => assertVideoAgentRunsNode(page));
+}
+
+async function videoSmokeProvider() {
+	videoSmoke.provider ??= await startVideoSmokeProvider({ durationMs: VIDEO_PROVIDER_DURATION_MS, holdCreateMs: VIDEO_PROVIDER_CREATE_HOLD_MS });
+	return videoSmoke.provider;
+}
+
+async function stopVideoSmokeProvider() {
+	const provider = videoSmoke.provider;
+	videoSmoke.provider = undefined;
+	await provider?.close().catch(error => console.error(`[basehalf-smoke] the video test provider did not stop: ${error instanceof Error ? error.message : String(error)}`));
+}
+
+// Criteria 8 and 12, and the first half of 10: a Video node made from the
+// create menu is selected and shows its panel with the prompt focused,
+// nothing has moved the view, and with no model chosen Generate is disabled
+// and says why, also in its tooltip.
+async function assertVideoNodeCreateOpensPanel(page) {
+	await videoSmokeProvider();
+	createVideoSmokeFolder();
+	await quickOpen(page, VIDEO_FOLDER);
+	await assertCanvasFolder(page, VIDEO_FOLDER);
+	const start = videoCanvasCard(page, VIDEO_START_IMAGE);
+	await start.waitFor({ state: 'visible', timeout: 20_000 });
+	await videoCanvasCard(page, VIDEO_END_IMAGE).waitFor({ state: 'visible', timeout: 20_000 });
+	// At half size, with the images at the top left, the middle of the view
+	// has room for the new card, which is 720 by 405.
+	await setCanvasZoomPercent(page, 50);
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	await panCanvasCardTo(page, start, { x: canvasBox.x + 40, y: canvasBox.y + 60 });
+	const viewBefore = await readCanvasView(page);
+
+	await clickCanvasCreateSubmenuAction(page, 'New Media or Document', 'Video');
+	await waitUntil(() => fs.existsSync(videoWorkspaceFile(VIDEO_NODE)), `the create menu to make ${VIDEO_NODE}`, 20_000);
+	const created = readVideoNode(VIDEO_NODE);
+	// No generation ran on this computer yet, so the node chooses no model.
+	if (JSON.stringify(Object.keys(created).sort()) !== JSON.stringify(['id', 'kind', 'prompt', 'title', 'upstream', 'version'])
+		|| created.version !== 5 || created.kind !== 'video' || created.title !== 'Video' || created.prompt !== '' || created.upstream.length !== 0) {
+		throw new Error(`The create menu made an unexpected Video node: ${JSON.stringify(created)}`);
+	}
+	await waitForCanvasCardSelection(page, VIDEO_NODE, 15_000);
+	const panel = await waitForVideoPanel(page, VIDEO_NODE);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt of the new Video node to have the keyboard focus');
+	assertSameCanvasView(viewBefore, await readCanvasView(page), 'Making a Video node and opening its panel');
+	const shown = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === true, 'Generate to be disabled while no model is chosen');
+	// No model and no prompt: the first blocker is the model.
+	if (shown.generate.label !== 'Choose a model to generate.' || shown.model !== 'Choose Model' || !shown.modelOutlined || shown.generate.stop) {
+		throw new Error(`Without a model, Generate must say so as its name and the model button must be outlined: ${JSON.stringify(shown)}`);
+	}
+	await panel.locator('button.bh-video-panel-generate').hover();
+	await page.locator('.workbench-hover', { hasText: 'Choose a model to generate.' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.mouse.move(canvasBox.x + 8, canvasBox.y + canvasBox.height - 8);
+}
+
+// Criteria 9 and 10: the prompt typed with the keyboard is saved to the
+// node's file when the user clicks the canvas, without a model and without a
+// dialog, and the panel goes with the card's selection.
+async function assertVideoNodePromptSavesWithoutDialog(page) {
+	const panel = videoPanel(page, VIDEO_NODE);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt to keep the keyboard focus');
+	await page.keyboard.type(VIDEO_PROMPT);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT, 'the prompt to hold what was typed');
+	await clickBlankVideoCanvas(page);
+	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === VIDEO_PROMPT, `the typed prompt to be saved in ${VIDEO_NODE}`, 10_000);
+	await waitForReading(() => page.locator('.basehalf-canvas-video-panel-surface').count(), count => count === 0, 'the Video panel to go when its card is no longer selected');
+	// Saving never asks, also a moment later.
+	await page.waitForTimeout(500);
+	if (await page.locator('.monaco-dialog-box').count() !== 0) {
+		throw new Error(`Saving the prompt of a Video node opened a dialog: ${await page.locator('.monaco-dialog-box').first().innerText()}`);
+	}
+	if (readVideoNode(VIDEO_NODE).generation !== undefined) {
+		throw new Error(`Saving the prompt chose a model: ${JSON.stringify(readVideoNode(VIDEO_NODE))}`);
+	}
+}
+
+// Criterion 6, and the start of 7: a Volcengine Ark channel starts with its
+// endpoint, Seedance 2.5, and no key. It is pointed at the test provider, a
+// relay on this computer that speaks the same format, and gets a model id
+// of the user's own.
+async function assertVideoProvidersAddChannel(page) {
+	const provider = await videoSmokeProvider();
+	const providers = await openVideoProvidersPage(page);
+	const presets = await openVideoProviderPresetMenu(page, providers);
+	await presets.filter({ hasText: /^Volcengine Ark$/ }).click();
+	const rows = providers.locator('.basehalf-video-provider-row');
+	await waitForReading(() => rows.count(), count => count === 1, 'Volcengine Ark to be added');
+	videoSmoke.channelId = await rows.first().getAttribute('data-channel-id');
+	const added = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.endpoint !== null, 'the editor of the new provider');
+	if (added.name !== 'Volcengine Ark' || added.endpoint !== 'https://ark.cn-beijing.volces.com/api/v3' || added.keySet
+		|| JSON.stringify(added.models) !== JSON.stringify([{ id: VIDEO_MODEL, label: 'Seedance 2.5' }])) {
+		throw new Error(`A new Volcengine Ark provider must start with its endpoint, Seedance 2.5, and no key: ${JSON.stringify(added)}`);
+	}
+	await providers.locator('#basehalf-video-provider-endpoint').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+	await page.keyboard.type(provider.seedanceBaseUrl);
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readVideoProviderEditor(providers), seen => seen.endpoint === provider.seedanceBaseUrl && seen.status === 'Saved.', 'the endpoint of the test provider to be saved');
+	await providers.locator('.basehalf-video-provider-model-add input').click();
+	await page.keyboard.type(VIDEO_USER_MODEL);
+	await page.keyboard.press('Enter');
+	await waitForReading(() => readVideoProviderEditor(providers), seen => JSON.stringify(seen.models.map(model => model.id)) === JSON.stringify([VIDEO_MODEL, VIDEO_USER_MODEL]), 'the model id to be added after Seedance 2.5');
+	await closeVideoProvidersPage(page, providers);
+	await assertCanvasFolder(page, VIDEO_FOLDER);
+}
+
+// Criteria 11 and 12: the model menu lists the channel's models and the way
+// to Video Providers; with a model and no key, Generate names the key; the
+// settings popover shows only what the model accepts, and its button sums up
+// what the file stores; another model keeps what it accepts and takes its
+// default for the rest.
+async function assertVideoPanelModelAndSettings(page) {
+	const panel = await selectVideoCard(page, VIDEO_NODE);
+	await panel.locator('button.bh-video-panel-model').click();
+	const menu = await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open');
+	const expectedMenu = {
+		groups: [{ label: 'Volcengine Ark', detail: 'No API key', items: ['Seedance 2.5', VIDEO_USER_MODEL] }],
+		end: ['Manage Video Providers…']
+	};
+	if (JSON.stringify(menu) !== JSON.stringify(expectedMenu)) {
+		throw new Error(`The model menu must list the models of the provider, then Manage Video Providers…: ${JSON.stringify(menu)}`);
+	}
+	await clickVideoModel(page, panel, VIDEO_MODEL);
+	const chosen = { mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true, channel: videoSmoke.channelId, model: VIDEO_MODEL };
+	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE).generation) === canonicalJson(chosen), 'choosing Seedance 2.5 to store its channel, model, and default settings', 10_000);
+	const blocked = await waitForReading(() => readVideoPanel(panel), seen => seen.model === 'Seedance 2.5' && seen.generate?.label === 'Volcengine Ark has no API key. Add one in Video Providers.', 'Generate to name the missing key');
+	if (!blocked.generate.disabled || !blocked.modelOutlined) {
+		throw new Error(`Without a key, Generate must be disabled and the model button outlined: ${JSON.stringify(blocked)}`);
+	}
+
+	const seedanceKeys = ['mode:frames', 'mode:reference', 'ratio:16:9', 'ratio:4:3', 'ratio:1:1', 'ratio:3:4', 'ratio:9:16', 'ratio:21:9', 'ratio:adaptive', 'resolution:480p', 'resolution:720p', 'resolution:1080p', 'duration:slider', 'duration:auto', 'sound'];
+	let settings = await openVideoSettings(panel);
+	if (settings.width !== 300 || JSON.stringify(settings.keys) !== JSON.stringify(seedanceKeys)
+		|| JSON.stringify(settings.checked) !== JSON.stringify(['mode:frames', 'ratio:16:9', 'resolution:720p', 'sound'])
+		|| JSON.stringify(settings.slider) !== JSON.stringify({ min: 4, max: 30, value: 5, disabled: false }) || settings.disabled.length !== 0) {
+		throw new Error(`The settings popover must show what Seedance 2.5 accepts, 300 px wide: ${JSON.stringify(settings)}`);
+	}
+	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 720p · 5s · Sound', chosen);
+	await panel.locator('.bh-video-panel-menu.settings [data-key="resolution:1080p"]').click();
+	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, resolution: '1080p' });
+	// Seedance 2.5 can choose its own length.
+	await panel.locator('.bh-video-panel-menu.settings [data-key="duration:auto"]').click();
+	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · Auto · Sound', { ...chosen, resolution: '1080p', duration: -1 });
+	await closeVideoPanelMenu(page, panel, 'settings');
+
+	// The general profile has no Auto: the duration takes its default, the rest stays.
+	await panel.locator('button.bh-video-panel-model').click();
+	await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open again');
+	await clickVideoModel(page, panel, VIDEO_USER_MODEL);
+	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, model: VIDEO_USER_MODEL, resolution: '1080p' });
+	settings = await openVideoSettings(panel);
+	if (JSON.stringify(settings.keys) !== JSON.stringify(seedanceKeys.filter(key => key !== 'duration:auto')) || settings.slider?.max !== 15) {
+		throw new Error(`The settings popover of a model BaseHalf does not know must show the general profile, 4 to 15 seconds without Auto: ${JSON.stringify(settings)}`);
+	}
+	await closeVideoPanelMenu(page, panel, 'settings');
+	await panel.locator('button.bh-video-panel-model').click();
+	await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open a third time');
+	await clickVideoModel(page, panel, VIDEO_MODEL);
+	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, resolution: '1080p' });
+	await clickBlankVideoCanvas(page);
+}
+
+// Criterion 6: the key is typed into the page and saved; the page then says
+// that a key is set and never shows it, and no workspace file holds it. With
+// the key, Generate is enabled.
+async function assertVideoProviderKeyStaysSecret(page) {
+	const provider = await videoSmokeProvider();
+	const providers = await openVideoProvidersPage(page);
+	const keyInput = providers.locator('.basehalf-video-provider-key-row input[type="password"]');
+	await keyInput.click();
+	await waitForReading(() => keyInput.evaluate(input => input === input.ownerDocument.activeElement, undefined, { timeout: 2_000 }), focused => focused, 'the key field to have the keyboard focus');
+	await page.keyboard.type(provider.key);
+	await page.keyboard.press('Enter');
+	const saved = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.keySet && seen.status === 'Key saved.', 'the key to be saved');
+	if (saved.keyState !== 'A key is set. It is encrypted on this computer and never shown.' || saved.rowKey !== 'Key set') {
+		throw new Error(`The page must say that a key is set: ${JSON.stringify(saved)}`);
+	}
+	const inPage = await page.evaluate(key => ({
+		markup: document.documentElement.outerHTML.includes(key),
+		fields: Array.from(document.querySelectorAll('input, textarea')).some(field => field.value.includes(key))
+	}), provider.key);
+	if (inPage.markup || inPage.fields) {
+		throw new Error(`The window holds the provider key after it was saved: ${JSON.stringify(inPage)}`);
+	}
+	const files = filesContaining(workspacePath, provider.key);
+	if (files.length) {
+		throw new Error(`The provider key is in workspace files: ${files.join(', ')}`);
+	}
+	await closeVideoProvidersPage(page, providers);
+	await assertCanvasFolder(page, VIDEO_FOLDER);
+	const panel = await selectVideoCard(page, VIDEO_NODE);
+	const ready = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false, 'Generate to be enabled once the provider has a key');
+	if (ready.generate.label !== 'Generate' || ready.modelOutlined) {
+		throw new Error(`With a model, a key, and a prompt, Generate must be ready: ${JSON.stringify(ready)}`);
+	}
+}
+
+// Criteria 3, 4, 11, and 13: an image connected with Pick on Canvas and one
+// connected by a drawn line are the start and end frames, in upstream order,
+// and the ratio follows the start frame; the swap arrow exchanges their two
+// entries and nothing else, in one undo step; `@` lists the inputs by name
+// and types the chosen one; a name of no input is underlined.
+async function assertVideoPanelInputsAndNames(page) {
+	let panel = await selectVideoCard(page, VIDEO_NODE);
+	const empty = await readVideoPanel(panel);
+	if (JSON.stringify(empty.emptySlots) !== JSON.stringify(['start', 'end'])) {
+		throw new Error(`Frames mode on Seedance 2.5 must show an empty start and end slot: ${JSON.stringify(empty)}`);
+	}
+	await panel.locator('button.bh-video-panel-slot.empty[data-role="start"]').click();
+	const addMenu = panel.locator('.bh-video-panel-menu.add');
+	await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
+	await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
+	await page.locator('.basehalf-video-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	await clickCanvasCardOnTop(page, VIDEO_START_IMAGE);
+	await waitUntil(() => JSON.stringify(readVideoNode(VIDEO_NODE).upstream) === JSON.stringify([VIDEO_START_IMAGE]), 'Pick on Canvas to connect start.png', 10_000);
+	await page.locator('.basehalf-video-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	// The click that picked selected nothing.
+	await waitForCanvasCardSelection(page, VIDEO_NODE);
+
+	await drawCanvasConnectionInto(page, VIDEO_END_IMAGE, VIDEO_NODE);
+	await waitUntil(() => JSON.stringify(readVideoNode(VIDEO_NODE).upstream) === JSON.stringify([VIDEO_START_IMAGE, VIDEO_END_IMAGE]), 'the drawn connection to add end.png after start.png', 10_000);
+	panel = await selectVideoCard(page, VIDEO_NODE);
+	const frames = await waitForReading(() => readVideoPanel(panel), seen => seen.start?.path === VIDEO_START_IMAGE && seen.end?.path === VIDEO_END_IMAGE, 'the panel to show start.png and end.png as the frames');
+	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || frames.settings !== 'Frames · Adaptive · 1080p · 5s · Sound') {
+		throw new Error(`The frames must be named by upstream order, and the ratio must follow the start frame: ${JSON.stringify(frames)}`);
+	}
+	const settings = await openVideoSettings(panel);
+	const ratios = settings.keys.filter(key => key.startsWith('ratio:'));
+	if (settings.note !== 'Follows the start frame' || JSON.stringify(settings.disabled) !== JSON.stringify(ratios) || !settings.checked.includes('ratio:adaptive')) {
+		throw new Error(`With a start frame, Seedance 2.5 takes only an adaptive ratio, and the popover must say so: ${JSON.stringify(settings)}`);
+	}
+	await closeVideoPanelMenu(page, panel, 'settings');
+
+	const beforeSwap = readVideoNode(VIDEO_NODE);
+	await panel.locator('button.bh-video-panel-swap').click();
+	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE)) === canonicalJson({ ...beforeSwap, upstream: [VIDEO_END_IMAGE, VIDEO_START_IMAGE] }), 'the swap arrow to exchange the two entries and change nothing else', 10_000);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.start?.path === VIDEO_END_IMAGE && seen.start.name === 'Image 1' && seen.end?.path === VIDEO_START_IMAGE, 'the panel to show the swapped frames, named by their new order');
+	await waitForReading(() => page.evaluate(() => !!document.activeElement?.closest('.basehalf-canvas-workbench')), inside => inside, 'the keyboard focus to stay on the canvas after the swap');
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Z' : 'Control+Z');
+	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE)) === canonicalJson(beforeSwap), 'one undo to put the two frames back', 10_000);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.start?.path === VIDEO_START_IMAGE && seen.end?.path === VIDEO_END_IMAGE, 'the panel to show the frames in their first order again');
+
+	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
+	await page.keyboard.type(' @');
+	const mention = await waitForReading(() => readVideoMentionMenu(panel), seen => seen !== null && seen.options.length > 0, 'typing @ to list the inputs that have a name');
+	if (JSON.stringify(mention.options.map(option => option.label)) !== JSON.stringify(['Image 1', 'Image 2'])
+		|| !mention.options[0].file.startsWith('start') || !mention.options[1].file.startsWith('end')) {
+		throw new Error(`@ must list Image 1 (start.png) and Image 2 (end.png): ${JSON.stringify(mention)}`);
+	}
+	await page.keyboard.press('ArrowDown');
+	await page.keyboard.press('Enter');
+	const named = await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'choosing Image 2 to type its name');
+	if (await readVideoMentionMenu(panel) !== null || JSON.stringify(named.names) !== JSON.stringify([{ text: 'Image 2', known: true, underlined: false }])) {
+		throw new Error(`The chosen name must be typed and marked as a known input: ${JSON.stringify(named)}`);
+	}
+	await page.keyboard.type(' Video 1');
+	await waitForReading(() => readVideoPanel(panel), seen => JSON.stringify(seen.names) === JSON.stringify([{ text: 'Image 2', known: true, underlined: false }, { text: 'Video 1', known: false, underlined: true }]), 'Video 1, the name of no input, to be underlined');
+	for (let index = 0; index < ' Video 1'.length; index++) {
+		await page.keyboard.press('Backspace');
+	}
+	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt to end with the name of Image 2 again');
+	await waitUntil(() => readVideoNode(VIDEO_NODE).prompt === VIDEO_PROMPT_WITH_NAME, 'the prompt with the name to be saved', 10_000);
+}
+
+// Criterion 10: opening the panel moves the canvas neither way; it sits 10
+// px below its card, centered, as wide as the specification says, when there
+// is room below; it hides while its card is off the canvas and comes back
+// with it; and it goes when the card is deselected.
+async function assertVideoPanelPlacement(page) {
+	await clickBlankVideoCanvas(page);
+	const card = videoCanvasCard(page, VIDEO_NODE);
+	const home = await card.boundingBox();
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	const top = { x: canvasBox.x + 100, y: canvasBox.y + 40 };
+	await panCanvasCardTo(page, card, top);
+	const viewBefore = await readCanvasView(page);
+	await clickCanvasCardOnTop(page, VIDEO_NODE);
+	await waitForCanvasCardSelection(page, VIDEO_NODE);
+	await waitForVideoPanel(page, VIDEO_NODE);
+	assertSameCanvasView(viewBefore, await readCanvasView(page), 'Opening the Video panel');
+	// The panel emerges from the card's edge in 140 ms; it is measured where it comes to rest.
+	const placed = await waitForReading(() => readVideoPanelGeometry(page, VIDEO_NODE), seen => seen !== null && !seen.moving, 'the panel to come to rest');
+	const width = Math.min(512, placed.host.width - 24);
+	const left = Math.min(Math.max((placed.card.left + placed.card.right - width) / 2, 12), placed.host.width - 12 - width);
+	if (placed.card.bottom + 10 + 220 > placed.host.height - 12) {
+		throw new Error(`The step must leave room below the card for the tallest panel: ${JSON.stringify(placed)}`);
+	}
+	if (placed.placement !== 'below' || Math.abs(placed.panel.top - (placed.card.bottom + 10)) > 1.5
+		|| Math.abs(placed.panel.width - width) > 1.5 || Math.abs(placed.panel.left - left) > 1.5
+		|| placed.panel.height < 132 - 1 || placed.panel.height > 220 + 1) {
+		throw new Error(`The panel must be ${width} px wide, centered 10 px below its card: ${JSON.stringify({ placed, width, left })}`);
+	}
+	await panCanvasCardTo(page, card, { x: canvasBox.x + canvasBox.width + 80, y: top.y });
+	await waitForReading(() => readVideoPanelGeometry(page, VIDEO_NODE), seen => seen?.visible === 'false' && seen.visibility === 'hidden', 'the panel to hide while its card is off the canvas');
+	await panCanvasCardTo(page, card, top);
+	await waitForReading(() => readVideoPanelGeometry(page, VIDEO_NODE), seen => seen?.visible === 'true' && seen.visibility === 'visible' && seen.placement === 'below', 'the panel to show again below its card');
+	await clickBlankVideoCanvas(page);
+	await waitForReading(() => page.locator('.basehalf-canvas-video-panel-surface').count(), count => count === 0, 'the panel to go when its card is deselected');
+	await panCanvasCardTo(page, card, { x: home.x, y: home.y });
+}
+
+// Criterion 14 (and 11, the request shows what the panel showed): Generate
+// writes the task as `submitting`, then `running` with the provider's task
+// id; the card shows the phase; the provider gets one request with both
+// frames; the video lands in outputs/<node id>/<task id>.mp4 with a
+// `generated` result, and the card plays it.
+async function assertVideoGenerateWritesVideo(page) {
+	const provider = await videoSmokeProvider();
+	const panel = await selectVideoCard(page, VIDEO_NODE);
+	const ready = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false && seen.prompt === VIDEO_PROMPT_WITH_NAME, 'Generate to be enabled');
+	const node = readVideoNode(VIDEO_NODE);
+	const requestsBefore = provider.mock.requests.length;
+	const recording = recordVideoNodeStates(videoWorkspaceFile(VIDEO_NODE), document => document.result !== undefined || ['failed', 'stopped'].includes(document.task?.state), VIDEO_GENERATION_TIMEOUT_MS);
+	await panel.locator('button.bh-video-panel-generate').click();
+	const generating = await waitForReading(() => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'generating', 'the card to show the generation');
+	if (!['Waiting', 'Generating', 'Downloading'].includes(generating.phase) || !/^\d+:\d\d$/.test(generating.elapsed ?? '') || !generating.progress) {
+		throw new Error(`A generating card must show its phase, the time since the start, and a progress bar: ${JSON.stringify(generating)}`);
+	}
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.stop === true && seen.generate.label === 'Stop Generating' && !seen.generate.disabled, 'Generate to become the stop square');
+	if (await page.locator('.monaco-dialog-box').count() !== 0) {
+		throw new Error('Generate asked a question before it ran');
+	}
+	const { states, document } = await recording;
+	const observed = states.filter(state => state.state !== 'idle');
+	const taskId = observed[0]?.taskId;
+	const remoteId = observed[1]?.remoteId;
+	if (observed.length !== 3 || observed[0].state !== 'submitting' || observed[0].remoteId !== undefined || observed[1].state !== 'running'
+		|| observed[1].taskId !== taskId || !remoteId || observed[2].state !== 'result') {
+		throw new Error(`The node's file must go submitting, running with the provider's task id, then show the result: ${JSON.stringify(states)}`);
+	}
+	const requests = provider.requestsSince(requestsBefore);
+	if (requests.length !== 1 || requests[0].taskId !== remoteId || requests[0].model !== VIDEO_MODEL || requests[0].prompt !== VIDEO_PROMPT_WITH_NAME
+		|| JSON.stringify(requests[0].parts) !== JSON.stringify(['text', 'image_url first_frame data:image/png', 'image_url last_frame data:image/png'])
+		|| requests[0].body?.ratio !== 'adaptive' || requests[0].body?.resolution !== '1080p' || requests[0].body?.duration !== 5 || requests[0].body?.generate_audio !== true) {
+		throw new Error(`The test provider must get one request with the prompt, the two frames, and the panel's settings: ${JSON.stringify(requests)}`);
+	}
+	const sent = { provider: 'ark', model: VIDEO_MODEL, prompt: VIDEO_PROMPT_WITH_NAME, inputs: [VIDEO_START_IMAGE, VIDEO_END_IMAGE], mode: 'frames', ratio: 'adaptive', resolution: '1080p', duration: 5, audio: true };
+	const result = document.result;
+	if (document.task !== undefined || result?.source !== 'generated'
+		|| canonicalJson(result.artifact) !== canonicalJson({ kind: 'video', path: `outputs/${node.id}/${taskId}.mp4`, size: provider.video.length })
+		|| result.generation?.taskId !== taskId || result.generation.remoteId !== remoteId || canonicalJson(result.generation.request) !== canonicalJson(sent)) {
+		throw new Error(`The node must show the generated video with the request the panel showed: ${JSON.stringify(document)}`);
+	}
+	// What the settings button said is what was sent.
+	if (ready.settings !== 'Frames · Adaptive · 1080p · 5s · Sound') {
+		throw new Error(`The settings button must sum up what is sent: ${JSON.stringify(ready)}`);
+	}
+	const video = path.join(workspacePath, 'outputs', node.id, `${taskId}.mp4`);
+	if (!fs.readFileSync(video).equals(provider.video)) {
+		throw new Error(`${video} must hold the test provider's video`);
+	}
+	await waitForReading(() => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'video' && seen.video !== null && seen.video.readyState >= 1, 'the card to show the video');
+	const played = await playVideoCard(page, VIDEO_NODE);
+	if (played.error || !(played.currentTime >= 0.3) || played.width !== 320 || played.height !== 180 || !(played.duration > 1.5 && played.duration < 2.5) || !played.controls) {
+		throw new Error(`The card must play the video, with its controls while selected: ${JSON.stringify(played)}`);
+	}
+}
+
+// Criterion 20: Capture Frame writes the current, the first, and the last
+// frame as PNGs beside the node, named after it, and their cards appear to
+// the right of the video card.
+async function assertVideoCaptureFrames(page) {
+	await selectVideoCard(page, VIDEO_NODE);
+	const toolbar = page.locator('.basehalf-video-context-toolbar');
+	await toolbar.locator('[data-video-action="captureFrame"]').waitFor({ state: 'visible', timeout: 15_000 });
+	const actions = await toolbar.locator('[data-video-action]').evaluateAll(buttons => buttons.map(button => button.getAttribute('data-video-action')));
+	if (JSON.stringify(actions) !== JSON.stringify(['captureFrame', 'revealVideo', 'openFullPreview'])) {
+		throw new Error(`The toolbar of a card with a video must offer Capture Frame, Reveal, and Open: ${JSON.stringify(actions)}`);
+	}
+	// The current frame is the one the card's player shows.
+	await seekVideoCard(page, VIDEO_NODE, 1);
+	const frames = [['current', 'Video frame at 1s.png'], ['first', 'Video first frame.png'], ['last', 'Video last frame.png']];
+	for (const [frame, name] of frames) {
+		await captureVideoCardFrame(page, frame, `${VIDEO_FOLDER}/${name}`);
+	}
+	const layout = readVideoCanvasLayout();
+	const video = readCanvasCardGeometry(layout, VIDEO_NODE);
+	for (const [, name] of frames) {
+		const size = pngSize(fs.readFileSync(path.join(workspacePath, VIDEO_FOLDER, name)));
+		const row = readCanvasCardGeometry(layout, `${VIDEO_FOLDER}/${name}`);
+		if (size?.width !== 320 || size.height !== 180) {
+			throw new Error(`${name} must be a 320 by 180 PNG of the video: ${JSON.stringify(size)}`);
+		}
+		if (!video || !row || row.x < video.x + video.width) {
+			throw new Error(`The card of ${name} must appear to the right of the video card: ${JSON.stringify({ video, row })}`);
+		}
+	}
+}
+
+// Criterion 17: Generate on a node that holds a video makes a node beside it
+// with the same prompt, settings, and inputs, to its right, selects it, and
+// runs there; the original node does not change.
+async function assertVideoGenerateAgainMakesSibling(page) {
+	const provider = await videoSmokeProvider();
+	const original = fs.readFileSync(videoWorkspaceFile(VIDEO_NODE), 'utf8');
+	const originalNode = JSON.parse(original);
+	const panel = await selectVideoCard(page, VIDEO_NODE);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false && !seen.generate.stop, 'Generate to be enabled on the node that holds a video');
+	const requestsBefore = provider.mock.requests.length;
+	// Cmd/Ctrl+Enter in the prompt generates.
+	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+	await waitUntil(() => fs.existsSync(videoWorkspaceFile(VIDEO_SIBLING_NODE)), `Generate to make ${VIDEO_SIBLING_NODE}`, 20_000);
+	const recording = recordVideoNodeStates(videoWorkspaceFile(VIDEO_SIBLING_NODE), document => document.result !== undefined || ['failed', 'stopped'].includes(document.task?.state), VIDEO_GENERATION_TIMEOUT_MS);
+	await waitForCanvasCardSelection(page, VIDEO_SIBLING_NODE, 20_000);
+	await page.locator(`.basehalf-canvas-video-panel-surface[data-basehalf-card-path="${VIDEO_SIBLING_NODE}"]`).waitFor({ state: 'attached', timeout: 15_000 });
+	const { states, document } = await recording;
+	const observed = states.filter(state => state.state !== 'idle').map(state => state.state);
+	if (JSON.stringify(observed) !== JSON.stringify(['submitting', 'running', 'result'])) {
+		throw new Error(`The new node must run the generation: ${JSON.stringify(states)}`);
+	}
+	if (document.title !== 'Video 2' || document.prompt !== originalNode.prompt || canonicalJson(document.generation) !== canonicalJson(originalNode.generation)
+		|| JSON.stringify(document.upstream) !== JSON.stringify(originalNode.upstream) || document.result?.source !== 'generated'
+		|| !fs.existsSync(path.join(workspacePath, ...document.result.artifact.path.split('/')))) {
+		throw new Error(`The new node must have the original's prompt, settings, and inputs, and its own video: ${JSON.stringify(document)}`);
+	}
+	if (fs.readFileSync(videoWorkspaceFile(VIDEO_NODE), 'utf8') !== original) {
+		throw new Error(`Generating again changed ${VIDEO_NODE}`);
+	}
+	const layout = readVideoCanvasLayout();
+	const originalRow = readCanvasCardGeometry(layout, VIDEO_NODE);
+	const siblingRow = readCanvasCardGeometry(layout, VIDEO_SIBLING_NODE);
+	if (!originalRow || !siblingRow || siblingRow.x < originalRow.x + originalRow.width) {
+		throw new Error(`The new node's card must appear to the right of the original: ${JSON.stringify({ originalRow, siblingRow })}`);
+	}
+	if (provider.requestsSince(requestsBefore).length !== 1) {
+		throw new Error(`Generating again must send one request: ${JSON.stringify(provider.requestsSince(requestsBefore))}`);
+	}
+}
+
+// Criteria 15 and 16: a task the provider fails ends as failed with the
+// provider's message on the card; a request whose answer never comes ends
+// with the message about the provider's console and is not sent again; the
+// stop square ends a running task as stopped and keeps no video. A new node
+// starts with the model and settings of the last generation.
+async function assertVideoGenerationFailsAndStops(page) {
+	const provider = await videoSmokeProvider();
+	await clickBlankVideoCanvas(page);
+	// At a quarter size the middle of the view has room for another node.
+	await setCanvasZoomPercent(page, 25);
+	await clickCanvasCreateSubmenuAction(page, 'New Media or Document', 'Video');
+	await waitUntil(() => fs.existsSync(videoWorkspaceFile(VIDEO_SECOND_NODE)), `the create menu to make ${VIDEO_SECOND_NODE}`, 20_000);
+	const created = readVideoNode(VIDEO_SECOND_NODE);
+	const lastUsed = { mode: 'frames', ratio: '16:9', resolution: '1080p', duration: 5, audio: true, channel: videoSmoke.channelId, model: VIDEO_MODEL };
+	if (canonicalJson(created.generation) !== canonicalJson(lastUsed)) {
+		throw new Error(`A new Video node must start with the model and settings of the last generation: ${JSON.stringify(created)}`);
+	}
+	await waitForCanvasCardSelection(page, VIDEO_SECOND_NODE, 15_000);
+	const panel = await waitForVideoPanel(page, VIDEO_SECOND_NODE);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt of the second Video node to have the keyboard focus');
+
+	await page.keyboard.type('[mock:fail] A storm over the pier');
+	let ended = await generateVideoUntilEnded(page, panel, VIDEO_SECOND_NODE);
+	const failure = 'The provider could not make the video: The video could not be made: the output may contain sensitive content.';
+	if (JSON.stringify(ended.states.map(state => state.state)) !== JSON.stringify(['submitting', 'running', 'failed']) || ended.document.task.error !== failure || ended.requests.length !== 1) {
+		throw new Error(`A task the provider fails must end as failed with its message: ${JSON.stringify(ended)}`);
+	}
+	await waitForReading(() => readVideoCard(page, VIDEO_SECOND_NODE), seen => seen?.state === 'failed' && seen.message === failure, 'the card to show the provider\'s message');
+
+	await replaceVideoPrompt(page, panel, '[mock:drop] A storm over the pier');
+	ended = await generateVideoUntilEnded(page, panel, VIDEO_SECOND_NODE);
+	const unknown = 'The request may have reached the provider, but no answer came back. Check the provider\'s console before generating again: a second request may be charged again.';
+	if (JSON.stringify(ended.states.map(state => state.state)) !== JSON.stringify(['submitting', 'failed']) || !ended.document.task.error.startsWith(unknown)
+		|| ended.requests.length !== 1 || ended.requests[0].prompt !== '[mock:drop] A storm over the pier') {
+		throw new Error(`A request without an answer must end with the message about the provider's console: ${JSON.stringify(ended)}`);
+	}
+	await waitForReading(() => readVideoCard(page, VIDEO_SECOND_NODE), seen => seen?.state === 'failed' && seen.message === ended.document.task.error, 'the card to show that the outcome is unknown');
+	// Nothing sends the request again.
+	await page.waitForTimeout(VIDEO_PROVIDER_CREATE_HOLD_MS + 2_000);
+	if (provider.requestsSince(ended.requestsBefore).length !== 1) {
+		throw new Error(`A request whose outcome is unknown was sent again: ${JSON.stringify(provider.requestsSince(ended.requestsBefore))}`);
+	}
+
+	await replaceVideoPrompt(page, panel, '[mock:slow] A storm over the pier');
+	const previousTask = readVideoNode(VIDEO_SECOND_NODE).task?.id;
+	const recording = recordVideoNodeStates(videoWorkspaceFile(VIDEO_SECOND_NODE), document => document.result !== undefined || (document.task?.id !== previousTask && ['failed', 'stopped'].includes(document.task?.state)), VIDEO_GENERATION_TIMEOUT_MS);
+	await panel.locator('button.bh-video-panel-generate').click();
+	await waitUntil(() => readVideoNode(VIDEO_SECOND_NODE).task?.state === 'running', 'the slow task to run', 20_000);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.stop === true, 'Generate to become the stop square');
+	await panel.locator('button.bh-video-panel-generate').click();
+	const stopped = await recording;
+	const stoppedPath = stopped.states.filter(state => state.state !== 'idle' && state.taskId !== previousTask).map(state => state.state);
+	if (JSON.stringify(stoppedPath) !== JSON.stringify(['submitting', 'running', 'stopped']) || !stopped.document.task.endedAt || stopped.document.result !== undefined) {
+		throw new Error(`The stop square must end the task as stopped: ${JSON.stringify(stopped)}`);
+	}
+	await waitForReading(() => readVideoCard(page, VIDEO_SECOND_NODE), seen => seen?.state === 'stopped' && seen.message === 'Stopped', 'the card to say Stopped');
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.stop === false && seen.generate.disabled === false, 'Generate to start a new generation in the same node');
+	if (fs.existsSync(path.join(workspacePath, 'outputs', created.id))) {
+		throw new Error(`A node whose generations ended without a video has files in outputs/${created.id}`);
+	}
+}
+
+// Criteria 19 and 2: a Video node an agent wrote with a title, a prompt,
+// upstream, and generation shows on the canvas; `basehalf --run-node` in an
+// Agent Area terminal starts it without a question and prints its path once
+// its task is recorded; the video lands as one Generate makes.
+async function assertVideoAgentRunsNode(page) {
+	const provider = await videoSmokeProvider();
+	const prompt = 'The pier at noon, seen from the water';
+	fs.writeFileSync(videoWorkspaceFile(VIDEO_AGENT_NODE), `${JSON.stringify({
+		version: 5,
+		id: randomUUID(),
+		kind: 'video',
+		title: 'Agent shot',
+		prompt,
+		upstream: [VIDEO_START_IMAGE],
+		generation: { model: VIDEO_MODEL, mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+	}, null, '\t')}\n`, 'utf8');
+	await videoCanvasCard(page, VIDEO_AGENT_NODE).waitFor({ state: 'attached', timeout: 20_000 });
+	await runCommand(page, 'Terminal: Create New Terminal');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.waitFor({ state: 'visible', timeout: 20_000 });
+	await terminal.click();
+	await waitForAgentAreaTerminalPrompt(page);
+	const requestsBefore = provider.mock.requests.length;
+	const recording = recordVideoNodeStates(videoWorkspaceFile(VIDEO_AGENT_NODE), document => document.result !== undefined || ['failed', 'stopped'].includes(document.task?.state), VIDEO_GENERATION_TIMEOUT_MS);
+	await page.keyboard.insertText(`basehalf --run-node ${VIDEO_AGENT_NODE}`);
+	await page.keyboard.press('Enter');
+	const answer = await readAgentAreaTerminalJson(page, `"nodePath":${JSON.stringify(VIDEO_AGENT_NODE)}`);
+	const recorded = readVideoNode(VIDEO_AGENT_NODE);
+	if (answer.ok !== true || answer.outcome !== 'succeeded' || answer.nodePath !== VIDEO_AGENT_NODE || (recorded.task === undefined && recorded.result === undefined)) {
+		throw new Error(`basehalf --run-node must print the node's path once its task is recorded: ${JSON.stringify({ answer, recorded })}`);
+	}
+	if (await page.locator('.monaco-dialog-box').count() !== 0) {
+		throw new Error('basehalf --run-node asked a question');
+	}
+	const { states, document } = await recording;
+	const sent = { provider: 'ark', model: VIDEO_MODEL, prompt, inputs: [VIDEO_START_IMAGE], mode: 'frames', ratio: 'adaptive', resolution: '720p', duration: 5, audio: true };
+	if (JSON.stringify(states.filter(state => state.state !== 'idle').map(state => state.state)) !== JSON.stringify(['submitting', 'running', 'result'])
+		|| document.result?.source !== 'generated' || canonicalJson(document.result.generation.request) !== canonicalJson(sent)) {
+		throw new Error(`The node an agent ran must end with a generated video: ${JSON.stringify({ states, document })}`);
+	}
+	const requests = provider.requestsSince(requestsBefore);
+	if (requests.length !== 1 || JSON.stringify(requests[0].parts) !== JSON.stringify(['text', 'image_url first_frame data:image/png'])) {
+		throw new Error(`The agent's run must send one request with the prompt and the start frame: ${JSON.stringify(requests)}`);
+	}
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
+	// After all these generations, no workspace file holds the key.
+	const files = filesContaining(workspacePath, provider.key);
+	if (files.length) {
+		throw new Error(`The provider key is in workspace files: ${files.join(', ')}`);
+	}
+}
+
+// --- Video node helpers ---
+
+function createVideoSmokeFolder() {
+	const folder = path.join(workspacePath, VIDEO_FOLDER);
+	fs.mkdirSync(folder, { recursive: true });
+	fs.writeFileSync(path.join(folder, 'start.png'), solidPng(160, 90, [37, 99, 235]));
+	fs.writeFileSync(path.join(folder, 'end.png'), solidPng(160, 90, [245, 158, 11]));
+	// The images lie at the left, one above the other.
+	const mirror = path.join(workspacePath, '.bh', 'mirror', VIDEO_FOLDER);
+	fs.mkdirSync(mirror, { recursive: true });
+	fs.writeFileSync(path.join(mirror, 'canvas.yaml'), [
+		`path: "${VIDEO_FOLDER}"`,
+		'size:',
+		'  width: 2400',
+		'  height: 1600',
+		'cards:',
+		`  - path: "${VIDEO_START_IMAGE}"`,
+		'    kind: file',
+		'    x: 0',
+		'    y: 0',
+		'    width: 300',
+		'    height: 220',
+		`  - path: "${VIDEO_END_IMAGE}"`,
+		'    kind: file',
+		'    x: 0',
+		'    y: 300',
+		'    width: 300',
+		'    height: 220',
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
+}
+
+function videoWorkspaceFile(relativePath) {
+	return path.join(workspacePath, ...relativePath.split('/'));
+}
+
+function readVideoNode(relativePath) {
+	return JSON.parse(fs.readFileSync(videoWorkspaceFile(relativePath), 'utf8'));
+}
+
+function readVideoCanvasLayout() {
+	return fs.readFileSync(path.join(workspacePath, '.bh', 'mirror', VIDEO_FOLDER, 'canvas.yaml'), 'utf8');
+}
+
+// JSON with its keys sorted, to compare documents whatever order they were written in.
+function canonicalJson(value) {
+	return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+		? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+		: item);
+}
+
+// Reads with `read` until `accept` takes what it read; fails with the last reading.
+async function waitForReading(read, accept, description, timeoutMs = 15_000) {
+	const deadline = Date.now() + timeoutMs;
+	let value;
+	let failure;
+	for (; ;) {
+		try {
+			value = await read();
+			failure = undefined;
+			if (accept(value)) {
+				return value;
+			}
+		} catch (error) {
+			failure = error;
+		}
+		if (Date.now() > deadline) {
+			throw new Error(`Timed out waiting for ${description}; last read: ${failure ? `failed with ${failure instanceof Error ? failure.message : String(failure)}` : JSON.stringify(value)}`);
+		}
+		await new Promise(resolve => setTimeout(resolve, 50));
+	}
+}
+
+function assertSameCanvasView(before, after, what) {
+	if (Math.abs(before.x - after.x) > 0.5 || Math.abs(before.y - after.y) > 0.5 || Math.abs(before.zoom - after.zoom) > 0.001) {
+		throw new Error(`${what} must not pan or zoom the canvas: ${JSON.stringify({ before, after })}`);
+	}
+}
+
+async function setCanvasZoomPercent(page, percent) {
+	const controller = await openCanvasZoomMenu(page);
+	await controller.input.fill(`${percent}%`);
+	await controller.input.press('Enter');
+	await controller.menu.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, percent / 100, { timeout: 10_000 });
+}
+
+function videoCanvasCard(page, cardPath) {
+	return page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${cardPath}"]`);
+}
+
+function videoPanel(page, cardPath) {
+	return page.locator(`.basehalf-canvas-video-panel-surface[data-basehalf-card-path="${cardPath}"] .bh-video-panel`);
+}
+
+// Clicks a point of the card that is on top: a panel, a toolbar, or another
+// card can lie over part of it.
+async function clickCanvasCardOnTop(page, cardPath) {
+	const point = await page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const rect = card?.getBoundingClientRect();
+		if (!card || !rect) {
+			return undefined;
+		}
+		for (const [x, y] of [[0.5, 0.5], [0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]]) {
+			const point = { x: rect.left + rect.width * x, y: rect.top + rect.height * y };
+			if (card.contains(document.elementFromPoint(point.x, point.y))) {
+				return point;
+			}
+		}
+		return undefined;
+	}, cardPath);
+	if (!point) {
+		throw new Error(`No part of the card ${cardPath} is on top to click`);
+	}
+	await page.mouse.click(point.x, point.y);
+}
+
+async function clickBlankVideoCanvas(page) {
+	const point = await emptyCanvasPoint(page);
+	await page.mouse.click(point.x, point.y);
+	await waitForReading(() => page.locator('.react-flow__node.selected').count(), count => count === 0, 'a click on the blank canvas to end the selection');
+}
+
+async function selectVideoCard(page, cardPath) {
+	const selected = await page.evaluate(path => Array.from(document.querySelectorAll('.basehalf-canvas-card'))
+		.find(card => card.getAttribute('data-basehalf-card-path') === path)?.closest('.react-flow__node')?.classList.contains('selected') === true, cardPath);
+	if (!selected) {
+		await clickCanvasCardOnTop(page, cardPath);
+	}
+	await waitForCanvasCardSelection(page, cardPath, 15_000);
+	return waitForVideoPanel(page, cardPath);
+}
+
+// The panel of the selected Video card, once the scene shows it and it has read its node.
+async function waitForVideoPanel(page, cardPath, timeoutMs = 15_000) {
+	await waitForReading(() => page.evaluate(path => {
+		const surfaces = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface'));
+		const surface = surfaces.find(element => element.getAttribute('data-basehalf-card-path') === path);
+		return {
+			surfaces: surfaces.map(element => element.getAttribute('data-basehalf-card-path')),
+			visible: surface?.getAttribute('data-visible') ?? null,
+			state: surface?.querySelector('.bh-video-panel')?.getAttribute('data-state') ?? null
+		};
+	}, cardPath), seen => seen.visible === 'true' && seen.state === 'ready', `the Video panel of ${cardPath} to show`, timeoutMs);
+	return videoPanel(page, cardPath);
+}
+
+function readVideoPanel(panel) {
+	return panel.evaluate(element => {
+		const text = selector => element.querySelector(selector)?.textContent?.trim() ?? null;
+		const prompt = element.querySelector('textarea.bh-video-panel-prompt-input');
+		const generate = element.querySelector('button.bh-video-panel-generate');
+		const frame = use => {
+			const slot = element.querySelector(`.bh-video-panel-slot[data-use="${use}"]`);
+			return slot ? {
+				name: slot.querySelector('.bh-video-panel-input-name')?.textContent ?? null,
+				path: slot.querySelector('.bh-video-panel-remove')?.getAttribute('data-key')?.replace(/^remove:/, '') ?? null
+			} : null;
+		};
+		return {
+			prompt: prompt?.value ?? null,
+			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
+			model: text('.bh-video-panel-model-label'),
+			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
+			settings: text('.bh-video-panel-settings-label'),
+			generate: generate ? {
+				disabled: generate.getAttribute('aria-disabled') === 'true',
+				label: generate.getAttribute('aria-label'),
+				stop: generate.classList.contains('stop')
+			} : null,
+			emptySlots: Array.from(element.querySelectorAll('.bh-video-panel-slot.empty')).map(slot => slot.getAttribute('data-role')),
+			start: frame('start-frame'),
+			end: frame('end-frame'),
+			names: Array.from(element.querySelectorAll('.bh-video-panel-prompt-overlay .bh-video-panel-name')).map(name => ({
+				text: name.textContent,
+				known: !name.classList.contains('unknown'),
+				underlined: getComputedStyle(name).textDecorationLine.includes('underline')
+			}))
+		};
+	}, undefined, { timeout: 2_000 });
+}
+
+function readVideoModelMenu(panel) {
+	return panel.evaluate(element => {
+		const menu = element.querySelector('.bh-video-panel-menu.model');
+		const label = item => item.querySelector('.bh-video-panel-menu-label')?.textContent ?? null;
+		return menu ? {
+			groups: Array.from(menu.querySelectorAll('.bh-video-panel-menu-group')).map(group => ({
+				label: group.querySelector('.bh-video-panel-menu-heading-label')?.textContent ?? null,
+				detail: group.querySelector('.bh-video-panel-menu-heading-detail')?.textContent ?? null,
+				items: Array.from(group.querySelectorAll('.bh-video-panel-menu-item')).map(label)
+			})),
+			end: Array.from(menu.querySelectorAll(':scope > .bh-video-panel-menu-item')).map(label)
+		} : null;
+	}, undefined, { timeout: 2_000 });
+}
+
+async function clickVideoModel(page, panel, model) {
+	await panel.locator(`.bh-video-panel-menu.model .bh-video-panel-menu-item[data-key="model:${videoSmoke.channelId}:${model}"]`).click();
+	await waitForReading(() => panel.locator('.bh-video-panel-menu.model').count(), count => count === 0, 'the model menu to close after a choice');
+}
+
+function readVideoSettingsPopover(panel) {
+	return panel.evaluate(element => {
+		const popover = element.querySelector('.bh-video-panel-menu.settings');
+		if (!popover) {
+			return null;
+		}
+		const keys = selector => Array.from(popover.querySelectorAll(selector)).map(control => control.getAttribute('data-key'));
+		const slider = popover.querySelector('input.bh-video-panel-slider');
+		return {
+			width: Math.round(popover.getBoundingClientRect().width),
+			focusInside: popover.contains(element.ownerDocument.activeElement),
+			keys: keys('[data-key]'),
+			checked: keys('[data-key][aria-checked="true"]'),
+			disabled: keys('[data-key][aria-disabled="true"]'),
+			slider: slider ? { min: Number(slider.min), max: Number(slider.max), value: Number(slider.value), disabled: slider.disabled } : null,
+			note: popover.querySelector('.bh-video-panel-setting-note')?.textContent ?? null
+		};
+	}, undefined, { timeout: 2_000 });
+}
+
+// Opens the settings popover and waits for the keyboard focus to be inside it,
+// so that a later Escape reaches it.
+async function openVideoSettings(panel) {
+	await panel.locator('button.bh-video-panel-settings').click();
+	return waitForReading(() => readVideoSettingsPopover(panel), seen => seen !== null && seen.focusInside, 'the settings popover to open with the focus inside');
+}
+
+async function closeVideoPanelMenu(page, panel, kind) {
+	// An Escape that arrives before the focus does reaches nobody.
+	await waitForReading(() => panel.evaluate((element, menuKind) => element.querySelector(`.bh-video-panel-menu.${menuKind}`)?.contains(element.ownerDocument.activeElement) === true, kind, { timeout: 2_000 }), inside => inside, `the keyboard focus to be in the ${kind} menu`);
+	await page.keyboard.press('Escape');
+	await waitForReading(() => panel.locator(`.bh-video-panel-menu.${kind}`).count(), count => count === 0, `Escape to close the ${kind} menu`);
+}
+
+// The settings button says `summary`, and the node's file stores `generation`.
+async function assertVideoSettingsSummary(panel, summary, generation) {
+	await waitForReading(() => readVideoPanel(panel), seen => seen.settings === summary, `the settings button to read ${summary}`);
+	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE).generation) === canonicalJson(generation), `${VIDEO_NODE} to store ${JSON.stringify(generation)}`, 10_000);
+}
+
+function readVideoMentionMenu(panel) {
+	return panel.evaluate(element => {
+		const menu = element.querySelector('.bh-video-panel-menu.mention');
+		return menu ? {
+			options: Array.from(menu.querySelectorAll('.bh-video-panel-mention')).map(option => ({
+				label: option.querySelector('.bh-video-panel-mention-label')?.textContent ?? null,
+				file: option.querySelector('.bh-video-panel-mention-file')?.textContent ?? '',
+				active: option.getAttribute('aria-selected') === 'true'
+			}))
+		} : null;
+	}, undefined, { timeout: 2_000 });
+}
+
+function readVideoProviderEditor(providers) {
+	return providers.evaluate(root => ({
+		name: root.querySelector('.basehalf-video-provider-row[aria-current="page"] .basehalf-video-provider-row-name')?.textContent ?? null,
+		rowKey: root.querySelector('.basehalf-video-provider-row[aria-current="page"] .basehalf-video-provider-row-key')?.getAttribute('aria-label') ?? null,
+		endpoint: root.querySelector('#basehalf-video-provider-endpoint')?.value ?? null,
+		models: Array.from(root.querySelectorAll('li.basehalf-video-provider-model')).map(chip => ({
+			id: chip.getAttribute('data-model'),
+			label: chip.querySelector('.basehalf-video-provider-model-name')?.textContent ?? null
+		})),
+		keySet: root.querySelector('.basehalf-video-provider-key-state')?.classList.contains('set') ?? false,
+		keyState: root.querySelector('.basehalf-video-provider-key-state')?.textContent?.trim() ?? null,
+		status: root.querySelector('.basehalf-video-providers-status')?.textContent ?? null
+	}), undefined, { timeout: 2_000 });
+}
+
+function readVideoCard(page, cardPath) {
+	return page.evaluate(path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const face = card?.querySelector('.bh-video-card');
+		if (!face) {
+			return null;
+		}
+		const video = face.querySelector('video.bh-video-card-video');
+		return {
+			state: face.getAttribute('data-state'),
+			phase: face.querySelector('.bh-video-card-phase')?.textContent ?? null,
+			elapsed: face.querySelector('.bh-video-card-elapsed')?.textContent ?? null,
+			progress: !!face.querySelector('.bh-video-card-progress[role="progressbar"]'),
+			message: face.querySelector('.bh-video-card-message')?.textContent ?? null,
+			video: video ? { readyState: video.readyState, width: video.videoWidth, height: video.videoHeight, error: video.error?.message ?? null } : null
+		};
+	}, cardPath);
+}
+
+// Plays the card's video for a moment, muted, and reports what it played.
+function playVideoCard(page, cardPath) {
+	return page.evaluate(async path => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const video = card?.querySelector('.bh-video-card[data-state="video"] video.bh-video-card-video');
+		if (!(video instanceof HTMLVideoElement)) {
+			return { error: 'The card has no video element' };
+		}
+		video.muted = true;
+		try {
+			await video.play();
+		} catch (error) {
+			return { error: `play() failed: ${error}` };
+		}
+		const started = performance.now();
+		while (video.currentTime < 0.3 && !video.error && performance.now() - started < 5_000) {
+			await new Promise(resolve => setTimeout(resolve, 50));
+		}
+		const played = { currentTime: video.currentTime, duration: video.duration, width: video.videoWidth, height: video.videoHeight, controls: video.controls, error: video.error?.message ?? null };
+		video.pause();
+		return played;
+	}, cardPath);
+}
+
+// Moves the card's player to `seconds`, as the user does with its controls.
+async function seekVideoCard(page, cardPath, seconds) {
+	const seeked = await page.evaluate(async ({ path, seconds }) => {
+		const card = Array.from(document.querySelectorAll('.basehalf-canvas-card')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		const video = card?.querySelector('.bh-video-card[data-state="video"] video.bh-video-card-video');
+		if (!(video instanceof HTMLVideoElement)) {
+			return { error: 'The card has no video element' };
+		}
+		const event = name => new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no ${name} event within 10 s`)), 10_000);
+			video.addEventListener(name, () => {
+				clearTimeout(timer);
+				resolve(undefined);
+			}, { once: true });
+		});
+		try {
+			if (video.readyState < 1) {
+				await event('loadedmetadata');
+			}
+			const done = event('seeked');
+			video.currentTime = seconds;
+			await done;
+		} catch (error) {
+			return { error: String(error) };
+		}
+		return { currentTime: video.currentTime };
+	}, { path: cardPath, seconds });
+	if (seeked.error || Math.abs(seeked.currentTime - seconds) > 0.05) {
+		throw new Error(`The card's player did not move to ${seconds} s: ${JSON.stringify(seeked)}`);
+	}
+}
+
+async function captureVideoCardFrame(page, frame, relativePath) {
+	await page.locator('.basehalf-video-context-toolbar [data-video-action="captureFrame"]').click();
+	const item = page.locator(`.basehalf-video-capture-menu [data-video-frame="${frame}"]`);
+	await item.waitFor({ state: 'visible', timeout: 10_000 });
+	await item.click();
+	await waitUntil(() => fs.existsSync(videoWorkspaceFile(relativePath)), `Capture Frame to write ${relativePath}`, 20_000);
+	await waitUntil(() => readCanvasCardGeometry(readVideoCanvasLayout(), relativePath) !== undefined, `the card of ${relativePath} to get a place`, 10_000);
+	await videoCanvasCard(page, relativePath).waitFor({ state: 'attached', timeout: 15_000 });
+}
+
+// The card and its panel relative to the canvas, which the scene places the panel in.
+function readVideoPanelGeometry(page, cardPath) {
+	return page.evaluate(path => {
+		const flow = document.querySelector('.basehalf-canvas-cards .react-flow');
+		const node = Array.from(document.querySelectorAll('.react-flow__node')).find(element => element.getAttribute('data-id') === path);
+		const surface = Array.from(document.querySelectorAll('.basehalf-canvas-video-panel-surface')).find(element => element.getAttribute('data-basehalf-card-path') === path);
+		if (!flow || !node || !surface) {
+			return null;
+		}
+		const origin = flow.getBoundingClientRect();
+		const relative = rect => ({ left: rect.left - origin.left, top: rect.top - origin.top, right: rect.right - origin.left, bottom: rect.bottom - origin.top, width: rect.width, height: rect.height });
+		return {
+			host: { width: flow.clientWidth, height: flow.clientHeight },
+			card: relative(node.getBoundingClientRect()),
+			panel: relative(surface.getBoundingClientRect()),
+			placement: surface.getAttribute('data-panel-placement'),
+			visible: surface.getAttribute('data-visible'),
+			visibility: getComputedStyle(surface).visibility,
+			moving: surface.getAnimations().some(animation => animation.playState !== 'finished') || !['none', '0px', '0px 0px'].includes(getComputedStyle(surface).translate)
+		};
+	}, cardPath);
+}
+
+// Draws a connection from the east handle of `sourcePath` to the west handle
+// of `targetPath`; the target stores it in its upstream list.
+async function drawCanvasConnectionInto(page, sourcePath, targetPath) {
+	await startCanvasConnectionDrag(page, sourcePath);
+	const target = await page.locator(`.react-flow__node[data-id="${targetPath}"] > .basehalf-canvas-card-connect-handle.west`).boundingBox();
+	if (!target) {
+		await page.mouse.up();
+		throw new Error(`The card ${targetPath} has no west connection handle`);
+	}
+	await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
+	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
+	await page.mouse.up();
+}
+
+async function replaceVideoPrompt(page, panel, text) {
+	await panel.locator('textarea.bh-video-panel-prompt-input').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+	await page.keyboard.type(text);
+	await waitForReading(() => readVideoPanel(panel), seen => seen.prompt === text, `the prompt to read ${text}`);
+}
+
+// Clicks Generate and waits until the node's new task ends or its video arrives.
+async function generateVideoUntilEnded(page, panel, cardPath) {
+	const provider = await videoSmokeProvider();
+	await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false && !seen.generate.stop, 'Generate to be enabled');
+	const previousTask = readVideoNode(cardPath).task?.id;
+	const requestsBefore = provider.mock.requests.length;
+	const recording = recordVideoNodeStates(videoWorkspaceFile(cardPath), document => document.result !== undefined
+		|| (document.task?.id !== previousTask && ['failed', 'stopped'].includes(document.task?.state)), VIDEO_GENERATION_TIMEOUT_MS);
+	await panel.locator('button.bh-video-panel-generate').click();
+	const { states, document } = await recording;
+	return {
+		states: states.filter(state => state.state !== 'idle' && (previousTask === undefined || state.taskId !== previousTask)),
+		document,
+		requestsBefore,
+		requests: provider.requestsSince(requestsBefore)
+	};
+}
+
+// The JSON line a command printed in the active Agent Area terminal, with
+// the rows a long line wraps onto joined.
+async function readAgentAreaTerminalJson(page, marker) {
+	const line = await waitForReading(() => page.evaluate(expected => {
+		const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper');
+		const buffer = wrapper?.xterm?.buffer?.active;
+		if (!buffer) {
+			return null;
+		}
+		const lines = [];
+		for (let index = 0; index < buffer.length; index++) {
+			const row = buffer.getLine(index);
+			const text = row?.translateToString(true) ?? '';
+			if (row?.isWrapped && lines.length) {
+				lines[lines.length - 1] += text;
+			} else {
+				lines.push(text);
+			}
+		}
+		return lines.reverse().find(text => text.trimStart().startsWith('{') && text.includes(expected)) ?? null;
+	}, marker), found => typeof found === 'string', 'the Agent Area terminal to print the answer of basehalf --run-node', 30_000);
+	return JSON.parse(line.trim());
+}
+
+// Lets the window draw `count` frames; the adjacent chrome checks below sample after it.
+async function waitForVideoChromeFrames(page, count = 2) {
+	await page.evaluate(frames => new Promise<void>(resolve => {
+		let remaining = frames;
+		const next = () => {
+			remaining--;
+			if (remaining <= 0) {
+				resolve();
+				return;
+			}
+			requestAnimationFrame(next);
+		};
+		requestAnimationFrame(next);
+	}), count);
 }
 
 async function waitForAdjacentChromeAnimations(page, minimumSurfaceCount = 1) {
