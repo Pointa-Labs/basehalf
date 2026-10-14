@@ -243,11 +243,6 @@ try {
 		},
 		contributes: {
 			commands: [{ command: 'pointa.basehalf-ai-video.createWorkflow', title: 'Create Workflow…' }],
-			basehalfCanvasRecipes: [{
-				id: 'pointa.basehalf-ai-video.storyboard-frame',
-				label: 'Storyboard Frame',
-				outputs: [{ id: 'storyboard', kind: 'image', extensions: ['.svg'], minItems: 1, maxItems: 1, primary: true }]
-			}],
 			basehalfCanvasTemplates: [{
 				id: 'pointa.basehalf-ai-video.starter-workflow',
 				label: 'Video Starter Workflow',
@@ -372,98 +367,31 @@ try {
 	await writeVsix(floodVsix, flood);
 	await assert.rejects(() => metadataFromVsix({ vsixPath: floodVsix }), /more than 4096 entries/);
 	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
-	const officialManifestFixture = JSON.parse(fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', 'package.json'), 'utf8'));
-	const officialProviderContribution = officialManifestFixture.contributes.basehalfModelProviderCatalogs[0];
-	const officialVideoModelContribution = officialManifestFixture.contributes.basehalfVideoModelCatalogs[0];
-	const officialProviderArchivePath = `extension/${officialProviderContribution.resource}`;
-	const officialVideoModelArchivePath = `extension/${officialVideoModelContribution.resource}`;
-	const officialProviderBytes = fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', officialProviderContribution.resource));
-	const officialVideoModelBytes = fs.readFileSync(path.join(root, 'extensions', 'basehalf-ai-video', officialVideoModelContribution.resource));
-	const providerManifest = {
+	// D58 retired recipes and the model catalogs: a manifest that still declares one is refused.
+	for (const [point, contribution] of [
+		['basehalfCanvasRecipes', { id: 'pointa.basehalf-ai-video.storyboard-frame', label: 'Storyboard Frame', outputs: [{ id: 'storyboard', kind: 'image', extensions: ['.svg'], minItems: 1, maxItems: 1, primary: true }] }],
+		['basehalfModelProviderCatalogs', { id: 'pointa.basehalf-ai-video.official-providers', resource: 'provider-connections.json' }],
+		['basehalfVideoModelCatalogs', { id: 'pointa.basehalf-ai-video.official-video-models', resource: 'video-models.json' }]
+	] as const) {
+		assert.throws(() => validateReviewedVsixManifest({
+			...reviewedManifest,
+			contributes: { ...reviewedManifest.contributes, [point]: [contribution] }
+		}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), new RegExp(`declares unsupported contribution points: ${point}\\.`));
+	}
+	assert.throws(() => validateReviewedVsixManifest({
 		...reviewedManifest,
-		contributes: {
-			...reviewedManifest.contributes,
-			basehalfModelProviderCatalogs: [officialProviderContribution],
-			basehalfVideoModelCatalogs: [officialVideoModelContribution]
-		}
-	};
-	const providerFiles = new Set([...reviewedFiles, officialProviderArchivePath, officialVideoModelArchivePath]);
-	const providerResources = new Map([
-		...reviewedTemplates,
-		[officialProviderArchivePath, officialProviderBytes] as const,
-		[officialVideoModelArchivePath, officialVideoModelBytes] as const
-	]);
-	validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, providerResources);
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, providerResources), /model provider catalog .* resource .* is missing/);
-	assert.throws(() => validateReviewedVsixManifest({
-		...providerManifest,
-		contributes: {
-			...providerManifest.contributes,
-			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, id: 'other.extension.official-providers' }]
-		}
-	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /model provider catalog .* not uniquely owned/);
-	assert.throws(() => validateReviewedVsixManifest({
-		...providerManifest,
-		contributes: {
-			...providerManifest.contributes,
-			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, resource: '../provider-connections.json' }]
-		}
-	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /path is invalid/);
-	assert.throws(() => validateReviewedVsixManifest({
-		...providerManifest,
-		contributes: {
-			...providerManifest.contributes,
-			basehalfModelProviderCatalogs: [{ ...officialProviderContribution, connections: [] }]
-		}
-	}, providerFiles, OFFICIAL_EXTENSION_ID, providerResources), /unsupported fields/);
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /model provider catalog .* was not inspected/);
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...reviewedTemplates,
-		[officialProviderArchivePath, Buffer.from(JSON.stringify({ schemaVersion: 2, connections: [] }))]
-	])), /model provider catalog .* failed validation: .*schemaVersion/);
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...reviewedTemplates,
-		[officialProviderArchivePath, Buffer.alloc(128 * 1024 + 1)]
-	])), /model provider catalog .* exceeds 131072 bytes/);
-	const officialProviderCatalog = JSON.parse(officialProviderBytes.toString('utf8'));
-	const officialVideoModelCatalog = JSON.parse(officialVideoModelBytes.toString('utf8'));
-	const missingScopeProviderCatalog = structuredClone(officialProviderCatalog);
-	missingScopeProviderCatalog.connections = missingScopeProviderCatalog.connections.filter((connection: any) => connection.providerId !== 'byteplus');
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...providerResources,
-		[officialProviderArchivePath, Buffer.from(JSON.stringify(missingScopeProviderCatalog))]
-	])), /video model scope 'byteplus\/modelark\/global' must match exactly one .* found 0/);
-	const duplicateScopeProviderCatalog = structuredClone(officialProviderCatalog);
-	duplicateScopeProviderCatalog.connections.push({
-		...structuredClone(duplicateScopeProviderCatalog.connections[0]),
-		id: 'pointa.basehalf-ai-video.byteplus-modelark-duplicate'
-	});
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...providerResources,
-		[officialProviderArchivePath, Buffer.from(JSON.stringify(duplicateScopeProviderCatalog))]
-	])), /video model scope 'byteplus\/modelark\/global' must match exactly one .* found 2/);
-	const uncoveredProviderCatalog = structuredClone(officialProviderCatalog);
-	uncoveredProviderCatalog.connections.push({
-		...structuredClone(uncoveredProviderCatalog.connections[0]),
-		id: 'pointa.basehalf-ai-video.uncovered-video-provider',
-		providerId: 'uncovered',
-		deploymentId: 'official',
-		region: 'global'
-	});
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...providerResources,
-		[officialProviderArchivePath, Buffer.from(JSON.stringify(uncoveredProviderCatalog))]
-	])), /video-capable model provider connection 'pointa\.basehalf-ai-video\.uncovered-video-provider' does not unlock any owned video model/);
-	const driftedVideoModelCatalog = structuredClone(officialVideoModelCatalog);
-	driftedVideoModelCatalog.models[0].key.region = 'scope-drift';
-	assert.throws(() => validateReviewedVsixManifest(providerManifest, providerFiles, OFFICIAL_EXTENSION_ID, new Map([
-		...providerResources,
-		[officialVideoModelArchivePath, Buffer.from(JSON.stringify(driftedVideoModelCatalog))]
-	])), /video model scope 'byteplus\/modelark\/scope-drift' must match exactly one .* found 0/);
+		contributes: { commands: reviewedManifest.contributes.commands }
+	}, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map()), /must contribute a BaseHalf Agent capability, projection, canvas template, or structural cleanup\./);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, enabledApiProposals: ['unsafe'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /proposed APIs/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, extensionDependencies: ['other.extension'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /cannot declare extensionDependencies/);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onStartupFinished'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
-	validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onCommand:pointa.basehalf-ai-video.createWorkflow', 'onBaseHalfCanvasRecipe:pointa.basehalf-ai-video.storyboard-frame'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
+	validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onCommand:pointa.basehalf-ai-video.createWorkflow'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
+	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onBaseHalfCanvasRecipe:pointa.basehalf-ai-video.storyboard-frame'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
+	// Only the official AI Video answers the host's Video provider commands (D58).
+	const providerActivationEvents = ['submit', 'poll', 'download', 'cancel'].map(command => `onCommand:basehalf.video.provider.${command}`);
+	validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: providerActivationEvents }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
+	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onCommand:basehalf.video.provider.other'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
+	assert.throws(() => validateReviewedVsixManifest({ ...communityManifest, activationEvents: providerActivationEvents }, reviewedFiles, communityExtensionId, reviewedTemplates), /'onCommand:basehalf\.video\.provider\.submit' is not tied to a declared contribution/);
 	validateReviewedVsixManifest({
 		...reviewedManifest,
 		activationEvents: ['onBaseHalfStructuralCleanup:pointa.basehalf-ai-video.sequence-membership'],
@@ -495,39 +423,6 @@ try {
 			configuration: { properties: { 'other.plugin.apiKey': { type: 'string' } } }
 		}
 	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /outside 'pointa.basehalf-ai-video'/);
-	assert.throws(() => validateReviewedVsixManifest({
-		...reviewedManifest,
-		contributes: {
-			...reviewedManifest.contributes,
-			basehalfCanvasRecipes: [{
-				...reviewedManifest.contributes.basehalfCanvasRecipes[0],
-				inputs: [
-					{ id: 'first', label: 'First', accepts: ['text'], minItems: 0, maxItems: 40 },
-					{ id: 'second', label: 'Second', accepts: ['text'], minItems: 0, maxItems: 40 }
-				]
-			}]
-		}
-	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /no more than 64 inputs in total/);
-	assert.throws(() => validateReviewedVsixManifest({
-		...reviewedManifest,
-		contributes: {
-			...reviewedManifest.contributes,
-			basehalfCanvasRecipes: [{
-				...reviewedManifest.contributes.basehalfCanvasRecipes[0],
-				outputs: [
-					reviewedManifest.contributes.basehalfCanvasRecipes[0].outputs[0],
-					{ id: 'alternates', kind: 'image', extensions: ['.svg'], minItems: 0, maxItems: 64 }
-				]
-			}]
-		}
-	}, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /must declare exactly one output/);
-	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, contributes: {
-		...reviewedManifest.contributes,
-		basehalfCanvasRecipes: [{
-			...reviewedManifest.contributes.basehalfCanvasRecipes[0],
-			outputs: [{ id: 'storyboard', kind: 'image', extensions: ['.svg'], minItems: 0, maxItems: 2, primary: true }]
-		}]
-	} }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /output must produce exactly one artifact/);
 	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, new Set([...reviewedFiles].filter(file => !file.endsWith('starter-workflow.json'))), OFFICIAL_EXTENSION_ID, reviewedTemplates), /resource .* is missing/);
 	assert.throws(() => validateReviewedVsixManifest({
 		...reviewedManifest,
@@ -562,7 +457,7 @@ try {
 		const kindTemplate = Buffer.from(JSON.stringify({
 			version: 1,
 			files: [],
-			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result', role: 'result' }],
+			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result' }],
 			cards: [],
 			references: []
 		}));
@@ -572,99 +467,31 @@ try {
 		const contentTemplate = Buffer.from(JSON.stringify({
 			version: 1,
 			files: [],
-			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result', role: 'result' }],
+			nodes: [{ path: `result-${kind}.bhnode`, kind, title: 'Result' }],
 			cards: [],
 			references: []
 		}));
 		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', contentTemplate]])), /kind is invalid/);
 	}
-	const undeclaredRecipeTemplate = Buffer.from(JSON.stringify({
-		version: 1,
-		files: [],
-		nodes: [{
-			path: 'result.bhnode',
-			kind: 'file',
-			title: 'Result',
-			role: 'result',
-			recipe: { recipeId: 'pointa.basehalf-ai-video.missing', parameters: {}, inputBindings: [] }
-		}],
-		cards: [],
-		references: []
-	}));
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', undeclaredRecipeTemplate]])), /uses undeclared recipe/);
-	const nonCanonicalRecipeTemplate = Buffer.from(JSON.stringify({
-		version: 1,
-		files: [],
-		nodes: [{
-			path: 'result.bhnode',
-			kind: 'file',
-			title: 'Result',
-			role: 'result',
-			recipe: { recipeId: 'Pointa.basehalf-ai-video.missing', parameters: {}, inputBindings: [] }
-		}],
-		cards: [],
-		references: []
-	}));
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', nonCanonicalRecipeTemplate]])), /recipeId is invalid/);
-	const mismatchedOutputTemplate = Buffer.from(JSON.stringify({
-		version: 1,
-		files: [],
-		nodes: [{
-			path: 'result.bhnode',
-			kind: 'file',
-			title: 'Result',
-			role: 'result',
-			recipe: { recipeId: 'pointa.basehalf-ai-video.storyboard-frame', parameters: {}, inputBindings: [] }
-		}],
-		cards: [],
-		references: []
-	}));
-	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', mismatchedOutputTemplate]])), /does not match .* primary output/);
-	const semanticManifest = {
-		...reviewedManifest,
-		contributes: {
-			...reviewedManifest.contributes,
-			basehalfCanvasRecipes: [{
-				id: 'pointa.basehalf-ai-video.compose-text',
-				label: 'Compose Text',
-				inputs: [{ id: 'prompt', label: 'Prompt', accepts: ['text'], minItems: 0, maxItems: 1 }],
-				parameters: [{ id: 'heading', label: 'Heading', type: 'string', required: true, maxLength: 80 }],
-				outputs: [{ id: 'document', kind: 'file', extensions: ['.md'], minItems: 1, maxItems: 1, primary: true }]
-			}]
-		}
-	};
-	const semanticTemplate = {
+	// A template node is {path, kind, title, prompt?}, as the host's template parser (D58).
+	const nodeTemplate = (node: Record<string, unknown>) => new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
 		version: 1,
 		files: [{ path: 'brief.md', contents: '# Brief\n' }],
-		nodes: [{
-			path: 'result.bhnode',
-			kind: 'file',
-			title: 'Result',
-			role: 'result',
-			recipe: { recipeId: 'pointa.basehalf-ai-video.compose-text', parameters: { heading: 'Result' }, inputBindings: [] }
-		}],
-		cards: [],
-		references: [{ from: 'brief.md', to: 'result.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
-	};
-	assert.throws(() => validateReviewedVsixManifest(semanticManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
-		...semanticTemplate,
-		nodes: [{
-			...semanticTemplate.nodes[0],
-			recipe: {
-				...semanticTemplate.nodes[0].recipe,
-				inputBindings: [
-					{ sourcePath: 'brief.md', slot: 'prompt', order: 0 },
-					{ sourcePath: 'brief.md', slot: 'reference', order: 1 }
-				]
-			}
-		}]
-	}))]])), /binding source/);
-	assert.throws(() => validateReviewedVsixManifest(semanticManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify(semanticTemplate))]])), /without an input binding/);
-	assert.throws(() => validateReviewedVsixManifest(semanticManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, new Map([['extension/templates/starter-workflow.json', Buffer.from(JSON.stringify({
-		...semanticTemplate,
-		references: [],
-		nodes: [{ ...semanticTemplate.nodes[0], recipe: { ...semanticTemplate.nodes[0].recipe, parameters: {} } }]
-	}))]])), /omits required parameter/);
+		nodes: [node],
+		cards: [{ path: 'shot.bhnode', x: 0, y: 0, width: 720, height: 405 }],
+		references: [{ from: 'brief.md', to: 'shot.bhnode', fromAnchor: 'east', toAnchor: 'west' }]
+	}))]]);
+	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: 'The rider in Image 1 cycles along the coast.' }));
+	validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: '' }));
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'image', title: 'Shot', prompt: 'A frame.' })), /prompt is allowed only for a Video node/);
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', prompt: 'x'.repeat(64 * 1024 + 1) })), /field '.*\.prompt' is invalid/);
+	assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video' })), /missing .*\.title/);
+	for (const [field, value] of [
+		['role', 'result'],
+		['recipe', { recipeId: 'pointa.basehalf-ai-video.storyboard-frame', parameters: {}, inputBindings: [] }]
+	] as const) {
+		assert.throws(() => validateReviewedVsixManifest(reviewedManifest, reviewedFiles, OFFICIAL_EXTENSION_ID, nodeTemplate({ path: 'shot.bhnode', kind: 'video', title: 'Shot', [field]: value })), new RegExp(`unsupported fields: ${field}\\.`));
+	}
 	const projectionManifest = {
 		...reviewedManifest,
 		contributes: {

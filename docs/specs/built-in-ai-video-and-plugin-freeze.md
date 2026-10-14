@@ -157,7 +157,9 @@ Repository automation and documents:
   platform is frozen.
 - The plugin documents say at the top that publishing is frozen.
 - The published developer packages, the command-line tool and the SDK, carry
-  a notice that publishing is paused.
+  a notice that publishing is paused. They still scaffold and accept recipes,
+  which the host and the release checks no longer have (D58); they are
+  brought up to date if the freeze is lifted.
 
 Services:
 
@@ -241,11 +243,19 @@ Paths are under `vscode-base/` unless they start with a dot.
 - Packaging: `build/gulpfile.vscode.ts` ships AI Video with the built-in
   extensions and copies no payload folder.
 - No plugin surface: `electron-browser/basehalfPluginPlatform.contribution.ts`
-  loads only the two stores that model connections need. The catalog
-  service, the management service, the Plugins view, the Plugin Library, and
-  the contribution that restored the catalog cache and handled plugin links
-  stay in the tree and are not loaded.
+  loads only the credential store, which keeps the keys of the video
+  providers (D58). The catalog service, the plugin state store, the
+  management service, the Plugins view, the Plugin Library, and the
+  contribution that restored the catalog cache and handled plugin links stay
+  in the tree and are not loaded.
   `test/node/basehalfPluginPlatformBoundary.test.ts` guards this.
+- Release checks: `scripts/basehalf-plugin-release.mts` refuses a manifest
+  that declares recipes or model catalogs, and a template node with fields
+  other than `path`, `kind`, `title`, and, for a Video node, `prompt` (D58).
+  An activation event must name something the manifest declares, with one
+  exception: the official AI Video may activate on the four provider
+  commands of the host, which it answers without declaring them.
+  `npm run basehalf:plugin:fixture` exercises these checks.
 - Sidebar: `BASEHALF_PRIMARY_VIEW_CONTAINERS` in
   `basehalfWorkbenchProfile.ts`.
 - Links and stock commands that used to open the Plugin Library do nothing:

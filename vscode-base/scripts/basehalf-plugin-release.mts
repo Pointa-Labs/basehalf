@@ -16,28 +16,30 @@ import { createVSIX } from '@vscode/vsce';
 import { compare, valid, validRange } from 'semver';
 import { BASEHALF_OFFICIAL_PLUGIN_IDENTITIES, BASEHALF_RESERVED_OFFICIAL_PLUGIN_PUBLISHERS } from '../src/vs/workbench/basehalf/common/basehalfPluginIdentities.ts';
 import { baseHalfCanonicalInstalledFileBytes } from '../src/vs/workbench/basehalf/common/basehalfPluginInstalledContent.ts';
-import { type IBaseHalfModelProviderConnectionSpec, parseBaseHalfModelProviderCatalog } from '../src/vs/workbench/basehalf/common/basehalfModelProviderCatalogContract.ts';
-import { type IBaseHalfVideoModelDescriptor, parseBaseHalfVideoModelCatalog } from '../src/vs/workbench/basehalf/common/basehalfVideoModels.ts';
 
 export const OFFICIAL_EXTENSION_ID = BASEHALF_OFFICIAL_PLUGIN_IDENTITIES[0].extensionId;
 const OFFICIAL_PRIMARY_COMMAND = 'pointa.basehalf-ai-video.createWorkflow';
 const OFFICIAL_PRIMARY_COMMAND_LABEL = 'Create Video Workflow…';
 const OFFICIAL_PUBLISHER = Object.freeze({ slug: BASEHALF_OFFICIAL_PLUGIN_IDENTITIES[0].publisher, displayName: 'BaseHalf', trust: 'official' as const });
+// Host commands that only AI Video answers (D58), as the host's
+// BASEHALF_VIDEO_PROVIDER_COMMANDS. Only that identity may activate on them.
+const OFFICIAL_HOST_ACTIVATION_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([[OFFICIAL_EXTENSION_ID, new Set([
+	'basehalf.video.provider.submit',
+	'basehalf.video.provider.poll',
+	'basehalf.video.provider.download',
+	'basehalf.video.provider.cancel'
+])]]);
 const ALLOWED_CONTRIBUTION_POINTS = new Set([
 	'commands',
 	'configuration',
 	'jsonValidation',
 	'basehalfAgentCapabilities',
 	'basehalfCardProjections',
-	'basehalfCanvasRecipes',
 	'basehalfCanvasTemplates',
-	'basehalfModelProviderCatalogs',
-	'basehalfVideoModelCatalogs',
 	'basehalfStructuralCleanups'
 ]);
-const CANVAS_CONTENT_KINDS = ['text', 'code', 'file', 'folder', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
-const OUTPUT_CONTENT_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
-const MODEL_CAPABILITIES = ['text', 'image', 'video', 'audio'] as const;
+// The `.bhnode` kinds a template may create, as the host's BASEHALF_NODE_KINDS.
+const TEMPLATE_NODE_KINDS = ['file', 'image', 'video', 'audio', 'pdf', 'presentation'] as const;
 const MAX_VSIX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
 const MAX_VSIX_BYTES = 100 * 1024 * 1024;
 const MAX_VSIX_ENTRIES = 4_096;
@@ -45,15 +47,10 @@ const MAX_VSIX_ENTRY_BYTES = 128 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_TEMPLATE_BYTES = 512 * 1024;
 const MAX_TEMPLATE_RESOURCES = 64;
-const MAX_MODEL_PROVIDER_CATALOGS = 8;
-const MAX_MODEL_PROVIDER_CATALOG_BYTES = 128 * 1024;
-const MAX_VIDEO_MODEL_CATALOGS = 8;
 const MAX_TEMPLATE_ENTRIES = 100;
 const MAX_TEMPLATE_TEXT_FILE_BYTES = 256 * 1024;
 const MAX_TEMPLATE_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_TEMPLATE_NODE_PROMPT_LENGTH = 64 * 1024;
-const MAX_TEMPLATE_PARAMETER_VALUES = 128;
-const MAX_TEMPLATE_PARAMETER_DEPTH = 12;
 export const MAX_CATALOG_BYTES = 5 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 16 * 1024;
 const MAX_RELEASE_METADATA_BYTES = 1024 * 1024;
@@ -1414,24 +1411,17 @@ export function validateReviewedVsixManifest(
 	validateConfiguration(contributes.configuration, extensionId);
 	validateJsonValidation(contributes.jsonValidation, files);
 	const projections = contributionArray(contributes.basehalfCardProjections, 'basehalfCardProjections');
-	const recipes = contributionArray(contributes.basehalfCanvasRecipes, 'basehalfCanvasRecipes');
 	const templates = contributionArray(contributes.basehalfCanvasTemplates, 'basehalfCanvasTemplates');
-	const modelProviderCatalogs = contributionArray(contributes.basehalfModelProviderCatalogs, 'basehalfModelProviderCatalogs');
-	const videoModelCatalogs = contributionArray(contributes.basehalfVideoModelCatalogs, 'basehalfVideoModelCatalogs');
 	const agentCapabilities = contributionArray(contributes.basehalfAgentCapabilities, 'basehalfAgentCapabilities');
 	const structuralCleanups = contributionArray(contributes.basehalfStructuralCleanups, 'basehalfStructuralCleanups');
-	if (projections.length + recipes.length + templates.length + modelProviderCatalogs.length + videoModelCatalogs.length + agentCapabilities.length + structuralCleanups.length === 0) {
-		throw new Error('Reviewed plugin must contribute a BaseHalf Agent capability, projection, canvas recipe, canvas template, model provider catalog, video model catalog, or structural cleanup.');
+	if (projections.length + templates.length + agentCapabilities.length + structuralCleanups.length === 0) {
+		throw new Error('Reviewed plugin must contribute a BaseHalf Agent capability, projection, canvas template, or structural cleanup.');
 	}
 	validateAgentCapabilities(agentCapabilities, extensionId, commandIds);
 	const projectionIds = validateProjections(projections, extensionId);
-	const modelProviderConnections = validateModelProviderCatalogs(modelProviderCatalogs, extensionId, files, resources);
-	const videoModels = validateVideoModelCatalogs(videoModelCatalogs, extensionId, files, resources);
-	validateVideoModelProviderScopeCoverage(extensionId, modelProviderConnections, videoModels.models);
-	const recipeMap = validateRecipes(recipes, extensionId, videoModels.catalogIds);
 	const structuralCleanupIds = validateStructuralCleanups(structuralCleanups, extensionId);
-	validateTemplates(templates, extensionId, files, resources, recipeMap);
-	validateActivationEvents(root.activationEvents, commandIds, projectionIds, new Set(recipeMap.keys()), structuralCleanupIds);
+	validateTemplates(templates, extensionId, files, resources);
+	validateActivationEvents(root.activationEvents, commandIds, OFFICIAL_HOST_ACTIVATION_COMMANDS.get(extensionId) ?? new Set(), projectionIds, structuralCleanupIds);
 
 	if (!hasVsixFile(files, 'extension/readme.md')) {
 		throw new Error('Reviewed plugin VSIX is missing README.md.');
@@ -1545,8 +1535,8 @@ function validateConfigurationSchema(value: unknown, field: string, depth: numbe
 function validateActivationEvents(
 	value: unknown,
 	commands: ReadonlySet<string>,
+	hostCommands: ReadonlySet<string>,
 	projections: ReadonlySet<string>,
-	recipes: ReadonlySet<string>,
 	structuralCleanups: ReadonlySet<string>
 ): void {
 	if (value === undefined) {
@@ -1558,9 +1548,8 @@ function validateActivationEvents(
 	for (const event of value as string[]) {
 		const [kind, id, extra] = event.split(':');
 		const allowed = typeof id === 'string' && !!id && extra === undefined && (
-			(kind === 'onCommand' && commands.has(id))
+			(kind === 'onCommand' && (commands.has(id) || hostCommands.has(id)))
 			|| (kind === 'onBaseHalfCardProjection' && projections.has(id))
-			|| (kind === 'onBaseHalfCanvasRecipe' && recipes.has(id))
 			|| (kind === 'onBaseHalfStructuralCleanup' && structuralCleanups.has(id))
 		);
 		if (!allowed) {
@@ -1638,201 +1627,11 @@ function validateProjections(values: readonly unknown[], extensionId: string): R
 	return ids;
 }
 
-function validateRecipes(values: readonly unknown[], extensionId: string, videoModelCatalogIds: ReadonlySet<string>): ReadonlyMap<string, Record<string, unknown>> {
-	if (values.length > 64) {
-		throw new Error('Reviewed plugin declares too many canvas recipes.');
-	}
-	const ids = new Set<string>();
-	const recipes = new Map<string, Record<string, unknown>>();
-	for (const [index, value] of values.entries()) {
-		const recipe = manifestRecord(value, `basehalfCanvasRecipes[${index}]`);
-		assertOnlyManifestKeys(recipe, ['id', 'label', 'description', 'icon', 'modelCapability', 'videoModelCatalogId', 'inputs', 'parameters', 'outputs'], `basehalfCanvasRecipes[${index}]`);
-		const id = ownedContributionId(recipe.id, extensionId, ids, 'canvas recipe');
-		boundedManifestText(recipe.label, `${id}.label`, 80);
-		optionalBoundedManifestText(recipe.description, `${id}.description`, 500);
-		const icon = optionalBoundedManifestText(recipe.icon, `${id}.icon`, 64);
-		if (icon !== undefined && !/^[a-z][a-z0-9-]*$/.test(icon)) {
-			throw new Error(`Reviewed plugin canvas recipe '${id}' has an invalid icon.`);
-		}
-		if (recipe.modelCapability !== undefined && !MODEL_CAPABILITIES.includes(recipe.modelCapability as typeof MODEL_CAPABILITIES[number])) {
-			throw new Error(`Reviewed plugin canvas recipe '${id}' has an invalid model capability.`);
-		}
-		if (recipe.modelCapability === 'video') {
-			const catalogId = ownedContributionId(recipe.videoModelCatalogId, extensionId, new Set(), `canvas recipe '${id}' video model catalog`);
-			if (!videoModelCatalogIds.has(catalogId)) {
-				throw new Error(`Reviewed plugin canvas recipe '${id}' references undeclared video model catalog '${catalogId}'.`);
-			}
-		} else if (recipe.videoModelCatalogId !== undefined) {
-			throw new Error(`Reviewed plugin canvas recipe '${id}' cannot declare a video model catalog without video model capability.`);
-		}
-		validateRecipeInputs(id, contributionArray(recipe.inputs, `${id}.inputs`));
-		const parameters = contributionArray(recipe.parameters, `${id}.parameters`);
-		validateRecipeParameters(id, parameters);
-		if (recipe.modelCapability === 'video' && parameters.length > 0) {
-			throw new Error(`Reviewed plugin video recipe '${id}' must use reviewed catalog settings instead of static parameters.`);
-		}
-		const outputs = contributionArray(recipe.outputs, `${id}.outputs`, true);
-		validateRecipeOutputs(id, outputs);
-		if (recipe.modelCapability === 'video' && manifestRecord(outputs[0], `${id}.outputs[0]`).kind !== 'video') {
-			throw new Error(`Reviewed plugin video recipe '${id}' must produce a video Result.`);
-		}
-		if (manifestRecord(outputs[0], `${id}.outputs[0]`).kind === 'video'
-			&& recipe.modelCapability !== undefined
-			&& recipe.modelCapability !== 'video') {
-			throw new Error(`Reviewed plugin local video recipe '${id}' must omit model capability, or use the reviewed video model capability.`);
-		}
-		recipes.set(id, recipe);
-	}
-	return recipes;
-}
-
-function validateRecipeInputs(recipeId: string, values: readonly unknown[]): void {
-	if (values.length > 16) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' has too many inputs.`);
-	}
-	const ids = new Set<string>();
-	let maximumItems = 0;
-	for (const [index, value] of values.entries()) {
-		const input = manifestRecord(value, `${recipeId}.inputs[${index}]`);
-		assertOnlyManifestKeys(input, ['id', 'label', 'accepts', 'minItems', 'maxItems'], `${recipeId}.inputs[${index}]`);
-		const id = localManifestId(input.id, `${recipeId}.input`, ids);
-		boundedManifestText(input.label, `${recipeId}.input.${id}.label`, 80);
-		const accepts = contributionArray(input.accepts, `${recipeId}.input.${id}.accepts`, true);
-		if (accepts.length > CANVAS_CONTENT_KINDS.length || new Set(accepts).size !== accepts.length || accepts.some(kind => !CANVAS_CONTENT_KINDS.includes(kind as typeof CANVAS_CONTENT_KINDS[number]))) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' input '${id}' has invalid accepted content kinds.`);
-		}
-		validateItemRange(input.minItems, input.maxItems, `${recipeId}.input.${id}`);
-		maximumItems += Number(input.maxItems);
-	}
-	if (maximumItems > 64) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' can bind no more than 64 inputs in total.`);
-	}
-}
-
-function validateRecipeParameters(recipeId: string, values: readonly unknown[]): void {
-	if (values.length > 32) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' has too many parameters.`);
-	}
-	const ids = new Set<string>();
-	for (const [index, value] of values.entries()) {
-		const parameter = manifestRecord(value, `${recipeId}.parameters[${index}]`);
-		const id = localManifestId(parameter.id, `${recipeId}.parameter`, ids);
-		boundedManifestText(parameter.label, `${recipeId}.parameter.${id}.label`, 80);
-		if (parameter.required !== undefined && typeof parameter.required !== 'boolean') {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has invalid required state.`);
-		}
-		switch (parameter.type) {
-			case 'string':
-			case 'multiline':
-				validateStringParameter(recipeId, id, parameter);
-				break;
-			case 'number':
-				validateNumberParameter(recipeId, id, parameter);
-				break;
-			case 'boolean':
-				assertOnlyManifestKeys(parameter, ['id', 'label', 'required', 'type', 'default'], `${recipeId}.parameter.${id}`);
-				if (parameter.default !== undefined && typeof parameter.default !== 'boolean') {
-					throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has an invalid boolean default.`);
-				}
-				break;
-			case 'enum':
-				validateEnumParameter(recipeId, id, parameter);
-				break;
-			default:
-				throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has an invalid type.`);
-		}
-	}
-}
-
-function validateStringParameter(recipeId: string, id: string, parameter: Record<string, unknown>): void {
-	assertOnlyManifestKeys(parameter, ['id', 'label', 'required', 'type', 'default', 'minLength', 'maxLength'], `${recipeId}.parameter.${id}`);
-	const minimum = optionalManifestInteger(parameter.minLength, `${recipeId}.parameter.${id}.minLength`, 0, 100_000);
-	const maximum = optionalManifestInteger(parameter.maxLength, `${recipeId}.parameter.${id}.maxLength`, 1, 100_000);
-	if (minimum !== undefined && maximum !== undefined && maximum < minimum) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has an invalid length range.`);
-	}
-	if (parameter.default !== undefined) {
-		const defaultValue = boundedManifestText(parameter.default, `${recipeId}.parameter.${id}.default`, maximum ?? 100_000, true);
-		if (minimum !== undefined && defaultValue.length < minimum) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' default is shorter than minLength.`);
-		}
-	}
-}
-
-function validateNumberParameter(recipeId: string, id: string, parameter: Record<string, unknown>): void {
-	assertOnlyManifestKeys(parameter, ['id', 'label', 'required', 'type', 'default', 'minimum', 'maximum', 'step'], `${recipeId}.parameter.${id}`);
-	const minimum = optionalFiniteManifestNumber(parameter.minimum, `${recipeId}.parameter.${id}.minimum`);
-	const maximum = optionalFiniteManifestNumber(parameter.maximum, `${recipeId}.parameter.${id}.maximum`);
-	if (minimum !== undefined && maximum !== undefined && maximum < minimum) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has an invalid number range.`);
-	}
-	const step = optionalFiniteManifestNumber(parameter.step, `${recipeId}.parameter.${id}.step`);
-	if (step !== undefined && step <= 0) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' step must be positive.`);
-	}
-	const defaultValue = optionalFiniteManifestNumber(parameter.default, `${recipeId}.parameter.${id}.default`);
-	if (defaultValue !== undefined && ((minimum !== undefined && defaultValue < minimum) || (maximum !== undefined && defaultValue > maximum))) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' default is outside its range.`);
-	}
-}
-
-function validateEnumParameter(recipeId: string, id: string, parameter: Record<string, unknown>): void {
-	assertOnlyManifestKeys(parameter, ['id', 'label', 'required', 'type', 'default', 'options'], `${recipeId}.parameter.${id}`);
-	const options = contributionArray(parameter.options, `${recipeId}.parameter.${id}.options`, true);
-	if (options.length > 50) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has too many enum options.`);
-	}
-	const values = new Set<string>();
-	for (const [index, value] of options.entries()) {
-		const option = manifestRecord(value, `${recipeId}.parameter.${id}.options[${index}]`);
-		assertOnlyManifestKeys(option, ['value', 'label'], `${recipeId}.parameter.${id}.options[${index}]`);
-		const optionValue = boundedManifestText(option.value, `${recipeId}.parameter.${id}.option.value`, 100);
-		boundedManifestText(option.label, `${recipeId}.parameter.${id}.option.label`, 100);
-		if (values.has(optionValue)) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' has duplicate enum value '${optionValue}'.`);
-		}
-		values.add(optionValue);
-	}
-	if (parameter.default !== undefined && (typeof parameter.default !== 'string' || !values.has(parameter.default))) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' parameter '${id}' default is not an enum option.`);
-	}
-}
-
-function validateRecipeOutputs(recipeId: string, values: readonly unknown[]): void {
-	if (values.length !== 1) {
-		throw new Error(`Reviewed plugin canvas recipe '${recipeId}' must declare exactly one output.`);
-	}
-	const ids = new Set<string>();
-	for (const [index, value] of values.entries()) {
-		const output = manifestRecord(value, `${recipeId}.outputs[${index}]`);
-		assertOnlyManifestKeys(output, ['id', 'kind', 'extensions', 'minItems', 'maxItems', 'primary'], `${recipeId}.outputs[${index}]`);
-		const id = localManifestId(output.id, `${recipeId}.output`, ids);
-		if (!OUTPUT_CONTENT_KINDS.includes(output.kind as typeof OUTPUT_CONTENT_KINDS[number])) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' output '${id}' has an invalid content kind.`);
-		}
-		const extensions = contributionArray(output.extensions, `${recipeId}.output.${id}.extensions`, true);
-		if (extensions.length > 16 || new Set(extensions.map(extension => String(extension).toLowerCase())).size !== extensions.length || extensions.some(extension => typeof extension !== 'string' || !/^\.[a-z0-9][a-z0-9.-]{0,15}$/i.test(extension))) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' output '${id}' has invalid file extensions.`);
-		}
-		validateItemRange(output.minItems, output.maxItems, `${recipeId}.output.${id}`);
-		if (output.primary !== undefined && typeof output.primary !== 'boolean') {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' output '${id}' has invalid primary state.`);
-		}
-		if (output.primary !== true) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' must declare its only output as primary.`);
-		}
-		if (output.minItems !== 1 || output.maxItems !== 1) {
-			throw new Error(`Reviewed plugin canvas recipe '${recipeId}' output must produce exactly one artifact.`);
-		}
-	}
-}
-
 function validateTemplates(
 	values: readonly unknown[],
 	extensionId: string,
 	files: ReadonlySet<string>,
-	resources: ReadonlyMap<string, Buffer>,
-	recipes: ReadonlyMap<string, Record<string, unknown>>
+	resources: ReadonlyMap<string, Buffer>
 ): void {
 	if (values.length > MAX_TEMPLATE_RESOURCES) {
 		throw new Error('Reviewed plugin declares too many canvas templates.');
@@ -1853,136 +1652,8 @@ function validateTemplates(
 		if (!bytes) {
 			throw new Error(`Reviewed plugin canvas template '${id}' resource '${resource}' was not inspected.`);
 		}
-		validateCanvasTemplate(bytes, id, recipes);
+		validateCanvasTemplate(bytes, id);
 	}
-}
-
-function validateModelProviderCatalogs(
-	values: readonly unknown[],
-	extensionId: string,
-	files: ReadonlySet<string>,
-	resources: ReadonlyMap<string, Buffer>
-): readonly IBaseHalfModelProviderConnectionSpec[] {
-	if (values.length > MAX_MODEL_PROVIDER_CATALOGS) {
-		throw new Error('Reviewed plugin declares too many model provider catalogs.');
-	}
-	const ids = new Set<string>();
-	const archivePaths = new Set<string>();
-	const connectionIds = new Set<string>();
-	const connections: IBaseHalfModelProviderConnectionSpec[] = [];
-	for (const [index, value] of values.entries()) {
-		const catalog = manifestRecord(value, `basehalfModelProviderCatalogs[${index}]`);
-		assertOnlyManifestKeys(catalog, ['id', 'resource'], `basehalfModelProviderCatalogs[${index}]`);
-		const id = ownedContributionId(catalog.id, extensionId, ids, 'model provider catalog');
-		const resource = packageRelativePath(boundedManifestText(catalog.resource, `${id}.resource`, 500), `${id}.resource`);
-		const archivePath = `extension/${resource}`;
-		if (!resource.toLowerCase().endsWith('.json') || !files.has(archivePath)) {
-			throw new Error(`Reviewed plugin model provider catalog '${id}' resource '${resource}' is missing from the VSIX, has different casing, or is not JSON.`);
-		}
-		if (archivePaths.has(archivePath)) {
-			throw new Error(`Reviewed plugin model provider catalog resource '${resource}' is declared more than once.`);
-		}
-		archivePaths.add(archivePath);
-		const bytes = resources.get(archivePath);
-		if (!bytes) {
-			throw new Error(`Reviewed plugin model provider catalog '${id}' resource '${resource}' was not inspected.`);
-		}
-		if (bytes.byteLength > MAX_MODEL_PROVIDER_CATALOG_BYTES) {
-			throw new Error(`Reviewed plugin model provider catalog '${id}' resource '${resource}' exceeds ${MAX_MODEL_PROVIDER_CATALOG_BYTES} bytes.`);
-		}
-		try {
-			const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-			const parsed = parseBaseHalfModelProviderCatalog(JSON.parse(source.charCodeAt(0) === 0xFEFF ? source.slice(1) : source));
-			for (const connection of parsed.connections) {
-				if (!connection.id.startsWith(`${extensionId}.`)) {
-					throw new Error(`connection '${connection.id}' is not owned by extension '${extensionId}'`);
-				}
-				if (connectionIds.has(connection.id)) {
-					throw new Error(`connection '${connection.id}' is declared more than once`);
-				}
-				connectionIds.add(connection.id);
-				connections.push(connection);
-			}
-		} catch (error) {
-			throw new Error(`Reviewed plugin model provider catalog '${id}' failed validation: ${(error as Error).message}`);
-		}
-	}
-	return connections;
-}
-
-function validateVideoModelCatalogs(
-	values: readonly unknown[],
-	extensionId: string,
-	files: ReadonlySet<string>,
-	resources: ReadonlyMap<string, Buffer>
-): { readonly catalogIds: ReadonlySet<string>; readonly models: readonly IBaseHalfVideoModelDescriptor[] } {
-	if (values.length > MAX_VIDEO_MODEL_CATALOGS) {
-		throw new Error('Reviewed plugin declares too many video model catalogs.');
-	}
-	const ids = new Set<string>();
-	const archivePaths = new Set<string>();
-	const models: IBaseHalfVideoModelDescriptor[] = [];
-	for (const [index, value] of values.entries()) {
-		const catalog = manifestRecord(value, `basehalfVideoModelCatalogs[${index}]`);
-		assertOnlyManifestKeys(catalog, ['id', 'resource'], `basehalfVideoModelCatalogs[${index}]`);
-		const id = ownedContributionId(catalog.id, extensionId, ids, 'video model catalog');
-		const resource = packageRelativePath(boundedManifestText(catalog.resource, `${id}.resource`, 500), `${id}.resource`);
-		const archivePath = `extension/${resource}`;
-		if (!resource.toLowerCase().endsWith('.json') || !files.has(archivePath)) {
-			throw new Error(`Reviewed plugin video model catalog '${id}' resource '${resource}' is missing from the VSIX, has different casing, or is not JSON.`);
-		}
-		if (archivePaths.has(archivePath)) {
-			throw new Error(`Reviewed plugin video model catalog resource '${resource}' is declared more than once.`);
-		}
-		archivePaths.add(archivePath);
-		const bytes = resources.get(archivePath);
-		if (!bytes) {
-			throw new Error(`Reviewed plugin video model catalog '${id}' resource '${resource}' was not inspected.`);
-		}
-		try {
-			const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-			models.push(...parseBaseHalfVideoModelCatalog(JSON.parse(source.charCodeAt(0) === 0xFEFF ? source.slice(1) : source)).models);
-		} catch (error) {
-			throw new Error(`Reviewed plugin video model catalog '${id}' failed validation: ${(error as Error).message}`);
-		}
-	}
-	return { catalogIds: ids, models };
-}
-
-function validateVideoModelProviderScopeCoverage(
-	extensionId: string,
-	connections: readonly IBaseHalfModelProviderConnectionSpec[],
-	models: readonly IBaseHalfVideoModelDescriptor[]
-): void {
-	const videoConnections = connections.filter(connection => connection.capabilities.includes('video'));
-	const connectionsByScope = new Map<string, IBaseHalfModelProviderConnectionSpec[]>();
-	for (const connection of videoConnections) {
-		const key = modelProviderScopeKey(connection.providerId, connection.deploymentId, connection.region);
-		const matches = connectionsByScope.get(key) ?? [];
-		matches.push(connection);
-		connectionsByScope.set(key, matches);
-	}
-
-	const modelScopes = new Set<string>();
-	for (const model of models) {
-		const key = modelProviderScopeKey(model.key.provider, model.key.deployment, model.key.region);
-		modelScopes.add(key);
-		const matches = connectionsByScope.get(key) ?? [];
-		if (matches.length !== 1) {
-			throw new Error(`Reviewed plugin '${extensionId}' video model scope '${model.key.provider}/${model.key.deployment}/${model.key.region}' must match exactly one owned video-capable model provider connection; found ${matches.length}.`);
-		}
-	}
-
-	for (const connection of videoConnections) {
-		const key = modelProviderScopeKey(connection.providerId, connection.deploymentId, connection.region);
-		if (!modelScopes.has(key)) {
-			throw new Error(`Reviewed plugin '${extensionId}' video-capable model provider connection '${connection.id}' does not unlock any owned video model.`);
-		}
-	}
-}
-
-function modelProviderScopeKey(providerId: string, deploymentId: string, region: string): string {
-	return JSON.stringify([providerId, deploymentId, region]);
 }
 
 function validateAgentCapabilities(values: readonly unknown[], extensionId: string, commands: ReadonlySet<string>): void {
@@ -2098,28 +1769,6 @@ function declaredInspectedResourceArchivePaths(manifest: any): ReadonlySet<strin
 		const resource = packageRelativePath(value.resource, `basehalfCanvasTemplates[${index}].resource`);
 		result.add(`extension/${resource}`);
 	}
-	const modelProviderCatalogs = manifest?.contributes?.basehalfModelProviderCatalogs;
-	if (modelProviderCatalogs !== undefined && (!Array.isArray(modelProviderCatalogs) || modelProviderCatalogs.length > MAX_MODEL_PROVIDER_CATALOGS)) {
-		throw new Error('Reviewed plugin contribution \'basehalfModelProviderCatalogs\' is invalid.');
-	}
-	for (const [index, value] of (modelProviderCatalogs ?? []).entries()) {
-		if (!isManifestRecord(value) || typeof value.resource !== 'string') {
-			continue;
-		}
-		const resource = packageRelativePath(value.resource, `basehalfModelProviderCatalogs[${index}].resource`);
-		result.add(`extension/${resource}`);
-	}
-	const catalogs = manifest?.contributes?.basehalfVideoModelCatalogs;
-	if (catalogs !== undefined && (!Array.isArray(catalogs) || catalogs.length > MAX_VIDEO_MODEL_CATALOGS)) {
-		throw new Error('Reviewed plugin contribution \'basehalfVideoModelCatalogs\' is invalid.');
-	}
-	for (const [index, value] of (catalogs ?? []).entries()) {
-		if (!isManifestRecord(value) || typeof value.resource !== 'string') {
-			continue;
-		}
-		const resource = packageRelativePath(value.resource, `basehalfVideoModelCatalogs[${index}].resource`);
-		result.add(`extension/${resource}`);
-	}
 	return result;
 }
 
@@ -2168,7 +1817,7 @@ function readVsixEntries(vsixPath: string, wanted: ReadonlySet<string>, maximumB
 	});
 }
 
-function validateCanvasTemplate(bytes: Buffer, templateId: string, recipes: ReadonlyMap<string, Record<string, unknown>>): void {
+function validateCanvasTemplate(bytes: Buffer, templateId: string): void {
 	if (bytes.byteLength > MAX_TEMPLATE_BYTES) {
 		throw new Error(`Reviewed plugin canvas template '${templateId}' exceeds ${MAX_TEMPLATE_BYTES} bytes.`);
 	}
@@ -2207,34 +1856,14 @@ function validateCanvasTemplate(bytes: Buffer, templateId: string, recipes: Read
 		}
 	}
 	assertUniqueInsensitive(references.map(reference => `${reference.from}\0${reference.to}`), `${templateId} references`);
-	const referencePairs = new Set<string>();
 	for (const reference of references) {
 		if (!resourceByPath.has(reference.from) || !resourceByPath.has(reference.to) || reference.from === reference.to) {
 			throw new Error(`Reviewed plugin canvas template '${templateId}' has an invalid reference from '${reference.from}' to '${reference.to}'.`);
 		}
-		referencePairs.add(`${reference.from}\0${reference.to}`);
-	}
-
-	for (const node of nodes) {
-		const nodeRecipe = node.recipe;
-		if (!nodeRecipe) {
-			continue;
-		}
-		const recipe = recipes.get(nodeRecipe.recipeId);
-		if (!recipe) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' uses undeclared recipe '${nodeRecipe.recipeId}'.`);
-		}
-		const outputs = contributionArray(recipe.outputs, `${nodeRecipe.recipeId}.outputs`, true).map(value => manifestRecord(value, `${nodeRecipe.recipeId}.outputs[]`));
-		const primary = outputs.find(output => output.primary === true)!;
-		if (primary.kind !== node.kind) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' node '${node.path}' does not match recipe '${nodeRecipe.recipeId}' primary output.`);
-		}
-		validateTemplateParameters(nodeRecipe.parameters, recipe, nodeRecipe.recipeId);
-		validateTemplateBindings({ path: node.path, recipe: nodeRecipe }, resourceByPath, recipe, referencePairs, templateId);
 	}
 }
 
-function parseTemplateFile(value: unknown, field: string): { path: string; contents: string; kind: string } {
+function parseTemplateFile(value: unknown, field: string): { path: string; contents: string } {
 	const file = manifestRecord(value, field);
 	assertOnlyManifestKeys(file, ['path', 'contents'], field);
 	const projectPath = templateProjectPath(file.path, `${field}.path`);
@@ -2245,56 +1874,32 @@ function parseTemplateFile(value: unknown, field: string): { path: string; conte
 	if (Buffer.byteLength(contents, 'utf8') > MAX_TEMPLATE_TEXT_FILE_BYTES) {
 		throw new Error(`Reviewed plugin ${field}.contents exceeds ${MAX_TEMPLATE_TEXT_FILE_BYTES} bytes.`);
 	}
-	return { path: projectPath, contents, kind: templateContentKind(projectPath) };
+	return { path: projectPath, contents };
 }
 
-function parseTemplateNode(value: unknown, field: string): { path: string; kind: string; prompt?: string; recipe?: { recipeId: string; parameters: Record<string, unknown>; inputBindings: { sourcePath: string; slot: string; order: number }[] } } {
+function parseTemplateNode(value: unknown, field: string): { path: string; kind: string; title: string; prompt?: string } {
 	const node = manifestRecord(value, field);
-	assertOnlyManifestKeys(node, ['path', 'kind', 'title', 'role', 'prompt', 'recipe'], field);
+	assertOnlyManifestKeys(node, ['path', 'kind', 'title', 'prompt'], field);
 	const projectPath = templateProjectPath(node.path, `${field}.path`);
 	if (!projectPath.toLowerCase().endsWith('.bhnode')) {
 		throw new Error(`Reviewed plugin ${field}.path must use the .bhnode extension.`);
 	}
-	if (typeof node.kind !== 'string' || !OUTPUT_CONTENT_KINDS.includes(node.kind as typeof OUTPUT_CONTENT_KINDS[number])) {
+	if (typeof node.kind !== 'string' || !TEMPLATE_NODE_KINDS.includes(node.kind as typeof TEMPLATE_NODE_KINDS[number])) {
 		throw new Error(`Reviewed plugin ${field}.kind is invalid.`);
 	}
-	boundedManifestText(node.title, `${field}.title`, 240);
-	boundedManifestText(node.role, `${field}.role`, 120);
+	const title = boundedManifestText(node.title, `${field}.title`, 240);
+	if (node.prompt !== undefined && node.kind !== 'video') {
+		throw new Error(`Reviewed plugin ${field}.prompt is allowed only for a Video node.`);
+	}
 	const prompt = node.prompt === undefined
 		? undefined
 		: boundedManifestText(node.prompt, `${field}.prompt`, MAX_TEMPLATE_NODE_PROMPT_LENGTH, true);
 	return {
 		path: projectPath,
 		kind: node.kind,
-		...(prompt === undefined ? {} : { prompt }),
-		...(node.recipe === undefined ? {} : { recipe: parseTemplateRecipe(node.recipe, `${field}.recipe`) })
+		title,
+		...(prompt === undefined ? {} : { prompt })
 	};
-}
-
-function parseTemplateRecipe(value: unknown, field: string): { recipeId: string; parameters: Record<string, unknown>; inputBindings: { sourcePath: string; slot: string; order: number }[] } {
-	const recipe = manifestRecord(value, field);
-	assertOnlyManifestKeys(recipe, ['recipeId', 'parameters', 'inputBindings'], field);
-	const recipeId = requiredManifestText(recipe.recipeId, `${field}.recipeId`);
-	if (recipeId !== recipeId.toLowerCase() || !/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*){2,}$/.test(recipeId)) {
-		throw new Error(`Reviewed plugin ${field}.recipeId is invalid.`);
-	}
-	const parameters = manifestRecord(recipe.parameters, `${field}.parameters`);
-	const budget = { remaining: MAX_TEMPLATE_PARAMETER_VALUES };
-	validateTemplateJsonObject(parameters, `${field}.parameters`, 0, budget);
-	const inputBindings = templateArray(recipe.inputBindings, `${field}.inputBindings`).map((value, index) => {
-		const bindingField = `${field}.inputBindings[${index}]`;
-		const binding = manifestRecord(value, bindingField);
-		assertOnlyManifestKeys(binding, ['sourcePath', 'slot', 'order'], bindingField);
-		return {
-			sourcePath: templateProjectPath(binding.sourcePath, `${bindingField}.sourcePath`),
-			slot: boundedManifestText(binding.slot, `${bindingField}.slot`, 120),
-			order: manifestInteger(binding.order, `${bindingField}.order`, 0, 63)
-		};
-	});
-	assertUniqueInsensitive(inputBindings.map(binding => String(binding.order)), `${field} binding order`);
-	assertUniqueInsensitive(inputBindings.map(binding => `${binding.sourcePath}\0${binding.slot}`), `${field} binding source and slot`);
-	assertUniqueInsensitive(inputBindings.map(binding => binding.sourcePath), `${field} binding source`);
-	return { recipeId, parameters, inputBindings };
 }
 
 function parseTemplateCard(value: unknown, field: string): { path: string } {
@@ -2321,139 +1926,6 @@ function parseTemplateReference(value: unknown, field: string): { from: string; 
 	};
 }
 
-function validateTemplateParameters(values: Record<string, unknown>, recipe: Record<string, unknown>, recipeId: string): void {
-	const definitions = new Map(contributionArray(recipe.parameters, `${recipeId}.parameters`).map(value => {
-		const parameter = manifestRecord(value, `${recipeId}.parameters[]`);
-		return [String(parameter.id), parameter] as const;
-	}));
-	for (const key of Object.keys(values)) {
-		if (!definitions.has(key)) {
-			throw new Error(`Reviewed plugin canvas template sets undeclared parameter '${key}' for recipe '${recipeId}'.`);
-		}
-	}
-	for (const [id, parameter] of definitions) {
-		const value = Object.prototype.hasOwnProperty.call(values, id) ? values[id] : parameter.default;
-		if (value === undefined) {
-			if (parameter.required === true) {
-				throw new Error(`Reviewed plugin canvas template omits required parameter '${id}' for recipe '${recipeId}'.`);
-			}
-			continue;
-		}
-		validateTemplateParameterValue(value, parameter, recipeId, id);
-	}
-}
-
-function validateTemplateParameterValue(value: unknown, parameter: Record<string, unknown>, recipeId: string, id: string): void {
-	switch (parameter.type) {
-		case 'string':
-		case 'multiline':
-			if (typeof value !== 'string' || (typeof parameter.minLength === 'number' && value.length < parameter.minLength) || (typeof parameter.maxLength === 'number' && value.length > parameter.maxLength)) {
-				throw new Error(`Reviewed plugin canvas template parameter '${id}' is invalid for recipe '${recipeId}'.`);
-			}
-			return;
-		case 'number':
-			if (typeof value !== 'number' || !Number.isFinite(value) || (typeof parameter.minimum === 'number' && value < parameter.minimum) || (typeof parameter.maximum === 'number' && value > parameter.maximum)) {
-				throw new Error(`Reviewed plugin canvas template parameter '${id}' is invalid for recipe '${recipeId}'.`);
-			}
-			return;
-		case 'boolean':
-			if (typeof value !== 'boolean') {
-				throw new Error(`Reviewed plugin canvas template parameter '${id}' is invalid for recipe '${recipeId}'.`);
-			}
-			return;
-		case 'enum': {
-			const options = contributionArray(parameter.options, `${recipeId}.${id}.options`, true).map(option => manifestRecord(option, `${recipeId}.${id}.options[]`).value);
-			if (typeof value !== 'string' || !options.includes(value)) {
-				throw new Error(`Reviewed plugin canvas template parameter '${id}' is invalid for recipe '${recipeId}'.`);
-			}
-		}
-	}
-}
-
-function validateTemplateBindings(
-	node: { path: string; recipe: { recipeId: string; inputBindings: { sourcePath: string; slot: string; order: number }[] } },
-	resources: ReadonlyMap<string, { path: string; kind: string }>,
-	recipe: Record<string, unknown>,
-	referencePairs: ReadonlySet<string>,
-	templateId: string
-): void {
-	const slots = new Map(contributionArray(recipe.inputs, `${node.recipe.recipeId}.inputs`).map(value => {
-		const slot = manifestRecord(value, `${node.recipe.recipeId}.inputs[]`);
-		return [String(slot.id), slot] as const;
-	}));
-	for (const binding of node.recipe.inputBindings) {
-		const source = resources.get(binding.sourcePath);
-		const slot = slots.get(binding.slot);
-		if (!source || !slot) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' has an invalid input binding for '${node.path}'.`);
-		}
-		const accepts = contributionArray(slot.accepts, `${node.recipe.recipeId}.${binding.slot}.accepts`, true);
-		if (!accepts.includes(source.kind)) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' binds incompatible resource '${source.path}' to '${binding.slot}'.`);
-		}
-		if (!referencePairs.has(`${binding.sourcePath}\0${node.path}`)) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' binds '${binding.sourcePath}' without a direct reference to '${node.path}'.`);
-		}
-	}
-	for (const [slotId, slot] of slots) {
-		const count = node.recipe.inputBindings.filter(binding => binding.slot === slotId).length;
-		if (count < Number(slot.minItems) || count > Number(slot.maxItems)) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' has ${count} inputs for '${slotId}', outside the recipe range.`);
-		}
-	}
-	const boundSources = new Set(node.recipe.inputBindings.map(binding => binding.sourcePath));
-	for (const pair of referencePairs) {
-		const [source = '', target = ''] = pair.split('\0');
-		if (target === node.path && !boundSources.has(source)) {
-			throw new Error(`Reviewed plugin canvas template '${templateId}' has a direct reference from '${source}' to '${node.path}' without an input binding.`);
-		}
-	}
-}
-
-function validateTemplateJsonObject(value: Record<string, unknown>, field: string, depth: number, budget: { remaining: number }): void {
-	if (depth > MAX_TEMPLATE_PARAMETER_DEPTH) {
-		throw new Error(`Reviewed plugin ${field} exceeds the parameter nesting limit.`);
-	}
-	for (const [key, entry] of Object.entries(value)) {
-		if (!key || key.length > 128 || key === '__proto__' || key === 'constructor' || key === 'prototype') {
-			throw new Error(`Reviewed plugin ${field} contains an invalid parameter name.`);
-		}
-		validateTemplateJsonValue(entry, `${field}.${key}`, depth + 1, budget);
-	}
-}
-
-function validateTemplateJsonValue(value: unknown, field: string, depth: number, budget: { remaining: number }): void {
-	budget.remaining--;
-	if (budget.remaining < 0 || depth > MAX_TEMPLATE_PARAMETER_DEPTH) {
-		throw new Error(`Reviewed plugin ${field} exceeds the parameter complexity limit.`);
-	}
-	if (value === null || typeof value === 'boolean') {
-		return;
-	}
-	if (typeof value === 'number') {
-		if (!Number.isFinite(value)) {
-			throw new Error(`Reviewed plugin ${field} must be finite.`);
-		}
-		return;
-	}
-	if (typeof value === 'string') {
-		if (value.length > 16 * 1024 || value.includes('\0')) {
-			throw new Error(`Reviewed plugin ${field} contains invalid text.`);
-		}
-		return;
-	}
-	if (Array.isArray(value)) {
-		if (value.length > MAX_TEMPLATE_PARAMETER_VALUES) {
-			throw new Error(`Reviewed plugin ${field} is too complex.`);
-		}
-		for (const [index, entry] of value.entries()) {
-			validateTemplateJsonValue(entry, `${field}[${index}]`, depth + 1, budget);
-		}
-		return;
-	}
-	validateTemplateJsonObject(manifestRecord(value, field), field, depth, budget);
-}
-
 function templateArray(value: unknown, field: string): readonly unknown[] {
 	if (!Array.isArray(value) || value.length > MAX_TEMPLATE_ENTRIES) {
 		throw new Error(`Reviewed plugin ${field} must contain no more than ${MAX_TEMPLATE_ENTRIES} entries.`);
@@ -2467,32 +1939,6 @@ function templateProjectPath(value: unknown, field: string): string {
 		throw new Error(`Reviewed plugin ${field} contains a reserved or unsafe path segment.`);
 	}
 	return result;
-}
-
-function templateContentKind(value: string): string {
-	const extension = path.posix.extname(value).toLowerCase();
-	if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg'].includes(extension)) {
-		return 'image';
-	}
-	if (['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv'].includes(extension)) {
-		return 'video';
-	}
-	if (['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'].includes(extension)) {
-		return 'audio';
-	}
-	if (extension === '.pdf') {
-		return 'pdf';
-	}
-	if (['.ppt', '.pptx', '.key'].includes(extension)) {
-		return 'presentation';
-	}
-	if (['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go', '.java', '.c', '.cc', '.cpp', '.h', '.hpp', '.css', '.html', '.sh'].includes(extension)) {
-		return 'code';
-	}
-	if (['.md', '.mdx', '.txt', '.json', '.yaml', '.yml', '.toml', '.csv'].includes(extension)) {
-		return 'text';
-	}
-	return 'file';
 }
 
 function assertUniqueInsensitive(values: readonly string[], field: string): void {
@@ -2580,16 +2026,6 @@ function ownedContributionId(value: unknown, extensionId: string, seen: Set<stri
 	return id;
 }
 
-function localManifestId(value: unknown, field: string, seen: Set<string>): string {
-	const declared = requiredManifestText(value, field);
-	const id = declared.toLowerCase();
-	if (declared !== id || !/^[a-z][a-z0-9-]{0,63}$/.test(id) || seen.has(id)) {
-		throw new Error(`Reviewed plugin canvas ${field} id '${id}' is invalid or duplicated.`);
-	}
-	seen.add(id);
-	return id;
-}
-
 function boundedManifestText(value: unknown, field: string, maximum: number, allowEmpty = false): string {
 	if (typeof value !== 'string') {
 		throw new Error(`Reviewed plugin manifest is missing ${field}.`);
@@ -2603,18 +2039,6 @@ function boundedManifestText(value: unknown, field: string, maximum: number, all
 
 function optionalBoundedManifestText(value: unknown, field: string, maximum: number): string | undefined {
 	return value === undefined ? undefined : boundedManifestText(value, field, maximum);
-}
-
-function validateItemRange(minimumValue: unknown, maximumValue: unknown, field: string): void {
-	const minimum = manifestInteger(minimumValue, `${field}.minItems`, 0, 64);
-	const maximum = manifestInteger(maximumValue, `${field}.maxItems`, 1, 64);
-	if (maximum < minimum) {
-		throw new Error(`Reviewed plugin canvas field '${field}' has an invalid item range.`);
-	}
-}
-
-function optionalManifestInteger(value: unknown, field: string, minimum: number, maximum: number): number | undefined {
-	return value === undefined ? undefined : manifestInteger(value, field, minimum, maximum);
 }
 
 function manifestInteger(value: unknown, field: string, minimum: number, maximum: number): number {

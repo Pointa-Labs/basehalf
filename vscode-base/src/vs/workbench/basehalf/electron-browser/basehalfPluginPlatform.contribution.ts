@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 // The plugin platform is frozen: its catalog service, management service,
-// Plugins view, and Plugin Library are kept in the source tree but are not
-// loaded, so the product has no plugin surface and fetches no catalog. Only
-// the two stores that the built-in AI Video's model connections need load here.
-import './basehalfPluginStateStore.js';
+// state store, Plugins view, and Plugin Library are kept in the source tree but
+// are not loaded, so the product has no plugin surface and fetches no catalog.
+// Only the store that keeps the keys of the video providers loads here (D58).
 import './basehalfModelCredentialStore.js';

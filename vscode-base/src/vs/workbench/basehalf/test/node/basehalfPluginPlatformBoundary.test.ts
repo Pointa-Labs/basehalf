@@ -23,7 +23,8 @@ suite('BaseHalfPluginPlatformBoundary', () => {
 			'basehalfPluginManager.contribution.js',
 			'basehalfPluginsView.js',
 			'basehalfPluginLibrary.js',
-			'basehalfPluginRuntimeAction.js'
+			'basehalfPluginRuntimeAction.js',
+			'basehalfPluginStateStore.js'
 		];
 		const compiledRoot = FileAccess.asFileUri('').fsPath;
 		const importers: string[] = [];
@@ -48,7 +49,6 @@ suite('BaseHalfPluginPlatformBoundary', () => {
 		const desktopMain = readCompiledModule('vs/workbench/workbench.desktop.main.js');
 		assert.ok(desktopMain.includes('basehalfPluginPlatform.contribution.js'));
 		assert.deepStrictEqual(importSpecifiers(readCompiledModule('vs/workbench/basehalf/electron-browser/basehalfPluginPlatform.contribution.js')), [
-			'./basehalfPluginStateStore.js',
 			'./basehalfModelCredentialStore.js'
 		]);
 	});
