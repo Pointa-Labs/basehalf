@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfVideoNode.css';
-import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonElement, isHTMLElement } from '../../../base/browser/dom.js';
+import { $, addDisposableListener, append, clearNode, getWindow, isHTMLButtonElement, isHTMLElement, isHTMLInputElement } from '../../../base/browser/dom.js';
 import { renderIcon } from '../../../base/browser/ui/iconLabel/iconLabels.js';
 import { RunOnceScheduler, TimeoutTimer } from '../../../base/common/async.js';
 import { Codicon } from '../../../base/common/codicons.js';
@@ -943,7 +943,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			offset = mark.end;
 		}
 		// A last empty line still takes its height.
-		this.overlay.append(`${text.slice(offset)}​`);
+		this.overlay.append(`${text.slice(offset)}\u200b`);
 		this.syncOverlayScroll();
 		this.updatePromptLines();
 	}
@@ -1014,7 +1014,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (!this.textarea.isConnected || this.measure.clientWidth === 0) {
 			return this.promptLines;
 		}
-		this.measure.textContent = `${this.textarea.value}​`;
+		this.measure.textContent = `${this.textarea.value}\u200b`;
 		const height = this.measure.offsetHeight - PROMPT_PADDING * 2;
 		const lines = Math.round(height / PROMPT_LINE_HEIGHT);
 		return Math.min(PROMPT_MAX_LINES, Math.max(PROMPT_MIN_LINES, lines));
@@ -1205,8 +1205,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (layout && layout.canvasWidth > 0 && layout.canvasHeight > 0) {
 			return { left: panel.left - layout.left, top: panel.top - layout.top, width: layout.canvasWidth, height: layout.canvasHeight };
 		}
-		const window = getWindow(this.element);
-		return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+		const targetWindow = getWindow(this.element);
+		return { left: 0, top: 0, width: targetWindow.innerWidth, height: targetWindow.innerHeight };
 	}
 
 	private onMenuKeyDown(event: KeyboardEvent, menu: IOpenMenu): void {
@@ -1250,10 +1250,26 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		return items;
 	}
 
+	/** A menu focuses its checked item or its first; the settings focus their first control. */
 	private focusFirstMenuItem(menu: IOpenMenu): void {
 		const items = this.menuItems(menu.element);
 		const checked = items.find(item => item.getAttribute('aria-checked') === 'true');
-		(checked ?? items[0])?.focus({ preventScroll: true });
+		(checked ?? items[0] ?? this.firstControl(menu.element))?.focus({ preventScroll: true });
+	}
+
+	private firstControl(container: HTMLElement): HTMLElement | undefined {
+		for (const child of container.children) {
+			if (!isHTMLElement(child)) {
+				continue;
+			}
+			const control = (isHTMLButtonElement(child) || isHTMLInputElement(child)) && !child.disabled && child.tabIndex >= 0
+				? child
+				: this.firstControl(child);
+			if (control) {
+				return control;
+			}
+		}
+		return undefined;
 	}
 
 	private menuItem(parent: HTMLElement, label: string, run: () => void, options?: { readonly role?: string; readonly checked?: boolean; readonly key?: string; readonly title?: string; readonly icon?: ThemeIcon }): HTMLButtonElement {
@@ -1613,7 +1629,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const caret = this.textarea.selectionEnd;
 		this.measure.textContent = this.textarea.value.slice(0, caret);
 		const marker = append(this.measure, $('span'));
-		marker.textContent = '​';
+		marker.textContent = '\u200b';
 		const box = this.measure.getBoundingClientRect();
 		const textarea = this.textarea.getBoundingClientRect();
 		const left = textarea.left + (marker.offsetLeft) - this.textarea.scrollLeft;

@@ -23,12 +23,15 @@ class FakeGenerationService extends Disposable implements IBaseHalfVideoGenerati
 	private readonly changed = this._register(new Emitter<URI>());
 	readonly onDidChangeProgress = this.changed.event;
 	progress: IBaseHalfVideoGenerationProgress | undefined;
+	readonly resumed: string[] = [];
 
 	async generate(resource: URI): Promise<URI> {
 		return resource;
 	}
 	async stop(): Promise<void> { }
-	resume(): void { }
+	resume(resource: URI): void {
+		this.resumed.push(resource.path);
+	}
 	isGenerating(): boolean {
 		return this.progress !== undefined;
 	}
@@ -154,6 +157,16 @@ suite('BaseHalfVideoCard', () => {
 			selected: { same: true, controls: true, label: 'Video player for Shot 1', time: 0 },
 			missing: { state: 'missing', player: null, message: 'The video file is missing', tooltip: 'outputs/node-1/task-1.mp4' }
 		});
+	});
+
+	test('continues a generation that its node records and that no generation in this window follows', () => {
+		const generation = disposables.add(new FakeGenerationService());
+		disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields: running(), interactive: false }, { hoverService, generationService: generation }));
+		const followed = [...generation.resumed];
+		generation.report({ phase: 'generating', startedAt: Date.now() });
+		const card = disposables.add(renderBaseHalfVideoCard(container, { resource: NODE, title: 'Shot 1', fields: running(), interactive: false }, { hoverService, generationService: generation }));
+		card.update({ resource: NODE, title: 'Shot 1', fields: { prompt: 'Rain' }, interactive: false });
+		assert.deepStrictEqual({ followed, afterwards: generation.resumed }, { followed: [NODE.path], afterwards: [NODE.path] });
 	});
 
 	test('an empty node shows the glyph alone', () => {

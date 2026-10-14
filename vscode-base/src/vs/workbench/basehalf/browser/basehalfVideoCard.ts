@@ -13,7 +13,7 @@ import { localize } from '../../../nls.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
 import { baseHalfVideoCardPresentation, formatBaseHalfVideoElapsed, IBaseHalfVideoCardPresentation } from '../common/basehalfVideoCardPresentation.js';
 import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoNodeFields } from '../common/basehalfVideoNode.js';
+import { IBaseHalfVideoNodeFields, isBaseHalfVideoTaskActive } from '../common/basehalfVideoNode.js';
 import { releaseBaseHalfCanvasCardMedia } from './basehalfCanvasCardMedia.js';
 
 /** What a Video card draws. */
@@ -32,7 +32,11 @@ export interface IBaseHalfVideoCardInput {
 
 export interface IBaseHalfVideoCardServices {
 	readonly hoverService: IHoverService;
-	/** When given, the card follows the progress of a generation in this window by itself. */
+	/**
+	 * When given, the card follows the progress of a generation in this window
+	 * by itself, and a card whose node records an active task that no
+	 * generation in this window follows has the service continue it.
+	 */
 	readonly generationService?: IBaseHalfVideoGenerationService;
 }
 
@@ -104,7 +108,12 @@ class BaseHalfVideoCard extends Disposable implements IBaseHalfVideoCard {
 	}
 
 	private render(): void {
-		const progress = this.services.generationService?.getProgress(this.input.resource);
+		const generationService = this.services.generationService;
+		if (generationService && isBaseHalfVideoTaskActive(this.input.fields.task) && !generationService.isGenerating(this.input.resource)) {
+			// A generation that started before a reload or in another window: continue it (safe to repeat).
+			generationService.resume(this.input.resource);
+		}
+		const progress = generationService?.getProgress(this.input.resource);
 		const presentation = baseHalfVideoCardPresentation({
 			title: this.input.title,
 			fields: this.input.fields,

@@ -547,6 +547,67 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
+	test('a panel of a node just created focuses its prompt once the scene shows it', async () => {
+		const panel = await createPanel({ focusPromptWhenShown: true });
+		const prompt = find<HTMLTextAreaElement>(panel, 'textarea');
+		const beforeShown = mainWindow.document.activeElement === prompt;
+		panel.element.dispatchEvent(new CustomEvent<IBaseHalfCanvasSceneVideoPanelLayout>(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, {
+			detail: { placement: 'below', visible: true, following: false, left: 100, top: 400, width: 512, height: 180, canvasWidth: 1200, canvasHeight: 900 }
+		}));
+		assert.deepStrictEqual({ beforeShown, shown: mainWindow.document.activeElement === prompt }, { beforeShown: false, shown: true });
+	});
+
+	test('menus follow the arrow keys, Home, and End, and the settings take the focus into their first control', async () => {
+		const panel = await createPanel();
+		find(panel, '.bh-video-panel-model').click();
+		const focused = () => (mainWindow.document.activeElement as HTMLElement | null)?.textContent;
+		const opened = focused();
+		press(mainWindow.document.activeElement as HTMLElement, 'ArrowDown');
+		const down = focused();
+		press(mainWindow.document.activeElement as HTMLElement, 'End');
+		const end = focused();
+		press(mainWindow.document.activeElement as HTMLElement, 'Home');
+		const home = focused();
+		press(mainWindow.document.activeElement as HTMLElement, 'Escape');
+		find(panel, '.bh-video-panel-settings').click();
+		const settings = mainWindow.document.activeElement as HTMLElement | null;
+		assert.deepStrictEqual({ opened, down, end, home, settings: [settings?.getAttribute('role'), settings?.textContent] }, {
+			opened: 'Seedance 2.5',
+			down: 'MiniMax Hailuo-02',
+			end: 'Manage Video Providers…',
+			home: 'Seedance 2.5',
+			settings: ['radio', 'Frames']
+		});
+	});
+
+	test('says when the node cannot be read, and shows why Generate did not start', async () => {
+		const unreadable = disposables.add(new FakeVideoNodeStore({}, []));
+		unreadable.read = async () => { throw new Error('document.version 4 is not supported.'); };
+		instantiationService.set(IBaseHalfVideoNodeStore, unreadable);
+		const broken = await createPanel();
+		const notice = { state: broken.element.dataset.state, text: find(broken, '.bh-video-panel-notice').textContent, prompt: find(broken, '.bh-video-panel-prompt').hidden };
+		instantiationService.set(IBaseHalfVideoNodeStore, store);
+		generation.generate = async () => { throw new Error('frames/huge.png is larger than 20 MiB.'); };
+		const panel = await createPanel();
+		find(panel, '.bh-video-panel-generate').click();
+		await settle();
+		assert.deepStrictEqual({ notice, refused: notifications.shown }, {
+			notice: { state: 'unreadable', text: 'This Video node cannot be read: document.version 4 is not supported.', prompt: true },
+			refused: ['frames/huge.png is larger than 20 MiB.']
+		});
+	});
+
+	test('an empty slot offers Import File, which connects the imported copy', async () => {
+		store.upstream = [];
+		host.importFile = async () => 'shots/start.png';
+		const panel = await createPanel();
+		const slot = find(panel, '.bh-video-panel-slot.empty');
+		slot.click();
+		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Import File…')?.click();
+		await settle();
+		assert.deepStrictEqual({ label: slot.getAttribute('aria-label'), added: connections.added }, { label: 'Add a Start Frame', added: ['shots/start.png'] });
+	});
+
 	test('lays out at its width with nothing clipped or overlapping: the footer in one row, the slots, and the settings', async () => {
 		const frame = mainWindow.document.createElement('div');
 		frame.className = 'monaco-workbench';
