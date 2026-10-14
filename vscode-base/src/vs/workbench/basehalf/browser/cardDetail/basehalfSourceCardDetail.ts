@@ -135,7 +135,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 				// A selection that ends at the start of a line does not hold that line.
 				const lastLine = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber ? selection.endLineNumber - 1 : selection.endLineNumber;
 				this.onSelectionChange?.(text.trim().length > 0 ? { path: state.relativePath, text, firstLine: selection.startLineNumber, lastLine } : undefined);
-			}, 150));
+			}, 30));
 			this._register(editor.onDidChangeCursorSelection(() => reportSelection.schedule()));
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));

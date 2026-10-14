@@ -75,6 +75,8 @@ says what differs in this record.
   to an agent, change nothing. The selected text stays highlighted on its
   card or in Card Detail, in the grey of a selection that is not active.
 - A click on empty canvas selects nothing, so the folder is recorded again.
+  In Card Detail, a press on the page around the document, where no caret
+  goes, ends a text selection as a press in the document does.
   Escape that ends the editing of a note leaves its card selected, so the
   card is recorded. Closing Card Detail records what is selected on the
   canvas.
@@ -146,20 +148,24 @@ text: "核心概念\nIR（原始需求）：用户想要什么（业务导向、
 
 **Writing.** BaseHalf writes the record 200 ms after the selection settles,
 only when its content changes, and replaces it whole, so an agent never
-reads half of it. A window that gains focus writes its own selection, so
-with two windows on one folder the record is the one used last.
+reads half of it. The status bar does not wait for it (see below). A window
+that gains focus writes its own selection, so with two windows on one folder
+the record is the one used last.
 
 ## What the window shows
 
 The entry is in the status bar, at its right end, left of the entries that
 are there already. It shows the icon and the text of the table above.
 
-- One line, in the colour of other status bar text. A text that does not fit
-  ends with `…`.
-- While the Agent Area is shown, the entry starts 8 pixels right of the
-  Agent Area's left edge and reaches the entries to its right, so it reads as
-  part of the Agent Area. While it is hidden, the entry is as wide as its
-  text, up to the width the status bar allows any entry.
+- One line, in the colour of other status bar text, as wide as its text. A
+  text that does not fit ends with `…`.
+- It ends where the entries to its right begin. While the Agent Area is
+  shown, it takes at most 60% of the room from there to 8 pixels right of
+  the Agent Area's left edge, so it stays at the right end. While the Agent
+  Area is hidden, it is at most 240 pixels wide.
+- It changes as soon as the selection does: measured in the real window,
+  25 ms after a click on a card and 35 ms after text is selected. The record
+  follows when the selection settles.
 - A card shows the name and the glyph of its caption: a note's name has no
   extension ([canvas card name](canvas-card-name.md)), other files keep
   theirs, and a node shows its title and the glyph of its kind.
@@ -167,7 +173,8 @@ are there already. It shows the icon and the text of the table above.
   line breaks included, made one space.
 - Resting the pointer on the entry shows "Agents that use the BaseHalf skill
   can see this." A click does nothing.
-- The entry is shown exactly while the record exists.
+- The entry shows nothing while no record can be written: without the
+  current skill, in a marked folder, or after a write failed.
 
 ## The skill
 
@@ -198,7 +205,7 @@ record: without the skill there is no record.
   again: another folder's canvas, Card Detail opening, closing, or changing
   its projection.
 - *Text in a note on its card.* The note editor reports every change of its
-  selection, and also when it is rebuilt. 150 ms after they settle, the
+  selection, and also when it is rebuilt. 30 ms after they settle, the
   workbench asks it for the selected text. The text is the editor's text
   between the ends of the selection, with a line break between blocks and
   for a line break inside one. The lines come from the top-level blocks the
@@ -214,10 +221,12 @@ record: without the skill there is no record.
 - *Text in Card Detail's rich projection.* The webview works out the lines
   from what a save would write now, so edits made since the note was opened
   count, narrows them, and posts `basehalf.markdownRich.selectionChanged`
-  150 ms after the selection settles. It sends at most one character more
-  than the record keeps.
+  30 ms after the selection settles. It sends at most one character more
+  than the record keeps. A press on the page around the document collapses
+  the editor's selection at its head: the browser drops the highlight there,
+  and the editor would otherwise keep a selection that is no longer shown.
 - *Text in Card Detail's source projection.* The editor's selection, read
-  150 ms after it settles: its lines exactly, without a last line where the
+  30 ms after it settles: its lines exactly, without a last line where the
   selection ends at its start, and its text up to one character more than
   the record keeps.
 - *Narrowing* (`baseHalfSelectionLines`). The first line of the selected text
@@ -229,6 +238,10 @@ record: without the skill there is no record.
 - Text is used only while the note it is in is the one being edited on its
   card, or the one Card Detail shows. Each projection of Card Detail keeps
   its own text, and the one shown counts.
+
+**Showing.** The service hands the status bar a new selection as soon as it
+is given one, while the current skill is installed and the folder is not
+known to be marked; the record follows.
 
 **Writing.** The service writes the record 200 ms after the last change it
 was given. It looks for the marker of the source tree each time, writes
@@ -257,15 +270,18 @@ workspace folder holds `.bh/` and would otherwise draw again.
 while focus is in another part of the window, because the browser drops the
 highlight of a selection when another element of the page takes focus. While
 the window is in the background, the browser's own highlight stays. Card
-Detail's projections are frames and editors that keep drawing their
-selection when they lose focus.
+Detail's rich projection is a frame that keeps its selection when it loses
+focus, but the browser draws it then in a colour close to the page's own
+dark background; the frame styles the selection of an editor without focus
+in a neutral grey instead. The source projection draws it as an editor
+without focus does.
 
 **The entry.** `BaseHalfAgentSelectionStatusContribution` adds a right-aligned
 status bar entry with the highest priority, so it is the leftmost of the
 right group, and draws its content itself: the glyph that the caption of a
 card draws (`renderBaseHalfItemGlyph`, shared with the canvas) and the text.
-It sets the entry's width from the Agent Area's left edge whenever the Agent
-Area or the status bar changes size or visibility.
+It sets the entry's largest width from the room under the Agent Area
+whenever the Agent Area or the status bar changes size or visibility.
 
 ## Acceptance criteria
 
@@ -313,8 +329,9 @@ Area or the status bar changes size or visibility.
    - nothing is recorded or shown before the skill is installed;
    - after **BaseHalf: Install Agent Skill**, nothing selected records the
      folder `.` and shows the workspace folder's name;
-   - the entry is in the status bar, starts 8 pixels right of the Agent
-     Area's left edge, and has no label of its own;
+   - the entry is in the status bar and has no label of its own; with the
+     Agent Area hidden it is at most 240 pixels wide, and with it shown at
+     most 60% of the room under it, never left of it;
    - one card, two cards in list order with "2 cards selected", and a click
      on empty canvas;
    - text selected with the mouse across a soft line break in README.md is
@@ -324,8 +341,12 @@ Area or the status bar changes size or visibility.
    - two lines written above the selection from outside move the record to
      lines 6 and 7 with the same text, and the highlight stays; writing the
      file back moves it to lines 4 and 5;
-   - Escape with the text still selected leaves the card recorded; git shows
-     nothing under `.bh/cache/`;
+   - Escape with the text still selected leaves the card recorded;
+   - in Card Detail's rich projection, text selected with the mouse is
+     recorded with its line; with focus elsewhere the selection's style
+     differs from its focused style and is not transparent; a press on the
+     page beside the document records the card again;
+   - git shows nothing under `.bh/cache/`;
    - **BaseHalf: Remove Agent Skill** removes the record and the entry.
 7. Checked in the real window once per release of this behaviour, not
    automated: text selected in Card Detail's rich and source projections is

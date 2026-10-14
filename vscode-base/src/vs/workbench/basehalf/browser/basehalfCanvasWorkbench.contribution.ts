@@ -1621,7 +1621,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly agentSelectionCardTextReader = this._register(new RunOnceScheduler(() => {
 		this.agentSelectionCardText = this.activeCanvasNoteEditor?.instance.getSelectedText();
 		this.reportAgentSelection();
-	}, 150));
+	}, 30));
 	private pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
 	private pendingCreatedCanvasNoteActivation: IBaseHalfPendingCreatedCanvasNoteActivation | undefined;
 	private readonly canvasNotePreviewMounts = new WeakMap<HTMLElement, IBaseHalfCanvasNotePreviewMount>();

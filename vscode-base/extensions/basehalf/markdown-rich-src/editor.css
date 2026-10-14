@@ -79,6 +79,13 @@ body,
 	overflow: auto;
 }
 
+/* The selection agents can see stays visible, in a neutral grey, while focus
+   is elsewhere in the window, such as in the Agent Area. */
+.basehalf-markdown-rich .ProseMirror:not(.ProseMirror-focused) ::selection,
+.basehalf-markdown-rich .ProseMirror:not(.ProseMirror-focused)::selection {
+	background-color: color-mix(in srgb, var(--vscode-editor-foreground) 24%, transparent);
+}
+
 .basehalf-markdown-rich-page {
 	box-sizing: border-box;
 	max-width: 760px;

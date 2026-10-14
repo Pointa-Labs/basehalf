@@ -70,6 +70,8 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 	/** Records left in this window's folders are removed once each time the skill is found missing. */
 	private leftoversRemoved = false;
 	private skillChecks = 0;
+	/** What the last write found of each workspace folder's marker. */
+	private readonly markedFolders = new Map<string, boolean>();
 	private readonly writes = new Sequencer();
 	private readonly writer = this._register(new RunOnceScheduler(() => void this.sync(), BASEHALF_AGENT_SELECTION_WRITE_DELAY_MS));
 	private closing = false;
@@ -103,9 +105,15 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 
 	update(input: IBaseHalfAgentSelectionInput | undefined): void {
 		this.input = input;
-		if (!this.closing) {
-			this.writer.schedule();
+		if (this.closing) {
+			return;
 		}
+		// The window shows a new selection at once; the record follows when
+		// the selection settles.
+		if (this.skillInstalled) {
+			this.setCurrent(input && this.markedFolders.get(input.workspaceFolder.toString()) !== true ? baseHalfAgentSelectionFor(input) : undefined);
+		}
+		this.writer.schedule();
 	}
 
 	/** Writes or removes the record now. Resolves when it is done. */
@@ -151,7 +159,11 @@ export class BaseHalfAgentSelectionService extends Disposable implements IBaseHa
 				return;
 			}
 			this.leftoversRemoved = false;
-			if (!input || await baseHalfIsWorkspaceFolderMarked(this.fileService, input.workspaceFolder)) {
+			const marked = input ? await baseHalfIsWorkspaceFolderMarked(this.fileService, input.workspaceFolder) : false;
+			if (input) {
+				this.markedFolders.set(input.workspaceFolder.toString(), marked);
+			}
+			if (!input || marked) {
 				await this.removeWritten();
 				this.setCurrent(undefined);
 				return;
@@ -245,8 +257,12 @@ registerSingleton(IBaseHalfAgentSelectionService, BaseHalfAgentSelectionService,
 
 /** The status bar entry's id; its element carries it too. */
 export const BASEHALF_AGENT_SELECTION_STATUS_ID = 'basehalf.agentSelection';
-/** The gap between the Agent Area's left edge and the entry's text. */
+/** The gap between the Agent Area's left edge and the room the entry can take. */
 const STATUS_INSET = 8;
+/** The share of the room under the Agent Area that the entry can take, from its right end. */
+const STATUS_SHARE = 0.6;
+/** The widest the entry is while the Agent Area is hidden. */
+const STATUS_ALONE_MAX_WIDTH = 240;
 
 /**
  * Shows at the right end of the status bar, under the Agent Area, what the
@@ -321,8 +337,8 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 
 	/**
 	 * The entry is the leftmost of the right group, so its right edge is where
-	 * the entries to its right end. Under a visible Agent Area it reaches left
-	 * to the Agent Area's left edge, so that it reads as part of it.
+	 * the entries to its right end. It is as wide as its text, and at most
+	 * the share of the room under the Agent Area, so that it stays to the right.
 	 */
 	private layout(): void {
 		const item = this.element.parentElement;
@@ -341,10 +357,9 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 		const agentArea = this.layoutService.isVisible(Parts.AUXILIARYBAR_PART, mainWindow)
 			? this.layoutService.getContainer(mainWindow, Parts.AUXILIARYBAR_PART)
 			: undefined;
+		item.style.width = '';
 		if (!agentArea) {
-			// As wide as its text, up to the width the status bar allows any entry.
-			item.style.width = '';
-			item.style.maxWidth = '';
+			item.style.maxWidth = `${STATUS_ALONE_MAX_WIDTH}px`;
 			return;
 		}
 		// The group of left entries stretches up to the right group, so the
@@ -358,8 +373,7 @@ export class BaseHalfAgentSelectionStatusContribution extends Disposable impleme
 		}
 		const left = Math.max(agentArea.getBoundingClientRect().left + STATUS_INSET, leftEntriesEnd + STATUS_INSET);
 		const right = item.getBoundingClientRect().right;
-		item.style.maxWidth = 'none';
-		item.style.width = `${Math.max(0, Math.floor(right - left))}px`;
+		item.style.maxWidth = `${Math.max(0, Math.floor((right - left) * STATUS_SHARE))}px`;
 	}
 }
 

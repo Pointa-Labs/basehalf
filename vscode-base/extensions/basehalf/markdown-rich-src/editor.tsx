@@ -1023,11 +1023,37 @@ function MarkdownRichEditor(): JSX.Element {
 		lastPostedSelection.current = signature;
 		vscode.postMessage({ type: 'basehalf.markdownRich.selectionChanged', key, ...selected });
 	}, [editor, editorApi, selectedBlocks, vscode]);
+	// A press on the page around the document, where no caret can go, ends
+	// the selection, as a press inside the document does. The browser drops
+	// its highlight; the editor keeps a selection until told.
+	useEffect(() => {
+		const scroll = scrollRef.current;
+		if (!scroll) {
+			return;
+		}
+		const onPointerDown = (event: PointerEvent): void => {
+			const target = event.target;
+			const page = scroll.firstElementChild;
+			const container = page?.querySelector(':scope > .bn-container');
+			if (event.button !== 0 || (target !== scroll && target !== page && target !== container)) {
+				return;
+			}
+			const view = editor.prosemirrorView;
+			const selection = view?.state.selection;
+			if (!view || !selection || selection.empty) {
+				return;
+			}
+			view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.head))));
+		};
+		scroll.addEventListener('pointerdown', onPointerDown, true);
+		return () => scroll.removeEventListener('pointerdown', onPointerDown, true);
+	}, [editor]);
+
 	const scheduleSelection = useCallback((): void => {
 		if (selectionTimer.current !== undefined) {
 			window.clearTimeout(selectionTimer.current);
 		}
-		selectionTimer.current = window.setTimeout(() => void postSelection(), 150);
+		selectionTimer.current = window.setTimeout(() => void postSelection(), 30);
 	}, [postSelection]);
 
 	const postFormatState = useCallback((): void => {

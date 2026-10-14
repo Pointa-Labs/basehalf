@@ -8245,10 +8245,13 @@ async function assertAgentSeesSelection(page) {
 		await runCommand(page, 'Toggle Agent Area');
 		await agentArea.waitFor({ state: 'hidden', timeout: 10_000 });
 	}
-	if (!alone.inStatusbar || alone.labelShown || alone.cursor !== 'default' || !(alone.textWidth > 20)
-		|| !underAgentArea.inStatusbar || underAgentArea.agentAreaLeft === undefined
-		|| Math.abs(underAgentArea.left - (underAgentArea.agentAreaLeft + 8)) > 1.5 || !(underAgentArea.textWidth > 20)) {
-		throw new Error(`The entry must be in the status bar with no command, show its text, and start under the Agent Area while it is shown: ${JSON.stringify({ alone, underAgentArea })}`);
+	// Under the Agent Area the entry is as wide as its text and takes at most
+	// 60% of the room there, from its right end.
+	const room = underAgentArea.agentAreaLeft === undefined ? 0 : underAgentArea.left + underAgentArea.width - (underAgentArea.agentAreaLeft + 8);
+	if (!alone.inStatusbar || alone.labelShown || alone.cursor !== 'default' || !(alone.textWidth > 20) || alone.width > 241
+		|| !underAgentArea.inStatusbar || underAgentArea.agentAreaLeft === undefined || !(underAgentArea.textWidth > 20)
+		|| underAgentArea.width > room * 0.6 + 1 || underAgentArea.left < underAgentArea.agentAreaLeft + 8) {
+		throw new Error(`The entry must be in the status bar with no command, show its text, and stay in the right part of the room under the Agent Area: ${JSON.stringify({ alone, underAgentArea, room })}`);
 	}
 
 	await readme.click();
@@ -8357,6 +8360,60 @@ async function assertAgentSeesSelection(page) {
 	await page.keyboard.press('Escape');
 	await editor.host.waitFor({ state: 'detached', timeout: 15_000 });
 	await expectSelection(`${header}selected: "card"\npath: "README.md"\n`, 'README', 'the card stays recorded after editing ends');
+
+	// Card Detail's rich projection: selected text is recorded with its line,
+	// stays drawn in grey while focus is elsewhere, and a press on the page
+	// around the document, where no caret goes, ends the selection.
+	await quickOpen(page, 'README.md');
+	await assertCardDetail(page, 'README.md');
+	await expectSelection(`${header}selected: "card"\npath: "README.md"\n`, 'README', 'Card Detail records its card');
+	const frame = await activeMarkdownRichFrame(page);
+	const frameBox = await (await frame.frameElement()).boundingBox();
+	const word = await frame.evaluate(() => {
+		const walker = document.createTreeWalker(document.querySelector('.ProseMirror') ?? document.body, NodeFilter.SHOW_TEXT);
+		let node;
+		while ((node = walker.nextNode())) {
+			const offset = node.textContent?.indexOf('soft-line-beta') ?? -1;
+			if (offset >= 0) {
+				const range = document.createRange();
+				range.setStart(node, offset);
+				range.setEnd(node, offset + 'soft-line-beta'.length);
+				const box = range.getBoundingClientRect();
+				const scroll = document.querySelector('.basehalf-markdown-rich-scroll')?.getBoundingClientRect();
+				const page = document.querySelector('.basehalf-markdown-rich-page')?.getBoundingClientRect();
+				return { left: box.left, right: box.right, y: box.top + box.height / 2, blankX: scroll && page ? (scroll.left + page.left) / 2 : 4 };
+			}
+		}
+		throw new Error('No soft-line-beta in Card Detail');
+	});
+	if (!frameBox) {
+		throw new Error('Card Detail has no frame box');
+	}
+	await page.mouse.move(frameBox.x + word.left + 1, frameBox.y + word.y);
+	await page.mouse.down();
+	await page.mouse.move(frameBox.x + word.right - 1, frameBox.y + word.y, { steps: 6 });
+	await page.mouse.up();
+	await expectSelection(`${header}selected: "text"\npath: "README.md"\nfirst_line: 4\nlast_line: 4\ntext: "soft-line-beta"\n`, 'soft-line-beta', 'text selected in Card Detail is recorded with its line');
+	const selectionStyle = () => frame.evaluate(() => {
+		const paragraph = Array.from(document.querySelectorAll('.ProseMirror p')).find(element => element.textContent?.includes('soft-line-beta'));
+		return {
+			focused: document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused'),
+			background: paragraph ? getComputedStyle(paragraph, '::selection').backgroundColor : undefined
+		};
+	});
+	const focusedSelection = await selectionStyle();
+	await page.evaluate(() => {
+		const elsewhere = document.querySelector('.part.auxiliarybar .xterm-helper-textarea') ?? document.querySelector('.part.sidebar .monaco-list');
+		(elsewhere as HTMLElement | null)?.focus();
+	});
+	const unfocusedSelection = await selectionStyle();
+	if (!focusedSelection.focused || unfocusedSelection.focused || !unfocusedSelection.background
+		|| unfocusedSelection.background === focusedSelection.background || /^rgba\(0, 0, 0, 0\)$|^transparent$/.test(unfocusedSelection.background)) {
+		throw new Error(`Card Detail must draw its selection in grey while focus is elsewhere: ${JSON.stringify({ focusedSelection, unfocusedSelection })}`);
+	}
+	await page.mouse.click(frameBox.x + word.blankX, frameBox.y + word.y);
+	await expectSelection(`${header}selected: "card"\npath: "README.md"\n`, 'README', 'a press on the page around the document ends the selection');
+	await closeCardDetailIfOpen(page);
 
 	if (/\.bh\/cache/.test(gitStatusOfWorkspace())) {
 		throw new Error(`The record must stay out of git: ${gitStatusOfWorkspace()}`);
