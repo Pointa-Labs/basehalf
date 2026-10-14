@@ -436,7 +436,14 @@ class ProviderCall {
 			request.destroy();
 			throw new ProviderFailure('tooLarge', `The video is ${declared} bytes, more than the ${limit} bytes BaseHalf downloads.`);
 		}
-		const handle = await open(targetFsPath, 'wx');
+		let handle: Awaited<ReturnType<typeof open>>;
+		try {
+			handle = await open(targetFsPath, 'wx');
+		} catch (error) {
+			response.resume();
+			request.destroy();
+			throw rejected(`AI Video could not create the download file: ${networkDetail(error)}`);
+		}
 		let size = 0;
 		let head = Buffer.alloc(0);
 		let checked = false;

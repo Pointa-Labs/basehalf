@@ -245,7 +245,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				await this.writeStopped(follow);
 				return target;
 			}
-			void this.submit(follow, prepared.request);
+			void this.submit(follow, prepared.request).catch(error => this.submitFailedUnexpectedly(follow, error));
 			return target;
 		} catch (error) {
 			this.untrack(follow);
@@ -462,9 +462,25 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			if (follow.timer === timer) {
 				follow.timer = undefined;
 			}
-			void this.poll(follow);
+			void this.poll(follow).catch(error => this.pollFailedUnexpectedly(follow, error));
 		}, delay);
 		follow.timer = timer;
+	}
+
+	/** Something failed after the request may have left: it is never sent again. */
+	private async submitFailedUnexpectedly(follow: FollowedGeneration, error: unknown): Promise<void> {
+		this.logService.error(`[BaseHalf video] The request of ${follow.resource.toString()} failed: ${getErrorMessage(error)}`);
+		if (!follow.stopped && !follow.ended) {
+			await this.fail(follow, `${unknownOutcomeMessage()} (${plainDetail(getErrorMessage(error), follow.endpoint?.apiKey)})`);
+		}
+	}
+
+	/** Something failed while following the task, such as reading the node: ask again later, as after a network error. */
+	private async pollFailedUnexpectedly(follow: FollowedGeneration, error: unknown): Promise<void> {
+		this.logService.warn(`[BaseHalf video] Following ${follow.resource.toString()} failed: ${getErrorMessage(error)}`);
+		if (!follow.stopped && !follow.ended) {
+			await this.pollFailed(follow, { ok: false, unavailable: true, error: { code: 'network', message: getErrorMessage(error) } });
+		}
 	}
 
 	/** Step 7: ask the provider about the task. */
@@ -682,9 +698,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			this.logService.info(`[BaseHalf video] Could not record the stop of ${resource.toString()}: ${getErrorMessage(error)}`);
 		}
 		if (task.remoteId) {
-			const endpoint = await this.endpointOfTask(task.channel, task.request);
-			if (endpoint) {
-				await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, { ...endpoint, remoteId: task.remoteId }, parseAnything, false);
+			try {
+				const endpoint = await this.endpointOfTask(task.channel, task.request);
+				if (endpoint) {
+					await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, { ...endpoint, remoteId: task.remoteId }, parseAnything, false);
+				}
+			} catch (error) {
+				this.logService.info(`[BaseHalf video] Could not ask the provider to cancel ${task.remoteId}: ${getErrorMessage(error)}`);
 			}
 		}
 	}
@@ -730,7 +750,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		this.resuming.add(resource);
-		void this.doResume(resource).finally(() => this.resuming.delete(resource));
+		void this.doResume(resource)
+			.catch(error => this.logService.warn(`[BaseHalf video] Could not continue the generation of ${resource.toString()}: ${getErrorMessage(error)}`))
+			.finally(() => this.resuming.delete(resource));
 	}
 
 	private async doResume(resource: URI): Promise<void> {
