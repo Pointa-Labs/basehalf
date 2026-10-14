@@ -6,10 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-	AUDIO_BRIEF_RECIPE_ID,
-	CLIP_BRIEF_RECIPE_ID,
 	SEQUENCE_INSPECTION_CONCURRENCY,
-	STORYBOARD_FRAME_RECIPE_ID,
 	addAIVideoSequenceItem,
 	inspectAIVideoSequence,
 	isFilePathInside,
@@ -18,9 +15,6 @@ import {
 	moveAIVideoSequenceItem,
 	parseAIVideoSequenceDocument,
 	parseAIVideoShotDocument,
-	parseAudioBriefParameters,
-	parseClipBriefParameters,
-	parseStoryboardFrameParameters,
 	portableDescendantVideoNodePath,
 	removeAIVideoSequenceItem,
 	removeAIVideoSequenceItemsForNodeIdentity,
@@ -29,69 +23,10 @@ import {
 	resolveAIVideoShotClipNodePath,
 	serializeAIVideoSequenceDocument,
 	updateAIVideoSequenceItemPath,
-	validateRecipeInputs,
-	type AIVideoRecipeInput,
 	type AIVideoSequenceDocument,
 	type AIVideoSequenceItem,
 	type AIVideoSequenceNodeState
 } from '../src/domain.ts';
-
-test('keeps the host-owned prompt out of recipe parameters and supplies non-content defaults', () => {
-	assert.deepEqual(parseStoryboardFrameParameters({}), {
-		aspectRatio: '9:16',
-		shotLabel: 'Shot'
-	});
-	assert.deepEqual(parseClipBriefParameters({
-		'duration-seconds': 12,
-		'aspect-ratio': '16:9',
-		'audio-mode': 'none'
-	}), {
-		durationSeconds: 12,
-		aspectRatio: '16:9',
-		audioMode: 'none'
-	});
-	assert.deepEqual(parseAudioBriefParameters({ purpose: 'effect', voice: 'auto' }), {
-		purpose: 'effect',
-		durationSeconds: 5,
-		voice: 'auto'
-	});
-});
-
-test('rejects unsupported, out-of-range, and malformed recipe parameters', () => {
-	assert.throws(() => parseStoryboardFrameParameters({ unknown: true }), /unsupported field/);
-	assert.throws(() => parseStoryboardFrameParameters({ instructions: 'Retired duplicate prompt' }), /unsupported field/);
-	assert.throws(() => parseStoryboardFrameParameters({ 'aspect-ratio': '4:3' }), /must be one of/);
-	assert.throws(() => parseClipBriefParameters({ 'duration-seconds': 0 }), /integer from 1 to 120/);
-	assert.throws(() => parseClipBriefParameters({ 'duration-seconds': 1.5 }), /integer from 1 to 120/);
-	assert.throws(() => parseAudioBriefParameters({ voice: '' }), /cannot be empty/);
-});
-
-test('validates recipe-local input roles without changing the host edge meaning', () => {
-	const inputs: readonly AIVideoRecipeInput[] = [
-		{ edgeId: 'edge-2', slotId: 'first-frame', order: 1, source: { kind: 'image', path: 'shot/frame.bhnode' } },
-		{ edgeId: 'edge-1', slotId: 'prompt', order: 0, source: { kind: 'text', path: 'shot/plan.md' } }
-	];
-	assert.deepEqual(validateRecipeInputs(CLIP_BRIEF_RECIPE_ID, inputs).map(input => input.edgeId), ['edge-1', 'edge-2']);
-	assert.deepEqual(validateRecipeInputs(STORYBOARD_FRAME_RECIPE_ID, []), []);
-	assert.deepEqual(validateRecipeInputs(AUDIO_BRIEF_RECIPE_ID, []), []);
-	assert.doesNotThrow(() => validateRecipeInputs(CLIP_BRIEF_RECIPE_ID, [
-		{ edgeId: 'audio-plan', slotId: 'audio', order: 0, source: { kind: 'file', path: 'shot/audio-plan.bhnode' } }
-	]));
-	assert.throws(() => validateRecipeInputs(CLIP_BRIEF_RECIPE_ID, [
-		{ edgeId: 'shared-edge', slotId: 'first-frame', order: 0, source: { kind: 'image', path: 'shot/frame.bhnode' } },
-		{ edgeId: 'shared-edge', slotId: 'style', order: 1, source: { kind: 'image', path: 'shot/frame.bhnode' } }
-	]), /same direct connection/);
-	assert.throws(() => validateRecipeInputs(CLIP_BRIEF_RECIPE_ID, [
-		{ edgeId: 'edge', slotId: 'first-frame', order: 0, source: { kind: 'video', path: 'shot/source.bhnode' } }
-	]), /does not accept 'video'/);
-	assert.throws(() => validateRecipeInputs(STORYBOARD_FRAME_RECIPE_ID, [
-		{ edgeId: 'edge', slotId: 'audio', order: 0, source: { kind: 'audio', path: 'shot/voice.bhnode' } }
-	]), /does not accept input slot/);
-	assert.throws(() => validateRecipeInputs(AUDIO_BRIEF_RECIPE_ID, [
-		{ edgeId: 'edge-1', slotId: 'prompt', order: 0, source: { kind: 'text', path: 'one.md' } },
-		{ edgeId: 'edge-2', slotId: 'reference', order: 0, source: { kind: 'audio', path: 'two.bhnode' } }
-	]), /continuous, unique input order/);
-});
 
 test('parses a portable Sequence of sealed Video Result nodes without version pins', () => {
 	const sequence = sequenceDocument([

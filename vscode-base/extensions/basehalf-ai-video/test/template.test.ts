@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
-	AI_VIDEO_RECIPE_IDS,
 	ADD_SEQUENCE_ITEM_COMMAND_ID,
 	CREATE_WORKFLOW_COMMAND_ID,
 	INSPECT_SEQUENCE_COMMAND_ID,
@@ -22,8 +21,16 @@ import {
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const template = JSON.parse(readFileSync(new URL('../templates/starter-workflow.json', import.meta.url), 'utf8'));
 
-test('contributes only reviewed host recipes, projections, cleanup, commands, and Agent discovery contracts', () => {
+interface TemplateNode {
+	readonly path: string;
+	readonly kind: string;
+	readonly title: string;
+	readonly prompt?: string;
+}
+
+test('contributes the commands, Sequence, cleanup, template, and Agent contracts, and nothing of the retired recipe platform', () => {
 	assert.equal(manifest.basehalf.primaryCommand, CREATE_WORKFLOW_COMMAND_ID);
+	assert.deepEqual(Object.keys(manifest.contributes).sort(), ['basehalfAgentCapabilities', 'basehalfCanvasTemplates', 'basehalfCardProjections', 'basehalfStructuralCleanups', 'commands']);
 	assert.deepEqual(manifest.contributes.commands.map((command: { command: string }) => command.command), [
 		CREATE_WORKFLOW_COMMAND_ID,
 		INSPECT_SEQUENCE_COMMAND_ID,
@@ -32,24 +39,19 @@ test('contributes only reviewed host recipes, projections, cleanup, commands, an
 		REMOVE_SEQUENCE_ITEM_COMMAND_ID,
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
-	assert.deepEqual(manifest.contributes.basehalfCanvasRecipes.map((recipe: { id: string }) => recipe.id), AI_VIDEO_RECIPE_IDS);
-	const generateVideo = manifest.contributes.basehalfCanvasRecipes.find((recipe: { id: string }) => recipe.id === 'pointa.basehalf-ai-video.generate-video');
-	assert.ok(generateVideo);
-	assert.equal(generateVideo.inputs.some((input: { id: string }) => input.id === 'audio'), false);
-	assert.equal(generateVideo.videoModelCatalogId, manifest.contributes.basehalfVideoModelCatalogs[0].id);
-	assert.ok(manifest.contributes.basehalfCanvasRecipes.every((recipe: { parameters?: readonly { id: string }[] }) =>
-		!(recipe.parameters ?? []).some(parameter => parameter.id === 'instructions')));
+	// The provider commands are internal: they activate AI Video but are not in the Command Palette.
+	assert.deepEqual(manifest.activationEvents, [
+		'onCommand:basehalf.video.provider.submit',
+		'onCommand:basehalf.video.provider.poll',
+		'onCommand:basehalf.video.provider.download',
+		'onCommand:basehalf.video.provider.cancel'
+	]);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].id, STARTER_TEMPLATE_ID);
 	assert.equal(manifest.contributes.basehalfCanvasTemplates[0].resource, 'templates/starter-workflow.json');
-	assert.equal(manifest.contributes.basehalfAgentCapabilities.length, 1);
 	const capability = manifest.contributes.basehalfAgentCapabilities[0];
+	assert.equal(manifest.contributes.basehalfAgentCapabilities.length, 1);
 	assert.equal(capability.id, 'pointa.basehalf-ai-video.sequence-capability');
-	assert.deepEqual(capability.documents.map((document: { kind: string }) => document.kind), [
-		'pointa.basehalf-ai-video.shot',
-		'pointa.basehalf-ai-video.sequence'
-	]);
-	const sequenceDocument = capability.documents.find((document: { kind: string }) => document.kind === 'pointa.basehalf-ai-video.sequence');
-	assert.equal(sequenceDocument.pin, undefined);
+	assert.deepEqual(capability.documents.map((document: { kind: string }) => document.kind), ['pointa.basehalf-ai-video.shot', 'pointa.basehalf-ai-video.sequence']);
 	assert.deepEqual(capability.operations.map((operation: { command: string }) => operation.command), [
 		INSPECT_SEQUENCE_COMMAND_ID,
 		ADD_SEQUENCE_ITEM_COMMAND_ID,
@@ -58,8 +60,6 @@ test('contributes only reviewed host recipes, projections, cleanup, commands, an
 		REPAIR_SEQUENCE_ITEM_PATH_COMMAND_ID
 	]);
 	assert.ok(capability.operations.every((operation: { deterministic: boolean }) => operation.deterministic));
-	const add = capability.operations.find((operation: { command: string }) => operation.command === ADD_SEQUENCE_ITEM_COMMAND_ID);
-	assert.equal(add.parameters.find((parameter: { name: string }) => parameter.name === 'itemId').required, true);
 	assert.deepEqual(manifest.contributes.basehalfCardProjections, [{
 		id: 'pointa.basehalf-ai-video.sequence',
 		label: 'Sequence',
@@ -72,89 +72,62 @@ test('contributes only reviewed host recipes, projections, cleanup, commands, an
 		id: 'pointa.basehalf-ai-video.sequence-membership',
 		extensions: ['.bhnode']
 	}]);
-	assert.equal(manifest.contributes.jsonValidation, undefined);
-	assert.equal(JSON.stringify(manifest).includes('.aivideo'), false);
+	const text = JSON.stringify(manifest);
+	for (const retired of ['basehalfCanvasRecipes', 'basehalfModelProviderCatalogs', 'basehalfVideoModelCatalogs', 'models/', '.aivideo']) {
+		assert.equal(text.includes(retired), false, retired);
+	}
 });
 
-test('keeps the starter workflow declarative and inside host-owned primitives', () => {
+test('makes notes, empty version 5 Video nodes, and an empty Sequence, and no planning nodes', () => {
 	assert.deepEqual(Object.keys(template).sort(), ['cards', 'files', 'nodes', 'references', 'version']);
-	assert.equal(template.version, 1);
-	const paths = [...template.files, ...template.nodes].map((entry: { path: string }) => entry.path);
+	const nodes = template.nodes as readonly TemplateNode[];
+	assert.deepEqual(nodes, [{ path: 'shots/shot-01/clip.bhnode', kind: 'video', title: 'Shot 01 clip' }]);
+	for (const node of nodes) {
+		// A version 5 node entry: no role, no recipe, no task or result.
+		assert.deepEqual(Object.keys(node).filter(key => !['path', 'kind', 'title', 'prompt'].includes(key)), []);
+	}
+	const paths = [...template.files, ...nodes].map((entry: { path: string }) => entry.path);
 	assert.equal(new Set(paths).size, paths.length);
-	assert.equal(template.nodes.every((node: { path: string }) => node.path.endsWith('.bhnode')), true);
-	assert.equal(template.nodes.every((node: { prompt: unknown }) => typeof node.prompt === 'string'), true);
-	assert.equal(template.nodes.every((node: { recipe?: { parameters: Record<string, unknown> } }) => !node.recipe || !('instructions' in node.recipe.parameters)), true);
-	assert.equal(template.nodes.every((node: { recipe?: { recipeId: string } }) => !node.recipe || AI_VIDEO_RECIPE_IDS.includes(node.recipe.recipeId as never)), true);
-	assert.equal(template.cards.every((card: { path: string }) => paths.includes(card.path)), true);
+	// Every card shows a file of the template; only the README stays off the canvas.
+	assert.deepEqual(template.cards.map((card: { path: string }) => card.path).sort(), paths.filter(path => path !== 'README.md').sort());
 
-	const references = new Set(template.references.map((reference: { from: string; to: string }) => `${reference.from}\u0000${reference.to}`));
-	for (const node of template.nodes as readonly { path: string; recipe?: { inputBindings: readonly { sourcePath: string }[] } }[]) {
-		for (const binding of node.recipe?.inputBindings ?? []) {
-			assert.equal(paths.includes(binding.sourcePath), true);
-			assert.equal(references.has(`${binding.sourcePath}\u0000${node.path}`), true);
-		}
-	}
-
-	// D37: the template keeps `references` pairs; the host stores each one in
-	// its target's `upstream` list. Template text never declares `upstream`,
-	// and no reference targets the reserved outputs tree.
-	for (const file of template.files as readonly { path: string; contents: string }[]) {
-		if (/\.(?:md|markdown)$/i.test(file.path)) {
-			const frontmatter = /^(?:\ufeff)?---\r?\n(?<block>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(file.contents)?.groups?.block ?? '';
-			assert.equal(/^upstream\s*:/m.test(frontmatter), false, `${file.path} must not declare upstream`);
-		}
-	}
-	assert.equal(template.references.some((reference: { to: string }) => reference.to.split('/')[0].toLowerCase() === 'outputs'), false);
-	const upstreamByTarget = new Map<string, string[]>();
-	for (const reference of template.references as readonly { from: string; to: string }[]) {
-		upstreamByTarget.set(reference.to, [...upstreamByTarget.get(reference.to) ?? [], reference.from]);
-	}
-	// A recipe-less node still receives context through its upstream list.
-	assert.deepEqual(upstreamByTarget.get('shots/shot-01/audio.bhnode'), ['shots/shot-01/audio-plan.bhnode']);
-
-	const forbiddenKeys = new Set(['credentials', 'current', 'history', 'outputs', 'runs', 'groups']);
+	const forbiddenKeys = new Set(['role', 'recipe', 'attempts', 'task', 'result', 'credentials', 'outputs', 'upstream', 'generation']);
 	walkKeys(template, key => assert.equal(forbiddenKeys.has(key), false, `template must not contain '${key}'`));
 	assert.equal(JSON.stringify(template).includes('.aivideo'), false);
 });
 
-test('starts with an empty, portable clip sequence rather than placeholder results', () => {
+test('connects the shot\'s notes to its Video node, where they join the prompt', () => {
+	const paths = new Set([...template.files, ...template.nodes].map((entry: { path: string }) => entry.path));
+	const upstreamByTarget = new Map<string, string[]>();
+	for (const reference of template.references as readonly { from: string; to: string }[]) {
+		assert.ok(paths.has(reference.from) && paths.has(reference.to), `${reference.from} -> ${reference.to}`);
+		assert.notEqual(reference.to.split('/')[0].toLowerCase(), 'outputs');
+		upstreamByTarget.set(reference.to, [...upstreamByTarget.get(reference.to) ?? [], reference.from]);
+	}
+	assert.deepEqual(upstreamByTarget.get('shots/shot-01/clip.bhnode'), ['shots/shot-01/storyboard.md', 'shots/shot-01/audio-plan.md']);
+	assert.equal(upstreamByTarget.has('video-sequence.json'), false);
+	for (const file of template.files as readonly { path: string; contents: string }[]) {
+		if (/\.(?:md|markdown)$/i.test(file.path)) {
+			const frontmatter = /^(?:﻿)?---\r?\n(?<block>[\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(file.contents)?.groups?.block ?? '';
+			assert.equal(/^upstream\s*:/m.test(frontmatter), false, `${file.path} must not declare upstream`);
+		}
+	}
+	const clipCard = template.cards.find((card: { path: string }) => card.path === 'shots/shot-01/clip.bhnode');
+	assert.deepEqual({ width: clipCard.width, height: clipCard.height }, { width: 720, height: 405 });
+});
+
+test('starts with an empty, portable clip sequence and a shot that names its Video node', () => {
 	const shotFile = template.files.find((file: { path: string }) => file.path === 'shots/shot-01/shot.json');
-	assert.ok(shotFile);
 	const shot = parseAIVideoShotDocument(shotFile.contents);
-	assert.equal(shot.clipNodePath, 'clip.bhnode');
 	const shotDirectory = shotFile.path.slice(0, shotFile.path.lastIndexOf('/') + 1);
-	assert.ok(template.nodes.some((node: { path: string }) => node.path === `${shotDirectory}${shot.clipNodePath}`));
-
+	assert.ok(template.nodes.some((node: TemplateNode) => node.path === `${shotDirectory}${shot.clipNodePath}` && node.kind === 'video'));
 	const sequenceFile = template.files.find((file: { path: string }) => file.path === 'video-sequence.json');
-	assert.ok(sequenceFile);
-	const sequence = parseAIVideoSequenceDocument(sequenceFile.contents);
-	assert.deepEqual(sequence.items, []);
-	assert.equal(JSON.stringify(template).includes('versionId'), false);
-	assert.equal(template.references.some((reference: { from: string; to: string }) => reference.to === 'video-sequence.json'), false);
-
+	assert.deepEqual(parseAIVideoSequenceDocument(sequenceFile.contents).items, []);
 	const readme = template.files.find((file: { path: string }) => file.path === 'README.md');
-	assert.ok(readme);
-	assert.match(readme.contents, /ordered list of sealed Video Result nodes/);
 	assert.match(readme.contents, /Add Video Result to Sequence/);
 	assert.match(readme.contents, /Show Video Sequence Status/);
 	assert.match(readme.contents, /Remove Video Sequence Clip/);
-	assert.doesNotMatch(readme.contents, /Current|run or imported revision|version/);
-});
-
-test('keeps planning outputs honest and reserves media nodes for real media', () => {
-	const nodes = new Map(template.nodes.map((node: { path: string }) => [node.path, node]));
-	assert.equal(nodes.get('shots/shot-01/storyboard-frame.bhnode').kind, 'image');
-	assert.equal(nodes.get('shots/shot-01/audio-plan.bhnode').kind, 'file');
-	assert.equal(nodes.get('shots/shot-01/clip-plan.bhnode').kind, 'file');
-	assert.equal(nodes.get('shots/shot-01/audio.bhnode').kind, 'audio');
-	assert.equal(nodes.get('shots/shot-01/audio.bhnode').recipe, undefined);
-	assert.equal(nodes.get('shots/shot-01/clip.bhnode').kind, 'video');
-	assert.equal(nodes.get('shots/shot-01/clip.bhnode').recipe, undefined);
-	assert.equal(template.references.some((reference: { to: string }) =>
-		reference.to === 'shots/shot-01/clip.bhnode'), false);
-	const clipCard = template.cards.find((card: { path: string }) => card.path === 'shots/shot-01/clip.bhnode');
-	assert.ok(clipCard);
-	assert.deepEqual({ width: clipCard.width, height: clipCard.height }, { width: 720, height: 405 });
+	assert.doesNotMatch(readme.contents, /sealed|recipe|Attempt/i);
 });
 
 function walkKeys(value: unknown, visitor: (key: string) => void): void {

@@ -6,15 +6,13 @@
 import { localize } from '../../../nls.js';
 import { ConfigurationScope, IConfigurationNode } from '../../../platform/configuration/common/configurationRegistry.js';
 import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from './basehalfAgentArea.js';
-import { BASEHALF_MODEL_SERVICES_SETTING } from './basehalfModelServices.js';
 
 export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
 	AttachmentsDirectory: 'basehalf.editor.attachmentsDirectory',
 	CanvasDefaultZoom: 'basehalf.canvas.defaultZoom',
 	AgentDefaultSession: 'basehalf.agent.defaultSession',
-	AgentsOfferSkill: 'basehalf.agents.offerSkill',
-	ModelServices: BASEHALF_MODEL_SERVICES_SETTING
+	AgentsOfferSkill: 'basehalf.agents.offerSkill'
 } as const;
 export type BaseHalfSetting = typeof BaseHalfSetting[keyof typeof BaseHalfSetting];
 
@@ -108,8 +106,4 @@ export function migrateLegacyBaseHalfReadingMode(value: unknown, existingReading
 	}
 	next.push([BASEHALF_LEGACY_READING_MODE_SETTING, { value: undefined }]);
 	return next;
-}
-
-export function migrateLegacyBaseHalfModelServices(value: unknown): BaseHalfConfigurationMigrationValue {
-	return { value: undefined };
 }
