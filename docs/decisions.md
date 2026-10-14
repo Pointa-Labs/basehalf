@@ -768,7 +768,7 @@ one result slot per requested file and share batch provenance; until that host
 orchestration exists, recipes that return multiple files are rejected. A batch
 is not a referenceable canvas node or a simulated persistent Group.
 
-## D35 — The focus mirror is removed (NEW, 2026-09-27)
+## D35 — The focus mirror is removed (NEW, 2026-09-27; its non-goal of a live signal revised by D57)
 
 **Decision.** BaseHalf no longer mirrors the user's live position into
 `.bh/current_focus.yaml` or `.bh/mirror/**/focus.yaml`. The per-folder canvas
@@ -1738,6 +1738,66 @@ base's own: a toolbar at the left end that draws the entries of a menu.
   Area at the left end and the control of the sidebar in the right group.
 - "Focus on document", the name the Card Detail button had, is gone. Hiding
   the sidebar is the same action and has one name.
+
+## D57 — Agents can read what the user selected, and the window shows it (NEW, 2026-10-14)
+
+**Decision.** BaseHalf records what the user last selected in a workspace:
+the folder whose canvas is shown, one card, several cards, or text in a
+note. It keeps the record in `.bh/cache/` of the workspace folder, where
+every agent can read it, and the BaseHalf skill says where it is and what it
+means. The status bar shows what is recorded, at its right end under the
+Agent Area: a name, the start of the selected text, or "2 cards selected".
+The rule is the one the assistant of a notes application follows: the page
+you are in, unless you selected part of it. See
+[the selection agents can see](specs/selection-for-agents.md).
+
+**Why.** On 2026-10-14 the user typed a question into a new note, switched to
+the Agent Area, and wanted to say only "improve this". The agent could not
+know which note, nor where in it. The editor of a card and the editor of
+Card Detail are BaseHalf's own, so no agent's IDE integration sees them, and
+Codex and most other agents have no such integration in a terminal. A file in
+the workspace reaches every agent that can read files, and the skill, which
+the user installs for all of them, is how they learn of it.
+
+D35 removed an earlier record of the user's position. Its reasons, and what
+is different now:
+- *Agents did not read it.* It was a file to read on every turn, announced by
+  rules written into the user's files. Now the description of the skill
+  names the moment it matters: a request that does not say which file or
+  text it is about. An agent still decides for itself; the specification
+  records trials.
+- *It went stale without a sign.* Now the status bar shows the record at all
+  times, so what an agent would read is what the user sees. The record is
+  removed when the window closes.
+- *It reported columns of rendered text as source columns.* Now the record
+  holds the selected text itself and the source lines it is on, and no
+  column.
+- *Every cursor move changed git.* Now the record is under `.bh/cache/`,
+  which BaseHalf's own ignore file keeps out of git, and it changes only
+  when the selection does. A cursor in a note without selected text records
+  the note.
+
+**What was set aside.**
+- The IDE integration of each agent, which pushes an editor's file and
+  selection into that agent. It needs one adapter per agent, the protocols
+  are not all published, and Codex in a terminal has to be told to connect.
+- Showing how many lines are selected. The user selected them and knows;
+  the window only has to say that agents can see them.
+- A button that removes or expands the record. Selecting something else
+  changes it.
+
+**Consequences.**
+- Revises D35: a live signal of what the user is looking at, its non-goal,
+  is now a goal, met by a different record. D35's removal of `focus.yaml`
+  and `current_focus.yaml` stands, and the legacy cleanup still deletes
+  them.
+- Refines D43: the skill also describes the record. BaseHalf writes the
+  record, and the status bar shows it, only while the current skill is
+  installed for at least one agent.
+- An agent may still not read the record, and the user's own words win when
+  they name something else.
+- Selected text is written to disk in `.bh/cache/`. It is text of a note
+  that is already in the workspace.
 
 ## D58 — A Video node is a prompt over its connections, run by the user's own providers (NEW, 2026-10-15)
 

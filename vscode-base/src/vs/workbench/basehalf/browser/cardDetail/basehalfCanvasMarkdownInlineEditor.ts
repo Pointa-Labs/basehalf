@@ -25,6 +25,9 @@ import { BASEHALF_CANVAS_SIDEWAYS_BOX_CLASS } from '../../common/basehalfCanvasW
 import type { BaseHalfMarkdownFormatCommand } from '../../common/basehalfMarkdownFormatting.js';
 import { IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { segmentBaseHalfMarkdownTopLevelBody, splitBaseHalfMarkdownFrontmatter } from '../../common/basehalfMarkdownProjection.js';
+import { IBaseHalfAgentSelectionText } from '../../common/basehalfAgentSelection.js';
+import { baseHalfSelectionLines } from '../../common/basehalfSelectionLines.js';
+import { countBaseHalfMarkdownNewlines } from '../../common/basehalfMarkdownBlockLines.js';
 import { BASEHALF_NOTE_HTML_TAGS, baseHalfNoteShowsOtherHtmlAsWritten } from '../../common/basehalfNoteMarkdownHtml.js';
 import { restoreBaseHalfSidewaysScroll } from '../basehalfSidewaysScrollbar.js';
 
@@ -46,6 +49,8 @@ interface IBaseHalfCanvasMarkdownInlineRuntime {
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): IBaseHalfCanvasMarkdownInlineSelection;
 	getMarkdown(): string;
+	getDocument(): unknown;
+	getSelectedSource(): { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	getFormatState(): IBaseHalfCanvasNoteFormatState;
 	runFormatCommand(command: BaseHalfMarkdownFormatCommand): boolean;
 	isComposing(): boolean;
@@ -67,6 +72,8 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 		readonly requiredEditableUnitId?: string;
 		readonly readOnly?: boolean;
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
+		readonly selectionDocument?: unknown;
+		readonly inactive?: boolean;
 		readonly onMarkdownChange?: (markdown: string) => void;
 		readonly onCompositionChange?: (composing: boolean) => void;
 		readonly onUndoRequest?: () => void;
@@ -74,6 +81,7 @@ interface IBaseHalfCanvasMarkdownInlineVendor {
 		readonly onExitRequest?: () => void;
 		readonly onToolbarRequest?: () => void;
 		readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
+		readonly onSelectionChange?: () => void;
 	}): IBaseHalfCanvasMarkdownInlineRuntime;
 }
 
@@ -171,6 +179,8 @@ export interface IBaseHalfCanvasMarkdownInlineEditorOptions {
 	readonly onSaveRequest?: (save: Promise<boolean>) => void;
 	readonly onOpenLink?: (href: string) => void;
 	readonly onFormatStateChange?: (state: IBaseHalfCanvasNoteFormatState) => void;
+	/** The selection or the text changed; read `getSelectedText()` when it is needed. */
+	readonly onSelectionChange?: () => void;
 }
 
 /** The clicked Markdown unit cannot round-trip through the lightweight editor. */
@@ -582,6 +592,37 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		return this.runtime?.getSelection();
 	}
 
+	/**
+	 * The selected text as the note shows it and the lines of the file it is
+	 * on, or `undefined` while no text is selected (the selection agents can
+	 * see).
+	 */
+	getSelectedText(): IBaseHalfAgentSelectionText | undefined {
+		const runtime = this.runtime;
+		const model = this.model;
+		const selected = runtime?.getSelectedSource();
+		if (!runtime || !model || !selected || !this.state) {
+			return undefined;
+		}
+		const markdown = runtime.getMarkdown();
+		const frontmatterLines = model.getPositionAt(this.bodyStart).lineNumber - 1;
+		// The file line of a Markdown offset; an end offset is read at its last character.
+		const lineOf = (offset: number) => frontmatterLines + countBaseHalfMarkdownNewlines(markdown.slice(0, offset)) + 1;
+		const lineOfEnd = (start: number, end: number) => lineOf(Math.max(start, end - 1));
+		const lines = markdown.split(/\r?\n/);
+		return {
+			path: this.state.relativePath,
+			text: selected.text,
+			...baseHalfSelectionLines(
+				line => lines[line - frontmatterLines - 1] ?? '',
+				{ start: lineOf(selected.start), end: lineOfEnd(selected.start, selected.firstEnd) },
+				{ start: lineOf(selected.lastStart), end: lineOfEnd(selected.lastStart, selected.end) },
+				selected.text
+			)
+		};
+	}
+
+
 	getFormatState(): IBaseHalfCanvasNoteFormatState | undefined {
 		return this.runtime?.getFormatState();
 	}
@@ -631,6 +672,8 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		readonly point?: IBaseHalfCanvasNoteEditPoint;
 		readonly clientPoint?: { readonly x: number; readonly y: number };
 		readonly selection?: IBaseHalfCanvasMarkdownInlineSelection;
+		/** The document of the editor this render replaces, to carry `selection` across a change made elsewhere. */
+		readonly selectionDocument?: unknown;
 		readonly focus?: boolean;
 		readonly scrollTop?: number;
 	} = {}): boolean {
@@ -712,13 +755,18 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				requiredEditableUnitId: String(targetIndex),
 				readOnly: this.isReadOnly(),
 				selection: options.selection,
+				selectionDocument: options.selectionDocument,
+				// Without focus, the selection is drawn as not active, as the
+				// editor it replaces drew it while the user was elsewhere.
+				inactive: !options.focus,
 				onMarkdownChange: markdown => this.applyDocumentMarkdown(markdown),
 				onCompositionChange: composing => this.handleCompositionChange(composing),
 				onUndoRequest: () => void this.undo(),
 				onRedoRequest: () => void this.redo(),
 				onExitRequest: () => this.options.onCanvasExitRequest?.(),
 				onToolbarRequest: () => this.options.onCanvasToolbarRequest?.(),
-				onFormatStateChange: formatState => this.options.onFormatStateChange?.(formatState)
+				onFormatStateChange: formatState => this.options.onFormatStateChange?.(formatState),
+				onSelectionChange: () => this.options.onSelectionChange?.()
 			});
 		} catch (error) {
 			if (error instanceof RangeError) {
@@ -739,6 +787,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 				this.focus();
 			}
 		}
+		// A new editor starts with a selection without a transaction: tell the
+		// owner, so that what agents can see follows a change made elsewhere.
+		this.options.onSelectionChange?.();
 		return true;
 	}
 
@@ -819,8 +870,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 			return;
 		}
 		const selection = this.runtime?.getSelection();
+		const selectionDocument = this.runtime?.getDocument();
 		const focused = this.hasFocus();
-		this.renderDocument({ selection, focus: focused });
+		this.renderDocument({ selection, selectionDocument, focus: focused });
 		this.updateStatus();
 	}
 
@@ -842,8 +894,9 @@ export class BaseHalfCanvasMarkdownInlineEditor extends Disposable {
 		}
 		this.pendingModelRefresh = false;
 		const selection = this.runtime?.getSelection();
+		const selectionDocument = this.runtime?.getDocument();
 		const focused = this.hasFocus();
-		this.renderDocument({ selection, focus: focused });
+		this.renderDocument({ selection, selectionDocument, focus: focused });
 	}
 
 	private enterCompositionConflict(): void {

@@ -5,6 +5,7 @@
 
 import { $, append, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { RunOnceScheduler } from '../../../../base/common/async.js';
 import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -22,6 +23,7 @@ import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/br
 import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, IBaseHalfAgentSelectionText } from '../../common/basehalfAgentSelection.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
@@ -47,6 +49,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	constructor(
 		private readonly container: HTMLElement,
 		private readonly onSaveStatusChange: (status: 'saving' | 'saved' | 'error') => void,
+		/** The text the user selected, or `undefined` once nothing is (the selection agents can see). */
+		private readonly onSelectionChange: ((selected: IBaseHalfAgentSelectionText | undefined) => void) | undefined,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
@@ -115,6 +119,24 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
 			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
+			// Read once the selection settles: a drag over a long note changes it
+			// with every move.
+			const reportSelection = this._register(new RunOnceScheduler(() => {
+				const model = editor.getModel();
+				const selection = editor.getSelection();
+				if (!model || !selection || selection.isEmpty()) {
+					this.onSelectionChange?.(undefined);
+					return;
+				}
+				// The record keeps at most the limit; one more character says it was cut.
+				const start = selection.getStartPosition();
+				const limitedEnd = model.modifyPosition(start, Math.min(BASEHALF_AGENT_SELECTION_TEXT_LIMIT + 1, model.getOffsetAt(selection.getEndPosition()) - model.getOffsetAt(start)));
+				const text = model.getValueInRange({ startLineNumber: selection.startLineNumber, startColumn: selection.startColumn, endLineNumber: limitedEnd.lineNumber, endColumn: limitedEnd.column });
+				// A selection that ends at the start of a line does not hold that line.
+				const lastLine = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber ? selection.endLineNumber - 1 : selection.endLineNumber;
+				this.onSelectionChange?.(text.trim().length > 0 ? { path: state.relativePath, text, firstLine: selection.startLineNumber, lastLine } : undefined);
+			}, 30));
+			this._register(editor.onDidChangeCursorSelection(() => reportSelection.schedule()));
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
 			this.applySelection(state.selection, ScrollType.Immediate);

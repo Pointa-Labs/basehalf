@@ -290,6 +290,14 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openSource', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openSource', key: 'workspace\u0000doc.md', selection: { startLineNumber: 0, startColumn: 1 } }), false);
+		// The selection agents can see: text with the lines of its blocks, or nothing selected.
+		assert.deepStrictEqual([
+			{ text: '核心概念', startLineNumber: 3, endLineNumber: 5 },
+			{ text: '' },
+			{ text: '核心概念' },
+			{ text: '核心概念', startLineNumber: 5, endLineNumber: 3 },
+			{ text: '', startLineNumber: 3, endLineNumber: 3 },
+		].map(fields => isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.selectionChanged', key: 'workspace\u0000doc.md', ...fields })), [true, true, false, false, false]);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',
 			key: 'workspace\u0000doc.md',

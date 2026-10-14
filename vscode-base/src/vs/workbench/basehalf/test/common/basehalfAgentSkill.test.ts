@@ -79,6 +79,27 @@ suite('BaseHalfAgentSkill', () => {
 		}, { missing: [], sharedSections: true, dictatesOrder: false, claimsAgentArea: false });
 	});
 
+	test('describes the record of what the user selected, and names the request it answers', () => {
+		const body = BASEHALF_AGENT_SKILL_MARKDOWN.slice(BASEHALF_AGENT_SKILL_MARKDOWN.indexOf('\n---\n') + 5);
+		const section = body.slice(body.indexOf('## What the user selected'), body.indexOf('\n## ', body.indexOf('## What the user selected') + 1));
+		assert.deepStrictEqual({
+			version: BASEHALF_AGENT_SKILL_VERSION,
+			// Only in a BaseHalf workspace, so that every other session is not sent looking.
+			namesTheRequest: BASEHALF_AGENT_SKILL_DESCRIPTION.includes('In such a workspace, also use it when a request does not say which file or text it is about'),
+			afterTheBadge: body.indexOf('## What the user selected') > body.indexOf('## A card\'s badge'),
+			missing: [
+				'`.bh/cache/selection.yaml`',
+				'it is about what they selected',
+				'the request wins',
+				'only while BaseHalf is open',
+				'Never write it.',
+				'`selected`', '`folder`', '`card`', '`cards`', '`paths`', '`text`', '`path`', '`first_line`', '`last_line`', '`text_is_cut: true`',
+				'The workspace folder itself is `.`.'
+			].filter(phrase => !section.includes(phrase)),
+			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
+		}, { version: '4', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+	});
+
 	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {
 		assert.deepStrictEqual({
 			targets: BASEHALF_AGENT_SKILL_TARGETS.map(target => [target.label, target.segments.join('/')]),

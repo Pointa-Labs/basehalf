@@ -1,0 +1,36 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The status bar entry of the selection agents can see: under the Agent
+   Area, one line as wide as its text that ends with an ellipsis when it does
+   not fit. Its largest width is set from the room under the Agent Area. */
+.monaco-workbench .part.statusbar > .items-container > .statusbar-item.basehalf-agent-selection-item {
+	min-width: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-agent-selection {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	height: 100%;
+	min-width: 0;
+	max-width: 100%;
+	padding: 0 5px;
+	box-sizing: border-box;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-agent-selection-icon {
+	display: flex;
+	flex: none;
+}
+
+.monaco-workbench .basehalf-agent-selection-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

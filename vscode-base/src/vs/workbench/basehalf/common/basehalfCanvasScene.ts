@@ -366,6 +366,9 @@ export interface IBaseHalfCanvasSceneDelegate {
 	performSelectionAction(sceneKey: string, structuralEpoch: number, action: BaseHalfCanvasSceneSelectionAction, paths: readonly string[]): Promise<void>;
 	cancelPendingCardOpen(): void;
 	prepareSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean>;
+	/** The selected cards after the selection changed, whatever changed it:
+	 *  a click, a marquee, the workbench, or cards that are gone. */
+	didChangeSelection(sceneKey: string, structuralEpoch: number, paths: readonly string[]): void;
 	focusNoteEditor(sceneKey: string, structuralEpoch: number, path: string): void;
 	editNote(sceneKey: string, structuralEpoch: number, path: string, point?: IBaseHalfCanvasNoteEditPoint): Promise<void>;
 	rememberNoteEditPoint(sceneKey: string, structuralEpoch: number, path: string, point: IBaseHalfCanvasNoteEditPoint): void;

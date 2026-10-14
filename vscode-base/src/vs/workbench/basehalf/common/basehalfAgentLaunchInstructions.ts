@@ -87,7 +87,7 @@ export const BASEHALF_AGENT_LAUNCH_INSTRUCTIONS = [
 export const BASEHALF_AGENT_LAUNCH_POINTER = [
 	'# BaseHalf workspace',
 	'',
-	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area. The `basehalf` skill describes this workspace: where a card\'s description and its upstream and downstream connections are, what moving and renaming files does to them, and how to run canvas workflows. Use that skill before you read, write, move, or rename anything here.'
+	'You are running inside a BaseHalf workspace, started from BaseHalf\'s Agent Area. The `basehalf` skill describes this workspace: where a card\'s description and its upstream and downstream connections are, what moving and renaming files does to them, and how to run canvas workflows. Use that skill before you read, write, move, or rename anything here, and when a request does not say which file or text it is about.'
 ].join('\n');
 
 /** The Claude Code flag that appends {@link BASEHALF_AGENT_LAUNCH_INSTRUCTIONS}. */

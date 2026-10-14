@@ -1646,6 +1646,14 @@ body.basehalf-canvas-edge-reconnecting * {
 	background: transparent;
 }
 
+/* The selection stays visible while focus is elsewhere in the window, such as
+   in the Agent Area (the selection agents can see). It is the grey of a
+   selection that is not active, from the card's own palette, which does not
+   change with the window's theme. */
+.monaco-workbench .basehalf-canvas-markdown-inline .basehalf-canvas-markdown-inline-inactive-selection {
+	background: color-mix(in srgb, var(--bh-card-text-tertiary) 34%, transparent);
+}
+
 .monaco-workbench .basehalf-canvas-markdown-inline-unit [data-tight="true"] > li > p {
 	margin-block: 0;
 	padding-block: 0;

@@ -3158,6 +3158,13 @@ function createCanvasSceneMount(
 			setNodes(next);
 		}, []);
 
+		// Every change of the selected cards ends here, however it was made, and
+		// the workbench learns the result (the selection agents can see).
+		const selectedCardPathsKey = vendor.useMemo(() => JSON.stringify(nodes.filter(node => node.selected).map(node => node.id)), [nodes]);
+		vendor.useEffect(() => {
+			delegate.didChangeSelection(sceneKeyRef.current, structuralEpochRef.current, JSON.parse(selectedCardPathsKey) as string[]);
+		}, [selectedCardPathsKey]);
+
 		const [edges, setEdges] = vendor.useState<BaseHalfCanvasFlowEdge[]>(() => initialSnapshot.edges.map(edge => makeEdge(edge, initialSnapshot.key, initialSnapshot.structuralEpoch, edge.id === initialSnapshot.selectedEdgeId)));
 		const edgesRef = vendor.useRef(edges);
 		const setLiveEdges = vendor.useCallback((next: BaseHalfCanvasFlowEdge[]) => {

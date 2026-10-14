@@ -254,6 +254,16 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly command: IBaseHalfAdhdCommand;
 	}
 	| {
+		/** The text the user selected, for the selection agents can see. It is
+		 * empty while nothing is selected. The lines are the file lines of the
+		 * blocks the selection is in. */
+		readonly type: 'basehalf.markdownRich.selectionChanged';
+		readonly key: string;
+		readonly text: string;
+		readonly startLineNumber?: number;
+		readonly endLineNumber?: number;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.error';
 		readonly key: string;
 		readonly message: string;
@@ -383,6 +393,10 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.adhdCommand':
 			return isBaseHalfMarkdownRichAdhdCommand(candidate.command);
+		case 'basehalf.markdownRich.selectionChanged':
+			return typeof candidate.text === 'string' && (candidate.text.length === 0
+				? candidate.startLineNumber === undefined && candidate.endLineNumber === undefined
+				: isPositiveInteger(candidate.startLineNumber) && isPositiveInteger(candidate.endLineNumber) && candidate.startLineNumber <= candidate.endLineNumber);
 		case 'basehalf.markdownRich.error':
 			return typeof candidate.message === 'string'
 				&& (candidate.stack === undefined || typeof candidate.stack === 'string');

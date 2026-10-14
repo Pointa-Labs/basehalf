@@ -1,7 +1,9 @@
 # BaseHalf agent skill
 
-Status: Active (2026-10-11)
-Decision: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11)
+Status: Active (2026-10-11; version 4 of the text, 2026-10-15)
+Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
+[D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
+[D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)
 Related: [agent launch context](agent-launch-context.md),
 [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)
@@ -59,7 +61,10 @@ text is part of the application bundle, so no local process can change it.
   above; see [the sign of a workspace](#the-sign-of-a-workspace). It also
   names the second sign, a Markdown note whose frontmatter has an `upstream`
   list, and the questions the skill answers: what a file is for, what it
-  builds on, and what uses it.
+  builds on, and what uses it. Last, it says that in such a workspace the
+  skill also applies to a request that does not say which file or text it
+  is about, such as "this", "here", or "improve it", because BaseHalf
+  records what the user selected.
 - `metadata.version`: a string that changes whenever the text changes.
 
 **Body.** In this order:
@@ -83,7 +88,14 @@ text is part of the application bundle, so no local process can change it.
      found by searching.
    - The user can change a badge while the agent works. Read it from disk when
      it is needed, and again before relying on it later.
-3. **The sections of the launch instruction**, word for word: where BaseHalf
+3. **What the user selected.** The record of
+   [the selection agents can see](selection-for-agents.md#the-record): where
+   it is, that a request that does not say what it is about is about it, that
+   the request wins when it names something else, that it exists only while
+   BaseHalf is open and changes with every selection, that agents never
+   write it, and what each field means. It is not in the launch
+   instruction: without the skill there is no record.
+4. **The sections of the launch instruction**, word for word: where BaseHalf
    keeps its metadata, relationships, preserving relationships, and canvas
    workflows ([content contract](agent-launch-context.md#content-contract)).
    They are written once in the source and used by both texts.
@@ -205,7 +217,9 @@ still work there, because they write only to the user's home folder.
 1. The skill text starts with `---`, has `name: basehalf`, a `description` of
    at most 1,024 characters, and a `metadata.version`. The description starts
    with the `.bh/` sign, asks about the working folder and not the folders
-   above, and mentions `upstream`. The body starts with how to tell a
+   above, mentions `upstream`, and names a request that does not say which
+   file or text it is about. The body has "What the user selected" with
+   `.bh/cache/selection.yaml` and each of its fields. The body starts with how to tell a
    BaseHalf workspace. Its body names `.bh/mirror/<path>/badge.yaml`,
    `.bh/mirror/<path>/upstream.yaml`, and the `upstream` frontmatter key,
    says that files can be moved with ordinary tools, contains every line of

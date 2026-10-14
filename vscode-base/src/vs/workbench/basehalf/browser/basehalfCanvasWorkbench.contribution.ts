@@ -10,7 +10,7 @@ import { $, append, clearNode, isHTMLElement, isHTMLInputElement, isSVGElement }
 import { AnchorAlignment, AnchorAxisAlignment, AnchorPosition } from '../../../base/browser/ui/contextview/contextview.js';
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
-import { DeferredPromise } from '../../../base/common/async.js';
+import { DeferredPromise, RunOnceScheduler } from '../../../base/common/async.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { isMacintosh } from '../../../base/common/platform.js';
@@ -116,6 +116,8 @@ import {
 } from '../common/basehalfCanvasPreview.js';
 import { BaseHalfCanvasViewportPersister, BaseHalfCanvasViewportSource, baseHalfOpenCanvasViewport, IBaseHalfCanvasViewport, IBaseHalfCanvasViewportStateService } from '../common/basehalfCanvasViewportState.js';
 import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService, baseHalfItemDisplayName, baseHalfNoteFileName, baseHalfNoteNameExtension, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
+import { BaseHalfItemKindIcon, baseHalfItemIcon, IBaseHalfAgentSelectionCaption, IBaseHalfAgentSelectionService, IBaseHalfAgentSelectionText } from '../common/basehalfAgentSelection.js';
+import { BaseHalfItemGlyph, renderBaseHalfItemGlyph } from './basehalfItemGlyph.js';
 import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
 import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
@@ -402,7 +404,7 @@ interface IBaseHalfCanvasCardRenderCacheEntry {
 	readonly element: HTMLElement;
 }
 type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
-type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'presentation' | 'code' | 'file' | 'generic' | 'badge';
+type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
 function canvasResultNodeKindLabel(kind: BaseHalfNodeKind): string {
@@ -747,6 +749,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	} | undefined;
 	private activeCanvasNoteEditor: IBaseHalfActiveCanvasNoteEditor | undefined;
 	private canvasNoteSurfacePath: string | undefined;
+	/** The selected cards the scene reported last, and its scene (the selection agents can see). */
+	private agentSelectionCards: { readonly sceneKey: string; readonly paths: readonly string[] } = { sceneKey: '', paths: [] };
+	/** Text selected in the note being edited on its card. */
+	private agentSelectionCardText: IBaseHalfAgentSelectionText | undefined;
+	/** Text selected in each projection of Card Detail; the one shown counts. */
+	private readonly agentSelectionDetailText = new Map<BaseHalfCardDetailProjection, IBaseHalfAgentSelectionText>();
+	/** The note editor reports every change of its selection; its text is read once they settle. */
+	private readonly agentSelectionCardTextReader = this._register(new RunOnceScheduler(() => {
+		this.agentSelectionCardText = this.activeCanvasNoteEditor?.instance.getSelectedText();
+		this.reportAgentSelection();
+	}, 30));
 	private pendingCanvasNoteFocus: IBaseHalfPendingCanvasNoteFocus | undefined;
 	private pendingCreatedCanvasNoteActivation: IBaseHalfPendingCreatedCanvasNoteActivation | undefined;
 	private readonly canvasNotePreviewMounts = new WeakMap<HTMLElement, IBaseHalfCanvasNotePreviewMount>();
@@ -799,6 +812,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IUndoRedoService private readonly undoRedoService: IUndoRedoService,
 		@ILifecycleService lifecycleService: ILifecycleService,
 		@IBaseHalfMovedItemsService private readonly movedItemsService: IBaseHalfMovedItemsService,
+		@IBaseHalfAgentSelectionService private readonly agentSelectionService: IBaseHalfAgentSelectionService,
 		@IHoverService private readonly hoverService: IHoverService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IBaseHalfVideoGenerationService private readonly videoGenerationService: IBaseHalfVideoGenerationService,
@@ -917,6 +931,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			performSelectionAction: (sceneKey, structuralEpoch, action, paths) => this.performSceneSelectionAction(sceneKey, structuralEpoch, action, paths),
 			cancelPendingCardOpen: () => this.cancelPendingNodeActivation(),
 			prepareSelectionChange: (sceneKey, structuralEpoch, paths) => this.prepareSceneSelectionChange(sceneKey, structuralEpoch, paths),
+			didChangeSelection: (sceneKey, _structuralEpoch, paths) => {
+				this.agentSelectionCards = { sceneKey, paths };
+				this.reportAgentSelection();
+			},
 			focusNoteEditor: (sceneKey, structuralEpoch, path) => this.focusSceneNoteEditor(sceneKey, structuralEpoch, path),
 			editNote: (sceneKey, structuralEpoch, path, point) => this.beginSceneNoteEdit(sceneKey, structuralEpoch, path, point),
 			rememberNoteEditPoint: (sceneKey, structuralEpoch, path, point) => this.rememberSceneNoteEditPoint(sceneKey, structuralEpoch, path, point),
@@ -987,13 +1005,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.canvasEditingService.invalidatePostCreateIntents();
 			this.resetCardPreviewHydrationScene();
 			this.requestRender();
+			this.reportAgentSelection();
 		}));
 		this._register(this.cardProjectionRegistryService.onDidChangeProjections(() => this.reconcileCardProjectionRegistrations()));
 		this._register(this.cardDetailSurfaceRegistryService.onDidChangeProviders(() => this.reconcileCardProjectionRegistrations()));
 		this._register(this.canvasEditingService.registerHandler(request => this.beginCanvasInlineEdit(request)));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
-			if (!folder) {
+			if (!folder || this.isWorkingFilesOnlyChange(event, folder)) {
 				return;
 			}
 
@@ -3962,6 +3981,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.publishCanvasNoteFormatState(active.path, active.state.resource, { ...formatState, editable: false });
 		}
 		this.activeCanvasNoteEditor = undefined;
+		this.agentSelectionCardTextReader.cancel();
+		this.agentSelectionCardText = undefined;
+		this.reportAgentSelection();
 		if (this.canvasNoteSurfacePath === active.path) {
 			this.canvasNoteSurfacePath = undefined;
 		}
@@ -4676,6 +4698,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private isRenderCurrent(seq: number): boolean {
 		return !this.disposed && seq === this.renderSeq;
+	}
+
+	/**
+	 * Whether every change is under `.bh/cache/`: BaseHalf's working files,
+	 * such as the record of the selection agents can see, which no card shows.
+	 * The canvas of a workspace folder holds `.bh/`, so without this each
+	 * write of the record would draw that canvas again.
+	 */
+	private isWorkingFilesOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
+		const cache = joinPath(folder.workspaceFolder, '.bh', 'cache');
+		const resources = [...event.rawAdded, ...event.rawUpdated, ...event.rawDeleted];
+		return resources.length > 0 && resources.every(resource => isEqualOrParent(resource, cache));
 	}
 
 	private isCurrentCanvasLayoutOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
@@ -6922,21 +6956,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
-		const dim = typeof size === 'number' ? `${size}px` : size;
-		const svg = $.SVG('svg');
-		svg.classList.add('basehalf-file-glyph');
-		svg.setAttribute('viewBox', '0 0 16 16');
-		svg.setAttribute('fill', 'none');
-		svg.setAttribute('stroke', 'currentColor');
-		svg.setAttribute('stroke-width', '1.25');
-		svg.setAttribute('stroke-linecap', 'round');
-		svg.setAttribute('stroke-linejoin', 'round');
-		svg.setAttribute('aria-hidden', 'true');
-		svg.style.width = dim;
-		svg.style.height = dim;
-		svg.style.color = tone;
-		renderGlyphPath(svg, type);
-		container.appendChild(svg);
+		renderBaseHalfItemGlyph(container, type, tone, size);
 	}
 
 	private renderCardPreview(
@@ -7824,7 +7844,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					}
 				}),
 				onOpenLink: href => this.openStaticMarkdownPreviewLink(href),
-				onFormatStateChange: formatState => this.publishCanvasNoteFormatState(path, item.stat.resource, formatState)
+				onFormatStateChange: formatState => this.publishCanvasNoteFormatState(path, item.stat.resource, formatState),
+				onSelectionChange: () => this.agentSelectionCardTextReader.schedule()
 			}
 		);
 		const open = instance.open(state, pendingFocus?.point, pendingFocus?.selection, fallbackScrollTop);
@@ -9237,7 +9258,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					host,
 					() => this.closeDetailBadgePopover(state, false),
 					status => this.setDetailSaveStatus(status),
-					{}
+					{ onSelectionChange: selected => this.setAgentSelectionDetailText('rich', selected) }
 				);
 				for (const command of this.takeMarkdownRichFormatCommands(state.resource)) {
 					instance.runEditorCommand(command);
@@ -9284,7 +9305,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					instance: this.instantiationService.createInstance(
 						BaseHalfSourceCardDetail,
 						host,
-						status => this.setDetailSaveStatus(status)
+						status => this.setDetailSaveStatus(status),
+						selected => this.setAgentSelectionDetailText('source', selected)
 					)
 				};
 			}
@@ -9298,6 +9320,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			surface.host.classList.toggle('active', active);
 			surface.instance.setVisible(active);
 		}
+		// The projection shown now decides what agents can see.
+		this.reportAgentSelection();
 	}
 
 	private disposeDetailSurfaces(): void {
@@ -9308,6 +9332,73 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			surface.store.dispose();
 		}
 		this.detailSurfaces.clear();
+		if (this.agentSelectionDetailText.size > 0) {
+			this.agentSelectionDetailText.clear();
+			this.reportAgentSelection();
+		}
+	}
+
+	private setAgentSelectionDetailText(projection: BaseHalfCardDetailProjection, selected: IBaseHalfAgentSelectionText | undefined): void {
+		if (selected) {
+			this.agentSelectionDetailText.set(projection, selected);
+		} else if (!this.agentSelectionDetailText.delete(projection)) {
+			return;
+		}
+		this.reportAgentSelection();
+	}
+
+	/**
+	 * Tells the record of the selection agents can see what is selected now:
+	 * the folder of the canvas, its selected cards, the card Card Detail
+	 * shows, and the text selected in the note being edited.
+	 */
+	private reportAgentSelection(): void {
+		if (this.disposed) {
+			return;
+		}
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			this.agentSelectionService.update(undefined);
+			return;
+		}
+		const detail = this.canvasNavigationService.state.cardDetail;
+		const sceneKey = this.sceneKey(folder);
+		// In the canvas's list order: folders first, then by name.
+		const cards = (this.agentSelectionCards.sceneKey === sceneKey ? this.agentSelectionCards.paths : [])
+			.map(path => {
+				const item = this.renderedItemsByPath.get(path);
+				return { path, isFolder: item?.kind === 'folder', name: item?.name ?? path.slice(path.lastIndexOf('/') + 1), caption: this.agentSelectionCaption(path) };
+			})
+			.sort((a, b) => a.isFolder !== b.isFolder ? (a.isFolder ? -1 : 1) : a.name.localeCompare(b.name))
+			.map(({ path, isFolder, caption }) => ({ path, isFolder, caption }));
+		let text: IBaseHalfAgentSelectionText | undefined;
+		if (detail) {
+			const detailText = this.activeDetailProjection ? this.agentSelectionDetailText.get(this.activeDetailProjection) : undefined;
+			text = detailText?.path === detail.relativePath ? detailText : undefined;
+		} else {
+			const cardText = this.agentSelectionCardText;
+			text = cardText && this.activeCanvasNoteEditor?.path === cardText.path ? cardText : undefined;
+		}
+		const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(folder.workspaceFolder);
+		this.agentSelectionService.update({
+			workspaceFolder: folder.workspaceFolder,
+			workspaceFolderName: workspaceFolder?.name ?? basename(folder.workspaceFolder),
+			folderPath: folder.relativePath || '.',
+			cards,
+			detail: detail && this.uriIdentityService.extUri.isEqual(detail.workspaceFolder, folder.workspaceFolder) ? { path: detail.relativePath, isFolder: false, caption: this.agentSelectionCaption(detail.relativePath) } : undefined,
+			text
+		});
+	}
+
+	/** The name and glyph a card's caption shows, while the canvas has the card. */
+	private agentSelectionCaption(path: string): IBaseHalfAgentSelectionCaption | undefined {
+		const item = this.renderedItemsByPath.get(path);
+		if (!item) {
+			return undefined;
+		}
+		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
+		const icon = preview?.kind === 'node' ? preview.document.kind : preview?.kind === 'nodeLoading' ? 'generic' : badgeType(item.name, item.kind === 'folder');
+		return { name: cardDisplayName(item, preview), icon };
 	}
 
 	private setDetailSaveStatus(status: BaseHalfCardDetailSaveStatus | undefined): void {
@@ -10660,33 +10751,8 @@ function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'isFile' 
 	return `${kind}:${stat.isSymbolicLink ? 'link' : 'direct'}:${creation}`;
 }
 
-function badgeType(label: string, isFolder: boolean): BaseHalfCanvasGlyphType {
-	if (isFolder) {
-		return 'folder';
-	}
-	const lower = label.toLowerCase();
-	const dot = lower.lastIndexOf('.');
-	const ext = dot === -1 || dot === lower.length - 1 ? '' : lower.slice(dot + 1);
-	const base = dot === -1 ? lower : lower.slice(0, dot);
-	if (['md', 'markdown', 'mdx', 'txt', 'rst', 'org', 'gitignore', 'dockerignore', 'gitattributes', 'editorconfig', 'npmrc', 'nvmrc', 'csv', 'tsv', 'log', 'text'].includes(ext) || ['readme', 'license', 'changelog', 'authors', 'notice', 'copying'].includes(base)) {
-		return 'text';
-	}
-	if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic', 'avif', 'ico', 'tiff'].includes(ext)) {
-		return 'image';
-	}
-	if (['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus'].includes(ext)) {
-		return 'audio';
-	}
-	if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) {
-		return 'video';
-	}
-	if (ext === 'pdf') {
-		return 'pdf';
-	}
-	if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'rs', 'go', 'java', 'rb', 'c', 'cpp', 'h', 'cs', 'php', 'swift', 'kt', 'json', 'yaml', 'yml', 'toml', 'css', 'scss', 'html', 'xml', 'sh', 'sql', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'ini', 'conf', 'cfg', 'env', 'properties', 'lock', 'lua', 'pl', 'r', 'gradle', 'vue', 'svelte', 'astro', 'graphql', 'gql', 'proto'].includes(ext) || ['dockerfile', 'makefile', 'gemfile', 'rakefile', 'procfile', 'jenkinsfile', 'vagrantfile'].includes(base)) {
-		return 'code';
-	}
-	return 'generic';
+function badgeType(label: string, isFolder: boolean): BaseHalfItemKindIcon {
+	return baseHalfItemIcon(label, isFolder);
 }
 
 function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
@@ -10697,81 +10763,4 @@ function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
 		return 'var(--bh-card-folder-glyph)';
 	}
 	return 'var(--bh-card-text-tertiary)';
-}
-
-function renderGlyphPath(svg: SVGElement, type: BaseHalfCanvasGlyphType): void {
-	const appendPath = (d: string) => {
-		const path = $.SVG('path');
-		path.setAttribute('d', d);
-		svg.appendChild(path);
-	};
-	if (type === 'text') {
-		appendPath('M3.5 4h9M3.5 7h9M3.5 10h9M3.5 13h5.5');
-		return;
-	}
-	if (type === 'image') {
-		const rect = $.SVG('rect');
-		rect.setAttribute('x', '2.5');
-		rect.setAttribute('y', '3');
-		rect.setAttribute('width', '11');
-		rect.setAttribute('height', '10');
-		rect.setAttribute('rx', '1.6');
-		svg.appendChild(rect);
-		const circle = $.SVG('circle');
-		circle.setAttribute('cx', '5.8');
-		circle.setAttribute('cy', '6.3');
-		circle.setAttribute('r', '1.1');
-		svg.appendChild(circle);
-		appendPath('M3 12l3-3 2.3 2.3L11 8l2.2 2.2');
-		return;
-	}
-	if (type === 'audio') {
-		appendPath('M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8');
-		return;
-	}
-	if (type === 'video') {
-		const rect = $.SVG('rect');
-		rect.setAttribute('x', '2.5');
-		rect.setAttribute('y', '3.5');
-		rect.setAttribute('width', '11');
-		rect.setAttribute('height', '9');
-		rect.setAttribute('rx', '1.6');
-		svg.appendChild(rect);
-		const path = $.SVG('path');
-		path.setAttribute('d', 'M6.8 6.3l3 1.7-3 1.7z');
-		path.setAttribute('fill', 'currentColor');
-		path.setAttribute('stroke', 'none');
-		svg.appendChild(path);
-		return;
-	}
-	if (type === 'pdf' || type === 'presentation' || type === 'file' || type === 'generic') {
-		appendPath('M4 2.5h4.5l3 3V13H4z');
-		appendPath('M8.5 2.5v3h3');
-		if (type === 'pdf' || type === 'presentation') {
-			appendPath('M5.8 9h4M5.8 11h4');
-		}
-		return;
-	}
-	if (type === 'code') {
-		appendPath('M6 5L3 8l3 3M10 5l3 3-3 3');
-		return;
-	}
-	if (type === 'badge') {
-		appendPath('M6 2.5h4M7 2.5v2M9 2.5v2');
-		const rect = $.SVG('rect');
-		rect.setAttribute('x', '3.5');
-		rect.setAttribute('y', '4.4');
-		rect.setAttribute('width', '9');
-		rect.setAttribute('height', '9');
-		rect.setAttribute('rx', '1.5');
-		svg.appendChild(rect);
-		const circle = $.SVG('circle');
-		circle.setAttribute('cx', '6.4');
-		circle.setAttribute('cy', '8');
-		circle.setAttribute('r', '1');
-		svg.appendChild(circle);
-		appendPath('M8.6 7.4h2.2M8.6 9.5h2.5M5.4 11.7h5.2');
-		return;
-	}
-	appendPath('M2.5 4.7a1 1 0 0 1 1-1h2.7a1 1 0 0 1 .72.3l.86.9a1 1 0 0 0 .72.3h4a1 1 0 0 1 1 1v5.3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z');
 }
