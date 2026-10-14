@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { DeferredPromise, timeout } from '../../../../base/common/async.js';
-import { VSBuffer } from '../../../../base/common/buffer.js';
+import { decodeBase64, VSBuffer } from '../../../../base/common/buffer.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { joinPath } from '../../../../base/common/resources.js';
@@ -24,6 +24,7 @@ import {
 	BASEHALF_VIDEO_TRANSIENT_FAILURE_LIMIT,
 	BaseHalfVideoGenerationService,
 	orphanedSubmissionMessage,
+	rasterizeBaseHalfVideoImage,
 	unknownOutcomeMessage
 } from '../../browser/basehalfVideoGenerationService.js';
 import { BaseHalfVideoGenerationError, IBaseHalfVideoChannel } from '../../common/basehalfVideoGeneration.js';
@@ -560,6 +561,19 @@ suite('BaseHalfVideoGenerationService', () => {
 		assert.deepStrictEqual({ states: states(harness, node), downloads: harness.commands.count(DOWNLOAD), files: await outputFiles(harness) },
 			{ states: ['result outputs/node-1/20261015T080000-abcd.mp4'], downloads: 1, files: ['outputs/node-1/20261015T080000-abcd.mp4'] });
 	}));
+
+	test('draws an SVG to a PNG on white in the window, at least 1024 pixels on its long side', async () => {
+		const svg = VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#f00"/></svg>');
+		const dataUrl = await rasterizeBaseHalfVideoImage(svg, 'image/svg+xml');
+		const png = decodeBase64(dataUrl.slice(dataUrl.indexOf(',') + 1)).buffer;
+		const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+		assert.deepStrictEqual({
+			prefix: dataUrl.startsWith('data:image/png;base64,'),
+			signature: [...png.subarray(0, 4)],
+			width: view.getUint32(16),
+			height: view.getUint32(20)
+		}, { prefix: true, signature: [0x89, 0x50, 0x4e, 0x47], width: 1024, height: 512 });
+	});
 
 	test('deletes a download and writes nothing when the node no longer runs the task', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
 		const harness = await createHarness();
