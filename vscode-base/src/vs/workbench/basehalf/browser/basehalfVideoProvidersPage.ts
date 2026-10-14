@@ -146,7 +146,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.fieldErrors.clear();
 		}
 		// Text typed for one provider never moves to another one.
-		const kept = this.selectedId !== undefined && this.selectedId === this.renderedId ? this.captureControls() : { values: new Map<BaseHalfVideoProviderControl, string>() };
+		const sameChannel = this.selectedId !== undefined && this.selectedId === this.renderedId;
+		const kept = sameChannel ? this.captureControls() : { values: new Map<BaseHalfVideoProviderControl, string>() };
 		this.clearSensitiveInputs();
 		const disposables = new DisposableStore();
 		this.renderDisposables.value = disposables;
@@ -165,6 +166,9 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.renderEmpty(disposables);
 		}
 		this.restoreControls(kept);
+		if (!sameChannel) {
+			this.editor.scrollTop = 0;
+		}
 	}
 
 	private renderList(channels: readonly IBaseHalfVideoChannel[], disposables: DisposableStore): void {
@@ -191,9 +195,11 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			name.textContent = channel.name;
 			const detail = append(copy, $('.basehalf-video-provider-row-detail'));
 			const presetLabel = getBaseHalfVideoProviderPreset(channel.provider).label;
-			detail.textContent = channel.models.length === 1
-				? localize('basehalf.video.providers.rowDetailOne', "{0} · 1 model", presetLabel)
-				: localize('basehalf.video.providers.rowDetail', "{0} · {1} models", presetLabel, channel.models.length);
+			const models = channel.models.length === 1
+				? localize('basehalf.video.providers.rowModelsOne', "1 model")
+				: localize('basehalf.video.providers.rowModels', "{0} models", channel.models.length);
+			// The preset is named only when the channel was renamed.
+			detail.textContent = channel.name === presetLabel ? models : localize('basehalf.video.providers.rowDetail', "{0} · {1}", presetLabel, models);
 			const keyLabel = channel.hasKey
 				? localize('basehalf.video.providers.keySetShort', "Key set")
 				: localize('basehalf.video.providers.keyMissingShort', "No key");

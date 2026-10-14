@@ -51,7 +51,7 @@
 
 .basehalf-video-providers-content {
 	display: grid;
-	grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+	grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
 	min-height: 0;
 	flex: 1;
 	margin-top: 10px;
@@ -357,7 +357,7 @@
 	cursor: default;
 }
 
-@container (max-width: 720px) {
+@container (max-width: 560px) {
 	.basehalf-video-providers {
 		padding: 18px;
 	}
@@ -368,8 +368,10 @@
 		overflow: auto;
 	}
 
+	/* Stacked, the list and the editor keep their height and the page scrolls. */
 	.basehalf-video-providers-list,
 	.basehalf-video-provider-editor {
+		flex: none;
 		overflow: visible;
 	}
 

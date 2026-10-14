@@ -161,6 +161,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	private readonly followed = new ResourceMap<FollowedGeneration>();
 	private readonly resuming = new ResourceSet();
+	/** Nodes whose stop is being written: a card that renders meanwhile must not follow them again. */
+	private readonly stopping = new ResourceSet();
 	private readonly laterChecks = new ResourceMap<IDisposable>();
 	private readonly rasterize: BaseHalfVideoImageRasterizer;
 
@@ -642,6 +644,15 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	// --- ending --------------------------------------------------------------------------------
 
 	async stop(resource: URI): Promise<void> {
+		this.stopping.add(resource);
+		try {
+			await this.doStop(resource);
+		} finally {
+			this.stopping.delete(resource);
+		}
+	}
+
+	private async doStop(resource: URI): Promise<void> {
 		const follow = this.followed.get(resource);
 		if (follow) {
 			follow.stopped = true;
@@ -715,7 +726,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	// --- continuing ----------------------------------------------------------------------------
 
 	resume(resource: URI): void {
-		if (this.followed.has(resource) || this.resuming.has(resource)) {
+		if (this.followed.has(resource) || this.resuming.has(resource) || this.stopping.has(resource)) {
 			return;
 		}
 		this.resuming.add(resource);

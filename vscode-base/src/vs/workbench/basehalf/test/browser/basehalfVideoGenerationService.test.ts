@@ -212,6 +212,44 @@ suite('BaseHalfVideoGenerationService', () => {
 		assert.deepStrictEqual(harness.channels.getLastUsed(), settings(harness.channel));
 	}));
 
+	test('runs a model id the user added on a relay with the general profile, in references mode with the images and the video', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
+		const harness = await createHarness();
+		await writeInputs(harness);
+		await harness.fileService.writeFile(joinPath(root, 'clips/ref.mp4'), FAKE_MP4);
+		const relay = await harness.channels.addChannel('openai');
+		await harness.channels.updateChannel(relay.id, { baseUrl: 'http://127.0.0.1:8123/v1', models: ['my-relay-model'] });
+		await harness.channels.setKey(relay.id, 'sk-relay');
+		const node = shotNode(harness, { generation: { ...settings(harness.channels.getChannel(relay.id)!, { model: 'my-relay-model', mode: 'reference', duration: 8 }) } });
+		harness.commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		await harness.service.generate(node);
+		const request = harness.commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoProviderRequest;
+		const file = (path: string, mimeType: string) => ({ fsPath: joinPath(root, path).fsPath, mimeType });
+		assert.deepStrictEqual({
+			channel: harness.store.fields(node).task?.channel,
+			request: { ...request, prompt: request.prompt.split('\n\n').length },
+			inputs: harness.store.fields(node).task?.request.inputs
+		}, {
+			channel: relay.id,
+			request: {
+				provider: 'openai',
+				baseUrl: 'http://127.0.0.1:8123/v1',
+				apiKey: 'sk-relay',
+				model: 'my-relay-model',
+				prompt: 3,
+				mode: 'reference',
+				ratio: '16:9',
+				resolution: '720p',
+				duration: 8,
+				audio: true,
+				referenceImages: [file('frames/start.png', 'image/png'), file('frames/end.png', 'image/png'), file('frames/third.png', 'image/png')],
+				referenceVideos: [file('clips/ref.mp4', 'video/mp4')],
+				referenceAudios: []
+			},
+			inputs: ['frames/start.png', 'frames/end.png', 'frames/third.png', 'clips/ref.mp4', 'notes/scene.md']
+		});
+		await harness.service.stop(node);
+	}));
+
 	test('asks the provider 3 seconds after it accepted the task and then every 5 seconds', () => runWithFakedTimers({ startTime: START, maxTaskCount: 10_000 }, async () => {
 		const harness = await createHarness();
 		const node = shotNode(harness, {}, []);
