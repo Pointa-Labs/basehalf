@@ -291,7 +291,7 @@ import {
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
+	BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
 	BASEHALF_CANVAS_NOTE_FORMAT_STATE_EVENT,
 	BASEHALF_CANVAS_NOTE_TOOLBAR_FOCUS_EVENT,
@@ -5340,62 +5340,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		action: BaseHalfCanvasSceneVideoAction,
 		anchor: HTMLElement
 	): Promise<void> {
-		const frozenMoreAnchor = action === 'more'
-			? (() => {
-				const rect = anchor.getBoundingClientRect();
-				return { x: rect.left + rect.width / 2, y: rect.bottom };
-			})()
-			: undefined;
-		if (action === 'more') {
-			if (this.activeNodeLocalSurface?.path === path) {
-				this.activeNodeLocalSurface.closeTransientOverlay();
-			}
-			const folder = this.getCurrentFolder();
-			const item = this.renderedItemsByPath.get(path);
-			const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
-			const controls = item ? this.sceneCardControls(item, preview) : undefined;
-			if (!folder || this.sceneKey(folder) !== sceneKey
-				|| !item
-				|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))
-				|| controls?.kind !== 'video'
-				|| !controls.actions.includes('more')) {
-				throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
-			}
-			this.markCanvasUserInteraction();
-			const request: BaseHalfCanvasSceneContextMenuRequest = {
-				kind: 'card',
-				path,
-				anchor: frozenMoreAnchor ?? { x: 0, y: 0 }
-			};
-			const context = await this.canvasActionContextService.capture(item.stat.resource, folder.workspaceFolder, item.path);
-			const latestFolder = this.getCurrentFolder();
-			const latestItem = this.renderedItemsByPath.get(path);
-			if (!latestFolder || this.sceneKey(latestFolder) !== sceneKey
-				|| !latestItem
-				|| !this.workspaceMutationCoordinator.isStampCurrent(latestFolder.workspaceFolder, this.sceneMutationStamp(latestFolder, structuralEpoch))
-				|| !this.uriIdentityService.extUri.isEqual(latestItem.stat.resource, item.stat.resource)) {
-				throw new Error(localize('basehalf.canvas.video.actionUnavailable', "That video action is no longer available."));
-			}
-			this.lastCanvasContextMenu = { context, request };
-			mainWindow.setTimeout(() => {
-				const currentFolder = this.getCurrentFolder();
-				if (this.disposed || !currentFolder || this.sceneKey(currentFolder) !== sceneKey
-					|| !this.workspaceMutationCoordinator.isStampCurrent(currentFolder.workspaceFolder, this.sceneMutationStamp(currentFolder, structuralEpoch))) {
-					return;
-				}
-				this.contextMenuService.showContextMenu({
-					menuId: BASEHALF_CANVAS_CARD_CONTEXT_MENU,
-					menuActionOptions: { arg: context },
-					getAnchor: () => request.anchor,
-					onHide: wasCancelled => {
-						if (wasCancelled) {
-							this.cards.focus({ preventScroll: true });
-						}
-					}
-				});
-			}, 0);
-			return;
-		}
 		const { folder, items } = await this.resolveSceneSelection(sceneKey, structuralEpoch, [path]);
 		const item = items[0];
 		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
@@ -5414,15 +5358,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			case 'openFullPreview':
 				await this.openResultNodeContent(folder, item, anchor);
-				return;
-			case 'copySettings':
-				await this.copyCanvasNodeSettings(item);
-				return;
-			case 'showDetails':
-				await this.showNodeLocalSurface(item, anchor);
-				if (this.activeNodeLocalSurface?.path === path) {
-					await this.activeNodeLocalSurface.showVideoDetails();
-				}
 				return;
 		}
 	}
@@ -6683,9 +6618,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return {
 			kind: 'video',
 			actions: Object.freeze<BaseHalfCanvasSceneVideoAction[]>([
-				'copySettings',
-				'showDetails',
-				'more',
+				'captureFrame',
+				'revealVideo',
 				'openFullPreview'
 			])
 		};
@@ -13754,19 +13688,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					});
 				}
 			};
-			mount.addEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout);
-			lifetime.add(toDisposable(() => mount.removeEventListener(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, onPortalLayout)));
+			mount.addEventListener(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, onPortalLayout);
+			lifetime.add(toDisposable(() => mount.removeEventListener(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, onPortalLayout)));
 			let mounted = true;
 			const publishVideoComposerSurface = (sceneKey: string, structuralEpoch: number): void => {
 				if (!mounted) {
 					return;
 				}
-				this.canvasScene.setVideoComposerSurface({
+				this.canvasScene.setVideoPanelSurface({
 					sceneKey,
 					structuralEpoch,
 					path: item.path,
 					element: mount,
-					screenWidth: localSurfaceWidth,
 					screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT
 				});
 			};
@@ -13776,7 +13709,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					return;
 				}
 				mounted = false;
-				this.canvasScene.clearVideoComposerSurface(mount);
+				this.canvasScene.clearVideoPanelSurface(mount);
 				lifetime.dispose();
 				if (this.activeNodeLocalSurface === localSurfaceController) {
 					this.activeNodeLocalSurface = undefined;

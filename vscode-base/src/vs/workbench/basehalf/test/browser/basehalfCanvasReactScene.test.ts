@@ -10,7 +10,6 @@ import {
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
 	BASEHALF_CANVAS_CARD_CORNER_RADIUS
 } from '../../common/basehalfCanvasScene.js';
-import { BASEHALF_VIDEO_COMPOSER_GAP, BASEHALF_VIDEO_COMPOSER_HEIGHT, BASEHALF_VIDEO_COMPOSER_WIDTH, resolveBaseHalfVideoComposerPlacement } from '../../common/basehalfVideoComposerPresentation.js';
 import {
 	BaseHalfCanvasPendingConnectionState,
 	BaseHalfCanvasResizeCorner,
@@ -36,7 +35,7 @@ import {
 	captureBaseHalfCanvasCardFocusPath,
 	filterBaseHalfCanvasCancelledNodeDragChanges,
 	resolveBaseHalfCanvasNoteSelectionPlacement,
-	resolveBaseHalfCanvasVideoComposerPlacement,
+	resolveBaseHalfCanvasVideoPanelPlacement,
 	resolveBaseHalfCanvasVideoSelectionPlacement,
 	resolveBaseHalfCanvasSelectionToolbarPlacement,
 	resolveBaseHalfCanvasCardFocusPath,
@@ -327,10 +326,14 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.strictEqual(offscreen.visible, false);
 	});
 
-	test('keeps the compact Video Result toolbar above the card in stable screen-space geometry', () => {
-		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['importResult']), 112);
-		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['copySettings', 'showDetails', 'more', 'openFullPreview']), 131);
-		assert.strictEqual(baseHalfCanvasVideoToolbarWidth(['importResult', 'showDetails']), 112);
+	test('keeps the compact Video toolbar above the card in stable screen-space geometry', () => {
+		assert.deepStrictEqual([
+			baseHalfCanvasVideoToolbarWidth(['importResult']),
+			// Padding, Capture Frame with its chevron, Reveal, Open, and two gaps.
+			baseHalfCanvasVideoToolbarWidth(['captureFrame', 'revealVideo', 'openFullPreview']),
+			baseHalfCanvasVideoToolbarWidth(['importResult', 'revealVideo']),
+			baseHalfCanvasVideoToolbarWidth([])
+		], [112, 3 + 42 + 2 + 28 + 2 + 28 + 3, 112, 0]);
 
 		const centered = resolveBaseHalfCanvasVideoSelectionPlacement({
 			left: 160,
@@ -406,48 +409,22 @@ suite('BaseHalfCanvasReactScene', () => {
 		assert.ok(narrow.left + narrow.width <= 112);
 	});
 
-	test('places the Video Composer by the composer layout in screen space and adds its flow position', () => {
-		const place = (anchor: { left: number; top: number; right: number; bottom: number }, viewport: { x: number; y: number; zoom: number }, viewportWidth: number, viewportHeight: number) => {
-			const placement = resolveBaseHalfCanvasVideoComposerPlacement({
-				...anchor,
+	test('places the Video panel in screen space below, above, or clamped, never moves the canvas, and adds its flow position', () => {
+		const place = (
+			card: { left: number; top: number; right: number; bottom: number },
+			viewport: { x: number; y: number; zoom: number },
+			canvas: { width: number; height: number },
+			options: { height?: number; toolbarShown?: boolean; keepSide?: 'below' | 'above' } = {}
+		) => {
+			const placement = resolveBaseHalfCanvasVideoPanelPlacement({
+				...card,
 				viewport,
-				viewportWidth,
-				viewportHeight,
-				screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH,
-				screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT
+				viewportWidth: canvas.width,
+				viewportHeight: canvas.height,
+				height: options.height ?? 180,
+				toolbarShown: options.toolbarShown ?? false,
+				...(options.keepSide ? { keepSide: options.keepSide } : {})
 			});
-			// The layout itself is owned and tested by the composer presentation.
-			const layout = resolveBaseHalfVideoComposerPlacement({
-				left: anchor.left * viewport.zoom + viewport.x,
-				top: anchor.top * viewport.zoom + viewport.y,
-				right: anchor.right * viewport.zoom + viewport.x,
-				bottom: anchor.bottom * viewport.zoom + viewport.y
-			}, { width: viewportWidth, height: viewportHeight });
-			return { placement, delegates: JSON.stringify({ ...placement, flowLeft: undefined, flowTop: undefined }) === JSON.stringify(layout) };
-		};
-		const card = { left: 100, top: 80, right: 500, bottom: 300 };
-		const centered = place(card, { x: 0, y: 0, zoom: 1 }, 800, 700);
-		const zoomedAndPanned = place(card, { x: -100, y: -80, zoom: 2 }, 1000, 900);
-		const narrow = place({ left: 0, top: 40, right: 240, bottom: 200 }, { x: 0, y: 0, zoom: 1 }, 220, 520);
-		const belowViewport = place({ left: 100, top: 720, right: 500, bottom: 800 }, { x: 0, y: 0, zoom: 1 }, 800, 700);
-
-		assert.deepStrictEqual({
-			delegates: [centered, zoomedAndPanned, narrow, belowViewport].map(result => result.delegates),
-			centered: pick(centered.placement),
-			// The composer keeps its screen size at any zoom; its flow position
-			// is that screen position mapped back through the viewport.
-			zoomedAndPanned: pick(zoomedAndPanned.placement),
-			narrowFitsViewport: narrow.placement.screenWidth <= 220 && narrow.placement.left >= 0,
-			belowViewportVisible: belowViewport.placement.visible
-		}, {
-			delegates: [true, true, true, true],
-			centered: { placement: 'below', visible: true, left: 44, top: 300 + BASEHALF_VIDEO_COMPOSER_GAP, flowLeft: 44, flowTop: 300 + BASEHALF_VIDEO_COMPOSER_GAP, screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH, screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT },
-			zoomedAndPanned: { placement: 'below', visible: true, left: 244, top: 520 + BASEHALF_VIDEO_COMPOSER_GAP, flowLeft: 172, flowTop: (520 + BASEHALF_VIDEO_COMPOSER_GAP + 80) / 2, screenWidth: BASEHALF_VIDEO_COMPOSER_WIDTH, screenHeight: BASEHALF_VIDEO_COMPOSER_HEIGHT },
-			narrowFitsViewport: true,
-			belowViewportVisible: false
-		});
-
-		function pick(placement: ReturnType<typeof resolveBaseHalfCanvasVideoComposerPlacement>) {
 			return {
 				placement: placement.placement,
 				visible: placement.visible,
@@ -455,10 +432,34 @@ suite('BaseHalfCanvasReactScene', () => {
 				top: placement.top,
 				flowLeft: placement.flowLeft,
 				flowTop: placement.flowTop,
-				screenWidth: placement.screenWidth,
-				screenHeight: placement.screenHeight
+				width: placement.width,
+				height: placement.height
 			};
-		}
+		};
+		const identity = { x: 0, y: 0, zoom: 1 };
+		const card = { left: 100, top: 80, right: 500, bottom: 300 };
+		assert.deepStrictEqual({
+			below: place(card, identity, { width: 800, height: 700 }),
+			// The panel keeps its screen size at any zoom; its flow position is
+			// that screen position mapped back through the viewport.
+			zoomedAndPanned: place(card, { x: -100, y: -80, zoom: 2 }, { width: 1000, height: 900 }),
+			// No room below: above the card, its name, and its toolbar.
+			aboveTheToolbar: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { toolbarShown: true }),
+			// Room for neither: inside the canvas, on the side with more room.
+			clamped: place({ left: 100, top: 150, right: 500, bottom: 300 }, identity, { width: 800, height: 420 }),
+			// While the card moves, the panel keeps its side and follows it.
+			following: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { keepSide: 'below' }),
+			narrow: place({ left: 0, top: 40, right: 240, bottom: 200 }, identity, { width: 300, height: 520 }),
+			offCanvas: place({ left: 100, top: 720, right: 500, bottom: 800 }, identity, { width: 800, height: 700 }).visible
+		}, {
+			below: { placement: 'below', visible: true, left: 44, top: 310, flowLeft: 44, flowTop: 310, width: 512, height: 180 },
+			zoomedAndPanned: { placement: 'below', visible: true, left: 244, top: 530, flowLeft: 172, flowTop: 305, width: 512, height: 180 },
+			aboveTheToolbar: { placement: 'above', visible: true, left: 44, top: 400 - 32 - 46 - 10 - 180, flowLeft: 44, flowTop: 400 - 32 - 46 - 10 - 180, width: 512, height: 180 },
+			clamped: { placement: 'clamped', visible: true, left: 44, top: 420 - 12 - 180, flowLeft: 44, flowTop: 420 - 12 - 180, width: 512, height: 180 },
+			following: { placement: 'below', visible: true, left: 44, top: 660, flowLeft: 44, flowTop: 660, width: 512, height: 180 },
+			narrow: { placement: 'below', visible: true, left: 12, top: 210, flowLeft: 12, flowTop: 210, width: 276, height: 180 },
+			offCanvas: false
+		});
 	});
 
 	test('commits an allowed selection intent after preparation', async () => {

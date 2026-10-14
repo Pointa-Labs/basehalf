@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { FileAccess } from '../../../base/common/network.js';
+import { isMacintosh, isWindows } from '../../../base/common/platform.js';
 import { URI } from '../../../base/common/uri.js';
 import { isHTMLElement, isSVGElement } from '../../../base/browser/dom.js';
 import { localize } from '../../../nls.js';
@@ -57,14 +58,16 @@ import {
 	IBaseHalfCanvasSceneRenderer,
 	IBaseHalfCanvasSceneSelection,
 	IBaseHalfCanvasSceneSnapshot,
-	IBaseHalfCanvasSceneVideoComposerSurface,
+	IBaseHalfCanvasSceneVideoPanelLayout,
+	IBaseHalfCanvasSceneVideoPanelSurface,
 	IBaseHalfCanvasSceneViewport,
 	BaseHalfCanvasSceneVideoAction,
+	BaseHalfCanvasSceneVideoFrame,
 	BaseHalfCanvasNoteBackground,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP,
 	BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT,
 	BASEHALF_CANVAS_CARD_CORNER_RADIUS,
-	BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT,
+	BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP,
 	BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT,
 	BASEHALF_CANVAS_NOTE_DEFAULT_FORMAT_STATE,
@@ -75,14 +78,10 @@ import {
 	resolveBaseHalfCanvasSceneConnectionDrop
 } from '../common/basehalfCanvasScene.js';
 import {
-	BaseHalfVideoComposerDirectManipulation,
-	createBaseHalfVideoComposerManipulationLock,
-	followBaseHalfVideoComposerManipulation,
-	IBaseHalfVideoComposerLayout,
-	IBaseHalfVideoComposerManipulationLock,
-	resolveBaseHalfVideoComposerFirstMountPan,
-	resolveBaseHalfVideoComposerPlacement
-} from '../common/basehalfVideoComposerPresentation.js';
+	BaseHalfVideoPanelSide,
+	IBaseHalfVideoPanelLayout,
+	resolveBaseHalfVideoPanelPlacement
+} from '../common/basehalfVideoNodePanelPlacement.js';
 import type { BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../common/basehalfMarkdownFormatting.js';
 import { buildBaseHalfCanvasNotePartsTo } from './basehalfCanvasNoteParts.js';
 import { installBaseHalfCanvasWheelGestures } from './basehalfCanvasWheelGestures.js';
@@ -585,8 +584,8 @@ interface IBaseHalfCanvasEdgeInteraction {
 
 interface IBaseHalfCanvasSceneRuntime {
 	update(snapshot: IBaseHalfCanvasSceneSnapshot): void;
-	setVideoComposerSurface(surface: IBaseHalfCanvasSceneVideoComposerSurface): void;
-	clearVideoComposerSurface(element: HTMLElement): void;
+	setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void;
+	clearVideoPanelSurface(element: HTMLElement): void;
 	setSnapEnabled(enabled: boolean): void;
 	setZoom(zoom: number): Promise<void>;
 	zoomBy(factor: number): Promise<void>;
@@ -616,6 +615,16 @@ const NOTE_TOOLBAR_SCREEN_WIDTH = 392;
 const NOTE_TOOLBAR_SCREEN_HEIGHT = 36;
 const NOTE_BACKGROUND_PALETTE_SCREEN_HEIGHT = 72;
 const VIDEO_UPLOAD_TOOLBAR_SCREEN_WIDTH = 112;
+/** The padding of the video toolbar and the gap between its buttons, in screen pixels. */
+const VIDEO_TOOLBAR_SCREEN_PADDING = 3;
+const VIDEO_TOOLBAR_SCREEN_BUTTON_GAP = 2;
+/** Capture Frame carries a chevron for its menu beside its icon. */
+const VIDEO_TOOLBAR_CAPTURE_BUTTON_WIDTH = 42;
+const VIDEO_TOOLBAR_BUTTON_WIDTH = 28;
+const VIDEO_CAPTURE_FRAMES: readonly BaseHalfCanvasSceneVideoFrame[] = Object.freeze(['first', 'current', 'last']);
+/** The menu of frames: three items of 26 pixels, its padding, and its border. */
+const VIDEO_CAPTURE_MENU_SCREEN_HEIGHT = 88;
+const VIDEO_CAPTURE_MENU_SCREEN_GAP = 6;
 const CANVAS_GRAPH_CONTROL_SELECTOR = 'button, input, textarea, select, a, audio, video, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="slider"], [role="spinbutton"], .nodrag, .nopan, .basehalf-canvas-card-connect-handle';
 /** A press that moves no further than this, in screen pixels, is a click. */
 const CANVAS_PRESS_CLICK_DISTANCE = 4;
@@ -787,40 +796,57 @@ export function baseHalfCanvasVideoToolbarWidth(actions: readonly BaseHalfCanvas
 	if (canonicalActions.length === 1 && canonicalActions[0] === 'importResult') {
 		return VIDEO_UPLOAD_TOOLBAR_SCREEN_WIDTH;
 	}
-	const hasPrimaryAction = canonicalActions.includes('copySettings');
-	const hasSecondaryAction = canonicalActions.some(action => action === 'showDetails' || action === 'more' || action === 'openFullPreview');
-	const showDivider = hasPrimaryAction && hasSecondaryAction;
-	const renderedChildCount = canonicalActions.length + (showDivider ? 1 : 0);
-	return 6
-		+ canonicalActions.length * 28
-		+ Math.max(0, renderedChildCount - 1) * 2
-		+ (showDivider ? 5 : 0);
+	return VIDEO_TOOLBAR_SCREEN_PADDING * 2
+		+ canonicalActions.reduce((width, action) => width + (action === 'captureFrame' ? VIDEO_TOOLBAR_CAPTURE_BUTTON_WIDTH : VIDEO_TOOLBAR_BUTTON_WIDTH), 0)
+		+ (canonicalActions.length - 1) * VIDEO_TOOLBAR_SCREEN_BUTTON_GAP;
 }
 
-export interface IBaseHalfCanvasVideoComposerPlacement extends IBaseHalfVideoComposerLayout {
+/** The label of the toolbar's Reveal action, as the platform's file manager is called. */
+export function baseHalfCanvasRevealVideoLabel(): string {
+	return isMacintosh
+		? localize('basehalf.canvas.video.revealInFinder', "Reveal in Finder")
+		: isWindows
+			? localize('basehalf.canvas.video.revealInExplorer', "Reveal in File Explorer")
+			: localize('basehalf.canvas.video.openContainingFolder', "Open Containing Folder");
+}
+
+export interface IBaseHalfCanvasVideoPanelPlacement extends IBaseHalfVideoPanelLayout {
+	/** The panel's top left corner in canvas coordinates, where the scene's portal puts it. */
 	readonly flowLeft: number;
 	readonly flowTop: number;
 }
 
-export function resolveBaseHalfCanvasVideoComposerPlacement(
+/**
+ * Places the panel of a selected Video card in screen space by
+ * {@link resolveBaseHalfVideoPanelPlacement} and adds its position in canvas
+ * coordinates. The card's name, and the toolbar when it shows, are above the
+ * card, so a panel above the card goes above them.
+ */
+export function resolveBaseHalfCanvasVideoPanelPlacement(
 	options: IBaseHalfCanvasAnchoredToolbarPlacementOptions & {
-		readonly screenWidth: number;
-		readonly screenHeight: number;
+		readonly height: number;
+		readonly toolbarShown: boolean;
+		readonly keepSide?: BaseHalfVideoPanelSide;
 	}
-): IBaseHalfCanvasVideoComposerPlacement {
+): IBaseHalfCanvasVideoPanelPlacement {
 	const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, options.viewport.zoom);
-	const leftScreen = options.left * zoom + options.viewport.x;
-	const topScreen = options.top * zoom + options.viewport.y;
-	const rightScreen = options.right * zoom + options.viewport.x;
-	const bottomScreen = options.bottom * zoom + options.viewport.y;
-	const placement = resolveBaseHalfVideoComposerPlacement(
-		{ left: leftScreen, top: topScreen, right: rightScreen, bottom: bottomScreen },
-		{ width: options.viewportWidth, height: options.viewportHeight }
-	);
+	const card = {
+		left: options.left * zoom + options.viewport.x,
+		top: options.top * zoom + options.viewport.y,
+		right: options.right * zoom + options.viewport.x,
+		bottom: options.bottom * zoom + options.viewport.y
+	};
+	const aboveClearance = (BASEHALF_CANVAS_CARD_CAPTION_FLOW_GAP + BASEHALF_CANVAS_CARD_CAPTION_FLOW_HEIGHT) * zoom
+		+ (options.toolbarShown ? BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_GAP + BASEHALF_CANVAS_VIDEO_TOOLBAR_SCREEN_HEIGHT : 0);
+	const layout = resolveBaseHalfVideoPanelPlacement(card, { width: options.viewportWidth, height: options.viewportHeight }, {
+		height: options.height,
+		aboveClearance,
+		...(options.keepSide ? { keepSide: options.keepSide } : {})
+	});
 	return {
-		...placement,
-		flowLeft: (placement.left - options.viewport.x) / zoom,
-		flowTop: (placement.top - options.viewport.y) / zoom
+		...layout,
+		flowLeft: (layout.left - options.viewport.x) / zoom,
+		flowTop: (layout.top - options.viewport.y) / zoom
 	};
 }
 
@@ -1082,6 +1108,14 @@ function showEdgeReconnectTarget(host: HTMLElement, edgeId: string, snap: IBaseH
 	}
 }
 
+/** Tells the panel of a Video card where the scene put it, so it can keep its menus inside the canvas. */
+function dispatchBaseHalfCanvasVideoPanelLayout(element: HTMLElement, detail: IBaseHalfCanvasSceneVideoPanelLayout): void {
+	const EventConstructor = element.ownerDocument.defaultView?.CustomEvent;
+	if (EventConstructor) {
+		element.dispatchEvent(new EventConstructor<IBaseHalfCanvasSceneVideoPanelLayout>(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, { detail, bubbles: false }));
+	}
+}
+
 /**
  * Workbench-side host for the build-time bundled React Flow island. Commands
  * issued before the bundle has loaded are serialized behind `whenReady`; the
@@ -1092,7 +1126,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 	private runtime: IBaseHalfCanvasSceneRuntime | undefined;
 	private snapEnabled = true;
 	private latestSnapshot: IBaseHalfCanvasSceneSnapshot | undefined;
-	private videoComposerSurface: IBaseHalfCanvasSceneVideoComposerSurface | undefined;
+	private videoPanelSurface: IBaseHalfCanvasSceneVideoPanelSurface | undefined;
 	private latestViewport: IBaseHalfCanvasSceneViewport = { x: 0, y: 0, zoom: 1 };
 	private root: Root | undefined;
 	private rejectReady: ((error: unknown) => void) | undefined;
@@ -1122,20 +1156,20 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		this.runtime?.update(snapshot);
 	}
 
-	setVideoComposerSurface(surface: IBaseHalfCanvasSceneVideoComposerSurface): void {
+	setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void {
 		if (this.disposed) {
 			return;
 		}
-		this.videoComposerSurface = surface;
-		this.runtime?.setVideoComposerSurface(surface);
+		this.videoPanelSurface = surface;
+		this.runtime?.setVideoPanelSurface(surface);
 	}
 
-	clearVideoComposerSurface(element: HTMLElement): void {
-		if (this.videoComposerSurface?.element !== element) {
+	clearVideoPanelSurface(element: HTMLElement): void {
+		if (this.videoPanelSurface?.element !== element) {
 			return;
 		}
-		this.videoComposerSurface = undefined;
-		this.runtime?.clearVideoComposerSurface(element);
+		this.videoPanelSurface = undefined;
+		this.runtime?.clearVideoPanelSurface(element);
 	}
 
 	setSnapEnabled(enabled: boolean): void {
@@ -1194,7 +1228,7 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 
 	dispose(): void {
 		this.disposed = true;
-		this.videoComposerSurface = undefined;
+		this.videoPanelSurface = undefined;
 		this.rejectReady?.(new Error('BaseHalf canvas scene was disposed before its renderer became ready.'));
 		this.rejectReady = undefined;
 		this.root?.unmount();
@@ -1254,8 +1288,8 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 						if (this.latestSnapshot) {
 							runtime.update(this.latestSnapshot);
 						}
-						if (this.videoComposerSurface) {
-							runtime.setVideoComposerSurface(this.videoComposerSurface);
+						if (this.videoPanelSurface) {
+							runtime.setVideoPanelSurface(this.videoPanelSurface);
 						}
 						resolveReady(runtime);
 					}
@@ -2256,34 +2290,63 @@ function createCanvasSceneMount(
 		);
 	}
 
-	function VideoSelectionControls({ node, suppressed }: {
-		readonly node: BaseHalfCanvasFlowNode;
-		readonly suppressed: boolean;
-	}): ReactElement {
-		const viewport = vendor.useViewport();
-		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
-		const [focusIndex, setFocusIndex] = vendor.useState(0);
-		const firstButtonRef = vendor.useRef<HTMLButtonElement | null>(null);
-		const controls = node.data.card.controls?.kind === 'video' ? node.data.card.controls : undefined;
-		const actions = baseHalfCanvasSceneVideoSelectionActions(controls?.actions ?? []);
-		const actionKey = actions.join('\0');
-		vendor.useEffect(() => setFocusIndex(0), [actionKey]);
+	/** The size of the canvas's host, kept up to date. */
+	function useHostSize(): { readonly width: number; readonly height: number } {
+		const [size, setSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
 		vendor.useEffect(() => {
-			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
-				setViewportSize(current => current.width === width && current.height === height ? current : { width, height });
+			const update = (width = host.clientWidth, height = host.clientHeight): void => {
+				setSize(current => current.width === width && current.height === height ? current : { width, height });
 			};
-			updateSize();
+			update();
 			const ResizeObserverConstructor = host.ownerDocument.defaultView?.ResizeObserver;
 			if (!ResizeObserverConstructor) {
 				return;
 			}
 			const observer = new ResizeObserverConstructor(entries => {
-				const size = entries[0]?.contentRect;
-				updateSize(size?.width, size?.height);
+				const box = entries[0]?.contentRect;
+				update(box?.width, box?.height);
 			});
 			observer.observe(host);
 			return () => observer.disconnect();
 		}, []);
+		return size;
+	}
+
+	function flowNodeBounds(node: BaseHalfCanvasFlowNode): { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } {
+		const width = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
+		const height = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
+		return { left: node.position.x, top: node.position.y, right: node.position.x + width, bottom: node.position.y + height };
+	}
+
+	/**
+	 * The toolbar above a selected Video card: Upload Video for an empty node;
+	 * Capture Frame (with its menu of frames), Reveal, and Open for a node with
+	 * a video. The workbench runs the actions.
+	 */
+	function VideoSelectionControls({ node, suppressed }: {
+		readonly node: BaseHalfCanvasFlowNode;
+		readonly suppressed: boolean;
+	}): ReactElement {
+		const viewport = vendor.useViewport();
+		const viewportSize = useHostSize();
+		const [focusIndex, setFocusIndex] = vendor.useState(0);
+		const [captureOpen, setCaptureOpen] = vendor.useState(false);
+		const toolbarRef = vendor.useRef<HTMLDivElement | null>(null);
+		const buttonRefs = vendor.useRef<(HTMLButtonElement | null)[]>([]);
+		const frameRefs = vendor.useRef<(HTMLButtonElement | null)[]>([]);
+		const controls = node.data.card.controls?.kind === 'video' ? node.data.card.controls : undefined;
+		const actions = baseHalfCanvasSceneVideoSelectionActions(controls?.actions ?? []);
+		const actionKey = actions.join('\0');
+		const captureIndex = actions.indexOf('captureFrame');
+		vendor.useEffect(() => {
+			setFocusIndex(0);
+			setCaptureOpen(false);
+		}, [actionKey, node.id]);
+		vendor.useEffect(() => {
+			if (suppressed) {
+				setCaptureOpen(false);
+			}
+		}, [suppressed]);
 		vendor.useEffect(() => {
 			const element = node.data.card.element;
 			const focusToolbar = (event: KeyboardEvent): void => {
@@ -2294,78 +2357,84 @@ function createCanvasSceneMount(
 				event.preventDefault();
 				event.stopPropagation();
 				setFocusIndex(0);
-				element.ownerDocument.defaultView?.setTimeout(() => firstButtonRef.current?.focus(), 0);
+				element.ownerDocument.defaultView?.setTimeout(() => buttonRefs.current[0]?.focus(), 0);
 			};
 			element.addEventListener('keydown', focusToolbar);
 			return () => element.removeEventListener('keydown', focusToolbar);
 		}, [node.data.card.element]);
+		vendor.useEffect(() => {
+			if (!captureOpen) {
+				return;
+			}
+			frameRefs.current[0]?.focus({ preventScroll: true });
+			const closeOutside = (event: PointerEvent): void => {
+				if (!isCanvasElement(event.target) || !toolbarRef.current?.contains(event.target)) {
+					setCaptureOpen(false);
+				}
+			};
+			host.ownerDocument.addEventListener('pointerdown', closeOutside, true);
+			return () => host.ownerDocument.removeEventListener('pointerdown', closeOutside, true);
+		}, [captureOpen]);
 
 		if (!controls || actions.length === 0) {
 			return h(vendor.Fragment);
 		}
 
-		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
-		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
-		const primaryActions = actions.filter(action => action === 'copySettings');
-		const secondaryActionSet = new Set<BaseHalfCanvasSceneVideoAction>(['showDetails', 'more', 'openFullPreview']);
-		const secondaryActions = actions.filter(action => secondaryActionSet.has(action));
-		const showDivider = primaryActions.length > 0 && secondaryActions.length > 0;
+		const bounds = flowNodeBounds(node);
 		const importOnly = actions.length === 1 && actions[0] === 'importResult';
-		const toolbarWidth = baseHalfCanvasVideoToolbarWidth(actions);
 		const placement = resolveBaseHalfCanvasVideoSelectionPlacement({
-			left: node.position.x,
-			top: node.position.y,
-			right: node.position.x + nodeWidth,
-			bottom: node.position.y + nodeHeight,
+			...bounds,
 			viewport,
 			viewportWidth: viewportSize.width,
 			viewportHeight: viewportSize.height,
-			toolbarWidth
+			toolbarWidth: baseHalfCanvasVideoToolbarWidth(actions)
 		});
 		if (!placement.visible) {
 			return h(vendor.Fragment);
 		}
 
-		const metadata: Readonly<Record<BaseHalfCanvasSceneVideoAction, {
-			readonly label: string;
-			readonly icon?: keyof IBaseHalfCanvasToolbarIcons;
-		}>> = {
-			importResult: {
-				label: localize('basehalf.canvas.video.uploadVideo', "Upload Video")
-			},
-			openFullPreview: {
-				label: localize('basehalf.canvas.video.openFullPreview', "Open Full Preview"),
-				icon: 'expand'
-			},
-			copySettings: {
-				label: localize('basehalf.canvas.video.copySettings', "Copy Settings to New Draft"),
-				icon: 'copy'
-			},
-			showDetails: {
-				label: localize('basehalf.canvas.video.showDetails', "Show Details"),
-				icon: 'information'
-			},
-			more: {
-				label: localize('basehalf.canvas.video.moreActions', "More Actions"),
-				icon: 'more'
-			}
+		const labels: Readonly<Record<BaseHalfCanvasSceneVideoAction, string>> = {
+			importResult: localize('basehalf.canvas.video.uploadVideo', "Upload Video"),
+			captureFrame: localize('basehalf.canvas.video.captureFrame', "Capture Frame"),
+			revealVideo: baseHalfCanvasRevealVideoLabel(),
+			openFullPreview: localize('basehalf.canvas.video.open', "Open")
 		};
-		const focusVideo = (): void => {
-			const card = node.data.card.element;
-			const video = card.querySelector<HTMLVideoElement>('.basehalf-video-stage video');
-			(video && video.tabIndex >= 0 ? video : card).focus({ preventScroll: true });
+		const frameLabels: Readonly<Record<BaseHalfCanvasSceneVideoFrame, string>> = {
+			first: localize('basehalf.canvas.video.firstFrame', "First Frame"),
+			current: localize('basehalf.canvas.video.currentFrame', "Current Frame"),
+			last: localize('basehalf.canvas.video.lastFrame', "Last Frame")
+		};
+		const invoke = (action: BaseHalfCanvasSceneVideoAction, anchor: HTMLElement, frame?: BaseHalfCanvasSceneVideoFrame): void => {
+			void delegate.invokeVideoAction(
+				node.data.sceneKey,
+				node.data.structuralEpoch,
+				node.id,
+				action,
+				anchor,
+				frame
+			).catch(error => delegate.reportError(error));
+		};
+		const focusButton = (index: number): void => {
+			setFocusIndex(index);
+			buttonRefs.current[index]?.focus({ preventScroll: true });
 		};
 		const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>, index: number): void => {
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				event.stopPropagation();
-				focusVideo();
+				node.data.card.element.focus({ preventScroll: true });
+				return;
+			}
+			if (index === captureIndex && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+				event.preventDefault();
+				event.stopPropagation();
+				setCaptureOpen(true);
 				return;
 			}
 			let next: number | undefined;
-			if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+			if (event.key === 'ArrowRight') {
 				next = (index + 1) % actions.length;
-			} else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+			} else if (event.key === 'ArrowLeft') {
 				next = (index - 1 + actions.length) % actions.length;
 			} else if (event.key === 'Home') {
 				next = 0;
@@ -2377,79 +2446,125 @@ function createCanvasSceneMount(
 			}
 			event.preventDefault();
 			event.stopPropagation();
-			setFocusIndex(next);
-			event.currentTarget.closest<HTMLElement>('.basehalf-video-context-toolbar')
-				?.querySelectorAll<HTMLButtonElement>(':scope > button')[next]?.focus();
+			focusButton(next);
 		};
-		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
-			event.stopPropagation();
-		};
-		const icon = (name: keyof IBaseHalfCanvasToolbarIcons): ReactElement => {
-			const Icon = vendor.BaseHalfCanvasToolbarIcons[name];
-			return h(Icon, {
-				size: 18,
-				className: 'basehalf-canvas-note-toolbar-icon',
-				'data-basehalf-icon': name,
-				'aria-hidden': true,
-				focusable: false
-			});
-		};
-		const actionButtons: ReactElement[] = [];
-		actions.forEach((action, index) => {
-			if (showDivider && secondaryActionSet.has(action) && !actionButtons.some(element => element.key === 'video-secondary-divider')) {
-				actionButtons.push(h('span', {
-					key: 'video-secondary-divider',
-					className: 'basehalf-canvas-note-toolbar-divider',
-					'aria-hidden': 'true'
-				}));
+		const onFrameKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
+			const items = frameRefs.current.filter((item): item is HTMLButtonElement => !!item);
+			const index = items.findIndex(item => item === host.ownerDocument.activeElement);
+			let next: number | undefined;
+			if (event.key === 'ArrowDown') {
+				next = (index + 1) % items.length;
+			} else if (event.key === 'ArrowUp') {
+				next = (index - 1 + items.length) % items.length;
+			} else if (event.key === 'Home') {
+				next = 0;
+			} else if (event.key === 'End') {
+				next = items.length - 1;
+			} else if (event.key === 'Escape' || event.key === 'Tab') {
+				event.preventDefault();
+				event.stopPropagation();
+				setCaptureOpen(false);
+				focusButton(captureIndex);
+				return;
 			}
-			actionButtons.push(h('button', {
-				...(index === 0 ? { ref: firstButtonRef } : {}),
-				key: action,
+			if (next === undefined) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			items[next]?.focus({ preventScroll: true });
+		};
+		const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom);
+		// The menu of frames opens upward, over the canvas above the toolbar,
+		// when it fits there; otherwise it opens over the card.
+		const menuOpensAbove = placement.top * zoom + viewport.y - VIDEO_CAPTURE_MENU_SCREEN_GAP - VIDEO_CAPTURE_MENU_SCREEN_HEIGHT >= NOTE_CONTROLS_SCREEN_MARGIN;
+		const codicon = (name: string, extra = ''): ReactElement => h('span', { className: `codicon codicon-${name}${extra}`, 'aria-hidden': true });
+		const face = (action: BaseHalfCanvasSceneVideoAction): ReactNode => {
+			switch (action) {
+				case 'importResult':
+					return h(vendor.Fragment, null, codicon('cloud-upload'), h('span', { className: 'basehalf-video-upload-label' }, labels.importResult));
+				case 'captureFrame':
+					return h(vendor.Fragment, null, codicon('device-camera'), codicon('chevron-down', ' basehalf-video-capture-chevron'));
+				case 'revealVideo':
+					return codicon('folder-opened');
+				case 'openFullPreview':
+					return h(vendor.BaseHalfCanvasToolbarIcons.expand, {
+						size: 18,
+						className: 'basehalf-canvas-note-toolbar-icon',
+						'data-basehalf-icon': 'expand',
+						'aria-hidden': true,
+						focusable: false
+					});
+			}
+		};
+		const buttons = actions.map((action, index) => h('button', {
+			key: action,
+			ref: (element: HTMLButtonElement | null) => { buttonRefs.current[index] = element; },
+			type: 'button',
+			className: `basehalf-video-result-toolbar-action basehalf-canvas-note-toolbar-action${action === 'importResult' ? ' basehalf-video-upload-action' : ' icon'}${action === 'captureFrame' ? ' basehalf-video-capture-action' : ''}`,
+			title: labels[action],
+			'aria-label': labels[action],
+			...(action === 'captureFrame' ? { 'aria-haspopup': 'menu', 'aria-expanded': captureOpen } : {}),
+			'data-video-action': action,
+			tabIndex: !suppressed && index === focusIndex ? 0 : -1,
+			onFocus: () => setFocusIndex(index),
+			onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => onKeyDown(event, index),
+			onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+				event.preventDefault();
+				event.stopPropagation();
+			},
+			onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (action === 'captureFrame') {
+					setCaptureOpen(open => !open);
+					return;
+				}
+				invoke(action, event.currentTarget);
+			}
+		}, face(action)));
+		const frameMenu = captureOpen && captureIndex >= 0
+			? h('div', {
+				key: 'frames',
+				className: `basehalf-video-capture-menu ${menuOpensAbove ? 'above' : 'below'}`,
+				role: 'menu',
+				'aria-label': labels.captureFrame,
+				onKeyDown: onFrameKeyDown
+			}, ...VIDEO_CAPTURE_FRAMES.map((frame, index) => h('button', {
+				key: frame,
+				ref: (element: HTMLButtonElement | null) => { frameRefs.current[index] = element; },
 				type: 'button',
-				className: `basehalf-video-result-toolbar-action basehalf-canvas-note-toolbar-action${action === 'importResult' ? ' basehalf-video-upload-action' : ' icon'}${action === 'openFullPreview' ? ' open' : ''}`,
-				title: metadata[action].label,
-				'aria-label': metadata[action].label,
-				...(action === 'more' ? { 'aria-haspopup': 'menu' } : {}),
-				'data-video-action': action,
-				tabIndex: !suppressed && index === focusIndex ? 0 : -1,
-				onFocus: () => setFocusIndex(index),
-				onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => onKeyDown(event, index),
+				role: 'menuitem',
+				className: 'basehalf-video-capture-menu-item',
+				'data-video-frame': frame,
+				tabIndex: -1,
 				onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
 					event.preventDefault();
 					event.stopPropagation();
 				},
-				onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
+				onClick: (event: ReactMouseEvent<HTMLElement>) => {
 					event.preventDefault();
 					event.stopPropagation();
-					void delegate.invokeVideoAction(
-						node.data.sceneKey,
-						node.data.structuralEpoch,
-						node.id,
-						action,
-						event.currentTarget
-					).catch(error => delegate.reportError(error));
+					setCaptureOpen(false);
+					const anchor = buttonRefs.current[captureIndex];
+					focusButton(captureIndex);
+					if (anchor) {
+						invoke('captureFrame', anchor, frame);
+					}
 				}
-			}, action === 'importResult'
-				? h(vendor.Fragment, null,
-					h('span', {
-						className: 'codicon codicon-cloud-upload',
-						'aria-hidden': 'true'
-					}),
-					h('span', { className: 'basehalf-video-upload-label' }, metadata[action].label)
-				)
-				: icon(metadata[action].icon!)));
-		});
-
+			}, frameLabels[frame])))
+			: null;
+		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
+			event.stopPropagation();
+		};
 		return h(vendor.ViewportPortal, null,
 			h('div', {
+				ref: toolbarRef,
 				className: `basehalf-video-context-toolbar ${importOnly ? 'basehalf-video-draft-toolbar' : 'basehalf-video-result-toolbar'} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
 				role: 'toolbar',
-				'aria-label': importOnly
-					? localize('basehalf.canvas.video.draftActions', "Video Draft actions for {0}", node.id)
-					: localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
+				'aria-label': localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
 				'data-node-path': node.id,
-				'data-video-surface': importOnly ? 'draft' : 'result',
+				'data-video-surface': importOnly ? 'empty' : 'video',
 				'data-placement': placement.side,
 				'data-chrome-state': suppressed ? 'suppressed' : 'present',
 				'aria-hidden': suppressed,
@@ -2463,102 +2578,50 @@ function createCanvasSceneMount(
 				onPointerDown: stopEvent,
 				onClick: stopEvent,
 				onDoubleClick: stopEvent
-			}, ...actionButtons)
+			}, ...buttons, frameMenu)
 		);
 	}
 
-	function VideoComposerAdjacentSurface({
-		node,
-		surface,
-		manipulation,
-		viewportInteraction,
-		onFirstMountPan
-	}: {
+	/**
+	 * Places the panel that the workbench built for the selected Video card:
+	 * at a constant screen size, below the card, above it, or clamped inside
+	 * the canvas, and hidden while the card is off the canvas. It follows the
+	 * card while the card moves or is resized, and it never moves the canvas.
+	 */
+	function VideoPanelAdjacentSurface({ node, surface, following }: {
 		readonly node: BaseHalfCanvasFlowNode;
-		readonly surface: IBaseHalfCanvasSceneVideoComposerSurface;
-		readonly manipulation?: { readonly kind: BaseHalfVideoComposerDirectManipulation; readonly phase: 'active' | 'settling' };
-		readonly viewportInteraction: boolean;
-		readonly onFirstMountPan: (viewport: IBaseHalfCanvasSceneViewport) => void;
+		readonly surface: IBaseHalfCanvasSceneVideoPanelSurface;
+		readonly following: boolean;
 	}): ReactElement {
 		const viewport = vendor.useViewport();
-		const flow = vendor.useReactFlow<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge>();
+		const viewportSize = useHostSize();
 		const mountRef = vendor.useRef<HTMLDivElement>(null);
-		const latestLayout = vendor.useRef<IBaseHalfVideoComposerLayout | undefined>(undefined);
-		const latestAnchor = vendor.useRef<{ readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } | undefined>(undefined);
-		const latestViewportSize = vendor.useRef<{ readonly width: number; readonly height: number } | undefined>(undefined);
-		const manipulationLock = vendor.useRef<IBaseHalfVideoComposerManipulationLock | undefined>(undefined);
-		const firstMountPanAttempted = vendor.useRef(false);
-		const layoutEpoch = vendor.useRef(0);
-		const [viewportSize, setViewportSize] = vendor.useState(() => ({ width: host.clientWidth, height: host.clientHeight }));
-		vendor.useEffect(() => {
-			const updateSize = (width = host.clientWidth, height = host.clientHeight): void => {
-				setViewportSize(current => current.width === width && current.height === height ? current : { width, height });
-			};
-			updateSize();
-			const ResizeObserverConstructor = host.ownerDocument.defaultView?.ResizeObserver;
-			if (!ResizeObserverConstructor) {
-				return;
-			}
-			const observer = new ResizeObserverConstructor(entries => {
-				const size = entries[0]?.contentRect;
-				updateSize(size?.width, size?.height);
-			});
-			observer.observe(host);
-			return () => observer.disconnect();
-		}, []);
-
-		const nodeWidth = node.width ?? node.measured?.width ?? numericStyle(node.style?.width) ?? node.data.card.width;
-		const nodeHeight = node.height ?? node.measured?.height ?? numericStyle(node.style?.height) ?? node.data.card.height;
-		const anchor = {
-			left: node.position.x * viewport.zoom + viewport.x,
-			top: node.position.y * viewport.zoom + viewport.y,
-			right: (node.position.x + nodeWidth) * viewport.zoom + viewport.x,
-			bottom: (node.position.y + nodeHeight) * viewport.zoom + viewport.y
-		};
-		const resolvedPlacement = resolveBaseHalfVideoComposerPlacement(anchor, viewportSize);
-		if (manipulation && !manipulationLock.current) {
-			manipulationLock.current = createBaseHalfVideoComposerManipulationLock(
-				latestAnchor.current ?? anchor,
-				latestLayout.current ?? resolvedPlacement
-			);
-		} else if (!manipulation) {
-			manipulationLock.current = undefined;
+		const keptSide = vendor.useRef<BaseHalfVideoPanelSide | undefined>(undefined);
+		const lastSide = vendor.useRef<BaseHalfVideoPanelSide | undefined>(undefined);
+		const bounds = flowNodeBounds(node);
+		const toolbarActions = baseHalfCanvasSceneVideoSelectionActions(node.data.card.controls?.kind === 'video' ? node.data.card.controls.actions : []);
+		const toolbarShown = toolbarActions.length > 0 && resolveBaseHalfCanvasVideoSelectionPlacement({
+			...bounds,
+			viewport,
+			viewportWidth: viewportSize.width,
+			viewportHeight: viewportSize.height,
+			toolbarWidth: baseHalfCanvasVideoToolbarWidth(toolbarActions)
+		}).visible;
+		if (!following) {
+			keptSide.current = undefined;
+		} else if (!keptSide.current) {
+			keptSide.current = lastSide.current;
 		}
-		const layout = manipulation && manipulationLock.current
-			? followBaseHalfVideoComposerManipulation(anchor, manipulationLock.current)
-			: resolvedPlacement;
-		const effectivelyVisible = layout.visible;
-		latestLayout.current = layout;
-		const previousAnchor = latestAnchor.current;
-		const previousViewportSize = latestViewportSize.current;
-		const viewportResized = !!previousViewportSize
-			&& (previousViewportSize.width !== viewportSize.width || previousViewportSize.height !== viewportSize.height);
-		const anchorChanged = (!!previousAnchor && (previousAnchor.left !== anchor.left
-			|| previousAnchor.top !== anchor.top
-			|| previousAnchor.right !== anchor.right
-			|| previousAnchor.bottom !== anchor.bottom))
-			|| viewportResized;
-		latestAnchor.current = anchor;
-		latestViewportSize.current = viewportSize;
-
-		const dispatchLayout = vendor.useCallback((element: HTMLElement, detail: IBaseHalfVideoComposerLayout & {
-			readonly epoch: number;
-			readonly anchorChanged: boolean;
-			readonly viewportResized: boolean;
-			readonly viewportInteraction: boolean;
-			readonly manipulating?: BaseHalfVideoComposerDirectManipulation;
-		}): void => {
-			element.dataset.placement = detail.placement;
-			element.dataset.videoComposerVisible = String(detail.visible);
-			element.dataset.videoComposerState = detail.visibility;
-			const EventConstructor = element.ownerDocument.defaultView?.CustomEvent;
-			if (EventConstructor) {
-				element.dispatchEvent(new EventConstructor(BASEHALF_CANVAS_VIDEO_COMPOSER_LAYOUT_EVENT, {
-					detail,
-					bubbles: false
-				}));
-			}
-		}, []);
+		const placement = resolveBaseHalfCanvasVideoPanelPlacement({
+			...bounds,
+			viewport,
+			viewportWidth: viewportSize.width,
+			viewportHeight: viewportSize.height,
+			height: surface.screenHeight,
+			toolbarShown,
+			...(keptSide.current ? { keepSide: keptSide.current } : {})
+		});
+		lastSide.current = placement.side;
 		vendor.useLayoutEffect(() => {
 			const mount = mountRef.current;
 			const element = surface.element;
@@ -2566,61 +2629,47 @@ function createCanvasSceneMount(
 				return;
 			}
 			mount.replaceChildren(element);
-			element.dataset.placement = layout.placement;
 			return () => {
-				const previous = latestLayout.current;
-				if (previous) {
-					dispatchLayout(element, {
-						...previous,
-						visibility: 'anchor-offscreen',
-						visible: false,
-						epoch: ++layoutEpoch.current,
-						anchorChanged: false,
-						viewportResized: false,
-						viewportInteraction: false
-					});
-				}
+				dispatchBaseHalfCanvasVideoPanelLayout(element, {
+					placement: 'below',
+					visible: false,
+					following: false,
+					left: 0,
+					top: 0,
+					width: 0,
+					height: 0,
+					canvasWidth: host.clientWidth,
+					canvasHeight: host.clientHeight
+				});
 				if (element.parentElement === mount) {
 					element.remove();
 				}
 			};
-		}, [dispatchLayout, surface.element]);
+		}, [surface.element]);
 		vendor.useLayoutEffect(() => {
-			dispatchLayout(surface.element, {
-				...layout,
-				epoch: ++layoutEpoch.current,
-				anchorChanged,
-				viewportResized,
-				viewportInteraction,
-				...(manipulation ? { manipulating: manipulation.kind } : {})
+			dispatchBaseHalfCanvasVideoPanelLayout(surface.element, {
+				placement: placement.placement,
+				visible: placement.visible,
+				following,
+				left: placement.left,
+				top: placement.top,
+				width: placement.width,
+				height: placement.height,
+				canvasWidth: viewportSize.width,
+				canvasHeight: viewportSize.height
 			});
 		}, [
-			anchorChanged,
-			dispatchLayout,
-			manipulation,
 			surface.element,
-			viewportInteraction,
-			viewportResized,
-			layout.visible,
-			layout.visibility,
-			layout.placement,
-			layout.left,
-			layout.top,
-			layout.screenWidth,
-			layout.screenHeight
+			following,
+			placement.placement,
+			placement.visible,
+			placement.left,
+			placement.top,
+			placement.width,
+			placement.height,
+			viewportSize.width,
+			viewportSize.height
 		]);
-		vendor.useLayoutEffect(() => {
-			if (firstMountPanAttempted.current || manipulation || viewportInteraction) {
-				return;
-			}
-			firstMountPanAttempted.current = true;
-			const pan = resolveBaseHalfVideoComposerFirstMountPan(anchor, viewportSize);
-			if (pan.x === 0 && pan.y === 0) {
-				return;
-			}
-			const next = { x: viewport.x + pan.x, y: viewport.y + pan.y, zoom: viewport.zoom };
-			void flow.setViewport(next, { duration: 0 }).then(() => onFirstMountPan(next));
-		}, [anchor, flow, manipulation, onFirstMountPan, viewport, viewportInteraction, viewportSize]);
 
 		const stopEvent = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
 			event.stopPropagation();
@@ -2628,21 +2677,21 @@ function createCanvasSceneMount(
 		return h(vendor.ViewportPortal, null,
 			h('div', {
 				ref: mountRef,
-				className: 'basehalf-canvas-video-composer-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel',
+				className: 'basehalf-canvas-video-panel-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel',
 				'data-basehalf-card-path': surface.path,
-				'data-placement': layout.placement,
-				'data-visible': String(effectivelyVisible),
-				'data-chrome-state': manipulation ? 'manipulating' : effectivelyVisible ? 'present' : 'suspended',
-				'data-surface-state': layout.visibility,
-				'aria-hidden': String(!effectivelyVisible || !!manipulation),
-				inert: !!manipulation || !effectivelyVisible,
+				'data-placement': placement.side,
+				'data-panel-placement': placement.placement,
+				'data-visible': String(placement.visible),
+				'data-chrome-state': following ? 'following' : placement.visible ? 'present' : 'suspended',
+				'aria-hidden': !placement.visible,
+				inert: !placement.visible,
 				style: screenSpaceCanvasStyle(viewport.zoom, {
-					left: (layout.left - viewport.x) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom),
-					top: (layout.top - viewport.y) / Math.max(BASEHALF_CANVAS_MIN_ZOOM, viewport.zoom),
-					width: layout.screenWidth,
-					height: layout.screenHeight,
-					visibility: effectivelyVisible ? 'visible' : 'hidden',
-					pointerEvents: effectivelyVisible && !manipulation ? 'auto' : 'none'
+					left: placement.flowLeft,
+					top: placement.flowTop,
+					width: placement.width,
+					height: placement.height,
+					visibility: placement.visible ? 'visible' : 'hidden',
+					pointerEvents: placement.visible && !following ? 'auto' : 'none'
 				}),
 				onPointerDown: stopEvent,
 				onClick: stopEvent,
@@ -2932,7 +2981,7 @@ function createCanvasSceneMount(
 		const nodeDragSelectionAtPointerDown = vendor.useRef<{ readonly primaryPath: string; readonly selection: readonly string[] } | undefined>(undefined);
 		const nodeDragToken = vendor.useRef(0);
 		const nodeDragChromeToken = vendor.useRef<number | undefined>(undefined);
-		const videoComposerManipulationToken = vendor.useRef(0);
+		const videoPanelFollowToken = vendor.useRef(0);
 		const keyboardGeometryTimer = vendor.useRef<number | undefined>(undefined);
 		const keyboardGeometryInteractionActive = vendor.useRef(false);
 		const keyboardGeometryPath = vendor.useRef<string | undefined>(undefined);
@@ -2946,14 +2995,14 @@ function createCanvasSceneMount(
 		const dropLineToken = vendor.useRef(0);
 		const dropLineElement = vendor.useRef<SVGSVGElement>(null);
 		const [nodeDragChromePhase, setNodeDragChromePhase] = vendor.useState<{ readonly token: number; readonly phase: 'dragging' | 'settling' } | undefined>(undefined);
-		const [videoComposerSurface, setVideoComposerSurfaceState] = vendor.useState<IBaseHalfCanvasSceneVideoComposerSurface | undefined>(undefined);
-		const [videoComposerManipulation, setVideoComposerManipulation] = vendor.useState<{
+		const [videoPanelSurface, setVideoPanelSurfaceState] = vendor.useState<IBaseHalfCanvasSceneVideoPanelSurface | undefined>(undefined);
+		// While the user moves or resizes the card of the Video panel, the panel
+		// follows it on the side it was on.
+		const [videoPanelFollow, setVideoPanelFollow] = vendor.useState<{
 			readonly token: number;
 			readonly path: string;
-			readonly kind: BaseHalfVideoComposerDirectManipulation;
-			readonly phase: 'active' | 'settling';
+			readonly kind: 'node-move' | 'node-resize' | 'keyboard-geometry';
 		} | undefined>(undefined);
-		const [viewportInteractionActive, setViewportInteractionActive] = vendor.useState(false);
 		const [videoInputPickActive, setVideoInputPickActive] = vendor.useState(!!host.dataset.videoInputPickActive);
 		vendor.useEffect(() => {
 			const MutationObserver = host.ownerDocument.defaultView?.MutationObserver;
@@ -2975,7 +3024,7 @@ function createCanvasSceneMount(
 			nodeDragChromeToken.current = drag.token;
 			host.dataset.nodeDragChrome = 'dragging';
 			setNodeDragChromePhase({ token: drag.token, phase: 'dragging' });
-			setVideoComposerManipulation({ token: drag.token, path: drag.primaryPath, kind: 'node-move', phase: 'active' });
+			setVideoPanelFollow({ token: drag.token, path: drag.primaryPath, kind: 'node-move' });
 		}, []);
 		const settleNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			if (nodeDragChromeToken.current !== drag.token) {
@@ -2983,7 +3032,6 @@ function createCanvasSceneMount(
 			}
 			host.dataset.nodeDragChrome = 'settling';
 			setNodeDragChromePhase(current => current?.token === drag.token ? { token: drag.token, phase: 'settling' } : current);
-			setVideoComposerManipulation(current => current?.token === drag.token ? { ...current, phase: 'settling' } : current);
 		}, []);
 		const revealNodeDragChrome = vendor.useCallback((drag: IBaseHalfCanvasNodeDragState): void => {
 			if (nodeDragChromeToken.current !== drag.token) {
@@ -2992,7 +3040,7 @@ function createCanvasSceneMount(
 			nodeDragChromeToken.current = undefined;
 			delete host.dataset.nodeDragChrome;
 			setNodeDragChromePhase(current => current?.token === drag.token ? undefined : current);
-			setVideoComposerManipulation(current => current?.token === drag.token ? undefined : current);
+			setVideoPanelFollow(current => current?.token === drag.token ? undefined : current);
 		}, []);
 		vendor.useEffect(() => () => {
 			delete host.dataset.nodeDragChrome;
@@ -3056,17 +3104,15 @@ function createCanvasSceneMount(
 				return;
 			}
 			beginInteraction();
-			const token = ++videoComposerManipulationToken.current;
-			setVideoComposerManipulation({ token, path, kind: 'node-resize', phase: 'active' });
+			const token = ++videoPanelFollowToken.current;
+			setVideoPanelFollow({ token, path, kind: 'node-resize' });
 		}, [beginInteraction]);
 		const endNodeResize = vendor.useCallback((path: string): void => {
 			endInteraction();
-			setVideoComposerManipulation(current => current?.path === path && current.kind === 'node-resize'
-				? { ...current, phase: 'settling' }
-				: current);
 			const view = host.ownerDocument.defaultView;
+			// The panel keeps following until the resized card has its final size.
 			const settle = () => {
-				setVideoComposerManipulation(current => current?.path === path && current.kind === 'node-resize' ? undefined : current);
+				setVideoPanelFollow(current => current?.path === path && current.kind === 'node-resize' ? undefined : current);
 			};
 			if (!view) {
 				settle();
@@ -3386,8 +3432,7 @@ function createCanvasSceneMount(
 				if (drag) {
 					revealNodeDragChrome(drag);
 				}
-				setVideoComposerManipulation(undefined);
-				setViewportInteractionActive(false);
+				setVideoPanelFollow(undefined);
 				setGuides([]);
 			}
 
@@ -4361,16 +4406,16 @@ function createCanvasSceneMount(
 							x: basePosition.x + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
 							y: basePosition.y + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0)
 						};
-						const token = videoComposerManipulation?.kind === 'keyboard-geometry' && videoComposerManipulation.path === selectedNode.id
-							? videoComposerManipulation.token
-							: ++videoComposerManipulationToken.current;
+						const token = videoPanelFollow?.kind === 'keyboard-geometry' && videoPanelFollow.path === selectedNode.id
+							? videoPanelFollow.token
+							: ++videoPanelFollowToken.current;
 						if (!keyboardGeometryInteractionActive.current) {
 							keyboardGeometryInteractionActive.current = true;
 							beginInteraction();
 						}
 						keyboardGeometryPath.current = selectedNode.id;
 						keyboardGeometryPosition.current = position;
-						setVideoComposerManipulation({ token, path: selectedNode.id, kind: 'keyboard-geometry', phase: 'active' });
+						setVideoPanelFollow({ token, path: selectedNode.id, kind: 'keyboard-geometry' });
 						applyNodesChange([{ id: selectedNode.id, type: 'position', position, dragging: true }], true);
 						const view = host.ownerDocument.defaultView;
 						if (view) {
@@ -4390,10 +4435,9 @@ function createCanvasSceneMount(
 										keyboardGeometryPosition.current = undefined;
 										endInteraction();
 									}
-									setVideoComposerManipulation(state => state?.token === token ? undefined : state);
+									setVideoPanelFollow(state => state?.token === token ? undefined : state);
 									return;
 								}
-								setVideoComposerManipulation(state => state?.token === token ? { ...state, phase: 'settling' } : state);
 								applyNodesChange([{ id: current.id, type: 'position', position: finalPosition, dragging: false }], true);
 								keyboardGeometryPath.current = undefined;
 								keyboardGeometryPosition.current = undefined;
@@ -4402,7 +4446,7 @@ function createCanvasSceneMount(
 									endInteraction();
 								}
 								view.requestAnimationFrame(() => {
-									setVideoComposerManipulation(state => state?.token === token ? undefined : state);
+									setVideoPanelFollow(state => state?.token === token ? undefined : state);
 									current.data.card.element.focus({ preventScroll: true });
 								});
 							}, 100);
@@ -4439,7 +4483,7 @@ function createCanvasSceneMount(
 			};
 			host.addEventListener('keydown', onKeyDown, true);
 			return () => host.removeEventListener('keydown', onKeyDown, true);
-		}, [applyNodesChange, beginInteraction, endInteraction, invokeSelectionAction, removeEdges, setLiveEdges, videoComposerManipulation]);
+		}, [applyNodesChange, beginInteraction, endInteraction, invokeSelectionAction, removeEdges, setLiveEdges, videoPanelFollow]);
 
 		const runViewportCommand = vendor.useCallback(async (operation: () => Promise<void>): Promise<void> => {
 			const operationKey = sceneKeyRef.current;
@@ -4448,7 +4492,6 @@ function createCanvasSceneMount(
 					return;
 				}
 				viewportCommandKey.current = operationKey;
-				setViewportInteractionActive(true);
 				try {
 					await operation();
 					await new Promise<void>(resolve => host.ownerDocument.defaultView?.setTimeout(resolve, 0) ?? resolve());
@@ -4456,15 +4499,14 @@ function createCanvasSceneMount(
 					if (flow && sceneKeyRef.current === operationKey) {
 						// React Flow can deliver the null-event onMove/onMoveEnd pair after
 						// an imperative command's promise settles. Publish the authoritative
-						// viewport before releasing its owner so host-owned adjacent chrome
-						// (notably the Video Composer) always receives the final geometry.
+						// viewport before releasing its owner so the workbench always
+						// receives the final geometry.
 						reportViewport(operationKey, flow.getViewport(), true);
 					}
 				} finally {
 					if (viewportCommandKey.current === operationKey) {
 						viewportCommandKey.current = undefined;
 					}
-					setViewportInteractionActive(false);
 				}
 			});
 			viewportCommandQueue.current = queued;
@@ -4473,11 +4515,11 @@ function createCanvasSceneMount(
 
 		const runtime = vendor.useMemo<IBaseHalfCanvasSceneRuntime>(() => ({
 			update: updateSnapshot,
-			setVideoComposerSurface(surface: IBaseHalfCanvasSceneVideoComposerSurface): void {
-				setVideoComposerSurfaceState(surface);
+			setVideoPanelSurface(surface: IBaseHalfCanvasSceneVideoPanelSurface): void {
+				setVideoPanelSurfaceState(surface);
 			},
-			clearVideoComposerSurface(element: HTMLElement): void {
-				setVideoComposerSurfaceState(current => current?.element === element ? undefined : current);
+			clearVideoPanelSurface(element: HTMLElement): void {
+				setVideoPanelSurfaceState(current => current?.element === element ? undefined : current);
 			},
 			setSnapEnabled(enabled: boolean): void {
 				snapEnabledRef.current = enabled;
@@ -4772,7 +4814,6 @@ function createCanvasSceneMount(
 				}
 				delegate.didStartViewportInteraction();
 				viewportGestureSceneKey.current = sceneKeyRef.current;
-				setViewportInteractionActive(true);
 				beginInteraction();
 			},
 			onMove: (_event, viewport) => {
@@ -4792,7 +4833,6 @@ function createCanvasSceneMount(
 				if (!commandOwner && gestureOwner) {
 					viewportGestureSceneKey.current = undefined;
 					endInteraction();
-					setViewportInteractionActive(false);
 				}
 			},
 			connectionMode: vendor.ConnectionMode.Loose,
@@ -4825,11 +4865,11 @@ function createCanvasSceneMount(
 		const selectedNodes = nodes.filter(node => node.selected);
 		const selectionSurface = baseHalfCanvasSceneSelectionSurface(selectedNodes.map(node => node.data.card));
 		const adjacentChromeSuppressed = nodeDragChromePhase !== undefined;
-		const videoComposerNode = videoComposerSurface
-			&& videoComposerSurface.sceneKey === sceneKeyRef.current
-			&& videoComposerSurface.structuralEpoch === structuralEpochRef.current
+		const videoPanelNode = videoPanelSurface
+			&& videoPanelSurface.sceneKey === sceneKeyRef.current
+			&& videoPanelSurface.structuralEpoch === structuralEpochRef.current
 			&& selectedNodes.length === 1
-			&& selectedNodes[0].id === videoComposerSurface.path
+			&& selectedNodes[0].id === videoPanelSurface.path
 				? selectedNodes[0]
 				: undefined;
 		return h(EdgeInteractionContext.Provider, { value: edgeInteraction },
@@ -4845,16 +4885,12 @@ function createCanvasSceneMount(
 					h(SnapGuides, { guides, zoom: viewportRef.current.zoom }),
 					dropLine && dropLine.sceneKey === sceneKeyRef.current ? h(ConnectionDropLine, { key: dropLine.token, path: dropLine.path, elementRef: dropLineElement }) : null,
 					h(ConnectCaptureLayer, { nodes, disabled: videoInputPickActive || nodeDragChromePhase !== undefined }),
-					videoComposerNode && videoComposerSurface
-						? h(VideoComposerAdjacentSurface, {
-							key: videoComposerSurface.path,
-							node: videoComposerNode,
-							surface: videoComposerSurface,
-							manipulation: videoComposerManipulation?.path === videoComposerNode.id
-								? { kind: videoComposerManipulation.kind, phase: videoComposerManipulation.phase }
-								: undefined,
-							viewportInteraction: viewportInteractionActive,
-							onFirstMountPan: viewport => reportViewport(sceneKeyRef.current, viewport, true)
+					videoPanelNode && videoPanelSurface
+						? h(VideoPanelAdjacentSurface, {
+							key: videoPanelSurface.path,
+							node: videoPanelNode,
+							surface: videoPanelSurface,
+							following: videoPanelFollow?.path === videoPanelNode.id
 						})
 						: null,
 					selectionSurface === 'note'
