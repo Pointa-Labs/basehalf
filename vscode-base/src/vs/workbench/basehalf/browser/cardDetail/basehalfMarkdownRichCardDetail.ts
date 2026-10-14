@@ -68,6 +68,7 @@ import { IBaseHalfAdhdDocumentOptions, IBaseHalfAdhdMirrorService } from '../../
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdownAttachment.js';
 import { baseHalfMarkdownFrontmatterLineCount } from '../../common/basehalfMarkdownProjection.js';
+import { IBaseHalfAgentSelectionText } from '../../common/basehalfAgentSelection.js';
 import { baseHalfUserFacingErrorMessage } from '../../common/basehalfPlainFailureReason.js';
 import { localize } from '../../../../nls.js';
 
@@ -97,6 +98,8 @@ export interface IBaseHalfMarkdownRichCardDetailOptions {
 	readonly onCanvasToolbarRequest?: () => void;
 	readonly onCanvasAuthoringRequest?: (point?: IBaseHalfMarkdownRichFocusPoint) => void;
 	readonly onCanvasExitRequest?: () => void;
+	/** The text the user selected, or `undefined` once nothing is (the selection agents can see). */
+	readonly onSelectionChange?: (selected: IBaseHalfAgentSelectionText | undefined) => void;
 }
 
 export type BaseHalfMarkdownRichFirstFrameState = 'booting' | 'settling' | 'paused' | 'rendered' | 'error' | 'timeout';
@@ -798,11 +801,24 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);
 				break;
+			case 'basehalf.markdownRich.selectionChanged':
+				this.options.onSelectionChange?.(this.selectedText(state, model, message.text, message.startLineNumber, message.endLineNumber));
+				break;
 			case 'basehalf.markdownRich.error':
 				this.setSaveStatus('saving');
 				this.logService.error(message.stack ?? message.message);
 				break;
 		}
+	}
+
+	/** The selection as the webview reports it, its lines already narrowed there. */
+	private selectedText(state: IBaseHalfCardDetailState, model: ITextModel, text: string, startLineNumber: number | undefined, endLineNumber: number | undefined): IBaseHalfAgentSelectionText | undefined {
+		if (text.trim().length === 0 || startLineNumber === undefined || endLineNumber === undefined) {
+			return undefined;
+		}
+		// The webview counts what a save would write; the file can lag behind it.
+		const lineCount = Math.max(model.getLineCount(), endLineNumber);
+		return { path: state.relativePath, text, firstLine: Math.min(startLineNumber, lineCount), lastLine: Math.min(Math.max(startLineNumber, endLineNumber), lineCount) };
 	}
 
 	private postStructuralFreeze(): void {

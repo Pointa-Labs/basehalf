@@ -490,6 +490,13 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 		'AGENTS.md': true,
 		'CLAUDE.md': true
 	},
+	// BaseHalf's working files change often, the record of the selection
+	// agents can see with every selection, and nothing reads them through file
+	// events. Watching them would wake git and the canvas each time. Object
+	// defaults merge, so VS Code's own exclusions stay.
+	'files.watcherExclude': {
+		'**/.bh/cache/**': true
+	},
 	// Context menus are drawn in the window, as VS Code's Agents window does:
 	// they follow the product theme, and canvas state shown while a menu is
 	// open closes with it. A native menu is closed by the OS before the window

@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { Event } from '../../../base/common/event.js';
 import { URI } from '../../../base/common/uri.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { BASEHALF_AGENT_SHARED_SECTIONS } from './basehalfAgentLaunchInstructions.js';
@@ -12,7 +13,7 @@ export const BASEHALF_AGENT_SKILL_NAME = 'basehalf';
 export const BASEHALF_AGENT_SKILL_FILE_NAME = 'SKILL.md';
 /** Changes whenever the skill text changes, so that an installed copy of an
  * earlier text is offered an update. */
-export const BASEHALF_AGENT_SKILL_VERSION = '2';
+export const BASEHALF_AGENT_SKILL_VERSION = '3';
 
 /**
  * What an agent decides by. It leads with the one sign of a BaseHalf
@@ -21,7 +22,26 @@ export const BASEHALF_AGENT_SKILL_VERSION = '2';
  * the working folder: every session on the machine reads this text, and a
  * look above the working folder is one the agent has to ask the user for.
  */
-export const BASEHALF_AGENT_SKILL_DESCRIPTION = 'A folder that contains a hidden `.bh/` directory is a BaseHalf workspace. Before you read, write, move, or rename notes and files, check whether your working folder has `.bh/` (list hidden entries to see it), and use this skill if it does. Also use it when a Markdown note has an `upstream` list in its frontmatter, and when asked what a file is for, what it builds on (upstream), or what uses it (downstream).';
+export const BASEHALF_AGENT_SKILL_DESCRIPTION = 'A folder that contains a hidden `.bh/` directory is a BaseHalf workspace. Before you read, write, move, or rename notes and files, check whether your working folder has `.bh/` (list hidden entries to see it), and use this skill if it does. Also use it when a Markdown note has an `upstream` list in its frontmatter, and when asked what a file is for, what it builds on (upstream), or what uses it (downstream). In such a workspace, also use it when a request does not say which file or text it is about, such as "this", "here", or "improve it": BaseHalf records what the user selected.';
+
+/**
+ * What the record of the user's selection is (the selection agents can see,
+ * "The skill"). It says what the record means, not when to read it.
+ */
+export const BASEHALF_AGENT_SELECTION_SECTION: readonly string[] = [
+	'## What the user selected',
+	'',
+	'BaseHalf records what the user selected last in this workspace, in `.bh/cache/selection.yaml`. When the user\'s request does not say which file, card, or text it is about, such as "this", "here", or "improve it", it is about what they selected. When the request names something else, the request wins.',
+	'',
+	'The file exists only while BaseHalf is open with this workspace, and it changes whenever the user selects something else, also while you work. Read it again before you rely on it later. Never write it. Its fields:',
+	'',
+	'- `selected` says what the user selected:',
+	'  - `folder`: nothing, on the canvas of the folder at `path`;',
+	'  - `card`: the file or folder at `path`. It is the selected card, the note the user is editing with no text selected, or the card open in Card Detail;',
+	'  - `cards`: two or more cards, listed under `paths`;',
+	'  - `text`: text in the note at `path`, on lines `first_line` to `last_line` of the file, counted from 1 with the frontmatter. `text` is the selected text as the note shows it, without Markdown marks. `text_is_cut: true` means the selection was longer and the text is cut; the lines are complete.',
+	'- Paths are relative to the workspace folder and use forward slashes. The workspace folder itself is `.`.'
+];
 
 /**
  * The text of the skill's `SKILL.md` (agent skill, "The skill"). It is part
@@ -56,6 +76,8 @@ export const BASEHALF_AGENT_SKILL_MARKDOWN = [
 	'- **Downstream**: the items this one flows into. It is stored nowhere. Find it by searching, as Relationships describes.',
 	'',
 	'The user can change a badge while you work. Read it from disk when you need it, and again before you rely on it later.',
+	'',
+	...BASEHALF_AGENT_SELECTION_SECTION,
 	'',
 	...BASEHALF_AGENT_SHARED_SECTIONS,
 	''
@@ -123,6 +145,8 @@ export interface IBaseHalfAgentSkillService {
 
 	/** Whether this window can install the skill: a local desktop window. */
 	readonly available: boolean;
+	/** Fires after this window installed or removed the skill. */
+	readonly onDidChange: Event<void>;
 	/** The state of the skill at each location. */
 	inspect(): Promise<readonly IBaseHalfAgentSkillLocation[]>;
 	/** Whether the skill is installed for an agent, in any state but missing. */

@@ -61,7 +61,7 @@ suite('BaseHalfAgentSkill (install and offer)', () => {
 		}
 		const storage = options.storage ?? disposables.add(new InMemoryStorageService());
 		const notifications = new RecordingNotificationService();
-		const service = new BaseHalfAgentSkillService(fileService, new TestPathService(home), { getConnection: () => null } as IRemoteAgentService, new NullLogService());
+		const service = disposables.add(new BaseHalfAgentSkillService(fileService, new TestPathService(home), { getConnection: () => null } as IRemoteAgentService, new NullLogService()));
 		const notifier = new BaseHalfAgentSkillNotifier(
 			service,
 			new TestContextService(options.workspace ?? testWorkspace(folder)),

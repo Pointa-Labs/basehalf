@@ -1,7 +1,7 @@
 # Workspace state and legacy cleanup
 
 Status: Active (2026-09-27)
-Decisions: [D35](../decisions.md#d35--the-focus-mirror-is-removed-new-2026-09-27),
+Decisions: [D35](../decisions.md#d35--the-focus-mirror-is-removed-new-2026-09-27-its-non-goal-of-a-live-signal-revised-by-d57),
 [D36](../decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27)
 Related: [reference graph](reference-graph.md), [agent launch context](agent-launch-context.md)
 
@@ -37,7 +37,9 @@ location.
 
 ## Non-goals
 
-- A replacement live "what the user is looking at" signal for agents.
+- A replacement live "what the user is looking at" signal for agents. Since
+  D57 one exists, by a different record and through the skill: see
+  [the selection agents can see](selection-for-agents.md).
 - Managing `.gitignore`.
 - Changing whether the root `CLAUDE.md` and `AGENTS.md` are hidden. They stay
   hidden by default as agent configuration. The cleanup notification's **Show**
@@ -55,7 +57,7 @@ In the workspace, under `.bh/`:
 | `.bh/mirror/<file>/adhd.yaml` | project metadata | reading aids |
 | `.bh/mirror/<path>/appearance.yaml` | project metadata | visual presentation |
 | `.bh/legacy-references.yaml` | project metadata | append-only migration record, only after a migration |
-| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, and recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)); not shared through git |
+| `.bh/cache/` | machine-local runtime state | run leases, undo stashes, recovery copies of mirror files BaseHalf could not read ([mirror file resilience](mirror-file-resilience.md)), and `selection.yaml`, the record of [the selection agents can see](selection-for-agents.md); not shared through git, and not watched for changes |
 | `.bh/.gitignore` | BaseHalf's own ignore file | hides itself, every `canvas.yaml`, and `.bh/cache/` from git ([canvas card placement](canvas-card-placement.md#places-stay-out-of-git)) |
 
 BaseHalf does not create or edit the user's `.gitignore`. Lines that earlier

@@ -60,9 +60,12 @@ the application bundle, so no local process can change it.
   instruction, because the skill holds the same sections: "You are running
   inside a BaseHalf workspace, started from BaseHalf's Agent Area. The
   `basehalf` skill describes this workspace: where a card's description and
-  its upstream and downstream connections are, how to move and rename files
-  so that they keep them, and how to run canvas workflows. Use that skill
-  before you read, write, move, or rename anything here." Whether the skill
+  its upstream and downstream connections are, what moving and renaming
+  files does to them, and how to run canvas workflows. Use that skill before
+  you read, write, move, or rename anything here, and when a request does
+  not say which file or text it is about." It does not say that the skill
+  describes the user's selection: an older installed skill does not, and
+  then BaseHalf writes no record. Whether the skill
   is installed is read when the session launches. Everything else in this
   section applies to both texts.
 

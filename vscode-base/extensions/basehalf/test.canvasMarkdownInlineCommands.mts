@@ -103,6 +103,49 @@ export function exerciseCanvasProjectionPersistence(source: string, edited: stri
 		edited: serializeCanvasMarkdownDocument(editedDocument, records, source.includes('\\r\\n') ? '\\r\\n' : '\\n'),
 	};
 }
+
+function unitDocument(sources: readonly string[]) {
+	// A source of '<html>' stands for a unit the editor keeps as it is.
+	return canvasSchema.nodes.doc.create(null, sources.map((source, index) => source === '<html>'
+		? canvasSchema.nodes.unsupported_markdown.create({ unitId: 'unit-' + index })
+		: canvasSchema.nodes.markdown_unit.create({ unitId: 'unit-' + index }, parseMarkdown(source).content)));
+}
+
+function textPosition(document: ProseMirrorNode, needle: string, end: boolean): number {
+	let found: number | undefined;
+	document.descendants((node, position) => {
+		if (found === undefined && node.isText) {
+			const offset = (node.text ?? '').indexOf(needle);
+			if (offset >= 0) {
+				found = position + offset + (end ? needle.length : 0);
+			}
+		}
+	});
+	if (found === undefined) {
+		throw new Error('Missing selection text: ' + needle);
+	}
+	return found;
+}
+
+export function exerciseSelectionAcrossDocuments(before: readonly string[], after: readonly string[], anchorText: string, headText: string) {
+	const previous = unitDocument(before);
+	const next = unitDocument(after);
+	const mapped = mapSelectionAcrossDocuments({ anchor: textPosition(previous, anchorText, false), head: textPosition(previous, headText, true) }, previous.toJSON(), next);
+	return mapped ? next.textBetween(Math.min(mapped.anchor, mapped.head), Math.max(mapped.anchor, mapped.head), '\\n') : undefined;
+}
+
+export function exerciseSelectedSource(units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) {
+	const records = new Map<string, CanvasMarkdownRuntimeUnit>();
+	const nodes = units.map((unit, index) => {
+		const id = 'unit-' + index;
+		const initialNode = canvasSchema.nodes.markdown_unit.create({ unitId: id }, parseMarkdown(unit.markdown).content);
+		records.set(id, { input: { id, editable: true, element: undefined as unknown as HTMLElement, ...unit }, initialNode, staticElement: undefined as unknown as HTMLElement });
+		return initialNode;
+	});
+	const document = canvasSchema.nodes.doc.create(null, nodes);
+	const state = EditorState.create({ doc: document, selection: TextSelection.between(document.resolve(textPosition(document, anchorText, false)), document.resolve(textPosition(document, headText, true))) });
+	return selectedCanvasMarkdownSource(state, records, '\\n');
+}
 `;
 
 const result = await build({
@@ -137,6 +180,8 @@ const testModule = await import(`data:text/javascript;base64,${Buffer.from(modul
 		readonly handledCount: number;
 		readonly markdown: string;
 	};
+	readonly exerciseSelectionAcrossDocuments: (before: readonly string[], after: readonly string[], anchorText: string, headText: string) => string | undefined;
+	readonly exerciseSelectedSource: (units: readonly { readonly markdown: string; readonly prefix: string; readonly separator: string }[], anchorText: string, headText: string) => { readonly text: string; readonly start: number; readonly end: number; readonly firstEnd: number; readonly lastStart: number } | undefined;
 	readonly exerciseCanvasProjectionPersistence: (
 		source: string,
 		edited: string,
@@ -253,5 +298,27 @@ for (const [name, sourceMarkdown, renderedMarkdown] of hiddenSourceSemantics) {
 
 const malformedListProjection = testModule.exerciseCanvasProjectionPersistence('- **()*', '- **()*', '- \\*\\*()*');
 assert.equal(malformedListProjection.renderedCandidatePreservesSourceProjection, false, 'list/source metadata must not bypass a visible-text mismatch');
+
+// The selection agents can see: a selection follows a change made elsewhere,
+// and what is selected maps to the Markdown of the units it is in.
+assert.deepEqual([
+	testModule.exerciseSelectionAcrossDocuments(['intro', 'target text here'], ['intro', 'a new paragraph', 'target text here'], 'target', 'text'),
+	testModule.exerciseSelectionAcrossDocuments(['intro', 'old wordy paragraph', 'outro'], ['intro', 'short one', 'outro'], 'old', 'paragraph'),
+	testModule.exerciseSelectionAcrossDocuments(['target', 'tail'], ['target', 'tail changed'], 'target', 'target'),
+	// A unit kept as it is at the end is renamed too when a unit is added before it.
+	testModule.exerciseSelectionAcrossDocuments(['# Title', 'alpha beta', '<html>'], ['# Title', 'Added by an agent.', 'alpha beta', '<html>'], 'beta', 'beta'),
+], ['target text', 'short one', 'target', 'beta'], 'a selection follows text added before it, covers what replaced it, and stays when the change is after it');
+const heading = { markdown: '# 核心概念', prefix: '', separator: '' };
+const list = { markdown: '- IR 用户想要什么\n- SR 系统必须做什么', prefix: '\n\n', separator: '' };
+const tail = { markdown: 'tail', prefix: '\n\n', separator: '\n' };
+const listStart = heading.markdown.length + list.prefix.length;
+const listEnd = listStart + list.markdown.length;
+assert.deepEqual([
+	testModule.exerciseSelectedSource([heading, list, tail], 'SR', '必须'),
+	testModule.exerciseSelectedSource([heading, list, tail], '概念', 'IR'),
+], [
+	{ text: 'SR 系统必须', start: listStart, end: listEnd, firstEnd: listEnd, lastStart: listStart },
+	{ text: '概念\nIR', start: 0, end: listEnd, firstEnd: heading.markdown.length, lastStart: listStart },
+], 'selected text is read as shown, with the Markdown of the first and the last unit it is in');
 
 console.log('Canvas Markdown inline command tests passed.');

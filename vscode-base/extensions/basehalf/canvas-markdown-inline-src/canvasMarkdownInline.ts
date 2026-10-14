@@ -14,16 +14,33 @@ import {
 	MarkdownSerializer,
 	schema as commonmarkSchema,
 } from '@tiptap/pm/markdown';
-import { DOMParser as ProseMirrorDOMParser, Fragment, Schema, type MarkType, type Node as ProseMirrorNode, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
+import { DOMParser as ProseMirrorDOMParser, Fragment, Node as ProseMirrorNode, Schema, type MarkType, type NodeType, type ResolvedPos } from '@tiptap/pm/model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from '@tiptap/pm/schema-list';
-import { EditorState, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
+import { EditorState, Plugin, PluginKey, Selection, TextSelection, type Command, type Transaction } from '@tiptap/pm/state';
 import { canJoin, canSplit } from '@tiptap/pm/transform';
-import { EditorView } from '@tiptap/pm/view';
+import { Decoration, DecorationSet, EditorView } from '@tiptap/pm/view';
 import type { BaseHalfMarkdownFormatBlockType, BaseHalfMarkdownFormatCommand, BaseHalfMarkdownFormatToggleState } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFormatting.js';
 
 export interface CanvasMarkdownInlineSelection {
 	readonly anchor: number;
 	readonly head: number;
+}
+
+/**
+ * The selected text and where it is in the Markdown of the document: from the
+ * start of the first unit the selection is in to the end of the last one. A
+ * unit is the smallest piece whose Markdown is known; inside one, shown text
+ * and Markdown characters do not line up.
+ */
+export interface CanvasMarkdownInlineSelectedSource {
+	/** The selected text as the note shows it, one line break between blocks. */
+	readonly text: string;
+	/** Offsets in the Markdown that `getMarkdown()` returns. */
+	readonly start: number;
+	readonly end: number;
+	/** Where the first unit ends and the last one starts. */
+	readonly firstEnd: number;
+	readonly lastStart: number;
 }
 
 export interface CanvasMarkdownInlineFormatState {
@@ -51,6 +68,15 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly requiredEditableUnitId?: string;
 	readonly readOnly?: boolean;
 	readonly selection?: CanvasMarkdownInlineSelection;
+	/**
+	 * The document `selection` was taken in, from `getDocument()` of the editor
+	 * this one replaces after the file changed elsewhere. The selection is
+	 * carried across the change: a selection in the part that changed covers
+	 * what replaced it.
+	 */
+	readonly selectionDocument?: unknown;
+	/** Draw the selection as not active from the start: focus is elsewhere in the window. */
+	readonly inactive?: boolean;
 	readonly onMarkdownChange?: (markdown: string) => void;
 	readonly onCompositionChange?: (composing: boolean) => void;
 	readonly onUndoRequest?: () => void;
@@ -58,6 +84,8 @@ export interface CanvasMarkdownInlineEditorOptions {
 	readonly onExitRequest?: () => void;
 	readonly onToolbarRequest?: () => void;
 	readonly onFormatStateChange?: (state: CanvasMarkdownInlineFormatState) => void;
+	/** The selection or the document changed. Read `getSelectedSource()` when it is needed. */
+	readonly onSelectionChange?: () => void;
 }
 
 export interface CanvasMarkdownInlineEditorRuntime {
@@ -66,6 +94,10 @@ export interface CanvasMarkdownInlineEditorRuntime {
 	setReadOnly(readOnly: boolean): void;
 	getSelection(): CanvasMarkdownInlineSelection;
 	getMarkdown(): string;
+	/** The document, for `selectionDocument` of the editor that replaces this one. */
+	getDocument(): unknown;
+	/** `undefined` while no text is selected. */
+	getSelectedSource(): CanvasMarkdownInlineSelectedSource | undefined;
 	getFormatState(): CanvasMarkdownInlineFormatState;
 	runFormatCommand(command: BaseHalfMarkdownFormatCommand): boolean;
 	isComposing(): boolean;
@@ -452,12 +484,19 @@ function serializeCanvasMarkdownUnit(document: ProseMirrorNode): string {
 	return markdown;
 }
 
-function serializeCanvasMarkdownDocument(
+interface CanvasMarkdownDocumentSource {
+	readonly markdown: string;
+	/** For each top-level node, the offsets of its Markdown without the whitespace around it. */
+	readonly units: readonly { readonly start: number; readonly end: number }[];
+}
+
+function canvasMarkdownDocumentSource(
 	document: ProseMirrorNode,
 	records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>,
 	documentLineEnding: '\n' | '\r\n',
-): string {
+): CanvasMarkdownDocumentSource {
 	let markdown = '';
+	const units: { start: number; end: number }[] = [];
 	document.forEach(node => {
 		const unitId = typeof node.attrs.unitId === 'string' ? node.attrs.unitId : undefined;
 		const record = unitId ? records.get(unitId) : undefined;
@@ -469,15 +508,170 @@ function serializeCanvasMarkdownDocument(
 					source = source.replace(/\n/g, '\r\n');
 				}
 			}
+			const start = markdown.length + record.input.prefix.length;
+			units.push({ start, end: start + source.length });
 			markdown += `${record.input.prefix}${source}${record.input.separator}`;
 			return;
 		}
 		// Unit wrappers are document-only schema nodes. Preserve user content
 		// defensively if a future command introduces a bare top-level block.
 		const source = serializeCanvasMarkdownUnit(canvasSchema.nodes.doc.create(null, node));
-		markdown += `${markdown.length > 0 ? '\n\n' : ''}${source}`;
+		markdown += markdown.length > 0 ? '\n\n' : '';
+		units.push({ start: markdown.length, end: markdown.length + source.length });
+		markdown += source;
 	});
-	return markdown;
+	return { markdown, units };
+}
+
+function serializeCanvasMarkdownDocument(
+	document: ProseMirrorNode,
+	records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>,
+	documentLineEnding: '\n' | '\r\n',
+): string {
+	return canvasMarkdownDocumentSource(document, records, documentLineEnding).markdown;
+}
+
+function selectedCanvasMarkdownSource(
+	state: EditorState,
+	records: ReadonlyMap<string, CanvasMarkdownRuntimeUnit>,
+	documentLineEnding: '\n' | '\r\n',
+): CanvasMarkdownInlineSelectedSource | undefined {
+	const { from, to, empty } = state.selection;
+	const document = state.doc;
+	if (empty || document.childCount === 0) {
+		return undefined;
+	}
+	const text = document.textBetween(from, to, '\n', leaf => {
+		if (leaf.type === canvasSchema.nodes.soft_break || leaf.type.name === 'hard_break') {
+			return '\n';
+		}
+		if (leaf.type === canvasSchema.nodes.unsupported_markdown) {
+			const unitId = typeof leaf.attrs.unitId === 'string' ? leaf.attrs.unitId : '';
+			return records.get(unitId)?.staticElement.textContent ?? '';
+		}
+		return '';
+	});
+	if (text.length === 0) {
+		return undefined;
+	}
+	const { units } = canvasMarkdownDocumentSource(document, records, documentLineEnding);
+	const $from = document.resolve(from);
+	const $to = document.resolve(to);
+	const last = document.childCount - 1;
+	const first = Math.min(last, $from.index(0));
+	// A position between two top-level nodes belongs to the one before it.
+	const end = Math.max(first, Math.min(last, $to.depth === 0 ? $to.index(0) - 1 : $to.index(0)));
+	return { text, start: units[first].start, end: units[end].end, firstEnd: units[first].end, lastStart: units[end].start };
+}
+
+const inactiveSelectionKey = new PluginKey<boolean>('basehalfInactiveSelection');
+
+/**
+ * Keeps the selection drawn while focus is in another part of the window,
+ * such as a terminal where the user asks an agent about it. The browser drops
+ * the highlight of a page selection when another element of the page takes
+ * focus; ProseMirror keeps the selection itself. While the window is in the
+ * background, the browser draws its own inactive highlight.
+ */
+function inactiveSelectionPlugin(inactiveAtStart: boolean): Plugin<boolean> {
+	return new Plugin<boolean>({
+		key: inactiveSelectionKey,
+		state: {
+			init: () => inactiveAtStart,
+			apply: (transaction, inactive) => {
+				const next = transaction.getMeta(inactiveSelectionKey);
+				return typeof next === 'boolean' ? next : inactive;
+			},
+		},
+		props: {
+			decorations(state) {
+				const { from, to, empty } = state.selection;
+				return inactiveSelectionKey.getState(state) && !empty
+					? DecorationSet.create(state.doc, [Decoration.inline(from, to, { class: 'basehalf-canvas-markdown-inline-inactive-selection' })])
+					: null;
+			},
+			handleDOMEvents: {
+				blur(view) {
+					const inactive = view.dom.ownerDocument.hasFocus();
+					if (inactiveSelectionKey.getState(view.state) !== inactive) {
+						view.dispatch(view.state.tr.setMeta(inactiveSelectionKey, inactive));
+					}
+					return false;
+				},
+				focus(view) {
+					if (inactiveSelectionKey.getState(view.state)) {
+						view.dispatch(view.state.tr.setMeta(inactiveSelectionKey, false));
+					}
+					return false;
+				},
+			},
+		},
+	});
+}
+
+/**
+ * A selection taken in `previous`, carried to `document`. Positions before
+ * the part that changed stay, and positions after it move with it. Text added
+ * where the selection begins or ends stays outside it. An end inside a part
+ * that was replaced goes to the edge of what replaced it, so a selection that
+ * the change rewrote covers the new text.
+ */
+function mapSelectionAcrossDocuments(selection: CanvasMarkdownInlineSelection | undefined, previousJson: unknown, document: ProseMirrorNode): CanvasMarkdownInlineSelection | undefined {
+	if (!selection || previousJson === undefined) {
+		return selection;
+	}
+	let previous: ProseMirrorNode;
+	try {
+		previous = ProseMirrorNode.fromJSON(canvasSchema, previousJson);
+	} catch {
+		return selection;
+	}
+	// Units, editable or kept as they are, are named by their place, so a unit
+	// added before others renames them: compare the documents without names.
+	const unnamed = (node: ProseMirrorNode) => node.type.create(null, Fragment.fromArray(Array.from({ length: node.childCount }, (_, index) => {
+		const unit = node.child(index);
+		return typeof unit.attrs.unitId === 'string' ? unit.type.create({ ...unit.attrs, unitId: '' }, unit.content, unit.marks) : unit;
+	})));
+	const before = unnamed(previous).content;
+	const after = unnamed(document).content;
+	const start = before.findDiffStart(after);
+	const end = before.findDiffEnd(after);
+	if (start === null || !end) {
+		return selection;
+	}
+	// When the change repeats text at its edges, the two ends can cross.
+	const overlap = Math.max(0, start - Math.min(end.a, end.b));
+	const endBefore = end.a + overlap;
+	const endAfter = end.b + overlap;
+	const inserted = endBefore === start;
+	const map = (position: number, side: -1 | 1): number => {
+		if (position < start) {
+			return position;
+		}
+		if (position > endBefore) {
+			return position + endAfter - endBefore;
+		}
+		if (inserted) {
+			// Text added where the selection begins or ends is not selected.
+			return side < 0 ? endAfter : start;
+		}
+		if (position === start && side > 0) {
+			return start;
+		}
+		if (position === endBefore && side < 0) {
+			return endAfter;
+		}
+		// An end in the part that was replaced goes to its edge, so that the
+		// selection covers what replaced it.
+		return side < 0 ? start : endAfter;
+	};
+	const from = Math.min(selection.anchor, selection.head);
+	const to = Math.max(selection.anchor, selection.head);
+	const mappedFrom = map(from, -1);
+	const mappedTo = from === to ? mappedFrom : Math.max(mappedFrom, map(to, 1));
+	return selection.anchor <= selection.head
+		? { anchor: mappedFrom, head: mappedTo }
+		: { anchor: mappedTo, head: mappedFrom };
 }
 
 function selectionForDocument(document: ProseMirrorNode, requested?: CanvasMarkdownInlineSelection): Selection {
@@ -1340,6 +1534,7 @@ export function createCanvasMarkdownInlineEditor(
 			'Shift-Enter': whenEditable(insertSoftBreak),
 		}),
 		keymap(guardedBaseKeymap),
+		inactiveSelectionPlugin(options.inactive ?? false),
 	];
 
 	if (options.units.map(unit => `${unit.prefix}${unit.markdown}${unit.separator}`).join('') !== options.markdown) {
@@ -1355,7 +1550,7 @@ export function createCanvasMarkdownInlineEditor(
 	}
 	const initialState = EditorState.create({
 		doc: initialDocument,
-		selection: selectionForDocument(initialDocument, options.selection),
+		selection: selectionForDocument(initialDocument, mapSelectionAcrossDocuments(options.selection, options.selectionDocument, initialDocument)),
 		plugins,
 	});
 
@@ -1404,9 +1599,13 @@ export function createCanvasMarkdownInlineEditor(
 			},
 		},
 		dispatchTransaction(transaction) {
+			const previousSelection = view.state.selection;
 			const nextState = view.state.apply(transaction);
 			view.updateState(nextState);
 			emitFormatState();
+			if (transaction.docChanged || !nextState.selection.eq(previousSelection)) {
+				options.onSelectionChange?.();
+			}
 			if (!transaction.docChanged) {
 				return;
 			}
@@ -1512,6 +1711,12 @@ export function createCanvasMarkdownInlineEditor(
 		},
 		getMarkdown() {
 			return serializeCanvasMarkdownDocument(view.state.doc, records, documentLineEnding);
+		},
+		getDocument() {
+			return view.state.doc.toJSON();
+		},
+		getSelectedSource() {
+			return selectedCanvasMarkdownSource(view.state, records, documentLineEnding);
 		},
 		getFormatState() {
 			return emitFormatState();

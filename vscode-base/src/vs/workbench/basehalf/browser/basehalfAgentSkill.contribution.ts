@@ -4,8 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VSBuffer } from '../../../base/common/buffer.js';
+import { Emitter } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { isWeb } from '../../../base/common/platform.js';
+import { env } from '../../../base/common/process.js';
 import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { localize, localize2 } from '../../../nls.js';
@@ -42,15 +44,20 @@ export const BASEHALF_AGENT_SKILL_DECLINED_VERSION_STORAGE_KEY = 'basehalf.agent
 export const BASEHALF_INSTALL_AGENT_SKILL_COMMAND_ID = 'basehalf.agentSkill.install';
 export const BASEHALF_REMOVE_AGENT_SKILL_COMMAND_ID = 'basehalf.agentSkill.remove';
 
-export class BaseHalfAgentSkillService implements IBaseHalfAgentSkillService {
+export class BaseHalfAgentSkillService extends Disposable implements IBaseHalfAgentSkillService {
 	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidChange = this._register(new Emitter<void>());
+	readonly onDidChange = this._onDidChange.event;
 
 	constructor(
 		@IFileService private readonly fileService: IFileService,
 		@IPathService private readonly pathService: IPathService,
 		@IRemoteAgentService private readonly remoteAgentService: IRemoteAgentService,
 		@ILogService private readonly logService: ILogService
-	) { }
+	) {
+		super();
+	}
 
 	get available(): boolean {
 		// The agents' skill folders are in the home folder of the machine the
@@ -86,31 +93,43 @@ export class BaseHalfAgentSkillService implements IBaseHalfAgentSkillService {
 				failed.push({ target, reason: baseHalfPlainFailureReason(error) });
 			}
 		}
+		this._onDidChange.fire();
 		return { installed, failed };
 	}
 
 	async remove(): Promise<boolean> {
 		let removed = false;
-		for (const target of BASEHALF_AGENT_SKILL_TARGETS) {
-			const resource = await this.resource(target);
-			if (!await this.fileService.exists(resource)) {
-				continue;
+		try {
+			for (const target of BASEHALF_AGENT_SKILL_TARGETS) {
+				const resource = await this.resource(target);
+				if (!await this.fileService.exists(resource)) {
+					continue;
+				}
+				await this.fileService.del(resource);
+				removed = true;
+				// The skill's own folder goes with it, unless the user put
+				// something else there.
+				const folder = dirname(resource);
+				const remaining = (await this.fileService.resolve(folder)).children ?? [];
+				if (remaining.length === 0) {
+					await this.fileService.del(folder);
+				}
 			}
-			await this.fileService.del(resource);
-			removed = true;
-			// The skill's own folder goes with it, unless the user put
-			// something else there.
-			const folder = dirname(resource);
-			const remaining = (await this.fileService.resolve(folder)).children ?? [];
-			if (remaining.length === 0) {
-				await this.fileService.del(folder);
-			}
+		} finally {
+			// Also after a failure: what was removed before it is gone.
+			this._onDidChange.fire();
 		}
 		return removed;
 	}
 
 	private async resource(target: IBaseHalfAgentSkillTarget): Promise<URI> {
-		return URI.joinPath(await this.pathService.userHome({ preferLocal: true }), ...target.segments);
+		// The smoke points the skill at a folder of its own run, so that it
+		// never reads or changes the agents' settings of the machine it runs
+		// on. Moving the whole window's home folder instead would lose the
+		// keychain. The product never sets it.
+		const smokeHome = env['BASEHALF_SMOKE_AGENT_SKILL_HOME'];
+		const home = smokeHome ? URI.file(smokeHome) : await this.pathService.userHome({ preferLocal: true });
+		return URI.joinPath(home, ...target.segments);
 	}
 
 	/** The installed text, or `undefined` when the file does not exist. A file

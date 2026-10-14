@@ -3,7 +3,7 @@
 > **Status (2026-09-27): historical.** This draft is kept for its reasoning; it
 > is not an active specification. Its focus and runtime-attention direction is
 > superseded by
-> [D35](decisions.md#d35--the-focus-mirror-is-removed-new-2026-09-27), its
+> [D35](decisions.md#d35--the-focus-mirror-is-removed-new-2026-09-27-its-non-goal-of-a-live-signal-revised-by-d57), its
 > delivery of agent context through workspace files by
 > [D36](decisions.md#d36--basehalf-stops-writing-agent-guides-into-workspaces-new-2026-09-27)
 > and [agent launch context](specs/agent-launch-context.md), and its reference

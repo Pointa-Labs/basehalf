@@ -43,9 +43,11 @@ import {
 import {
 	baseHalfMarkdownBlockReadSpan,
 	baseHalfMarkdownLinesToBlockIds,
+	baseHalfMarkdownTopLevelBlockOf,
 	countBaseHalfMarkdownNewlines,
 	type IBaseHalfMarkdownBlockNode,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownBlockLines.js';
+import { BASEHALF_AGENT_SELECTION_TEXT_LIMIT, baseHalfSelectionLines } from '../../../src/vs/workbench/basehalf/common/basehalfSelectionLines.js';
 import {
 	type IBaseHalfAdhdCommand,
 	type IBaseHalfAdhdFile,
@@ -957,6 +959,77 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 	}, [editor]);
 
+	// The selection agents can see: the selected text and the file lines it is
+	// on. The lines come from what a save would write now, so edits made since
+	// the note was opened count, and are narrowed inside the first and the last
+	// selected block.
+	const lastPostedSelection = useRef<string | undefined>(undefined);
+	const selectionTimer = useRef<number | undefined>(undefined);
+	const postSelection = useCallback(async (): Promise<void> => {
+		selectionTimer.current = undefined;
+		const state = session.current;
+		if (!state.key || !state.ready || state.loading) {
+			return;
+		}
+		const key = state.key;
+		const view = editor.prosemirrorView;
+		const selection = view?.state.selection;
+		let selected: { readonly text: string; readonly startLineNumber?: number; readonly endLineNumber?: number } = { text: '' };
+		if (view && selection && !selection.empty) {
+			const text = view.state.doc.textBetween(selection.from, selection.to, '\n', '\n');
+			const blocks = selectedBlocks();
+			const document = editor.document as unknown as readonly IBaseHalfMarkdownBlockNode[];
+			const topLevelId = (id: string | undefined) => id ? baseHalfMarkdownTopLevelBlockOf(document, id)?.block.id : undefined;
+			const firstId = topLevelId(blocks[0]?.id);
+			const lastId = topLevelId(blocks[blocks.length - 1]?.id);
+			if (text.trim().length > 0 && firstId && lastId) {
+				const contributions = await collectBaseHalfMarkdownSaveContributions(editorApi, editor.document, state.byId);
+				if (session.current.key !== key) {
+					return;
+				}
+				const frontmatterLines = countBaseHalfMarkdownNewlines(state.frontmatter);
+				const lines: string[] = contributions.map(contribution => contribution.text).join('').split(/\r?\n/);
+				// Each block's lines: from its first line that is not blank to
+				// its last. A block that writes nothing itself is part of a
+				// piece of Markdown that a later block writes whole.
+				const ranges: { start: number; end: number }[] = [];
+				let linesBefore = 0;
+				for (const contribution of contributions) {
+					const leading = /^(?:[ \t]*\r?\n)*/.exec(contribution.text)?.[0] ?? '';
+					const start = frontmatterLines + linesBefore + countBaseHalfMarkdownNewlines(leading) + 1;
+					const end = frontmatterLines + linesBefore + countBaseHalfMarkdownNewlines(contribution.text.replace(/\s+$/, '')) + 1;
+					ranges.push({ start, end: Math.max(start, end) });
+					linesBefore += countBaseHalfMarkdownNewlines(contribution.text);
+				}
+				for (let index = contributions.length - 2; index >= 0; index--) {
+					if (contributions[index].text.trim().length === 0) {
+						ranges[index].end = Math.max(ranges[index].end, ranges[index + 1].end);
+					}
+				}
+				const first = ranges[contributions.findIndex(contribution => contribution.id === firstId)];
+				const last = ranges[contributions.findIndex(contribution => contribution.id === lastId)];
+				if (first && last) {
+					const narrowed = baseHalfSelectionLines(line => lines[line - frontmatterLines - 1] ?? '', first, last, text);
+					// The record keeps at most the limit; one more character says it was cut.
+					const sent = text.length > BASEHALF_AGENT_SELECTION_TEXT_LIMIT ? text.slice(0, BASEHALF_AGENT_SELECTION_TEXT_LIMIT + 1) : text;
+					selected = { text: sent, startLineNumber: narrowed.firstLine, endLineNumber: narrowed.lastLine };
+				}
+			}
+		}
+		const signature = `${key}:${JSON.stringify(selected)}`;
+		if (lastPostedSelection.current === signature) {
+			return;
+		}
+		lastPostedSelection.current = signature;
+		vscode.postMessage({ type: 'basehalf.markdownRich.selectionChanged', key, ...selected });
+	}, [editor, editorApi, selectedBlocks, vscode]);
+	const scheduleSelection = useCallback((): void => {
+		if (selectionTimer.current !== undefined) {
+			window.clearTimeout(selectionTimer.current);
+		}
+		selectionTimer.current = window.setTimeout(() => void postSelection(), 150);
+	}, [postSelection]);
+
 	const postFormatState = useCallback((): void => {
 		const state = session.current;
 		if (!state.key) {
@@ -1811,10 +1884,12 @@ function MarkdownRichEditor(): JSX.Element {
 			scheduleSave();
 			cancelPendingPointFocus();
 			postFormatState();
+			scheduleSelection();
 		});
 		const offSelection = editor.onSelectionChange(() => {
 			cancelPendingPointFocus();
 			postFormatState();
+			scheduleSelection();
 		});
 		scroll?.addEventListener('scroll', cancelPendingPointFocus, { passive: true });
 		return () => {
@@ -1822,7 +1897,7 @@ function MarkdownRichEditor(): JSX.Element {
 			offSelection();
 			scroll?.removeEventListener('scroll', cancelPendingPointFocus);
 		};
-	}, [cancelPendingPointFocus, editor, ensureLiveUndoManager, notifyDirty, postFormatState, scheduleSave]);
+	}, [cancelPendingPointFocus, editor, ensureLiveUndoManager, notifyDirty, postFormatState, scheduleSave, scheduleSelection]);
 
 	useEffect(() => {
 		const state = session.current;
