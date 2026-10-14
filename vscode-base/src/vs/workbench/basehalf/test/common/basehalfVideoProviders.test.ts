@@ -82,6 +82,22 @@ suite('BaseHalfVideoProviders', () => {
 			{ mode: 'frames', ratio: 'adaptive', resolution: '1080P', duration: 6, audio: false, channel: 'c1', model: 'MiniMax-Hailuo-02' });
 	});
 
+	test('fixes the duration where the model allows only one, and keeps the sound of models without a switch', () => {
+		const veo = getBaseHalfVideoModelProfile('gemini', 'veo-3.1-generate-preview');
+		assert.deepStrictEqual([
+			normalizeBaseHalfVideoSettings({ mode: 'frames', ratio: '1:1', resolution: '720p', duration: 5, audio: false }, veo),
+			normalizeBaseHalfVideoSettings({ mode: 'frames', ratio: '9:16', resolution: '1080p', duration: 4, audio: false }, veo),
+			normalizeBaseHalfVideoSettings({ mode: 'reference', ratio: '16:9', resolution: '720p', duration: 4, audio: false }, veo)
+		], [
+			{ mode: 'frames', ratio: '16:9', resolution: '720p', duration: 4, audio: true },
+			{ mode: 'frames', ratio: '9:16', resolution: '1080p', duration: 8, audio: true },
+			{ mode: 'reference', ratio: '16:9', resolution: '720p', duration: 8, audio: true }
+		]);
+		assert.deepStrictEqual(getBaseHalfVideoModelProfile('gemini', 'veo-3.1-lite-generate-preview').modes, ['frames']);
+		assert.deepStrictEqual(getBaseHalfVideoModelProfile('gemini', 'veo-4-preview').resolutions, ['720p', '1080p', '4k']);
+		assert.strictEqual(normalizeBaseHalfVideoSettings({ audio: false }, getBaseHalfVideoModelProfile('dashscope', 'wan2.6-i2v')).audio, true);
+	});
+
 	test('a frames generation with a start frame sends the ratio the model requires', () => {
 		const seedance = getBaseHalfVideoModelProfile('ark', 'doubao-seedance-2-5-260628');
 		const settings = { mode: 'frames' as const, ratio: '9:16', resolution: '720p', duration: 5, audio: true };
@@ -109,10 +125,11 @@ suite('BaseHalfVideoProviders', () => {
 			getBaseHalfVideoGenerateBlocker({ ...ready, generating: true }),
 			getBaseHalfVideoGenerateBlocker({ ...ready, model: undefined }),
 			getBaseHalfVideoGenerateBlocker({ ...ready, channelFound: false }),
+			getBaseHalfVideoGenerateBlocker({ ...ready, channelHasEndpoint: false, channelHasKey: false }),
 			getBaseHalfVideoGenerateBlocker({ ...ready, channelHasKey: false }),
 			getBaseHalfVideoGenerateBlocker({ ...ready, plan: [] }),
 			getBaseHalfVideoGenerateBlocker(ready),
 			getBaseHalfVideoGenerateBlocker({ ...ready, plan: [], prompt: 'Rain' })
-		], ['generating', 'noModel', 'noChannel', 'noKey', 'nothingToSend', undefined, undefined]);
+		], ['generating', 'noModel', 'noChannel', 'noEndpoint', 'noKey', 'nothingToSend', undefined, undefined]);
 	});
 });

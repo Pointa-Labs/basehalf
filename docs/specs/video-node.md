@@ -215,12 +215,14 @@ which replaces Models & Providers. A channel is created from a preset:
 | BytePlus ModelArk | Seedance task API | `https://ark.ap-southeast.bytepluses.com/api/v3` | Seedance 2.0 Mini, Seedance 1.5 Pro |
 | Alibaba Cloud Model Studio | Wan video synthesis | `https://dashscope.aliyuncs.com/api/v1` | Wan 2.6, Wan 2.6 Image to Video |
 | MiniMax | MiniMax video generation | `https://api.minimaxi.com/v1` | MiniMax Hailuo-02 |
-| Google Gemini | Veo long-running prediction | `https://generativelanguage.googleapis.com/v1beta` | none |
-| OpenAI Compatible | `/videos` tasks | `https://api.openai.com/v1` | none |
+| Google Gemini | Veo long-running prediction | `https://generativelanguage.googleapis.com/v1beta` | Veo 3.1, Veo 3.1 Fast, Veo 3.1 Lite |
+| OpenAI Compatible | `/videos` tasks | none: the user enters the relay's endpoint | none |
 
 - A channel holds a name, the endpoint, the key, and a list of model ids.
   The user can change the endpoint (a relay that speaks the same format) and
   add or remove model ids; a model id is any text the provider accepts.
+  OpenAI's own Videos API closed on 2026-09-24, so an OpenAI Compatible
+  channel starts without an endpoint and runs only once the user enters one.
 - The key is stored encrypted on this computer and never written into the
   workspace. The page shows whether a key is set, never the key.
 - Saving checks nothing with the provider. The first generation tells the
@@ -230,7 +232,8 @@ which replaces Models & Providers. A channel is created from a preset:
 - What a model accepts comes from its profile in `basehalfVideoProviders.ts`
   when BaseHalf knows the model, and from a general profile otherwise: both
   modes, the common ratios, 480p to 1080p, 4 to 15 seconds, and sound on or
-  off. The provider's request format limits what can be sent from local
+  off; a Veo model BaseHalf does not know is taken to accept what Veo 3.1
+  accepts. The provider's request format limits what can be sent from local
   files: the Seedance task API, Wan, MiniMax, and Veo carry no local video or
   audio; Wan and MiniMax carry no references at all. A mode that nothing can
   use is not offered.
@@ -246,7 +249,9 @@ The settings shown for a node come from its model's profile:
   "follows the start frame" and sends `adaptive`.
 - **Resolution** and **duration** as the profile lists them. Few durations
   show as choices; a range shows a slider with its value; a model that can
-  choose its own length adds **Auto** (-1).
+  choose its own length adds **Auto** (-1). Where a model allows only one
+  duration for a resolution or for references mode (Veo: 8 seconds for 1080p,
+  4k, and references), that duration is set and its choices are disabled.
 - **Sound** on or off, when the model has the switch.
 
 Choosing another model keeps every setting the new model accepts and gives
@@ -298,9 +303,9 @@ From top to bottom:
 The Generate button is enabled only when the node can generate. Otherwise its
 tooltip and accessible name say the first reason, in this order
 (`getBaseHalfVideoGenerateBlocker`): the node is generating; no model is
-chosen; no channel on this computer offers the model; the channel has no key;
-there is nothing to send. For the second to fourth, the model button is
-outlined and its tooltip says the same.
+chosen; no channel on this computer offers the model; the channel has no
+endpoint; the channel has no key; there is nothing to send. For the second to
+fifth, the model button is outlined and its tooltip says the same.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none

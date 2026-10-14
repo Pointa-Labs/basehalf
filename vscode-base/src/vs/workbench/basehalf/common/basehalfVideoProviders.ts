@@ -35,7 +35,7 @@ export interface IBaseHalfVideoProviderMediaSupport {
 export interface IBaseHalfVideoProviderPreset {
 	readonly kind: BaseHalfVideoProviderKind;
 	readonly label: string;
-	/** The endpoint a new channel of this preset starts with. The user can change it, for a relay. */
+	/** The endpoint a new channel of this preset starts with; empty when the user must enter one. The user can change it, for a relay. */
 	readonly baseUrl: string;
 	readonly media: IBaseHalfVideoProviderMediaSupport;
 	/** The models a new channel of this preset lists. The user can add any model id. */
@@ -68,6 +68,10 @@ export interface IBaseHalfVideoModelProfile {
 	readonly audio: boolean;
 	/** The longest duration a resolution allows, where the model limits it. */
 	readonly maxDurationByResolution?: Readonly<Record<string, number>>;
+	/** The only duration a resolution allows, where the model fixes it. */
+	readonly durationByResolution?: Readonly<Record<string, number>>;
+	/** The only duration references mode allows, where the model fixes it. */
+	readonly referenceDuration?: number;
 	readonly defaults: IBaseHalfVideoSettings;
 }
 
@@ -148,7 +152,7 @@ const WAN_2_6_T2V = profile({
 	durations: { kind: 'range', min: 2, max: 15 },
 	autoDuration: false,
 	audio: false,
-	defaults: { mode: 'frames', ratio: '16:9', resolution: '1080P', duration: 5, audio: false }
+	defaults: { mode: 'frames', ratio: '16:9', resolution: '1080P', duration: 5, audio: true }
 });
 
 const WAN_2_6_I2V = profile({
@@ -162,7 +166,37 @@ const WAN_2_6_I2V = profile({
 	durations: { kind: 'range', min: 2, max: 15 },
 	autoDuration: false,
 	audio: false,
-	defaults: { mode: 'frames', ratio: 'adaptive', resolution: '1080P', duration: 5, audio: false }
+	defaults: { mode: 'frames', ratio: 'adaptive', resolution: '1080P', duration: 5, audio: true }
+});
+
+/** Veo 3.1 on the Gemini API (checked on 2026-10-15): 1080p, 4k, and reference images need 8 seconds; sound is always on. */
+const VEO_3_1 = profile({
+	id: 'veo-3.1-generate-preview',
+	label: 'Veo 3.1',
+	modes: ['frames', 'reference'],
+	frames: 2,
+	references: { images: 3, videos: 0, audios: 0 },
+	ratios: ['16:9', '9:16'],
+	resolutions: ['720p', '1080p', '4k'],
+	durations: { kind: 'values', values: [4, 6, 8] },
+	autoDuration: false,
+	audio: false,
+	durationByResolution: { '1080p': 8, '4k': 8 },
+	referenceDuration: 8,
+	defaults: { mode: 'frames', ratio: '16:9', resolution: '720p', duration: 8, audio: true }
+});
+
+const VEO_3_1_FAST = profile({ ...VEO_3_1, id: 'veo-3.1-fast-generate-preview', label: 'Veo 3.1 Fast' });
+
+const VEO_3_1_LITE = profile({
+	...VEO_3_1,
+	id: 'veo-3.1-lite-generate-preview',
+	label: 'Veo 3.1 Lite',
+	modes: ['frames'],
+	references: { images: 0, videos: 0, audios: 0 },
+	resolutions: ['720p', '1080p'],
+	durationByResolution: { '1080p': 8 },
+	referenceDuration: undefined
 });
 
 /** Images travel inside the request as data URLs; videos and audio would need public URLs. */
@@ -186,8 +220,9 @@ const PRESETS: readonly IBaseHalfVideoProviderPreset[] = Object.freeze([
 	preset('byteplus', () => localize('basehalf.video.provider.byteplus', "BytePlus ModelArk"), 'https://ark.ap-southeast.bytepluses.com/api/v3', IMAGES_ONLY_MEDIA, [SEEDANCE_2_0_MINI, SEEDANCE_1_5_PRO]),
 	preset('dashscope', () => localize('basehalf.video.provider.dashscope', "Alibaba Cloud Model Studio"), 'https://dashscope.aliyuncs.com/api/v1', NO_REFERENCE_MEDIA, [WAN_2_6_T2V, WAN_2_6_I2V]),
 	preset('minimax', () => localize('basehalf.video.provider.minimax', "MiniMax"), 'https://api.minimaxi.com/v1', NO_REFERENCE_MEDIA, [HAILUO_02]),
-	preset('gemini', () => localize('basehalf.video.provider.gemini', "Google Gemini"), 'https://generativelanguage.googleapis.com/v1beta', IMAGES_ONLY_MEDIA, []),
-	preset('openai', () => localize('basehalf.video.provider.openai', "OpenAI Compatible"), 'https://api.openai.com/v1', ALL_LOCAL_MEDIA, [])
+	preset('gemini', () => localize('basehalf.video.provider.gemini', "Google Gemini"), 'https://generativelanguage.googleapis.com/v1beta', IMAGES_ONLY_MEDIA, [VEO_3_1, VEO_3_1_FAST, VEO_3_1_LITE]),
+	// OpenAI's own Videos API closed on 2026-09-24; the format lives on in relays, whose endpoint the user enters.
+	preset('openai', () => localize('basehalf.video.provider.openai', "OpenAI Compatible"), '', ALL_LOCAL_MEDIA, [])
 ]);
 
 export function getBaseHalfVideoProviderPresets(): readonly IBaseHalfVideoProviderPreset[] {
@@ -220,6 +255,10 @@ export function baseHalfVideoModelLabel(modelId: string): string {
 }
 
 function genericProfile(provider: BaseHalfVideoProviderKind, modelId: string): IBaseHalfVideoModelProfile {
+	if (provider === 'gemini') {
+		// Veo models other than the known ones take what Veo 3.1 takes.
+		return Object.freeze({ ...VEO_3_1, id: modelId, label: modelId, known: false });
+	}
 	const seedanceFormat = provider === 'ark' || provider === 'byteplus';
 	return Object.freeze({
 		id: modelId,
@@ -227,7 +266,7 @@ function genericProfile(provider: BaseHalfVideoProviderKind, modelId: string): I
 		known: false,
 		modes: Object.freeze<BaseHalfVideoMode[]>(['frames', 'reference']),
 		frames: 2,
-		references: Object.freeze({ images: provider === 'gemini' ? 3 : 9, videos: 3, audios: 3 }),
+		references: Object.freeze({ images: 9, videos: 3, audios: 3 }),
 		ratios: seedanceFormat ? SEEDANCE_RATIOS : COMMON_RATIOS,
 		resolutions: Object.freeze(['480p', '720p', '1080p']),
 		durations: Object.freeze({ kind: 'range', min: 4, max: 15 }),
@@ -275,6 +314,10 @@ export function normalizeBaseHalfVideoSettings(settings: Partial<IBaseHalfVideoS
 	const limit = modelProfile.maxDurationByResolution?.[resolution];
 	if (limit !== undefined && (duration === BASEHALF_VIDEO_AUTO_DURATION || duration > limit)) {
 		duration = nearestDuration(limit, modelProfile.durations);
+	}
+	const fixed = modelProfile.durationByResolution?.[resolution] ?? (mode === 'reference' ? modelProfile.referenceDuration : undefined);
+	if (fixed !== undefined) {
+		duration = fixed;
 	}
 	const audio = modelProfile.audio ? (settings?.audio ?? defaults.audio) : defaults.audio;
 	return Object.freeze({ mode, ratio, resolution, duration, audio });
@@ -501,6 +544,8 @@ export type BaseHalfVideoGenerateBlocker =
 	| 'noModel'
 	/** No channel on this computer offers the chosen model. */
 	| 'noChannel'
+	/** The channel has no endpoint yet. */
+	| 'noEndpoint'
 	/** The channel has no API key. */
 	| 'noKey'
 	/** There is no prompt, no text input, and no used image, video, or audio. */
@@ -510,6 +555,8 @@ export interface IBaseHalfVideoGenerateReadinessInput {
 	readonly generating: boolean;
 	readonly model: string | undefined;
 	readonly channelFound: boolean;
+	/** Absent counts as having one. */
+	readonly channelHasEndpoint?: boolean;
 	readonly channelHasKey: boolean;
 	readonly prompt: string;
 	readonly plan: readonly IBaseHalfVideoInputPlanItem[];
@@ -524,6 +571,9 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateRea
 	}
 	if (!input.channelFound) {
 		return 'noChannel';
+	}
+	if (input.channelHasEndpoint === false) {
+		return 'noEndpoint';
 	}
 	if (!input.channelHasKey) {
 		return 'noKey';
