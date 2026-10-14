@@ -1,102 +1,64 @@
 # BaseHalf AI Video
 
-BaseHalf AI Video is the official thin video-domain capability pack for
-BaseHalf's universal canvas. It contributes video-production recipes, one
-starter template, a Sequence card projection, and bounded Sequence membership
-cleanup. It does not introduce a second canvas, custom workflow editor,
-document model, inspector, execution system, or provider registry.
+BaseHalf AI Video is built into BaseHalf. It sends the provider requests of
+the Video node, contributes a starter video workflow, and plays an ordered
+Sequence of clips. The Video node itself (its file, its inputs, the panel, the
+card, a generation, and the Video Providers page) belongs to the host; see the
+[video node specification](../../../docs/specs/video-node.md) (D58) and the
+[domain contract](docs/product-contract.md).
 
-Run **BaseHalf: Create Video Workflow…** to instantiate the starter workflow in
-the current project. The workflow contains ordinary Markdown and JSON files plus
-host-owned `.bhnode` containers for storyboard, audio, and video work. The user
-edits the sources, runs individual steps, or asks an Agent in Agent Area to
-expand the script, add shots, bind inputs, and change parameters.
+## Provider commands
 
-## Boundary
+The workbench's generation service calls four internal commands. Each answers
+`{ok: true, value}` or `{ok: false, error: {code, message, status?}}` and never
+throws. The key, the endpoint, the model, and the task id arrive with every
+call; nothing is kept between calls.
 
-BaseHalf owns the product primitives shared by every domain:
+| Command | Argument | Answer |
+| --- | --- | --- |
+| `basehalf.video.provider.submit` | the request: prompt, settings, frames, references | `{remoteId}` |
+| `basehalf.video.provider.poll` | the task | `{state: pending \| running, fraction?}`, `{state: succeeded, videoUrl?}`, or `{state: failed \| cancelled, message}` |
+| `basehalf.video.provider.download` | the task, `videoUrl?`, and a new `.part` file | `{size}` |
+| `basehalf.video.provider.cancel` | the task | `{cancelled}` |
 
-- the canvas, cards, selection, geometry, and directed reference graph, whose
-  edges each target stores once in its own `upstream` list;
-- ordinary text and code files plus generic File, Image, Video, Audio, PDF, and
-  Presentation nodes;
-- waiting, running, failed, cancelled, and sealed-result lifecycle state;
-- local artifact storage, global model-service settings, and protected
-  credentials;
-- Agent Area and ordinary file navigation.
+The types are copied from `src/vs/workbench/basehalf/common/basehalfVideoProviders.ts`
+of the host into `src/videoProviderTypes.ts`; the two must stay the same.
 
-This extension owns only video-domain meaning:
+HTTP runs here, in the extension host, because providers answer no
+cross-origin requests from the window. Every endpoint and video address is
+`https://`, or `http://` on this computer (a local relay or the test
+provider).
 
-- the `storyboard-frame`, `audio-plan`, `clip-plan`, `audio`, and `clip` roles;
-- recipe-local input roles such as prompt, first frame, last frame, audio, and
-  style reference;
-- the host-owned node prompt as the single authored generation intent, kept
-  separate from recipe-specific parameters;
-- bounded parameters such as aspect ratio, duration, audio mode, and purpose;
-- a starter brief-to-shot template;
-- an ordered Sequence document that references sealed Video Result nodes;
-- the Sequence projection for inspecting and playing those results;
-- structural cleanup that removes Sequence membership when its matching Video
-  Result node is explicitly deleted;
-- a Shot document that identifies the primary clip node inside one shot folder;
-- executors for the recipes it declares.
+### Formats
 
-A canvas edge always keeps the BaseHalf meaning “source context flows into
-target.” The target `.bhnode` lists that source in its `upstream` field, next to
-the input binding that records how the target recipe consumes it; every
-binding's source must be listed there. A binding does not add a second kind of
-edge and it never starts execution by itself.
+| Provider kind | Request format | Create | Ask | Video | Cancel |
+| --- | --- | --- | --- | --- | --- |
+| `ark`, `byteplus` | Seedance task API | `POST {endpoint}/contents/generations/tasks` with `content` items (text, `image_url` with role `first_frame`, `last_frame`, or `reference_image`) | `GET …/tasks/{id}` | `content.video_url` | `DELETE …/tasks/{id}` (a queued task) |
+| `dashscope` | Wan video synthesis | `POST {endpoint}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable`: `size` from ratio and resolution without frames, `img_url` with a start frame; first and last frames at `…/image2video/video-synthesis` | `GET {endpoint}/tasks/{id}` | `output.video_url` | `POST {endpoint}/tasks/{id}/cancel` (a pending task) |
+| `minimax` | MiniMax video generation | `POST {endpoint}/video_generation` with `first_frame_image` and `last_frame_image` | `GET {endpoint}/query/video_generation?task_id=` | `file.download_url` of `GET {endpoint}/files/retrieve?file_id=` | none |
+| `gemini` | Veo long-running prediction | `POST {endpoint}/models/{model}:predictLongRunning` with `x-goog-api-key`, inline `image`, `lastFrame`, and `referenceImages` | `GET {endpoint}/{operation}` | `response.generateVideoResponse.generatedSamples[0].video.uri` | none |
+| `openai` | `/videos` tasks | `POST {endpoint}/videos` as a multipart form: `model`, `prompt`, `seconds`, `size`, then `input_reference` files (the start and end frame, or the reference images), `input_video`, and `input_audio` | `GET {endpoint}/videos/{id}` | a URL in the answer, or `GET {endpoint}/videos/{id}/content` | none |
 
-## Contributed recipes
+Images travel as data URLs or inline base64; local videos and audio travel
+only in the `/videos` form. An input larger than 20 MiB, or a request larger
+than 128 MiB, is refused before anything is sent.
 
-- **Storyboard Frame** creates a labelled SVG planning frame.
-- **Clip Previsualization** creates a Markdown production handoff for one clip.
-- **Audio Previsualization** creates a Markdown production handoff for planned
-  dialogue, music, or sound.
-- **Generate Video** uses the host-selected reviewed Seedance, Hailuo, or Wan
-  capability, follows the provider's asynchronous task protocol, downloads one
-  verified MP4, and seals it as a local Video Result.
+### Outcomes
 
-The three planning executors are deliberately local and deterministic. They do
-not call a model service and never present a text handoff as generated media.
-`Generate Video` is the provider-backed executor and uses the same host-owned
-Draft → immutable Attempt → sealed Result lifecycle.
+HTTP 401 and 403 answer `auth`, 400, 409, and 422 `rejected`, 404 `notFound`,
+429 `rateLimited`. A request that may create a task and fails after its body
+left this computer, times out after that, or gets an HTTP 5xx answers
+`unknownOutcome`; an accepted request whose answer cannot be read answers
+`invalidResponse`, which the workbench treats the same way. It never sends
+such a request again by itself. A request that never got through answers
+`network`. MiniMax
+reports its own status codes in HTTP 200 answers; 1004 and 2049 are `auth`,
+1002 and 1039 `rateLimited`, the rest `rejected`.
 
-## Official video capabilities
-
-The extension ships one reviewed JSON catalog for BytePlus Seedance 2.0 Mini
-and 1.5 Pro, MiniMax Hailuo-02, and Alibaba Cloud Wan 2.6 in its documented
-International and US deployment scopes. The model settings UI and request
-adapter are both bound to the owned
-`pointa.basehalf-ai-video.official-models` catalog and resolve the same exact
-provider/deployment/region/model/revision entry. A third-party catalog therefore
-cannot become a runnable choice for this executor. Switching models also switches
-to that model's real resolution, duration, ratio, audio, and input matrix.
-
-Text-to-video and supported frame-to-video modes run end to end. Modes that
-require a local reference-video, source-video, or audio upload are explicitly
-unavailable until that upload transport exists; the extension does not expose a
-control that only pretends it can run. Seedance 1.5 Draft is also omitted: its
-official `draft_task` flow is a separate two-stage operation, so this one-step
-executor never serializes `draft` or `draft_task`.
-
-Provider task ids are durably acknowledged as soon as submission succeeds and
-before polling begins. An exact Retry carrying an existing task id skips the paid
-submission and first resumes polling/download for that same task. If the provider
-confirms that task is failed or cancelled, the Retry may submit exactly one
-replacement and durably replace the Attempt's remote id before polling it. A
-transient poll failure never cancels or replaces a durable task. This is
-especially important for MiniMax, which documents no video cancellation
-endpoint. Polling and downloads are bounded, credentials are never sent to
-output CDNs, and only a complete verified MP4 is returned to BaseHalf.
-Cancellation aborts local work and attempts the provider's documented queued-task
-cancellation where one exists; MiniMax currently documents no video cancellation
-endpoint.
-
-All three reviewed provider protocols require a Bearer API key. Although the
-host connection form is intentionally provider-neutral, this executor rejects
-credential-free and custom-header variants before transport. Provider endpoints
-must also be public HTTPS URLs without embedded credentials.
+Downloads follow at most five redirects, send the key only to the endpoint's
+own origin (never to a CDN), stop at 512 MiB (`tooLarge`), must begin with an
+MP4 `ftyp` box (`notVideo`), and are written to the new `.part` file the
+workbench names. A download that fails leaves no file.
 
 ## Sequence
 
@@ -122,32 +84,31 @@ file:
 `clipNodePath` in a Shot document is relative to the directory containing that
 `shot.json`. `videoNodePath` in a Sequence item is relative to the directory
 containing `video-sequence.json`. Each item stores a readable path and stable
-node identity. The referenced file must be a sealed Video Result node with
-exactly one available Video artifact. The item order is playback order.
+node identity. The referenced file must be a Video node that holds a video
+whose file exists. The item order is playback order.
 
-A Video Result is one file and one node. Generating or remixing another result
-creates another node; it never changes the Sequence item above. To replace a
-clip in playback order, remove the old item and add the new Video Result.
+A node's video never changes: generating again makes a new node beside it. To
+replace a clip in playback order, remove the old item and add the new node.
 
 Open `video-sequence.json` in Card Detail to inspect and play its saved order.
 Clicking a clip plays it, **Play all** advances when each clip ends, and row
-actions open the result node, move it earlier or later, repair a moved path, or
+actions open the node, move it earlier or later, repair a moved path, or
 remove it from playback order. Sequence does not trim, transition, mix, or
 render a final movie.
 
 The matching Command Palette actions are the Agent, keyboard, and accessibility
 fallback for the same operations:
 
-- **BaseHalf: Show Video Sequence Status…** verifies every path, stable node id,
-  sealed result state, and unique local Video artifact.
-- **BaseHalf: Add Video Result to Sequence…** appends one sealed Video Result to
-  playback order.
+- **BaseHalf: Show Video Sequence Status…** checks every path, stable node id,
+  and video file.
+- **BaseHalf: Add Video Result to Sequence…** appends one node that holds a
+  video.
 - **BaseHalf: Move Video Sequence Clip…** moves one item earlier or later.
 - **BaseHalf: Remove Video Sequence Clip…** removes only the playback-order
-  reference and preserves the Video Result node and artifact.
+  reference and keeps the node and its video.
 - **BaseHalf: Repair Moved Video Sequence Clip…** changes only a missing saved
-  path after a bounded scan finds one stable-identity match and freshly verifies
-  its result state and artifact.
+  path after a bounded scan finds one node with the same identity that holds a
+  video.
 
 Extension-based Agents can call the same commands with structured arguments:
 
@@ -166,44 +127,38 @@ await vscode.commands.executeCommand(
     title: 'Opening'
   },
 );
-await vscode.commands.executeCommand(
-  'pointa.basehalf-ai-video.moveSequenceItem',
-  { sequence, itemId: 'shot-01', direction: 'down' },
-);
-await vscode.commands.executeCommand(
-  'pointa.basehalf-ai-video.removeSequenceItem',
-  { sequence, itemId: 'shot-01' },
-);
-await vscode.commands.executeCommand(
-  'pointa.basehalf-ai-video.repairSequenceItemPath',
-  { sequence, itemId: 'shot-01' },
-);
 ```
 
-Add and remove return the saved Sequence document, affected item, and fresh
-inspection. Inspect and path repair return structured status data; move returns
-the saved Sequence document. TUI Agents may also edit the ordinary JSON
-directly, but must preserve each stable `nodeId` and portable `videoNodePath`.
+## Starter workflow
 
-## Local data and legacy files
-
-Workflow inputs and outputs remain ordinary user-owned files inside the
-project. The template contains no credentials, generated results, output paths,
-or user assets. Disabling or uninstalling the extension leaves all project files
-and generated artifacts in place.
-
-The former `.aivideo` project format is no longer created, registered, parsed,
-or migrated. Existing `.aivideo` files and their output folders are left
-untouched and can still be opened as source files.
+Run **BaseHalf: Create Video Workflow…** to make the starter workflow in the
+current folder: a brief, a script, and a first shot with a plan, a sound plan,
+an empty Video node, and `shot.json`, plus an empty Sequence. The two notes of
+the shot are connected to its Video node, so their text joins its prompt. The
+template contains no credentials, tasks, results, or outputs.
 
 ## Development
 
 From `vscode-base/`:
 
 ```sh
-npx tsc -p extensions/basehalf-ai-video/tsconfig.json
+npm run gulp -- compile-extension:basehalf-ai-video
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test extensions/basehalf-ai-video/test/*.test.ts
 ```
 
-The packaged extension includes `out/`, `models/`, and `templates/`; source,
-tests, local research, and internal product notes are excluded from the VSIX.
+The provider tests run every format against the local test provider and
+small in-test servers. The local test provider speaks the Seedance task API
+and the `/videos` API with the key `basehalf-mock-key`:
+
+```sh
+node --experimental-strip-types scripts/basehalf-video-mock-provider.mts --port 8123 --seconds 3
+```
+
+It prints its endpoints (`http://127.0.0.1:8123/api/v3` for a Volcengine Ark
+channel, `http://127.0.0.1:8123/v1` for an OpenAI Compatible channel). `--fail
+key|reject|task|drop|slow` makes every request fail that way; a prompt that
+contains `[mock:reject]`, `[mock:fail]`, `[mock:drop]`, or `[mock:slow]` fails
+only that request. No test calls a real provider.
+
+The packaged extension includes `out/` and `templates/`; source, tests, and
+internal product notes are excluded.
