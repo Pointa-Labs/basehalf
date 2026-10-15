@@ -106,9 +106,16 @@ export class BaseHalfVideoNodeStore extends Disposable implements IBaseHalfVideo
 			this.logService.warn(`[BaseHalf] could not read the layout of ${folder.relativePath || '/'} to place a new Video node`, error);
 			return null;
 		});
-		const base = this.uriIdentityService.extUri.basename(resource).slice(0, -BASEHALF_NODE_DOCUMENT_EXTENSION.length);
+		// Numbered as the canvas numbers new files (`video-2`), from the name
+		// without the number it already has: a sibling of `video-2` is `video-3`.
+		const originalName = this.uriIdentityService.extUri.basename(resource).slice(0, -BASEHALF_NODE_DOCUMENT_EXTENSION.length);
+		const numbered = /^(?<base>.+)-(?<number>[1-9]\d*)$/.exec(originalName)?.groups;
+		const base = numbered?.base ?? originalName;
+		const title = numbered && original.document.title.endsWith(` ${numbered.number}`)
+			? original.document.title.slice(0, -(numbered.number.length + 1))
+			: original.document.title;
 		for (let number = 2; number < SIBLING_NUMBERS_TRIED; number++) {
-			const name = `${base} ${number}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
+			const name = `${base}-${number}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
 			const relativePath = folder.relativePath ? `${folder.relativePath}/${name}` : name;
 			const target = URI.joinPath(folder.resource, name);
 			if (baseHalfProjectPathProblem(relativePath)
@@ -119,7 +126,7 @@ export class BaseHalfVideoNodeStore extends Disposable implements IBaseHalfVideo
 			const document = createBaseHalfNodeDocument({
 				id: generateUuid(),
 				kind: 'video',
-				title: siblingTitle(original.document.title, number),
+				title: siblingTitle(title, number),
 				upstream: [...upstream],
 				prompt: fields.prompt ?? '',
 				...(fields.generation !== undefined ? { generation: fields.generation } : {}),

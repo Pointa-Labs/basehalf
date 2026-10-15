@@ -517,7 +517,7 @@ suite('BaseHalfVideoGenerationService', () => {
 			siblings: harness.store.siblings.map(entry => ({ from: entry.from.path, fields: entry.fields, upstream: entry.upstream })),
 			result: sibling.result?.artifact.path.startsWith('outputs/node-2/')
 		}, {
-			ran: '/workspace/shots/Shot 1 2.bhnode',
+			ran: '/workspace/shots/Shot 1-2.bhnode',
 			original: true,
 			siblings: [{ from: '/workspace/shots/Shot 1.bhnode', fields: { prompt: '图片1里的人骑车经过海边', generation: settings(harness.channel) }, upstream: ['frames/start.png', 'notes/scene.md'] }],
 			result: true

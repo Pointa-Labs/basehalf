@@ -273,27 +273,27 @@ suite('BaseHalfVideoNodeStore', () => {
 		const harness = await createHarness(disposables, {
 			[SHOT]: videoNode(1),
 			// Taken by a file and by a card row of an item that is gone.
-			'shots/Shot 1 2.bhnode': videoNode(2, { title: 'Shot 1 2' })
+			'shots/Shot 1-2.bhnode': videoNode(2, { title: 'Shot 1 2' })
 		});
 		await harness.canvasMirror.updateCardGeometry(shotsFolder(), { path: SHOT, kind: 'file', x: 100, y: 50, width: 720, height: 405 });
-		await harness.canvasMirror.updateCardGeometry(shotsFolder(), { path: 'shots/Shot 1 3.bhnode', kind: 'file', x: 100, y: 1000, width: 720, height: 405 });
+		await harness.canvasMirror.updateCardGeometry(shotsFolder(), { path: 'shots/Shot 1-3.bhnode', kind: 'file', x: 100, y: 1000, width: 720, height: 405 });
 		const original = await harness.read(SHOT);
 		const fields: IBaseHalfVideoNodeFields = {
 			prompt: 'The rider in Image 1 cycles along the coast.',
 			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
 		};
 		const sibling = await harness.store.createSibling(harness.resource(SHOT), fields, ['frames/start.png', 'frames/end.png', 'notes/scene.md']);
-		const created = await harness.readNode('shots/Shot 1 4.bhnode');
+		const created = await harness.readNode('shots/Shot 1-4.bhnode');
 		const layout = await harness.canvasMirror.readCanvas(shotsFolder());
 		assert.deepStrictEqual({
 			sibling: sibling.path,
 			created: { kind: created.kind, title: created.title, prompt: created.prompt, generation: created.generation, upstream: created.upstream, task: created.task, result: created.result },
 			newIdentity: created.id !== baseHalfNodeTestId(1),
-			card: layout?.cards.find(card => card.path === 'shots/Shot 1 4.bhnode'),
+			card: layout?.cards.find(card => card.path === 'shots/Shot 1-4.bhnode'),
 			original: await harness.read(SHOT) === original,
 			written: harness.written
 		}, {
-			sibling: '/work/shots/Shot 1 4.bhnode',
+			sibling: '/work/shots/Shot 1-4.bhnode',
 			created: {
 				kind: 'video',
 				title: 'Shot 1 4',
@@ -304,16 +304,20 @@ suite('BaseHalfVideoNodeStore', () => {
 				result: undefined
 			},
 			newIdentity: true,
-			card: { path: 'shots/Shot 1 4.bhnode', kind: 'file', x: 860, y: 50, width: 720, height: 405 },
+			card: { path: 'shots/Shot 1-4.bhnode', kind: 'file', x: 860, y: 50, width: 720, height: 405 },
 			original: true,
-			written: ['/work/shots/Shot 1 4.bhnode']
+			written: ['/work/shots/Shot 1-4.bhnode']
 		});
 	});
 
-	test('a sibling of a node without a card row gets no row of its own', async () => {
+	test('a sibling of a node without a card row gets no row of its own, and a sibling of a sibling takes the next number', async () => {
 		const harness = await createHarness(disposables, { [SHOT]: videoNode(1) });
 		const sibling = await harness.store.createSibling(harness.resource(SHOT), { prompt: '' }, []);
-		assert.deepStrictEqual([sibling.path, (await harness.readNode('shots/Shot 1 2.bhnode')).title, await harness.canvasMirror.readCanvas(shotsFolder())], ['/work/shots/Shot 1 2.bhnode', 'Shot 1 2', null]);
+		const next = await harness.store.createSibling(sibling, { prompt: '' }, []);
+		assert.deepStrictEqual(
+			[sibling.path, (await harness.readNode('shots/Shot 1-2.bhnode')).title, next.path, (await harness.readNode('shots/Shot 1-3.bhnode')).title, await harness.canvasMirror.readCanvas(shotsFolder())],
+			['/work/shots/Shot 1-2.bhnode', 'Shot 1 2', '/work/shots/Shot 1-3.bhnode', 'Shot 1 3', null]
+		);
 	});
 
 	test('names the file of a generated video by the node and the task, inside the output tree', async () => {

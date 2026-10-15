@@ -72,9 +72,9 @@ suite('BaseHalfNodeCommandBridge', () => {
 	});
 
 	test('prints the path of the new node when the node already held a video', async () => {
-		const harness = createHarness({ generated: URI.file('/work/scenes/shot 2.bhnode') });
+		const harness = createHarness({ generated: URI.file('/work/scenes/shot-2.bhnode') });
 		const response = await harness.handler.handle(requestEvent('/work/scenes', 'scenes/shot.bhnode'));
-		assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'scenes/shot 2.bhnode']);
+		assert.deepStrictEqual([response?.outcome, response?.type === 'runNode' ? response.nodePath : undefined], ['succeeded', 'scenes/shot-2.bhnode']);
 	});
 
 	test('ignores unknown processes but promptly rejects a released Agent Area process', async () => {

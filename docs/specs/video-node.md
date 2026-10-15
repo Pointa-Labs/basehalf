@@ -431,8 +431,10 @@ the result wins; the other deletes its download.
 ### Generating again
 
 Generating from a node that holds a video makes a new Video node in the same
-folder, named like the original with the next free number, with the same
-prompt, settings, and upstream entries, and runs the generation there. Its
+folder, named like the original with the next free number, as the canvas
+numbers the files it creates (`shot.bhnode` and `shot-2.bhnode` give
+`shot-3.bhnode`, titled "Shot 3"), with the same prompt, settings, and
+upstream entries, and runs the generation there. Its
 card appears to the right of the original card, and it becomes the selected
 card. The original node and its video do not change.
 

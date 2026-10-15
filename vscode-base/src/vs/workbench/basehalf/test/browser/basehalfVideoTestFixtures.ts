@@ -121,7 +121,7 @@ export class FakeVideoNodeStore implements IBaseHalfVideoNodeStore {
 		const node = this.require(resource);
 		this.siblings.push({ from: resource, fields, upstream });
 		const folder = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/') + 1) : '';
-		return this.addNode(`${folder}${node.title} 2.bhnode`, fields, upstream, `${node.title} 2`);
+		return this.addNode(`${folder}${node.title}-2.bhnode`, fields, upstream, `${node.title} 2`);
 	}
 
 	videoTarget(snapshot: IBaseHalfVideoNodeSnapshot, taskId: string): URI {

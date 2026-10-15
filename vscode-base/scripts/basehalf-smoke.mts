@@ -67,10 +67,11 @@ const SMOKE_WINDOW_CONTENT_SIZE = Object.freeze({ width: 1280, height: 860 });
 // against the local test provider of basehalf-smoke-video.mts.
 const VIDEO_FOLDER = 'video-smoke';
 const VIDEO_NODE = `${VIDEO_FOLDER}/video.bhnode`;
-// What Generate makes beside VIDEO_NODE once that holds a video.
-const VIDEO_SIBLING_NODE = `${VIDEO_FOLDER}/video 2.bhnode`;
+// What Generate makes beside VIDEO_NODE once that holds a video: numbered as
+// the create menu numbers new nodes.
+const VIDEO_SIBLING_NODE = `${VIDEO_FOLDER}/video-2.bhnode`;
 // The second node made from the create menu, for generations that end without a video.
-const VIDEO_SECOND_NODE = `${VIDEO_FOLDER}/video-2.bhnode`;
+const VIDEO_SECOND_NODE = `${VIDEO_FOLDER}/video-3.bhnode`;
 const VIDEO_AGENT_NODE = `${VIDEO_FOLDER}/agent-shot.bhnode`;
 const VIDEO_START_IMAGE = `${VIDEO_FOLDER}/start.png`;
 const VIDEO_END_IMAGE = `${VIDEO_FOLDER}/end.png`;
