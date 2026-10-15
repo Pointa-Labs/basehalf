@@ -804,11 +804,12 @@
 /*
  * React Flow owns the live position of the Video panel. The panel stays at a
  * constant screen size while the canvas viewport transforms, and it follows
- * its card while the card moves or is resized.
+ * its card while the card moves or is resized. It lies above the toolbar of
+ * its card, so that its menus open over the toolbar.
  */
 .monaco-workbench .basehalf-canvas-video-panel-surface {
 	position: absolute;
-	z-index: 1000;
+	z-index: 1002;
 	box-sizing: border-box;
 	overflow: visible;
 	pointer-events: auto;

@@ -3078,10 +3078,11 @@ async function assertVideoPanelInputsAndNames(page) {
 	const addMenu = panel.locator('.bh-video-panel-menu.add');
 	await addMenu.waitFor({ state: 'visible', timeout: 10_000 });
 	await addMenu.locator('.bh-video-panel-menu-item[data-key="pick"]').click();
-	await page.locator('.basehalf-video-pick-banner').waitFor({ state: 'visible', timeout: 10_000 });
+	// The panel says what the next click does.
+	await panel.locator('.bh-video-panel-inputs.picking .bh-video-panel-inputs-hint[role="status"]').waitFor({ state: 'visible', timeout: 10_000 });
 	await clickCanvasCardOnTop(page, VIDEO_START_IMAGE);
 	await waitUntil(() => JSON.stringify(readVideoNode(VIDEO_NODE).upstream) === JSON.stringify([VIDEO_START_IMAGE]), 'Pick on Canvas to connect start.png', 10_000);
-	await page.locator('.basehalf-video-pick-banner').waitFor({ state: 'detached', timeout: 10_000 });
+	await panel.locator('.bh-video-panel-inputs.picking').waitFor({ state: 'detached', timeout: 10_000 });
 	// The click that picked selected nothing.
 	await waitForCanvasCardSelection(page, VIDEO_NODE);
 
@@ -3218,7 +3219,11 @@ async function assertVideoGenerateWritesVideo(page) {
 	if (!fs.readFileSync(video).equals(provider.video)) {
 		throw new Error(`${video} must hold the test provider's video`);
 	}
-	await waitForReading(() => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'video' && seen.video !== null && seen.video.readyState >= 1, 'the card to show the video');
+	const shown = await waitForReading(() => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'video' && seen.video !== null && seen.video.readyState >= 1, 'the card to show the video');
+	// The card that showed the generation shows the video alone.
+	if (shown.faceShown) {
+		throw new Error(`The card must show the video without the face of the generation over it: ${JSON.stringify(shown)}`);
+	}
 	const played = await playVideoCard(page, VIDEO_NODE);
 	if (played.error || !(played.currentTime >= 0.3) || played.width !== 320 || played.height !== 180 || !(played.duration > 1.5 && played.duration < 2.5) || !played.controls) {
 		throw new Error(`The card must play the video, with its controls while selected: ${JSON.stringify(played)}`);
@@ -3768,8 +3773,10 @@ function readVideoCard(page, cardPath) {
 			return null;
 		}
 		const video = face.querySelector('video.bh-video-card-video');
+		const glyphFace = face.querySelector('.bh-video-card-face');
 		return {
 			state: face.getAttribute('data-state'),
+			faceShown: !!glyphFace && getComputedStyle(glyphFace).display !== 'none',
 			phase: face.querySelector('.bh-video-card-phase')?.textContent ?? null,
 			elapsed: face.querySelector('.bh-video-card-elapsed')?.textContent ?? null,
 			progress: !!face.querySelector('.bh-video-card-progress[role="progressbar"]'),

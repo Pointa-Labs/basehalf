@@ -7383,12 +7383,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			};
 			this.videoInputPick = pick;
+			// The panel says what the next click does, where the user chose Pick on Canvas.
 			this.cards.dataset.videoInputPickActive = 'true';
 			store.add(toDisposable(() => delete this.cards.dataset.videoInputPickActive));
-			const banner = DOM.append(this.root, DOM.$('.basehalf-video-pick-banner'));
-			banner.setAttribute('role', 'status');
-			banner.textContent = localize('basehalf.canvas.video.pickBanner', "Click a card to connect it to the Video node. Press Escape to cancel.");
-			store.add(toDisposable(() => banner.remove()));
 			let pressedPath: string | undefined | null = null;
 			const onPointer = (event: Event): void => {
 				const target = event.target;
