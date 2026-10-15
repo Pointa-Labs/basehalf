@@ -2560,7 +2560,7 @@ function createCanvasSceneMount(
 		return h(vendor.ViewportPortal, null,
 			h('div', {
 				ref: toolbarRef,
-				className: `basehalf-video-context-toolbar ${importOnly ? 'basehalf-video-draft-toolbar' : 'basehalf-video-result-toolbar'} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
+				className: `basehalf-video-context-toolbar ${importOnly ? 'basehalf-video-draft-toolbar' : 'basehalf-video-result-toolbar'}${frameMenu ? ' menu-open' : ''} basehalf-canvas-note-toolbar basehalf-canvas-note-surface basehalf-canvas-adjacent-chrome nodrag nopan nowheel`,
 				role: 'toolbar',
 				'aria-label': localize('basehalf.canvas.video.actions', "Video actions for {0}", node.id),
 				'data-node-path': node.id,
