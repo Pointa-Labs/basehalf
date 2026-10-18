@@ -126,7 +126,7 @@ fields. The request maps each to MiniMax's field and value
 
 | Parameter | Label | Kind | Values | Default | Models | MiniMax's field |
 | --- | --- | --- | --- | --- | --- | --- |
-| `resolution` | Resolution | choice | `480p`, `512p`, `768p`, `1080p`, `2k` as each model offers them (the model table), labelled as MiniMax writes them: 480P, 512P, 768P, 1080P, 2K | `768p` | all | `resolution`, as MiniMax writes it (`768P`) |
+| `resolution` | Resolution | choice | `480p`, `512p`, `768p`, `1080p`, `2k` as each model offers them (the model table), labeled as every provider's are: 480p, 512p, 768p, 1080p, 2K | `768p` | all | `resolution`, as MiniMax writes it (`768P`) |
 | `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | 16:9 | H3, H3 Max | `ratio` |
 | `duration` | Duration | whole seconds | 4 to 15 (H3), 5 to 15 (H3 Max), step 1; 6 or 10 (Hailuo, step 4) | 5 (H3, H3 Max), 6 (Hailuo) | all | `duration` |
 | `prompt_expansion_mode` | Prompt Expansion | choice | Off (`disabled`), Balanced (`balanced`), Quality (`quality`) | Balanced | H3 Max | `extra.prompt_expansion_mode` |

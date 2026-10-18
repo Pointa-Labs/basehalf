@@ -318,7 +318,7 @@ test('the catalog entry declares both regions, the API key, and five models with
 	assert.deepEqual(provider.models.map(model => {
 		const resolution = model.parameters.find(parameter => parameter.name === 'resolution');
 		return resolution?.kind === 'choice' ? resolution.options.map(option => `${option.value}=${option.label}`).join(' ') : '';
-	}), ['768p=768P 2k=2K', '480p=480P 768p=768P', '768p=768P 1080p=1080P', '768p=768P 1080p=1080P', '512p=512P 768p=768P 1080p=1080P']);
+	}), ['768p=768p 2k=2K', '480p=480p 768p=768p', '768p=768p 1080p=1080p', '768p=768p 1080p=1080p', '512p=512p 768p=768p 1080p=1080p']);
 	assert.deepEqual(provider.models.map(model => model.modes.map(mode => mode.limits)), [
 		...Array.from({ length: 2 }, () => [
 			{ imageMinSide: 256, imageMaxSide: 5760, imageAspect: [0.4, 2.5], imageMaxBytes: 30 * MIB },
@@ -742,7 +742,7 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		fullHdSixSeconds: [],
 		lowWithoutFrame: ['Hailuo 02 makes 512P videos only from a start frame: connect an image, or choose another resolution.'],
 		lowWithEndFrame: ['Hailuo 02 makes 512P videos only without an end frame: remove it, or choose another resolution.'],
-		minimaxSpelling: ['Resolution cannot be 768P for MiniMax H3; choose 768P, 2K.'],
+		minimaxSpelling: ['Resolution cannot be 768P for MiniMax H3; choose 768p, 2K.'],
 		minimaxField: ['Hailuo 2.3 has no setting named "prompt_optimizer".'],
 		fastWithEndFrame: ['Hailuo 02 offers Fast Optimization only without an end frame: turn it off, or remove the end frame.'],
 		fastNeedsFrame: ['Hailuo 2.3 Fast in Frames mode needs a start frame.'],

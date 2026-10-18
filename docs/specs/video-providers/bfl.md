@@ -124,7 +124,7 @@ No mode takes reference images, reference videos, or audio.
 
 | Name | Label | Kind | Values | Default | Modes | Sent as |
 | --- | --- | --- | --- | --- | --- | --- |
-| `resolution` | Resolution | choice | `720p` (HD), `1080p` (FHD), `2k` (QHD (2K)), `4k` (UHD (4K)) | `720p` | Frames, Extend | `resolution`: `hd`, `fhd`, `qhd`, `uhd` |
+| `resolution` | Resolution | choice | `720p` (720p), `1080p` (1080p), `2k` (2K), `4k` (4K): BFL's HD, FHD, QHD, and UHD | `720p` | Frames, Extend | `resolution`: `hd`, `fhd`, `qhd`, `uhd` |
 | `ratio` | Ratio (ratio shapes) | choice | `adaptive` (Adaptive), `21:9`, `2:1`, `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `9:21` | `adaptive` | Frames, Extend | `aspect_ratio`, Adaptive as `auto` |
 | `duration` | Duration | integer, seconds | 5 to 20, step 1, or Auto (`-1`) | 5 | Frames, Extend | `duration`, Auto as `"auto"` |
 | `sound` | Sound | boolean | | on | Frames, Extend | `generate_audio` |

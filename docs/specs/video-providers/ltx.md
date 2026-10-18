@@ -138,7 +138,7 @@ mode and the inputs of a generation choose the endpoint.
 
 | Name | Label | Kind | Values (default in bold) | Models | Modes | Sent as |
 | --- | --- | --- | --- | --- | --- | --- |
-| `resolution` | Resolution | choice | `720p` (720p), **`1080p`** (1080p), `2k` (1440p), `4k` (4K) | all | Frames, References | `resolution`, with the ratio, as `WIDTHxHEIGHT` |
+| `resolution` | Resolution | choice | `720p` (720p), **`1080p`** (1080p), `2k` (2K, LTX's 1440p), `4k` (4K) | all | Frames, References | `resolution`, with the ratio, as `WIDTHxHEIGHT` |
 | `ratio` | Ratio | choice, ratio shapes | LTX-2.5: **`16:9`**, `9:16`, `1:1`, `3:2`, `2:3`; LTX-2.3: **`16:9`**, `9:16` | all | Frames, References | the shape of `resolution` |
 | `duration` | Duration | integer, seconds | Fast: 6 to 20, step 2; Pro: 6 to 10, step 2; default **6**; Auto (`-1`) on LTX-2.5 | all | Frames | `duration`, `null` for Auto |
 | `fps` | Frame Rate | choice, advanced | **24**, 25, 48, 50 (labels "24 fps", …) | all | Frames, References | `fps` |
@@ -156,8 +156,8 @@ mode and the inputs of a generation choose the endpoint.
   and the retake and extend values are those of LTX's examples (start 0,
   length 5) and defaults (`replace_audio_and_video`, `end`). No duration of
   5 seconds exists in Frames, so its default is the shortest, 6.
-- Resolutions use the shared values with LTX's labels: LTX's 1440p tier,
-  between 1080p and 4K, is the shared `2k`.
+- Resolutions use the shared values and labels: LTX's 1440p tier,
+  between 1080p and 4K, is the shared `2k`, labeled 2K.
 - Sizes, `WIDTHxHEIGHT`, as `models/ltx-2-5` lists them; LTX-2.3 has the
   16:9 and 9:16 columns only:
 

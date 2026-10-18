@@ -203,7 +203,7 @@ module maps it to its provider's field and value.
 
 | Name | Kind | Values | Means |
 | --- | --- | --- | --- |
-| `resolution` | choice | lower case: `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`; labels as the provider writes them, such as `768P` or `4K` | the size of the video |
+| `resolution` | choice | lower case: `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`, labeled the same at every provider: 720p, 1080p, 2K, 4K | the size of the video |
 | `ratio` | choice, drawn as ratio shapes | width to height, such as `16:9`; `adaptive` (**Adaptive**) when the provider takes the shape from the inputs or the prompt | the shape of the video |
 | `duration` | whole seconds | the model's range; Auto is `-1` where the provider can choose | the length of the video |
 | `sound` | boolean | | the model makes voices, effects, or music with the video |

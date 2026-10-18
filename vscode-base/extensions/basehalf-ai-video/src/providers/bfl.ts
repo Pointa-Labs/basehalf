@@ -79,7 +79,7 @@ const TEXT = Object.freeze({
 	modes: Object.freeze({ frames: 'Frames', edit: 'Edit', extend: 'Extend' }),
 	resolution: 'Resolution',
 	resolutionTooltip: 'At 16:9, HD is 1280 × 704, FHD 1920 × 1088, QHD 2560 × 1440, and UHD 3840 × 2176. Above HD, the same generation is finished at the larger size.',
-	resolutions: Object.freeze<Record<Resolution, string>>({ '720p': 'HD', '1080p': 'FHD', '2k': 'QHD (2K)', '4k': 'UHD (4K)' }),
+	resolutions: Object.freeze<Record<Resolution, string>>({ '720p': '720p', '1080p': '1080p', '2k': '2K', '4k': '4K' }),
 	ratio: 'Ratio',
 	ratioTooltip: 'The shape of the video. Adaptive lets FLUX 3 choose it from the prompt and the inputs; a continuation then keeps the shape of the clip.',
 	adaptive: 'Adaptive',

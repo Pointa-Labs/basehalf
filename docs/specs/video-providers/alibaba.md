@@ -126,7 +126,7 @@ an empty negative prompt, sends nothing.
 
 | Name | Label | Kind | Models and values (the default in bold) |
 | --- | --- | --- | --- |
-| `resolution` | Resolution | choice, labels 480P, 720P, 1080P | Wan 3.0, HappyHorse 1.1: `480p`, `720p`, **`1080p`**. Wan 2.7, Wan 2.6, Wan 2.6 Flash, HappyHorse 1.0: `720p`, **`1080p`** |
+| `resolution` | Resolution | choice, labels 480p, 720p, 1080p (sent as 480P, 720P, 1080P) | Wan 3.0, HappyHorse 1.1: `480p`, `720p`, **`1080p`**. Wan 2.7, Wan 2.6, Wan 2.6 Flash, HappyHorse 1.0: `720p`, **`1080p`** |
 | `ratio` | Ratio | choice, ratio | Wan 3.0 (Frames, References): **adaptive**, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16. Wan 2.7 (Frames, References) and Wan 2.6: **16:9**, 9:16, 1:1, 4:3, 3:4. HappyHorse: **16:9**, 9:16, 1:1, 4:3, 3:4, 4:5, 5:4, 9:21, 21:9 |
 | `duration` | Duration | integer, seconds | Wan 3.0 (Frames, References): 2–30, **5**, or Auto (`-1`). Wan 2.7 (Frames, References, Extend), Wan 2.6, Wan 2.6 Flash: 2–15, **5**. HappyHorse: 3–15, **5** |
 | `sound` | Sound | boolean | Wan 3.0, Wan 2.6 Flash: **on**; sent as `audio` |

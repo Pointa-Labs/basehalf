@@ -56,7 +56,7 @@ const LABELS = Object.freeze({
 	apiKey: 'API Key',
 	modes: Object.freeze<Record<'frames' | 'reference' | 'edit' | 'extend', string>>({ frames: 'Frames', reference: 'References', edit: 'Edit', extend: 'Extend' }),
 	resolution: 'Resolution',
-	resolutions: Object.freeze<Record<Resolution, string>>({ '720p': '720p', '1080p': '1080p', '2k': '1440p', '4k': '4K' }),
+	resolutions: Object.freeze<Record<Resolution, string>>({ '720p': '720p', '1080p': '1080p', '2k': '2K', '4k': '4K' }),
 	ratio: 'Ratio',
 	ratioTooltip: 'The shape of the video, also when it starts from a frame or an image.',
 	duration: 'Duration',

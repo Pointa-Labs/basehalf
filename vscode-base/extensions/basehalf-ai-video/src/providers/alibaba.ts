@@ -239,7 +239,7 @@ function options(values: readonly string[]): { value: string; label: string }[] 
 }
 
 function resolution(values: readonly Resolution[]): ChoiceParameter {
-	return { name: 'resolution', label: LABELS.resolution, kind: 'choice', options: values.map(value => ({ value, label: RESOLUTION_VALUES[value] })), default: '1080p' };
+	return { name: 'resolution', label: LABELS.resolution, kind: 'choice', options: values.map(value => ({ value, label: value })), default: '1080p' };
 }
 
 const WAN_RATIOS = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4']);

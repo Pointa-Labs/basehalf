@@ -247,8 +247,8 @@ test('the provider is shipped with two regions, one key, and one model per versi
 		happyHorse: [['resolution', '1080p', 'all'], ['ratio', '16:9', 'all'], ['duration', 5, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
 		wan3: [['resolution', '1080p', 'all'], ['ratio', 'adaptive', 'frames+reference'], ['duration', 5, 'frames+reference'], ['sound', true, 'all'], ['prompt_extend', true, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
 		frames: ['frames optional optional none', 'reference none none none', 'edit none none required', 'extend none none required'],
-		hh11Resolutions: ['480p=480P', '720p=720P', '1080p=1080P'],
-		hh10Resolutions: ['720p=720P', '1080p=1080P'],
+		hh11Resolutions: ['480p=480p', '720p=720p', '1080p=1080p'],
+		hh10Resolutions: ['720p=720p', '1080p=1080p'],
 		hhRatios: ['16:9=16:9', '9:16=9:16', '1:1=1:1', '4:3=4:3', '3:4=3:4', '4:5=4:5', '5:4=5:4', '9:21=9:21', '21:9=21:9'],
 		wan3Ratios: ['adaptive=Adaptive', '21:9=21:9', '16:9=16:9', '4:3=4:3', '1:1=1:1', '3:4=3:4', '9:16=9:16'],
 		ratioTip: 'The shape of the video. A video made from a start frame takes the shape of the frame.'

@@ -269,7 +269,7 @@ test('the catalog declares LTX with one region, one API key, and four models wit
 			default: return [parameter.name, parameter.label, parameter.kind, parameter.default ?? null, flags];
 		}
 	});
-	const resolution = (flags: string) => ['resolution', 'Resolution', ['720p=720p', '1080p=1080p', '2k=1440p', '4k=4K'], '1080p', flags];
+	const resolution = (flags: string) => ['resolution', 'Resolution', ['720p=720p', '1080p=1080p', '2k=2K', '4k=4K'], '1080p', flags];
 	const wide = ['16:9=16:9', '9:16=9:16', '1:1=1:1', '3:2=3:2', '2:3=2:3'];
 	const ratio = (values: string[], flags: string) => ['ratio', 'Ratio', values, '16:9', flags];
 	const fps = (flags: string) => ['fps', 'Frame Rate', ['24=24 fps', '25=25 fps', '48=48 fps', '50=50 fps'], 24, `advanced ${flags}`];

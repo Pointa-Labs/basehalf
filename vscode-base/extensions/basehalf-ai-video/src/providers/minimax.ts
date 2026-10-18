@@ -279,8 +279,8 @@ function resolutionParameter(resolutions: readonly string[], defaultResolution: 
 		name: 'resolution',
 		label: TEXT.parameters.resolution,
 		kind: 'choice',
-		// The shared values, labelled as MiniMax writes them.
-		options: resolutions.map(resolution => ({ value: catalogResolution(resolution), label: resolution })),
+		// The shared values with the shared labels (768p, 2K); the request sends MiniMax's own (768P, 2K).
+		options: resolutions.map(resolution => ({ value: catalogResolution(resolution), label: /k$/i.test(resolution) ? resolution.toUpperCase() : resolution.toLowerCase() })),
 		default: catalogResolution(defaultResolution)
 	};
 }

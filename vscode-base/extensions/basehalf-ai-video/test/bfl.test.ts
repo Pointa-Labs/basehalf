@@ -146,7 +146,7 @@ test('the catalog declares Black Forest Labs with one region and one key, and FL
 			name: 'resolution',
 			label: 'Resolution',
 			kind: 'choice',
-			options: [{ value: '720p', label: 'HD' }, { value: '1080p', label: 'FHD' }, { value: '2k', label: 'QHD (2K)' }, { value: '4k', label: 'UHD (4K)' }],
+			options: [{ value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }, { value: '2k', label: '2K' }, { value: '4k', label: '4K' }],
 			default: '720p',
 			modes: ['frames', 'extend']
 		},
