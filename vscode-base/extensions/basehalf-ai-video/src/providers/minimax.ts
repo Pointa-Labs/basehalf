@@ -64,7 +64,6 @@ const TEXT = Object.freeze({
 	startFrameOnly: (model: string, resolution: string) => `${model} makes ${resolution} videos only from a start frame: connect an image, or choose another resolution.`,
 	noEndFrameAt: (model: string, resolution: string) => `${model} makes ${resolution} videos only without an end frame: remove it, or choose another resolution.`,
 	fastWithEndFrame: (model: string) => `${model} offers Fast Optimization only without an end frame: turn it off, or remove the end frame.`,
-	gifImage: (label: string) => `${label} is a GIF image; MiniMax takes PNG, JPEG, or WebP images.`,
 	m4aAudio: (label: string) => `${label} is M4A audio; MiniMax takes WAV or MP3.`,
 	wrongFormat: (label: string) => `${label} is not in a format MiniMax takes.`,
 	notOffered: (model: string) => `${model} is not offered in this region.`,
@@ -388,9 +387,7 @@ function hailuoRules(model: HailuoModel, request: CheckRequest, counts: PlannedC
 function formatProblems(items: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	for (const item of items) {
-		if (item.kind === 'image' && item.facts.format === 'gif') {
-			problems.push(TEXT.gifImage(item.label));
-		} else if (item.kind === 'audio' && item.facts.format === 'm4a') {
+		if (item.kind === 'audio' && item.facts.format === 'm4a') {
 			problems.push(TEXT.m4aAudio(item.label));
 		}
 	}

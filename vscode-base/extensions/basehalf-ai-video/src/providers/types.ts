@@ -92,8 +92,13 @@ export interface ModeInputs {
 	readonly source: 'none' | 'required';
 }
 
+/** An image format a provider takes. */
+export type ImageFormat = 'png' | 'jpeg' | 'webp';
+
 /** Checked by `check` before anything is sent. Any may be absent. */
 export interface ModeLimits {
+	/** The image formats the provider takes, PNG among them; all three when absent. The window draws any other image to PNG. */
+	readonly imageFormats?: readonly ImageFormat[];
 	readonly imageMinSide?: number;
 	readonly imageMaxSide?: number;
 	/** Width divided by height, inclusive. */
@@ -239,6 +244,8 @@ export interface CheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
 	readonly estimate?: Estimate;
+	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
+	readonly providerModel?: string;
 }
 
 export interface SubmitRequest extends ProviderAccess {

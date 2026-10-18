@@ -552,9 +552,6 @@ function formatProblems(measured: readonly MeasuredItem[]): string[] {
 	for (const item of measured) {
 		if (item.kind === 'image') {
 			encodedImages += base64Length(item.facts.bytes);
-			if (item.facts.format === 'gif') {
-				problems.push(`${item.label} is a GIF; Alibaba Cloud takes PNG, JPEG, or WebP images.`);
-			}
 		} else if (item.kind === 'audio' && item.facts.format === 'm4a') {
 			problems.push(`${item.label} is M4A audio; Alibaba Cloud takes WAV or MP3.`);
 		}

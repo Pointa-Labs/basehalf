@@ -468,9 +468,7 @@ function fileProblems(items: readonly MeasuredItem[], prompt: string): string[] 
 	const problems: string[] = [];
 	for (const item of items) {
 		const format = item.facts.format;
-		if (item.kind === 'image' && format === 'gif') {
-			problems.push(`${item.label} is a GIF; Vidu takes PNG, JPEG, or WebP images.`);
-		} else if (item.kind === 'audio' && format !== undefined && format !== 'mp3') {
+		if (item.kind === 'audio' && format !== undefined && format !== 'mp3') {
 			problems.push(`${item.label} is ${FORMAT_NAMES[format]}; Vidu takes MP3 audio only.`);
 		}
 	}

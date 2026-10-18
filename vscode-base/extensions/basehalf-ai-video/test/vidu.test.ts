@@ -624,7 +624,7 @@ test('check adds Vidu\'s own rules to the declarations\' checks, and submit then
 	assert.deepEqual(results, {
 		shapes: [shapes],
 		sameShape: [],
-		gif: ['The start frame moving.gif is a GIF; Vidu takes PNG, JPEG, or WebP images.'],
+		gif: ['The start frame moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
 		wav: ['Reference audio 1 voice.wav is a WAV file; Vidu takes MP3 audio only.'],
 		mixAudioInChina: ['Vidu Q3 Mix takes reference audio only in International.'],
 		mixAudioInInternational: [],

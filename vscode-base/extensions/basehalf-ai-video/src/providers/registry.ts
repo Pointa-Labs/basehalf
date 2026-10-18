@@ -9,7 +9,7 @@ import { ALIBABA } from './alibaba.ts';
 import { MINIMAX } from './minimax.ts';
 import { GOOGLE } from './google.ts';
 import type { ProviderModule } from './module.ts';
-import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ModeId } from './types.ts';
+import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
 import { VIDU } from './vidu.ts';
 
 /**
@@ -21,6 +21,7 @@ export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDA
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
+const IMAGE_FORMATS: ReadonlySet<string> = new Set<ImageFormat>(['png', 'jpeg', 'webp']);
 const ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
 
@@ -124,6 +125,11 @@ function validateMode(mode: CatalogMode, at: string): void {
 	validateSlot(inputs.videos, `${at}: videos`);
 	validateSlot(inputs.audios, `${at}: audios`);
 	const limits = mode.limits;
+	if (limits.imageFormats !== undefined) {
+		const formats = new Set<string>(limits.imageFormats);
+		check(formats.size === limits.imageFormats.length && [...formats].every(format => IMAGE_FORMATS.has(format)), `${at}: limits.imageFormats must name png, jpeg, or webp, each once`);
+		check(formats.has('png'), `${at}: limits.imageFormats must include png, the format the window draws other images to`);
+	}
 	validatePositive(limits.imageMinSide, `${at}: limits.imageMinSide`);
 	validatePositive(limits.imageMaxSide, `${at}: limits.imageMaxSide`);
 	check(limits.imageMinSide === undefined || limits.imageMaxSide === undefined || limits.imageMinSide <= limits.imageMaxSide, `${at}: limits.imageMinSide must not exceed imageMaxSide`);

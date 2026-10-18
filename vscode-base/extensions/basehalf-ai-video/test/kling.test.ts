@@ -146,7 +146,7 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 				videos: { min: 0, max: 0 },
 				audios: { min: 0, max: 0 },
 				source: 'none',
-				limits: { imageMinSide: 300, imageAspect: [0.4, 2.5], imageMaxBytes: 50 * 1024 * 1024 }
+				limits: { imageFormats: ['png', 'jpeg'], imageMinSide: 300, imageAspect: [0.4, 2.5], imageMaxBytes: 50 * 1024 * 1024 }
 			}, `${model.id} ${mode.id}`);
 		}
 	}
@@ -570,12 +570,12 @@ test('with files, check refuses WebP and GIF images and a request larger than AI
 		};
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
 			outcomes: {
-				webp: ['The start frame frame.webp is a WebP image; Kling takes JPEG and PNG images only.'],
-				gif: ['Reference image 2 moving.gif is a GIF image; Kling takes JPEG and PNG images only.'],
+				webp: ['The start frame frame.webp is a WebP image; this mode takes PNG or JPEG images.'],
+				gif: ['Reference image 2 moving.gif is a GIF image; this mode takes PNG or JPEG images.'],
 				jpegAndPng: [],
 				oneLarge: [],
 				twoLarge: ['The images make a request of 133.3 MiB; AI Video sends at most 128 MiB. Use fewer or smaller images.'],
-				submitted: { code: 'rejected', message: 'The start frame frame.webp is a WebP image; Kling takes JPEG and PNG images only.' },
+				submitted: { code: 'rejected', message: 'The start frame frame.webp is a WebP image; this mode takes PNG or JPEG images.' },
 				ruleSubmitted: { code: 'rejected', message: 'Kling 2.6 makes sound only at 1080p.' }
 			},
 			sent: 0

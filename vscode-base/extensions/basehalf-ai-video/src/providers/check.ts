@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, Currency, Estimate, Media, ModeId, Params, ParamValue, PlannedCounts, PlannedMedia } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, Currency, Estimate, ImageFormat, Media, ModeId, Params, ParamValue, PlannedCounts, PlannedMedia } from './types.ts';
 
 /**
  * What every model is checked against before anything is sent, from its
@@ -219,6 +219,9 @@ export async function measureItems(inputs: PlannedMedia, inspector: MediaInspect
 }
 
 const IMAGE_FORMATS: ReadonlySet<string> = new Set(['png', 'jpeg', 'webp', 'gif']);
+/** The image formats of a mode that declares none. */
+const DEFAULT_IMAGE_FORMATS: readonly ImageFormat[] = Object.freeze(['png', 'jpeg', 'webp']);
+const IMAGE_FORMAT_NAMES: Readonly<Record<string, string>> = Object.freeze({ png: 'PNG', jpeg: 'JPEG', webp: 'WebP', gif: 'GIF' });
 const VIDEO_FORMATS: ReadonlySet<string> = new Set(['mp4', 'mov']);
 const AUDIO_FORMATS: ReadonlySet<string> = new Set(['wav', 'mp3', 'm4a']);
 
@@ -237,6 +240,13 @@ export function checkLimits(mode: CatalogMode, items: readonly MeasuredItem[]): 
 		if (item.kind === 'image') {
 			if (!facts.format || !IMAGE_FORMATS.has(facts.format) || !facts.width || !facts.height) {
 				problems.push(`${item.label} is not an image AI Video can read (PNG, JPEG, WebP, or GIF).`);
+				continue;
+			}
+			const formats = limits.imageFormats ?? DEFAULT_IMAGE_FORMATS;
+			if (!formats.includes(facts.format as ImageFormat)) {
+				const names = formats.map(format => IMAGE_FORMAT_NAMES[format]);
+				const list = names.length > 2 ? `${names.slice(0, -1).join(', ')}, or ${names[names.length - 1]}` : names.join(' or ');
+				problems.push(`${item.label} is a ${IMAGE_FORMAT_NAMES[facts.format]} image; this mode takes ${list} images.`);
 				continue;
 			}
 			if (limits.imageMaxBytes !== undefined && facts.bytes > limits.imageMaxBytes) {

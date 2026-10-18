@@ -711,7 +711,7 @@ test('check with files refuses a GIF, M4A audio, videos too long for the result,
 	const big: MediaInspector = { inspect: async () => ({ bytes: 13 * 1024 * 1024, format: 'png', width: 1000, height: 1000 }) };
 	const heavy = value(await commands({ inspector: () => big }).check(checkRequest('wan3.0-video', 'reference', {}, 'p', { images: Array.from({ length: 10 }, () => image(START)) }))).problems;
 	assert.deepEqual({ ...results, heavy }, {
-		gif: ['The start frame moving.gif is a GIF; Alibaba Cloud takes PNG, JPEG, or WebP images.'],
+		gif: ['The start frame moving.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
 		m4a: ['Reference audio 1 voice.m4a is M4A audio; Alibaba Cloud takes WAV or MP3.'],
 		tooLong: ['The videos are 12 seconds long and the result is to be 20 seconds; together they may be at most 30 seconds for Wan 3.0. Choose a shorter duration, or Auto.'],
 		autoWithLong: [],

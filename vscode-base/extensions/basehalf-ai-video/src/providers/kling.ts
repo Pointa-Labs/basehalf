@@ -17,6 +17,7 @@ import type {
 	CheckResult,
 	Currency,
 	Estimate,
+	ImageFormat,
 	Params,
 	ParamValue,
 	PlannedCounts,
@@ -165,6 +166,8 @@ const MAX_REFERENCE_IMAGES = 7;
 const RATIOS: readonly string[] = Object.freeze(['16:9', '9:16', '1:1']);
 const NO_INPUTS = Object.freeze({ min: 0, max: 0 });
 const IMAGE_LIMITS = Object.freeze({
+	// JPEG and PNG only; the window draws other images to PNG.
+	imageFormats: Object.freeze(['png', 'jpeg']) as readonly ImageFormat[],
 	imageMinSide: 300,
 	imageAspect: Object.freeze([0.4, 2.5]) as readonly [number, number],
 	imageMaxBytes: IMAGE_MAX_BYTES
@@ -432,7 +435,7 @@ function ruleProblems(model: KlingModel, request: CheckRequest, counts: PlannedC
 	return problems;
 }
 
-/** Image formats Kling refuses, and a request too large for AI Video to send. */
+/** A request too large for AI Video to send. */
 async function fileProblems(model: KlingModel, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<string[]> {
 	const problems: string[] = [];
 	const images: SentImage[] = [];
@@ -442,9 +445,6 @@ async function fileProblems(model: KlingModel, request: CheckRequest, inputs: Pl
 			continue;
 		}
 		const facts = await media.inspect(item.media);
-		if (facts.format === 'webp' || facts.format === 'gif') {
-			problems.push(`${item.label} is a ${facts.format === 'webp' ? 'WebP' : 'GIF'} image; Kling takes JPEG and PNG images only.`);
-		}
 		images.push({ slot: item.slot, base64: '' });
 		imageBytes += base64Length(facts.bytes);
 	}

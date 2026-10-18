@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { ProviderFailure } from '../src/providers/failure.ts';
-import { error, isoMedia, png, sendJson, startServer, testModule, value } from './providerTestKit.ts';
+import { error, isoMedia, png, sendJson, startServer, testModule, value, webpHeader } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-provider-commands-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -69,6 +69,31 @@ test('check runs the declarations\' checks, then the module\'s rules and estimat
 	});
 	const awayRegion = value(await providers.check({ ...base, region: 'away', model: 'clip-away', prompt: 'p', params: {} }));
 	assert.deepEqual(awayRegion, { problems: [] });
+});
+
+test('check refuses an image in a format the mode does not take, and answers the provider id the module would send', async () => {
+	const webpFrame = join(folder, 'start.webp');
+	writeFileSync(webpFrame, webpHeader('VP8X', 640, 360));
+	const provider = testModule().describe();
+	const pngAndJpeg = {
+		...provider,
+		models: provider.models.map(model => ({ ...model, modes: model.modes.map(mode => ({ ...mode, limits: { ...mode.limits, imageFormats: ['png', 'jpeg'] as const } })) }))
+	};
+	const providers = commands({
+		describe: () => pngAndJpeg,
+		async check(request) {
+			return { problems: [], providerModel: request.inputs.startFrame ? 'clip-1-from-image' : 'clip-1-from-text' };
+		}
+	});
+	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: 'p', params: {} };
+	const webp = value(await providers.check({ ...base, inputs: { startFrame: { fsPath: webpFrame, mimeType: 'image/webp' }, ...NO_INPUTS } }));
+	const fromImage = value(await providers.check({ ...base, inputs: { startFrame: { fsPath: startFrame, mimeType: 'image/png' }, ...NO_INPUTS } }));
+	const fromText = value(await providers.check({ ...base, inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } }));
+	assert.deepEqual({ webp, fromImage, fromText }, {
+		webp: { problems: ['The start frame start.webp is a WebP image; this mode takes PNG or JPEG images.'], providerModel: 'clip-1-from-image' },
+		fromImage: { problems: [], providerModel: 'clip-1-from-image' },
+		fromText: { problems: [], providerModel: 'clip-1-from-text' }
+	});
 });
 
 test('payloads are validated strictly, an unknown provider answers unknownProvider, and nothing is sent for them', async () => {

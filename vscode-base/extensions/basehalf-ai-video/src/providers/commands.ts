@@ -197,7 +197,9 @@ export class VideoProviderCommands {
 		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params) }, inspector);
 		const all = [...problems, ...own.problems];
 		// Only a model declared with an estimate answers one, in its region's currency.
-		return model.estimate && own.estimate && own.estimate.currency === region.currency ? { problems: all, estimate: own.estimate } : { problems: all };
+		const estimate = model.estimate && own.estimate && own.estimate.currency === region.currency ? { estimate: own.estimate } : {};
+		const providerModel = typeof own.providerModel === 'string' && /^\S{1,256}$/.test(own.providerModel) ? { providerModel: own.providerModel } : {};
+		return { problems: all, ...estimate, ...providerModel };
 	}
 }
 

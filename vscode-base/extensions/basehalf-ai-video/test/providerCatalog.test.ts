@@ -95,6 +95,17 @@ test('modes are declared once each, with sane slot counts', () => {
 	assert.throws(catalogWith(provider => {
 		firstModel(provider).modes[0].limits.imageAspect = [2.5, 0.4];
 	}), /imageAspect: the range must be two positive numbers, the smaller first/);
+	for (const imageFormats of [['png', 'gif'], ['png', 'png'], []]) {
+		assert.throws(catalogWith(provider => {
+			(firstModel(provider).modes[0].limits as { imageFormats?: string[] }).imageFormats = imageFormats;
+		}), /limits.imageFormats must name png, jpeg, or webp, each once|limits.imageFormats must include png/, imageFormats.join());
+	}
+	assert.throws(catalogWith(provider => {
+		firstModel(provider).modes[0].limits.imageFormats = ['jpeg', 'webp'];
+	}), /limits.imageFormats must include png, the format the window draws other images to/);
+	assert.doesNotThrow(catalogWith(provider => {
+		firstModel(provider).modes[0].limits.imageFormats = ['png', 'jpeg'];
+	}));
 });
 
 test('a parameter that is not optional has a default, and every default is one the parameter allows', () => {

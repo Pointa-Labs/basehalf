@@ -155,7 +155,8 @@ Rules between parameters and inputs, reported by `check`:
 | HappyHorse Reference to Video | References | images 1–9 | shorter side at least 400 px, 20 MiB |
 
 - Images go as PNG, JPEG, or WebP (BMP is also accepted by the provider but
-  never sent); a GIF is refused. Videos are MP4 or MOV; audio is WAV or MP3,
+  never sent); the window draws an image of another format, such as a GIF,
+  to PNG first. Videos are MP4 or MOV; audio is WAV or MP3,
   and an M4A clip is refused.
 - The providers also limit video resolution (240–4,096 px a side) and frame
   rate (at least 16 fps for Wan 3.0 references); AI Video does not measure

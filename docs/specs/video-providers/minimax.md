@@ -145,8 +145,9 @@ Rules that `check` reports:
 - Fast Optimization is not offered with an end frame (the first and last
   frame request does not take it). It shortens the prompt optimizer's work
   and does nothing when the optimizer is off.
-- With files: an image that is not PNG, JPEG, or WebP (a GIF), and audio
-  that is not WAV or MP3 (M4A), are refused with their names.
+- With files: audio that is not WAV or MP3 (M4A) is refused with its name.
+  An image that is not PNG, JPEG, or WebP, such as a GIF, is drawn to PNG by
+  the window first.
 
 ## Requests
 

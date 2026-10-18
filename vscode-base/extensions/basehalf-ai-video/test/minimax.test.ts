@@ -740,7 +740,7 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		shortMax: ['Duration must be between 5 and 15 seconds.'],
 		noPrompt: ['Write a prompt: MiniMax H3 needs one.'],
 		longPrompt: ['The prompt is 2001 characters long; Hailuo 2.3 takes at most 2000.'],
-		gif: ['Reference image 1 motion.gif is a GIF image; MiniMax takes PNG, JPEG, or WebP images.'],
+		gif: ['Reference image 1 motion.gif is a GIF image; this mode takes PNG, JPEG, or WebP images.'],
 		m4a: ['Reference audio 1 song.m4a is M4A audio; MiniMax takes WAV or MP3.'],
 		tinyFrame: ['The start frame tiny.png is 300 × 300 px; each side must be at least 301 px.'],
 		canRun: []

@@ -124,7 +124,11 @@ tooltips are in the window's display language.
 
 - `providerModels`: for each region that offers the model, the id sent to
   the provider there. A node whose provider is set up in another region shows
-  the model as unavailable there.
+  the model as unavailable there. Where the provider has one id per task for
+  the same model (one for text to video, one for image to video), the
+  catalog still lists one model, whose modes and inputs choose the id;
+  `providerModels` gives the id of its first task, and `check` answers the
+  id the request would be sent with ([Requests](#requests)).
 - `prompt.required`: `always`, `withoutMedia` (required when the mode sends
   no image or video), or `never`. `maxLength` counts characters of the
   prompt as sent, text inputs included.
@@ -162,6 +166,10 @@ the node's connections ([Video node, Inputs](video-node.md#inputs)):
 - `images`, `videos`, and `audios` give how many references the mode takes.
 - `source` is `none` or `required` (the clip of `extend` and `edit`).
 - `limits` are checked before anything is sent; any may be absent.
+  `imageFormats` lists the image formats the provider takes in the mode,
+  among `png`, `jpeg`, and `webp`, PNG always among them; without it, all
+  three. The window draws an image of another format to PNG before it sends
+  it ([Video node, Inputs](video-node.md#inputs)).
 - A provider whose API takes videos or audio only as public URLs, and that
   has no upload endpoint, declares no video or audio slots.
 
@@ -171,7 +179,7 @@ the node's connections ([Video node, Inputs](video-node.md#inputs)):
 { "name": "resolution", "label": "Resolution", "kind": "choice", "options": [{ "value": "480p", "label": "480p" }, { "value": "720p", "label": "720p" }, { "value": "1080p", "label": "1080p" }], "default": "720p" }
 { "name": "ratio", "label": "Ratio", "kind": "choice", "display": "ratio", "options": [ ... ], "default": "16:9", "modes": ["reference"] }
 { "name": "duration", "label": "Duration", "kind": "integer", "unit": "seconds", "min": 4, "max": 30, "step": 1, "default": 5, "auto": { "value": -1, "label": "Auto" } }
-{ "name": "generate_audio", "label": "Sound", "kind": "boolean", "default": true }
+{ "name": "sound", "label": "Sound", "kind": "boolean", "default": true }
 { "name": "seed", "label": "Seed", "kind": "integer", "min": 0, "max": 2147483647, "optional": true, "advanced": true }
 { "name": "negative_prompt", "label": "Negative Prompt", "kind": "text", "maxLength": 2500, "optional": true, "advanced": true }
 ```
@@ -187,6 +195,24 @@ the node's connections ([Video node, Inputs](video-node.md#inputs)):
 - Rules that join several parameters, such as "1080P allows 6 seconds only",
   are checked by the provider module and reported by `check`
   ([Requests](#requests)), not declared.
+
+**Shared names.** A parameter that means the same at every provider has one
+name and one set of values in the catalog, so that choosing another model
+keeps it ([Video node, Settings](video-node.md#settings)). The provider
+module maps it to its provider's field and value.
+
+| Name | Kind | Values | Means |
+| --- | --- | --- | --- |
+| `resolution` | choice | lower case: `360p`, `480p`, `512p`, `540p`, `720p`, `768p`, `1080p`, `2k`, `4k`; labels as the provider writes them, such as `768P` or `4K` | the size of the video |
+| `ratio` | choice, drawn as ratio shapes | width to height, such as `16:9`; `adaptive` (**Adaptive**) when the provider takes the shape from the inputs or the prompt | the shape of the video |
+| `duration` | whole seconds | the model's range; Auto is `-1` where the provider can choose | the length of the video |
+| `sound` | boolean | | the model makes voices, effects, or music with the video |
+| `seed` | whole number, optional, advanced | 0 to 2147483647 | the same seed with the same request gives a similar video |
+| `negative_prompt` | text, optional, advanced | | what the video should not show |
+| `prompt_extend` | boolean | | the provider rewrites or extends the prompt before it generates |
+| `watermark` | boolean, advanced | | the provider marks the video as made by AI |
+
+A parameter only one provider has is named as that provider's field.
 
 ### Estimate
 
@@ -243,7 +269,10 @@ answer cross-origin requests from the window.
   sent, and the planned inputs with their files. It answers the problems, in
   order, as plain sentences, and the estimate. With files, it reads image
   sizes and video and audio lengths and checks them against the mode's
-  limits; without files it checks only counts and parameters.
+  limits; without files it checks only counts and parameters. For a model
+  whose modes and inputs choose among several provider ids, it also answers
+  `providerModel`, the id the request would be sent with; the window records
+  that id with the generation.
 - `submit` is never retried. A request whose answer does not come back, whose
   answer is only a server error (408 or 5xx), or whose accepted answer cannot
   be read has an unknown outcome

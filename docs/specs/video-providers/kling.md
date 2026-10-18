@@ -85,8 +85,8 @@ requiring it. The prompt is at most 3,072 characters on 3.0 Turbo, 3.0, and
 - Limits of both modes, from every image section: each side at least 300 px
   (`imageMinSide: 300`), width to height between 1:2.5 and 2.5:1
   (`imageAspect: [0.4, 2.5]`), at most 50 MB (`imageMaxBytes: 52428800`).
-- Kling takes JPEG and PNG images only; the module refuses a WebP or GIF
-  input in `check` with files.
+- Kling takes JPEG and PNG images only (`imageFormats: ["png", "jpeg"]`); the
+  window draws any other image to PNG before it sends it.
 - 7 reference images: without a reference video and without elements, the
   reference images may number 7.
 
@@ -124,9 +124,8 @@ The defaults are Kling's own.
 | 2.6 | start and end frames only without sound | capability map ("1080P silent videos") |
 | 2.5 Turbo | start and end frames only at 1080p | 2.5 Turbo image to video; capability map |
 
-With files, `check` then reports each WebP or GIF image, and a request whose
-JSON with its images in base64 would be larger than the 128 MiB AI Video
-sends.
+With files, `check` then reports a request whose JSON with its images in
+base64 would be larger than the 128 MiB AI Video sends.
 
 ## Requests
 

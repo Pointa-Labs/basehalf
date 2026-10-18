@@ -206,8 +206,9 @@ for the request alike:
   while the list keeps its order.
 - An input that is not used says why: it names nothing, its kind cannot be
   used, the mode does not use it, or it comes after what the model takes.
-- The provider receives images as PNG, JPEG, or WebP. An image of another
-  format is drawn to PNG first. The mode's limits (sizes, lengths, bytes) are
+- The provider receives images in the formats the mode declares
+  (`imageFormats`; PNG, JPEG, and WebP when it declares none). An image of
+  another format is drawn to PNG first. The mode's limits (sizes, lengths, bytes) are
   checked before anything is written, and a file outside them is refused
   with its name and the limit.
 
