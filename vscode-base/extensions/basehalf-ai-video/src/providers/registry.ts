@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { BFL } from './bfl.ts';
 import { BYTEDANCE } from './bytedance.ts';
 import { KLING } from './kling.ts';
 import { ALIBABA } from './alibaba.ts';
@@ -17,7 +18,7 @@ import { VIDU } from './vidu.ts';
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, BFL]);
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
