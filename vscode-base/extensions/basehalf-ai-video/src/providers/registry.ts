@@ -9,6 +9,7 @@ import { ALIBABA } from './alibaba.ts';
 import { MINIMAX } from './minimax.ts';
 import { GOOGLE } from './google.ts';
 import type { ProviderModule } from './module.ts';
+import { PIXVERSE } from './pixverse.ts';
 import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
 import { VIDU } from './vidu.ts';
 
@@ -17,7 +18,7 @@ import { VIDU } from './vidu.ts';
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE]);
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
