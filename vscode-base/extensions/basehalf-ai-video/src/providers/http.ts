@@ -38,6 +38,12 @@ export interface ProviderHttp {
 	request(call: HttpCall): Promise<HttpAnswer>;
 	/** Sends a request once, without retries, such as a cancellation. */
 	requestOnce(call: HttpCall): Promise<HttpAnswer>;
+	/**
+	 * Waits, as between the retries of `request` and through the same sleep, so
+	 * that tests make it instant: for a module that asks again until the
+	 * provider is ready, such as for an uploaded file.
+	 */
+	wait(ms: number): Promise<void>;
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -345,6 +351,10 @@ export class BoundHttp implements ProviderHttp {
 
 	async requestOnce(call: HttpCall): Promise<HttpAnswer> {
 		return this.finish(await this.exchange(call, false), call, false);
+	}
+
+	wait(ms: number): Promise<void> {
+		return this.options.sleep(Number.isFinite(ms) ? Math.max(0, ms) : 0);
 	}
 
 	private finish(raw: RawAnswer, call: HttpCall, creates: boolean): HttpAnswer {
