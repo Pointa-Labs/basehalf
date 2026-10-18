@@ -244,11 +244,21 @@ answer cross-origin requests from the window.
   order, as plain sentences, and the estimate. With files, it reads image
   sizes and video and audio lengths and checks them against the mode's
   limits; without files it checks only counts and parameters.
-- `submit` is never retried: a request whose answer does not come back has an
-  unknown outcome ([Video node, Ending without a video](video-node.md#ending-without-a-video)).
-  `poll`, `download`, and uploads are retried on network errors and on 429,
-  408, 500, 502, 503, and 504, three times, 1, 2, then 4 seconds apart,
-  honoring `Retry-After` up to 30 seconds.
+- `submit` is never retried. A request whose answer does not come back, whose
+  answer is only a server error (408 or 5xx), or whose accepted answer cannot
+  be read has an unknown outcome
+  ([Video node, Ending without a video](video-node.md#ending-without-a-video));
+  a refusal (any other 4xx) made no task. `submit` checks the request exactly
+  as `check` does with files and sends nothing when it finds a problem.
+- `poll`, `download`, and uploads are retried on network errors and on 429,
+  408, 500, 502, 503, and 504, three times, 1, 2, then 4 seconds apart, or
+  after the `Retry-After` the provider asks for when it is at most 30
+  seconds; a longer one ends the retries, and the error says the wait. A
+  cancellation is sent once.
+- A download follows at most five redirects, sends the credentials only to
+  the endpoint's own origin, never to a CDN, stops at 512 MiB, and keeps only
+  a file that starts like an MP4. A refusal from another origin means the
+  address expired.
 - A provider module maps its own task states to `pending`, `running`,
   `succeeded` with a video URL, or `failed` and `cancelled` with the
   provider's message, and reports progress when the provider does.
@@ -256,11 +266,21 @@ answer cross-origin requests from the window.
   provider takes it, otherwise the provider's upload endpoint. Files are read
   from the workspace by the extension; nothing is uploaded anywhere else.
 - Errors are plain text of at most 1,000 characters, without the credentials,
-  markup, or request bodies: wrong credentials, refused input, too many
-  requests (with the provider's limit when it states one), insufficient
-  balance, unknown task, provider failure, network failure, unreadable answer.
-- Nothing is logged except, in the extension's log, the method, the path
-  without query, the status, and the time of each call.
+  markup, or request bodies: wrong credentials (`auth`, 401 and 403), refused
+  input (`rejected`, any other 4xx, and 404 for a request that creates a
+  task), too many requests (`rateLimited`, 429, with the provider's limit when
+  it states one), insufficient balance (`balance`, 402 or the provider's own
+  code), unknown task (`notFound`, 404 when asking about a task), unknown
+  outcome, network failure, unreadable answer. A provider module reads the
+  provider's own error codes where they say more than the status.
+- Nothing is logged except, in the extension's log (the **BaseHalf AI
+  Video** output channel), the method, the path without query, the status,
+  and the time of each call.
+- The extension checks every request against the model's declarations
+  (the inputs the mode takes, the prompt rule, each parameter's value, and
+  with files the mode's limits) before the provider module adds the rules
+  between parameters and the estimate. An estimate is answered only for a
+  model declared with one, in its region's currency.
 
 ## Providers
 

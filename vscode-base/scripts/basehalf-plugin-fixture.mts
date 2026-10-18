@@ -387,11 +387,11 @@ try {
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onStartupFinished'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
 	validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onCommand:pointa.basehalf-ai-video.createWorkflow'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onBaseHalfCanvasRecipe:pointa.basehalf-ai-video.storyboard-frame'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
-	// Only the official AI Video answers the host's Video provider commands (D58).
-	const providerActivationEvents = ['submit', 'poll', 'download', 'cancel'].map(command => `onCommand:basehalf.video.provider.${command}`);
+	// Only the official AI Video answers the host's Video provider commands (D58, D59).
+	const providerActivationEvents = ['catalog', 'check', 'submit', 'poll', 'download', 'cancel'].map(command => `onCommand:basehalf.video.provider.${command}`);
 	validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: providerActivationEvents }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates);
 	assert.throws(() => validateReviewedVsixManifest({ ...reviewedManifest, activationEvents: ['onCommand:basehalf.video.provider.other'] }, reviewedFiles, OFFICIAL_EXTENSION_ID, reviewedTemplates), /not tied to a declared contribution/);
-	assert.throws(() => validateReviewedVsixManifest({ ...communityManifest, activationEvents: providerActivationEvents }, reviewedFiles, communityExtensionId, reviewedTemplates), /'onCommand:basehalf\.video\.provider\.submit' is not tied to a declared contribution/);
+	assert.throws(() => validateReviewedVsixManifest({ ...communityManifest, activationEvents: providerActivationEvents }, reviewedFiles, communityExtensionId, reviewedTemplates), /'onCommand:basehalf\.video\.provider\.catalog' is not tied to a declared contribution/);
 	validateReviewedVsixManifest({
 		...reviewedManifest,
 		activationEvents: ['onBaseHalfStructuralCleanup:pointa.basehalf-ai-video.sequence-membership'],

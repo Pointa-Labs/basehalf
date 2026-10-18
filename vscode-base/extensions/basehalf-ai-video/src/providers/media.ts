@@ -1,0 +1,527 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { open, readFile, stat } from 'node:fs/promises';
+import { basename, isAbsolute } from 'node:path';
+import { rejected } from './failure.ts';
+import type { Media, PlannedMedia } from './types.ts';
+
+/**
+ * The inputs of a generation as bytes: a workspace file or a data URL the
+ * window drew (an SVG made a PNG). `check` measures them from their headers
+ * ({@link MediaInspector}); `submit` reads them whole ({@link readMedia}) and
+ * sends them the provider's way ({@link dataUrlOf}, {@link base64Of}).
+ */
+
+/** What the bytes of an input are, read from their header. */
+export type MediaFormat = 'png' | 'jpeg' | 'webp' | 'gif' | 'mp4' | 'mov' | 'm4a' | 'wav' | 'mp3';
+
+/** The MIME type a provider is sent for each format. */
+export const MEDIA_MIME_TYPES: Readonly<Record<MediaFormat, string>> = Object.freeze({
+	png: 'image/png',
+	jpeg: 'image/jpeg',
+	webp: 'image/webp',
+	gif: 'image/gif',
+	mp4: 'video/mp4',
+	mov: 'video/quicktime',
+	m4a: 'audio/mp4',
+	wav: 'audio/wav',
+	mp3: 'audio/mpeg'
+});
+
+export interface MediaFacts {
+	/** The file name; absent for an image the window drew. */
+	readonly name?: string;
+	readonly bytes: number;
+	/** Absent when AI Video does not recognize the bytes. */
+	readonly format?: MediaFormat;
+	/** Of an image. */
+	readonly width?: number;
+	readonly height?: number;
+	/** Of a video or audio, when its header gives it. */
+	readonly seconds?: number;
+}
+
+/** Measures inputs for `check`, reading only the headers it needs. */
+export interface MediaInspector {
+	/** A file that is missing or not a file throws `rejected`. */
+	inspect(media: Media): Promise<MediaFacts>;
+}
+
+/** One planned input with its slot, for messages and for building a request in order. */
+export interface PlannedItem {
+	readonly slot: 'startFrame' | 'endFrame' | 'image' | 'video' | 'audio' | 'source';
+	/** The position among the references of its kind; 0 for the frames and the source. */
+	readonly index: number;
+	readonly media: Media;
+	/** Such as "The start frame start.png" or "Reference image 2". */
+	readonly label: string;
+}
+
+const SLOT_LABELS: Readonly<Record<PlannedItem['slot'], (index: number) => string>> = Object.freeze({
+	startFrame: () => 'The start frame',
+	endFrame: () => 'The end frame',
+	image: (index: number) => `Reference image ${index + 1}`,
+	video: (index: number) => `Reference video ${index + 1}`,
+	audio: (index: number) => `Reference audio ${index + 1}`,
+	source: () => 'The source video'
+});
+
+export function isDataUrlMedia(media: Media): media is { readonly dataUrl: string } {
+	return typeof (media as { readonly dataUrl?: unknown }).dataUrl === 'string';
+}
+
+/** The file name of an input, when it is a file. */
+export function mediaName(media: Media): string | undefined {
+	return isDataUrlMedia(media) ? undefined : basename(media.fsPath);
+}
+
+/** The planned inputs in the order a request lists them: frames, images, videos, audio, then the source. */
+export function plannedItems(inputs: PlannedMedia): PlannedItem[] {
+	const items: PlannedItem[] = [];
+	const add = (slot: PlannedItem['slot'], index: number, media: Media) => {
+		const name = mediaName(media);
+		items.push({ slot, index, media, label: name ? `${SLOT_LABELS[slot](index)} ${name}` : SLOT_LABELS[slot](index) });
+	};
+	if (inputs.startFrame) {
+		add('startFrame', 0, inputs.startFrame);
+	}
+	if (inputs.endFrame) {
+		add('endFrame', 0, inputs.endFrame);
+	}
+	inputs.images.forEach((media, index) => add('image', index, media));
+	inputs.videos.forEach((media, index) => add('video', index, media));
+	inputs.audios.forEach((media, index) => add('audio', index, media));
+	if (inputs.source) {
+		add('source', 0, inputs.source);
+	}
+	return items;
+}
+
+// --- reading -------------------------------------------------------------------------------------
+
+export interface ReadMedia {
+	readonly bytes: Buffer;
+	/** Lowercase; from the data URL, or as the window gave it for a file. */
+	readonly mimeType: string;
+	readonly name?: string;
+}
+
+const DATA_URL = /^data:(?<type>[a-z]+\/[a-z0-9.+-]+)(?:;[a-z0-9.+-]+=[^;,]*)*;base64,(?<payload>[A-Za-z0-9+/=\s]*)$/i;
+
+function decodeDataUrl(dataUrl: string, maxBytes: number, label: string): ReadMedia {
+	const match = DATA_URL.exec(dataUrl);
+	if (!match?.groups) {
+		throw rejected(`${label} is not an encoded file AI Video can read.`);
+	}
+	if (Math.floor(match.groups.payload.length * 3 / 4) > maxBytes + 3) {
+		throw rejected(`${label} is larger than ${describeBytes(maxBytes)}.`);
+	}
+	const bytes = Buffer.from(match.groups.payload, 'base64');
+	if (bytes.byteLength > maxBytes) {
+		throw rejected(`${label} is larger than ${describeBytes(maxBytes)}.`);
+	}
+	return { bytes, mimeType: match.groups.type.toLowerCase() };
+}
+
+/** Reads an input whole, refusing more than `maxBytes`. `label` names it in messages. */
+export async function readMedia(media: Media, maxBytes: number, label: string): Promise<ReadMedia> {
+	if (isDataUrlMedia(media)) {
+		return decodeDataUrl(media.dataUrl, maxBytes, label);
+	}
+	if (!isAbsolute(media.fsPath)) {
+		throw rejected(`${label} is not a file on this computer.`);
+	}
+	let size: number;
+	try {
+		const info = await stat(media.fsPath);
+		if (!info.isFile()) {
+			throw new Error('not a file');
+		}
+		size = info.size;
+	} catch {
+		throw rejected(`${label} is missing.`);
+	}
+	if (size > maxBytes) {
+		throw rejected(`${label} is ${describeBytes(size)}, more than the ${describeBytes(maxBytes)} allowed.`);
+	}
+	return { bytes: await readFile(media.fsPath), mimeType: media.mimeType.toLowerCase(), name: basename(media.fsPath) };
+}
+
+/** `data:<type>;base64,<bytes>`; the type of the file unless one is given. */
+export function dataUrlOf(read: ReadMedia, mimeType = read.mimeType): string {
+	return `data:${mimeType.toLowerCase()};base64,${read.bytes.toString('base64')}`;
+}
+
+/** The bytes as plain base64, for providers that take inline data without a data URL. */
+export function base64Of(read: ReadMedia): string {
+	return read.bytes.toString('base64');
+}
+
+/** The length of the base64 of `bytes` bytes, to size a request before reading its inputs. */
+export function base64Length(bytes: number): number {
+	return Math.ceil(bytes / 3) * 4;
+}
+
+/** "30 MiB", "512 KiB", or "900 bytes". */
+export function describeBytes(bytes: number): string {
+	if (bytes >= 1024 * 1024) {
+		const mib = bytes / (1024 * 1024);
+		return `${Number.isInteger(mib) ? mib : mib.toFixed(1)} MiB`;
+	}
+	if (bytes >= 1024) {
+		const kib = bytes / 1024;
+		return `${Number.isInteger(kib) ? kib : kib.toFixed(1)} KiB`;
+	}
+	return `${bytes} bytes`;
+}
+
+// --- measuring ----------------------------------------------------------------------------------
+
+/** Bytes read where they are needed: a file through one handle, or a decoded data URL. */
+export interface ByteSource {
+	readonly size: number;
+	/** Fewer bytes than asked at the end. */
+	read(offset: number, length: number): Promise<Buffer>;
+}
+
+export function bufferSource(bytes: Buffer): ByteSource {
+	return {
+		size: bytes.byteLength,
+		read: async (offset, length) => bytes.subarray(Math.max(0, offset), Math.max(0, Math.min(bytes.byteLength, offset + length)))
+	};
+}
+
+/** The largest MP3 whose frames are counted one by one; a longer one is timed from its first frame. */
+const MAX_SCANNED_BYTES = 64 * 1024 * 1024;
+
+export function createMediaInspector(): MediaInspector {
+	return {
+		async inspect(media) {
+			if (isDataUrlMedia(media)) {
+				const read = decodeDataUrl(media.dataUrl, 512 * 1024 * 1024, 'The drawn image');
+				return { bytes: read.bytes.byteLength, ...await measure(bufferSource(read.bytes)) };
+			}
+			const name = basename(media.fsPath);
+			if (!isAbsolute(media.fsPath)) {
+				throw rejected(`${name} is not a file on this computer.`);
+			}
+			let handle: Awaited<ReturnType<typeof open>>;
+			let size: number;
+			try {
+				const info = await stat(media.fsPath);
+				if (!info.isFile()) {
+					throw new Error('not a file');
+				}
+				size = info.size;
+				handle = await open(media.fsPath, 'r');
+			} catch {
+				throw rejected(`${name} is missing.`);
+			}
+			try {
+				const source: ByteSource = {
+					size,
+					async read(offset, length) {
+						const start = Math.max(0, offset);
+						const count = Math.max(0, Math.min(size, start + length) - start);
+						const buffer = Buffer.alloc(count);
+						let done = 0;
+						while (done < count) {
+							const { bytesRead } = await handle.read(buffer, done, count - done, start + done);
+							if (bytesRead === 0) {
+								break;
+							}
+							done += bytesRead;
+						}
+						return buffer.subarray(0, done);
+					}
+				};
+				return { name, bytes: size, ...await measure(source) };
+			} finally {
+				await handle.close().catch(() => undefined);
+			}
+		}
+	};
+}
+
+/** The format and the size or length of some bytes, from their header. */
+export async function measure(source: ByteSource): Promise<Omit<MediaFacts, 'name' | 'bytes'>> {
+	const head = await source.read(0, 32);
+	const image = await imageSize(source, head);
+	if (image) {
+		return image;
+	}
+	if (head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WAVE') {
+		return { format: 'wav', ...optionalSeconds(await wavSeconds(source)) };
+	}
+	if (ISO_TOP_LEVEL_BOXES.has(head.toString('latin1', 4, 8))) {
+		const brand = head.toString('latin1', 4, 8) === 'ftyp' ? head.toString('latin1', 8, 12) : '';
+		const format: MediaFormat = brand === 'qt  ' ? 'mov' : brand === 'M4A ' || brand === 'M4B ' ? 'm4a' : 'mp4';
+		return { format, ...optionalSeconds(await isoSeconds(source)) };
+	}
+	const mp3 = await mp3Seconds(source, head);
+	if (mp3 !== undefined) {
+		return { format: 'mp3', ...optionalSeconds(mp3) };
+	}
+	return {};
+}
+
+function optionalSeconds(seconds: number | undefined): { readonly seconds?: number } {
+	return seconds !== undefined && Number.isFinite(seconds) && seconds >= 0 ? { seconds } : {};
+}
+
+// --- images -------------------------------------------------------------------------------------
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Start-of-frame markers of JPEG, which carry the image size. */
+const JPEG_FRAME_MARKERS: ReadonlySet<number> = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+
+async function imageSize(source: ByteSource, head: Buffer): Promise<{ format: MediaFormat; width: number; height: number } | undefined> {
+	if (head.byteLength >= 24 && head.subarray(0, 8).equals(PNG_SIGNATURE) && head.toString('latin1', 12, 16) === 'IHDR') {
+		return { format: 'png', width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+	}
+	const gif = head.toString('latin1', 0, 6);
+	if (head.byteLength >= 10 && (gif === 'GIF87a' || gif === 'GIF89a')) {
+		return { format: 'gif', width: head.readUInt16LE(6), height: head.readUInt16LE(8) };
+	}
+	if (head.byteLength >= 30 && head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WEBP') {
+		const chunk = head.toString('latin1', 12, 16);
+		if (chunk === 'VP8 ' && head[23] === 0x9d && head[24] === 0x01 && head[25] === 0x2a) {
+			return { format: 'webp', width: head.readUInt16LE(26) & 0x3fff, height: head.readUInt16LE(28) & 0x3fff };
+		}
+		if (chunk === 'VP8L' && head[20] === 0x2f) {
+			const bits = head.readUInt32LE(21);
+			return { format: 'webp', width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+		}
+		if (chunk === 'VP8X') {
+			return { format: 'webp', width: head.readUIntLE(24, 3) + 1, height: head.readUIntLE(27, 3) + 1 };
+		}
+		return undefined;
+	}
+	if (head.byteLength >= 4 && head[0] === 0xff && head[1] === 0xd8) {
+		return jpegSize(source);
+	}
+	return undefined;
+}
+
+async function jpegSize(source: ByteSource): Promise<{ format: MediaFormat; width: number; height: number } | undefined> {
+	let offset = 2;
+	for (let segments = 0; segments < 4096 && offset + 4 <= source.size; segments++) {
+		const marker = await source.read(offset, 9);
+		if (marker.byteLength < 4 || marker[0] !== 0xff) {
+			return undefined;
+		}
+		const type = marker[1];
+		if (type === 0xff) {
+			// Fill bytes before a marker.
+			offset += 1;
+			continue;
+		}
+		if (JPEG_FRAME_MARKERS.has(type)) {
+			return marker.byteLength >= 9 ? { format: 'jpeg', width: marker.readUInt16BE(7), height: marker.readUInt16BE(5) } : undefined;
+		}
+		if (type === 0xda || type === 0xd9) {
+			// The image data or its end came before any frame header.
+			return undefined;
+		}
+		if (type === 0x01 || (type >= 0xd0 && type <= 0xd8)) {
+			offset += 2;
+			continue;
+		}
+		offset += 2 + marker.readUInt16BE(2);
+	}
+	return undefined;
+}
+
+// --- video and audio ----------------------------------------------------------------------------
+
+/** Boxes an MP4, MOV, or M4A file may start with. */
+const ISO_TOP_LEVEL_BOXES: ReadonlySet<string> = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot']);
+
+interface IsoBox {
+	readonly contentStart: number;
+	readonly end: number;
+}
+
+async function findBox(source: ByteSource, start: number, end: number, type: string): Promise<IsoBox | undefined> {
+	let offset = start;
+	for (let boxes = 0; boxes < 4096 && offset + 8 <= end; boxes++) {
+		const header = await source.read(offset, 16);
+		if (header.byteLength < 8) {
+			return undefined;
+		}
+		let size = header.readUInt32BE(0);
+		let headerSize = 8;
+		if (size === 1) {
+			if (header.byteLength < 16) {
+				return undefined;
+			}
+			size = Number(header.readBigUInt64BE(8));
+			headerSize = 16;
+		} else if (size === 0) {
+			size = end - offset;
+		}
+		if (size < headerSize) {
+			return undefined;
+		}
+		if (header.toString('latin1', 4, 8) === type) {
+			return { contentStart: offset + headerSize, end: Math.min(end, offset + size) };
+		}
+		offset += size;
+	}
+	return undefined;
+}
+
+/** The length an MP4, MOV, or M4A file gives in its movie header (`mvhd`). */
+async function isoSeconds(source: ByteSource): Promise<number | undefined> {
+	const movie = await findBox(source, 0, source.size, 'moov');
+	const header = movie ? await findBox(source, movie.contentStart, movie.end, 'mvhd') : undefined;
+	if (!header) {
+		return undefined;
+	}
+	const fields = await source.read(header.contentStart, 32);
+	if (fields.byteLength < 20) {
+		return undefined;
+	}
+	// A full box: version and flags, then the times, the time scale, and the duration.
+	if (fields[0] === 1) {
+		if (fields.byteLength < 32) {
+			return undefined;
+		}
+		const timescale = fields.readUInt32BE(20);
+		const duration = fields.readBigUInt64BE(24);
+		return timescale && duration !== 0xffffffffffffffffn ? Number(duration) / timescale : undefined;
+	}
+	const timescale = fields.readUInt32BE(12);
+	const duration = fields.readUInt32BE(16);
+	return timescale && duration !== 0xffffffff ? duration / timescale : undefined;
+}
+
+/** The length of a WAV file: its data chunk divided by the bytes per second of its format chunk. */
+async function wavSeconds(source: ByteSource): Promise<number | undefined> {
+	let offset = 12;
+	let bytesPerSecond: number | undefined;
+	for (let chunks = 0; chunks < 4096 && offset + 8 <= source.size; chunks++) {
+		const header = await source.read(offset, 8);
+		const id = header.toString('latin1', 0, 4);
+		const size = header.readUInt32LE(4);
+		if (id === 'fmt ') {
+			const format = await source.read(offset + 8, 16);
+			if (format.byteLength >= 12) {
+				bytesPerSecond = format.readUInt32LE(8);
+			}
+		} else if (id === 'data') {
+			const available = source.size - (offset + 8);
+			const length = size === 0 || size === 0xffffffff || size > available ? available : size;
+			return bytesPerSecond ? length / bytesPerSecond : undefined;
+		}
+		offset += 8 + size + (size & 1);
+	}
+	return undefined;
+}
+
+interface Mp3Frame {
+	readonly length: number;
+	readonly samples: number;
+	readonly sampleRate: number;
+	readonly mpeg1: boolean;
+	readonly mono: boolean;
+}
+
+/** Kilobits per second by MPEG version and layer, indexed by the bitrate field (1 to 14). */
+const MP3_BITRATES: Readonly<Record<string, readonly number[]>> = Object.freeze({
+	'1-1': [32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+	'1-2': [32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+	'1-3': [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+	'2-1': [32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+	'2-2': [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+	'2-3': [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+});
+
+/** Samples per second by MPEG version (1, 2, 2.5), indexed by the sample rate field. */
+const MP3_SAMPLE_RATES: Readonly<Record<string, readonly number[]>> = Object.freeze({
+	'1': [44100, 48000, 32000],
+	'2': [22050, 24000, 16000],
+	'2.5': [11025, 12000, 8000]
+});
+
+/** One MPEG audio frame header, or undefined when the four bytes are not one. */
+function mp3Frame(bytes: Buffer, offset: number): Mp3Frame | undefined {
+	if (offset + 4 > bytes.byteLength || bytes[offset] !== 0xff || (bytes[offset + 1] & 0xe0) !== 0xe0) {
+		return undefined;
+	}
+	const versionBits = (bytes[offset + 1] >> 3) & 0x3;
+	const layerBits = (bytes[offset + 1] >> 1) & 0x3;
+	const bitrateIndex = (bytes[offset + 2] >> 4) & 0xf;
+	const rateIndex = (bytes[offset + 2] >> 2) & 0x3;
+	if (versionBits === 1 || layerBits === 0 || bitrateIndex === 0 || bitrateIndex === 15 || rateIndex === 3) {
+		return undefined;
+	}
+	const version = versionBits === 3 ? '1' : versionBits === 2 ? '2' : '2.5';
+	const layer = 4 - layerBits;
+	const bitrate = MP3_BITRATES[`${version === '1' ? 1 : 2}-${layer}`][bitrateIndex - 1] * 1000;
+	const sampleRate = MP3_SAMPLE_RATES[version][rateIndex];
+	const padding = (bytes[offset + 2] >> 1) & 0x1;
+	const mpeg1 = version === '1';
+	const samples = layer === 1 ? 384 : layer === 2 || mpeg1 ? 1152 : 576;
+	const length = layer === 1
+		? (Math.floor(12 * bitrate / sampleRate) + padding) * 4
+		: Math.floor((layer === 3 && !mpeg1 ? 72 : 144) * bitrate / sampleRate) + padding;
+	return { length, samples, sampleRate, mpeg1, mono: ((bytes[offset + 3] >> 6) & 0x3) === 3 };
+}
+
+/**
+ * The length of an MP3: from its Xing, Info, or VBRI header when it has one,
+ * otherwise by counting its frames. Undefined when the bytes are not MPEG audio.
+ */
+async function mp3Seconds(source: ByteSource, head: Buffer): Promise<number | undefined> {
+	let start = 0;
+	if (head.toString('latin1', 0, 3) === 'ID3' && head.byteLength >= 10) {
+		const size = ((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f);
+		start = 10 + size + ((head[5] & 0x10) ? 10 : 0);
+	} else if (!(head[0] === 0xff && (head[1] & 0xe0) === 0xe0)) {
+		return undefined;
+	}
+	const scanned = source.size - start <= MAX_SCANNED_BYTES;
+	const bytes = await source.read(start, scanned ? source.size - start : 256 * 1024);
+	// The first frame: a header followed by another header where it says the next frame starts.
+	let first = -1;
+	for (let offset = 0; offset < Math.min(bytes.byteLength, 64 * 1024); offset++) {
+		const frame = mp3Frame(bytes, offset);
+		if (frame && (offset + frame.length >= bytes.byteLength || mp3Frame(bytes, offset + frame.length))) {
+			first = offset;
+			break;
+		}
+	}
+	if (first < 0) {
+		return undefined;
+	}
+	const frame = mp3Frame(bytes, first)!;
+	const sideInfo = frame.mpeg1 ? (frame.mono ? 17 : 32) : (frame.mono ? 9 : 17);
+	const xing = first + 4 + sideInfo;
+	const tag = bytes.toString('latin1', xing, xing + 4);
+	if ((tag === 'Xing' || tag === 'Info') && xing + 12 <= bytes.byteLength && (bytes.readUInt32BE(xing + 4) & 0x1)) {
+		return bytes.readUInt32BE(xing + 8) * frame.samples / frame.sampleRate;
+	}
+	const vbri = first + 4 + 32;
+	if (bytes.toString('latin1', vbri, vbri + 4) === 'VBRI' && vbri + 18 <= bytes.byteLength) {
+		return bytes.readUInt32BE(vbri + 14) * frame.samples / frame.sampleRate;
+	}
+	if (!scanned) {
+		// Too long to count: time it as a constant bitrate from its first frame.
+		return (source.size - start - first) / frame.length * frame.samples / frame.sampleRate;
+	}
+	let samples = 0;
+	for (let offset = first; offset < bytes.byteLength;) {
+		const next = mp3Frame(bytes, offset);
+		if (!next || next.length <= 0) {
+			break;
+		}
+		samples += next.samples;
+		offset += next.length;
+	}
+	return samples / frame.sampleRate;
+}

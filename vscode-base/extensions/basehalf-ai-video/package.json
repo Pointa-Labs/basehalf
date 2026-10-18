@@ -1,7 +1,7 @@
 {
 	"name": "basehalf-ai-video",
 	"displayName": "BaseHalf AI Video",
-	"description": "The provider requests of BaseHalf's Video node, a starter video workflow, and Sequence playback.",
+	"description": "The video providers and model catalog of BaseHalf's Video node, a starter video workflow, and Sequence playback.",
 	"version": "0.6.0",
 	"publisher": "pointa",
 	"license": "Apache-2.0",
@@ -22,6 +22,8 @@
 	],
 	"main": "./out/extension.js",
 	"activationEvents": [
+		"onCommand:basehalf.video.provider.catalog",
+		"onCommand:basehalf.video.provider.check",
 		"onCommand:basehalf.video.provider.submit",
 		"onCommand:basehalf.video.provider.poll",
 		"onCommand:basehalf.video.provider.download",

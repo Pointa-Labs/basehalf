@@ -41,6 +41,8 @@ test('contributes the commands, Sequence, cleanup, template, and Agent contracts
 	]);
 	// The provider commands are internal: they activate AI Video but are not in the Command Palette.
 	assert.deepEqual(manifest.activationEvents, [
+		'onCommand:basehalf.video.provider.catalog',
+		'onCommand:basehalf.video.provider.check',
 		'onCommand:basehalf.video.provider.submit',
 		'onCommand:basehalf.video.provider.poll',
 		'onCommand:basehalf.video.provider.download',

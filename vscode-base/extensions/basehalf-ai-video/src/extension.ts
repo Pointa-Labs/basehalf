@@ -17,7 +17,9 @@ import {
 import { addSequenceItemFromVideoResultCommand, inspectSequenceCommand, moveSequenceItemCommand, removeSequenceItemCommand, repairSequenceItemPathCommand } from './sequenceCommands';
 import { resolveSequenceProjection, SEQUENCE_PROJECTION_ID } from './sequenceProjection';
 import { SequenceCleanupService } from './sequenceCleanup';
-import { cancelVideoTask, downloadVideo, pollVideoTask, submitVideoTask, VIDEO_PROVIDER_COMMANDS } from './videoProviders';
+import { VideoProviderCommands } from './providers/commands.ts';
+import { PROVIDER_MODULES } from './providers/registry.ts';
+import { VIDEO_PROVIDER_COMMANDS } from './providers/types.ts';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	context.subscriptions.push(vscode.commands.registerCommand(CREATE_WORKFLOW_COMMAND_ID, () =>
@@ -36,10 +38,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		prepareDelete: sequenceCleanup.prepareDelete
 	}));
 
-	// The provider requests of a Video node generation (D58). The workbench
-	// passes the key with every call; nothing is kept here between calls.
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.submit, (request: unknown) => submitVideoTask(request)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.poll, (task: unknown) => pollVideoTask(task)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.download, (request: unknown) => downloadVideo(request)));
-	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.cancel, (task: unknown) => cancelVideoTask(task)));
+	// The model catalog and the provider requests of a Video node generation
+	// (D59). The window passes the credentials with every call; nothing is kept
+	// here between calls. The log gets the method, path, status, and time of
+	// each exchange with a provider, and nothing else.
+	const log = vscode.window.createOutputChannel('BaseHalf AI Video', { log: true });
+	context.subscriptions.push(log);
+	const providers = new VideoProviderCommands(PROVIDER_MODULES, { http: { log } });
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.catalog, () => providers.catalog()));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.check, (request: unknown) => providers.check(request)));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.submit, (request: unknown) => providers.submit(request)));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.poll, (task: unknown) => providers.poll(task)));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.download, (request: unknown) => providers.download(request)));
+	context.subscriptions.push(vscode.commands.registerCommand(VIDEO_PROVIDER_COMMANDS.cancel, (task: unknown) => providers.cancel(task)));
 }

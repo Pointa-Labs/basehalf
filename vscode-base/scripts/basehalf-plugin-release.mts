@@ -24,6 +24,8 @@ const OFFICIAL_PUBLISHER = Object.freeze({ slug: BASEHALF_OFFICIAL_PLUGIN_IDENTI
 // Host commands that only AI Video answers (D58), as the host's
 // BASEHALF_VIDEO_PROVIDER_COMMANDS. Only that identity may activate on them.
 const OFFICIAL_HOST_ACTIVATION_COMMANDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([[OFFICIAL_EXTENSION_ID, new Set([
+	'basehalf.video.provider.catalog',
+	'basehalf.video.provider.check',
 	'basehalf.video.provider.submit',
 	'basehalf.video.provider.poll',
 	'basehalf.video.provider.download',
