@@ -842,13 +842,6 @@
 	border-style: dashed;
 }
 
-.monaco-workbench .bh-video-panel-setting-note {
-	margin-top: 0;
-	color: var(--vscode-descriptionForeground);
-	font-size: 11px;
-	line-height: 14px;
-}
-
 .monaco-workbench .bh-video-panel-number {
 	display: flex;
 	min-width: 0;

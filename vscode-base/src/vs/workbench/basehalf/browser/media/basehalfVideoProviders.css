@@ -172,18 +172,6 @@
 	color: var(--vscode-descriptionForeground);
 }
 
-.basehalf-video-provider-editor-empty {
-	display: grid;
-	justify-items: start;
-	gap: 12px;
-	color: var(--vscode-descriptionForeground);
-}
-
-.basehalf-video-provider-editor-empty p {
-	margin: 0;
-	line-height: 1.5;
-}
-
 .basehalf-video-provider-field {
 	display: grid;
 	gap: 7px;
@@ -334,10 +322,6 @@
 
 .basehalf-video-providers-button.primary:hover:not(:disabled) {
 	background: var(--vscode-button-hoverBackground);
-}
-
-.basehalf-video-providers-button.danger {
-	color: var(--vscode-errorForeground);
 }
 
 .basehalf-video-providers-button:focus-visible {
