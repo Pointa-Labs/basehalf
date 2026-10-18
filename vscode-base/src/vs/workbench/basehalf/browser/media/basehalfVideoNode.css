@@ -524,6 +524,16 @@
 	flex: 1 1 auto;
 }
 
+/* The estimate: the price of one generation, beside Generate. */
+.monaco-workbench .bh-video-panel-estimate {
+	flex: none;
+	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	cursor: default;
+}
+
 .monaco-workbench .bh-video-panel-generate {
 	display: grid;
 	width: 32px;
@@ -635,6 +645,11 @@
 	outline: none;
 }
 
+/* A model the provider's region does not offer: dimmed, and it can still be chosen. */
+.monaco-workbench .bh-video-panel-menu-item.unavailable > .bh-video-panel-menu-label {
+	opacity: 0.5;
+}
+
 .monaco-workbench .bh-video-panel-menu-label {
 	min-width: 0;
 	flex: 1 1 auto;
@@ -669,7 +684,7 @@
 	white-space: nowrap;
 }
 
-/* The provider and the missing key give way before the channel's name. */
+/* The region or that the provider is not set up gives way before the provider's name. */
 .monaco-workbench .bh-video-panel-menu-heading-detail {
 	min-width: 0;
 	flex: 0 100 auto;
@@ -821,7 +836,7 @@
 	border-radius: 2px;
 }
 
-.monaco-workbench .bh-video-panel-ratio-shape.adaptive {
+.monaco-workbench .bh-video-panel-ratio-shape.free {
 	width: 14px;
 	height: 14px;
 	border-style: dashed;
@@ -834,11 +849,86 @@
 	line-height: 14px;
 }
 
-.monaco-workbench .bh-video-panel-duration {
+.monaco-workbench .bh-video-panel-number {
 	display: flex;
 	min-width: 0;
 	align-items: center;
 	gap: 10px;
+}
+
+/* More than five choices: a list that scrolls after six rows. */
+.monaco-workbench .bh-video-panel-setting.list .bh-video-panel-choices {
+	display: flex;
+	max-height: calc(6 * 28px + 5 * 2px);
+	flex-direction: column;
+	gap: 2px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+
+.monaco-workbench .bh-video-panel-setting.list .bh-video-panel-choice {
+	flex: none;
+	justify-content: flex-start;
+	padding: 0 10px;
+}
+
+.monaco-workbench .bh-video-panel-field {
+	box-sizing: border-box;
+	min-width: 0;
+	height: 28px;
+	flex: 1 1 auto;
+	padding: 0 8px;
+	color: var(--vscode-input-foreground, var(--vscode-foreground));
+	background: var(--vscode-input-background, color-mix(in srgb, var(--vscode-foreground) 6%, transparent));
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 7px;
+	font: inherit;
+	font-size: 12px;
+	outline: none;
+}
+
+.monaco-workbench .bh-video-panel-field.multiline {
+	height: auto;
+	min-height: 56px;
+	padding: 6px 8px;
+	resize: vertical;
+}
+
+.monaco-workbench .bh-video-panel-field:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .bh-video-panel-field:disabled {
+	opacity: 0.4;
+}
+
+.monaco-workbench .bh-video-panel-more {
+	display: inline-flex;
+	height: 24px;
+	align-items: center;
+	gap: 4px;
+	margin-top: 12px;
+	padding: 0 4px 0 0;
+	color: var(--vscode-descriptionForeground);
+	background: transparent;
+	border: 0;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench .bh-video-panel-more:hover {
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .bh-video-panel-advanced {
+	display: flex;
+	flex-direction: column;
+	margin-top: 8px;
+}
+
+.monaco-workbench .bh-video-panel-advanced > .bh-video-panel-setting + .bh-video-panel-setting {
+	margin-top: 12px;
 }
 
 .monaco-workbench .bh-video-panel-slider {
@@ -852,7 +942,7 @@
 	opacity: 0.4;
 }
 
-.monaco-workbench .bh-video-panel-duration-value {
+.monaco-workbench .bh-video-panel-number-value {
 	min-width: 34px;
 	flex: none;
 	font-variant-numeric: tabular-nums;

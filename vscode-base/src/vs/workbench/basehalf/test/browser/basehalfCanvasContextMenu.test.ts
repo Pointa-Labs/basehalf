@@ -308,7 +308,7 @@ suite('BaseHalf canvas context menu', () => {
 			script: '---\nupstream:\n  - Starter/brief.md\n---\n# Script\n',
 			shot: '{}\n',
 			// A Video node of version 5, empty but for its title, prompt, and inputs.
-			frame: { version: 5, kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.', upstream: ['Starter/shot.json'] },
+			frame: { version: 6, kind: 'video', title: 'Shot 1', prompt: 'Keep the subject centered.', upstream: ['Starter/shot.json'] },
 			referenceEdits: [{
 				node: 'Starter/shot.json',
 				operation: {

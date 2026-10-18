@@ -39,7 +39,7 @@ import { baseHalfNormalizeUpstreamEntry, baseHalfUpstreamIdentity, IBaseHalfUpst
 import { IBaseHalfReferenceIndexService } from '../common/basehalfReferenceIndex.js';
 import { IBaseHalfVideoNodeSnapshot, IBaseHalfVideoNodeStore, IBaseHalfVideoResolvedInput } from '../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoNodeFields } from '../common/basehalfVideoNode.js';
-import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoProviders.js';
+import { BaseHalfVideoInputKind, baseHalfVideoInputKindOfPath } from '../common/basehalfVideoCatalog.js';
 
 /** How often a write is planned again when the file changed under it. */
 const MAX_WRITE_ATTEMPTS = 8;
@@ -56,7 +56,7 @@ interface IReadVideoNode {
 }
 
 /**
- * Reads and writes the video fields of `.bhnode` files (D58). Every write is
+ * Reads and writes the video fields of `.bhnode` files (D58, D59). Every write is
  * an exact-content compare and swap through the reference edit service, the
  * same write path the canvas uses for `.bhnode` documents. A write that finds
  * the file changed reads it again and applies the change again. With an undo

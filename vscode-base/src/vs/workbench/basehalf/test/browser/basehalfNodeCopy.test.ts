@@ -72,7 +72,7 @@ suite('BaseHalfNodeCopy', () => {
 			kind: 'video',
 			title: 'Hero shot',
 			prompt: 'A warm editorial hero shot.',
-			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } }
 		}));
 		assert.deepStrictEqual([copied.upstream, copied.task, copied.result], [[], undefined, undefined]);
 		assert.strictEqual((await fileService.readFile(invalidResource)).value.toString(), '{ not a node }');
@@ -93,7 +93,7 @@ suite('BaseHalfNodeCopy', () => {
 			title: 'Changed before copy',
 			prompt: 'Image 1 opens the scene.',
 			upstream: ['frame.bhnode', 'notes/brief.md'],
-			generation: { model: 'video-v3', mode: 'reference', ratio: '9:16', resolution: '1080p', duration: 8, audio: false }
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'reference', params: { resolution: '1080p', ratio: '9:16', duration: 8, sound: false } }
 		});
 		await fileService.writeFile(source, VSBuffer.fromString(serializeBaseHalfNodeDocument(changed)));
 		await fileService.writeFile(target, VSBuffer.fromString(serializeBaseHalfNodeDocument(changed)));
@@ -275,15 +275,14 @@ suite('BaseHalfNodeCopy', () => {
 
 	function nodeWithHistory(): IBaseHalfNodeDocument {
 		const request: IBaseHalfVideoGenerationRecord = {
-			provider: 'ark',
-			model: 'doubao-seedance-2-5-260628',
-			prompt: 'A warm editorial hero shot.',
-			inputs: ['brief.md'],
+			provider: 'acme',
+			region: 'east',
+			model: 'acme-motion-2',
+			providerModel: 'acme-motion-2-e-260101',
 			mode: 'frames',
-			ratio: '16:9',
-			resolution: '720p',
-			duration: 5,
-			audio: true
+			params: { resolution: '720p', duration: 5, sound: true },
+			prompt: 'A warm editorial hero shot.',
+			inputs: ['brief.md']
 		};
 		return createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(1),
@@ -291,7 +290,7 @@ suite('BaseHalfNodeCopy', () => {
 			title: 'Hero shot',
 			prompt: 'A warm editorial hero shot.',
 			upstream: ['brief.md'],
-			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true },
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } },
 			result: {
 				source: 'generated',
 				artifact: { kind: 'video', path: `outputs/${baseHalfNodeTestId(1)}/task-1.mp4`, size: 2048 },

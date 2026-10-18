@@ -13,18 +13,19 @@ import {
 	IBaseHalfVideoCheckRequest,
 	IBaseHalfVideoCheckResult,
 	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoInputSource,
 	IBaseHalfVideoProviderAccess,
 	IBaseHalfVideoProviderSetup
 } from './basehalfVideoCatalog.js';
-import { IBaseHalfVideoInputSource } from './basehalfVideoProviders.js';
-import { BaseHalfVideoProviderKind, IBaseHalfVideoGenerationSettings, IBaseHalfVideoNodeFields } from './basehalfVideoNode.js';
+import { IBaseHalfVideoNodeFields } from './basehalfVideoNode.js';
 
 /**
- * The services a Video node uses (D58). The node store reads and writes the
- * video fields of a `.bhnode`; the channel service holds the providers the
- * user set up on this computer; the generation service runs a generation from
- * the node's file to its video. The panel, the card, the Agent command line,
- * and the tests meet only these interfaces.
+ * The services a Video node uses (D58, D59). The node store reads and writes
+ * the video fields of a `.bhnode`; the catalog service holds the model
+ * catalog of AI Video; the provider settings service holds how the user set
+ * up each provider on this computer; the generation service runs a generation
+ * from the node's file to its video. The panel, the card, the Video Providers
+ * page, the Agent command line, and the tests meet only these interfaces.
  */
 
 // --- node store ------------------------------------------------------------------------------
@@ -163,62 +164,6 @@ export interface IBaseHalfVideoProviderSettingsService {
 
 	/** Opens the page where the user sets up providers, on a provider when one is given. */
 	openSettings(providerId?: string): Promise<void>;
-}
-
-// --- channels --------------------------------------------------------------------------------
-
-/** A provider the user set up on this computer. The key is stored apart, encrypted. */
-export interface IBaseHalfVideoChannel {
-	readonly id: string;
-	readonly provider: BaseHalfVideoProviderKind;
-	readonly name: string;
-	readonly baseUrl: string;
-	/** The model ids this channel offers, in the user's order. */
-	readonly models: readonly string[];
-	readonly hasKey: boolean;
-}
-
-export interface IBaseHalfVideoChannelPatch {
-	readonly name?: string;
-	readonly baseUrl?: string;
-	readonly models?: readonly string[];
-}
-
-export interface IBaseHalfVideoModelChoice {
-	readonly channel: IBaseHalfVideoChannel;
-	readonly model: string;
-}
-
-export const IBaseHalfVideoChannelService = createDecorator<IBaseHalfVideoChannelService>('baseHalfVideoChannelService');
-
-export interface IBaseHalfVideoChannelService {
-	readonly _serviceBrand: undefined;
-
-	readonly onDidChange: Event<void>;
-
-	getChannels(): readonly IBaseHalfVideoChannel[];
-	getChannel(id: string): IBaseHalfVideoChannel | undefined;
-
-	/**
-	 * The channel that runs a model a node chose: the named channel while it
-	 * still offers the model, otherwise the first channel that offers it.
-	 */
-	resolve(choice: { readonly channel?: string; readonly model?: string }): IBaseHalfVideoModelChoice | undefined;
-
-	/** Adds a channel of a preset, with the preset's endpoint and models and no key. */
-	addChannel(provider: BaseHalfVideoProviderKind): Promise<IBaseHalfVideoChannel>;
-	updateChannel(id: string, patch: IBaseHalfVideoChannelPatch): Promise<void>;
-	/** Stores or, with `undefined`, removes the channel's key. */
-	setKey(id: string, key: string | undefined): Promise<void>;
-	getKey(id: string): Promise<string | undefined>;
-	removeChannel(id: string): Promise<void>;
-
-	/** The model and settings the last generation on this computer used; a new Video node starts with them. */
-	getLastUsed(): IBaseHalfVideoGenerationSettings | undefined;
-	setLastUsed(settings: IBaseHalfVideoGenerationSettings): void;
-
-	/** Opens the page where the user sets up providers. */
-	openSettings(): Promise<void>;
 }
 
 // --- generation ------------------------------------------------------------------------------

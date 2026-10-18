@@ -16,24 +16,25 @@ import {
 	BaseHalfVideoNodeError,
 	IBaseHalfNodeArtifact,
 	IBaseHalfNodeResult,
-	IBaseHalfVideoGenerationSettings,
+	IBaseHalfVideoGeneration,
 	IBaseHalfVideoNodeFields,
 	IBaseHalfVideoTask,
-	normalizeBaseHalfVideoGenerationSettings,
+	normalizeBaseHalfVideoGeneration,
 	normalizeBaseHalfVideoPrompt,
 	normalizeBaseHalfVideoResultGeneration,
 	normalizeBaseHalfVideoTask
 } from './basehalfVideoNode.js';
 
 /**
- * The `.bhnode` document, version 5 (D58). Every kind holds `version`, `id`,
- * `kind`, `title`, `upstream`, and an optional `result`. A Video node adds
- * `prompt`, `generation`, and `task`, which `basehalfVideoNode.ts` defines and
- * validates. Earlier versions are not read: the product has not launched.
+ * The `.bhnode` document, version 6 (D58, D59). Every kind holds `version`,
+ * `id`, `kind`, `title`, `upstream`, and an optional `result`. A Video node
+ * adds `prompt`, `generation`, and `task`, which `basehalfVideoNode.ts`
+ * defines and validates. Earlier versions are not read: the product has not
+ * launched.
  */
 
 export const BASEHALF_NODE_DOCUMENT_EXTENSION = '.bhnode';
-export const BASEHALF_NODE_DOCUMENT_VERSION = 5;
+export const BASEHALF_NODE_DOCUMENT_VERSION = 6;
 export const BASEHALF_NODE_DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 export const BASEHALF_PROJECT_PATH_MAX_LENGTH = 1024;
 export const BASEHALF_NODE_TITLE_MAX_LENGTH = 240;
@@ -76,8 +77,8 @@ export interface IBaseHalfNodeDocument extends IBaseHalfVideoNodeFields {
 	readonly upstream: readonly BaseHalfNodeJsonValue[];
 	/** Video only, and always present on a Video node: what the next generation sends. */
 	readonly prompt?: string;
-	/** Video only: the model and settings of the next generation. */
-	readonly generation?: IBaseHalfVideoGenerationSettings;
+	/** Video only: the provider, model, mode, and values of the next generation. */
+	readonly generation?: IBaseHalfVideoGeneration;
 	/** Video only: the generation that runs, or the last one that ended without a video. */
 	readonly task?: IBaseHalfVideoTask;
 	/** The file the node shows. */
@@ -95,7 +96,7 @@ export interface ICreateBaseHalfNodeDocumentOptions extends IBaseHalfVideoNodeFi
 export class BaseHalfNodeDocumentError extends Error {
 	/**
 	 * @param earlierVersion The document is of a version an earlier BaseHalf
-	 * wrote (3 or 4), so its card can say that in words.
+	 * wrote (3, 4, or 5), so its card can say that in words.
 	 */
 	constructor(message: string, readonly earlierVersion?: number) {
 		super(message);
@@ -170,7 +171,7 @@ export function serializeBaseHalfNodeDocument(document: IBaseHalfNodeDocument): 
 }
 
 /**
- * Creates a validated, deeply frozen version 5 document. The caller supplies
+ * Creates a validated, deeply frozen version 6 document. The caller supplies
  * the stable UUID. A Video node starts with an empty prompt unless one is given.
  */
 export function createBaseHalfNodeDocument(options: ICreateBaseHalfNodeDocumentOptions): IBaseHalfNodeDocument {
@@ -400,7 +401,7 @@ export type BaseHalfNodeUpstreamExtract =
 	| { readonly readable: false; readonly reason: string };
 
 /**
- * Reads the upstream list of version 5 `.bhnode` text without validating the
+ * Reads the upstream list of version 6 `.bhnode` text without validating the
  * rest of the document. The reference index and the plugin guard use it, so a
  * malformed unrelated field never hides a node's upstream list.
  */
@@ -436,9 +437,11 @@ export function extractBaseHalfNodeUpstreamLenient(source: string): BaseHalfNode
  * The part of a node document an agent may write: a Video node's `title`,
  * `prompt`, `upstream`, and `generation`. BaseHalf owns `task` and `result`.
  * The examples are built through the document reader, so what discovery
- * publishes cannot drift from what BaseHalf reads.
+ * publishes cannot drift from what BaseHalf reads. `exampleGeneration` is a
+ * generation of the model catalog of this computer; without one, the example
+ * names a provider and a model that stand for the catalog's.
  */
-export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string, BaseHalfNodeJsonValue>> {
+export function getBaseHalfNodeAgentAuthoringContract(exampleGeneration?: IBaseHalfVideoGeneration): Readonly<Record<string, BaseHalfNodeJsonValue>> {
 	const empty = createBaseHalfNodeDocument({
 		id: '6f690fa8-04ab-49c1-a6c8-44df124dedf3',
 		kind: 'video',
@@ -451,13 +454,13 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 		title: 'Shot 1',
 		prompt: 'The rider in Image 1 cycles along the coast; the camera follows slowly.',
 		upstream: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
-		generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+		generation: exampleGeneration ?? { provider: 'provider-id', model: 'model-id', mode: 'frames', params: { duration: 5 } }
 	});
 	const validatedExample = (document: IBaseHalfNodeDocument): BaseHalfNodeJsonValue =>
 		JSON.parse(serializeBaseHalfNodeDocument(document)) as BaseHalfNodeJsonValue;
-	const settingText = { type: 'string', minLength: 1, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9:.*x_-]*$' };
+	const catalogId = { type: 'string', minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$' };
 	return Object.freeze({
-		contractVersion: 3,
+		contractVersion: 4,
 		schema: {
 			'$schema': 'https://json-schema.org/draft/2020-12/schema',
 			type: 'object',
@@ -478,15 +481,17 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 				generation: {
 					type: 'object',
 					additionalProperties: false,
-					required: ['mode', 'ratio', 'resolution', 'duration', 'audio'],
 					properties: {
-						model: { type: 'string', minLength: 1, maxLength: 256 },
-						channel: { type: 'string', minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$' },
-						mode: { enum: ['frames', 'reference'] },
-						ratio: settingText,
-						resolution: settingText,
-						duration: { type: 'integer', minimum: -1, maximum: 120, not: { const: 0 } },
-						audio: { type: 'boolean' }
+						provider: { ...catalogId, description: 'The id of a provider of host.videoCatalog.' },
+						model: { ...catalogId, description: 'The id of a model of that provider.' },
+						mode: { enum: ['frames', 'reference', 'extend', 'edit'], description: 'One of the modes of that model.' },
+						params: {
+							type: 'object',
+							maxProperties: 64,
+							propertyNames: { pattern: '^[A-Za-z_][A-Za-z0-9_.-]{0,63}$' },
+							additionalProperties: { type: ['string', 'number', 'boolean'] },
+							description: 'Values of the model\'s parameters by name. A parameter left out takes its default.'
+						}
 					}
 				},
 				task: false,
@@ -500,8 +505,9 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 		hostOwnedFields: ['task', 'result'],
 		rules: [
 			'Write only title, prompt, upstream, and generation; BaseHalf owns task and result.',
+			'Choose generation.provider, generation.model, generation.mode, and generation.params from host.videoCatalog: a model of a provider, one of its modes, and values its parameters accept. A parameter left out takes its default.',
 			'The inputs of a Video node are its upstream entries, in order, as workspace-relative paths; the downstream node stores the connection.',
-			'In frames mode the first image is the start frame and the second the end frame; in reference mode images, videos, and audio are references; text inputs join the prompt.',
+			'The mode\'s input slots use the inputs: frames take the first image as the start frame and the second as the end frame; references take images, videos, and audio in order; extend and edit take the first video as the clip; text inputs join the prompt.',
 			'A prompt names inputs by kind and upstream order: Image 1, Video 1, Audio 1 (图片1, 视频1, 音频1 in Chinese).',
 			'Run a saved Video node with basehalf --run-node <workspace-relative .bhnode>; it prints the path of the node that runs and does not wait for the video.'
 		]
@@ -513,7 +519,7 @@ export function getBaseHalfNodeAgentAuthoringContract(): Readonly<Record<string,
 function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 	const candidate = record(value, 'document');
 	if (candidate.version !== BASEHALF_NODE_DOCUMENT_VERSION) {
-		throw new BaseHalfNodeDocumentError(unsupportedVersionMessage(candidate.version), candidate.version === 3 || candidate.version === 4 ? candidate.version : undefined);
+		throw new BaseHalfNodeDocumentError(unsupportedVersionMessage(candidate.version), isEarlierVersion(candidate.version) ? candidate.version : undefined);
 	}
 	for (const key of Object.keys(candidate)) {
 		if (!(DOCUMENT_FIELDS as readonly string[]).includes(key)) {
@@ -534,7 +540,7 @@ function normalizeDocument(value: unknown): IBaseHalfNodeDocument {
 		throw invalid('document.prompt is required on a Video node.');
 	}
 	const prompt = kind === 'video' ? video(() => normalizeBaseHalfVideoPrompt(candidate.prompt, 'document.prompt')) : undefined;
-	const generation = candidate.generation === undefined ? undefined : video(() => normalizeBaseHalfVideoGenerationSettings(candidate.generation, 'document.generation'));
+	const generation = candidate.generation === undefined ? undefined : video(() => normalizeBaseHalfVideoGeneration(candidate.generation, 'document.generation'));
 	const task = candidate.task === undefined ? undefined : video(() => normalizeBaseHalfVideoTask(candidate.task, 'document.task'));
 	const result = candidate.result === undefined ? undefined : normalizeResult(candidate.result, kind);
 	if (task && result) {
@@ -590,8 +596,13 @@ function upstreamItems(value: unknown): readonly BaseHalfNodeJsonValue[] {
 	return value as BaseHalfNodeJsonValue[];
 }
 
+/** Versions 3, 4, and 5 were written by earlier BaseHalf builds and are not read. */
+function isEarlierVersion(version: unknown): version is 3 | 4 | 5 {
+	return version === 3 || version === 4 || version === 5;
+}
+
 function unsupportedVersionMessage(version: unknown): string {
-	return version === 3 || version === 4
+	return isEarlierVersion(version)
 		? `document.version ${version} is no longer supported: this node was saved by an earlier BaseHalf.`
 		: `document.version must be ${BASEHALF_NODE_DOCUMENT_VERSION}; it is '${String(version)}'.`;
 }

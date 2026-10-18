@@ -52,20 +52,19 @@ suite('BaseHalfVideoCard', () => {
 	let hoverService: IHoverService;
 
 	const request: IBaseHalfVideoGenerationRecord = {
-		provider: 'ark',
-		model: 'doubao-seedance-2-5-260628',
-		prompt: 'Rain on the window.',
-		inputs: [],
+		provider: 'acme',
+		region: 'east',
+		model: 'acme-motion-2',
+		providerModel: 'acme-motion-2-e-260101',
 		mode: 'frames',
-		ratio: '16:9',
-		resolution: '720p',
-		duration: 5,
-		audio: true
+		params: { resolution: '720p', duration: 5, sound: true },
+		prompt: 'Rain on the window.',
+		inputs: []
 	};
 	const startedAt = '2026-10-15T08:00:00.000Z';
 	/** A generation that started 42 seconds ago. */
 	const running = (): IBaseHalfVideoNodeFields => ({
-		task: { id: 'task-1', state: 'running', startedAt: new Date(Date.now() - 42_000).toISOString(), channel: 'ark-1', remoteId: 'cgt-1', request }
+		task: { id: 'task-1', state: 'running', startedAt: new Date(Date.now() - 42_000).toISOString(), remoteId: 'cgt-1', request }
 	});
 	const withVideo: IBaseHalfVideoNodeFields = {
 		result: {

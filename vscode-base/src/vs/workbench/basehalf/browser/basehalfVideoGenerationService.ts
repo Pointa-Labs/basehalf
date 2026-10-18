@@ -22,14 +22,39 @@ import { registerSingleton } from '../../../platform/instantiation/common/extens
 import { IFileService } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import {
+	BASEHALF_VIDEO_PROVIDER_COMMANDS,
+	BaseHalfVideoGenerateBlocker,
+	BaseHalfVideoMedia,
+	BaseHalfVideoPollState,
+	BaseHalfVideoProviderErrorCode,
+	baseHalfVideoGenerateBlockerText,
+	baseHalfVideoModeOf,
+	buildBaseHalfVideoPrompt,
+	findBaseHalfVideoModel,
+	findBaseHalfVideoProvider,
+	getBaseHalfVideoGenerateBlocker,
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoInputPlanItem,
+	IBaseHalfVideoPlannedMedia,
+	IBaseHalfVideoProviderAccess,
+	IBaseHalfVideoProviderError,
+	IBaseHalfVideoSubmitRequest,
+	IBaseHalfVideoTaskRef,
+	normalizeBaseHalfVideoParams,
+	parseBaseHalfVideoCheckResult,
+	planBaseHalfVideoInputs,
+	stripBaseHalfMarkdownFrontMatter
+} from '../common/basehalfVideoCatalog.js';
+import {
 	BaseHalfVideoGenerationError,
 	BaseHalfVideoGenerationPhase,
-	IBaseHalfVideoChannel,
-	IBaseHalfVideoChannelService,
+	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationProgress,
 	IBaseHalfVideoGenerationService,
 	IBaseHalfVideoNodeSnapshot,
 	IBaseHalfVideoNodeStore,
+	IBaseHalfVideoProviderSettingsService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
 import {
@@ -39,34 +64,13 @@ import {
 	completeBaseHalfVideoTask,
 	failBaseHalfVideoTask,
 	IBaseHalfVideoGenerationRecord,
-	IBaseHalfVideoGenerationSettings,
 	IBaseHalfVideoNodeFields,
+	IBaseHalfVideoTask,
 	isBaseHalfVideoTaskActive,
 	recordBaseHalfVideoRemoteId,
 	settleOrphanedBaseHalfVideoSubmission,
 	stopBaseHalfVideoTask
 } from '../common/basehalfVideoNode.js';
-import {
-	BASEHALF_VIDEO_MAX_DOWNLOAD_BYTES,
-	BASEHALF_VIDEO_MAX_INPUT_BYTES,
-	BASEHALF_VIDEO_PROVIDER_COMMANDS,
-	BaseHalfVideoGenerateBlocker,
-	BaseHalfVideoProviderErrorCode,
-	BaseHalfVideoProviderMedia,
-	BaseHalfVideoProviderPollState,
-	baseHalfVideoEffectiveRatio,
-	buildBaseHalfVideoPrompt,
-	getBaseHalfVideoGenerateBlocker,
-	getBaseHalfVideoModelProfile,
-	IBaseHalfVideoInputPlanItem,
-	IBaseHalfVideoProviderEndpoint,
-	IBaseHalfVideoProviderError,
-	IBaseHalfVideoProviderRequest,
-	IBaseHalfVideoProviderTaskRef,
-	normalizeBaseHalfVideoSettings,
-	planBaseHalfVideoInputs,
-	stripBaseHalfMarkdownFrontMatter
-} from '../common/basehalfVideoProviders.js';
 
 /** The first question to the provider comes this long after it accepted the task. */
 export const BASEHALF_VIDEO_FIRST_POLL_DELAY = 3_000;
@@ -78,6 +82,12 @@ export const BASEHALF_VIDEO_TRANSIENT_FAILURE_LIMIT = 30 * 60_000;
 export const BASEHALF_VIDEO_TASK_TIME_LIMIT = 2 * 60 * 60_000;
 /** A `submitting` task that no window runs fails once it is this old. */
 export const BASEHALF_VIDEO_ORPHANED_SUBMISSION_AGE = 2 * 60_000;
+/** How long a generation an agent asked for waits for the catalog while it loads. */
+export const BASEHALF_VIDEO_CATALOG_WAIT = 30_000;
+/** The largest video BaseHalf downloads. */
+export const BASEHALF_VIDEO_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+/** The largest image BaseHalf draws to PNG in the window. */
+const RASTER_MAX_BYTES = 64 * 1024 * 1024;
 /** Downloads that fail for a reason that may pass are tried this many times. */
 const DOWNLOAD_ATTEMPTS = 3;
 /** Answers to a question about the task that cannot be read end the generation after this many in a row. */
@@ -94,7 +104,7 @@ const RASTER_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.g
 const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm' });
 const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
 
-const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'tooLarge']);
+const PROVIDER_ERROR_CODES: ReadonlySet<BaseHalfVideoProviderErrorCode> = new Set(['auth', 'rejected', 'rateLimited', 'balance', 'unknownOutcome', 'network', 'invalidResponse', 'notFound', 'notVideo', 'tooLarge', 'unknownProvider']);
 
 /** What the AI Video extension answers to `submit`: the provider's task id. */
 export interface IBaseHalfVideoProviderSubmitResult {
@@ -114,17 +124,18 @@ type ProviderAnswer<T> =
 	| { readonly ok: false; readonly error: IBaseHalfVideoProviderError; /** AI Video did not answer at all. */ readonly unavailable?: boolean };
 
 interface IPreparedGeneration {
-	readonly channel: IBaseHalfVideoChannel;
-	readonly request: IBaseHalfVideoProviderRequest;
+	readonly request: IBaseHalfVideoSubmitRequest;
 	readonly record: IBaseHalfVideoGenerationRecord;
-	readonly lastUsed: IBaseHalfVideoGenerationSettings;
+	readonly lastUsed: IBaseHalfVideoGenerationChoice;
 }
 
 /** One generation this window follows, from Generate or from a file that records it. */
 class FollowedGeneration {
 	taskId: string | undefined;
 	remoteId: string | undefined;
-	endpoint: IBaseHalfVideoProviderEndpoint | undefined;
+	/** Where the provider is asked, with what, and about which catalog model. */
+	access: IBaseHalfVideoProviderAccess | undefined;
+	model: string | undefined;
 	fraction: number | undefined;
 	stopped = false;
 	ended = false;
@@ -141,17 +152,25 @@ class FollowedGeneration {
 		public startedAt: number
 	) { }
 
-	taskRef(): IBaseHalfVideoProviderTaskRef {
-		return { ...this.endpoint!, remoteId: this.remoteId! };
+	taskRef(): IBaseHalfVideoTaskRef {
+		return { ...this.access!, model: this.model!, remoteId: this.remoteId! };
+	}
+
+	/** The credential values, which no message may hold. */
+	secrets(): readonly string[] {
+		return this.access ? Object.values(this.access.credentials) : [];
 	}
 }
 
 /**
- * Runs a Video node's generation from its file to its video (D58, video node
- * spec "A generation"). Everything before the task is written only reads.
- * The task moves through the transitions of `basehalfVideoNode.ts`, written by
- * the node store. Requests go through the AI Video extension's provider
- * commands; a request that may have reached a provider is never sent again.
+ * Runs a Video node's generation from its file to its video (D58, D59, video
+ * node specification, "A generation"). Everything before the task is written
+ * only reads: the model, mode, and values come from the model catalog, the
+ * credentials from the provider settings, and the provider module checks the
+ * planned generation with its files first. The task moves through the
+ * transitions of `basehalfVideoNode.ts`, written by the node store. Requests
+ * go through the AI Video extension's provider commands; a request that may
+ * have reached a provider is never sent again.
  */
 export class BaseHalfVideoGenerationService extends Disposable implements IBaseHalfVideoGenerationService {
 	declare readonly _serviceBrand: undefined;
@@ -169,7 +188,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	constructor(
 		rasterize: BaseHalfVideoImageRasterizer | undefined,
 		@IBaseHalfVideoNodeStore private readonly nodeStore: IBaseHalfVideoNodeStore,
-		@IBaseHalfVideoChannelService private readonly channelService: IBaseHalfVideoChannelService,
+		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IFileService private readonly fileService: IFileService,
 		@ILogService private readonly logService: ILogService
@@ -209,7 +229,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	async generate(resource: URI): Promise<URI> {
 		if (this.followed.has(resource)) {
-			throw new BaseHalfVideoGenerationError(blockerMessage('generating'));
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'generating' }));
 		}
 		const follow = new FollowedGeneration(resource, 'preparing', Date.now());
 		this.track(follow);
@@ -233,13 +253,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			await this.nodeStore.update(target, fields => beginBaseHalfVideoTask(fields, {
 				id: taskId,
 				startedAt,
-				channel: prepared.channel.id,
 				request: prepared.record
 			}));
 			follow.taskId = taskId;
 			follow.startedAt = now;
-			follow.endpoint = endpointOf(prepared.request);
-			this.channelService.setLastUsed(prepared.lastUsed);
+			follow.access = accessOf(prepared.request);
+			follow.model = prepared.request.model;
+			this.providerSettings.setLastUsed(prepared.lastUsed);
 			if (follow.stopped) {
 				// Stop came while the task was being written.
 				await this.writeStopped(follow);
@@ -253,42 +273,47 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
-	/** Steps 3 and 4: resolve the channel, plan and read the inputs, build the request. Writes nothing. */
+	/**
+	 * Steps 3 and 4: the model of the catalog, the provider's access, the
+	 * inputs planned from the mode's slots and read, the request, and the
+	 * provider module's check of it with its files. Writes nothing.
+	 */
 	private async prepare(snapshot: IBaseHalfVideoNodeSnapshot, token: CancellationToken): Promise<IPreparedGeneration> {
 		const fields = snapshot.fields;
 		const generation = fields.generation;
-		const model = generation?.model;
 		const prompt = fields.prompt ?? '';
-		const choice = this.channelService.resolve({ channel: generation?.channel, model });
-		const profile = choice ? getBaseHalfVideoModelProfile(choice.channel.provider, choice.model) : undefined;
-		const settings = profile ? normalizeBaseHalfVideoSettings(generation, profile) : undefined;
-		const resolved = profile ? await this.nodeStore.resolveInputs(snapshot) : [];
+		const catalog = await this.catalog();
 		throwIfCancelled(token);
-		const plan = profile && settings ? planBaseHalfVideoInputs(settings.mode, resolved, profile) : [];
+		const ref = findBaseHalfVideoModel(catalog, generation?.provider, generation?.model);
+		const mode = ref ? baseHalfVideoModeOf(ref.model, generation?.mode) : undefined;
+		const resolved = ref ? await this.nodeStore.resolveInputs(snapshot) : [];
+		throwIfCancelled(token);
+		const plan = mode ? planBaseHalfVideoInputs(mode.inputs, resolved) : [];
 		const blocker = getBaseHalfVideoGenerateBlocker({
 			generating: isBaseHalfVideoTaskActive(fields.task),
-			model,
-			channelFound: choice !== undefined,
-			channelHasEndpoint: choice ? choice.channel.baseUrl.trim().length > 0 : undefined,
-			channelHasKey: choice?.channel.hasKey ?? false,
+			catalog: { kind: 'ready', catalog },
+			generation,
+			setup: provider => this.providerSettings.getStatus(provider),
 			prompt,
 			plan
 		});
-		if (blocker || !choice || !profile || !settings) {
-			throw new BaseHalfVideoGenerationError(blockerMessage(blocker ?? 'noModel'));
+		if (blocker || !ref || !mode) {
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText(blocker ?? { kind: 'noModel' }));
 		}
-		const apiKey = await this.channelService.getKey(choice.channel.id);
+		const access = await this.providerSettings.getAccess(ref.provider);
 		throwIfCancelled(token);
-		if (!apiKey) {
-			throw new BaseHalfVideoGenerationError(blockerMessage('noKey'));
+		if (!access) {
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'notSetUp', provider: ref.provider }));
 		}
+		const providerModel = ref.model.providerModels[access.region];
+		if (!providerModel) {
+			const region = ref.provider.regions.find(candidate => candidate.id === access.region) ?? ref.provider.regions[0];
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'region', model: ref.model, region }));
+		}
+		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params);
 
 		const texts: string[] = [];
-		let startFrame: BaseHalfVideoProviderMedia | undefined;
-		let endFrame: BaseHalfVideoProviderMedia | undefined;
-		const referenceImages: BaseHalfVideoProviderMedia[] = [];
-		const referenceVideos: BaseHalfVideoProviderMedia[] = [];
-		const referenceAudios: BaseHalfVideoProviderMedia[] = [];
+		const media: { startFrame?: BaseHalfVideoMedia; endFrame?: BaseHalfVideoMedia; source?: BaseHalfVideoMedia; images: BaseHalfVideoMedia[]; videos: BaseHalfVideoMedia[]; audios: BaseHalfVideoMedia[] } = { images: [], videos: [], audios: [] };
 		const used: string[] = [];
 		for (const [index, item] of plan.entries()) {
 			if (item.use === 'unused') {
@@ -296,62 +321,96 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 			const input = resolved[index];
 			used.push(item.path);
-			if (item.use === 'text') {
-				texts.push(await this.readText(input, item));
-			} else if (item.use === 'start-frame') {
-				startFrame = await this.prepareMedia(input, item, 'image');
-			} else if (item.use === 'end-frame') {
-				endFrame = await this.prepareMedia(input, item, 'image');
-			} else if (item.kind === 'image') {
-				referenceImages.push(await this.prepareMedia(input, item, 'image'));
-			} else if (item.kind === 'video') {
-				referenceVideos.push(await this.prepareMedia(input, item, 'video'));
-			} else if (item.kind === 'audio') {
-				referenceAudios.push(await this.prepareMedia(input, item, 'audio'));
+			switch (item.use) {
+				case 'text':
+					texts.push(await this.readText(input, item));
+					break;
+				case 'start-frame':
+					media.startFrame = await this.prepareMedia(input, item, 'image');
+					break;
+				case 'end-frame':
+					media.endFrame = await this.prepareMedia(input, item, 'image');
+					break;
+				case 'source':
+					media.source = await this.prepareMedia(input, item, 'video');
+					break;
+				default:
+					if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
+						const prepared = await this.prepareMedia(input, item, item.kind);
+						(item.kind === 'image' ? media.images : item.kind === 'video' ? media.videos : media.audios).push(prepared);
+					}
 			}
 			throwIfCancelled(token);
 		}
 		const sentPrompt = buildBaseHalfVideoPrompt(prompt, texts);
-		if (!sentPrompt && !startFrame && !referenceImages.length && !referenceVideos.length && !referenceAudios.length) {
-			throw new BaseHalfVideoGenerationError(blockerMessage('nothingToSend'));
+		const inputs: IBaseHalfVideoPlannedMedia = Object.freeze({
+			...(media.startFrame ? { startFrame: media.startFrame } : {}),
+			...(media.endFrame ? { endFrame: media.endFrame } : {}),
+			images: Object.freeze(media.images),
+			videos: Object.freeze(media.videos),
+			audios: Object.freeze(media.audios),
+			...(media.source ? { source: media.source } : {})
+		});
+		if (!sentPrompt && !media.startFrame && !media.endFrame && !media.source && !media.images.length && !media.videos.length && !media.audios.length) {
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'nothingToSend' }));
 		}
 
-		const ratio = baseHalfVideoEffectiveRatio(settings, profile, startFrame !== undefined);
-		const provider = choice.channel.provider;
-		const record: IBaseHalfVideoGenerationRecord = {
-			provider,
-			model: choice.model,
-			prompt,
-			inputs: used,
-			mode: settings.mode,
-			ratio,
-			resolution: settings.resolution,
-			duration: settings.duration,
-			audio: settings.audio
-		};
-		const request: IBaseHalfVideoProviderRequest = {
-			provider,
-			baseUrl: choice.channel.baseUrl,
-			apiKey,
-			model: choice.model,
+		// The provider module checks the planned generation with its files:
+		// sizes, lengths, counts, the prompt, and the rules between values.
+		const checked = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.check, {
+			provider: ref.provider.id,
+			region: access.region,
+			model: ref.model.id,
+			mode: mode.id,
+			params,
 			prompt: sentPrompt,
-			mode: settings.mode,
-			ratio,
-			resolution: settings.resolution,
-			duration: settings.duration,
-			audio: settings.audio,
-			...(startFrame ? { startFrame } : {}),
-			...(endFrame ? { endFrame } : {}),
-			referenceImages,
-			referenceVideos,
-			referenceAudios
+			inputs
+		}, parseBaseHalfVideoCheckResult, false);
+		throwIfCancelled(token);
+		if (!checked.ok) {
+			throw new BaseHalfVideoGenerationError(checked.unavailable
+				? checked.error.message
+				: localize('basehalf.video.generation.checkFailed', "AI Video could not check the generation, and nothing was sent: {0}", errorDetail(checked.error, Object.values(access.credentials))));
+		}
+		const problem = checked.value.problems[0];
+		if (problem) {
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'check', message: problem }));
+		}
+
+		const record: IBaseHalfVideoGenerationRecord = {
+			provider: ref.provider.id,
+			region: access.region,
+			model: ref.model.id,
+			providerModel,
+			mode: mode.id,
+			params,
+			prompt: sentPrompt,
+			inputs: used
 		};
-		return {
-			channel: choice.channel,
-			request,
-			record,
-			lastUsed: { ...settings, channel: choice.channel.id, model: choice.model }
+		const request: IBaseHalfVideoSubmitRequest = {
+			...access,
+			model: ref.model.id,
+			mode: mode.id,
+			params,
+			prompt: sentPrompt,
+			inputs
 		};
+		return { request, record, lastUsed: { provider: ref.provider.id, model: ref.model.id, mode: mode.id, params } };
+	}
+
+	/** The catalog, waiting while it loads; refuses with the reason it is not there. */
+	private async catalog(): Promise<IBaseHalfVideoCatalog> {
+		try {
+			return await this.catalogService.whenReady(BASEHALF_VIDEO_CATALOG_WAIT);
+		} catch (error) {
+			const state = this.catalogService.state;
+			const blocker: BaseHalfVideoGenerateBlocker = state.kind === 'failed'
+				? { kind: 'catalogFailed', message: state.message }
+				: state.kind === 'loading'
+					? { kind: 'catalogLoading' }
+					: { kind: 'catalogFailed', message: getErrorMessage(error) };
+			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText(blocker));
+		}
 	}
 
 	private async readText(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem): Promise<string> {
@@ -359,18 +418,15 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		if (!file) {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
 		}
-		let text: string;
 		try {
-			text = (await this.fileService.readFile(file, { length: TEXT_INPUT_READ_BYTES })).value.toString();
+			return await readBaseHalfVideoTextInput(this.fileService, file);
 		} catch {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
 		}
-		const extension = extname(file).toLowerCase();
-		return extension === '.md' || extension === '.markdown' ? stripBaseHalfMarkdownFrontMatter(text) : text;
 	}
 
-	/** An image as a local file of a type providers take, or drawn to PNG; a video or audio as a local file. */
-	private async prepareMedia(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem, kind: 'image' | 'video' | 'audio'): Promise<BaseHalfVideoProviderMedia> {
+	/** An image as a local file of a type providers take, or drawn to PNG; a video or audio as a local file. The provider module measures them. */
+	private async prepareMedia(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem, kind: 'image' | 'video' | 'audio'): Promise<BaseHalfVideoMedia> {
 		const file = input.file;
 		if (!file) {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
@@ -385,9 +441,6 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		} catch {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
 		}
-		if (size > BASEHALF_VIDEO_MAX_INPUT_BYTES) {
-			throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.inputTooLarge', "{0} is larger than 20 MiB. Providers take inputs of at most 20 MiB.", inputName(item.path)));
-		}
 		if (file.scheme !== Schemas.file) {
 			throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.inputNotLocal', "{0} is not a file on this computer.", inputName(item.path)));
 		}
@@ -397,18 +450,16 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			if (direct) {
 				return { fsPath: file.fsPath, mimeType: direct };
 			}
-			let dataUrl: string;
+			if (size > RASTER_MAX_BYTES) {
+				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.imageTooLargeToDraw', "{0} is larger than 64 MiB, which BaseHalf does not draw as a PNG.", inputName(item.path)));
+			}
 			try {
 				const bytes = (await this.fileService.readFile(file)).value;
-				dataUrl = await this.rasterize(bytes, RASTER_IMAGE_TYPES[extension] ?? 'image/*');
+				return { dataUrl: await this.rasterize(bytes, RASTER_IMAGE_TYPES[extension] ?? 'image/*') };
 			} catch (error) {
 				this.logService.warn(`[BaseHalf video] Could not draw ${item.path} to PNG: ${getErrorMessage(error)}`);
 				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.imageUnreadable', "BaseHalf could not read the image {0}.", inputName(item.path)));
 			}
-			if (dataUrlByteLength(dataUrl) > BASEHALF_VIDEO_MAX_INPUT_BYTES) {
-				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.inputTooLarge', "{0} is larger than 20 MiB. Providers take inputs of at most 20 MiB.", inputName(item.path)));
-			}
-			return { dataUrl };
 		}
 		const types = kind === 'video' ? VIDEO_TYPES : AUDIO_TYPES;
 		return { fsPath: file.fsPath, mimeType: types[extension] ?? 'application/octet-stream' };
@@ -417,7 +468,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	// --- running -------------------------------------------------------------------------------
 
 	/** Step 6: send the request once and record the provider's task id. */
-	private async submit(follow: FollowedGeneration, request: IBaseHalfVideoProviderRequest): Promise<void> {
+	private async submit(follow: FollowedGeneration, request: IBaseHalfVideoSubmitRequest): Promise<void> {
 		this.setPhase(follow, 'submitting');
 		const answer = await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.submit, request, parseSubmitResult, true);
 		if (answer.ok) {
@@ -432,7 +483,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			return;
 		}
 		if (!answer.ok) {
-			await this.fail(follow, submitFailureMessage(answer, request.apiKey));
+			await this.fail(follow, submitFailureMessage(answer, follow.secrets()));
 			return;
 		}
 		const remoteId = answer.value.remoteId;
@@ -472,7 +523,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	private async submitFailedUnexpectedly(follow: FollowedGeneration, error: unknown): Promise<void> {
 		this.logService.error(`[BaseHalf video] The request of ${follow.resource.toString()} failed: ${getErrorMessage(error)}`);
 		if (!follow.stopped && !follow.ended) {
-			await this.fail(follow, `${unknownOutcomeMessage()} (${plainDetail(getErrorMessage(error), follow.endpoint?.apiKey)})`);
+			await this.fail(follow, `${unknownOutcomeMessage()} (${plainDetail(getErrorMessage(error), follow.secrets())})`);
 		}
 	}
 
@@ -515,10 +566,10 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 				this.schedulePoll(follow, BASEHALF_VIDEO_POLL_INTERVAL);
 				return;
 			case 'failed':
-				await this.fail(follow, localize('basehalf.video.generation.remoteFailed', "The provider could not make the video: {0}", plainDetail(state.message, follow.endpoint?.apiKey)));
+				await this.fail(follow, localize('basehalf.video.generation.remoteFailed', "The provider could not make the video: {0}", plainDetail(state.message, follow.secrets())));
 				return;
 			case 'cancelled':
-				await this.fail(follow, localize('basehalf.video.generation.remoteCancelled', "The provider cancelled the generation: {0}", plainDetail(state.message, follow.endpoint?.apiKey)));
+				await this.fail(follow, localize('basehalf.video.generation.remoteCancelled', "The provider cancelled the generation: {0}", plainDetail(state.message, follow.secrets())));
 				return;
 			case 'succeeded':
 				await this.download(follow, state.videoUrl);
@@ -528,17 +579,17 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	private async pollFailed(follow: FollowedGeneration, answer: Extract<ProviderAnswer<unknown>, { ok: false }>): Promise<void> {
 		const error = answer.error;
-		const detail = errorDetail(error, follow.endpoint?.apiKey);
+		const detail = errorDetail(error, follow.secrets());
 		if (!answer.unavailable) {
 			if (error.code === 'auth') {
-				await this.fail(follow, localize('basehalf.video.generation.pollRefusedKey', "The provider refused the key while BaseHalf asked about the video: {0}", detail));
+				await this.fail(follow, localize('basehalf.video.generation.pollRefusedKey', "The provider refused the credentials while BaseHalf asked about the video: {0}", detail));
 				return;
 			}
 			if (error.code === 'notFound') {
 				await this.fail(follow, localize('basehalf.video.generation.pollUnknownTask', "The provider does not know this task: {0}", detail));
 				return;
 			}
-			if (error.code === 'rejected') {
+			if (error.code === 'rejected' || error.code === 'unknownProvider') {
 				await this.fail(follow, localize('basehalf.video.generation.pollRejected', "The provider refused to tell about the video: {0}", detail));
 				return;
 			}
@@ -586,7 +637,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		if (!answer.ok) {
 			await this.deleteQuietly(part);
-			const detail = errorDetail(answer.error, follow.endpoint?.apiKey);
+			const detail = errorDetail(answer.error, follow.secrets());
 			if (!answer.unavailable && (answer.error.code === 'notVideo' || answer.error.code === 'tooLarge')) {
 				await this.fail(follow, answer.error.code === 'notVideo'
 					? localize('basehalf.video.generation.notVideo', "The provider's file is not an MP4 video: {0}", detail)
@@ -700,9 +751,9 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 		if (task.remoteId) {
 			try {
-				const endpoint = await this.endpointOfTask(task.channel, task.request);
-				if (endpoint) {
-					await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, { ...endpoint, remoteId: task.remoteId }, parseAnything, false);
+				const access = await this.accessOfTask(task);
+				if (access) {
+					await this.callProvider(BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel, { ...access, model: task.request.model, remoteId: task.remoteId }, parseAnything, false);
 				}
 			} catch (error) {
 				this.logService.info(`[BaseHalf video] Could not ask the provider to cancel ${task.remoteId}: ${getErrorMessage(error)}`);
@@ -723,7 +774,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 
 	/** Best effort: providers cancel only some tasks, and nothing waits for it. */
 	private async cancelRemote(follow: FollowedGeneration): Promise<void> {
-		if (follow.cancelSent || !follow.endpoint || !follow.remoteId) {
+		if (follow.cancelSent || !follow.access || !follow.remoteId) {
 			return;
 		}
 		follow.cancelSent = true;
@@ -781,14 +832,15 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 			return;
 		}
-		const endpoint = await this.endpointOfTask(task.channel, task.request);
+		const access = await this.accessOfTask(task);
 		if (this.followed.has(resource)) {
 			return;
 		}
-		if (!endpoint) {
-			// No channel on this computer runs this task (it was removed, or the
-			// workspace came from another computer). Leave it to the window that
-			// can follow it, until it is certainly over.
+		if (!access) {
+			// The provider is not set up on this computer for this task (the
+			// workspace came from another computer, or its credentials were
+			// removed). Leave it to the window that can follow it, until it is
+			// certainly over.
 			if (age >= BASEHALF_VIDEO_TASK_TIME_LIMIT) {
 				const endedAt = new Date(Date.now()).toISOString();
 				try {
@@ -802,7 +854,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const follow = new FollowedGeneration(resource, 'generating', Number.isNaN(started) ? Date.now() : started);
 		follow.taskId = task.id;
 		follow.remoteId = task.remoteId;
-		follow.endpoint = endpoint;
+		follow.access = access;
+		follow.model = task.request.model;
 		this.track(follow);
 		this.schedulePoll(follow, BASEHALF_VIDEO_FIRST_POLL_DELAY);
 	}
@@ -819,13 +872,16 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		this.laterChecks.set(resource, timer);
 	}
 
-	private async endpointOfTask(channelId: string, request: IBaseHalfVideoGenerationRecord): Promise<IBaseHalfVideoProviderEndpoint | undefined> {
-		const channel = this.channelService.getChannel(channelId);
-		if (!channel || channel.provider !== request.provider) {
+	/** The access a task is asked about with: its provider, in the region its request records. */
+	private async accessOfTask(task: IBaseHalfVideoTask): Promise<IBaseHalfVideoProviderAccess | undefined> {
+		let catalog: IBaseHalfVideoCatalog;
+		try {
+			catalog = await this.catalogService.whenReady(BASEHALF_VIDEO_CATALOG_WAIT);
+		} catch {
 			return undefined;
 		}
-		const apiKey = await this.channelService.getKey(channel.id);
-		return apiKey ? { provider: channel.provider, baseUrl: channel.baseUrl, apiKey, model: request.model } : undefined;
+		const provider = findBaseHalfVideoProvider(catalog, task.request.provider);
+		return provider ? this.providerSettings.getAccess(provider, task.request.region) : undefined;
 	}
 
 	// --- helpers -------------------------------------------------------------------------------
@@ -914,6 +970,13 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 	}
 }
 
+/** The text a text input adds to the prompt: its head, without a note's front matter. */
+export async function readBaseHalfVideoTextInput(fileService: IFileService, file: URI): Promise<string> {
+	const text = (await fileService.readFile(file, { length: TEXT_INPUT_READ_BYTES })).value.toString();
+	const extension = extname(file).toLowerCase();
+	return extension === '.md' || extension === '.markdown' ? stripBaseHalfMarkdownFrontMatter(text) : text;
+}
+
 // --- provider answers ----------------------------------------------------------------------------
 
 function parseProviderAnswer<T>(raw: unknown, parse: (value: unknown) => T | undefined): ProviderAnswer<T> {
@@ -946,14 +1009,14 @@ function parseSubmitResult(value: unknown): IBaseHalfVideoProviderSubmitResult |
 	}
 	const remoteId = value.remoteId.trim();
 	// The task id goes into the node's file: one line, as long as the file allows.
-	return remoteId && remoteId.length <= 256 && plainDetail(remoteId) === remoteId ? { remoteId } : undefined;
+	return remoteId && remoteId.length <= 256 && plainDetail(remoteId, []) === remoteId ? { remoteId } : undefined;
 }
 
 function parseDownloadResult(value: unknown): IBaseHalfVideoProviderDownloadResult | undefined {
 	return isRecord(value) && typeof value.size === 'number' && Number.isSafeInteger(value.size) && value.size >= 0 ? { size: value.size } : undefined;
 }
 
-function parsePollState(value: unknown): BaseHalfVideoProviderPollState | undefined {
+function parsePollState(value: unknown): BaseHalfVideoPollState | undefined {
 	if (!isRecord(value)) {
 		return undefined;
 	}
@@ -979,24 +1042,6 @@ function parseAnything(value: unknown): unknown {
 
 // --- messages ------------------------------------------------------------------------------------
 
-/** Why the node cannot generate, as the panel shows it. */
-export function blockerMessage(blocker: BaseHalfVideoGenerateBlocker): string {
-	switch (blocker) {
-		case 'generating':
-			return localize('basehalf.video.blocker.generating', "This node is generating.");
-		case 'noModel':
-			return localize('basehalf.video.blocker.noModel', "Choose a model first.");
-		case 'noChannel':
-			return localize('basehalf.video.blocker.noChannel', "No video provider on this computer offers this model. Add it in Video Providers.");
-		case 'noEndpoint':
-			return localize('basehalf.video.blocker.noEndpoint', "The video provider of this model has no endpoint. Enter it in Video Providers.");
-		case 'noKey':
-			return localize('basehalf.video.blocker.noKey', "The video provider of this model has no API key. Set it in Video Providers.");
-		case 'nothingToSend':
-			return localize('basehalf.video.blocker.nothingToSend', "Write a prompt or connect an input first.");
-	}
-}
-
 /** The message of a generation whose request may have reached the provider without an answer. */
 export function unknownOutcomeMessage(): string {
 	return localize('basehalf.video.generation.unknownOutcome', "The request may have reached the provider, but no answer came back. Check the provider's console before generating again: a second request may be charged again.");
@@ -1011,30 +1056,34 @@ function tooLongMessage(): string {
 	return localize('basehalf.video.generation.tooLong', "The provider did not finish the video within two hours.");
 }
 
-function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: false }>, apiKey: string): string {
+function submitFailureMessage(answer: Extract<ProviderAnswer<unknown>, { ok: false }>, secrets: readonly string[]): string {
 	const error = answer.error;
-	const detail = errorDetail(error, apiKey);
+	const detail = errorDetail(error, secrets);
 	if (answer.unavailable) {
 		return localize('basehalf.video.generation.notSent', "Nothing was sent to the provider: {0}", detail);
 	}
 	switch (error.code) {
 		case 'auth':
-			return localize('basehalf.video.generation.refusedKey', "The provider refused the key: {0}", detail);
+			return localize('basehalf.video.generation.refusedKey', "The provider refused the credentials: {0}", detail);
 		case 'rejected':
 			return localize('basehalf.video.generation.rejected', "The provider refused the request: {0}", detail);
 		case 'rateLimited':
 			return localize('basehalf.video.generation.rateLimited', "The provider has too many requests right now. Wait a moment and generate again: {0}", detail);
+		case 'balance':
+			return localize('basehalf.video.generation.balance', "The provider says the account has no balance left: {0}", detail);
 		case 'network':
 			return localize('basehalf.video.generation.network', "BaseHalf could not reach the provider, and nothing was sent: {0}", detail);
 		case 'notFound':
 			return localize('basehalf.video.generation.endpointNotFound', "The provider does not answer this request at its endpoint. Check the endpoint in Video Providers: {0}", detail);
+		case 'unknownProvider':
+			return localize('basehalf.video.generation.unknownProvider', "AI Video does not know this provider, and nothing was sent: {0}", detail);
 		default:
 			return detail ? `${unknownOutcomeMessage()} (${detail})` : unknownOutcomeMessage();
 	}
 }
 
 function saveFailedMessage(error: unknown): string {
-	return localize('basehalf.video.generation.saveFailed', "BaseHalf could not save the video in the workspace: {0}", plainDetail(getErrorMessage(error)));
+	return localize('basehalf.video.generation.saveFailed', "BaseHalf could not save the video in the workspace: {0}", plainDetail(getErrorMessage(error), []));
 }
 
 function missingInputMessage(path: string): string {
@@ -1045,19 +1094,21 @@ function inputName(path: string): string {
 	return path.slice(path.lastIndexOf('/') + 1) || path;
 }
 
-function errorDetail(error: IBaseHalfVideoProviderError, apiKey?: string): string {
-	const detail = plainDetail(error.message, apiKey);
+function errorDetail(error: IBaseHalfVideoProviderError, secrets: readonly string[]): string {
+	const detail = plainDetail(error.message, secrets);
 	if (detail) {
 		return detail;
 	}
 	return error.status !== undefined ? `HTTP ${error.status}` : error.code;
 }
 
-/** Plain text of at most 1,000 characters, without line breaks, markup, or the key. */
-function plainDetail(message: string, apiKey?: string): string {
+/** Plain text of at most 1,000 characters, without line breaks, markup, or a credential value. */
+function plainDetail(message: string, secrets: readonly string[]): string {
 	let text = message;
-	if (apiKey && apiKey.length >= 4) {
-		text = text.split(apiKey).join('***');
+	for (const secret of secrets) {
+		if (secret.length >= 4) {
+			text = text.split(secret).join('***');
+		}
 	}
 	text = text.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 	return text.length > 1000 ? `${text.slice(0, 999)}…` : text;
@@ -1068,9 +1119,9 @@ function toGenerationError(error: unknown): BaseHalfVideoGenerationError {
 		return error;
 	}
 	if (error instanceof BaseHalfVideoNodeError && /already generating/.test(error.message)) {
-		return new BaseHalfVideoGenerationError(blockerMessage('generating'));
+		return new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'generating' }));
 	}
-	return new BaseHalfVideoGenerationError(localize('basehalf.video.generation.startFailed', "BaseHalf could not start the generation: {0}", plainDetail(getErrorMessage(error))));
+	return new BaseHalfVideoGenerationError(localize('basehalf.video.generation.startFailed', "BaseHalf could not start the generation: {0}", plainDetail(getErrorMessage(error), [])));
 }
 
 // --- small helpers -------------------------------------------------------------------------------
@@ -1081,8 +1132,8 @@ export function createBaseHalfVideoTaskId(now: number): string {
 	return `${stamp}-${generateUuid().replace(/-/g, '').slice(0, 4)}`;
 }
 
-function endpointOf(request: IBaseHalfVideoProviderRequest): IBaseHalfVideoProviderEndpoint {
-	return { provider: request.provider, baseUrl: request.baseUrl, apiKey: request.apiKey, model: request.model };
+function accessOf(request: IBaseHalfVideoSubmitRequest): IBaseHalfVideoProviderAccess {
+	return { provider: request.provider, region: request.region, endpoint: request.endpoint, credentials: request.credentials };
 }
 
 function isCurrentTask(fields: IBaseHalfVideoNodeFields, taskId: string | undefined): boolean {
@@ -1101,12 +1152,6 @@ function workspaceRelativePath(snapshot: IBaseHalfVideoNodeSnapshot, target: URI
 		throw new Error(`${target.toString()} is outside the workspace of ${snapshot.resource.toString()}.`);
 	}
 	return target.path.slice(root.length);
-}
-
-function dataUrlByteLength(dataUrl: string): number {
-	const comma = dataUrl.indexOf(',');
-	const payload = comma >= 0 ? dataUrl.length - comma - 1 : dataUrl.length;
-	return Math.floor(payload * 3 / 4);
 }
 
 function throwIfCancelled(token: CancellationToken): void {

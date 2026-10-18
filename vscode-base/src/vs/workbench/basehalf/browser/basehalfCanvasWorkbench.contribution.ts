@@ -134,14 +134,14 @@ import {
 	serializeBaseHalfNodeDocument
 } from '../common/basehalfNodeDocument.js';
 import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../common/basehalfCanvasContentKind.js';
-import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGenerationSettings } from '../common/basehalfVideoNode.js';
+import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGeneration } from '../common/basehalfVideoNode.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
 import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost } from './basehalfVideoNodePanel.js';
 import { IBaseHalfVideoCard, IBaseHalfVideoCardInput, renderBaseHalfVideoCard } from './basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from './basehalfVideoFrameCapture.js';
 import { baseHalfVideoCardToolbarActions } from '../common/basehalfVideoCardPresentation.js';
-import { IBaseHalfVideoChannelService, IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
-import { baseHalfVideoInitialSettings, getBaseHalfVideoModelProfile } from '../common/basehalfVideoProviders.js';
+import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+import { baseHalfVideoInitialGeneration } from '../common/basehalfVideoCatalog.js';
 import { BaseHalfCanvasCardPresentation } from '../common/basehalfCanvasCardPresentation.js';
 import { BaseHalfCanvasPreviewHydrationQueue, BaseHalfCanvasPreviewVerificationQueue, IBaseHalfCanvasPreviewHydrationBatch } from '../common/basehalfCanvasPreviewHydration.js';
 import { splitBaseHalfMarkdownFrontmatter } from '../common/basehalfMarkdownProjection.js';
@@ -821,7 +821,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IHoverService private readonly hoverService: IHoverService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IBaseHalfVideoGenerationService private readonly videoGenerationService: IBaseHalfVideoGenerationService,
-		@IBaseHalfVideoChannelService private readonly videoChannelService: IBaseHalfVideoChannelService
+		@IBaseHalfVideoProviderSettingsService private readonly videoProviderSettings: IBaseHalfVideoProviderSettingsService,
+		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService
 	) {
 		super();
 		// An item that was moved outside BaseHalf: the open canvas and the open
@@ -7192,15 +7193,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	// --- the Video node panel (D58, video node, "The panel") ---------------------------------
 
-	/** The model and settings a new Video node starts with: those of the last generation on this computer. */
-	private initialVideoGeneration(): IBaseHalfVideoGenerationSettings | undefined {
-		const lastUsed = this.videoChannelService.getLastUsed();
-		if (!lastUsed) {
-			return undefined;
-		}
-		const choice = lastUsed.model ? this.videoChannelService.resolve(lastUsed) : undefined;
-		const profile = choice ? getBaseHalfVideoModelProfile(choice.channel.provider, choice.model) : undefined;
-		return baseHalfVideoInitialSettings(lastUsed, profile);
+	/** The provider, model, mode, and values a new Video node starts with: those of the last generation on this computer, made legal for the model. */
+	private initialVideoGeneration(): IBaseHalfVideoGeneration | undefined {
+		const catalog = this.videoCatalogService.state;
+		return baseHalfVideoInitialGeneration(this.videoProviderSettings.getLastUsed(), catalog.kind === 'ready' ? catalog.catalog : undefined);
 	}
 
 	/** The video file a Video node shows, in its workspace folder. */

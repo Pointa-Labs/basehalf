@@ -155,7 +155,7 @@ suite('BaseHalfProjectFileTransitionService', () => {
 
 	test('rejects plugin transitions that change an upstream value, and exempts only host-originated ones', async () => {
 		const note = '---\ntitle: Note\nupstream:\n  - brief.md\n  - notes/a.md\n---\n# Note\n';
-		const node = (upstream: readonly unknown[]) => JSON.stringify({ version: 5, id: 'x', kind: 'file', title: 'T', upstream });
+		const node = (upstream: readonly unknown[]) => JSON.stringify({ version: 6, id: 'x', kind: 'file', title: 'T', upstream });
 		const cases: readonly { readonly name: string; readonly path: string; readonly before: string; readonly after: string }[] = [
 			{ name: 'body edit', path: 'note.md', before: note, after: note.replace('# Note', '# Renamed') },
 			{ name: 'other key', path: 'note.md', before: note, after: note.replace('title: Note', 'title: Other') },

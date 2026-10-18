@@ -5,29 +5,31 @@
 
 import './media/basehalfVideoProviders.css';
 import { $, addDisposableListener, append, clearNode, EventType, getActiveElement } from '../../../base/browser/dom.js';
-import { toAction } from '../../../base/common/actions.js';
 import { getErrorMessage } from '../../../base/common/errors.js';
 import { Disposable, DisposableStore, MutableDisposable } from '../../../base/common/lifecycle.js';
+import { URI } from '../../../base/common/uri.js';
 import { localize } from '../../../nls.js';
-import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IHoverService } from '../../../platform/hover/browser/hover.js';
+import { IOpenerService } from '../../../platform/opener/common/opener.js';
 import { ISettingsCustomSection, ISettingsCustomSectionLayout } from '../../contrib/preferences/browser/settingsCustomSections.js';
-import { BASEHALF_VIDEO_CHANNEL_NAME_MAX_LENGTH, BaseHalfVideoChannelError, normalizeBaseHalfVideoChannelModel } from '../common/basehalfVideoChannels.js';
-import { IBaseHalfVideoChannel, IBaseHalfVideoChannelService } from '../common/basehalfVideoGeneration.js';
-import { BaseHalfVideoProviderKind } from '../common/basehalfVideoNode.js';
-import { baseHalfVideoModelLabel, getBaseHalfVideoProviderPreset, getBaseHalfVideoProviderPresets } from '../common/basehalfVideoProviders.js';
+import { baseHalfVideoListedModels, IBaseHalfVideoCatalogCredential, IBaseHalfVideoCatalogProvider } from '../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogService, IBaseHalfVideoProviderSettingsService, IBaseHalfVideoProviderStatus } from '../common/basehalfVideoGeneration.js';
+import { BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH, BaseHalfVideoProviderSettingsError } from '../common/basehalfVideoProviderSettings.js';
 
 type BaseHalfVideoProvidersStatusKind = 'success' | 'warning';
 
-/** The editable controls of the page; their text and focus survive a render. */
-type BaseHalfVideoProviderControl = 'name' | 'endpoint' | 'key' | 'model';
+/** A control whose text and focus survive a render: the endpoint, or the field of one credential. */
+type BaseHalfVideoProviderControl = 'endpoint' | `credential:${string}`;
 
 /**
- * The Video Providers page of Settings (D58): the channels the user set up on
- * this computer and an editor for one of them. Saving checks nothing with the
- * provider; the first generation tells whether a key works. A stored key is
- * never read here and never shown: the page knows only whether one is set.
+ * The Video Providers page of Settings (D59, video providers, "Credentials,
+ * regions, and endpoints"), drawn from the model catalog: the providers in
+ * the catalog's order, and for the one selected its region, one masked field
+ * per credential it declares, its endpoint, and a link to the region's
+ * console. Saving checks nothing with the provider; the first generation tells
+ * whether the credentials work. A stored value is never read here and never
+ * shown: the page knows only whether one is set.
  */
 export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsCustomSection {
 	private root: HTMLElement | undefined;
@@ -35,11 +37,11 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	private list: HTMLElement | undefined;
 	private editor: HTMLElement | undefined;
 	private selectedId: string | undefined;
-	/** The channel the editor currently shows; typed text is kept only while it stays the same. */
+	/** The provider the editor currently shows; typed text is kept only while it stays the same. */
 	private renderedId: string | undefined;
-	private replacingKey = false;
+	/** The credentials whose value is being replaced. */
+	private readonly replacing = new Set<string>();
 	private busy = false;
-	private renderPending = false;
 	private readonly fieldErrors = new Map<BaseHalfVideoProviderControl, string>();
 	private readonly renderDisposables = this._register(new MutableDisposable<DisposableStore>());
 	/** The elements of the current render, reached directly instead of by selectors. */
@@ -49,19 +51,21 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	private readonly sensitiveInputs = new Set<HTMLInputElement>();
 
 	constructor(
-		@IBaseHalfVideoChannelService private readonly channelService: IBaseHalfVideoChannelService,
-		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IDialogService private readonly dialogService: IDialogService,
-		@IHoverService private readonly hoverService: IHoverService
+		@IHoverService private readonly hoverService: IHoverService,
+		@IOpenerService private readonly openerService: IOpenerService
 	) {
 		super();
-		this._register(this.channelService.onDidChange(() => {
-			if (this.busy) {
-				this.renderPending = true;
-			} else {
+		// While a change is saved, the render that ends it shows what changed meanwhile.
+		const rerender = () => {
+			if (!this.busy) {
 				this.render();
 			}
-		}));
+		};
+		this._register(this.providerSettings.onDidChange(rerender));
+		this._register(this.catalogService.onDidChange(rerender));
 	}
 
 	create(parent: HTMLElement): void {
@@ -75,11 +79,7 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		const title = append(heading, $('h1#basehalf-video-providers-title'));
 		title.textContent = localize('basehalf.video.providers.title', "Video Providers");
 		const subtitle = append(heading, $('p'));
-		subtitle.textContent = localize('basehalf.video.providers.subtitle', "Video nodes run on the providers you set up here, with your own API key. Keys are encrypted and stay on this computer.");
-		const add = this.button(header, localize('basehalf.video.providers.add', "Add Provider…"), 'codicon-add', true);
-		add.classList.add('basehalf-video-providers-add');
-		add.setAttribute('aria-haspopup', 'menu');
-		this._register(addDisposableListener(add, EventType.CLICK, () => this.showAddMenu(add)));
+		subtitle.textContent = localize('basehalf.video.providers.subtitle', "Video nodes run on these providers with your own credentials, and you pay each provider directly. Credentials are encrypted and stay on this computer. Nothing is checked with a provider until its first generation.");
 
 		this.status = append(this.root, $('p.basehalf-video-providers-status'));
 		this.status.setAttribute('role', 'status');
@@ -92,14 +92,17 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		this.editor = append(content, $('.basehalf-video-provider-editor'));
 		this.editor.setAttribute('role', 'region');
 		this.editor.setAttribute('aria-label', localize('basehalf.video.providers.editorLabel', "Provider settings"));
+		// A catalog that could not be loaded is asked for again when the page opens.
+		this.catalogService.load();
 		this.render();
 	}
 
 	setInput(input: string | undefined): void {
-		if (input && this.channelService.getChannel(input)) {
+		if (input && this.providers().some(provider => provider.id === input)) {
+			this.select(input);
+		} else if (input) {
+			// The catalog may still load: show the provider once it is there.
 			this.selectedId = input;
-			this.replacingKey = false;
-			this.fieldErrors.clear();
 		}
 		this.render();
 	}
@@ -110,8 +113,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		}
 		if (!visible) {
 			this.clearSensitiveInputs();
-			if (this.replacingKey) {
-				this.replacingKey = false;
+			if (this.replacing.size) {
+				this.replacing.clear();
 				this.render();
 			}
 		}
@@ -134,20 +137,32 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		super.dispose();
 	}
 
+	private providers(): readonly IBaseHalfVideoCatalogProvider[] {
+		const state = this.catalogService.state;
+		return state.kind === 'ready' ? state.catalog.providers : [];
+	}
+
+	private select(providerId: string): void {
+		if (this.selectedId !== providerId) {
+			this.selectedId = providerId;
+			this.replacing.clear();
+			this.fieldErrors.clear();
+		}
+	}
+
 	private render(): void {
 		if (!this.root || !this.list || !this.editor) {
 			return;
 		}
-		this.renderPending = false;
-		const channels = this.channelService.getChannels();
-		if (!channels.some(channel => channel.id === this.selectedId)) {
-			this.selectedId = channels[0]?.id;
-			this.replacingKey = false;
+		const providers = this.providers();
+		if (providers.length && !providers.some(provider => provider.id === this.selectedId)) {
+			this.selectedId = providers[0].id;
+			this.replacing.clear();
 			this.fieldErrors.clear();
 		}
 		// Text typed for one provider never moves to another one.
-		const sameChannel = this.selectedId !== undefined && this.selectedId === this.renderedId;
-		const kept = sameChannel ? this.captureControls() : { values: new Map<BaseHalfVideoProviderControl, string>() };
+		const sameProvider = this.selectedId !== undefined && this.selectedId === this.renderedId;
+		const kept = sameProvider ? this.captureControls() : { values: new Map<BaseHalfVideoProviderControl, string>() };
 		this.clearSensitiveInputs();
 		const disposables = new DisposableStore();
 		this.renderDisposables.value = disposables;
@@ -158,64 +173,66 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		clearNode(this.editor);
 		this.renderedId = this.selectedId;
 
-		this.renderList(channels, disposables);
-		const selected = channels.find(channel => channel.id === this.selectedId);
+		const state = this.catalogService.state;
+		this.root.dataset.catalog = state.kind;
+		if (state.kind !== 'ready' || !providers.length) {
+			this.renderNoProviders(state.kind === 'loading'
+				? localize('basehalf.video.providers.loading', "Loading the video providers…")
+				: state.kind === 'failed'
+					? localize('basehalf.video.providers.failed', "BaseHalf could not load the video providers: {0}", state.message)
+					: localize('basehalf.video.providers.none', "AI Video offers no video providers."));
+			return;
+		}
+		this.renderList(providers, disposables);
+		const selected = providers.find(provider => provider.id === this.selectedId);
 		if (selected) {
 			this.renderEditor(selected, disposables);
-		} else {
-			this.renderEmpty(disposables);
 		}
 		this.restoreControls(kept);
-		if (!sameChannel) {
+		if (!sameProvider) {
 			this.editor.scrollTop = 0;
 		}
 	}
 
-	private renderList(channels: readonly IBaseHalfVideoChannel[], disposables: DisposableStore): void {
+	private renderNoProviders(message: string): void {
+		const empty = append(this.list!, $('.basehalf-video-providers-empty'));
+		empty.textContent = message;
+	}
+
+	private renderList(providers: readonly IBaseHalfVideoCatalogProvider[], disposables: DisposableStore): void {
 		const list = this.list!;
-		if (!channels.length) {
-			const empty = append(list, $('.basehalf-video-providers-empty'));
-			empty.textContent = localize('basehalf.video.providers.listEmpty', "No providers yet.");
-			return;
-		}
 		const rows: HTMLButtonElement[] = [];
-		for (const channel of channels) {
+		for (const provider of providers) {
+			const status = this.providerSettings.getStatus(provider);
 			const row = append(list, $('button.basehalf-video-provider-row')) as HTMLButtonElement;
 			rows.push(row);
-			this.rows.set(channel.id, row);
+			this.rows.set(provider.id, row);
 			row.type = 'button';
-			row.dataset.channelId = channel.id;
-			const selected = channel.id === this.selectedId;
+			row.dataset.provider = provider.id;
+			const selected = provider.id === this.selectedId;
 			row.tabIndex = selected ? 0 : -1;
 			if (selected) {
 				row.setAttribute('aria-current', 'page');
 			}
 			const copy = append(row, $('.basehalf-video-provider-row-copy'));
-			const name = append(copy, $('.basehalf-video-provider-row-name'));
-			name.textContent = channel.name;
+			append(copy, $('.basehalf-video-provider-row-name')).textContent = provider.label;
 			const detail = append(copy, $('.basehalf-video-provider-row-detail'));
-			const presetLabel = getBaseHalfVideoProviderPreset(channel.provider).label;
-			const models = channel.models.length === 1
-				? localize('basehalf.video.providers.rowModelsOne', "1 model")
-				: localize('basehalf.video.providers.rowModels', "{0} models", channel.models.length);
-			// The preset is named only when the channel was renamed.
-			detail.textContent = channel.name === presetLabel ? models : localize('basehalf.video.providers.rowDetail', "{0} · {1}", presetLabel, models);
-			const keyLabel = channel.hasKey
-				? localize('basehalf.video.providers.keySetShort', "Key set")
-				: localize('basehalf.video.providers.keyMissingShort', "No key");
-			const keyState = append(row, $(`span.basehalf-video-provider-row-key.codicon.${channel.hasKey ? 'codicon-pass-filled' : 'codicon-key'}`));
-			keyState.classList.toggle('missing', !channel.hasKey);
-			keyState.setAttribute('role', 'img');
-			keyState.setAttribute('aria-label', keyLabel);
-			disposables.add(this.hoverService.setupDelayedHover(keyState, { content: keyLabel }));
+			detail.textContent = provider.regions.length > 1 ? status.region.label : modelCount(provider);
+			const setUpLabel = status.setUp
+				? localize('basehalf.video.providers.setUp', "Set up")
+				: localize('basehalf.video.providers.notSetUp', "Not set up");
+			const mark = append(row, $(`span.basehalf-video-provider-row-state.codicon.${status.setUp ? 'codicon-pass-filled' : 'codicon-key'}`));
+			mark.classList.toggle('missing', !status.setUp);
+			mark.setAttribute('role', 'img');
+			mark.setAttribute('aria-label', setUpLabel);
+			row.dataset.setUp = String(status.setUp);
+			disposables.add(this.hoverService.setupDelayedHover(mark, { content: setUpLabel }));
 			disposables.add(addDisposableListener(row, EventType.CLICK, () => {
-				if (this.selectedId !== channel.id) {
-					this.selectedId = channel.id;
-					this.replacingKey = false;
-					this.fieldErrors.clear();
+				if (this.selectedId !== provider.id) {
+					this.select(provider.id);
 					this.setStatus('');
 					this.render();
-					this.rows.get(channel.id)?.focus();
+					this.rows.get(provider.id)?.focus();
 				}
 			}));
 			disposables.add(addDisposableListener(row, EventType.KEY_DOWN, (event: KeyboardEvent) => {
@@ -233,225 +250,191 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		}
 	}
 
-	private renderEmpty(disposables: DisposableStore): void {
-		const empty = append(this.editor!, $('.basehalf-video-provider-editor-empty'));
-		const text = append(empty, $('p'));
-		text.textContent = localize('basehalf.video.providers.editorEmpty', "Add a provider to choose its models in Video nodes. You need an API key from the provider's console.");
-		const add = this.button(empty, localize('basehalf.video.providers.add', "Add Provider…"), 'codicon-add', true);
-		add.setAttribute('aria-haspopup', 'menu');
-		disposables.add(addDisposableListener(add, EventType.CLICK, () => this.showAddMenu(add)));
-	}
-
-	private renderEditor(channel: IBaseHalfVideoChannel, disposables: DisposableStore): void {
+	private renderEditor(provider: IBaseHalfVideoCatalogProvider, disposables: DisposableStore): void {
 		const editor = this.editor!;
-		const preset = getBaseHalfVideoProviderPreset(channel.provider);
+		const status = this.providerSettings.getStatus(provider);
+		editor.dataset.provider = provider.id;
 		const heading = append(editor, $('.basehalf-video-provider-editor-heading'));
-		const title = append(heading, $('h2'));
-		title.textContent = channel.name;
-		const format = append(heading, $('p'));
-		format.textContent = localize('basehalf.video.providers.format', "{0} · {1}", preset.label, baseHalfVideoProviderFormatLabel(channel.provider));
+		append(heading, $('h2')).textContent = provider.label;
+		const summary = append(heading, $('p'));
+		summary.textContent = status.setUp
+			? localize('basehalf.video.providers.summarySetUp', "Set up · {0}", modelCount(provider))
+			: localize('basehalf.video.providers.summaryNotSetUp', "Not set up · {0}", modelCount(provider));
 
-		const nameInput = this.textField(editor, 'name', localize('basehalf.video.providers.name', "Name"), channel.name, undefined, disposables);
-		nameInput.maxLength = BASEHALF_VIDEO_CHANNEL_NAME_MAX_LENGTH;
-		disposables.add(addDisposableListener(nameInput, EventType.CHANGE, () => {
-			void this.save('name', () => this.channelService.updateChannel(channel.id, { name: nameInput.value }));
-		}));
-
-		const endpointInput = this.textField(editor, 'endpoint', localize('basehalf.video.providers.endpoint', "Endpoint"), channel.baseUrl,
-			localize('basehalf.video.providers.endpointHint', "A relay that speaks the same request format works too: enter its address here."), disposables);
-		endpointInput.type = 'url';
-		disposables.add(addDisposableListener(endpointInput, EventType.CHANGE, () => {
-			void this.save('endpoint', () => this.channelService.updateChannel(channel.id, { baseUrl: endpointInput.value }));
-		}));
-
-		this.renderKey(editor, channel, disposables);
-		this.renderModels(editor, channel, disposables);
-
-		const footer = append(editor, $('.basehalf-video-provider-editor-footer'));
-		const remove = this.button(footer, localize('basehalf.video.providers.remove', "Remove Provider"), 'codicon-trash');
-		remove.classList.add('danger');
-		disposables.add(addDisposableListener(remove, EventType.CLICK, () => void this.removeChannel(channel)));
+		if (provider.regions.length > 1) {
+			this.renderRegions(editor, provider, status, disposables);
+		}
+		for (const credential of provider.credentials) {
+			this.renderCredential(editor, provider, credential, status, disposables);
+		}
+		this.renderEndpoint(editor, provider, status, disposables);
+		if (status.region.console) {
+			const consoleUrl = status.region.console;
+			const link = append(editor, $('a.basehalf-video-provider-console')) as HTMLAnchorElement;
+			link.href = consoleUrl;
+			link.textContent = localize('basehalf.video.providers.console', "Get credentials in the console of {0}", status.region.label);
+			disposables.add(addDisposableListener(link, EventType.CLICK, event => {
+				event.preventDefault();
+				void this.openerService.open(URI.parse(consoleUrl), { openExternal: true });
+			}));
+		}
 	}
 
-	private renderKey(editor: HTMLElement, channel: IBaseHalfVideoChannel, disposables: DisposableStore): void {
+	private renderRegions(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
 		const field = append(editor, $('.basehalf-video-provider-field'));
-		const label = append(field, $('.basehalf-video-provider-field-label#basehalf-video-provider-key-label'));
-		label.textContent = localize('basehalf.video.providers.key', "API Key");
+		const label = append(field, $('.basehalf-video-provider-field-label#basehalf-video-provider-region-label'));
+		label.textContent = localize('basehalf.video.providers.region', "Region");
+		const hint = append(field, $('p.basehalf-video-provider-field-hint'));
+		hint.textContent = localize('basehalf.video.providers.regionHint', "The region sets where requests go, the currency of the estimates, and which models are offered.");
+		const group = append(field, $('.basehalf-video-provider-regions'));
+		group.setAttribute('role', 'radiogroup');
+		group.setAttribute('aria-labelledby', 'basehalf-video-provider-region-label');
+		const buttons: HTMLButtonElement[] = [];
+		for (const region of provider.regions) {
+			const button = append(group, $('button.basehalf-video-provider-region')) as HTMLButtonElement;
+			buttons.push(button);
+			button.type = 'button';
+			button.dataset.region = region.id;
+			const checked = region.id === status.region.id;
+			button.setAttribute('role', 'radio');
+			button.setAttribute('aria-checked', String(checked));
+			button.tabIndex = checked ? 0 : -1;
+			append(button, $('span.basehalf-video-provider-region-label')).textContent = region.label;
+			append(button, $('span.basehalf-video-provider-region-currency')).textContent = region.currency;
+			disposables.add(addDisposableListener(button, EventType.CLICK, () => {
+				if (region.id !== this.providerSettings.getStatus(provider).region.id) {
+					void this.save(undefined, () => this.providerSettings.setRegion(provider, region.id), localize('basehalf.video.providers.regionSaved', "Region saved."));
+				}
+			}));
+			disposables.add(addDisposableListener(button, EventType.KEY_DOWN, (event: KeyboardEvent) => {
+				const index = buttons.indexOf(button);
+				const next = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? (index + 1) % buttons.length
+					: event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? (index - 1 + buttons.length) % buttons.length
+						: undefined;
+				if (next === undefined) {
+					return;
+				}
+				event.preventDefault();
+				buttons[next].focus();
+				buttons[next].click();
+			}));
+		}
+	}
+
+	private renderCredential(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, credential: IBaseHalfVideoCatalogCredential, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
+		const control: BaseHalfVideoProviderControl = `credential:${credential.id}`;
+		const isSet = status.credentials.has(credential.id);
+		const field = append(editor, $('.basehalf-video-provider-field.credential'));
+		field.dataset.credential = credential.id;
+		const labelId = `basehalf-video-provider-credential-${cssId(credential.id)}-label`;
+		const label = append(field, $('.basehalf-video-provider-field-label'));
+		label.id = labelId;
+		label.textContent = credential.label;
 		const state = append(field, $('.basehalf-video-provider-key-state'));
-		state.classList.toggle('set', channel.hasKey);
-		const stateIcon = append(state, $(`span.codicon.${channel.hasKey ? 'codicon-pass-filled' : 'codicon-key'}`));
-		stateIcon.setAttribute('aria-hidden', 'true');
-		const stateText = append(state, $('span'));
-		stateText.textContent = channel.hasKey
-			? localize('basehalf.video.providers.keySet', "A key is set. It is encrypted on this computer and never shown.")
-			: localize('basehalf.video.providers.keyMissing', "No key yet. Paste the API key from the provider's console.");
+		state.classList.toggle('set', isSet);
+		append(state, $(`span.codicon.${isSet ? 'codicon-pass-filled' : 'codicon-key'}`)).setAttribute('aria-hidden', 'true');
+		append(state, $('span')).textContent = isSet
+			? localize('basehalf.video.providers.credentialSet', "Set. It is encrypted on this computer and never shown.")
+			: localize('basehalf.video.providers.credentialMissing', "Not set. Paste it from the provider's console.");
 
 		const row = append(field, $('.basehalf-video-provider-key-row'));
-		if (!channel.hasKey || this.replacingKey) {
+		if (!isSet || this.replacing.has(credential.id)) {
 			const input = append(row, $('input')) as HTMLInputElement;
 			input.type = 'password';
 			input.autocomplete = 'new-password';
 			input.spellcheck = false;
 			input.autocapitalize = 'off';
-			input.placeholder = localize('basehalf.video.providers.keyPlaceholder', "Paste the API key");
-			input.setAttribute('aria-labelledby', 'basehalf-video-provider-key-label');
-			this.controls.set('key', input);
+			input.placeholder = credential.placeholder ?? localize('basehalf.video.providers.credentialPlaceholder', "Paste the {0}", credential.label);
+			input.setAttribute('aria-labelledby', labelId);
+			this.controls.set(control, input);
 			this.sensitiveInputs.add(input);
-			const saveKey = this.button(row, channel.hasKey
-				? localize('basehalf.video.providers.replaceKeySave', "Save New Key")
-				: localize('basehalf.video.providers.setKey', "Set Key"), 'codicon-check', true);
+			const saveButton = this.button(row, isSet
+				? localize('basehalf.video.providers.replaceSave', "Save New Value")
+				: localize('basehalf.video.providers.set', "Set"), 'codicon-check', true);
+			saveButton.dataset.action = 'set';
 			const submit = () => {
 				const value = input.value;
 				input.value = '';
-				void this.save('key', async () => {
-					await this.channelService.setKey(channel.id, value);
-					this.replacingKey = false;
-				}, localize('basehalf.video.providers.keySaved', "Key saved."), () => {
+				void this.save(control, async () => {
+					await this.providerSettings.setCredential(provider, credential.id, value);
+					this.replacing.delete(credential.id);
+				}, localize('basehalf.video.providers.credentialSaved', "{0} saved.", credential.label), () => {
 					// Not saved: give the pasted text back so the user can correct it.
-					const current = this.controls.get('key');
+					const current = this.controls.get(control);
 					if (current && !current.value) {
 						current.value = value;
 					}
 				});
 			};
-			disposables.add(addDisposableListener(saveKey, EventType.CLICK, submit));
+			disposables.add(addDisposableListener(saveButton, EventType.CLICK, submit));
 			disposables.add(addDisposableListener(input, EventType.KEY_DOWN, (event: KeyboardEvent) => {
 				if (event.key === 'Enter') {
 					event.preventDefault();
 					submit();
-				} else if (event.key === 'Escape' && this.replacingKey) {
+				} else if (event.key === 'Escape' && this.replacing.has(credential.id)) {
 					event.preventDefault();
 					event.stopPropagation();
-					this.cancelReplacingKey();
+					this.cancelReplacing(credential.id);
 				}
 			}));
-			if (channel.hasKey) {
+			if (isSet) {
 				const cancel = this.button(row, localize('basehalf.video.providers.cancel', "Cancel"), 'codicon-close');
-				disposables.add(addDisposableListener(cancel, EventType.CLICK, () => this.cancelReplacingKey()));
+				cancel.dataset.action = 'cancel';
+				disposables.add(addDisposableListener(cancel, EventType.CLICK, () => this.cancelReplacing(credential.id)));
 			}
 		} else {
-			const replace = this.button(row, localize('basehalf.video.providers.replaceKey', "Replace Key"), 'codicon-edit');
+			const replace = this.button(row, localize('basehalf.video.providers.replace', "Replace"), 'codicon-edit');
+			replace.dataset.action = 'replace';
+			replace.setAttribute('aria-label', localize('basehalf.video.providers.replaceLabel', "Replace {0}", credential.label));
 			disposables.add(addDisposableListener(replace, EventType.CLICK, () => {
-				this.replacingKey = true;
+				this.replacing.add(credential.id);
 				this.render();
-				this.controls.get('key')?.focus();
+				this.controls.get(control)?.focus();
 			}));
-			const removeKey = this.button(row, localize('basehalf.video.providers.removeKey', "Remove Key"), 'codicon-trash');
-			disposables.add(addDisposableListener(removeKey, EventType.CLICK, () => void this.removeKey(channel)));
+			const remove = this.button(row, localize('basehalf.video.providers.remove', "Remove"), 'codicon-trash');
+			remove.dataset.action = 'remove';
+			remove.setAttribute('aria-label', localize('basehalf.video.providers.removeLabel', "Remove {0}", credential.label));
+			disposables.add(addDisposableListener(remove, EventType.CLICK, () => void this.removeCredential(provider, credential)));
 		}
-		const error = this.errorElement(field, 'key');
-		this.controls.get('key')?.setAttribute('aria-describedby', error.id);
+		const error = this.errorElement(field, control);
+		this.controls.get(control)?.setAttribute('aria-describedby', error.id);
 	}
 
-	private renderModels(editor: HTMLElement, channel: IBaseHalfVideoChannel, disposables: DisposableStore): void {
-		const field = append(editor, $('.basehalf-video-provider-field'));
-		const label = append(field, $('.basehalf-video-provider-field-label#basehalf-video-provider-models-label'));
-		label.textContent = localize('basehalf.video.providers.models', "Models");
-		const hint = append(field, $('p.basehalf-video-provider-field-hint'));
-		hint.textContent = localize('basehalf.video.providers.modelsHint', "Video nodes can choose these models, in this order. Add any model id the provider accepts.");
-
-		const chips = append(field, $('ul.basehalf-video-provider-models'));
-		chips.setAttribute('aria-labelledby', 'basehalf-video-provider-models-label');
-		if (!channel.models.length) {
-			const none = append(chips, $('li.basehalf-video-provider-models-empty'));
-			none.textContent = localize('basehalf.video.providers.modelsEmpty', "No models yet.");
-		}
-		for (const model of channel.models) {
-			const chip = append(chips, $('li.basehalf-video-provider-model'));
-			chip.dataset.model = model;
-			const name = append(chip, $('span.basehalf-video-provider-model-name'));
-			const modelLabel = baseHalfVideoModelLabel(model);
-			name.textContent = modelLabel;
-			if (modelLabel !== model) {
-				disposables.add(this.hoverService.setupDelayedHover(name, { content: model }));
-			}
-			const remove = append(chip, $('button.basehalf-video-provider-model-remove')) as HTMLButtonElement;
-			remove.type = 'button';
-			remove.setAttribute('aria-label', localize('basehalf.video.providers.removeModel', "Remove {0}", modelLabel));
-			const icon = append(remove, $('span.codicon.codicon-close'));
-			icon.setAttribute('aria-hidden', 'true');
-			disposables.add(addDisposableListener(remove, EventType.CLICK, () => {
-				void this.save('model', () => this.channelService.updateChannel(channel.id, { models: channel.models.filter(candidate => candidate !== model) }));
-			}));
-		}
-
-		const row = append(field, $('.basehalf-video-provider-model-add'));
-		const input = append(row, $('input')) as HTMLInputElement;
-		input.type = 'text';
-		input.spellcheck = false;
-		input.autocapitalize = 'off';
-		input.autocomplete = 'off';
-		input.placeholder = localize('basehalf.video.providers.modelPlaceholder', "Add a model id, such as doubao-seedance-2-5-260628");
-		input.setAttribute('aria-label', localize('basehalf.video.providers.modelInput', "Model id to add"));
-		this.controls.set('model', input);
-		const add = this.button(row, localize('basehalf.video.providers.addModel', "Add"), 'codicon-add');
-		const error = this.errorElement(field, 'model');
-		input.setAttribute('aria-describedby', error.id);
-		const submit = () => {
-			let model: string;
-			try {
-				model = normalizeBaseHalfVideoChannelModel(input.value);
-			} catch (error) {
-				this.showFieldError('model', getErrorMessage(error));
-				return;
-			}
-			if (channel.models.includes(model)) {
-				this.showFieldError('model', localize('basehalf.video.providers.modelTaken', "This provider already lists {0}.", model));
-				return;
-			}
-			input.value = '';
-			void this.save('model', () => this.channelService.updateChannel(channel.id, { models: [...channel.models, model] }), undefined, () => {
-				// Not saved: give the text back so the user can correct it.
-				const current = this.controls.get('model');
-				if (current && !current.value) {
-					current.value = model;
-				}
-			});
-		};
-		disposables.add(addDisposableListener(add, EventType.CLICK, submit));
-		disposables.add(addDisposableListener(input, EventType.KEY_DOWN, (event: KeyboardEvent) => {
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				submit();
-			}
-		}));
-	}
-
-	private textField(parent: HTMLElement, control: BaseHalfVideoProviderControl, labelText: string, value: string, hintText: string | undefined, disposables: DisposableStore): HTMLInputElement {
-		const field = append(parent, $('.basehalf-video-provider-field'));
-		const inputId = `basehalf-video-provider-${control}`;
+	private renderEndpoint(editor: HTMLElement, provider: IBaseHalfVideoCatalogProvider, status: IBaseHalfVideoProviderStatus, disposables: DisposableStore): void {
+		const field = append(editor, $('.basehalf-video-provider-field.endpoint'));
+		const inputId = 'basehalf-video-provider-endpoint';
 		const label = append(field, $('label.basehalf-video-provider-field-label')) as HTMLLabelElement;
 		label.htmlFor = inputId;
-		label.textContent = labelText;
+		label.textContent = localize('basehalf.video.providers.endpoint', "Endpoint");
 		const input = append(field, $('input')) as HTMLInputElement;
 		input.id = inputId;
-		input.type = 'text';
+		input.type = 'url';
 		input.spellcheck = false;
 		input.autocapitalize = 'off';
 		input.autocomplete = 'off';
-		input.value = value;
-		this.controls.set(control, input);
-		const describedBy: string[] = [];
-		if (hintText) {
-			const hint = append(field, $('p.basehalf-video-provider-field-hint'));
-			hint.id = `${inputId}-hint`;
-			hint.textContent = hintText;
-			describedBy.push(hint.id);
-		}
-		describedBy.push(this.errorElement(field, control).id);
-		input.setAttribute('aria-describedby', describedBy.join(' '));
+		input.maxLength = BASEHALF_VIDEO_ENDPOINT_MAX_LENGTH;
+		input.value = status.endpoint;
+		input.placeholder = status.region.baseUrl;
+		input.dataset.custom = String(status.customEndpoint);
+		this.controls.set('endpoint', input);
+		const hint = append(field, $('p.basehalf-video-provider-field-hint'));
+		hint.id = `${inputId}-hint`;
+		hint.textContent = localize('basehalf.video.providers.endpointHint', "Requests go to the region's address. For a relay or a private gateway that mirrors the API of {0}, enter its address; clear the field to go back to the region's.", provider.label);
+		input.setAttribute('aria-describedby', `${hint.id} ${this.errorElement(field, 'endpoint').id}`);
+		disposables.add(addDisposableListener(input, EventType.CHANGE, () => {
+			void this.save('endpoint', () => this.providerSettings.setEndpoint(provider, input.value));
+		}));
 		disposables.add(addDisposableListener(input, EventType.KEY_DOWN, (event: KeyboardEvent) => {
 			if (event.key === 'Enter') {
 				event.preventDefault();
 				input.blur();
 			}
 		}));
-		return input;
 	}
 
 	private errorElement(field: HTMLElement, control: BaseHalfVideoProviderControl): HTMLElement {
 		const error = append(field, $('.basehalf-video-provider-field-error'));
-		error.id = `basehalf-video-provider-${control}-error`;
+		error.id = `basehalf-video-provider-${cssId(control)}-error`;
 		error.setAttribute('role', 'alert');
 		this.errors.set(control, error);
 		const message = this.fieldErrors.get(control);
@@ -463,23 +446,15 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 		return error;
 	}
 
-	private showFieldError(control: BaseHalfVideoProviderControl, message: string): void {
-		this.fieldErrors.set(control, message);
-		const error = this.errors.get(control);
-		if (error) {
-			error.textContent = message;
-			error.hidden = false;
-		}
-		this.controls.get(control)?.setAttribute('aria-invalid', 'true');
-	}
-
 	/** Runs one change and shows its outcome. Nothing here talks to the provider. */
-	private async save(control: BaseHalfVideoProviderControl, operation: () => Promise<void>, success?: string, onFailure?: () => void): Promise<void> {
+	private async save(control: BaseHalfVideoProviderControl | undefined, operation: () => Promise<void>, success?: string, onFailure?: () => void): Promise<void> {
 		if (this.busy) {
 			return;
 		}
 		this.busy = true;
-		this.fieldErrors.delete(control);
+		if (control) {
+			this.fieldErrors.delete(control);
+		}
 		try {
 			await operation();
 			this.busy = false;
@@ -487,102 +462,48 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 			this.render();
 		} catch (error) {
 			this.busy = false;
-			const message = error instanceof BaseHalfVideoChannelError
+			const message = error instanceof BaseHalfVideoProviderSettingsError
 				? error.message
 				: localize('basehalf.video.providers.saveFailed', "BaseHalf could not save this change: {0}", getErrorMessage(error));
-			// The field keeps what the user typed, so it can be corrected.
-			const typed = control === 'name' || control === 'endpoint' ? this.controls.get(control)?.value : undefined;
-			this.fieldErrors.set(control, message);
+			// The endpoint field keeps what the user typed, so it can be corrected.
+			const typed = control === 'endpoint' ? this.controls.get(control)?.value : undefined;
+			if (control) {
+				this.fieldErrors.set(control, message);
+			}
 			this.render();
-			const current = this.controls.get(control);
+			const current = control ? this.controls.get(control) : undefined;
 			if (current && typed !== undefined) {
 				current.value = typed;
 			}
 			onFailure?.();
-			this.setStatus(localize('basehalf.video.providers.notSaved', "Not saved."), 'warning');
-			this.controls.get(control)?.focus();
+			this.setStatus(control ? localize('basehalf.video.providers.notSaved', "Not saved.") : message, 'warning');
+			current?.focus();
 		}
 	}
 
-	private cancelReplacingKey(): void {
-		this.replacingKey = false;
-		this.fieldErrors.delete('key');
+	private cancelReplacing(credentialId: string): void {
+		this.replacing.delete(credentialId);
+		this.fieldErrors.delete(`credential:${credentialId}`);
 		this.render();
 	}
 
-	private showAddMenu(anchor: HTMLElement): void {
-		this.contextMenuService.showContextMenu({
-			getAnchor: () => anchor,
-			getActions: () => getBaseHalfVideoProviderPresets().map(preset => toAction({
-				id: `basehalf.video.providers.add.${preset.kind}`,
-				label: preset.label,
-				tooltip: baseHalfVideoProviderFormatLabel(preset.kind),
-				run: () => this.addChannel(preset.kind)
-			}))
-		});
-	}
-
-	private async addChannel(provider: BaseHalfVideoProviderKind): Promise<void> {
-		try {
-			this.busy = true;
-			const channel = await this.channelService.addChannel(provider);
-			this.busy = false;
-			this.selectedId = channel.id;
-			this.replacingKey = false;
-			this.fieldErrors.clear();
-			this.setStatus(localize('basehalf.video.providers.added', "{0} added. Paste its API key to use it.", channel.name), 'success');
-			this.render();
-			this.controls.get('key')?.focus();
-		} catch (error) {
-			this.busy = false;
-			this.setStatus(getErrorMessage(error), 'warning');
-			if (this.renderPending) {
-				this.render();
-			}
-		}
-	}
-
-	private async removeKey(channel: IBaseHalfVideoChannel): Promise<void> {
+	private async removeCredential(provider: IBaseHalfVideoCatalogProvider, credential: IBaseHalfVideoCatalogCredential): Promise<void> {
 		const { confirmed } = await this.dialogService.confirm({
-			message: localize('basehalf.video.providers.removeKeyConfirm', "Remove the API key of {0}?", channel.name),
-			detail: localize('basehalf.video.providers.removeKeyDetail', "The key is deleted from this computer. Video nodes cannot use this provider until you set a key again."),
-			primaryButton: localize({ key: 'basehalf.video.providers.removeKeyButton', comment: ['&& denotes a mnemonic'] }, "&&Remove Key")
+			message: localize('basehalf.video.providers.removeConfirm', "Remove the {0} of {1}?", credential.label, provider.label),
+			detail: localize('basehalf.video.providers.removeDetail', "It is deleted from this computer. Video nodes cannot use {0} until you set it again.", provider.label),
+			primaryButton: localize({ key: 'basehalf.video.providers.removeButton', comment: ['&& denotes a mnemonic'] }, "&&Remove")
 		});
 		if (confirmed) {
-			await this.save('key', () => this.channelService.setKey(channel.id, undefined), localize('basehalf.video.providers.keyRemoved', "Key removed."));
+			await this.save(`credential:${credential.id}`, () => this.providerSettings.setCredential(provider, credential.id, undefined), localize('basehalf.video.providers.credentialRemoved', "{0} removed.", credential.label));
 		}
-	}
-
-	private async removeChannel(channel: IBaseHalfVideoChannel): Promise<void> {
-		const { confirmed } = await this.dialogService.confirm({
-			message: localize('basehalf.video.providers.removeConfirm', "Remove {0}?", channel.name),
-			detail: localize('basehalf.video.providers.removeDetail', "Its key is deleted from this computer. Video nodes that chose its models show that no provider offers them."),
-			primaryButton: localize({ key: 'basehalf.video.providers.removeButton', comment: ['&& denotes a mnemonic'] }, "&&Remove Provider")
-		});
-		if (!confirmed) {
-			return;
-		}
-		this.busy = true;
-		try {
-			await this.channelService.removeChannel(channel.id);
-			this.fieldErrors.clear();
-			this.setStatus(localize('basehalf.video.providers.removed', "{0} removed.", channel.name), 'success');
-		} catch (error) {
-			this.setStatus(localize('basehalf.video.providers.removeFailed', "BaseHalf could not remove {0}: {1}", channel.name, getErrorMessage(error)), 'warning');
-		} finally {
-			this.busy = false;
-		}
-		this.render();
 	}
 
 	private button(parent: HTMLElement, label: string, icon: string, primary = false): HTMLButtonElement {
 		const element = append(parent, $('button.basehalf-video-providers-button')) as HTMLButtonElement;
 		element.type = 'button';
 		element.classList.toggle('primary', primary);
-		const iconElement = append(element, $(`span.codicon.${icon}`));
-		iconElement.setAttribute('aria-hidden', 'true');
-		const text = append(element, $('span'));
-		text.textContent = label;
+		append(element, $(`span.codicon.${icon}`)).setAttribute('aria-hidden', 'true');
+		append(element, $('span')).textContent = label;
 		return element;
 	}
 
@@ -608,8 +529,8 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 				focused = control;
 			}
 			// A focused field keeps what the user is typing when another window
-			// changes the provider; the add-model and key fields keep unsaved text.
-			if (input.value && (input === active || control === 'model' || control === 'key')) {
+			// changes the provider; a credential field keeps unsaved text.
+			if (input.value && (input === active || control !== 'endpoint')) {
 				values.set(control, input.value);
 			}
 		}
@@ -636,19 +557,14 @@ export class BaseHalfVideoProvidersPage extends Disposable implements ISettingsC
 	}
 }
 
-/** The request format of a provider, as the page names it. */
-export function baseHalfVideoProviderFormatLabel(provider: BaseHalfVideoProviderKind): string {
-	switch (provider) {
-		case 'ark':
-		case 'byteplus':
-			return localize('basehalf.video.providers.format.seedance', "Seedance task API");
-		case 'dashscope':
-			return localize('basehalf.video.providers.format.wan', "Wan video synthesis");
-		case 'minimax':
-			return localize('basehalf.video.providers.format.minimax', "MiniMax video generation");
-		case 'gemini':
-			return localize('basehalf.video.providers.format.veo', "Veo long-running prediction");
-		case 'openai':
-			return localize('basehalf.video.providers.format.openai', "/videos tasks");
-	}
+function modelCount(provider: IBaseHalfVideoCatalogProvider): string {
+	const count = baseHalfVideoListedModels(provider, undefined).length;
+	return count === 1
+		? localize('basehalf.video.providers.modelOne', "1 model")
+		: localize('basehalf.video.providers.models', "{0} models", count);
+}
+
+/** An id that can name an element: only letters, digits, and hyphens. */
+function cssId(value: string): string {
+	return value.replace(/[^A-Za-z0-9-]/g, '-');
 }

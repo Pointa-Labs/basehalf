@@ -14,17 +14,16 @@ suite('BaseHalfVideoCardPresentation', () => {
 	const startedAt = '2026-10-15T08:00:00.000Z';
 	const now = Date.parse(startedAt) + 65_000;
 	const request: IBaseHalfVideoGenerationRecord = {
-		provider: 'ark',
-		model: 'doubao-seedance-2-5-260628',
-		prompt: 'Rain on the window.',
-		inputs: ['frames/start.png'],
+		provider: 'acme',
+		region: 'east',
+		model: 'acme-motion-2',
+		providerModel: 'acme-motion-2-e-260101',
 		mode: 'frames',
-		ratio: 'adaptive',
-		resolution: '720p',
-		duration: 5,
-		audio: true
+		params: { resolution: '720p', duration: 5, sound: true },
+		prompt: 'Rain on the window.',
+		inputs: ['frames/start.png']
 	};
-	const task = (patch: Partial<IBaseHalfVideoTask>): IBaseHalfVideoTask => ({ id: '20261015T080000-k3f9', state: 'submitting', startedAt, channel: 'ark-1', request, ...patch });
+	const task = (patch: Partial<IBaseHalfVideoTask>): IBaseHalfVideoTask => ({ id: '20261015T080000-k3f9', state: 'submitting', startedAt, request, ...patch });
 	const video: IBaseHalfVideoNodeFields = {
 		result: {
 			source: 'generated',

@@ -197,8 +197,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 			hostOwnedFields: response.host?.nodeDocument.authoring.hostOwnedFields,
 			runCommand: response.host?.nodeDocument.runCommand
 		}, {
-			documentVersion: 5,
-			contractVersion: 3,
+			documentVersion: 6,
+			contractVersion: 4,
 			hostOwnedFields: ['task', 'result'],
 			runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>'
 		});

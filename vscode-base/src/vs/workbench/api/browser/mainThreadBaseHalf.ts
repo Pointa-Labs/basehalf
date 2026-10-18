@@ -236,7 +236,7 @@ export class MainThreadBaseHalf extends Disposable implements extHostProtocol.Ma
 			return undefined;
 		}
 		// The shape stays the one Sequence reads (D58): a node with a video is a
-		// `result`, a task maps to its phase, and version 5 nodes keep no attempts.
+		// `result`, a task maps to its phase, and version 6 nodes keep no attempts.
 		const lifecycle: extHostProtocol.BaseHalfCanvasNodeLifecycleDto = document.result
 			? 'result'
 			: document.task?.state === 'submitting' || document.task?.state === 'running'

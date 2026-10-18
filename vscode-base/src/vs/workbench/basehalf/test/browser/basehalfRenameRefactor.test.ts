@@ -350,9 +350,8 @@ suite('BaseHalfRenameRefactor (workbench moves)', () => {
 				id: 'task-1',
 				state: 'running',
 				startedAt: '2026-10-15T08:00:00.000Z',
-				channel: 'ark-1',
 				remoteId: 'cgt-1',
-				request: { provider: 'ark', model: 'seedance', prompt: '', inputs: ['docs/a.md'], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+				request: { provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: '', inputs: ['docs/a.md'] }
 			})
 		};
 		const harness = await createHarness(disposables, fixture, { generating: ['generating.bhnode'] });
