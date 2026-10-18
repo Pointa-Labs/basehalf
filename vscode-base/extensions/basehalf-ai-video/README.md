@@ -137,6 +137,7 @@ parameter properties, namespaces).
 | ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers/bytedance.md) |
 | Kling | `kling.ts` | [Kling](../../../docs/specs/video-providers/kling.md) |
 | MiniMax (Hailuo and H3) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/video-providers/minimax.md) |
+| Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/video-providers/google.md) |
 
 ## Sequence
 

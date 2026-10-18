@@ -292,6 +292,7 @@ each accepts, its requests and task states, and its estimate:
 - [ByteDance (Seedance)](video-providers/bytedance.md)
 - [Kling](video-providers/kling.md)
 - [MiniMax (Hailuo)](video-providers/minimax.md)
+- [Google (Gemini)](video-providers/google.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
 | --- | --- | --- | --- | --- | --- |
@@ -300,7 +301,7 @@ each accepts, its requests and task states, and its estimate:
 | Alibaba (Wan) | China `https://dashscope.aliyuncs.com`, international `https://dashscope-intl.aliyuncs.com` | API key, `Authorization: Bearer`, `X-DashScope-Async: enable` | data URL | temporary upload (`oss://`) in China only | pending tasks |
 | MiniMax (Hailuo) | China `https://api.minimax.cn`, international `https://api.minimax.io` | API key, `Authorization: Bearer` | data URL | file upload (`mm_file://`) | queued tasks (H3) |
 | Vidu | China `https://api.vidu.cn`, international `https://api.vidu.com` | API key, `Authorization: Token` | data URL | audio as data URL | before it is scheduled |
-| Google (Gemini) | `https://generativelanguage.googleapis.com/v1beta` | API key, `x-goog-api-key` | inline base64 | inline base64 (videos), within the request size | no |
+| Google (Gemini) | `https://generativelanguage.googleapis.com/v1beta` | API key, `x-goog-api-key` | inline base64 | inline base64 (videos), within the request size | running interactions |
 | PixVerse | `https://app-api.pixverse.ai` | API key, `API-KEY` and a new `Ai-trace-id` per request | upload (`img_id`) | upload (`media_id`) | no |
 | Luma | `https://agents.lumalabs.ai/v1` | API key, `Authorization: Bearer` | base64 data | file upload | no |
 | Runway | `https://api.dev.runwayml.com` | API key, `Authorization: Bearer`, `X-Runway-Version: 2024-11-06` | data URI | upload (`runway://`) | yes |

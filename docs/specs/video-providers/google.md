@@ -150,9 +150,9 @@ runs.
   would pass 100 MB (10^8 bytes) is refused before anything is sent. The
   Files API (an upload, then waiting for a video file to become `ACTIVE`) is
   not used: inline inputs keep one request per generation.
-- A poll reads the stored interaction, which "also includes `user_input`
-  steps", so the inputs may come back with each poll. If that proves costly,
-  uploading the inputs through the Files API is the remedy.
+- A poll reads the interaction without `include_input`, which the reference
+  of `GET /interactions/{id}` says adds the input only when it is true, so
+  the inputs are not sent back with each poll.
 
 ## Parameters
 
