@@ -134,7 +134,7 @@ parameter properties, namespaces).
 
 | Provider | Module | Specification |
 | --- | --- | --- |
-| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers.md#bytedance-seedance) |
+| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers/bytedance.md) |
 
 ## Sequence
 
