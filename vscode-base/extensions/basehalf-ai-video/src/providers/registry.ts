@@ -11,6 +11,7 @@ import { VIDU } from './vidu.ts';
 import { GOOGLE } from './google.ts';
 import { PIXVERSE } from './pixverse.ts';
 import { LUMA } from './luma.ts';
+import { RUNWAY } from './runway.ts';
 import { XAI } from './xai.ts';
 import { LTX } from './ltx.ts';
 import { BFL } from './bfl.ts';
@@ -22,7 +23,7 @@ import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvi
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, XAI, LTX, BFL]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, RUNWAY, XAI, LTX, BFL]);
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
