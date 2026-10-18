@@ -63,8 +63,11 @@ const LEGACY_FAR_BADGE = [
 const CANVAS_MALFORMED_EMPHASIS_PARAGRAPH = '曾经繁华的长安，如今已是断壁残垣。宫殿倾颓，街市萧条，只有那巍峨的山河依旧矗立，仿佛在无声地诉说着往日的辉煌。春风吹过，城中的草木却长得异常茂盛**，';
 const CANVAS_MALFORMED_EMPHASIS_NEEDLE = '异常茂盛**，';
 const SMOKE_WINDOW_CONTENT_SIZE = Object.freeze({ width: 1280, height: 860 });
-// The Video node steps (D58) work in a folder of their own with two images,
-// against the local test provider of basehalf-smoke-video.mts.
+// The Video node steps (D58, D59) work in a folder of their own with two
+// images, against the local test provider of basehalf-smoke-video.mts,
+// reached through the provider whose catalog id is VIDEO_PROVIDER in
+// VIDEO_REGION. Its labels, credentials, and models are read from the
+// catalog the window shows.
 const VIDEO_FOLDER = 'video-smoke';
 const VIDEO_NODE = `${VIDEO_FOLDER}/video.bhnode`;
 // What Generate makes beside VIDEO_NODE once that holds a video: numbered as
@@ -75,9 +78,8 @@ const VIDEO_SECOND_NODE = `${VIDEO_FOLDER}/video-3.bhnode`;
 const VIDEO_AGENT_NODE = `${VIDEO_FOLDER}/agent-shot.bhnode`;
 const VIDEO_START_IMAGE = `${VIDEO_FOLDER}/start.png`;
 const VIDEO_END_IMAGE = `${VIDEO_FOLDER}/end.png`;
-const VIDEO_MODEL = 'doubao-seedance-2-5-260628';
-// A model id the user adds to the channel; BaseHalf gives it the general profile.
-const VIDEO_USER_MODEL = 'smoke-relay-video-model';
+const VIDEO_PROVIDER = 'bytedance';
+const VIDEO_REGION = 'cn';
 const VIDEO_PROMPT = 'A cyclist rides along the sea at dusk, the camera follows slowly';
 // The prompt once `@` has typed the name of the end frame into it.
 const VIDEO_PROMPT_WITH_NAME = `${VIDEO_PROMPT} Image 2`;
@@ -89,7 +91,7 @@ const VIDEO_GENERATION_TIMEOUT_MS = 60_000;
 const VIDEO_NODE_STEPS = Object.freeze([
 	'video-node-create-opens-panel',
 	'video-node-prompt-saves-without-dialog',
-	'video-providers-add-channel',
+	'video-providers-set-up',
 	'video-panel-model-and-settings',
 	'video-provider-key-stays-secret',
 	'video-panel-inputs-and-names',
@@ -101,7 +103,10 @@ const VIDEO_NODE_STEPS = Object.freeze([
 	'video-generation-fails-and-stops',
 	'video-agent-runs-node'
 ]);
-const videoSmoke = { provider: undefined, channelId: undefined };
+// The test provider, and what the steps learn from the window: the first
+// model of VIDEO_PROVIDER, the settings it shows, and the generation the node
+// stores once they are chosen.
+const videoSmoke = { provider: undefined, model: undefined, summary: undefined, generation: undefined };
 const runRoot = opts.output ?? fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-smoke-'));
 const logsPath = path.join(runRoot, 'logs');
 const crashesPath = path.join(runRoot, 'crashes');
@@ -2138,9 +2143,9 @@ async function assertBaseHalfAboutPage(page) {
 	}
 }
 
-// The Video Providers page (D58, video node, "Providers and channels") is in
-// Settings below BaseHalf, in the place of the former Models & Providers page,
-// and opens from its command.
+// The Video Providers page (D59, video providers, "Credentials, regions, and
+// endpoints") is in Settings below BaseHalf, in the place of the former Models
+// & Providers page, and opens from its command.
 async function openVideoProvidersPage(page) {
 	await runCommand(page, 'Video Providers');
 	const settingsEditor = page.locator('.settings-editor').first();
@@ -2160,33 +2165,35 @@ async function closeVideoProvidersPage(page, providers) {
 	await providers.waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
-// A new profile has no provider, and Add Provider… offers the six presets of
-// the specification. The retired Models & Providers page is gone.
+// The page lists the providers of the model catalog, none of them set up in
+// a new profile, VIDEO_PROVIDER among them; each credential it declares is a
+// masked field. The retired Models & Providers page is gone.
 async function assertVideoProvidersPage(page) {
 	const providers = await openVideoProvidersPage(page);
 	if (await page.locator('.basehalf-model-connections').count() !== 0) {
 		throw new Error('The retired Models & Providers page is still mounted beside Video Providers');
 	}
-	await providers.locator('.basehalf-video-providers-empty', { hasText: 'No providers yet.' }).waitFor({ state: 'visible', timeout: 15_000 });
-	const presets = await openVideoProviderPresetMenu(page, providers);
-	const labels = await presets.evaluateAll(actions => actions.map(action => (action.textContent ?? '').trim()));
-	const expected = ['Volcengine Ark', 'BytePlus ModelArk', 'Alibaba Cloud Model Studio', 'MiniMax', 'Google Gemini', 'OpenAI Compatible'];
-	if (JSON.stringify(labels) !== JSON.stringify(expected)) {
-		throw new Error(`Add Provider… must offer the six presets ${JSON.stringify(expected)}, got ${JSON.stringify(labels)}`);
+	const rows = await waitForReading(() => readVideoProviderRows(providers), seen => seen.length > 0, 'the providers of the model catalog to be listed', 30_000);
+	if (!rows.some(row => row.id === VIDEO_PROVIDER) || rows.some(row => row.setUp !== 'false')) {
+		throw new Error(`A new profile must list the catalog's providers, none set up, ${VIDEO_PROVIDER} among them: ${JSON.stringify(rows)}`);
 	}
-	await page.keyboard.press('Escape');
-	await presets.first().waitFor({ state: 'hidden', timeout: 10_000 });
+	await providers.locator(`.basehalf-video-provider-row[data-provider="${VIDEO_PROVIDER}"]`).click();
+	const editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `the page to show ${VIDEO_PROVIDER}`);
+	if (!editor.credentials.length || editor.credentials.some(credential => credential.set || credential.input !== 'password')
+		|| !editor.regions.some(region => region.id === VIDEO_REGION) || !/^https:\/\//.test(editor.endpoint ?? '')) {
+		throw new Error(`The page must offer a masked field for every credential of ${VIDEO_PROVIDER}, its regions, and its endpoint: ${JSON.stringify(editor)}`);
+	}
 	await closeVideoProvidersPage(page, providers);
 }
 
-// Opens the preset menu of Add Provider… and returns its actions.
-async function openVideoProviderPresetMenu(page, providers) {
-	await providers.locator('.basehalf-video-providers-header .basehalf-video-providers-add').click();
-	const actions = page.locator('.context-view.monaco-menu-container .action-label').filter({ visible: true });
-	await actions.first().waitFor({ state: 'visible', timeout: 10_000 });
-	// The menu takes pointer input 100 ms after it opened (see clickCanvasCreateAction).
-	await page.waitForTimeout(150);
-	return actions;
+// The providers the page lists, in order.
+function readVideoProviderRows(providers) {
+	return providers.evaluate(root => Array.from(root.querySelectorAll('.basehalf-video-provider-row')).map(row => ({
+		id: row.getAttribute('data-provider'),
+		label: row.querySelector('.basehalf-video-provider-row-name')?.textContent ?? null,
+		setUp: row.getAttribute('data-set-up'),
+		selected: row.getAttribute('aria-current') === 'page'
+	})), undefined, { timeout: 2_000 });
 }
 
 // The plugin platform is frozen and AI Video is built in
@@ -2823,14 +2830,14 @@ async function assertVideoWorkflowTemplate(page) {
 	]) {
 		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${workflowName}/shots/shot-01/${relativePath}"]`).waitFor({ state: 'attached', timeout: 15_000 });
 	}
-	// The starter makes one empty Video node of version 5, whose inputs are
-	// the shot's notes, and no planning nodes (D58).
+	// The starter makes one empty Video node of version 6, whose inputs are
+	// the shot's notes, and no planning nodes (D58, D59).
 	const shotNodes = fs.readdirSync(path.join(workflowRoot, 'shots/shot-01')).filter(name => name.toLowerCase().endsWith('.bhnode'));
 	const clipNode = JSON.parse(fs.readFileSync(path.join(workflowRoot, 'shots/shot-01/clip.bhnode'), 'utf8'));
 	if (JSON.stringify(shotNodes) !== JSON.stringify(['clip.bhnode'])
 		// A new Video node may start with the settings last used on this computer.
 		|| JSON.stringify(Object.keys(clipNode).filter(key => key !== 'generation')) !== JSON.stringify(['version', 'id', 'kind', 'title', 'prompt', 'upstream'])
-		|| clipNode.version !== 5
+		|| clipNode.version !== 6
 		|| clipNode.kind !== 'video'
 		|| clipNode.prompt !== ''
 		|| JSON.stringify(clipNode.upstream) !== JSON.stringify([`${workflowName}/shots/shot-01/storyboard.md`, `${workflowName}/shots/shot-01/audio-plan.md`])) {
@@ -2847,17 +2854,17 @@ async function assertVideoWorkflowTemplate(page) {
 	}
 }
 
-// --- The Video node (D58, docs/specs/video-node.md) ------------------------------------------
+// --- The Video node (D58, D59, docs/specs/video-node.md) -------------------------------------
 //
-// Acceptance criteria 2, 4, 6, 8 to 17, 19, and 20, the two frames of 3, and
-// the choice of a user's model id of 7, through the window and against the
-// local test provider with its test key; no paid provider is called. The
-// steps run in order, each where the one before ended.
+// Acceptance criteria 2, 4, 6 to 17, 19, 20, and 22, and the two frames of 3,
+// through the window and against the local test provider with its test key,
+// reached through the provider module of VIDEO_PROVIDER; no paid provider is
+// called. The steps run in order, each where the one before ended.
 
 async function runVideoNodeSteps(page) {
 	await step('video-node-create-opens-panel', () => assertVideoNodeCreateOpensPanel(page));
 	await step('video-node-prompt-saves-without-dialog', () => assertVideoNodePromptSavesWithoutDialog(page));
-	await step('video-providers-add-channel', () => assertVideoProvidersAddChannel(page));
+	await step('video-providers-set-up', () => assertVideoProvidersSetUp(page));
 	await step('video-panel-model-and-settings', () => assertVideoPanelModelAndSettings(page));
 	await step('video-provider-key-stays-secret', () => assertVideoProviderKeyStaysSecret(page));
 	await step('video-panel-inputs-and-names', () => assertVideoPanelInputsAndNames(page));
@@ -2905,14 +2912,15 @@ async function assertVideoNodeCreateOpensPanel(page) {
 	const created = readVideoNode(VIDEO_NODE);
 	// No generation ran on this computer yet, so the node chooses no model.
 	if (JSON.stringify(Object.keys(created).sort()) !== JSON.stringify(['id', 'kind', 'prompt', 'title', 'upstream', 'version'])
-		|| created.version !== 5 || created.kind !== 'video' || created.title !== 'Video' || created.prompt !== '' || created.upstream.length !== 0) {
+		|| created.version !== 6 || created.kind !== 'video' || created.title !== 'Video' || created.prompt !== '' || created.upstream.length !== 0) {
 		throw new Error(`The create menu made an unexpected Video node: ${JSON.stringify(created)}`);
 	}
 	await waitForCanvasCardSelection(page, VIDEO_NODE, 15_000);
 	const panel = await waitForVideoPanel(page, VIDEO_NODE);
 	await waitForReading(() => readVideoPanel(panel), seen => seen.promptFocused, 'the prompt of the new Video node to have the keyboard focus');
 	assertSameCanvasView(viewBefore, await readCanvasView(page), 'Making a Video node and opening its panel');
-	const shown = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === true, 'Generate to be disabled while no model is chosen');
+	// The panel shows that the models load until AI Video answers with the catalog.
+	const shown = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === true && seen.catalog === 'ready', 'Generate to be disabled while no model is chosen, once the catalog is there', 30_000);
 	// No model and no prompt: the first blocker is the model.
 	if (shown.generate.label !== 'Choose a model to generate.' || shown.model !== 'Choose Model' || !shown.modelOutlined || shown.generate.stop) {
 		throw new Error(`Without a model, Generate must say so as its name and the model button must be outlined: ${JSON.stringify(shown)}`);
@@ -2943,137 +2951,142 @@ async function assertVideoNodePromptSavesWithoutDialog(page) {
 	}
 }
 
-// Criterion 6, and the start of 7: a Volcengine Ark channel starts with its
-// endpoint, Seedance 2.5, and no key. It is pointed at the test provider, a
-// relay on this computer that speaks the same format, and gets a model id
-// of the user's own.
-async function assertVideoProvidersAddChannel(page) {
+// Criterion 6, and the start of 7: the page sets up the provider of the
+// catalog in a region of its own, and points it at the test provider, a relay
+// on this computer that mirrors the provider's own API. Its credentials come
+// in a later step, so the model menu first shows it as not set up.
+async function assertVideoProvidersSetUp(page) {
 	const provider = await videoSmokeProvider();
 	const providers = await openVideoProvidersPage(page);
-	const presets = await openVideoProviderPresetMenu(page, providers);
-	await presets.filter({ hasText: /^Volcengine Ark$/ }).click();
-	const rows = providers.locator('.basehalf-video-provider-row');
-	await waitForReading(() => rows.count(), count => count === 1, 'Volcengine Ark to be added');
-	videoSmoke.channelId = await rows.first().getAttribute('data-channel-id');
-	const added = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.endpoint !== null, 'the editor of the new provider');
-	if (added.name !== 'Volcengine Ark' || added.endpoint !== 'https://ark.cn-beijing.volces.com/api/v3' || added.keySet
-		|| JSON.stringify(added.models) !== JSON.stringify([{ id: VIDEO_MODEL, label: 'Seedance 2.5' }])) {
-		throw new Error(`A new Volcengine Ark provider must start with its endpoint, Seedance 2.5, and no key: ${JSON.stringify(added)}`);
+	await waitForReading(() => readVideoProviderRows(providers), seen => seen.some(row => row.id === VIDEO_PROVIDER), `the page to list ${VIDEO_PROVIDER}`, 30_000);
+	await providers.locator(`.basehalf-video-provider-row[data-provider="${VIDEO_PROVIDER}"]`).click();
+	let editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `the page to show ${VIDEO_PROVIDER}`);
+	if (!editor.regions.some(region => region.id === VIDEO_REGION)) {
+		throw new Error(`${VIDEO_PROVIDER} must offer the region ${VIDEO_REGION}: ${JSON.stringify(editor)}`);
+	}
+	if (!editor.regions.find(region => region.id === VIDEO_REGION)?.checked) {
+		await providers.locator(`.basehalf-video-provider-region[data-region="${VIDEO_REGION}"]`).click();
+		editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.regions.find(region => region.id === VIDEO_REGION)?.checked === true, `the region ${VIDEO_REGION} to be chosen`);
 	}
 	await providers.locator('#basehalf-video-provider-endpoint').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
-	await page.keyboard.type(provider.seedanceBaseUrl);
+	await page.keyboard.type(provider.endpoint);
 	await page.keyboard.press('Enter');
-	await waitForReading(() => readVideoProviderEditor(providers), seen => seen.endpoint === provider.seedanceBaseUrl && seen.status === 'Saved.', 'the endpoint of the test provider to be saved');
-	await providers.locator('.basehalf-video-provider-model-add input').click();
-	await page.keyboard.type(VIDEO_USER_MODEL);
-	await page.keyboard.press('Enter');
-	await waitForReading(() => readVideoProviderEditor(providers), seen => JSON.stringify(seen.models.map(model => model.id)) === JSON.stringify([VIDEO_MODEL, VIDEO_USER_MODEL]), 'the model id to be added after Seedance 2.5');
+	const saved = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.endpoint === provider.endpoint && seen.customEndpoint, 'the endpoint of the test provider to be saved');
+	if (saved.rowSetUp !== 'false' || saved.credentials.some(credential => credential.set)) {
+		throw new Error(`Without its credentials, ${VIDEO_PROVIDER} must not be set up: ${JSON.stringify(saved)}`);
+	}
 	await closeVideoProvidersPage(page, providers);
 	await assertCanvasFolder(page, VIDEO_FOLDER);
 }
 
-// Criteria 11 and 12: the model menu lists the channel's models and the way
-// to Video Providers; with a model and no key, Generate names the key; the
-// settings popover shows only what the model accepts, and its button sums up
-// what the file stores; another model keeps what it accepts and takes its
-// default for the rest.
+// Criteria 7, 11, 12, and 22: the model menu lists the catalog's models by
+// provider, says that the provider is not set up, and ends with the way to
+// Video Providers; choosing the first model of VIDEO_PROVIDER stores it with
+// its mode and the defaults of its values; Generate names the provider that is
+// not set up; the settings popover is drawn from the model's parameters, and a
+// change is shown and stored at once; the estimate shows before the
+// credentials are set.
 async function assertVideoPanelModelAndSettings(page) {
 	const panel = await selectVideoCard(page, VIDEO_NODE);
 	await panel.locator('button.bh-video-panel-model').click();
-	const menu = await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open');
-	const expectedMenu = {
-		groups: [{ label: 'Volcengine Ark', detail: 'No API key', items: ['Seedance 2.5', VIDEO_USER_MODEL] }],
-		end: ['Manage Video Providers…']
-	};
-	if (JSON.stringify(menu) !== JSON.stringify(expectedMenu)) {
-		throw new Error(`The model menu must list the models of the provider, then Manage Video Providers…: ${JSON.stringify(menu)}`);
+	const menu = await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null && seen.groups.length > 0, 'the model menu to list the catalog\'s models');
+	const group = menu.groups.find(candidate => candidate.provider === VIDEO_PROVIDER);
+	if (!group || group.detail !== 'Not set up' || !group.items.length || JSON.stringify(menu.end) !== JSON.stringify(['Video Providers…'])) {
+		throw new Error(`The model menu must list ${VIDEO_PROVIDER}'s models as not set up, and end with Video Providers…: ${JSON.stringify(menu)}`);
 	}
-	await clickVideoModel(page, panel, VIDEO_MODEL);
-	const chosen = { mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true, channel: videoSmoke.channelId, model: VIDEO_MODEL };
-	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE).generation) === canonicalJson(chosen), 'choosing Seedance 2.5 to store its channel, model, and default settings', 10_000);
-	const blocked = await waitForReading(() => readVideoPanel(panel), seen => seen.model === 'Seedance 2.5' && seen.generate?.label === 'Volcengine Ark has no API key. Add one in Video Providers.', 'Generate to name the missing key');
+	videoSmoke.model = group.items[0].model;
+	await clickVideoModel(page, panel, videoSmoke.model);
+	const chosen = await waitForReading(() => readVideoNode(VIDEO_NODE).generation, generation => generation?.provider === VIDEO_PROVIDER && generation.model === videoSmoke.model
+		&& typeof generation.mode === 'string' && generation.params && typeof generation.params === 'object', 'choosing the model to store its provider, model, mode, and values', 10_000);
+	// Frames take the two images of the next steps.
+	if (chosen.mode !== 'frames') {
+		throw new Error(`The first model of ${VIDEO_PROVIDER} must start in frames mode: ${JSON.stringify(chosen)}`);
+	}
+	const blocked = await waitForReading(() => readVideoPanel(panel), seen => seen.model === group.items[0].label && / is not set up\. Set it up in Video Providers\.$/.test(seen.generate?.label ?? ''), 'Generate to say that the provider is not set up');
 	if (!blocked.generate.disabled || !blocked.modelOutlined) {
-		throw new Error(`Without a key, Generate must be disabled and the model button outlined: ${JSON.stringify(blocked)}`);
+		throw new Error(`Without its credentials, Generate must be disabled and the model button outlined: ${JSON.stringify(blocked)}`);
+	}
+	// The estimate is asked for without the credentials.
+	const estimated = await waitForReading(() => readVideoPanel(panel), seen => seen.estimate !== null, 'the estimate to show beside Generate', 15_000);
+	if (!/^(≈ [¥$][\d,]+\.\d\d|[¥$][\d,]+\.\d\d–[¥$][\d,]+\.\d\d)$/.test(estimated.estimate.text) || !/What .+ bills is what counts\.$/.test(estimated.estimate.label ?? '')) {
+		throw new Error(`The estimate must show a price in the region's currency, with its source: ${JSON.stringify(estimated.estimate)}`);
 	}
 
-	const seedanceKeys = ['mode:frames', 'mode:reference', 'ratio:16:9', 'ratio:4:3', 'ratio:1:1', 'ratio:3:4', 'ratio:9:16', 'ratio:21:9', 'ratio:adaptive', 'resolution:480p', 'resolution:720p', 'resolution:1080p', 'duration:slider', 'duration:auto', 'sound'];
 	let settings = await openVideoSettings(panel);
-	if (settings.width !== 300 || JSON.stringify(settings.keys) !== JSON.stringify(seedanceKeys)
-		|| JSON.stringify(settings.checked) !== JSON.stringify(['mode:frames', 'ratio:16:9', 'resolution:720p', 'sound'])
-		|| JSON.stringify(settings.slider) !== JSON.stringify({ min: 4, max: 30, value: 5, disabled: false }) || settings.disabled.length !== 0) {
-		throw new Error(`The settings popover must show what Seedance 2.5 accepts, 300 px wide: ${JSON.stringify(settings)}`);
+	if (settings.width !== 300 || !settings.parameters.length || settings.checked.length === 0) {
+		throw new Error(`The settings popover must be drawn from the model's parameters, 300 px wide: ${JSON.stringify(settings)}`);
 	}
-	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 720p · 5s · Sound', chosen);
-	await panel.locator('.bh-video-panel-menu.settings [data-key="resolution:1080p"]').click();
-	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, resolution: '1080p' });
-	// Seedance 2.5 can choose its own length.
-	await panel.locator('.bh-video-panel-menu.settings [data-key="duration:auto"]').click();
-	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · Auto · Sound', { ...chosen, resolution: '1080p', duration: -1 });
-	await closeVideoPanelMenu(page, panel, 'settings');
-
-	// The general profile has no Auto: the duration takes its default, the rest stays.
-	await panel.locator('button.bh-video-panel-model').click();
-	await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open again');
-	await clickVideoModel(page, panel, VIDEO_USER_MODEL);
-	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, model: VIDEO_USER_MODEL, resolution: '1080p' });
-	settings = await openVideoSettings(panel);
-	if (JSON.stringify(settings.keys) !== JSON.stringify(seedanceKeys.filter(key => key !== 'duration:auto')) || settings.slider?.max !== 15) {
-		throw new Error(`The settings popover of a model BaseHalf does not know must show the general profile, 4 to 15 seconds without Auto: ${JSON.stringify(settings)}`);
+	// A choice of a parameter that is not chosen yet: shown and stored at once.
+	const choice = settings.choices.find(candidate => !candidate.checked && !candidate.key.startsWith('mode:') && !candidate.key.endsWith(':none') && !candidate.key.endsWith(':auto'));
+	if (!choice) {
+		throw new Error(`The settings of the first model must offer a choice to change: ${JSON.stringify(settings)}`);
 	}
+	const before = (await readVideoPanel(panel)).settings;
+	await panel.locator(`.bh-video-panel-menu.settings [data-key="${choice.key}"]`).click();
+	settings = await waitForReading(() => readVideoSettingsPopover(panel), seen => seen?.checked.includes(choice.key) === true, `the choice ${choice.key} to be shown`);
+	const changed = await waitForReading(() => readVideoPanel(panel), seen => seen.settings !== before, 'the settings button to sum up the change');
+	const stored = await waitForReading(() => readVideoNode(VIDEO_NODE).generation, generation => String(generation?.params?.[choice.parameter]) === choice.value, `${VIDEO_NODE} to store ${choice.key}`, 10_000);
+	if (!changed.settings.startsWith('Frames')) {
+		throw new Error(`The settings button must name the mode first: ${JSON.stringify(changed)}`);
+	}
+	videoSmoke.summary = changed.settings;
+	videoSmoke.generation = stored;
 	await closeVideoPanelMenu(page, panel, 'settings');
-	await panel.locator('button.bh-video-panel-model').click();
-	await waitForReading(() => readVideoModelMenu(panel), seen => seen !== null, 'the model menu to open a third time');
-	await clickVideoModel(page, panel, VIDEO_MODEL);
-	await assertVideoSettingsSummary(panel, 'Frames · 16:9 · 1080p · 5s · Sound', { ...chosen, resolution: '1080p' });
 	await clickBlankVideoCanvas(page);
 }
 
-// Criterion 6: the key is typed into the page and saved; the page then says
-// that a key is set and never shows it, and no workspace file holds it. With
-// the key, Generate is enabled.
+// Criterion 6: each credential is typed into the page and saved; the page
+// then says that it is set and never shows it, and no workspace file holds
+// it. With them, the provider is set up and Generate is enabled.
 async function assertVideoProviderKeyStaysSecret(page) {
 	const provider = await videoSmokeProvider();
 	const providers = await openVideoProvidersPage(page);
-	const keyInput = providers.locator('.basehalf-video-provider-key-row input[type="password"]');
-	await keyInput.click();
-	await waitForReading(() => keyInput.evaluate(input => input === input.ownerDocument.activeElement, undefined, { timeout: 2_000 }), focused => focused, 'the key field to have the keyboard focus');
-	await page.keyboard.type(provider.key);
-	await page.keyboard.press('Enter');
-	const saved = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.keySet && seen.status === 'Key saved.', 'the key to be saved');
-	if (saved.keyState !== 'A key is set. It is encrypted on this computer and never shown.' || saved.rowKey !== 'Key set') {
-		throw new Error(`The page must say that a key is set: ${JSON.stringify(saved)}`);
+	await providers.locator(`.basehalf-video-provider-row[data-provider="${VIDEO_PROVIDER}"]`).click();
+	const editor = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.provider === VIDEO_PROVIDER, `the page to show ${VIDEO_PROVIDER}`);
+	for (const credential of editor.credentials) {
+		const field = providers.locator(`.basehalf-video-provider-field.credential[data-credential="${credential.id}"]`);
+		const input = field.locator('input[type="password"]');
+		await input.click();
+		await waitForReading(() => input.evaluate(element => element === element.ownerDocument.activeElement, undefined, { timeout: 2_000 }), focused => focused, `the field of ${credential.id} to have the keyboard focus`);
+		await page.keyboard.type(provider.key);
+		await page.keyboard.press('Enter');
+		await waitForReading(() => readVideoProviderEditor(providers), seen => seen.credentials.find(candidate => candidate.id === credential.id)?.set === true, `${credential.id} to be saved`);
+	}
+	const saved = await waitForReading(() => readVideoProviderEditor(providers), seen => seen.rowSetUp === 'true', `${VIDEO_PROVIDER} to be set up`);
+	if (saved.credentials.some(credential => credential.state !== 'Set. It is encrypted on this computer and never shown.' || credential.input !== null)) {
+		throw new Error(`The page must say that every credential is set, without a field that holds it: ${JSON.stringify(saved)}`);
 	}
 	const inPage = await page.evaluate(key => ({
 		markup: document.documentElement.outerHTML.includes(key),
 		fields: Array.from(document.querySelectorAll('input, textarea')).some(field => field.value.includes(key))
 	}), provider.key);
 	if (inPage.markup || inPage.fields) {
-		throw new Error(`The window holds the provider key after it was saved: ${JSON.stringify(inPage)}`);
+		throw new Error(`The window holds the provider's credentials after they were saved: ${JSON.stringify(inPage)}`);
 	}
 	const files = filesContaining(workspacePath, provider.key);
 	if (files.length) {
-		throw new Error(`The provider key is in workspace files: ${files.join(', ')}`);
+		throw new Error(`The provider's credentials are in workspace files: ${files.join(', ')}`);
 	}
 	await closeVideoProvidersPage(page, providers);
 	await assertCanvasFolder(page, VIDEO_FOLDER);
 	const panel = await selectVideoCard(page, VIDEO_NODE);
-	const ready = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false, 'Generate to be enabled once the provider has a key');
+	const ready = await waitForReading(() => readVideoPanel(panel), seen => seen.generate?.disabled === false, 'Generate to be enabled once the provider is set up');
 	if (ready.generate.label !== 'Generate' || ready.modelOutlined) {
-		throw new Error(`With a model, a key, and a prompt, Generate must be ready: ${JSON.stringify(ready)}`);
+		throw new Error(`With a model, the provider set up, and a prompt, Generate must be ready: ${JSON.stringify(ready)}`);
 	}
 }
 
-// Criteria 3, 4, 11, and 13: an image connected with Pick on Canvas and one
-// connected by a drawn line are the start and end frames, in upstream order,
-// and the ratio follows the start frame; the swap arrow exchanges their two
-// entries and nothing else, in one undo step; `@` lists the inputs by name
-// and types the chosen one; a name of no input is underlined.
+// Criteria 3, 4, 13: an image connected with Pick on Canvas and one connected
+// by a drawn line are the start and end frames, in upstream order; the swap
+// arrow exchanges their two entries and nothing else, in one undo step; `@`
+// lists the inputs by name and types the chosen one; a name of no input is
+// underlined.
 async function assertVideoPanelInputsAndNames(page) {
 	let panel = await selectVideoCard(page, VIDEO_NODE);
 	const empty = await readVideoPanel(panel);
 	if (JSON.stringify(empty.emptySlots) !== JSON.stringify(['start', 'end'])) {
-		throw new Error(`Frames mode on Seedance 2.5 must show an empty start and end slot: ${JSON.stringify(empty)}`);
+		throw new Error(`Frames mode of the first model of ${VIDEO_PROVIDER} must show an empty start and end slot: ${JSON.stringify(empty)}`);
 	}
 	await panel.locator('button.bh-video-panel-slot.empty[data-role="start"]').click();
 	const addMenu = panel.locator('.bh-video-panel-menu.add');
@@ -3091,15 +3104,10 @@ async function assertVideoPanelInputsAndNames(page) {
 	await waitUntil(() => JSON.stringify(readVideoNode(VIDEO_NODE).upstream) === JSON.stringify([VIDEO_START_IMAGE, VIDEO_END_IMAGE]), 'the drawn connection to add end.png after start.png', 10_000);
 	panel = await selectVideoCard(page, VIDEO_NODE);
 	const frames = await waitForReading(() => readVideoPanel(panel), seen => seen.start?.path === VIDEO_START_IMAGE && seen.end?.path === VIDEO_END_IMAGE, 'the panel to show start.png and end.png as the frames');
-	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || frames.settings !== 'Frames · Adaptive · 1080p · 5s · Sound') {
-		throw new Error(`The frames must be named by upstream order, and the ratio must follow the start frame: ${JSON.stringify(frames)}`);
+	// The inputs change what is sent, not the settings.
+	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || frames.settings !== videoSmoke.summary) {
+		throw new Error(`The frames must be named by upstream order, and the settings must stay ${videoSmoke.summary}: ${JSON.stringify(frames)}`);
 	}
-	const settings = await openVideoSettings(panel);
-	const ratios = settings.keys.filter(key => key.startsWith('ratio:'));
-	if (settings.note !== 'Follows the start frame' || JSON.stringify(settings.disabled) !== JSON.stringify(ratios) || !settings.checked.includes('ratio:adaptive')) {
-		throw new Error(`With a start frame, Seedance 2.5 takes only an adaptive ratio, and the popover must say so: ${JSON.stringify(settings)}`);
-	}
-	await closeVideoPanelMenu(page, panel, 'settings');
 
 	const beforeSwap = readVideoNode(VIDEO_NODE);
 	await panel.locator('button.bh-video-panel-swap').click();
@@ -3199,22 +3207,25 @@ async function assertVideoGenerateWritesVideo(page) {
 		|| observed[1].taskId !== taskId || !remoteId || observed[2].state !== 'result') {
 		throw new Error(`The node's file must go submitting, running with the provider's task id, then show the result: ${JSON.stringify(states)}`);
 	}
-	const requests = provider.requestsSince(requestsBefore);
-	if (requests.length !== 1 || requests[0].taskId !== remoteId || requests[0].model !== VIDEO_MODEL || requests[0].prompt !== VIDEO_PROMPT_WITH_NAME
-		|| JSON.stringify(requests[0].parts) !== JSON.stringify(['text', 'image_url first_frame data:image/png', 'image_url last_frame data:image/png'])
-		|| requests[0].body?.ratio !== 'adaptive' || requests[0].body?.resolution !== '1080p' || requests[0].body?.duration !== 5 || requests[0].body?.generate_audio !== true) {
-		throw new Error(`The test provider must get one request with the prompt, the two frames, and the panel's settings: ${JSON.stringify(requests)}`);
-	}
-	const sent = { provider: 'ark', model: VIDEO_MODEL, prompt: VIDEO_PROMPT_WITH_NAME, inputs: [VIDEO_START_IMAGE, VIDEO_END_IMAGE], mode: 'frames', ratio: 'adaptive', resolution: '1080p', duration: 5, audio: true };
 	const result = document.result;
-	if (document.task !== undefined || result?.source !== 'generated'
+	const recorded = result?.generation?.request;
+	// The request record: the provider in its region, the catalog's model and the id sent there, and what the panel showed.
+	const sent = { provider: VIDEO_PROVIDER, region: VIDEO_REGION, model: videoSmoke.model, providerModel: recorded?.providerModel, mode: 'frames', params: node.generation.params, prompt: VIDEO_PROMPT_WITH_NAME, inputs: [VIDEO_START_IMAGE, VIDEO_END_IMAGE] };
+	if (document.task !== undefined || result?.source !== 'generated' || typeof recorded?.providerModel !== 'string' || !recorded.providerModel
 		|| canonicalJson(result.artifact) !== canonicalJson({ kind: 'video', path: `outputs/${node.id}/${taskId}.mp4`, size: provider.video.length })
-		|| result.generation?.taskId !== taskId || result.generation.remoteId !== remoteId || canonicalJson(result.generation.request) !== canonicalJson(sent)) {
+		|| result.generation?.taskId !== taskId || result.generation.remoteId !== remoteId || canonicalJson(recorded) !== canonicalJson(sent)) {
 		throw new Error(`The node must show the generated video with the request the panel showed: ${JSON.stringify(document)}`);
 	}
+	// How the values reach the provider is its module's own; the record says what was sent.
+	const requests = provider.requestsSince(requestsBefore);
+	const parts = JSON.stringify(requests[0]?.parts ?? []);
+	if (requests.length !== 1 || requests[0].taskId !== remoteId || requests[0].model !== recorded.providerModel || requests[0].prompt !== VIDEO_PROMPT_WITH_NAME
+		|| !parts.includes('first_frame') || !parts.includes('last_frame')) {
+		throw new Error(`The test provider must get one request with the model's id in the region, the prompt, and the two frames: ${JSON.stringify(requests)}`);
+	}
 	// What the settings button said is what was sent.
-	if (ready.settings !== 'Frames · Adaptive · 1080p · 5s · Sound') {
-		throw new Error(`The settings button must sum up what is sent: ${JSON.stringify(ready)}`);
+	if (ready.settings !== videoSmoke.summary) {
+		throw new Error(`The settings button must sum up what is sent, ${videoSmoke.summary}: ${JSON.stringify(ready)}`);
 	}
 	const video = path.join(workspacePath, 'outputs', node.id, `${taskId}.mp4`);
 	if (!fs.readFileSync(video).equals(provider.video)) {
@@ -3382,7 +3393,7 @@ async function assertVideoGenerateAgainMakesSibling(page) {
 // provider's message on the card; a request whose answer never comes ends
 // with the message about the provider's console and is not sent again; the
 // stop square ends a running task as stopped and keeps no video. A new node
-// starts with the model and settings of the last generation.
+// starts with the provider, model, mode, and values of the last generation.
 async function assertVideoGenerationFailsAndStops(page) {
 	const provider = await videoSmokeProvider();
 	await clickBlankVideoCanvas(page);
@@ -3391,9 +3402,9 @@ async function assertVideoGenerationFailsAndStops(page) {
 	await clickCanvasCreateSubmenuAction(page, 'New Media or Document', 'Video');
 	await waitUntil(() => fs.existsSync(videoWorkspaceFile(VIDEO_SECOND_NODE)), `the create menu to make ${VIDEO_SECOND_NODE}`, 20_000);
 	const created = readVideoNode(VIDEO_SECOND_NODE);
-	const lastUsed = { mode: 'frames', ratio: '16:9', resolution: '1080p', duration: 5, audio: true, channel: videoSmoke.channelId, model: VIDEO_MODEL };
-	if (canonicalJson(created.generation) !== canonicalJson(lastUsed)) {
-		throw new Error(`A new Video node must start with the model and settings of the last generation: ${JSON.stringify(created)}`);
+	const lastUsed = readVideoNode(VIDEO_SIBLING_NODE).generation;
+	if (created.version !== 6 || canonicalJson(created.generation) !== canonicalJson(lastUsed) || lastUsed?.model !== videoSmoke.model) {
+		throw new Error(`A new Video node must start with the provider, model, mode, and values of the last generation: ${JSON.stringify({ created, lastUsed })}`);
 	}
 	await waitForCanvasCardSelection(page, VIDEO_SECOND_NODE, 15_000);
 	const panel = await waitForVideoPanel(page, VIDEO_SECOND_NODE);
@@ -3401,8 +3412,8 @@ async function assertVideoGenerationFailsAndStops(page) {
 
 	await page.keyboard.type('[mock:fail] A storm over the pier');
 	let ended = await generateVideoUntilEnded(page, panel, VIDEO_SECOND_NODE);
-	const failure = 'The provider could not make the video: The video could not be made: the output may contain sensitive content.';
-	if (JSON.stringify(ended.states.map(state => state.state)) !== JSON.stringify(['submitting', 'running', 'failed']) || ended.document.task.error !== failure || ended.requests.length !== 1) {
+	const failure = ended.document.task?.error ?? '';
+	if (JSON.stringify(ended.states.map(state => state.state)) !== JSON.stringify(['submitting', 'running', 'failed']) || !/^The provider could not make the video: \S/.test(failure) || ended.requests.length !== 1) {
 		throw new Error(`A task the provider fails must end as failed with its message: ${JSON.stringify(ended)}`);
 	}
 	await waitForReading(() => readVideoCard(page, VIDEO_SECOND_NODE), seen => seen?.state === 'failed' && seen.message === failure, 'the card to show the provider\'s message');
@@ -3447,14 +3458,15 @@ async function assertVideoGenerationFailsAndStops(page) {
 async function assertVideoAgentRunsNode(page) {
 	const provider = await videoSmokeProvider();
 	const prompt = 'The pier at noon, seen from the water';
+	// An agent names the provider, the model, and the mode, and leaves the values to their defaults.
 	fs.writeFileSync(videoWorkspaceFile(VIDEO_AGENT_NODE), `${JSON.stringify({
-		version: 5,
+		version: 6,
 		id: randomUUID(),
 		kind: 'video',
 		title: 'Agent shot',
 		prompt,
 		upstream: [VIDEO_START_IMAGE],
-		generation: { model: VIDEO_MODEL, mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+		generation: { provider: VIDEO_PROVIDER, model: videoSmoke.model, mode: 'frames' }
 	}, null, '\t')}\n`, 'utf8');
 	await videoCanvasCard(page, VIDEO_AGENT_NODE).waitFor({ state: 'attached', timeout: 20_000 });
 	await runCommand(page, 'Terminal: Create New Terminal');
@@ -3476,21 +3488,25 @@ async function assertVideoAgentRunsNode(page) {
 		throw new Error('basehalf --run-node asked a question');
 	}
 	const { states, document } = await recording;
-	const sent = { provider: 'ark', model: VIDEO_MODEL, prompt, inputs: [VIDEO_START_IMAGE], mode: 'frames', ratio: 'adaptive', resolution: '720p', duration: 5, audio: true };
+	const recorded = document.result?.generation?.request;
 	if (JSON.stringify(states.filter(state => state.state !== 'idle').map(state => state.state)) !== JSON.stringify(['submitting', 'running', 'result'])
-		|| document.result?.source !== 'generated' || canonicalJson(document.result.generation.request) !== canonicalJson(sent)) {
+		|| document.result?.source !== 'generated' || recorded?.provider !== VIDEO_PROVIDER || recorded.region !== VIDEO_REGION || recorded.model !== videoSmoke.model
+		|| recorded.mode !== 'frames' || recorded.prompt !== prompt || JSON.stringify(recorded.inputs) !== JSON.stringify([VIDEO_START_IMAGE])
+		// The values left out were sent with their defaults.
+		|| !recorded.params || Object.keys(recorded.params).length === 0) {
 		throw new Error(`The node an agent ran must end with a generated video: ${JSON.stringify({ states, document })}`);
 	}
 	const requests = provider.requestsSince(requestsBefore);
-	if (requests.length !== 1 || JSON.stringify(requests[0].parts) !== JSON.stringify(['text', 'image_url first_frame data:image/png'])) {
+	const parts = JSON.stringify(requests[0]?.parts ?? []);
+	if (requests.length !== 1 || !parts.includes('first_frame') || parts.includes('last_frame') || requests[0].prompt !== prompt) {
 		throw new Error(`The agent's run must send one request with the prompt and the start frame: ${JSON.stringify(requests)}`);
 	}
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
-	// After all these generations, no workspace file holds the key.
+	// After all these generations, no workspace file holds the credentials.
 	const files = filesContaining(workspacePath, provider.key);
 	if (files.length) {
-		throw new Error(`The provider key is in workspace files: ${files.join(', ')}`);
+		throw new Error(`The provider's credentials are in workspace files: ${files.join(', ')}`);
 	}
 }
 
@@ -3655,10 +3671,13 @@ function readVideoPanel(panel) {
 				path: slot.querySelector('.bh-video-panel-remove')?.getAttribute('data-key')?.replace(/^remove:/, '') ?? null
 			} : null;
 		};
+		const estimate = element.querySelector('.bh-video-panel-estimate');
 		return {
+			catalog: element.getAttribute('data-catalog'),
 			prompt: prompt?.value ?? null,
 			promptFocused: !!prompt && element.ownerDocument.activeElement === prompt,
 			model: text('.bh-video-panel-model-label'),
+			estimate: estimate && !estimate.hidden ? { text: estimate.textContent, label: estimate.getAttribute('aria-label') } : null,
 			modelOutlined: element.querySelector('.bh-video-panel-model')?.classList.contains('outlined') ?? false,
 			settings: text('.bh-video-panel-settings-label'),
 			generate: generate ? {
@@ -3684,9 +3703,14 @@ function readVideoModelMenu(panel) {
 		const label = item => item.querySelector('.bh-video-panel-menu-label')?.textContent ?? null;
 		return menu ? {
 			groups: Array.from(menu.querySelectorAll('.bh-video-panel-menu-group')).map(group => ({
+				provider: group.getAttribute('data-provider'),
 				label: group.querySelector('.bh-video-panel-menu-heading-label')?.textContent ?? null,
 				detail: group.querySelector('.bh-video-panel-menu-heading-detail')?.textContent ?? null,
-				items: Array.from(group.querySelectorAll('.bh-video-panel-menu-item')).map(label)
+				items: Array.from(group.querySelectorAll('.bh-video-panel-menu-item')).map(item => ({
+					model: (item.getAttribute('data-key') ?? '').split(':').slice(2).join(':'),
+					label: label(item),
+					unavailable: item.classList.contains('unavailable')
+				}))
 			})),
 			end: Array.from(menu.querySelectorAll(':scope > .bh-video-panel-menu-item')).map(label)
 		} : null;
@@ -3694,10 +3718,11 @@ function readVideoModelMenu(panel) {
 }
 
 async function clickVideoModel(page, panel, model) {
-	await panel.locator(`.bh-video-panel-menu.model .bh-video-panel-menu-item[data-key="model:${videoSmoke.channelId}:${model}"]`).click();
+	await panel.locator(`.bh-video-panel-menu.model .bh-video-panel-menu-item[data-key="model:${VIDEO_PROVIDER}:${model}"]`).click();
 	await waitForReading(() => panel.locator('.bh-video-panel-menu.model').count(), count => count === 0, 'the model menu to close after a choice');
 }
 
+// What the settings popover draws: its parameters, their choices, and what is chosen.
 function readVideoSettingsPopover(panel) {
 	return panel.evaluate(element => {
 		const popover = element.querySelector('.bh-video-panel-menu.settings');
@@ -3705,15 +3730,17 @@ function readVideoSettingsPopover(panel) {
 			return null;
 		}
 		const keys = selector => Array.from(popover.querySelectorAll(selector)).map(control => control.getAttribute('data-key'));
-		const slider = popover.querySelector('input.bh-video-panel-slider');
 		return {
 			width: Math.round(popover.getBoundingClientRect().width),
 			focusInside: popover.contains(element.ownerDocument.activeElement),
 			keys: keys('[data-key]'),
 			checked: keys('[data-key][aria-checked="true"]'),
-			disabled: keys('[data-key][aria-disabled="true"]'),
-			slider: slider ? { min: Number(slider.min), max: Number(slider.max), value: Number(slider.value), disabled: slider.disabled } : null,
-			note: popover.querySelector('.bh-video-panel-setting-note')?.textContent ?? null
+			parameters: Array.from(popover.querySelectorAll('.bh-video-panel-setting[data-parameter]')).map(section => section.getAttribute('data-parameter')),
+			choices: Array.from(popover.querySelectorAll('.bh-video-panel-setting[data-parameter] .bh-video-panel-choice')).map(choice => {
+				const key = choice.getAttribute('data-key') ?? '';
+				const parameter = choice.closest('.bh-video-panel-setting')?.getAttribute('data-parameter') ?? '';
+				return { key, parameter, value: key.slice(parameter.length + 1), checked: choice.getAttribute('aria-checked') === 'true' };
+			})
 		};
 	}, undefined, { timeout: 2_000 });
 }
@@ -3732,12 +3759,6 @@ async function closeVideoPanelMenu(page, panel, kind) {
 	await waitForReading(() => panel.locator(`.bh-video-panel-menu.${kind}`).count(), count => count === 0, `Escape to close the ${kind} menu`);
 }
 
-// The settings button says `summary`, and the node's file stores `generation`.
-async function assertVideoSettingsSummary(panel, summary, generation) {
-	await waitForReading(() => readVideoPanel(panel), seen => seen.settings === summary, `the settings button to read ${summary}`);
-	await waitUntil(() => canonicalJson(readVideoNode(VIDEO_NODE).generation) === canonicalJson(generation), `${VIDEO_NODE} to store ${JSON.stringify(generation)}`, 10_000);
-}
-
 function readVideoMentionMenu(panel) {
 	return panel.evaluate(element => {
 		const menu = element.querySelector('.bh-video-panel-menu.mention');
@@ -3751,19 +3772,27 @@ function readVideoMentionMenu(panel) {
 	}, undefined, { timeout: 2_000 });
 }
 
+// The provider the page shows: its regions, its credentials and whether each is set, and its endpoint.
 function readVideoProviderEditor(providers) {
-	return providers.evaluate(root => ({
-		name: root.querySelector('.basehalf-video-provider-row[aria-current="page"] .basehalf-video-provider-row-name')?.textContent ?? null,
-		rowKey: root.querySelector('.basehalf-video-provider-row[aria-current="page"] .basehalf-video-provider-row-key')?.getAttribute('aria-label') ?? null,
-		endpoint: root.querySelector('#basehalf-video-provider-endpoint')?.value ?? null,
-		models: Array.from(root.querySelectorAll('li.basehalf-video-provider-model')).map(chip => ({
-			id: chip.getAttribute('data-model'),
-			label: chip.querySelector('.basehalf-video-provider-model-name')?.textContent ?? null
-		})),
-		keySet: root.querySelector('.basehalf-video-provider-key-state')?.classList.contains('set') ?? false,
-		keyState: root.querySelector('.basehalf-video-provider-key-state')?.textContent?.trim() ?? null,
-		status: root.querySelector('.basehalf-video-providers-status')?.textContent ?? null
-	}), undefined, { timeout: 2_000 });
+	return providers.evaluate(root => {
+		const editor = root.querySelector('.basehalf-video-provider-editor');
+		const endpoint = root.querySelector('#basehalf-video-provider-endpoint');
+		const row = root.querySelector('.basehalf-video-provider-row[aria-current="page"]');
+		return {
+			provider: editor?.getAttribute('data-provider') ?? null,
+			rowSetUp: row?.getAttribute('data-set-up') ?? null,
+			regions: Array.from(root.querySelectorAll('.basehalf-video-provider-region')).map(region => ({ id: region.getAttribute('data-region'), checked: region.getAttribute('aria-checked') === 'true' })),
+			credentials: Array.from(root.querySelectorAll('.basehalf-video-provider-field.credential')).map(field => ({
+				id: field.getAttribute('data-credential'),
+				set: field.querySelector('.basehalf-video-provider-key-state')?.classList.contains('set') ?? false,
+				state: field.querySelector('.basehalf-video-provider-key-state')?.textContent?.trim() ?? null,
+				input: field.querySelector('input')?.getAttribute('type') ?? null
+			})),
+			endpoint: endpoint?.value ?? null,
+			customEndpoint: endpoint?.getAttribute('data-custom') === 'true',
+			status: root.querySelector('.basehalf-video-providers-status')?.textContent ?? null
+		};
+	}, undefined, { timeout: 2_000 });
 }
 
 function readVideoCard(page, cardPath) {

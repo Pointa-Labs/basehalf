@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * What the smoke's Video node steps (D58, docs/specs/video-node.md) need
+ * What the smoke's Video node steps (D58, D59, docs/specs/video-node.md) need
  * beside the window: the local test provider of
  * `basehalf-video-mock-provider.mts`, small PNG images, a record of the states
  * a node's file goes through, and a search of the workspace for the test key.
@@ -21,8 +21,8 @@ import { MOCK_VIDEO_FIXTURE_URL, startMockVideoProvider, type MockVideoProvider,
 export interface VideoSmokeProvider {
 	/** The test provider; `requests` lists the create requests it received. */
 	readonly mock: MockVideoProvider;
-	/** The endpoint of a Volcengine Ark channel: the relay's Seedance API. */
-	readonly seedanceBaseUrl: string;
+	/** The endpoint the smoke enters for its provider: the relay, at the path of the provider's own API. */
+	readonly endpoint: string;
 	readonly key: string;
 	/** The video the provider serves, to compare a download with. */
 	readonly video: Buffer;
@@ -87,7 +87,7 @@ export async function startVideoSmokeProvider(options: { readonly durationMs: nu
 	const { port } = relay.address() as AddressInfo;
 	return {
 		mock,
-		seedanceBaseUrl: `http://127.0.0.1:${port}/api/v3`,
+		endpoint: `http://127.0.0.1:${port}/api/v3`,
 		key: mock.key,
 		video: fs.readFileSync(MOCK_VIDEO_FIXTURE_URL),
 		requestsSince: count => mock.requests.slice(count),
