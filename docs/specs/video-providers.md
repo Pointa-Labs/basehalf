@@ -113,7 +113,7 @@ tooltips are in the window's display language.
 	"id": "seedance-2.5",
 	"label": "Seedance 2.5",
 	"description": "…",
-	"regions": ["cn", "intl"],
+	"providerModels": { "cn": "doubao-seedance-2-5-260628", "intl": "dreamina-seedance-2-5-260628" },
 	"prompt": { "required": "withoutMedia", "maxLength": 20000 },
 	"modes": [ ... ],
 	"parameters": [ ... ],
@@ -122,8 +122,9 @@ tooltips are in the window's display language.
 }
 ```
 
-- `regions`: the regions that offer the model; a node whose provider is set
-  up in another region shows the model as unavailable there.
+- `providerModels`: for each region that offers the model, the id sent to
+  the provider there. A node whose provider is set up in another region shows
+  the model as unavailable there.
 - `prompt.required`: `always`, `withoutMedia` (required when the mode sends
   no image or video), or `never`. `maxLength` counts characters of the
   prompt as sent, text inputs included.
