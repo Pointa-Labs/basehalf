@@ -4,29 +4,33 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * A local video provider for tests and the smoke (D58). It speaks the Seedance
- * task API (as Volcengine Ark and BytePlus ModelArk do) under `/api/v3` and
- * the `/videos` task API (as OpenAI and relays do) under `/v1`, accepts one
- * test key, moves each task from queued to running to succeeded over a few
- * seconds, and serves a small MP4 made for these tests. It never talks to a
- * real provider.
+ * A local video provider for tests and the smoke (D59). It answers like
+ * ByteDance's Seedance task API (Volcengine Ark and BytePlus ModelArk) under
+ * `/api/v3`: it accepts one test key, checks the shape of a create request,
+ * moves each task from queued to running to succeeded over a few seconds,
+ * cancels a queued task on DELETE, and serves a small MP4 made for these
+ * tests from a separate path without a key, as a signed CDN link would be.
+ * It never talks to a real provider.
  *
  *   node --experimental-strip-types scripts/basehalf-video-mock-provider.mts \
  *     [--port <port>] [--key <key>] [--seconds <seconds>] [--fail <failure>]
  *
- * Failures, for every request (`--fail`, or `POST /__mock/configure` with
- * `{"fail": ...}`), or for one request through a marker in its prompt:
+ * Its base URL is `http://127.0.0.1:<port>/api/v3`. Failures, for every request
+ * (`--fail`, or `POST /__mock/configure` with `{"fail": ...}`), or for one
+ * request through a marker in its prompt:
  *
  * - `key`: every key is refused (HTTP 401). Marker: none; use a wrong key.
  * - `reject` / `[mock:reject]`: the request is refused (HTTP 400).
  * - `task` / `[mock:fail]`: the task is made and later fails.
+ * - `expire` / `[mock:expire]`: the task is made and later expires.
  * - `drop` / `[mock:drop]`: the connection closes after the request arrived,
  *   without an answer: the outcome is unknown to the caller.
  * - `slow` / `[mock:slow]`: the task never finishes.
  *
- * `GET /__mock/requests` lists the create requests received, without keys.
- * The fixture video was recorded from a canvas animation with Chromium's
- * MediaRecorder and remuxed with avconvert: 2 s, 320×180, H.264.
+ * `GET /__mock/requests` lists the create requests received, without keys and
+ * with inline media shortened. The fixture video was recorded from a canvas
+ * animation with Chromium's MediaRecorder and remuxed with avconvert: 2 s,
+ * 320×180, H.264.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -38,14 +42,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export const MOCK_VIDEO_PROVIDER_KEY = 'basehalf-mock-key';
 export const MOCK_VIDEO_FIXTURE_URL = new URL('./fixtures/basehalf-video-mock.mp4', import.meta.url);
 
-export type MockVideoProviderFailure = 'none' | 'key' | 'reject' | 'task' | 'drop' | 'slow';
-const FAILURES: readonly MockVideoProviderFailure[] = ['none', 'key', 'reject', 'task', 'drop', 'slow'];
+export type MockVideoProviderFailure = 'none' | 'key' | 'reject' | 'task' | 'expire' | 'drop' | 'slow';
+const FAILURES: readonly MockVideoProviderFailure[] = ['none', 'key', 'reject', 'task', 'expire', 'drop', 'slow'];
 
 export interface MockVideoProviderOptions {
 	/** 0 chooses a free port. */
 	readonly port?: number;
 	readonly key?: string;
-	/** How long a task takes from creation to success. A third of it is queued. */
+	/** How long a task takes from creation to its end. A third of it is queued. */
 	readonly durationMs?: number;
 	readonly fail?: MockVideoProviderFailure;
 	/** The bytes served as the video; the fixture by default. */
@@ -54,37 +58,44 @@ export interface MockVideoProviderOptions {
 
 /** A create request as received, without its key. */
 export interface MockVideoProviderRequest {
-	readonly api: 'seedance' | 'videos';
 	readonly taskId: string | undefined;
 	readonly model: string | undefined;
+	/** The text item of `content`. */
 	readonly prompt: string | undefined;
-	/** Seedance: the content item types and roles. `/videos`: the form fields and files. */
+	/** The `content` items: `text`, `image_url <role> data:<type>`, `audio_url <role> data:<type>`. */
 	readonly parts: readonly string[];
+	/** The body with every data URL cut after its type. */
 	readonly body: Record<string, unknown> | undefined;
 }
 
 export interface MockVideoProvider {
 	/** `http://127.0.0.1:<port>` */
 	readonly url: string;
-	/** The endpoint of a Seedance channel. */
+	/** The base URL to enter as the endpoint: `http://127.0.0.1:<port>/api/v3`. */
+	readonly baseUrl: string;
+	/** The same as `baseUrl`. */
 	readonly seedanceBaseUrl: string;
-	/** The endpoint of a `/videos` channel. */
-	readonly videosBaseUrl: string;
 	readonly key: string;
 	readonly requests: readonly MockVideoProviderRequest[];
 	configure(options: { readonly fail?: MockVideoProviderFailure; readonly durationMs?: number }): void;
 	close(): Promise<void>;
 }
 
+type MockState = 'queued' | 'running' | 'succeeded' | 'failed' | 'expired' | 'cancelled';
+
 interface MockTask {
 	readonly id: string;
-	readonly api: 'seedance' | 'videos';
 	readonly model: string;
 	readonly createdAt: number;
-	readonly fails: boolean;
+	readonly ends: 'succeeded' | 'failed' | 'expired';
 	readonly slow: boolean;
+	readonly params: Record<string, unknown>;
 	cancelled: boolean;
 }
+
+const RATIOS = new Set(['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive']);
+const RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k']);
+const IMAGE_ROLES = new Set(['first_frame', 'last_frame', 'reference_image']);
 
 export async function startMockVideoProvider(options: MockVideoProviderOptions = {}): Promise<MockVideoProvider> {
 	const key = options.key ?? MOCK_VIDEO_PROVIDER_KEY;
@@ -99,7 +110,7 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 	const server: Server = createServer((request, response) => {
 		void handle(request, response).catch(error => {
 			if (!response.headersSent) {
-				json(response, 500, { error: { message: `The mock provider failed: ${error instanceof Error ? error.message : String(error)}` } });
+				json(response, 500, { error: { code: 'InternalServiceError', message: `The mock provider failed: ${error instanceof Error ? error.message : String(error)}`, type: 'InternalServerError' } });
 			} else {
 				response.destroy();
 			}
@@ -133,144 +144,91 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		if (path.startsWith('/files/') && request.method === 'GET') {
 			// A CDN address: no key, like a signed link.
 			const id = decodeURIComponent(path.slice('/files/'.length).replace(/\.mp4$/, ''));
-			if (!tasks.has(id)) {
-				json(response, 404, { error: { message: 'No such file.' } });
+			if (!tasks.has(id) || stateOf(tasks.get(id)!) !== 'succeeded') {
+				json(response, 404, { error: { code: 'NoSuchKey', message: 'The specified key does not exist.' } });
 				return;
 			}
-			sendVideo(response);
+			response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(video.byteLength) });
+			response.end(video);
 			return;
 		}
-
-		const seedance = path.startsWith('/api/v3/');
-		const videos = path.startsWith('/v1/videos');
-		if (!seedance && !videos) {
-			json(response, 404, { error: { message: `No API at ${path}.` } });
+		if (!path.startsWith('/api/v3/')) {
+			json(response, 404, { error: { code: 'PathNotFound', message: 'The path of api not found.' } });
 			return;
 		}
 		if (fail === 'key' || request.headers.authorization !== `Bearer ${key}`) {
-			json(response, 401, seedance
-				? { error: { code: 'AuthenticationError', message: 'The API key in the request is missing or invalid.', type: 'Unauthorized' } }
-				: { error: { message: 'Incorrect API key provided.', type: 'invalid_request_error', code: 'invalid_api_key' } });
+			json(response, 401, { error: { code: 'AuthenticationError', message: 'The API key in the request is missing or invalid.', type: 'Unauthorized' } });
 			return;
 		}
-
-		if (seedance) {
-			const taskPath = /^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
-			if (!taskPath) {
-				json(response, 404, { error: { code: 'NotFound', message: `No API at ${path}.` } });
-				return;
-			}
-			const id = taskPath.groups?.id ? decodeURIComponent(taskPath.groups.id) : undefined;
-			if (request.method === 'POST' && !id) {
-				const payload = parseJson(body);
-				const prompt = seedancePrompt(payload);
-				const parts = Array.isArray(payload?.content) ? payload.content.map(seedancePart) : [];
-				await create('seedance', request, payload, prompt, parts, task => json(response, 200, { id: task.id }), () => json(response, 400, {
-					error: { code: 'InputTextSensitiveContentDetected', message: 'The request was refused: the prompt may contain sensitive content.', type: 'BadRequest' }
-				}));
-				return;
-			}
-			const task = id ? tasks.get(id) : undefined;
-			if (!task || task.api !== 'seedance') {
-				json(response, 404, { error: { code: 'ResourceNotFound', message: 'The specified task does not exist.', type: 'NotFound' } });
-				return;
-			}
-			if (request.method === 'GET') {
-				const state = stateOf(task);
-				json(response, 200, {
-					id: task.id,
-					model: task.model,
-					status: state,
-					...(state === 'succeeded' ? { content: { video_url: `${origin}/files/${encodeURIComponent(task.id)}.mp4` } } : {}),
-					...(state === 'failed' ? { error: { code: 'OutputVideoSensitiveContentDetected', message: 'The video could not be made: the output may contain sensitive content.' } } : {}),
-					created_at: Math.floor(task.createdAt / 1000)
-				});
-				return;
-			}
-			if (request.method === 'DELETE') {
-				if (stateOf(task) === 'running') {
-					json(response, 400, { error: { code: 'InvalidAction', message: 'A running task cannot be cancelled.' } });
-					return;
-				}
-				if (stateOf(task) === 'queued') {
-					task.cancelled = true;
-				}
+		const taskPath = /^\/api\/v3\/contents\/generations\/tasks(?:\/(?<id>[^/]+))?$/.exec(path);
+		if (!taskPath) {
+			json(response, 404, { error: { code: 'InvalidAction', message: `The specified action is invalid: ${request.method} ${path}` } });
+			return;
+		}
+		const id = taskPath.groups?.id ? decodeURIComponent(taskPath.groups.id) : undefined;
+		if (request.method === 'POST' && !id) {
+			await create(request, response, parseJson(body));
+			return;
+		}
+		const task = id ? tasks.get(id) : undefined;
+		if (!task) {
+			json(response, 404, { error: { code: 'ResourceNotFound', message: 'The specified task does not exist.', type: 'NotFound' } });
+			return;
+		}
+		if (request.method === 'GET') {
+			json(response, 200, taskObject(task));
+			return;
+		}
+		if (request.method === 'DELETE') {
+			// A queued task is cancelled; a task that ended loses its record; a running or cancelled one stays.
+			const state = stateOf(task);
+			if (state === 'queued') {
+				task.cancelled = true;
 				json(response, 200, {});
-				return;
+			} else if (state === 'running' || state === 'cancelled') {
+				json(response, 400, { error: { code: 'InvalidParameter', message: `A ${state} task cannot be cancelled or deleted.`, type: 'BadRequest' } });
+			} else {
+				tasks.delete(task.id);
+				json(response, 200, {});
 			}
+			return;
 		}
-
-		if (videos) {
-			const videoPath = /^\/v1\/videos(?:\/(?<id>[^/]+)(?<content>\/content)?)?$/.exec(path);
-			const id = videoPath?.groups?.id ? decodeURIComponent(videoPath.groups.id) : undefined;
-			if (request.method === 'POST' && videoPath && !id) {
-				const form = parseForm(request.headers['content-type'], body);
-				const payload = form ? form.fields : parseJson(body);
-				const prompt = typeof payload?.prompt === 'string' ? payload.prompt : undefined;
-				const parts = form ? [...Object.keys(form.fields).map(name => `field ${name}`), ...form.files.map(file => `file ${file.name} ${file.type} ${file.size}`)] : [];
-				const model = typeof payload?.model === 'string' ? payload.model : 'relay-video-1';
-				await create('videos', request, payload, prompt, parts, task => json(response, 200, videoObject(task, model, payload)), () => json(response, 400, {
-					error: { message: 'Your request was rejected by the safety system.', type: 'invalid_request_error', code: 'moderation_blocked' }
-				}));
-				return;
-			}
-			const task = id ? tasks.get(id) : undefined;
-			if (!task || task.api !== 'videos') {
-				json(response, 404, { error: { message: `No video found with id '${id ?? ''}'.`, type: 'invalid_request_error', code: 'not_found' } });
-				return;
-			}
-			if (request.method === 'GET' && videoPath?.groups?.content) {
-				if (stateOf(task) !== 'succeeded') {
-					json(response, 400, { error: { message: 'The video is not ready.', type: 'invalid_request_error' } });
-					return;
-				}
-				sendVideo(response);
-				return;
-			}
-			if (request.method === 'GET') {
-				json(response, 200, videoObject(task, task.model, undefined));
-				return;
-			}
-		}
-		json(response, 405, { error: { message: `${request.method} is not allowed at ${path}.` } });
+		json(response, 405, { error: { code: 'InvalidAction', message: `${request.method} is not allowed at ${path}.` } });
 	}
 
-	async function create(
-		api: 'seedance' | 'videos',
-		request: IncomingMessage,
-		payload: Record<string, unknown> | undefined,
-		prompt: string | undefined,
-		parts: readonly string[],
-		accepted: (task: MockTask) => void,
-		refused: () => void
-	): Promise<void> {
+	async function create(request: IncomingMessage, response: ServerResponse, payload: Record<string, unknown> | undefined): Promise<void> {
+		const prompt = textOf(payload);
+		const parts = Array.isArray(payload?.content) ? payload.content.map(partOf) : [];
+		const model = typeof payload?.model === 'string' ? payload.model : undefined;
 		const marker = (name: string) => prompt?.includes(`[mock:${name}]`) === true;
-		const model = typeof payload?.model === 'string' ? payload.model : '';
-		if (fail === 'reject' || marker('reject')) {
-			requests.push({ api, taskId: undefined, model, prompt, parts, body: redact(payload) });
-			refused();
+		const invalid = invalidField(payload);
+		if (invalid || fail === 'reject' || marker('reject')) {
+			requests.push({ taskId: undefined, model, prompt, parts, body: redact(payload) });
+			json(response, 400, invalid
+				? { error: { code: 'InvalidParameter', message: `The parameter \`${invalid}\` specified in the request is not valid.`, type: 'BadRequest' } }
+				: { error: { code: 'InputTextSensitiveContentDetected', message: 'The request was refused: the prompt may contain sensitive content.', type: 'BadRequest' } });
 			return;
 		}
 		const task: MockTask = {
-			id: api === 'seedance' ? `cgt-${Date.now()}-${randomBytes(3).toString('hex')}` : `video_${randomBytes(8).toString('hex')}`,
-			api,
-			model,
+			id: `cgt-${Date.now()}-${randomBytes(3).toString('hex')}`,
+			model: model!,
 			createdAt: Date.now(),
-			fails: fail === 'task' || marker('fail'),
+			ends: fail === 'task' || marker('fail') ? 'failed' : fail === 'expire' || marker('expire') ? 'expired' : 'succeeded',
 			slow: fail === 'slow' || marker('slow'),
+			params: { ...payload, content: undefined, model: undefined },
 			cancelled: false
 		};
 		tasks.set(task.id, task);
-		requests.push({ api, taskId: task.id, model, prompt, parts, body: redact(payload) });
+		requests.push({ taskId: task.id, model, prompt, parts, body: redact(payload) });
 		if (fail === 'drop' || marker('drop')) {
 			// The provider made the task, but the answer never arrives.
 			request.socket.destroy();
 			return;
 		}
-		accepted(task);
+		json(response, 200, { id: task.id });
 	}
 
-	function stateOf(task: MockTask): 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' {
+	function stateOf(task: MockTask): MockState {
 		if (task.cancelled) {
 			return 'cancelled';
 		}
@@ -281,28 +239,28 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 		if (task.slow || elapsed < durationMs) {
 			return 'running';
 		}
-		return task.fails ? 'failed' : 'succeeded';
+		return task.ends;
 	}
 
-	function videoObject(task: MockTask, model: string, payload: Record<string, unknown> | undefined): Record<string, unknown> {
+	function taskObject(task: MockTask): Record<string, unknown> {
 		const state = stateOf(task);
-		const elapsed = Date.now() - task.createdAt;
+		const duration = typeof task.params.duration === 'number' && task.params.duration > 0 ? task.params.duration : 5;
 		return {
 			id: task.id,
-			object: 'video',
-			model,
-			status: state === 'queued' ? 'queued' : state === 'running' ? 'in_progress' : state === 'succeeded' ? 'completed' : state,
-			progress: state === 'succeeded' ? 100 : Math.min(99, Math.floor(100 * elapsed / Math.max(1, durationMs))),
+			model: task.model,
+			status: state,
+			...(state === 'succeeded' ? { content: { video_url: `${origin}/files/${encodeURIComponent(task.id)}.mp4` } } : {}),
+			error: state === 'failed' ? { code: 'OutputVideoSensitiveContentDetected', message: 'The video could not be made: the output may contain sensitive content.' } : null,
 			created_at: Math.floor(task.createdAt / 1000),
-			...(typeof payload?.seconds === 'string' ? { seconds: payload.seconds } : {}),
-			...(typeof payload?.size === 'string' ? { size: payload.size } : {}),
-			...(state === 'failed' ? { error: { code: 'video_generation_failed', message: 'The video could not be made: the output may contain sensitive content.' } } : {})
+			updated_at: Math.floor(Date.now() / 1000),
+			resolution: task.params.resolution ?? '720p',
+			ratio: task.params.ratio ?? 'adaptive',
+			duration,
+			framespersecond: 24,
+			...(typeof task.params.generate_audio === 'boolean' ? { generate_audio: task.params.generate_audio } : {}),
+			execution_expires_after: 172800,
+			...(state === 'succeeded' ? { usage: { completion_tokens: 108000, total_tokens: 108000 } } : {})
 		};
-	}
-
-	function sendVideo(response: ServerResponse): void {
-		response.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(video.byteLength) });
-		response.end(video);
 	}
 
 	await new Promise<void>((resolve, reject) => {
@@ -314,8 +272,8 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 
 	return {
 		url: origin,
+		baseUrl: `${origin}/api/v3`,
 		seedanceBaseUrl: `${origin}/api/v3`,
-		videosBaseUrl: `${origin}/v1`,
 		key,
 		requests,
 		configure(settings) {
@@ -333,6 +291,60 @@ export async function startMockVideoProvider(options: MockVideoProviderOptions =
 			return new Promise(resolve => server.close(() => resolve()));
 		}
 	};
+}
+
+/** The first field of a create request that the API would refuse, by its own documented rules. */
+function invalidField(payload: Record<string, unknown> | undefined): string | undefined {
+	if (!payload || typeof payload.model !== 'string' || !payload.model) {
+		return 'model';
+	}
+	if (!Array.isArray(payload.content) || payload.content.length === 0) {
+		return 'content';
+	}
+	for (const item of payload.content) {
+		if (!isRecord(item)) {
+			return 'content';
+		}
+		if (item.type === 'text') {
+			if (typeof item.text !== 'string') {
+				return 'content.text';
+			}
+		} else if (item.type === 'image_url') {
+			if (!isRecord(item.image_url) || typeof item.image_url.url !== 'string' || !/^data:image\/[a-z]+;base64,/.test(item.image_url.url)) {
+				return 'content.image_url.url';
+			}
+			if (item.role !== undefined && !IMAGE_ROLES.has(String(item.role))) {
+				return 'content.role';
+			}
+		} else if (item.type === 'audio_url') {
+			if (!isRecord(item.audio_url) || typeof item.audio_url.url !== 'string' || !/^data:audio\/[a-z0-9]+;base64,/.test(item.audio_url.url)) {
+				return 'content.audio_url.url';
+			}
+			if (item.role !== 'reference_audio') {
+				return 'content.role';
+			}
+		} else {
+			return 'content.type';
+		}
+	}
+	if (payload.resolution !== undefined && !RESOLUTIONS.has(String(payload.resolution))) {
+		return 'resolution';
+	}
+	if (payload.ratio !== undefined && !RATIOS.has(String(payload.ratio))) {
+		return 'ratio';
+	}
+	if (payload.duration !== undefined && !(Number.isInteger(payload.duration) && (payload.duration === -1 || (payload.duration as number) >= 2))) {
+		return 'duration';
+	}
+	for (const flag of ['generate_audio', 'watermark', 'camera_fixed']) {
+		if (payload[flag] !== undefined && typeof payload[flag] !== 'boolean') {
+			return flag;
+		}
+	}
+	if (payload.seed !== undefined && !Number.isInteger(payload.seed)) {
+		return 'seed';
+	}
+	return undefined;
 }
 
 function readBody(request: IncomingMessage): Promise<Buffer> {
@@ -359,19 +371,20 @@ function parseJson(body: Buffer): Record<string, unknown> | undefined {
 	}
 }
 
-function seedancePrompt(payload: Record<string, unknown> | undefined): string | undefined {
+function textOf(payload: Record<string, unknown> | undefined): string | undefined {
 	const content = Array.isArray(payload?.content) ? payload.content : [];
 	const text = content.find((item: unknown) => isRecord(item) && item.type === 'text');
 	return isRecord(text) && typeof text.text === 'string' ? text.text : undefined;
 }
 
-function seedancePart(item: unknown): string {
+function partOf(item: unknown): string {
 	if (!isRecord(item)) {
 		return 'invalid';
 	}
-	if (item.type === 'image_url' && isRecord(item.image_url) && typeof item.image_url.url === 'string') {
-		const url = item.image_url.url;
-		return `image_url ${String(item.role)} ${url.startsWith('data:') ? url.slice(0, url.indexOf(';')) : 'url'}`;
+	const media = item.type === 'image_url' ? item.image_url : item.type === 'audio_url' ? item.audio_url : undefined;
+	if (isRecord(media) && typeof media.url === 'string') {
+		const url = media.url;
+		return `${String(item.type)} ${String(item.role)} ${url.startsWith('data:') ? url.slice(0, url.indexOf(';')) : 'url'}`;
 	}
 	return String(item.type);
 }
@@ -382,45 +395,6 @@ function redact(payload: Record<string, unknown> | undefined): Record<string, un
 		return undefined;
 	}
 	return JSON.parse(JSON.stringify(payload, (_key, value: unknown) => typeof value === 'string' && value.startsWith('data:') ? `${value.slice(0, value.indexOf(','))},…` : value));
-}
-
-interface ParsedForm {
-	readonly fields: Record<string, string>;
-	readonly files: readonly { readonly name: string; readonly type: string; readonly size: number }[];
-}
-
-function parseForm(contentType: string | undefined, body: Buffer): ParsedForm | undefined {
-	const boundary = /multipart\/form-data;\s*boundary=(?<boundary>[^;]+)/i.exec(contentType ?? '')?.groups?.boundary;
-	if (!boundary) {
-		return undefined;
-	}
-	const fields: Record<string, string> = {};
-	const files: { name: string; type: string; size: number }[] = [];
-	const delimiter = Buffer.from(`--${boundary}`);
-	let position = body.indexOf(delimiter);
-	while (position >= 0) {
-		const start = position + delimiter.byteLength;
-		if (body.subarray(start, start + 2).toString() === '--') {
-			break;
-		}
-		const next = body.indexOf(delimiter, start);
-		if (next < 0) {
-			break;
-		}
-		const part = body.subarray(start + 2, next - 2);
-		const split = part.indexOf('\r\n\r\n');
-		const head = part.subarray(0, split).toString('utf8');
-		const content = part.subarray(split + 4);
-		const name = /name="(?<name>[^"]*)"/.exec(head)?.groups?.name ?? '';
-		const fileName = /filename="(?<file>[^"]*)"/.exec(head)?.groups?.file;
-		if (fileName !== undefined) {
-			files.push({ name, type: /Content-Type:\s*(?<type>[^\r\n]+)/i.exec(head)?.groups?.type ?? '', size: content.byteLength });
-		} else {
-			fields[name] = content.toString('utf8');
-		}
-		position = next;
-	}
-	return { fields, files };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -447,8 +421,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 	console.log(JSON.stringify({
 		ok: true,
 		url: provider.url,
-		seedanceBaseUrl: provider.seedanceBaseUrl,
-		videosBaseUrl: provider.videosBaseUrl,
+		baseUrl: provider.baseUrl,
 		key: provider.key,
 		fixture: fileURLToPath(MOCK_VIDEO_FIXTURE_URL)
 	}));
