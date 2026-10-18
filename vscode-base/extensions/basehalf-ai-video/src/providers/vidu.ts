@@ -63,8 +63,8 @@ const DATA_URL_PREFIX_BYTES = 40;
 const FRAME_SHAPE: readonly [number, number] = [0.8, 1.25];
 /** Credits Q2 adds for sound from a start frame. */
 const Q2_SOUND_CREDITS = 15;
-/** Credits `is_rec` may add (the update notice of 2025-11-03). */
-const EXPAND_PROMPT_CREDITS = 10;
+/** Credits `prompt_extend` (Vidu's `is_rec`) may add (the update notice of 2025-11-03). */
+const PROMPT_EXTEND_CREDITS = 10;
 const SEED_MAX = 2147483647;
 /** The type of an MP3's data URL, as Vidu's pages write it. */
 const MP3_DATA_TYPE = 'video/mp3';
@@ -81,14 +81,14 @@ const TEXT = Object.freeze({
 	resolution: 'Resolution',
 	duration: 'Duration',
 	ratio: 'Ratio',
-	ratioAuto: 'Auto',
+	ratioAdaptive: 'Adaptive',
 	ratioWithoutFrame: 'Used when there is no start frame; a video made from a frame takes the shape of the frame.',
-	ratioWithAuto: 'Auto lets Vidu choose the shape from the reference images.',
+	ratioWithAdaptive: 'Adaptive lets Vidu choose the shape from the reference images.',
 	sound: 'Sound',
 	soundTooltip: 'Dialogue and sound effects made together with the picture.',
 	soundFromStartFrame: 'Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits.',
-	expandPrompt: 'Expand Prompt',
-	expandPromptTooltip: 'Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits.',
+	promptExtend: 'Expand Prompt',
+	promptExtendTooltip: 'Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits.',
 	seed: 'Seed',
 	seedTooltip: 'The same seed and settings make a similar video. Empty or 0 makes a new one each time.',
 	models: Object.freeze<Record<string, { readonly label: string; readonly description: string }>>({
@@ -169,20 +169,27 @@ interface ViduModel {
 	readonly reference?: ReferenceSpec;
 	readonly promptRequired: 'always' | 'withoutMedia';
 	readonly promptLimits: readonly PromptLimit[];
-	readonly resolutions: readonly string[];
+	readonly resolutions: readonly Resolution[];
 	readonly durations: readonly [number, number];
-	/** `aspect_ratio`: the mode it applies to, and whether `auto` is a choice. */
-	readonly ratio?: { readonly mode: ModeId; readonly auto: boolean };
-	/** `audio`: its default, and whether only `img2video` takes it. */
+	/** `ratio` (Vidu's `aspect_ratio`): the mode it applies to, and whether `adaptive` (Vidu's `auto`) is a choice. */
+	readonly ratio?: { readonly mode: ModeId; readonly adaptive: boolean };
+	/** `sound` (Vidu's `audio`): its default, and whether only `img2video` takes it. */
 	readonly sound?: { readonly default: boolean; readonly startFrameAlone?: boolean };
-	/** `is_rec`, which `img2video` takes. */
-	readonly expandPrompt?: boolean;
+	/** `prompt_extend` (Vidu's `is_rec`), which `img2video` takes. */
+	readonly promptExtend?: boolean;
 	readonly price: Price;
 }
 
+/** A resolution as the catalog names it, in lower case (video providers, "Shared names"). */
+type Resolution = '540p' | '720p' | '1080p' | '2k' | '4k';
+
+/** Each resolution as Vidu writes it, which is also the value it takes. */
+const VIDU_RESOLUTIONS = Object.freeze<Record<Resolution, string>>({ '540p': '540p', '720p': '720p', '1080p': '1080p', '2k': '2K', '4k': '4K' });
+const RESOLUTIONS_SENT: ReadonlyMap<string, string> = new Map(Object.entries(VIDU_RESOLUTIONS));
+
 const FRAME_LIMITS: ModeLimits = Object.freeze({ imageMaxBytes: 10 * MIB, imageAspect: [0.25, 4] as const });
 const REFERENCE_IMAGE_LIMITS: ModeLimits = Object.freeze({ imageMinSide: 128, imageAspect: [0.25, 4] as const });
-const Q3_RESOLUTIONS = ['540p', '720p', '1080p'] as const;
+const Q3_RESOLUTIONS: readonly Resolution[] = Object.freeze<Resolution[]>(['540p', '720p', '1080p']);
 const RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
 
 /**
@@ -199,7 +206,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 16],
-		ratio: { mode: 'frames', auto: false },
+		ratio: { mode: 'frames', adaptive: false },
 		sound: { default: true },
 		price: { kind: 'perSecond', rates: { '540p': 9, '720p': 20, '1080p': 24 } }
 	},
@@ -211,7 +218,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }, { max: 5000, region: 'intl', routes: ['text2video'] }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [1, 16],
-		ratio: { mode: 'frames', auto: false },
+		ratio: { mode: 'frames', adaptive: false },
 		sound: { default: true },
 		price: { kind: 'perSecond', rates: { '540p': 7, '720p': 12, '1080p': 13 } }
 	},
@@ -233,12 +240,12 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		reference: { images: { min: 1, max: 15 }, audios: { min: 0, max: 3 }, limits: { imageMaxBytes: 50 * MIB, audioSeconds: [3, 12], audioMaxBytes: 50 * MIB } },
 		promptRequired: 'withoutMedia',
 		promptLimits: [{ max: 20000 }],
-		resolutions: ['540p', '720p', '1080p', '2K', '4K'],
+		resolutions: ['540p', '720p', '1080p', '2k', '4k'],
 		durations: [3, 16],
-		ratio: { mode: 'reference', auto: false },
+		ratio: { mode: 'reference', adaptive: false },
 		sound: { default: true },
-		expandPrompt: true,
-		price: { kind: 'perSecond', rates: { '540p': 9, '720p': 19, '1080p': 24, '2K': 38, '4K': 78 } }
+		promptExtend: true,
+		price: { kind: 'perSecond', rates: { '540p': 9, '720p': 19, '1080p': 24, '2k': 38, '4k': 78 } }
 	},
 	{
 		id: 'q3',
@@ -248,7 +255,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }, { max: 5000, region: 'intl' }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [3, 16],
-		ratio: { mode: 'reference', auto: true },
+		ratio: { mode: 'reference', adaptive: true },
 		sound: { default: true },
 		price: { kind: 'perSecond', rates: { '540p': 7, '720p': 12, '1080p': 15 } }
 	},
@@ -265,7 +272,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 20000 }, { max: 5000, region: 'intl' }],
 		resolutions: ['720p', '1080p'],
 		durations: [3, 15],
-		ratio: { mode: 'reference', auto: true },
+		ratio: { mode: 'reference', adaptive: true },
 		price: { kind: 'perSecond', rates: { '720p': 24, '1080p': 29 } }
 	},
 	{
@@ -276,7 +283,7 @@ const MODELS: readonly ViduModel[] = Object.freeze<ViduModel[]>([
 		promptLimits: [{ max: 5000 }],
 		resolutions: Q3_RESOLUTIONS,
 		durations: [3, 15],
-		ratio: { mode: 'reference', auto: true },
+		ratio: { mode: 'reference', adaptive: true },
 		price: { kind: 'perSecond', rates: { '540p': 4, '720p': 10, '1080p': 13 } }
 	},
 	{
@@ -330,30 +337,35 @@ function catalogModes(model: ViduModel): CatalogMode[] {
 	return modes;
 }
 
+/**
+ * The parameters of a model under the names every provider shares (video
+ * providers, "Shared names"): `ratio`, `sound`, and `prompt_extend` are sent as
+ * Vidu's `aspect_ratio`, `audio`, and `is_rec` (`createBody`).
+ */
 function catalogParameters(model: ViduModel): CatalogParameter[] {
 	const parameters: CatalogParameter[] = [
-		{ name: 'resolution', label: TEXT.resolution, kind: 'choice', options: model.resolutions.map(value => ({ value, label: value })), default: '720p' },
+		{ name: 'resolution', label: TEXT.resolution, kind: 'choice', options: model.resolutions.map(value => ({ value, label: VIDU_RESOLUTIONS[value] })), default: '720p' },
 		{ name: 'duration', label: TEXT.duration, kind: 'integer', unit: 'seconds', min: model.durations[0], max: model.durations[1], step: 1, default: 5 }
 	];
 	if (model.ratio) {
 		const options = RATIOS.map(value => ({ value, label: value }));
-		const tooltip = model.ratio.mode === 'frames' ? TEXT.ratioWithoutFrame : model.ratio.auto ? TEXT.ratioWithAuto : undefined;
+		const tooltip = model.ratio.mode === 'frames' ? TEXT.ratioWithoutFrame : model.ratio.adaptive ? TEXT.ratioWithAdaptive : undefined;
 		parameters.push({
-			name: 'aspect_ratio',
+			name: 'ratio',
 			label: TEXT.ratio,
 			kind: 'choice',
 			display: 'ratio',
-			options: model.ratio.auto ? [...options, { value: 'auto', label: TEXT.ratioAuto }] : options,
+			options: model.ratio.adaptive ? [...options, { value: 'adaptive', label: TEXT.ratioAdaptive }] : options,
 			default: '16:9',
 			modes: [model.ratio.mode],
 			...(tooltip ? { tooltip } : {})
 		});
 	}
 	if (model.sound) {
-		parameters.push({ name: 'audio', label: TEXT.sound, kind: 'boolean', default: model.sound.default, tooltip: model.sound.startFrameAlone ? TEXT.soundFromStartFrame : TEXT.soundTooltip });
+		parameters.push({ name: 'sound', label: TEXT.sound, kind: 'boolean', default: model.sound.default, tooltip: model.sound.startFrameAlone ? TEXT.soundFromStartFrame : TEXT.soundTooltip });
 	}
-	if (model.expandPrompt) {
-		parameters.push({ name: 'is_rec', label: TEXT.expandPrompt, kind: 'boolean', default: false, modes: ['frames'], tooltip: TEXT.expandPromptTooltip });
+	if (model.promptExtend) {
+		parameters.push({ name: 'prompt_extend', label: TEXT.promptExtend, kind: 'boolean', default: false, modes: ['frames'], tooltip: TEXT.promptExtendTooltip });
 	}
 	parameters.push({ name: 'seed', label: TEXT.seed, kind: 'integer', min: 0, max: SEED_MAX, step: 1, optional: true, advanced: true, tooltip: TEXT.seedTooltip });
 	return parameters;
@@ -505,12 +517,12 @@ function creditsOf(model: ViduModel, route: Route, params: Params): readonly [nu
 			return undefined;
 		}
 		credits = duration <= 1 ? steps[0] : steps[1] + (duration - 2) * steps[2];
-		if (params.audio === true && route === 'img2video') {
+		if (params.sound === true && route === 'img2video') {
 			credits += Q2_SOUND_CREDITS;
 		}
 	}
-	const expanded = model.expandPrompt === true && route === 'img2video' && params.is_rec === true;
-	return [credits, credits + (expanded ? EXPAND_PROMPT_CREDITS : 0)];
+	const extended = model.promptExtend === true && route === 'img2video' && params.prompt_extend === true;
+	return [credits, credits + (extended ? PROMPT_EXTEND_CREDITS : 0)];
 }
 
 async function readInput(media: Media, label: string): Promise<{ readonly base64: string; readonly format: MediaFormat | undefined }> {
@@ -537,7 +549,10 @@ async function audioDataUrl(media: Media, label: string): Promise<string> {
 	return `data:${MP3_DATA_TYPE};base64,${base64}`;
 }
 
-/** The body of a create request: the fields its route takes (vidu.md, "Requests"). */
+/**
+ * The body of a create request: the fields its route takes, with the shared
+ * parameters under Vidu's names and values (vidu.md, "Requests").
+ */
 async function createBody(model: ViduModel, providerModel: string, route: Route, request: SubmitRequest): Promise<Record<string, unknown>> {
 	const images: string[] = [];
 	const sounds: string[] = [];
@@ -562,15 +577,15 @@ async function createBody(model: ViduModel, providerModel: string, route: Route,
 		body.prompt = request.prompt;
 	}
 	body.duration = params.duration;
-	body.resolution = params.resolution;
-	if (params.aspect_ratio !== undefined && (route === 'text2video' || route === 'reference2video')) {
-		body.aspect_ratio = params.aspect_ratio;
+	body.resolution = RESOLUTIONS_SENT.get(String(params.resolution)) ?? params.resolution;
+	if (params.ratio !== undefined && (route === 'text2video' || route === 'reference2video')) {
+		body.aspect_ratio = params.ratio === 'adaptive' ? 'auto' : params.ratio;
 	}
-	if (params.audio !== undefined && !(model.sound?.startFrameAlone && route !== 'img2video')) {
-		body.audio = params.audio;
+	if (params.sound !== undefined && !(model.sound?.startFrameAlone && route !== 'img2video')) {
+		body.audio = params.sound;
 	}
-	if (params.is_rec !== undefined && route === 'img2video') {
-		body.is_rec = params.is_rec;
+	if (params.prompt_extend !== undefined && route === 'img2video') {
+		body.is_rec = params.prompt_extend;
 	}
 	if (params.seed !== undefined) {
 		body.seed = params.seed;
@@ -763,7 +778,7 @@ export const VIDU = Object.freeze<ProviderModule>({
 		if (length > limit.max && length <= Math.max(...model.promptLimits.map(entry => entry.max))) {
 			problems.push(`The prompt is ${length} characters long; ${label} takes at most ${limit.max}${limitWhere(limit, route)}.`);
 		}
-		if (model.sound?.startFrameAlone && request.params.audio === true && counts.endFrame) {
+		if (model.sound?.startFrameAlone && request.params.sound === true && counts.endFrame) {
 			problems.push(`${label} makes sound only from a start frame alone; turn off ${TEXT.sound} to use an end frame.`);
 		}
 		const audioRegions = model.reference?.audioRegions;

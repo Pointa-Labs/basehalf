@@ -117,33 +117,36 @@ Sizes the pages give in MB are read as MiB.
 ## Parameters
 
 The models declare these parameters with the values their pages list; the
-second table says which model has which. A value is sent under the field of
-the same name.
+second table says which model has which. They take the names and values every
+provider shares ([Shared names](../video-providers.md#parameters)), so that
+choosing another model keeps them, and the module sends each under Vidu's
+field and value:
 
-| Parameter | Label | Kind | Values and default |
-| --- | --- | --- | --- |
-| `resolution` | Resolution | choice | by model, below; default 720p |
-| `duration` | Duration | whole seconds | by model, below; default 5 |
-| `aspect_ratio` | Ratio | choice, drawn as ratios | `16:9` (default), `9:16`, `1:1`, `4:3`, `3:4`, and `auto` where listed |
-| `audio` | Sound | on or off | where listed |
-| `is_rec` | Expand Prompt | on or off | `q4-preview` Frames only; default off |
-| `seed` | Seed | whole number 0–2147483647, optional, under More | sent only when set; empty or 0 is random |
+| Parameter | Label | Kind | Values and default | Sent as |
+| --- | --- | --- | --- | --- |
+| `resolution` | Resolution | choice | by model, below, in lower case; labels as Vidu writes them (`2k` is **2K**, `4k` is **4K**); default `720p` | `resolution`, as Vidu writes it (`2K`, `4K`) |
+| `duration` | Duration | whole seconds | by model, below; default 5 | `duration` |
+| `ratio` | Ratio | choice, drawn as ratios | `16:9` (default), `9:16`, `1:1`, `4:3`, `3:4`, and `adaptive` (**Adaptive**) where listed | `aspect_ratio`, with `adaptive` sent as `auto` |
+| `sound` | Sound | on or off | where listed | `audio` |
+| `prompt_extend` | Expand Prompt | on or off | `q4-preview` Frames only; default off | `is_rec` |
+| `seed` | Seed | whole number 0–2147483647, optional, under More | sent only when set; empty or 0 is random | `seed` |
 
 | Model | Resolution | Duration | Ratio | Sound |
 | --- | --- | --- | --- | --- |
-| `q4-preview` | 540p, 720p, 1080p, 2K, 4K | 3–16 | References only, no `auto` | on |
-| `q3-pro`, `q3-turbo` | 540p, 720p, 1080p | 1–16 | Frames, sent only without a start frame, no `auto` | on |
-| `q3-pro-fast` | 720p, 1080p | 1–16 | — | on |
-| `q3` | 540p, 720p, 1080p | 3–16 | with `auto` | on |
-| `q3-mix` | 720p, 1080p | 3–15 | with `auto` | — |
-| `q3-turbo-reference` | 540p, 720p, 1080p | 3–15 | with `auto` | — |
-| `q2-pro`, `q2-turbo` | 540p, 720p, 1080p | 1–10 | — | off |
+| `q4-preview` | `540p`, `720p`, `1080p`, `2k`, `4k` | 3–16 | References only, no `adaptive` | on |
+| `q3-pro`, `q3-turbo` | `540p`, `720p`, `1080p` | 1–16 | Frames, sent only without a start frame, no `adaptive` | on |
+| `q3-pro-fast` | `720p`, `1080p` | 1–16 | — | on |
+| `q3` | `540p`, `720p`, `1080p` | 3–16 | with `adaptive` | on |
+| `q3-mix` | `720p`, `1080p` | 3–15 | with `adaptive` | — |
+| `q3-turbo-reference` | `540p`, `720p`, `1080p` | 3–15 | with `adaptive` | — |
+| `q2-pro`, `q2-turbo` | `540p`, `720p`, `1080p` | 1–10 | — | off |
 
 - The ratio of a video made from a frame is the frame's own, so `q3-pro` and
   `q3-turbo` send `aspect_ratio` only to `text2video`. Its tooltip says so.
-- `is_rec` lets Vidu write a fuller prompt before it generates. Vidu's own
-  default is on; BaseHalf's is off, so that the prompt is used as written
-  unless the user turns it on.
+- `adaptive` is Vidu's `auto`: Vidu takes the shape from the reference images.
+- `prompt_extend` lets Vidu write a fuller prompt before it generates. Vidu's
+  own default of `is_rec` is on; BaseHalf's is off, so that the prompt is used
+  as written unless the user turns it on.
 - `q2-pro` and `q2-turbo` make sound from a start frame alone: their
   `start-end2video` request has no `audio` field.
 - Values the pages list for one request only are not offered: `360p` of the
@@ -153,11 +156,11 @@ Tooltips, in English like every label of the module:
 
 | Parameter | Tooltip |
 | --- | --- |
-| `aspect_ratio` of `q3-pro`, `q3-turbo` | Used when there is no start frame; a video made from a frame takes the shape of the frame. |
-| `aspect_ratio` with `auto` | Auto lets Vidu choose the shape from the reference images. |
-| `audio` | Dialogue and sound effects made together with the picture. |
-| `audio` of `q2-pro`, `q2-turbo` | Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits. |
-| `is_rec` | Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits. |
+| `ratio` of `q3-pro`, `q3-turbo` | Used when there is no start frame; a video made from a frame takes the shape of the frame. |
+| `ratio` with `adaptive` | Adaptive lets Vidu choose the shape from the reference images. |
+| `sound` | Dialogue and sound effects made together with the picture. |
+| `sound` of `q2-pro`, `q2-turbo` | Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits. |
+| `prompt_extend` | Vidu writes a fuller prompt from yours and the start frame before it generates. It may add 10 credits. |
 | `seed` | The same seed and settings make a similar video. Empty or 0 makes a new one each time. |
 
 ### Prompt
@@ -198,10 +201,11 @@ Create, once (`http.create`):
 | `images` | `img2video`: the start frame; `start-end2video`: the start and end frames; `reference2video`: the reference images in order |
 | `sounds` | `reference2video` of `q4-preview` and `q3-mix`: the reference audio in order, when there is any |
 | `prompt` | the prompt as sent, when it is not empty |
-| `duration`, `resolution` | always |
-| `aspect_ratio` | `text2video` and `reference2video` of the models that declare it |
-| `audio` | the models that declare it, to the requests that take it |
-| `is_rec` | `img2video` of `q4-preview` |
+| `duration` | always |
+| `resolution` | always, as Vidu writes it: `540p`, `720p`, `1080p`, `2K`, `4K` |
+| `aspect_ratio` | `ratio`, to `text2video` and `reference2video` of the models that declare it; `adaptive` as `auto` |
+| `audio` | `sound`, of the models that declare it, to the requests that take it |
+| `is_rec` | `prompt_extend`, to `img2video` of `q4-preview` |
 | `seed` | when set |
 
 - Images are data URLs of their own format (`data:image/png;base64,…`,
@@ -296,9 +300,9 @@ Sound adds 15 credits to an `img2video` request of Q2. The platform's pricing
 page gives the same numbers length by length (1 to 10 seconds from a start
 frame, 1 to 8 from start and end frames; the API takes 1 to 10 for both).
 
-- `is_rec` on for `q4-preview` gives a range up to 10 credits more: the update
-  notice of 2025-11-03 says each call with it costs 10 more credits, and the Q2
-  pages say the same; the Q4 page names no price for it.
+- `prompt_extend` on for `q4-preview` gives a range up to 10 credits more: the
+  update notice of 2025-11-03 says each call with `is_rec` costs 10 more
+  credits, and the Q2 pages say the same; the Q4 page names no price for it.
 - `q3-pro-fast` with an end frame has no estimate: the price list gives
   `img2video` only.
 - The estimate is the standard price. Vidu's off-peak mode, about half the
@@ -359,7 +363,8 @@ Examples recorded in the tests:
   to 2147483647.
 - **Audio data URL type**: the pages' examples write `data:video/mp3`; BaseHalf
   sends that type.
-- **`is_rec` of `q4-preview`**: its price, hence the range.
+- **`prompt_extend` of `q4-preview`** (Vidu's `is_rec`): its price, hence the
+  range.
 - **The credit price in International**: only the pricing page's script states
   $0.005; the documentation's price page states the price in yuan.
 - **`task_id`**: the pages give a string. When an answer gives it as a number,
