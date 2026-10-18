@@ -177,7 +177,9 @@ function callUrl(endpoint: URL, call: HttpCall): URL {
 		if (!path.startsWith('/') || /[?#]/.test(path) || path.split('/').some(segment => segment === '..' || segment === '.')) {
 			throw new Error(`An API path must start with / and carry no query, fragment, or dot segment: ${path}`);
 		}
-		url = new URL(`${endpoint.origin}${endpoint.pathname}${path}`);
+		// An endpoint without a path still has the pathname `/`, which would double the slash.
+		const base = endpoint.pathname === '/' ? '' : endpoint.pathname;
+		url = new URL(`${endpoint.origin}${base}${path}`);
 	}
 	for (const [name, value] of Object.entries(call.query ?? {})) {
 		url.searchParams.set(name, String(value));
