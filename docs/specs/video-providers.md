@@ -291,6 +291,7 @@ each accepts, its requests and task states, and its estimate:
 
 - [ByteDance (Seedance)](video-providers/bytedance.md)
 - [Kling](video-providers/kling.md)
+- [MiniMax (Hailuo)](video-providers/minimax.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
 | --- | --- | --- | --- | --- | --- |
