@@ -290,6 +290,7 @@ Each implemented provider has its own specification in
 each accepts, its requests and task states, and its estimate:
 
 - [ByteDance (Seedance)](video-providers/bytedance.md)
+- [Kling](video-providers/kling.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
 | --- | --- | --- | --- | --- | --- |

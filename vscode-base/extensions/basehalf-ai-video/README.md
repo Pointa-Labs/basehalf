@@ -135,6 +135,7 @@ parameter properties, namespaces).
 | Provider | Module | Specification |
 | --- | --- | --- |
 | ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers/bytedance.md) |
+| Kling | `kling.ts` | [Kling](../../../docs/specs/video-providers/kling.md) |
 
 ## Sequence
 

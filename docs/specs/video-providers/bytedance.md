@@ -1,8 +1,8 @@
 # ByteDance (Seedance)
 
-Status: implemented (D59). Part of
-[video providers and the model catalog](../video-providers.md), which defines
-the catalog, the requests, and the rules every provider follows.
+Status: Active (2026-10-19)
+Decision: [D59](../../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Parent: [Video providers and the model catalog](../video-providers.md)
 
 Implemented in `extensions/basehalf-ai-video/src/providers/bytedance.ts`.
 The facts below follow these official pages, read on 2026-10-18 and
