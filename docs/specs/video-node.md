@@ -224,21 +224,33 @@ The settings of a node are drawn from its model's
 
 - **Mode** first, when the model offers more than one.
 - Then every parameter that is not advanced, in the order the model declares
-  them: a choice of up to five values as a row of buttons, of more as a list;
-  a choice drawn as `ratio` as small ratio shapes; a whole or decimal number
-  as a slider with its value, or as buttons when it has five or fewer steps;
-  **Auto** next to a number that offers it; a switch for a boolean; a text
-  field for text.
+  them: a choice of up to five values as a row of buttons, of more as a list
+  that scrolls after six rows; a choice drawn as `ratio` as small ratio
+  shapes; a whole or decimal number as buttons when it has five or fewer
+  steps, as a slider with its value when it has up to 1,000, and as a number
+  field when it has more, such as a seed; **Auto** next to a number that
+  offers it; a switch for a boolean; a text field for text.
 - **More** opens the advanced parameters, such as the seed and the negative
-  prompt. An optional parameter left empty sends nothing.
+  prompt. An optional parameter left empty sends nothing: an optional number
+  is a number field, or buttons with **None** when it has five or fewer
+  steps, and an optional choice adds **None**.
 
 The values are the node's `params`; a parameter without a value shows its
 default, and that is what is sent. Choosing another model or mode keeps every
 value the new model or mode accepts and gives the others their defaults,
 without a message (`normalizeBaseHalfVideoParams`); the panel shows the
-result, and that is what is sent. A new Video node starts with the provider,
-model, mode, and values of the last generation on this computer, made legal
-for that model.
+result, and that is what is sent. A value that the mode does not use, an
+unknown name, and a number off the parameter's steps are not accepted. A new
+Video node starts with the provider, model, mode, and values of the last
+generation on this computer, made legal for that model; a model that is
+deprecated or no longer in the catalog is not chosen. While the catalog is
+not there yet, the last values are written as they were stored.
+
+The summary of the settings names the mode and then, for every parameter that
+is not advanced and has a value: a choice by its option's label, a number
+with the unit seconds as `5s`, **Auto** as its label, any other number as its
+label and value (`Steps 30`), a boolean that is on by its label and one that
+is off as `Sound off`, and text as written.
 
 ## The panel
 
@@ -275,8 +287,13 @@ From top to bottom:
      models grouped by provider, in the catalog's order; a provider that is
      not set up says so next to its name, and its models can still be chosen.
      A model the provider's region does not offer is shown dimmed with the
-     reason. Deprecated models are listed only for a node that uses one. The
-     menu ends with **Video Providers…**.
+     reason, and can still be chosen. Deprecated models are listed only for a
+     node that uses one. The menu ends with **Video Providers…**.
+   - While the catalog loads, the model button says so and its menu holds
+     only **Video Providers…**; when it could not be loaded, the menu says
+     why. The window asks AI Video for the catalog once and keeps it; a
+     failed request is tried once more at once, and again when a panel or
+     the Video Providers page opens.
    - The settings button sums up the settings: the mode, then the value of
      every parameter that is not advanced, such as "Frames · 720p · 5s ·
      Sound". Its popover is 300 px wide and holds the settings above; every
@@ -285,19 +302,23 @@ From top to bottom:
      list price, as "≈ ¥7.56" or "¥3.00–¥9.00", in the region's currency. Its
      tooltip says that it is an estimate from the provider's published price
      of the given date and that the provider's bill counts. Without an
-     estimate, nothing is shown.
+     estimate, nothing is shown. The panel asks the provider module
+     ([check](video-providers.md#requests), without files) a quarter of a
+     second after the model, mode, values, prompt, or inputs change, also
+     before the provider is set up, and keeps showing the last answer for the
+     same model until the new one arrives.
    - The Generate button is a round arrow. While the node generates, it is a
      stop square that stops the generation.
 
 The Generate button is enabled only when the node can generate. Otherwise its
 tooltip and accessible name say the first reason, in this order
-(`getBaseHalfVideoGenerateBlocker`): the node is generating; no model is
-chosen; the catalog has no such model; the provider is not set up; the
-provider's region does not offer the model; the first problem that the
-provider module reports for the planned generation
-([check](video-providers.md#requests)); there is nothing to send. For the
-second to fifth, the model button is outlined and its tooltip says the
-same.
+(`getBaseHalfVideoGenerateBlocker`): the node is generating; the catalog is
+loading or could not be loaded; no model is chosen; the catalog has no such
+model; the provider is not set up; the provider's region does not offer the
+model; the first problem that the provider module reports for the planned
+generation ([check](video-providers.md#requests)); there is nothing to send.
+For no model, no such model, the provider, and the region, the model button
+is outlined and its tooltip says the same.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
@@ -348,9 +369,12 @@ in Finder** (Explorer on Windows, the file manager elsewhere), and **Open**.
   number added when the name is taken). Its card appears to the right of the
   video card. It is an ordinary image that the user can connect to another
   node.
-- **Open** shows the video large in Card Detail, with what made it: model,
-  provider, mode, settings, prompt, the inputs in order, and when it started
-  and finished. An imported video says that it was imported.
+- **Open** shows the video large in Card Detail, with what made it: model
+  and the id sent to the provider, provider and region, mode, settings,
+  prompt as sent, the inputs in order, and when it started and finished. The
+  names of the provider, region, model, mode, and each parameter and value
+  come from the catalog when it has them, and are the recorded ids
+  otherwise. An imported video says that it was imported.
 
 ## A generation
 
@@ -363,11 +387,13 @@ the ones before the task is written write nothing:
 2. If the node holds a video, make a new node beside it and continue there
    ([Generating again](#generating-again)).
 3. Read the provider's region, endpoint, and credentials. Stop with the first
-   blocker, as the panel shows it.
+   blocker, as the panel shows it. An agent's request waits up to 30 seconds
+   for the catalog while it loads.
 4. Plan the inputs, read the text inputs, and build the prompt. Prepare the
    used images, videos, and audio, and have the provider module check the
    planned generation with its files; stop with the first problem, or when an
-   input is missing.
+   input is missing. The values sent are the node's `params` made legal for
+   the model and mode, with every default filled in.
 5. Write the task as `submitting`, with the request record.
 6. Send the request through the AI Video extension. When the provider
    returns its task id, write it and the state `running`.
@@ -414,7 +440,11 @@ panel closes and when the canvas shows another folder. When a window shows a
 Video card whose task is active and that no generation in the window follows:
 
 - a `running` task is followed again: BaseHalf asks the provider about its
-  `remoteId` and continues from step 7;
+  `remoteId` and continues from step 7. It asks in the region the request
+  records, at the endpoint set up on this computer while the provider is
+  still set up in that region, and otherwise at that region's base URL. A
+  task whose provider is not set up on this computer is left to a window that
+  can follow it, and fails once it is two hours old;
 - a `submitting` task that started more than two minutes ago fails with a
   message saying that BaseHalf closed while the request was on its way and
   asking the user to check the provider's console. It is never sent again.
@@ -447,10 +477,15 @@ card. The original node and its video do not change.
   comparing real paths.
 - No confirmation is asked: the user asked the agent to work, and the user's
   own key pays.
-- `basehalf --list-capabilities` includes the model catalog: each provider
-  with whether it is set up, and each model with its modes, input slots,
-  limits, and parameters. An agent chooses `provider`, `model`, `mode`, and
-  `params` from it.
+- `basehalf --list-capabilities` includes the model catalog as
+  `host.videoCatalog`: each provider with its label, whether it is set up, its
+  regions (id, label, currency) and the region in use, and each model with
+  its label, description, the regions that offer it, its prompt rule, its
+  modes with their input slots and limits, its parameters, whether it has an
+  estimate, and whether it is deprecated. It holds no credential, endpoint, or
+  id sent to a provider. When the catalog could not be loaded, it lists no
+  provider and says why in `error`. An agent chooses `provider`, `model`,
+  `mode`, and `params` from it.
 - The skill that BaseHalf offers to agents describes the Video node fields,
   the input order and names, the catalog, and this command.
 
@@ -497,8 +532,10 @@ The other parts of the frozen plugin platform stay as they are
   receives it, parameter normalization, input planning and names from mode
   declarations, prompt building, the summary of the settings, and the Generate
   blockers. Pure. It names no provider and no model.
-- `common/basehalfVideoGeneration.ts`: the node store, provider settings, and
-  generation service interfaces.
+- `common/basehalfVideoGeneration.ts`: the node store, catalog, provider
+  settings, and generation service interfaces. The catalog service asks for
+  the catalog; the provider settings service keeps each provider's region,
+  endpoint, and credentials and the last values used.
 - `common/basehalfNodeDocument.ts`: the version 6 document, which embeds the
   video fields.
 - The workbench implements the services, the panel, the card, the toolbar
