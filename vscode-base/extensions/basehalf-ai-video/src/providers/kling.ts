@@ -337,16 +337,6 @@ function contentType(slot: PlannedItem['slot']): string {
 	return type;
 }
 
-/**
- * An address under the endpoint, sent as the call's `url`. Kling's base URLs
- * are origins without a path, and such a URL keeps `/` as its path, which
- * joined with a call's `path` would ask for `//tasks`. The address is on the
- * endpoint's origin, so it gets the credential headers as a `path` would.
- */
-function apiUrl(http: ProviderHttp, path: string): string {
-	return `${http.endpoint.origin}${http.endpoint.pathname.replace(/\/+$/, '')}${path}`;
-}
-
 /** The path and the JSON of the request that creates the task (kling.md, "Requests"). */
 function createRequest(model: KlingModel, region: string, params: Params, prompt: string, images: readonly SentImage[]): { readonly path: string; readonly value: unknown } {
 	const sentModel = PROVIDER.models.find(entry => entry.id === model.id)?.providerModels[region];
@@ -388,7 +378,7 @@ function createdTaskId(answer: HttpAnswer): string {
 
 /** The task as `GET /tasks` gives it. */
 async function askAbout(ref: TaskRef, http: ProviderHttp): Promise<Record<string, unknown>> {
-	const answer = await http.request({ method: 'GET', url: apiUrl(http, '/tasks'), query: { task_ids: ref.remoteId }, headers: JSON_HEADERS });
+	const answer = await http.request({ method: 'GET', path: '/tasks', query: { task_ids: ref.remoteId }, headers: JSON_HEADERS });
 	const body = answer.object();
 	const code = codeOf(body.code);
 	if (code !== undefined && code !== 0) {
@@ -525,7 +515,7 @@ export const klingModule: ProviderModule = {
 			images.push({ slot: item.slot, base64: base64Of(await readMedia(item.media, IMAGE_MAX_BYTES, item.label)) });
 		}
 		const { path, value } = createRequest(model, request.region, request.params, request.prompt, images);
-		const answer = await http.create({ method: 'POST', url: apiUrl(http, path), body: { kind: 'json', value } });
+		const answer = await http.create({ method: 'POST', path, body: { kind: 'json', value } });
 		return createdTaskId(answer);
 	},
 
@@ -544,7 +534,7 @@ export const klingModule: ProviderModule = {
 				return { state: 'succeeded', videoUrl };
 			}
 			case 'failed':
-				return { state: 'failed', message: typeof task.message === 'string' ? task.message : '' };
+				return { state: 'failed', message: typeof task.message === 'string' && task.message.trim() ? task.message : 'Kling reports that the task failed.' };
 			default:
 				throw unreadable(`Kling reports a task state AI Video does not know: ${String(task.status).slice(0, 40)}.`);
 		}
