@@ -158,7 +158,7 @@ export function testModule(overrides: Partial<ProviderModule> = {}): ProviderMod
 			return answer.status === 'done' ? { state: 'succeeded', videoUrl: String(answer.url) } : { state: 'running' };
 		},
 		async videoLocation(ref, http) {
-			return { url: `${http.endpoint.href}/tasks/${encodeURIComponent(ref.remoteId)}/video` };
+			return { url: new URL(`tasks/${encodeURIComponent(ref.remoteId)}/video`, `${http.endpoint.href.replace(/\/$/, '')}/`).href };
 		},
 		async cancel() {
 			throw new ProviderFailure('rejected', 'not used');
