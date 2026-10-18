@@ -10,13 +10,12 @@ import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.t
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
 import type {
-	CatalogMode,
 	CatalogModel,
 	CatalogParameter,
-	ChoiceParameter,
 	CatalogProvider,
 	CheckRequest,
 	CheckResult,
+	ChoiceParameter,
 	Currency,
 	Estimate,
 	Media,
@@ -36,15 +35,18 @@ import type {
  * Alibaba Cloud Model Studio (DashScope): the Wan and HappyHorse video models
  * with the user's own key (D59; docs/specs/video-providers/alibaba.md).
  *
- * One create endpoint serves every model; each model family has its own
- * `input` and `parameters`. Images go inline as data URLs. Videos and audio
- * are taken only as addresses, so in China (Beijing) they go through the
- * provider's temporary upload, and elsewhere they are refused by `check`.
+ * The catalog lists one model per version. Alibaba has one model id per task
+ * of a version (text to video, image to video, references, editing); the mode
+ * and the inputs of a generation choose the task, `check` answers its id, and
+ * `submit` sends that id. One create endpoint serves every task, each with its
+ * own `input` and `parameters`. Images go inline as data URLs. Videos and
+ * audio are taken only as addresses, so in China (Beijing) they go through the
+ * provider's temporary upload, and elsewhere `check` refuses them.
  */
 
 type Region = 'cn' | 'intl';
 
-/** How a model's request is built and its price counted. */
+/** How a task's request is built and its price counted. */
 type Family =
 	| 'wan3'
 	| 'wan27-t2v'
@@ -57,16 +59,27 @@ type Family =
 	| 'happyhorse-i2v'
 	| 'happyhorse-r2v';
 
-type PriceTable = Readonly<Record<string, number>>;
+type Resolution = '480p' | '720p' | '1080p';
+type PriceTable = Readonly<Partial<Record<Resolution, number>>>;
 type RegionPrices = Readonly<Record<Region, PriceTable>>;
+
+/** One of Alibaba's model ids: the task a generation of a catalog model runs. */
+interface Task {
+	/** Alibaba's model id, the same in both regions. */
+	readonly id: string;
+	readonly family: Family;
+	/** Per second of video, by resolution, in the region's currency. */
+	readonly prices: RegionPrices;
+	/** Per second of a video without sound, for a task whose price depends on it. */
+	readonly silentPrices?: RegionPrices;
+	/** The catalog's parameters this task sends, by their catalog names. */
+	readonly takes: ReadonlySet<string>;
+}
 
 interface ModelSpec {
 	readonly model: CatalogModel;
-	readonly family: Family;
-	/** Per second of video, by resolution tier, in the region's currency. */
-	readonly prices: RegionPrices;
-	/** Per second of a video without sound, for a model whose price depends on it. */
-	readonly silentPrices?: RegionPrices;
+	/** The task a generation runs, chosen by its mode and its inputs. */
+	route(mode: ModeId, counts: PlannedCounts): Task;
 }
 
 // --- labels ---------------------------------------------------------------------------------------
@@ -77,7 +90,6 @@ const LABELS = Object.freeze({
 	regionCn: 'China (Beijing)',
 	regionIntl: 'International (Singapore)',
 	apiKey: 'API Key',
-	modeText: 'Text',
 	modeFrames: 'Frames',
 	modeReference: 'References',
 	modeEdit: 'Edit',
@@ -85,10 +97,8 @@ const LABELS = Object.freeze({
 	resolution: 'Resolution',
 	ratio: 'Ratio',
 	adaptive: 'Adaptive',
-	size: 'Size',
 	duration: 'Duration',
 	auto: 'Auto',
-	wholeVideo: 'Whole Video',
 	sound: 'Sound',
 	soundAuto: 'Auto',
 	soundOrigin: 'Keep Original',
@@ -99,9 +109,9 @@ const LABELS = Object.freeze({
 	promptExtend: 'Prompt Rewriting',
 	watermark: 'Watermark',
 	seed: 'Seed',
-	tipAdaptive: 'Adaptive follows the inputs.',
+	tipAdaptive: 'The shape of the video. Adaptive follows the inputs.',
+	tipFrameShape: 'The shape of the video. A video made from a start frame takes the shape of the frame.',
 	tipExtendDuration: 'In Extend mode, the length of the whole result, the clip included.',
-	tipEditDuration: 'Whole Video keeps the length of the video; a shorter duration keeps its beginning.',
 	tipAudioSetting: 'Auto lets the model decide from the prompt; Keep Original keeps the sound of the video.',
 	tipShots: 'Multiple shots need Prompt Rewriting.',
 	tipPromptExtend: 'A language model rewrites the prompt first. It helps short prompts and takes longer.',
@@ -109,32 +119,18 @@ const LABELS = Object.freeze({
 	tipHappyHorseWatermark: 'Adds “Happy Horse” in the lower-right corner.',
 	tipSeed: 'The same seed and settings give similar results.',
 	wan3: 'Wan 3.0',
-	wan3Description: 'Text, start and end frames, references (images, videos, and audio), editing, and extension in one model; up to 30 seconds with sound.',
+	wan3Description: 'Text, start and end frames, references (images, videos, and audio), editing, and extension; up to 30 seconds with sound.',
 	wan3Prime: 'Wan 3.0 Prime',
 	wan3PrimeDescription: 'The faster Wan 3.0, with the same inputs and settings.',
-	happyHorse11T2v: 'HappyHorse 1.1 Text to Video',
-	happyHorse11I2v: 'HappyHorse 1.1 Image to Video',
-	happyHorse11R2v: 'HappyHorse 1.1 Reference to Video',
-	happyHorse10T2v: 'HappyHorse 1.0 Text to Video',
-	happyHorse10I2v: 'HappyHorse 1.0 Image to Video',
-	happyHorse10R2v: 'HappyHorse 1.0 Reference to Video',
-	happyHorseT2vDescription: 'Text to video with sound, 3 to 15 seconds.',
-	happyHorseI2vDescription: 'A start frame to video with sound, 3 to 15 seconds.',
-	happyHorseR2vDescription: 'Up to 9 reference images to video with sound, 3 to 15 seconds.',
-	wan27T2v: 'Wan 2.7 Text to Video',
-	wan27T2vDescription: 'Text to video with sound and multi-shot storytelling, 2 to 15 seconds.',
-	wan27I2v: 'Wan 2.7 Image to Video',
-	wan27I2vDescription: 'A start frame, start and end frames, or a clip to continue; 2 to 15 seconds.',
-	wan27R2v: 'Wan 2.7 Reference to Video',
-	wan27R2vDescription: 'Up to 5 reference images and videos of characters, props, or scenes; 2 to 15 seconds.',
-	wan27Edit: 'Wan 2.7 Video Edit',
-	wan27EditDescription: 'Changes a clip of 2 to 10 seconds by instruction, with up to 4 reference images.',
-	wan26T2v: 'Wan 2.6 Text to Video',
-	wan26T2vDescription: 'Text to video with sound and multi-shot storytelling, 2 to 15 seconds.',
-	wan26I2v: 'Wan 2.6 Image to Video',
-	wan26I2vDescription: 'A start frame to video with sound and multi-shot storytelling, 2 to 15 seconds.',
-	wan26I2vFlash: 'Wan 2.6 Image to Video Flash',
-	wan26I2vFlashDescription: 'The faster Wan 2.6 Image to Video, with or without sound.'
+	happyHorse11: 'HappyHorse 1.1',
+	happyHorse10: 'HappyHorse 1.0',
+	happyHorseDescription: 'Text, a start frame, or up to 9 reference images to video with sound; 3 to 15 seconds.',
+	wan27: 'Wan 2.7',
+	wan27Description: 'Text, start and end frames, references (images and videos), editing in China, and extension; 2 to 15 seconds.',
+	wan26: 'Wan 2.6',
+	wan26Description: 'Text or a start frame to video with sound and multi-shot storytelling; 2 to 15 seconds.',
+	wan26Flash: 'Wan 2.6 Flash',
+	wan26FlashDescription: 'A start frame to video, faster, with or without sound; 2 to 15 seconds.'
 });
 
 // --- regions and prices ----------------------------------------------------------------------------
@@ -146,29 +142,66 @@ const PRICE_DATES: Readonly<Record<Region, string>> = Object.freeze({ cn: '2026-
 
 const PRICES = Object.freeze({
 	/** List prices; a limited-time 30% discount applies on 2026-10-19. */
-	wan3: { cn: { '480P': 0.3, '720P': 0.6, '1080P': 1.2 }, intl: { '480P': 0.05, '720P': 0.1, '1080P': 0.2 } },
-	wan3Prime: { cn: { '480P': 0.45, '720P': 0.9, '1080P': 1.8 }, intl: { '480P': 0.068, '720P': 0.14, '1080P': 0.28 } },
-	wan27: { cn: { '720P': 0.6, '1080P': 1 }, intl: { '720P': 0.1, '1080P': 0.15 } },
-	wan26Flash: { cn: { '720P': 0.3, '1080P': 0.5 }, intl: { '720P': 0.05, '1080P': 0.075 } },
-	wan26FlashSilent: { cn: { '720P': 0.15, '1080P': 0.25 }, intl: { '720P': 0.025, '1080P': 0.0375 } },
-	happyHorse11: { cn: { '480P': 0.45, '720P': 0.9, '1080P': 1.2 }, intl: { '480P': 0.07, '720P': 0.14, '1080P': 0.18 } },
-	happyHorse10: { cn: { '720P': 0.9, '1080P': 1.6 }, intl: { '720P': 0.14, '1080P': 0.24 } }
+	wan3: { cn: { '480p': 0.3, '720p': 0.6, '1080p': 1.2 }, intl: { '480p': 0.05, '720p': 0.1, '1080p': 0.2 } },
+	wan3Prime: { cn: { '480p': 0.45, '720p': 0.9, '1080p': 1.8 }, intl: { '480p': 0.068, '720p': 0.14, '1080p': 0.28 } },
+	/** Every Wan 2.7 task, and Wan 2.6 text and image to video. */
+	wan27: { cn: { '720p': 0.6, '1080p': 1 }, intl: { '720p': 0.1, '1080p': 0.15 } },
+	wan26Flash: { cn: { '720p': 0.3, '1080p': 0.5 }, intl: { '720p': 0.05, '1080p': 0.075 } },
+	wan26FlashSilent: { cn: { '720p': 0.15, '1080p': 0.25 }, intl: { '720p': 0.025, '1080p': 0.0375 } },
+	happyHorse11: { cn: { '480p': 0.45, '720p': 0.9, '1080p': 1.2 }, intl: { '480p': 0.07, '720p': 0.14, '1080p': 0.18 } },
+	happyHorse10: { cn: { '720p': 0.9, '1080p': 1.6 }, intl: { '720p': 0.14, '1080p': 0.24 } }
 } satisfies Record<string, RegionPrices>);
 
-/** The sizes of Wan 2.6 Text to Video, their labels, and the tier each is priced at. */
-const WAN26_SIZES: readonly (readonly [value: string, label: string, tier: string])[] = [
-	['1280*720', '1280 × 720 (16:9)', '720P'],
-	['720*1280', '720 × 1280 (9:16)', '720P'],
-	['960*960', '960 × 960 (1:1)', '720P'],
-	['1088*832', '1088 × 832 (4:3)', '720P'],
-	['832*1088', '832 × 1088 (3:4)', '720P'],
-	['1920*1080', '1920 × 1080 (16:9)', '1080P'],
-	['1080*1920', '1080 × 1920 (9:16)', '1080P'],
-	['1440*1440', '1440 × 1440 (1:1)', '1080P'],
-	['1632*1248', '1632 × 1248 (4:3)', '1080P'],
-	['1248*1632', '1248 × 1632 (3:4)', '1080P']
-];
-const SIZE_TIERS: ReadonlyMap<string, string> = new Map(WAN26_SIZES.map(([value, , tier]) => [value, tier]));
+/** Alibaba writes resolutions in capitals, and takes them so. */
+const RESOLUTION_VALUES: Readonly<Record<Resolution, string>> = Object.freeze({ '480p': '480P', '720p': '720P', '1080p': '1080P' });
+
+/** The size Wan 2.6 Text to Video takes for each resolution and ratio, as its documentation lists them. */
+const WAN26_SIZES: ReadonlyMap<string, string> = new Map([
+	['720p 16:9', '1280*720'],
+	['720p 9:16', '720*1280'],
+	['720p 1:1', '960*960'],
+	['720p 4:3', '1088*832'],
+	['720p 3:4', '832*1088'],
+	['1080p 16:9', '1920*1080'],
+	['1080p 9:16', '1080*1920'],
+	['1080p 1:1', '1440*1440'],
+	['1080p 4:3', '1632*1248'],
+	['1080p 3:4', '1248*1632']
+]);
+
+// --- tasks -----------------------------------------------------------------------------------------
+
+const WAN_EXTRAS = ['negative_prompt', 'prompt_extend', 'watermark', 'seed'];
+
+function task(id: string, family: Family, prices: RegionPrices, takes: readonly string[], silentPrices?: RegionPrices): Task {
+	return { id, family, prices, takes: new Set(takes), ...(silentPrices ? { silentPrices } : {}) };
+}
+
+function happyHorseTasks(version: '1.1' | '1.0'): { readonly t2v: Task; readonly i2v: Task; readonly r2v: Task } {
+	const prices = version === '1.1' ? PRICES.happyHorse11 : PRICES.happyHorse10;
+	return {
+		t2v: task(`happyhorse-${version}-t2v`, 'happyhorse-t2v', prices, ['resolution', 'ratio', 'duration', 'watermark', 'seed']),
+		i2v: task(`happyhorse-${version}-i2v`, 'happyhorse-i2v', prices, ['resolution', 'duration', 'watermark', 'seed']),
+		r2v: task(`happyhorse-${version}-r2v`, 'happyhorse-r2v', prices, ['resolution', 'ratio', 'duration', 'watermark', 'seed'])
+	};
+}
+
+const WAN3_TAKES = ['resolution', 'ratio', 'duration', 'sound', 'prompt_extend', 'watermark', 'seed'];
+
+const TASKS = Object.freeze({
+	wan3: task('wan3.0-video', 'wan3', PRICES.wan3, WAN3_TAKES),
+	wan3Prime: task('wan3.0-video-prime', 'wan3', PRICES.wan3Prime, WAN3_TAKES),
+	wan27T2v: task('wan2.7-t2v', 'wan27-t2v', PRICES.wan27, ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
+	wan27I2v: task('wan2.7-i2v', 'wan27-i2v', PRICES.wan27, ['resolution', 'duration', ...WAN_EXTRAS]),
+	wan27R2v: task('wan2.7-r2v', 'wan27-r2v', PRICES.wan27, ['resolution', 'ratio', 'duration', ...WAN_EXTRAS]),
+	wan27Edit: task('wan2.7-videoedit', 'wan27-edit', PRICES.wan27, ['resolution', 'audio_setting', ...WAN_EXTRAS]),
+	// Its resolution and ratio are sent together as a size.
+	wan26T2v: task('wan2.6-t2v', 'wan26-t2v', PRICES.wan27, ['resolution', 'ratio', 'duration', 'shot_type', ...WAN_EXTRAS]),
+	wan26I2v: task('wan2.6-i2v', 'wan26-i2v', PRICES.wan27, ['resolution', 'duration', 'shot_type', ...WAN_EXTRAS]),
+	wan26Flash: task('wan2.6-i2v-flash', 'wan26-i2v', PRICES.wan26Flash, ['resolution', 'duration', 'shot_type', 'sound', ...WAN_EXTRAS], PRICES.wan26FlashSilent),
+	happyHorse11: happyHorseTasks('1.1'),
+	happyHorse10: happyHorseTasks('1.0')
+});
 
 // --- declarations --------------------------------------------------------------------------------
 
@@ -201,28 +234,27 @@ const WAN3_MEDIA: ModeLimits = {
 	audioMaxBytes: 15 * MiB
 };
 
-const TEXT_MODE: CatalogMode = { id: 'frames', label: LABELS.modeText, inputs: NO_INPUTS, limits: {} };
-
 function options(values: readonly string[]): { value: string; label: string }[] {
 	return values.map(value => ({ value, label: value }));
 }
 
-function resolution(values: readonly string[]): ChoiceParameter {
-	return { name: 'resolution', label: LABELS.resolution, kind: 'choice', options: options(values), default: '1080P' };
+function resolution(values: readonly Resolution[]): ChoiceParameter {
+	return { name: 'resolution', label: LABELS.resolution, kind: 'choice', options: values.map(value => ({ value, label: RESOLUTION_VALUES[value] })), default: '1080p' };
 }
 
 const WAN_RATIOS = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4']);
 const HAPPYHORSE_RATIOS = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4', '4:5', '5:4', '9:21', '21:9']);
 
-function ratio(values: readonly string[]): ChoiceParameter {
-	return { name: 'ratio', label: LABELS.ratio, kind: 'choice', display: 'ratio', options: options(values), default: '16:9' };
+/** The ratio of a video made from the prompt or references; a start frame sets the shape itself, so Frames sends it only without one. */
+function ratio(values: readonly string[], modes?: readonly ModeId[]): ChoiceParameter {
+	return { name: 'ratio', label: LABELS.ratio, tooltip: LABELS.tipFrameShape, kind: 'choice', display: 'ratio', options: options(values), default: '16:9', ...(modes ? { modes } : {}) };
 }
 
 function duration(min: number, max: number): NumberParameter {
 	return { name: 'duration', label: LABELS.duration, kind: 'integer', unit: 'seconds', min, max, step: 1, default: 5 };
 }
 
-const SOUND: CatalogParameter = { name: 'audio', label: LABELS.sound, kind: 'boolean', default: true };
+const SOUND: CatalogParameter = { name: 'sound', label: LABELS.sound, kind: 'boolean', default: true };
 const SHOTS: CatalogParameter = {
 	name: 'shot_type',
 	label: LABELS.shots,
@@ -236,21 +268,21 @@ const PROMPT_EXTEND: CatalogParameter = { name: 'prompt_extend', label: LABELS.p
 const WAN_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipWanWatermark, kind: 'boolean', default: false, advanced: true };
 const HAPPYHORSE_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipHappyHorseWatermark, kind: 'boolean', default: true, advanced: true };
 const SEED: CatalogParameter = { name: 'seed', label: LABELS.seed, tooltip: LABELS.tipSeed, kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true };
+const WAN_EXTRA_PARAMETERS: readonly CatalogParameter[] = [NEGATIVE_PROMPT, PROMPT_EXTEND, WAN_WATERMARK, SEED];
 
-/** The model in both regions under its own id. */
+/** The model in both regions, sent first as the id of its first task. */
 function both(id: string): Readonly<Record<string, string>> {
 	return { cn: id, intl: id };
 }
 
-function wan3(id: string, label: string, description: string, prices: RegionPrices): ModelSpec {
+function wan3(id: string, label: string, description: string, only: Task): ModelSpec {
 	return {
-		family: 'wan3',
-		prices,
+		route: () => only,
 		model: {
 			id,
 			label,
 			description,
-			providerModels: both(id),
+			providerModels: both(only.id),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [
 				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional', endFrame: 'optional' }), limits: WAN_IMAGES },
@@ -259,7 +291,7 @@ function wan3(id: string, label: string, description: string, prices: RegionPric
 				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: WAN3_MEDIA }
 			],
 			parameters: [
-				resolution(['480P', '720P', '1080P']),
+				resolution(['480p', '720p', '1080p']),
 				{
 					name: 'ratio',
 					label: LABELS.ratio,
@@ -281,156 +313,107 @@ function wan3(id: string, label: string, description: string, prices: RegionPric
 	};
 }
 
-function happyHorse(version: '1.1' | '1.0', kind: 't2v' | 'i2v' | 'r2v', label: string, description: string): ModelSpec {
-	const id = `happyhorse-${version}-${kind}`;
-	const parameters: CatalogParameter[] = [resolution(version === '1.1' ? ['480P', '720P', '1080P'] : ['720P', '1080P'])];
-	if (kind !== 'i2v') {
-		parameters.push(ratio(HAPPYHORSE_RATIOS));
-	}
-	parameters.push(duration(3, 15), HAPPYHORSE_WATERMARK, SEED);
-	const mode: CatalogMode = kind === 't2v'
-		? TEXT_MODE
-		: kind === 'i2v'
-			? { id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'required' }), limits: { imageMinSide: 300, imageAspect: [0.4, 2.5], imageMaxBytes: 20 * MiB } }
-			: { id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 1, max: 9 } }), limits: { imageMinSide: 400, imageMaxBytes: 20 * MiB } };
+function happyHorse(version: '1.1' | '1.0'): ModelSpec {
+	const tasks = version === '1.1' ? TASKS.happyHorse11 : TASKS.happyHorse10;
 	return {
-		family: `happyhorse-${kind}`,
-		prices: version === '1.1' ? PRICES.happyHorse11 : PRICES.happyHorse10,
+		route: (mode, counts) => mode === 'reference' ? tasks.r2v : counts.startFrame ? tasks.i2v : tasks.t2v,
 		model: {
-			id,
-			label,
-			description,
-			providerModels: both(id),
-			prompt: { required: kind === 'i2v' ? 'withoutMedia' : 'always', maxLength: 5000 },
-			modes: [mode],
-			parameters,
+			id: `happyhorse-${version}`,
+			label: version === '1.1' ? LABELS.happyHorse11 : LABELS.happyHorse10,
+			description: LABELS.happyHorseDescription,
+			providerModels: both(tasks.t2v.id),
+			// References needs a prompt; check says so.
+			prompt: { required: 'withoutMedia', maxLength: 5000 },
+			modes: [
+				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional' }), limits: { imageMinSide: 300, imageAspect: [0.4, 2.5], imageMaxBytes: 20 * MiB } },
+				{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 1, max: 9 } }), limits: { imageMinSide: 400, imageMaxBytes: 20 * MiB } }
+			],
+			parameters: [
+				resolution(version === '1.1' ? ['480p', '720p', '1080p'] : ['720p', '1080p']),
+				ratio(HAPPYHORSE_RATIOS),
+				duration(3, 15),
+				HAPPYHORSE_WATERMARK,
+				SEED
+			],
 			estimate: true
 		}
 	};
 }
 
-const WAN27_RESOLUTION = resolution(['720P', '1080P']);
-const WAN_EXTRAS: readonly CatalogParameter[] = [NEGATIVE_PROMPT, PROMPT_EXTEND, WAN_WATERMARK, SEED];
+const WAN27_RESOLUTION = resolution(['720p', '1080p']);
 
 const MODEL_SPECS: readonly ModelSpec[] = [
-	wan3('wan3.0-video', LABELS.wan3, LABELS.wan3Description, PRICES.wan3),
-	wan3('wan3.0-video-prime', LABELS.wan3Prime, LABELS.wan3PrimeDescription, PRICES.wan3Prime),
-	happyHorse('1.1', 't2v', LABELS.happyHorse11T2v, LABELS.happyHorseT2vDescription),
-	happyHorse('1.1', 'i2v', LABELS.happyHorse11I2v, LABELS.happyHorseI2vDescription),
-	happyHorse('1.1', 'r2v', LABELS.happyHorse11R2v, LABELS.happyHorseR2vDescription),
+	wan3('wan3.0', LABELS.wan3, LABELS.wan3Description, TASKS.wan3),
+	wan3('wan3.0-prime', LABELS.wan3Prime, LABELS.wan3PrimeDescription, TASKS.wan3Prime),
+	happyHorse('1.1'),
 	{
-		family: 'wan27-t2v',
-		prices: PRICES.wan27,
+		route: (mode, counts) => {
+			switch (mode) {
+				case 'reference': return TASKS.wan27R2v;
+				case 'edit': return TASKS.wan27Edit;
+				case 'extend': return TASKS.wan27I2v;
+				default: return counts.startFrame ? TASKS.wan27I2v : TASKS.wan27T2v;
+			}
+		},
 		model: {
-			id: 'wan2.7-t2v',
-			label: LABELS.wan27T2v,
-			description: LABELS.wan27T2vDescription,
-			providerModels: both('wan2.7-t2v'),
-			prompt: { required: 'always', maxLength: 5000 },
-			modes: [TEXT_MODE],
-			parameters: [WAN27_RESOLUTION, ratio(WAN_RATIOS), duration(2, 15), ...WAN_EXTRAS],
-			estimate: true
-		}
-	},
-	{
-		family: 'wan27-i2v',
-		prices: PRICES.wan27,
-		model: {
-			id: 'wan2.7-i2v',
-			label: LABELS.wan27I2v,
-			description: LABELS.wan27I2vDescription,
-			providerModels: both('wan2.7-i2v'),
+			id: 'wan2.7',
+			label: LABELS.wan27,
+			description: LABELS.wan27Description,
+			providerModels: both(TASKS.wan27T2v.id),
+			// Text to video and References need a prompt; check says so for References.
 			prompt: { required: 'withoutMedia', maxLength: 5000 },
 			modes: [
-				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'required', endFrame: 'optional' }), limits: WAN_IMAGES },
+				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional', endFrame: 'optional' }), limits: WAN_IMAGES },
+				{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 0, max: 5 }, videos: { min: 0, max: 5 } }), limits: { ...WAN_IMAGES, videoSeconds: [1, 30], videoMaxBytes: 100 * MiB } },
+				// Video editing runs only in China (Beijing), where its video can be sent; check says so elsewhere.
+				{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 4 }, source: 'required' }), limits: { ...WAN_IMAGES, videoSeconds: [2, 10], videoMaxBytes: 100 * MiB } },
 				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: { videoSeconds: [2, 10], videoMaxBytes: 100 * MiB } }
 			],
-			parameters: [WAN27_RESOLUTION, { ...duration(2, 15), tooltip: LABELS.tipExtendDuration }, ...WAN_EXTRAS],
-			estimate: true
-		}
-	},
-	{
-		family: 'wan27-r2v',
-		prices: PRICES.wan27,
-		model: {
-			id: 'wan2.7-r2v',
-			label: LABELS.wan27R2v,
-			description: LABELS.wan27R2vDescription,
-			providerModels: both('wan2.7-r2v'),
-			prompt: { required: 'always', maxLength: 5000 },
-			modes: [{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 0, max: 5 }, videos: { min: 0, max: 5 } }), limits: { ...WAN_IMAGES, videoSeconds: [1, 30], videoMaxBytes: 100 * MiB } }],
-			parameters: [WAN27_RESOLUTION, ratio(WAN_RATIOS), duration(2, 15), ...WAN_EXTRAS],
-			estimate: true
-		}
-	},
-	{
-		family: 'wan27-edit',
-		prices: PRICES.wan27,
-		model: {
-			id: 'wan2.7-videoedit',
-			label: LABELS.wan27Edit,
-			description: LABELS.wan27EditDescription,
-			// Its only mode sends a video, which BaseHalf can send only in China (Beijing).
-			providerModels: { cn: 'wan2.7-videoedit' },
-			prompt: { required: 'withoutMedia', maxLength: 5000 },
-			modes: [{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 4 }, source: 'required' }), limits: { ...WAN_IMAGES, videoSeconds: [2, 10], videoMaxBytes: 100 * MiB } }],
 			parameters: [
 				WAN27_RESOLUTION,
-				{ name: 'ratio', label: LABELS.ratio, kind: 'choice', display: 'ratio', options: options(WAN_RATIOS), optional: true },
-				{ ...duration(2, 10), default: 0, auto: { value: 0, label: LABELS.wholeVideo }, tooltip: LABELS.tipEditDuration },
+				ratio(WAN_RATIOS, ['frames', 'reference']),
+				{ ...duration(2, 15), tooltip: LABELS.tipExtendDuration, modes: ['frames', 'reference', 'extend'] },
 				{
 					name: 'audio_setting',
 					label: LABELS.sound,
 					tooltip: LABELS.tipAudioSetting,
 					kind: 'choice',
 					options: [{ value: 'auto', label: LABELS.soundAuto }, { value: 'origin', label: LABELS.soundOrigin }],
-					default: 'auto'
+					default: 'auto',
+					modes: ['edit']
 				},
-				...WAN_EXTRAS
+				...WAN_EXTRA_PARAMETERS
 			],
 			estimate: true
 		}
 	},
 	{
-		family: 'wan26-t2v',
-		prices: PRICES.wan27,
+		route: (_mode, counts) => counts.startFrame ? TASKS.wan26I2v : TASKS.wan26T2v,
 		model: {
-			id: 'wan2.6-t2v',
-			label: LABELS.wan26T2v,
-			description: LABELS.wan26T2vDescription,
-			providerModels: both('wan2.6-t2v'),
-			prompt: { required: 'always', maxLength: 1500 },
-			modes: [TEXT_MODE],
-			parameters: [
-				{ name: 'size', label: LABELS.size, kind: 'choice', options: WAN26_SIZES.map(([value, label]) => ({ value, label })), default: '1920*1080' },
-				duration(2, 15),
-				SHOTS,
-				...WAN_EXTRAS
-			],
+			id: 'wan2.6',
+			label: LABELS.wan26,
+			description: LABELS.wan26Description,
+			providerModels: both(TASKS.wan26T2v.id),
+			prompt: { required: 'withoutMedia', maxLength: 1500 },
+			modes: [{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional' }), limits: { imageMinSide: 240, imageMaxSide: 8000, imageMaxBytes: 20 * MiB } }],
+			parameters: [WAN27_RESOLUTION, ratio(WAN_RATIOS), duration(2, 15), SHOTS, ...WAN_EXTRA_PARAMETERS],
 			estimate: true
 		}
 	},
-	...(['wan2.6-i2v', 'wan2.6-i2v-flash'] as const).map((id): ModelSpec => {
-		const flash = id === 'wan2.6-i2v-flash';
-		return {
-			family: 'wan26-i2v',
-			prices: flash ? PRICES.wan26Flash : PRICES.wan27,
-			...(flash ? { silentPrices: PRICES.wan26FlashSilent } : {}),
-			model: {
-				id,
-				label: flash ? LABELS.wan26I2vFlash : LABELS.wan26I2v,
-				description: flash ? LABELS.wan26I2vFlashDescription : LABELS.wan26I2vDescription,
-				providerModels: both(id),
-				prompt: { required: 'withoutMedia', maxLength: 1500 },
-				modes: [{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'required' }), limits: { imageMinSide: 240, imageMaxSide: 8000, imageMaxBytes: 20 * MiB } }],
-				parameters: [WAN27_RESOLUTION, duration(2, 15), SHOTS, ...(flash ? [SOUND] : []), ...WAN_EXTRAS],
-				estimate: true
-			}
-		};
-	}),
-	happyHorse('1.0', 't2v', LABELS.happyHorse10T2v, LABELS.happyHorseT2vDescription),
-	happyHorse('1.0', 'i2v', LABELS.happyHorse10I2v, LABELS.happyHorseI2vDescription),
-	happyHorse('1.0', 'r2v', LABELS.happyHorse10R2v, LABELS.happyHorseR2vDescription)
+	{
+		route: () => TASKS.wan26Flash,
+		model: {
+			id: 'wan2.6-flash',
+			label: LABELS.wan26Flash,
+			description: LABELS.wan26FlashDescription,
+			providerModels: both(TASKS.wan26Flash.id),
+			prompt: { required: 'withoutMedia', maxLength: 1500 },
+			modes: [{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'required' }), limits: { imageMinSide: 240, imageMaxSide: 8000, imageMaxBytes: 20 * MiB } }],
+			parameters: [WAN27_RESOLUTION, duration(2, 15), SHOTS, SOUND, ...WAN_EXTRA_PARAMETERS],
+			estimate: true
+		}
+	},
+	happyHorse('1.0')
 ];
 
 const SPECS: ReadonlyMap<string, ModelSpec> = new Map(MODEL_SPECS.map(spec => [spec.model.id, spec]));
@@ -475,7 +458,8 @@ function regionProblems(spec: ModelSpec, request: CheckRequest, counts: PlannedC
 	if (regionOf(request.region) === 'cn') {
 		return [];
 	}
-	if (counts.source) {
+	// Edit and Extend always send a video, connected yet or not.
+	if (request.mode === 'edit' || request.mode === 'extend') {
 		return [`${spec.model.label} in ${modeLabel(spec.model, request.mode)} mode sends a video. ${REGION_MEDIA_REASON} Choose China (Beijing) in Video Providers.`];
 	}
 	if (counts.videos > 0 || counts.audios > 0) {
@@ -499,27 +483,29 @@ function knownVideoSeconds(measured: readonly MeasuredItem[]): number | undefine
 	return total;
 }
 
-function ruleProblems(spec: ModelSpec, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): string[] {
+/** The rules of the routed task that the model's declarations cannot express. */
+function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): string[] {
 	const problems: string[] = [];
 	const params = request.params;
-	const model = spec.model;
-	switch (spec.family) {
+	const label = spec.model.label;
+	const mode = modeLabel(spec.model, request.mode);
+	switch (routed.family) {
 		case 'wan3': {
 			const seconds = measured ? knownVideoSeconds(measured) : undefined;
 			if (typeof params.duration === 'number' && params.duration !== WAN3_AUTO_DURATION && seconds !== undefined && seconds > 0 && seconds + params.duration > WAN3_LONGEST_SECONDS + 0.05) {
-				problems.push(`The videos are ${formatSeconds(seconds)} seconds long and the result is to be ${params.duration} seconds; together they may be at most ${WAN3_LONGEST_SECONDS} seconds for ${model.label}. Choose a shorter duration, or Auto.`);
+				problems.push(`The videos are ${formatSeconds(seconds)} seconds long and the result is to be ${params.duration} seconds; together they may be at most ${WAN3_LONGEST_SECONDS} seconds for ${label}. Choose a shorter duration, or Auto.`);
 			}
 			break;
 		}
 		case 'wan27-r2v': {
 			const references = counts.images + counts.videos;
 			if (references === 0) {
-				problems.push(`${model.label} needs at least one reference image or video.`);
+				problems.push(`${label} in ${mode} mode needs at least one reference image or video.`);
 			} else if (references > 5) {
-				problems.push(`${model.label} takes at most 5 reference images and videos together; ${references} are planned.`);
+				problems.push(`${label} in ${mode} mode takes at most 5 reference images and videos together; ${references} are planned.`);
 			}
 			if (counts.videos > 0 && typeof params.duration === 'number' && params.duration > 10) {
-				problems.push(`With a reference video, ${model.label} makes at most 10 seconds; choose 10 seconds or less.`);
+				problems.push(`With a reference video, ${label} makes at most 10 seconds; choose 10 seconds or less.`);
 			}
 			break;
 		}
@@ -535,17 +521,21 @@ function ruleProblems(spec: ModelSpec, request: CheckRequest, counts: PlannedCou
 			// A prompt over 5,000 characters is refused by the declarations already.
 			const length = happyHorsePromptLength(request.prompt);
 			if (length > 5000 && [...request.prompt].length <= 5000) {
-				problems.push(`The prompt is too long for ${model.label}: it takes 5000 characters, a Chinese character counting as two, and this one counts ${length}.`);
+				problems.push(`The prompt is too long for ${label}: it takes 5000 characters, a Chinese character counting as two, and this one counts ${length}.`);
 			}
 			break;
 		}
 		default:
 			break;
 	}
+	// The model declares the prompt rule of its loosest task; reference to video needs a prompt.
+	if ((routed.family === 'wan27-r2v' || routed.family === 'happyhorse-r2v') && !request.prompt.trim()) {
+		problems.push(`Write a prompt: ${label} needs one in ${mode} mode.`);
+	}
 	return problems;
 }
 
-/** Formats the provider does not take, and images too large to send together. */
+/** Audio the provider does not take, and images too large to send together. */
 function formatProblems(measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	let encodedImages = 0;
@@ -608,10 +598,10 @@ function wan27ReferenceSeconds(counts: PlannedCounts, measured: readonly Measure
 	return [low, high];
 }
 
-/** The seconds of video billed, as a range when something is known only after the run. */
-function billedSeconds(spec: ModelSpec, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
+/** The seconds of video the routed task bills, as a range when something is known only after the run. */
+function billedSeconds(routed: Task, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
 	const duration = typeof params.duration === 'number' ? params.duration : 0;
-	switch (spec.family) {
+	switch (routed.family) {
 		case 'wan3': {
 			// Input videos and the output are billed; together they are at most 30 seconds.
 			const [low, high] = inputVideoSeconds(counts, measured, 1, 15, 15);
@@ -625,26 +615,23 @@ function billedSeconds(spec: ModelSpec, mode: ModeId, params: Params, counts: Pl
 			return [low + duration, high + duration];
 		}
 		case 'wan27-edit': {
-			// The output is the video, or its beginning when a duration shortens it; whether the
-			// whole input or the kept part is billed then is not documented.
+			// The input video and the output, which keeps the length of the input, are billed.
 			const [low, high] = inputVideoSeconds(counts, measured, 2, 10);
-			const kept = (seconds: number) => duration === 0 ? seconds : Math.min(duration, seconds);
-			return [2 * kept(low), high + kept(high)];
+			return [2 * low, 2 * high];
 		}
 		default:
 			return [duration, duration];
 	}
 }
 
-function estimateFor(spec: ModelSpec, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(routed: Task, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
 	const region = regionOf(request.region);
-	const tier = spec.family === 'wan26-t2v' ? SIZE_TIERS.get(String(request.params.size)) : String(request.params.resolution);
-	const table = spec.silentPrices && request.params.audio === false ? spec.silentPrices : spec.prices;
-	const price = tier !== undefined ? table[region][tier] : undefined;
+	const table = routed.silentPrices && request.params.sound === false ? routed.silentPrices : routed.prices;
+	const price = table[region][request.params.resolution as Resolution];
 	if (price === undefined) {
 		return undefined;
 	}
-	const [low, high] = billedSeconds(spec, request.mode, request.params, counts, measured);
+	const [low, high] = billedSeconds(routed, request.mode, request.params, counts, measured);
 	return estimateOf(CURRENCIES[region], price * low, price * high, PRICE_DATES[region]);
 }
 
@@ -730,7 +717,12 @@ function ossError(body: Buffer): { readonly code?: string; readonly message?: st
 	return { ...(code ? { code } : {}), ...(message ? { message } : {}) };
 }
 
-/** Uploads a video or an audio clip to the provider's temporary storage and answers its `oss://` address. */
+/** A planned input's label, such as "The source video clip.mp4", inside a sentence. */
+function inSentence(label: string): string {
+	return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/** Uploads a video or an audio clip to the provider's temporary storage and answers its `oss://` address, usable with `providerModel` only. */
 async function uploadedAddress(http: ProviderHttp, providerModel: string, media: Media, label: string, maxBytes: number): Promise<string> {
 	const read = await readMedia(media, maxBytes, label);
 	const { format } = await measure(bufferSource(read.bytes));
@@ -766,11 +758,6 @@ async function uploadedAddress(http: ProviderHttp, providerModel: string, media:
 	throw rejected(`Alibaba Cloud's temporary storage refused ${inSentence(label)} (HTTP ${answer.status}${error.code ? `, ${error.code}` : ''})${error.message ? `: ${error.message}` : '.'}`, answer.status);
 }
 
-/** A planned input's label, such as "The source video clip.mp4", inside a sentence. */
-function inSentence(label: string): string {
-	return label.charAt(0).toLowerCase() + label.slice(1);
-}
-
 function limitOf(limits: ModeLimits, kind: 'image' | 'video' | 'audio'): number {
 	switch (kind) {
 		case 'image': return limits.imageMaxBytes ?? 20 * MiB;
@@ -779,16 +766,17 @@ function limitOf(limits: ModeLimits, kind: 'image' | 'video' | 'audio'): number 
 	}
 }
 
-/** The planned inputs as the provider's media entries, the video worked on first. */
-async function mediaEntries(spec: ModelSpec, request: SubmitRequest, http: ProviderHttp): Promise<{ readonly entries: { readonly type: string; readonly url: string }[]; readonly uploaded: boolean }> {
+type MediaEntry = { readonly type: string; readonly url: string };
+
+/** The planned inputs as the routed task's media entries, the video worked on first. */
+async function mediaEntries(spec: ModelSpec, routed: Task, request: SubmitRequest, http: ProviderHttp): Promise<{ readonly entries: MediaEntry[]; readonly uploaded: boolean }> {
 	const mode = spec.model.modes.find(entry => entry.id === request.mode);
-	const providerModel = spec.model.providerModels[request.region];
 	const items = plannedItems(request.inputs);
 	const ordered = [...items.filter(item => item.slot === 'source'), ...items.filter(item => item.slot !== 'source')];
-	const entries: { type: string; url: string }[] = [];
+	const entries: MediaEntry[] = [];
 	let uploaded = false;
 	for (const item of ordered) {
-		const type = MEDIA_TYPES[spec.family][item.slot];
+		const type = MEDIA_TYPES[routed.family][item.slot];
 		if (!type || !mode) {
 			throw rejected(`${spec.model.label} in ${modeLabel(spec.model, request.mode)} mode does not take ${inSentence(item.label)}.`);
 		}
@@ -797,27 +785,60 @@ async function mediaEntries(spec: ModelSpec, request: SubmitRequest, http: Provi
 			entries.push({ type, url: await imageDataUrl(item.media, item.label, limitOf(mode.limits, 'image')) });
 			continue;
 		}
-		if (regionOf(request.region) !== 'cn' || providerModel === undefined) {
+		if (regionOf(request.region) !== 'cn') {
 			throw rejected(REGION_MEDIA_REASON);
 		}
-		entries.push({ type, url: await uploadedAddress(http, providerModel, item.media, item.label, limitOf(mode.limits, kind)) });
+		// An upload is bound to the model that uses it.
+		entries.push({ type, url: await uploadedAddress(http, routed.id, item.media, item.label, limitOf(mode.limits, kind)) });
 		uploaded = true;
 	}
 	return { entries, uploaded };
 }
 
-/** The body of a create: the model, its `input`, and its `parameters` under the provider's names. */
-function requestBody(spec: ModelSpec, request: SubmitRequest, providerModel: string, entries: readonly { readonly type: string; readonly url: string }[]): Record<string, unknown> {
-	const { negative_prompt: negativePrompt, ...rest } = request.params;
-	const parameters: Record<string, ParamValue> = { ...rest };
+/** The routed task's `parameters`: each catalog parameter it takes, under Alibaba's name and value. */
+function providerParameters(routed: Task, mode: ModeId, params: Params): Record<string, ParamValue> {
+	const sent: Record<string, ParamValue> = {};
+	for (const [name, value] of Object.entries(params)) {
+		if (!routed.takes.has(name) || name === 'negative_prompt') {
+			continue;
+		}
+		if (name === 'resolution') {
+			sent.resolution = RESOLUTION_VALUES[value as Resolution] ?? String(value);
+		} else if (name === 'sound') {
+			sent.audio = value;
+		} else {
+			sent[name] = value;
+		}
+	}
+	if (routed.family === 'wan26-t2v') {
+		// Wan 2.6 Text to Video takes its resolution and ratio as one size.
+		const size = WAN26_SIZES.get(`${String(params.resolution)} ${String(params.ratio)}`);
+		if (!size) {
+			throw rejected(`${routed.id} has no size for ${String(params.resolution)} at ${String(params.ratio)}.`);
+		}
+		delete sent.resolution;
+		delete sent.ratio;
+		sent.size = size;
+	}
+	if (routed.family === 'wan3' && (mode === 'edit' || mode === 'extend')) {
+		// As the provider's guide recommends: the ratio and the length follow the video.
+		sent.ratio = 'adaptive';
+		sent.duration = WAN3_AUTO_DURATION;
+	}
+	return sent;
+}
+
+/** The body of a create: the routed task's id, its `input`, and its `parameters`. */
+function requestBody(routed: Task, request: SubmitRequest, entries: readonly MediaEntry[]): Record<string, unknown> {
 	const input: Record<string, unknown> = {};
 	if (request.prompt.trim()) {
 		input.prompt = request.prompt;
 	}
-	if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
+	const negativePrompt = request.params.negative_prompt;
+	if (routed.takes.has('negative_prompt') && typeof negativePrompt === 'string' && negativePrompt.trim()) {
 		input.negative_prompt = negativePrompt;
 	}
-	if (spec.family === 'wan26-i2v') {
+	if (routed.family === 'wan26-i2v') {
 		const frame = entries.find(entry => entry.type === 'img_url');
 		if (frame) {
 			input.img_url = frame.url;
@@ -825,16 +846,7 @@ function requestBody(spec: ModelSpec, request: SubmitRequest, providerModel: str
 	} else if (entries.length) {
 		input.media = entries;
 	}
-	if (spec.family === 'wan3' && (request.mode === 'edit' || request.mode === 'extend')) {
-		// As the provider's guide recommends: the ratio and the length follow the video.
-		parameters.ratio = 'adaptive';
-		parameters.duration = WAN3_AUTO_DURATION;
-	}
-	if (spec.family === 'wan27-edit' && parameters.duration === 0) {
-		// 0 keeps the whole video, as leaving it out does.
-		delete parameters.duration;
-	}
-	return { model: providerModel, input, parameters };
+	return { model: routed.id, input, parameters: providerParameters(routed, request.mode, request.params) };
 }
 
 /** A task's state from its query answer. */
@@ -914,23 +926,25 @@ export const ALIBABA: ProviderModule = Object.freeze({
 			return { problems: [] };
 		}
 		const counts = countsOf(request.inputs);
+		const routed = spec.route(request.mode, counts);
 		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
 		const problems = [
 			...regionProblems(spec, request, counts),
-			...ruleProblems(spec, request, counts, measured),
+			...taskProblems(spec, routed, request, counts, measured),
 			...(measured ? formatProblems(measured) : [])
 		];
-		const estimate = estimateFor(spec, request, counts, measured);
-		return estimate ? { problems, estimate } : { problems };
+		const estimate = estimateFor(routed, request, counts, measured);
+		return { problems, ...(estimate ? { estimate } : {}), providerModel: routed.id };
 	},
 
 	async submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
 		const spec = specOf(request.model);
-		const providerModel = spec.model.providerModels[request.region];
-		if (providerModel === undefined) {
+		if (spec.model.providerModels[request.region] === undefined) {
 			throw rejected(`${LABELS.provider} does not offer ${spec.model.label} in this region.`);
 		}
-		const { entries, uploaded } = await mediaEntries(spec, request, http);
+		// The task check answered: the same mode and inputs choose it.
+		const routed = spec.route(request.mode, countsOf(request.inputs));
+		const { entries, uploaded } = await mediaEntries(spec, routed, request, http);
 		const answer = await http.create({
 			method: 'POST',
 			path: apiPath(http, '/services/aigc/video-generation/video-synthesis'),
@@ -938,7 +952,7 @@ export const ALIBABA: ProviderModule = Object.freeze({
 				'X-DashScope-Async': 'enable',
 				...(uploaded ? { 'X-DashScope-OssResourceResolve': 'enable' } : {})
 			},
-			body: { kind: 'json', value: requestBody(spec, request, providerModel, entries) }
+			body: { kind: 'json', value: requestBody(routed, request, entries) }
 		});
 		const output = answer.object().output;
 		const taskId = isRecord(output) ? output.task_id : undefined;
