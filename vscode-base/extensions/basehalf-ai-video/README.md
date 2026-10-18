@@ -1,64 +1,140 @@
 # BaseHalf AI Video
 
-BaseHalf AI Video is built into BaseHalf. It sends the provider requests of
-the Video node, contributes a starter video workflow, and plays an ordered
-Sequence of clips. The Video node itself (its file, its inputs, the panel, the
-card, a generation, and the Video Providers page) belongs to the host; see the
-[video node specification](../../../docs/specs/video-node.md) (D58) and the
+BaseHalf AI Video is built into BaseHalf. It holds the model catalog and the
+video provider integrations of the Video node, contributes a starter video
+workflow, and plays an ordered Sequence of clips. The Video node itself (its
+file, its inputs, the panel, the card, a generation, and the Video Providers
+page) belongs to the window, which draws everything from the catalog this
+extension answers; see the
+[video providers specification](../../../docs/specs/video-providers.md) (D59),
+the [video node specification](../../../docs/specs/video-node.md), and the
 [domain contract](docs/product-contract.md).
 
-## Provider commands
+## Video providers
 
-The workbench's generation service calls four internal commands. Each answers
-`{ok: true, value}` or `{ok: false, error: {code, message, status?}}` and never
-throws. The key, the endpoint, the model, and the task id arrive with every
-call; nothing is kept between calls.
+Each video provider is one module under `src/providers/`, on the provider's
+own API, with the user's own credentials. A module declares the provider's
+catalog entry (its regions, the credentials it needs, and every model with its
+modes, input slots, limits, and parameters) and calls the provider; the
+framework around it does everything that is the same for every provider.
+
+### Commands
+
+The window calls six internal commands. Each answers `{ok: true, value}` or
+`{ok: false, error: {code, message, status?}}` and never throws. The
+credentials, the endpoint, and the task id arrive with every call; nothing is
+kept between calls. Requests run here, in the extension host, because
+providers answer no cross-origin requests from the window.
 
 | Command | Argument | Answer |
 | --- | --- | --- |
-| `basehalf.video.provider.submit` | the request: prompt, settings, frames, references | `{remoteId}` |
+| `basehalf.video.provider.catalog` | none | the catalog |
+| `basehalf.video.provider.check` | provider, region, model, mode, params, prompt, and the planned inputs as files or as counts | `{problems, estimate?}` |
+| `basehalf.video.provider.submit` | the same with the endpoint, the credentials, and the files | `{remoteId}` |
 | `basehalf.video.provider.poll` | the task | `{state: pending \| running, fraction?}`, `{state: succeeded, videoUrl?}`, or `{state: failed \| cancelled, message}` |
 | `basehalf.video.provider.download` | the task, `videoUrl?`, and a new `.part` file | `{size}` |
 | `basehalf.video.provider.cancel` | the task | `{cancelled}` |
 
-The types are copied from `src/vs/workbench/basehalf/common/basehalfVideoProviders.ts`
-of the host into `src/videoProviderTypes.ts`; the two must stay the same.
+The payload types are in `src/providers/types.ts`, a copy of the window's
+`src/vs/workbench/basehalf/common/basehalfVideoCatalog.ts` without its
+`IBaseHalfVideo` and `BaseHalfVideo` prefixes; the two must stay the same.
 
-HTTP runs here, in the extension host, because providers answer no
-cross-origin requests from the window. Every endpoint and video address is
-`https://`, or `http://` on this computer (a local relay or the test
-provider).
+### The framework
 
-### Formats
+| File | Does |
+| --- | --- |
+| `module.ts` | `ProviderModule`, the interface every provider implements |
+| `registry.ts` | `PROVIDER_MODULES`, the modules in the order the window lists them, and `buildCatalog()`, which validates every declaration and throws on a bad one |
+| `commands.ts` | the six commands: strict payload parsing, dispatch by provider id (`unknownProvider` for an unknown one), the checks from the declarations, and message hygiene |
+| `check.ts` | the checks every model gets from its declarations: the inputs a mode takes, the prompt rule, each parameter's value, and the mode's limits; `resolveParams` and `estimateOf` |
+| `http.ts` | `ProviderHttp`, HTTP bound to one command's endpoint and the module's credential headers |
+| `media.ts` | reading inputs under a byte cap, data URLs and base64, and image sizes and media lengths read from file headers |
+| `download.ts` | the download of a video to its `.part` file |
+| `failure.ts` | `ProviderFailure` and the mapping of HTTP statuses to error codes |
 
-| Provider kind | Request format | Create | Ask | Video | Cancel |
-| --- | --- | --- | --- | --- | --- |
-| `ark`, `byteplus` | Seedance task API | `POST {endpoint}/contents/generations/tasks` with `content` items (text, `image_url` with role `first_frame`, `last_frame`, or `reference_image`) | `GET …/tasks/{id}` | `content.video_url` | `DELETE …/tasks/{id}` (a queued task) |
-| `dashscope` | Wan video synthesis | `POST {endpoint}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable`: `size` from ratio and resolution without frames, `img_url` with a start frame; first and last frames at `…/image2video/video-synthesis` | `GET {endpoint}/tasks/{id}` | `output.video_url` | `POST {endpoint}/tasks/{id}/cancel` (a pending task) |
-| `minimax` | MiniMax video generation | `POST {endpoint}/video_generation` with `first_frame_image` and `last_frame_image` | `GET {endpoint}/query/video_generation?task_id=` | `file.download_url` of `GET {endpoint}/files/retrieve?file_id=` | none |
-| `gemini` | Veo long-running prediction | `POST {endpoint}/models/{model}:predictLongRunning` with `x-goog-api-key`, inline `image`, `lastFrame`, and `referenceImages` | `GET {endpoint}/{operation}` | `response.generateVideoResponse.generatedSamples[0].video.uri` | none |
-| `openai` | `/videos` tasks | `POST {endpoint}/videos` as a multipart form: `model`, `prompt`, `seconds`, `size`, then `input_reference` files (the start and end frame, or the reference images), `input_video`, and `input_audio` | `GET {endpoint}/videos/{id}` | a URL in the answer, or `GET {endpoint}/videos/{id}/content` | none |
+What every provider gets from the framework:
 
-Images travel as data URLs or inline base64; local videos and audio travel
-only in the `/videos` form. An input larger than 20 MiB, or a request larger
-than 128 MiB, is refused before anything is sent.
+- **Checks.** Before a module's own `check`, a request is checked against the
+  model's declarations: required and surplus inputs, the prompt rule and its
+  length in characters, unknown parameters, parameters of another mode, and
+  values outside their options, range, or step. With files, the mode's limits
+  are checked from the files' headers: image sizes and aspect (PNG, JPEG,
+  WebP, GIF), video and audio lengths (MP4, MOV, and M4A movie headers, WAV,
+  and MP3 frames), and bytes. `submit` runs the same checks and sends nothing
+  when one fails. An estimate is answered only for a model declared with one.
+- **Requests.** `http.create` sends the request that creates a task once. When
+  its answer does not come back, is only a server error (408 or 5xx), or
+  cannot be read, the outcome is `unknownOutcome`, and BaseHalf never sends it
+  again. `http.request` (polls, lookups, uploads) is retried on network errors
+  and on 408, 429, 500, 502, 503, and 504, three times, 1, 2, then 4 seconds
+  apart, or after a `Retry-After` of at most 30 seconds; a longer one ends the
+  retries. `http.requestOnce` sends once, as for a cancellation. API requests
+  never follow a redirect, and answers are read up to 4 MiB.
+- **Errors.** 401 and 403 are `auth`, 402 `balance`, 404 `notFound` (`rejected`
+  for a create), 429 `rateLimited`, any other 4xx `rejected`, each with the
+  provider's message as the module's `readError` reads it. Messages are plain
+  text of at most 1,000 characters: every credential value and credential
+  header value is replaced by `***`, and markup, control characters, data
+  URLs, and long encoded runs are removed.
+- **Downloads.** At most five redirects, the credentials only to the endpoint's
+  own origin and never to a CDN, at most 512 MiB (`tooLarge`), an MP4 `ftyp`
+  box first (`notVideo`), and retries as for `http.request`. A download that
+  fails leaves no file.
+- **Log.** The **BaseHalf AI Video** output channel gets the method, the path
+  without its query, the status, and the time of each exchange, and nothing
+  else.
 
-### Outcomes
+### Adding a provider module
 
-HTTP 401 and 403 answer `auth`, 400, 409, and 422 `rejected`, 404 `notFound`,
-429 `rateLimited`. A request that may create a task and fails after its body
-left this computer, times out after that, or gets an HTTP 5xx answers
-`unknownOutcome`; an accepted request whose answer cannot be read answers
-`invalidResponse`, which the workbench treats the same way. It never sends
-such a request again by itself. A request that never got through answers
-`network`. MiniMax
-reports its own status codes in HTTP 200 answers; 1004 and 2049 are `auth`,
-1002 and 1039 `rateLimited`, the rest `rejected`.
+1. Read the provider's official documentation and write its section under
+   "Providers" in the video providers specification first: regions,
+   credentials, models with their ids per region, modes with their inputs and
+   limits, every parameter, the rules between parameters, endpoints, the
+   request mapping, task states, where the video is, cancellation, the
+   estimate with the date of its price list, and the pages followed.
+2. Add `src/providers/<provider>.ts` exporting a `ProviderModule`:
+   - `describe()` answers the catalog entry. Keep every English label and
+     message in one table at the top of the file, so it can be translated.
+     Name parameters after the API's fields when they map one to one.
+   - `headers(credentials)` answers the credential headers, for example
+     `{Authorization: 'Bearer ' + credentials.apiKey}`.
+   - `readError(status, body)`, when the provider has error codes that say
+     more than the status (an empty balance answers `{code: 'balance'}`).
+   - `check(request, media)` answers only what the declarations cannot say:
+     rules between parameters, the provider's own input rules (formats, the
+     size of the whole request), and the estimate (`estimateOf`). Read files
+     through `media` (or `measureItems`) only when `request.inputs` carries
+     media.
+   - `submit(request, http)` reads the inputs (`plannedItems`, `readMedia`,
+     `dataUrlOf`, `base64Of`), uploads them first when the provider takes them
+     that way (`http.request`), sends one `http.create`, and answers the task
+     id. Parameters arrive checked and with their defaults.
+   - `poll`, `videoLocation`, and `cancel` map the provider's task states,
+     tell where a video is when the poll gave no address, and cancel where the
+     provider can (`http.requestOnce`; answer false when it cannot).
+   - Throw `ProviderFailure` (or `rejected`, `unreadable`, `unknownOutcome`)
+     for everything refused or unreadable.
+3. Add the module to `PROVIDER_MODULES` in `registry.ts`. The test that builds
+   the shipped catalog validates its declarations.
+4. Test it in `test/<provider>.test.ts` against a local server that answers
+   like the provider (`startServer` in `test/providerTestKit.ts`): create,
+   poll through every state, download, cancel where offered, refused
+   credentials, too many requests, and an answer that never comes, plus the
+   mapping of each model's parameters, the rules of `check`, and three
+   estimates per region checked against the price list, with the arithmetic in
+   a comment. Pass `{http: {sleep: async () => undefined}}` to
+   `VideoProviderCommands` to skip the waits between retries.
 
-Downloads follow at most five redirects, send the key only to the endpoint's
-own origin (never to a CDN), stop at 512 MiB (`tooLarge`), must begin with an
-MP4 `ftyp` box (`notVideo`), and are written to the new `.part` file the
-workbench names. A download that fails leaves no file.
+Relative imports in `src/providers/` name the `.ts` file, which the compiler
+rewrites to `.js` (`rewriteRelativeImportExtensions`), so the tests run the
+sources directly. Use no syntax that type stripping cannot remove (enums,
+parameter properties, namespaces).
+
+### Providers
+
+| Provider | Module | Specification |
+| --- | --- | --- |
+| ByteDance (Seedance) on Volcengine Ark and BytePlus ModelArk | `bytedance.ts` | [ByteDance (Seedance)](../../../docs/specs/video-providers.md#bytedance-seedance) |
 
 ## Sequence
 
@@ -143,22 +219,29 @@ From `vscode-base/`:
 
 ```sh
 npm run gulp -- compile-extension:basehalf-ai-video
-node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test extensions/basehalf-ai-video/test/*.test.ts
+cd extensions/basehalf-ai-video
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-reporter=tap test/*.test.ts
 ```
 
-The provider tests run every format against the local test provider and
-small in-test servers. The local test provider speaks the Seedance task API
-and the `/videos` API with the key `basehalf-mock-key`:
+The provider tests run every module against small local servers and against
+the local test provider; no test calls a real provider. The local test
+provider answers like ByteDance's Seedance task API under `/api/v3` and
+accepts the key `basehalf-mock-key`:
 
 ```sh
 node --experimental-strip-types scripts/basehalf-video-mock-provider.mts --port 8123 --seconds 3
 ```
 
-It prints its endpoints (`http://127.0.0.1:8123/api/v3` for a Volcengine Ark
-channel, `http://127.0.0.1:8123/v1` for an OpenAI Compatible channel). `--fail
-key|reject|task|drop|slow` makes every request fail that way; a prompt that
-contains `[mock:reject]`, `[mock:fail]`, `[mock:drop]`, or `[mock:slow]` fails
-only that request. No test calls a real provider.
+It prints its base URL, `http://127.0.0.1:8123/api/v3`, to enter as the
+ByteDance endpoint in Video Providers with that key. A task is queued for a
+third of `--seconds`, then runs, then succeeds with a small MP4 served
+without a key. `DELETE` cancels a queued task. `--fail
+key|reject|task|expire|drop|slow` makes every request fail that way; a prompt
+that contains `[mock:reject]`, `[mock:fail]`, `[mock:expire]`, `[mock:drop]`,
+or `[mock:slow]` fails only that request. `POST /__mock/configure` with
+`{"fail", "durationMs"}` changes the behavior while it runs, and `GET
+/__mock/requests` lists the create requests received, without keys and with
+inline media shortened.
 
 The packaged extension includes `out/` and `templates/`; source, tests, and
 internal product notes are excluded.
