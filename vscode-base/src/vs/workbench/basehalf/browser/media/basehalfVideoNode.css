@@ -464,10 +464,10 @@
 }
 
 .monaco-workbench .bh-video-panel-model {
-	/* The model's name gives way first: the summary of the settings stays whole. */
+	/* The model's name stays whole up to its width; the summary of the settings gives way first. */
 	min-width: 72px;
 	max-width: 208px;
-	flex: 0 1 auto;
+	flex: 0 0 auto;
 	gap: 4px;
 	padding: 0 6px 0 8px;
 	background: transparent;
@@ -499,9 +499,9 @@
 }
 
 .monaco-workbench .bh-video-panel-settings {
-	/* Whole while the model keeps 72 pixels beside Generate and the gaps. */
-	max-width: calc(100% - 122px);
-	flex: 0 0 auto;
+	/* Ends in an ellipsis when the model's name, the estimate, and Generate need the room. */
+	min-width: 72px;
+	flex: 0 1 auto;
 	padding: 0 12px;
 	color: var(--bh-card-text-secondary, var(--vscode-descriptionForeground));
 	background: var(--bh-video-panel-fill);
@@ -774,6 +774,11 @@
 .monaco-workbench .bh-video-panel-choices {
 	display: flex;
 	gap: 4px;
+}
+
+/* A row of buttons gives each label its width, so that a longer one, such as References, is not cut. */
+.monaco-workbench .bh-video-panel-setting.buttons .bh-video-panel-choice {
+	flex: 1 1 auto;
 }
 
 .monaco-workbench .bh-video-panel-setting.ratios .bh-video-panel-choices {
