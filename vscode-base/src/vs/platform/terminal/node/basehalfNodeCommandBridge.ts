@@ -12,6 +12,7 @@ import { ILogService } from '../../log/common/log.js';
 import {
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_EXTENSIONS,
 	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES,
+	BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS,
 	BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 	IBaseHalfAgentOperationCommandRequest,
 	IBaseHalfAgentOperationCommandResponse,
@@ -407,7 +408,8 @@ function isBaseHalfNodeCommandResponse(value: unknown): value is IBaseHalfNodeCo
 
 function isCapabilityDiscoveryHost(value: unknown): boolean {
 	if (!isRecord(value)
-		|| !hasOnlyKeys(value, ['nodeDocument', 'contextEdge', 'templates', 'operations'])
+		|| !hasOnlyKeys(value, ['nodeDocument', 'contextEdge', 'templates', 'operations', 'videoCatalog'])
+		|| !isCapabilityDiscoveryVideoCatalog(value.videoCatalog)
 		|| !Array.isArray(value.templates)
 		|| value.templates.length > BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_TEMPLATES
 		|| !value.templates.every(template => isRecord(template)
@@ -581,11 +583,23 @@ function arraysEqual(left: readonly unknown[], right: readonly unknown[]): boole
 	return left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
-function isBoundedCapabilityJson(value: unknown): boolean {
+/** The model catalog: a list of providers as bounded JSON, or none and why. */
+function isCapabilityDiscoveryVideoCatalog(value: unknown): boolean {
+	return isRecord(value)
+		&& hasOnlyKeys(value, ['providers'], ['error'])
+		&& Array.isArray(value.providers)
+		&& value.providers.length <= BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS
+		&& value.providers.every(provider => isRecord(provider) && typeof provider.id === 'string')
+		&& (value.error === undefined || isBoundedText(value.error, 2_000))
+		// A catalog declares every parameter of every model: it gets a larger budget than an authoring contract.
+		&& isBoundedCapabilityJson(value.providers, 131_072);
+}
+
+function isBoundedCapabilityJson(value: unknown, maxNodes = 8192): boolean {
 	const state = { nodes: 0 };
 	const visit = (entry: unknown, depth: number): boolean => {
 		state.nodes++;
-		if (state.nodes > 8192 || depth > 20) {
+		if (state.nodes > maxNodes || depth > 20) {
 			return false;
 		}
 		if (entry === null || typeof entry === 'boolean') {

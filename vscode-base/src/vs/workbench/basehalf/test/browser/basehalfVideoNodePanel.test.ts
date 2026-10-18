@@ -25,32 +25,40 @@ import { IBaseHalfCanvasMirrorService } from '../../common/basehalfCanvasMirror.
 import { BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, IBaseHalfCanvasSceneVideoPanelLayout } from '../../common/basehalfCanvasScene.js';
 import { IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../../common/basehalfReferenceEdit.js';
 import {
-	IBaseHalfVideoChannel,
-	IBaseHalfVideoChannelService,
+	BaseHalfVideoCatalogState,
+	baseHalfVideoInputKindOfPath,
+	findBaseHalfVideoRegion,
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoCatalogProvider,
+	IBaseHalfVideoCheckRequest,
+	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoProviderAccess
+} from '../../common/basehalfVideoCatalog.js';
+import {
+	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationProgress,
 	IBaseHalfVideoGenerationService,
-	IBaseHalfVideoModelChoice,
 	IBaseHalfVideoNodeSnapshot,
 	IBaseHalfVideoNodeStore,
+	IBaseHalfVideoProviderSettingsService,
+	IBaseHalfVideoProviderStatus,
 	IBaseHalfVideoResolvedInput
 } from '../../common/basehalfVideoGeneration.js';
-import { IBaseHalfVideoGenerationSettings, IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
-import { baseHalfVideoInputKindOfPath } from '../../common/basehalfVideoProviders.js';
+import { IBaseHalfVideoGeneration, IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
+import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 
 const WORKSPACE = URI.file('/workspace');
 const NODE_PATH = 'shots/Shot 1.bhnode';
 const NODE = URI.joinPath(WORKSPACE, 'shots', 'Shot 1.bhnode');
-const SEEDANCE = 'doubao-seedance-2-5-260628';
-const READY: IBaseHalfVideoGenerationSettings = { channel: 'ark-1', model: SEEDANCE, mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
-const ARK: IBaseHalfVideoChannel = { id: 'ark-1', provider: 'ark', name: 'Volcengine Ark', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', models: [SEEDANCE], hasKey: true };
-const MINIMAX: IBaseHalfVideoChannel = { id: 'mm-1', provider: 'minimax', name: 'MiniMax', baseUrl: 'https://api.minimaxi.com/v1', models: ['MiniMax-Hailuo-02'], hasKey: true };
+const READY: IBaseHalfVideoGenerationChoice = { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
 
 class FakeVideoNodeStore extends Disposable implements IBaseHalfVideoNodeStore {
 	declare readonly _serviceBrand: undefined;
 	private readonly didWrite = this._register(new Emitter<URI>());
 	readonly onDidWrite = this.didWrite.event;
 	readonly prompts: string[] = [];
-	readonly generations: (IBaseHalfVideoGenerationSettings | undefined)[] = [];
+	readonly generations: (IBaseHalfVideoGeneration | undefined)[] = [];
 	readonly reorders: (readonly string[])[] = [];
 	failure: Error | undefined;
 
@@ -108,55 +116,67 @@ class FakeVideoNodeStore extends Disposable implements IBaseHalfVideoNodeStore {
 	}
 }
 
-class FakeChannelService extends Disposable implements IBaseHalfVideoChannelService {
+class FakeCatalogService extends Disposable implements IBaseHalfVideoCatalogService {
 	declare readonly _serviceBrand: undefined;
 	private readonly changed = this._register(new Emitter<void>());
 	readonly onDidChange = this.changed.event;
-	settingsOpened = 0;
+	state: BaseHalfVideoCatalogState = { kind: 'ready', catalog: TEST_VIDEO_CATALOG };
+	loads = 0;
+	readonly checks: IBaseHalfVideoCheckRequest[] = [];
+	answer: (request: IBaseHalfVideoCheckRequest) => IBaseHalfVideoCheckResult | undefined = () => ({ problems: [], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } });
 
-	constructor(public channels: readonly IBaseHalfVideoChannel[]) {
-		super();
+	load(): void {
+		this.loads++;
 	}
 
-	getChannels(): readonly IBaseHalfVideoChannel[] {
-		return this.channels;
-	}
-
-	getChannel(id: string): IBaseHalfVideoChannel | undefined {
-		return this.channels.find(channel => channel.id === id);
-	}
-
-	resolve(choice: { readonly channel?: string; readonly model?: string }): IBaseHalfVideoModelChoice | undefined {
-		const model = choice.model;
-		if (!model) {
-			return undefined;
+	async whenReady(): Promise<IBaseHalfVideoCatalog> {
+		if (this.state.kind === 'ready') {
+			return this.state.catalog;
 		}
-		const channel = this.channels.find(candidate => candidate.id === choice.channel && candidate.models.includes(model))
-			?? this.channels.find(candidate => candidate.models.includes(model));
-		return channel ? { channel, model } : undefined;
+		throw new Error('The catalog is not there.');
 	}
 
-	addChannel(): Promise<IBaseHalfVideoChannel> {
-		throw new Error('Not used by the panel.');
+	async check(request: IBaseHalfVideoCheckRequest): Promise<IBaseHalfVideoCheckResult | undefined> {
+		this.checks.push(request);
+		return this.answer(request);
 	}
 
-	async updateChannel(): Promise<void> { }
-	async setKey(): Promise<void> { }
-	async getKey(): Promise<string | undefined> {
+	set(state: BaseHalfVideoCatalogState): void {
+		this.state = state;
+		this.changed.fire();
+	}
+}
+
+class FakeProviderSettings extends Disposable implements IBaseHalfVideoProviderSettingsService {
+	declare readonly _serviceBrand: undefined;
+	private readonly changed = this._register(new Emitter<void>());
+	readonly onDidChange = this.changed.event;
+	regions: Record<string, string> = {};
+	notSetUp = new Set(['borealis']);
+	readonly opened: (string | undefined)[] = [];
+
+	getStatus(provider: IBaseHalfVideoCatalogProvider): IBaseHalfVideoProviderStatus {
+		const region = findBaseHalfVideoRegion(provider, this.regions[provider.id]);
+		const setUp = !this.notSetUp.has(provider.id);
+		return { region, setUp, endpoint: region.baseUrl, customEndpoint: false, credentials: new Set(setUp ? provider.credentials.map(credential => credential.id) : []) };
+	}
+
+	async setRegion(): Promise<void> { }
+	async setEndpoint(): Promise<void> { }
+	async setCredential(): Promise<void> { }
+	async getAccess(): Promise<IBaseHalfVideoProviderAccess | undefined> {
 		return undefined;
 	}
-	async removeChannel(): Promise<void> { }
-	getLastUsed(): IBaseHalfVideoGenerationSettings | undefined {
+	getLastUsed(): IBaseHalfVideoGenerationChoice | undefined {
 		return undefined;
 	}
 	setLastUsed(): void { }
 
-	async openSettings(): Promise<void> {
-		this.settingsOpened++;
+	async openSettings(providerId?: string): Promise<void> {
+		this.opened.push(providerId);
 	}
 
-	change(channels: readonly IBaseHalfVideoChannel[]): void {
-		this.channels = channels;
+	change(): void {
 		this.changed.fire();
 	}
 }
@@ -212,7 +232,8 @@ suite('BaseHalfVideoNodePanel', () => {
 
 	let instantiationService: TestInstantiationService;
 	let store: FakeVideoNodeStore;
-	let channels: FakeChannelService;
+	let catalog: FakeCatalogService;
+	let providers: FakeProviderSettings;
 	let generation: FakeGenerationService;
 	let notifications: RecordingNotificationService;
 	let hovers: Map<HTMLElement, () => string>;
@@ -223,7 +244,8 @@ suite('BaseHalfVideoNodePanel', () => {
 	setup(() => {
 		instantiationService = disposables.add(new TestInstantiationService());
 		store = disposables.add(new FakeVideoNodeStore({ prompt: '', generation: READY }, ['frames/a.png', 'notes/scene.md', 'frames/b.png']));
-		channels = disposables.add(new FakeChannelService([ARK, MINIMAX]));
+		catalog = disposables.add(new FakeCatalogService());
+		providers = disposables.add(new FakeProviderSettings());
 		generation = disposables.add(new FakeGenerationService(store));
 		notifications = new RecordingNotificationService();
 		hovers = new Map();
@@ -238,7 +260,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		};
 		const result: IBaseHalfReferenceEditResult = { stores: [], changed: true };
 		instantiationService.set(IBaseHalfVideoNodeStore, store);
-		instantiationService.set(IBaseHalfVideoChannelService, channels);
+		instantiationService.set(IBaseHalfVideoCatalogService, catalog);
+		instantiationService.set(IBaseHalfVideoProviderSettingsService, providers);
 		instantiationService.set(IBaseHalfVideoGenerationService, generation);
 		instantiationService.set(INotificationService, notifications);
 		instantiationService.set(ILogService, new NullLogService());
@@ -278,7 +301,7 @@ suite('BaseHalfVideoNodePanel', () => {
 	});
 
 	async function createPanel(options?: IBaseHalfVideoNodePanelOptions): Promise<BaseHalfVideoNodePanel> {
-		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, options));
+		const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0, ...options }));
 		mainWindow.document.body.appendChild(panel.element);
 		mounted.push(panel.element);
 		await settle();
@@ -423,12 +446,12 @@ suite('BaseHalfVideoNodePanel', () => {
 			modelTooltip: hovers.get(model)?.(),
 			generated: generation.generated.length
 		};
-		channels.change([{ ...ARK, hasKey: false }]);
+		providers.notSetUp.add('acme');
 		store.writeFromElsewhere({ prompt: 'Rain', generation: READY });
 		await settle();
 		assert.deepStrictEqual({
 			noModel,
-			noKey: { label: generate.getAttribute('aria-label'), outlined: model.classList.contains('outlined') }
+			notSetUp: { label: generate.getAttribute('aria-label'), outlined: model.classList.contains('outlined') }
 		}, {
 			noModel: {
 				disabled: 'true',
@@ -438,9 +461,31 @@ suite('BaseHalfVideoNodePanel', () => {
 				modelTooltip: 'Choose a model to generate.',
 				generated: 0
 			},
-			noKey: { label: 'Volcengine Ark has no API key. Add one in Video Providers.', outlined: true }
+			notSetUp: { label: 'Acme Video is not set up. Set it up in Video Providers.', outlined: true }
 		});
 	});
+
+	test('the first problem check reports blocks Generate, and the estimate shows the last answer for the model until the next one', () => runWithFakedTimers({ useFakeTimers: true }, async () => {
+		const panel = await createPanel({ checkDelay: 250 });
+		const estimate = find(panel, '.bh-video-panel-estimate');
+		const generate = find(panel, '.bh-video-panel-generate');
+		await timeout(300);
+		const first = { text: estimate.textContent, hidden: estimate.hidden, tooltip: hovers.get(estimate)?.(), checks: catalog.checks.length };
+		catalog.answer = () => ({ problems: ['The prompt is longer than 2,000 characters.'], estimate: { currency: 'CNY', min: 3, max: 9, priceDate: '2026-10-18' } });
+		type(find<HTMLTextAreaElement>(panel, 'textarea'), 'A much longer prompt');
+		await timeout(100);
+		const whileAsking = { text: estimate.textContent, checks: catalog.checks.length };
+		await timeout(200);
+		assert.deepStrictEqual({
+			first,
+			whileAsking,
+			after: { text: estimate.textContent, label: generate.getAttribute('aria-label'), checks: catalog.checks.length, prompt: catalog.checks.at(-1)?.prompt }
+		}, {
+			first: { text: '≈ ¥1.20', hidden: false, tooltip: 'An estimate from the prices Acme Video published on 2026-10-18. What Acme Video bills is what counts.', checks: 1 },
+			whileAsking: { text: '≈ ¥1.20', checks: 1 },
+			after: { text: '¥3.00–¥9.00', label: 'The prompt is longer than 2,000 characters.', checks: 2, prompt: 'A much longer prompt' }
+		});
+	}));
 
 	test(`${isMacintosh ? 'Cmd' : 'Ctrl'}+Enter saves the prompt and generates, and the stop square stops`, async () => {
 		const panel = await createPanel();
@@ -462,31 +507,108 @@ suite('BaseHalfVideoNodePanel', () => {
 		});
 	});
 
-	test('choosing another model saves settings that the model accepts', async () => {
-		store.fields = { prompt: 'Rain', generation: { ...READY, mode: 'reference', ratio: '21:9', duration: 12 } };
+	test('the model menu lists the catalog\'s models by provider, and choosing one keeps the values it accepts', async () => {
+		store.fields = { prompt: 'Rain', generation: { ...READY, mode: 'reference', params: { resolution: '1080p', ratio: '21:9', duration: 10, sound: false } } };
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-model').click();
 		const items = findAll(panel, '.bh-video-panel-menu-item').map(item => `${item.textContent}${item.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
-		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'MiniMax Hailuo-02')?.click();
+		const headings = findAll(panel, '.bh-video-panel-menu-heading').map(heading => heading.textContent);
+		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Acme Still')?.click();
 		await settle();
-		assert.deepStrictEqual({ items, written: store.generations, summary: find(panel, '.bh-video-panel-settings').textContent }, {
-			items: ['Seedance 2.5*', 'MiniMax Hailuo-02', 'Manage Video Providers…'],
-			written: [{ mode: 'frames', ratio: 'adaptive', resolution: '768P', duration: 10, audio: false, channel: 'mm-1', model: 'MiniMax-Hailuo-02' }],
-			summary: 'Frames · 768P · 10s'
+		assert.deepStrictEqual({ items, headings, written: store.generations, summary: find(panel, '.bh-video-panel-settings').textContent }, {
+			items: ['Acme Motion 2*', 'Acme Still', 'Acme Clip', 'Borealis One', 'Video Providers…'],
+			headings: ['Acme VideoEast · Acme Cloud', 'Borealis MediaNot set up'],
+			written: [{ provider: 'acme', model: 'acme-still', mode: 'frames', params: { resolution: '1080p', duration: 10 } }],
+			summary: 'Frames · 1080P · 10s'
 		});
 	});
 
-	test('a setting changes at once and is saved, and the popover shows only what the model accepts', async () => {
+	test('a model its region does not offer is dimmed with the reason, and Video Providers… opens on the node\'s provider', async () => {
+		providers.regions = { acme: 'west' };
+		const panel = await createPanel();
+		find(panel, '.bh-video-panel-model').click();
+		const still = findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Acme Still')!;
+		const dimmed = { unavailable: still.classList.contains('unavailable'), description: still.getAttribute('aria-description'), tooltip: hovers.get(still)?.() };
+		findAll(panel, '.bh-video-panel-menu-item').find(item => item.textContent === 'Video Providers…')?.click();
+		await settle();
+		assert.deepStrictEqual({ dimmed, opened: providers.opened }, {
+			dimmed: { unavailable: true, description: 'Not offered in West · Acme Global', tooltip: 'Not offered in West · Acme Global' },
+			opened: ['acme']
+		});
+	});
+
+	test('a setting changes at once and is saved, and the popover is drawn from the model\'s parameters for the mode', async () => {
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-settings').click();
 		const groups = findAll(panel, '[role="radiogroup"]').map(group => group.getAttribute('aria-label'));
+		const keys = findAll(panel, '.bh-video-panel-menu.settings [data-key]').map(control => control.dataset.key);
 		findAll(panel, '.bh-video-panel-choice').find(choice => choice.textContent === '1080p')?.click();
 		const shownAtOnce = find(panel, '.bh-video-panel-settings').textContent;
 		await settle();
-		assert.deepStrictEqual({ groups, shownAtOnce, written: store.generations.map(settings => settings?.resolution) }, {
-			groups: ['Mode', 'Ratio', 'Resolution'],
-			shownAtOnce: 'Frames · Adaptive · 1080p · 5s · Sound',
-			written: ['1080p']
+		assert.deepStrictEqual({ groups, keys, shownAtOnce, written: store.generations.map(written => written?.params) }, {
+			groups: ['Mode', 'Resolution'],
+			keys: ['mode:frames', 'mode:reference', 'resolution:480p', 'resolution:720p', 'resolution:1080p', 'duration:slider', 'duration:auto', 'sound', 'more'],
+			shownAtOnce: 'Frames · 1080p · 5s · Sound',
+			written: [{ resolution: '1080p', duration: 5, sound: true }]
+		});
+	});
+
+	test('More shows the advanced parameters; an optional number left empty and an optional choice of None send nothing', async () => {
+		store.fields = { prompt: 'Rain', generation: { ...READY, params: { ...READY.params, seed: 42 } } };
+		const panel = await createPanel();
+		find(panel, '.bh-video-panel-settings').click();
+		const before = findAll(panel, '.bh-video-panel-menu.settings [data-key]').map(control => control.dataset.key);
+		find(panel, '[data-key="more"]').click();
+		const seed = find<HTMLInputElement>(panel, '[data-key="seed:field"]');
+		const shown = { value: seed.value, placeholder: seed.placeholder, expanded: find(panel, '[data-key="more"]').getAttribute('aria-expanded') };
+		seed.value = '';
+		seed.dispatchEvent(new mainWindow.Event('change'));
+		await settle();
+		const cleared = store.generations.at(-1)?.params;
+		const negative = find<HTMLInputElement>(panel, '[data-key="negative_prompt:text"]');
+		negative.value = 'blur, text';
+		negative.dispatchEvent(new InputEvent('input'));
+		const unsavedWhileTyping = store.generations.length;
+		press(negative, 'Enter');
+		await settle();
+		assert.deepStrictEqual({ before, shown, cleared, unsavedWhileTyping, typed: store.generations.at(-1)?.params }, {
+			before: ['mode:frames', 'mode:reference', 'resolution:480p', 'resolution:720p', 'resolution:1080p', 'duration:slider', 'duration:auto', 'sound', 'more'],
+			shown: { value: '42', placeholder: 'Not set', expanded: 'true' },
+			cleared: { resolution: '720p', duration: 5, sound: true },
+			unsavedWhileTyping: 1,
+			typed: { resolution: '720p', duration: 5, sound: true, negative_prompt: 'blur, text' }
+		});
+		store.fields = { prompt: 'Rain', generation: { provider: 'borealis', model: 'borealis-one', params: { style: 'ink' } } };
+		store.writeFromElsewhere(store.fields);
+		await settle();
+		const style = findAll(panel, '.bh-video-panel-setting.list .bh-video-panel-choice').map(choice => `${choice.textContent}${choice.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
+		find(panel, '[data-key="style:none"]').click();
+		await settle();
+		assert.deepStrictEqual({ style, unset: store.generations.at(-1)?.params }, {
+			style: ['None', 'Film', 'Anime', 'Clay', 'Ink*', 'Pixel', 'Neon', 'Paper'],
+			unset: { strength: 0.5, caption: '' }
+		});
+	});
+
+	test('while the catalog loads, the model button says so, the settings wait, and Generate says why', async () => {
+		catalog.state = { kind: 'loading' };
+		const panel = await createPanel();
+		const model = find(panel, '.bh-video-panel-model');
+		const loading = {
+			model: model.textContent,
+			settingsHidden: find(panel, '.bh-video-panel-settings').hidden,
+			generate: find(panel, '.bh-video-panel-generate').getAttribute('aria-label'),
+			loads: catalog.loads,
+			catalog: panel.element.dataset.catalog
+		};
+		model.click();
+		const menu = findAll(panel, '.bh-video-panel-menu.model > *').map(element => element.textContent);
+		catalog.set({ kind: 'ready', catalog: TEST_VIDEO_CATALOG });
+		await settle();
+		assert.deepStrictEqual({ loading, menu, ready: [model.textContent, find(panel, '.bh-video-panel-settings').hidden] }, {
+			loading: { model: 'Loading Models…', settingsHidden: true, generate: 'The video models are still loading.', loads: 1, catalog: 'loading' },
+			menu: ['Loading the video models…', '', 'Video Providers…'],
+			ready: ['Acme Motion 2', false]
 		});
 	});
 
@@ -498,8 +620,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		type(prompt, 'A slow push in.');
 		const thumbnailKept = find(panel, '.bh-video-panel-thumb') === thumbnail;
 		prompt.setSelectionRange(2, 6);
-		store.writeFromElsewhere({ ...store.fields, generation: { ...READY, resolution: '1080p' } });
-		channels.change([ARK, MINIMAX]);
+		store.writeFromElsewhere({ ...store.fields, generation: { ...READY, params: { ...READY.params, resolution: '1080p' } } });
+		providers.change();
 		generation.report();
 		panel.element.dispatchEvent(new CustomEvent<IBaseHalfCanvasSceneVideoPanelLayout>(BASEHALF_CANVAS_VIDEO_PANEL_LAYOUT_EVENT, {
 			detail: { placement: 'above', visible: true, following: false, left: 100, top: 40, width: 512, height: 180, canvasWidth: 1200, canvasHeight: 800 }
@@ -572,28 +694,28 @@ suite('BaseHalfVideoNodePanel', () => {
 		find(panel, '.bh-video-panel-settings').click();
 		const settings = mainWindow.document.activeElement as HTMLElement | null;
 		assert.deepStrictEqual({ opened, down, end, home, settings: [settings?.getAttribute('role'), settings?.textContent] }, {
-			opened: 'Seedance 2.5',
-			down: 'MiniMax Hailuo-02',
-			end: 'Manage Video Providers…',
-			home: 'Seedance 2.5',
+			opened: 'Acme Motion 2',
+			down: 'Acme Still',
+			end: 'Video Providers…',
+			home: 'Acme Motion 2',
 			settings: ['radio', 'Frames']
 		});
 	});
 
 	test('says when the node cannot be read, and shows why Generate did not start', async () => {
 		const unreadable = disposables.add(new FakeVideoNodeStore({}, []));
-		unreadable.read = async () => { throw new Error('document.version 4 is not supported.'); };
+		unreadable.read = async () => { throw new Error('document.version 5 is no longer supported: this node was saved by an earlier BaseHalf.'); };
 		instantiationService.set(IBaseHalfVideoNodeStore, unreadable);
 		const broken = await createPanel();
 		const notice = { state: broken.element.dataset.state, text: find(broken, '.bh-video-panel-notice').textContent, prompt: find(broken, '.bh-video-panel-prompt').hidden };
 		instantiationService.set(IBaseHalfVideoNodeStore, store);
-		generation.generate = async () => { throw new Error('frames/huge.png is larger than 20 MiB.'); };
+		generation.generate = async () => { throw new Error('huge.png is larger than 30 MiB, the most Acme Motion 2 takes.'); };
 		const panel = await createPanel();
 		find(panel, '.bh-video-panel-generate').click();
 		await settle();
 		assert.deepStrictEqual({ notice, refused: notifications.shown }, {
-			notice: { state: 'unreadable', text: 'This Video node cannot be read: document.version 4 is not supported.', prompt: true },
-			refused: ['frames/huge.png is larger than 20 MiB.']
+			notice: { state: 'unreadable', text: 'This Video node cannot be read: document.version 5 is no longer supported: this node was saved by an earlier BaseHalf.', prompt: true },
+			refused: ['huge.png is larger than 30 MiB, the most Acme Motion 2 takes.']
 		});
 	});
 
@@ -614,9 +736,9 @@ suite('BaseHalfVideoNodePanel', () => {
 		frame.style.cssText = 'position: absolute; left: 0; top: 0; width: 512px; --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;';
 		mainWindow.document.body.appendChild(frame);
 		mounted.push(frame);
-		const measure = async (generationSettings: IBaseHalfVideoGenerationSettings) => {
-			store.fields = { prompt: 'Image 1 rides along the sea at dusk.', generation: generationSettings };
-			const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, undefined));
+		const measure = async (generationChoice: IBaseHalfVideoGenerationChoice) => {
+			store.fields = { prompt: 'Image 1 rides along the sea at dusk.', generation: generationChoice };
+			const panel = disposables.add(instantiationService.createInstance(BaseHalfVideoNodePanel, NODE, host, { checkDelay: 0 }));
 			frame.replaceChildren(panel.element);
 			await settle();
 			const box = (selector: string) => find(panel, selector).getBoundingClientRect();
@@ -625,37 +747,46 @@ suite('BaseHalfVideoNodePanel', () => {
 				return element.scrollWidth > element.clientWidth;
 			};
 			const outer = panel.element.getBoundingClientRect();
-			const model = box('.bh-video-panel-model');
-			const settings = box('.bh-video-panel-settings');
-			const generate = box('.bh-video-panel-generate');
+			// The controls of the footer that show, from left to right.
+			const shownInFooter = ['.bh-video-panel-model', '.bh-video-panel-settings', '.bh-video-panel-estimate', '.bh-video-panel-generate']
+				.filter(selector => !find(panel, selector).hidden)
+				.map(selector => box(selector));
 			const footer = box('.bh-video-panel-footer');
 			const slots = findAll(panel, '.bh-video-panel-slot').map(slot => slot.getBoundingClientRect());
 			const row = box('.bh-video-panel-inputs');
-			find(panel, '.bh-video-panel-settings').click();
-			const choices = findAll(panel, '.bh-video-panel-choice-label').filter(label => label.scrollWidth > label.clientWidth).map(label => label.textContent);
-			const popover = box('.bh-video-panel-menu.settings');
+			const settingsShown = !find(panel, '.bh-video-panel-settings').hidden;
+			const estimateShown = !find(panel, '.bh-video-panel-estimate').hidden;
+			let clippedChoices: (string | null)[] = [];
+			let popoverWidth = 0;
+			if (settingsShown) {
+				find(panel, '.bh-video-panel-settings').click();
+				clippedChoices = findAll(panel, '.bh-video-panel-choice-label').filter(label => label.scrollWidth > label.clientWidth).map(label => label.textContent);
+				popoverWidth = box('.bh-video-panel-menu.settings').width;
+			}
 			const result = {
 				height: outer.height,
 				reported: panel.height,
 				modelClipped: clipped('.bh-video-panel-model-label'),
-				settingsClipped: clipped('.bh-video-panel-settings-label'),
-				footerInOrder: model.right <= settings.left && settings.right <= generate.left && generate.right <= outer.right - 12,
+				settingsClipped: settingsShown && clipped('.bh-video-panel-settings-label'),
+				estimateShown,
+				footerInOrder: shownInFooter.every((rect, index) => index === 0 || shownInFooter[index - 1].right <= rect.left) && shownInFooter[shownInFooter.length - 1].right <= outer.right - 12,
 				footerInside: footer.bottom <= outer.bottom - 12,
 				slotsInside: slots.every(slot => slot.left >= row.left && slot.right <= row.right),
-				clippedChoices: choices,
-				popoverWidth: popover.width
+				clippedChoices,
+				popoverWidth
 			};
 			panel.dispose();
 			return result;
 		};
-		const seedance = await measure(READY);
-		const long = await measure({ ...READY, channel: 'relay', model: 'doubao-seedance-1-0-pro-fast-251015-preview-for-studio-relay' });
-		assert.deepStrictEqual({ seedance, long: { modelClipped: long.modelClipped, footerInOrder: long.footerInOrder, settingsClipped: long.settingsClipped } }, {
-			seedance: {
+		const motion = await measure(READY);
+		const long = await measure({ provider: 'acme', model: 'acme-motion-with-a-very-long-name-that-a-catalog-no-longer-has-1015-preview' });
+		assert.deepStrictEqual({ motion, long: { modelClipped: long.modelClipped, footerInOrder: long.footerInOrder } }, {
+			motion: {
 				height: 180,
 				reported: 180,
 				modelClipped: false,
 				settingsClipped: false,
+				estimateShown: true,
 				footerInOrder: true,
 				footerInside: true,
 				slotsInside: true,
@@ -663,7 +794,7 @@ suite('BaseHalfVideoNodePanel', () => {
 				popoverWidth: 300
 			},
 			// A long model id ends with an ellipsis and shows in full in its tooltip; the rest keeps its place.
-			long: { modelClipped: true, footerInOrder: true, settingsClipped: false }
+			long: { modelClipped: true, footerInOrder: true }
 		});
 	});
 
@@ -672,10 +803,8 @@ suite('BaseHalfVideoNodePanel', () => {
 		const heights: number[] = [];
 		disposables.add(panel.onDidChangeHeight(height => heights.push(height)));
 		const withRow = panel.height;
-		store.writeFromElsewhere({ prompt: 'Rain', generation: { ...READY, channel: 'wan', model: 'wan2.6-t2v' } });
-		channels.change([ARK, MINIMAX, { id: 'wan', provider: 'dashscope', name: 'Model Studio', baseUrl: '', models: ['wan2.6-t2v'], hasKey: true }]);
 		store.upstream = [];
-		store.writeFromElsewhere(store.fields);
+		store.writeFromElsewhere({ prompt: 'Rain', generation: { provider: 'borealis', model: 'borealis-one' } });
 		await settle();
 		assert.deepStrictEqual({ withRow, withoutRow: panel.height, heights }, { withRow: 180, withoutRow: 132, heights: [132] });
 	});

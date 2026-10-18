@@ -3,61 +3,55 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { BASEHALF_VIDEO_MODE_IDS, BaseHalfVideoModeId, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
+
 /**
- * The video fields of a `.bhnode` document, version 5 (D58): what the next
- * generation of a Video node uses, the generation that runs or the last one
- * that ended without a video, and what produced the node's video.
+ * The video fields of a `.bhnode` document, version 6 (D58, D59): what the
+ * next generation of a Video node uses, the generation that runs or the last
+ * one that ended without a video, and what produced the node's video.
  *
  * The node document module embeds these fields in the document and validates
- * them through the functions here. Nothing in this module reads or writes
- * files. The transitions are pure and keep every field they do not own.
+ * them through the functions here. They check shapes only: which providers,
+ * models, modes, and values exist is known from the model catalog. Nothing in
+ * this module reads or writes files. The transitions are pure and keep every
+ * field they do not own.
  */
 
-export type BaseHalfVideoMode = 'frames' | 'reference';
-export const BASEHALF_VIDEO_MODES: readonly BaseHalfVideoMode[] = Object.freeze(['frames', 'reference']);
+/**
+ * What the next generation of a Video node uses: the catalog ids of the
+ * provider and the model, the mode, and the values of the model's parameters.
+ * Without `model`, none is chosen yet.
+ */
+export type IBaseHalfVideoGeneration = IBaseHalfVideoGenerationChoice;
 
-/** The request format of a provider, chosen by the channel's preset. */
-export type BaseHalfVideoProviderKind = 'ark' | 'byteplus' | 'dashscope' | 'minimax' | 'gemini' | 'openai';
-export const BASEHALF_VIDEO_PROVIDER_KINDS: readonly BaseHalfVideoProviderKind[] = Object.freeze(['ark', 'byteplus', 'dashscope', 'minimax', 'gemini', 'openai']);
-
-/** A duration of -1 lets the model choose the length, where the model allows it. */
-export const BASEHALF_VIDEO_AUTO_DURATION = -1;
-export const BASEHALF_VIDEO_MAX_DURATION = 120;
 export const BASEHALF_VIDEO_PROMPT_MAX_LENGTH = 64 * 1024;
+/** The prompt as sent, text inputs included, as a request record keeps it. */
+export const BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH = 256 * 1024;
 export const BASEHALF_VIDEO_ERROR_MAX_LENGTH = 4 * 1024;
 export const BASEHALF_VIDEO_MAX_INPUTS = 64;
 
 const MAX_ID_LENGTH = 128;
-const MAX_MODEL_LENGTH = 256;
-const MAX_SETTING_LENGTH = 32;
+const MAX_PROVIDER_MODEL_LENGTH = 256;
 const MAX_PATH_LENGTH = 1024;
 const MAX_TIMESTAMP_LENGTH = 64;
-
-/** The settings of one generation, apart from the model. */
-export interface IBaseHalfVideoSettings {
-	readonly mode: BaseHalfVideoMode;
-	/** `16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `21:9`, or `adaptive`. */
-	readonly ratio: string;
-	/** As the provider names it, such as `720p` or `768P`. */
-	readonly resolution: string;
-	/** Seconds, or {@link BASEHALF_VIDEO_AUTO_DURATION}. */
-	readonly duration: number;
-	readonly audio: boolean;
-}
-
-/** What the next generation of the node uses. Without `model`, none is chosen yet. */
-export interface IBaseHalfVideoGenerationSettings extends IBaseHalfVideoSettings {
-	/** The machine-local channel that offered the model when it was chosen. A hint only. */
-	readonly channel?: string;
-	/** The provider's model id, such as `doubao-seedance-2-5-260628`. */
-	readonly model?: string;
-}
+const MAX_PARAMS = 64;
+const MAX_PARAM_TEXT_LENGTH = 16 * 1024;
+const PARAM_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 
 /** What one generation sent to the provider. */
-export interface IBaseHalfVideoGenerationRecord extends IBaseHalfVideoSettings {
-	readonly provider: BaseHalfVideoProviderKind;
+export interface IBaseHalfVideoGenerationRecord {
+	/** The catalog id of the provider. */
+	readonly provider: string;
+	/** The provider's region the request went to. */
+	readonly region: string;
+	/** The catalog id of the model. */
 	readonly model: string;
-	/** The node's prompt when the generation started. Text inputs are listed in `inputs`, not copied. */
+	/** The id sent to the provider in that region. */
+	readonly providerModel: string;
+	readonly mode: BaseHalfVideoModeId;
+	/** Every parameter that applied, with its value or default; optional ones only when set. */
+	readonly params: BaseHalfVideoParams;
+	/** The prompt as sent: the node's prompt and the text of its text inputs. */
 	readonly prompt: string;
 	/** The upstream entries the generation used, in the order it used them. */
 	readonly inputs: readonly string[];
@@ -77,8 +71,6 @@ export interface IBaseHalfVideoTask {
 	readonly state: BaseHalfVideoTaskState;
 	readonly startedAt: string;
 	readonly endedAt?: string;
-	/** The machine-local channel that runs it. */
-	readonly channel: string;
 	/** The provider's task id, written as soon as the provider returns it. */
 	readonly remoteId?: string;
 	/** Plain text for the card: why it failed or how it ended. */
@@ -110,7 +102,7 @@ export type IBaseHalfNodeResult =
 /** The fields of a node document that the video transitions read and write. */
 export interface IBaseHalfVideoNodeFields {
 	readonly prompt?: string;
-	readonly generation?: IBaseHalfVideoGenerationSettings;
+	readonly generation?: IBaseHalfVideoGeneration;
 	readonly task?: IBaseHalfVideoTask;
 	readonly result?: IBaseHalfNodeResult;
 }
@@ -148,25 +140,28 @@ export class BaseHalfVideoNodeError extends Error {
 
 // --- validation ---------------------------------------------------------------------------
 
-/** Validates the `generation` field of a Video node. Throws with the field path. */
-export function normalizeBaseHalfVideoGenerationSettings(value: unknown, path = 'generation'): IBaseHalfVideoGenerationSettings {
-	const candidate = object(value, path, ['mode', 'ratio', 'resolution', 'duration', 'audio', 'channel', 'model']);
-	const settings = normalizeSettings(candidate, path);
-	const channel = candidate.channel === undefined ? undefined : id(candidate.channel, `${path}.channel`);
-	const model = candidate.model === undefined ? undefined : modelId(candidate.model, `${path}.model`);
+/**
+ * Validates the shape of `generation`: catalog ids for the provider and the
+ * model, a mode id, and values that are text, numbers, or booleans. Whether
+ * they exist is known from the catalog, not here. Throws with the field path.
+ */
+export function normalizeBaseHalfVideoGeneration(value: unknown, path = 'generation'): IBaseHalfVideoGeneration {
+	const candidate = object(value, path, ['provider', 'model', 'mode', 'params']);
+	const provider = candidate.provider === undefined ? undefined : id(candidate.provider, `${path}.provider`);
+	const model = candidate.model === undefined ? undefined : id(candidate.model, `${path}.model`);
+	const mode = candidate.mode === undefined ? undefined : modeId(candidate.mode, `${path}.mode`);
+	const params = candidate.params === undefined ? undefined : paramValues(candidate.params, `${path}.params`);
 	return Object.freeze({
-		...settings,
-		...(channel !== undefined ? { channel } : {}),
-		...(model !== undefined ? { model } : {})
+		...(provider !== undefined ? { provider } : {}),
+		...(model !== undefined ? { model } : {}),
+		...(mode !== undefined ? { mode } : {}),
+		...(params !== undefined ? { params } : {})
 	});
 }
 
 /** Validates a generation record. Throws with the field path. */
 export function normalizeBaseHalfVideoGenerationRecord(value: unknown, path = 'request'): IBaseHalfVideoGenerationRecord {
-	const candidate = object(value, path, ['provider', 'model', 'prompt', 'inputs', 'mode', 'ratio', 'resolution', 'duration', 'audio']);
-	if (!BASEHALF_VIDEO_PROVIDER_KINDS.includes(candidate.provider as BaseHalfVideoProviderKind)) {
-		throw error(`${path}.provider must be one of ${BASEHALF_VIDEO_PROVIDER_KINDS.join(', ')}.`);
-	}
+	const candidate = object(value, path, ['provider', 'region', 'model', 'providerModel', 'mode', 'params', 'prompt', 'inputs']);
 	if (!Array.isArray(candidate.inputs)) {
 		throw error(`${path}.inputs must be an array.`);
 	}
@@ -175,22 +170,25 @@ export function normalizeBaseHalfVideoGenerationRecord(value: unknown, path = 'r
 	}
 	const inputs = candidate.inputs.map((input, index) => text(input, `${path}.inputs[${index}]`, MAX_PATH_LENGTH, false));
 	return Object.freeze({
-		provider: candidate.provider as BaseHalfVideoProviderKind,
-		model: modelId(candidate.model, `${path}.model`),
-		prompt: prompt(candidate.prompt, `${path}.prompt`),
-		inputs: Object.freeze(inputs),
-		...normalizeSettings(candidate, path)
+		provider: id(candidate.provider, `${path}.provider`),
+		region: id(candidate.region, `${path}.region`),
+		model: id(candidate.model, `${path}.model`),
+		providerModel: text(candidate.providerModel, `${path}.providerModel`, MAX_PROVIDER_MODEL_LENGTH, false),
+		mode: modeId(candidate.mode, `${path}.mode`),
+		params: paramValues(candidate.params, `${path}.params`),
+		prompt: prompt(candidate.prompt, `${path}.prompt`, BASEHALF_VIDEO_SENT_PROMPT_MAX_LENGTH),
+		inputs: Object.freeze(inputs)
 	});
 }
 
 /** Validates the `task` field of a Video node. Throws with the field path. */
 export function normalizeBaseHalfVideoTask(value: unknown, path = 'task'): IBaseHalfVideoTask {
-	const candidate = object(value, path, ['id', 'state', 'startedAt', 'endedAt', 'channel', 'remoteId', 'error', 'request']);
+	const candidate = object(value, path, ['id', 'state', 'startedAt', 'endedAt', 'remoteId', 'error', 'request']);
 	const state = candidate.state;
 	if (state !== 'submitting' && state !== 'running' && state !== 'failed' && state !== 'stopped') {
 		throw error(`${path}.state must be submitting, running, failed, or stopped.`);
 	}
-	const remoteId = candidate.remoteId === undefined ? undefined : text(candidate.remoteId, `${path}.remoteId`, MAX_MODEL_LENGTH, false);
+	const remoteId = candidate.remoteId === undefined ? undefined : text(candidate.remoteId, `${path}.remoteId`, MAX_PROVIDER_MODEL_LENGTH, false);
 	const endedAt = candidate.endedAt === undefined ? undefined : timestamp(candidate.endedAt, `${path}.endedAt`);
 	const message = candidate.error === undefined ? undefined : text(candidate.error, `${path}.error`, BASEHALF_VIDEO_ERROR_MAX_LENGTH, true);
 	if (state === 'running' && remoteId === undefined) {
@@ -210,7 +208,6 @@ export function normalizeBaseHalfVideoTask(value: unknown, path = 'task'): IBase
 		state,
 		startedAt: timestamp(candidate.startedAt, `${path}.startedAt`),
 		...(endedAt !== undefined ? { endedAt } : {}),
-		channel: id(candidate.channel, `${path}.channel`),
 		...(remoteId !== undefined ? { remoteId } : {}),
 		...(message !== undefined ? { error: message } : {}),
 		request: normalizeBaseHalfVideoGenerationRecord(candidate.request, `${path}.request`)
@@ -220,7 +217,7 @@ export function normalizeBaseHalfVideoTask(value: unknown, path = 'task'): IBase
 /** Validates the `generation` field of a generated result. Throws with the field path. */
 export function normalizeBaseHalfVideoResultGeneration(value: unknown, path = 'result.generation'): IBaseHalfVideoResultGeneration {
 	const candidate = object(value, path, ['taskId', 'remoteId', 'startedAt', 'completedAt', 'request']);
-	const remoteId = candidate.remoteId === undefined ? undefined : text(candidate.remoteId, `${path}.remoteId`, MAX_MODEL_LENGTH, false);
+	const remoteId = candidate.remoteId === undefined ? undefined : text(candidate.remoteId, `${path}.remoteId`, MAX_PROVIDER_MODEL_LENGTH, false);
 	return Object.freeze({
 		taskId: id(candidate.taskId, `${path}.taskId`),
 		...(remoteId !== undefined ? { remoteId } : {}),
@@ -232,26 +229,25 @@ export function normalizeBaseHalfVideoResultGeneration(value: unknown, path = 'r
 
 /** Validates a prompt. Throws with the field path. */
 export function normalizeBaseHalfVideoPrompt(value: unknown, path = 'prompt'): string {
-	return prompt(value, path);
+	return prompt(value, path, BASEHALF_VIDEO_PROMPT_MAX_LENGTH);
 }
 
 // --- transitions ----------------------------------------------------------------------------
 
 /** Replaces the prompt. Allowed in every phase: it is what the next generation uses. */
 export function setBaseHalfVideoPrompt<T extends IBaseHalfVideoNodeFields>(node: T, value: string): T {
-	const next = prompt(value, 'prompt');
+	const next = prompt(value, 'prompt', BASEHALF_VIDEO_PROMPT_MAX_LENGTH);
 	return node.prompt === next ? node : { ...node, prompt: next };
 }
 
-/** Replaces the settings of the next generation. Allowed in every phase. */
-export function setBaseHalfVideoGenerationSettings<T extends IBaseHalfVideoNodeFields>(node: T, settings: IBaseHalfVideoGenerationSettings): T {
-	return { ...node, generation: normalizeBaseHalfVideoGenerationSettings(settings) };
+/** Replaces what the next generation uses. Allowed in every phase. */
+export function setBaseHalfVideoGeneration<T extends IBaseHalfVideoNodeFields>(node: T, generation: IBaseHalfVideoGeneration): T {
+	return { ...node, generation: normalizeBaseHalfVideoGeneration(generation) };
 }
 
 export interface IBeginBaseHalfVideoTaskOptions {
 	readonly id: string;
 	readonly startedAt: string;
-	readonly channel: string;
 	readonly request: IBaseHalfVideoGenerationRecord;
 }
 
@@ -271,7 +267,6 @@ export function beginBaseHalfVideoTask<T extends IBaseHalfVideoNodeFields>(node:
 		id: options.id,
 		state: 'submitting',
 		startedAt: options.startedAt,
-		channel: options.channel,
 		request: options.request
 	});
 	return { ...node, task };
@@ -359,26 +354,6 @@ function clip(message: string): string {
 
 // --- field readers ---------------------------------------------------------------------------
 
-function normalizeSettings(candidate: Record<string, unknown>, path: string): IBaseHalfVideoSettings {
-	if (candidate.mode !== 'frames' && candidate.mode !== 'reference') {
-		throw error(`${path}.mode must be frames or reference.`);
-	}
-	if (typeof candidate.duration !== 'number' || !Number.isInteger(candidate.duration)
-		|| (candidate.duration !== BASEHALF_VIDEO_AUTO_DURATION && (candidate.duration < 1 || candidate.duration > BASEHALF_VIDEO_MAX_DURATION))) {
-		throw error(`${path}.duration must be a whole number of seconds from 1 to ${BASEHALF_VIDEO_MAX_DURATION}, or ${BASEHALF_VIDEO_AUTO_DURATION}.`);
-	}
-	if (typeof candidate.audio !== 'boolean') {
-		throw error(`${path}.audio must be true or false.`);
-	}
-	return {
-		mode: candidate.mode,
-		ratio: setting(candidate.ratio, `${path}.ratio`),
-		resolution: setting(candidate.resolution, `${path}.resolution`),
-		duration: candidate.duration,
-		audio: candidate.audio
-	};
-}
-
 function object(value: unknown, path: string, keys: readonly string[]): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw error(`${path} must be an object.`);
@@ -409,12 +384,12 @@ function text(value: unknown, path: string, maxLength: number, allowLineBreaks: 
 	return trimmed;
 }
 
-function prompt(value: unknown, path: string): string {
+function prompt(value: unknown, path: string, maxLength: number): string {
 	if (typeof value !== 'string') {
 		throw error(`${path} must be a string.`);
 	}
-	if (value.length > BASEHALF_VIDEO_PROMPT_MAX_LENGTH) {
-		throw error(`${path} is longer than ${BASEHALF_VIDEO_PROMPT_MAX_LENGTH} characters.`);
+	if (value.length > maxLength) {
+		throw error(`${path} is longer than ${maxLength} characters.`);
 	}
 	if (value.includes('\u0000')) {
 		throw error(`${path} cannot contain NUL.`);
@@ -430,16 +405,41 @@ function id(value: unknown, path: string): string {
 	return result;
 }
 
-function modelId(value: unknown, path: string): string {
-	return text(value, path, MAX_MODEL_LENGTH, false);
+function modeId(value: unknown, path: string): BaseHalfVideoModeId {
+	if (!BASEHALF_VIDEO_MODE_IDS.includes(value as BaseHalfVideoModeId)) {
+		throw error(`${path} must be one of ${BASEHALF_VIDEO_MODE_IDS.join(', ')}.`);
+	}
+	return value as BaseHalfVideoModeId;
 }
 
-function setting(value: unknown, path: string): string {
-	const result = text(value, path, MAX_SETTING_LENGTH, false);
-	if (!/^[A-Za-z0-9][A-Za-z0-9:.*x_-]*$/.test(result)) {
-		throw error(`${path} contains unsupported characters.`);
+/** Parameter names to text, numbers, or booleans: what a model's parameters take. */
+function paramValues(value: unknown, path: string): BaseHalfVideoParams {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw error(`${path} must be an object.`);
 	}
-	return result;
+	const entries = Object.entries(value as Record<string, unknown>);
+	if (entries.length > MAX_PARAMS) {
+		throw error(`${path} has more than ${MAX_PARAMS} values.`);
+	}
+	const params: Record<string, BaseHalfVideoParamValue> = {};
+	for (const [name, entry] of entries) {
+		if (!PARAM_NAME_PATTERN.test(name)) {
+			throw error(`${path}.${name} is not a parameter name.`);
+		}
+		if (typeof entry === 'string') {
+			if (entry.length > MAX_PARAM_TEXT_LENGTH || entry.includes('\u0000')) {
+				throw error(`${path}.${name} is longer than ${MAX_PARAM_TEXT_LENGTH} characters or contains NUL.`);
+			}
+		} else if (typeof entry === 'number') {
+			if (!Number.isFinite(entry)) {
+				throw error(`${path}.${name} must be a finite number.`);
+			}
+		} else if (typeof entry !== 'boolean') {
+			throw error(`${path}.${name} must be text, a number, or true or false.`);
+		}
+		params[name] = entry;
+	}
+	return Object.freeze(params);
 }
 
 function timestamp(value: unknown, path: string): string {

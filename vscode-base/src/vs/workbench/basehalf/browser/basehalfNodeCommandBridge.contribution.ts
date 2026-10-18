@@ -16,7 +16,7 @@ import { IWorkingCopyService } from '../../services/workingCopy/common/workingCo
 import { IBaseHalfAgentAreaService } from '../common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../common/basehalfCanvasTemplateRegistry.js';
-import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
+import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
 import { BaseHalfNodeCommandHandler } from './basehalfNodeCommandHandler.js';
 
 export class BaseHalfNodeCommandBackendGeneration {
@@ -53,6 +53,8 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 		@IBaseHalfAgentCapabilityRegistryService agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
 		@IBaseHalfCanvasTemplateRegistryService canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
 		@ICommandService commandService: ICommandService,
+		@IBaseHalfVideoCatalogService videoCatalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfVideoProviderSettingsService videoProviderSettings: IBaseHalfVideoProviderSettingsService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -64,7 +66,9 @@ class BaseHalfNodeCommandBridgeContribution extends Disposable implements IWorkb
 			videoGenerationService,
 			agentCapabilityRegistryService,
 			canvasTemplateRegistryService,
-			commandService
+			commandService,
+			videoCatalogService,
+			videoProviderSettings
 		);
 		for (const backend of terminalInstanceService.getRegisteredBackends()) {
 			this.registerBackend(backend);

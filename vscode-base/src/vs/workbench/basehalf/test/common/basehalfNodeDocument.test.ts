@@ -34,8 +34,8 @@ import {
 	baseHalfVideoNodePhase,
 	beginBaseHalfVideoTask,
 	IBaseHalfNodeArtifact,
+	IBaseHalfVideoGeneration,
 	IBaseHalfVideoGenerationRecord,
-	IBaseHalfVideoGenerationSettings,
 	IBaseHalfVideoTask
 } from '../../common/basehalfVideoNode.js';
 import { baseHalfNodeTestId } from './basehalfNodeTestFixtures.js';
@@ -43,8 +43,8 @@ import { baseHalfNodeTestId } from './basehalfNodeTestFixtures.js';
 suite('BaseHalfNodeDocument', () => {
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('writes a Video node as version 5 with exactly the documented fields, in order', () => {
-		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 5);
+	test('writes a Video node as version 6 with exactly the documented fields, in order', () => {
+		assert.strictEqual(BASEHALF_NODE_DOCUMENT_VERSION, 6);
 		const running = configuredVideo({ task: runningTask() });
 		const written = JSON.parse(serializeBaseHalfNodeDocument(running));
 		assert.deepStrictEqual(Object.keys(written), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'task']);
@@ -58,20 +58,22 @@ suite('BaseHalfNodeDocument', () => {
 	});
 
 	test('reads the example of the Video node specification as it is written', () => {
+		// The specification's example with its provider and model ids replaced by the test catalog's.
 		const document = parse({
-			version: 5,
+			version: 6,
 			id: '7766b3bb-c97d-4126-80eb-cb3f4fa82bc8',
 			kind: 'video',
 			title: 'Shot 1',
 			prompt: '图片1里的人骑车经过海边，镜头缓慢跟随',
 			upstream: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
-			generation: { channel: 'ark-3f2a', model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true },
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } },
 			task: runningTask()
 		});
 		assert.strictEqual(baseHalfVideoNodePhase(document), 'generating');
+		assert.deepStrictEqual(document.task?.request.params, { resolution: '720p', duration: 5, sound: true });
 	});
 
-	test('shows a version 3 or version 4 file as unreadable, naming the version', () => {
+	test('shows a version 3, 4, or 5 file as unreadable, naming the version', () => {
 		const v4 = {
 			version: 4,
 			id: baseHalfNodeTestId(2),
@@ -87,19 +89,26 @@ suite('BaseHalfNodeDocument', () => {
 			&& error.message === 'document.version 4 is no longer supported: this node was saved by an earlier BaseHalf.'
 			&& error.earlierVersion === 4);
 		assert.throws(() => parse({ ...v4, version: 3 }), /document.version 3 is no longer supported/);
-		assert.throws(() => parse({ ...emptyVideo(), version: 6 }), (error: unknown) => error instanceof BaseHalfNodeDocumentError
-			&& /document.version must be 5; it is '6'/.test(error.message)
+		// A version 5 node of D58, with a channel and the settings of the window's model table.
+		const v5 = { ...emptyVideo(), version: 5, generation: { channel: 'relay-3f2a', model: 'model-x', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true } };
+		assert.throws(() => parse(v5), (error: unknown) => error instanceof BaseHalfNodeDocumentError
+			&& error.message === 'document.version 5 is no longer supported: this node was saved by an earlier BaseHalf.'
+			&& error.earlierVersion === 5);
+		assert.throws(() => parse({ ...emptyVideo(), version: 7 }), (error: unknown) => error instanceof BaseHalfNodeDocumentError
+			&& /document.version must be 6; it is '7'/.test(error.message)
 			&& error.earlierVersion === undefined);
 		const withoutVersion: Record<string, unknown> = { ...emptyVideo() };
 		delete withoutVersion.version;
-		assert.throws(() => parse(withoutVersion), /document.version must be 5/);
+		assert.throws(() => parse(withoutVersion), /document.version must be 6/);
 	});
 
 	test('refuses an unknown field with its path', () => {
 		for (const field of ['role', 'recipe', 'attempts', 'lifecycle']) {
 			assert.throws(() => parse({ ...emptyVideo(), [field]: [] }), new RegExp(`^BaseHalfNodeDocumentError: document\\.${field} is not a known field\\.$`));
 		}
-		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), seed: 3 } }), /document\.generation\.seed is not a known field/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), ratio: '16:9' } }), /document\.generation\.ratio is not a known field/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), channel: 'relay-3f2a' } }), /document\.generation\.channel is not a known field/);
+		assert.throws(() => parse({ ...configuredVideo({ task: runningTask() }), task: { ...runningTask(), channel: 'relay-3f2a' } }), /document\.task\.channel is not a known field/);
 		assert.throws(() => parse({ ...configuredVideo({ task: runningTask() }), task: { ...runningTask(), progress: 3 } }), /document\.task\.progress is not a known field/);
 		assert.throws(() => parse({ ...emptyVideo(), result: { source: 'imported', artifact: { ...videoArtifact(), sha256: 'x' } } }), /document\.result\.artifact\.sha256 is not a known field/);
 		assert.throws(() => parse({ ...emptyVideo(), result: { source: 'imported', artifact: videoArtifact(), generation: {} } }), /document\.result\.generation is not a known field/);
@@ -113,13 +122,13 @@ suite('BaseHalfNodeDocument', () => {
 
 	test('refuses the video fields on every other kind of node', () => {
 		for (const kind of BASEHALF_NODE_KINDS.filter(kind => kind !== 'video')) {
-			const node = { version: 5, id: baseHalfNodeTestId(4), kind, title: 'Other', upstream: [] };
+			const node = { version: 6, id: baseHalfNodeTestId(4), kind, title: 'Other', upstream: [] };
 			assert.deepStrictEqual(Object.keys(JSON.parse(serializeBaseHalfNodeDocument(parse(node)))), ['version', 'id', 'kind', 'title', 'upstream']);
 			assert.throws(() => parse({ ...node, prompt: 'A prompt' }), /document\.prompt is allowed only on a Video node/);
-			assert.throws(() => parse({ ...node, generation: settings() }), /document\.generation is allowed only on a Video node/);
+			assert.throws(() => parse({ ...node, generation: generation() }), /document\.generation is allowed only on a Video node/);
 			assert.throws(() => parse({ ...node, task: failedTask() }), /document\.task is allowed only on a Video node/);
 		}
-		const image = { version: 5, id: baseHalfNodeTestId(4), kind: 'image', title: 'Frame', upstream: [] };
+		const image = { version: 6, id: baseHalfNodeTestId(4), kind: 'image', title: 'Frame', upstream: [] };
 		assert.throws(() => parse({ ...image, result: { ...generatedResult(), artifact: { ...videoArtifact(), kind: 'image', path: 'outputs/x/frame.png' } } }), /document\.result\.source 'generated' is allowed only on a Video node/);
 		assert.throws(() => parse({ ...image, result: { source: 'imported', artifact: videoArtifact() } }), /document\.result\.artifact\.kind must match document\.kind 'image'/);
 	});
@@ -129,8 +138,14 @@ suite('BaseHalfNodeDocument', () => {
 		delete withoutPrompt.prompt;
 		assert.throws(() => parse(withoutPrompt), /^BaseHalfNodeDocumentError: document\.prompt is required on a Video node\.$/);
 		assert.throws(() => parse({ ...emptyVideo(), prompt: 7 }), /document\.prompt must be a string/);
-		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), mode: 'storyboard' } }), /^BaseHalfNodeDocumentError: document\.generation\.mode must be frames or reference\.$/);
-		assert.throws(() => parse({ ...emptyVideo(), generation: { ...settings(), duration: 0 } }), /document\.generation\.duration/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), mode: 'storyboard' } }), /^BaseHalfNodeDocumentError: document\.generation\.mode must be one of frames, reference, extend, edit\.$/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), provider: 'Acme Video' } }), /document\.generation\.provider contains unsupported characters/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), params: { duration: [5] } } }), /document\.generation\.params\.duration must be text, a number, or true or false/);
+		assert.throws(() => parse({ ...emptyVideo(), generation: { ...generation(), params: { 'two words': 1 } } }), /document\.generation\.params\.two words is not a parameter name/);
+		assert.throws(() => parse({ ...emptyVideo(), task: { ...runningTask(), request: { ...request(), providerModel: '' } } }), /document\.task\.request\.providerModel cannot be empty/);
+		// Only shapes are read: the catalog knows whether the model and its values exist.
+		assert.deepStrictEqual(parse({ ...emptyVideo(), generation: { provider: 'gone', model: 'gone-model', mode: 'edit', params: { anything: 'goes', n: 1.5, on: false } } }).generation,
+			{ provider: 'gone', model: 'gone-model', mode: 'edit', params: { anything: 'goes', n: 1.5, on: false } });
 		const { remoteId: _remoteId, ...withoutRemoteId } = runningTask();
 		assert.throws(() => parse({ ...emptyVideo(), task: withoutRemoteId }), /document\.task\.remoteId is required while the task is running/);
 		assert.throws(() => parse({ ...emptyVideo(), prompt: 'a'.repeat(64 * 1024 + 1) }), /document\.prompt is longer than/);
@@ -184,7 +199,6 @@ suite('BaseHalfNodeDocument', () => {
 		const started = withBaseHalfNodeVideoFields(node, beginBaseHalfVideoTask(getBaseHalfNodeVideoFields(node), {
 			id: 'task-2',
 			startedAt: '2026-10-15T09:00:00.000Z',
-			channel: 'ark-3f2a',
 			request: request()
 		}));
 		assert.deepStrictEqual([started.task?.state, started.upstream, started.title], ['submitting', node.upstream, node.title]);
@@ -273,19 +287,20 @@ suite('BaseHalfNodeDocument upstream', () => {
 		assert.strictEqual(setBaseHalfNodeUpstream(node, [...node.upstream]), node);
 	});
 
-	test('extracts the upstream list of a version 5 node leniently, and nothing else', () => {
-		const malformed = JSON.stringify({ version: 5, upstream: ['a.md', 3], task: 'broken', result: { artifact: { path: 'outputs/x/clip.mp4' } } });
+	test('extracts the upstream list of a version 6 node leniently, and nothing else', () => {
+		const malformed = JSON.stringify({ version: 6, upstream: ['a.md', 3], task: 'broken', result: { artifact: { path: 'outputs/x/clip.mp4' } } });
 		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(malformed), {
 			readable: true,
 			upstream: ['a.md', 3],
 			resultArtifactPath: 'outputs/x/clip.mp4'
 		});
-		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 5, upstream: [] })), { readable: true, upstream: [] });
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 6, upstream: [] })), { readable: true, upstream: [] });
+		assert.deepStrictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 5, upstream: ['a.md'] })), { readable: false, reason: 'document.version 5 is no longer supported: this node was saved by an earlier BaseHalf.' });
 		const v4 = extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 4, upstream: ['a.md'], recipe: { inputBindings: [] }, attempts: [] }));
 		assert.deepStrictEqual(v4, { readable: false, reason: 'document.version 4 is no longer supported: this node was saved by an earlier BaseHalf.' });
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient('{').readable, false);
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient('[]').readable, false);
-		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 5, upstream: 'a.md' })).readable, false);
+		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 6, upstream: 'a.md' })).readable, false);
 		assert.strictEqual(extractBaseHalfNodeUpstreamLenient(JSON.stringify({ version: 9 })).readable, false);
 	});
 });
@@ -295,31 +310,37 @@ suite('BaseHalfNodeDocument agent authoring', () => {
 
 	test('publishes the fields an agent may write and keeps the task and result for BaseHalf', () => {
 		const contract = getBaseHalfNodeAgentAuthoringContract() as Record<string, any>;
-		assert.strictEqual(contract.contractVersion, 3);
+		assert.strictEqual(contract.contractVersion, 4);
 		assert.deepStrictEqual(contract.hostOwnedFields, ['task', 'result']);
 		assert.deepStrictEqual(contract.schema.required, ['version', 'id', 'kind', 'title', 'prompt', 'upstream']);
 		assert.deepStrictEqual(Object.keys(contract.schema.properties), ['version', 'id', 'kind', 'title', 'prompt', 'upstream', 'generation', 'task', 'result']);
 		assert.deepStrictEqual([contract.schema.properties.task, contract.schema.properties.result], [false, false]);
 		assert.deepStrictEqual(contract.schema.properties.kind, { const: 'video' });
-		assert.deepStrictEqual(contract.schema.properties.version, { const: 5 });
+		assert.deepStrictEqual(contract.schema.properties.version, { const: 6 });
+		assert.deepStrictEqual(Object.keys(contract.schema.properties.generation.properties), ['provider', 'model', 'mode', 'params']);
+		assert.deepStrictEqual(contract.examples.configured.generation, { provider: 'provider-id', model: 'model-id', mode: 'frames', params: { duration: 5 } });
+		assert.ok(contract.rules.some((rule: string) => rule.includes('host.videoCatalog')));
+		// With a model of this computer's catalog, the example names it.
+		const fromCatalog = getBaseHalfNodeAgentAuthoringContract(generation()) as Record<string, any>;
+		assert.deepStrictEqual(fromCatalog.examples.configured.generation, generation());
 		for (const example of Object.values(contract.examples)) {
 			const document = parse(example);
 			assert.deepStrictEqual([document.task, document.result], [undefined, undefined]);
 			assert.deepStrictEqual(JSON.parse(serializeBaseHalfNodeDocument(document)), example);
 		}
 		assert.ok(contract.rules.some((rule: string) => rule.includes('basehalf --run-node')));
-		assert.doesNotMatch(JSON.stringify(contract), /recipe|attempt|binding|role/i);
+		assert.doesNotMatch(JSON.stringify(contract), /recipe|attempt|binding|role|channel/i);
 	});
 
 	test('reads an agent-written Video node with a title, prompt, upstream, and settings, ready to run', () => {
 		const written = {
-			version: 5,
+			version: 6,
 			id: baseHalfNodeTestId(40),
 			kind: 'video',
 			title: 'Shot 3',
 			prompt: 'Image 1 slowly turns into Image 2.',
 			upstream: ['frames/a.png', 'frames/b.png'],
-			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: false }
+			generation: { provider: 'acme', model: 'acme-motion-2', params: { duration: 8 } }
 		};
 		const document = parse(written);
 		assert.strictEqual(baseHalfVideoNodePhase(document), 'empty');
@@ -327,7 +348,6 @@ suite('BaseHalfNodeDocument agent authoring', () => {
 		const started = withBaseHalfNodeVideoFields(document, beginBaseHalfVideoTask(getBaseHalfNodeVideoFields(document), {
 			id: 'task-1',
 			startedAt: '2026-10-15T08:00:00.000Z',
-			channel: 'ark-3f2a',
 			request: { ...request(), prompt: document.prompt!, inputs: ['frames/a.png', 'frames/b.png'] }
 		}));
 		assert.strictEqual(baseHalfVideoNodePhase(started), 'generating');
@@ -349,26 +369,25 @@ function configuredVideo(fields: { readonly task?: IBaseHalfVideoTask; readonly 
 		title: 'Shot 1',
 		prompt: 'The rider in Image 1 cycles along the coast.',
 		upstream: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
-		generation: { ...settings(), channel: 'ark-3f2a', model: 'doubao-seedance-2-5-260628' },
+		generation: generation(),
 		...fields
 	});
 }
 
-function settings(): IBaseHalfVideoGenerationSettings {
-	return { mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
+function generation(): IBaseHalfVideoGeneration {
+	return { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } };
 }
 
 function request(): IBaseHalfVideoGenerationRecord {
 	return {
-		provider: 'ark',
-		model: 'doubao-seedance-2-5-260628',
-		prompt: 'The rider in Image 1 cycles along the coast.',
-		inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md'],
+		provider: 'acme',
+		region: 'east',
+		model: 'acme-motion-2',
+		providerModel: 'acme-motion-2-e-260101',
 		mode: 'frames',
-		ratio: 'adaptive',
-		resolution: '720p',
-		duration: 5,
-		audio: true
+		params: { resolution: '720p', duration: 5, sound: true },
+		prompt: 'The rider in Image 1 cycles along the coast.\n\nThe sea at dusk.',
+		inputs: ['frames/start.png', 'frames/end.png', 'notes/scene.md']
 	};
 }
 
@@ -377,7 +396,6 @@ function runningTask(): IBaseHalfVideoTask {
 		id: '20261015T080000-k3f9',
 		state: 'running',
 		startedAt: '2026-10-15T08:00:00.000Z',
-		channel: 'ark-3f2a',
 		remoteId: 'cgt-20261015080001-abcd',
 		request: request()
 	};
@@ -389,7 +407,6 @@ function failedTask(): IBaseHalfVideoTask {
 		state: 'failed',
 		startedAt: '2026-10-15T08:00:00.000Z',
 		endedAt: '2026-10-15T08:01:00.000Z',
-		channel: 'ark-3f2a',
 		error: 'The key was refused.',
 		request: request()
 	};

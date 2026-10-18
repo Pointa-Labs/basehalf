@@ -433,6 +433,21 @@ export interface IBaseHalfAgentCapabilityDiscoveryHost {
 		readonly description?: string;
 	}[];
 	readonly operations: readonly IBaseHalfAgentCapabilityDiscoveryOperation[];
+	/** The model catalog of AI Video, from which a Video node's `generation` is chosen. */
+	readonly videoCatalog: IBaseHalfAgentCapabilityDiscoveryVideoCatalog;
+}
+
+export const BASEHALF_AGENT_CAPABILITY_DISCOVERY_MAX_VIDEO_PROVIDERS = 64;
+
+export interface IBaseHalfAgentCapabilityDiscoveryVideoCatalog {
+	/**
+	 * Each provider with its label, whether it is set up on this computer, its
+	 * regions and the region in use, and its models with their modes, input
+	 * slots, limits, and parameters. Never credentials or endpoints.
+	 */
+	readonly providers: readonly BaseHalfAgentCapabilityDiscoveryJsonValue[];
+	/** Why there are no providers: the catalog could not be loaded. */
+	readonly error?: string;
 }
 
 export interface IBaseHalfAgentCapabilityDiscoveryDocument {

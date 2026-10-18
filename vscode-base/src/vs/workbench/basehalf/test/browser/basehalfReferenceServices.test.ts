@@ -722,7 +722,7 @@ suite('BaseHalfReferenceEditService', () => {
 		});
 		await harness.edit.add(harness.node('clip.bhnode'), 'brief.md', options);
 		const text = (await harness.read('clip.bhnode'))!;
-		assert.deepStrictEqual([JSON.parse(text).version, parseBaseHalfNodeDocument(text).upstream], [5, ['loose.md', 'brief.md']]);
+		assert.deepStrictEqual([JSON.parse(text).version, parseBaseHalfNodeDocument(text).upstream], [6, ['loose.md', 'brief.md']]);
 		assert.deepStrictEqual(harness.index.getDownstream(harness.node('brief.md')).map(entry => entry.node.relativePath), ['clip.bhnode']);
 	});
 
@@ -739,13 +739,13 @@ suite('BaseHalfReferenceEditService', () => {
 	});
 
 	test('connects and disconnects a node in every phase, while it generates and after it has a video', async () => {
-		const request: IBaseHalfVideoGenerationRecord = { provider: 'ark', model: 'seedance', prompt: '', inputs: ['brief.md'], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
+		const request: IBaseHalfVideoGenerationRecord = { provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: '', inputs: ['brief.md'] };
 		const generating = serializeBaseHalfNodeDocument(createBaseHalfNodeDocument({
 			id: baseHalfNodeTestId(4),
 			kind: 'video',
 			title: 'Clip',
 			upstream: ['brief.md', 'loose.md'],
-			task: { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', remoteId: 'cgt-1', request }
+			task: { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', remoteId: 'cgt-1', request }
 		}));
 		const harness = await createHarness(disposables, {
 			'brief.md': '',

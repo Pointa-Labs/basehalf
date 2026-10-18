@@ -29,36 +29,44 @@ import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.j
 import { baseHalfUserFacingErrorMessage } from '../common/basehalfPlainFailureReason.js';
 import { BaseHalfReferenceEditFailure, BaseHalfReferenceEditRefusal, IBaseHalfReferenceEditResult, IBaseHalfReferenceEditService } from '../common/basehalfReferenceEdit.js';
 import {
-	IBaseHalfVideoChannelService,
+	BaseHalfVideoModeId,
+	BaseHalfVideoParamValue,
+	baseHalfVideoChangeParam,
+	baseHalfVideoChooseMode,
+	baseHalfVideoChooseModel,
+	findBaseHalfVideoModel,
+	IBaseHalfVideoCheckRequest,
+	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoModelRef
+} from '../common/basehalfVideoCatalog.js';
+import {
+	IBaseHalfVideoCatalogService,
 	IBaseHalfVideoGenerationService,
 	IBaseHalfVideoNodeSnapshot,
 	IBaseHalfVideoNodeStore,
+	IBaseHalfVideoProviderSettingsService,
 	IBaseHalfVideoResolvedInput
 } from '../common/basehalfVideoGeneration.js';
 import {
-	BASEHALF_VIDEO_AUTO_DURATION,
 	BASEHALF_VIDEO_PROMPT_MAX_LENGTH,
-	BaseHalfVideoMode,
 	IBaseHalfVideoNodeFields,
-	IBaseHalfVideoSettings,
 	isBaseHalfVideoTaskActive,
-	setBaseHalfVideoGenerationSettings,
+	setBaseHalfVideoGeneration,
 	setBaseHalfVideoPrompt
 } from '../common/basehalfVideoNode.js';
 import {
-	baseHalfVideoPanelChangeSettings,
-	baseHalfVideoPanelChooseModel,
-	baseHalfVideoPanelDurationLabel,
+	BaseHalfVideoPanelControl,
 	baseHalfVideoPanelMentionQuery,
 	baseHalfVideoPanelPromptMarks,
-	baseHalfVideoPanelSoundLabel,
 	createBaseHalfVideoPanelPresentation,
 	filterBaseHalfVideoPanelNames,
+	IBaseHalfVideoPanelAuto,
 	IBaseHalfVideoPanelChoice,
 	IBaseHalfVideoPanelInputItem,
 	IBaseHalfVideoPanelName,
 	IBaseHalfVideoPanelPresentation
 } from '../common/basehalfVideoNodePanelPresentation.js';
+import { readBaseHalfVideoTextInput } from './basehalfVideoGenerationService.js';
 import {
 	BASEHALF_VIDEO_PANEL_MAX_HEIGHT,
 	BASEHALF_VIDEO_PANEL_MIN_HEIGHT,
@@ -98,10 +106,14 @@ export interface IBaseHalfVideoNodePanelOptions {
 	readonly focusPromptWhenShown?: boolean;
 	/** How long after typing stops the prompt is saved. */
 	readonly saveDelay?: number;
+	/** How long after a change the panel asks for the estimate. */
+	readonly checkDelay?: number;
 }
 
 /** How long after typing stops the prompt is saved. */
 export const BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY = 500;
+/** How long after the model, mode, values, prompt, or inputs change the panel asks for the estimate and the problems. */
+export const BASEHALF_VIDEO_PANEL_CHECK_DELAY = 250;
 
 const PANEL_PADDING = 12;
 const SECTION_GAP = 8;
@@ -132,12 +144,13 @@ interface IOpenMenu {
 }
 
 /**
- * The panel under a selected Video node (D58, video node specification, "The
- * panel"): the node's inputs, its prompt, and a footer with the model, the
- * settings, and Generate. It reads and writes the node through the node store,
- * edits its connections through the reference edit service, and keeps its
- * element and its prompt for as long as it lives: updates never replace the
- * prompt, so the text, the selection, and an input method keep their state.
+ * The panel under a selected Video node (D58, D59, video node specification,
+ * "The panel"): the node's inputs, its prompt, and a footer with the model,
+ * the settings, the estimate, and Generate, all drawn from the model catalog.
+ * It reads and writes the node through the node store, edits its connections
+ * through the reference edit service, and keeps its element and its prompt
+ * for as long as it lives: updates never replace the prompt, so the text, the
+ * selection, and an input method keep their state.
  *
  * The workbench creates one panel for the only selected Video card, gives the
  * scene its {@link element} and {@link height}, calls {@link flush} when the
@@ -164,6 +177,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	private readonly modelLabel: HTMLElement;
 	private readonly settingsButton: HTMLButtonElement;
 	private readonly settingsLabel: HTMLElement;
+	private readonly estimate: HTMLElement;
 	private readonly generateButton: HTMLButtonElement;
 	private readonly generateIcon: HTMLElement;
 	private readonly layer: HTMLElement;
@@ -176,6 +190,17 @@ export class BaseHalfVideoNodePanel extends Disposable {
 
 	private snapshot: IBaseHalfVideoNodeSnapshot | undefined;
 	private inputs: readonly IBaseHalfVideoResolvedInput[] = [];
+	/** The text of the text inputs, for the prompt that `check` sees. */
+	private texts: ReadonlyMap<string, string> = new Map();
+	/** The request the panel asked `check` last, and the last answer for the node's model in its region. */
+	private checkKey: string | undefined;
+	private pendingCheck: IBaseHalfVideoCheckRequest | undefined;
+	private lastCheck: { readonly model: string; readonly result: IBaseHalfVideoCheckResult } | undefined;
+	private readonly checkScheduler: RunOnceScheduler;
+	/** Whether the settings show the advanced parameters. */
+	private moreOpen = false;
+	/** A text value typed into the settings and not saved yet. */
+	private pendingText: { readonly name: string; readonly value: string } | undefined;
 	private optimistic: IBaseHalfVideoNodeFields | undefined;
 	private optimisticWrites = 0;
 	private presentation: IBaseHalfVideoPanelPresentation | undefined;
@@ -210,7 +235,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		private readonly host: IBaseHalfVideoNodePanelHost,
 		options: IBaseHalfVideoNodePanelOptions | undefined,
 		@IBaseHalfVideoNodeStore private readonly store: IBaseHalfVideoNodeStore,
-		@IBaseHalfVideoChannelService private readonly channelService: IBaseHalfVideoChannelService,
+		@IBaseHalfVideoCatalogService private readonly catalogService: IBaseHalfVideoCatalogService,
+		@IBaseHalfVideoProviderSettingsService private readonly providerSettings: IBaseHalfVideoProviderSettingsService,
 		@IBaseHalfVideoGenerationService private readonly generationService: IBaseHalfVideoGenerationService,
 		@IBaseHalfReferenceEditService private readonly referenceEditService: IBaseHalfReferenceEditService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
@@ -223,6 +249,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		super();
 		this.saveDelay = options?.saveDelay ?? BASEHALF_VIDEO_PANEL_PROMPT_SAVE_DELAY;
 		this.focusWhenShown = options?.focusPromptWhenShown === true;
+		this.checkScheduler = this._register(new RunOnceScheduler(() => { void this.runCheck(); }, options?.checkDelay ?? BASEHALF_VIDEO_PANEL_CHECK_DELAY));
+		// A catalog that could not be loaded is asked for again when a panel opens.
+		this.catalogService.load();
 
 		this.element = $('.bh-video-panel');
 		this.element.setAttribute('role', 'group');
@@ -265,12 +294,16 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.settingsButton.setAttribute('aria-expanded', 'false');
 		this.settingsLabel = append(this.settingsButton, $('span.bh-video-panel-settings-label'));
 		append(footer, $('.bh-video-panel-footer-space'));
+		// The estimate is text with a tooltip; the price is read out with Generate's own label nearby.
+		this.estimate = append(footer, $('span.bh-video-panel-estimate'));
+		this.estimate.hidden = true;
 		this.generateButton = append(footer, $<HTMLButtonElement>('button.bh-video-panel-generate'));
 		this.generateButton.type = 'button';
 		this.generateButton.setAttribute('aria-keyshortcuts', isMacintosh ? 'Meta+Enter' : 'Control+Enter');
 		this.generateIcon = append(this.generateButton, renderCodicon(Codicon.arrowUp));
 		this._register(this.hoverService.setupDelayedHover(this.modelButton, () => ({ content: this.presentation?.model.title ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.settingsButton, () => ({ content: this.settingsTitle() }), { groupId: HOVER_GROUP }));
+		this._register(this.hoverService.setupDelayedHover(this.estimate, () => ({ content: this.presentation?.estimate?.tooltip ?? '' }), { groupId: HOVER_GROUP }));
 		this._register(this.hoverService.setupDelayedHover(this.generateButton, () => ({ content: this.generateTitle() }), { groupId: HOVER_GROUP }));
 
 		this.layer = append(this.element, $('.bh-video-panel-layer'));
@@ -300,6 +333,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (this.promptDirty || this.saveScheduled) {
 			await this.savePrompt();
 		}
+		this.saveTextParam();
 		await this.writeQueue.catch(() => undefined);
 	}
 
@@ -310,15 +344,17 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.textarea.setSelectionRange(end, end);
 	}
 
-	/** Reads the node and its inputs again. */
+	/** Reads the node, its inputs, and the text of its text inputs again. */
 	async refresh(): Promise<void> {
 		const sequence = ++this.refreshSequence;
 		try {
 			const snapshot = await this.store.read(this.resource);
 			const inputs = await this.store.resolveInputs(snapshot);
+			const texts = await this.readTexts(inputs);
 			if (this.disposed || sequence !== this.refreshSequence) {
 				return;
 			}
+			this.texts = texts;
 			this.applySnapshot(snapshot, inputs);
 		} catch (error) {
 			if (this.disposed || sequence !== this.refreshSequence) {
@@ -363,6 +399,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	override dispose(): void {
+		this.saveTextParam();
 		this.disposed = true;
 		this.closeMenu(false);
 		super.dispose();
@@ -506,7 +543,8 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				this.scheduleRefresh();
 			}
 		}));
-		this._register(this.channelService.onDidChange(() => this.render()));
+		this._register(this.catalogService.onDidChange(() => this.render()));
+		this._register(this.providerSettings.onDidChange(() => this.render()));
 		this._register(this.generationService.onDidChangeProgress(resource => {
 			if (isEqual(resource, this.resource)) {
 				this.render();
@@ -679,20 +717,21 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return;
 		}
 		const fields = this.fields();
-		const generation = fields.generation;
-		const choice = this.channelService.resolve({
-			...(generation?.channel !== undefined ? { channel: generation.channel } : {}),
-			...(generation?.model !== undefined ? { model: generation.model } : {})
-		});
+		const catalog = this.catalogService.state;
+		const modelKey = this.checkModelKey(fields);
 		this.presentation = createBaseHalfVideoPanelPresentation({
 			fields,
 			inputs: this.inputs,
-			channels: this.channelService.getChannels(),
-			choice,
+			texts: this.texts,
+			catalog,
+			setup: provider => this.providerSettings.getStatus(provider),
+			...(this.lastCheck && this.lastCheck.model === modelKey ? { check: this.lastCheck.result } : {}),
 			generating: this.generationService.isGenerating(this.resource) || isBaseHalfVideoTaskActive(fields.task),
 			prompt: this.textarea.value
 		});
+		this.scheduleCheck(this.presentation.checkRequest);
 		this.element.dataset.state = 'ready';
+		this.element.dataset.catalog = catalog.kind;
 		this.element.setAttribute('aria-label', localize('basehalf.video.panel.label', "Video panel for {0}", snapshot.title));
 		this.renderNotice();
 		this.renderInputRow();
@@ -964,8 +1003,17 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		this.modelButton.setAttribute('aria-label', presentation.model.outlined
 			? localize('basehalf.video.panel.modelProblem', "Model: {0}. {1}", presentation.model.label, presentation.model.title)
 			: localize('basehalf.video.panel.modelLabel', "Model: {0}", presentation.model.label));
-		this.settingsLabel.textContent = presentation.settingsView.summary;
+		// Settings exist once the catalog has the node's model.
+		this.settingsButton.hidden = !presentation.settingsView;
+		this.settingsLabel.textContent = presentation.settingsView?.summary ?? '';
 		this.settingsButton.setAttribute('aria-label', this.settingsTitle());
+		this.estimate.hidden = !presentation.estimate;
+		this.estimate.textContent = presentation.estimate?.text ?? '';
+		if (presentation.estimate) {
+			this.estimate.setAttribute('aria-label', localize('basehalf.video.panel.estimateLabel', "Estimated price: {0}. {1}", presentation.estimate.text, presentation.estimate.tooltip));
+		} else {
+			this.estimate.removeAttribute('aria-label');
+		}
 		const generate = presentation.generate;
 		const busy = this.starting && generate.kind === 'generate';
 		const enabled = generate.enabled && !busy;
@@ -987,13 +1035,69 @@ export class BaseHalfVideoNodePanel extends Disposable {
 	}
 
 	private settingsTitle(): string {
-		return this.presentation
+		return this.presentation?.settingsView
 			? localize('basehalf.video.panel.settingsLabel', "Settings: {0}", this.presentation.settingsView.summary)
 			: localize('basehalf.video.panel.settings', "Settings");
 	}
 
 	private generateTitle(): string {
 		return this.presentation?.generate.title ?? '';
+	}
+
+	//#endregion
+
+	//#region The estimate and the problems
+
+	/** The model whose answers of `check` the panel shows: the node's, in the region of its provider. */
+	private checkModelKey(fields: IBaseHalfVideoNodeFields): string | undefined {
+		const catalog = this.catalogService.state;
+		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, fields.generation?.provider, fields.generation?.model) : undefined;
+		return ref ? `${ref.provider.id}/${ref.model.id}/${this.providerSettings.getStatus(ref.provider).region.id}` : undefined;
+	}
+
+	/** Asks `check` a moment after what it is asked changes; the answer for the same model shows until the new one arrives. */
+	private scheduleCheck(request: IBaseHalfVideoCheckRequest | undefined): void {
+		const key = request ? JSON.stringify(request) : undefined;
+		if (key === this.checkKey) {
+			return;
+		}
+		this.checkKey = key;
+		this.pendingCheck = request;
+		if (request) {
+			this.checkScheduler.schedule();
+		} else {
+			this.checkScheduler.cancel();
+		}
+	}
+
+	private async runCheck(): Promise<void> {
+		const request = this.pendingCheck;
+		if (!request || this.disposed) {
+			return;
+		}
+		const key = JSON.stringify(request);
+		const result = await this.catalogService.check(request);
+		if (this.disposed || key !== this.checkKey) {
+			// A newer request is on its way.
+			return;
+		}
+		const model = `${request.provider}/${request.model}/${request.region}`;
+		this.lastCheck = result ? { model, result } : undefined;
+		this.render();
+	}
+
+	private async readTexts(inputs: readonly IBaseHalfVideoResolvedInput[]): Promise<ReadonlyMap<string, string>> {
+		const texts = new Map<string, string>();
+		for (const input of inputs) {
+			if (input.kind === 'text' && input.available && input.file) {
+				try {
+					texts.set(input.path, await readBaseHalfVideoTextInput(this.fileService, input.file));
+				} catch {
+					// A note that cannot be read adds nothing; Generate says that it is missing.
+				}
+			}
+		}
+		return texts;
 	}
 
 	//#endregion
@@ -1101,6 +1205,9 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			return;
 		}
 		this.openMenu = undefined;
+		if (menu.kind === 'settings') {
+			this.saveTextParam();
+		}
 		if (menu.kind === 'mention') {
 			this.mention = undefined;
 			this.textarea.removeAttribute('aria-activedescendant');
@@ -1141,7 +1248,7 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		const presentation = this.presentation;
 		switch (kind) {
 			case 'model': return JSON.stringify(presentation?.modelMenu);
-			case 'settings': return JSON.stringify([presentation?.profile.id, presentation?.settingsView]);
+			case 'settings': return JSON.stringify([presentation?.ref?.provider.id, presentation?.ref?.model.id, presentation?.settingsView, this.moreOpen]);
 			default: return kind;
 		}
 	}
@@ -1319,125 +1426,256 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		if (!presentation) {
 			return;
 		}
+		const menu = presentation.modelMenu;
 		element.setAttribute('role', 'menu');
 		element.setAttribute('aria-label', localize('basehalf.video.panel.models', "Models"));
-		for (const group of presentation.modelMenu.groups) {
+		if (menu.message) {
+			const message = append(element, $('.bh-video-panel-menu-empty'));
+			message.textContent = menu.message;
+			message.setAttribute('role', 'status');
+		}
+		for (const group of menu.groups) {
 			const section = append(element, $('.bh-video-panel-menu-group'));
 			section.setAttribute('role', 'group');
-			section.setAttribute('aria-label', group.label);
+			section.setAttribute('aria-label', group.detail ? `${group.label}, ${group.detail}` : group.label);
+			section.dataset.provider = group.provider;
 			const heading = append(section, $('.bh-video-panel-menu-heading'));
 			heading.setAttribute('aria-hidden', 'true');
 			append(heading, $('span.bh-video-panel-menu-heading-label')).textContent = group.label;
 			if (group.detail) {
 				append(heading, $('span.bh-video-panel-menu-heading-detail')).textContent = group.detail;
 			}
-			if (group.empty) {
-				append(section, $('.bh-video-panel-menu-empty')).textContent = group.empty;
-			}
 			for (const item of group.items) {
-				this.menuItem(section, item.label, () => {
+				const button = this.menuItem(section, item.label, () => {
 					this.closeMenu(true);
-					const channel = this.channelService.getChannel(item.channel);
-					if (channel) {
-						void this.writeSettings(fields => setBaseHalfVideoGenerationSettings(fields, baseHalfVideoPanelChooseModel(fields.generation, channel, item.model)));
-					}
-				}, { role: 'menuitemradio', checked: item.checked, key: `model:${item.channel}:${item.model}`, title: item.title });
+					this.chooseModel(item.provider, item.model);
+				}, { role: 'menuitemradio', checked: item.checked, key: `model:${item.provider}:${item.model}`, title: item.title });
+				if (item.unavailable) {
+					// Dimmed with the reason; it can still be chosen.
+					button.classList.add('unavailable');
+					button.setAttribute('aria-description', item.unavailable);
+				}
 			}
 		}
-		if (presentation.modelMenu.groups.length) {
-			append(element, $('.bh-video-panel-menu-separator')).setAttribute('role', 'separator');
-		}
-		this.menuItem(element, presentation.modelMenu.settingsLabel, () => {
+		append(element, $('.bh-video-panel-menu-separator')).setAttribute('role', 'separator');
+		this.menuItem(element, menu.settingsLabel, () => {
 			this.closeMenu(false);
-			void this.channelService.openSettings().catch(error => this.logService.error(error));
-		}, { key: 'providers', icon: presentation.modelMenu.groups.length ? Codicon.settingsGear : Codicon.add });
+			const provider = this.fields().generation?.provider;
+			void this.providerSettings.openSettings(provider).catch(error => this.logService.error(error));
+		}, { key: 'providers', icon: Codicon.settingsGear });
+	}
+
+	/** Chooses a model of the catalog: every value it accepts is kept, the others take its defaults. */
+	private chooseModel(providerId: string, modelId: string): void {
+		const catalog = this.catalogService.state;
+		const ref = catalog.kind === 'ready' ? findBaseHalfVideoModel(catalog.catalog, providerId, modelId) : undefined;
+		if (ref) {
+			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChooseModel(fields.generation, ref)));
+		}
+	}
+
+	/** Saves one value of the node's model: the panel shows the change at once. */
+	private changeParam(name: string, value: BaseHalfVideoParamValue | undefined): void {
+		const ref = this.presentation?.ref;
+		if (ref) {
+			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChangeParam(this.generationOf(fields, ref), ref.model, name, value)));
+		}
+	}
+
+	private changeMode(mode: BaseHalfVideoModeId): void {
+		const ref = this.presentation?.ref;
+		if (ref) {
+			void this.writeSettings(fields => setBaseHalfVideoGeneration(fields, baseHalfVideoChooseMode(this.generationOf(fields, ref), ref.model, mode)));
+		}
+	}
+
+	/** The node's generation of `ref`, as a change starts from it. */
+	private generationOf(fields: IBaseHalfVideoNodeFields, ref: IBaseHalfVideoModelRef) {
+		return fields.generation ?? { provider: ref.provider.id, model: ref.model.id };
+	}
+
+	/** Saves a text value typed into the settings, now. */
+	private saveTextParam(): void {
+		const pending = this.pendingText;
+		this.pendingText = undefined;
+		if (pending) {
+			this.changeParam(pending.name, pending.value);
+		}
 	}
 
 	private fillSettings(element: HTMLElement): void {
-		const presentation = this.presentation;
-		if (!presentation) {
+		const view = this.presentation?.settingsView;
+		if (!view) {
 			return;
 		}
-		const view = presentation.settingsView;
-		const profile = presentation.profile;
 		element.setAttribute('role', 'dialog');
 		element.setAttribute('aria-label', localize('basehalf.video.panel.settingsTitle', "Video Settings"));
-		const change = (settings: Partial<IBaseHalfVideoSettings>) => {
-			void this.writeSettings(fields => setBaseHalfVideoGenerationSettings(fields, baseHalfVideoPanelChangeSettings(fields.generation, settings, profile)));
-		};
 		if (view.modes) {
-			this.radioGroup(element, 'mode', localize('basehalf.video.panel.setting.mode', "Mode"), view.modes, (mode: BaseHalfVideoMode) => change({ mode }));
-		}
-		if (view.ratios) {
-			const section = this.radioGroup(element, 'ratio', localize('basehalf.video.panel.setting.ratio', "Ratio"), view.ratios.choices, (ratio: string) => change({ ratio }), (button, choice) => {
-				const shape = append(button, $('span.bh-video-panel-ratio-shape'));
-				const ratioChoice = view.ratios?.choices.find(candidate => candidate.value === choice.value);
-				if (ratioChoice?.shape) {
-					const scale = 16 / Math.max(ratioChoice.shape.width, ratioChoice.shape.height);
-					shape.style.width = `${Math.max(4, Math.round(ratioChoice.shape.width * scale))}px`;
-					shape.style.height = `${Math.max(4, Math.round(ratioChoice.shape.height * scale))}px`;
-				} else {
-					shape.classList.add('adaptive');
+			this.radioGroup(element, localize('basehalf.video.panel.setting.mode', "Mode"), view.modes, 'buttons', mode => {
+				if (mode !== undefined) {
+					this.changeMode(mode);
 				}
 			});
-			section.classList.add('ratios');
-			if (view.ratios.note) {
-				append(section, $('.bh-video-panel-setting-note')).textContent = view.ratios.note;
-			}
 		}
-		if (view.resolutions) {
-			this.radioGroup(element, 'resolution', localize('basehalf.video.panel.setting.resolution', "Resolution"), view.resolutions, (resolution: string) => change({ resolution }));
+		for (const control of view.controls) {
+			this.renderControl(element, control);
 		}
-		const duration = view.duration;
-		const durationLabel = localize('basehalf.video.panel.setting.duration', "Duration");
-		if (duration.kind === 'choices') {
-			this.radioGroup(element, 'duration', durationLabel, duration.choices, (value: number) => change({ duration: value }));
-		} else {
-			const section = this.settingSection(element, durationLabel);
-			const row = append(section, $('.bh-video-panel-duration'));
-			const slider = append(row, $<HTMLInputElement>('input.bh-video-panel-slider'));
-			slider.type = 'range';
-			slider.min = String(duration.min);
-			slider.max = String(duration.max);
-			slider.step = '1';
-			slider.value = String(duration.value);
-			slider.dataset.key = 'duration:slider';
-			slider.setAttribute('aria-label', durationLabel);
-			const auto = duration.auto?.selected === true;
-			slider.disabled = auto;
-			const value = append(row, $('span.bh-video-panel-duration-value'));
-			value.textContent = duration.valueLabel;
-			slider.addEventListener('input', () => {
-				value.textContent = baseHalfVideoPanelDurationLabel(Number(slider.value));
+		if (view.advanced.length) {
+			const more = append(element, $<HTMLButtonElement>('button.bh-video-panel-more'));
+			more.type = 'button';
+			more.dataset.key = 'more';
+			more.setAttribute('aria-expanded', String(this.moreOpen));
+			more.append(renderCodicon(this.moreOpen ? Codicon.chevronDown : Codicon.chevronRight));
+			append(more, $('span')).textContent = localize('basehalf.video.panel.more', "More");
+			more.addEventListener('click', () => {
+				this.moreOpen = !this.moreOpen;
+				this.refreshMenu();
+				this.findByKey(this.openMenu?.element ?? element, 'more')?.focus({ preventScroll: true });
 			});
-			slider.addEventListener('change', () => change({ duration: Number(slider.value) }));
-			if (duration.auto) {
-				const toggle = this.switchButton(row, duration.auto.label, auto, 'duration:auto', on => change({ duration: on ? BASEHALF_VIDEO_AUTO_DURATION : profile.defaults.duration }));
-				toggle.classList.add('auto');
+			if (this.moreOpen) {
+				const advanced = append(element, $('.bh-video-panel-advanced'));
+				for (const control of view.advanced) {
+					this.renderControl(advanced, control);
+				}
 			}
-		}
-		if (view.sound) {
-			const section = this.settingSection(element, localize('basehalf.video.panel.setting.sound', "Sound"));
-			this.switchButton(section, baseHalfVideoPanelSoundLabel(view.sound.on), view.sound.on, 'sound', on => change({ audio: on }));
 		}
 	}
 
-	private settingSection(parent: HTMLElement, label: string): HTMLElement {
+	/** One parameter, drawn as the specification says for its kind (video node, "Settings"). */
+	private renderControl(parent: HTMLElement, control: BaseHalfVideoPanelControl): void {
+		switch (control.kind) {
+			case 'buttons':
+			case 'list':
+			case 'ratio': {
+				const section = this.radioGroup(parent, control.label, control.choices, control.kind, value => this.changeParam(control.name, value), control.tooltip);
+				section.dataset.parameter = control.name;
+				return;
+			}
+			case 'slider': {
+				const section = this.settingSection(parent, control.label, control.tooltip);
+				section.dataset.parameter = control.name;
+				const row = append(section, $('.bh-video-panel-number'));
+				const slider = append(row, $<HTMLInputElement>('input.bh-video-panel-slider'));
+				slider.type = 'range';
+				slider.min = String(control.min);
+				slider.max = String(control.max);
+				slider.step = String(control.step);
+				slider.value = String(control.value);
+				slider.dataset.key = `${control.name}:slider`;
+				slider.setAttribute('aria-label', control.label);
+				slider.disabled = control.auto?.selected === true;
+				const value = append(row, $('span.bh-video-panel-number-value'));
+				value.textContent = control.valueLabel;
+				slider.addEventListener('input', () => {
+					value.textContent = control.unit === 'seconds'
+						? localize('basehalf.video.panel.secondsValue', "{0}s", slider.value)
+						: slider.value;
+				});
+				slider.addEventListener('change', () => this.changeParam(control.name, Number(slider.value)));
+				if (control.auto) {
+					this.autoSwitch(row, control.name, control.auto);
+				}
+				return;
+			}
+			case 'number': {
+				const section = this.settingSection(parent, control.label, control.tooltip);
+				section.dataset.parameter = control.name;
+				const row = append(section, $('.bh-video-panel-number'));
+				const field = append(row, $<HTMLInputElement>('input.bh-video-panel-field'));
+				field.type = 'text';
+				field.inputMode = control.integer && control.min >= 0 ? 'numeric' : 'decimal';
+				field.spellcheck = false;
+				field.value = control.text;
+				field.placeholder = control.placeholder;
+				field.dataset.key = `${control.name}:field`;
+				field.setAttribute('aria-label', control.label);
+				field.disabled = control.auto?.selected === true;
+				const commit = () => {
+					const text = field.value.trim();
+					if (!text) {
+						this.changeParam(control.name, undefined);
+						return;
+					}
+					const number = Number(text);
+					// A value the parameter does not take is given back its default by the normalization.
+					this.changeParam(control.name, Number.isFinite(number) ? number : undefined);
+				};
+				field.addEventListener('change', commit);
+				field.addEventListener('keydown', event => {
+					if (event.key === 'Enter' && !event.isComposing) {
+						event.preventDefault();
+						commit();
+					}
+				});
+				if (control.auto) {
+					this.autoSwitch(row, control.name, control.auto);
+				}
+				return;
+			}
+			case 'switch': {
+				const section = this.settingSection(parent, control.label, control.tooltip);
+				section.dataset.parameter = control.name;
+				this.switchButton(section, control.on
+					? localize('basehalf.video.panel.switchOn', "On")
+					: localize('basehalf.video.panel.switchOff', "Off"), control.on, control.name, on => this.changeParam(control.name, on), control.label);
+				return;
+			}
+			case 'text': {
+				const section = this.settingSection(parent, control.label, control.tooltip);
+				section.dataset.parameter = control.name;
+				const field = control.multiline
+					? append(section, $<HTMLTextAreaElement>('textarea.bh-video-panel-field.multiline'))
+					: append(section, $<HTMLInputElement>('input.bh-video-panel-field'));
+				field.value = this.pendingText?.name === control.name ? this.pendingText.value : control.text;
+				field.maxLength = control.maxLength;
+				field.spellcheck = false;
+				field.dataset.key = `${control.name}:text`;
+				field.setAttribute('aria-label', control.label);
+				// Saved when the field loses the focus, on Enter, and when the popover
+				// closes: a save draws the popover again, which must not happen while
+				// the user types.
+				field.addEventListener('input', () => {
+					this.pendingText = { name: control.name, value: field.value };
+				});
+				field.addEventListener('change', () => this.saveTextParam());
+				const element: HTMLElement = field;
+				element.addEventListener('keydown', event => {
+					if (event.key === 'Enter' && !event.isComposing && !control.multiline) {
+						event.preventDefault();
+						this.saveTextParam();
+					}
+				});
+				return;
+			}
+		}
+	}
+
+	private autoSwitch(parent: HTMLElement, name: string, auto: IBaseHalfVideoPanelAuto): void {
+		const toggle = this.switchButton(parent, auto.label, auto.selected, `${name}:auto`, on => this.changeParam(name, on ? auto.value : auto.fallback));
+		toggle.classList.add('auto');
+	}
+
+	private settingSection(parent: HTMLElement, label: string, tooltip?: string): HTMLElement {
 		const section = append(parent, $('.bh-video-panel-setting'));
-		append(section, $('.bh-video-panel-setting-label')).textContent = label;
+		const title = append(section, $('.bh-video-panel-setting-label'));
+		title.textContent = label;
+		if (tooltip) {
+			this.openMenu?.content.add(this.hoverService.setupDelayedHover(title, () => ({ content: tooltip }), { groupId: HOVER_GROUP }));
+		}
 		return section;
 	}
 
-	private radioGroup<T extends string | number>(
+	private radioGroup<T extends BaseHalfVideoParamValue>(
 		parent: HTMLElement,
-		key: string,
 		label: string,
 		choices: readonly IBaseHalfVideoPanelChoice<T>[],
-		choose: (value: T) => void,
-		decorate?: (button: HTMLElement, choice: IBaseHalfVideoPanelChoice<T>) => void
+		kind: 'buttons' | 'list' | 'ratio',
+		choose: (value: T | undefined) => void,
+		tooltip?: string
 	): HTMLElement {
-		// Returns the section, which holds the label, the choices, and any note.
-		const section = this.settingSection(parent, label);
+		// Returns the section, which holds the label and the choices.
+		const section = this.settingSection(parent, label, tooltip);
+		section.classList.add(kind === 'ratio' ? 'ratios' : kind);
 		const group = append(section, $('.bh-video-panel-choices'));
 		group.setAttribute('role', 'radiogroup');
 		group.setAttribute('aria-label', label);
@@ -1446,21 +1684,23 @@ export class BaseHalfVideoNodePanel extends Disposable {
 		choices.forEach((choice, index) => {
 			const button = append(group, $<HTMLButtonElement>('button.bh-video-panel-choice'));
 			button.type = 'button';
-			button.dataset.key = `${key}:${choice.value}`;
+			button.dataset.key = choice.key;
 			button.setAttribute('role', 'radio');
 			button.setAttribute('aria-checked', String(choice.selected));
 			button.tabIndex = index === selectedIndex ? 0 : -1;
-			if (choice.disabled) {
-				button.setAttribute('aria-disabled', 'true');
+			if (kind === 'ratio') {
+				const shape = append(button, $('span.bh-video-panel-ratio-shape'));
+				if (choice.shape) {
+					const scale = 16 / Math.max(choice.shape.width, choice.shape.height);
+					shape.style.width = `${Math.max(4, Math.round(choice.shape.width * scale))}px`;
+					shape.style.height = `${Math.max(4, Math.round(choice.shape.height * scale))}px`;
+				} else {
+					shape.classList.add('free');
+				}
 			}
-			decorate?.(button, choice);
 			append(button, $('span.bh-video-panel-choice-label')).textContent = choice.label;
-			if (choice.title) {
-				const title = choice.title;
-				this.openMenu?.content.add(this.hoverService.setupDelayedHover(button, () => ({ content: title }), { groupId: HOVER_GROUP }));
-			}
 			button.addEventListener('click', () => {
-				if (!choice.disabled && !choice.selected) {
+				if (!choice.selected) {
 					choose(choice.value);
 				}
 			});
@@ -1487,20 +1727,24 @@ export class BaseHalfVideoNodePanel extends Disposable {
 			event.preventDefault();
 			event.stopPropagation();
 			buttons[next].focus({ preventScroll: true });
+			buttons[next].scrollIntoView({ block: 'nearest' });
 			const choice = choices[next];
-			if (!choice.disabled && !choice.selected) {
+			if (!choice.selected) {
 				choose(choice.value);
 			}
 		});
 		return section;
 	}
 
-	private switchButton(parent: HTMLElement, label: string, on: boolean, key: string, toggle: (on: boolean) => void): HTMLButtonElement {
+	private switchButton(parent: HTMLElement, label: string, on: boolean, key: string, toggle: (on: boolean) => void, accessibleName?: string): HTMLButtonElement {
 		const button = append(parent, $<HTMLButtonElement>('button.bh-video-panel-switch'));
 		button.type = 'button';
 		button.dataset.key = key;
 		button.setAttribute('role', 'switch');
 		button.setAttribute('aria-checked', String(on));
+		if (accessibleName) {
+			button.setAttribute('aria-label', accessibleName);
+		}
 		append(button, $('span.bh-video-panel-switch-track')).append($('span.bh-video-panel-switch-thumb'));
 		append(button, $('span.bh-video-panel-switch-label')).textContent = label;
 		button.addEventListener('click', () => toggle(!on));

@@ -10,7 +10,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { join } from '../../../../base/common/path.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../log/common/log.js';
-import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, BaseHalfNodeCommandOutcome, IBaseHalfAgentCapabilityDiscoveryExtension, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfNodeCommandResponse } from '../../common/terminal.js';
+import { BASEHALF_NODE_COMMAND_BRIDGE_HOOK_ENV, BASEHALF_NODE_COMMAND_BRIDGE_VERSION, BaseHalfNodeCommandOutcome, IBaseHalfAgentCapabilityDiscoveryExtension, IBaseHalfAgentCapabilityDiscoveryResponse, IBaseHalfAgentCapabilityDiscoveryVideoCatalog, IBaseHalfNodeCommandResponse } from '../../common/terminal.js';
 import { BaseHalfNodeCommandServer, requestBaseHalfNodeCommand, resolveBaseHalfCliDirectory } from '../../node/basehalfNodeCommandBridge.js';
 
 suite('BaseHalfNodeCommandServer', () => {
@@ -277,10 +277,11 @@ suite('BaseHalfNodeCommandServer', () => {
 			const result = await runCli(server.ipcHandlePath, ['--list-capabilities']);
 			assert.strictEqual(result.exitCode, 0);
 			assert.strictEqual(result.stdout.trim().split('\n').length, 1);
-			const response = JSON.parse(result.stdout) as { type: string; extensions: readonly unknown[]; host: { nodeDocument: { documentVersion: number } } };
+			const response = JSON.parse(result.stdout) as { type: string; extensions: readonly unknown[]; host: { nodeDocument: { documentVersion: number }; videoCatalog: { providers: readonly { id: string }[] } } };
 			assert.strictEqual(response.type, 'listCapabilities');
 			assert.strictEqual(Object.hasOwn(response, 'recipes'), false);
-			assert.strictEqual(response.host.nodeDocument.documentVersion, 5);
+			assert.strictEqual(response.host.nodeDocument.documentVersion, 6);
+			assert.deepStrictEqual(response.host.videoCatalog.providers.map(provider => provider.id), ['acme']);
 			assert.strictEqual(response.extensions.length, 1);
 			assert.strictEqual(result.stdout.includes('command'), false);
 			assert.strictEqual(result.stdout.includes('extensionId'), false);
@@ -379,7 +380,11 @@ suite('BaseHalfNodeCommandServer', () => {
 			{ ...current, host: { ...host, nodeDocument: { ...host.nodeDocument, authoring: { ...host.nodeDocument.authoring, hostOwnedFields: ['result', 'attempts'] } } } },
 			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, resultNodeSource: 'sealed-result' } } },
 			{ ...current, host: { ...host, contextEdge: legacyContextEdge } },
-			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, storedBy: 'both-ends' } } }
+			{ ...current, host: { ...host, contextEdge: { ...host.contextEdge, storedBy: 'both-ends' } } },
+			// The model catalog is always there, as a list of providers.
+			{ ...current, host: { ...host, videoCatalog: undefined } },
+			{ ...current, host: { ...host, videoCatalog: { providers: ['acme'] } } },
+			{ ...current, host: { ...host, videoCatalog: { providers: [], credentials: { apiKey: 'x' } } } }
 		];
 		const outcomes: string[] = [];
 		for (const variant of variants) {
@@ -480,6 +485,7 @@ suite('BaseHalfNodeCommandServer', () => {
 
 function capabilityDiscoveryResponse(options: {
 	readonly extensions?: readonly IBaseHalfAgentCapabilityDiscoveryExtension[];
+	readonly videoCatalog?: IBaseHalfAgentCapabilityDiscoveryVideoCatalog;
 } = {}): IBaseHalfAgentCapabilityDiscoveryResponse {
 	return {
 		version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
@@ -489,12 +495,12 @@ function capabilityDiscoveryResponse(options: {
 		host: {
 			nodeDocument: {
 				fileExtension: '.bhnode',
-				documentVersion: 5,
+				documentVersion: 6,
 				nodeKinds: ['file', 'image', 'video', 'audio', 'pdf', 'presentation'],
 				lifecycle: { task: 'host-owned', result: 'host-owned-single-file' },
 				runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
 				authoring: {
-					contractVersion: 3,
+					contractVersion: 4,
 					schema: { type: 'object' },
 					examples: {},
 					hostOwnedFields: ['task', 'result'],
@@ -514,7 +520,8 @@ function capabilityDiscoveryResponse(options: {
 				label: 'none'
 			},
 			templates: [],
-			operations: []
+			operations: [],
+			videoCatalog: options.videoCatalog ?? { providers: [{ id: 'acme', label: 'Acme Video', setUp: false, region: 'east', regions: [], models: [] }] }
 		},
 		extensions: options.extensions ?? []
 	};

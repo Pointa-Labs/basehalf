@@ -142,10 +142,10 @@ suite('MainThreadBaseHalf', () => {
 	});
 
 	test('reports a Video node without a video by its phase and with no result, so Sequence refuses it', async () => {
-		const running: IBaseHalfVideoTask = { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', remoteId: 'cgt-1', request: request() };
+		const running: IBaseHalfVideoTask = { id: 'task-1', state: 'running', startedAt: '2026-10-15T08:00:00.000Z', remoteId: 'cgt-1', request: request() };
 		const cases: readonly [IBaseHalfNodeDocument, string][] = [
 			[videoNode({}), 'draft'],
-			[videoNode({ task: { id: 'task-1', state: 'submitting', startedAt: '2026-10-15T08:00:00.000Z', channel: 'ark-1', request: request() } }), 'running'],
+			[videoNode({ task: { id: 'task-1', state: 'submitting', startedAt: '2026-10-15T08:00:00.000Z', request: request() } }), 'running'],
 			[videoNode({ task: running }), 'running'],
 			[videoNode({ task: { ...running, state: 'failed', endedAt: '2026-10-15T08:01:00.000Z', error: 'The key was refused.' } }), 'failed'],
 			[videoNode({ task: { ...running, state: 'stopped', endedAt: '2026-10-15T08:01:00.000Z' } }), 'cancelled']
@@ -372,7 +372,7 @@ function videoNode(fields: Pick<IBaseHalfNodeDocument, 'task' | 'result'>): IBas
 }
 
 function request(): IBaseHalfVideoGenerationRecord {
-	return { provider: 'ark', model: 'doubao-seedance-2-5-260628', prompt: 'A slow orbit.', inputs: [], mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true };
+	return { provider: 'acme', region: 'east', model: 'acme-motion-2', providerModel: 'acme-motion-2-e-260101', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true }, prompt: 'A slow orbit.', inputs: [] };
 }
 
 function workspaceContextService(): IWorkspaceContextService {

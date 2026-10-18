@@ -3,20 +3,22 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import './basehalfVideoChannelService.js';
+import './basehalfVideoCatalogService.js';
 import './basehalfVideoGenerationService.js';
+import './basehalfVideoProviderSettingsService.js';
 import { localize2 } from '../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { settingsCustomSectionRegistry } from '../../contrib/preferences/browser/settingsCustomSections.js';
 import { IPreferencesService } from '../../services/preferences/common/preferences.js';
-import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID } from '../common/basehalfVideoChannels.js';
+import { BASEHALF_VIDEO_PROVIDERS_COMMAND_ID, BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID } from '../common/basehalfVideoProviderSettings.js';
 import { BaseHalfVideoProvidersPage } from './basehalfVideoProvidersPage.js';
 
 /**
- * The Video Providers page (D58), in the place of the former Models &
- * Providers page of Settings, and the command that opens it. The channel and
- * generation services register themselves in the modules imported above.
+ * The Video Providers page (D59), in the place of the former Models &
+ * Providers page of Settings, and the command that opens it. The catalog,
+ * provider settings, and generation services register themselves in the
+ * modules imported above.
  */
 settingsCustomSectionRegistry.register({
 	id: BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID,
@@ -38,10 +40,10 @@ registerAction2(class OpenBaseHalfVideoProvidersAction extends Action2 {
 		});
 	}
 
-	/** With a channel id, the page shows that provider. */
-	override async run(accessor: ServicesAccessor, channelId?: unknown): Promise<void> {
+	/** With a provider id of the catalog, the page shows that provider. */
+	override async run(accessor: ServicesAccessor, providerId?: unknown): Promise<void> {
 		const preferencesService = accessor.get(IPreferencesService);
 		await preferencesService.openSettings({ jsonEditor: false });
-		settingsCustomSectionRegistry.request(BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, typeof channelId === 'string' ? channelId : undefined);
+		settingsCustomSectionRegistry.request(BASEHALF_VIDEO_PROVIDERS_SETTINGS_SECTION_ID, typeof providerId === 'string' ? providerId : undefined);
 	}
 });

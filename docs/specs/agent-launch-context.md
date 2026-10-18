@@ -148,6 +148,12 @@ The instruction covers the following, in this order.
      `title`, `prompt`, `upstream`, and `generation`; BaseHalf writes `task`
      and `result`. Its inputs are its `upstream` entries, in order
      ([Video node](video-node.md#what-an-agent-may-write)).
+   - `generation` holds `provider`, `model`, `mode`, and `params`, chosen
+     from `host.videoCatalog` of `basehalf --list-capabilities`: a model of a
+     provider, one of its modes, and values its parameters accept; a
+     parameter left out takes its default. A provider that is not set up
+     there runs once the user sets it up in Video Providers
+     ([Video node, Agents](video-node.md#agents)).
    - Use `basehalf --run-node <workspace-relative .bhnode>` to start a saved
      Video node. It prints the path of the node that runs and does not wait
      for the video.
@@ -178,6 +184,8 @@ The instruction covers the following, in this order.
    - `Never delete or regenerate \`.bh/\``
    - `out of date`
    - `basehalf --list-capabilities`
+   - `` `generation` holds `provider`, `model`, `mode`, and `params` `` and
+     `host.videoCatalog`
    - the example block
 4. A unit test shows the terminal exit message for a long multi-line argument
    by its first non-blank line and `…`, and leaves a short multi-line argument

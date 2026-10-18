@@ -11,9 +11,17 @@ import { URI } from '../../../../base/common/uri.js';
 import { ICommandEvent, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IBaseHalfModelCredentialStore } from '../../common/basehalfModelCredentialStore.js';
+import {
+	BASEHALF_VIDEO_PROVIDER_COMMANDS,
+	baseHalfVideoInputKindOfPath,
+	IBaseHalfVideoCheckRequest,
+	IBaseHalfVideoDownloadRequest,
+	IBaseHalfVideoSubmitRequest,
+	IBaseHalfVideoTaskRef
+} from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoNodeSnapshot, IBaseHalfVideoNodeStore, IBaseHalfVideoResolvedInput } from '../../common/basehalfVideoGeneration.js';
 import { IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
-import { BASEHALF_VIDEO_PROVIDER_COMMANDS, baseHalfVideoInputKindOfPath, IBaseHalfVideoProviderDownloadRequest, IBaseHalfVideoProviderRequest, IBaseHalfVideoProviderTaskRef } from '../../common/basehalfVideoProviders.js';
+import { ACME, BOREALIS } from '../common/basehalfVideoCatalogFixture.js';
 
 /** The first bytes of an MP4: a `ftyp` box. */
 export const FAKE_MP4 = VSBuffer.wrap(Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32]));
@@ -145,8 +153,10 @@ export class FakeVideoNodeStore implements IBaseHalfVideoNodeStore {
 type Handler<T> = (argument: T) => Promise<unknown> | unknown;
 
 /**
- * The provider commands of the AI Video extension, scripted. The default
- * download writes {@link FAKE_MP4} where it is asked to.
+ * The provider commands of the AI Video extension, scripted, with the test
+ * catalog of invented providers. The default check finds no problem and
+ * estimates ¥1.20; the default download writes {@link FAKE_MP4} where it is
+ * asked to.
  */
 export class FakeProviderCommands implements ICommandService {
 	declare readonly _serviceBrand: undefined;
@@ -154,10 +164,12 @@ export class FakeProviderCommands implements ICommandService {
 	readonly onDidExecuteCommand: Event<ICommandEvent> = Event.None;
 
 	readonly calls: { readonly id: string; readonly argument: unknown }[] = [];
-	submit: Handler<IBaseHalfVideoProviderRequest> = () => ({ ok: true, value: { remoteId: 'cgt-remote-1' } });
-	poll: Handler<IBaseHalfVideoProviderTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
-	download: Handler<IBaseHalfVideoProviderDownloadRequest>;
-	cancel: Handler<IBaseHalfVideoProviderTaskRef> = () => ({ ok: true, value: { cancelled: true } });
+	catalog: Handler<unknown> = () => ({ ok: true, value: { schema: 1, providers: [ACME, BOREALIS] } });
+	check: Handler<IBaseHalfVideoCheckRequest> = () => ({ ok: true, value: { problems: [], estimate: { currency: 'CNY', min: 1.2, max: 1.2, priceDate: '2026-10-18' } } });
+	submit: Handler<IBaseHalfVideoSubmitRequest> = () => ({ ok: true, value: { remoteId: 'cgt-remote-1' } });
+	poll: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { state: 'succeeded', videoUrl: 'https://cdn.example.com/video.mp4' } });
+	download: Handler<IBaseHalfVideoDownloadRequest>;
+	cancel: Handler<IBaseHalfVideoTaskRef> = () => ({ ok: true, value: { cancelled: true } });
 	other: Handler<unknown> = () => undefined;
 
 	constructor(fileService: IFileService) {
@@ -175,10 +187,12 @@ export class FakeProviderCommands implements ICommandService {
 		const argument = args[0];
 		this.calls.push({ id, argument });
 		switch (id) {
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.submit: return await this.submit(argument as IBaseHalfVideoProviderRequest) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.poll: return await this.poll(argument as IBaseHalfVideoProviderTaskRef) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.download: return await this.download(argument as IBaseHalfVideoProviderDownloadRequest) as R;
-			case BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel: return await this.cancel(argument as IBaseHalfVideoProviderTaskRef) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.catalog: return await this.catalog(argument) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.check: return await this.check(argument as IBaseHalfVideoCheckRequest) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.submit: return await this.submit(argument as IBaseHalfVideoSubmitRequest) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.poll: return await this.poll(argument as IBaseHalfVideoTaskRef) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.download: return await this.download(argument as IBaseHalfVideoDownloadRequest) as R;
+			case BASEHALF_VIDEO_PROVIDER_COMMANDS.cancel: return await this.cancel(argument as IBaseHalfVideoTaskRef) as R;
 			default: return await this.other(argument) as R;
 		}
 	}

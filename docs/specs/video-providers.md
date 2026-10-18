@@ -242,12 +242,19 @@ catalog. For each:
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user
 whether they work. Removing the credentials of a provider leaves its nodes
-as they are; they show that the provider is not set up.
+as they are; they show that the provider is not set up. Changing the region
+keeps an endpoint the user entered; clearing the endpoint, or entering the
+region's base URL, goes back to the region's base URL.
 
 The credential values of a provider are stored as one secret, a JSON object
-of the declared ids, under `basehalf.modelServices.video.<provider>.apiKey`.
-The region and the endpoint are stored in the application storage of this
-computer.
+of the declared ids, under `basehalf.modelServices.video.<provider>.apiKey`;
+a provider id is lowercase letters, digits, and hyphens. The region, the
+endpoint, and the ids of the credential values that are set, never the
+values, are stored in the application storage of this computer under
+`basehalf.video.providers.v1`, so every window knows at once whether a
+provider is set up. The last provider, model, mode, and values used are
+stored there under `basehalf.video.lastUsed.v2`. A value is visible ASCII
+without spaces, at most 16 KiB.
 
 ## Requests
 

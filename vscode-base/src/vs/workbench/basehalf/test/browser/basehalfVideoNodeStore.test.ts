@@ -129,7 +129,7 @@ function videoNode(id: number, options: { readonly title?: string; readonly prom
 		title: options.title ?? 'Shot 1',
 		prompt: options.prompt ?? 'The rider in Image 1 cycles along the coast.',
 		upstream: (options.upstream ?? ['frames/start.png', 'frames/end.png', 'notes/scene.md']) as IBaseHalfNodeDocument['upstream'],
-		generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true },
+		generation: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } },
 		...(options.result ? { result: options.result } : {})
 	}));
 }
@@ -157,7 +157,7 @@ suite('BaseHalfVideoNodeStore', () => {
 			id: baseHalfNodeTestId(1),
 			title: 'Shot 1',
 			upstream: ['frames/start.png', 'frames/end.png'],
-			fields: { prompt: 'The rider in Image 1 cycles along the coast.', model: 'doubao-seedance-2-5-260628' }
+			fields: { prompt: 'The rider in Image 1 cycles along the coast.', model: 'acme-motion-2' }
 		});
 		await assert.rejects(harness.store.read(harness.resource('shots/frame.bhnode')), /is not a Video node/);
 		await assert.rejects(harness.store.read(harness.resource('shots/old.bhnode')), /document\.version 4 is no longer supported/);
@@ -280,7 +280,7 @@ suite('BaseHalfVideoNodeStore', () => {
 		const original = await harness.read(SHOT);
 		const fields: IBaseHalfVideoNodeFields = {
 			prompt: 'The rider in Image 1 cycles along the coast.',
-			generation: { model: 'doubao-seedance-2-5-260628', mode: 'frames', ratio: '16:9', resolution: '720p', duration: 5, audio: true }
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'frames', params: { resolution: '720p', duration: 5, sound: true } }
 		};
 		const sibling = await harness.store.createSibling(harness.resource(SHOT), fields, ['frames/start.png', 'frames/end.png', 'notes/scene.md']);
 		const created = await harness.readNode('shots/Shot 1-4.bhnode');

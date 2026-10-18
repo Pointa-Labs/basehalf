@@ -25,15 +25,17 @@ import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../.
 import { BaseHalfRenderableContentKind, baseHalfRenderableContentKind } from '../../common/basehalfContentRendering.js';
 import { baseHalfPdfSelectionFromMessage, baseHalfPdfViewStateFromMessage, IBaseHalfPdfSelection, IBaseHalfPdfViewState, isBaseHalfPdfUserInteractionMessage, normalizeBaseHalfPdfViewState } from '../../common/basehalfMediaViewState.js';
 import { formatBaseHalfVideoElapsed } from '../../common/basehalfVideoCardPresentation.js';
-import { IBaseHalfNodeResult, normalizeBaseHalfVideoResultGeneration } from '../../common/basehalfVideoNode.js';
-import { baseHalfVideoPanelDurationLabel, baseHalfVideoPanelModeLabel, baseHalfVideoPanelRatioLabel, baseHalfVideoPanelSoundLabel } from '../../common/basehalfVideoNodePanelPresentation.js';
 import {
 	BaseHalfVideoInputKind,
 	baseHalfVideoInputKindOfPath,
 	baseHalfVideoInputLabel,
-	baseHalfVideoModelLabel,
-	getBaseHalfVideoProviderPreset
-} from '../../common/basehalfVideoProviders.js';
+	baseHalfVideoParamValueLabel,
+	findBaseHalfVideoModel,
+	findBaseHalfVideoProvider,
+	IBaseHalfVideoCatalog
+} from '../../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogService } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfNodeResult, normalizeBaseHalfVideoResultGeneration } from '../../common/basehalfVideoNode.js';
 import '../media/basehalfVideoNode.css';
 
 const contentViewerMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/content-viewer-out');
@@ -89,15 +91,18 @@ export interface IBaseHalfVideoProvenance {
 }
 
 /**
- * What made a video: for a generated one, the model, the provider, the mode,
- * the settings, the prompt, the inputs in order, and when it started and
- * finished; for an imported one, that it was imported. `kindOf` tells the
+ * What made a video: for a generated one, the model and the id sent to the
+ * provider, the provider and its region, the mode, the settings, the prompt
+ * as sent, the inputs in order, and when it started and finished; for an
+ * imported one, that it was imported. The names come from the model catalog
+ * when it has them, and are the recorded ids otherwise. `kindOf` tells the
  * kind of an input, so inputs are named as the prompt names them.
  */
 export function baseHalfVideoProvenance(
 	result: IBaseHalfNodeResult,
 	kindOf: (path: string) => BaseHalfVideoInputKind = baseHalfVideoInputKindOfPath,
-	displayLanguage: string = language
+	displayLanguage: string = language,
+	catalog?: IBaseHalfVideoCatalog
 ): IBaseHalfVideoProvenance {
 	if (result.source === 'imported') {
 		return Object.freeze({
@@ -111,13 +116,16 @@ export function baseHalfVideoProvenance(
 	}
 	const generation = result.generation;
 	const request = generation.request;
-	const modelLabel = baseHalfVideoModelLabel(request.model);
-	const settings = [
-		baseHalfVideoPanelRatioLabel(request.ratio),
-		request.resolution,
-		baseHalfVideoPanelDurationLabel(request.duration),
-		baseHalfVideoPanelSoundLabel(request.audio)
-	].join(' · ');
+	const provider = findBaseHalfVideoProvider(catalog, request.provider);
+	const model = findBaseHalfVideoModel(catalog, request.provider, request.model)?.model;
+	const region = provider?.regions.find(candidate => candidate.id === request.region);
+	const mode = model?.modes.find(candidate => candidate.id === request.mode);
+	const settings = Object.entries(request.params).map(([name, value]) => {
+		const parameter = model?.parameters.find(candidate => candidate.name === name);
+		return parameter
+			? localize('basehalf.video.detail.setting', "{0} {1}", parameter.label, baseHalfVideoParamValueLabel(parameter, value))
+			: `${name}: ${String(value)}`;
+	});
 	const started = Date.parse(generation.startedAt);
 	const completed = Date.parse(generation.completedAt);
 	const format = safeIntl.DateTimeFormat(displayLanguage, { dateStyle: 'medium', timeStyle: 'medium' }).value;
@@ -133,10 +141,10 @@ export function baseHalfVideoProvenance(
 		return Object.freeze({ name, path });
 	});
 	const rows: IBaseHalfVideoProvenanceRow[] = [
-		{ label: localize('basehalf.video.detail.model', "Model"), value: modelLabel === request.model ? modelLabel : `${modelLabel} (${request.model})` },
-		{ label: localize('basehalf.video.detail.provider', "Provider"), value: getBaseHalfVideoProviderPreset(request.provider).label },
-		{ label: localize('basehalf.video.detail.mode', "Mode"), value: baseHalfVideoPanelModeLabel(request.mode) },
-		{ label: localize('basehalf.video.detail.settings', "Settings"), value: settings },
+		{ label: localize('basehalf.video.detail.model', "Model"), value: localize('basehalf.video.detail.modelValue', "{0} ({1})", model?.label ?? request.model, request.providerModel) },
+		{ label: localize('basehalf.video.detail.provider', "Provider"), value: localize('basehalf.video.detail.providerValue', "{0} · {1}", provider?.label ?? request.provider, region?.label ?? request.region) },
+		{ label: localize('basehalf.video.detail.mode', "Mode"), value: mode?.label ?? request.mode },
+		{ label: localize('basehalf.video.detail.settings', "Settings"), value: settings.length ? settings.join(' · ') : localize('basehalf.video.detail.noSettings', "None") },
 		{ label: localize('basehalf.video.detail.prompt', "Prompt"), value: request.prompt.trim() || localize('basehalf.video.detail.noPrompt', "No prompt") },
 		{ label: localize('basehalf.video.detail.started', "Started"), value: time(started, generation.startedAt) },
 		{
@@ -173,7 +181,8 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		@IStorageService private readonly storageService: IStorageService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@ILogService private readonly logService: ILogService,
-		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
+		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IBaseHalfVideoCatalogService private readonly videoCatalogService: IBaseHalfVideoCatalogService
 	) {
 		super();
 		this.root = append(container, $('.basehalf-card-detail-media'));
@@ -346,7 +355,12 @@ export class BaseHalfMediaCardDetail extends Disposable {
 		if (this.disposed) {
 			return;
 		}
-		const provenance = baseHalfVideoProvenance(result, path => kinds.get(path) ?? baseHalfVideoInputKindOfPath(path));
+		// The names come from the catalog when it is there; a catalog still on its way is not waited for long.
+		const catalog = await this.videoCatalogService.whenReady(3_000).catch(() => undefined);
+		if (this.disposed || this.state?.resource.toString() !== state.resource.toString()) {
+			return;
+		}
+		const provenance = baseHalfVideoProvenance(result, path => kinds.get(path) ?? baseHalfVideoInputKindOfPath(path), language, catalog);
 		this.root.classList.add('has-video-provenance');
 		const section = append(this.root, $('section.bh-video-provenance'));
 		section.setAttribute('aria-label', localize('basehalf.video.detail.label', "What made this video"));

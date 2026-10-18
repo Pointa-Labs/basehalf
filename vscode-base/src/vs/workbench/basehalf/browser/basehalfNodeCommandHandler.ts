@@ -19,6 +19,7 @@ import {
 	IBaseHalfAgentCapabilityDiscoveryExtension,
 	IBaseHalfAgentCapabilityDiscoveryRequest,
 	IBaseHalfAgentCapabilityDiscoveryResponse,
+	IBaseHalfAgentCapabilityDiscoveryVideoCatalog,
 	IBaseHalfAgentOperationCommandRequest,
 	IBaseHalfAgentOperationCommandResponse,
 	IBaseHalfNodeCommandRequestEvent,
@@ -48,14 +49,19 @@ import {
 	getBaseHalfNodeAgentAuthoringContract,
 	parseBaseHalfNodeDocumentBytes
 } from '../common/basehalfNodeDocument.js';
-import { IBaseHalfVideoGenerationService } from '../common/basehalfVideoGeneration.js';
+import { baseHalfVideoCatalogForAgents, baseHalfVideoExampleGeneration, IBaseHalfVideoCatalogProvider, IBaseHalfVideoGenerationChoice } from '../common/basehalfVideoCatalog.js';
+import { IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../common/basehalfVideoGeneration.js';
+
+/** How long `--list-capabilities` waits for the model catalog while it loads. */
+const VIDEO_CATALOG_WAIT = 10_000;
 
 /**
  * Answers the commands of `basehalf` in an Agent Area terminal: `--run-node`
  * starts a Video node's generation exactly as Generate does, without a
  * question, and answers once the task is in the node's file (D58).
  * `--list-capabilities` and `--run-operation` describe and run what the host
- * and admitted extensions offer.
+ * and admitted extensions offer; the description includes the model catalog,
+ * from which an agent chooses a Video node's generation (D59).
  */
 export class BaseHalfNodeCommandHandler {
 	constructor(
@@ -66,7 +72,9 @@ export class BaseHalfNodeCommandHandler {
 		private readonly videoGenerationService: IBaseHalfVideoGenerationService,
 		private readonly agentCapabilityRegistryService: IBaseHalfAgentCapabilityRegistryService,
 		private readonly canvasTemplateRegistryService: IBaseHalfCanvasTemplateRegistryService,
-		private readonly commandService: ICommandService
+		private readonly commandService: ICommandService,
+		private readonly videoCatalogService: IBaseHalfVideoCatalogService,
+		private readonly videoProviderSettings: IBaseHalfVideoProviderSettingsService
 	) { }
 
 	async handle(event: IBaseHalfNodeCommandRequestEvent, cancellationToken: CancellationToken = CancellationToken.None): Promise<IBaseHalfNodeCommandResponse | undefined> {
@@ -137,6 +145,10 @@ export class BaseHalfNodeCommandHandler {
 			})));
 			const templateIds = templates.map(template => template.id);
 			const hostOperations = Object.freeze(templateIds.length === 0 ? [] : [capabilityDiscoveryOperation(createFromTemplateOperation(templateIds))]);
+			const video = await this.videoCatalogForAgents();
+			if (cancellationToken.isCancellationRequested) {
+				throw new CancellationError();
+			}
 			const response: IBaseHalfAgentCapabilityDiscoveryResponse = {
 				version: BASEHALF_NODE_COMMAND_BRIDGE_VERSION,
 				type: 'listCapabilities',
@@ -152,7 +164,7 @@ export class BaseHalfNodeCommandHandler {
 							result: 'host-owned-single-file' as const
 						}),
 						runCommand: 'basehalf --run-node <workspace-relative-.bhnode-path>',
-						authoring: getBaseHalfNodeAgentAuthoringContract()
+						authoring: getBaseHalfNodeAgentAuthoringContract(video.example)
 					}),
 					// D37: the downstream node stores each edge once, in its own
 					// `upstream` list; the reverse direction is derived by the host.
@@ -170,7 +182,8 @@ export class BaseHalfNodeCommandHandler {
 						label: 'none' as const
 					}),
 					templates,
-					operations: hostOperations
+					operations: hostOperations,
+					videoCatalog: video.catalog
 				}),
 				extensions
 			};
@@ -182,6 +195,19 @@ export class BaseHalfNodeCommandHandler {
 			return rejectedCapabilityDiscoveryResponse(isCancellationError(error)
 				? 'Agent capability discovery was cancelled.'
 				: errorMessage(error));
+		}
+	}
+
+	/** The model catalog for agents, and a generation of it to show in the authoring example. */
+	private async videoCatalogForAgents(): Promise<{ readonly catalog: IBaseHalfAgentCapabilityDiscoveryVideoCatalog; readonly example?: IBaseHalfVideoGenerationChoice }> {
+		try {
+			const catalog = await this.videoCatalogService.whenReady(VIDEO_CATALOG_WAIT);
+			const setup = (provider: IBaseHalfVideoCatalogProvider) => this.videoProviderSettings.getStatus(provider);
+			const providers = JSON.parse(JSON.stringify(baseHalfVideoCatalogForAgents(catalog, setup)));
+			const example = baseHalfVideoExampleGeneration(catalog, setup);
+			return { catalog: Object.freeze({ providers }), ...(example ? { example } : {}) };
+		} catch (error) {
+			return { catalog: Object.freeze({ providers: Object.freeze([]), error: errorMessage(error).slice(0, 2_000) }) };
 		}
 	}
 
