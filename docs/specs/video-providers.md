@@ -332,6 +332,8 @@ each accepts, its requests and task states, and its estimate:
 - [Vidu](video-providers/vidu.md)
 - [Google (Gemini)](video-providers/google.md)
 - [PixVerse](video-providers/pixverse.md)
+- [Luma](video-providers/luma.md)
+- [Runway](video-providers/runway.md)
 - [xAI (Grok Imagine)](video-providers/xai.md)
 - [LTX](video-providers/ltx.md)
 - [Black Forest Labs (FLUX)](video-providers/bfl.md)
@@ -364,7 +366,8 @@ replaces them.
    Google.
 2. PixVerse, Luma, Runway, xAI, LTX, and Black Forest Labs.
 
-Until a provider is implemented it is not in the catalog.
+Both phases are implemented (2026-10-19). A provider added later is in the
+catalog once its module is in `PROVIDER_MODULES`, and not before.
 
 ## Acceptance criteria
 

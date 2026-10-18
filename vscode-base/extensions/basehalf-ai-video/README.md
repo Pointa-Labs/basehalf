@@ -141,6 +141,8 @@ parameter properties, namespaces).
 | Vidu | `vidu.ts` | [Vidu](../../../docs/specs/video-providers/vidu.md) |
 | Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/video-providers/google.md) |
 | PixVerse | `pixverse.ts` | [PixVerse](../../../docs/specs/video-providers/pixverse.md) |
+| Luma | `luma.ts` | [Luma](../../../docs/specs/video-providers/luma.md) |
+| Runway | `runway.ts` | [Runway](../../../docs/specs/video-providers/runway.md) |
 | xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/video-providers/xai.md) |
 | LTX | `ltx.ts` | [LTX](../../../docs/specs/video-providers/ltx.md) |
 | Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/video-providers/bfl.md) |
