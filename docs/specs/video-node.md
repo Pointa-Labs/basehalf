@@ -1,15 +1,20 @@
 # Video node
 
-Status: Active (2026-10-15)
-Decision: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)
-Related: [reference graph](reference-graph.md),
+Status: Active (2026-10-15; providers and settings from the model catalog, 2026-10-19)
+Decisions: [D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
+[D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
+Related: [video providers and the model catalog](video-providers.md),
+[reference graph](reference-graph.md),
 [canvas card placement](canvas-card-placement.md),
 [built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md),
 [architecture invariants](../harness/architecture-invariants.md)
 
 This specification owns the Video node: its file, its inputs, the panel under
-its card, the card, how a generation runs from a click to a video file, the
-providers that run it, and how agents run it. It replaces the earlier Video
+its card, the card, how a generation runs from a click to a video file, and
+how agents run it. Which providers and models exist, what each model accepts,
+the credentials, the requests, and the estimates belong to
+[video providers and the model catalog](video-providers.md); this
+specification reads them from the catalog. It replaces the earlier Video
 node specifications of the AI Video extension (the development, Composer
 surface, model picker, model settings, inputs, and execution and recovery
 specifications), which are removed.
@@ -48,8 +53,9 @@ a model list the user fills.
 
 - Writing a prompt and generating is the first thing a new Video node offers,
   and the prompt is never lost.
-- Any model the user's provider offers can run: official providers and relays,
-  with the user's own key.
+- Every model of the catalog runs with the user's own credentials, with
+  exactly the options it accepts and its estimated price shown before the
+  run.
 - The node's connections are its inputs, in their order. What the panel shows
   is what is sent.
 - A generation keeps going when the panel closes, the window reloads, or
@@ -62,23 +68,22 @@ a model list the user fills.
 - Editing, trimming, joining, or upscaling video. Sequence keeps a clip order
   only.
 - Several videos per generation. A node holds one video.
-- A price or credit display. No provider reports one before the run.
-- User-written request scripts. A relay that speaks one of the supported
-  formats is used through that format.
-- Video and audio references for providers that need them as public URLs.
-- Compatibility with `.bhnode` version 4. The product has not launched; a
-  version 4 file is unreadable and shows as such.
+- Anything the [video providers](video-providers.md#non-goals) specification
+  leaves out: user-written request scripts, a general relay format, and
+  inputs a provider takes only as public URLs.
+- Compatibility with `.bhnode` versions 4 and 5. The product has not
+  launched; such a file is unreadable and shows as such.
 
 ## Terms
 
 - **Video node**: a `.bhnode` file of kind `video`, drawn as a card.
 - **Input**: an entry of the node's `upstream` list, that is, a connection
   into the node. Its kind is image, video, audio, text, or other.
-- **Mode**: how the inputs are used. *Frames* (首尾帧) uses the first image as
-  the start frame and the second as the end frame. *References* (多模态参考)
-  uses images, videos, and audio as references.
-- **Channel**: a provider the user set up on this computer: a preset, a name,
-  an endpoint, a key, and the model ids it offers.
+- **Provider**, **model**, **mode**, and **parameter**: as the
+  [model catalog](video-providers.md#terms) defines them. *Frames* (首尾帧)
+  uses the first image as the start frame and the second as the end frame;
+  *References* (多模态参考) uses images, videos, and audio as references;
+  *Extend* and *Edit* take a video to continue or change.
 - **Generation**: one request to a provider, from the click to the video file
   or to its end without one.
 - **Task**: the record of the generation that runs, or of the last one that
@@ -86,44 +91,38 @@ a model list the user fills.
 
 ## The node file
 
-A `.bhnode` is version 5. Every kind keeps `version`, `id`, `kind`, `title`,
-`upstream`, and an optional `result`. The `role`, `recipe`, and `attempts`
-fields of version 4 are gone. A Video node adds `prompt`, `generation`, and
-`task`. Other kinds may not carry them.
+A `.bhnode` is version 6. Every kind keeps `version`, `id`, `kind`, `title`,
+`upstream`, and an optional `result`. A Video node adds `prompt`,
+`generation`, and `task`. Other kinds may not carry them.
 
 ```json
 {
-	"version": 5,
+	"version": 6,
 	"id": "7766b3bb-c97d-4126-80eb-cb3f4fa82bc8",
 	"kind": "video",
 	"title": "Shot 1",
 	"prompt": "图片1里的人骑车经过海边，镜头缓慢跟随",
 	"upstream": ["frames/start.png", "frames/end.png", "notes/scene.md"],
 	"generation": {
-		"channel": "ark-3f2a",
-		"model": "doubao-seedance-2-5-260628",
+		"provider": "bytedance",
+		"model": "seedance-2.5",
 		"mode": "frames",
-		"ratio": "16:9",
-		"resolution": "720p",
-		"duration": 5,
-		"audio": true
+		"params": { "resolution": "720p", "duration": 5, "generate_audio": true }
 	},
 	"task": {
-		"id": "20261015T080000-k3f9",
+		"id": "20261019T080000-k3f9",
 		"state": "running",
-		"startedAt": "2026-10-15T08:00:00.000Z",
-		"channel": "ark-3f2a",
-		"remoteId": "cgt-20261015080001-abcd",
+		"startedAt": "2026-10-19T08:00:00.000Z",
+		"remoteId": "cgt-20261019080001-abcd",
 		"request": {
-			"provider": "ark",
-			"model": "doubao-seedance-2-5-260628",
-			"prompt": "图片1里的人骑车经过海边，镜头缓慢跟随",
-			"inputs": ["frames/start.png", "frames/end.png", "notes/scene.md"],
+			"provider": "bytedance",
+			"region": "cn",
+			"model": "seedance-2.5",
+			"providerModel": "doubao-seedance-2-5-260628",
 			"mode": "frames",
-			"ratio": "adaptive",
-			"resolution": "720p",
-			"duration": 5,
-			"audio": true
+			"params": { "resolution": "720p", "duration": 5, "generate_audio": true },
+			"prompt": "图片1里的人骑车经过海边，镜头缓慢跟随",
+			"inputs": ["frames/start.png", "frames/end.png", "notes/scene.md"]
 		}
 	}
 }
@@ -135,15 +134,18 @@ through it.
 
 - `prompt`: up to 64 KiB. What the next generation sends, editable in every
   phase.
-- `generation`: what the next generation uses. Without `model`, none is
-  chosen. `channel` is a hint: the channel that offered the model when it was
-  chosen. Settings are `mode` (`frames` or `reference`), `ratio`,
-  `resolution`, `duration` (whole seconds, or -1 for the model's choice), and
-  `audio`.
+- `generation`: what the next generation uses. `provider` and `model` are
+  ids of the [model catalog](video-providers.md#the-catalog); without
+  `model`, none is chosen. `mode` is one of the model's modes. `params` maps
+  parameter names to strings, numbers, or booleans. The reader checks only
+  these shapes: whether the provider, model, mode, and values exist is known
+  from the catalog, which the panel and Generate consult.
 - `task`: the generation that runs (`submitting`, then `running` once the
   provider returns its task id in `remoteId`), or the last one that ended
   without a video (`failed` with `error`, or `stopped`). `request` records
-  what was sent. A new generation replaces an ended task.
+  what was sent: the provider and its region, the catalog model and the id
+  sent to the provider, the mode, every parameter with its value, the prompt
+  as sent, and the inputs. A new generation replaces an ended task.
 - `result`: the file the node shows. `{"source": "imported", "artifact"}` for
   a file the user brought in, or `{"source": "generated", "artifact",
   "generation"}` for a generated video, where `generation` holds the task id,
@@ -183,16 +185,20 @@ Each entry resolves to a kind:
 - anything else, such as a folder or a PDF, is of kind other and is not used.
 
 How a generation uses the inputs is computed once, in
-`planBaseHalfVideoInputs`, for the panel and for the request alike:
+`planBaseHalfVideoInputs`, from the slots that the selected mode declares
+([Modes and inputs](video-providers.md#modes-and-inputs)), for the panel and
+for the request alike:
 
 - **Text inputs** join the prompt in both modes: the node's prompt, then the
   text of each text input in order, separated by a blank line. A Markdown
   note's front matter is left out, and each text input adds at most 16 KiB.
 - **Frames mode** takes the first available image as the start frame and the
-  second as the end frame, as far as the model takes frames (two, one, or
-  none). Later images, videos, and audio are not used.
+  second as the end frame, as far as the mode declares them. Later images,
+  videos, and audio are not used.
 - **References mode** takes images, videos, and audio in order, as many as
-  the model and the provider carry. Later ones are not used.
+  the mode declares. Later ones are not used.
+- **Extend** and **Edit** take the first available video as the clip, and Edit
+  takes images as references as far as the mode declares them.
 - **Names**: images, videos, and audio are numbered by kind in upstream
   order, used or not: 图片1, 图片2, 视频1, 音频1 in a Chinese display
   language, and Image 1, Video 1, Audio 1 otherwise. A prompt refers to an
@@ -201,64 +207,38 @@ How a generation uses the inputs is computed once, in
 - An input that is not used says why: it names nothing, its kind cannot be
   used, the mode does not use it, or it comes after what the model takes.
 - The provider receives images as PNG, JPEG, or WebP. An image of another
-  format is drawn to PNG first. An input file larger than 20 MiB is refused
-  with its name.
+  format is drawn to PNG first. The mode's limits (sizes, lengths, bytes) are
+  checked before anything is written, and a file outside them is refused
+  with its name and the limit.
 
-## Providers and channels
+## Providers
 
-The user sets up providers in Settings, on the **Video Providers** page,
-which replaces Models & Providers. A channel is created from a preset:
-
-| Preset | Request format | Endpoint it starts with | Models it lists |
-| --- | --- | --- | --- |
-| Volcengine Ark | Seedance task API | `https://ark.cn-beijing.volces.com/api/v3` | Seedance 2.5 |
-| BytePlus ModelArk | Seedance task API | `https://ark.ap-southeast.bytepluses.com/api/v3` | Seedance 2.0 Mini, Seedance 1.5 Pro |
-| Alibaba Cloud Model Studio | Wan video synthesis | `https://dashscope.aliyuncs.com/api/v1` | Wan 2.6, Wan 2.6 Image to Video |
-| MiniMax | MiniMax video generation | `https://api.minimaxi.com/v1` | MiniMax Hailuo-02 |
-| Google Gemini | Veo long-running prediction | `https://generativelanguage.googleapis.com/v1beta` | Veo 3.1, Veo 3.1 Fast, Veo 3.1 Lite |
-| OpenAI Compatible | `/videos` tasks | none: the user enters the relay's endpoint | none |
-
-- A channel holds a name, the endpoint, the key, and a list of model ids.
-  The user can change the endpoint (a relay that speaks the same format) and
-  add or remove model ids; a model id is any text the provider accepts.
-  OpenAI's own Videos API closed on 2026-09-24, so an OpenAI Compatible
-  channel starts without an endpoint and runs only once the user enters one.
-- The key is stored encrypted on this computer and never written into the
-  workspace. The page shows whether a key is set, never the key.
-- Saving checks nothing with the provider. The first generation tells the
-  user whether the key works.
-- Removing a channel removes its key. Nodes that chose its models show that
-  no channel offers them.
-- What a model accepts comes from its profile in `basehalfVideoProviders.ts`
-  when BaseHalf knows the model, and from a general profile otherwise: both
-  modes, the common ratios, 480p to 1080p, 4 to 15 seconds, and sound on or
-  off; a Veo model BaseHalf does not know is taken to accept what Veo 3.1
-  accepts. The provider's request format limits what can be sent from local
-  files: the Seedance task API, Wan, MiniMax, and Veo carry no local video or
-  audio; Wan and MiniMax carry no references at all. A mode that nothing can
-  use is not offered.
+The providers, their models, and the credentials users enter for them are
+specified in [video providers and the model catalog](video-providers.md).
+The user sets them up in Settings, on the **Video Providers** page.
 
 ## Settings
 
-The settings shown for a node come from its model's profile:
+The settings of a node are drawn from its model's
+[parameters](video-providers.md#parameters), for the node's mode:
 
-- **Mode**: the modes the profile offers. One mode shows no choice.
-- **Ratio**: the profile's ratios, drawn as small shapes. A model with one or
-  no ratio shows none. A frames generation with a start frame on a model
-  that accepts only `adaptive` there (Seedance 2.5) shows the ratio as
-  "follows the start frame" and sends `adaptive`.
-- **Resolution** and **duration** as the profile lists them. Few durations
-  show as choices; a range shows a slider with its value; a model that can
-  choose its own length adds **Auto** (-1). Where a model allows only one
-  duration for a resolution or for references mode (Veo: 8 seconds for 1080p,
-  4k, and references), that duration is set and its choices are disabled.
-- **Sound** on or off, when the model has the switch.
+- **Mode** first, when the model offers more than one.
+- Then every parameter that is not advanced, in the order the model declares
+  them: a choice of up to five values as a row of buttons, of more as a list;
+  a choice drawn as `ratio` as small ratio shapes; a whole or decimal number
+  as a slider with its value, or as buttons when it has five or fewer steps;
+  **Auto** next to a number that offers it; a switch for a boolean; a text
+  field for text.
+- **More** opens the advanced parameters, such as the seed and the negative
+  prompt. An optional parameter left empty sends nothing.
 
-Choosing another model keeps every setting the new model accepts and gives
-the others the model's default, without a message; the panel shows the
-result, and that is what is sent (`normalizeBaseHalfVideoSettings`). A new
-Video node starts with the model and settings of the last generation on this
-computer, made legal for that model.
+The values are the node's `params`; a parameter without a value shows its
+default, and that is what is sent. Choosing another model or mode keeps every
+value the new model or mode accepts and gives the others their defaults,
+without a message (`normalizeBaseHalfVideoParams`); the panel shows the
+result, and that is what is sent. A new Video node starts with the provider,
+model, mode, and values of the last generation on this computer, made legal
+for that model.
 
 ## The panel
 
@@ -289,23 +269,35 @@ From top to bottom:
    half a second after typing stops, when the field loses focus, when the
    card is deselected, and before a generation starts. Nothing is written
    while an input method composes text. Saving never opens a dialog.
-3. **Footer**: the model button, the settings button, and the Generate
-   button.
-   - The model button shows the model's name. Its menu lists the models of
-     every channel, grouped by channel, and ends with **Manage Video
-     Providers…**. With no channel it shows **Add a Video Provider…**.
-   - The settings button sums up the settings, such as "Frames · 16:9 · 720p
-     · 5s · Sound". Its popover is 300 px wide and holds the settings above;
-     every change is saved at once.
+3. **Footer**: the model button, the settings button, the estimate, and the
+   Generate button.
+   - The model button shows the model's name. Its menu lists the catalog's
+     models grouped by provider, in the catalog's order; a provider that is
+     not set up says so next to its name, and its models can still be chosen.
+     A model the provider's region does not offer is shown dimmed with the
+     reason. Deprecated models are listed only for a node that uses one. The
+     menu ends with **Video Providers…**.
+   - The settings button sums up the settings: the mode, then the value of
+     every parameter that is not advanced, such as "Frames · 720p · 5s ·
+     Sound". Its popover is 300 px wide and holds the settings above; every
+     change is saved at once.
+   - The estimate shows the price of one generation from the provider's
+     list price, as "≈ ¥7.56" or "¥3.00–¥9.00", in the region's currency. Its
+     tooltip says that it is an estimate from the provider's published price
+     of the given date and that the provider's bill counts. Without an
+     estimate, nothing is shown.
    - The Generate button is a round arrow. While the node generates, it is a
      stop square that stops the generation.
 
 The Generate button is enabled only when the node can generate. Otherwise its
 tooltip and accessible name say the first reason, in this order
 (`getBaseHalfVideoGenerateBlocker`): the node is generating; no model is
-chosen; no channel on this computer offers the model; the channel has no
-endpoint; the channel has no key; there is nothing to send. For the second to
-fifth, the model button is outlined and its tooltip says the same.
+chosen; the catalog has no such model; the provider is not set up; the
+provider's region does not offer the model; the first problem that the
+provider module reports for the planned generation
+([check](video-providers.md#requests)); there is nothing to send. For the
+second to fifth, the model button is outlined and its tooltip says the
+same.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
@@ -370,11 +362,12 @@ the ones before the task is written write nothing:
 1. Save the panel's pending prompt and read the node's file.
 2. If the node holds a video, make a new node beside it and continue there
    ([Generating again](#generating-again)).
-3. Resolve the channel: the node's channel while it offers the model,
-   otherwise the first channel that does. Stop with the first blocker, as the
-   panel shows it.
+3. Read the provider's region, endpoint, and credentials. Stop with the first
+   blocker, as the panel shows it.
 4. Plan the inputs, read the text inputs, and build the prompt. Prepare the
-   used images, videos, and audio; stop when one is missing or too large.
+   used images, videos, and audio, and have the provider module check the
+   planned generation with its files; stop with the first problem, or when an
+   input is missing.
 5. Write the task as `submitting`, with the request record.
 6. Send the request through the AI Video extension. When the provider
    returns its task id, write it and the state `running`.
@@ -384,7 +377,8 @@ the ones before the task is written write nothing:
    `outputs/<node id>/<task id>.mp4`: first to a file ending in `.part`,
    checked to be an MP4 of at most 512 MiB, then renamed. Write the result;
    the task leaves the node.
-9. Remember the model and settings as the last used on this computer.
+9. Remember the provider, model, mode, and values as the last used on this
+   computer.
 
 ### Ending without a video
 
@@ -453,15 +447,19 @@ card. The original node and its video do not change.
   comparing real paths.
 - No confirmation is asked: the user asked the agent to work, and the user's
   own key pays.
+- `basehalf --list-capabilities` includes the model catalog: each provider
+  with whether it is set up, and each model with its modes, input slots,
+  limits, and parameters. An agent chooses `provider`, `model`, `mode`, and
+  `params` from it.
 - The skill that BaseHalf offers to agents describes the Video node fields,
-  the input order and names, and this command.
+  the input order and names, the catalog, and this command.
 
 ## Sequence, the starter template, copies, and deletion
 
 - Sequence reads a Video node as before: a node with a video file that exists
   has the lifecycle `result` and an available video; a missing file is
   missing. Its document and commands do not change.
-- The starter template makes folders, notes, empty Video nodes in version 5,
+- The starter template makes folders, notes, empty Video nodes in version 6,
   and an empty Sequence. It makes no planning nodes.
 - A copied Video node keeps its title, prompt, and settings; it has no
   upstream entries, task, or result.
@@ -484,36 +482,38 @@ card. The original node and its video do not change.
   Needs review group, role conversion, first-mount pan, and confirmation
   sheet.
 - The Models & Providers page, replaced by Video Providers.
+- From D58, by D59: channels, presets, model ids typed by the user, model
+  profiles in the window, the general profile, the OpenAI-compatible request
+  format, and the Veo long-running prediction format of the Gemini API.
 
 The other parts of the frozen plugin platform stay as they are
 ([built-in AI Video and the frozen plugin platform](built-in-ai-video-and-plugin-freeze.md)).
 
 ## Implementation boundaries
 
-- `common/basehalfVideoNode.ts`: the video fields, their validation, and the
-  task transitions. Pure.
-- `common/basehalfVideoProviders.ts`: presets, model profiles, settings
-  normalization, input planning and names, prompt building, the Generate
-  blockers, and the request types of the provider commands. Pure.
-- `common/basehalfVideoGeneration.ts`: the node store, channel, and
+- `common/basehalfVideoNode.ts`: the video fields, their shapes, and the task
+  transitions. Pure.
+- `common/basehalfVideoCatalog.ts`: the types of the catalog as the window
+  receives it, parameter normalization, input planning and names from mode
+  declarations, prompt building, the summary of the settings, and the Generate
+  blockers. Pure. It names no provider and no model.
+- `common/basehalfVideoGeneration.ts`: the node store, provider settings, and
   generation service interfaces.
-- `common/basehalfNodeDocument.ts`: the version 5 document, which embeds the
+- `common/basehalfNodeDocument.ts`: the version 6 document, which embeds the
   video fields.
-- The workbench implements the three services, the panel, the card, the
-  toolbar actions, and the Video Providers page.
-- The built-in AI Video extension implements the provider commands
-  `basehalf.video.provider.submit`, `poll`, `download`, and `cancel`. Every
-  command answers `{ok: true, value}` or `{ok: false, error: {code,
-  message}}`. HTTP runs there because providers do not allow cross-origin
-  requests from the window. The workbench passes the key with each call; the
-  extension keeps nothing.
+- The workbench implements the services, the panel, the card, the toolbar
+  actions, and the Video Providers page, all drawn from the catalog.
+- The built-in AI Video extension owns the catalog and the provider modules
+  and answers the commands of [Requests](video-providers.md#requests). The
+  workbench passes the credentials with each call; the extension keeps
+  nothing.
 
 ## Acceptance criteria
 
 The file
 
-1. A Video node is written as version 5 with exactly the fields above; a
-   version 4 file shows as unreadable; a Video node with `task` and `result`
+1. A Video node is written as version 6 with exactly the fields above; a
+   version 4 or 5 file shows as unreadable; a Video node with `task` and `result`
    together, a non-video node with `prompt`, or an unknown field is refused
    with the field's path.
 2. An agent-written Video node with `title`, `prompt`, `upstream`, and
@@ -524,20 +524,21 @@ Inputs
 3. With three images, a video, a text note, and a PDF connected in that order,
    frames mode on Seedance 2.5 uses the first image as the start frame and the
    second as the end frame, adds the note's text without front matter to the
-   prompt, and dims the rest, each with its reason; references mode on a relay
-   uses the three images and the video.
+   prompt, and dims the rest, each with its reason; references mode on a model
+   that takes videos uses the three images and the video.
 4. The swap arrow exchanges the two frames' entries in `upstream` and nothing
    else, in one undo step.
-5. An SVG start frame reaches the provider as a PNG; a 25 MiB image is refused
-   with its name before anything is written.
+5. An SVG start frame reaches the provider as a PNG; an image larger than the
+   mode allows is refused with its name and the limit before anything is
+   written.
 
 Providers
 
-6. A channel created from each preset starts with the endpoint and models in
-   the table; its key is stored encrypted and is not in any workspace file or
-   in the page's DOM.
-7. A model id the user adds to a channel can be chosen and runs with the
-   general profile.
+6. Video Providers lists the catalog's providers; a provider is set up with a
+   region and its credentials, which are stored encrypted and are in no
+   workspace file and not in the page's DOM.
+7. The model menu lists the catalog's models by provider and marks a provider
+   that is not set up and a model its region does not offer.
 
 Panel and card
 
@@ -547,9 +548,10 @@ Panel and card
    no dialog, also when no model is chosen.
 10. The panel never pans or zooms the canvas; it is below, above, or clamped
     as specified, and hidden when the card is off the canvas.
-11. The settings popover shows only what the model accepts; choosing a model
-    that does not accept a value replaces it with the model's default; the
-    settings button and the request show the same values.
+11. The settings popover is drawn from the model's parameters for the mode,
+    advanced ones under More; choosing a model or mode that does not accept a
+    value replaces it with the default; the settings button, the estimate,
+    and the request show the same values.
 12. The Generate button is disabled with the first blocker as its tooltip and
     accessible name, in the specified order.
 13. Typing `@` lists the named inputs, and choosing one types its name; a
@@ -575,18 +577,22 @@ A generation
 20. Capturing the first, current, and last frame writes three PNGs whose cards
     appear beside the video.
 21. Sequence adds a generated video and refuses a node without one.
+22. The estimate shows the price that the provider module computes for the
+    node's model, mode, values, and inputs, in the region's currency, and
+    changes when they change.
 
 ## Verification
 
 - Unit tests of the pure modules (`basehalfVideoNode.test.ts`,
-  `basehalfVideoProviders.test.ts`), of the document reader, of the three
-  services with a fake extension, and of the panel's presentation.
-- Tests of the extension's provider formats against a local HTTP server that
-  speaks the Seedance task API and the `/videos` task API and serves a small
-  MP4 made for the tests.
-- `npm run basehalf:smoke` with steps for criteria 8 to 17, 19, and 20 against
-  that local server, with a test key; no paid provider is called.
-- A real-window check of the panel, the settings, a generation against the
-  local server, and a reload during a generation.
+  `basehalfVideoCatalog.test.ts`), of the document reader, of the services
+  with a fake extension and a test catalog, and of the panel drawn from that
+  catalog.
+- The tests of each provider module ([video providers](video-providers.md#verification)).
+- `npm run basehalf:smoke` with steps for criteria 6 to 17, 19, 20, and 22
+  against the local test provider through the ByteDance module, with a test
+  key; no paid provider is called.
+- A real-window check of the panel, the settings of models of several
+  providers, a generation against the local test provider, and a reload
+  during a generation.
 - A generation with a real provider is run by a person with their own key
-  before a release that changes a request format.
+  before a release that adds or changes a provider module.

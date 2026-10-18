@@ -1801,6 +1801,11 @@ is different now:
 
 ## D58 — A Video node is a prompt over its connections, run by the user's own providers (NEW, 2026-10-15)
 
+> **Revised by D59 (2026-10-19).** Channels, presets, model ids typed by the
+> user, the general profile, and the OpenAI-compatible format are replaced by
+> built-in provider integrations and their model catalog. The rest of D58
+> stands.
+
 **Decision.** A Video node is a `.bhnode` with a prompt, settings, and its
 connections. Its connections are its inputs, in the order of its `upstream`
 list: in frames mode the first image is the start frame and the second the
@@ -1864,3 +1869,47 @@ handed over the open choices; this decision records them.
   charge, which the user can see there.
 - Provider requests run in the built-in AI Video extension, because
   providers refuse cross-origin requests from the window.
+
+## D59 — Video providers are built-in integrations with each model's exact settings; users bring their own keys (NEW, 2026-10-19)
+
+**Decision.** BaseHalf ships one integration per video provider, on the
+provider's own API, together with a catalog that declares each model exactly:
+the regions that offer it, its modes, the inputs each mode takes and their
+limits, every parameter with its kind, choices, range, and default, and how
+its price is estimated. The panel, its settings, the Video Providers page,
+the request, the price shown before a run, and what agents read are all drawn
+from that catalog. Users bring their own credentials: one set per provider,
+with a region and an optional endpoint, stored encrypted on the computer. A
+`.bhnode` is version 6 and stores `provider`, `model`, `mode`, and `params`.
+See [Video providers and the model catalog](specs/video-providers.md).
+
+**Why.** D58 kept nine models in a table in the window and let users type any
+other model id into a channel. The table decided the settings, how they
+changed between models, and which inputs a mode took; the request formats
+lived in the AI Video extension; a general profile guessed for every other
+model. The same knowledge sat in four places that had to agree, and a new
+model either needed changes in several of them or ran on a guess. A
+node-graph tool for generative media solves this coordination by declaring
+every model with its exact parameters next to the code that calls its
+provider and drawing every control from those declarations; its catalog stays
+right because one team owns it and ships it with releases. BaseHalf takes
+that design and owns its catalog the same way. Users keep their own keys:
+they pay their providers directly, and BaseHalf runs no service in between.
+
+**Consequences.**
+- The AI Video extension holds the catalog and the integrations. The window
+  holds no knowledge of any provider or model. A new model is a change to
+  one provider module and a release.
+- A model that the provider offers and the catalog does not list cannot run
+  until a release adds it.
+- Inputs travel the provider's own way, inline or through the provider's
+  upload endpoint. Inputs that a provider takes only as public URLs, with no
+  upload endpoint, are not offered for that provider.
+- The panel shows an estimated price from the provider's published list
+  price, in the region's currency. The provider's bill is what counts.
+- A relay or a private gateway that mirrors a provider's own API is used by
+  entering it as that provider's endpoint. There is no general relay format
+  and no user-written request script.
+- Revises D58: channels, presets, typed model ids, the general profile, and
+  the OpenAI-compatible format are removed. `.bhnode` version 5 files are not
+  read; the product has not launched.

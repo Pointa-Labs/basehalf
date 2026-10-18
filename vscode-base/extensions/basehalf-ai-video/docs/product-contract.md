@@ -21,22 +21,16 @@ The output of this capability is a set of independently usable shot
 materials and an explicit clip order. Editing and final movie assembly are out
 of scope.
 
-## Provider commands
+## Providers and the model catalog
 
-AI Video answers four internal commands that the host's generation service
-calls: `basehalf.video.provider.submit`, `poll`, `download`, and `cancel`.
-Their request and answer types are in `common/basehalfVideoProviders.ts` of
-the host. Each answers `{ok: true, value}` or `{ok: false, error: {code,
-message}}` and keeps no state, key, or file between calls. HTTP runs in the
-extension host because providers do not answer cross-origin requests from the
-window.
-
-The request formats are the Seedance task API (Volcengine Ark and BytePlus
-ModelArk), Wan video synthesis (Alibaba Cloud Model Studio), MiniMax video
-generation, Veo long-running prediction (Google Gemini), and OpenAI-style
-`/videos` tasks (OpenAI and relays). Downloads follow at most five
-redirects, never carry the key to another origin, stop at 512 MiB, and must
-begin with an MP4 `ftyp` box.
+AI Video holds one module per video provider and the catalog built from
+them; the host's [video providers and the model catalog](../../../../docs/specs/video-providers.md)
+specification (D59) owns the contract. The commands
+`basehalf.video.provider.catalog`, `check`, `submit`, `poll`, `download`,
+and `cancel` answer `{ok: true, value}` or `{ok: false, error: {code,
+message}}` and keep no state, credentials, or files between calls. HTTP runs
+in the extension host because providers do not answer cross-origin requests
+from the window.
 
 ## Sequence document
 
@@ -101,7 +95,7 @@ reference.
 ## Starter template and local data
 
 The starter template creates ordinary briefs and scripts as Markdown notes,
-shot folders, empty Video nodes (`.bhnode` version 5), an empty Sequence,
+shot folders, empty Video nodes (`.bhnode` version 6), an empty Sequence,
 canvas cards, and the connections the template declares, which the host
 stores in each target's `upstream` list. It contains no credentials, tasks,
 results, outputs, private extension state, executable payloads, install
