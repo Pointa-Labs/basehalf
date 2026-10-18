@@ -6,6 +6,7 @@
 import { BYTEDANCE } from './bytedance.ts';
 import { klingModule } from './kling.ts';
 import { MINIMAX } from './minimax.ts';
+import { GOOGLE } from './google.ts';
 import type { ProviderModule } from './module.ts';
 import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ModeId } from './types.ts';
 
@@ -14,7 +15,7 @@ import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvi
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, klingModule, MINIMAX]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, klingModule, MINIMAX, GOOGLE]);
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
