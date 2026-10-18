@@ -265,12 +265,12 @@ test('the catalog declares Runway with one region, one API key, and its three ow
 		'gen4.5': [resolution, ratio, duration, seed, publicFigures],
 		'gen4_turbo': [resolution, ratio, duration, seed, publicFigures],
 		'aleph2': [
-			['ratio', 'Ratio', ['adaptive=Adaptive', '16:9=16:9', '4:3=4:3', '3:2=3:2', '1:1=1:1', '2:3=2:3', '3:4=3:4', '9:16=9:16', '21:9=21:9'], 'adaptive', 'ratio', ''],
+			['targetAspectRatio', 'Ratio', ['adaptive=Adaptive', '16:9=16:9', '4:3=4:3', '3:2=3:2', '1:1=1:1', '2:3=2:3', '3:4=3:4', '9:16=9:16', '21:9=21:9'], 'adaptive', 'ratio', ''],
 			seed,
 			publicFigures
 		]
 	});
-	assert.ok(provider.models.flatMap(model => model.parameters).every(parameter => !parameter.modes && (parameter.kind !== 'choice' || parameter.name !== 'ratio' || parameter.tooltip)));
+	assert.ok(provider.models.flatMap(model => model.parameters).every(parameter => !parameter.modes && (parameter.kind !== 'choice' || (parameter.name !== 'ratio' && parameter.name !== 'targetAspectRatio') || parameter.tooltip)));
 	assert.ok(PROVIDER_MODULES.includes(RUNWAY), 'AI Video ships the Runway module');
 	assert.ok(buildCatalog(PROVIDER_MODULES).providers.some(entry => entry.id === 'runway'));
 });
@@ -324,7 +324,7 @@ test('each model and mode is created once, at its path, with the exact body, the
 				body: () => ({ model: 'aleph2', videoUri: 'runway://upload-1', promptText: PROMPT, contentModeration: auto })
 			},
 			{
-				model: 'aleph2', mode: 'edit', params: { ratio: '9:16', seed: 7, publicFigureThreshold: 'low' }, inputs: { source: TAKE }, prompt: '',
+				model: 'aleph2', mode: 'edit', params: { targetAspectRatio: '9:16', seed: 7, publicFigureThreshold: 'low' }, inputs: { source: TAKE }, prompt: '',
 				path: '/v1/video_to_video',
 				uploads: ['source-video.mov'],
 				body: () => ({ model: 'aleph2', videoUri: 'runway://upload-2', targetAspectRatio: '9:16', seed: 7, contentModeration: { publicFigureThreshold: 'low' } })
@@ -770,7 +770,7 @@ test('check reports the rules the declarations cannot express, and the declarati
 		duration11: await problems('gen4.5', 'frames', { duration: 11 }, counts()),
 		resolution1080p: await problems('gen4_turbo', 'frames', { resolution: '1080p' }, counts({ startFrame: true })),
 		alephDuration: await problems('aleph2', 'edit', { duration: 5 }, counts({ source: true })),
-		alephRatio: await problems('aleph2', 'edit', { ratio: '3:2' }, counts({ source: true })),
+		alephRatio: await problems('aleph2', 'edit', { targetAspectRatio: '3:2' }, counts({ source: true })),
 		largeSeed: await problems('aleph2', 'edit', { seed: 2147483648 }, counts({ source: true }))
 	}, {
 		textToVideo4by3: ['Without a start frame, Gen-4.5 makes 16:9 or 9:16 videos only. Choose one of them, or connect a start frame.'],

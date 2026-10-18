@@ -102,7 +102,7 @@ Runway's own video models only (`guides/models.md`):
 | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | **`720p`** (720p) | Gen-4.5, Gen-4 Turbo | with `ratio`, as the pixel size in `ratio` |
 | `ratio` | Ratio | choice, ratio shapes | **`16:9`**, `9:16`, `4:3`, `3:4`, `1:1`, `21:9` | Gen-4.5, Gen-4 Turbo | `ratio`: `1280:720`, `720:1280`, `1104:832`, `832:1104`, `960:960`, `1584:672` |
-| `ratio` | Ratio | choice, ratio shapes | **`adaptive`** (Adaptive), `16:9`, `4:3`, `3:2`, `1:1`, `2:3`, `3:4`, `9:16`, `21:9` | Aleph 2.0 | `targetAspectRatio`; nothing for Adaptive |
+| `targetAspectRatio` | Ratio | choice, ratio shapes | **`adaptive`** (Adaptive), `16:9`, `4:3`, `3:2`, `1:1`, `2:3`, `3:4`, `9:16`, `21:9` | Aleph 2.0 | `targetAspectRatio`; nothing for Adaptive. Not the shared `ratio`, so that a shape chosen for another model does not carry over and extend the clip |
 | `duration` | Duration | integer, seconds | 2 to 10, step 1, **5** | Gen-4.5, Gen-4 Turbo | `duration` |
 | `seed` | Seed | integer, optional, More | 0 to 2147483647 | all | `seed` |
 | `publicFigureThreshold` | Public Figures | choice, More | **`auto`** (Auto), `low` (Low) | all | `contentModeration.publicFigureThreshold` |

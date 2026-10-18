@@ -161,8 +161,10 @@ function sizedRatio(model: RunwayModelId): CatalogParameter {
 	};
 }
 
+// Its own name, not the shared `ratio`: a shape chosen for another model would otherwise
+// carry over and extend the clip, where an edit keeps the clip's shape unless asked.
 const ALEPH_RATIO: CatalogParameter = {
-	name: 'ratio',
+	name: 'targetAspectRatio',
 	label: LABELS.ratio,
 	tooltip: LABELS.models.aleph2.ratioTooltip,
 	kind: 'choice',
@@ -382,7 +384,7 @@ function createRequest(model: RunwayModelId, sentModel: string, params: Params, 
 		if (clip === undefined) {
 			throw rejected(LABELS.needsClip(labelOf(model)));
 		}
-		const shape = typeof params.ratio === 'string' && params.ratio !== 'adaptive' ? { targetAspectRatio: params.ratio } : {};
+		const shape = typeof params.targetAspectRatio === 'string' && params.targetAspectRatio !== 'adaptive' ? { targetAspectRatio: params.targetAspectRatio } : {};
 		return { path: '/video_to_video', value: { model: sentModel, videoUri: clip, ...promptText, ...shape, ...seed, ...moderation } };
 	}
 	const ratio = PIXEL_SIZES.get(String(params.ratio));
