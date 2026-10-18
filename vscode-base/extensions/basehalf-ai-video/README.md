@@ -142,6 +142,7 @@ parameter properties, namespaces).
 | Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/video-providers/google.md) |
 | PixVerse | `pixverse.ts` | [PixVerse](../../../docs/specs/video-providers/pixverse.md) |
 | xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/video-providers/xai.md) |
+| Black Forest Labs (FLUX) | `bfl.ts` | [Black Forest Labs (FLUX)](../../../docs/specs/video-providers/bfl.md) |
 
 ## Sequence
 

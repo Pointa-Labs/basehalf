@@ -333,6 +333,7 @@ each accepts, its requests and task states, and its estimate:
 - [Google (Gemini)](video-providers/google.md)
 - [PixVerse](video-providers/pixverse.md)
 - [xAI (Grok Imagine)](video-providers/xai.md)
+- [Black Forest Labs (FLUX)](video-providers/bfl.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
 | --- | --- | --- | --- | --- | --- |
@@ -347,7 +348,7 @@ each accepts, its requests and task states, and its estimate:
 | Runway | `https://api.dev.runwayml.com` | API key, `Authorization: Bearer`, `X-Runway-Version: 2024-11-06` | data URI | upload (`runway://`) | yes |
 | xAI (Grok Imagine) | `https://api.x.ai/v1` | API key, `Authorization: Bearer` | data URL | video as a data URL | no |
 | LTX | `https://api.ltx.io` | API key, `Authorization: Bearer` | data URI | upload (`ltx://`) | no |
-| Black Forest Labs (FLUX) | `https://api.bfl.ai/v1` | API key, `x-key` | base64 | — | no |
+| Black Forest Labs (FLUX) | `https://api.bfl.ai/v1` | API key, `x-key` | data URL | clip of Edit and Extend as a data URL | no |
 
 These facts were read from each provider's documentation on 2026-10-18; each
 provider's specification records the pages it follows. OpenAI's video API closed on
