@@ -8,7 +8,7 @@ import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, u
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Currency, Estimate, Params, PlannedCounts, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Currency, Estimate, Params, ParamValue, PlannedCounts, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * MiniMax's video models on MiniMax's own API, in China (`api.minimax.cn`)
@@ -67,6 +67,7 @@ const TEXT = Object.freeze({
 	m4aAudio: (label: string) => `${label} is M4A audio; MiniMax takes WAV or MP3.`,
 	wrongFormat: (label: string) => `${label} is not in a format MiniMax takes.`,
 	notOffered: (model: string) => `${model} is not offered in this region.`,
+	noResolution: (model: string, resolution: string) => `${model} makes no ${resolution} videos.`,
 	noSource: (label: string) => `${label} cannot be sent: MiniMax's models take no video to work on.`,
 	framesOnly: (label: string) => `${label} cannot be sent: Hailuo models take frames only.`,
 	requestTooLarge: 'The request with its inputs is larger than the 64 MB MiniMax takes. Use fewer or smaller inputs.',
@@ -255,8 +256,33 @@ function modesOf(model: MiniMaxModel): CatalogMode[] {
 	];
 }
 
+/**
+ * The catalog's value of a resolution as MiniMax writes it: lower case, as
+ * every provider's (video providers, "Shared names"), so `768P` is `768p`.
+ */
+function catalogResolution(resolution: string): string {
+	return resolution.toLowerCase();
+}
+
+/** MiniMax's own value of each resolution of the catalog, such as `768P` for `768p`. */
+const MINIMAX_RESOLUTIONS: ReadonlyMap<string, string> = new Map(MODELS_IN_ORDER
+	.flatMap(model => model.api === 'v2' ? model.resolutions : Object.keys(model.durations))
+	.map(resolution => [catalogResolution(resolution), resolution]));
+
+/** MiniMax's own value of a resolution of the catalog, or undefined for one MiniMax does not make. */
+function minimaxResolution(value: ParamValue | undefined): string | undefined {
+	return typeof value === 'string' ? MINIMAX_RESOLUTIONS.get(value) : undefined;
+}
+
 function resolutionParameter(resolutions: readonly string[], defaultResolution: string): CatalogParameter {
-	return { name: 'resolution', label: TEXT.parameters.resolution, kind: 'choice', options: resolutions.map(value => ({ value, label: value })), default: defaultResolution };
+	return {
+		name: 'resolution',
+		label: TEXT.parameters.resolution,
+		kind: 'choice',
+		// The shared values, labelled as MiniMax writes them.
+		options: resolutions.map(resolution => ({ value: catalogResolution(resolution), label: resolution })),
+		default: catalogResolution(defaultResolution)
+	};
 }
 
 function parametersOf(model: MiniMaxModel): CatalogParameter[] {
@@ -265,7 +291,8 @@ function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 		return [
 			resolutionParameter(Object.keys(model.durations), '768P'),
 			{ name: 'duration', label: labels.duration, kind: 'integer', unit: 'seconds', min: 6, max: 10, step: 4, default: 6 },
-			{ name: 'prompt_optimizer', label: labels.promptOptimizer, tooltip: labels.promptOptimizerTooltip, kind: 'boolean', default: true },
+			// The shared name of MiniMax's `prompt_optimizer`.
+			{ name: 'prompt_extend', label: labels.promptOptimizer, tooltip: labels.promptOptimizerTooltip, kind: 'boolean', default: true },
 			{ name: 'fast_pretreatment', label: labels.fastOptimization, tooltip: labels.fastOptimizationTooltip, kind: 'boolean', default: false, advanced: true }
 		];
 	}
@@ -293,7 +320,8 @@ function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 			default: 'balanced'
 		});
 	}
-	parameters.push({ name: 'aigc_watermark', label: labels.watermark, tooltip: labels.watermarkTooltip, kind: 'boolean', default: false, advanced: true });
+	// The shared name of MiniMax's `aigc_watermark`.
+	parameters.push({ name: 'watermark', label: labels.watermark, tooltip: labels.watermarkTooltip, kind: 'boolean', default: false, advanced: true });
 	return parameters;
 }
 
@@ -356,7 +384,7 @@ function h3Rules(model: H3Model, request: CheckRequest, counts: PlannedCounts): 
 			problems.push(TEXT.tooManyReferences(label, references));
 		}
 	}
-	if (request.params.aigc_watermark === true && request.region !== 'cn') {
+	if (request.params.watermark === true && request.region !== 'cn') {
 		problems.push(TEXT.watermarkChinaOnly);
 	}
 	return problems;
@@ -365,7 +393,11 @@ function h3Rules(model: H3Model, request: CheckRequest, counts: PlannedCounts): 
 function hailuoRules(model: HailuoModel, request: CheckRequest, counts: PlannedCounts): string[] {
 	const label = TEXT.models[model.id].label;
 	const problems: string[] = [];
-	const resolution = String(request.params.resolution);
+	const resolution = minimaxResolution(request.params.resolution);
+	if (resolution === undefined) {
+		// The declarations' checks refuse a value the model does not offer.
+		return problems;
+	}
 	const durations = model.durations[resolution] ?? [];
 	if (!durations.includes(Number(request.params.duration))) {
 		problems.push(TEXT.durationAt(label, resolution, durations.join(' or ')));
@@ -413,9 +445,9 @@ function referenceVideoSeconds(counts: PlannedCounts, measured: readonly Measure
 
 function h3Estimate(model: H3Model, region: string, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
 	const prices = model.prices[region as RegionId];
-	const resolution = String(params.resolution);
-	const output = prices?.output[resolution];
-	const inputVideo = prices?.inputVideo[resolution];
+	const resolution = minimaxResolution(params.resolution);
+	const output = resolution === undefined ? undefined : prices?.output[resolution];
+	const inputVideo = resolution === undefined ? undefined : prices?.inputVideo[resolution];
 	const duration = Number(params.duration);
 	if (!prices || output === undefined || inputVideo === undefined || !Number.isFinite(duration)) {
 		return undefined;
@@ -428,7 +460,8 @@ function h3Estimate(model: H3Model, region: string, params: Params, counts: Plan
 }
 
 function hailuoEstimate(model: HailuoModel, region: string, params: Params): Estimate | undefined {
-	const price = model.prices[region as RegionId]?.[`${String(params.resolution)} ${String(params.duration)}`];
+	const resolution = minimaxResolution(params.resolution);
+	const price = resolution === undefined ? undefined : model.prices[region as RegionId]?.[`${resolution} ${String(params.duration)}`];
 	return price === undefined ? undefined : estimateOf(currencyOf(region), price, price, PRICE_DATE);
 }
 
@@ -680,7 +713,7 @@ const ROLES: Readonly<Record<Exclude<PlannedItem['slot'], 'source'>, string>> = 
 	audio: 'reference_audio'
 });
 
-function h3Body(model: H3Model, request: SubmitRequest, entries: readonly Prepared[], urlOf: (entry: Prepared) => string): Record<string, unknown> {
+function h3Body(model: H3Model, request: SubmitRequest, resolution: string, entries: readonly Prepared[], urlOf: (entry: Prepared) => string): Record<string, unknown> {
 	const content: unknown[] = [{ type: 'text', text: request.prompt }];
 	for (const entry of entries) {
 		const role = ROLES[entry.item.slot as Exclude<PlannedItem['slot'], 'source'>];
@@ -691,16 +724,16 @@ function h3Body(model: H3Model, request: SubmitRequest, entries: readonly Prepar
 	return {
 		model: model.providerModel,
 		content,
-		resolution: params.resolution,
+		resolution,
 		duration: params.duration,
 		ratio: params.ratio,
 		...(model.promptExpansion ? { extra: { prompt_expansion_mode: params.prompt_expansion_mode } } : {}),
 		// Only the China create page documents the watermark.
-		...(request.region === 'cn' ? { aigc_watermark: params.aigc_watermark === true } : {})
+		...(request.region === 'cn' ? { aigc_watermark: params.watermark === true } : {})
 	};
 }
 
-async function submitH3(model: H3Model, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+async function submitH3(model: H3Model, request: SubmitRequest, resolution: string, http: ProviderHttp): Promise<string> {
 	const entries: Prepared[] = [];
 	for (const item of plannedItems(request.inputs)) {
 		entries.push(await prepare(item, H3_MAX_BYTES));
@@ -713,7 +746,7 @@ async function submitH3(model: H3Model, request: SubmitRequest, http: ProviderHt
 		}
 	}
 	const inline = () => entries.filter(entry => entry.kind === 'image' && !urls.has(entry));
-	const size = () => Buffer.byteLength(JSON.stringify(h3Body(model, request, entries, entry => urls.get(entry) ?? '')), 'utf8')
+	const size = () => Buffer.byteLength(JSON.stringify(h3Body(model, request, resolution, entries, entry => urls.get(entry) ?? '')), 'utf8')
 		+ inline().reduce((sum, entry) => sum + inlineLength(entry), 0);
 	while (size() > REQUEST_MAX_BYTES) {
 		const largest = inline().sort((a, b) => b.read.bytes.byteLength - a.read.bytes.byteLength)[0];
@@ -722,7 +755,7 @@ async function submitH3(model: H3Model, request: SubmitRequest, http: ProviderHt
 		}
 		urls.set(largest, await upload(http, largest));
 	}
-	const bytes = Buffer.from(JSON.stringify(h3Body(model, request, entries, entry => urls.get(entry) ?? inlineUrl(entry))), 'utf8');
+	const bytes = Buffer.from(JSON.stringify(h3Body(model, request, resolution, entries, entry => urls.get(entry) ?? inlineUrl(entry))), 'utf8');
 	if (bytes.byteLength > REQUEST_MAX_BYTES) {
 		throw rejected(TEXT.requestTooLarge);
 	}
@@ -734,7 +767,7 @@ async function submitH3(model: H3Model, request: SubmitRequest, http: ProviderHt
 	return id;
 }
 
-async function submitHailuo(model: HailuoModel, request: SubmitRequest, http: ProviderHttp): Promise<string> {
+async function submitHailuo(model: HailuoModel, request: SubmitRequest, resolution: string, http: ProviderHttp): Promise<string> {
 	const frames = new Map<PlannedItem['slot'], string>();
 	for (const item of plannedItems(request.inputs)) {
 		if (item.slot !== 'startFrame' && item.slot !== 'endFrame') {
@@ -751,11 +784,11 @@ async function submitHailuo(model: HailuoModel, request: SubmitRequest, http: Pr
 		...(request.prompt.trim() ? { prompt: request.prompt } : {}),
 		...(start !== undefined ? { first_frame_image: start } : {}),
 		...(end !== undefined ? { last_frame_image: end } : {}),
-		prompt_optimizer: params.prompt_optimizer === true,
+		prompt_optimizer: params.prompt_extend === true,
 		// The first and last frame request takes no fast pretreatment.
 		...(end === undefined ? { fast_pretreatment: params.fast_pretreatment === true } : {}),
 		duration: params.duration,
-		resolution: params.resolution
+		resolution
 	};
 	const answer = await http.create({ method: 'POST', path: V1_CREATE, body: { kind: 'json', value: body } });
 	const object = answer.object();
@@ -769,10 +802,16 @@ async function submitHailuo(model: HailuoModel, request: SubmitRequest, http: Pr
 
 async function submit(request: SubmitRequest, http: ProviderHttp): Promise<string> {
 	const model = modelOf(request.model);
+	const label = TEXT.models[model.id].label;
 	if (request.region !== 'cn' && request.region !== 'intl') {
-		throw rejected(TEXT.notOffered(TEXT.models[model.id].label));
+		throw rejected(TEXT.notOffered(label));
 	}
-	return model.api === 'v2' ? submitH3(model, request, http) : submitHailuo(model, request, http);
+	// MiniMax's own value, such as `768P`, found before anything is uploaded.
+	const resolution = minimaxResolution(request.params.resolution);
+	if (resolution === undefined) {
+		throw rejected(TEXT.noResolution(label, String(request.params.resolution)));
+	}
+	return model.api === 'v2' ? submitH3(model, request, resolution, http) : submitHailuo(model, request, resolution, http);
 }
 
 // --- tasks -------------------------------------------------------------------------------------
