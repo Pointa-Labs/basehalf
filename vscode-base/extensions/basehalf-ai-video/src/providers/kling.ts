@@ -474,7 +474,7 @@ function estimateFor(model: KlingModel, region: string, params: Params): Estimat
 
 // --- the module ---------------------------------------------------------------------------------
 
-export const klingModule: ProviderModule = {
+export const KLING: ProviderModule = {
 	describe() {
 		return PROVIDER;
 	},

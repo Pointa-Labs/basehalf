@@ -291,7 +291,9 @@ each accepts, its requests and task states, and its estimate:
 
 - [ByteDance (Seedance)](video-providers/bytedance.md)
 - [Kling](video-providers/kling.md)
+- [Alibaba (Wan)](video-providers/alibaba.md)
 - [MiniMax (Hailuo)](video-providers/minimax.md)
+- [Vidu](video-providers/vidu.md)
 - [Google (Gemini)](video-providers/google.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |

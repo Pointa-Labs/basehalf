@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
-import { klingModule } from '../src/providers/kling.ts';
+import { KLING } from '../src/providers/kling.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { CatalogModel, Estimate } from '../src/providers/types.ts';
@@ -54,7 +54,7 @@ function base64(media: FileMedia): string {
 }
 
 function commands(options: { readonly inspector?: () => MediaInspector } = {}): VideoProviderCommands {
-	return new VideoProviderCommands([klingModule], { http: { sleep: async () => undefined }, ...options });
+	return new VideoProviderCommands([KLING], { http: { sleep: async () => undefined }, ...options });
 }
 
 interface Inputs {
@@ -108,7 +108,7 @@ const referImage = (media: FileMedia) => ({ type: 'refer_image', url: base64(med
 // --- the catalog --------------------------------------------------------------------------------
 
 test('the catalog declares Kling with two regions, one API key, and six models with their modes, limits, and settings', () => {
-	const provider = buildCatalog([klingModule]).providers[0];
+	const provider = buildCatalog([KLING]).providers[0];
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'kling',
 		label: 'Kling',

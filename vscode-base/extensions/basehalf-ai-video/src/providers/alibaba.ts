@@ -900,7 +900,7 @@ function specOf(model: string): ModelSpec {
 	return spec;
 }
 
-export const alibabaModule: ProviderModule = Object.freeze({
+export const ALIBABA: ProviderModule = Object.freeze({
 	describe(): CatalogProvider {
 		return PROVIDER;
 	},

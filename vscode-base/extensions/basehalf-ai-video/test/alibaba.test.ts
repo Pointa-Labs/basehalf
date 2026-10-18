@@ -17,7 +17,7 @@ import type { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { alibabaModule } from '../src/providers/alibaba.ts';
+import { ALIBABA } from '../src/providers/alibaba.ts';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import { describeBytes, type MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
@@ -52,7 +52,7 @@ const audio = (fsPath: string): Media => ({ fsPath, mimeType: 'audio/wav' });
 const dataUrl = (fsPath: string) => `data:image/png;base64,${readFileSync(fsPath).toString('base64')}`;
 
 function commands(options: VideoProviderCommandOptions = {}): VideoProviderCommands {
-	return new VideoProviderCommands([alibabaModule], { ...options, http: { sleep: async () => undefined, ...options.http } });
+	return new VideoProviderCommands([ALIBABA], { ...options, http: { sleep: async () => undefined, ...options.http } });
 }
 
 type Inputs = { startFrame?: Media; endFrame?: Media; images?: Media[]; videos?: Media[]; audios?: Media[]; source?: Media };
@@ -190,8 +190,8 @@ function uploadedKeys(provider: Provider): string[] {
 // --- the catalog -------------------------------------------------------------------------------------
 
 test('the provider is shipped with two regions, one key, and its fifteen models', () => {
-	assert.ok(PROVIDER_MODULES.includes(alibabaModule));
-	const provider = buildCatalog([alibabaModule]).providers[0];
+	assert.ok(PROVIDER_MODULES.includes(ALIBABA));
+	const provider = buildCatalog([ALIBABA]).providers[0];
 	assert.deepEqual({
 		id: provider.id,
 		label: provider.label,

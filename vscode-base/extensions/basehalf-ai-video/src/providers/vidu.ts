@@ -735,7 +735,7 @@ function pollStateOf(answer: Record<string, unknown>): PollState {
 
 // --- the module ---------------------------------------------------------------------------------
 
-export const viduModule = Object.freeze<ProviderModule>({
+export const VIDU = Object.freeze<ProviderModule>({
 	describe(): CatalogProvider {
 		return PROVIDER;
 	},

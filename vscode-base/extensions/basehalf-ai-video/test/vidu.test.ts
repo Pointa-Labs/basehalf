@@ -18,7 +18,7 @@ import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { CatalogParameter, PlannedCounts } from '../src/providers/types.ts';
-import { viduModule } from '../src/providers/vidu.ts';
+import { VIDU } from '../src/providers/vidu.ts';
 import { error, gifHeader, isoMedia, mp3, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
 
 const KEY = 'vda-test-secret-42';
@@ -53,7 +53,7 @@ function counts(planned: Partial<PlannedCounts> = {}): PlannedCounts {
 }
 
 function commands(options: VideoProviderCommandOptions = {}): VideoProviderCommands {
-	return new VideoProviderCommands([viduModule], { http: { sleep: async () => undefined }, ...options });
+	return new VideoProviderCommands([VIDU], { http: { sleep: async () => undefined }, ...options });
 }
 
 /** A request of `submit` to `endpoint`: Vidu Q3 Pro in China from text, unless `overrides` say otherwise. */
@@ -103,8 +103,8 @@ const RATIOS = '16:9|9:16|1:1|4:3|3:4';
 const SEED = 'seed?: 0-2147483647';
 
 test('Vidu is a shipped provider whose catalog lists the models, regions, modes, inputs, and parameters of its spec', () => {
-	assert.ok(PROVIDER_MODULES.includes(viduModule));
-	const provider = buildCatalog([viduModule]).providers[0];
+	assert.ok(PROVIDER_MODULES.includes(VIDU));
+	const provider = buildCatalog([VIDU]).providers[0];
 	assert.deepEqual({ id: provider.id, label: provider.label, regions: provider.regions, credentials: provider.credentials }, {
 		id: 'vidu',
 		label: 'Vidu',
