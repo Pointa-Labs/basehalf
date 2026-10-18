@@ -27,6 +27,8 @@ import {
 	BaseHalfVideoMedia,
 	BaseHalfVideoPollState,
 	BaseHalfVideoProviderErrorCode,
+	BASEHALF_VIDEO_IMAGE_FORMATS,
+	BaseHalfVideoImageFormat,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoModeOf,
 	buildBaseHalfVideoPrompt,
@@ -100,6 +102,7 @@ const RASTER_MAX_SIDE = 4096;
 const RASTER_VECTOR_SIDE = 1024;
 
 const DIRECT_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' });
+const DIRECT_IMAGE_FORMATS: Readonly<Record<string, BaseHalfVideoImageFormat>> = Object.freeze({ '.png': 'png', '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp' });
 const RASTER_IMAGE_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' });
 const VIDEO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm' });
 const AUDIO_TYPES: Readonly<Record<string, string>> = Object.freeze({ '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.flac': 'audio/flac' });
@@ -315,6 +318,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const texts: string[] = [];
 		const media: { startFrame?: BaseHalfVideoMedia; endFrame?: BaseHalfVideoMedia; source?: BaseHalfVideoMedia; images: BaseHalfVideoMedia[]; videos: BaseHalfVideoMedia[]; audios: BaseHalfVideoMedia[] } = { images: [], videos: [], audios: [] };
 		const used: string[] = [];
+		const imageFormats = mode.limits.imageFormats ?? BASEHALF_VIDEO_IMAGE_FORMATS;
 		for (const [index, item] of plan.entries()) {
 			if (item.use === 'unused') {
 				continue;
@@ -326,17 +330,17 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 					texts.push(await this.readText(input, item));
 					break;
 				case 'start-frame':
-					media.startFrame = await this.prepareMedia(input, item, 'image');
+					media.startFrame = await this.prepareMedia(input, item, 'image', imageFormats);
 					break;
 				case 'end-frame':
-					media.endFrame = await this.prepareMedia(input, item, 'image');
+					media.endFrame = await this.prepareMedia(input, item, 'image', imageFormats);
 					break;
 				case 'source':
 					media.source = await this.prepareMedia(input, item, 'video');
 					break;
 				default:
 					if (item.kind === 'image' || item.kind === 'video' || item.kind === 'audio') {
-						const prepared = await this.prepareMedia(input, item, item.kind);
+						const prepared = await this.prepareMedia(input, item, item.kind, imageFormats);
 						(item.kind === 'image' ? media.images : item.kind === 'video' ? media.videos : media.audios).push(prepared);
 					}
 			}
@@ -379,7 +383,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			provider: ref.provider.id,
 			region: access.region,
 			model: ref.model.id,
-			providerModel,
+			// The id the module would send, where the mode and inputs choose among several.
+			providerModel: checked.value.providerModel ?? providerModel,
 			mode: mode.id,
 			params,
 			prompt: sentPrompt,
@@ -423,8 +428,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}
 	}
 
-	/** An image as a local file of a type providers take, or drawn to PNG; a video or audio as a local file. The provider module measures them. */
-	private async prepareMedia(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem, kind: 'image' | 'video' | 'audio'): Promise<BaseHalfVideoMedia> {
+	/** An image as a local file of a format the mode takes, or drawn to PNG; a video or audio as a local file. The provider module measures them. */
+	private async prepareMedia(input: IBaseHalfVideoResolvedInput, item: IBaseHalfVideoInputPlanItem, kind: 'image' | 'video' | 'audio', imageFormats: readonly BaseHalfVideoImageFormat[] = BASEHALF_VIDEO_IMAGE_FORMATS): Promise<BaseHalfVideoMedia> {
 		const file = input.file;
 		if (!file) {
 			throw new BaseHalfVideoGenerationError(missingInputMessage(item.path));
@@ -445,7 +450,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		const extension = extname(file).toLowerCase();
 		if (kind === 'image') {
 			const direct = DIRECT_IMAGE_TYPES[extension];
-			if (direct) {
+			const format = DIRECT_IMAGE_FORMATS[extension];
+			if (direct && format && imageFormats.includes(format)) {
 				return { fsPath: file.fsPath, mimeType: direct };
 			}
 			if (size > RASTER_MAX_BYTES) {
@@ -453,7 +459,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			}
 			try {
 				const bytes = (await this.fileService.readFile(file)).value;
-				return { dataUrl: await this.rasterize(bytes, RASTER_IMAGE_TYPES[extension] ?? 'image/*') };
+				return { dataUrl: await this.rasterize(bytes, direct ?? RASTER_IMAGE_TYPES[extension] ?? 'image/*') };
 			} catch (error) {
 				this.logService.warn(`[BaseHalf video] Could not draw ${item.path} to PNG: ${getErrorMessage(error)}`);
 				throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.imageUnreadable', "BaseHalf could not read the image {0}.", inputName(item.path)));

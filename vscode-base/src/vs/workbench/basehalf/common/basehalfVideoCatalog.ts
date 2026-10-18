@@ -104,8 +104,13 @@ export interface IBaseHalfVideoModeInputs {
 	readonly source: 'none' | 'required';
 }
 
+/** An image format a provider takes. */
+export type BaseHalfVideoImageFormat = 'png' | 'jpeg' | 'webp';
+
 /** Checked by `check` before anything is sent. Any may be absent. */
 export interface IBaseHalfVideoModeLimits {
+	/** The image formats the provider takes, PNG among them; all three when absent. The window draws any other image to PNG. */
+	readonly imageFormats?: readonly BaseHalfVideoImageFormat[];
 	readonly imageMinSide?: number;
 	readonly imageMaxSide?: number;
 	/** Width divided by height, inclusive. */
@@ -251,6 +256,8 @@ export interface IBaseHalfVideoCheckResult {
 	/** Plain sentences, the first being what blocks the generation. Empty when it can run. */
 	readonly problems: readonly string[];
 	readonly estimate?: IBaseHalfVideoEstimate;
+	/** The id the request would be sent with, for a model whose modes and inputs choose among several. */
+	readonly providerModel?: string;
 }
 
 export interface IBaseHalfVideoSubmitRequest extends IBaseHalfVideoProviderAccess {
@@ -1025,11 +1032,16 @@ export function parseBaseHalfVideoCheckResult(value: unknown): IBaseHalfVideoChe
 		return undefined;
 	}
 	const estimate = parseEstimate(value.estimate);
+	const providerModel = typeof value.providerModel === 'string' && /^\S{1,256}$/.test(value.providerModel) ? value.providerModel : undefined;
 	return Object.freeze({
 		problems: Object.freeze(value.problems.map(problem => plainText(problem, 1000)).filter(problem => problem.length > 0)),
-		...(estimate ? { estimate } : {})
+		...(estimate ? { estimate } : {}),
+		...(providerModel ? { providerModel } : {})
 	});
 }
+
+/** The image formats a mode takes when it declares none. */
+export const BASEHALF_VIDEO_IMAGE_FORMATS: readonly BaseHalfVideoImageFormat[] = Object.freeze(['png', 'jpeg', 'webp']);
 
 /** A provider id that can name a stored secret: lowercase letters, digits, and hyphens. */
 export const BASEHALF_VIDEO_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,57}$/;
@@ -1189,6 +1201,13 @@ function parseMode(value: unknown, path: string): IBaseHalfVideoCatalogMode {
 	const limits = isRecord(record.limits) ? record.limits : {};
 	const keptLimits: Record<string, unknown> = {};
 	for (const [key, limit] of Object.entries(limits)) {
+		if (key === 'imageFormats') {
+			const formats = Array.isArray(limit) ? [...new Set(limit)] : [];
+			if (formats.length && formats.every(format => BASEHALF_VIDEO_IMAGE_FORMATS.includes(format)) && formats.includes('png')) {
+				keptLimits[key] = Object.freeze(formats);
+			}
+			continue;
+		}
 		if ((typeof limit === 'number' && Number.isFinite(limit))
 			|| (Array.isArray(limit) && limit.length === 2 && limit.every(entry => typeof entry === 'number' && Number.isFinite(entry)))) {
 			keptLimits[key] = Array.isArray(limit) ? Object.freeze([limit[0], limit[1]]) : limit;

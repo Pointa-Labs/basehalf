@@ -357,6 +357,35 @@ suite('BaseHalfVideoGenerationService', () => {
 		assert.deepStrictEqual([harness.store.history(hugeNode), harness.store.history(goneNode), harness.commands.count(SUBMIT)], [[], [], 1]);
 	}));
 
+	test('draws an image of a format the mode does not take to PNG, and records the provider id the module would send', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
+		const harness = await createHarness();
+		const pngAndJpeg = { ...ACME, models: ACME.models.map(model => ({ ...model, modes: model.modes.map(mode => mode.id === 'frames' ? { ...mode, limits: { ...mode.limits, imageFormats: ['png', 'jpeg'] as const } } : mode) })) };
+		const commands = new FakeProviderCommands(harness.fileService);
+		commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [pngAndJpeg, BOREALIS] } });
+		commands.check = () => ({ ok: true, value: { problems: [], providerModel: 'acme-motion-2-image-260101' } });
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const service = harness.window(commands);
+		await harness.fileService.writeFile(joinPath(root, 'frames/start.webp'), VSBuffer.fromString('start-webp'));
+		await harness.fileService.writeFile(joinPath(root, 'frames/end.jpg'), VSBuffer.fromString('end-jpg'));
+		harness.store.addInput('frames/start.webp');
+		harness.store.addInput('frames/end.jpg');
+		const node = shotNode(harness, {}, ['frames/start.webp', 'frames/end.jpg']);
+		await service.generate(node);
+		const request = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		assert.deepStrictEqual({
+			startFrame: request.inputs.startFrame,
+			endFrame: request.inputs.endFrame,
+			rasterized: harness.rasterized,
+			providerModel: harness.store.fields(node).task?.request.providerModel
+		}, {
+			startFrame: { dataUrl: PNG_DATA_URL },
+			endFrame: file('frames/end.jpg', 'image/jpeg'),
+			rasterized: ['image/webp'],
+			providerModel: 'acme-motion-2-image-260101'
+		});
+		await service.stop(node);
+	}));
+
 	test('ends with the provider\'s message when the credentials are refused, and never shows them', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
 		const harness = await createHarness();
 		const node = shotNode(harness, {}, []);
