@@ -331,6 +331,7 @@ each accepts, its requests and task states, and its estimate:
 - [MiniMax (Hailuo)](video-providers/minimax.md)
 - [Vidu](video-providers/vidu.md)
 - [Google (Gemini)](video-providers/google.md)
+- [PixVerse](video-providers/pixverse.md)
 - [xAI (Grok Imagine)](video-providers/xai.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
