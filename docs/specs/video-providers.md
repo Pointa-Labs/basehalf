@@ -333,6 +333,7 @@ each accepts, its requests and task states, and its estimate:
 - [Google (Gemini)](video-providers/google.md)
 - [PixVerse](video-providers/pixverse.md)
 - [xAI (Grok Imagine)](video-providers/xai.md)
+- [LTX](video-providers/ltx.md)
 - [Black Forest Labs (FLUX)](video-providers/bfl.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
