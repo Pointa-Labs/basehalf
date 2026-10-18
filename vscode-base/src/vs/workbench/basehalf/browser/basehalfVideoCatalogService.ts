@@ -32,7 +32,7 @@ const READY_TIMEOUT = 30_000;
  * The model catalog of this window (D59, video providers, "The catalog"). It
  * asks AI Video through the command service the first time anyone needs it,
  * keeps the answer for the life of the window, and tries a failed request
- * once more at once; a later {@link load} asks again after a failure.
+ * once more a second later; a later {@link load} asks again after a failure.
  */
 export class BaseHalfVideoCatalogService extends Disposable implements IBaseHalfVideoCatalogService {
 	declare readonly _serviceBrand: undefined;

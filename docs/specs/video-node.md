@@ -292,8 +292,8 @@ From top to bottom:
    - While the catalog loads, the model button says so and its menu holds
      only **Video Providers…**; when it could not be loaded, the menu says
      why. The window asks AI Video for the catalog once and keeps it; a
-     failed request is tried once more at once, and again when a panel or
-     the Video Providers page opens.
+     failed request is tried once more a second later, and again when a
+     panel or the Video Providers page opens.
    - The settings button sums up the settings: the mode, then the value of
      every parameter that is not advanced, such as "Frames · 720p · 5s ·
      Sound". Its popover is 300 px wide and holds the settings above; every
