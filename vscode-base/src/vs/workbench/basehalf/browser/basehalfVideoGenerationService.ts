@@ -368,9 +368,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 		}, parseBaseHalfVideoCheckResult, false);
 		throwIfCancelled(token);
 		if (!checked.ok) {
-			throw new BaseHalfVideoGenerationError(checked.unavailable
-				? checked.error.message
-				: localize('basehalf.video.generation.checkFailed', "AI Video could not check the generation, and nothing was sent: {0}", errorDetail(checked.error, Object.values(access.credentials))));
+			throw new BaseHalfVideoGenerationError(localize('basehalf.video.generation.checkFailed', "AI Video could not check the generation, and nothing was sent: {0}", errorDetail(checked.error, Object.values(access.credentials))));
 		}
 		const problem = checked.value.problems[0];
 		if (problem) {

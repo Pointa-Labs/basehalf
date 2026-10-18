@@ -320,6 +320,17 @@ suite('BaseHalfVideoGenerationService', () => {
 		assert.deepStrictEqual([harness.store.history(node), harness.commands.count(SUBMIT)], [[], 0]);
 	}));
 
+	test('sends nothing when the provider module cannot check the generation', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
+		const harness = await createHarness();
+		const node = shotNode(harness, {}, []);
+		harness.commands.check = () => ({ ok: false, error: { code: 'unknownProvider', message: `No module answers for this provider with ${KEY}.` } });
+		await assert.rejects(() => harness.service.generate(node), (error: Error) => error instanceof BaseHalfVideoGenerationError
+			&& error.message === 'AI Video could not check the generation, and nothing was sent: No module answers for this provider with ***.');
+		harness.commands.check = () => { throw new Error('Extension host terminated.'); };
+		await assert.rejects(() => harness.service.generate(node), (error: Error) => error.message === 'AI Video could not check the generation, and nothing was sent: AI Video, which sends the request, is not running.');
+		assert.deepStrictEqual([harness.store.history(node), harness.commands.count(SUBMIT)], [[], 0]);
+	}));
+
 	test('draws an SVG start frame to PNG, has the provider module measure the files, and refuses a missing input by name', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
 		const harness = await createHarness();
 		await harness.fileService.writeFile(joinPath(root, 'frames/start.svg'), VSBuffer.fromString('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'));

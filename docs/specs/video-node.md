@@ -297,7 +297,9 @@ From top to bottom:
    - The settings button sums up the settings: the mode, then the value of
      every parameter that is not advanced, such as "Frames · 720p · 5s ·
      Sound". Its popover is 300 px wide and holds the settings above; every
-     change is saved at once.
+     change is saved at once, and text when its field loses the focus, on
+     Enter, and when the popover closes. Until the catalog has the node's
+     model, there is no settings button.
    - The estimate shows the price of one generation from the provider's
      list price, as "≈ ¥7.56" or "¥3.00–¥9.00", in the region's currency. Its
      tooltip says that it is an estimate from the provider's published price
