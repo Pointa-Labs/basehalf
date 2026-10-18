@@ -266,7 +266,8 @@ const SHOTS: CatalogParameter = {
 const NEGATIVE_PROMPT: CatalogParameter = { name: 'negative_prompt', label: LABELS.negativePrompt, kind: 'text', maxLength: 500, multiline: true, optional: true, advanced: true };
 const PROMPT_EXTEND: CatalogParameter = { name: 'prompt_extend', label: LABELS.promptExtend, tooltip: LABELS.tipPromptExtend, kind: 'boolean', default: true, advanced: true };
 const WAN_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipWanWatermark, kind: 'boolean', default: false, advanced: true };
-const HAPPYHORSE_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipHappyHorseWatermark, kind: 'boolean', default: true, advanced: true };
+// Off, as for every other model: HappyHorse's own default puts its mark on the video.
+const HAPPYHORSE_WATERMARK: CatalogParameter = { name: 'watermark', label: LABELS.watermark, tooltip: LABELS.tipHappyHorseWatermark, kind: 'boolean', default: false, advanced: true };
 const SEED: CatalogParameter = { name: 'seed', label: LABELS.seed, tooltip: LABELS.tipSeed, kind: 'integer', min: 0, max: 2147483647, step: 1, optional: true, advanced: true };
 const WAN_EXTRA_PARAMETERS: readonly CatalogParameter[] = [NEGATIVE_PROMPT, PROMPT_EXTEND, WAN_WATERMARK, SEED];
 

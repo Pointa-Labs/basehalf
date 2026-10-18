@@ -132,7 +132,7 @@ fields. The request maps each to MiniMax's field and value
 | `prompt_expansion_mode` | Prompt Expansion | choice | Off (`disabled`), Balanced (`balanced`), Quality (`quality`) | Balanced | H3 Max | `extra.prompt_expansion_mode` |
 | `prompt_extend` | Prompt Optimizer | boolean | | on | Hailuo | `prompt_optimizer` |
 | `fast_pretreatment` | Fast Optimization | boolean, advanced | | off | Hailuo | `fast_pretreatment` |
-| `watermark` | AIGC Watermark | boolean, advanced | | off | H3, H3 Max | `aigc_watermark`, in China only |
+| `watermark` | Watermark | boolean, advanced | | off | H3, H3 Max | `aigc_watermark`, in China only |
 
 Rules that `check` reports:
 

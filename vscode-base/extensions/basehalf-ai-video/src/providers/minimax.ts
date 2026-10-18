@@ -52,7 +52,7 @@ const TEXT = Object.freeze({
 		promptOptimizerTooltip: 'Lets MiniMax rewrite the prompt for a better video. Turn it off to keep the prompt as written.',
 		fastOptimization: 'Fast Optimization',
 		fastOptimizationTooltip: 'Makes the prompt optimizer faster. It does nothing when the optimizer is off.',
-		watermark: 'AIGC Watermark',
+		watermark: 'Watermark',
 		watermarkTooltip: 'Marks the video as made by AI. Offered in the China region only.'
 	},
 	needsRatio: (model: string) => `${model} needs a ratio for a video made from the prompt alone: choose one, or connect an image.`,

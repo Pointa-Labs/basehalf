@@ -134,7 +134,7 @@ an empty negative prompt, sends nothing.
 | `shot_type` | Shots | choice | Wan 2.6, Wan 2.6 Flash: **single**, multi |
 | `negative_prompt` | Negative Prompt | text, 500, optional, More | Wan 2.7, Wan 2.6, Wan 2.6 Flash |
 | `prompt_extend` | Prompt Rewriting | boolean, More | Wan 3.0, 2.7, 2.6, 2.6 Flash: **on** |
-| `watermark` | Watermark | boolean, More | Wan: **off**. HappyHorse: **on** (the provider's default) |
+| `watermark` | Watermark | boolean, More | **off**, as for every provider; HappyHorse's own default is on |
 | `seed` | Seed | integer 0–2147483647, optional, More | every model |
 
 - `ratio` in Frames is sent only by text to video: a start frame sets the

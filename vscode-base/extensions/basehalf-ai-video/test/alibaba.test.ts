@@ -244,7 +244,7 @@ test('the provider is shipped with two regions, one key, and one model per versi
 		],
 		wan26: [['resolution', '1080p', 'all'], ['ratio', '16:9', 'all'], ['duration', 5, 'all'], ['shot_type', 'single', 'all'], ['negative_prompt', null, 'all'], ['prompt_extend', true, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
 		flash: [['resolution', '1080p', 'all'], ['duration', 5, 'all'], ['shot_type', 'single', 'all'], ['sound', true, 'all'], ['negative_prompt', null, 'all'], ['prompt_extend', true, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
-		happyHorse: [['resolution', '1080p', 'all'], ['ratio', '16:9', 'all'], ['duration', 5, 'all'], ['watermark', true, 'all'], ['seed', null, 'all']],
+		happyHorse: [['resolution', '1080p', 'all'], ['ratio', '16:9', 'all'], ['duration', 5, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
 		wan3: [['resolution', '1080p', 'all'], ['ratio', 'adaptive', 'frames+reference'], ['duration', 5, 'frames+reference'], ['sound', true, 'all'], ['prompt_extend', true, 'all'], ['watermark', false, 'all'], ['seed', null, 'all']],
 		frames: ['frames optional optional none', 'reference none none none', 'edit none none required', 'extend none none required'],
 		hh11Resolutions: ['480p=480P', '720p=720P', '1080p=1080P'],
@@ -362,7 +362,7 @@ test('each task gets its own input and its parameters under Alibaba\'s names and
 			['happyhorse text', submitRequest(api, 'happyhorse-1.1', 'frames', { resolution: '480p', ratio: '21:9', duration: 15 }, 'A horse in the snow.'), {
 				model: 'happyhorse-1.1-t2v',
 				input: { prompt: 'A horse in the snow.' },
-				parameters: { resolution: '480P', ratio: '21:9', duration: 15, watermark: true }
+				parameters: { resolution: '480P', ratio: '21:9', duration: 15, watermark: false }
 			}],
 			['happyhorse frames', submitRequest(api, 'happyhorse-1.0', 'frames', { ratio: '4:5', watermark: false }, '', { startFrame: image(START) }, 'intl'), {
 				model: 'happyhorse-1.0-i2v',
@@ -372,7 +372,7 @@ test('each task gets its own input and its parameters under Alibaba\'s names and
 			['happyhorse references', submitRequest(api, 'happyhorse-1.0', 'reference', { resolution: '720p', ratio: '4:5' }, '[Image 1] meets [Image 2].', { images: [image(PORTRAIT), image(PORTRAIT)] }), {
 				model: 'happyhorse-1.0-r2v',
 				input: { prompt: '[Image 1] meets [Image 2].', media: [{ type: 'reference_image', url: dataUrl(PORTRAIT) }, { type: 'reference_image', url: dataUrl(PORTRAIT) }] },
-				parameters: { resolution: '720P', ratio: '4:5', duration: 5, watermark: true }
+				parameters: { resolution: '720P', ratio: '4:5', duration: 5, watermark: false }
 			}]
 		];
 		const ids: string[] = [];
