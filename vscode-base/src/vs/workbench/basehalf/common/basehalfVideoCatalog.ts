@@ -948,6 +948,52 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 	}
 }
 
+// --- What agents read of the catalog --------------------------------------------------------------
+
+/**
+ * The catalog as `basehalf --list-capabilities` gives it to agents (video
+ * node specification, "Agents"): each provider with whether it is set up, its
+ * regions and the one in use, and each model with the regions that offer it,
+ * its prompt rule, its modes with their slots and limits, its parameters,
+ * whether it has an estimate, and whether it is deprecated. It holds no
+ * credential, endpoint, or id sent to a provider.
+ */
+export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): readonly Readonly<Record<string, unknown>>[] {
+	return Object.freeze(catalog.providers.map(provider => {
+		const status = setup(provider);
+		return Object.freeze({
+			id: provider.id,
+			label: provider.label,
+			setUp: status.setUp,
+			region: status.region.id,
+			regions: provider.regions.map(region => ({ id: region.id, label: region.label, currency: region.currency })),
+			models: provider.models.map(model => ({
+				id: model.id,
+				label: model.label,
+				...(model.description ? { description: model.description } : {}),
+				regions: provider.regions.filter(region => baseHalfVideoRegionOffersModel(model, region.id)).map(region => region.id),
+				prompt: { required: model.prompt.required, maxLength: model.prompt.maxLength },
+				modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits })),
+				parameters: model.parameters,
+				estimate: model.estimate,
+				...(model.deprecated ? { deprecated: true } : {})
+			}))
+		});
+	}));
+}
+
+/** A generation an agent can copy: the first model that is not deprecated, of a provider set up on this computer when there is one, with its defaults. */
+export function baseHalfVideoExampleGeneration(catalog: IBaseHalfVideoCatalog, setup: (provider: IBaseHalfVideoCatalogProvider) => IBaseHalfVideoProviderSetup): IBaseHalfVideoGenerationChoice | undefined {
+	const providers = [...catalog.providers.filter(provider => setup(provider).setUp), ...catalog.providers];
+	for (const provider of providers) {
+		const model = provider.models.find(candidate => !candidate.deprecated);
+		if (model) {
+			return baseHalfVideoChooseModel(undefined, { provider, model });
+		}
+	}
+	return undefined;
+}
+
 // --- Reading what AI Video answers ----------------------------------------------------------------
 
 /**

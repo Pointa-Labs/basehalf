@@ -44,6 +44,8 @@ suite('BaseHalfAgentLaunchInstructions', () => {
 			'list those files under the new note\'s `upstream`',
 			'basehalf --list-capabilities',
 			'BaseHalf writes `task` and `result`',
+			'`generation` holds `provider`, `model`, `mode`, and `params`',
+			'host.videoCatalog',
 			'basehalf --run-node',
 			'prints the path of the node that runs',
 			'only for operations that discovery returned',

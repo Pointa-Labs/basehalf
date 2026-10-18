@@ -54,6 +54,7 @@ export const BASEHALF_AGENT_SHARED_SECTIONS: readonly string[] = [
 	'',
 	'- Before any canvas workflow, run `basehalf --list-capabilities`. Its JSON is the only authority for node documents, templates, and operations.',
 	'- A Video node is a `.bhnode` whose `kind` is `video`. Write only its `title`, `prompt`, `upstream`, and `generation`; BaseHalf writes `task` and `result`. Its inputs are its `upstream` entries, in order.',
+	'- `generation` holds `provider`, `model`, `mode`, and `params`. Choose them from `host.videoCatalog` of `basehalf --list-capabilities`: a model of a provider, one of its modes, and values its parameters accept; a parameter left out takes its default. A provider that is not set up there runs once the user sets it up in Video Providers.',
 	'- Use `basehalf --run-node <workspace-relative .bhnode>` to start a saved Video node. It prints the path of the node that runs and does not wait for the video.',
 	'- Use `basehalf --run-operation \'<json>\'` only for operations that discovery returned.',
 	'- A generation continues after the session closes.',

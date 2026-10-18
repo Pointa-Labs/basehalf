@@ -21,7 +21,9 @@ import { IBaseHalfAgentAreaService } from '../../common/basehalfAgentArea.js';
 import { IBaseHalfAgentCapabilityRegistryService } from '../../common/basehalfAgentCapabilities.js';
 import { IBaseHalfCanvasTemplateRegistryService } from '../../common/basehalfCanvasTemplateRegistry.js';
 import { createBaseHalfNodeDocument, serializeBaseHalfNodeDocument } from '../../common/basehalfNodeDocument.js';
-import { BaseHalfVideoGenerationError, IBaseHalfVideoGenerationService } from '../../common/basehalfVideoGeneration.js';
+import { IBaseHalfVideoCatalogProvider } from '../../common/basehalfVideoCatalog.js';
+import { BaseHalfVideoGenerationError, IBaseHalfVideoCatalogService, IBaseHalfVideoGenerationService, IBaseHalfVideoProviderSettingsService } from '../../common/basehalfVideoGeneration.js';
+import { TEST_VIDEO_CATALOG } from '../common/basehalfVideoCatalogFixture.js';
 import { baseHalfNodeTestId } from '../common/basehalfNodeTestFixtures.js';
 
 suite('BaseHalfNodeCommandBridge', () => {
@@ -168,6 +170,15 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.strictEqual(harness.commandCalls[0].cancellationToken, CancellationToken.None);
 	});
 
+	test('lists no video provider and says why when the model catalog cannot be loaded', async () => {
+		const harness = createHarness({ videoCatalogFails: true });
+		const response = await harness.handler.handle(operationDiscoveryEvent());
+		assert.deepStrictEqual(response?.type === 'listCapabilities' ? [response.outcome, response.host?.videoCatalog] : undefined, [
+			'succeeded',
+			{ providers: [], error: 'AI Video, which provides the video models, is not running.' }
+		]);
+	});
+
 	test('lists the host contract, the admitted templates, and public reviewed extension metadata after verifying Agent Area ownership and cwd', async () => {
 		const harness = createHarness({ reviewedOperation: true, templates: ['studio.workflow.starter'] });
 		const response = await harness.handler.handle(operationDiscoveryEvent());
@@ -205,6 +216,24 @@ suite('BaseHalfNodeCommandBridge', () => {
 		assert.deepStrictEqual(response.host?.nodeDocument.lifecycle, {
 			task: 'host-owned',
 			result: 'host-owned-single-file'
+		});
+		// The model catalog, from which an agent chooses a generation; the example is of a provider set up here.
+		const videoProviders = response.host?.videoCatalog.providers as readonly Record<string, any>[];
+		assert.deepStrictEqual({
+			providers: videoProviders.map(provider => `${provider.id} ${provider.setUp ? 'set up' : 'not set up'} in ${provider.region}: ${provider.models.map((model: Record<string, any>) => `${model.id} [${model.regions.join(' ')}] ${model.modes.map((mode: Record<string, unknown>) => mode.id).join('/')}`).join(', ')}`),
+			parameters: videoProviders[0].models[0].parameters.map((parameter: Record<string, unknown>) => parameter.name),
+			secretFree: !/apiKey"?\s*:|baseUrl|endpoint|providerModels|console/.test(JSON.stringify(response.host?.videoCatalog)),
+			example: (response.host?.nodeDocument.authoring.examples as Record<string, any>).configured.generation,
+			error: response.host?.videoCatalog.error
+		}, {
+			providers: [
+				'acme not set up in east: acme-motion-2 [east west] frames/reference, acme-still [east] frames, acme-clip [east west] extend/edit, acme-legacy [east] frames',
+				'borealis set up in main: borealis-one [main] frames'
+			],
+			parameters: ['resolution', 'ratio', 'duration', 'sound', 'seed', 'negative_prompt'],
+			secretFree: true,
+			example: { provider: 'borealis', model: 'borealis-one', mode: 'frames', params: { strength: 0.5, caption: '' } },
+			error: undefined
 		});
 		assert.deepStrictEqual(response.host?.operations.map(operation => operation.id), ['basehalf.canvas.create-from-template']);
 		assert.deepStrictEqual(response.host?.templates, [{ id: 'studio.workflow.starter', label: 'starter' }]);
@@ -379,6 +408,8 @@ suite('BaseHalfNodeCommandBridge', () => {
 		readonly nestedFolder?: string;
 		/** The workspace folder is reached through a link: its real path starts with this. */
 		readonly linkedFrom?: string;
+		/** The model catalog could not be loaded. */
+		readonly videoCatalogFails?: boolean;
 	} = {}) {
 		const generateCalls: URI[] = [];
 		const stopCalls: URI[] = [];
@@ -498,8 +529,25 @@ suite('BaseHalfNodeCommandBridge', () => {
 				return options.commandPromise ?? options.commandResult;
 			}
 		} as unknown as ICommandService;
+		const videoCatalog = {
+			whenReady: async () => {
+				if (options.videoCatalogFails) {
+					throw new Error('AI Video, which provides the video models, is not running.');
+				}
+				return TEST_VIDEO_CATALOG;
+			}
+		} as unknown as IBaseHalfVideoCatalogService;
+		const videoProviders = {
+			getStatus: (provider: IBaseHalfVideoCatalogProvider) => ({
+				region: provider.regions[0],
+				setUp: provider.id === 'borealis',
+				endpoint: provider.regions[0].baseUrl,
+				customEndpoint: false,
+				credentials: new Set<string>()
+			})
+		} as unknown as IBaseHalfVideoProviderSettingsService;
 		return {
-			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, generation, capabilities, templates, commands),
+			handler: new BaseHalfNodeCommandHandler(workspace, fileService, workingCopies, agentArea, generation, capabilities, templates, commands, videoCatalog, videoProviders),
 			generateCalls,
 			stopCalls,
 			commandCalls,

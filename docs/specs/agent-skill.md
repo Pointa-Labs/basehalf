@@ -1,9 +1,11 @@
 # BaseHalf agent skill
 
-Status: Active (2026-10-11; version 4 of the text, 2026-10-15)
+Status: Active (2026-10-11; version 5 of the text, 2026-10-19: a Video node's
+`generation` is chosen from the model catalog)
 Decisions: [D43](../decisions.md#d43--agents-learn-a-basehalf-workspace-from-a-skill-the-user-installs-new-2026-10-11),
 [D57](../decisions.md#d57--agents-can-read-what-the-user-selected-and-the-window-shows-it-new-2026-10-14),
-[D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15)
+[D58](../decisions.md#d58--a-video-node-is-a-prompt-over-its-connections-run-by-the-users-own-providers-new-2026-10-15),
+[D59](../decisions.md#d59--video-providers-are-built-in-integrations-with-each-models-exact-settings-users-bring-their-own-keys-new-2026-10-19)
 Related: [agent launch context](agent-launch-context.md),
 [reference graph](reference-graph.md),
 [workspace state and legacy cleanup](workspace-state-and-legacy-cleanup.md)

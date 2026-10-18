@@ -97,7 +97,7 @@ suite('BaseHalfAgentSkill', () => {
 				'The workspace folder itself is `.`.'
 			].filter(phrase => !section.includes(phrase)),
 			inLaunchInstruction: BASEHALF_AGENT_SHARED_SECTIONS.join('\n').includes('selection.yaml')
-		}, { version: '4', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
+		}, { version: '5', namesTheRequest: true, afterTheBadge: true, missing: [], inLaunchInstruction: false });
 	});
 
 	test('goes to Claude Code\'s folder and the shared one, and is offered while a location lacks the bundled text', () => {
