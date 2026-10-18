@@ -6,6 +6,16 @@
 import { Event } from '../../../base/common/event.js';
 import { URI } from '../../../base/common/uri.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import {
+	BaseHalfVideoCatalogState,
+	IBaseHalfVideoCatalog,
+	IBaseHalfVideoCatalogProvider,
+	IBaseHalfVideoCheckRequest,
+	IBaseHalfVideoCheckResult,
+	IBaseHalfVideoGenerationChoice,
+	IBaseHalfVideoProviderAccess,
+	IBaseHalfVideoProviderSetup
+} from './basehalfVideoCatalog.js';
 import { IBaseHalfVideoInputSource } from './basehalfVideoProviders.js';
 import { BaseHalfVideoProviderKind, IBaseHalfVideoGenerationSettings, IBaseHalfVideoNodeFields } from './basehalfVideoNode.js';
 
@@ -72,6 +82,87 @@ export interface IBaseHalfVideoNodeStore {
 
 	/** Where a generated video of the node is written, inside the workspace. */
 	videoTarget(snapshot: IBaseHalfVideoNodeSnapshot, taskId: string): URI;
+}
+
+// --- catalog ---------------------------------------------------------------------------------
+
+export const IBaseHalfVideoCatalogService = createDecorator<IBaseHalfVideoCatalogService>('baseHalfVideoCatalogService');
+
+/**
+ * The model catalog of this window (D59, video providers, "The catalog"). It
+ * asks AI Video once, keeps the answer, and tries once more at once when the
+ * request fails.
+ */
+export interface IBaseHalfVideoCatalogService {
+	readonly _serviceBrand: undefined;
+
+	/** Fires when the state changes: the catalog arrived, or it could not be loaded. */
+	readonly onDidChange: Event<void>;
+
+	/** What the window knows of the catalog. Reading it the first time starts loading it. */
+	readonly state: BaseHalfVideoCatalogState;
+
+	/** Asks for the catalog when there is none and no request is on its way: at the start, and again after one failed. */
+	load(): void;
+
+	/**
+	 * Resolves with the catalog, waiting while it loads, for at most
+	 * `timeout` milliseconds. Rejects with the reason it is not there.
+	 */
+	whenReady(timeout?: number): Promise<IBaseHalfVideoCatalog>;
+
+	/** Has the provider module check a planned generation. Resolves `undefined` when AI Video does not answer. */
+	check(request: IBaseHalfVideoCheckRequest): Promise<IBaseHalfVideoCheckResult | undefined>;
+}
+
+// --- provider settings -----------------------------------------------------------------------
+
+/** How a provider of the catalog is set up on this computer. */
+export interface IBaseHalfVideoProviderStatus extends IBaseHalfVideoProviderSetup {
+	/** Where requests go: the endpoint the user entered, or the region's base URL. */
+	readonly endpoint: string;
+	/** Whether the user entered the endpoint. */
+	readonly customEndpoint: boolean;
+	/** The ids of the declared credentials whose value is set. */
+	readonly credentials: ReadonlySet<string>;
+}
+
+export const IBaseHalfVideoProviderSettingsService = createDecorator<IBaseHalfVideoProviderSettingsService>('baseHalfVideoProviderSettingsService');
+
+/**
+ * The providers the user set up on this computer (D59, video providers,
+ * "Credentials, regions, and endpoints"), and the last generation's values.
+ * Credential values are read only when a request is sent.
+ */
+export interface IBaseHalfVideoProviderSettingsService {
+	readonly _serviceBrand: undefined;
+
+	/** Fires when a provider's settings or the last values change, also from another window. */
+	readonly onDidChange: Event<void>;
+
+	getStatus(provider: IBaseHalfVideoCatalogProvider): IBaseHalfVideoProviderStatus;
+
+	setRegion(provider: IBaseHalfVideoCatalogProvider, regionId: string): Promise<void>;
+
+	/** Stores the endpoint. Empty, or the region's base URL, goes back to the region's base URL. */
+	setEndpoint(provider: IBaseHalfVideoCatalogProvider, endpoint: string): Promise<void>;
+
+	/** Stores one credential value, or removes it with `undefined`. */
+	setCredential(provider: IBaseHalfVideoCatalogProvider, credentialId: string, value: string | undefined): Promise<void>;
+
+	/**
+	 * Where a request goes and with what, read from the encrypted store; for a
+	 * `region` other than the one in use, that region's base URL. `undefined`
+	 * when a credential value is not set.
+	 */
+	getAccess(provider: IBaseHalfVideoCatalogProvider, region?: string): Promise<IBaseHalfVideoProviderAccess | undefined>;
+
+	/** The provider, model, mode, and values the last generation on this computer used; a new Video node starts with them. */
+	getLastUsed(): IBaseHalfVideoGenerationChoice | undefined;
+	setLastUsed(generation: IBaseHalfVideoGenerationChoice): void;
+
+	/** Opens the page where the user sets up providers, on a provider when one is given. */
+	openSettings(providerId?: string): Promise<void>;
 }
 
 // --- channels --------------------------------------------------------------------------------

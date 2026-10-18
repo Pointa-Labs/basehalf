@@ -13,6 +13,15 @@
  * files. The transitions are pure and keep every field they do not own.
  */
 
+import { BASEHALF_VIDEO_MODE_IDS, BaseHalfVideoModeId, BaseHalfVideoParams, BaseHalfVideoParamValue, IBaseHalfVideoGenerationChoice } from './basehalfVideoCatalog.js';
+
+/** What the next generation of a Video node uses (version 6): ids of the catalog and the values of the model's parameters. */
+export type IBaseHalfVideoGeneration = IBaseHalfVideoGenerationChoice;
+
+const MAX_PARAMS = 64;
+const MAX_PARAM_TEXT_LENGTH = 16 * 1024;
+const PARAM_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+
 export type BaseHalfVideoMode = 'frames' | 'reference';
 export const BASEHALF_VIDEO_MODES: readonly BaseHalfVideoMode[] = Object.freeze(['frames', 'reference']);
 
@@ -158,6 +167,28 @@ export function normalizeBaseHalfVideoGenerationSettings(value: unknown, path = 
 		...settings,
 		...(channel !== undefined ? { channel } : {}),
 		...(model !== undefined ? { model } : {})
+	});
+}
+
+/**
+ * Validates the shape of a version 6 `generation`: catalog ids for the
+ * provider and the model, a mode id, and values that are text, numbers, or
+ * booleans. Whether they exist is known from the catalog, not here. Throws
+ * with the field path.
+ */
+export function normalizeBaseHalfVideoGeneration(value: unknown, path = 'generation'): IBaseHalfVideoGeneration {
+	const candidate = object(value, path, ['provider', 'model', 'mode', 'params']);
+	const provider = candidate.provider === undefined ? undefined : id(candidate.provider, `${path}.provider`);
+	const model = candidate.model === undefined ? undefined : id(candidate.model, `${path}.model`);
+	if (candidate.mode !== undefined && !BASEHALF_VIDEO_MODE_IDS.includes(candidate.mode as BaseHalfVideoModeId)) {
+		throw error(`${path}.mode must be one of ${BASEHALF_VIDEO_MODE_IDS.join(', ')}.`);
+	}
+	const params = candidate.params === undefined ? undefined : paramValues(candidate.params, `${path}.params`);
+	return Object.freeze({
+		...(provider !== undefined ? { provider } : {}),
+		...(model !== undefined ? { model } : {}),
+		...(candidate.mode !== undefined ? { mode: candidate.mode as BaseHalfVideoModeId } : {}),
+		...(params !== undefined ? { params } : {})
 	});
 }
 
@@ -432,6 +463,36 @@ function id(value: unknown, path: string): string {
 
 function modelId(value: unknown, path: string): string {
 	return text(value, path, MAX_MODEL_LENGTH, false);
+}
+
+/** Parameter names to text, numbers, or booleans: what a model's parameters take. */
+function paramValues(value: unknown, path: string): BaseHalfVideoParams {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw error(`${path} must be an object.`);
+	}
+	const entries = Object.entries(value as Record<string, unknown>);
+	if (entries.length > MAX_PARAMS) {
+		throw error(`${path} has more than ${MAX_PARAMS} values.`);
+	}
+	const params: Record<string, BaseHalfVideoParamValue> = {};
+	for (const [name, entry] of entries) {
+		if (!PARAM_NAME_PATTERN.test(name)) {
+			throw error(`${path}.${name} is not a parameter name.`);
+		}
+		if (typeof entry === 'string') {
+			if (entry.length > MAX_PARAM_TEXT_LENGTH || entry.includes('\u0000')) {
+				throw error(`${path}.${name} is longer than ${MAX_PARAM_TEXT_LENGTH} characters or contains NUL.`);
+			}
+		} else if (typeof entry === 'number') {
+			if (!Number.isFinite(entry)) {
+				throw error(`${path}.${name} must be a finite number.`);
+			}
+		} else if (typeof entry !== 'boolean') {
+			throw error(`${path}.${name} must be text, a number, or true or false.`);
+		}
+		params[name] = entry;
+	}
+	return Object.freeze(params);
 }
 
 function setting(value: unknown, path: string): string {
