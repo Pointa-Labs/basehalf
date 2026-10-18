@@ -297,7 +297,7 @@ comments, quoting, and the body stay byte-identical.
 
 ## Node document store
 
-- A `.bhnode` document is version 5 ([Video node](video-node.md#the-node-file)).
+- A `.bhnode` document is version 6 ([Video node](video-node.md#the-node-file)).
   Its required top-level `upstream` array is the node's upstream list. For a
   Video node it is also the node's inputs, in order.
 - The strict parser requires `upstream` to be an array and preserves its items
@@ -754,7 +754,7 @@ A connection's target must be a node that can be downstream (see
     inline editing, as New Note does.
   - **Media and document kinds** create `<kind>.bhnode`, or the next
     `<kind>-N.bhnode` that has no file and no canvas row. The node is titled
-    with the kind and selected. It is an empty node of version 5 whose
+    with the kind and selected. It is an empty node of version 6 whose
     `upstream` lists the source. **Video** is offered from every source: the
     source becomes the new Video node's first input, and the node's panel
     says how the generation uses it
@@ -1125,7 +1125,7 @@ opens the report.
 Discovery describes the new model. The node command bridge version increases,
 because both ends validate these literals.
 
-- `host.nodeDocument` names the version 5 document, its node kinds, the
+- `host.nodeDocument` names the version 6 document, its node kinds, the
   fields BaseHalf owns (`task` and `result`), the run command, and the
   authoring contract of a Video node.
 - `host.contextEdge` states five things:
@@ -1238,8 +1238,9 @@ slice 4, or slice 5 without slice 3.
    - With auto-save off and unsaved text in B, the connect is refused.
 4. Connecting into a `.bhnode` appends to its `upstream` in one write. The
    node rules hold:
-   - A version 4 document is unreadable, and every write to it is refused.
-   - A version 5 document with one invalid item opens, shows the issue, and
+   - A document of version 5 or older is unreadable, and every write to it is
+     refused.
+   - A version 6 document with one invalid item opens, shows the issue, and
      does not use the item as an input.
    - Connecting and disconnecting work in every phase, a generating node and
      a node with a video included.
@@ -1296,7 +1297,7 @@ slice 4, or slice 5 without slice 3.
       point, not Quick Input. Escape writes nothing.
     - Note creates a note whose first bytes list the source in `upstream`. It
       draws the edge and opens inline editing.
-    - Image creates an empty image `.bhnode` of version 5 with `upstream`
+    - Image creates an empty image `.bhnode` of version 6 with `upstream`
       naming the source.
     - Video is offered from every source, a text source included, and
       creates an empty Video node whose first input is the source.

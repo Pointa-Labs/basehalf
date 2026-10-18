@@ -3191,7 +3191,7 @@ async function assertVideoGenerateWritesVideo(page) {
 	const requestsBefore = provider.mock.requests.length;
 	const recording = recordVideoNodeStates(videoWorkspaceFile(VIDEO_NODE), document => document.result !== undefined || ['failed', 'stopped'].includes(document.task?.state), VIDEO_GENERATION_TIMEOUT_MS);
 	await panel.locator('button.bh-video-panel-generate').click();
-	const generating = await waitForReading(() => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'generating', 'the card to show the generation');
+	const generating = await waitForGenerationStart(page, () => readVideoCard(page, VIDEO_NODE), seen => seen?.state === 'generating', 'the card to show the generation');
 	if (!['Waiting', 'Generating', 'Downloading'].includes(generating.phase) || !/^\d+:\d\d$/.test(generating.elapsed ?? '') || !generating.progress) {
 		throw new Error(`A generating card must show its phase, the time since the start, and a progress bar: ${JSON.stringify(generating)}`);
 	}
@@ -3480,9 +3480,9 @@ async function assertVideoAgentRunsNode(page) {
 	await page.keyboard.insertText(`basehalf --run-node ${VIDEO_AGENT_NODE}`);
 	await page.keyboard.press('Enter');
 	const answer = await readAgentAreaTerminalJson(page, `"nodePath":${JSON.stringify(VIDEO_AGENT_NODE)}`);
-	const recorded = readVideoNode(VIDEO_AGENT_NODE);
-	if (answer.ok !== true || answer.outcome !== 'succeeded' || answer.nodePath !== VIDEO_AGENT_NODE || (recorded.task === undefined && recorded.result === undefined)) {
-		throw new Error(`basehalf --run-node must print the node's path once its task is recorded: ${JSON.stringify({ answer, recorded })}`);
+	const atAnswer = readVideoNode(VIDEO_AGENT_NODE);
+	if (answer.ok !== true || answer.outcome !== 'succeeded' || answer.nodePath !== VIDEO_AGENT_NODE || (atAnswer.task === undefined && atAnswer.result === undefined)) {
+		throw new Error(`basehalf --run-node must print the node's path once its task is recorded: ${JSON.stringify({ answer, atAnswer })}`);
 	}
 	if (await page.locator('.monaco-dialog-box').count() !== 0) {
 		throw new Error('basehalf --run-node asked a question');
@@ -3515,8 +3515,9 @@ async function assertVideoAgentRunsNode(page) {
 function createVideoSmokeFolder() {
 	const folder = path.join(workspacePath, VIDEO_FOLDER);
 	fs.mkdirSync(folder, { recursive: true });
-	fs.writeFileSync(path.join(folder, 'start.png'), solidPng(160, 90, [37, 99, 235]));
-	fs.writeFileSync(path.join(folder, 'end.png'), solidPng(160, 90, [245, 158, 11]));
+	// Large enough for the provider's image limits (each side at least 300 px).
+	fs.writeFileSync(path.join(folder, 'start.png'), solidPng(640, 360, [37, 99, 235]));
+	fs.writeFileSync(path.join(folder, 'end.png'), solidPng(640, 360, [245, 158, 11]));
 	// The images lie at the left, one above the other.
 	const mirror = path.join(workspacePath, '.bh', 'mirror', VIDEO_FOLDER);
 	fs.mkdirSync(mirror, { recursive: true });
@@ -3560,6 +3561,22 @@ function canonicalJson(value) {
 	return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
 		? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
 		: item);
+}
+
+// Waits for a generation to start. A refused one says why in a notification,
+// whose toast goes after a few seconds; the failure names every toast seen.
+async function waitForGenerationStart(page, read, accept, description) {
+	const seen = new Set();
+	try {
+		return await waitForReading(async () => {
+			for (const text of await page.locator('.notifications-toasts .notification-list-item-message').allInnerTexts().catch(() => [])) {
+				seen.add(text);
+			}
+			return read();
+		}, accept, description);
+	} catch (error) {
+		throw new Error(`${error instanceof Error ? error.message : String(error)}; notifications: ${JSON.stringify([...seen])}`);
+	}
 }
 
 // Reads with `read` until `accept` takes what it read; fails with the last reading.
@@ -8537,7 +8554,7 @@ async function assertCanvasCreateFromConnection(page) {
 		throw new Error(`The line must be released where the card reaches past the right edge of the canvas: ${JSON.stringify({ imageRow, view: imageDrop.view })}`);
 	}
 	const document = JSON.parse(fs.readFileSync(imagePath, 'utf8'));
-	if (document.version !== 5 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== JSON.stringify([source]) || Object.hasOwn(document, 'recipe')) {
+	if (document.version !== 6 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== JSON.stringify([source]) || Object.hasOwn(document, 'recipe')) {
 		throw new Error(`Create from Connection created the wrong Image document: ${JSON.stringify(document)}`);
 	}
 	await assertCanvasEdgeVisible(page, source, image);
@@ -9099,7 +9116,7 @@ async function assertCanvasCreateResultNodeSubmenu(page) {
 		throw new Error('Canvas result-node submenu unexpectedly opened Quick Input');
 	}
 	const document = JSON.parse(fs.readFileSync(nodePath, 'utf8'));
-	if (document.version !== 5 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== '[]') {
+	if (document.version !== 6 || document.kind !== 'image' || document.title !== 'Image' || JSON.stringify(document.upstream) !== '[]') {
 		throw new Error(`Canvas result-node submenu created the wrong document: ${JSON.stringify(document)}`);
 	}
 	const card = page.locator('.basehalf-canvas-card[data-basehalf-card-path="image.bhnode"]');
