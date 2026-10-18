@@ -292,6 +292,18 @@ test('endpoints are https, or http on this computer, without credentials, query,
 	}
 });
 
+test('an API path is joined to an endpoint without a path, with or without its last slash, and to one with a path', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, { ok: true }));
+	try {
+		for (const endpoint of [server.url, `${server.url}/`, `${server.url}/api/v3/`]) {
+			await bound(endpoint).request({ method: 'GET', path: '/tasks/1' });
+		}
+		assert.deepEqual(server.received.map(entry => entry.path), ['/tasks/1', '/tasks/1', '/api/v3/tasks/1']);
+	} finally {
+		await server.close();
+	}
+});
+
 test('messages are plain text of at most 1,000 characters, without secrets, markup, or inline media', () => {
 	const image = `data:image/png;base64,${Buffer.alloc(3000, 7).toString('base64')}`;
 	assert.equal(plainMessage(`Bad key Bearer sk-very-secret-123 in <b>request</b>\n${image} done`, ['sk-very-secret-123']), 'Bad key Bearer *** in request (data) done');
