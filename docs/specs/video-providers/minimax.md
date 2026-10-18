@@ -118,17 +118,21 @@ lists the same names, and both price lists price all five.
 
 ## Parameters
 
-Each parameter is named as the API field it sets.
+A parameter that every provider shares takes the catalog's shared name and
+values ([video providers, Parameters](../video-providers.md#parameters)), so
+that choosing another model keeps it; the others are named as MiniMax's
+fields. The request maps each to MiniMax's field and value
+([Requests](#requests)).
 
-| Parameter | Label | Kind | Values | Default | Models |
-| --- | --- | --- | --- | --- | --- |
-| `resolution` | Resolution | choice | as in the model table | as in the model table | all |
-| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | 16:9 | H3, H3 Max |
-| `duration` | Duration | whole seconds | 4 to 15 (H3), 5 to 15 (H3 Max), step 1; 6 or 10 (Hailuo, step 4) | 5 (H3, H3 Max), 6 (Hailuo) | all |
-| `prompt_expansion_mode` | Prompt Expansion | choice | Off (`disabled`), Balanced (`balanced`), Quality (`quality`) | Balanced | H3 Max |
-| `prompt_optimizer` | Prompt Optimizer | boolean | | on | Hailuo |
-| `fast_pretreatment` | Fast Optimization | boolean, advanced | | off | Hailuo |
-| `aigc_watermark` | AIGC Watermark | boolean, advanced | | off | H3, H3 Max |
+| Parameter | Label | Kind | Values | Default | Models | MiniMax's field |
+| --- | --- | --- | --- | --- | --- | --- |
+| `resolution` | Resolution | choice | `480p`, `512p`, `768p`, `1080p`, `2k` as each model offers them (the model table), labelled as MiniMax writes them: 480P, 512P, 768P, 1080P, 2K | `768p` | all | `resolution`, as MiniMax writes it (`768P`) |
+| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | 16:9 | H3, H3 Max | `ratio` |
+| `duration` | Duration | whole seconds | 4 to 15 (H3), 5 to 15 (H3 Max), step 1; 6 or 10 (Hailuo, step 4) | 5 (H3, H3 Max), 6 (Hailuo) | all | `duration` |
+| `prompt_expansion_mode` | Prompt Expansion | choice | Off (`disabled`), Balanced (`balanced`), Quality (`quality`) | Balanced | H3 Max | `extra.prompt_expansion_mode` |
+| `prompt_extend` | Prompt Optimizer | boolean | | on | Hailuo | `prompt_optimizer` |
+| `fast_pretreatment` | Fast Optimization | boolean, advanced | | off | Hailuo | `fast_pretreatment` |
+| `watermark` | AIGC Watermark | boolean, advanced | | off | H3, H3 Max | `aigc_watermark`, in China only |
 
 Rules that `check` reports:
 
@@ -137,8 +141,8 @@ Rules that `check` reports:
   MiniMax always treats as Adaptive: Ratio must be Adaptive.
 - References mode needs at least one image, video, or audio clip, and takes
   at most 12 together.
-- The AIGC watermark is offered in China only: the China create page
-  documents `aigc_watermark`, and the international one does not.
+- The AIGC watermark (`watermark`) is offered in China only: the China
+  create page documents `aigc_watermark`, and the international one does not.
 - Hailuo makes 1080P videos of 6 seconds only.
 - Hailuo 02 makes 512P videos only from a start frame and without an end
   frame (image to video).
@@ -163,9 +167,10 @@ Rules that `check` reports:
   "video_url", "video_url": {"url"}, "role": "reference_video"}`; reference
   audio as `{"type": "audio_url", "audio_url": {"url"}, "role":
   "reference_audio"}`;
-- `resolution`, `duration`, and `ratio` (`adaptive` with a frame);
+- `resolution` as MiniMax writes it (`768P`, `2K`, `480P` for the catalog's
+  `768p`, `2k`, `480p`), `duration`, and `ratio` (`adaptive` with a frame);
 - for H3 Max, `extra: {"prompt_expansion_mode"}`; H3 is sent no `extra`;
-- in China, `aigc_watermark`.
+- in China, `aigc_watermark`, the value of `watermark`.
 
 The answer's `task_id` is the task id. Not sent: `callback_url`.
 
@@ -179,10 +184,11 @@ are always uploaded. An uploaded file is sent as `mm_file://{file_id}`.
 
 `POST /v1/video_generation`, JSON: `model`; `prompt` when it is not empty;
 `first_frame_image` with a start frame and `last_frame_image` with an end
-frame, as data URLs; `prompt_optimizer`; `fast_pretreatment`, except with an
-end frame; `duration`; and `resolution`. The answer carries `task_id` and
-`base_resp`. Not sent: `callback_url`. MiniMax documents no upload for these
-fields, so frames always travel inline.
+frame, as data URLs; `prompt_optimizer`, the value of `prompt_extend`;
+`fast_pretreatment`, except with an end frame; `duration`; and `resolution`
+as MiniMax writes it (`512P`, `768P`, `1080P`). The answer carries
+`task_id` and `base_resp`. Not sent: `callback_url`. MiniMax documents no
+upload for these fields, so frames always travel inline.
 
 ### Uploads
 

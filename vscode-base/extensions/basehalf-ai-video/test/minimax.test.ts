@@ -271,14 +271,14 @@ test('the catalog entry declares both regions, the API key, and five models with
 	}]));
 	const ratio = 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:16:9';
 	const h3Modes = ['frames: start optional, end optional, images 0, videos 0, audio 0', 'reference: start none, end none, images 9, videos 3, audio 3'];
-	const hailuoParameters = (resolutions: string) => [`resolution=${resolutions}:768P`, 'duration=6-10/4:6', 'prompt_optimizer:true', 'fast_pretreatment:false (more)'];
+	const hailuoParameters = (resolutions: string) => [`resolution=${resolutions}:768p`, 'duration=6-10/4:6', 'prompt_extend:true', 'fast_pretreatment:false (more)'];
 	assert.deepEqual(models, {
 		'h3': {
 			label: 'MiniMax H3',
 			ids: { cn: 'MiniMax-H3', intl: 'MiniMax-H3' },
 			prompt: 'always 7000',
 			modes: h3Modes,
-			parameters: ['resolution=768P|2K:768P', ratio, 'duration=4-15/1:5', 'aigc_watermark:false (more)'],
+			parameters: ['resolution=768p|2k:768p', ratio, 'duration=4-15/1:5', 'watermark:false (more)'],
 			estimate: true
 		},
 		'h3-max': {
@@ -286,7 +286,7 @@ test('the catalog entry declares both regions, the API key, and five models with
 			ids: { cn: 'MiniMax-H3-Max', intl: 'MiniMax-H3-Max' },
 			prompt: 'always 7000',
 			modes: h3Modes,
-			parameters: ['resolution=480P|768P:768P', ratio, 'duration=5-15/1:5', 'prompt_expansion_mode=disabled|balanced|quality:balanced', 'aigc_watermark:false (more)'],
+			parameters: ['resolution=480p|768p:768p', ratio, 'duration=5-15/1:5', 'prompt_expansion_mode=disabled|balanced|quality:balanced', 'watermark:false (more)'],
 			estimate: true
 		},
 		'hailuo-2.3': {
@@ -294,7 +294,7 @@ test('the catalog entry declares both regions, the API key, and five models with
 			ids: { cn: 'MiniMax-Hailuo-2.3', intl: 'MiniMax-Hailuo-2.3' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start optional, end none, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('768P|1080P'),
+			parameters: hailuoParameters('768p|1080p'),
 			estimate: true
 		},
 		'hailuo-2.3-fast': {
@@ -302,7 +302,7 @@ test('the catalog entry declares both regions, the API key, and five models with
 			ids: { cn: 'MiniMax-Hailuo-2.3-Fast', intl: 'MiniMax-Hailuo-2.3-Fast' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start required, end none, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('768P|1080P'),
+			parameters: hailuoParameters('768p|1080p'),
 			estimate: true
 		},
 		'hailuo-02': {
@@ -310,10 +310,15 @@ test('the catalog entry declares both regions, the API key, and five models with
 			ids: { cn: 'MiniMax-Hailuo-02', intl: 'MiniMax-Hailuo-02' },
 			prompt: 'withoutMedia 2000',
 			modes: ['frames: start optional, end optional, images 0, videos 0, audio 0'],
-			parameters: hailuoParameters('512P|768P|1080P'),
+			parameters: hailuoParameters('512p|768p|1080p'),
 			estimate: true
 		}
 	});
+	// The shared resolution values, labelled as MiniMax writes them.
+	assert.deepEqual(provider.models.map(model => {
+		const resolution = model.parameters.find(parameter => parameter.name === 'resolution');
+		return resolution?.kind === 'choice' ? resolution.options.map(option => `${option.value}=${option.label}`).join(' ') : '';
+	}), ['768p=768P 2k=2K', '480p=480P 768p=768P', '768p=768P 1080p=1080P', '768p=768P 1080p=1080P', '512p=512P 768p=768P 1080p=1080P']);
 	assert.deepEqual(provider.models.map(model => model.modes.map(mode => mode.limits)), [
 		...Array.from({ length: 2 }, () => [
 			{ imageMinSide: 256, imageMaxSide: 5760, imageAspect: [0.4, 2.5], imageMaxBytes: 30 * MIB },
@@ -328,9 +333,9 @@ test('H3 and H3 Max are created once per mode with the exact body: the prompt al
 	try {
 		const providers = commands();
 		const remoteIds = [
-			value(await providers.submit({ ...access(fake.url), ...generation('h3', 'frames', { resolution: '2K', ratio: '21:9', duration: 12 }, 'A fleet jumps away in a blinding flash.') })).remoteId,
-			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('h3', 'frames', { ratio: 'adaptive', duration: 6, aigc_watermark: true }, 'The girl grows up.', { startFrame: START, endFrame: END, ...NO_INPUTS }) })).remoteId,
-			value(await providers.submit({ ...access(fake.url), ...generation('h3-max', 'reference', { resolution: '480P', duration: 8, prompt_expansion_mode: 'quality' }, 'Image 1 dances like Video 1 in Image 2, with the voice of Audio 1.', { images: [CHARACTER, PLACE], videos: [DANCE], audios: [VOICE] }) })).remoteId,
+			value(await providers.submit({ ...access(fake.url), ...generation('h3', 'frames', { resolution: '2k', ratio: '21:9', duration: 12 }, 'A fleet jumps away in a blinding flash.') })).remoteId,
+			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('h3', 'frames', { ratio: 'adaptive', duration: 6, watermark: true }, 'The girl grows up.', { startFrame: START, endFrame: END, ...NO_INPUTS }) })).remoteId,
+			value(await providers.submit({ ...access(fake.url), ...generation('h3-max', 'reference', { resolution: '480p', duration: 8, prompt_expansion_mode: 'quality' }, 'Image 1 dances like Video 1 in Image 2, with the voice of Audio 1.', { images: [CHARACTER, PLACE], videos: [DANCE], audios: [VOICE] }) })).remoteId,
 			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('h3-max', 'frames', {}, 'A boy plays basketball by the sea.') })).remoteId
 		];
 		assert.deepEqual({
@@ -430,9 +435,9 @@ test('the Hailuo models are created once per mode with the exact body: the promp
 		const providers = commands();
 		const remoteIds = [
 			value(await providers.submit({ ...access(fake.url), ...generation('hailuo-2.3', 'frames', {}, 'A man picks up a book [Pedestal up], then reads [Static shot].') })).remoteId,
-			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('hailuo-2.3-fast', 'frames', { resolution: '1080P', duration: 6, prompt_optimizer: false, fast_pretreatment: true }, '', { startFrame: START, ...NO_INPUTS }) })).remoteId,
+			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('hailuo-2.3-fast', 'frames', { resolution: '1080p', duration: 6, prompt_extend: false, fast_pretreatment: true }, '', { startFrame: START, ...NO_INPUTS }) })).remoteId,
 			value(await providers.submit({ ...access(fake.url), ...generation('hailuo-02', 'frames', { duration: 10 }, 'A little girl grows up.', { startFrame: START, endFrame: END, ...NO_INPUTS }) })).remoteId,
-			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('hailuo-02', 'frames', { resolution: '512P', duration: 10 }, 'A mouse runs toward the camera.', { startFrame: START, ...NO_INPUTS }) })).remoteId
+			value(await providers.submit({ ...access(fake.url, 'cn'), ...generation('hailuo-02', 'frames', { resolution: '512p', duration: 10 }, 'A mouse runs toward the camera.', { startFrame: START, ...NO_INPUTS }) })).remoteId
 		];
 		const start = `data:image/png;base64,${base64(START)}`;
 		assert.deepEqual({ remoteIds, paths: fake.creates.map(create => create.path), bodies: fake.creates.map(create => create.body), uploads: fake.uploads.length }, {
@@ -706,12 +711,15 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		adaptiveWithFrames: await problems('h3', 'frames', { ratio: 'adaptive' }, counts({ startFrame: true, endFrame: true })),
 		noReferences: await problems('h3', 'reference', {}, counts()),
 		tooManyReferences: await problems('h3', 'reference', {}, counts({ images: 9, videos: 3, audios: 1 })),
-		watermarkAbroad: await problems('h3', 'frames', { aigc_watermark: true }, counts()),
-		watermarkInChina: await problems('h3-max', 'frames', { aigc_watermark: true }, counts(), 'cn'),
-		fullHdTenSeconds: await problems('hailuo-02', 'frames', { resolution: '1080P', duration: 10 }, counts()),
-		fullHdSixSeconds: await problems('hailuo-2.3', 'frames', { resolution: '1080P', duration: 6 }, counts()),
-		lowWithoutFrame: await problems('hailuo-02', 'frames', { resolution: '512P' }, counts()),
-		lowWithEndFrame: await problems('hailuo-02', 'frames', { resolution: '512P' }, counts({ startFrame: true, endFrame: true })),
+		watermarkAbroad: await problems('h3', 'frames', { watermark: true }, counts()),
+		watermarkInChina: await problems('h3-max', 'frames', { watermark: true }, counts(), 'cn'),
+		fullHdTenSeconds: await problems('hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, counts()),
+		fullHdSixSeconds: await problems('hailuo-2.3', 'frames', { resolution: '1080p', duration: 6 }, counts()),
+		lowWithoutFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, counts()),
+		lowWithEndFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, counts({ startFrame: true, endFrame: true })),
+		// MiniMax's own spellings and field names are not the catalog's.
+		minimaxSpelling: await problems('h3', 'frames', { resolution: '768P' }, counts()),
+		minimaxField: await problems('hailuo-2.3', 'frames', { prompt_optimizer: false }, counts()),
 		fastWithEndFrame: await problems('hailuo-02', 'frames', { fast_pretreatment: true }, counts({ startFrame: true, endFrame: true })),
 		fastNeedsFrame: await problems('hailuo-2.3-fast', 'frames', {}, counts()),
 		noEndFrame: await problems('hailuo-2.3', 'frames', {}, counts({ startFrame: true, endFrame: true })),
@@ -721,7 +729,7 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		gif: await problems('h3', 'reference', {}, { ...frame, images: [MOTION] }),
 		m4a: await problems('h3-max', 'reference', {}, { ...frame, audios: [SONG] }),
 		tinyFrame: await problems('hailuo-2.3', 'frames', {}, { ...frame, startFrame: TINY }),
-		canRun: await problems('h3', 'reference', { resolution: '2K' }, { images: [CHARACTER, PLACE], videos: [DANCE], audios: [VOICE] })
+		canRun: await problems('h3', 'reference', { resolution: '2k' }, { images: [CHARACTER, PLACE], videos: [DANCE], audios: [VOICE] })
 	}, {
 		adaptiveWithoutFrame: ['MiniMax H3 needs a ratio for a video made from the prompt alone: choose one, or connect an image.'],
 		ratioWithFrame: ['MiniMax H3 Max keeps the frame\'s ratio: choose Adaptive.'],
@@ -734,6 +742,8 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		fullHdSixSeconds: [],
 		lowWithoutFrame: ['Hailuo 02 makes 512P videos only from a start frame: connect an image, or choose another resolution.'],
 		lowWithEndFrame: ['Hailuo 02 makes 512P videos only without an end frame: remove it, or choose another resolution.'],
+		minimaxSpelling: ['Resolution cannot be 768P for MiniMax H3; choose 768P, 2K.'],
+		minimaxField: ['Hailuo 2.3 has no setting named "prompt_optimizer".'],
 		fastWithEndFrame: ['Hailuo 02 offers Fast Optimization only without an end frame: turn it off, or remove the end frame.'],
 		fastNeedsFrame: ['Hailuo 2.3 Fast in Frames mode needs a start frame.'],
 		noEndFrame: ['Hailuo 2.3 in Frames mode takes no end frame.'],
@@ -756,27 +766,27 @@ test('the estimate follows each region\'s price list: per second for H3 and H3 M
 	assert.deepEqual({
 		intl: [
 			// 5 s × 0.08
-			await estimate('intl', 'h3', 'frames', { resolution: '768P', duration: 5 }, counts()),
+			await estimate('intl', 'h3', 'frames', { resolution: '768p', duration: 5 }, counts()),
 			// 10 s × 0.13, 2 images beyond the 5 free × 0.04, a 6 s video × 0.13; audio is free
-			await estimate('intl', 'h3', 'reference', { resolution: '2K', duration: 10 }, { images: Array.from({ length: 7 }, () => CHARACTER), videos: [DANCE], audios: [VOICE] }),
+			await estimate('intl', 'h3', 'reference', { resolution: '2k', duration: 10 }, { images: Array.from({ length: 7 }, () => CHARACTER), videos: [DANCE], audios: [VOICE] }),
 			// 8 s × 0.05, 2 images beyond the 2 free × 0.074
-			await estimate('intl', 'h3-max', 'reference', { resolution: '480P', duration: 8 }, counts({ images: 4 })),
-			await estimate('intl', 'hailuo-2.3-fast', 'frames', { resolution: '1080P', duration: 6 }, counts({ startFrame: true })),
-			await estimate('intl', 'hailuo-02', 'frames', { resolution: '512P', duration: 10 }, counts({ startFrame: true }))
+			await estimate('intl', 'h3-max', 'reference', { resolution: '480p', duration: 8 }, counts({ images: 4 })),
+			await estimate('intl', 'hailuo-2.3-fast', 'frames', { resolution: '1080p', duration: 6 }, counts({ startFrame: true })),
+			await estimate('intl', 'hailuo-02', 'frames', { resolution: '512p', duration: 10 }, counts({ startFrame: true }))
 		],
 		cn: [
 			// 15 s × 0.80; two frames are within the 5 free images
-			await estimate('cn', 'h3', 'frames', { resolution: '2K', duration: 15, ratio: 'adaptive' }, counts({ startFrame: true, endFrame: true })),
+			await estimate('cn', 'h3', 'frames', { resolution: '2k', duration: 15, ratio: 'adaptive' }, counts({ startFrame: true, endFrame: true })),
 			// 15 s × 0.50, and a video of 2 to 15 s × 0.97
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768P', duration: 15 }, counts({ videos: 1 })),
+			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 15 }, counts({ videos: 1 })),
 			// 6 s × 0.50, 7 images beyond the 2 free × 0.50
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768P', duration: 6 }, counts({ images: 9 })),
+			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 6 }, counts({ images: 9 })),
 			// 5 s × 0.50, and a 5.5 s video metered as 5 or 6 s × 0.50
-			await estimate('cn', 'h3', 'reference', { resolution: '768P', duration: 5 }, { images: [], videos: [CLIP], audios: [] }),
-			await estimate('cn', 'hailuo-2.3', 'frames', { resolution: '768P', duration: 10 }, counts()),
-			await estimate('cn', 'hailuo-02', 'frames', { resolution: '1080P', duration: 6 }, counts({ startFrame: true, endFrame: true }))
+			await estimate('cn', 'h3', 'reference', { resolution: '768p', duration: 5 }, { images: [], videos: [CLIP], audios: [] }),
+			await estimate('cn', 'hailuo-2.3', 'frames', { resolution: '768p', duration: 10 }, counts()),
+			await estimate('cn', 'hailuo-02', 'frames', { resolution: '1080p', duration: 6 }, counts({ startFrame: true, endFrame: true }))
 		],
-		notPriced: await estimate('intl', 'hailuo-02', 'frames', { resolution: '1080P', duration: 10 }, counts())
+		notPriced: await estimate('intl', 'hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, counts())
 	}, {
 		intl: [usd(0.4), usd(2.16), usd(0.548), usd(0.33), usd(0.15)],
 		cn: [cny(12), cny(9.44, 22.05), cny(6.5), cny(5, 5.5), cny(4), cny(3.5)],
