@@ -331,6 +331,7 @@ each accepts, its requests and task states, and its estimate:
 - [MiniMax (Hailuo)](video-providers/minimax.md)
 - [Vidu](video-providers/vidu.md)
 - [Google (Gemini)](video-providers/google.md)
+- [xAI (Grok Imagine)](video-providers/xai.md)
 
 | Provider | Regions and base URL | Credentials | Images | Videos and audio | Cancel |
 | --- | --- | --- | --- | --- | --- |
@@ -343,7 +344,7 @@ each accepts, its requests and task states, and its estimate:
 | PixVerse | `https://app-api.pixverse.ai` | API key, `API-KEY` and a new `Ai-trace-id` per request | upload (`img_id`) | upload (`media_id`) | no |
 | Luma | `https://agents.lumalabs.ai/v1` | API key, `Authorization: Bearer` | base64 data | file upload | no |
 | Runway | `https://api.dev.runwayml.com` | API key, `Authorization: Bearer`, `X-Runway-Version: 2024-11-06` | data URI | upload (`runway://`) | yes |
-| xAI (Grok Imagine) | `https://api.x.ai/v1` | API key, `Authorization: Bearer` | data URL | file upload | no |
+| xAI (Grok Imagine) | `https://api.x.ai/v1` | API key, `Authorization: Bearer` | data URL | video as a data URL | no |
 | LTX | `https://api.ltx.io` | API key, `Authorization: Bearer` | data URI | upload (`ltx://`) | no |
 | Black Forest Labs (FLUX) | `https://api.bfl.ai/v1` | API key, `x-key` | base64 | — | no |
 

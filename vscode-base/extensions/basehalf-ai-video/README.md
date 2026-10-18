@@ -140,6 +140,7 @@ parameter properties, namespaces).
 | MiniMax (Hailuo and H3) | `minimax.ts` | [MiniMax (Hailuo)](../../../docs/specs/video-providers/minimax.md) |
 | Vidu | `vidu.ts` | [Vidu](../../../docs/specs/video-providers/vidu.md) |
 | Google (Gemini API) | `google.ts` | [Google (Gemini)](../../../docs/specs/video-providers/google.md) |
+| xAI (Grok Imagine) | `xai.ts` | [xAI (Grok Imagine)](../../../docs/specs/video-providers/xai.md) |
 
 ## Sequence
 
