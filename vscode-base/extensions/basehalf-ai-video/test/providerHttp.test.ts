@@ -155,6 +155,20 @@ test('a command sends at most one create, and requestOnce is not retried', async
 	}
 });
 
+test('wait goes through the sleep of the options, as the retries do, and sends nothing', async () => {
+	const server = await startServer((request, response) => sendJson(response, 200, {}));
+	try {
+		const sleep = recordingSleep();
+		const http = bound(`${server.url}/api`, { sleep: sleep.sleep });
+		await http.wait(2000);
+		await http.wait(-5);
+		await http.wait(Number.NaN);
+		assert.deepEqual({ waits: sleep.waits, received: server.received.length }, { waits: [2000, 0, 0], received: 0 });
+	} finally {
+		await server.close();
+	}
+});
+
 test('error answers map to the contract codes with the provider\'s message', async () => {
 	const server = await startServer((request, response) => {
 		const status = Number(request.path.split('/').at(-1));

@@ -3,25 +3,26 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BFL } from './bfl.ts';
 import { BYTEDANCE } from './bytedance.ts';
 import { KLING } from './kling.ts';
 import { ALIBABA } from './alibaba.ts';
 import { MINIMAX } from './minimax.ts';
-import { GOOGLE } from './google.ts';
-import { LTX } from './ltx.ts';
-import type { ProviderModule } from './module.ts';
-import { PIXVERSE } from './pixverse.ts';
-import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
 import { VIDU } from './vidu.ts';
+import { GOOGLE } from './google.ts';
+import { PIXVERSE } from './pixverse.ts';
+import { LUMA } from './luma.ts';
 import { XAI } from './xai.ts';
+import { LTX } from './ltx.ts';
+import { BFL } from './bfl.ts';
+import type { ProviderModule } from './module.ts';
+import type { Catalog, CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CountSlot, ImageFormat, ModeId } from './types.ts';
 
 /**
  * The provider modules of AI Video, in the order the window lists them. A
  * provider is in the catalog when its module is here, and nowhere else
  * (video providers, "Phases").
  */
-export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, XAI, LTX, BFL]);
+export const PROVIDER_MODULES: readonly ProviderModule[] = Object.freeze([BYTEDANCE, KLING, ALIBABA, MINIMAX, VIDU, GOOGLE, PIXVERSE, LUMA, XAI, LTX, BFL]);
 
 const MODE_IDS: ReadonlySet<string> = new Set<ModeId>(['frames', 'reference', 'extend', 'edit']);
 const SLOT_USES: ReadonlySet<string> = new Set(['none', 'optional', 'required']);
