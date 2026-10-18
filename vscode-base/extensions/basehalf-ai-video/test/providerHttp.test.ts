@@ -155,6 +155,84 @@ test('a command sends at most one create, and requestOnce is not retried', async
 	}
 });
 
+test('retry runs a group of requests again as a whole, under the retry rule of a request, and never a group that created a task', async () => {
+	let uploads = 0;
+	const server = await startServer((request, response, socket) => {
+		if (request.path.endsWith('/slot')) {
+			sendJson(response, 200, { slot: server.received.filter(entry => entry.path.endsWith('/slot')).length });
+		} else if (request.path.endsWith('/upload')) {
+			uploads++;
+			if (uploads === 1) {
+				socket.destroy();
+			} else if (uploads === 2) {
+				sendJson(response, 503, {});
+			} else if (uploads === 3) {
+				sendJson(response, 429, {}, { 'Retry-After': '3' });
+			} else {
+				response.writeHead(204);
+				response.end();
+			}
+		} else if (request.path.endsWith('/refused')) {
+			sendJson(response, 400, { error: { message: 'Bad file.' } });
+		} else if (request.path.endsWith('/slow')) {
+			sendJson(response, 429, { error: { message: 'Too many uploads.' } }, { 'Retry-After': '120' });
+		} else if (request.path.endsWith('/tasks')) {
+			sendJson(response, 200, { id: 't-1' });
+		} else {
+			sendJson(response, 503, { error: { message: 'Busy.' } });
+		}
+	});
+	try {
+		const sleep = recordingSleep();
+		const http = bound(`${server.url}/api`, { sleep: sleep.sleep });
+		// Each attempt asks for a new slot, then uploads to it once.
+		const group = async () => {
+			const slot = (await http.requestOnce({ method: 'POST', path: '/slot' })).object().slot;
+			const answer = await http.requestOnce({ method: 'POST', path: '/upload' });
+			return { slot, status: answer.status };
+		};
+		const uploaded = await http.retry(group);
+		const waitsOfUpload = [...sleep.waits];
+		const refused = await failure(http.retry(() => http.requestOnce({ method: 'POST', path: '/refused' })));
+		const slow = await failure(http.retry(() => http.requestOnce({ method: 'POST', path: '/slow' })));
+		sleep.waits.length = 0;
+		// A request whose own retries are spent is not sent again by the group around it, nor by a group around that.
+		const spent = await failure(http.retry(() => http.retry(() => http.request({ method: 'GET', path: '/busy' }))));
+		const busyCalls = server.received.filter(entry => entry.path.endsWith('/busy')).length;
+		const waitsOfSpent = [...sleep.waits];
+		sleep.waits.length = 0;
+		const once = await failure(http.retry(() => http.retry(() => http.requestOnce({ method: 'GET', path: '/busy-once' }))));
+		const onceCalls = server.received.filter(entry => entry.path.endsWith('/busy-once')).length;
+		const waitsOfOnce = [...sleep.waits];
+		sleep.waits.length = 0;
+		const afterCreate = await failure(http.retry(async () => {
+			await http.create({ method: 'POST', path: '/tasks', body: { kind: 'json', value: {} } });
+			return http.requestOnce({ method: 'GET', path: '/after-create' });
+		}));
+		assert.deepEqual({
+			uploaded,
+			waitsOfUpload,
+			slots: server.received.filter(entry => entry.path.endsWith('/slot')).length,
+			refused: [refused.code, refused.message, server.received.filter(entry => entry.path.endsWith('/refused')).length],
+			slow: [slow.code, slow.message, server.received.filter(entry => entry.path.endsWith('/slow')).length],
+			spent: [spent.code, spent.status, busyCalls, waitsOfSpent],
+			once: [once.code, once.status, onceCalls, waitsOfOnce],
+			afterCreate: [afterCreate.code, afterCreate.status, server.received.filter(entry => entry.path.endsWith('/tasks')).length, sleep.waits]
+		}, {
+			uploaded: { slot: 4, status: 204 },
+			waitsOfUpload: [1000, 2000, 3000],
+			slots: 4,
+			refused: ['rejected', 'Bad file.', 1],
+			slow: ['rateLimited', 'Too many uploads. The provider asks to wait 120 seconds.', 1],
+			spent: ['network', 503, 4, [1000, 2000, 4000]],
+			once: ['network', 503, 4, [1000, 2000, 4000]],
+			afterCreate: ['network', 503, 1, []]
+		});
+	} finally {
+		await server.close();
+	}
+});
+
 test('error answers map to the contract codes with the provider\'s message', async () => {
 	const server = await startServer((request, response) => {
 		const status = Number(request.path.split('/').at(-1));

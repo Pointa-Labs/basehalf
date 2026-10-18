@@ -21,6 +21,9 @@ import { failureForStatus, isRecord, ProviderFailure, readCommonError, rejected,
  *   then 4 seconds apart, or after the `Retry-After` the provider asks for, up
  *   to 30 seconds.
  * - `requestOnce` sends any other request once, such as a cancellation.
+ * - `retry` runs a group of `requestOnce` calls again as a whole, under the
+ *   rule of `request`, such as an upload that must start over with a new
+ *   upload address.
  *
  * An answer that is not 2xx (and not in `accept`) throws a
  * {@link ProviderFailure}: `auth` for 401 and 403, `balance` for 402, `notFound`
@@ -38,6 +41,16 @@ export interface ProviderHttp {
 	request(call: HttpCall): Promise<HttpAnswer>;
 	/** Sends a request once, without retries, such as a cancellation. */
 	requestOnce(call: HttpCall): Promise<HttpAnswer>;
+	/**
+	 * Runs a group of requests that only together do one thing, and runs the
+	 * whole group again when one of its `requestOnce` calls fails as `request`
+	 * would send it again: after a network error or an answer of 408, 429, 500,
+	 * 502, 503, or 504, three times, 1, 2, then 4 seconds apart, or after the
+	 * `Retry-After` the provider asks for, up to 30 seconds. It is for an upload
+	 * whose provider says to start over with a new upload address rather than
+	 * send a failed upload again. A group that sent a `create` is never run again.
+	 */
+	retry<T>(group: () => Promise<T>): Promise<T>;
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -205,6 +218,21 @@ class TransportFailure extends ProviderFailure {
 	}
 }
 
+/** The answer of a `requestOnce` call that `request` would send again (408, 429, 5xx), with the wait the provider asked for. */
+class RetryableAnswer extends ProviderFailure {
+	readonly waitMs: number | undefined;
+
+	constructor(failure: ProviderFailure, waitMs: number | undefined) {
+		super(failure.code, failure.message, failure.status);
+		this.waitMs = waitMs;
+	}
+}
+
+/** A failure without what lets a group of requests run again, once its own retries are spent. */
+function settled(error: unknown): unknown {
+	return error instanceof TransportFailure || error instanceof RetryableAnswer ? new ProviderFailure(error.code, error.message, error.status) : error;
+}
+
 export function startRequest(url: URL, options: RequestOptions, onResponse: (response: IncomingMessage) => void): ClientRequest {
 	// A fresh connection per request: what counts as sent is this request's own.
 	const settings: RequestOptions = { ...options, agent: false };
@@ -326,7 +354,8 @@ export class BoundHttp implements ProviderHttp {
 					await this.options.sleep(delays[attempt]);
 					continue;
 				}
-				throw error;
+				// Its retries are spent: a group around it does not send it again.
+				throw settled(error);
 			}
 			if (RETRYABLE_STATUSES.has(raw.status) && !(call.accept ?? []).includes(raw.status) && attempt < delays.length) {
 				const asked = retryAfterMs(raw.headers['retry-after']);
@@ -344,18 +373,38 @@ export class BoundHttp implements ProviderHttp {
 	}
 
 	async requestOnce(call: HttpCall): Promise<HttpAnswer> {
-		return this.finish(await this.exchange(call, false), call, false);
+		return this.finish(await this.exchange(call, false), call, false, true);
 	}
 
-	private finish(raw: RawAnswer, call: HttpCall, creates: boolean): HttpAnswer {
+	async retry<T>(group: () => Promise<T>): Promise<T> {
+		const delays = this.options.retryDelaysMs;
+		for (let attempt = 0; ; attempt++) {
+			const created = this.createCalled;
+			try {
+				return await group();
+			} catch (error) {
+				const wait = error instanceof RetryableAnswer
+					? error.waitMs ?? delays[attempt]
+					: error instanceof TransportFailure && error.retryable ? delays[attempt] : undefined;
+				// A group that sent a request creating a task is never sent again.
+				if (attempt >= delays.length || wait === undefined || wait > this.options.maxRetryAfterMs || this.createCalled !== created) {
+					throw settled(error);
+				}
+				await this.options.sleep(wait);
+			}
+		}
+	}
+
+	/** The answer, or the failure of its status; `once`: the failure says when a group may send it again. */
+	private finish(raw: RawAnswer, call: HttpCall, creates: boolean, once = false): HttpAnswer {
 		const ok = raw.status >= 200 && raw.status < 300;
 		if (!ok && !(call.accept ?? []).includes(raw.status)) {
 			const failure = failureForStatus(raw.status, this.readError(raw.status, parseJson(raw.body)), creates);
 			const asked = retryAfterMs(raw.headers['retry-after']);
-			if (failure.code === 'rateLimited' && asked !== undefined && asked > 0) {
-				throw new ProviderFailure(failure.code, `${failure.message} The provider asks to wait ${Math.ceil(asked / 1000)} seconds.`, failure.status);
-			}
-			throw failure;
+			const told = failure.code === 'rateLimited' && asked !== undefined && asked > 0
+				? new ProviderFailure(failure.code, `${failure.message} The provider asks to wait ${Math.ceil(asked / 1000)} seconds.`, failure.status)
+				: failure;
+			throw once && RETRYABLE_STATUSES.has(raw.status) ? new RetryableAnswer(told, asked) : told;
 		}
 		const fail = () => creates
 			? unknownOutcome('The provider accepted the request but answered in a form AI Video cannot read.')
