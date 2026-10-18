@@ -119,7 +119,7 @@ const PARAMETERS: readonly CatalogParameter[] = [
 		default: '720p'
 	},
 	{
-		name: 'aspect_ratio',
+		name: 'ratio',
 		label: TEXT.parameters.ratio,
 		tooltip: TEXT.parameters.ratioTooltip,
 		kind: 'choice',
@@ -269,7 +269,7 @@ async function submit(request: SubmitRequest, http: ProviderHttp): Promise<strin
 	}
 	input.push({ type: 'text', text: request.prompt });
 	// The parameters arrive checked and completed; an unset seed is not sent.
-	const { resolution, aspect_ratio: aspectRatio, seed } = request.params;
+	const { resolution, ratio: aspectRatio, seed } = request.params;
 	const body = Buffer.from(JSON.stringify({
 		model: providerModel,
 		input,

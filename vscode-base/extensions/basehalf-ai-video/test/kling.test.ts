@@ -159,7 +159,7 @@ test('the catalog declares Kling with two regions, one API key, and six models w
 		}
 	});
 	const ratio = ['ratio', 'Ratio', ['16:9', '9:16', '1:1'], '16:9'];
-	const sound = ['generate_audio', 'Sound', 'boolean', false];
+	const sound = ['sound', 'Sound', 'boolean', false];
 	assert.deepEqual(Object.fromEntries(provider.models.map(model => [model.id, settings(model)])), {
 		'kling-3.0-turbo': [['resolution', 'Resolution', ['720p', '1080p'], '720p'], ratio, ['duration', 'Duration', 3, 15, 1, 'seconds', 5]],
 		'kling-3.0': [['resolution', 'Resolution', ['720p', '1080p', '4k'], '720p'], ratio, ['duration', 'Duration', 3, 15, 1, 'seconds', 5], sound],
@@ -197,12 +197,12 @@ test('each mode of each model is created once, at its path, with the exact body 
 				body: () => ({ prompt: PROMPT, settings: { resolution: '720p', aspect_ratio: '16:9', duration: 5, audio: 'off' } })
 			},
 			{
-				model: 'kling-3.0', mode: 'frames', params: { resolution: '4k', duration: 15, generate_audio: true }, inputs: { startFrame: START, endFrame: END },
+				model: 'kling-3.0', mode: 'frames', params: { resolution: '4k', duration: 15, sound: true }, inputs: { startFrame: START, endFrame: END },
 				path: '/image-to-video/kling-3.0',
 				body: () => ({ contents: [prompt, firstFrame(), lastFrame()], settings: { resolution: '4k', duration: 15, audio: 'native' } })
 			},
 			{
-				model: 'kling-3.0-omni', mode: 'frames', params: { ratio: '1:1', generate_audio: true },
+				model: 'kling-3.0-omni', mode: 'frames', params: { ratio: '1:1', sound: true },
 				path: '/omni-video/kling-3.0-omni',
 				body: () => ({ contents: [prompt], settings: { resolution: '720p', aspect_ratio: '1:1', duration: 5, audio: 'native' } })
 			},
@@ -227,7 +227,7 @@ test('each mode of each model is created once, at its path, with the exact body 
 				body: () => ({ contents: REFERENCES.slice(0, 2).map(referImage), settings: { resolution: '720p', aspect_ratio: '1:1', duration: 3 } })
 			},
 			{
-				model: 'kling-2.6', mode: 'frames', params: { resolution: '1080p', duration: 10, generate_audio: true },
+				model: 'kling-2.6', mode: 'frames', params: { resolution: '1080p', duration: 10, sound: true },
 				path: '/text-to-video/kling-2.6',
 				body: () => ({ prompt: PROMPT, settings: { resolution: '1080p', aspect_ratio: '16:9', duration: 10, audio: 'native' } })
 			},
@@ -519,10 +519,10 @@ test('check reports the rules between settings and inputs that the declarations 
 		value(await providers.check({ provider: 'kling', region: 'cn', model, mode, params, prompt: text, inputs })).problems;
 	const long = 'a'.repeat(2501);
 	assert.deepEqual({
-		soundAt720p: await problems('kling-2.6', 'frames', { generate_audio: true }, counts()),
-		soundAt1080p: await problems('kling-2.6', 'frames', { generate_audio: true, resolution: '1080p' }, counts()),
+		soundAt720p: await problems('kling-2.6', 'frames', { sound: true }, counts()),
+		soundAt1080p: await problems('kling-2.6', 'frames', { sound: true, resolution: '1080p' }, counts()),
 		endFrameAt720p: await problems('kling-2.6', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		endFrameWithSound: await problems('kling-2.6', 'frames', { resolution: '1080p', generate_audio: true }, counts({ startFrame: true, endFrame: true })),
+		endFrameWithSound: await problems('kling-2.6', 'frames', { resolution: '1080p', sound: true }, counts({ startFrame: true, endFrame: true })),
 		turboEndFrameAt720p: await problems('kling-2.5-turbo', 'frames', {}, counts({ startFrame: true, endFrame: true })),
 		turboEndFrameAt1080p: await problems('kling-2.5-turbo', 'frames', { resolution: '1080p' }, counts({ startFrame: true, endFrame: true })),
 		o1FramesSeven: await problems('kling-o1', 'frames', { duration: 7 }, counts({ startFrame: true })),
@@ -566,7 +566,7 @@ test('with files, check refuses WebP and GIF images and a request larger than AI
 			oneLarge: await withFiles('kling-3.0', 'frames', { startFrame: START }, large),
 			twoLarge: await withFiles('kling-3.0', 'frames', { startFrame: START, endFrame: END }, large),
 			submitted: error(await providers.submit(generation(server.url, 'kling-3.0', 'frames', {}, { startFrame: WEBP }))),
-			ruleSubmitted: error(await providers.submit(generation(server.url, 'kling-2.6', 'frames', { generate_audio: true })))
+			ruleSubmitted: error(await providers.submit(generation(server.url, 'kling-2.6', 'frames', { sound: true })))
 		};
 		assert.deepEqual({ outcomes, sent: server.received.length }, {
 			outcomes: {
@@ -594,19 +594,19 @@ test('estimates follow the price list: three combinations in each region', async
 	const amount = (currency: 'CNY' | 'USD', money: number): Estimate => ({ currency, min: money, max: money, priceDate: PRICE_DATE });
 	assert.deepEqual({
 		// China, 1 unit = ¥1. Kling 3.0 at 1080p with sound: 1.2 units/s × 10 s × ¥1 = ¥12.
-		cnSound: await estimate('cn', 'kling-3.0', 'frames', { resolution: '1080p', duration: 10, generate_audio: true }),
+		cnSound: await estimate('cn', 'kling-3.0', 'frames', { resolution: '1080p', duration: 10, sound: true }),
 		// Kling 2.5 Turbo with its defaults, 720p and 5 s: 0.3 units/s × 5 s × ¥1 = ¥1.50.
 		cnDefaults: await estimate('cn', 'kling-2.5-turbo', 'frames', {}),
 		// Kling 3.0 Omni from two references at 4K with sound: 3.0 units/s × 15 s × ¥1 = ¥45.
-		cn4k: await estimate('cn', 'kling-3.0-omni', 'reference', { resolution: '4k', duration: 15, generate_audio: true }, counts({ images: 2 })),
+		cn4k: await estimate('cn', 'kling-3.0-omni', 'reference', { resolution: '4k', duration: 15, sound: true }, counts({ images: 2 })),
 		// International, 1 unit = $0.14. Kling 3.0 Turbo at 1080p, always with sound: 1.0 unit/s × 7 s × $0.14 = $0.98.
 		intlTurbo: await estimate('intl', 'kling-3.0-turbo', 'frames', { resolution: '1080p', duration: 7 }),
 		// Kling O1 from three references at 720p: 0.6 units/s × 3 s × $0.14 = $0.252.
 		intlO1: await estimate('intl', 'kling-o1', 'reference', { duration: 3 }, counts({ images: 3 })),
 		// Kling 2.6 at 1080p with sound: 1.0 unit/s × 10 s × $0.14 = $1.40.
-		intlSound: await estimate('intl', 'kling-2.6', 'frames', { resolution: '1080p', duration: 10, generate_audio: true }),
+		intlSound: await estimate('intl', 'kling-2.6', 'frames', { resolution: '1080p', duration: 10, sound: true }),
 		// Kling 2.6 has no price for sound at 720p, which a rule refuses.
-		noPrice: await estimate('cn', 'kling-2.6', 'frames', { generate_audio: true })
+		noPrice: await estimate('cn', 'kling-2.6', 'frames', { sound: true })
 	}, {
 		cnSound: amount('CNY', 12),
 		cnDefaults: amount('CNY', 1.5),
@@ -626,20 +626,20 @@ test('every price of the list is its units at ¥1 in China and its listed dollar
 		['kling-3.0', { resolution: '720p' }, 0.6, 0.084],
 		['kling-3.0', { resolution: '1080p' }, 0.8, 0.112],
 		['kling-3.0', { resolution: '4k' }, 3.0, 0.42],
-		['kling-3.0', { resolution: '720p', generate_audio: true }, 0.9, 0.126],
-		['kling-3.0', { resolution: '1080p', generate_audio: true }, 1.2, 0.168],
-		['kling-3.0', { resolution: '4k', generate_audio: true }, 3.0, 0.42],
+		['kling-3.0', { resolution: '720p', sound: true }, 0.9, 0.126],
+		['kling-3.0', { resolution: '1080p', sound: true }, 1.2, 0.168],
+		['kling-3.0', { resolution: '4k', sound: true }, 3.0, 0.42],
 		['kling-3.0-omni', { resolution: '720p' }, 0.6, 0.084],
 		['kling-3.0-omni', { resolution: '1080p' }, 0.8, 0.112],
 		['kling-3.0-omni', { resolution: '4k' }, 3.0, 0.42],
-		['kling-3.0-omni', { resolution: '720p', generate_audio: true }, 0.8, 0.112],
-		['kling-3.0-omni', { resolution: '1080p', generate_audio: true }, 1.0, 0.14],
-		['kling-3.0-omni', { resolution: '4k', generate_audio: true }, 3.0, 0.42],
+		['kling-3.0-omni', { resolution: '720p', sound: true }, 0.8, 0.112],
+		['kling-3.0-omni', { resolution: '1080p', sound: true }, 1.0, 0.14],
+		['kling-3.0-omni', { resolution: '4k', sound: true }, 3.0, 0.42],
 		['kling-o1', { resolution: '720p' }, 0.6, 0.084],
 		['kling-o1', { resolution: '1080p' }, 0.8, 0.112],
 		['kling-2.6', { resolution: '720p' }, 0.3, 0.042],
 		['kling-2.6', { resolution: '1080p' }, 0.5, 0.07],
-		['kling-2.6', { resolution: '1080p', generate_audio: true }, 1.0, 0.14],
+		['kling-2.6', { resolution: '1080p', sound: true }, 1.0, 0.14],
 		['kling-2.5-turbo', { resolution: '720p' }, 0.3, 0.042],
 		['kling-2.5-turbo', { resolution: '1080p' }, 0.5, 0.07]
 	];

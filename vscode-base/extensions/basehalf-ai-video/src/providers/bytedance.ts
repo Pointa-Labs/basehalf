@@ -335,7 +335,7 @@ function parametersOf(model: Seedance): CatalogParameter[] {
 		}
 	];
 	if (model.sound) {
-		parameters.push({ name: 'generate_audio', label: labels.sound, tooltip: labels.soundTooltip, kind: 'boolean', default: true });
+		parameters.push({ name: 'sound', label: labels.sound, tooltip: labels.soundTooltip, kind: 'boolean', default: true });
 	}
 	if (model.seedAndCamera) {
 		parameters.push(
@@ -408,7 +408,7 @@ export function seedanceEstimate(modelId: string, region: string, params: Params
 		return undefined;
 	}
 	const resolution = params.resolution as Resolution;
-	const rate = (params.generate_audio === false && table.silent ? table.silent : table.perMillion)[resolution];
+	const rate = (params.sound === false && table.silent ? table.silent : table.perMillion)[resolution];
 	const sizes = model.sizes[resolution];
 	if (rate === undefined || !sizes) {
 		return undefined;
@@ -497,8 +497,10 @@ async function submit(request: SubmitRequest, http: ProviderHttp): Promise<strin
 			throw rejected(`${item.label} cannot be sent: Seedance takes videos only from public addresses.`);
 		}
 	}
-	// The parameters are named as the API's fields; the commands checked and completed them.
-	const body = Buffer.from(JSON.stringify({ model: providerModel, content, ...request.params }), 'utf8');
+	// The commands checked and completed the parameters. Each is named as the API's field, except Sound,
+	// whose shared name is `sound` and whose field is `generate_audio`.
+	const { sound, ...fields } = request.params;
+	const body = Buffer.from(JSON.stringify({ model: providerModel, content, ...fields, ...(sound !== undefined ? { generate_audio: sound } : {}) }), 'utf8');
 	if (body.byteLength > REQUEST_MAX_BYTES) {
 		throw rejected(TEXT.requestTooLarge((body.byteLength / 1_000_000).toFixed(1)));
 	}

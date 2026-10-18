@@ -161,7 +161,7 @@ Each is named as the field it sets.
 | Parameter | Label | Kind | Values | Default | Sets | Modes |
 | --- | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | 360p, 720p, 1080p, 4K (`4k`) | 720p | `response_format.resolution` | all |
-| `aspect_ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 9:16 | 16:9 | `response_format.aspect_ratio` | Frames, References |
+| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 9:16 | 16:9 | `response_format.aspect_ratio` | Frames, References |
 | `seed` | Seed | whole number 0 to 2147483647, optional, advanced | | unset: nothing sent | `generation_config.seed` | all |
 
 - Edit and Extend send no ratio: the clip has one.
@@ -199,7 +199,7 @@ Rules that `check` reports:
   its header shows (`image/png`, `image/jpeg`, `image/webp`, `image/gif`); a
   video as `{"type": "video", "mime_type", "data"}` with `video/mp4` or
   `video/mov` (the reference's names).
-- `seed` is sent only when set; `aspect_ratio` only in Frames and References.
+- `seed` is sent only when set; `ratio`, as `response_format.aspect_ratio`, only in Frames and References.
 - Not sent: `store` (true by default, which background execution needs),
   `stream`, `delivery` (inline is the default), `previous_interaction_id`,
   `system_instruction`, `tools`, `safety_settings`, `service_tier`,

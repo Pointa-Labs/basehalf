@@ -167,7 +167,7 @@ test('the catalog entry declares the Gemini API, its key, and Gemini Omni 1.1 Fl
 		],
 		parameters: [
 			'resolution=360p 360p|720p 720p|1080p 1080p|4k 4K:720p',
-			'aspect_ratio=16:9 16:9|9:16 9:16:16:9 (ratio) [frames, reference]',
+			'ratio=16:9 16:9|9:16 9:16:16:9 (ratio) [frames, reference]',
 			'seed=0-2147483647:unset optional (more)'
 		]
 	});
@@ -185,7 +185,7 @@ test('each mode creates one background interaction with its task, its inputs inl
 			return { remoteId, body: gemini.created.at(-1) };
 		};
 		const text = await sent(generation('frames', {}, PROMPT));
-		const frames = await sent(generation('frames', { resolution: '1080p', aspect_ratio: '9:16', seed: 42 }, 'From the forest at dawn to the snowy forest at night.', { startFrame: START, endFrame: END, ...NO_INPUTS }));
+		const frames = await sent(generation('frames', { resolution: '1080p', ratio: '9:16', seed: 42 }, 'From the forest at dawn to the snowy forest at night.', { startFrame: START, endFrame: END, ...NO_INPUTS }));
 		const references = await sent(generation('reference', { resolution: '360p' }, 'The woman in Video 1 holds the lantern of Image 1.', { images: [STYLE], videos: [TAKE], audios: [] }));
 		const edit = await sent(generation('edit', { resolution: '4k' }, 'Make the sky stormy. Keep everything else the same.', { source: CLIP, ...NO_INPUTS }));
 		const extend = await sent(generation('extend', { seed: 7 }, 'The camera keeps following the car into the tunnel.', { source: CLIP, ...NO_INPUTS }));
@@ -645,8 +645,8 @@ test('check reports the inputs each mode takes, the lengths of videos, the promp
 		longTake: await problems('reference', {}, 'p', { images: [], videos: [LONG_TAKE], audios: [] }),
 		longClip: await problems('edit', {}, 'p', { source: LONG_CLIP, ...NO_INPUTS }),
 		noClip: await problems('extend', {}, 'p', NO_COUNTS),
-		ratioInEdit: await problems('edit', { aspect_ratio: '9:16' }, 'p', { ...NO_COUNTS, source: true }),
-		square: await problems('frames', { aspect_ratio: '1:1' }, 'p', NO_COUNTS),
+		ratioInEdit: await problems('edit', { ratio: '9:16' }, 'p', { ...NO_COUNTS, source: true }),
+		square: await problems('frames', { ratio: '1:1' }, 'p', NO_COUNTS),
 		tooLarge: await problems('reference', {}, 'p', { images: [START, END, STYLE], videos: [], audios: [] }, { inspector: large }),
 		fits: await problems('frames', {}, 'p', { startFrame: START, endFrame: END, ...NO_INPUTS })
 	}, {
@@ -693,7 +693,7 @@ test('the estimate is the seconds of 720p video at 5,792 tokens a second and $17
 		extendMeasured: await checked('extend', { resolution: '720p' }, { source: CLIP, ...NO_INPUTS }),
 		// 3. Extend at 720p without the clip's file: a clip of at most 10 s gives 3 s, $0.30408, to 20 s, $2.0272.
 		extendCounted: await checked('extend', {}, { ...NO_COUNTS, source: true }),
-		references: await checked('reference', { aspect_ratio: '9:16' }, { ...NO_COUNTS, images: 2 }),
+		references: await checked('reference', { ratio: '9:16' }, { ...NO_COUNTS, images: 2 }),
 		edit: await checked('edit', {}, { source: CLIP, ...NO_INPUTS }),
 		// Google gives a rate for 720p only.
 		at1080p: await checked('frames', { resolution: '1080p' }, NO_COUNTS),

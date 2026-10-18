@@ -212,7 +212,7 @@ function declareParameters(model: KlingModel): CatalogParameter[] {
 		{ name: 'duration', label: LABELS.duration, kind: 'integer', unit: 'seconds', ...model.duration, default: 5 }
 	];
 	if (model.sound === 'setting') {
-		parameters.push({ name: 'generate_audio', label: LABELS.sound, kind: 'boolean', default: false });
+		parameters.push({ name: 'sound', label: LABELS.sound, kind: 'boolean', default: false });
 	}
 	return parameters;
 }
@@ -354,7 +354,7 @@ function createRequest(model: KlingModel, region: string, params: Params, prompt
 		settings.aspect_ratio = params.ratio;
 	}
 	if (model.sound === 'setting') {
-		settings.audio = params.generate_audio === true ? 'native' : 'off';
+		settings.audio = params.sound === true ? 'native' : 'off';
 	}
 	if (model.api === 'split' && !startFrame) {
 		return { path: `/text-to-video/${id}`, value: { prompt, settings } };
@@ -415,7 +415,7 @@ function ruleProblems(model: KlingModel, request: CheckRequest, counts: PlannedC
 	const problems: string[] = [];
 	const label = labelOf(model);
 	const { resolution, duration } = request.params;
-	const sound = request.params.generate_audio === true;
+	const sound = request.params.sound === true;
 	const length = [...request.prompt].length;
 	if (model.promptMaxLengthWithFrame !== undefined && counts.startFrame && length > model.promptMaxLengthWithFrame) {
 		problems.push(`The prompt is ${length} characters long; with a start frame, ${label} takes at most ${model.promptMaxLengthWithFrame}.`);
@@ -463,7 +463,7 @@ function estimateFor(model: KlingModel, region: string, params: Params): Estimat
 	const price = UNIT_PRICES[region];
 	const resolution = model.resolutions.find(entry => entry === params.resolution);
 	const rates = resolution !== undefined ? model.units[resolution] : undefined;
-	const withSound = model.sound === 'always' || (model.sound === 'setting' && params.generate_audio === true);
+	const withSound = model.sound === 'always' || (model.sound === 'setting' && params.sound === true);
 	const perSecond = withSound ? rates?.sound : rates?.silent;
 	if (!price || perSecond === undefined || typeof params.duration !== 'number') {
 		return undefined;

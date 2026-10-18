@@ -64,14 +64,15 @@ The consoles are the API key pages the create pages link to.
   (`data:image/png;base64,…`, also `jpeg`, `webp`, `gif`), audio as
   `data:audio/wav` or `data:audio/mp3`.
 
-**Parameters.** Each is named as the API field it sets.
+**Parameters.** Each is named as the API field it sets, except Sound, whose
+shared name is `sound` and whose field is `generate_audio`.
 
 | Parameter | Label | Kind | Values | Default | Models |
 | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | as in the model table | as in the model table | all |
 | `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | Adaptive; 16:9 for 1.0 Pro and 1.0 Pro Fast | all |
 | `duration` | Duration | whole seconds, step 1 | as in the model table; Auto is `-1` | 5 | all |
-| `generate_audio` | Sound | boolean | | on | 2.5, the 2.0 series, 1.5 Pro |
+| `sound` | Sound, sent as `generate_audio` | boolean | | on | 2.5, the 2.0 series, 1.5 Pro |
 | `seed` | Seed | whole number 0 to 2147483647, optional, advanced | | unset: a new seed each time | 1.5 Pro, 1.0 Pro, 1.0 Pro Fast |
 | `camera_fixed` | Fixed Camera | boolean, advanced | | off | 1.5 Pro, 1.0 Pro, 1.0 Pro Fast |
 | `watermark` | Watermark | boolean, advanced | | off | all |

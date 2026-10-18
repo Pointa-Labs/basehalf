@@ -100,31 +100,31 @@ test('the catalog entry declares the two regions, the API key, and every model w
 			label: 'Seedance 2.5',
 			ids: { cn: 'doubao-seedance-2-5-260628', intl: 'dreamina-seedance-2-5-260628' },
 			modes: [frames, 'reference: start none, end none, images 0-30, audio 0-10, videos 0'],
-			parameters: ['resolution=480p|720p|1080p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-30|-1:5', 'generate_audio:true', 'watermark:false (more)']
+			parameters: ['resolution=480p|720p|1080p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-30|-1:5', 'sound:true', 'watermark:false (more)']
 		},
 		'seedance-2.0': {
 			label: 'Seedance 2.0',
 			ids: { cn: 'doubao-seedance-2-0-260128', intl: 'dreamina-seedance-2-0-260128' },
 			modes: [frames, 'reference: start none, end none, images 1-9, audio 0-3, videos 0'],
-			parameters: ['resolution=480p|720p|1080p|4k:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'generate_audio:true', 'watermark:false (more)']
+			parameters: ['resolution=480p|720p|1080p|4k:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'sound:true', 'watermark:false (more)']
 		},
 		'seedance-2.0-fast': {
 			label: 'Seedance 2.0 Fast',
 			ids: { cn: 'doubao-seedance-2-0-fast-260128', intl: 'dreamina-seedance-2-0-fast-260128' },
 			modes: [frames, 'reference: start none, end none, images 1-9, audio 0-3, videos 0'],
-			parameters: ['resolution=480p|720p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'generate_audio:true', 'watermark:false (more)']
+			parameters: ['resolution=480p|720p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'sound:true', 'watermark:false (more)']
 		},
 		'seedance-2.0-mini': {
 			label: 'Seedance 2.0 Mini',
 			ids: { cn: 'doubao-seedance-2-0-mini-260615', intl: 'dreamina-seedance-2-0-mini-260615' },
 			modes: [frames, 'reference: start none, end none, images 1-9, audio 0-3, videos 0'],
-			parameters: ['resolution=480p|720p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'generate_audio:true', 'watermark:false (more)']
+			parameters: ['resolution=480p|720p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-15|-1:5', 'sound:true', 'watermark:false (more)']
 		},
 		'seedance-1.5-pro': {
 			label: 'Seedance 1.5 Pro',
 			ids: { intl: 'seedance-1-5-pro-251215' },
 			modes: [frames],
-			parameters: ['resolution=480p|720p|1080p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-12|-1:5', 'generate_audio:true', 'seed=0-2147483647:unset (more)', 'camera_fixed:false (more)', 'watermark:false (more)'],
+			parameters: ['resolution=480p|720p|1080p:720p', 'ratio=16:9|4:3|1:1|3:4|9:16|21:9|adaptive:adaptive', 'duration=4-12|-1:5', 'sound:true', 'seed=0-2147483647:unset (more)', 'camera_fixed:false (more)', 'watermark:false (more)'],
 			deprecated: true
 		},
 		'seedance-1.0-pro': {
@@ -152,7 +152,7 @@ test('a generation is created once, followed through queued, running, and succee
 		const providers = commands();
 		const submitted = value(await providers.submit({
 			...access(mock.baseUrl),
-			...generation('seedance-2.5', 'frames', { resolution: '720p', ratio: 'adaptive', duration: 5, generate_audio: true, watermark: false }, 'A bicycle passes the sea at dusk.', { startFrame: START, endFrame: END, ...NO_INPUTS })
+			...generation('seedance-2.5', 'frames', { resolution: '720p', ratio: 'adaptive', duration: 5, sound: true, watermark: false }, 'A bicycle passes the sea at dusk.', { startFrame: START, endFrame: END, ...NO_INPUTS })
 		}));
 		const ref = { ...access(mock.baseUrl), model: 'seedance-2.5', remoteId: submitted.remoteId };
 		const states = await pollUntilEnd(providers, ref);
@@ -287,11 +287,11 @@ test('each model\'s parameters, frames, and references map to the API\'s fields 
 			const received = mock.requests.at(-1)!;
 			return { parts: received.parts, body: { ...received.body, content: undefined } };
 		};
-		const references = await sent('intl', generation('seedance-2.0', 'reference', { resolution: '4k', ratio: '9:16', duration: -1, generate_audio: false, watermark: true }, '图片1里的人在雨中唱歌', {
+		const references = await sent('intl', generation('seedance-2.0', 'reference', { resolution: '4k', ratio: '9:16', duration: -1, sound: false, watermark: true }, '图片1里的人在雨中唱歌', {
 			images: [START, END], videos: [], audios: [VOICE, MUSIC]
 		}));
 		const fast = await sent('cn', generation('seedance-1.0-pro-fast', 'frames', { resolution: '1080p', ratio: '21:9', duration: 12, seed: 42, camera_fixed: true }, 'A train crosses a bridge.'));
-		const silent = await sent('intl', generation('seedance-1.5-pro', 'frames', { generate_audio: false }, '', { startFrame: START, ...NO_INPUTS }));
+		const silent = await sent('intl', generation('seedance-1.5-pro', 'frames', { sound: false }, '', { startFrame: START, ...NO_INPUTS }));
 		const audioOnly = await sent('cn', generation('seedance-2.5', 'reference', {}, 'Sing along to the clip.', { images: [], videos: [], audios: [VOICE] }));
 		assert.deepEqual({ references, fast, silent, audioOnly }, {
 			references: {
@@ -369,8 +369,8 @@ test('the estimate follows each price list: tokens are seconds × width × heigh
 	// 2.0 Fast, 720p 16:9, 5 s: 108,000 tokens × $5.60 / M = $0.6048 (the page shows $0.60).
 	assert.deepEqual(estimate('seedance-2.0-fast', 'intl', { resolution: '720p', ratio: '16:9', duration: 5 }), usd(0.6048));
 	// 1.5 Pro, 480p 16:9, 5 s: 50,220 tokens × $2.40 / M = $0.120528 with sound, × $1.20 / M = $0.060264 silent (the page: $0.12 and $0.06).
-	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, generate_audio: true }), usd(0.120528));
-	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, generate_audio: false }), usd(0.060264));
+	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, sound: true }), usd(0.120528));
+	assert.deepEqual(estimate('seedance-1.5-pro', 'intl', { resolution: '480p', ratio: '16:9', duration: 5, sound: false }), usd(0.060264));
 	// 1.0 Pro, 1080p 16:9, 5 s: 244,800 tokens (the page's usage) × $2.50 / M = $0.612 (the page shows $0.61).
 	assert.deepEqual(estimate('seedance-1.0-pro', 'intl', { resolution: '1080p', ratio: '16:9', duration: 5 }), usd(0.612));
 	// 2.0, 4K 16:9, 5 s: 5 × 3840 × 2160 × 24 / 1024 = 972,000 tokens × $4.00 / M = $3.888 (the page shows $3.89).
