@@ -17,7 +17,7 @@ import test from 'node:test';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogParameter, PlannedCounts } from '../src/providers/types.ts';
+import type { CatalogParameter, CatalogProvider, PlannedCounts } from '../src/providers/types.ts';
 import { VIDU } from '../src/providers/vidu.ts';
 import { error, gifHeader, isoMedia, mp3, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
 
@@ -81,6 +81,12 @@ function taskRef(endpoint: string, remoteId: string, region = 'intl') {
 	return { provider: 'vidu', region, endpoint, credentials: { apiKey: KEY }, model: 'q3-pro', remoteId };
 }
 
+/** The options of a choice of a model, each as its value and its label. */
+function optionLabels(provider: CatalogProvider, modelId: string, name: string): string[] | undefined {
+	const parameter = provider.models.find(model => model.id === modelId)?.parameters.find(entry => entry.name === name);
+	return parameter?.kind === 'choice' ? parameter.options.map(option => `${option.value} ${option.label}`) : undefined;
+}
+
 function describeParameter(parameter: CatalogParameter): string {
 	const name = `${parameter.name}${parameter.modes ? `[${parameter.modes.join(',')}]` : ''}${parameter.optional ? '?' : ''}`;
 	switch (parameter.kind) {
@@ -131,7 +137,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-pro'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'optional', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `aspect_ratio[frames]: ${RATIOS} = 16:9`, 'audio = true', SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED],
 			estimate: true
 		},
 		{
@@ -140,7 +146,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-turbo'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'optional', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `aspect_ratio[frames]: ${RATIOS} = 16:9`, 'audio = true', SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-16 = 5', `ratio[frames]: ${RATIOS} = 16:9`, 'sound = true', SEED],
 			estimate: true
 		},
 		{
@@ -149,7 +155,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3-pro-fast'),
 			prompt: { required: 'withoutMedia', maxLength: 20000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 720p|1080p = 720p', 'duration: 1-16 = 5', 'audio = true', SEED],
+			parameters: ['resolution: 720p|1080p = 720p', 'duration: 1-16 = 5', 'sound = true', SEED],
 			estimate: true
 		},
 		{
@@ -165,7 +171,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 					limits: { imageMaxBytes: 50 * MIB, audioSeconds: [3, 12], audioMaxBytes: 50 * MIB }
 				}
 			],
-			parameters: ['resolution: 540p|720p|1080p|2K|4K = 720p', 'duration: 3-16 = 5', `aspect_ratio[reference]: ${RATIOS} = 16:9`, 'audio = true', 'is_rec[frames] = false', SEED],
+			parameters: ['resolution: 540p|720p|1080p|2k|4k = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS} = 16:9`, 'sound = true', 'prompt_extend[frames] = false', SEED],
 			estimate: true
 		},
 		{
@@ -174,7 +180,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq3'),
 			prompt: { required: 'always', maxLength: 20000 },
 			modes: [{ id: 'reference', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: REFERENCE_IMAGE_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-16 = 5', `aspect_ratio[reference]: ${RATIOS}|auto = 16:9`, 'audio = true', SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-16 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, 'sound = true', SEED],
 			estimate: true
 		},
 		{
@@ -187,7 +193,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 				inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 3 }, source: 'none' },
 				limits: { ...REFERENCE_IMAGE_LIMITS, audioSeconds: [3, 12], audioMaxBytes: 20 * MIB }
 			}],
-			parameters: ['resolution: 720p|1080p = 720p', 'duration: 3-15 = 5', `aspect_ratio[reference]: ${RATIOS}|auto = 16:9`, SEED],
+			parameters: ['resolution: 720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED],
 			estimate: true
 		},
 		{
@@ -196,7 +202,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: { cn: 'viduq3-turbo' },
 			prompt: { required: 'always', maxLength: 5000 },
 			modes: [{ id: 'reference', inputs: { startFrame: 'none', endFrame: 'none', images: { min: 1, max: 7 }, videos: { min: 0, max: 0 }, audios: { min: 0, max: 0 }, source: 'none' }, limits: REFERENCE_IMAGE_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-15 = 5', `aspect_ratio[reference]: ${RATIOS}|auto = 16:9`, SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 3-15 = 5', `ratio[reference]: ${RATIOS}|adaptive = 16:9`, SEED],
 			estimate: true
 		},
 		{
@@ -205,7 +211,7 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq2-pro'),
 			prompt: { required: 'withoutMedia', maxLength: 5000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'audio = false', SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED],
 			estimate: true
 		},
 		{
@@ -214,10 +220,21 @@ test('Vidu is a shipped provider whose catalog lists the models, regions, modes,
 			providerModels: both('viduq2-turbo'),
 			prompt: { required: 'withoutMedia', maxLength: 5000 },
 			modes: [{ id: 'frames', inputs: { startFrame: 'required', endFrame: 'optional', ...FRAMES_ONLY }, limits: FRAME_LIMITS }],
-			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'audio = false', SEED],
+			parameters: ['resolution: 540p|720p|1080p = 720p', 'duration: 1-10 = 5', 'sound = false', SEED],
 			estimate: true
 		}
 	]);
+	// The names and values every provider shares, with the labels Vidu writes.
+	const names = new Set(provider.models.flatMap(model => model.parameters.map(parameter => parameter.name)));
+	assert.deepEqual({
+		names: [...names].sort(),
+		q4Resolutions: optionLabels(provider, 'q4-preview', 'resolution'),
+		q3Ratios: optionLabels(provider, 'q3', 'ratio')
+	}, {
+		names: ['duration', 'prompt_extend', 'ratio', 'resolution', 'seed', 'sound'],
+		q4Resolutions: ['540p 540p', '720p 720p', '1080p 1080p', '2k 2K', '4k 4K'],
+		q3Ratios: ['16:9 16:9', '9:16 9:16', '1:1 1:1', '4:3 4:3', '3:4 3:4', 'adaptive Adaptive']
+	});
 });
 
 test('each model and mode creates its task once, at its path, with the Token header and the exact body', async () => {
@@ -227,7 +244,7 @@ test('each model and mode creates its task once, at its path, with the Token hea
 		const cases: { readonly name: string; readonly request: Record<string, unknown>; readonly path: string; readonly body: Record<string, unknown> }[] = [
 			{
 				name: 'Q3 Pro from text, with every setting, the ratio, and a seed',
-				request: { params: { resolution: '1080p', duration: 8, aspect_ratio: '9:16', audio: false, seed: 42 } },
+				request: { params: { resolution: '1080p', duration: 8, ratio: '9:16', sound: false, seed: 42 } },
 				path: '/ent/v2/text2video',
 				body: { model: 'viduq3-pro', prompt, duration: 8, resolution: '1080p', aspect_ratio: '9:16', audio: false, seed: 42 }
 			},
@@ -251,19 +268,19 @@ test('each model and mode creates its task once, at its path, with the Token hea
 			},
 			{
 				name: 'Q4 Preview from a start frame with Expand Prompt on, at 4K for 16 seconds',
-				request: { model: 'q4-preview', params: { is_rec: true, resolution: '4K', duration: 16 }, inputs: { ...NO_MEDIA, startFrame: image(START) } },
+				request: { model: 'q4-preview', params: { prompt_extend: true, resolution: '4k', duration: 16 }, inputs: { ...NO_MEDIA, startFrame: image(START) } },
 				path: '/ent/v2/img2video',
 				body: { model: 'viduq4-preview', images: [dataUrl(START)], prompt, duration: 16, resolution: '4K', audio: true, is_rec: true }
 			},
 			{
 				name: 'Q4 Preview from reference images and audio',
-				request: { model: 'q4-preview', mode: 'reference', params: { resolution: '2K', aspect_ratio: '1:1' }, inputs: { ...NO_MEDIA, images: [image(SQUARE), image(START)], audios: [audio(VOICE)] } },
+				request: { model: 'q4-preview', mode: 'reference', params: { resolution: '2k', ratio: '1:1' }, inputs: { ...NO_MEDIA, images: [image(SQUARE), image(START)], audios: [audio(VOICE)] } },
 				path: '/ent/v2/reference2video',
 				body: { model: 'viduq4-preview', images: [dataUrl(SQUARE), dataUrl(START)], sounds: [dataUrl(VOICE, 'video/mp3')], prompt, duration: 5, resolution: '2K', aspect_ratio: '1:1', audio: true }
 			},
 			{
-				name: 'Q3 from a reference image with the ratio Auto',
-				request: { region: 'intl', model: 'q3', mode: 'reference', params: { aspect_ratio: 'auto', duration: 12 }, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } },
+				name: 'Q3 from a reference image with the ratio Adaptive, sent as auto',
+				request: { region: 'intl', model: 'q3', mode: 'reference', params: { ratio: 'adaptive', duration: 12 }, inputs: { ...NO_MEDIA, images: [image(SQUARE)] } },
 				path: '/ent/v2/reference2video',
 				body: { model: 'viduq3', images: [dataUrl(SQUARE)], prompt, duration: 12, resolution: '720p', aspect_ratio: 'auto', audio: true }
 			},
@@ -281,7 +298,7 @@ test('each model and mode creates its task once, at its path, with the Token hea
 			},
 			{
 				name: 'Q2 Pro from a start frame with sound',
-				request: { model: 'q2-pro', params: { audio: true, duration: 4 }, inputs: { ...NO_MEDIA, startFrame: image(START) } },
+				request: { model: 'q2-pro', params: { sound: true, duration: 4 }, inputs: { ...NO_MEDIA, startFrame: image(START) } },
 				path: '/ent/v2/img2video',
 				body: { model: 'viduq2-pro', images: [dataUrl(START)], prompt, duration: 4, resolution: '720p', audio: true }
 			},
@@ -614,7 +631,7 @@ test('check adds Vidu\'s own rules to the declarations\' checks, and submit then
 		textInChina: await problems({ model: 'q3-turbo', prompt: 'x'.repeat(6000) }),
 		q2StartFrame: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: counts({ startFrame: true }) }),
 		q2StartAndEndFrames: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: counts({ startFrame: true, endFrame: true }) }),
-		q2SoundWithEndFrame: await problems({ model: 'q2-turbo', params: { audio: true }, inputs: counts({ startFrame: true, endFrame: true }) }),
+		q2SoundWithEndFrame: await problems({ model: 'q2-turbo', params: { sound: true }, inputs: counts({ startFrame: true, endFrame: true }) }),
 		referencesWithoutPrompt: await problems({ model: 'q4-preview', mode: 'reference', prompt: '', inputs: counts({ images: 1 }) }),
 		referencesWithoutPromptOrImage: await problems({ model: 'q4-preview', mode: 'reference', prompt: '' }),
 		smallReference: await problems({ model: 'q3', mode: 'reference', inputs: { ...NO_MEDIA, images: [image(SMALL)] } }),
@@ -658,9 +675,9 @@ test('estimates follow Vidu\'s price list of 2026-10-19, three combinations in e
 			// 20 credits a second at 720p for 5 seconds: 100 credits of ¥0.03125.
 			await estimate({ params: { resolution: '720p', duration: 5 } }),
 			// 78 credits a second at 4K for 16 seconds: 1,248 credits.
-			await estimate({ model: 'q4-preview', mode: 'reference', params: { resolution: '4K', duration: 16 }, inputs: counts({ images: 2 }) }),
+			await estimate({ model: 'q4-preview', mode: 'reference', params: { resolution: '4k', duration: 16 }, inputs: counts({ images: 2 }) }),
 			// 40 credits for 5 seconds at 720p, and 15 for sound: 55 credits.
-			await estimate({ model: 'q2-turbo', params: { resolution: '720p', duration: 5, audio: true }, inputs: counts({ startFrame: true }) })
+			await estimate({ model: 'q2-turbo', params: { resolution: '720p', duration: 5, sound: true }, inputs: counts({ startFrame: true }) })
 		],
 		international: [
 			// 13 credits a second at 1080p for 10 seconds: 130 credits of $0.005.
@@ -671,7 +688,7 @@ test('estimates follow Vidu\'s price list of 2026-10-19, three combinations in e
 			await estimate({ region: 'intl', model: 'q2-pro', params: { resolution: '540p', duration: 1 }, inputs: counts({ startFrame: true, endFrame: true }) })
 		],
 		// 24 credits a second for 5 seconds, and up to 10 more for Expand Prompt.
-		expandPrompt: await estimate({ model: 'q4-preview', params: { resolution: '1080p', duration: 5, is_rec: true }, inputs: counts({ startFrame: true }) }),
+		expandPrompt: await estimate({ model: 'q4-preview', params: { resolution: '1080p', duration: 5, prompt_extend: true }, inputs: counts({ startFrame: true }) }),
 		proFastFromStartFrame: await estimate({ region: 'intl', model: 'q3-pro-fast', params: { resolution: '1080p', duration: 16 }, inputs: counts({ startFrame: true }) }),
 		proFastWithEndFrame: await estimate({ model: 'q3-pro-fast', inputs: counts({ startFrame: true, endFrame: true }) }),
 		turboReferences: await estimate({ model: 'q3-turbo-reference', mode: 'reference', params: { resolution: '540p', duration: 15 }, inputs: counts({ images: 7 }) })
