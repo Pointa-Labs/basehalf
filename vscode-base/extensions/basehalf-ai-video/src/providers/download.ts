@@ -8,7 +8,7 @@ import type { ClientRequest, IncomingMessage } from 'node:http';
 import { isAbsolute } from 'node:path';
 import { ProviderFailure, rejected, unreadable } from './failure.ts';
 import { isAllowedAddress, networkDetail, RETRYABLE_STATUSES, retryAfterMs, startRequest, USER_AGENT, type BoundHttp } from './http.ts';
-import type { VideoLocation } from './module.ts';
+import type { InlineVideo, VideoAddress, VideoLocation } from './module.ts';
 
 /** The largest video downloaded (video node, "Starting"). */
 export const MAX_VIDEO_DOWNLOAD_BYTES = 512 * 1024 * 1024;
@@ -55,13 +55,17 @@ function isMp4(head: Buffer): boolean {
  * (never to a CDN), at most 512 MiB (`tooLarge`), and an MP4 `ftyp` box first
  * (`notVideo`). A network error, or HTTP 408, 429, 500, 502, 503, or 504,
  * starts it again, as `ProviderHttp.request` does. A download that fails
- * leaves no file.
+ * leaves no file. A video the provider answered inline is written under the
+ * same checks.
  */
 export async function downloadVideo(http: BoundHttp, location: VideoLocation, targetFsPath: string, options: DownloadOptions = {}): Promise<number> {
 	if (!isAbsolute(targetFsPath) || !targetFsPath.endsWith('.part')) {
 		throw rejected('AI Video writes a download only to a new .part file.');
 	}
 	const maxBytes = options.maxBytes ?? MAX_VIDEO_DOWNLOAD_BYTES;
+	if (isInlineVideo(location)) {
+		return writeInline(Buffer.from(location.bytes.buffer, location.bytes.byteOffset, location.bytes.byteLength), targetFsPath, maxBytes);
+	}
 	const timeoutMs = options.timeoutMs ?? http.options.requestTimeoutMs;
 	for (const value of Object.values(location.headers ?? {})) {
 		http.secretValues.add(value);
@@ -83,7 +87,36 @@ export async function downloadVideo(http: BoundHttp, location: VideoLocation, ta
 	}
 }
 
-async function downloadOnce(http: BoundHttp, location: VideoLocation, targetFsPath: string, maxBytes: number, timeoutMs: number): Promise<number> {
+function isInlineVideo(location: VideoLocation): location is InlineVideo {
+	return (location as { readonly bytes?: unknown }).bytes instanceof Uint8Array;
+}
+
+/** Writes a video the provider answered inline: at most `limit` bytes, an MP4, and no file left when it fails. */
+async function writeInline(bytes: Buffer, targetFsPath: string, limit: number): Promise<number> {
+	if (bytes.byteLength > limit) {
+		throw new ProviderFailure('tooLarge', `The video is ${bytes.byteLength} bytes, more than the ${limit} bytes BaseHalf downloads.`);
+	}
+	if (!isMp4(bytes)) {
+		throw new ProviderFailure('notVideo', bytes.byteLength < 8 ? 'The file is too short to be an MP4 video.' : 'The file does not start like an MP4 video.');
+	}
+	let handle: Awaited<ReturnType<typeof open>>;
+	try {
+		handle = await open(targetFsPath, 'wx');
+	} catch (error) {
+		throw rejected(`AI Video could not create the download file: ${networkDetail(error)}`);
+	}
+	try {
+		await handle.writeFile(bytes);
+		await handle.close();
+		return bytes.byteLength;
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		await unlink(targetFsPath).catch(() => undefined);
+		throw rejected(`AI Video could not write the video: ${networkDetail(error)}`);
+	}
+}
+
+async function downloadOnce(http: BoundHttp, location: VideoAddress, targetFsPath: string, maxBytes: number, timeoutMs: number): Promise<number> {
 	let url = videoUrl(location.url);
 	for (let redirects = 0; ; redirects++) {
 		const ownOrigin = url.origin === http.endpoint.origin;

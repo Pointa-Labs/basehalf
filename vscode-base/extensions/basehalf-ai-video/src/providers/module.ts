@@ -72,8 +72,9 @@ export interface ProviderModule {
 
 	/**
 	 * Where the video of a succeeded task is, when its poll gave no address,
-	 * and the headers it needs. The headers go only to the endpoint's own
-	 * origin; without them, the credential headers do.
+	 * and the headers it needs; or the video itself, for a provider that
+	 * answers it inside the task's answer. The headers go only to the
+	 * endpoint's own origin; without them, the credential headers do.
 	 */
 	videoLocation(ref: TaskRef, http: ProviderHttp): Promise<VideoLocation>;
 
@@ -85,10 +86,22 @@ export interface ProviderModule {
 	cancel(ref: TaskRef, http: ProviderHttp): Promise<boolean>;
 }
 
-/** Where a video is downloaded from. */
-export interface VideoLocation {
+/** Where a video is downloaded from, or the video itself. */
+export type VideoLocation = VideoAddress | InlineVideo;
+
+/** An address a video is downloaded from. */
+export interface VideoAddress {
 	/** `https://`, or `http://` on this computer. */
 	readonly url: string;
 	/** Sent while the address is on the endpoint's origin, instead of the credential headers. */
 	readonly headers?: Readonly<Record<string, string>>;
+}
+
+/**
+ * A video the provider answered inline, such as base64 inside its JSON. It is
+ * written under the checks of a download: at most 512 MiB, and only a file
+ * that starts like an MP4.
+ */
+export interface InlineVideo {
+	readonly bytes: Uint8Array;
 }
