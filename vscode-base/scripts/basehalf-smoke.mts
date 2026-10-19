@@ -3104,10 +3104,22 @@ async function assertVideoPanelInputsAndNames(page) {
 	await waitUntil(() => JSON.stringify(readVideoNode(VIDEO_NODE).upstream) === JSON.stringify([VIDEO_START_IMAGE, VIDEO_END_IMAGE]), 'the drawn connection to add end.png after start.png', 10_000);
 	panel = await selectVideoCard(page, VIDEO_NODE);
 	const frames = await waitForReading(() => readVideoPanel(panel), seen => seen.start?.path === VIDEO_START_IMAGE && seen.end?.path === VIDEO_END_IMAGE, 'the panel to show start.png and end.png as the frames');
-	// The inputs change what is sent, not the settings.
-	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || frames.settings !== videoSmoke.summary) {
-		throw new Error(`The frames must be named by upstream order, and the settings must stay ${videoSmoke.summary}: ${JSON.stringify(frames)}`);
+	// The inputs change no value; a value the start frame sets (the ratio of the
+	// first model) leaves the summary and shows as set by the frame.
+	const before = videoSmoke.summary.split(' · ');
+	const after = frames.settings?.split(' · ') ?? [];
+	if (frames.start.name !== 'Image 1' || frames.end.name !== 'Image 2' || after.length !== before.length - 1 || !after.every(part => before.includes(part))) {
+		throw new Error(`The frames must be named by upstream order, and the settings must leave out only the value the start frame sets from ${videoSmoke.summary}: ${JSON.stringify(frames)}`);
 	}
+	await panel.locator('button.bh-video-panel-settings').click();
+	await waitForReading(() => readVideoSettingsPopover(panel), seen => seen !== null && seen.focusInside, 'the settings popover to open');
+	const notes = await panel.evaluate(element => Array.from(element.querySelectorAll('.bh-video-panel-menu.settings .bh-video-panel-setting.fixed'))
+		.map(section => `${section.querySelector('.bh-video-panel-setting-label')?.textContent}: ${section.querySelector('.bh-video-panel-setting-note')?.textContent}`));
+	if (JSON.stringify(notes) !== JSON.stringify(['Ratio: Set by the start frame'])) {
+		throw new Error(`With a start frame, the settings must show the ratio as set by it: ${JSON.stringify(notes)}`);
+	}
+	await closeVideoPanelMenu(page, panel, 'settings');
+	videoSmoke.summary = frames.settings;
 
 	const beforeSwap = readVideoNode(VIDEO_NODE);
 	await panel.locator('button.bh-video-panel-swap').click();
@@ -3210,7 +3222,12 @@ async function assertVideoGenerateWritesVideo(page) {
 	const result = document.result;
 	const recorded = result?.generation?.request;
 	// The request record: the provider in its region, the catalog's model and the id sent there, and what the panel showed.
-	const sent = { provider: VIDEO_PROVIDER, region: VIDEO_REGION, model: videoSmoke.model, providerModel: recorded?.providerModel, mode: 'frames', params: node.generation.params, prompt: VIDEO_PROMPT_WITH_NAME, inputs: [VIDEO_START_IMAGE, VIDEO_END_IMAGE] };
+	// The start frame sets the first model's ratio: the record leaves it out, and the node keeps it.
+	const { ratio: frameRatio, ...sentParams } = node.generation.params;
+	const sent = { provider: VIDEO_PROVIDER, region: VIDEO_REGION, model: videoSmoke.model, providerModel: recorded?.providerModel, mode: 'frames', params: sentParams, prompt: VIDEO_PROMPT_WITH_NAME, inputs: [VIDEO_START_IMAGE, VIDEO_END_IMAGE] };
+	if (frameRatio === undefined) {
+		throw new Error(`The node must keep the ratio that the start frame sets: ${JSON.stringify(node.generation)}`);
+	}
 	if (document.task !== undefined || result?.source !== 'generated' || typeof recorded?.providerModel !== 'string' || !recorded.providerModel
 		|| canonicalJson(result.artifact) !== canonicalJson({ kind: 'video', path: `outputs/${node.id}/${taskId}.mp4`, size: provider.video.length })
 		|| result.generation?.taskId !== taskId || result.generation.remoteId !== remoteId || canonicalJson(recorded) !== canonicalJson(sent)) {
