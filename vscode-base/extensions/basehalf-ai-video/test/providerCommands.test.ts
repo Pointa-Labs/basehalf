@@ -71,6 +71,41 @@ test('check runs the declarations\' checks, then the module\'s rules and estimat
 	assert.deepEqual(awayRegion, { problems: [] });
 });
 
+test('a parameter a start frame sets is left out with a start frame, and a mode outside its regions is refused', async () => {
+	const provider = testModule().describe();
+	const [clip, away] = provider.models;
+	const declared = {
+		...provider,
+		models: [{
+			...clip,
+			modes: clip.modes.map(mode => mode.id === 'reference' ? { ...mode, regions: ['away'] } : mode),
+			parameters: clip.parameters.map(entry => entry.name === 'ratio' ? { ...entry, modes: undefined, setByStartFrame: true } : entry)
+		}, away]
+	};
+	const seen: Record<string, unknown>[] = [];
+	const providers = commands({
+		describe: () => declared,
+		async check(request) {
+			seen.push({ ...request.params });
+			return { problems: [] };
+		}
+	});
+	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: 'p' };
+	const counts = (startFrame: boolean) => ({ startFrame, endFrame: false, images: 0, videos: 0, audios: 0, source: false });
+	// With a start frame, even a ratio the model does not offer is left out unchecked.
+	const withFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: counts(true) }));
+	const withoutFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: counts(false) }));
+	const defaults = value(await providers.check({ ...base, params: {}, inputs: counts(false) }));
+	const outside = value(await providers.check({ ...base, mode: 'reference', params: {}, inputs: { ...counts(false), images: 1 } }));
+	assert.deepEqual({ withFrame: withFrame.problems, withoutFrame: withoutFrame.problems, outside: outside.problems, seen }, {
+		withFrame: [],
+		withoutFrame: ['Ratio cannot be 21:9 for Clip 1; choose 16:9, 9:16.'],
+		outside: ['Clip 1 offers References mode only in Away. Choose another mode, or another region in Video Providers.'],
+		seen: [{ resolution: '720p', duration: 5 }, { resolution: '720p', duration: 5, ratio: '16:9' }]
+	});
+	void defaults;
+});
+
 test('check refuses an image in a format the mode does not take, and answers the provider id the module would send', async () => {
 	const webpFrame = join(folder, 'start.webp');
 	writeFileSync(webpFrame, webpHeader('VP8X', 640, 360));

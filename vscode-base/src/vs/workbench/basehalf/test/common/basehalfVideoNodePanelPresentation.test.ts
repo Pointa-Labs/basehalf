@@ -11,7 +11,8 @@ import {
 	findBaseHalfVideoRegion,
 	IBaseHalfVideoCatalogProvider,
 	IBaseHalfVideoGenerationChoice,
-	IBaseHalfVideoInputSource
+	IBaseHalfVideoInputSource,
+	parseBaseHalfVideoCatalog
 } from '../../common/basehalfVideoCatalog.js';
 import { IBaseHalfVideoNodeFields } from '../../common/basehalfVideoNode.js';
 import {
@@ -87,6 +88,8 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 					return `${control.label} number '${control.text}' placeholder '${control.placeholder}'${control.optional ? ' optional' : ''}`;
 				case 'switch':
 					return `${control.label} switch ${control.on ? 'on' : 'off'}`;
+				case 'fixed':
+					return `${control.label} fixed: ${control.text}`;
 				case 'text':
 					return `${control.label} text '${control.text}' max ${control.maxLength}${control.optional ? ' optional' : ''}`;
 			}
@@ -355,6 +358,35 @@ suite('BaseHalfVideoNodePanelPresentation', () => {
 			swapped: ['b.png', 'note.md', 'a.png'],
 			unchanged: ['a.png'],
 			names: ['Scene', 'Shot 1', 'a.png', 'brief.pdf']
+		});
+	});
+
+	test('a value the start frame sets shows as set by it and is not asked for, and a mode the region does not offer is dimmed', () => {
+		const declared = JSON.parse(JSON.stringify({ schema: 1, providers: TEST_VIDEO_CATALOG.providers }));
+		const motion = declared.providers[0].models.find((model: { id: string }) => model.id === 'acme-motion-2');
+		motion.parameters = motion.parameters.map((parameter: { name: string }) => parameter.name === 'ratio' ? { ...parameter, modes: undefined, setByStartFrame: true } : parameter);
+		motion.modes = motion.modes.map((mode: { id: string }) => mode.id === 'reference' ? { ...mode, regions: ['west'] } : mode);
+		const catalog: BaseHalfVideoCatalogState = { kind: 'ready', catalog: parseBaseHalfVideoCatalog(declared).catalog };
+		const generation = { ...frames, params: { ...frames.params, ratio: '9:16' } };
+		const read = (presentation: IBaseHalfVideoPanelPresentation) => ({
+			ratio: controls(presentation.settingsView!.controls).find(line => line.startsWith('Ratio')),
+			summary: presentation.settingsView!.summary,
+			asked: presentation.checkRequest?.params,
+			modes: presentation.settingsView!.modes!.map(mode => `${mode.label}${mode.unavailable ? ` (${mode.unavailable})` : ''}`)
+		});
+		assert.deepStrictEqual({ withFrame: read(present({ catalog, generation })), withoutFrame: read(present({ catalog, generation, inputs: [] })) }, {
+			withFrame: {
+				ratio: 'Ratio fixed: Set by the start frame',
+				summary: 'Frames · 720p · 5s · Sound',
+				asked: { resolution: '720p', duration: 5, sound: true },
+				modes: ['Frames', 'References (Not offered in East · Acme Cloud)']
+			},
+			withoutFrame: {
+				ratio: 'Ratio ratio: 16:9(16x9) 4:3(4x3) 1:1(1x1) 3:4(3x4) 9:16(9x16)* 21:9(21x9)',
+				summary: 'Frames · 720p · 9:16 · 5s · Sound',
+				asked: { resolution: '720p', ratio: '9:16', duration: 5, sound: true },
+				modes: ['Frames', 'References (Not offered in East · Acme Cloud)']
+			}
 		});
 	});
 });

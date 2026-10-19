@@ -42,11 +42,19 @@ export function parameterApplies(parameter: CatalogParameter, mode: ModeId): boo
 	return !parameter.modes || parameter.modes.includes(mode);
 }
 
-/** Every parameter that applies to the mode with its value or its default; an optional one only when set. */
-export function resolveParams(model: CatalogModel, mode: ModeId, params: Params): Record<string, ParamValue> {
+/** Whether a start frame decides the parameter for these inputs: then nothing is sent for it. */
+export function setByStartFrame(parameter: CatalogParameter, counts: PlannedCounts | undefined): boolean {
+	return parameter.setByStartFrame === true && counts?.startFrame === true;
+}
+
+/**
+ * Every parameter that applies to the mode with its value or its default; an
+ * optional one only when set, and none that a start frame of the inputs sets.
+ */
+export function resolveParams(model: CatalogModel, mode: ModeId, params: Params, counts?: PlannedCounts): Record<string, ParamValue> {
 	const resolved: Record<string, ParamValue> = {};
 	for (const parameter of model.parameters) {
-		if (!parameterApplies(parameter, mode)) {
+		if (!parameterApplies(parameter, mode) || setByStartFrame(parameter, counts)) {
 			continue;
 		}
 		const value = Object.hasOwn(params, parameter.name) ? params[parameter.name] : parameter.default;
@@ -166,8 +174,8 @@ export function checkParameterValue(model: CatalogModel, parameter: CatalogParam
 	}
 }
 
-/** Unknown parameters, parameters of another mode, and values the declarations do not allow. */
-export function checkParams(model: CatalogModel, mode: CatalogMode, params: Params): string[] {
+/** Unknown parameters, parameters of another mode, and values the declarations do not allow; a value a start frame sets is left out, not checked. */
+export function checkParams(model: CatalogModel, mode: CatalogMode, params: Params, counts?: PlannedCounts): string[] {
 	const problems: string[] = [];
 	const declared = new Map(model.parameters.map(parameter => [parameter.name, parameter]));
 	for (const name of Object.keys(params)) {
@@ -179,7 +187,7 @@ export function checkParams(model: CatalogModel, mode: CatalogMode, params: Para
 		}
 	}
 	for (const parameter of model.parameters) {
-		if (!parameterApplies(parameter, mode.id)) {
+		if (!parameterApplies(parameter, mode.id) || setByStartFrame(parameter, counts)) {
 			continue;
 		}
 		const value = Object.hasOwn(params, parameter.name) ? params[parameter.name] : parameter.default;

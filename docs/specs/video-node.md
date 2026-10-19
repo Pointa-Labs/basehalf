@@ -223,7 +223,9 @@ The user sets them up in Settings, on the **Video Providers** page.
 The settings of a node are drawn from its model's
 [parameters](video-providers.md#parameters), for the node's mode:
 
-- **Mode** first, when the model offers more than one.
+- **Mode** first, when the model offers more than one. A mode that the
+  provider's region does not offer is dimmed with the reason, and can still
+  be chosen.
 - Then every parameter that is not advanced, in the order the model declares
   them: a choice of up to five values as a row of buttons, of more as a list
   that scrolls after six rows; a choice drawn as `ratio` as small ratio
@@ -252,6 +254,11 @@ is not advanced and has a value: a choice by its option's label, a number
 with the unit seconds as `5s`, **Auto** as its label, any other number as its
 label and value (`Steps 30`), a boolean that is on by its label and one that
 is off as `Sound off`, and text as written.
+
+A parameter that a start frame sets (`setByStartFrame`) shows **Set by the
+start frame** in place of its choices while the inputs plan a start frame,
+and the summary leaves it out; nothing is sent or recorded for it then. The
+node keeps its value, which shows again when no start frame is connected.
 
 ## The panel
 
@@ -318,7 +325,7 @@ tooltip and accessible name say the first reason, in this order
 (`getBaseHalfVideoGenerateBlocker`): the node is generating; the catalog is
 loading or could not be loaded; no model is chosen; the catalog has no such
 model; the provider is not set up; the provider's region does not offer the
-model; the first problem that the provider module reports for the planned
+model; the provider's region does not offer the mode; the first problem that the provider module reports for the planned
 generation ([check](video-providers.md#requests)); there is nothing to send.
 For no model, no such model, the provider, and the region, the model button
 is outlined and its tooltip says the same.

@@ -117,6 +117,8 @@ export interface CatalogMode {
 	readonly label: string;
 	readonly inputs: ModeInputs;
 	readonly limits: ModeLimits;
+	/** The regions that offer the mode, when not every region that offers the model does. */
+	readonly regions?: readonly string[];
 }
 
 export type ParamValue = string | number | boolean;
@@ -133,6 +135,8 @@ interface ParameterBase {
 	readonly advanced?: boolean;
 	/** May be left unset; nothing is sent then. A parameter that is not optional has a default. */
 	readonly optional?: boolean;
+	/** A start frame decides it: with a start frame, nothing is sent or recorded for it. */
+	readonly setByStartFrame?: boolean;
 }
 
 export interface ChoiceParameter extends ParameterBase {

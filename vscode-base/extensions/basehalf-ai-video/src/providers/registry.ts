@@ -95,6 +95,12 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 		check(!modes.has(mode.id), `${at}, mode ${mode.id}: declared twice`);
 		modes.add(mode.id);
 		validateMode(mode, `${at}, mode ${mode.id}`);
+		if (mode.regions !== undefined) {
+			check(mode.regions.length > 0 && new Set(mode.regions).size === mode.regions.length, `${at}, mode ${mode.id}: regions must name at least one region, each once`);
+			for (const region of mode.regions) {
+				check(model.providerModels[region] !== undefined, `${at}, mode ${mode.id}: regions names ${region}, which does not offer the model`);
+			}
+		}
 	}
 	check(typeof model.estimate === 'boolean', `${at}: estimate must be true or false`);
 	const names = new Set<string>();
@@ -104,6 +110,10 @@ function validateModel(model: CatalogModel, regions: ReadonlySet<string>, at: st
 		check(!names.has(parameter.name), `${where}: declared twice`);
 		names.add(parameter.name);
 		validateParameter(parameter, modes, where);
+		if (parameter.setByStartFrame !== undefined) {
+			check(typeof parameter.setByStartFrame === 'boolean', `${where}: setByStartFrame must be true or false`);
+			check(!parameter.setByStartFrame || model.modes.some(mode => (!parameter.modes || parameter.modes.includes(mode.id)) && mode.inputs.startFrame !== 'none'), `${where}: setByStartFrame needs a mode with a start frame`);
+		}
 	}
 }
 

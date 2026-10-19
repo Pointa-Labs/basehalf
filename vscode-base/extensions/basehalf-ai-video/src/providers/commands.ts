@@ -93,7 +93,7 @@ export class VideoProviderCommands {
 				throw rejected(checked.problems[0]);
 			}
 			http = this.http(resolved.module, request);
-			const params = resolveParams(resolved.model, request.mode, request.params);
+			const params = resolveParams(resolved.model, request.mode, request.params, countsOf(request.inputs));
 			const remoteId = await resolved.module.submit({ ...request, params }, http);
 			return { remoteId: taskId(remoteId) };
 		}, () => http?.createAnswered === true, () => http?.secretValues);
@@ -182,19 +182,23 @@ export class VideoProviderCommands {
 		if (model.providerModels[region.id] === undefined) {
 			return { problems: [`${provider.label} does not offer ${model.label} in ${region.label}.`] };
 		}
+		if (mode.regions && !mode.regions.includes(region.id)) {
+			const where = provider.regions.filter(candidate => mode.regions?.includes(candidate.id)).map(candidate => candidate.label).join(', ');
+			return { problems: [`${model.label} offers ${mode.label} mode only in ${where}. Choose another mode, or another region in Video Providers.`] };
+		}
 		const counts = countsOf(request.inputs);
 		const problems = [
 			...checkCounts(model, mode, counts),
 			...checkPrompt(model, mode, request.prompt, counts),
 		];
-		const parameterProblems = checkParams(model, mode, request.params);
+		const parameterProblems = checkParams(model, mode, request.params, counts);
 		if (parameterProblems.length) {
 			return { problems: [...problems, ...parameterProblems] };
 		}
 		if (isPlannedMedia(request.inputs)) {
 			problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
 		}
-		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params) }, inspector);
+		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
 		const all = [...problems, ...own.problems];
 		// Only a model declared with an estimate answers one, in its region's currency.
 		const estimate = model.estimate && own.estimate && own.estimate.currency === region.currency ? { estimate: own.estimate } : {};

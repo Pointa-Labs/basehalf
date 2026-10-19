@@ -20,6 +20,7 @@ import {
 	baseHalfVideoNumberSteps,
 	baseHalfVideoNumberValues,
 	baseHalfVideoPlannedCounts,
+	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
 	buildBaseHalfVideoPrompt,
 	findBaseHalfVideoLabelTokens,
@@ -308,6 +309,38 @@ suite('BaseHalfVideoCatalog', () => {
 			result: { problems: ['The prompt is too long .'], estimate: { currency: 'USD', min: 1, max: 2, priceDate: '2026-10-18' } },
 			badEstimate: { problems: [] },
 			notAResult: undefined
+		});
+	});
+
+	test('a value a start frame sets is left out of what is sent and summed up, and a mode outside its regions blocks', () => {
+		const declared = JSON.parse(JSON.stringify({ schema: 1, providers: [ACME] }));
+		const motionDeclared = declared.providers[0].models.find((model: { id: string }) => model.id === 'acme-motion-2');
+		motionDeclared.parameters = motionDeclared.parameters.map((parameter: { name: string }) => parameter.name === 'ratio' ? { ...parameter, modes: undefined, setByStartFrame: true } : parameter);
+		motionDeclared.modes = motionDeclared.modes.map((mode: { id: string }) => mode.id === 'reference' ? { ...mode, regions: ['west'] } : mode);
+		const catalog = parseBaseHalfVideoCatalog(declared).catalog;
+		const model = catalog.providers[0].models.find(candidate => candidate.id === 'acme-motion-2')!;
+		const params = normalizeBaseHalfVideoParams(model, 'frames', { ratio: '9:16' });
+		const blocker = getBaseHalfVideoGenerateBlocker({
+			generating: false,
+			catalog: { kind: 'ready', catalog },
+			generation: { provider: 'acme', model: 'acme-motion-2', mode: 'reference' },
+			setup: provider => ({ setUp: true, region: findBaseHalfVideoRegion(provider, 'east') }),
+			problems: [],
+			prompt: 'A pier.',
+			plan: []
+		});
+		assert.deepStrictEqual({
+			parsed: [model.parameters.find(parameter => parameter.name === 'ratio')?.setByStartFrame, model.modes[1].regions],
+			withFrame: baseHalfVideoSentParams(model, 'frames', params, true),
+			withoutFrame: baseHalfVideoSentParams(model, 'frames', params, false),
+			summaries: [baseHalfVideoSettingsSummary(model, 'frames', params, true), baseHalfVideoSettingsSummary(model, 'frames', params)],
+			blocker: blocker && [blocker.kind, baseHalfVideoGenerateBlockerText(blocker)]
+		}, {
+			parsed: [true, ['west']],
+			withFrame: { resolution: '720p', duration: 5, sound: true },
+			withoutFrame: { resolution: '720p', ratio: '9:16', duration: 5, sound: true },
+			summaries: [['Frames', '720p', '5s', 'Sound'], ['Frames', '720p', '9:16', '5s', 'Sound']],
+			blocker: ['modeRegion', 'Acme Motion 2 offers References mode only in West · Acme Global. Choose another mode, or another region in Video Providers.']
 		});
 	});
 

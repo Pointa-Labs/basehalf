@@ -26,7 +26,9 @@ import {
 	baseHalfVideoParameterDefault,
 	baseHalfVideoParamValueLabel,
 	baseHalfVideoPlannedCounts,
+	baseHalfVideoRegionOffersMode,
 	baseHalfVideoRegionOffersModel,
+	baseHalfVideoSentParams,
 	baseHalfVideoSettingsSummary,
 	buildBaseHalfVideoPrompt,
 	findBaseHalfVideoLabelTokens,
@@ -178,6 +180,8 @@ export interface IBaseHalfVideoPanelChoice<T> {
 	readonly selected: boolean;
 	/** The ratio's proportions, for a choice drawn as ratio shapes. */
 	readonly shape?: { readonly width: number; readonly height: number };
+	/** Why the choice cannot generate here, such as a mode the region does not offer; it is dimmed and can still be chosen. */
+	readonly unavailable?: string;
 }
 
 interface IBaseHalfVideoPanelControlBase {
@@ -214,7 +218,9 @@ export type BaseHalfVideoPanelControl =
 		readonly auto?: IBaseHalfVideoPanelAuto;
 	}
 	| IBaseHalfVideoPanelControlBase & { readonly kind: 'switch'; readonly on: boolean }
-	| IBaseHalfVideoPanelControlBase & { readonly kind: 'text'; readonly text: string; readonly maxLength: number; readonly multiline: boolean; readonly optional: boolean };
+	| IBaseHalfVideoPanelControlBase & { readonly kind: 'text'; readonly text: string; readonly maxLength: number; readonly multiline: boolean; readonly optional: boolean }
+	/** A parameter the start frame sets while the plan has one: shown, not chosen. */
+	| IBaseHalfVideoPanelControlBase & { readonly kind: 'fixed'; readonly text: string };
 
 export interface IBaseHalfVideoPanelAuto {
 	readonly selected: boolean;
@@ -287,13 +293,14 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 	const modeInputs = mode?.inputs ?? BASEHALF_VIDEO_DEFAULT_MODE_INPUTS;
 	const modeId = mode?.id ?? generation?.mode ?? 'frames';
 	const plan = planBaseHalfVideoInputs(modeInputs, state.inputs, displayLanguage);
+	const startFrame = plan.some(item => item.use === 'start-frame');
 	const checkRequest = ref && mode && region && baseHalfVideoRegionOffersModel(ref.model, region.id)
 		? Object.freeze<IBaseHalfVideoCheckRequest>({
 			provider: ref.provider.id,
 			region: region.id,
 			model: ref.model.id,
 			mode: mode.id,
-			params,
+			params: baseHalfVideoSentParams(ref.model, mode.id, params, startFrame),
 			prompt: buildBaseHalfVideoPrompt(state.prompt, plan.flatMap(item => item.use === 'text' ? [state.texts?.get(item.path) ?? ''] : [])),
 			inputs: baseHalfVideoPlannedCounts(plan)
 		})
@@ -327,7 +334,7 @@ export function createBaseHalfVideoPanelPresentation(state: IBaseHalfVideoPanelS
 			: [])),
 		model: modelButton(state, ref, region, blocker, blockerText),
 		modelMenu: modelMenu(state),
-		...(ref && mode ? { settingsView: settingsView(ref, mode, params) } : {}),
+		...(ref && mode ? { settingsView: settingsView(ref, mode, params, startFrame, region) } : {}),
 		...(estimate ? { estimate } : {}),
 		generate: generateButton(state, blocker, blockerText),
 		...(blocker ? { blocker, blockerText } : {}),
@@ -406,8 +413,8 @@ export function baseHalfVideoPanelGenerateKeyLabel(): string {
 }
 
 /** The settings popover of a model in a mode, drawn from the model's declarations. */
-export function baseHalfVideoPanelSettingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams): IBaseHalfVideoPanelSettingsView {
-	return settingsView(ref, mode, params);
+export function baseHalfVideoPanelSettingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams, startFrame = false, region?: IBaseHalfVideoCatalogRegion): IBaseHalfVideoPanelSettingsView {
+	return settingsView(ref, mode, params, startFrame, region);
 }
 
 // --- inputs --------------------------------------------------------------------------------------
@@ -608,17 +615,25 @@ const BUTTON_CHOICES = 5;
 /** Up to this many steps of a number are a slider; more are a number field. */
 const SLIDER_STEPS = 1000;
 
-function settingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams): IBaseHalfVideoPanelSettingsView {
-	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, params);
+function settingsView(ref: IBaseHalfVideoModelRef, mode: IBaseHalfVideoCatalogMode, params: BaseHalfVideoParams, startFrame: boolean, region: IBaseHalfVideoCatalogRegion | undefined): IBaseHalfVideoPanelSettingsView {
+	const parts = baseHalfVideoSettingsSummary(ref.model, mode.id, params, startFrame);
 	const parameters = baseHalfVideoModeParameters(ref.model, mode.id);
+	const shown = (parameter: BaseHalfVideoCatalogParameter) => startFrame && parameter.setByStartFrame
+		? Object.freeze({ name: parameter.name, label: parameter.label, ...(parameter.tooltip ? { tooltip: parameter.tooltip } : {}), kind: 'fixed' as const, text: localize('basehalf.video.panel.setByStartFrame', "Set by the start frame") })
+		: control(parameter, params[parameter.name]);
 	return Object.freeze({
 		summary: parts.join(' · '),
 		summaryParts: parts,
 		...(ref.model.modes.length > 1 ? {
-			modes: Object.freeze(ref.model.modes.map(candidate => Object.freeze({ key: `mode:${candidate.id}`, value: candidate.id, label: candidate.label, selected: candidate.id === mode.id })))
+			modes: Object.freeze(ref.model.modes.map(candidate => {
+				const unavailable = region && !baseHalfVideoRegionOffersMode(candidate, region.id)
+					? localize('basehalf.video.panel.modeNotInRegion', "Not offered in {0}", region.label)
+					: undefined;
+				return Object.freeze({ key: `mode:${candidate.id}`, value: candidate.id, label: candidate.label, selected: candidate.id === mode.id, ...(unavailable ? { unavailable } : {}) });
+			}))
 		} : {}),
-		controls: Object.freeze(parameters.filter(parameter => !parameter.advanced).map(parameter => control(parameter, params[parameter.name]))),
-		advanced: Object.freeze(parameters.filter(parameter => parameter.advanced).map(parameter => control(parameter, params[parameter.name])))
+		controls: Object.freeze(parameters.filter(parameter => !parameter.advanced).map(shown)),
+		advanced: Object.freeze(parameters.filter(parameter => parameter.advanced).map(shown))
 	});
 }
 

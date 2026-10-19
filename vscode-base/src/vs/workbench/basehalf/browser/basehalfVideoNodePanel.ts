@@ -1612,6 +1612,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				}
 				return;
 			}
+			case 'fixed': {
+				const section = this.settingSection(parent, control.label, control.tooltip);
+				section.dataset.parameter = control.name;
+				section.classList.add('fixed');
+				append(section, $('.bh-video-panel-setting-note')).textContent = control.text;
+				return;
+			}
 			case 'switch': {
 				const section = this.settingSection(parent, control.label, control.tooltip);
 				section.dataset.parameter = control.name;
@@ -1699,6 +1706,13 @@ export class BaseHalfVideoNodePanel extends Disposable {
 				}
 			}
 			append(button, $('span.bh-video-panel-choice-label')).textContent = choice.label;
+			if (choice.unavailable) {
+				// Dimmed with the reason, as a model the region does not offer; it can still be chosen.
+				button.classList.add('unavailable');
+				button.setAttribute('aria-description', choice.unavailable);
+				const reason = choice.unavailable;
+				this.openMenu?.content.add(this.hoverService.setupDelayedHover(button, () => ({ content: reason }), { groupId: HOVER_GROUP }));
+			}
 			button.addEventListener('click', () => {
 				if (!choice.selected) {
 					choose(choice.value);

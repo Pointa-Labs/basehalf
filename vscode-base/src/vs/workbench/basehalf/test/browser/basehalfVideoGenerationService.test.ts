@@ -357,6 +357,29 @@ suite('BaseHalfVideoGenerationService', () => {
 		assert.deepStrictEqual([harness.store.history(hugeNode), harness.store.history(goneNode), harness.commands.count(SUBMIT)], [[], [], 1]);
 	}));
 
+	test('sends and records no value that the start frame sets, and keeps it in the node', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
+		const harness = await createHarness();
+		const frameSets = { ...ACME, models: ACME.models.map(model => model.id === 'acme-motion-2' ? { ...model, parameters: model.parameters.map(parameter => parameter.name === 'ratio' ? { ...parameter, modes: undefined, setByStartFrame: true } : parameter) } : model) };
+		const commands = new FakeProviderCommands(harness.fileService);
+		commands.catalog = () => ({ ok: true, value: { schema: 1, providers: [frameSets, BOREALIS] } });
+		commands.poll = () => ({ ok: true, value: { state: 'running' } });
+		const service = harness.window(commands);
+		await harness.fileService.writeFile(joinPath(root, 'frames/start.png'), VSBuffer.fromString('start-png'));
+		harness.store.addInput('frames/start.png');
+		const node = shotNode(harness, { generation: generation({ params: { resolution: '720p', duration: 5, sound: true, ratio: '9:16' } }) }, ['frames/start.png']);
+		await service.generate(node);
+		const checked = commands.calls.find(call => call.id === CHECK)?.argument as { params: Record<string, unknown> };
+		const submitted = commands.calls.find(call => call.id === SUBMIT)?.argument as IBaseHalfVideoSubmitRequest;
+		const fields = harness.store.fields(node);
+		assert.deepStrictEqual({ checked: checked.params, submitted: submitted.params, recorded: fields.task?.request.params, kept: fields.generation?.params }, {
+			checked: { resolution: '720p', duration: 5, sound: true },
+			submitted: { resolution: '720p', duration: 5, sound: true },
+			recorded: { resolution: '720p', duration: 5, sound: true },
+			kept: { resolution: '720p', duration: 5, sound: true, ratio: '9:16' }
+		});
+		await service.stop(node);
+	}));
+
 	test('draws an image of a format the mode does not take to PNG, and records the provider id the module would send', () => runWithFakedTimers({ startTime: START, maxTaskCount: 1_000 }, async () => {
 		const harness = await createHarness();
 		const pngAndJpeg = { ...ACME, models: ACME.models.map(model => ({ ...model, modes: model.modes.map(mode => mode.id === 'frames' ? { ...mode, limits: { ...mode.limits, imageFormats: ['png', 'jpeg'] as const } } : mode) })) };

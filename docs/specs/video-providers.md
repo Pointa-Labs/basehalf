@@ -165,6 +165,10 @@ the node's connections ([Video node, Inputs](video-node.md#inputs)):
 - `startFrame` and `endFrame` are `none`, `optional`, or `required`.
 - `images`, `videos`, and `audios` give how many references the mode takes.
 - `source` is `none` or `required` (the clip of `extend` and `edit`).
+- `regions` lists the regions that offer the mode, when not every region
+  that offers the model does, for example a mode whose clip needs an upload
+  that only one region has. Elsewhere the window shows the mode dimmed with
+  the reason, and `check` refuses it.
 - `limits` are checked before anything is sent; any may be absent.
   `imageFormats` lists the image formats the provider takes in the mode,
   among `png`, `jpeg`, and `webp`, PNG always among them; without it, all
@@ -189,6 +193,12 @@ the node's connections ([Video node, Inputs](video-node.md#inputs)):
   left unset, and nothing is sent for them.
 - `modes` limits a parameter to some modes; without it the parameter applies
   to every mode.
+- `setByStartFrame` marks a parameter that a start frame decides, such as
+  the ratio of a model whose video takes the frame's shape. While the
+  planned inputs have a start frame, the window shows it as set by the start
+  frame, and nothing is sent or recorded for it; the node keeps its value for
+  when no start frame is connected. AI Video drops it from a request with a
+  start frame before the provider module sees it.
 - `advanced` parameters are shown under **More** in the settings.
 - `display` is a hint: `ratio` draws ratio shapes, `slider` a slider.
 - `auto` adds a choice that lets the provider decide.

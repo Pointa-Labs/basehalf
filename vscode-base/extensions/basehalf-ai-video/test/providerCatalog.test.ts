@@ -108,6 +108,26 @@ test('modes are declared once each, with sane slot counts', () => {
 	}));
 });
 
+test('a mode names regions that offer the model, and a parameter set by a start frame applies to a mode with one', () => {
+	for (const regions of [[], ['home', 'home'], ['elsewhere']]) {
+		assert.throws(catalogWith(provider => {
+			firstModel(provider).modes[1].regions = regions;
+		}), /mode reference: regions must name at least one region, each once|mode reference: regions names elsewhere, which does not offer the model/, regions.join());
+	}
+	assert.doesNotThrow(catalogWith(provider => {
+		firstModel(provider).modes[1].regions = ['away'];
+	}));
+	// Ratio applies to References only, which takes no start frame.
+	assert.throws(catalogWith(provider => {
+		parameter(provider, 'ratio').setByStartFrame = true;
+	}), /parameter ratio: setByStartFrame needs a mode with a start frame/);
+	assert.doesNotThrow(catalogWith(provider => {
+		const ratio = parameter(provider, 'ratio');
+		ratio.setByStartFrame = true;
+		delete ratio.modes;
+	}));
+});
+
 test('a parameter that is not optional has a default, and every default is one the parameter allows', () => {
 	assert.throws(catalogWith(provider => {
 		delete parameter(provider, 'resolution').default;

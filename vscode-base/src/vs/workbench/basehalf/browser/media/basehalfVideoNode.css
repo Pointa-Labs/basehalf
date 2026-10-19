@@ -776,6 +776,23 @@
 	gap: 4px;
 }
 
+/* A parameter the start frame sets: its note in place of its choices. */
+.monaco-workbench .bh-video-panel-setting-note {
+	display: flex;
+	height: 28px;
+	align-items: center;
+	padding: 0 8px;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+	border-radius: 7px;
+	font-size: 12px;
+}
+
+/* A choice that cannot generate in the region, such as a mode: dimmed, and it can still be chosen. */
+.monaco-workbench .bh-video-panel-choice.unavailable > .bh-video-panel-choice-label {
+	opacity: 0.5;
+}
+
 /* A row of buttons gives each label its width, so that a longer one, such as References, is not cut. */
 .monaco-workbench .bh-video-panel-setting.buttons .bh-video-panel-choice {
 	flex: 1 1 auto;

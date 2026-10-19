@@ -28,6 +28,7 @@ import {
 	BaseHalfVideoPollState,
 	BaseHalfVideoProviderErrorCode,
 	BASEHALF_VIDEO_IMAGE_FORMATS,
+	baseHalfVideoSentParams,
 	BaseHalfVideoImageFormat,
 	baseHalfVideoGenerateBlockerText,
 	baseHalfVideoModeOf,
@@ -314,6 +315,8 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			throw new BaseHalfVideoGenerationError(baseHalfVideoGenerateBlockerText({ kind: 'region', model: ref.model, region }));
 		}
 		const params = normalizeBaseHalfVideoParams(ref.model, mode.id, generation?.params);
+		// What is sent and recorded: without the values a start frame sets.
+		const sent = baseHalfVideoSentParams(ref.model, mode.id, params, plan.some(item => item.use === 'start-frame'));
 
 		const texts: string[] = [];
 		const media: { startFrame?: BaseHalfVideoMedia; endFrame?: BaseHalfVideoMedia; source?: BaseHalfVideoMedia; images: BaseHalfVideoMedia[]; videos: BaseHalfVideoMedia[]; audios: BaseHalfVideoMedia[] } = { images: [], videos: [], audios: [] };
@@ -366,7 +369,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			region: access.region,
 			model: ref.model.id,
 			mode: mode.id,
-			params,
+			params: sent,
 			prompt: sentPrompt,
 			inputs
 		}, parseBaseHalfVideoCheckResult, false);
@@ -386,7 +389,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			// The id the module would send, where the mode and inputs choose among several.
 			providerModel: checked.value.providerModel ?? providerModel,
 			mode: mode.id,
-			params,
+			params: sent,
 			prompt: sentPrompt,
 			inputs: used
 		};
@@ -394,7 +397,7 @@ export class BaseHalfVideoGenerationService extends Disposable implements IBaseH
 			...access,
 			model: ref.model.id,
 			mode: mode.id,
-			params,
+			params: sent,
 			prompt: sentPrompt,
 			inputs
 		};

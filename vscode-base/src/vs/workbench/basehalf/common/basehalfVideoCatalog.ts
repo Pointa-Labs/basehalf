@@ -129,6 +129,8 @@ export interface IBaseHalfVideoCatalogMode {
 	readonly label: string;
 	readonly inputs: IBaseHalfVideoModeInputs;
 	readonly limits: IBaseHalfVideoModeLimits;
+	/** The regions that offer the mode, when not every region that offers the model does. */
+	readonly regions?: readonly string[];
 }
 
 export type BaseHalfVideoParamValue = string | number | boolean;
@@ -145,6 +147,8 @@ interface IBaseHalfVideoParameterBase {
 	readonly advanced?: boolean;
 	/** May be left unset; nothing is sent then. A parameter that is not optional has a default. */
 	readonly optional?: boolean;
+	/** A start frame decides it: with a start frame, nothing is sent or recorded for it. */
+	readonly setByStartFrame?: boolean;
 }
 
 export interface IBaseHalfVideoChoiceParameter extends IBaseHalfVideoParameterBase {
@@ -378,6 +382,29 @@ export function baseHalfVideoRegionOffersModel(model: IBaseHalfVideoCatalogModel
 	return typeof model.providerModels[regionId] === 'string' && model.providerModels[regionId].length > 0;
 }
 
+/** Whether the region offers the mode: every region that offers the model does, unless the mode names its regions. */
+export function baseHalfVideoRegionOffersMode(mode: IBaseHalfVideoCatalogMode, regionId: string): boolean {
+	return !mode.regions || mode.regions.includes(regionId);
+}
+
+/**
+ * The values a generation sends and records: the node's, made legal for the
+ * model and mode, without those a start frame sets while the plan has one
+ * (video providers, "Parameters").
+ */
+export function baseHalfVideoSentParams(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId, params: BaseHalfVideoParams, startFrame: boolean): BaseHalfVideoParams {
+	if (!startFrame) {
+		return params;
+	}
+	const sent: Record<string, BaseHalfVideoParamValue> = { ...params };
+	for (const parameter of baseHalfVideoModeParameters(model, modeId)) {
+		if (parameter.setByStartFrame) {
+			delete sent[parameter.name];
+		}
+	}
+	return Object.freeze(sent);
+}
+
 /** The mode a generation uses: the one asked for when the model offers it, otherwise the model's first. */
 export function baseHalfVideoModeOf(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | string | undefined): IBaseHalfVideoCatalogMode {
 	return model.modes.find(mode => mode.id === modeId) ?? model.modes[0];
@@ -594,13 +621,13 @@ export function baseHalfVideoParamValueLabel(parameter: BaseHalfVideoCatalogPara
  * mode, then each parameter that is not advanced and has a value, such as
  * `Frames · 720p · 5s · Sound`.
  */
-export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined): readonly string[] {
+export function baseHalfVideoSettingsSummary(model: IBaseHalfVideoCatalogModel, modeId: BaseHalfVideoModeId | undefined, params: BaseHalfVideoParams | undefined, startFrame = false): readonly string[] {
 	const mode = baseHalfVideoModeOf(model, modeId);
 	const values = normalizeBaseHalfVideoParams(model, mode.id, params);
 	const parts = [mode.label];
 	for (const parameter of baseHalfVideoModeParameters(model, mode.id)) {
 		const value = values[parameter.name];
-		if (parameter.advanced || value === undefined) {
+		if (parameter.advanced || value === undefined || (startFrame && parameter.setByStartFrame)) {
 			continue;
 		}
 		const part = summaryPart(parameter, value);
@@ -874,6 +901,8 @@ export type BaseHalfVideoGenerateBlocker =
 	| { readonly kind: 'unknownModel'; readonly model: string }
 	| { readonly kind: 'notSetUp'; readonly provider: IBaseHalfVideoCatalogProvider }
 	| { readonly kind: 'region'; readonly model: IBaseHalfVideoCatalogModel; readonly region: IBaseHalfVideoCatalogRegion }
+	/** The region offers the model, not its mode; `where` names the regions that do. */
+	| { readonly kind: 'modeRegion'; readonly model: IBaseHalfVideoCatalogModel; readonly mode: IBaseHalfVideoCatalogMode; readonly where: string }
 	/** The first problem the provider module reported for the planned generation. */
 	| { readonly kind: 'check'; readonly message: string }
 	| { readonly kind: 'nothingToSend' };
@@ -916,6 +945,11 @@ export function getBaseHalfVideoGenerateBlocker(input: IBaseHalfVideoGenerateBlo
 	if (!baseHalfVideoRegionOffersModel(ref.model, setup.region.id)) {
 		return { kind: 'region', model: ref.model, region: setup.region };
 	}
+	const mode = baseHalfVideoModeOf(ref.model, input.generation?.mode);
+	if (!baseHalfVideoRegionOffersMode(mode, setup.region.id)) {
+		const where = ref.provider.regions.filter(region => baseHalfVideoRegionOffersMode(mode, region.id) && baseHalfVideoRegionOffersModel(ref.model, region.id)).map(region => region.label).join(', ');
+		return { kind: 'modeRegion', model: ref.model, mode, where };
+	}
 	const problem = input.problems?.find(message => message.trim().length > 0);
 	if (problem) {
 		return { kind: 'check', message: problem.trim() };
@@ -948,6 +982,8 @@ export function baseHalfVideoGenerateBlockerText(blocker: BaseHalfVideoGenerateB
 			return localize('basehalf.video.catalog.blocker.notSetUp', "{0} is not set up. Set it up in Video Providers.", blocker.provider.label);
 		case 'region':
 			return localize('basehalf.video.catalog.blocker.region', "{0} is not offered in {1}. Choose another model, or another region in Video Providers.", blocker.model.label, blocker.region.label);
+		case 'modeRegion':
+			return localize('basehalf.video.catalog.blocker.modeRegion', "{0} offers {1} mode only in {2}. Choose another mode, or another region in Video Providers.", blocker.model.label, blocker.mode.label, blocker.where);
 		case 'check':
 			return blocker.message;
 		case 'nothingToSend':
@@ -980,7 +1016,7 @@ export function baseHalfVideoCatalogForAgents(catalog: IBaseHalfVideoCatalog, se
 				...(model.description ? { description: model.description } : {}),
 				regions: provider.regions.filter(region => baseHalfVideoRegionOffersModel(model, region.id)).map(region => region.id),
 				prompt: { required: model.prompt.required, maxLength: model.prompt.maxLength },
-				modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits })),
+				modes: model.modes.map(mode => ({ id: mode.id, label: mode.label, inputs: mode.inputs, limits: mode.limits, ...(mode.regions ? { regions: mode.regions } : {}) })),
 				parameters: model.parameters,
 				estimate: model.estimate,
 				...(model.deprecated ? { deprecated: true } : {})
@@ -1198,6 +1234,9 @@ function parseMode(value: unknown, path: string): IBaseHalfVideoCatalogMode {
 	if (inputs.source !== 'none' && inputs.source !== 'required') {
 		throw new Error(`${path}.inputs.source must be none or required.`);
 	}
+	const regions = Array.isArray(record.regions) && record.regions.length && record.regions.every(region => typeof region === 'string' && region.length > 0)
+		? Object.freeze([...new Set(record.regions as string[])])
+		: undefined;
 	const limits = isRecord(record.limits) ? record.limits : {};
 	const keptLimits: Record<string, unknown> = {};
 	for (const [key, limit] of Object.entries(limits)) {
@@ -1224,7 +1263,8 @@ function parseMode(value: unknown, path: string): IBaseHalfVideoCatalogMode {
 			audios: count(inputs.audios, `${path}.inputs.audios`),
 			source: inputs.source
 		}),
-		limits: Object.freeze(keptLimits) as IBaseHalfVideoModeLimits
+		limits: Object.freeze(keptLimits) as IBaseHalfVideoModeLimits,
+		...(regions ? { regions } : {})
 	});
 }
 
@@ -1245,7 +1285,8 @@ function parseParameter(value: unknown, path: string): BaseHalfVideoCatalogParam
 		...(tooltip !== undefined ? { tooltip } : {}),
 		...(modes ? { modes: Object.freeze([...modes] as BaseHalfVideoModeId[]) } : {}),
 		...(record.advanced === true ? { advanced: true } : {}),
-		...(record.optional === true ? { optional: true } : {})
+		...(record.optional === true ? { optional: true } : {}),
+		...(record.setByStartFrame === true ? { setByStartFrame: true } : {})
 	};
 	switch (record.kind) {
 		case 'choice': {
