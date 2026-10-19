@@ -320,7 +320,8 @@ test('check reports the rules between parameters, the provider\'s input rules, a
 	const providers = commands();
 	const problems = async (model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Record<string, unknown>, region = 'cn') =>
 		value(await providers.check({ provider: 'bytedance', region, model, mode, params, prompt, inputs })).problems;
-	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', { ...NO_COUNTS, startFrame: true }), ['Seedance 2.5 keeps the start frame\'s ratio: choose Adaptive.']);
+	// With a start frame, Seedance 2.5 takes the frame's shape: the ratio is left out, not refused.
+	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', { ...NO_COUNTS, startFrame: true }), []);
 	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', NO_COUNTS), []);
 	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, 'p', NO_COUNTS), ['Seedance 1.0 Pro chooses a ratio only from a start frame: choose a ratio, or connect an image.']);
 	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, '', { ...NO_COUNTS, startFrame: true }), []);

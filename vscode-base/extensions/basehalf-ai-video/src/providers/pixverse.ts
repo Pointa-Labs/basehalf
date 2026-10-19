@@ -271,6 +271,8 @@ function declareParameters(model: PixVerseModel, modes: readonly CatalogMode[]):
 			display: 'ratio',
 			options: model.ratios.map(ratio => ({ value: ratio, label: ratio })),
 			default: '16:9',
+			// Sent by text to video and fusion only: a video made from a frame takes the frame's shape.
+			setByStartFrame: true,
 			...exceptExtend
 		},
 		{

@@ -152,7 +152,7 @@ test('the catalog declares xAI with one region, one API key, and three models wi
 
 	const ratios = ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9', '5:2'].map(ratio => ({ value: ratio, label: ratio }));
 	const resolutions = (values: readonly string[]) => values.map(entry => ({ value: entry, label: entry }));
-	const ratio = { name: 'ratio', label: 'Ratio', tooltip: 'The shape of the video. A video made from a start frame takes the shape of the frame.', kind: 'choice', display: 'ratio', options: ratios, default: '16:9' };
+	const ratio = { name: 'ratio', label: 'Ratio', tooltip: 'The shape of the video. A video made from a start frame takes the shape of the frame.', kind: 'choice', display: 'ratio', options: ratios, default: '16:9', setByStartFrame: true };
 	const duration = { name: 'duration', label: 'Duration', kind: 'integer', unit: 'seconds', min: 1, max: 15, step: 1, default: 5 };
 	const sound = { name: 'sound', label: 'Sound', tooltip: 'Turn it off for a silent video.', kind: 'boolean', default: true };
 	const generationModes = { modes: ['frames', 'reference'] };

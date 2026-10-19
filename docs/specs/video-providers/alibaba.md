@@ -98,8 +98,9 @@ the id the request would be sent with, and `submit` sends exactly that id.
   same in both regions.
 - Alibaba offers `wan2.7-videoedit` in both regions, but it takes a video,
   and outside China BaseHalf has no way to send one
-  ([Inputs](#inputs-and-the-temporary-upload)): `check` reports Wan 2.7 Edit
-  (and every Edit and Extend mode) in International.
+  ([Inputs](#inputs-and-the-temporary-upload)): every Edit and Extend mode
+  names the China region (`regions: ["cn"]`), so International shows it dimmed
+  and `check` refuses it there.
 - Prompts: every model declares `withoutMedia`, the rule of its loosest
   task, so a generation from the prompt alone needs one. `check` adds the
   stricter rule of a task: reference to video (Wan 2.7 and HappyHorse
@@ -127,7 +128,7 @@ an empty negative prompt, sends nothing.
 | Name | Label | Kind | Models and values (the default in bold) |
 | --- | --- | --- | --- |
 | `resolution` | Resolution | choice, labels 480p, 720p, 1080p (sent as 480P, 720P, 1080P) | Wan 3.0, HappyHorse 1.1: `480p`, `720p`, **`1080p`**. Wan 2.7, Wan 2.6, Wan 2.6 Flash, HappyHorse 1.0: `720p`, **`1080p`** |
-| `ratio` | Ratio | choice, ratio | Wan 3.0 (Frames, References): **adaptive**, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16. Wan 2.7 (Frames, References) and Wan 2.6: **16:9**, 9:16, 1:1, 4:3, 3:4. HappyHorse: **16:9**, 9:16, 1:1, 4:3, 3:4, 4:5, 5:4, 9:21, 21:9 |
+| `ratio` | Ratio | choice, ratio; in Frames on Wan 2.7, Wan 2.6, and HappyHorse set by the start frame (`setByStartFrame`) | Wan 3.0 (Frames, References): **adaptive**, 21:9, 16:9, 4:3, 1:1, 3:4, 9:16. Wan 2.7 (Frames, References) and Wan 2.6: **16:9**, 9:16, 1:1, 4:3, 3:4. HappyHorse: **16:9**, 9:16, 1:1, 4:3, 3:4, 4:5, 5:4, 9:21, 21:9 |
 | `duration` | Duration | integer, seconds | Wan 3.0 (Frames, References): 2–30, **5**, or Auto (`-1`). Wan 2.7 (Frames, References, Extend), Wan 2.6, Wan 2.6 Flash: 2–15, **5**. HappyHorse: 3–15, **5** |
 | `sound` | Sound | boolean | Wan 3.0, Wan 2.6 Flash: **on**; sent as `audio` |
 | `audio_setting` | Sound | choice | Wan 2.7 (Edit): **auto**, origin (Keep Original) |
@@ -162,8 +163,8 @@ Rules between parameters and inputs, reported by `check`:
 - Wan 2.6 and 2.6 Flash: Multiple shots need Prompt Rewriting (`shot_type`
   takes effect only with `prompt_extend: true`).
 - Wan 2.7 and HappyHorse References need a prompt.
-- Outside China, Edit and Extend, and a video or audio input, are refused
-  ([Inputs](#inputs-and-the-temporary-upload)).
+- Outside China, Edit and Extend (by their modes' regions), and a video or
+  audio input, are refused ([Inputs](#inputs-and-the-temporary-upload)).
 
 ## Modes and limits
 

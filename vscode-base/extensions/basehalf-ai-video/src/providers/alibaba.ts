@@ -242,12 +242,16 @@ function resolution(values: readonly Resolution[]): ChoiceParameter {
 	return { name: 'resolution', label: LABELS.resolution, kind: 'choice', options: values.map(value => ({ value, label: value })), default: '1080p' };
 }
 
+/** Edit and Extend send a clip, which only the temporary upload of the China region can carry. */
+const CLIP_REGIONS: readonly string[] = Object.freeze(['cn']);
+
 const WAN_RATIOS = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4']);
 const HAPPYHORSE_RATIOS = Object.freeze(['16:9', '9:16', '1:1', '4:3', '3:4', '4:5', '5:4', '9:21', '21:9']);
 
 /** The ratio of a video made from the prompt or references; a start frame sets the shape itself, so Frames sends it only without one. */
 function ratio(values: readonly string[], modes?: readonly ModeId[]): ChoiceParameter {
-	return { name: 'ratio', label: LABELS.ratio, tooltip: LABELS.tipFrameShape, kind: 'choice', display: 'ratio', options: options(values), default: '16:9', ...(modes ? { modes } : {}) };
+	const framed = !modes || modes.includes('frames');
+	return { name: 'ratio', label: LABELS.ratio, tooltip: LABELS.tipFrameShape, kind: 'choice', display: 'ratio', options: options(values), default: '16:9', ...(modes ? { modes } : {}), ...(framed ? { setByStartFrame: true } : {}) };
 }
 
 function duration(min: number, max: number): NumberParameter {
@@ -288,8 +292,8 @@ function wan3(id: string, label: string, description: string, only: Task): Model
 			modes: [
 				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional', endFrame: 'optional' }), limits: WAN_IMAGES },
 				{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 0, max: 10 }, videos: { min: 0, max: 5 }, audios: { min: 0, max: 5 } }), limits: WAN3_MEDIA },
-				{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 10 }, source: 'required' }), limits: WAN3_MEDIA },
-				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: WAN3_MEDIA }
+				{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 10 }, source: 'required' }), limits: WAN3_MEDIA, regions: CLIP_REGIONS },
+				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: WAN3_MEDIA, regions: CLIP_REGIONS }
 			],
 			parameters: [
 				resolution(['480p', '720p', '1080p']),
@@ -367,8 +371,8 @@ const MODEL_SPECS: readonly ModelSpec[] = [
 				{ id: 'frames', label: LABELS.modeFrames, inputs: inputs({ startFrame: 'optional', endFrame: 'optional' }), limits: WAN_IMAGES },
 				{ id: 'reference', label: LABELS.modeReference, inputs: inputs({ images: { min: 0, max: 5 }, videos: { min: 0, max: 5 } }), limits: { ...WAN_IMAGES, videoSeconds: [1, 30], videoMaxBytes: 100 * MiB } },
 				// Video editing runs only in China (Beijing), where its video can be sent; check says so elsewhere.
-				{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 4 }, source: 'required' }), limits: { ...WAN_IMAGES, videoSeconds: [2, 10], videoMaxBytes: 100 * MiB } },
-				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: { videoSeconds: [2, 10], videoMaxBytes: 100 * MiB } }
+				{ id: 'edit', label: LABELS.modeEdit, inputs: inputs({ images: { min: 0, max: 4 }, source: 'required' }), limits: { ...WAN_IMAGES, videoSeconds: [2, 10], videoMaxBytes: 100 * MiB }, regions: CLIP_REGIONS },
+				{ id: 'extend', label: LABELS.modeExtend, inputs: inputs({ source: 'required' }), limits: { videoSeconds: [2, 10], videoMaxBytes: 100 * MiB }, regions: CLIP_REGIONS }
 			],
 			parameters: [
 				WAN27_RESOLUTION,
@@ -455,13 +459,10 @@ function happyHorsePromptLength(prompt: string): number {
 	return length;
 }
 
-function regionProblems(spec: ModelSpec, request: CheckRequest, counts: PlannedCounts): string[] {
+/** Videos and audio outside China; Edit and Extend are offered in China only by their modes' regions. */
+function regionProblems(request: CheckRequest, counts: PlannedCounts): string[] {
 	if (regionOf(request.region) === 'cn') {
 		return [];
-	}
-	// Edit and Extend always send a video, connected yet or not.
-	if (request.mode === 'edit' || request.mode === 'extend') {
-		return [`${spec.model.label} in ${modeLabel(spec.model, request.mode)} mode sends a video. ${REGION_MEDIA_REASON} Choose China (Beijing) in Video Providers.`];
 	}
 	if (counts.videos > 0 || counts.audios > 0) {
 		const kinds = counts.videos > 0 && counts.audios > 0 ? 'videos and audio' : counts.videos > 0 ? 'videos' : 'audio';
@@ -930,7 +931,7 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		const routed = spec.route(request.mode, counts);
 		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
 		const problems = [
-			...regionProblems(spec, request, counts),
+			...regionProblems(request, counts),
 			...taskProblems(spec, routed, request, counts, measured),
 			...(measured ? formatProblems(measured) : [])
 		];

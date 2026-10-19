@@ -156,7 +156,7 @@ Tooltips, in English like every label of the module:
 
 | Parameter | Tooltip |
 | --- | --- |
-| `ratio` of `q3-pro`, `q3-turbo` | Used when there is no start frame; a video made from a frame takes the shape of the frame. |
+| `ratio` of `q3-pro`, `q3-turbo` | Set by the start frame (`setByStartFrame`): used when there is no start frame; a video made from a frame takes the shape of the frame. |
 | `ratio` with `adaptive` | Adaptive lets Vidu choose the shape from the reference images. |
 | `sound` | Dialogue and sound effects made together with the picture. |
 | `sound` of `q2-pro`, `q2-turbo` | Dialogue and sound made with the picture, from a start frame alone. It adds 15 credits. |

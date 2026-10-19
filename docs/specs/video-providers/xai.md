@@ -135,7 +135,7 @@ files reports a request whose inputs, encoded, would be larger.
 | Name | Label | Kind | Values | Default | Models and modes | Sent as |
 | --- | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | `480p`, `720p`, `1080p` (1.5, 1.5 Lite); `480p`, `720p` (Grok Imagine Video) | `480p` | Frames, References | `resolution` |
-| `ratio` | Ratio (ratio shapes) | choice | `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `21:9`, `5:2` | `16:9` | Frames, References | `aspect_ratio`, only without a start frame |
+| `ratio` | Ratio (ratio shapes) | choice | `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `21:9`, `5:2` | `16:9` | Frames, References | `aspect_ratio`; set by the start frame (`setByStartFrame`), so it is sent only without one |
 | `duration` | Duration | integer, seconds | 1 to 15, step 1 | 5 | Frames, References; Extend on Grok Imagine Video | `duration`, a number |
 | `sound` | Sound | boolean | | on | Frames, References | `generate_audio` |
 

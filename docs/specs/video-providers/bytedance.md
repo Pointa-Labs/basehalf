@@ -70,7 +70,7 @@ shared name is `sound` and whose field is `generate_audio`.
 | Parameter | Label | Kind | Values | Default | Models |
 | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | as in the model table | as in the model table | all |
-| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | Adaptive; 16:9 for 1.0 Pro and 1.0 Pro Fast | all |
+| `ratio` | Ratio | choice, drawn as ratio shapes; on Seedance 2.5 set by the start frame (`setByStartFrame`), which keeps the frame's shape, and `adaptive` is sent then | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | Adaptive; 16:9 for 1.0 Pro and 1.0 Pro Fast | all |
 | `duration` | Duration | whole seconds, step 1 | as in the model table; Auto is `-1` | 5 | all |
 | `sound` | Sound, sent as `generate_audio` | boolean | | on | 2.5, the 2.0 series, 1.5 Pro |
 | `seed` | Seed | whole number 0 to 2147483647, optional, advanced | | unset: a new seed each time | 1.5 Pro, 1.0 Pro, 1.0 Pro Fast |
@@ -79,8 +79,6 @@ shared name is `sound` and whose field is `generate_audio`.
 
 Rules that `check` reports:
 
-- Seedance 2.5 keeps the start frame's ratio: with a start frame, Ratio must
-  be Adaptive.
 - Seedance 1.0 Pro and 1.0 Pro Fast choose a ratio only from a start frame:
   without one, Ratio cannot be Adaptive.
 - References on Seedance 2.5 needs at least one image or audio clip.

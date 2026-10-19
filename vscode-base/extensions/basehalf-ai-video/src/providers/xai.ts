@@ -191,6 +191,8 @@ function declareParameters(model: XaiModel): CatalogParameter[] {
 			display: 'ratio',
 			options: RATIOS.map(value => ({ value, label: value })),
 			default: '16:9',
+			// Sent only without a start frame, whose shape the video takes.
+			setByStartFrame: true,
 			...generation
 		},
 		{

@@ -358,7 +358,9 @@ function catalogParameters(model: ViduModel): CatalogParameter[] {
 			options: model.ratio.adaptive ? [...options, { value: 'adaptive', label: TEXT.ratioAdaptive }] : options,
 			default: '16:9',
 			modes: [model.ratio.mode],
-			...(tooltip ? { tooltip } : {})
+			...(tooltip ? { tooltip } : {}),
+			// Sent for text to video only: a video made from a frame takes the frame's shape.
+			...(model.ratio.mode === 'frames' ? { setByStartFrame: true } : {})
 		});
 	}
 	if (model.sound) {

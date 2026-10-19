@@ -732,7 +732,7 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		canRun: await problems('h3', 'reference', { resolution: '2k' }, { images: [CHARACTER, PLACE], videos: [DANCE], audios: [VOICE] })
 	}, {
 		adaptiveWithoutFrame: ['MiniMax H3 needs a ratio for a video made from the prompt alone: choose one, or connect an image.'],
-		ratioWithFrame: ['MiniMax H3 Max keeps the frame\'s ratio: choose Adaptive.'],
+		ratioWithFrame: [],
 		adaptiveWithFrames: [],
 		noReferences: ['MiniMax H3 in References mode needs at least one image, video, or audio clip.'],
 		tooManyReferences: ['MiniMax H3 takes at most 12 references together; 13 are planned.'],

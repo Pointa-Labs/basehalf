@@ -56,7 +56,6 @@ const TEXT = Object.freeze({
 		watermarkTooltip: 'Marks the video as made by AI. Offered in the China region only.'
 	},
 	needsRatio: (model: string) => `${model} needs a ratio for a video made from the prompt alone: choose one, or connect an image.`,
-	keepsFrameRatio: (model: string) => `${model} keeps the frame's ratio: choose Adaptive.`,
 	referencesNeedInput: (model: string) => `${model} in References mode needs at least one image, video, or audio clip.`,
 	tooManyReferences: (model: string, count: number) => `${model} takes at most 12 references together; ${count} are planned.`,
 	watermarkChinaOnly: 'MiniMax offers the AIGC watermark only in China: turn it off, or set up MiniMax in the China region.',
@@ -305,7 +304,9 @@ function parametersOf(model: MiniMaxModel): CatalogParameter[] {
 			kind: 'choice',
 			display: 'ratio',
 			options: [...RATIOS.map(value => ({ value, label: value })), { value: 'adaptive', label: labels.adaptive }],
-			default: '16:9'
+			default: '16:9',
+			// A video made from frames keeps their shape, which MiniMax takes as Adaptive.
+			setByStartFrame: true
 		},
 		{ name: 'duration', label: labels.duration, kind: 'integer', unit: 'seconds', min: model.duration.min, max: model.duration.max, step: 1, default: 5 }
 	];
@@ -370,11 +371,9 @@ function h3Rules(model: H3Model, request: CheckRequest, counts: PlannedCounts): 
 	const problems: string[] = [];
 	if (request.mode === 'frames') {
 		const framed = counts.startFrame || counts.endFrame;
-		// Text to video needs a ratio; image to video keeps the frame's, which MiniMax treats as Adaptive.
+		// Text to video needs a ratio; with frames the ratio arrives unset, and Adaptive is sent.
 		if (!framed && request.params.ratio === 'adaptive') {
 			problems.push(TEXT.needsRatio(label));
-		} else if (framed && request.params.ratio !== 'adaptive') {
-			problems.push(TEXT.keepsFrameRatio(label));
 		}
 	} else if (request.mode === 'reference') {
 		const references = counts.images + counts.videos + counts.audios;
@@ -726,7 +725,8 @@ function h3Body(model: H3Model, request: SubmitRequest, resolution: string, entr
 		content,
 		resolution,
 		duration: params.duration,
-		ratio: params.ratio,
+		// A start frame sets the shape: the ratio arrives unset, and MiniMax takes Adaptive.
+		ratio: params.ratio ?? 'adaptive',
 		...(model.promptExpansion ? { extra: { prompt_expansion_mode: params.prompt_expansion_mode } } : {}),
 		// Only the China create page documents the watermark.
 		...(request.region === 'cn' ? { aigc_watermark: params.watermark === true } : {})

@@ -207,7 +207,9 @@ function declareParameters(model: KlingModel): CatalogParameter[] {
 			kind: 'choice',
 			display: 'ratio',
 			options: RATIOS.map(ratio => ({ value: ratio, label: ratio })),
-			default: '16:9'
+			default: '16:9',
+			// A video made from a start frame takes the frame's shape; no aspect ratio is sent then.
+			setByStartFrame: true
 		},
 		{ name: 'duration', label: LABELS.duration, kind: 'integer', unit: 'seconds', ...model.duration, default: 5 }
 	];

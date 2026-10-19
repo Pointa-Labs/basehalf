@@ -112,7 +112,7 @@ choose the endpoint, so `check` answers no `providerModel`.
 | Name | Label | Kind | Values | Default | Models (modes) | Sent as |
 | --- | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | `360p`, `540p`, `720p`, `1080p`, labeled as written | `720p` | all | `quality`, as written |
-| `ratio` | Ratio | choice, ratio shapes | C1, V6: `16:9`, `9:16`, `4:3`, `3:4`, `1:1`, `2:3`, `3:2`, `21:9`; V5.6, V5: `16:9`, `9:16`, `4:3`, `3:4`, `1:1` | `16:9` | all (V6: Frames, References) | `aspect_ratio`, by Text-to-Video and Fusion only |
+| `ratio` | Ratio | choice, ratio shapes | C1, V6: `16:9`, `9:16`, `4:3`, `3:4`, `1:1`, `2:3`, `3:2`, `21:9`; V5.6, V5: `16:9`, `9:16`, `4:3`, `3:4`, `1:1` | `16:9` | all (V6: Frames, References) | `aspect_ratio`, by Text-to-Video and Fusion only; set by the start frame (`setByStartFrame`) |
 | `duration` | Duration | integer, seconds | C1, V6: 1–15, step 1; V5.6: 5–10, step 1, of which 5, 8, and 10 are made; V5: 5 or 8 (step 3) | 5 | all | `duration`; 0 with reference videos |
 | `sound` | Sound | boolean | | off | C1, V6 (Frames, References), V5.6 | `generate_audio_switch` |
 | `generate_multi_clip_switch` | Multi-clip | boolean | | off | V6 (Frames) | `generate_multi_clip_switch`, by Text-to-Video and Image-to-Video |

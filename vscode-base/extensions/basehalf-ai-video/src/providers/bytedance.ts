@@ -59,7 +59,6 @@ const TEXT = Object.freeze({
 	},
 	resolutions: RESOLUTION_LABELS,
 	models: MODEL_TEXTS,
-	startFrameKeepsRatio: (model: string) => `${model} keeps the start frame's ratio: choose Adaptive.`,
 	adaptiveNeedsStartFrame: (model: string) => `${model} chooses a ratio only from a start frame: choose a ratio, or connect an image.`,
 	referencesNeedInput: (model: string) => `${model} in References mode needs at least one image or audio clip.`,
 	textSetting: (flag: string) => `The prompt sets ${flag}; choose it in the settings instead, so that what the panel shows is sent.`,
@@ -129,8 +128,8 @@ interface Seedance {
 	readonly references?: { readonly images: CountSlot; readonly audios: CountSlot; readonly audioSeconds: readonly [number, number]; readonly audioTotalSeconds: number };
 	readonly sizes: SizeTable;
 	readonly defaultRatio: 'adaptive' | '16:9';
-	/** Seedance 2.5 keeps the start frame's ratio. */
-	readonly startFrameNeedsAdaptive: boolean;
+	/** Seedance 2.5 keeps the start frame's ratio: the start frame sets it, and Adaptive is sent. */
+	readonly startFrameSetsRatio: boolean;
 	/** Seedance 1.0 takes Adaptive only with a start frame. */
 	readonly adaptiveNeedsStartFrame: boolean;
 	readonly prices: Readonly<Partial<Record<RegionId, PriceTable>>>;
@@ -152,7 +151,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		references: { images: { min: 0, max: 30 }, audios: { min: 0, max: 10 }, audioSeconds: [2, 30], audioTotalSeconds: 30 },
 		sizes: SIZES_2_5,
 		defaultRatio: 'adaptive',
-		startFrameNeedsAdaptive: true,
+		startFrameSetsRatio: true,
 		adaptiveNeedsStartFrame: false,
 		prices: {
 			cn: { perMillion: { '480p': 70, '720p': 70, '1080p': 77 } },
@@ -171,7 +170,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		references: SEEDANCE_2_REFERENCES,
 		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: false,
 		prices: {
 			cn: { perMillion: { '480p': 46, '720p': 46, '1080p': 51, '4k': 26 } },
@@ -190,7 +189,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		references: SEEDANCE_2_REFERENCES,
 		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: false,
 		prices: {
 			cn: { perMillion: { '480p': 37, '720p': 37 } },
@@ -209,7 +208,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		references: SEEDANCE_2_REFERENCES,
 		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: false,
 		prices: {
 			cn: { perMillion: { '480p': 23, '720p': 23 } },
@@ -227,7 +226,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		endFrame: true,
 		sizes: SIZES_2_0,
 		defaultRatio: 'adaptive',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: false,
 		prices: {
 			intl: { perMillion: { '480p': 2.4, '720p': 2.4, '1080p': 2.4 }, silent: { '480p': 1.2, '720p': 1.2, '1080p': 1.2 } }
@@ -245,7 +244,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		endFrame: true,
 		sizes: SIZES_1_0,
 		defaultRatio: '16:9',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: true,
 		prices: {
 			cn: { perMillion: { '480p': 15, '720p': 15, '1080p': 15 } },
@@ -263,7 +262,7 @@ const SEEDANCE: readonly Seedance[] = Object.freeze([
 		endFrame: false,
 		sizes: SIZES_1_0,
 		defaultRatio: '16:9',
-		startFrameNeedsAdaptive: false,
+		startFrameSetsRatio: false,
 		adaptiveNeedsStartFrame: true,
 		prices: {
 			cn: { perMillion: { '480p': 4.2, '720p': 4.2, '1080p': 4.2 } },
@@ -320,7 +319,8 @@ function parametersOf(model: Seedance): CatalogParameter[] {
 			kind: 'choice',
 			display: 'ratio',
 			options: [...RATIOS.map(value => ({ value, label: value })), { value: 'adaptive', label: labels.adaptive }],
-			default: model.defaultRatio
+			default: model.defaultRatio,
+			...(model.startFrameSetsRatio ? { setByStartFrame: true } : {})
 		},
 		{
 			name: 'duration',
@@ -426,9 +426,6 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 	const label = TEXT.models[model.id].label;
 	const counts = countsOf(request.inputs);
 	const problems: string[] = [];
-	if (model.startFrameNeedsAdaptive && request.mode === 'frames' && counts.startFrame && request.params.ratio !== 'adaptive') {
-		problems.push(TEXT.startFrameKeepsRatio(label));
-	}
 	if (model.adaptiveNeedsStartFrame && request.params.ratio === 'adaptive' && !counts.startFrame) {
 		problems.push(TEXT.adaptiveNeedsStartFrame(label));
 	}
@@ -500,7 +497,9 @@ async function submit(request: SubmitRequest, http: ProviderHttp): Promise<strin
 	// The commands checked and completed the parameters. Each is named as the API's field, except Sound,
 	// whose shared name is `sound` and whose field is `generate_audio`.
 	const { sound, ...fields } = request.params;
-	const body = Buffer.from(JSON.stringify({ model: providerModel, content, ...fields, ...(sound !== undefined ? { generate_audio: sound } : {}) }), 'utf8');
+	// With a start frame, Seedance 2.5 takes the frame's shape: its ratio arrives unset, and Adaptive is sent.
+	const shape = fields.ratio === undefined && model.startFrameSetsRatio ? { ratio: 'adaptive' } : {};
+	const body = Buffer.from(JSON.stringify({ model: providerModel, content, ...fields, ...shape, ...(sound !== undefined ? { generate_audio: sound } : {}) }), 'utf8');
 	if (body.byteLength > REQUEST_MAX_BYTES) {
 		throw rejected(TEXT.requestTooLarge((body.byteLength / 1_000_000).toFixed(1)));
 	}

@@ -127,7 +127,7 @@ fields. The request maps each to MiniMax's field and value
 | Parameter | Label | Kind | Values | Default | Models | MiniMax's field |
 | --- | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | `480p`, `512p`, `768p`, `1080p`, `2k` as each model offers them (the model table), labeled as every provider's are: 480p, 512p, 768p, 1080p, 2K | `768p` | all | `resolution`, as MiniMax writes it (`768P`) |
-| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | 16:9 | H3, H3 Max | `ratio` |
+| `ratio` | Ratio | choice, drawn as ratio shapes | 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, Adaptive (`adaptive`) | 16:9 | H3, H3 Max | `ratio`; set by the start frame (`setByStartFrame`), and `adaptive` is sent with a frame |
 | `duration` | Duration | whole seconds | 4 to 15 (H3), 5 to 15 (H3 Max), step 1; 6 or 10 (Hailuo, step 4) | 5 (H3, H3 Max), 6 (Hailuo) | all | `duration` |
 | `prompt_expansion_mode` | Prompt Expansion | choice | Off (`disabled`), Balanced (`balanced`), Quality (`quality`) | Balanced | H3 Max | `extra.prompt_expansion_mode` |
 | `prompt_extend` | Prompt Optimizer | boolean | | on | Hailuo | `prompt_optimizer` |
@@ -138,7 +138,8 @@ Rules that `check` reports:
 
 - MiniMax H3 and H3 Max in Frames mode without a frame need a ratio: Ratio
   cannot be Adaptive. With a frame, the video keeps the frame's ratio, which
-  MiniMax always treats as Adaptive: Ratio must be Adaptive.
+  MiniMax treats as Adaptive: the start frame sets Ratio, and `adaptive` is
+  sent.
 - References mode needs at least one image, video, or audio clip, and takes
   at most 12 together.
 - The AIGC watermark (`watermark`) is offered in China only: the China

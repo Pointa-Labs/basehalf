@@ -752,7 +752,7 @@ test('a pending task is cancelled; a running one is not, and a cancellation is s
 
 const REGION_REASON = 'Alibaba Cloud takes videos and audio only as addresses, and the temporary upload BaseHalf sends them through works in China (Beijing) only.';
 
-test('Edit and Extend run only in China: check reports them in International, with or without a video, and answers the task', async () => {
+test('Edit and Extend run only in China: their modes name the region, check refuses them elsewhere, and answers the task in China', async () => {
 	const providers = commands();
 	const checked = async (request: ReturnType<typeof checkRequest>) => {
 		const { problems, providerModel } = value(await providers.check(request));
@@ -765,12 +765,13 @@ test('Edit and Extend run only in China: check reports them in International, wi
 		wan3Edit: await checked(checkRequest('wan3.0-prime', 'edit', {}, 'Red.', counted({ source: true }), 'intl')),
 		wan27EditInChina: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', { source: video(CLIP) }))
 	};
-	const reason = (model: string, mode: string) => `${model} in ${mode} mode sends a video. ${REGION_REASON} Choose China (Beijing) in Video Providers.`;
+	// Refused before anything else is checked, so no provider id is answered.
+	const reason = (model: string, mode: string) => `${model} offers ${mode} mode only in China (Beijing). Choose another mode, or another region in Video Providers.`;
 	assert.deepEqual(results, {
-		wan27Edit: { problems: [reason('Wan 2.7', 'Edit')], providerModel: 'wan2.7-videoedit' },
-		wan27EditWithoutVideo: { problems: ['Wan 2.7 in Edit mode needs a video to work on.', reason('Wan 2.7', 'Edit')], providerModel: 'wan2.7-videoedit' },
-		wan27Extend: { problems: [reason('Wan 2.7', 'Extend')], providerModel: 'wan2.7-i2v' },
-		wan3Edit: { problems: [reason('Wan 3.0 Prime', 'Edit')], providerModel: 'wan3.0-video-prime' },
+		wan27Edit: { problems: [reason('Wan 2.7', 'Edit')], providerModel: undefined },
+		wan27EditWithoutVideo: { problems: [reason('Wan 2.7', 'Edit')], providerModel: undefined },
+		wan27Extend: { problems: [reason('Wan 2.7', 'Extend')], providerModel: undefined },
+		wan3Edit: { problems: [reason('Wan 3.0 Prime', 'Edit')], providerModel: undefined },
 		wan27EditInChina: { problems: [], providerModel: 'wan2.7-videoedit' }
 	});
 });

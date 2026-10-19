@@ -98,7 +98,7 @@ with a start frame.
 | Name | Label | Kind | Values | Default | Models | Sent as |
 | --- | --- | --- | --- | --- | --- | --- |
 | `resolution` | Resolution | choice | `720p`, `1080p`; also `4k` (4K) on 3.0 and 3.0 Omni | `720p` | all | `settings.resolution` |
-| `ratio` | Ratio (ratio shapes) | choice | `16:9`, `9:16`, `1:1` | `16:9` | all, both modes | `settings.aspect_ratio`, only when no start frame is sent |
+| `ratio` | Ratio (ratio shapes) | choice | `16:9`, `9:16`, `1:1` | `16:9` | all, both modes | `settings.aspect_ratio`; set by the start frame (`setByStartFrame`), so it is sent only without one |
 | `duration` | Duration | integer, seconds | 3–15 step 1 (3.0 Turbo, 3.0, 3.0 Omni); 3–10 step 1 (O1); 5 or 10, step 5 (2.6, 2.5 Turbo) | 5 | all | `settings.duration`, a number |
 | `sound` | Sound | boolean | | `false` (off, Kling's default) | 3.0, 3.0 Omni, 2.6 | `settings.audio`: `native` or `off` |
 
