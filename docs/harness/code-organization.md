@@ -21,6 +21,7 @@ per feature:
 | `markdown/` | The Markdown document under the rich, source, and preview projections, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), roadmap track 5 |
 | `references/` | The reference graph: its stores and index, reference edits, the rename refactor, migration, and the badge editor | [Reference graph](../specs/reference-graph.md) |
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
+| `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/` and `snap/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, and the selection agents can see | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | The Video node, its `.bhnode` file, and the video providers | [Video node](../specs/video-node.md), [video providers](../specs/video-providers.md) |
