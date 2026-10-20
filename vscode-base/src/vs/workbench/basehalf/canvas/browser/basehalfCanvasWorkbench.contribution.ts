@@ -192,6 +192,7 @@ import {
 } from '../common/basehalfCanvasScene.js';
 import type { BaseHalfMarkdownFormatCommand } from '../../markdown/common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
+import { BaseHalfCanvasCardPreview, baseHalfCanvasCardPreviewCanRetainElement, BaseHalfCanvasNodePreview, IBaseHalfCanvasMediaPreview } from '../common/basehalfCanvasCardPreview.js';
 import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene } from './basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import {
@@ -202,12 +203,6 @@ import {
 	IBaseHalfWorkspaceMutationStamp,
 	IBaseHalfWorkspaceResourceMutationStamp
 } from '../../workspace/common/basehalfWorkspaceMutation.js';
-
-interface IBaseHalfCanvasMediaPreview {
-	readonly text: string;
-	readonly mediaKind: 'image' | 'video' | 'audio' | 'pdf';
-	readonly resource: URI;
-}
 
 interface IBaseHalfActiveCanvasNoteEditor {
 	readonly sceneKey: string;
@@ -338,42 +333,6 @@ interface IBaseHalfPendingCanvasNoteNavigationGuard {
 	closing?: Promise<boolean>;
 }
 
-type BaseHalfCanvasCardPreview =
-	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
-	| ({ readonly kind: 'media' } & IBaseHalfCanvasMediaPreview)
-	| {
-		readonly kind: 'node';
-		readonly document: IBaseHalfNodeDocument;
-		readonly resultMedia?: IBaseHalfCanvasMediaPreview;
-		readonly resultOutputText?: string;
-		/** The node records a file that is not there. */
-		readonly resultMissing?: true;
-		readonly verificationPending?: boolean;
-		readonly dirty: boolean;
-	}
-	| { readonly kind: 'nodeLoading'; readonly text: string }
-	| { readonly kind: 'invalidNode'; readonly text: string }
-	| { readonly kind: 'text' | 'code' | 'markdown' | 'empty' | 'loading' | 'unavailable' | 'richRequired'; readonly text: string };
-type BaseHalfCanvasNodePreview = Extract<BaseHalfCanvasCardPreview, { readonly kind: 'node' }>;
-
-export function baseHalfCanvasCardPreviewRenderKey(preview: BaseHalfCanvasCardPreview | undefined): string {
-	return JSON.stringify(preview, (_key, value: unknown) => {
-		if (value instanceof Map) {
-			return [...value.entries()].sort(([left], [right]) => String(left).localeCompare(String(right)));
-		}
-		return value;
-	}) ?? '';
-}
-
-export function baseHalfCanvasCardPreviewCanRetainElement(
-	resultNode: boolean,
-	previous: BaseHalfCanvasCardPreview | undefined,
-	next: BaseHalfCanvasCardPreview | undefined
-): boolean {
-	return previous === next
-		|| (resultNode && baseHalfCanvasCardPreviewRenderKey(previous) === baseHalfCanvasCardPreviewRenderKey(next));
-}
-
 /**
  * The one-line canvas notice for saved layout BaseHalf could not use (mirror
  * file resilience, "What the user sees"). The affected cards are placed as
@@ -403,7 +362,6 @@ interface IBaseHalfCanvasCardRenderCacheEntry {
 	readonly sceneKey: string;
 	readonly element: HTMLElement;
 }
-type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
 type BaseHalfCanvasGlyphType = BaseHalfItemGlyph;
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 
