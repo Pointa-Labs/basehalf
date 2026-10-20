@@ -21,7 +21,7 @@ per feature:
 | `markdown/` | The Markdown document under the rich, source, and preview projections, and the reading aids of `adhd.yaml` | [Note rendering](../specs/note-rendering.md), roadmap track 5 |
 | `references/` | The reference graph: its stores and index, reference edits, the rename refactor, migration, and the badge editor | [Reference graph](../specs/reference-graph.md) |
 | `canvas/` | The canvas: its model and layout file, its view, scene, gestures, placement, and arrangement | The canvas specifications in the [harness routes](README.md#task-routes) |
-| `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/` and `snap/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
+| `canvasContrib/` | The features of the canvas, a folder each, such as `zoom/`, `snap/`, and `tidy/` | [The canvas: a core and its features](#the-canvas-a-core-and-its-features) |
 | `cardDetail/` | Card Detail and its projections | Roadmap tracks 2 and 5 |
 | `agentArea/` | The Agent Area, its terminal, the agent skill, and the selection agents can see | [Agent Area terminal](../specs/agent-area-terminal.md), [agent skill](../specs/agent-skill.md), [selection for agents](../specs/selection-for-agents.md) |
 | `video/` | The Video node, its `.bhnode` file, and the video providers | [Video node](../specs/video-node.md), [video providers](../specs/video-providers.md) |
@@ -106,10 +106,13 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 ## Status
 
 - 2026-10-20: the folders by feature are in place.
-- 2026-10-20: canvas features register with the canvas; the zoom controls
-  (`canvasContrib/zoom/`) are the first.
+- 2026-10-20: canvas features register with the canvas. The zoom controls,
+  the snap toggle, and Tidy Canvas are features (`canvasContrib/zoom/`,
+  `snap/`, and `tidy/`). Through `IBaseHalfCanvasView` a feature reads the
+  scene that was drawn, moves cards and puts them back as steps of undo,
+  reads and sets the viewport, and hears the canvas's keys.
 - Next: the rest of the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
-  (about 10,500 lines in one class), and the React scene,
+  (about 10,450 lines in one class), and the React scene,
   `canvas/browser/basehalfCanvasReactScene.ts` (about 5,100 lines), are split
   into the canvas core and canvas features, one feature per commit, each with
   unit tests.
