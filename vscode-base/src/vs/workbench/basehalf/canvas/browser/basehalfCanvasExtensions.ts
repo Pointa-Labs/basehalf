@@ -6,7 +6,9 @@
 import { Event } from '../../../../base/common/event.js';
 import { IDisposable } from '../../../../base/common/lifecycle.js';
 import { BrandedService, IConstructorSignature } from '../../../../platform/instantiation/common/instantiation.js';
-import { IBaseHalfCanvasCard } from '../common/basehalfCanvasModel.js';
+import { IBaseHalfCanvasFolderState } from '../../navigation/common/basehalfCanvasNavigation.js';
+import { BaseHalfCanvasCardPreview } from '../common/basehalfCanvasCardPreview.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../common/basehalfCanvasScene.js';
 
 /** The cards and connections of the canvas as they were drawn last. */
@@ -17,6 +19,21 @@ export interface IBaseHalfCanvasViewScene {
 	readonly structuralEpoch: number;
 	readonly cards: readonly IBaseHalfCanvasSceneCard[];
 	readonly edges: readonly IBaseHalfCanvasSceneEdge[];
+}
+
+/** The scene was drawn anew (IBaseHalfCanvasView.onDidChangeScene). */
+export interface IBaseHalfCanvasViewSceneChange {
+	readonly scene: IBaseHalfCanvasViewScene;
+	/** The folder was read and its cards drawn; false when no folder is shown or the folder could not be read. */
+	readonly drawn: boolean;
+	/** The cards the drawing selected, such as cards the user just created. */
+	readonly selection?: readonly string[];
+}
+
+/** The cards the user selected on a canvas. */
+export interface IBaseHalfCanvasViewSelection {
+	readonly sceneKey: string;
+	readonly paths: readonly string[];
 }
 
 /** A card whose place a change moved, with its row of the layout before and after. */
@@ -50,16 +67,54 @@ export interface IBaseHalfCanvasView {
 	/** Whether a card that is moved snaps to the edges and centers of other cards. It does when the canvas starts. */
 	setSnapEnabled(enabled: boolean): void;
 
+	/** The folder whose canvas is shown. */
+	getFolder(): IBaseHalfCanvasFolderState | undefined;
 	/** The scene of the canvas that is shown; without a folder, one without cards. */
 	readonly scene: IBaseHalfCanvasViewScene;
 	/**
 	 * The scene was drawn anew from the folder and its layout: another folder's
 	 * canvas is shown, or its items or layout changed. It also fires when no
-	 * folder is shown, with a scene without cards.
+	 * folder is shown or the folder cannot be read, with a scene without cards.
 	 */
-	readonly onDidChangeScene: Event<IBaseHalfCanvasViewScene>;
+	readonly onDidChangeScene: Event<IBaseHalfCanvasViewSceneChange>;
 	/** Whether the canvas of the scene with this key is the one shown. */
 	isCurrentScene(sceneKey: string): boolean;
+	/** The item of a card as it was drawn last, by its workspace-relative path. */
+	getItem(path: string): IBaseHalfCanvasItem | undefined;
+	/** What the card of an item shows of it, as the canvas read it last. */
+	getCardPreview(path: string): BaseHalfCanvasCardPreview | undefined;
+	/** Draws the canvas again from its folder, soon. */
+	requestRender(): void;
+
+	/** The user changed which cards are selected, and the canvas took the change. */
+	readonly onDidChangeSelection: Event<IBaseHalfCanvasViewSelection>;
+	/** Selects these cards. `onDidChangeSelection` does not fire for it. */
+	select(paths: readonly string[]): void;
+	/** Whether a gesture of the pointer is going on on the canvas, such as a drag. */
+	isInteracting(): boolean;
+	/** Moves the keyboard focus to a card. */
+	focusCard(path: string): void;
+	/**
+	 * Pick on Canvas: lets the user click a card and resolves with its path.
+	 * The click selects or moves nothing. A click on the blank canvas, Escape,
+	 * or `cancelCardPick` resolves with undefined; a click on `exceptPath` or
+	 * on a folder keeps waiting.
+	 */
+	pickCard(exceptPath: string): Promise<string | undefined>;
+	cancelCardPick(): void;
+	/**
+	 * Shows an element as the panel under a selected card, such as the Video
+	 * panel. The scene places it; `screenHeight` is its height in screen
+	 * pixels, and its width is fixed.
+	 */
+	showCardPanel(sceneKey: string, path: string, element: HTMLElement, screenHeight: number): void;
+	/** Takes away the panel with this element. */
+	clearCardPanel(element: HTMLElement): void;
+	/**
+	 * Whether the user just created the node at this path, so that its panel
+	 * takes the focus when it first shows. Asking forgets it.
+	 */
+	takeCreatedNodeFocus(path: string): boolean;
 	/** Resolves once the scene has drawn, in its next frames, what was changed before. */
 	whenDrawn(): Promise<void>;
 	/**

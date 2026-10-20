@@ -107,12 +107,17 @@ folder of its own (`workbench/contrib/terminalContrib/<feature>/`).
 
 - 2026-10-20: the folders by feature are in place.
 - 2026-10-20: canvas features register with the canvas. The zoom controls,
-  the snap toggle, and Tidy Canvas are features (`canvasContrib/zoom/`,
-  `snap/`, and `tidy/`). Through `IBaseHalfCanvasView` a feature reads the
-  scene that was drawn, moves cards and puts them back as steps of undo,
-  reads and sets the viewport, and hears the canvas's keys.
-- Next: the rest of the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
-  (about 10,450 lines in one class), and the React scene,
+  the snap toggle, Tidy Canvas, and the panel under a Video card are
+  features (`canvasContrib/zoom/`, `snap/`, `tidy/`, and `videoPanel/`).
+  Through `IBaseHalfCanvasView` a feature reads the scene that was drawn,
+  its items and what their cards show, and the selection; moves cards and
+  puts them back as steps of undo; reads and sets the viewport; shows a
+  panel under a card; lets the user pick a card; and hears the canvas's keys.
+- Next, in the order of how often the code changed in the month before:
+  the rest of the Video node on the canvas (its cards, its actions, Capture
+  Frame), connections, creating cards, the badge editor, Card Detail, and
+  note editing. The rest of the canvas view, `canvas/browser/basehalfCanvasWorkbench.contribution.ts`
+  (about 10,200 lines in one class), and the React scene,
   `canvas/browser/basehalfCanvasReactScene.ts` (about 5,100 lines), are split
   into the canvas core and canvas features, one feature per commit, each with
   unit tests.

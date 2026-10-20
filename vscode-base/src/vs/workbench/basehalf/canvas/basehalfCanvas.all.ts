@@ -12,3 +12,4 @@ import './browser/basehalfCanvasWorkbench.contribution.js';
 import '../canvasContrib/tidy/browser/basehalfCanvasTidy.contribution.js';
 import '../canvasContrib/snap/browser/basehalfCanvasSnap.contribution.js';
 import '../canvasContrib/zoom/browser/basehalfCanvasZoom.contribution.js';
+import '../canvasContrib/videoPanel/browser/basehalfCanvasVideoPanel.contribution.js';

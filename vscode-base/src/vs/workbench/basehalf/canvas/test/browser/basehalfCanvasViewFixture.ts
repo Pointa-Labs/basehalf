@@ -6,8 +6,11 @@
 import { mainWindow } from '../../../../../base/browser/window.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene } from '../../browser/basehalfCanvasExtensions.js';
-import { IBaseHalfCanvasCard } from '../../common/basehalfCanvasModel.js';
+import { URI } from '../../../../../base/common/uri.js';
+import { IBaseHalfCanvasFolderState } from '../../../navigation/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from '../../browser/basehalfCanvasExtensions.js';
+import { BaseHalfCanvasCardPreview } from '../../common/basehalfCanvasCardPreview.js';
+import { IBaseHalfCanvasCard, IBaseHalfCanvasItem } from '../../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasSceneCard, IBaseHalfCanvasSceneEdge, IBaseHalfCanvasSceneGeometry, IBaseHalfCanvasSceneViewport } from '../../common/basehalfCanvasScene.js';
 
 /** A canvas view for the tests of canvas features: it records what a feature asks of it. */
@@ -18,8 +21,16 @@ export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
 	reportZoom(zoom: number): void;
 	/** The view controls are hidden, as when Card Detail opens. */
 	hideViewControls(): void;
-	/** The canvas draws a scene, as after a folder opened or its files changed, and says so. */
-	showScene(scene: IBaseHalfCanvasViewScene): void;
+	/**
+	 * The canvas draws a scene, as after a folder opened or its files changed,
+	 * and says so: drawn from its folder unless `drawn` is false, with the
+	 * selection the drawing applied.
+	 */
+	showScene(scene: IBaseHalfCanvasViewScene, options?: { readonly drawn?: boolean; readonly selection?: readonly string[] }): void;
+	/** The user selects cards, and the canvas takes the change. */
+	changeSelection(paths: readonly string[], sceneKey?: string): void;
+	/** The item and the preview of a card, as the canvas read them last; no preview while it loads. */
+	setItem(item: IBaseHalfCanvasItem, preview?: BaseHalfCanvasCardPreview): void;
 	/** A key is pressed on the canvas. Returns the event, to see whether a feature took it. */
 	pressKey(init: KeyboardEventInit, target?: HTMLElement): KeyboardEvent;
 	/** Undoes (true) or does again (false) the last change of `moveCards`. */
@@ -28,6 +39,14 @@ export interface IBaseHalfTestCanvasView extends IBaseHalfCanvasView {
 	noteEditorCloses: boolean;
 	/** Makes the next `moveCards` fail with this error. */
 	failNextMove(error: Error): void;
+	/** Answers the pick that `pickCard` waits for. */
+	finishCardPick(path: string | undefined): void;
+	/** Whether a gesture of the pointer is going on. */
+	interacting: boolean;
+	/** The node that `takeCreatedNodeFocus` answers for once. */
+	createdNodeFocusPath: string | undefined;
+	/** The element of each card panel shown, by the path of its card. */
+	readonly cardPanels: Map<string, HTMLElement>;
 }
 
 /** A card of a test scene at a place, 200 by 100 unless sized. */
@@ -49,13 +68,34 @@ export function baseHalfTestSceneEdge(from: string, to: string): IBaseHalfCanvas
 	return { id: `${from}->${to}`, from, from_anchor: 'east', to, to_anchor: 'west', fromKind: 'file', toKind: 'file' };
 }
 
+/** The folder of the test canvas: `folder` in the workspace `/workspace`. */
+export const BASEHALF_TEST_CANVAS_FOLDER: IBaseHalfCanvasFolderState = {
+	resource: URI.file('/workspace/folder'),
+	workspaceFolder: URI.file('/workspace'),
+	relativePath: 'folder',
+	source: 'explorer'
+};
+
+/** An item of the test folder, a file unless it is a folder. */
+export function baseHalfTestCanvasItem(path: string, isDirectory = false): IBaseHalfCanvasItem {
+	const resource = URI.joinPath(BASEHALF_TEST_CANVAS_FOLDER.workspaceFolder, path);
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	return {
+		path,
+		name,
+		kind: isDirectory ? 'folder' : 'file',
+		stat: { resource, name, isFile: !isDirectory, isDirectory, isSymbolicLink: false, children: undefined, etag: '', mtime: 0, ctime: 0, size: 0, readonly: false, locked: false, executable: false }
+	};
+}
+
 export function createBaseHalfTestCanvasView(
 	store: Pick<DisposableStore, 'add'>,
-	options?: { readonly zoom?: number; readonly scene?: IBaseHalfCanvasViewScene; readonly viewport?: IBaseHalfCanvasSceneViewport }
+	options?: { readonly zoom?: number; readonly scene?: IBaseHalfCanvasViewScene; readonly viewport?: IBaseHalfCanvasSceneViewport; readonly folder?: IBaseHalfCanvasFolderState }
 ): IBaseHalfTestCanvasView {
 	const onDidChangeZoom = store.add(new Emitter<number>());
 	const onDidHideViewControls = store.add(new Emitter<void>());
-	const onDidChangeScene = store.add(new Emitter<IBaseHalfCanvasViewScene>());
+	const onDidChangeScene = store.add(new Emitter<IBaseHalfCanvasViewSceneChange>());
+	const onDidChangeSelection = store.add(new Emitter<IBaseHalfCanvasViewSelection>());
 	const onKeyDown = store.add(new Emitter<KeyboardEvent>());
 	const viewControlsCorner = mainWindow.document.createElement('div');
 	const viewControls = mainWindow.document.createElement('div');
@@ -63,11 +103,14 @@ export function createBaseHalfTestCanvasView(
 	mainWindow.document.body.appendChild(viewControlsCorner);
 	store.add(toDisposable(() => viewControlsCorner.remove()));
 	const calls: string[] = [];
+	const items = new Map<string, { readonly item: IBaseHalfCanvasItem; readonly preview: BaseHalfCanvasCardPreview | undefined }>();
+	const folder = options?.folder ?? BASEHALF_TEST_CANVAS_FOLDER;
 	let zoom = options?.zoom ?? 1;
 	let scene: IBaseHalfCanvasViewScene = options?.scene ?? { key: 'folder', structuralEpoch: 1, cards: [], edges: [] };
 	const viewport = options?.viewport ?? { x: 0, y: 0, zoom };
 	let lastMoveUndoOrRedo: ((undone: boolean) => void) | undefined;
 	let nextMoveError: Error | undefined;
+	let pendingPick: ((path: string | undefined) => void) | undefined;
 	const canvas: IBaseHalfTestCanvasView = {
 		calls,
 		get zoom() { return zoom; },
@@ -78,9 +121,49 @@ export function createBaseHalfTestCanvasView(
 		getViewport: () => viewport,
 		setViewport: async (sceneKey, value) => { calls.push(`setViewport ${sceneKey} ${value.x},${value.y},${value.zoom}`); },
 		setSnapEnabled: enabled => calls.push(`setSnapEnabled ${enabled}`),
+		getFolder: () => folder,
 		get scene() { return scene; },
 		onDidChangeScene: onDidChangeScene.event,
 		isCurrentScene: sceneKey => sceneKey === scene.key && sceneKey !== 'no-folder',
+		getItem: path => items.get(path)?.item,
+		getCardPreview: path => items.get(path)?.preview,
+		requestRender: () => calls.push('requestRender'),
+		onDidChangeSelection: onDidChangeSelection.event,
+		select: paths => calls.push(`select ${paths.join(', ')}`),
+		interacting: false,
+		isInteracting: () => canvas.interacting,
+		focusCard: path => calls.push(`focusCard ${path}`),
+		pickCard: exceptPath => {
+			calls.push(`pickCard except ${exceptPath}`);
+			pendingPick?.(undefined);
+			return new Promise<string | undefined>(resolve => { pendingPick = resolve; });
+		},
+		cancelCardPick: () => {
+			const pick = pendingPick;
+			pendingPick = undefined;
+			pick?.(undefined);
+		},
+		cardPanels: new Map<string, HTMLElement>(),
+		showCardPanel: (sceneKey, path, element, screenHeight) => {
+			calls.push(`showCardPanel ${sceneKey} ${path} ${screenHeight}`);
+			canvas.cardPanels.set(path, element);
+		},
+		clearCardPanel: element => {
+			for (const [path, shown] of canvas.cardPanels) {
+				if (shown === element) {
+					canvas.cardPanels.delete(path);
+					calls.push(`clearCardPanel ${path}`);
+				}
+			}
+		},
+		createdNodeFocusPath: undefined,
+		takeCreatedNodeFocus: path => {
+			if (canvas.createdNodeFocusPath !== path) {
+				return false;
+			}
+			canvas.createdNodeFocusPath = undefined;
+			return true;
+		},
 		whenDrawn: async () => { },
 		moveCards: async (moving: IBaseHalfCanvasViewScene, places: readonly IBaseHalfCanvasSceneGeometry[], undoLabel: string, onUndoOrRedo?: (undone: boolean) => void): Promise<readonly IBaseHalfCanvasMovedCard[]> => {
 			calls.push(`moveCards ${moving.key}@${moving.structuralEpoch} ${undoLabel}: ${places.map(place => `${place.path} ${place.x},${place.y}`).join('; ')}`);
@@ -119,10 +202,12 @@ export function createBaseHalfTestCanvasView(
 			onDidChangeZoom.fire(value);
 		},
 		hideViewControls: () => onDidHideViewControls.fire(),
-		showScene: value => {
+		showScene: (value, sceneOptions) => {
 			scene = value;
-			onDidChangeScene.fire(value);
+			onDidChangeScene.fire({ scene: value, drawn: sceneOptions?.drawn ?? true, ...(sceneOptions?.selection ? { selection: sceneOptions.selection } : {}) });
 		},
+		changeSelection: (paths, sceneKey) => onDidChangeSelection.fire({ sceneKey: sceneKey ?? scene.key, paths }),
+		setItem: (item, preview) => { items.set(item.path, { item, preview }); },
 		pressKey: (init, target) => {
 			const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
 			if (target) {
@@ -134,6 +219,11 @@ export function createBaseHalfTestCanvasView(
 		},
 		undoOrRedoLastMove: undone => lastMoveUndoOrRedo?.(undone),
 		failNextMove: error => { nextMoveError = error; },
+		finishCardPick: path => {
+			const pick = pendingPick;
+			pendingPick = undefined;
+			pick?.(path);
+		},
 	};
 	return canvas;
 }

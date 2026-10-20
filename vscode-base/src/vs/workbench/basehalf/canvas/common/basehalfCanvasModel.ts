@@ -113,6 +113,11 @@ export interface IBaseHalfCanvasFile {
 	readonly edges: readonly IBaseHalfCanvasEdge[];
 }
 
+/** The workspace-relative path of `name` in the folder at `parent`; `name` itself at the root. */
+export function baseHalfCanvasChildPath(parent: string, name: string): string {
+	return parent ? `${parent}/${name}` : name;
+}
+
 export interface IBaseHalfCanvasItem {
 	readonly path: string;
 	readonly name: string;

@@ -55,6 +55,7 @@ import {
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasOpenPosition,
 	BASEHALF_CANVAS_GRID_COLUMN_GAP,
+	baseHalfCanvasChildPath,
 	baseHalfCanvasTransferPlaces,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
@@ -134,7 +135,6 @@ import {
 import { baseHalfCanvasContentKindForPath, baseHalfNodeAcceptsContentKind } from '../common/basehalfCanvasContentKind.js';
 import { baseHalfVideoNodePhase, IBaseHalfNodeArtifact, IBaseHalfVideoGeneration } from '../../video/common/basehalfVideoNode.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
-import { BaseHalfVideoNodePanel, IBaseHalfVideoNodePanelHost } from '../../video/browser/basehalfVideoNodePanel.js';
 import { IBaseHalfVideoCard, IBaseHalfVideoCardInput, renderBaseHalfVideoCard } from '../../video/browser/basehalfVideoCard.js';
 import { captureBaseHalfVideoFrame, createBaseHalfVideoFrameReader } from '../../video/browser/basehalfVideoFrameCapture.js';
 import { baseHalfVideoCardToolbarActions } from '../../video/common/basehalfVideoCardPresentation.js';
@@ -193,7 +193,7 @@ import {
 import type { BaseHalfMarkdownFormatCommand } from '../../markdown/common/basehalfMarkdownFormatting.js';
 import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_OPEN_RESULT_NODE_COMMAND_ID, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
 import { BaseHalfCanvasCardPreview, baseHalfCanvasCardPreviewCanRetainElement, BaseHalfCanvasNodePreview, IBaseHalfCanvasMediaPreview } from '../common/basehalfCanvasCardPreview.js';
-import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene } from './basehalfCanvasExtensions.js';
+import { BaseHalfCanvasExtensionsRegistry, IBaseHalfCanvasMovedCard, IBaseHalfCanvasView, IBaseHalfCanvasViewScene, IBaseHalfCanvasViewSceneChange, IBaseHalfCanvasViewSelection } from './basehalfCanvasExtensions.js';
 import { IBaseHalfCanvasResourceDeletionService } from './basehalfCanvasResourceDeletion.js';
 import {
 	BaseHalfStructuralResourceOutcome,
@@ -259,14 +259,6 @@ interface IBaseHalfPendingCanvasSelection {
 	readonly sceneKey: string;
 	readonly paths: readonly string[];
 	readonly owner: IBaseHalfCanvasPostCreateOwner;
-}
-
-/** The panel under the selected Video card (D58) and what it lives on. */
-interface IBaseHalfVideoPanelMount {
-	readonly sceneKey: string;
-	readonly path: string;
-	readonly panel: BaseHalfVideoNodePanel;
-	readonly store: DisposableStore;
 }
 
 interface IBaseHalfPendingCanvasFit {
@@ -639,7 +631,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private reportedCanvasZoom: number | undefined;
 	private readonly onDidChangeZoomEmitter = this._register(new Emitter<number>());
 	private readonly onDidHideViewControlsEmitter = this._register(new Emitter<void>());
-	private readonly onDidChangeSceneEmitter = this._register(new Emitter<IBaseHalfCanvasViewScene>());
+	private readonly onDidChangeSceneEmitter = this._register(new Emitter<IBaseHalfCanvasViewSceneChange>());
+	private readonly onDidChangeSelectionEmitter = this._register(new Emitter<IBaseHalfCanvasViewSelection>());
 	private readonly onKeyDownEmitter = this._register(new Emitter<KeyboardEvent>());
 	private renderQueuedBehindGesture = false;
 	private chosenCanvasPlacesInstance: BaseHalfCanvasChosenPlaces | undefined;
@@ -658,24 +651,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private canvasInteractionEpoch = 0;
 	private canvasNavigationEpoch = 0;
 	private pendingCanvasSelection: IBaseHalfPendingCanvasSelection | undefined;
-	/** The panel under the selected Video card. */
-	private videoPanel: IBaseHalfVideoPanelMount | undefined;
-	/** A Video node just created: its panel takes the focus when it first shows. */
-	private videoPanelFocusPath: string | undefined;
-	/** A Video node that Generate made beside a node with a video: its card is selected once it is drawn. */
-	private pendingVideoNodeSelection: { readonly sceneKey: string; readonly path: string } | undefined;
+	/** A node the user just created: its panel takes the focus when it first shows (IBaseHalfCanvasView.takeCreatedNodeFocus). */
+	private createdNodeFocusPath: string | undefined;
 	/** The drawn Video cards, for the time their players show. */
 	private readonly videoCards = new Map<string, IBaseHalfVideoCard>();
 	/** The Video card drawn in each card element. */
 	private readonly videoCardBodies = new WeakMap<HTMLElement, IBaseHalfVideoCard>();
 	/** Shows a newer state of its Video node in a card element, which is kept. */
 	private readonly videoCardRetainers = new WeakMap<HTMLElement, (item: IBaseHalfCanvasItem, preview: BaseHalfCanvasNodePreview) => void>();
-	/** Counts selections, so a panel that waits for a drag to end shows only for the latest one. */
-	private videoPanelSelectionToken = 0;
-	/** A single selected card whose preview is still loading: its panel shows once it is known to be a Video node. */
-	private videoPanelWanted: { readonly sceneKey: string; readonly path: string; readonly token: number } | undefined;
-	/** Pick on Canvas of the Video panel while it waits for a click. */
-	private videoInputPick: { readonly store: DisposableStore; finish(path: string | undefined): void } | undefined;
+	/** Pick on Canvas while it waits for a click (IBaseHalfCanvasView.pickCard). */
+	private canvasCardPick: { readonly store: DisposableStore; finish(path: string | undefined): void } | undefined;
 	private pendingCanvasFit: IBaseHalfPendingCanvasFit | undefined;
 	/** Cards the user just created that are shown to them once they are drawn (canvas card placement). */
 	private pendingCanvasReveal: { readonly sceneKey: string; readonly paths: readonly string[]; readonly owner: IBaseHalfCanvasPostCreateOwner } | undefined;
@@ -789,15 +774,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.flushAllBadgeDescriptionWrites(),
 			{ id: 'join.basehalfBadgeDescriptions', label: localize('join.basehalfBadgeDescriptions', "Saving Badge prompts") }
 		)));
-		this._register(lifecycleService.onWillShutdown(event => event.join(
-			this.videoPanel?.panel.flush() ?? Promise.resolve(),
-			{ id: 'join.basehalfVideoPrompt', label: localize('join.basehalfVideoPrompt', "Saving the prompt of a Video node") }
-		)));
-		this._register(toDisposable(() => {
-			this.cancelVideoInputPick();
-			this.videoPanel?.store.dispose();
-			this.videoPanel = undefined;
-		}));
+		this._register(toDisposable(() => this.cancelCanvasCardPick()));
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -1094,6 +1071,25 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return {
 			get zoom() { return zoom(); },
 			onDidChangeZoom: this.onDidChangeZoomEmitter.event,
+			getFolder: () => this.getCurrentFolder(),
+			getItem: path => this.renderedItemsByPath.get(path),
+			getCardPreview: path => this.renderedCardPreviewsByPath.get(path)?.preview,
+			requestRender: () => this.requestRender(),
+			onDidChangeSelection: this.onDidChangeSelectionEmitter.event,
+			select: paths => this.canvasScene.select({ cardPaths: paths }),
+			isInteracting: () => this.canvasScene.isInteracting(),
+			focusCard: path => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
+			pickCard: exceptPath => this.pickCanvasCard(exceptPath),
+			cancelCardPick: () => this.cancelCanvasCardPick(),
+			showCardPanel: (sceneKey, path, element, screenHeight) => this.canvasScene.setVideoPanelSurface({ sceneKey, structuralEpoch: this.renderedSceneStructuralEpoch, path, element, screenHeight }),
+			clearCardPanel: element => this.canvasScene.clearVideoPanelSurface(element),
+			takeCreatedNodeFocus: path => {
+				if (this.createdNodeFocusPath !== path) {
+					return false;
+				}
+				this.createdNodeFocusPath = undefined;
+				return true;
+			},
 			setZoom: zoom => this.setCanvasZoom(zoom),
 			zoomBy: direction => this.zoomBy(direction),
 			fitToScreen: () => this.fitCanvasToScreen(),
@@ -1462,7 +1458,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = 0;
-			this.onDidChangeSceneEmitter.fire(this.canvasViewScene(BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY));
+			this.onDidChangeSceneEmitter.fire({ scene: this.canvasViewScene(BASEHALF_CANVAS_NO_FOLDER_SCENE_KEY), drawn: false });
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			this.cardListenerStores.clear();
@@ -1508,7 +1504,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedSceneCards = [];
 			this.renderedSceneEdges = [];
 			this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
-			this.onDidChangeSceneEmitter.fire(this.canvasViewScene(this.sceneKey(folder)));
+			this.onDidChangeSceneEmitter.fire({ scene: this.canvasViewScene(this.sceneKey(folder)), drawn: false });
 			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			this.cardListenerStores.clear();
@@ -1577,7 +1573,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// card placement). The place depends on its size, so BaseHalf reads first
 		// what kind of node a new node file is.
 		const pathKey = this.canvasPathKey(folder);
-		const childPaths = (stat.children ?? []).map(child => canvasChildPath(folder.relativePath, basename(child.resource)));
+		const childPaths = (stat.children ?? []).map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)));
 		// This listing can be ahead of the file events for the same change. What
 		// it shows of the cards that were here is told to following moved items,
 		// so that a renamed file is not taken for a deleted one and a new one.
@@ -1814,7 +1810,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderedSceneCards = Object.freeze(sceneCards);
 		this.renderedSceneEdges = Object.freeze(sceneEdges);
 		this.renderedSceneStructuralEpoch = structuralStamp.structuralEpoch;
-		this.onDidChangeSceneEmitter.fire(this.canvasViewScene(currentSceneKey));
 		if (pendingSelection && (!pendingSelectionRequest
 			|| this.pendingCanvasSelection !== pendingSelectionRequest
 			|| !this.isCanvasPostCreateOwnerCurrent(pendingSelectionRequest.owner))) {
@@ -1828,7 +1823,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			edges: sceneEdges,
 			selectedCardPaths: pendingSelection
 		});
-		this.syncVideoPanelAfterRender(currentSceneKey, pendingSelection);
+		this.onDidChangeSceneEmitter.fire({ scene: this.canvasViewScene(currentSceneKey), drawn: true, ...(pendingSelection ? { selection: pendingSelection } : {}) });
 		this.userRenderOwed = false;
 		// The cards are drawn: the places BaseHalf chose for them are kept from
 		// now on, and saved when the layout can take them.
@@ -1967,7 +1962,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const refusals = new Map<string, string>();
 		const rootLevel = folder.relativePath.length === 0;
 		const children = (stat.children ?? []).filter(child => isBaseHalfCanvasEntry(child, rootLevel));
-		const siblingPaths = children.map(child => canvasChildPath(folder.relativePath, basename(child.resource)));
+		const siblingPaths = children.map(child => baseHalfCanvasChildPath(folder.relativePath, basename(child.resource)));
 		const marked = await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder);
 		const identity = this.upstreamIdentity(folder.workspaceFolder);
 		const misplaced = state === undefined || state === 'building'
@@ -2535,7 +2530,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const postCreateOwner = this.captureCanvasPostCreateOwner();
 
 		const name = await this.findAvailableConnectedNodeName(queuedFolder, kind);
-		const targetPath = canvasChildPath(queuedFolder.relativePath, name);
+		const targetPath = baseHalfCanvasChildPath(queuedFolder.relativePath, name);
 		const targetResource = joinPath(queuedFolder.workspaceFolder, ...targetPath.split('/'));
 		// The source is the node's only upstream entry in its first bytes (D37):
 		// creating the file is the connection.
@@ -2548,7 +2543,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			...(generation ? { generation } : {})
 		});
 		if (kind === 'video') {
-			this.videoPanelFocusPath = targetPath;
+			this.createdNodeFocusPath = targetPath;
 		}
 		const targetSize = kind === 'video'
 			? { width: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_WIDTH, height: BASEHALF_CANVAS_DEFAULT_VIDEO_NODE_HEIGHT }
@@ -2664,7 +2659,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const canvas = await this.canvasMirrorService.readCanvas(folder);
 		for (let index = 0; index < 1000; index++) {
 			const name = `${kind}${index === 0 ? '' : `-${index + 1}`}${BASEHALF_NODE_DOCUMENT_EXTENSION}`;
-			const path = canvasChildPath(folder.relativePath, name);
+			const path = baseHalfCanvasChildPath(folder.relativePath, name);
 			if (await this.fileService.exists(joinPath(folder.workspaceFolder, ...path.split('/')))
 				|| await this.fileService.exists(baseHalfMirrorResource(folder.workspaceFolder, path, 'badge.yaml'))
 				|| canvas?.cards.some(card => card.path === path)
@@ -2907,7 +2902,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private async prepareSceneSelectionChange(sceneKey: string, structuralEpoch: number, paths: readonly string[]): Promise<boolean> {
 		const accepted = await this.prepareSceneNoteSelectionChange(sceneKey, structuralEpoch, paths);
 		if (accepted) {
-			this.followSelectionWithVideoPanel(sceneKey, paths);
+			this.onDidChangeSelectionEmitter.fire({ sceneKey, paths });
 		}
 		return accepted;
 	}
@@ -4258,7 +4253,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				: localize('basehalf.canvas.duplicate.progressMany', "Duplicating {0} items", copies.length),
 			confirmBeforeUndo: this.confirmExplorerUndo()
 		});
-		const paths = copies.map(copy => canvasChildPath(folder.relativePath, basename(copy.target)));
+		const paths = copies.map(copy => baseHalfCanvasChildPath(folder.relativePath, basename(copy.target)));
 		this.queueCanvasSelection(sceneKey, paths, postCreateOwner);
 		this.requestRender();
 	}
@@ -4889,7 +4884,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const placed = new Set((canvas?.cards ?? []).map(card => card.path));
 		await Promise.all((stat.children ?? []).map(async child => {
 			const name = basename(child.resource);
-			const path = canvasChildPath(folder.relativePath, name);
+			const path = baseHalfCanvasChildPath(folder.relativePath, name);
 			if (child.isDirectory || !name.toLowerCase().endsWith(BASEHALF_NODE_DOCUMENT_EXTENSION) || placed.has(path) || waiting?.has(path)) {
 				return;
 			}
@@ -5730,7 +5725,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const paths = resources
 			.filter(resource => this.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource))
-			.map(resource => canvasChildPath(folder.relativePath, basename(resource)));
+			.map(resource => baseHalfCanvasChildPath(folder.relativePath, basename(resource)));
 		if (paths.length === 0) {
 			return;
 		}
@@ -5899,7 +5894,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!name) {
 			throw new Error(localize('basehalf.canvas.newNote.exhausted', "Too many untitled notes. Rename one before creating another."));
 		}
-		const path = canvasChildPath(folder.relativePath, name);
+		const path = baseHalfCanvasChildPath(folder.relativePath, name);
 		// From a connection, the note's first bytes list the source (D37): the
 		// create is the connection.
 		let connected: { readonly contents: VSBuffer; readonly edge: IBaseHalfCanvasEdge } | undefined;
@@ -5993,7 +5988,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			...(generation ? { generation } : {})
 		});
 		if (kind === 'video') {
-			this.videoPanelFocusPath = canvasChildPath(folder.relativePath, name);
+			this.createdNodeFocusPath = baseHalfCanvasChildPath(folder.relativePath, name);
 		}
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, {
 			contents: VSBuffer.fromString(serializeBaseHalfNodeDocument(document)),
@@ -6050,7 +6045,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}, 'note');
 		// The note's first bytes list the PDF as upstream (D37): the create is
 		// the connection, so there is no "created but not connected" state.
-		const targetPath = canvasChildPath(folder.relativePath, name);
+		const targetPath = baseHalfCanvasChildPath(folder.relativePath, name);
 		const contents = VSBuffer.fromString(baseHalfPdfBranchMarkdown(sourceName, selection, {
 			sourcePath: cardDetail.relativePath,
 			notePath: targetPath
@@ -6521,7 +6516,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			confirmBeforeUndo: this.confirmExplorerUndo()
 		});
 
-		const path = canvasChildPath(folder.relativePath, name);
+		const path = baseHalfCanvasChildPath(folder.relativePath, name);
 		const size = options.size ?? (kind === 'folder'
 			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
 			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT });
@@ -6634,7 +6629,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		// The user pointed at a place: the group keeps its block there, and a card
 		// whose slot is taken goes to the nearest open place (canvas card placement).
-		const paths = transfers.map(transfer => canvasChildPath(folder.relativePath, basename(transfer.target)));
+		const paths = transfers.map(transfer => baseHalfCanvasChildPath(folder.relativePath, basename(transfer.target)));
 		// A card that was moved here keeps the size it had: its row came along.
 		// A new card has the size of its kind, which for a node file is read.
 		let carried = new Map<string, IBaseHalfCanvasCard>();
@@ -7191,177 +7186,30 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return workspaceFolder ? joinPath(workspaceFolder, ...preview.document.result.artifact.path.split('/')) : undefined;
 	}
 
-	/** Whether the card shows a Video node; a node whose preview is still loading counts when `loading` says so. */
-	private isVideoNodeCard(path: string, loading: boolean): boolean | 'loading' {
-		if (!this.renderedItemsByPath.has(path)) {
-			return false;
-		}
-		const preview = this.renderedCardPreviewsByPath.get(path)?.preview;
-		if (preview?.kind === 'node') {
-			return preview.document.kind === 'video';
-		}
-		return loading && preview?.kind === 'nodeLoading' ? 'loading' : false;
-	}
-
-	/** Shows the panel for a single selected Video card and closes it for any other selection. */
-	private followSelectionWithVideoPanel(sceneKey: string, paths: readonly string[]): void {
-		const token = ++this.videoPanelSelectionToken;
-		this.videoPanelWanted = undefined;
-		const path = paths.length === 1 ? paths[0] : undefined;
-		const video = path !== undefined ? this.isVideoNodeCard(path, true) : false;
-		if (path === undefined || video === false) {
-			void this.closeVideoPanel();
-			return;
-		}
-		if (video === 'loading') {
-			void this.closeVideoPanel();
-			this.videoPanelWanted = { sceneKey, path, token };
-			return;
-		}
-		const show = (): void => {
-			if (this.disposed || token !== this.videoPanelSelectionToken || !this.isCurrentSceneKey(sceneKey)) {
-				return;
-			}
-			// A drag that selected the card keeps the panel away until the pointer is released.
-			if (this.canvasScene.isInteracting()) {
-				mainWindow.requestAnimationFrame(show);
-				return;
-			}
-			this.showVideoPanel(sceneKey, path);
-		};
-		show();
-	}
-
-	/** After a render: follows a selection the render applied, and keeps the open panel on its card. */
-	private syncVideoPanelAfterRender(sceneKey: string, appliedSelection: readonly string[] | undefined): void {
-		if (appliedSelection) {
-			this.followSelectionWithVideoPanel(sceneKey, appliedSelection);
-		}
-		const pendingNode = this.pendingVideoNodeSelection;
-		if (pendingNode && pendingNode.sceneKey === sceneKey && this.renderedItemsByPath.has(pendingNode.path)) {
-			this.pendingVideoNodeSelection = undefined;
-			this.canvasScene.select({ cardPaths: [pendingNode.path] });
-			this.followSelectionWithVideoPanel(sceneKey, [pendingNode.path]);
-		}
-		const wanted = this.videoPanelWanted;
-		if (wanted && (wanted.token !== this.videoPanelSelectionToken || wanted.sceneKey !== sceneKey)) {
-			this.videoPanelWanted = undefined;
-		} else if (wanted && this.isVideoNodeCard(wanted.path, false) === true) {
-			this.videoPanelWanted = undefined;
-			this.showVideoPanel(sceneKey, wanted.path);
-		}
-		const mount = this.videoPanel;
-		if (!mount) {
-			return;
-		}
-		if (mount.sceneKey !== sceneKey || this.canvasNavigationService.state.cardDetail || this.isVideoNodeCard(mount.path, true) === false) {
-			void this.closeVideoPanel();
-			return;
-		}
-		this.publishVideoPanel(mount);
-	}
-
-	private showVideoPanel(sceneKey: string, path: string): void {
-		const current = this.videoPanel;
-		if (current && current.sceneKey === sceneKey && current.path === path) {
-			this.publishVideoPanel(current);
-			return;
-		}
-		void this.closeVideoPanel();
-		const item = this.renderedItemsByPath.get(path);
-		if (!item) {
-			return;
-		}
-		const focusPrompt = this.videoPanelFocusPath === path;
-		if (focusPrompt) {
-			this.videoPanelFocusPath = undefined;
-		}
-		const store = new DisposableStore();
-		const panel = store.add(this.instantiationService.createInstance(BaseHalfVideoNodePanel, item.stat.resource, this.videoPanelHost(sceneKey, path), { focusPromptWhenShown: focusPrompt }));
-		const mount: IBaseHalfVideoPanelMount = { sceneKey, path, panel, store };
-		this.videoPanel = mount;
-		store.add(panel.onDidChangeHeight(() => this.publishVideoPanel(mount)));
-		this.publishVideoPanel(mount);
-	}
-
-	private publishVideoPanel(mount: IBaseHalfVideoPanelMount): void {
-		if (this.videoPanel !== mount) {
-			return;
-		}
-		this.canvasScene.setVideoPanelSurface({
-			sceneKey: mount.sceneKey,
-			structuralEpoch: this.renderedSceneStructuralEpoch,
-			path: mount.path,
-			element: mount.panel.element,
-			screenHeight: mount.panel.height
-		});
-	}
-
-	/** Saves the panel's prompt and takes the panel away. */
-	private async closeVideoPanel(): Promise<void> {
-		const mount = this.videoPanel;
-		if (!mount) {
-			return;
-		}
-		this.videoPanel = undefined;
-		this.cancelVideoInputPick();
-		this.canvasScene.clearVideoPanelSurface(mount.panel.element);
-		try {
-			await mount.panel.flush();
-		} catch (error) {
-			this.logService.warn(error);
-		} finally {
-			mount.store.dispose();
-		}
-	}
-
-	private videoPanelHost(sceneKey: string, path: string): IBaseHalfVideoNodePanelHost {
-		return {
-			pickCard: () => this.pickCardForVideoInput(path),
-			importFile: () => this.importFileForVideoInput(path),
-			focusCard: () => this.renderedCardElementsByPath.get(path)?.closest<HTMLElement>('.react-flow__node')?.focus({ preventScroll: true }),
-			didGenerateInNode: resource => this.selectVideoNodeWhenDrawn(sceneKey, resource)
-		};
-	}
-
-	/** Selects a Video node that Generate made beside another, once its card is drawn. */
-	private selectVideoNodeWhenDrawn(sceneKey: string, resource: URI): void {
-		const folder = this.getCurrentFolder();
-		if (!folder || this.sceneKey(folder) !== sceneKey || !this.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource)) {
-			return;
-		}
-		const path = canvasChildPath(folder.relativePath, basename(resource));
-		if (this.renderedItemsByPath.has(path)) {
-			this.canvasScene.select({ cardPaths: [path] });
-			this.followSelectionWithVideoPanel(sceneKey, [path]);
-			return;
-		}
-		this.pendingVideoNodeSelection = { sceneKey, path };
-		this.requestRender();
-	}
-
 	/**
-	 * Pick on Canvas: the next click on a card connects it to the Video node.
-	 * The gesture of that click never reaches the canvas, so it selects or
-	 * moves nothing. A click on the blank canvas or Escape cancels; a click on
-	 * the node itself or on a folder keeps waiting.
+	 * Pick on Canvas: the next click on a card picks it, as the Video panel
+	 * picks a card to connect to its node (IBaseHalfCanvasView.pickCard). The
+	 * gesture of that click never reaches the canvas, so it selects or moves
+	 * nothing; the scene leaves dragging and resizing while the cards element
+	 * is marked. A click on the blank canvas or Escape cancels; a click on
+	 * `exceptPath` or on a folder keeps waiting.
 	 */
-	private pickCardForVideoInput(targetPath: string): Promise<string | undefined> {
-		this.cancelVideoInputPick();
+	private pickCanvasCard(exceptPath: string): Promise<string | undefined> {
+		this.cancelCanvasCardPick();
 		return new Promise<string | undefined>(resolve => {
 			const store = new DisposableStore();
 			const pick = {
 				store,
 				finish: (path: string | undefined) => {
-					if (this.videoInputPick !== pick) {
+					if (this.canvasCardPick !== pick) {
 						return;
 					}
-					this.videoInputPick = undefined;
+					this.canvasCardPick = undefined;
 					store.dispose();
 					resolve(path);
 				}
 			};
-			this.videoInputPick = pick;
+			this.canvasCardPick = pick;
 			// The panel says what the next click does, where the user chose Pick on Canvas.
 			this.cards.dataset.videoInputPickActive = 'true';
 			store.add(toDisposable(() => delete this.cards.dataset.videoInputPickActive));
@@ -7387,7 +7235,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				pressedPath = null;
 				if (path === undefined) {
 					pick.finish(undefined);
-				} else if (path !== targetPath && this.renderedItemsByPath.get(path)?.stat.isDirectory !== true) {
+				} else if (path !== exceptPath && this.renderedItemsByPath.get(path)?.stat.isDirectory !== true) {
 					pick.finish(path);
 				}
 			};
@@ -7405,50 +7253,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		});
 	}
 
-	private cancelVideoInputPick(): void {
-		this.videoInputPick?.finish(undefined);
-	}
-
-	/** Import File… of the Video panel: copies the chosen file into the node's folder and returns its path. */
-	private async importFileForVideoInput(targetPath: string): Promise<string | undefined> {
-		const item = this.renderedItemsByPath.get(targetPath);
-		const folder = this.getCurrentFolder();
-		if (!item || !folder) {
-			return undefined;
-		}
-		const picked = await this.fileDialogService.showOpenDialog({
-			canSelectFiles: true,
-			canSelectFolders: false,
-			canSelectMany: false,
-			title: localize('basehalf.canvas.video.importInput', "Import a File for the Video Node"),
-			openLabel: localize('basehalf.canvas.video.importInputButton', "Import"),
-			filters: [{
-				name: localize('basehalf.canvas.video.importInputFilter', "Images, Videos, Audio, and Text"),
-				extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'bmp', 'mp4', 'mov', 'm4v', 'webm', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'md', 'markdown', 'txt']
-			}]
-		});
-		const source = picked?.[0];
-		if (!source) {
-			return undefined;
-		}
-		const nodeFolder = dirname(item.stat.resource);
-		const name = basename(source);
-		if (this.uriIdentityService.extUri.isEqual(dirname(source), nodeFolder)) {
-			return canvasChildPath(folder.relativePath, name);
-		}
-		const dot = name.lastIndexOf('.');
-		const stem = dot > 0 ? name.slice(0, dot) : name;
-		const extension = dot > 0 ? name.slice(dot) : '';
-		for (let number = 1; number < 1000; number++) {
-			const candidate = number === 1 ? name : `${stem} ${number}${extension}`;
-			const target = joinPath(nodeFolder, candidate);
-			if (await this.fileService.exists(target)) {
-				continue;
-			}
-			await this.fileService.copy(source, target, false);
-			return canvasChildPath(folder.relativePath, candidate);
-		}
-		return undefined;
+	private cancelCanvasCardPick(): void {
+		this.canvasCardPick?.finish(undefined);
 	}
 
 	/** Capture Frame: writes the frame as a PNG beside the node; its card appears to the right of the video card. */
@@ -7477,7 +7283,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	/** Gives the card of a new file a place right of another card, or the next open place there. */
 	private async placeNewCardBeside(folder: IBaseHalfCanvasFolderState, besidePath: string, resource: URI): Promise<void> {
-		const path = canvasChildPath(folder.relativePath, basename(resource));
+		const path = baseHalfCanvasChildPath(folder.relativePath, basename(resource));
 		try {
 			if (await baseHalfIsWorkspaceFolderMarked(this.fileService, folder.workspaceFolder)) {
 				return;
@@ -10384,10 +10190,6 @@ function nodePreviewResultLabel(preview: Extract<BaseHalfCanvasCardPreview, { re
 		: nodeResultLabel(preview.document, preview.resultOutputText);
 }
 
-
-function canvasChildPath(parent: string, name: string): string {
-	return parent ? `${parent}/${name}` : name;
-}
 
 function baseHalfBadgeResourceIdentity(stat: Pick<IFileStat, 'ctime' | 'isFile' | 'isDirectory' | 'isSymbolicLink'>): string {
 	const kind = stat.isFile ? 'file' : stat.isDirectory ? 'folder' : 'other';

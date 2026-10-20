@@ -57,7 +57,7 @@ export class BaseHalfCanvasTidy extends Disposable implements IBaseHalfCanvasCon
 		this.button.setAttribute('aria-label', label);
 		this._register(addDisposableListener(this.button, 'click', () => void this.tidy()));
 		this._register(this.canvas.onKeyDown(event => this.onKeyDown(event)));
-		this._register(this.canvas.onDidChangeScene(scene => this.onDidChangeScene(scene)));
+		this._register(this.canvas.onDidChangeScene(change => this.onDidChangeScene(change.scene)));
 		this._register(toDisposable(() => {
 			this.closeQuestion();
 			this.button.remove();
