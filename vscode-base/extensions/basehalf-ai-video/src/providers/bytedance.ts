@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems } from './check.ts';
+import { countsOf, estimateOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
@@ -436,17 +436,15 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 	if (flag) {
 		problems.push(TEXT.textSetting(flag[1]));
 	}
-	if (isPlannedMedia(request.inputs)) {
-		let size = Buffer.byteLength(JSON.stringify(request.prompt), 'utf8') + 2048;
-		for (const item of await measureItems(request.inputs, media)) {
-			if (item.kind === 'audio' && item.facts.format && !AUDIO_TYPES[item.facts.format]) {
-				problems.push(TEXT.audioFormat(item.label, item.facts.format));
-			}
-			size += base64Length(item.facts.bytes) + 128;
+	let size = Buffer.byteLength(JSON.stringify(request.prompt), 'utf8') + 2048;
+	for (const item of await measureItems(request.inputs, media)) {
+		if (item.kind === 'audio' && item.facts.format && !AUDIO_TYPES[item.facts.format]) {
+			problems.push(TEXT.audioFormat(item.label, item.facts.format));
 		}
-		if (size > REQUEST_MAX_BYTES) {
-			problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
-		}
+		size += base64Length(item.facts.bytes) + 128;
+	}
+	if (size > REQUEST_MAX_BYTES) {
+		problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
 	}
 	const estimate = seedanceEstimate(model.id, request.region, request.params);
 	return estimate ? { problems, estimate } : { problems };

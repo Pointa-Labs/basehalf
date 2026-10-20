@@ -18,8 +18,8 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { KLING } from '../src/providers/kling.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, Estimate } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
+import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-kling-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -85,10 +85,6 @@ function generation(endpoint: string, model: string, mode: 'frames' | 'reference
 
 function taskRef(endpoint: string, remoteId: string) {
 	return { provider: 'kling', region: 'cn', endpoint, credentials: { apiKey: KEY }, model: 'kling-3.0', remoteId };
-}
-
-function counts(planned: { readonly startFrame?: boolean; readonly endFrame?: boolean; readonly images?: number } = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 /** Kling's answer to a create. */
@@ -515,24 +511,24 @@ test('Kling has no cancellation: cancel answers false and sends nothing', async 
 
 test('check reports the rules between settings and inputs that the declarations cannot express', async () => {
 	const providers = commands();
-	const problems = async (model: string, mode: 'frames' | 'reference', params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const problems = async (model: string, mode: 'frames' | 'reference', params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		value(await providers.check({ provider: 'kling', region: 'cn', model, mode, params, prompt: text, inputs })).problems;
 	const long = 'a'.repeat(2501);
 	assert.deepEqual({
-		soundAt720p: await problems('kling-2.6', 'frames', { sound: true }, counts()),
-		soundAt1080p: await problems('kling-2.6', 'frames', { sound: true, resolution: '1080p' }, counts()),
-		endFrameAt720p: await problems('kling-2.6', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		endFrameWithSound: await problems('kling-2.6', 'frames', { resolution: '1080p', sound: true }, counts({ startFrame: true, endFrame: true })),
-		turboEndFrameAt720p: await problems('kling-2.5-turbo', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		turboEndFrameAt1080p: await problems('kling-2.5-turbo', 'frames', { resolution: '1080p' }, counts({ startFrame: true, endFrame: true })),
-		o1FramesSeven: await problems('kling-o1', 'frames', { duration: 7 }, counts({ startFrame: true })),
-		o1FramesFromText: await problems('kling-o1', 'frames', { duration: 3 }, counts()),
-		o1ReferencesSeven: await problems('kling-o1', 'reference', { duration: 7 }, counts({ images: 2 })),
-		turboLongPromptWithFrame: await problems('kling-3.0-turbo', 'frames', {}, counts({ startFrame: true }), long),
-		turboLongPromptFromText: await problems('kling-3.0-turbo', 'frames', {}, counts(), long),
-		turboEndFrame: await problems('kling-3.0-turbo', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		eightReferences: await problems('kling-3.0-omni', 'reference', {}, counts({ images: 8 })),
-		o1At4k: await problems('kling-o1', 'frames', { resolution: '4k' }, counts())
+		soundAt720p: await problems('kling-2.6', 'frames', { sound: true }, plannedFiles()),
+		soundAt1080p: await problems('kling-2.6', 'frames', { sound: true, resolution: '1080p' }, plannedFiles()),
+		endFrameAt720p: await problems('kling-2.6', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		endFrameWithSound: await problems('kling-2.6', 'frames', { resolution: '1080p', sound: true }, plannedFiles({ startFrame: true, endFrame: true })),
+		turboEndFrameAt720p: await problems('kling-2.5-turbo', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		turboEndFrameAt1080p: await problems('kling-2.5-turbo', 'frames', { resolution: '1080p' }, plannedFiles({ startFrame: true, endFrame: true })),
+		o1FramesSeven: await problems('kling-o1', 'frames', { duration: 7 }, plannedFiles({ startFrame: true })),
+		o1FramesFromText: await problems('kling-o1', 'frames', { duration: 3 }, plannedFiles()),
+		o1ReferencesSeven: await problems('kling-o1', 'reference', { duration: 7 }, plannedFiles({ images: 2 })),
+		turboLongPromptWithFrame: await problems('kling-3.0-turbo', 'frames', {}, plannedFiles({ startFrame: true }), long),
+		turboLongPromptFromText: await problems('kling-3.0-turbo', 'frames', {}, plannedFiles(), long),
+		turboEndFrame: await problems('kling-3.0-turbo', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		eightReferences: await problems('kling-3.0-omni', 'reference', {}, plannedFiles({ images: 8 })),
+		o1At4k: await problems('kling-o1', 'frames', { resolution: '4k' }, plannedFiles())
 	}, {
 		soundAt720p: ['Kling 2.6 makes sound only at 1080p.'],
 		soundAt1080p: [],
@@ -551,7 +547,7 @@ test('check reports the rules between settings and inputs that the declarations 
 	});
 });
 
-test('with files, check refuses WebP and GIF images and a request larger than AI Video sends, and submit sends nothing then', async () => {
+test('check refuses WebP and GIF images and a request larger than AI Video sends, and submit sends nothing then', async () => {
 	const server = await startServer((request, response) => sendJson(response, 200, created('task-1')));
 	try {
 		const providers = commands();
@@ -589,7 +585,7 @@ test('with files, check refuses WebP and GIF images and a request larger than AI
 
 test('estimates follow the price list: three combinations in each region', async () => {
 	const providers = commands();
-	const estimate = async (region: string, model: string, mode: 'frames' | 'reference', params: Record<string, unknown>, inputs = counts()) =>
+	const estimate = async (region: string, model: string, mode: 'frames' | 'reference', params: Record<string, unknown>, inputs = plannedFiles()) =>
 		value(await providers.check({ provider: 'kling', region, model, mode, params, prompt: PROMPT, inputs })).estimate;
 	const amount = (currency: 'CNY' | 'USD', money: number): Estimate => ({ currency, min: money, max: money, priceDate: PRICE_DATE });
 	assert.deepEqual({
@@ -598,11 +594,11 @@ test('estimates follow the price list: three combinations in each region', async
 		// Kling 2.5 Turbo with its defaults, 720p and 5 s: 0.3 units/s × 5 s × ¥1 = ¥1.50.
 		cnDefaults: await estimate('cn', 'kling-2.5-turbo', 'frames', {}),
 		// Kling 3.0 Omni from two references at 4K with sound: 3.0 units/s × 15 s × ¥1 = ¥45.
-		cn4k: await estimate('cn', 'kling-3.0-omni', 'reference', { resolution: '4k', duration: 15, sound: true }, counts({ images: 2 })),
+		cn4k: await estimate('cn', 'kling-3.0-omni', 'reference', { resolution: '4k', duration: 15, sound: true }, plannedFiles({ images: 2 })),
 		// International, 1 unit = $0.14. Kling 3.0 Turbo at 1080p, always with sound: 1.0 unit/s × 7 s × $0.14 = $0.98.
 		intlTurbo: await estimate('intl', 'kling-3.0-turbo', 'frames', { resolution: '1080p', duration: 7 }),
 		// Kling O1 from three references at 720p: 0.6 units/s × 3 s × $0.14 = $0.252.
-		intlO1: await estimate('intl', 'kling-o1', 'reference', { duration: 3 }, counts({ images: 3 })),
+		intlO1: await estimate('intl', 'kling-o1', 'reference', { duration: 3 }, plannedFiles({ images: 3 })),
 		// Kling 2.6 at 1080p with sound: 1.0 unit/s × 10 s × $0.14 = $1.40.
 		intlSound: await estimate('intl', 'kling-2.6', 'frames', { resolution: '1080p', duration: 10, sound: true }),
 		// Kling 2.6 has no price for sound at 720p, which a rule refuses.
@@ -645,7 +641,7 @@ test('every price of the list is its units at ¥1 in China and its listed dollar
 	];
 	const providers = commands();
 	const tenSeconds = async (region: string, model: string, params: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'kling', region, model, mode: 'frames', params: { ...params, duration: 10 }, prompt: PROMPT, inputs: counts() })).estimate;
+		value(await providers.check({ provider: 'kling', region, model, mode: 'frames', params: { ...params, duration: 10 }, prompt: PROMPT, inputs: plannedFiles() })).estimate;
 	const round = (money: number) => Math.round(money * 1e6) / 1e6;
 	for (const [model, params, units, dollars] of rows) {
 		assert.deepEqual(

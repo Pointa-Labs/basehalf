@@ -51,11 +51,10 @@ export interface ProviderModule {
 	 * The problems of a planned generation that the declarations cannot
 	 * express, in order, as plain sentences, and the estimate. The commands have
 	 * already checked the request against the model's declarations (the inputs
-	 * the mode takes, the prompt rule, each parameter's value, and with files
-	 * the mode's limits); `request.params` arrive with every default filled in.
-	 * This adds the rules between parameters and the provider's own input rules
-	 * (formats, the size of the whole request). Reads files through `media`
-	 * only when `request.inputs` carries media rather than counts.
+	 * the mode takes, the prompt rule, each parameter's value, and the mode's
+	 * limits); `request.params` arrive with every default filled in. This adds
+	 * the rules between parameters and the provider's own input rules (formats,
+	 * the size of the whole request), reading the files through `media`.
 	 */
 	check(request: CheckRequest, media: MediaInspector): Promise<CheckResult>;
 

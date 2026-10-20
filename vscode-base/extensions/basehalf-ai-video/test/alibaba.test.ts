@@ -22,7 +22,7 @@ import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/
 import { describeBytes, type MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import type { Estimate, Media } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, png, recordingSleep, sendJson, startServer, value, wav, type Received, type TestServer } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, type Received, type TestServer } from './providerTestKit.ts';
 
 const KEY = 'sk-alibaba-local-test-1';
 const OSS_ACCESS_KEY = 'LTAI-local-upload';
@@ -45,6 +45,8 @@ const LONG_CLIP = file('long.mp4', isoMedia(12));
 const VOICE = file('voice.wav', wav(3));
 const GIF = file('moving.gif', gifHeader(640, 360));
 const M4A = file('voice.m4a', isoMedia(3, { brand: 'M4A ' }));
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'));
 
 const image = (fsPath: string): Media => ({ fsPath, mimeType: 'image/png' });
 const video = (fsPath: string): Media => ({ fsPath, mimeType: 'video/mp4' });
@@ -55,7 +57,7 @@ function commands(options: VideoProviderCommandOptions = {}): VideoProviderComma
 	return new VideoProviderCommands([ALIBABA], { ...options, http: { sleep: async () => undefined, ...options.http } });
 }
 
-type Inputs = { startFrame?: Media; endFrame?: Media; images?: Media[]; videos?: Media[]; audios?: Media[]; source?: Media };
+type Inputs = { startFrame?: Media; endFrame?: Media; images?: readonly Media[]; videos?: readonly Media[]; audios?: readonly Media[]; source?: Media };
 
 function submitRequest(endpoint: string, model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Inputs = {}, region = 'cn') {
 	return {
@@ -71,17 +73,9 @@ function submitRequest(endpoint: string, model: string, mode: string, params: Re
 	};
 }
 
-type Counts = { readonly startFrame: boolean; readonly endFrame: boolean; readonly images: number; readonly videos: number; readonly audios: number; readonly source: boolean };
-
-/** The planned inputs counted, for a check without files. */
-function counted(change: Partial<Counts> = {}): Counts {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...change };
-}
-
-/** A check of planned files, or of counts made by `counted`. */
-function checkRequest(model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Inputs | Counts, region = 'cn') {
-	const planned = typeof (inputs as Counts).startFrame === 'boolean' ? inputs : { images: [], videos: [], audios: [], ...inputs };
-	return { provider: 'alibaba', region, model, mode, params, prompt, inputs: planned };
+/** A check of planned files. */
+function checkRequest(model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Inputs, region = 'cn') {
+	return { provider: 'alibaba', region, model, mode, params, prompt, inputs: { images: [], videos: [], audios: [], ...inputs } };
 }
 
 // --- a provider that answers like DashScope ------------------------------------------------------
@@ -257,7 +251,7 @@ test('the provider is shipped with two regions, one key, and one model per versi
 
 // --- routing ---------------------------------------------------------------------------------------------
 
-test('the mode and the inputs choose the task: check answers its id, with files and without, and the create sends that id', async () => {
+test('the mode and the inputs choose the task: check answers its id, and the create sends that id', async () => {
 	const provider = await startProvider();
 	try {
 		const providers = commands();
@@ -283,25 +277,15 @@ test('the mode and the inputs choose the task: check answers its id, with files 
 			['happyhorse-1.0', 'reference', { images: [image(PORTRAIT)] }, '[Image 1] rides.', 'happyhorse-1.0-r2v']
 		];
 		const answered: string[] = [];
-		const withoutFiles: string[] = [];
 		for (const [model, mode, inputs, prompt] of cases) {
 			const checked = value(await providers.check(checkRequest(model, mode, {}, prompt, inputs)));
 			assert.deepEqual(checked.problems, [], `${model} ${mode}`);
 			answered.push(checked.providerModel ?? 'none');
-			const counts = counted({
-				startFrame: inputs.startFrame !== undefined,
-				endFrame: inputs.endFrame !== undefined,
-				images: inputs.images?.length ?? 0,
-				videos: inputs.videos?.length ?? 0,
-				source: inputs.source !== undefined
-			});
-			withoutFiles.push(value(await providers.check(checkRequest(model, mode, {}, prompt, counts))).providerModel ?? 'none');
 			value(await providers.submit(submitRequest(api, model, mode, {}, prompt, inputs)));
 		}
 		const policies = provider.api.received.filter(request => request.path.startsWith('/api/v1/uploads')).map(request => new URL(request.path, 'http://local').searchParams.get('model'));
-		assert.deepEqual({ answered, withoutFiles, sent: creates(provider).map(request => (bodyOf(request) as { model: string }).model), policies }, {
+		assert.deepEqual({ answered, sent: creates(provider).map(request => (bodyOf(request) as { model: string }).model), policies }, {
 			answered: cases.map(([, , , , task]) => task),
-			withoutFiles: cases.map(([, , , , task]) => task),
 			sent: cases.map(([, , , , task]) => task),
 			// An upload is bound to the task that uses it.
 			policies: ['wan2.7-videoedit', 'wan2.7-i2v']
@@ -759,10 +743,10 @@ test('Edit and Extend run only in China: their modes name the region, check refu
 		return { problems, providerModel };
 	};
 	const results = {
-		wan27Edit: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', counted({ source: true }), 'intl')),
-		wan27EditWithoutVideo: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', counted(), 'intl')),
+		wan27Edit: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', plannedFiles({ source: true }), 'intl')),
+		wan27EditWithoutVideo: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', plannedFiles(), 'intl')),
 		wan27Extend: await checked(checkRequest('wan2.7', 'extend', {}, 'On.', { source: video(CLIP) }, 'intl')),
-		wan3Edit: await checked(checkRequest('wan3.0-prime', 'edit', {}, 'Red.', counted({ source: true }), 'intl')),
+		wan3Edit: await checked(checkRequest('wan3.0-prime', 'edit', {}, 'Red.', plannedFiles({ source: true }), 'intl')),
 		wan27EditInChina: await checked(checkRequest('wan2.7', 'edit', {}, 'Red.', { source: video(CLIP) }))
 	};
 	// Refused before anything else is checked, so no provider id is answered.
@@ -780,27 +764,27 @@ test('check refuses what Alibaba Cloud cannot take: videos and audio outside Chi
 	const providers = commands();
 	const problems = async (request: ReturnType<typeof checkRequest>) => value(await providers.check(request)).problems;
 	const results = {
-		intlReference: await problems(checkRequest('wan3.0', 'reference', {}, 'p', counted({ images: 1, videos: 1, audios: 1 }), 'intl')),
-		intlAudio: await problems(checkRequest('wan3.0', 'reference', {}, 'p', counted({ audios: 1 }), 'intl')),
-		intlImages: await problems(checkRequest('wan3.0', 'reference', {}, 'p', counted({ images: 3 }), 'intl')),
-		intlWan27Video: await problems(checkRequest('wan2.7', 'reference', {}, 'p', counted({ videos: 1 }), 'intl')),
-		chinaReference: await problems(checkRequest('wan3.0', 'reference', {}, 'p', counted({ images: 1, videos: 1, audios: 1 }))),
-		r2vNothing: await problems(checkRequest('wan2.7', 'reference', {}, 'p', counted())),
-		r2vTooMany: await problems(checkRequest('wan2.7', 'reference', {}, 'p', counted({ images: 3, videos: 3 }))),
-		r2vLongWithVideo: await problems(checkRequest('wan2.7', 'reference', { duration: 12 }, 'p', counted({ videos: 1 }))),
-		r2vLongWithImages: await problems(checkRequest('wan2.7', 'reference', { duration: 15 }, 'p', counted({ images: 2 }))),
+		intlReference: await problems(checkRequest('wan3.0', 'reference', {}, 'p', plannedFiles({ images: 1, videos: 1, audios: 1 }), 'intl')),
+		intlAudio: await problems(checkRequest('wan3.0', 'reference', {}, 'p', plannedFiles({ audios: 1 }), 'intl')),
+		intlImages: await problems(checkRequest('wan3.0', 'reference', {}, 'p', plannedFiles({ images: 3 }), 'intl')),
+		intlWan27Video: await problems(checkRequest('wan2.7', 'reference', {}, 'p', plannedFiles({ videos: 1 }), 'intl')),
+		chinaReference: await problems(checkRequest('wan3.0', 'reference', {}, 'p', plannedFiles({ images: 1, videos: 1, audios: 1 }))),
+		r2vNothing: await problems(checkRequest('wan2.7', 'reference', {}, 'p', plannedFiles())),
+		r2vTooMany: await problems(checkRequest('wan2.7', 'reference', {}, 'p', plannedFiles({ images: 3, videos: 3 }))),
+		r2vLongWithVideo: await problems(checkRequest('wan2.7', 'reference', { duration: 12 }, 'p', plannedFiles({ videos: 1 }))),
+		r2vLongWithImages: await problems(checkRequest('wan2.7', 'reference', { duration: 15 }, 'p', plannedFiles({ images: 2 }))),
 		// The model declares the looser rule of its tasks; check adds the stricter one.
-		r2vWithoutPrompt: await problems(checkRequest('wan2.7', 'reference', {}, '', counted({ images: 2 }))),
-		happyHorseReferencesWithoutPrompt: await problems(checkRequest('happyhorse-1.1', 'reference', {}, ' ', counted({ images: 1 }))),
-		framesWithoutPrompt: await problems(checkRequest('wan2.7', 'frames', {}, '', counted({ startFrame: true }))),
-		textWithoutPrompt: await problems(checkRequest('wan2.6', 'frames', {}, '', counted())),
-		shotsWithoutRewriting: await problems(checkRequest('wan2.6', 'frames', { shot_type: 'multi', prompt_extend: false }, '', counted({ startFrame: true }))),
-		flashShotsWithoutRewriting: await problems(checkRequest('wan2.6-flash', 'frames', { shot_type: 'multi', prompt_extend: false }, '', counted({ startFrame: true }))),
-		shotsWithRewriting: await problems(checkRequest('wan2.6', 'frames', { shot_type: 'multi' }, 'p', counted())),
-		chineseTooLong: await problems(checkRequest('happyhorse-1.1', 'frames', {}, '马'.repeat(2501), counted())),
-		chineseLongest: await problems(checkRequest('happyhorse-1.1', 'frames', {}, '马'.repeat(2500), counted())),
-		latinTooLong: await problems(checkRequest('happyhorse-1.0', 'reference', {}, 'a'.repeat(5001), counted({ images: 1 }))),
-		flashWithoutFrame: await problems(checkRequest('wan2.6-flash', 'frames', {}, 'p', counted()))
+		r2vWithoutPrompt: await problems(checkRequest('wan2.7', 'reference', {}, '', plannedFiles({ images: 2 }))),
+		happyHorseReferencesWithoutPrompt: await problems(checkRequest('happyhorse-1.1', 'reference', {}, ' ', plannedFiles({ images: 1 }))),
+		framesWithoutPrompt: await problems(checkRequest('wan2.7', 'frames', {}, '', plannedFiles({ startFrame: true }))),
+		textWithoutPrompt: await problems(checkRequest('wan2.6', 'frames', {}, '', plannedFiles())),
+		shotsWithoutRewriting: await problems(checkRequest('wan2.6', 'frames', { shot_type: 'multi', prompt_extend: false }, '', plannedFiles({ startFrame: true }))),
+		flashShotsWithoutRewriting: await problems(checkRequest('wan2.6-flash', 'frames', { shot_type: 'multi', prompt_extend: false }, '', plannedFiles({ startFrame: true }))),
+		shotsWithRewriting: await problems(checkRequest('wan2.6', 'frames', { shot_type: 'multi' }, 'p', plannedFiles())),
+		chineseTooLong: await problems(checkRequest('happyhorse-1.1', 'frames', {}, '马'.repeat(2501), plannedFiles())),
+		chineseLongest: await problems(checkRequest('happyhorse-1.1', 'frames', {}, '马'.repeat(2500), plannedFiles())),
+		latinTooLong: await problems(checkRequest('happyhorse-1.0', 'reference', {}, 'a'.repeat(5001), plannedFiles({ images: 1 }))),
+		flashWithoutFrame: await problems(checkRequest('wan2.6-flash', 'frames', {}, 'p', plannedFiles()))
 	};
 	assert.deepEqual(results, {
 		intlReference: [`${REGION_REASON} Choose China (Beijing) in Video Providers, or leave out the videos and audio.`],
@@ -826,7 +810,7 @@ test('check refuses what Alibaba Cloud cannot take: videos and audio outside Chi
 	});
 });
 
-test('check with files refuses M4A audio, videos too long for the result, images too large to send together, and another image format', async () => {
+test('check refuses M4A audio, videos too long for the result, images too large to send together, and another image format', async () => {
 	const providers = commands();
 	const problems = async (request: ReturnType<typeof checkRequest>) => value(await providers.check(request)).problems;
 	const results = {
@@ -866,9 +850,10 @@ test('a submit that check refuses sends nothing, also outside China', async () =
 
 test('estimates follow the price list of the routed task in each region: three combinations each, and ranges where the length is known only later', async () => {
 	const providers = commands();
-	const estimate = async (request: ReturnType<typeof checkRequest>): Promise<[Estimate | undefined, string | undefined]> => {
+	// A video whose length cannot be read is refused, and its estimate spans the lengths the mode allows.
+	const estimate = async (request: ReturnType<typeof checkRequest>, problems: readonly string[] = []): Promise<[Estimate | undefined, string | undefined]> => {
 		const result = value(await providers.check(request));
-		assert.deepEqual(result.problems, []);
+		assert.deepEqual(result.problems, problems);
 		return [result.estimate, result.providerModel];
 	};
 	const cny = (min: number, max = min): Estimate => ({ currency: 'CNY', min, max, priceDate: '2026-10-18' });
@@ -876,31 +861,33 @@ test('estimates follow the price list of the routed task in each region: three c
 	const results = {
 		// China (CNY, price list of 2026-10-18).
 		// Wan 3.0 at 1080P, 10 seconds, no input video: 1.2 × 10 = 12.
-		cnWan3: await estimate(checkRequest('wan3.0', 'frames', { duration: 10 }, 'p', counted())),
+		cnWan3: await estimate(checkRequest('wan3.0', 'frames', { duration: 10 }, 'p', plannedFiles())),
 		// Wan 2.6 Flash at 720P without sound, 5 seconds: 0.15 × 5 = 0.75.
-		cnFlashSilent: await estimate(checkRequest('wan2.6-flash', 'frames', { resolution: '720p', sound: false }, '', counted({ startFrame: true }))),
+		cnFlashSilent: await estimate(checkRequest('wan2.6-flash', 'frames', { resolution: '720p', sound: false }, '', plannedFiles({ startFrame: true }))),
 		// HappyHorse 1.1 text to video at 480P, 15 seconds: 0.45 × 15 = 6.75.
-		cnHappyHorseText: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '480p', duration: 15 }, 'p', counted())),
+		cnHappyHorseText: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '480p', duration: 15 }, 'p', plannedFiles())),
 		// International (USD, price list of 2026-10-15).
 		// Wan 3.0 Prime at 720P, 8 seconds: 0.14 × 8 = 1.12.
-		intlPrime: await estimate(checkRequest('wan3.0-prime', 'frames', { resolution: '720p', duration: 8 }, 'p', counted(), 'intl')),
+		intlPrime: await estimate(checkRequest('wan3.0-prime', 'frames', { resolution: '720p', duration: 8 }, 'p', plannedFiles(), 'intl')),
 		// Wan 2.7 text to video at 1080P, 15 seconds: 0.15 × 15 = 2.25.
-		intlWan27Text: await estimate(checkRequest('wan2.7', 'frames', { duration: 15 }, 'p', counted(), 'intl')),
+		intlWan27Text: await estimate(checkRequest('wan2.7', 'frames', { duration: 15 }, 'p', plannedFiles(), 'intl')),
 		// HappyHorse 1.0 reference to video at 1080P, 4 seconds: 0.24 × 4 = 0.96.
-		intlHappyHorseReferences: await estimate(checkRequest('happyhorse-1.0', 'reference', { duration: 4 }, 'p', counted({ images: 2 }), 'intl')),
+		intlHappyHorseReferences: await estimate(checkRequest('happyhorse-1.0', 'reference', { duration: 4 }, 'p', plannedFiles({ images: 2 }), 'intl')),
 		// Routed tasks.
 		// Wan 2.6 text to video at 720P and 16:9 (1280×720), 5 seconds: 0.10 × 5 = 0.5.
-		intlWan26Text: await estimate(checkRequest('wan2.6', 'frames', { resolution: '720p' }, 'p', counted(), 'intl')),
+		intlWan26Text: await estimate(checkRequest('wan2.6', 'frames', { resolution: '720p' }, 'p', plannedFiles(), 'intl')),
 		// Wan 2.6 image to video at 1080P, 5 seconds: 0.15 × 5 = 0.75.
-		intlWan26Frame: await estimate(checkRequest('wan2.6', 'frames', {}, '', counted({ startFrame: true }), 'intl')),
+		intlWan26Frame: await estimate(checkRequest('wan2.6', 'frames', {}, '', plannedFiles({ startFrame: true }), 'intl')),
 		// HappyHorse 1.1 image to video at 720P, 5 seconds: 0.9 × 5 = 4.5.
-		cnHappyHorseFrame: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '720p' }, '', counted({ startFrame: true }))),
+		cnHappyHorseFrame: await estimate(checkRequest('happyhorse-1.1', 'frames', { resolution: '720p' }, '', plannedFiles({ startFrame: true }))),
 		// Wan 3.0 with Auto and no input video: 2 to 30 seconds at 0.20 = 0.4 to 6.
-		intlWan3Auto: await estimate(checkRequest('wan3.0', 'frames', { duration: -1 }, 'p', counted(), 'intl')),
+		intlWan3Auto: await estimate(checkRequest('wan3.0', 'frames', { duration: -1 }, 'p', plannedFiles(), 'intl')),
 		// Wan 3.0 References with a measured 4-second video at 720P, 6 seconds: (4 + 6) × 0.6 = 6.
 		cnWan3Video: await estimate(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(CLIP)] })),
-		// The same without files: one video of 1 to 15 seconds, (1 + 6) × 0.6 = 4.2 to (15 + 6) × 0.6 = 12.6.
-		cnWan3Counted: await estimate(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', counted({ videos: 1 }))),
+		// The same with a video whose length cannot be read: 1 to 15 seconds, (1 + 6) × 0.6 = 4.2 to (15 + 6) × 0.6 = 12.6.
+		cnWan3Unreadable: await estimate(checkRequest('wan3.0', 'reference', { resolution: '720p', duration: 6 }, 'p', { videos: [video(UNREADABLE)] }), [
+			'Reference video 1 unreadable.mp4 is not a video whose length AI Video can read (MP4 or MOV).'
+		]),
 		// Wan 3.0 Edit with a 4-second video at 1080P: the output length is Auto, (4 + 2) × 1.2 = 7.2 to 30 × 1.2 = 36.
 		cnWan3Edit: await estimate(checkRequest('wan3.0', 'edit', {}, 'p', { source: video(CLIP) })),
 		// Wan 2.7 References, two 4-second videos at 1080P, 6 seconds: each billed up to 2.5 seconds,
@@ -908,8 +895,10 @@ test('estimates follow the price list of the routed task in each region: three c
 		cnWan27References: await estimate(checkRequest('wan2.7', 'reference', { duration: 6 }, 'p', { videos: [video(CLIP), video(CLIP)] })),
 		// Wan 2.7 Edit of a 4-second video at 720P, which keeps its length: (4 + 4) × 0.6 = 4.8.
 		cnWan27Edit: await estimate(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(CLIP) })),
-		// Without files, a video of 2 to 10 seconds: (2 + 2) × 0.6 = 2.4 to (10 + 10) × 0.6 = 12.
-		cnWan27EditCounted: await estimate(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', counted({ source: true }))),
+		// A video whose length cannot be read, 2 to 10 seconds: (2 + 2) × 0.6 = 2.4 to (10 + 10) × 0.6 = 12.
+		cnWan27EditUnreadable: await estimate(checkRequest('wan2.7', 'edit', { resolution: '720p' }, 'p', { source: video(UNREADABLE) }), [
+			'The source video unreadable.mp4 is not a video whose length AI Video can read (MP4 or MOV).'
+		]),
 		// Wan 2.7 Extend bills the whole result: 9 seconds at 1080P, 1 × 9 = 9.
 		cnWan27Extend: await estimate(checkRequest('wan2.7', 'extend', { duration: 9 }, 'p', { source: video(CLIP) }))
 	};
@@ -925,11 +914,11 @@ test('estimates follow the price list of the routed task in each region: three c
 		cnHappyHorseFrame: [cny(4.5), 'happyhorse-1.1-i2v'],
 		intlWan3Auto: [usd(0.4, 6), 'wan3.0-video'],
 		cnWan3Video: [cny(6), 'wan3.0-video'],
-		cnWan3Counted: [cny(4.2, 12.6), 'wan3.0-video'],
+		cnWan3Unreadable: [cny(4.2, 12.6), 'wan3.0-video'],
 		cnWan3Edit: [cny(7.2, 36), 'wan3.0-video'],
 		cnWan27References: [cny(11), 'wan2.7-r2v'],
 		cnWan27Edit: [cny(4.8), 'wan2.7-videoedit'],
-		cnWan27EditCounted: [cny(2.4, 12), 'wan2.7-videoedit'],
+		cnWan27EditUnreadable: [cny(2.4, 12), 'wan2.7-videoedit'],
 		cnWan27Extend: [cny(9), 'wan2.7-i2v']
 	});
 });

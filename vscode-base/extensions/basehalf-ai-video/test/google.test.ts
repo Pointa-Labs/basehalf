@@ -13,7 +13,7 @@ import { GOOGLE, OMNI_PRICE_DATE, omniEstimate, omniPrice } from '../src/provide
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
 import type { CatalogParameter, PollState } from '../src/providers/types.ts';
-import { error, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, wav, webpHeader, type Received } from './providerTestKit.ts';
+import { error, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, webpHeader, type Received } from './providerTestKit.ts';
 
 const KEY = 'gemini-test-key-0001';
 const MODEL = 'gemini-omni-1.1-flash';
@@ -41,9 +41,11 @@ const TAKE = file('take.mov', isoMedia(2, { brand: 'qt  ' }), 'video/quicktime')
 const CLIP = file('clip.mp4', isoMedia(4), 'video/mp4');
 const LONG_TAKE = file('long-take.mp4', isoMedia(4.5), 'video/mp4');
 const LONG_CLIP = file('long-clip.mp4', isoMedia(12), 'video/mp4');
+const SHORT_TAKE = file('short-take.mp4', isoMedia(2), 'video/mp4');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const VOICE = file('voice.wav', wav(3), 'audio/wav');
 const NO_INPUTS = { images: [], videos: [], audios: [] };
-const NO_COUNTS = { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false };
 
 let parts = 0;
 function partPath(): string {
@@ -635,18 +637,18 @@ test('check reports the inputs each mode takes, the lengths of videos, the promp
 	// Three images of 40 MB each are over 100 MB together as base64.
 	const large: () => MediaInspector = () => ({ inspect: async () => ({ name: 'large.png', bytes: 40_000_000, format: 'png' as const, width: 4000, height: 3000 }) });
 	assert.deepEqual({
-		emptyReferences: await problems('reference', {}, 'p', NO_COUNTS),
-		imageReference: await problems('reference', {}, 'p', { ...NO_COUNTS, images: 1 }),
-		videoReference: await problems('reference', {}, 'p', { ...NO_COUNTS, videos: 1 }),
-		sevenImages: await problems('reference', {}, 'p', { ...NO_COUNTS, images: 7 }),
+		emptyReferences: await problems('reference', {}, 'p', plannedFiles()),
+		imageReference: await problems('reference', {}, 'p', plannedFiles({ images: 1 })),
+		videoReference: await problems('reference', {}, 'p', { images: [], videos: [SHORT_TAKE], audios: [] }),
+		sevenImages: await problems('reference', {}, 'p', plannedFiles({ images: 7 })),
 		audio: await problems('reference', {}, 'p', { images: [STYLE], videos: [], audios: [VOICE] }),
 		noPrompt: await problems('frames', {}, ' ', { startFrame: START, ...NO_INPUTS }),
-		endWithoutStart: await problems('frames', {}, 'p', { ...NO_COUNTS, endFrame: true }),
+		endWithoutStart: await problems('frames', {}, 'p', plannedFiles({ endFrame: true })),
 		longTake: await problems('reference', {}, 'p', { images: [], videos: [LONG_TAKE], audios: [] }),
 		longClip: await problems('edit', {}, 'p', { source: LONG_CLIP, ...NO_INPUTS }),
-		noClip: await problems('extend', {}, 'p', NO_COUNTS),
-		ratioInEdit: await problems('edit', { ratio: '9:16' }, 'p', { ...NO_COUNTS, source: true }),
-		square: await problems('frames', { ratio: '1:1' }, 'p', NO_COUNTS),
+		noClip: await problems('extend', {}, 'p', plannedFiles()),
+		ratioInEdit: await problems('edit', { ratio: '9:16' }, 'p', plannedFiles({ source: true })),
+		square: await problems('frames', { ratio: '1:1' }, 'p', plannedFiles()),
 		tooLarge: await problems('reference', {}, 'p', { images: [START, END, STYLE], videos: [], audios: [] }, { inspector: large }),
 		fits: await problems('frames', {}, 'p', { startFrame: START, endFrame: END, ...NO_INPUTS })
 	}, {
@@ -688,20 +690,20 @@ test('the estimate is the seconds of 720p video at 5,792 tokens a second and $17
 		value(await providers.check({ provider: 'google', region: 'global', model: MODEL, mode, params, prompt: PROMPT, inputs })).estimate;
 	assert.deepEqual({
 		// 1. Frames at 720p, the default: 3 s × $0.10136 = $0.30408 to 10 s × $0.10136 = $1.0136.
-		frames: await checked('frames', {}, NO_COUNTS),
+		frames: await checked('frames', {}, plannedFiles()),
 		// 2. Extend at 720p with the 4-second clip measured: 7 s, $0.70952, to 14 s, $1.41904.
 		extendMeasured: await checked('extend', { resolution: '720p' }, { source: CLIP, ...NO_INPUTS }),
-		// 3. Extend at 720p without the clip's file: a clip of at most 10 s gives 3 s, $0.30408, to 20 s, $2.0272.
-		extendCounted: await checked('extend', {}, { ...NO_COUNTS, source: true }),
-		references: await checked('reference', { ratio: '9:16' }, { ...NO_COUNTS, images: 2 }),
+		// 3. Extend at 720p of a clip whose length cannot be read: a clip of at most 10 s gives 3 s, $0.30408, to 20 s, $2.0272.
+		extendUnreadable: await checked('extend', {}, { source: UNREADABLE, ...NO_INPUTS }),
+		references: await checked('reference', { ratio: '9:16' }, plannedFiles({ images: 2 })),
 		edit: await checked('edit', {}, { source: CLIP, ...NO_INPUTS }),
 		// Google gives a rate for 720p only.
-		at1080p: await checked('frames', { resolution: '1080p' }, NO_COUNTS),
-		at4k: await checked('edit', { resolution: '4k' }, { ...NO_COUNTS, source: true })
+		at1080p: await checked('frames', { resolution: '1080p' }, plannedFiles()),
+		at4k: await checked('edit', { resolution: '4k' }, plannedFiles({ source: true }))
 	}, {
 		frames: usd(0.30408, 1.0136),
 		extendMeasured: usd(0.70952, 1.41904),
-		extendCounted: usd(0.30408, 2.0272),
+		extendUnreadable: usd(0.30408, 2.0272),
 		references: usd(0.30408, 1.0136),
 		edit: usd(0.30408, 1.0136),
 		at1080p: undefined,

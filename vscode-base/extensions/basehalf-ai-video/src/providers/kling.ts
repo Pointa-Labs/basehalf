@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia } from './check.ts';
+import { countsOf, estimateOf, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, describeBytes, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -20,7 +20,6 @@ import type {
 	ImageFormat,
 	Params,
 	ParamValue,
-	PlannedCounts,
 	PlannedMedia,
 	PollState,
 	ProviderErrorCode,
@@ -500,9 +499,7 @@ export const KLING: ProviderModule = {
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const model = modelOf(request.model);
 		const problems = ruleProblems(model, request, countsOf(request.inputs));
-		if (isPlannedMedia(request.inputs)) {
-			problems.push(...await fileProblems(model, request, request.inputs, media));
-		}
+		problems.push(...await fileProblems(model, request, request.inputs, media));
 		const estimate = estimateFor(model, request.region, request.params);
 		return estimate ? { problems, estimate } : { problems };
 	},

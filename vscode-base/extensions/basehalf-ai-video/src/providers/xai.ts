@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -19,7 +19,6 @@ import type {
 	ModeId,
 	ModeInputs,
 	Params,
-	PlannedCounts,
 	PollState,
 	ProviderErrorCode,
 	SubmitRequest,
@@ -470,9 +469,9 @@ function fileProblems(model: XaiModel, request: CheckRequest, measured: readonly
 	return problems;
 }
 
-/** The length of the clip: measured, or the shortest and longest its mode allows. */
-function clipSeconds(mode: ModeId, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
-	const seconds = measured?.find(item => item.slot === 'source')?.facts.seconds;
+/** The length of the clip: measured, or the shortest and longest its mode allows when it cannot be read. */
+function clipSeconds(mode: ModeId, measured: readonly MeasuredItem[]): readonly [number, number] {
+	const seconds = measured.find(item => item.slot === 'source')?.facts.seconds;
 	if (seconds !== undefined) {
 		return [seconds, seconds];
 	}
@@ -486,7 +485,7 @@ function clipSeconds(mode: ModeId, measured: readonly MeasuredItem[] | undefined
  * AI Video does not measure, so its estimate spans the 480p and 720p prices;
  * an extension spans the seconds it adds and the whole result too.
  */
-function estimateFor(model: XaiModel, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(model: XaiModel, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
 	if (mode === 'frames' || mode === 'reference') {
 		const perSecond = model.perSecond[params.resolution as Resolution];
 		if (perSecond === undefined || typeof params.duration !== 'number') {
@@ -530,10 +529,10 @@ export const XAI: ProviderModule = Object.freeze({
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
-		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
+		const measured = await measureItems(request.inputs, media);
 		const problems = [
 			...ruleProblems(model, request, counts),
-			...(measured ? fileProblems(model, request, measured) : [])
+			...fileProblems(model, request, measured)
 		];
 		const estimate = estimateFor(model, request.mode, request.params, counts, measured);
 		return estimate ? { problems, estimate } : { problems };

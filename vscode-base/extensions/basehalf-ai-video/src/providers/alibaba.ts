@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'node:crypto';
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector, type PlannedItem } from './media.ts';
@@ -25,7 +25,6 @@ import type {
 	NumberParameter,
 	Params,
 	ParamValue,
-	PlannedCounts,
 	PollState,
 	SubmitRequest,
 	TaskRef
@@ -486,14 +485,14 @@ function knownVideoSeconds(measured: readonly MeasuredItem[]): number | undefine
 }
 
 /** The rules of the routed task that the model's declarations cannot express. */
-function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): string[] {
+function taskProblems(spec: ModelSpec, routed: Task, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	const params = request.params;
 	const label = spec.model.label;
 	const mode = modeLabel(spec.model, request.mode);
 	switch (routed.family) {
 		case 'wan3': {
-			const seconds = measured ? knownVideoSeconds(measured) : undefined;
+			const seconds = knownVideoSeconds(measured);
 			if (typeof params.duration === 'number' && params.duration !== WAN3_AUTO_DURATION && seconds !== undefined && seconds > 0 && seconds + params.duration > WAN3_LONGEST_SECONDS + 0.05) {
 				problems.push(`The videos are ${formatSeconds(seconds)} seconds long and the result is to be ${params.duration} seconds; together they may be at most ${WAN3_LONGEST_SECONDS} seconds for ${label}. Choose a shorter duration, or Auto.`);
 			}
@@ -561,36 +560,26 @@ function formatSeconds(value: number): string {
 
 // --- estimates -------------------------------------------------------------------------------------
 
-/** The input video seconds of a request, from the files when measured, otherwise from the counts and the shortest and longest allowed lengths. */
-function inputVideoSeconds(counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined, shortest: number, longest: number, total = Infinity): readonly [number, number] {
+/** The input video seconds of a request, from the files; a video whose length AI Video cannot read counts from the shortest to the longest allowed length. */
+function inputVideoSeconds(measured: readonly MeasuredItem[], shortest: number, longest: number, total = Infinity): readonly [number, number] {
 	let low = 0;
 	let high = 0;
-	if (measured) {
-		for (const item of measured) {
-			if (item.kind === 'video') {
-				low += item.facts.seconds ?? shortest;
-				high += item.facts.seconds ?? longest;
-			}
+	for (const item of measured) {
+		if (item.kind === 'video') {
+			low += item.facts.seconds ?? shortest;
+			high += item.facts.seconds ?? longest;
 		}
-	} else {
-		const videos = counts.videos + (counts.source ? 1 : 0);
-		low = videos * shortest;
-		high = videos * longest;
 	}
 	return [low, Math.max(low, Math.min(high, total))];
 }
 
 /** Wan 2.7 Reference to Video bills each reference video up to its share of 5 seconds. */
-function wan27ReferenceSeconds(counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
-	const videos = measured ? measured.filter(item => item.kind === 'video') : undefined;
-	const count = videos ? videos.length : counts.videos;
-	if (count === 0) {
+function wan27ReferenceSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
+	const videos = measured.filter(item => item.kind === 'video');
+	if (videos.length === 0) {
 		return [0, 0];
 	}
-	const cap = WAN27_R2V_INPUT_CAPS[Math.min(count, WAN27_R2V_INPUT_CAPS.length) - 1];
-	if (!videos) {
-		return [count * Math.min(1, cap), count * cap];
-	}
+	const cap = WAN27_R2V_INPUT_CAPS[Math.min(videos.length, WAN27_R2V_INPUT_CAPS.length) - 1];
 	let low = 0;
 	let high = 0;
 	for (const video of videos) {
@@ -601,24 +590,24 @@ function wan27ReferenceSeconds(counts: PlannedCounts, measured: readonly Measure
 }
 
 /** The seconds of video the routed task bills, as a range when something is known only after the run. */
-function billedSeconds(routed: Task, mode: ModeId, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
+function billedSeconds(routed: Task, mode: ModeId, params: Params, measured: readonly MeasuredItem[]): readonly [number, number] {
 	const duration = typeof params.duration === 'number' ? params.duration : 0;
 	switch (routed.family) {
 		case 'wan3': {
 			// Input videos and the output are billed; together they are at most 30 seconds.
-			const [low, high] = inputVideoSeconds(counts, measured, 1, 15, 15);
+			const [low, high] = inputVideoSeconds(measured, 1, 15, 15);
 			if (mode === 'edit' || mode === 'extend' || duration === WAN3_AUTO_DURATION) {
 				return [Math.min(low + WAN3_SHORTEST_OUTPUT, WAN3_LONGEST_SECONDS), WAN3_LONGEST_SECONDS];
 			}
 			return [low + duration, Math.max(low + duration, Math.min(high + duration, WAN3_LONGEST_SECONDS))];
 		}
 		case 'wan27-r2v': {
-			const [low, high] = wan27ReferenceSeconds(counts, measured);
+			const [low, high] = wan27ReferenceSeconds(measured);
 			return [low + duration, high + duration];
 		}
 		case 'wan27-edit': {
 			// The input video and the output, which keeps the length of the input, are billed.
-			const [low, high] = inputVideoSeconds(counts, measured, 2, 10);
+			const [low, high] = inputVideoSeconds(measured, 2, 10);
 			return [2 * low, 2 * high];
 		}
 		default:
@@ -626,14 +615,14 @@ function billedSeconds(routed: Task, mode: ModeId, params: Params, counts: Plann
 	}
 }
 
-function estimateFor(routed: Task, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(routed: Task, request: CheckRequest, measured: readonly MeasuredItem[]): Estimate | undefined {
 	const region = regionOf(request.region);
 	const table = routed.silentPrices && request.params.sound === false ? routed.silentPrices : routed.prices;
 	const price = table[region][request.params.resolution as Resolution];
 	if (price === undefined) {
 		return undefined;
 	}
-	const [low, high] = billedSeconds(routed, request.mode, request.params, counts, measured);
+	const [low, high] = billedSeconds(routed, request.mode, request.params, measured);
 	return estimateOf(CURRENCIES[region], price * low, price * high, PRICE_DATES[region]);
 }
 
@@ -929,13 +918,13 @@ export const ALIBABA: ProviderModule = Object.freeze({
 		}
 		const counts = countsOf(request.inputs);
 		const routed = spec.route(request.mode, counts);
-		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
+		const measured = await measureItems(request.inputs, media);
 		const problems = [
 			...regionProblems(request, counts),
 			...taskProblems(spec, routed, request, counts, measured),
-			...(measured ? formatProblems(measured) : [])
+			...formatProblems(measured)
 		];
-		const estimate = estimateFor(routed, request, counts, measured);
+		const estimate = estimateFor(routed, request, measured);
 		return { problems, ...(estimate ? { estimate } : {}), providerModel: routed.id };
 	},
 

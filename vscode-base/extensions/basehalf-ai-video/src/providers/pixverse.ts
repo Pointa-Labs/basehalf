@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomUUID } from 'node:crypto';
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
@@ -20,7 +20,6 @@ import type {
 	ModeId,
 	ModeInputs,
 	ModeLimits,
-	PlannedCounts,
 	PollState,
 	SubmitRequest,
 	TaskRef
@@ -212,7 +211,7 @@ const PROMPT_MAX_LENGTH = 5000;
 const IMAGE_TO_VIDEO_PROMPT_MAX_LENGTH = 2048;
 /** The largest file AI Video uploads: its request limit, less room for the form around the file. */
 const UPLOAD_MAX_BYTES = DEFAULT_HTTP_OPTIONS.maxRequestBytes - 64 * 1024;
-/** The shortest and the longest video V6 makes, for reference videos whose lengths are not measured. */
+/** The shortest and the longest video V6 makes, for reference videos whose lengths cannot be read. */
 const V6_SECONDS: readonly [number, number] = [1, 15];
 
 const NO_INPUTS = Object.freeze({ min: 0, max: 0 });
@@ -683,7 +682,7 @@ function stateOf(task: Record<string, unknown>): PollState {
 // --- checks and estimates -----------------------------------------------------------------------
 
 /** The rules between parameters and inputs that the declarations cannot express (pixverse.md, "Rules between parameters and inputs"). */
-function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): string[] {
+function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): string[] {
 	const problems: string[] = [];
 	const label = labelOf(model);
 	const duration = Number(request.params.duration);
@@ -707,7 +706,7 @@ function ruleProblems(model: PixVerseModel, request: CheckRequest, counts: Plann
 		}
 	}
 	if (request.mode === 'extend') {
-		const source = measured?.find(item => item.slot === 'source')?.facts.seconds;
+		const source = measured.find(item => item.slot === 'source')?.facts.seconds;
 		if (source !== undefined && source + duration > EXTENDED_MAX_SECONDS + 0.05) {
 			problems.push(TEXT.extendTooLong(source, duration, EXTENDED_MAX_SECONDS));
 		}
@@ -722,9 +721,9 @@ function fileProblems(measured: readonly MeasuredItem[]): string[] {
 		.map(item => TEXT.videoTooLarge(item.label, describeBytes(item.facts.bytes), describeBytes(UPLOAD_MAX_BYTES)));
 }
 
-/** The seconds of the longest reference video, which the result follows: to its next whole second, or V6's range when not measured. */
-function referenceSeconds(measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
-	const lengths = (measured ?? []).filter(item => item.kind === 'video').map(item => item.facts.seconds);
+/** The seconds of the longest reference video, which the result follows: to its next whole second, or V6's range when a length cannot be read. */
+function referenceSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
+	const lengths = measured.filter(item => item.kind === 'video').map(item => item.facts.seconds);
 	if (!lengths.length || lengths.some(length => length === undefined)) {
 		return V6_SECONDS;
 	}
@@ -737,7 +736,7 @@ function dollars(lowCredits: number, highCredits: number): Estimate {
 }
 
 /** Credits by the price list, divided by 225 (pixverse.md, "Estimate"); none for a combination without a price. */
-function estimateFor(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(model: PixVerseModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
 	const resolution = RESOLUTIONS.find(entry => entry === request.params.resolution);
 	const duration = request.params.duration;
 	if (!resolution || typeof duration !== 'number') {
@@ -780,8 +779,8 @@ export const PIXVERSE: ProviderModule = Object.freeze({
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
-		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
-		const problems = [...ruleProblems(model, request, counts, measured), ...(measured ? fileProblems(measured) : [])];
+		const measured = await measureItems(request.inputs, media);
+		const problems = [...ruleProblems(model, request, counts, measured), ...fileProblems(measured)];
 		const estimate = estimateFor(model, request, counts, measured);
 		return estimate ? { problems, estimate } : { problems };
 	},

@@ -212,16 +212,6 @@ export interface PlannedMedia {
 	readonly source?: Media;
 }
 
-/** The planned inputs counted, for a check without files. */
-export interface PlannedCounts {
-	readonly startFrame: boolean;
-	readonly endFrame: boolean;
-	readonly images: number;
-	readonly videos: number;
-	readonly audios: number;
-	readonly source: boolean;
-}
-
 export interface CheckRequest {
 	readonly provider: string;
 	readonly region: string;
@@ -231,8 +221,8 @@ export interface CheckRequest {
 	readonly params: Params;
 	/** The prompt as it would be sent, text inputs included. */
 	readonly prompt: string;
-	/** With media, the module measures the files; with counts, it checks counts only. */
-	readonly inputs: PlannedMedia | PlannedCounts;
+	/** The files a generation would send; the module measures them. */
+	readonly inputs: PlannedMedia;
 }
 
 export interface Estimate {

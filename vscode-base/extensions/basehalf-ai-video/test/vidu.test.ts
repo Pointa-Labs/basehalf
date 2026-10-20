@@ -17,9 +17,9 @@ import test from 'node:test';
 import { VideoProviderCommands, type VideoProviderCommandOptions } from '../src/providers/commands.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogParameter, CatalogProvider, PlannedCounts } from '../src/providers/types.ts';
+import type { CatalogParameter, CatalogProvider } from '../src/providers/types.ts';
 import { VIDU } from '../src/providers/vidu.ts';
-import { error, gifHeader, isoMedia, mp3, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, mp3, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
 
 const KEY = 'vda-test-secret-42';
 const MIB = 1024 * 1024;
@@ -48,10 +48,6 @@ const audio = (fsPath: string) => ({ fsPath, mimeType: 'audio/mpeg' });
 const dataUrl = (fsPath: string, type = 'image/png') => `data:${type};base64,${readFileSync(fsPath).toString('base64')}`;
 const NO_MEDIA = { images: [], videos: [], audios: [] };
 
-function counts(planned: Partial<PlannedCounts> = {}): PlannedCounts {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
-}
-
 function commands(options: VideoProviderCommandOptions = {}): VideoProviderCommands {
 	return new VideoProviderCommands([VIDU], { http: { sleep: async () => undefined }, ...options });
 }
@@ -74,7 +70,7 @@ function generation(endpoint: string, overrides: Record<string, unknown> = {}) {
 
 /** A request of `check` without credentials: Vidu Q3 Pro in China from text, unless `overrides` say otherwise. */
 function planned(overrides: Record<string, unknown> = {}) {
-	return { provider: 'vidu', region: 'cn', model: 'q3-pro', mode: 'frames', params: {}, prompt: 'p', inputs: counts(), ...overrides };
+	return { provider: 'vidu', region: 'cn', model: 'q3-pro', mode: 'frames', params: {}, prompt: 'p', inputs: plannedFiles(), ...overrides };
 }
 
 function taskRef(endpoint: string, remoteId: string, region = 'intl') {
@@ -625,17 +621,17 @@ test('check adds Vidu\'s own rules to the declarations\' checks, and submit then
 		sameShape: await problems({ inputs: { ...NO_MEDIA, startFrame: image(START), endFrame: image(END) } }),
 		gif: await problems({ model: 'q3-turbo', inputs: { ...NO_MEDIA, startFrame: image(MOVING) } }),
 		wav: await problems({ model: 'q4-preview', mode: 'reference', inputs: { ...NO_MEDIA, images: [image(SQUARE)], audios: [audio(VOICE_WAV)] } }),
-		mixAudioInChina: await problems({ model: 'q3-mix', mode: 'reference', inputs: counts({ images: 1, audios: 1 }) }),
-		mixAudioInInternational: await problems({ region: 'intl', model: 'q3-mix', mode: 'reference', inputs: counts({ images: 1, audios: 1 }) }),
+		mixAudioInChina: await problems({ model: 'q3-mix', mode: 'reference', inputs: { ...NO_MEDIA, images: [image(SQUARE)], audios: [audio(VOICE)] } }),
+		mixAudioInInternational: await problems({ region: 'intl', model: 'q3-mix', mode: 'reference', inputs: { ...NO_MEDIA, images: [image(SQUARE)], audios: [audio(VOICE)] } }),
 		textInInternational: await problems({ region: 'intl', model: 'q3-turbo', prompt: 'x'.repeat(6000) }),
 		textInChina: await problems({ model: 'q3-turbo', prompt: 'x'.repeat(6000) }),
-		q2StartFrame: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: counts({ startFrame: true }) }),
-		q2StartAndEndFrames: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: counts({ startFrame: true, endFrame: true }) }),
-		q2SoundWithEndFrame: await problems({ model: 'q2-turbo', params: { sound: true }, inputs: counts({ startFrame: true, endFrame: true }) }),
-		referencesWithoutPrompt: await problems({ model: 'q4-preview', mode: 'reference', prompt: '', inputs: counts({ images: 1 }) }),
+		q2StartFrame: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: plannedFiles({ startFrame: true }) }),
+		q2StartAndEndFrames: await problems({ model: 'q2-pro', prompt: 'x'.repeat(2500), inputs: plannedFiles({ startFrame: true, endFrame: true }) }),
+		q2SoundWithEndFrame: await problems({ model: 'q2-turbo', params: { sound: true }, inputs: plannedFiles({ startFrame: true, endFrame: true }) }),
+		referencesWithoutPrompt: await problems({ model: 'q4-preview', mode: 'reference', prompt: '', inputs: plannedFiles({ images: 1 }) }),
 		referencesWithoutPromptOrImage: await problems({ model: 'q4-preview', mode: 'reference', prompt: '' }),
 		smallReference: await problems({ model: 'q3', mode: 'reference', inputs: { ...NO_MEDIA, images: [image(SMALL)] } }),
-		turboReferencesInInternational: await problems({ region: 'intl', model: 'q3-turbo-reference', mode: 'reference', inputs: counts({ images: 1 }) }),
+		turboReferencesInInternational: await problems({ region: 'intl', model: 'q3-turbo-reference', mode: 'reference', inputs: plannedFiles({ images: 1 }) }),
 		tooLarge
 	};
 	assert.deepEqual(results, {
@@ -675,23 +671,23 @@ test('estimates follow Vidu\'s price list of 2026-10-19, three combinations in e
 			// 20 credits a second at 720p for 5 seconds: 100 credits of ¥0.03125.
 			await estimate({ params: { resolution: '720p', duration: 5 } }),
 			// 78 credits a second at 4K for 16 seconds: 1,248 credits.
-			await estimate({ model: 'q4-preview', mode: 'reference', params: { resolution: '4k', duration: 16 }, inputs: counts({ images: 2 }) }),
+			await estimate({ model: 'q4-preview', mode: 'reference', params: { resolution: '4k', duration: 16 }, inputs: plannedFiles({ images: 2 }) }),
 			// 40 credits for 5 seconds at 720p, and 15 for sound: 55 credits.
-			await estimate({ model: 'q2-turbo', params: { resolution: '720p', duration: 5, sound: true }, inputs: counts({ startFrame: true }) })
+			await estimate({ model: 'q2-turbo', params: { resolution: '720p', duration: 5, sound: true }, inputs: plannedFiles({ startFrame: true }) })
 		],
 		international: [
 			// 13 credits a second at 1080p for 10 seconds: 130 credits of $0.005.
 			await estimate({ region: 'intl', model: 'q3-turbo', params: { resolution: '1080p', duration: 10 } }),
 			// 29 credits a second at 1080p for 15 seconds: 435 credits.
-			await estimate({ region: 'intl', model: 'q3-mix', mode: 'reference', params: { resolution: '1080p', duration: 15 }, inputs: counts({ images: 1 }) }),
+			await estimate({ region: 'intl', model: 'q3-mix', mode: 'reference', params: { resolution: '1080p', duration: 15 }, inputs: plannedFiles({ images: 1 }) }),
 			// 8 credits for 1 second at 540p, from start and end frames: no sound.
-			await estimate({ region: 'intl', model: 'q2-pro', params: { resolution: '540p', duration: 1 }, inputs: counts({ startFrame: true, endFrame: true }) })
+			await estimate({ region: 'intl', model: 'q2-pro', params: { resolution: '540p', duration: 1 }, inputs: plannedFiles({ startFrame: true, endFrame: true }) })
 		],
 		// 24 credits a second for 5 seconds, and up to 10 more for Expand Prompt.
-		expandPrompt: await estimate({ model: 'q4-preview', params: { resolution: '1080p', duration: 5, prompt_extend: true }, inputs: counts({ startFrame: true }) }),
-		proFastFromStartFrame: await estimate({ region: 'intl', model: 'q3-pro-fast', params: { resolution: '1080p', duration: 16 }, inputs: counts({ startFrame: true }) }),
-		proFastWithEndFrame: await estimate({ model: 'q3-pro-fast', inputs: counts({ startFrame: true, endFrame: true }) }),
-		turboReferences: await estimate({ model: 'q3-turbo-reference', mode: 'reference', params: { resolution: '540p', duration: 15 }, inputs: counts({ images: 7 }) })
+		expandPrompt: await estimate({ model: 'q4-preview', params: { resolution: '1080p', duration: 5, prompt_extend: true }, inputs: plannedFiles({ startFrame: true }) }),
+		proFastFromStartFrame: await estimate({ region: 'intl', model: 'q3-pro-fast', params: { resolution: '1080p', duration: 16 }, inputs: plannedFiles({ startFrame: true }) }),
+		proFastWithEndFrame: await estimate({ model: 'q3-pro-fast', inputs: plannedFiles({ startFrame: true, endFrame: true }) }),
+		turboReferences: await estimate({ model: 'q3-turbo-reference', mode: 'reference', params: { resolution: '540p', duration: 15 }, inputs: plannedFiles({ images: 7 }) })
 	};
 	assert.deepEqual(results, {
 		china: [cny(3.125), cny(39), cny(1.71875)],
@@ -716,7 +712,7 @@ test('Q2 estimates match the platform\'s price table for every length and resolu
 		for (const resolution of Object.keys(resolutions)) {
 			computed[model][resolution] = [];
 			for (let duration = 1; duration <= 10; duration++) {
-				const answered = value(await providers.check(planned({ model, params: { resolution, duration }, inputs: counts({ startFrame: true }) })));
+				const answered = value(await providers.check(planned({ model, params: { resolution, duration }, inputs: plannedFiles({ startFrame: true }) })));
 				computed[model][resolution].push(Math.round((answered.estimate?.min ?? Number.NaN) / 0.03125));
 			}
 		}

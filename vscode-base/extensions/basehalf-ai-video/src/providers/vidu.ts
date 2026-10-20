@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
@@ -21,7 +21,6 @@ import type {
 	ModeId,
 	ModeLimits,
 	Params,
-	PlannedCounts,
 	PollState,
 	ProviderErrorCode,
 	SubmitRequest,
@@ -787,9 +786,7 @@ export const VIDU = Object.freeze<ProviderModule>({
 		if (request.mode === 'reference' && audioRegions && counts.audios > 0 && !audioRegions.includes(region)) {
 			problems.push(`${label} takes reference audio only in ${audioRegions.map(id => TEXT.regions[id]).join(' and ')}.`);
 		}
-		if (isPlannedMedia(request.inputs)) {
-			problems.push(...fileProblems(await measureItems(request.inputs, media), request.prompt));
-		}
+		problems.push(...fileProblems(await measureItems(request.inputs, media), request.prompt));
 		const credits = creditsOf(model, route, request.params);
 		if (!credits) {
 			return { problems };

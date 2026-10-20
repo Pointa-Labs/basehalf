@@ -4,25 +4,29 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describeBytes, plannedItems, type MediaFacts, type MediaInspector, type PlannedItem } from './media.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, Currency, Estimate, ImageFormat, Media, ModeId, Params, ParamValue, PlannedCounts, PlannedMedia } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, Currency, Estimate, ImageFormat, Media, ModeId, Params, ParamValue, PlannedMedia } from './types.ts';
 
 /**
  * What every model is checked against before anything is sent, from its
- * declarations alone (video providers, "Requests"): the inputs a mode takes,
- * the prompt rule, the values of the parameters, and with files the mode's
- * limits. The commands run these before a provider module's own `check`.
- * Every problem is a plain English sentence; the first one blocks Generate.
+ * declarations (video providers, "Requests"): the inputs a mode takes, the
+ * prompt rule, the values of the parameters, and the mode's limits, which the
+ * files are measured against. The commands run these before a provider
+ * module's own `check`. Every problem is a plain English sentence; the first
+ * one blocks Generate.
  */
 
-export function isPlannedMedia(inputs: PlannedMedia | PlannedCounts): inputs is PlannedMedia {
-	return Array.isArray((inputs as PlannedMedia).images);
+/** The planned inputs counted, for the rules that count them. */
+export interface PlannedCounts {
+	readonly startFrame: boolean;
+	readonly endFrame: boolean;
+	readonly images: number;
+	readonly videos: number;
+	readonly audios: number;
+	readonly source: boolean;
 }
 
 /** The planned inputs counted. */
-export function countsOf(inputs: PlannedMedia | PlannedCounts): PlannedCounts {
-	if (!isPlannedMedia(inputs)) {
-		return inputs;
-	}
+export function countsOf(inputs: PlannedMedia): PlannedCounts {
 	return {
 		startFrame: inputs.startFrame !== undefined,
 		endFrame: inputs.endFrame !== undefined,

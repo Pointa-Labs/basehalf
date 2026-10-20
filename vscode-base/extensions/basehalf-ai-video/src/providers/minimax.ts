@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Currency, Estimate, Params, ParamValue, PlannedCounts, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Currency, Estimate, Params, ParamValue, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * MiniMax's video models on MiniMax's own API, in China (`api.minimax.cn`)
@@ -427,22 +427,23 @@ function formatProblems(items: readonly MeasuredItem[]): string[] {
 
 /**
  * The whole seconds of reference video MiniMax meters: with every length
- * measured, their sum rounded down to their sum rounded up; otherwise from
- * 2 seconds a video to the 15 seconds allowed together.
+ * read, their sum rounded down to their sum rounded up; with a length AI
+ * Video cannot read, from 2 seconds a video to the 15 seconds allowed
+ * together.
  */
-function referenceVideoSeconds(counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): readonly [number, number] {
-	if (counts.videos === 0) {
+function referenceVideoSeconds(measured: readonly MeasuredItem[]): readonly [number, number] {
+	const lengths = measured.filter(item => item.slot === 'video').map(item => item.facts.seconds);
+	if (lengths.length === 0) {
 		return [0, 0];
 	}
-	const lengths = (measured ?? []).filter(item => item.kind === 'video').map(item => item.facts.seconds);
-	if (lengths.length === counts.videos && lengths.every(seconds => seconds !== undefined)) {
+	if (lengths.every(seconds => seconds !== undefined)) {
 		const total = lengths.reduce<number>((sum, seconds) => sum + (seconds ?? 0), 0);
 		return [Math.floor(total + 1e-6), Math.ceil(total - 1e-6)];
 	}
-	return [REFERENCE_VIDEO_SECONDS[0] * counts.videos, REFERENCE_TOTAL_SECONDS];
+	return [REFERENCE_VIDEO_SECONDS[0] * lengths.length, REFERENCE_TOTAL_SECONDS];
 }
 
-function h3Estimate(model: H3Model, region: string, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function h3Estimate(model: H3Model, region: string, params: Params, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
 	const prices = model.prices[region as RegionId];
 	const resolution = minimaxResolution(params.resolution);
 	const output = resolution === undefined ? undefined : prices?.output[resolution];
@@ -454,7 +455,7 @@ function h3Estimate(model: H3Model, region: string, params: Params, counts: Plan
 	// The frames and the reference images count together.
 	const images = (counts.startFrame ? 1 : 0) + (counts.endFrame ? 1 : 0) + counts.images;
 	const fixed = duration * output + Math.max(0, images - prices.freeImages) * prices.image;
-	const [fewest, most] = referenceVideoSeconds(counts, measured);
+	const [fewest, most] = referenceVideoSeconds(measured);
 	return estimateOf(currencyOf(region), fixed + fewest * inputVideo, fixed + most * inputVideo, PRICE_DATE);
 }
 
@@ -468,11 +469,8 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 	const model = modelOf(request.model);
 	const counts = countsOf(request.inputs);
 	const problems = model.api === 'v2' ? h3Rules(model, request, counts) : hailuoRules(model, request, counts);
-	let measured: MeasuredItem[] | undefined;
-	if (isPlannedMedia(request.inputs)) {
-		measured = await measureItems(request.inputs, media);
-		problems.push(...formatProblems(measured));
-	}
+	const measured = await measureItems(request.inputs, media);
+	problems.push(...formatProblems(measured));
 	const estimate = model.api === 'v2' ? h3Estimate(model, request.region, request.params, counts, measured) : hailuoEstimate(model, request.region, request.params);
 	return estimate ? { problems, estimate } : { problems };
 }

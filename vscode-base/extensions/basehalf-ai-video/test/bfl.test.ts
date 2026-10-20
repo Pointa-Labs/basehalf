@@ -45,6 +45,8 @@ const TEN_SECONDS = file('ten.mp4', isoMedia(10), 'video/mp4');
 const LONG_CLIP = file('long.mp4', isoMedia(16), 'video/mp4');
 const SHORT_CLIP = file('short.mp4', isoMedia(0.5), 'video/mp4');
 const MOV = file('clip.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 
 const KEY = 'bfl_localTestKey0001';
 const PROMPT = 'A paper boat drifts down a rainy street; rain patters on the water.';
@@ -87,13 +89,8 @@ function taskRef(endpoint: string, remoteId: string) {
 	return { provider: 'bfl', region: 'global', endpoint, credentials: { apiKey: KEY }, model: 'flux-3', remoteId };
 }
 
-/** The planned inputs counted, for a check without files. */
-function counts(change: Partial<{ startFrame: boolean; endFrame: boolean; images: number; source: boolean }> = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...change };
-}
-
-/** A check of counts made by `counts`, or of files made by `planned`. */
-function checkRequest(mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts> | ReturnType<typeof planned>, prompt = PROMPT) {
+/** A check of the files made by `planned`. */
+function checkRequest(mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof planned>, prompt = PROMPT) {
 	return { provider: 'bfl', region: 'global', model: 'flux-3', mode, params, prompt, inputs };
 }
 
@@ -256,25 +253,21 @@ test('each mode is created once at its route with the exact body and the key in 
 	}
 });
 
-test('the route follows the mode and the inputs, with files and without', async () => {
+test('the route follows the mode and the inputs', async () => {
 	const providers = commands();
-	const routed = async (mode: Mode, inputs: ReturnType<typeof counts> | ReturnType<typeof planned>) => value(await providers.check(checkRequest(mode, {}, inputs))).providerModel;
+	const routed = async (mode: Mode, inputs: Inputs) => value(await providers.check(checkRequest(mode, {}, planned(inputs)))).providerModel;
 	assert.deepEqual({
-		text: await routed('frames', counts()),
-		startFrame: await routed('frames', counts({ startFrame: true })),
-		startAndEndFiles: await routed('frames', planned({ startFrame: START, endFrame: END })),
-		extend: await routed('extend', counts({ source: true })),
-		extendFile: await routed('extend', planned({ source: CLIP })),
-		edit: await routed('edit', counts({ source: true })),
-		editFile: await routed('edit', planned({ source: CLIP }))
+		text: await routed('frames', {}),
+		startFrame: await routed('frames', { startFrame: START }),
+		startAndEnd: await routed('frames', { startFrame: START, endFrame: END }),
+		extend: await routed('extend', { source: CLIP }),
+		edit: await routed('edit', { source: CLIP })
 	}, {
 		text: 'flux-3-video',
 		startFrame: 'flux-3-video',
-		startAndEndFiles: 'flux-3-video',
+		startAndEnd: 'flux-3-video',
 		extend: 'flux-3-video',
-		extendFile: 'flux-3-video',
-		edit: 'flux-tools/video-edit-v1',
-		editFile: 'flux-tools/video-edit-v1'
+		edit: 'flux-tools/video-edit-v1'
 	});
 });
 
@@ -604,25 +597,25 @@ test('Black Forest Labs has no cancellation: cancel answers false and sends noth
 
 test('check reports the rules between settings and modes, after the declarations\' own checks', async () => {
 	const providers = commands();
-	const problems = async (mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
-		value(await providers.check(checkRequest(mode, params, inputs, text))).problems;
-	const clip = counts({ source: true });
+	const problems = async (mode: Mode, params: Record<string, unknown>, inputs: Inputs, text = PROMPT) =>
+		value(await providers.check(checkRequest(mode, params, planned(inputs), text))).problems;
+	const clip = { source: CLIP };
 	assert.deepEqual({
 		extendTwenty: await problems('extend', { duration: 20 }, clip),
 		extendFifteen: await problems('extend', { duration: 15 }, clip),
 		extendAuto: await problems('extend', { duration: -1 }, clip),
-		framesTwenty: await problems('frames', { duration: 20 }, counts()),
-		framesTwentyOne: await problems('frames', { duration: 21 }, counts()),
+		framesTwenty: await problems('frames', { duration: 20 }, {}),
+		framesTwentyOne: await problems('frames', { duration: 21 }, {}),
 		editLongPrompt: await problems('edit', {}, clip, 'a'.repeat(4097)),
 		editTrimmedPrompt: await problems('edit', {}, clip, `  ${'a'.repeat(4096)}  `),
-		framesLongerPrompt: await problems('frames', {}, counts(), 'a'.repeat(4097)),
-		tooLongPrompt: await problems('frames', {}, counts(), 'a'.repeat(20001)),
-		noPrompt: await problems('frames', {}, counts({ startFrame: true }), '  '),
-		editWithImage: await problems('edit', {}, counts({ source: true, images: 1 })),
-		endFrameAlone: await problems('frames', {}, counts({ endFrame: true })),
+		framesLongerPrompt: await problems('frames', {}, {}, 'a'.repeat(4097)),
+		tooLongPrompt: await problems('frames', {}, {}, 'a'.repeat(20001)),
+		noPrompt: await problems('frames', {}, { startFrame: START }, '  '),
+		editWithImage: await problems('edit', {}, { source: CLIP, images: [START] }),
+		endFrameAlone: await problems('frames', {}, { endFrame: END }),
 		editResolution: await problems('edit', { resolution: '1080p' }, clip),
-		toleranceFive: await problems('frames', { safety_tolerance: 5 }, counts()),
-		extendWithoutClip: await problems('extend', {}, counts())
+		toleranceFive: await problems('frames', { safety_tolerance: 5 }, {}),
+		extendWithoutClip: await problems('extend', {}, {})
 	}, {
 		extendTwenty: ['FLUX 3 continues a clip by 5 to 15 seconds; choose 15 seconds or less, or Auto.'],
 		extendFifteen: [],
@@ -642,7 +635,7 @@ test('check reports the rules between settings and modes, after the declarations
 	});
 });
 
-test('with files, check refuses a MOV clip, clips outside their lengths, another image format, and a request too large to send; submit then sends nothing', async () => {
+test('check refuses a MOV clip, clips outside their lengths, another image format, and a request too large to send; submit then sends nothing', async () => {
 	const server = await startServer((request, response) => sendJson(response, 200, created(server, 'task-1')));
 	try {
 		const providers = commands();
@@ -688,24 +681,24 @@ test('with files, check refuses a MOV clip, clips outside their lengths, another
 
 test('estimates follow the rate card: one amount for a duration, a range for Auto, and the clip\'s length for an edit', async () => {
 	const providers = commands();
-	const estimate = async (mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts> | ReturnType<typeof planned>) =>
-		value(await providers.check(checkRequest(mode, params, inputs))).estimate;
+	const estimate = async (mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
+		value(await providers.check(checkRequest(mode, params, planned(inputs)))).estimate;
 	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
 	assert.deepEqual({
 		// Text to video with the defaults, HD for 5 s: $0.15/s × 5 s = $0.75.
-		framesDefaults: await estimate('frames', {}, counts()),
+		framesDefaults: await estimate('frames', {}, {}),
 		// A start and an end frame at UHD (4K) for 20 s: $0.41/s × 20 s = $8.20.
-		frames4k: await estimate('frames', { resolution: '4k', duration: 20 }, counts({ startFrame: true, endFrame: true })),
+		frames4k: await estimate('frames', { resolution: '4k', duration: 20 }, { startFrame: START, endFrame: END }),
 		// FHD with Auto, 5 to 20 s: $0.24/s × 5 s = $1.20 to $0.24/s × 20 s = $4.80.
-		framesAuto: await estimate('frames', { resolution: '1080p', duration: -1 }, counts()),
+		framesAuto: await estimate('frames', { resolution: '1080p', duration: -1 }, {}),
 		// A continuation at QHD (2K) of 10 s, the new part only: $0.31/s × 10 s = $3.10.
-		extend2k: await estimate('extend', { resolution: '2k', duration: 10 }, counts({ source: true })),
+		extend2k: await estimate('extend', { resolution: '2k', duration: 10 }, { source: CLIP }),
 		// A continuation at HD with Auto, 5 to 15 s: $0.21/s × 5 s = $1.05 to $0.21/s × 15 s = $3.15.
-		extendAuto: await estimate('extend', { duration: -1 }, counts({ source: true })),
+		extendAuto: await estimate('extend', { duration: -1 }, { source: CLIP }),
 		// An edit of a 7.5 s clip, whose length the output keeps: $0.03/s × 7.5 s = $0.225.
-		editClip: await estimate('edit', {}, planned({ source: CLIP })),
-		// An edit without its file, a clip of 0.7 to 15 s: $0.03/s × 0.7 s = $0.021 to $0.03/s × 15 s = $0.45.
-		editRange: await estimate('edit', {}, counts({ source: true }))
+		editClip: await estimate('edit', {}, { source: CLIP }),
+		// An edit of a clip whose length cannot be read, 0.7 to 15 s: $0.03/s × 0.7 s = $0.021 to $0.03/s × 15 s = $0.45.
+		editRange: await estimate('edit', {}, { source: UNREADABLE })
 	}, {
 		framesDefaults: usd(0.75),
 		frames4k: usd(8.2),
@@ -726,7 +719,7 @@ test('every rate of the card is used as listed, per second of output video', asy
 	const providers = commands();
 	const round = (money: number) => Math.round(money * 1e6) / 1e6;
 	for (const [mode, resolution, rate] of rows) {
-		const answer = value(await providers.check(checkRequest(mode, { resolution, duration: 10 }, counts({ source: mode === 'extend' }))));
+		const answer = value(await providers.check(checkRequest(mode, { resolution, duration: 10 }, planned(mode === 'extend' ? { source: CLIP } : {}))));
 		assert.deepEqual(answer.estimate, { currency: 'USD', min: round(rate * 10), max: round(rate * 10), priceDate: PRICE_DATE }, `${mode} ${resolution}`);
 	}
 	// The edit: $0.03 per second of the clip at every size; a 10 s clip costs $0.30.

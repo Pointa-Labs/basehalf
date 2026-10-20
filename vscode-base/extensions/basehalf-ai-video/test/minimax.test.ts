@@ -13,7 +13,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { MINIMAX } from '../src/providers/minimax.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
 import type { CatalogModel, CatalogParameter, PollState } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, wav, webpHeader, type Received } from './providerTestKit.ts';
+import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-minimax-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -46,6 +46,8 @@ const VOICE = file('voice.wav', wav(3), 'audio/wav');
 const SONG = file('song.m4a', isoMedia(4, { brand: 'M4A ' }), 'audio/mp4');
 const MOTION = file('motion.gif', gifHeader(640, 360), 'image/gif');
 const TINY = file('tiny.png', png(300, 300), 'image/png');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const VIDEO = isoMedia(2);
 
 const KEY = 'mm-test-key-0123456789abcdef';
@@ -64,10 +66,6 @@ function access(endpoint: string, region = 'intl') {
 
 function generation(model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Record<string, unknown> = NO_INPUTS) {
 	return { model, mode, params, prompt, inputs };
-}
-
-function counts(planned: Record<string, unknown> = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 let parts = 0;
@@ -706,26 +704,26 @@ test('check reports the rules between settings, the inputs MiniMax refuses, and 
 		value(await providers.check({ provider: 'minimax', region, model, mode, params, prompt, inputs })).problems;
 	const frame = { images: [], videos: [], audios: [] };
 	assert.deepEqual({
-		adaptiveWithoutFrame: await problems('h3', 'frames', { ratio: 'adaptive' }, counts()),
-		ratioWithFrame: await problems('h3-max', 'frames', { ratio: '9:16' }, counts({ startFrame: true })),
-		adaptiveWithFrames: await problems('h3', 'frames', { ratio: 'adaptive' }, counts({ startFrame: true, endFrame: true })),
-		noReferences: await problems('h3', 'reference', {}, counts()),
-		tooManyReferences: await problems('h3', 'reference', {}, counts({ images: 9, videos: 3, audios: 1 })),
-		watermarkAbroad: await problems('h3', 'frames', { watermark: true }, counts()),
-		watermarkInChina: await problems('h3-max', 'frames', { watermark: true }, counts(), 'cn'),
-		fullHdTenSeconds: await problems('hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, counts()),
-		fullHdSixSeconds: await problems('hailuo-2.3', 'frames', { resolution: '1080p', duration: 6 }, counts()),
-		lowWithoutFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, counts()),
-		lowWithEndFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, counts({ startFrame: true, endFrame: true })),
+		adaptiveWithoutFrame: await problems('h3', 'frames', { ratio: 'adaptive' }, plannedFiles()),
+		ratioWithFrame: await problems('h3-max', 'frames', { ratio: '9:16' }, plannedFiles({ startFrame: true })),
+		adaptiveWithFrames: await problems('h3', 'frames', { ratio: 'adaptive' }, plannedFiles({ startFrame: true, endFrame: true })),
+		noReferences: await problems('h3', 'reference', {}, plannedFiles()),
+		tooManyReferences: await problems('h3', 'reference', {}, plannedFiles({ images: 9, videos: 3, audios: 1 })),
+		watermarkAbroad: await problems('h3', 'frames', { watermark: true }, plannedFiles()),
+		watermarkInChina: await problems('h3-max', 'frames', { watermark: true }, plannedFiles(), 'cn'),
+		fullHdTenSeconds: await problems('hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, plannedFiles()),
+		fullHdSixSeconds: await problems('hailuo-2.3', 'frames', { resolution: '1080p', duration: 6 }, plannedFiles()),
+		lowWithoutFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, plannedFiles()),
+		lowWithEndFrame: await problems('hailuo-02', 'frames', { resolution: '512p' }, plannedFiles({ startFrame: true, endFrame: true })),
 		// MiniMax's own spellings and field names are not the catalog's.
-		minimaxSpelling: await problems('h3', 'frames', { resolution: '768P' }, counts()),
-		minimaxField: await problems('hailuo-2.3', 'frames', { prompt_optimizer: false }, counts()),
-		fastWithEndFrame: await problems('hailuo-02', 'frames', { fast_pretreatment: true }, counts({ startFrame: true, endFrame: true })),
-		fastNeedsFrame: await problems('hailuo-2.3-fast', 'frames', {}, counts()),
-		noEndFrame: await problems('hailuo-2.3', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		shortMax: await problems('h3-max', 'frames', { duration: 4 }, counts()),
-		noPrompt: await problems('h3', 'reference', {}, counts({ images: 1 }), 'intl', ''),
-		longPrompt: await problems('hailuo-2.3', 'frames', {}, counts(), 'intl', 'x'.repeat(2001)),
+		minimaxSpelling: await problems('h3', 'frames', { resolution: '768P' }, plannedFiles()),
+		minimaxField: await problems('hailuo-2.3', 'frames', { prompt_optimizer: false }, plannedFiles()),
+		fastWithEndFrame: await problems('hailuo-02', 'frames', { fast_pretreatment: true }, plannedFiles({ startFrame: true, endFrame: true })),
+		fastNeedsFrame: await problems('hailuo-2.3-fast', 'frames', {}, plannedFiles()),
+		noEndFrame: await problems('hailuo-2.3', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		shortMax: await problems('h3-max', 'frames', { duration: 4 }, plannedFiles()),
+		noPrompt: await problems('h3', 'reference', {}, plannedFiles({ images: 1 }), 'intl', ''),
+		longPrompt: await problems('hailuo-2.3', 'frames', {}, plannedFiles(), 'intl', 'x'.repeat(2001)),
 		gif: await problems('h3', 'reference', {}, { ...frame, images: [MOTION] }),
 		m4a: await problems('h3-max', 'reference', {}, { ...frame, audios: [SONG] }),
 		tinyFrame: await problems('hailuo-2.3', 'frames', {}, { ...frame, startFrame: TINY }),
@@ -766,27 +764,27 @@ test('the estimate follows each region\'s price list: per second for H3 and H3 M
 	assert.deepEqual({
 		intl: [
 			// 5 s × 0.08
-			await estimate('intl', 'h3', 'frames', { resolution: '768p', duration: 5 }, counts()),
+			await estimate('intl', 'h3', 'frames', { resolution: '768p', duration: 5 }, plannedFiles()),
 			// 10 s × 0.13, 2 images beyond the 5 free × 0.04, a 6 s video × 0.13; audio is free
 			await estimate('intl', 'h3', 'reference', { resolution: '2k', duration: 10 }, { images: Array.from({ length: 7 }, () => CHARACTER), videos: [DANCE], audios: [VOICE] }),
 			// 8 s × 0.05, 2 images beyond the 2 free × 0.074
-			await estimate('intl', 'h3-max', 'reference', { resolution: '480p', duration: 8 }, counts({ images: 4 })),
-			await estimate('intl', 'hailuo-2.3-fast', 'frames', { resolution: '1080p', duration: 6 }, counts({ startFrame: true })),
-			await estimate('intl', 'hailuo-02', 'frames', { resolution: '512p', duration: 10 }, counts({ startFrame: true }))
+			await estimate('intl', 'h3-max', 'reference', { resolution: '480p', duration: 8 }, plannedFiles({ images: 4 })),
+			await estimate('intl', 'hailuo-2.3-fast', 'frames', { resolution: '1080p', duration: 6 }, plannedFiles({ startFrame: true })),
+			await estimate('intl', 'hailuo-02', 'frames', { resolution: '512p', duration: 10 }, plannedFiles({ startFrame: true }))
 		],
 		cn: [
 			// 15 s × 0.80; two frames are within the 5 free images
-			await estimate('cn', 'h3', 'frames', { resolution: '2k', duration: 15, ratio: 'adaptive' }, counts({ startFrame: true, endFrame: true })),
-			// 15 s × 0.50, and a video of 2 to 15 s × 0.97
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 15 }, counts({ videos: 1 })),
+			await estimate('cn', 'h3', 'frames', { resolution: '2k', duration: 15, ratio: 'adaptive' }, plannedFiles({ startFrame: true, endFrame: true })),
+			// 15 s × 0.50, and a video whose length cannot be read, 2 to 15 s × 0.97
+			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 15 }, { images: [], videos: [UNREADABLE], audios: [] }),
 			// 6 s × 0.50, 7 images beyond the 2 free × 0.50
-			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 6 }, counts({ images: 9 })),
+			await estimate('cn', 'h3-max', 'reference', { resolution: '768p', duration: 6 }, plannedFiles({ images: 9 })),
 			// 5 s × 0.50, and a 5.5 s video metered as 5 or 6 s × 0.50
 			await estimate('cn', 'h3', 'reference', { resolution: '768p', duration: 5 }, { images: [], videos: [CLIP], audios: [] }),
-			await estimate('cn', 'hailuo-2.3', 'frames', { resolution: '768p', duration: 10 }, counts()),
-			await estimate('cn', 'hailuo-02', 'frames', { resolution: '1080p', duration: 6 }, counts({ startFrame: true, endFrame: true }))
+			await estimate('cn', 'hailuo-2.3', 'frames', { resolution: '768p', duration: 10 }, plannedFiles()),
+			await estimate('cn', 'hailuo-02', 'frames', { resolution: '1080p', duration: 6 }, plannedFiles({ startFrame: true, endFrame: true }))
 		],
-		notPriced: await estimate('intl', 'hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, counts())
+		notPriced: await estimate('intl', 'hailuo-02', 'frames', { resolution: '1080p', duration: 10 }, plannedFiles())
 	}, {
 		intl: [usd(0.4), usd(2.16), usd(0.548), usd(0.33), usd(0.15)],
 		cn: [cny(12), cny(9.44, 22.05), cny(6.5), cny(5, 5.5), cny(4), cny(3.5)],

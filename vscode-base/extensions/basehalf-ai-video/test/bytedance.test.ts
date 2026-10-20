@@ -14,7 +14,7 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog } from '../src/providers/registry.ts';
 import type { CatalogModel, CatalogParameter, PollState } from '../src/providers/types.ts';
-import { error, jpegHeader, mp3, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
+import { error, jpegHeader, mp3, plannedFiles, png, recordingSleep, sendJson, startServer, value, wav } from './providerTestKit.ts';
 
 const FIXTURE = readFileSync(MOCK_VIDEO_FIXTURE_URL);
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-bytedance-'));
@@ -32,7 +32,6 @@ const VOICE = file('voice.wav', wav(3), 'audio/wav');
 const MUSIC = file('music.mp3', mp3(100), 'audio/mpeg');
 const SONG = file('song.m4a', Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0, 0, 0x4d, 0x34, 0x41, 0x20, 0x69, 0x73, 0x6f, 0x6d]), 'audio/mp4');
 const NO_INPUTS = { images: [], videos: [], audios: [] };
-const NO_COUNTS = { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false };
 
 let parts = 0;
 function partPath(): string {
@@ -321,15 +320,15 @@ test('check reports the rules between parameters, the provider\'s input rules, a
 	const problems = async (model: string, mode: string, params: Record<string, unknown>, prompt: string, inputs: Record<string, unknown>, region = 'cn') =>
 		value(await providers.check({ provider: 'bytedance', region, model, mode, params, prompt, inputs })).problems;
 	// With a start frame, Seedance 2.5 takes the frame's shape: the ratio is left out, not refused.
-	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', { ...NO_COUNTS, startFrame: true }), []);
-	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', NO_COUNTS), []);
-	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, 'p', NO_COUNTS), ['Seedance 1.0 Pro chooses a ratio only from a start frame: choose a ratio, or connect an image.']);
-	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, '', { ...NO_COUNTS, startFrame: true }), []);
-	assert.deepEqual(await problems('seedance-2.5', 'reference', {}, 'p', NO_COUNTS), ['Seedance 2.5 in References mode needs at least one image or audio clip.']);
-	assert.deepEqual(await problems('seedance-2.0', 'reference', {}, 'p', { ...NO_COUNTS, audios: 1 }), ['Seedance 2.0 in References mode needs at least 1 reference image.']);
-	assert.deepEqual(await problems('seedance-2.0', 'frames', { resolution: '4k' }, 'A dog --dur 10 --rs 1080p', NO_COUNTS), ['The prompt sets --dur; choose it in the settings instead, so that what the panel shows is sent.']);
-	assert.deepEqual(await problems('seedance-2.0-fast', 'frames', { resolution: '1080p' }, 'p', NO_COUNTS), ['Resolution cannot be 1080p for Seedance 2.0 Fast; choose 480p, 720p.']);
-	assert.deepEqual(await problems('seedance-1.5-pro', 'frames', {}, 'p', NO_COUNTS), ['ByteDance does not offer Seedance 1.5 Pro in China · Volcengine Ark.']);
+	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', plannedFiles({ startFrame: true })), []);
+	assert.deepEqual(await problems('seedance-2.5', 'frames', { ratio: '16:9' }, 'p', plannedFiles()), []);
+	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, 'p', plannedFiles()), ['Seedance 1.0 Pro chooses a ratio only from a start frame: choose a ratio, or connect an image.']);
+	assert.deepEqual(await problems('seedance-1.0-pro', 'frames', { ratio: 'adaptive' }, '', plannedFiles({ startFrame: true })), []);
+	assert.deepEqual(await problems('seedance-2.5', 'reference', {}, 'p', plannedFiles()), ['Seedance 2.5 in References mode needs at least one image or audio clip.']);
+	assert.deepEqual(await problems('seedance-2.0', 'reference', {}, 'p', plannedFiles({ audios: 1 })), ['Seedance 2.0 in References mode needs at least 1 reference image.']);
+	assert.deepEqual(await problems('seedance-2.0', 'frames', { resolution: '4k' }, 'A dog --dur 10 --rs 1080p', plannedFiles()), ['The prompt sets --dur; choose it in the settings instead, so that what the panel shows is sent.']);
+	assert.deepEqual(await problems('seedance-2.0-fast', 'frames', { resolution: '1080p' }, 'p', plannedFiles()), ['Resolution cannot be 1080p for Seedance 2.0 Fast; choose 480p, 720p.']);
+	assert.deepEqual(await problems('seedance-1.5-pro', 'frames', {}, 'p', plannedFiles()), ['ByteDance does not offer Seedance 1.5 Pro in China · Volcengine Ark.']);
 	// An M4A without a movie header: its length cannot be read, and Seedance would not take it anyway.
 	assert.deepEqual(await problems('seedance-2.5', 'reference', {}, '', { images: [START], videos: [], audios: [SONG, VOICE] }), [
 		'Reference audio 1 song.m4a is not audio whose length AI Video can read (WAV, MP3, or M4A).',
@@ -380,6 +379,6 @@ test('the estimate follows each price list: tokens are seconds × width × heigh
 	assert.equal(estimate('seedance-1.5-pro', 'cn', { resolution: '480p', ratio: '16:9', duration: 5 }), undefined);
 	// Through check: the defaults of 2.0 (720p, Adaptive, 5 s) give the range over the six 720p sizes.
 	// 5 s × 921,600 px × 24 / 1024 = 108,000 tokens × ¥46 / M = ¥4.968; 5 s × 927,408 px → 108,680.625 tokens × ¥46 / M = ¥4.99930875.
-	const checked = value(await commands().check({ provider: 'bytedance', region: 'cn', model: 'seedance-2.0', mode: 'frames', params: {}, prompt: 'p', inputs: NO_COUNTS }));
+	const checked = value(await commands().check({ provider: 'bytedance', region: 'cn', model: 'seedance-2.0', mode: 'frames', params: {}, prompt: 'p', inputs: plannedFiles() }));
 	assert.deepEqual(checked, { problems: [], estimate: cny(4.968, 4.999309) });
 });

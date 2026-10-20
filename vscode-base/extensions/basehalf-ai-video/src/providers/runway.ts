@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems } from './check.ts';
+import { countsOf, estimateOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type FormPart, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
@@ -244,8 +244,8 @@ const PRICE_DATE = '2026-10-19';
 /**
  * Credits × $0.01 (runway.md, "Estimate"): a second of Gen-4.5 is 12
  * credits, of Gen-4 Turbo 5; Aleph 2.0's video is as long as its clip, 28
- * credits a second and at least 56, a range of 2 to 30 seconds while the
- * clip is not measured.
+ * credits a second and at least 56, a range of 2 to 30 seconds when the
+ * clip's length cannot be read.
  */
 function estimateFor(model: RunwayModelId, params: Params, clipSeconds: number | undefined): Estimate | undefined {
 	const rate = CREDITS_PER_SECOND[model];
@@ -513,16 +513,14 @@ export const RUNWAY: ProviderModule = Object.freeze<ProviderModule>({
 			problems.push(LABELS.textToVideoRatio(label));
 		}
 		let clipSeconds: number | undefined;
-		if (isPlannedMedia(request.inputs)) {
-			for (const item of await measureItems(request.inputs, media)) {
-				if (item.kind !== 'video') {
-					continue;
-				}
-				if (item.facts.bytes < UPLOAD_MIN_BYTES) {
-					problems.push(LABELS.clipTooSmall(item.label, describeBytes(item.facts.bytes), UPLOAD_MIN_BYTES));
-				}
-				clipSeconds = item.facts.seconds;
+		for (const item of await measureItems(request.inputs, media)) {
+			if (item.kind !== 'video') {
+				continue;
 			}
+			if (item.facts.bytes < UPLOAD_MIN_BYTES) {
+				problems.push(LABELS.clipTooSmall(item.label, describeBytes(item.facts.bytes), UPLOAD_MIN_BYTES));
+			}
+			clipSeconds = item.facts.seconds;
 		}
 		const estimate = estimateFor(model, request.params, clipSeconds);
 		return estimate ? { problems, estimate } : { problems };

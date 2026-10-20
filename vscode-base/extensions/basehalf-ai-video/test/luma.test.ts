@@ -21,8 +21,8 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { LUMA } from '../src/providers/luma.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogParameter, Estimate } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
+import type { CatalogParameter, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-luma-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -47,6 +47,8 @@ const CLIP = file('clip.mp4', isoMedia(8), 'video/mp4');
 const MOV_CLIP = file('clip.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
 const LONG_CLIP = file('long.mp4', isoMedia(20), 'video/mp4');
 const CLIP_3S = file('three.mp4', isoMedia(3), 'video/mp4');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const CLIP_5S = file('five.mp4', isoMedia(5), 'video/mp4');
 const CLIP_7_5S = file('seven-and-a-half.mp4', isoMedia(7.5), 'video/mp4');
 const CLIP_10S = file('ten.mp4', isoMedia(10), 'video/mp4');
@@ -99,10 +101,6 @@ function generation(endpoint: string, mode: 'frames' | 'edit', params: Record<st
 
 function taskRef(endpoint: string, remoteId: string) {
 	return { provider: 'luma', region: 'global', endpoint, credentials: { apiKey: KEY }, model: 'ray-3.2', remoteId };
-}
-
-function counts(planned: { readonly startFrame?: boolean; readonly endFrame?: boolean; readonly images?: number; readonly source?: boolean } = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 function sentBody(request: Received): Record<string, unknown> {
@@ -752,30 +750,30 @@ test('Luma has no cancellation: cancel answers false and sends nothing, so no re
 
 test('check reports the rules between settings and inputs that the declarations cannot express, and answers no other model id', async () => {
 	const providers = commands();
-	const checked = async (mode: 'frames' | 'edit', params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const checked = async (mode: 'frames' | 'edit', params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode, params, prompt: text, inputs }));
-	const problems = async (mode: 'frames' | 'edit', params: Record<string, unknown>, inputs = counts(), text = PROMPT) => (await checked(mode, params, inputs, text)).problems;
+	const problems = async (mode: 'frames' | 'edit', params: Record<string, unknown>, inputs = plannedFiles(), text = PROMPT) => (await checked(mode, params, inputs, text)).problems;
 	assert.deepEqual({
 		hdrAt540p: await problems('frames', { hdr: true, resolution: '540p' }),
 		hdrAt720p: await problems('frames', { hdr: true }),
 		hdrTenSeconds: await problems('frames', { hdr: true, duration: 10, resolution: '1080p' }),
-		hdrWithFrames: await problems('frames', { hdr: true }, counts({ startFrame: true, endFrame: true })),
-		tenSecondsWithFrames: await problems('frames', { duration: 10 }, counts({ startFrame: true, endFrame: true })),
+		hdrWithFrames: await problems('frames', { hdr: true }, plannedFiles({ startFrame: true, endFrame: true })),
+		tenSecondsWithFrames: await problems('frames', { duration: 10 }, plannedFiles({ startFrame: true, endFrame: true })),
 		loopTenSeconds: await problems('frames', { loop: true, duration: 10 }),
 		loopHdr: await problems('frames', { loop: true, hdr: true }),
-		loopEndFrame: await problems('frames', { loop: true }, counts({ startFrame: true, endFrame: true })),
-		loopStartFrame: await problems('frames', { loop: true }, counts({ startFrame: true })),
-		allLoopRules: await problems('frames', { loop: true, hdr: true, duration: 10, resolution: '360p' }, counts({ startFrame: true, endFrame: true })),
-		editHdrAt360p: await problems('edit', { hdr: true, resolution: '360p' }, counts({ source: true })),
-		editHdrAt1080p: await problems('edit', { hdr: true, resolution: '1080p', strength: 'reimagine_3' }, counts({ source: true, images: 1 })),
-		editTwoImages: await problems('edit', {}, counts({ source: true, images: 2 })),
-		editWithoutClip: await problems('edit', {}, counts()),
-		editDuration: await problems('edit', { duration: 10 }, counts({ source: true })),
-		noPrompt: await problems('frames', {}, counts({ startFrame: true }), '  '),
-		longPrompt: await problems('frames', {}, counts(), 'a'.repeat(6001)),
-		fullPrompt: await problems('frames', {}, counts(), 'a'.repeat(6000)),
+		loopEndFrame: await problems('frames', { loop: true }, plannedFiles({ startFrame: true, endFrame: true })),
+		loopStartFrame: await problems('frames', { loop: true }, plannedFiles({ startFrame: true })),
+		allLoopRules: await problems('frames', { loop: true, hdr: true, duration: 10, resolution: '360p' }, plannedFiles({ startFrame: true, endFrame: true })),
+		editHdrAt360p: await problems('edit', { hdr: true, resolution: '360p' }, plannedFiles({ source: true })),
+		editHdrAt1080p: await problems('edit', { hdr: true, resolution: '1080p', strength: 'reimagine_3' }, plannedFiles({ source: true, images: 1 })),
+		editTwoImages: await problems('edit', {}, plannedFiles({ source: true, images: 2 })),
+		editWithoutClip: await problems('edit', {}, plannedFiles()),
+		editDuration: await problems('edit', { duration: 10 }, plannedFiles({ source: true })),
+		noPrompt: await problems('frames', {}, plannedFiles({ startFrame: true }), '  '),
+		longPrompt: await problems('frames', {}, plannedFiles(), 'a'.repeat(6001)),
+		fullPrompt: await problems('frames', {}, plannedFiles(), 'a'.repeat(6000)),
 		unknownRatio: await problems('frames', { ratio: '2:1' }),
-		providerModel: (await checked('edit', {}, counts({ source: true }))).providerModel
+		providerModel: (await checked('edit', {}, plannedFiles({ source: true }))).providerModel
 	}, {
 		hdrAt540p: ['Ray 3.2 makes HDR video at 720p or 1080p only.'],
 		hdrAt720p: [],
@@ -806,7 +804,7 @@ test('check reports the rules between settings and inputs that the declarations 
 	});
 });
 
-test('with files, check takes WebP, refuses GIF, a clip too long, and requests larger than AI Video sends, and submit then sends nothing', async () => {
+test('check takes WebP, refuses GIF, a clip too long, and requests larger than AI Video sends, and submit then sends nothing', async () => {
 	const luma = await startLuma();
 	try {
 		const providers = commands();
@@ -861,20 +859,20 @@ test('with files, check takes WebP, refuses GIF, a clip too long, and requests l
 
 test('estimates follow the price list: three combinations of each mode, and the range of an edit', async () => {
 	const providers = commands();
-	const withCounts = async (mode: 'frames' | 'edit', params: Record<string, unknown>, inputs = counts()) =>
+	const planned = async (mode: 'frames', params: Record<string, unknown>, inputs = plannedFiles()) =>
 		value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode, params, prompt: PROMPT, inputs })).estimate;
 	const withClip = async (clip: FileMedia, params: Record<string, unknown>) =>
 		value(await providers.check(generation('https://agents.lumalabs.ai/v1', 'edit', params, { source: clip }))).estimate;
 	const usd = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
 	assert.deepEqual({
 		// Frames with Luma's defaults, 720p and 5 seconds: the 5-second total, $0.30.
-		framesDefaults: await withCounts('frames', {}),
+		framesDefaults: await planned('frames', {}),
 		// Two frames at 1080p for 10 seconds: the 10-second total, $3.60.
-		frames1080p10s: await withCounts('frames', { resolution: '1080p', duration: 10 }, counts({ startFrame: true, endFrame: true })),
+		frames1080p10s: await planned('frames', { resolution: '1080p', duration: 10 }, plannedFiles({ startFrame: true, endFrame: true })),
 		// HDR at 1080p, always 5 seconds: $2.40.
-		framesHdr: await withCounts('frames', { resolution: '1080p', hdr: true }),
+		framesHdr: await planned('frames', { resolution: '1080p', hdr: true }),
 		// 360p, 10 seconds, looping or not: $0.18.
-		frames360p10s: await withCounts('frames', { resolution: '360p', duration: 10 }),
+		frames360p10s: await planned('frames', { resolution: '360p', duration: 10 }),
 		// Edit at 720p of a 7.5-second clip: r = $2.16 / 10 s = $0.216/s; 7.5 s × $0.216 = $1.62,
 		// up to two 5-second blocks, 10 s × $0.216 = $2.16.
 		edit720p: await withClip(CLIP_7_5S, {}),
@@ -882,12 +880,12 @@ test('estimates follow the price list: three combinations of each mode, and the 
 		edit1080pHdr: await withClip(CLIP_10S, { resolution: '1080p', hdr: true, strength: 'adhere_1' }),
 		// Edit at 360p of a 3-second clip: r = $1.08 / 10 s = $0.108/s; 3 s × $0.108 = $0.324, up to one block, 5 s × $0.108 = $0.54.
 		edit360p: await withClip(CLIP_3S, { resolution: '360p' }),
-		// Edit at 540p before the clip is measured: r = $1.44 / 10 s = $0.144/s; from 0.1 s × $0.144 = $0.0144
+		// Edit at 540p of a clip whose length cannot be read: r = $1.44 / 10 s = $0.144/s; from 0.1 s × $0.144 = $0.0144
 		// to 18 s, four 5-second blocks, 20 s × $0.144 = $2.88.
-		edit540pUnmeasured: await withCounts('edit', { resolution: '540p' }, counts({ source: true })),
+		edit540pUnreadable: await withClip(UNREADABLE, { resolution: '540p' }),
 		// HDR at 540p and HDR for 10 seconds have no price; a rule refuses them.
-		noPriceHdr540p: await withCounts('frames', { resolution: '540p', hdr: true }),
-		noPriceHdr10s: await withCounts('frames', { resolution: '720p', hdr: true, duration: 10 })
+		noPriceHdr540p: await planned('frames', { resolution: '540p', hdr: true }),
+		noPriceHdr10s: await planned('frames', { resolution: '720p', hdr: true, duration: 10 })
 	}, {
 		framesDefaults: usd(0.3),
 		frames1080p10s: usd(3.6),
@@ -896,7 +894,7 @@ test('estimates follow the price list: three combinations of each mode, and the 
 		edit720p: usd(1.62, 2.16),
 		edit1080pHdr: usd(8.64),
 		edit360p: usd(0.324, 0.54),
-		edit540pUnmeasured: usd(0.0144, 2.88),
+		edit540pUnreadable: usd(0.0144, 2.88),
 		noPriceHdr540p: undefined,
 		noPriceHdr10s: undefined
 	});
@@ -917,7 +915,7 @@ test('every price of the list: the generation totals by resolution and length, a
 	const providers = commands();
 	const usd = (amount: number): Estimate => ({ currency: 'USD', min: amount, max: amount, priceDate: PRICE_DATE });
 	for (const [resolution, params, total] of generations) {
-		const estimate = value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode: 'frames', params: { resolution, ...params }, prompt: PROMPT, inputs: counts() })).estimate;
+		const estimate = value(await providers.check({ provider: 'luma', region: 'global', model: 'ray-3.2', mode: 'frames', params: { resolution, ...params }, prompt: PROMPT, inputs: plannedFiles() })).estimate;
 		assert.deepEqual(estimate, usd(total), `frames ${resolution} ${JSON.stringify(params)}`);
 	}
 	for (const [resolution, hdr, fiveSeconds, tenSeconds] of edits) {

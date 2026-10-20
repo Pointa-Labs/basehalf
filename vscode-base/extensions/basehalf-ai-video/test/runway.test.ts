@@ -20,8 +20,8 @@ import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
 import { RUNWAY } from '../src/providers/runway.ts';
-import type { CatalogModel, Estimate } from '../src/providers/types.ts';
-import { error, gifHeader, isoMedia, jpegHeader, png, recordingSleep, sendJson, startServer, value, type Received, type TestServer } from './providerTestKit.ts';
+import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import { error, gifHeader, isoMedia, jpegHeader, plannedFiles, png, recordingSleep, sendJson, startServer, value, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-runway-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -67,6 +67,8 @@ const CLIP = file('clip.mp4', isoMedia(7.5), 'video/mp4');
 const TAKE = file('take.mov', isoMedia(4, { brand: 'qt  ' }), 'video/quicktime');
 const LONG_CLIP = file('long.mp4', isoMedia(31), 'video/mp4');
 const SHORT_CLIP = file('short.mp4', isoMedia(1.5), 'video/mp4');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 const TINY_CLIP = file('tiny.mp4', tinyMp4(4), 'video/mp4');
 // Runway takes an image data URI of at most 5,242,880 characters: `data:image/png;base64,` (22) and the base64 of the bytes.
 // 3,932,142 bytes are 1,310,714 groups of three, 5,242,856 base64 characters: 5,242,878 in all, inline.
@@ -118,10 +120,6 @@ function generation(endpoint: string, model: string, mode: Mode, params: Record<
 
 function taskRef(endpoint: string, remoteId: string, model = 'gen4.5') {
 	return { provider: 'runway', region: 'global', endpoint, credentials: { apiKey: KEY }, model, remoteId };
-}
-
-function counts(planned: { readonly startFrame?: boolean; readonly endFrame?: boolean; readonly source?: boolean } = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 function sentBody(request: Received): unknown {
@@ -751,27 +749,27 @@ test('cancel sends DELETE once, and only to a task that has not ended, so a vide
 
 test('check reports the rules the declarations cannot express, and the declarations\' own', async () => {
 	const providers = commands();
-	const problems = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const problems = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		value(await providers.check({ provider: 'runway', region: 'global', model, mode, params, prompt: text, inputs })).problems;
 	const emoji = '🎬'.repeat(600);
 	assert.deepEqual({
-		textToVideo4by3: await problems('gen4.5', 'frames', { ratio: '4:3' }, counts()),
-		textToVideo21by9: await problems('gen4.5', 'frames', { ratio: '21:9' }, counts()),
-		textToVideo9by16: await problems('gen4.5', 'frames', { ratio: '9:16' }, counts()),
-		imageToVideo4by3: await problems('gen4.5', 'frames', { ratio: '4:3' }, counts({ startFrame: true })),
-		turbo21by9: await problems('gen4_turbo', 'frames', { ratio: '21:9' }, counts({ startFrame: true })),
-		emojiPrompt: await problems('gen4.5', 'frames', {}, counts(), emoji),
-		longPrompt: await problems('gen4_turbo', 'frames', {}, counts({ startFrame: true }), 'a'.repeat(1001)),
-		noPrompt: await problems('gen4.5', 'frames', {}, counts({ startFrame: true }), '  '),
-		turboWithoutFrame: await problems('gen4_turbo', 'frames', {}, counts()),
-		endFrame: await problems('gen4.5', 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		alephWithoutClip: await problems('aleph2', 'edit', {}, counts()),
-		alephWithoutPrompt: await problems('aleph2', 'edit', {}, counts({ source: true }), ''),
-		duration11: await problems('gen4.5', 'frames', { duration: 11 }, counts()),
-		resolution1080p: await problems('gen4_turbo', 'frames', { resolution: '1080p' }, counts({ startFrame: true })),
-		alephDuration: await problems('aleph2', 'edit', { duration: 5 }, counts({ source: true })),
-		alephRatio: await problems('aleph2', 'edit', { targetAspectRatio: '3:2' }, counts({ source: true })),
-		largeSeed: await problems('aleph2', 'edit', { seed: 2147483648 }, counts({ source: true }))
+		textToVideo4by3: await problems('gen4.5', 'frames', { ratio: '4:3' }, plannedFiles()),
+		textToVideo21by9: await problems('gen4.5', 'frames', { ratio: '21:9' }, plannedFiles()),
+		textToVideo9by16: await problems('gen4.5', 'frames', { ratio: '9:16' }, plannedFiles()),
+		imageToVideo4by3: await problems('gen4.5', 'frames', { ratio: '4:3' }, plannedFiles({ startFrame: true })),
+		turbo21by9: await problems('gen4_turbo', 'frames', { ratio: '21:9' }, plannedFiles({ startFrame: true })),
+		emojiPrompt: await problems('gen4.5', 'frames', {}, plannedFiles(), emoji),
+		longPrompt: await problems('gen4_turbo', 'frames', {}, plannedFiles({ startFrame: true }), 'a'.repeat(1001)),
+		noPrompt: await problems('gen4.5', 'frames', {}, plannedFiles({ startFrame: true }), '  '),
+		turboWithoutFrame: await problems('gen4_turbo', 'frames', {}, plannedFiles()),
+		endFrame: await problems('gen4.5', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		alephWithoutClip: await problems('aleph2', 'edit', {}, plannedFiles()),
+		alephWithoutPrompt: await problems('aleph2', 'edit', {}, plannedFiles({ source: true }), ''),
+		duration11: await problems('gen4.5', 'frames', { duration: 11 }, plannedFiles()),
+		resolution1080p: await problems('gen4_turbo', 'frames', { resolution: '1080p' }, plannedFiles({ startFrame: true })),
+		alephDuration: await problems('aleph2', 'edit', { duration: 5 }, plannedFiles({ source: true })),
+		alephRatio: await problems('aleph2', 'edit', { targetAspectRatio: '3:2' }, plannedFiles({ source: true })),
+		largeSeed: await problems('aleph2', 'edit', { seed: 2147483648 }, plannedFiles({ source: true }))
 	}, {
 		textToVideo4by3: ['Without a start frame, Gen-4.5 makes 16:9 or 9:16 videos only. Choose one of them, or connect a start frame.'],
 		textToVideo21by9: ['Without a start frame, Gen-4.5 makes 16:9 or 9:16 videos only. Choose one of them, or connect a start frame.'],
@@ -792,12 +790,12 @@ test('check reports the rules the declarations cannot express, and the declarati
 		largeSeed: ['Seed must be between 0 and 2147483647.']
 	});
 	// Each model has one id at every endpoint, so check answers none: Gen-4.5 is gen4.5 with a start frame and without.
-	const answered = async (inputs: ReturnType<typeof counts>) =>
+	const answered = async (inputs: PlannedMedia) =>
 		Object.hasOwn(value(await providers.check({ provider: 'runway', region: 'global', model: 'gen4.5', mode: 'frames', params: {}, prompt: PROMPT, inputs })), 'providerModel');
-	assert.deepEqual([await answered(counts()), await answered(counts({ startFrame: true }))], [false, false]);
+	assert.deepEqual([await answered(plannedFiles()), await answered(plannedFiles({ startFrame: true }))], [false, false]);
 });
 
-test('with files, check measures images and clips against Runway\'s limits, and submit sends nothing then', async () => {
+test('check measures images and clips against Runway\'s limits, and submit sends nothing then', async () => {
 	const server = await startServer((request, response) => sendJson(response, 200, { id: taskId(1) }));
 	try {
 		const providers = commands();
@@ -839,22 +837,22 @@ test('with files, check measures images and clips against Runway\'s limits, and 
 
 test('estimates follow the price list: credits a second at $0.01 a credit', async () => {
 	const providers = commands();
-	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts>) =>
+	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia) =>
 		value(await providers.check({ provider: 'runway', region: 'global', model, mode, params, prompt: PROMPT, inputs })).estimate;
 	const measured = async (source: FileMedia) =>
 		value(await providers.check(generation('http://127.0.0.1:1', 'aleph2', 'edit', {}, { source }))).estimate;
 	const amount = (min: number, max = min): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
 	assert.deepEqual({
 		// Gen-4.5 with its defaults, 5 seconds: 12 credits/s × 5 s = 60 credits × $0.01 = $0.60.
-		gen45Defaults: await estimate('gen4.5', 'frames', {}, counts()),
+		gen45Defaults: await estimate('gen4.5', 'frames', {}, plannedFiles()),
 		// Gen-4.5 from a start frame, 2 seconds: 12 × 2 = 24 credits = $0.24.
-		gen45Short: await estimate('gen4.5', 'frames', { duration: 2 }, counts({ startFrame: true })),
+		gen45Short: await estimate('gen4.5', 'frames', { duration: 2 }, plannedFiles({ startFrame: true })),
 		// Gen-4 Turbo, 10 seconds: 5 credits/s × 10 s = 50 credits = $0.50.
-		turbo: await estimate('gen4_turbo', 'frames', { duration: 10 }, counts({ startFrame: true })),
+		turbo: await estimate('gen4_turbo', 'frames', { duration: 10 }, plannedFiles({ startFrame: true })),
 		// Aleph 2.0 with the 7.5-second clip measured: 28 credits/s × 7.5 s = 210 credits = $2.10.
 		alephMeasured: await measured(CLIP),
-		// Aleph 2.0 without its clip measured, 2 to 30 seconds: 28 × 2 = 56 to 28 × 30 = 840 credits, $0.56 to $8.40.
-		alephUnmeasured: await estimate('aleph2', 'edit', {}, counts({ source: true })),
+		// Aleph 2.0 with a clip whose length cannot be read, 2 to 30 seconds: 28 × 2 = 56 to 28 × 30 = 840 credits, $0.56 to $8.40.
+		alephUnreadable: await measured(UNREADABLE),
 		// A clip of 1.5 seconds, which check refuses: 28 × 1.5 = 42 credits, below the minimum of 56: $0.56.
 		alephMinimum: await measured(SHORT_CLIP)
 	}, {
@@ -862,7 +860,7 @@ test('estimates follow the price list: credits a second at $0.01 a credit', asyn
 		gen45Short: amount(0.24),
 		turbo: amount(0.5),
 		alephMeasured: amount(2.1),
-		alephUnmeasured: amount(0.56, 8.4),
+		alephUnreadable: amount(0.56, 8.4),
 		alephMinimum: amount(0.56)
 	});
 });

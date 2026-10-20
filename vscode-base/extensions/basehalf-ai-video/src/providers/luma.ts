@@ -3,12 +3,12 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, type HttpAnswer, type ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
 import type { ProviderModule, VideoLocation } from './module.ts';
-import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Estimate, Media, ModeLimits, Params, PlannedCounts, PlannedMedia, PollState, SubmitRequest, TaskRef } from './types.ts';
+import type { CatalogMode, CatalogModel, CatalogParameter, CatalogProvider, CheckRequest, CheckResult, Estimate, Media, ModeLimits, Params, PlannedMedia, PollState, SubmitRequest, TaskRef } from './types.ts';
 
 /**
  * Luma's video model, Ray 3.2, on the Luma Agents API (D59;
@@ -228,7 +228,7 @@ function billedBlockSeconds(seconds: number): number {
 	return Math.max(1, Math.ceil((seconds - 0.05) / 5)) * 5;
 }
 
-function estimateFor(request: CheckRequest, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(request: CheckRequest, measured: readonly MeasuredItem[]): Estimate | undefined {
 	const resolution = RESOLUTIONS.find(entry => entry === request.params.resolution);
 	if (!resolution) {
 		return undefined;
@@ -240,9 +240,9 @@ function estimateFor(request: CheckRequest, measured: readonly MeasuredItem[] | 
 		const amount = hdr ? (duration === 5 ? row.hdr5 : undefined) : duration === 5 ? row.seconds5 : duration === 10 ? row.seconds10 : undefined;
 		return amount === undefined ? undefined : estimateOf('USD', amount, amount, PRICE_DATE);
 	}
-	// The edited video keeps the clip's length; without its file, the clip is any length Luma takes.
+	// The edited video keeps the clip's length; when its length cannot be read, the clip is any length Luma takes.
 	const perSecond = (hdr ? EDIT_PRICES_10S[resolution].hdr : EDIT_PRICES_10S[resolution].standard) / 10;
-	const clip = measured?.find(item => item.slot === 'source')?.facts.seconds;
+	const clip = measured.find(item => item.slot === 'source')?.facts.seconds;
 	const [shortest, longest] = clip !== undefined ? [clip, clip] : CLIP_SECONDS;
 	return estimateOf('USD', shortest * perSecond, Math.max(longest, billedBlockSeconds(longest)) * perSecond, PRICE_DATE);
 }
@@ -635,11 +635,8 @@ export const LUMA: ProviderModule = Object.freeze({
 
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const problems = ruleProblems(request, countsOf(request.inputs));
-		let measured: MeasuredItem[] | undefined;
-		if (isPlannedMedia(request.inputs)) {
-			measured = await measureItems(request.inputs, media);
-			problems.push(...fileProblems(request, request.inputs, measured));
-		}
+		const measured = await measureItems(request.inputs, media);
+		problems.push(...fileProblems(request, request.inputs, measured));
 		const estimate = estimateFor(request, measured);
 		return estimate ? { problems, estimate } : { problems };
 	},

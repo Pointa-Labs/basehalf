@@ -19,8 +19,8 @@ import { VideoProviderCommands } from '../src/providers/commands.ts';
 import type { MediaFacts, MediaInspector } from '../src/providers/media.ts';
 import { PIXVERSE } from '../src/providers/pixverse.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { CatalogModel, Estimate } from '../src/providers/types.ts';
-import { error, isoMedia, jpegHeader, png, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
+import type { CatalogModel, Estimate, PlannedMedia } from '../src/providers/types.ts';
+import { error, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received, type TestServer } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-pixverse-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -48,6 +48,8 @@ const CLIPS = [
 	file('take.mov', isoMedia(4.5, { brand: 'qt  ' }), 'video/quicktime')
 ];
 const SOURCE = file('source.mp4', isoMedia(12), 'video/mp4');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 
 const KEY = 'pixverse-test-key-0001';
 const PROMPT = 'A paper lantern drifts over a night market.';
@@ -91,10 +93,6 @@ function generation(endpoint: string, model: string, mode: Mode, params: Record<
 
 function taskRef(endpoint: string, remoteId: string) {
 	return { provider: 'pixverse', region: 'global', endpoint, credentials: { apiKey: KEY }, model: 'pixverse-v6', remoteId };
-}
-
-function counts(planned: { readonly startFrame?: boolean; readonly endFrame?: boolean; readonly images?: number; readonly videos?: number; readonly source?: boolean } = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 /** PixVerse's answer: `ErrCode` 0 and `Resp`. */
@@ -757,32 +755,32 @@ test('PixVerse has no cancellation: cancel answers false and sends nothing', asy
 
 test('check reports the rules between settings and inputs that the declarations cannot express, and the declarations\' own', async () => {
 	const providers = commands();
-	const problems = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const problems = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode, params, prompt: text, inputs })).problems;
 	const long = 'a'.repeat(2049);
 	assert.deepEqual({
-		v56Six: await problems('pixverse-v5.6', 'frames', { duration: 6 }, counts()),
-		v56Ten: await problems('pixverse-v5.6', 'frames', { duration: 10 }, counts()),
-		v56TenAt1080p: await problems('pixverse-v5.6', 'frames', { duration: 10, resolution: '1080p' }, counts()),
-		v56EightAt1080p: await problems('pixverse-v5.6', 'frames', { duration: 8, resolution: '1080p' }, counts({ startFrame: true })),
-		v5Six: await problems('pixverse-v5', 'frames', { duration: 6 }, counts()),
-		v5EightAt1080p: await problems('pixverse-v5', 'frames', { duration: 8, resolution: '1080p' }, counts()),
-		longPromptWithFrame: await problems('pixverse-c1', 'frames', {}, counts({ startFrame: true }), long),
-		longPromptWithFrames: await problems('pixverse-c1', 'frames', {}, counts({ startFrame: true, endFrame: true }), long),
-		longPromptFromText: await problems('pixverse-c1', 'frames', {}, counts(), long),
-		multiClipWithEndFrame: await problems('pixverse-v6', 'frames', { generate_multi_clip_switch: true }, counts({ startFrame: true, endFrame: true })),
-		multiClipWithStartFrame: await problems('pixverse-v6', 'frames', { generate_multi_clip_switch: true }, counts({ startFrame: true })),
-		noReferences: await problems('pixverse-v6', 'reference', {}, counts()),
-		eightImages: await problems('pixverse-v6', 'reference', {}, counts({ images: 8 })),
-		eightImagesAndAVideo: await problems('pixverse-v6', 'reference', {}, counts({ images: 8, videos: 1 })),
-		elevenImages: await problems('pixverse-v6', 'reference', {}, counts({ images: 11, videos: 1 })),
-		threeVideos: await problems('pixverse-v6', 'reference', {}, counts({ videos: 3 })),
-		noPrompt: await problems('pixverse-v6', 'frames', {}, counts({ startFrame: true }), ' '),
-		soundInExtend: await problems('pixverse-v6', 'extend', { sound: true }, counts({ source: true })),
-		noSource: await problems('pixverse-v6', 'extend', {}, counts()),
-		v5WideRatio: await problems('pixverse-v5', 'frames', { ratio: '2:3' }, counts()),
-		c1WideRatio: await problems('pixverse-c1', 'frames', { ratio: '2:3' }, counts()),
-		c1NoReferences: await problems('pixverse-c1', 'reference', {}, counts({ images: 1 }))
+		v56Six: await problems('pixverse-v5.6', 'frames', { duration: 6 }, plannedFiles()),
+		v56Ten: await problems('pixverse-v5.6', 'frames', { duration: 10 }, plannedFiles()),
+		v56TenAt1080p: await problems('pixverse-v5.6', 'frames', { duration: 10, resolution: '1080p' }, plannedFiles()),
+		v56EightAt1080p: await problems('pixverse-v5.6', 'frames', { duration: 8, resolution: '1080p' }, plannedFiles({ startFrame: true })),
+		v5Six: await problems('pixverse-v5', 'frames', { duration: 6 }, plannedFiles()),
+		v5EightAt1080p: await problems('pixverse-v5', 'frames', { duration: 8, resolution: '1080p' }, plannedFiles()),
+		longPromptWithFrame: await problems('pixverse-c1', 'frames', {}, plannedFiles({ startFrame: true }), long),
+		longPromptWithFrames: await problems('pixverse-c1', 'frames', {}, plannedFiles({ startFrame: true, endFrame: true }), long),
+		longPromptFromText: await problems('pixverse-c1', 'frames', {}, plannedFiles(), long),
+		multiClipWithEndFrame: await problems('pixverse-v6', 'frames', { generate_multi_clip_switch: true }, plannedFiles({ startFrame: true, endFrame: true })),
+		multiClipWithStartFrame: await problems('pixverse-v6', 'frames', { generate_multi_clip_switch: true }, plannedFiles({ startFrame: true })),
+		noReferences: await problems('pixverse-v6', 'reference', {}, plannedFiles()),
+		eightImages: await problems('pixverse-v6', 'reference', {}, plannedFiles({ images: 8 })),
+		eightImagesAndAVideo: await problems('pixverse-v6', 'reference', {}, plannedFiles({ images: 8, videos: 1 })),
+		elevenImages: await problems('pixverse-v6', 'reference', {}, plannedFiles({ images: 11, videos: 1 })),
+		threeVideos: await problems('pixverse-v6', 'reference', {}, plannedFiles({ videos: 3 })),
+		noPrompt: await problems('pixverse-v6', 'frames', {}, plannedFiles({ startFrame: true }), ' '),
+		soundInExtend: await problems('pixverse-v6', 'extend', { sound: true }, plannedFiles({ source: true })),
+		noSource: await problems('pixverse-v6', 'extend', {}, plannedFiles()),
+		v5WideRatio: await problems('pixverse-v5', 'frames', { ratio: '2:3' }, plannedFiles()),
+		c1WideRatio: await problems('pixverse-c1', 'frames', { ratio: '2:3' }, plannedFiles()),
+		c1NoReferences: await problems('pixverse-c1', 'reference', {}, plannedFiles({ images: 1 }))
 	}, {
 		v56Six: ['PixVerse V5.6 makes videos of 5, 8, or 10 seconds.'],
 		v56Ten: [],
@@ -809,7 +807,7 @@ test('check reports the rules between settings and inputs that the declarations 
 	});
 });
 
-test('with files, check refuses what PixVerse cannot take, and submit then uploads and sends nothing', async () => {
+test('check refuses what PixVerse cannot take, and submit then uploads and sends nothing', async () => {
 	const server = await pixverse();
 	try {
 		const providers = commands();
@@ -868,9 +866,9 @@ function dollars(min: number, max = min): Estimate {
 
 test('estimates follow the price list: its own calculation examples and other combinations, credits divided by 225', async () => {
 	const providers = commands();
-	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: ReturnType<typeof counts> = counts()) =>
+	const estimate = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: PlannedMedia = plannedFiles()) =>
 		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode, params, prompt: PROMPT, inputs })).estimate;
-	const withFiles = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
+	const ofFiles = async (model: string, mode: Mode, params: Record<string, unknown>, inputs: Inputs) =>
 		value(await providers.check(generation('https://app-api.pixverse.ai', model, mode, params, inputs))).estimate;
 	const examples = {
 		// The list's examples. C1, 1080p, sound off, 5 s: 19 credits/s × 5 s = 95 credits; 95 ÷ 225 = $0.422222 (the list: $0.422).
@@ -878,7 +876,7 @@ test('estimates follow the price list: its own calculation examples and other co
 		// V6, 720p, sound on, 8 s: 12 × 8 = 96 credits; 96 ÷ 225 = $0.426667 (the list: $0.427).
 		v6: await estimate('pixverse-v6', 'frames', { duration: 8, sound: true }),
 		// V6 references with a 5-second reference video, 720p, sound off: twice 9 credits/s × 5 s = 90 credits; $0.40 (the list: $0.400).
-		v6Video: await withFiles('pixverse-v6', 'reference', {}, { videos: [file('five.mp4', isoMedia(5), 'video/mp4')] }),
+		v6Video: await ofFiles('pixverse-v6', 'reference', {}, { videos: [file('five.mp4', isoMedia(5), 'video/mp4')] }),
 		// V5.6, 720p, sound on, 8 s: a fixed 135 credits; $0.60 (the list: $0.600).
 		v56: await estimate('pixverse-v5.6', 'frames', { duration: 8, sound: true })
 	};
@@ -888,15 +886,15 @@ test('estimates follow the price list: its own calculation examples and other co
 		// V5 with its defaults, 720p and 5 s: a fixed 60 credits; 60 ÷ 225 = $0.266667.
 		v5Defaults: await estimate('pixverse-v5', 'frames', {}),
 		// C1 from a start frame, 360p, sound on, 15 s: 8 × 15 = 120 credits; $0.533333.
-		c1Frame: await estimate('pixverse-c1', 'frames', { resolution: '360p', duration: 15, sound: true }, counts({ startFrame: true })),
+		c1Frame: await estimate('pixverse-c1', 'frames', { resolution: '360p', duration: 15, sound: true }, plannedFiles({ startFrame: true })),
 		// V6 from three reference images, 360p, sound on, 3 s: 7 × 3 = 21 credits; $0.093333.
-		v6Images: await estimate('pixverse-v6', 'reference', { resolution: '360p', duration: 3, sound: true }, counts({ images: 3 })),
+		v6Images: await estimate('pixverse-v6', 'reference', { resolution: '360p', duration: 3, sound: true }, plannedFiles({ images: 3 })),
 		// V6 Extend at 1080p adding 10 s, without or with sound: 18 × 10 = 180 to 23 × 10 = 230 credits; $0.80 to $1.022222.
-		v6Extend: await estimate('pixverse-v6', 'extend', { resolution: '1080p', duration: 10 }, counts({ source: true })),
-		// V6 with a reference video not yet measured, 720p, sound off: twice 9 × 1 to twice 9 × 15 = 18 to 270 credits; $0.08 to $1.20.
-		v6VideoUnmeasured: await estimate('pixverse-v6', 'reference', {}, counts({ videos: 1 })),
+		v6Extend: await estimate('pixverse-v6', 'extend', { resolution: '1080p', duration: 10 }, plannedFiles({ source: true })),
+		// V6 with a reference video whose length cannot be read, 720p, sound off: twice 9 × 1 to twice 9 × 15 = 18 to 270 credits; $0.08 to $1.20.
+		v6VideoUnreadable: await ofFiles('pixverse-v6', 'reference', {}, { videos: [UNREADABLE] }),
 		// V6 with reference videos of 5.5 and 4.5 s, 540p, sound on: twice 9 × 5.5 = 99 to twice 9 × 6 = 108 credits; $0.44 to $0.48.
-		v6VideosMeasured: await withFiles('pixverse-v6', 'reference', { resolution: '540p', sound: true }, { videos: [file('five-and-a-half.mp4', isoMedia(5.5), 'video/mp4'), CLIPS[1]] }),
+		v6VideosMeasured: await ofFiles('pixverse-v6', 'reference', { resolution: '540p', sound: true }, { videos: [file('five-and-a-half.mp4', isoMedia(5.5), 'video/mp4'), CLIPS[1]] }),
 		// V5.6 makes no 10 seconds at 1080p, which a rule refuses: no price.
 		v56NoPrice: await estimate('pixverse-v5.6', 'frames', { resolution: '1080p', duration: 10 })
 	}, {
@@ -904,7 +902,7 @@ test('estimates follow the price list: its own calculation examples and other co
 		c1Frame: dollars(120 / 225),
 		v6Images: dollars(21 / 225),
 		v6Extend: dollars(180 / 225, 230 / 225),
-		v6VideoUnmeasured: dollars(18 / 225, 270 / 225),
+		v6VideoUnreadable: dollars(18 / 225, 270 / 225),
 		v6VideosMeasured: dollars(99 / 225, 108 / 225),
 		v56NoPrice: undefined
 	});
@@ -931,7 +929,7 @@ test('every price of the list is its credits divided by 225: per second for C1 a
 	const resolutions = ['360p', '540p', '720p', '1080p'];
 	const providers = commands();
 	const estimate = async (model: string, params: Record<string, unknown>) =>
-		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode: 'frames', params, prompt: PROMPT, inputs: counts() })).estimate;
+		value(await providers.check({ provider: 'pixverse', region: 'global', model, mode: 'frames', params, prompt: PROMPT, inputs: plannedFiles() })).estimate;
 	for (const [model, sound, credits] of perSecond) {
 		for (const [index, resolution] of resolutions.entries()) {
 			assert.deepEqual(await estimate(model, { resolution, duration: 10, sound }), dollars(credits[index] * 10 / 225), `${model} ${resolution} ${sound}`);

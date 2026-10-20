@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia } from './check.ts';
+import { countsOf, estimateOf } from './check.ts';
 import { isRecord, ProviderFailure, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import { DEFAULT_HTTP_OPTIONS, isAllowedAddress, type HttpCall, type ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, describeBytes, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaInspector } from './media.ts';
@@ -482,7 +482,7 @@ function ruleProblems(request: CheckRequest): string[] {
 	return problems;
 }
 
-/** With files: a clip that is not an MP4, and a request larger than AI Video sends. Answers the clip's length too. */
+/** A clip that is not an MP4, and a request larger than AI Video sends. Answers the clip's length too. */
 async function fileProblems(route: Route, request: CheckRequest, inputs: PlannedMedia, media: MediaInspector): Promise<{ readonly problems: string[]; readonly clipSeconds?: number }> {
 	const problems: string[] = [];
 	const keyframes: string[] = [];
@@ -553,13 +553,9 @@ export const BFL: ProviderModule = Object.freeze({
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const route = routeOf(request.mode, countsOf(request.inputs).startFrame);
 		const problems = ruleProblems(request);
-		let clipSeconds: number | undefined;
-		if (isPlannedMedia(request.inputs)) {
-			const files = await fileProblems(route, request, request.inputs, media);
-			problems.push(...files.problems);
-			clipSeconds = files.clipSeconds;
-		}
-		const estimate = estimateFor(request.mode, request.params, clipSeconds);
+		const files = await fileProblems(route, request, request.inputs, media);
+		problems.push(...files.problems);
+		const estimate = estimateFor(request.mode, request.params, files.clipSeconds);
 		return { problems, ...(estimate ? { estimate } : {}), providerModel: route.id };
 	},
 

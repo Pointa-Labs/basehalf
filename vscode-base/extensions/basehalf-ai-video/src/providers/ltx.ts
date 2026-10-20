@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems, type MeasuredItem } from './check.ts';
+import { countsOf, estimateOf, measureItems, type MeasuredItem, type PlannedCounts } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, bufferSource, dataUrlOf, measure, MEDIA_MIME_TYPES, plannedItems, readMedia, type MediaFormat, type MediaInspector, type PlannedItem, type ReadMedia } from './media.ts';
@@ -19,7 +19,6 @@ import type {
 	ModeId,
 	ModeLimits,
 	Params,
-	PlannedCounts,
 	PollState,
 	ProviderErrorCode,
 	SubmitRequest,
@@ -470,8 +469,8 @@ function ruleProblems(model: LtxModel, request: CheckRequest, counts: PlannedCou
 }
 
 /** The length of the measured clip of Edit or Extend, when it is one AI Video can read. */
-function clipSeconds(measured: readonly MeasuredItem[] | undefined): number | undefined {
-	const clip = measured?.find(item => item.slot === 'source');
+function clipSeconds(measured: readonly MeasuredItem[]): number | undefined {
+	const clip = measured.find(item => item.slot === 'source');
 	return clip && (clip.facts.format === 'mp4' || clip.facts.format === 'mov') ? clip.facts.seconds : undefined;
 }
 
@@ -507,7 +506,7 @@ function priced(min: number, max: number): Estimate {
 }
 
 /** The price per second × the seconds LTX bills (ltx.md, "Estimate"); a range where LTX measures the length after the run. */
-function estimateFor(model: LtxModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[] | undefined): Estimate | undefined {
+function estimateFor(model: LtxModel, request: CheckRequest, counts: PlannedCounts, measured: readonly MeasuredItem[]): Estimate | undefined {
 	const { params } = request;
 	const resolution = isResolution(params.resolution) ? params.resolution : undefined;
 	switch (endpointOf(request.mode, counts)) {
@@ -528,11 +527,11 @@ function estimateFor(model: LtxModel, request: CheckRequest, counts: PlannedCoun
 				return undefined;
 			}
 			const price = model.audio.prices[resolution];
-			const audio = measured?.find(item => item.slot === 'audio')?.facts.seconds;
+			const audio = measured.find(item => item.slot === 'audio')?.facts.seconds;
 			return audio !== undefined ? priced(audio * price, audio * price) : priced(0, longestAudio(model, resolution) * price);
 		}
 		case 'retake': {
-			// The whole input clip is billed; LTX states no longest clip, so without its file there is no estimate.
+			// The whole input clip is billed; LTX states no longest clip, so when its length cannot be read there is no estimate.
 			const clip = clipSeconds(measured);
 			return clip !== undefined ? priced(clip * CLIP_PRICE, clip * CLIP_PRICE) : undefined;
 		}
@@ -874,8 +873,8 @@ export const LTX: ProviderModule = {
 	async check(request: CheckRequest, media: MediaInspector): Promise<CheckResult> {
 		const model = modelOf(request.model);
 		const counts = countsOf(request.inputs);
-		const measured = isPlannedMedia(request.inputs) ? await measureItems(request.inputs, media) : undefined;
-		const problems = [...ruleProblems(model, request, counts), ...(measured ? fileProblems(model, request, measured) : [])];
+		const measured = await measureItems(request.inputs, media);
+		const problems = [...ruleProblems(model, request, counts), ...fileProblems(model, request, measured)];
 		const estimate = estimateFor(model, request, counts, measured);
 		return estimate ? { problems, estimate } : { problems };
 	},

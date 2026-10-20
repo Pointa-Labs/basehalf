@@ -49,7 +49,7 @@ test('catalog answers the validated catalog of the modules', () => {
 
 test('check runs the declarations\' checks, then the module\'s rules and estimate', async () => {
 	const providers = commands();
-	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: '', inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } };
+	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: '', inputs: NO_INPUTS };
 	const empty = value(await providers.check({ ...base, params: {} }));
 	const rule = value(await providers.check({ ...base, prompt: 'p', params: { duration: 12 } }));
 	const badValue = value(await providers.check({ ...base, prompt: 'p', params: { resolution: '4k' } }));
@@ -91,12 +91,12 @@ test('a parameter a start frame sets is left out with a start frame, and a mode 
 		}
 	});
 	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: 'p' };
-	const counts = (startFrame: boolean) => ({ startFrame, endFrame: false, images: 0, videos: 0, audios: 0, source: false });
+	const frame = { fsPath: startFrame, mimeType: 'image/png' };
 	// With a start frame, even a ratio the model does not offer is left out unchecked.
-	const withFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: counts(true) }));
-	const withoutFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: counts(false) }));
-	const defaults = value(await providers.check({ ...base, params: {}, inputs: counts(false) }));
-	const outside = value(await providers.check({ ...base, mode: 'reference', params: {}, inputs: { ...counts(false), images: 1 } }));
+	const withFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: { startFrame: frame, ...NO_INPUTS } }));
+	const withoutFrame = value(await providers.check({ ...base, params: { ratio: '21:9' }, inputs: NO_INPUTS }));
+	const defaults = value(await providers.check({ ...base, params: {}, inputs: NO_INPUTS }));
+	const outside = value(await providers.check({ ...base, mode: 'reference', params: {}, inputs: { ...NO_INPUTS, images: [frame] } }));
 	assert.deepEqual({ withFrame: withFrame.problems, withoutFrame: withoutFrame.problems, outside: outside.problems, seen }, {
 		withFrame: [],
 		withoutFrame: ['Ratio cannot be 21:9 for Clip 1; choose 16:9, 9:16.'],
@@ -123,7 +123,7 @@ test('check refuses an image in a format the mode does not take, and answers the
 	const base = { provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', prompt: 'p', params: {} };
 	const webp = value(await providers.check({ ...base, inputs: { startFrame: { fsPath: webpFrame, mimeType: 'image/webp' }, ...NO_INPUTS } }));
 	const fromImage = value(await providers.check({ ...base, inputs: { startFrame: { fsPath: startFrame, mimeType: 'image/png' }, ...NO_INPUTS } }));
-	const fromText = value(await providers.check({ ...base, inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } }));
+	const fromText = value(await providers.check({ ...base, inputs: NO_INPUTS }));
 	assert.deepEqual({ webp, fromImage, fromText }, {
 		webp: { problems: ['The start frame start.webp is a WebP image; this mode takes PNG or JPEG images.'], providerModel: 'clip-1-from-image' },
 		fromImage: { problems: [], providerModel: 'clip-1-from-image' },
@@ -151,10 +151,12 @@ test('payloads are validated strictly, an unknown provider answers unknownProvid
 			await providers.submit({ ...submitRequest(endpoint), prompt: 42 }),
 			await providers.submit('not a request'),
 			await providers.poll({ ...submitRequest(endpoint), remoteId: 'has space' }),
-			await providers.check({ provider: 'nobody', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: '', inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } })
+			// A check takes the files, never counts of them.
+			await providers.check({ provider: 'testprovider', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: 'p', inputs: { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false } }),
+			await providers.check({ provider: 'nobody', region: 'home', model: 'clip-1', mode: 'frames', params: {}, prompt: '', inputs: NO_INPUTS })
 		].map(outcome => error(outcome).code);
 		assert.deepEqual({ outcomes, received: server.received.length }, {
-			outcomes: ['unknownProvider', 'rejected', 'rejected', 'rejected', 'auth', 'auth', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'unknownProvider'],
+			outcomes: ['unknownProvider', 'rejected', 'rejected', 'rejected', 'auth', 'auth', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'unknownProvider'],
 			received: 0
 		});
 	} finally {

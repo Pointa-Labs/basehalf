@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { countsOf, estimateOf, isPlannedMedia, measureItems } from './check.ts';
+import { countsOf, estimateOf, measureItems } from './check.ts';
 import { isRecord, ProviderFailure, readCommonError, rejected, unknownOutcome, unreadable, type ProviderErrorReading } from './failure.ts';
 import type { HttpAnswer, ProviderHttp } from './http.ts';
 import { base64Length, base64Of, bufferSource, measure, plannedItems, readMedia, type MediaFormat, type MediaInspector } from './media.ts';
@@ -204,17 +204,15 @@ async function check(request: CheckRequest, media: MediaInspector): Promise<Chec
 		problems.push(TEXT.referencesNeedInput);
 	}
 	let clipSeconds: number | undefined;
-	if (isPlannedMedia(request.inputs)) {
-		let size = REQUEST_OVERHEAD_BYTES + Buffer.byteLength(JSON.stringify(request.prompt), 'utf8');
-		for (const item of await measureItems(request.inputs, media)) {
-			size += base64Length(item.facts.bytes) + PART_OVERHEAD_BYTES;
-			if (item.slot === 'source') {
-				clipSeconds = item.facts.seconds;
-			}
+	let size = REQUEST_OVERHEAD_BYTES + Buffer.byteLength(JSON.stringify(request.prompt), 'utf8');
+	for (const item of await measureItems(request.inputs, media)) {
+		size += base64Length(item.facts.bytes) + PART_OVERHEAD_BYTES;
+		if (item.slot === 'source') {
+			clipSeconds = item.facts.seconds;
 		}
-		if (size > REQUEST_MAX_BYTES) {
-			problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
-		}
+	}
+	if (size > REQUEST_MAX_BYTES) {
+		problems.push(TEXT.requestTooLarge((size / 1_000_000).toFixed(1)));
 	}
 	const estimate = omniEstimate(request.mode, request.params, clipSeconds);
 	return estimate ? { problems, estimate } : { problems };

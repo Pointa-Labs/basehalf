@@ -5,17 +5,21 @@
 
 /**
  * What the provider tests share: a local HTTP server that records what it
- * receives, a small provider module declared for the tests, and builders of
- * small media files. Nothing here talks to a real provider.
+ * receives, a small provider module declared for the tests, builders of small
+ * media files, and planned inputs as such files. Nothing here talks to a real
+ * provider.
  */
 
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import zlib from 'node:zlib';
 import { ProviderFailure } from '../src/providers/failure.ts';
 import type { ProviderModule } from '../src/providers/module.ts';
-import type { CatalogProvider, ProviderResponse } from '../src/providers/types.ts';
+import type { CatalogProvider, Media, PlannedMedia, ProviderResponse } from '../src/providers/types.ts';
 
 export interface Received {
 	readonly method: string;
@@ -334,4 +338,55 @@ export function mp3(frames: number, options: { readonly id3?: boolean; readonly 
 		parts.push(frame);
 	}
 	return Buffer.concat(parts);
+}
+
+// --- planned inputs for checks -------------------------------------------------------------------
+
+/** How many inputs of each slot a test plans. */
+export interface PlannedCount {
+	readonly startFrame?: boolean;
+	readonly endFrame?: boolean;
+	readonly images?: number;
+	readonly videos?: number;
+	readonly audios?: number;
+	readonly source?: boolean;
+}
+
+let plannedFolder: string | undefined;
+const plannedPaths = new Map<string, string>();
+
+/** A small media file of the test run, written once and removed when the run ends. */
+function plannedFile(name: string, mimeType: string, bytes: () => Buffer): Media {
+	let path = plannedPaths.get(name);
+	if (!path) {
+		if (!plannedFolder) {
+			const folder = mkdtempSync(join(tmpdir(), 'basehalf-planned-'));
+			process.once('exit', () => rmSync(folder, { recursive: true, force: true }));
+			plannedFolder = folder;
+		}
+		path = join(plannedFolder, name);
+		writeFileSync(path, bytes());
+		plannedPaths.set(name, path);
+	}
+	return { fsPath: path, mimeType };
+}
+
+/**
+ * Planned inputs of the given counts as small files that AI Video measures as
+ * it measures a user's: a 1280 × 720 PNG for each image, an MP4 of 5 seconds
+ * for each video, and a WAV of 5 seconds for each audio clip.
+ */
+export function plannedFiles(count: PlannedCount = {}): PlannedMedia {
+	const image = (name: string) => plannedFile(`${name}.png`, 'image/png', () => png(1280, 720));
+	const video = (name: string) => plannedFile(`${name}.mp4`, 'video/mp4', () => isoMedia(5));
+	const audio = (name: string) => plannedFile(`${name}.wav`, 'audio/wav', () => wav(5));
+	const several = (amount: number | undefined, make: (number: number) => Media) => Array.from({ length: amount ?? 0 }, (_entry, index) => make(index + 1));
+	return {
+		...(count.startFrame ? { startFrame: image('start') } : {}),
+		...(count.endFrame ? { endFrame: image('end') } : {}),
+		images: several(count.images, number => image(`image-${number}`)),
+		videos: several(count.videos, number => video(`video-${number}`)),
+		audios: several(count.audios, number => audio(`audio-${number}`)),
+		...(count.source ? { source: video('source') } : {})
+	};
 }

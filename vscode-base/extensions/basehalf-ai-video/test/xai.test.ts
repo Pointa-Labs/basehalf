@@ -17,9 +17,9 @@ import test from 'node:test';
 import { VideoProviderCommands } from '../src/providers/commands.ts';
 import type { MediaInspector } from '../src/providers/media.ts';
 import { buildCatalog, PROVIDER_MODULES } from '../src/providers/registry.ts';
-import type { Estimate, ModeId } from '../src/providers/types.ts';
+import type { Estimate, ModeId, PlannedMedia } from '../src/providers/types.ts';
 import { XAI } from '../src/providers/xai.ts';
-import { error, isoMedia, jpegHeader, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
+import { error, isoMedia, jpegHeader, plannedFiles, png, sendJson, startServer, value, webpHeader, type Received } from './providerTestKit.ts';
 
 const folder = mkdtempSync(join(tmpdir(), 'basehalf-xai-'));
 test.after(() => rmSync(folder, { recursive: true, force: true }));
@@ -47,6 +47,8 @@ const CLIP = file('clip.mp4', isoMedia(6), 'video/mp4');
 const SHORT_CLIP = file('short.mp4', isoMedia(4), 'video/mp4');
 const LONG_CLIP = file('long.mp4', isoMedia(9.5), 'video/mp4');
 const MOV = file('clip.mov', isoMedia(5, { brand: 'qt  ' }), 'video/quicktime');
+/** An MP4 whose length AI Video cannot read. */
+const UNREADABLE = file('unreadable.mp4', Buffer.from('not a movie'), 'video/mp4');
 
 const KEY = 'xai-test-key-0001';
 const PROMPT = 'A paper boat drifts down a rain-soaked street.';
@@ -93,10 +95,6 @@ function generation(endpoint: string, model: string, mode: ModeId, params: Recor
 
 function taskRef(endpoint: string, remoteId: string) {
 	return { provider: 'xai', region: 'global', endpoint, credentials: { apiKey: KEY }, model: V15, remoteId };
-}
-
-function counts(planned: { readonly startFrame?: boolean; readonly endFrame?: boolean; readonly images?: number; readonly source?: boolean } = {}) {
-	return { startFrame: false, endFrame: false, images: 0, videos: 0, audios: 0, source: false, ...planned };
 }
 
 function sentBody(request: Received): unknown {
@@ -570,35 +568,35 @@ test('xAI has no cancellation: cancel answers false and sends nothing', async ()
 
 test('check reports the rules between settings and inputs that the declarations cannot express, and answers no provider model', async () => {
 	const providers = commands();
-	const answer = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const answer = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		value(await providers.check({ provider: 'xai', region: 'global', model, mode, params, prompt: text, inputs }));
-	const problems = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: ReturnType<typeof counts>, text = PROMPT) =>
+	const problems = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: PlannedMedia, text = PROMPT) =>
 		(await answer(model, mode, params, inputs, text)).problems;
 	assert.deepEqual({
-		endFrameAt1080p: await problems(V15, 'frames', { resolution: '1080p' }, counts({ startFrame: true, endFrame: true })),
-		endFrameAt720p: await problems(V15, 'frames', { resolution: '720p' }, counts({ startFrame: true, endFrame: true })),
-		startFrameAt1080p: await problems(V15, 'frames', { resolution: '1080p' }, counts({ startFrame: true })),
-		referencesAt1080p: await problems(V15, 'reference', { resolution: '1080p' }, counts({ images: 2 })),
-		referencesWithoutPrompt: await problems(V15, 'reference', {}, counts({ images: 2 }), ''),
-		fifteenReferences: await problems(V15, 'reference', {}, counts({ images: 15 })),
-		noReference: await problems(V15, 'reference', {}, counts()),
-		liteEndFrame: await problems(LITE, 'frames', {}, counts({ startFrame: true, endFrame: true })),
-		liteReferences: await problems(LITE, 'reference', {}, counts({ images: 1 })),
-		classicAt1080p: await problems(CLASSIC, 'frames', { resolution: '1080p' }, counts()),
-		classicReferences11: await problems(CLASSIC, 'reference', { duration: 11 }, counts({ images: 3 })),
-		classicReferences10: await problems(CLASSIC, 'reference', { duration: 10 }, counts({ images: 3 })),
-		eightReferences: await problems(CLASSIC, 'reference', {}, counts({ images: 8 })),
-		classicReferencesWithoutPrompt: await problems(CLASSIC, 'reference', {}, counts({ images: 1 }), ' '),
-		editWithoutPrompt: await problems(CLASSIC, 'edit', {}, counts({ source: true }), ''),
-		editWithDuration: await problems(CLASSIC, 'edit', { duration: 5 }, counts({ source: true })),
-		editWithoutClip: await problems(CLASSIC, 'edit', {}, counts()),
-		extendOneSecond: await problems(CLASSIC, 'extend', { duration: 1 }, counts({ source: true })),
-		extendEleven: await problems(CLASSIC, 'extend', { duration: 11 }, counts({ source: true })),
-		extendWithoutPrompt: await problems(CLASSIC, 'extend', {}, counts({ source: true }), ''),
-		extendTen: await problems(CLASSIC, 'extend', { duration: 10 }, counts({ source: true })),
-		textWithoutPrompt: await problems(CLASSIC, 'frames', {}, counts(), ''),
-		startFrameWithoutPrompt: await problems(CLASSIC, 'frames', {}, counts({ startFrame: true }), ''),
-		sameModelId: Object.hasOwn(await answer(V15, 'reference', {}, counts({ images: 1 })), 'providerModel')
+		endFrameAt1080p: await problems(V15, 'frames', { resolution: '1080p' }, plannedFiles({ startFrame: true, endFrame: true })),
+		endFrameAt720p: await problems(V15, 'frames', { resolution: '720p' }, plannedFiles({ startFrame: true, endFrame: true })),
+		startFrameAt1080p: await problems(V15, 'frames', { resolution: '1080p' }, plannedFiles({ startFrame: true })),
+		referencesAt1080p: await problems(V15, 'reference', { resolution: '1080p' }, plannedFiles({ images: 2 })),
+		referencesWithoutPrompt: await problems(V15, 'reference', {}, plannedFiles({ images: 2 }), ''),
+		fifteenReferences: await problems(V15, 'reference', {}, plannedFiles({ images: 15 })),
+		noReference: await problems(V15, 'reference', {}, plannedFiles()),
+		liteEndFrame: await problems(LITE, 'frames', {}, plannedFiles({ startFrame: true, endFrame: true })),
+		liteReferences: await problems(LITE, 'reference', {}, plannedFiles({ images: 1 })),
+		classicAt1080p: await problems(CLASSIC, 'frames', { resolution: '1080p' }, plannedFiles()),
+		classicReferences11: await problems(CLASSIC, 'reference', { duration: 11 }, plannedFiles({ images: 3 })),
+		classicReferences10: await problems(CLASSIC, 'reference', { duration: 10 }, plannedFiles({ images: 3 })),
+		eightReferences: await problems(CLASSIC, 'reference', {}, plannedFiles({ images: 8 })),
+		classicReferencesWithoutPrompt: await problems(CLASSIC, 'reference', {}, plannedFiles({ images: 1 }), ' '),
+		editWithoutPrompt: await problems(CLASSIC, 'edit', {}, plannedFiles({ source: true }), ''),
+		editWithDuration: await problems(CLASSIC, 'edit', { duration: 5 }, plannedFiles({ source: true })),
+		editWithoutClip: await problems(CLASSIC, 'edit', {}, plannedFiles()),
+		extendOneSecond: await problems(CLASSIC, 'extend', { duration: 1 }, plannedFiles({ source: true })),
+		extendEleven: await problems(CLASSIC, 'extend', { duration: 11 }, plannedFiles({ source: true })),
+		extendWithoutPrompt: await problems(CLASSIC, 'extend', {}, plannedFiles({ source: true }), ''),
+		extendTen: await problems(CLASSIC, 'extend', { duration: 10 }, plannedFiles({ source: true })),
+		textWithoutPrompt: await problems(CLASSIC, 'frames', {}, plannedFiles(), ''),
+		startFrameWithoutPrompt: await problems(CLASSIC, 'frames', {}, plannedFiles({ startFrame: true }), ''),
+		sameModelId: Object.hasOwn(await answer(V15, 'reference', {}, plannedFiles({ images: 1 })), 'providerModel')
 	}, {
 		endFrameAt1080p: ['Grok Imagine Video 1.5 makes a video from a start and an end frame at 480p or 720p.'],
 		endFrameAt720p: [],
@@ -627,7 +625,7 @@ test('check reports the rules between settings and inputs that the declarations 
 	});
 });
 
-test('with files, check refuses a MOV clip, clips of the wrong length, and a request larger than AI Video sends, and submit sends nothing then', async () => {
+test('check refuses a MOV clip, clips of the wrong length, and a request larger than AI Video sends, and submit sends nothing then', async () => {
 	const server = await startServer((request, response) => sendJson(response, 200, { request_id: 'request-1' }));
 	try {
 		const providers = commands();
@@ -669,9 +667,9 @@ test('estimates follow the price list: seconds at the resolution\'s price, each 
 	const server = await startServer((request, response) => sendJson(response, 200, {}));
 	try {
 		const providers = commands();
-		const estimate = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs = counts()) =>
+		const estimate = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs = plannedFiles()) =>
 			value(await providers.check({ provider: 'xai', region: 'global', model, mode, params, prompt: PROMPT, inputs })).estimate;
-		const withFiles = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: Inputs) =>
+		const ofFiles = async (model: string, mode: ModeId, params: Record<string, unknown>, inputs: Inputs) =>
 			value(await providers.check(generation(server.url, model, mode, params, inputs))).estimate;
 		const range = (min: number, max: number): Estimate => ({ currency: 'USD', min, max, priceDate: PRICE_DATE });
 		const amount = (money: number): Estimate => range(money, money);
@@ -679,25 +677,25 @@ test('estimates follow the price list: seconds at the resolution\'s price, each 
 			// Grok Imagine Video 1.5 from text at 720p for 5 s: 5 s × $0.14 = $0.70.
 			text720p: await estimate(V15, 'frames', { resolution: '720p' }),
 			// 1.5 from a start and an end frame at 720p for 8 s: 8 s × $0.14 + 2 images × $0.01 = $1.12 + $0.02 = $1.14.
-			frames: await estimate(V15, 'frames', { resolution: '720p', duration: 8 }, counts({ startFrame: true, endFrame: true })),
+			frames: await estimate(V15, 'frames', { resolution: '720p', duration: 8 }, plannedFiles({ startFrame: true, endFrame: true })),
 			// 1.5 from three reference images at 480p for 10 s: 10 s × $0.08 + 3 × $0.01 = $0.80 + $0.03 = $0.83.
-			references: await estimate(V15, 'reference', { duration: 10 }, counts({ images: 3 })),
+			references: await estimate(V15, 'reference', { duration: 10 }, plannedFiles({ images: 3 })),
 			// 1.5 from text at 1080p for 15 s: 15 s × $0.25 = $3.75.
 			text1080p: await estimate(V15, 'frames', { resolution: '1080p', duration: 15 }),
 			// 1.5 Lite with its defaults, 480p for 5 s: 5 s × $0.02 = $0.10.
 			liteDefaults: await estimate(LITE, 'frames', {}),
 			// 1.5 Lite from a start frame at 1080p for 10 s: 10 s × $0.14 + 1 × $0.01 = $1.41.
-			liteStartFrame: await estimate(LITE, 'frames', { resolution: '1080p', duration: 10 }, counts({ startFrame: true })),
+			liteStartFrame: await estimate(LITE, 'frames', { resolution: '1080p', duration: 10 }, plannedFiles({ startFrame: true })),
 			// Grok Imagine Video from seven references at 720p for 10 s: 10 s × $0.07 + 7 × $0.002 = $0.70 + $0.014 = $0.714.
-			classicReferences: await estimate(CLASSIC, 'reference', { resolution: '720p', duration: 10 }, counts({ images: 7 })),
+			classicReferences: await estimate(CLASSIC, 'reference', { resolution: '720p', duration: 10 }, plannedFiles({ images: 7 })),
 			// Edit of the 6 s clip: 6 s × ($0.05 + $0.01) = $0.36 at 480p, to 6 s × ($0.07 + $0.01) = $0.48 at 720p.
-			edit: await withFiles(CLASSIC, 'edit', {}, { source: CLIP }),
-			// Edit without the clip's file, 0.1 to 8.7 s: 0.1 s × $0.06 = $0.006 to 8.7 s × $0.08 = $0.696.
-			editUnmeasured: await estimate(CLASSIC, 'edit', {}, counts({ source: true })),
+			edit: await ofFiles(CLASSIC, 'edit', {}, { source: CLIP }),
+			// Edit of a clip whose length cannot be read, 0.1 to 8.7 s: 0.1 s × $0.06 = $0.006 to 8.7 s × $0.08 = $0.696.
+			editUnreadable: await ofFiles(CLASSIC, 'edit', {}, { source: UNREADABLE }),
 			// Extend the 4 s clip by 5 s: 5 s × $0.05 + 4 s × $0.01 = $0.29, to (4 + 5) s × $0.07 + 4 s × $0.01 = $0.67.
-			extend: await withFiles(CLASSIC, 'extend', {}, { source: SHORT_CLIP }),
-			// Extend a clip of 2 to 15 s by 5 s: 5 s × $0.05 + 2 s × $0.01 = $0.27, to (15 + 5) s × $0.07 + 15 s × $0.01 = $1.55.
-			extendUnmeasured: await estimate(CLASSIC, 'extend', {}, counts({ source: true }))
+			extend: await ofFiles(CLASSIC, 'extend', {}, { source: SHORT_CLIP }),
+			// Extend a clip whose length cannot be read, 2 to 15 s, by 5 s: 5 s × $0.05 + 2 s × $0.01 = $0.27, to (15 + 5) s × $0.07 + 15 s × $0.01 = $1.55.
+			extendUnreadable: await ofFiles(CLASSIC, 'extend', {}, { source: UNREADABLE })
 		}, {
 			text720p: amount(0.7),
 			frames: amount(1.14),
@@ -707,9 +705,9 @@ test('estimates follow the price list: seconds at the resolution\'s price, each 
 			liteStartFrame: amount(1.41),
 			classicReferences: amount(0.714),
 			edit: range(0.36, 0.48),
-			editUnmeasured: range(0.006, 0.696),
+			editUnreadable: range(0.006, 0.696),
 			extend: range(0.29, 0.67),
-			extendUnmeasured: range(0.27, 1.55)
+			extendUnreadable: range(0.27, 1.55)
 		});
 	} finally {
 		await server.close();
@@ -731,7 +729,7 @@ test('every price of the list is the model page\'s price per second at its resol
 	const providers = commands();
 	const round = (money: number) => Math.round(money * 1e6) / 1e6;
 	for (const [model, resolution, perSecond] of rows) {
-		const answer = value(await providers.check({ provider: 'xai', region: 'global', model, mode: 'frames', params: { resolution, duration: 10 }, prompt: PROMPT, inputs: counts() }));
+		const answer = value(await providers.check({ provider: 'xai', region: 'global', model, mode: 'frames', params: { resolution, duration: 10 }, prompt: PROMPT, inputs: plannedFiles() }));
 		assert.deepEqual(answer.estimate, { currency: 'USD', min: round(perSecond * 10), max: round(perSecond * 10), priceDate: PRICE_DATE }, `${model} ${resolution}`);
 	}
 });

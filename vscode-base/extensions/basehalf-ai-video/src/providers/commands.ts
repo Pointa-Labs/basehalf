@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, isPlannedMedia, measureItems, resolveParams } from './check.ts';
+import { cachingInspector, checkCounts, checkLimits, checkParams, checkPrompt, countsOf, measureItems, resolveParams } from './check.ts';
 import { downloadVideo, type DownloadOptions } from './download.ts';
 import { isRecord, plainMessage, ProviderFailure, rejected, unknownOutcome, unreadable } from './failure.ts';
 import { BoundHttp, parseEndpoint, resolveHttpOptions, type HttpOptions } from './http.ts';
@@ -24,7 +24,6 @@ import type {
 	ModeId,
 	Params,
 	ParamValue,
-	PlannedCounts,
 	PlannedMedia,
 	PollState,
 	ProviderAccess,
@@ -195,9 +194,7 @@ export class VideoProviderCommands {
 		if (parameterProblems.length) {
 			return { problems: [...problems, ...parameterProblems] };
 		}
-		if (isPlannedMedia(request.inputs)) {
-			problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
-		}
+		problems.push(...checkLimits(mode, await measureItems(request.inputs, inspector)));
 		const own = await resolved.module.check({ ...request, params: resolveParams(model, mode.id, request.params, counts) }, inspector);
 		const all = [...problems, ...own.problems];
 		// Only a model declared with an estimate answers one, in its region's currency.
@@ -326,19 +323,6 @@ function parsePlannedMedia(value: Record<string, unknown>): PlannedMedia {
 	};
 }
 
-function parsePlannedCounts(value: Record<string, unknown>): PlannedCounts {
-	const count = (entry: unknown) => {
-		if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 100) {
-			throw cannotRead('inputs');
-		}
-		return entry;
-	};
-	if (typeof value.startFrame !== 'boolean' || typeof value.endFrame !== 'boolean' || typeof value.source !== 'boolean') {
-		throw cannotRead('inputs');
-	}
-	return { startFrame: value.startFrame, endFrame: value.endFrame, images: count(value.images), videos: count(value.videos), audios: count(value.audios), source: value.source };
-}
-
 function parseGeneration(value: unknown, what: string): Record<string, unknown> & { provider: string; region: string; model: string; mode: ModeId; params: Params; prompt: string } {
 	if (!isRecord(value)) {
 		throw cannotRead(what);
@@ -363,8 +347,7 @@ export function parseCheckRequest(value: unknown): CheckRequest {
 	if (!isRecord(generation.inputs)) {
 		throw cannotRead('inputs');
 	}
-	const inputs = Array.isArray(generation.inputs.images) ? parsePlannedMedia(generation.inputs) : parsePlannedCounts(generation.inputs);
-	return { provider: generation.provider, region: generation.region, model: generation.model, mode: generation.mode, params: generation.params, prompt: generation.prompt, inputs };
+	return { provider: generation.provider, region: generation.region, model: generation.model, mode: generation.mode, params: generation.params, prompt: generation.prompt, inputs: parsePlannedMedia(generation.inputs) };
 }
 
 function parseAccess(value: Record<string, unknown>, what: string): ProviderAccess {
