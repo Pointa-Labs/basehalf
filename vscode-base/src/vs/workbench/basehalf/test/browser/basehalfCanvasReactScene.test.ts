@@ -445,17 +445,18 @@ suite('BaseHalfCanvasReactScene', () => {
 			zoomedAndPanned: place(card, { x: -100, y: -80, zoom: 2 }, { width: 1000, height: 900 }),
 			// No room below: above the card, its name, and its toolbar.
 			aboveTheToolbar: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { toolbarShown: true }),
-			// Room for neither: inside the canvas, on the side with more room.
-			clamped: place({ left: 100, top: 150, right: 500, bottom: 300 }, identity, { width: 800, height: 420 }),
+			// Room for neither: inside the canvas, on the side with more room, and
+			// 52 px above its bottom, clear of the zoom controls.
+			clamped: place({ left: 100, top: 150, right: 500, bottom: 260 }, identity, { width: 800, height: 420 }),
 			// While the card moves, the panel keeps its side and follows it.
 			following: place({ left: 100, top: 400, right: 500, bottom: 650 }, identity, { width: 800, height: 700 }, { keepSide: 'below' }),
-			narrow: place({ left: 0, top: 40, right: 240, bottom: 200 }, identity, { width: 300, height: 520 }),
+			narrow: place({ left: 0, top: 40, right: 240, bottom: 200 }, identity, { width: 300, height: 560 }),
 			offCanvas: place({ left: 100, top: 720, right: 500, bottom: 800 }, identity, { width: 800, height: 700 }).visible
 		}, {
 			below: { placement: 'below', visible: true, left: 44, top: 310, flowLeft: 44, flowTop: 310, width: 512, height: 180 },
 			zoomedAndPanned: { placement: 'below', visible: true, left: 244, top: 530, flowLeft: 172, flowTop: 305, width: 512, height: 180 },
 			aboveTheToolbar: { placement: 'above', visible: true, left: 44, top: 400 - 32 - 46 - 10 - 180, flowLeft: 44, flowTop: 400 - 32 - 46 - 10 - 180, width: 512, height: 180 },
-			clamped: { placement: 'clamped', visible: true, left: 44, top: 420 - 12 - 180, flowLeft: 44, flowTop: 420 - 12 - 180, width: 512, height: 180 },
+			clamped: { placement: 'clamped', visible: true, left: 44, top: 420 - 52 - 180, flowLeft: 44, flowTop: 420 - 52 - 180, width: 512, height: 180 },
 			following: { placement: 'below', visible: true, left: 44, top: 660, flowLeft: 44, flowTop: 660, width: 512, height: 180 },
 			narrow: { placement: 'below', visible: true, left: 12, top: 210, flowLeft: 12, flowTop: 210, width: 276, height: 180 },
 			offCanvas: false

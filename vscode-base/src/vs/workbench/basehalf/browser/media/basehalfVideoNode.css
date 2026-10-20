@@ -720,14 +720,16 @@
 	gap: 1px;
 }
 
+/* All of a model's abilities show: a long line wraps once. */
 .monaco-workbench .bh-video-panel-menu-detail {
+	display: -webkit-box;
 	min-width: 0;
 	overflow: hidden;
 	color: var(--vscode-descriptionForeground);
 	font-size: 11px;
 	line-height: 14px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
 }
 
 .monaco-workbench .bh-video-panel-menu-item:hover .bh-video-panel-menu-detail,

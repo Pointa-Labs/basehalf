@@ -363,12 +363,14 @@ height follows its content, from 132 px without an input row to 260 px with
 one and a reason line of two lines. It keeps that size at every zoom. It sits
 10 px below the card, centered; above the card, clear of its name and toolbar,
 when there is no room below for the tallest panel; inside the canvas, clamped,
-when there is room for neither. When the card is off the canvas, the panel is
-hidden. Opening the panel never pans or zooms the canvas. Moving or resizing
-the card takes the panel along on the side it was on. A menu or popover of the
-panel opens upward when there is no room below, stays inside the canvas, and
-scrolls inside itself; a menu of the footer that opens below opens below the
-panel.
+when there is room for neither. The panel and its menus stay 12 px inside the
+canvas and 52 px above its bottom edge, clear of the zoom controls there,
+which would otherwise cover the model button or a menu's last items. When the
+card is off the canvas, the panel is hidden. Opening the panel never pans or
+zooms the canvas. Moving or resizing the card takes the panel along on the
+side it was on. A menu or popover of the panel opens upward when there is no
+room below, stays inside the canvas, and scrolls inside itself; a menu of the
+footer that opens below opens below the panel.
 
 ## The card
 

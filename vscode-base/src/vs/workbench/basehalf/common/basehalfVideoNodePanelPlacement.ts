@@ -20,6 +20,12 @@ export const BASEHALF_VIDEO_PANEL_MAX_HEIGHT = 260;
 export const BASEHALF_VIDEO_PANEL_GAP = 10;
 /** The panel and its menus stay this far inside the canvas. */
 export const BASEHALF_VIDEO_PANEL_CANVAS_MARGIN = 12;
+/**
+ * The panel and its menus stay this far above the canvas's bottom edge, clear
+ * of the zoom controls there (16 px up, 28 px tall), which lie over the scene
+ * and would cover the model button or a menu's last items.
+ */
+export const BASEHALF_VIDEO_PANEL_CANVAS_BOTTOM_MARGIN = 52;
 /** A card counts as on the canvas while at least this much of it is in view, in both directions. */
 export const BASEHALF_VIDEO_PANEL_MIN_CARD_IN_VIEW = 24;
 /** Between a menu and the control that opened it. */
@@ -98,6 +104,8 @@ export function resolveBaseHalfVideoPanelPlacement(
 	const margin = BASEHALF_VIDEO_PANEL_CANVAS_MARGIN;
 	const canvasWidth = Math.max(0, finite(canvas.width));
 	const canvasHeight = Math.max(0, finite(canvas.height));
+	// The lowest a panel may end.
+	const floor = canvasHeight - BASEHALF_VIDEO_PANEL_CANVAS_BOTTOM_MARGIN;
 	const width = Math.min(BASEHALF_VIDEO_PANEL_WIDTH, Math.max(0, canvasWidth - margin * 2));
 	const height = Math.max(0, finite(options.height));
 	const room = Math.max(height, BASEHALF_VIDEO_PANEL_MAX_HEIGHT);
@@ -112,18 +120,18 @@ export function resolveBaseHalfVideoPanelPlacement(
 		placement = options.keepSide;
 		side = options.keepSide;
 		top = side === 'below' ? belowTop : aboveBottom - height;
-	} else if (belowTop >= margin && belowTop + room <= canvasHeight - margin) {
+	} else if (belowTop >= margin && belowTop + room <= floor) {
 		placement = side = 'below';
 		top = belowTop;
-	} else if (aboveBottom - room >= margin && aboveBottom <= canvasHeight - margin) {
+	} else if (aboveBottom - room >= margin && aboveBottom <= floor) {
 		placement = side = 'above';
 		top = aboveBottom - height;
 	} else {
 		placement = 'clamped';
-		const roomBelow = canvasHeight - margin - finite(card.bottom);
+		const roomBelow = floor - finite(card.bottom);
 		const roomAbove = finite(card.top) - clearance - margin;
 		side = roomBelow >= roomAbove ? 'below' : 'above';
-		top = clamp(side === 'below' ? belowTop : aboveBottom - height, margin, canvasHeight - margin - height);
+		top = clamp(side === 'below' ? belowTop : aboveBottom - height, margin, floor - height);
 	}
 	return Object.freeze({
 		placement,
@@ -169,7 +177,7 @@ export function resolveBaseHalfVideoPanelMenuPlacement(
 	const canvasHeight = Math.max(0, finite(canvas.height));
 	const width = Math.min(Math.max(0, finite(menu.width)), Math.max(0, canvasWidth - margin * 2));
 	const wanted = Math.max(0, finite(menu.height));
-	const roomBelow = Math.max(0, canvasHeight - margin - (finite(trigger.bottom) + gap));
+	const roomBelow = Math.max(0, canvasHeight - BASEHALF_VIDEO_PANEL_CANVAS_BOTTOM_MARGIN - (finite(trigger.bottom) + gap));
 	const roomAbove = Math.max(0, finite(trigger.top) - gap - margin);
 	const side: BaseHalfVideoPanelSide = wanted <= roomBelow || roomBelow >= roomAbove ? 'below' : 'above';
 	const maxHeight = side === 'below' ? roomBelow : roomAbove;

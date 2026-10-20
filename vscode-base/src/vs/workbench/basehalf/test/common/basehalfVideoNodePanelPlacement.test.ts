@@ -26,7 +26,8 @@ suite('BaseHalfVideoNodePanelPlacement', () => {
 			// Room is measured for the tallest panel: 260 does not fit below a card that ends at 600.
 			aboveWhenTheTallestPanelDoesNotFitBelow: place({ left: 350, top: 300, right: 650, bottom: 600 }, 132),
 			aboveClearOfTheName: place({ left: 350, top: 450, right: 650, bottom: 700 }, 180, canvas, 78),
-			clampedBelow: place({ left: 350, top: 100, right: 650, bottom: 300 }, 180, { width: 1000, height: 420 }),
+			// The panel ends 52 px above the canvas's bottom, clear of the zoom controls.
+			clampedBelow: place({ left: 350, top: 100, right: 650, bottom: 260 }, 180, { width: 1000, height: 420 }),
 			clampedAbove: place({ left: 350, top: 230, right: 650, bottom: 400 }, 180, { width: 1000, height: 420 }),
 			atTheLeftEdge: place({ left: -200, top: 100, right: 100, bottom: 300 }, 132),
 			narrowCanvas: place({ left: 40, top: 100, right: 200, bottom: 300 }, 132, { width: 320, height: 800 }),
@@ -35,11 +36,11 @@ suite('BaseHalfVideoNodePanelPlacement', () => {
 			below: 'below/below 244,310 512x132',
 			aboveWhenTheTallestPanelDoesNotFitBelow: 'above/above 244,158 512x132',
 			aboveClearOfTheName: 'above/above 244,182 512x180',
-			clampedBelow: 'clamped/below 244,228 512x180',
+			clampedBelow: 'clamped/below 244,188 512x180',
 			clampedAbove: 'clamped/above 244,40 512x180',
 			atTheLeftEdge: 'below/below 12,310 512x132',
 			narrowCanvas: 'below/below 12,310 296x132',
-			offCanvas: 'clamped/above 244,656 512x132 hidden'
+			offCanvas: 'clamped/above 244,616 512x132 hidden'
 		});
 	});
 
@@ -65,7 +66,7 @@ suite('BaseHalfVideoNodePanelPlacement', () => {
 		], [true, false, true, false]);
 	});
 
-	test('a menu opens below its control, upward when there is no room below, inside the canvas, and scrolls inside itself', () => {
+	test('a menu opens below its control, upward when there is no room below, inside the canvas and above the zoom controls, and scrolls inside itself', () => {
 		const menu = (trigger: { left: number; top: number; right: number; bottom: number }, height: number, align?: 'start' | 'end') => {
 			const layout = resolveBaseHalfVideoPanelMenuPlacement(trigger, canvas, { width: 300, height }, { align });
 			return `${layout.side} ${layout.left},${layout.top} max ${layout.maxHeight}`;
@@ -78,10 +79,10 @@ suite('BaseHalfVideoNodePanelPlacement', () => {
 			// Taller than either side: the side with more room, scrolling.
 			scrolls: menu({ left: 400, top: 420, right: 460, bottom: 448 }, 900)
 		}, {
-			below: 'below 400,334 max 454',
+			below: 'below 400,334 max 414',
 			upward: 'above 400,444 max 632',
-			endAligned: 'below 160,334 max 454',
-			clampedRight: 'below 688,334 max 454',
+			endAligned: 'below 160,334 max 414',
+			clampedRight: 'below 688,334 max 414',
 			scrolls: 'above 400,12 max 402'
 		});
 	});

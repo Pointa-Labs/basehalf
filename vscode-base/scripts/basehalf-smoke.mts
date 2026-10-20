@@ -3195,7 +3195,7 @@ async function assertVideoPanelPlacement(page) {
 	const placed = await waitForReading(() => readVideoPanelGeometry(page, VIDEO_NODE), seen => seen !== null && !seen.moving, 'the panel to come to rest');
 	const width = Math.min(512, placed.host.width - 24);
 	const left = Math.min(Math.max((placed.card.left + placed.card.right - width) / 2, 12), placed.host.width - 12 - width);
-	if (placed.card.bottom + 10 + 260 > placed.host.height - 12) {
+	if (placed.card.bottom + 10 + 260 > placed.host.height - 52) {
 		throw new Error(`The step must leave room below the card for the tallest panel: ${JSON.stringify(placed)}`);
 	}
 	if (placed.placement !== 'below' || Math.abs(placed.panel.top - (placed.card.bottom + 10)) > 1.5
