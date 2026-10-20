@@ -121,12 +121,12 @@ mode and the inputs of a generation choose the endpoint.
   refused); at most 32 MiB (`audioMaxBytes`), the size LTX states for audio
   sent by address; at most the model's longest audio, `audioTotalSeconds` 20
   on LTX-2.5 Fast and LTX-2.3 Pro and 10 on LTX-2.5 Pro. At 1440p and 4K every
-  model takes at most 10 seconds, which `check` reports with files.
+  model takes at most 10 seconds, which `check` reports.
 - Clips, in Edit and Extend: MP4 or MOV (LTX also takes MKV, which a Video
   node does not connect); at most 32 MiB for Edit (video input "is capped at
   32 MB on most endpoints") and 100 MiB for Extend (`videoMaxBytes`). Both
   endpoints need at least 73 frames, "around 3 seconds at 24fps"; AI Video
-  does not count frames, so `check` asks for 3 seconds, with files. LTX
+  does not count frames, so `check` asks for 3 seconds. LTX
   states no longest clip, so no `videoSeconds` is declared, and `check`
   itself refuses a clip whose length it cannot read. Clips may be up to 4K,
   and Extend takes 16:9 and 9:16 clips only; AI Video does not measure a
@@ -191,9 +191,9 @@ mode and the inputs of a generation choose the endpoint.
 | all | Frames with a start frame needs a prompt | image to video: `prompt` required |
 | 2.5 Fast, 2.3 Fast | a duration over 10 seconds needs 720p or 1080p and 24 or 25 fps | support matrices |
 | 2.5 Fast, 2.5 Pro | Auto cannot be used with an end frame | `models/ltx-2-5`, image to video |
-| 2.5 Fast, 2.5 Pro, 2.3 Pro | with files, the audio is at most 10 seconds at 1440p and 4K | audio to video, maximum audio duration |
-| 2.3 Pro | with files, a clip of Edit or Extend is an MP4 or MOV of at least 3 seconds | retake and extend, `video_uri` |
-| 2.3 Pro | with files, the Edit section starts before the clip ends | retake, `start_time` |
+| 2.5 Fast, 2.5 Pro, 2.3 Pro | the audio is at most 10 seconds at 1440p and 4K | audio to video, maximum audio duration |
+| 2.3 Pro | a clip of Edit or Extend is an MP4 or MOV of at least 3 seconds | retake and extend, `video_uri` |
+| 2.3 Pro | the Edit section starts before the clip ends | retake, `start_time` |
 
 `submit` also refuses, before anything is sent, a WAV whose audio is PCM
 (format 1, or 3 for floating point, also in their extensible form): LTX takes
@@ -341,16 +341,16 @@ Seconds billed:
   6 seconds, the shortest LTX lists, to the longest the resolution and frame
   rate allow (20 seconds on LTX-2.5 Fast at 720p or 1080p and 24 or 25 fps,
   10 otherwise).
-- References: the input audio. With files it is measured; without them, the
-  estimate runs from 0 to the longest audio the model takes at the
-  resolution.
-- Edit: the input clip, all of it. With files it is measured; without them,
-  LTX states no longest clip, so there is no estimate.
+- References: the input audio, as measured; for audio whose length AI Video
+  cannot read, the estimate runs from 0 to the longest audio the model takes
+  at the resolution.
+- Edit: the input clip, all of it, as measured; for a clip whose length AI
+  Video cannot read, LTX states no longest clip, so there is no estimate.
 - Extend: the extension and the context frames LTX uses, at most 505 frames
   together. The frame rate of the clip is not measured, so: with a Context
   setting, the extension plus the context or the clip's length, whichever is
-  shorter (without files, the estimate runs from the extension alone to the
-  extension plus the context); without one, LTX uses as much context as
+  shorter (for a clip whose length cannot be read, the estimate runs from the
+  extension alone to the extension plus the context); without one, LTX uses as much context as
   fits, up to 20 seconds, so the estimate runs from the extension alone to
   the extension plus 20 seconds or the clip's length, whichever is shorter.
 - The price list names only the sizes 1920×1080 and 1080×1920 for retake and
@@ -379,7 +379,7 @@ Seconds billed:
 ## Facts not confirmed
 
 - The shortest audio that audio to video takes: LTX states none, so the
-  estimate without files starts at 0.
+  estimate for audio whose length cannot be read starts at 0.
 - The shortest video Auto makes: LTX lists durations from 6 seconds; the
   estimate starts there.
 - The size limit of uploaded audio when it is used: LTX states 32 MB for

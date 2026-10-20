@@ -114,8 +114,8 @@ task.
   states no image size or byte limit for video inputs.
 - The clip of Edit and Extend is an MP4 ("`.mp4` with a supported codec such
   as H.264, H.265, or AV1"). Editing takes a clip "up to 8.7 seconds"; xAI
-  states no shortest one, so the declared range starts at 0.1 seconds. With
-  files, `check` refuses a MOV clip.
+  states no shortest one, so the declared range starts at 0.1 seconds.
+  `check` refuses a MOV clip.
 - No mode takes audio or reference videos: `reference_audios` takes preset
   voices, and clips of one's own only for partners xAI admits on request.
 
@@ -127,8 +127,8 @@ and `video/mp4` for the clip. xAI takes images and videos that way ("Public
 URL or base64-encoded data URL"), so nothing is uploaded: the Files API
 (`POST /v1/files`) would keep a copy on the user's account until it expires,
 bill its storage, and is blocked for teams with Zero Data Retention. xAI
-states no largest request; AI Video sends at most 128 MiB, and `check` with
-files reports a request whose inputs, encoded, would be larger.
+states no largest request; AI Video sends at most 128 MiB, and `check`
+reports a request whose inputs, encoded, would be larger.
 
 ## Parameters
 
@@ -166,8 +166,8 @@ on), except the duration: xAI's is 8 seconds, the catalog's 5.
 | Grok Imagine Video | Extend adds 2 to 10 seconds | Video Extension; the API reference |
 | Grok Imagine Video | References, Edit, and Extend need a prompt | the API reference: the prompt is required for reference to video, editing, and extension |
 
-With files, `check` then reports a clip that is not an MP4, and a request
-larger than AI Video sends.
+`check` then reports a clip that is not an MP4, and a request larger than
+AI Video sends.
 
 ## Requests
 
@@ -284,9 +284,9 @@ date of their own; the Pricing page of 2026-10-10 lists the 480p prices):
 - Extend: the added seconds are generated, and the result holds the clip
   too; xAI does not say which seconds it bills and calls its extension price
   promotional, so the range spans both.
-- A clip is counted at its measured length; without its file, from its
-  mode's shortest to its longest allowed length (Edit 0.1 to 8.7 seconds,
-  Extend 2 to 15).
+- A clip is counted at its measured length; a clip whose length AI Video
+  cannot read counts from its mode's shortest to its longest allowed length
+  (Edit 0.1 to 8.7 seconds, Extend 2 to 15).
 
 ## Left out
 
@@ -344,8 +344,8 @@ date of their own; the Pricing page of 2026-10-10 lists the 480p prices):
 5. 401 and a 400 about the API key answer `auth`, a message about credits
    `balance`, and 429 `rateLimited`; a create whose connection drops after it
    was sent answers `unknownOutcome` and was sent once.
-6. `check` reports each rule above and, with files, a MOV clip; a refused
-   request sends nothing.
+6. `check` reports each rule above and a MOV clip; a refused request sends
+   nothing.
 7. The estimate of three combinations matches the price list, and Edit and
    Extend answer the ranges above.
 

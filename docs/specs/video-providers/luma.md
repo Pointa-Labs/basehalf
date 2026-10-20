@@ -147,10 +147,9 @@ edit the automatic controls Luma recommends as the default.
 | A looping video is not HDR | Frames | `loop` "rejected with … `hdr`" |
 | A looping video has no end frame | Frames | `loop` "rejected with … `end_frame`" |
 
-With files, `check` then reports a Frames request whose JSON with its images
-in base64 would be larger than the 128 MiB AI Video sends, and an Edit clip
-larger than 128 MiB, the most AI Video sends in one request (the clip's
-upload).
+`check` then reports a Frames request whose JSON with its images in base64
+would be larger than the 128 MiB AI Video sends, and an Edit clip larger than
+128 MiB, the most AI Video sends in one request (the clip's upload).
 
 ## Requests
 
@@ -349,8 +348,8 @@ min = L × r
 max = max(L, ⌈(L − 0.05) / 5⌉ × 5) × r        (at least one 5-second block)
 ```
 
-`L` is the measured length of the clip; without its file, 0.1 to 18 seconds
-(0.1 × r to 20 × r).
+`L` is the measured length of the clip; for a clip whose length AI Video
+cannot read, 0.1 to 18 seconds (0.1 × r to 20 × r).
 
 | Resolution | 5 s | 10 s | 5 s, HDR | 10 s, HDR | r | r, HDR |
 | --- | --- | --- | --- | --- | --- | --- |

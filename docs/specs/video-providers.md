@@ -248,6 +248,8 @@ catalog. For each:
   `https` URL, or an `http` URL on this computer. It is how a relay or a
   private gateway that mirrors the provider's own API is used.
 - A link to the provider's console for the region.
+- The provider's models, by name, under its state, so that the user can
+  tell which provider to get credentials from.
 
 A provider is set up when every credential value is set. Nothing is checked
 with the provider when values are saved; the first generation tells the user
@@ -284,9 +286,9 @@ answer cross-origin requests from the window.
 
 - `check` takes the provider, region, model, mode, parameters, the prompt as
   sent, and the planned inputs with their files. It answers the problems, in
-  order, as plain sentences, and the estimate. With files, it reads image
-  sizes and video and audio lengths and checks them against the mode's
-  limits; without files it checks only counts and parameters. For a model
+  order, as plain sentences, and the estimate. It reads image sizes and video
+  and audio lengths from the files and checks them against the mode's
+  limits. For a model
   whose modes and inputs choose among several provider ids, it also answers
   `providerModel`, the id the request would be sent with; the window records
   that id with the generation.
@@ -295,7 +297,7 @@ answer cross-origin requests from the window.
   be read has an unknown outcome
   ([Video node, Ending without a video](video-node.md#ending-without-a-video));
   a refusal (any other 4xx) made no task. `submit` checks the request exactly
-  as `check` does with files and sends nothing when it finds a problem.
+  as `check` does and sends nothing when it finds a problem.
 - `poll`, `download`, and uploads are retried on network errors and on 429,
   408, 500, 502, 503, and 504, three times, 1, 2, then 4 seconds apart, or
   after the `Retry-After` the provider asks for when it is at most 30
@@ -324,7 +326,7 @@ answer cross-origin requests from the window.
   and the time of each call.
 - The extension checks every request against the model's declarations
   (the inputs the mode takes, the prompt rule, each parameter's value, and
-  with files the mode's limits) before the provider module adds the rules
+  the mode's limits) before the provider module adds the rules
   between parameters and the estimate. An estimate is answered only for a
   model declared with one, in its region's currency.
 

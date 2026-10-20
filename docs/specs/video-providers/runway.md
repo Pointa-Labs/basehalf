@@ -137,7 +137,7 @@ Runway's own video models only (`guides/models.md`):
 | --- | --- | --- |
 | Gen-4.5 | without a start frame (text to video), the ratio is 16:9 or 9:16 | `/v1/text_to_video`, `gen4.5`: `ratio` is `1280:720` or `720:1280` |
 | all | the prompt is at most 1,000 UTF-16 code units | `promptText`: "up to 1000 characters (measured in UTF-16 code units)" |
-| Aleph 2.0 | with files, the clip is at least 512 bytes | `assets/uploads.md` |
+| Aleph 2.0 | the clip is at least 512 bytes | `assets/uploads.md` |
 
 ## Requests
 
@@ -288,10 +288,10 @@ credits      = 12 × duration                    Gen-4.5
 - Credits cost $0.01 each; sales tax, where it applies, is not included.
   The price list is the one of 2026-10-19, which states no date of its own.
 - Aleph 2.0 costs 28 credits a second, at least 56 credits a generation, and
-  its video is as long as its clip. With files, the clip's measured length
-  gives a single amount; a part of a second counts as measured, since Runway
-  does not say how it rounds. Without files, a clip of 2 to 30 seconds gives
-  56 to 840 credits ($0.56 to $8.40).
+  its video is as long as its clip. The clip's measured length gives a single
+  amount; a part of a second counts as measured, since Runway does not say
+  how it rounds. A clip whose length AI Video cannot read counts as 2 to 30
+  seconds, 56 to 840 credits ($0.56 to $8.40).
 - An MP4 has no surcharge. Moderated tasks cost the same as others, and
   `SAFETY.INPUT` failures are not refunded; other failures are.
 

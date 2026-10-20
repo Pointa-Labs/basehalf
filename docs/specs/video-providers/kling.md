@@ -124,8 +124,8 @@ The defaults are Kling's own.
 | 2.6 | start and end frames only without sound | capability map ("1080P silent videos") |
 | 2.5 Turbo | start and end frames only at 1080p | 2.5 Turbo image to video; capability map |
 
-With files, `check` then reports a request whose JSON with its images in
-base64 would be larger than the 128 MiB AI Video sends.
+`check` then reports a request whose JSON with its images in base64 would be
+larger than the 128 MiB AI Video sends.
 
 ## Requests
 

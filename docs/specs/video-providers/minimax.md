@@ -150,7 +150,7 @@ Rules that `check` reports:
 - Fast Optimization is not offered with an end frame (the first and last
   frame request does not take it). It shortens the prompt optimizer's work
   and does nothing when the optimizer is off.
-- With files: audio that is not WAV or MP3 (M4A) is refused with its name.
+- Audio that is not WAV or MP3 (M4A) is refused with its name.
   An image that is not PNG, JPEG, or WebP, such as a GIF, is drawn to PNG by
   the window first.
 
@@ -275,9 +275,9 @@ and resolution, plus each image beyond the free ones times the image price,
 plus the seconds of the reference videos times the input video price at the
 output resolution. Audio is free. The images are the frames and the
 reference images together. MiniMax meters whole seconds of input video
-(`usage.input_seconds`): with files, the estimate is a range from the
-measured length of the videos rounded down to that length rounded up;
-without files, from 2 seconds a video to 15 seconds.
+(`usage.input_seconds`): the estimate is a range from the measured length
+of the videos rounded down to that length rounded up; with a video whose
+length AI Video cannot read, from 2 seconds a video to 15 seconds.
 
 | | H3 768P | H3 2K | H3 Max 480P | H3 Max 768P |
 | --- | --- | --- | --- | --- |

@@ -296,8 +296,8 @@ Seconds billed:
   five videos).
 - Wan 2.7 Edit: the input video plus the output, which keeps the input's
   length: twice the video.
-- An input video whose length is not measured, as in a check without files,
-  counts from its mode's shortest to its longest allowed length.
+- An input video whose length AI Video cannot read counts from its mode's
+  shortest to its longest allowed length.
 
 ## What is left out, and why
 

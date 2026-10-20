@@ -284,10 +284,10 @@ second of 720p costs 5,792 × $17.50 / 1,000,000 = $0.10136.
   the estimate is 3 to 10 seconds: $0.30408 to $1.0136.
 - Extend: the extended video contains the clip (the guide extends "by 10s, up
   to a total length of 40s", and edits the clip's last frames to join the
-  two), so the estimate is the clip's length plus 3 to 10 seconds. With the
-  clip's file, its length is measured (a 4-second clip: 7 to 14 seconds,
-  $0.70952 to $1.41904); without it, a clip of at most 10 seconds gives 3 to
-  20 seconds, $0.30408 to $2.0272.
+  two), so the estimate is the clip's length plus 3 to 10 seconds. The
+  clip's length is measured (a 4-second clip: 7 to 14 seconds, $0.70952 to
+  $1.41904); a clip whose length AI Video cannot read counts as at most 10
+  seconds, which gives 3 to 20 seconds, $0.30408 to $2.0272.
 - Input tokens ($1.50 per million) and thinking tokens ($9.00 per million)
   cannot be counted before the run and are not included; Google's bill
   counts.

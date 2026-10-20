@@ -148,9 +148,9 @@ choose the endpoint, so `check` answers no `providerModel`.
 | V6 | without a reference video, at most 7 reference images | Fusion |
 | V6 | in Extend, the source video and the seconds added together at most 40 seconds, when the source's length is measured | Video Extend |
 
-With files, `check` also refuses a reference video too large for AI Video to
-upload in one request: the 128 MiB a request carries, less 64 KiB for the form
-around the file.
+`check` also refuses a reference video too large for AI Video to upload in
+one request: the 128 MiB a request carries, less 64 KiB for the form around
+the file.
 
 ## Requests
 
@@ -292,9 +292,9 @@ The seconds of C1 and V6:
 - Frames, and References with images only: the duration.
 - References with reference videos: "twice the standard V6 rate" (the list's
   "V6 video reference" rows) for the seconds of the longest reference video,
-  which the result follows. With measured files that is from its length to
-  its next whole second, since the list does not say how a fraction of a
-  second is billed; without files, 1 to 15 seconds.
+  which the result follows. That is from its measured length to its next
+  whole second, since the list does not say how a fraction of a second is
+  billed; for a video whose length AI Video cannot read, 1 to 15 seconds.
 - Extend: the seconds added, at "the applicable V6 resolution, audio, and
   generated-duration rate". Video Extend has no sound setting, so the estimate
   ranges from V6's rate without sound to its rate with sound.

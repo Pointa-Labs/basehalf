@@ -117,8 +117,8 @@ No mode takes reference images, reference videos, or audio.
   50000000` (50 MB, counted as 50,000,000 bytes to stay on the safe side).
 - A clip is MP4: every page names mp4 only. `check` refuses a MOV clip, which
   the declarations' video checks would let through.
-- With files, `check` refuses a request whose JSON, its inputs as data URLs
-  included, is larger than the 128 MiB AI Video sends.
+- `check` refuses a request whose JSON, its inputs as data URLs included, is
+  larger than the 128 MiB AI Video sends.
 
 ## Parameters
 
@@ -157,8 +157,8 @@ Rules that `check` reports after the declarations' checks:
 | --- | --- | --- |
 | Extend | the duration is at most 15 seconds, or Auto | API reference, release notes of 2026-08-17 |
 | Edit | the prompt, without surrounding spaces, is at most 4,096 characters | edit API reference |
-| Edit, Extend, with files | the clip is an MP4, not a MOV | every page names mp4 |
-| every mode, with files | the request with its inputs is at most 128 MiB | AI Video's limit |
+| Edit, Extend | the clip is an MP4, not a MOV | every page names mp4 |
+| every mode | the request with its inputs is at most 128 MiB | AI Video's limit |
 
 ## Requests
 
@@ -351,7 +351,7 @@ amount = rate per second (mode, resolution) × seconds of output video
    and the model `flux-3` with exactly the modes, inputs, limits, and
    parameters above; AI Video ships the module.
 2. Each mode sends the body above once to its route with the key in `x-key`;
-   `check` answers that route as `providerModel`, with files and without.
+   `check` answers that route as `providerModel`.
 3. A task is asked about at its polling address on the endpoint's origin or
    a BFL host, with the key only on the endpoint's origin, and at
    `{endpoint}/get_result?id=` when the create gave no usable address; a

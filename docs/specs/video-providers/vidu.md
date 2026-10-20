@@ -186,8 +186,8 @@ module reports the rest.
    References mode of `q4-preview` once an image is connected (without one, the
    declarations' check already asks for a prompt).
 2. Sound on for `q2-pro` or `q2-turbo` with an end frame.
-3. With files: audio that is not MP3; start and end frames of different
-   shapes; a request over 20 MiB. (An image that is not PNG, JPEG, or WebP is
+3. Audio that is not MP3; start and end frames of different shapes; a
+   request over 20 MiB. (An image that is not PNG, JPEG, or WebP is
    drawn to PNG by the window first.)
 4. Reference audio for `q3-mix` in China.
 

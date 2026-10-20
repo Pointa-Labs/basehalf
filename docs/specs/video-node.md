@@ -231,8 +231,9 @@ The settings of a node are drawn from its model's
   that scrolls after six rows; a choice drawn as `ratio` as small ratio
   shapes; a whole or decimal number as buttons when it has five or fewer
   steps, as a slider with its value when it has up to 1,000, and as a number
-  field when it has more, such as a seed; **Auto** next to a number that
-  offers it; a switch for a boolean; a text field for text.
+  field when it has more, such as a seed, with `s` after a field in seconds;
+  **Auto** next to a number that offers it; a switch for a boolean; a text
+  field for text.
 - **More** opens the advanced parameters, such as the seed and the negative
   prompt. An optional parameter left empty sends nothing: an optional number
   is a number field, or buttons with **None** when it has five or fewer
@@ -292,8 +293,12 @@ From top to bottom:
 3. **Footer**: the model button, the settings button, the estimate, and the
    Generate button.
    - The model button shows the model's name. Its menu lists the catalog's
-     models grouped by provider, in the catalog's order; a provider that is
-     not set up says so next to its name, and its models can still be chosen.
+     models grouped by provider: the providers that are set up first, then
+     the others, each in the catalog's order; a provider that is not set up
+     says so next to its name, and its models can still be chosen. Each
+     model shows a second line drawn from its declarations: its modes, its
+     longest duration, its largest resolution, and Sound when it makes sound,
+     such as "Frames · References · 15s · 1080p · Sound".
      A model the provider's region does not offer is shown dimmed with the
      reason, and can still be chosen. Deprecated models are listed only for a
      node that uses one. The menu ends with **Video Providers…**.
@@ -313,10 +318,15 @@ From top to bottom:
      tooltip says that it is an estimate from the provider's published price
      of the given date and that the provider's bill counts. Without an
      estimate, nothing is shown. The panel asks the provider module
-     ([check](video-providers.md#requests), without files) a quarter of a
-     second after the model, mode, values, prompt, or inputs change, also
+     ([check](video-providers.md#requests)) a quarter of a second after the
+     model, mode, values, prompt, inputs, or the inputs' files change, also
      before the provider is set up, and keeps showing the last answer for the
-     same model until the new one arrives.
+     same model until the new one arrives. It asks with the files a
+     generation would send: images in a format the mode takes, or drawn to
+     PNG as a generation draws them, and videos and audio as they are, so
+     sizes, lengths, and formats are reported before Generate. An input that
+     is missing, or that is not a file on this computer, is reported by name
+     instead, and nothing is asked.
    - The Generate button is a round arrow. While the node generates, it is a
      stop square that stops the generation.
 
@@ -325,10 +335,21 @@ tooltip and accessible name say the first reason, in this order
 (`getBaseHalfVideoGenerateBlocker`): the node is generating; the catalog is
 loading or could not be loaded; no model is chosen; the catalog has no such
 model; the provider is not set up; the provider's region does not offer the
-model; the provider's region does not offer the mode; the first problem that the provider module reports for the planned
-generation ([check](video-providers.md#requests)); there is nothing to send.
-For no model, no such model, the provider, and the region, the model button
-is outlined and its tooltip says the same.
+model; the provider's region does not offer the mode; an input is missing or
+is not a file on this computer, or the first problem that the provider
+module reports for the planned generation
+([check](video-providers.md#requests)); there is nothing to send. For no
+model, no such model, the provider, and the region, the model button is
+outlined and its tooltip says the same.
+
+The panel also shows that reason as a line above the footer, at most two
+lines tall, so it can be read without pointing at the button. When one
+action fixes it, the line offers that action: **Set Up** opens Video
+Providers at the provider that is not set up, and **Video Providers…** opens
+it at the provider whose region does not offer the model or the mode. There
+is no line while the node generates, while the catalog loads, when no model
+is chosen, or when there is nothing to send: the stop square, the model
+button, and the empty prompt already say those.
 
 Keyboard: `Cmd/Ctrl+Enter` in the prompt generates when the button is
 enabled. `Escape` closes the innermost open menu or popover, and with none
@@ -337,16 +358,17 @@ Enter.
 
 ### Placement
 
-The panel is 512 px wide (narrower only on a canvas narrower than 536 px);
-its height follows its content, from 132 px without an input row to 220 px
-with one. It keeps that size at every zoom. It sits 10 px below the card,
-centered; above the card, clear of its name and toolbar, when there is no room
-below for the tallest panel; inside the canvas, clamped, when there is room
-for neither. When the card is off the canvas, the panel is hidden. Opening the
-panel never pans or zooms the canvas. Moving or resizing the card takes the
-panel along on the side it was on. A menu or popover of the panel opens
-upward when there is no room below, stays inside the canvas, and scrolls
-inside itself; a menu of the footer that opens below opens below the panel.
+The panel is 512 px wide (narrower only on a canvas narrower than 536 px); its
+height follows its content, from 132 px without an input row to 260 px with
+one and a reason line of two lines. It keeps that size at every zoom. It sits
+10 px below the card, centered; above the card, clear of its name and toolbar,
+when there is no room below for the tallest panel; inside the canvas, clamped,
+when there is room for neither. When the card is off the canvas, the panel is
+hidden. Opening the panel never pans or zooms the canvas. Moving or resizing
+the card takes the panel along on the side it was on. A menu or popover of the
+panel opens upward when there is no room below, stays inside the canvas, and
+scrolls inside itself; a menu of the footer that opens below opens below the
+panel.
 
 ## The card
 
@@ -576,16 +598,18 @@ Inputs
 4. The swap arrow exchanges the two frames' entries in `upstream` and nothing
    else, in one undo step.
 5. An SVG start frame reaches the provider as a PNG; an image larger than the
-   mode allows is refused with its name and the limit before anything is
-   written.
+   mode allows is reported with its name and the limit before Generate, and
+   refused before anything is written.
 
 Providers
 
-6. Video Providers lists the catalog's providers; a provider is set up with a
-   region and its credentials, which are stored encrypted and are in no
-   workspace file and not in the page's DOM.
-7. The model menu lists the catalog's models by provider and marks a provider
-   that is not set up and a model its region does not offer.
+6. Video Providers lists the catalog's providers, each with its models by
+   name; a provider is set up with a region and its credentials, which are
+   stored encrypted and are in no workspace file and not in the page's DOM.
+7. The model menu lists the catalog's models by provider, the providers that
+   are set up first, each model with its abilities on a second line, and
+   marks a provider that is not set up and a model its region does not
+   offer.
 
 Panel and card
 
@@ -600,7 +624,8 @@ Panel and card
     value replaces it with the default; the settings button, the estimate,
     and the request show the same values.
 12. The Generate button is disabled with the first blocker as its tooltip and
-    accessible name, in the specified order.
+    accessible name, in the specified order; the panel shows that reason as a
+    line above the footer, whose Set Up opens Video Providers at the provider.
 13. Typing `@` lists the named inputs, and choosing one types its name; a
     name with no input is underlined.
 
